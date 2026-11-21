@@ -116,11 +116,14 @@ export function noteRunQuestion({ path, noteText, anchor, ask, history, pending,
     'Answer with only a JSON object, nothing before or after it: {"answer": "one or two plain sentences", "replace": null or "the whole new text for the highlighted words", "insert": null or "new text to add right after the highlighted words"}. ' +
       "Tag Tex on words to work on the note with you. When the ask wants something written (an outline, a list, a draft, a fix, the next part, more detail), do it in the note: " +
       "replace when the highlighted words themselves should change (give their whole new text, not a diff), insert when the new words belong after them and the highlighted words stay. " +
+      "An insert is joined right after the highlighted words exactly as you write it, so begin it the way it should sit: a space to carry on the same line or sentence, one newline for the next line, a blank line for a new paragraph. " +
+      "Asked to carry on from the highlighted words (start with this word, finish this sentence), carry on from them: they are already the start, so never write them again. " +
       "Only a question about the note or the world (who, why, when, is this right, how would we) gets an answer with both null. The answer then says what you did in a sentence; it never repeats the text you put in the note. " +
       "A follow-up such as \"add it to the note\" or \"put that in\" means the text you gave in the thread: insert it. " +
       "With a point in the note and no words highlighted, insert is the text to add at that point.",
     "Examples (invented people and words, for the shape only):\n" +
-      '- Highlighted "Team offsite in March", asked "give me a rough agenda here": {"answer": "Added a rough agenda under it.", "replace": null, "insert": "1. Morning: where we are\\n2. Lunch\\n3. Afternoon: the next three bets"}\n' +
+      '- Highlighted "Team offsite in March", asked "give me a rough agenda here": {"answer": "Added a rough agenda under it.", "replace": null, "insert": "\\n\\n1. Morning: where we are\\n2. Lunch\\n3. Afternoon: the next three bets"}\n' +
+      '- Highlighted "quiet", alone on its line, asked "write a haiku starting with this word": {"answer": "Wrote a haiku that starts from it.", "replace": null, "insert": " rain on the tin roof\\nthe kettle starts to murmur\\nnobody hurries"}\n' +
       '- Highlighted "recieve the keys on friday", asked "fix this": {"answer": "Fixed the spelling.", "replace": "receive the keys on Friday", "insert": null}\n' +
       '- Highlighted "Budget: $4,000", asked "who set this number?": {"answer": "Priya set it in the March planning note.", "replace": null, "insert": null}',
   ].join("\n\n");
@@ -194,16 +197,18 @@ export function lenientNoteRun(body) {
 
 /**
  * The whole new text for the anchor when Tex adds after the highlighted words: the words as they are, then the
- * addition, on its own paragraph when either is a block (a line of its own, or more than one line), else after a
- * space. With no words highlighted the addition is the text at the point. The client keeps one suggestion shape, the
- * anchor's new text, and draws the kept words unstruck.
+ * addition joined exactly as Tex began it (a space carries on the line, a newline starts the next one, a blank line a
+ * new paragraph), because where it belongs is Tex's judgment (Dev2, 2026-11-21: a haiku asked to start with a word
+ * was forced under a blank line). Only an addition Tex began with neither gets the space a word needs, or a line of
+ * its own when it opens a list or heading, which cannot start mid-line. With no words highlighted the addition is the
+ * text at the point. The client keeps one suggestion shape, the anchor's new text, and draws the kept words unstruck.
  */
 export function withInsert(anchor, insert) {
   const words = str(anchor?.text);
   if (words === "") return insert;
-  const after = str(anchor?.after);
-  const block = /\n/.test(insert.trim()) || after === "" || after.startsWith("\n") || /^\s*([-*+]|\d+[.)]|#)\s/.test(insert);
-  return `${words}${block ? "\n\n" : " "}${insert.replace(/^\s+/, "")}`;
+  if (/^\s/.test(insert)) return `${words}${insert}`;
+  if (/^([-*+]|\d+[.)]|#+)\s/.test(insert)) return `${words}\n\n${insert}`;
+  return `${words}${/^[,.;:!?)\]]/.test(insert) ? "" : " "}${insert}`;
 }
 
 /** A tool step as a person reads it: `{ label, source }`, where `source` is the note's path when a note was read. */
@@ -342,7 +347,9 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   await meter(turn.usage, false, turn.model);
   const parsed = parseNoteRun(turn.answer);
   const replace = parsed.replace ?? (parsed.insert !== null ? withInsert(anchor, parsed.insert) : null);
-  const label = parsed.replace !== null ? "Editing the selected words" : parsed.insert !== null ? (str(anchor?.text) === "" ? "Writing it into the note" : "Adding below the selected words") : "Writing the answer";
+  // "Below" only when the addition starts a line of its own; carrying on the same line is "after".
+  const below = replace !== null && /^\s*\n/.test(replace.slice(str(anchor?.text).length));
+  const label = parsed.replace !== null ? "Editing the selected words" : parsed.insert !== null ? (str(anchor?.text) === "" ? "Writing it into the note" : below ? "Adding below the selected words" : "Writing after the selected words") : "Writing the answer";
   say({ id: "step-think", label, state: "done", ms: Date.now() - thinking });
   return { outcome: "answered", answer: parsed.answer, replace, sources: sourcesOf(), calls, model: turn.model, usage: turn.usage ?? null, ms: Date.now() - started };
 }
