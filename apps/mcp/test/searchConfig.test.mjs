@@ -218,3 +218,17 @@ test("a step turned off is passed over, and a step every search needs cannot be 
   assert.deepEqual(noWords.unreached, [], "words off is not a workspace that failed");
   for (const id of searchConfig.ALWAYS_ON) assert.match(searchConfigProblems(off(id)).join(), /cannot be turned off/);
 });
+
+test("every step off on main, turned on, still answers, its output in the shape its schema names", async () => {
+  const offOnMain = SEARCH_CONFIG.nodes.filter((n) => n.on === false).map((n) => n.id);
+  assert.ok(offOnMain.includes("rerank"));
+  const main = await findNotes(setup(), "private", [], new Map(), "renewal", "");
+  for (const id of offOnMain) {
+    const config = structuredClone(SEARCH_CONFIG);
+    config.nodes.find((n) => n.id === id).on = true;
+    const runs = [];
+    const turnedOn = await findNotes(setup(), "private", [], new Map(), "renewal", "", { config, log: (row) => runs.push(row) });
+    assert.ok(runs.some((r) => r.node === id), `"${id}" runs once it is on`);
+    assert.equal(turnedOn.hits.length, main.hits.length, `"${id}" on still answers`);
+  }
+});

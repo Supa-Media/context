@@ -354,14 +354,14 @@
     {
       "id": "rerank",
       "label": "Rerank",
-      "goal": "Ranks: each workspace’s first rows (rerankTop) read beside the query by a cross-encoder; each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps.",
+      "goal": "Ranks: each workspace’s first rows (rerankTop, rerankChars of each) read beside the query by a cross-encoder, every workspace in one call; each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps.",
       "on": false,
       "model": "code",
       "icon": "star",
       "file": "apps/mcp/src/search/rerank.js",
       "x": 2640,
       "y": 0,
-      "settings": { "rerankTop": 20, "rerankWeight": 1 },
+      "settings": { "rerankTop": 8, "rerankWeight": 1, "rerankChars": 400 },
       "inSchema": [
         { "name": "query", "type": "text" },
         { "name": "prefix", "type": "text" },

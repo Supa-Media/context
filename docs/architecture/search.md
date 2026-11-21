@@ -66,7 +66,7 @@ flowchart LR
 | Lower logs and archive | Ranks: an archived note or a log (Inbox captures, Tex's own logs, review logs, retired setups) scores logPrior of a live note with the same evidence. A note still unfiled in the Inbox scores inboxPrior. | apps/mcp/src/search/stages.js lowerByPath · priors.js |
 | Meaning-only budget | Filters: every word hit stays; of the notes only meaning found, the best extraNotes (looseReads when no note held every word). | apps/mcp/src/search/stages.js meaningBudget |
 | Read snippets | Each kept note only meaning found is read for its title and the passage that matched, snippetChars long, all at once. | apps/mcp/src/search/meaning/serve.js readMeaningOnly |
-| Rerank (off) | Ranks: each workspace’s first rows (rerankTop) read beside the query by a cross-encoder; each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps. | apps/mcp/src/search/rerank.js |
+| Rerank (off) | Ranks: each workspace’s first rows (rerankTop, rerankChars of each) read beside the query by a cross-encoder, every workspace in one call; each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps. | apps/mcp/src/search/rerank.js |
 | Drop code passages | Filters: a code passage found only by meaning is not offered for a question in prose (one workspace; across several, Merge across workspaces does it), and a note that could not be read is dropped. | apps/mcp/src/search/stages.js answerHits |
 | Merge across workspaces | Merges and ranks when several workspaces answered: one list ranked by evidence rather than by workspace: word rank (a loose hit counted lower), rank among every meaning match, title and phrase evidence, the path prior and a named workspace's boost; the meaning-only budget once for the whole answer; at most hits shown. | apps/mcp/src/search/config/nodes.js · tools/search.js |
 | Answer | The fused list across workspaces, or the one workspace's, with who answered and who could not be reached. | apps/mcp/src/search/config/nodes.js answerStep |
@@ -86,8 +86,9 @@ flowchart LR
 | Meaning-only budget | `extraNotes` | 3 |
 | Meaning-only budget | `looseReads` | 6 |
 | Read snippets | `snippetChars` | 200 |
-| Rerank | `rerankTop` | 20 |
+| Rerank | `rerankTop` | 8 |
 | Rerank | `rerankWeight` | 1 |
+| Rerank | `rerankChars` | 400 |
 | Merge across workspaces | `boostFactor` | 1.2 |
 | Merge across workspaces | `hits` | 12 |
 | Merge across workspaces | `inboxPrior` | 0.5 |
