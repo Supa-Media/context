@@ -42,5 +42,9 @@ export function texEditFor(state: EditorState, anchor: TexAnchor, replace: strin
     const insert = replace.slice(words.length);
     return insert === "" ? null : { from: anchor.closeEnd, to: anchor.closeEnd, insert, adding: true };
   }
-  return { from: anchor.from, to: anchor.to, insert: replace, adding: false };
+  // Another thread's markers inside the words stay, after the new ones, as Keep
+  // always did (`keepSuggestion`): dropping one would leave its partner showing as
+  // text and its thread with no words.
+  const others = state.sliceDoc(anchor.from, anchor.to).match(MARKER_RE) ?? [];
+  return { from: anchor.from, to: anchor.to, insert: replace + others.join(""), adding: false };
 }

@@ -218,6 +218,20 @@ describe("a run", () => {
     expect(doc).not.toContain("Tex suggests");
   });
 
+  test("a rewrite keeps another thread's markers inside the words", async () => {
+    const nested = NOTE.replace("<!--c:k7f2-->cake<!--/c:k7f2-->", "<!--c:k7f2-->the <!--c:b2b2-->cake<!--/c:b2b2--><!--/c:k7f2-->").replace(
+      "```\n",
+      ["", 'b2b2 "cake"', "- 2026-11-19T10:00:30Z @sayo: which one?", "```", ""].join("\n"),
+    );
+    const { host } = harness([{ type: "edit", replace: "a birthday cake" }, { type: "done", runId: "run_n", sources: [] }]);
+    const view = mount(nested, host);
+    startTexRun(view, "k7f2", "say which cake");
+    await waitFor(() => !runs(view).has("k7f2"));
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("<!--c:k7f2-->a birthday cake<!--c:b2b2--><!--/c:b2b2--><!--/c:k7f2-->");
+    expect(parseComments(doc).threads.map((t) => t.id).sort()).toEqual(["b2b2", "k7f2"]);
+  });
+
   test("one undo takes back exactly Tex's edit and leaves its answer in the thread", async () => {
     const { host } = harness([{ type: "edit", replace: "cake, Saturday at 5" }, { type: "done", runId: "run_u", sources: [] }]);
     const view = mount(NOTE, host, "@dev2", [history()]);
