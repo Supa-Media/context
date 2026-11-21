@@ -18,7 +18,7 @@ import { hashToken } from "../../functions/lib/crypto";
 import { addMember, createUser, createWorkspace, drainScheduled, gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
-import { DEFAULT_N, MAX_OPEN, cleanRow, cleanSearch, cleanSummary } from "../../functions/labEvals";
+import { DEFAULT_N, MAX_OPEN, MAX_PER_DAY, MAX_SEARCH_PER_DAY, cleanRow, cleanSearch, cleanSummary } from "../../functions/labEvals";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -110,6 +110,17 @@ describe("starting an eval run", () => {
     expect(await door("eval_run", { n: 501 })).toMatchObject({ status: "bad_request" });
     expect(await door("eval_run", { models: "api" })).toMatchObject({ status: "bad_request" });
     expect(await door("eval_run", { code: "--upload-pack" })).toMatchObject({ status: "bad_request" });
+  });
+
+  test("a day's memory runs and search runs are counted apart: a full memory day still starts a search run", async () => {
+    const { door, t } = await world();
+    for (let i = 0; i < MAX_PER_DAY; i += 1) {
+      const { id } = await door("eval_run", { n: 1 });
+      await t.mutation(internal.functions.labEvals.report, { runId: id, stage: "done", from: 0, rows: [] });
+    }
+    expect(await door("eval_run", { n: 1 })).toMatchObject({ error: expect.stringContaining(`${MAX_PER_DAY} memory eval runs`) });
+    expect(await door("eval_run", { bench: "search-hard" })).toMatchObject({ status: "ok" });
+    expect(MAX_SEARCH_PER_DAY).toBeGreaterThan(MAX_PER_DAY);
   });
 
   test("MAX_OPEN waiting runs is the most a person has; a finished one frees its place", async () => {
