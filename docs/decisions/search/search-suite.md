@@ -47,7 +47,10 @@ part moves in once from `@context-lc ai/search-held-out/test.md` through `search
 and archives that note.
 
 **Caveat, measured not hidden:** the bench world searches buckets with a search database, not workspace objects, so a
-ranking difference that only the object path has is not seen yet.
+ranking difference that only the object path has is not seen yet. Each search records which way it was answered
+(`pathOf`, from the gateway's own `event: "search"` trace: `object`, `database`, `index` or `scan`, and the object's
+word when it declined, such as `catching_up`), and every run says how many went each way, so a score is never read
+as the other path's.
 
 **What a simplification would cost:** a gate on the made-up set alone tunes search to questions we wrote; a Test part
 an agent can read is tuned against; letting a change's own harness read its ranks lets it grade itself. **Tests:**

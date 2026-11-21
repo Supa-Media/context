@@ -76,6 +76,8 @@ export function cleanRow(x: unknown) {
     rank: numOrNull(r.rank),
     /** Search suite rows: how many notes the search answered with. */
     hits: num(r.hits),
+    /** Search suite rows: which way the search was answered (`object`, `database`, `index`, `scan`; `+` joins several). */
+    path: text(r.path, 40),
     judgeSaid: text(r.judgeSaid, 80),
     sessions: num(r.sessions),
     saved: num(r.saved),
@@ -128,6 +130,7 @@ export function cleanSearch(x: unknown) {
     ...(s.recallAny5Pct !== undefined ? { recallAny5Pct: numOrNull(s.recallAny5Pct) } : {}),
     ...(s.recallAll5Pct !== undefined ? { recallAll5Pct: numOrNull(s.recallAll5Pct) } : {}),
     ...(s.byKind !== undefined ? { byKind: mapOf(s.byKind, (k) => ({ n: num(k.n), firstPct: numOrNull(k.firstPct) })) } : {}),
+    ...(s.byPath !== undefined ? { byPath: Object.fromEntries(Object.entries(obj(s.byPath)).slice(0, 10).map(([k, val]) => [k.slice(0, 40), num(val)])) } : {}),
     ...(s.byAbility !== undefined ? { byAbility: mapOf(s.byAbility, (k) => ({ n: num(k.n), recallAny5Pct: numOrNull(k.recallAny5Pct) })) } : {}),
   };
 }

@@ -102,12 +102,49 @@ export function searchScores(records) {
     p95Ms: Math.round(quantile(times, 0.95)),
     errors: records.filter((r) => r.error).length,
     leaks,
+    // How many searches each way answered (`pathOf`), so a ranking seen on one path is not read as the other's.
+    byPath: Object.fromEntries([...new Set(records.map((r) => r.path ?? "unknown"))].sort().map((p) => [p, records.filter((r) => (r.path ?? "unknown") === p).length])),
   };
 }
 
 /** The embedder a run uses: Workers AI, or the bench's fake one (`--fake`: words only, no network). */
 export function embedderFor({ fake = false, env = process.env } = {}) {
   return fake ? cachedEmbeddings(fakeAi()) : cachedEmbeddings(workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN, env.AI_GATEWAY_ID ?? null));
+}
+
+/**
+ * Which way one search was answered, from the gateway's own trace line (`search/trace.js`, `event: "search"`): the
+ * workspace object's word index (`object`), the search database (`database`), the bucket index (`index`) or a scan
+ * (`scan`), with the object's own word when it did not answer (`catching_up`, `unanswered`, `failed`).
+ */
+export function pathOf(traces) {
+  const one = (t) => (t.objectSearch === "served" ? "object" : t.fast === true && t.indexed !== false ? "database" : t.index ? "index" : "scan");
+  const paths = [...new Set(traces.map(one))];
+  const objects = [...new Set(traces.map((t) => t.objectSearch).filter((w) => typeof w === "string"))];
+  // A search across several workspaces writes one line per workspace: the record names each way once.
+  return { path: paths.length ? paths.join("+") : null, object: objects.length ? objects.join("+") : null };
+}
+
+/** Run `fn` with the gateway's search trace lines caught (and kept off the console). */
+async function catchingTraces(fn) {
+  const traces = [];
+  const log = console.log;
+  console.log = (...args) => {
+    if (args.length === 1 && typeof args[0] === "string" && args[0].startsWith('{"event":"search"')) {
+      try {
+        traces.push(JSON.parse(args[0]));
+        return;
+      } catch {
+        // not a trace line after all
+      }
+    }
+    log(...args);
+  };
+  try {
+    return { value: await fn(), traces };
+  } finally {
+    console.log = log;
+  }
 }
 
 /**
@@ -130,7 +167,7 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
       let record;
       try {
         const started = realNow();
-        const answer = await world.search(c.query, c.in ?? null);
+        const { value: answer, traces } = await catchingTraces(() => world.search(c.query, c.in ?? null));
         const hits = answer.ok ? hitsOf(answer.text, home) : [];
         record = {
           id: c.id,
@@ -143,6 +180,7 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
           hits,
           rank: (c.expect ?? []).length ? rankOf(hits, c.expect) : null,
           ms: realNow() - started,
+          ...pathOf(traces),
           error: answer.ok ? null : String(answer.text).slice(0, 200),
         };
       } finally {
@@ -173,6 +211,7 @@ export function rowOf(record) {
     hits: record.hits.length,
     sessions: 0,
     ms: Math.round(record.ms),
+    path: record.path ?? null,
     error: record.error,
   };
 }

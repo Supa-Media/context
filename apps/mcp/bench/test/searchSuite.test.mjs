@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { REAL_DIR, REAL_PARTS, realSetOf } from "../evals/searchCli.mjs";
-import { overlay, searchScores, splitAddress } from "../evals/searchSuite.mjs";
+import { overlay, pathOf, searchScores, splitAddress } from "../evals/searchSuite.mjs";
 import { REPO_BENCH_FOLDER } from "../folder.mjs";
 import { readBenchFolder } from "../load.mjs";
 
@@ -47,6 +47,16 @@ test("scores: first, top 5, found, MRR and times; a privacy case counts only as 
   assert.equal(s.mrr, Math.round(1000 * (1 + 1 / 3 + 1 / 6) / 4) / 1000);
   assert.deepEqual(s.leaks, ["p"]);
   assert.equal(s.p50Ms, 20);
+  assert.deepEqual(s.byPath, { unknown: 5 });
+});
+
+test("a search's path is read from the gateway's trace lines: object, database, index or scan", () => {
+  assert.deepEqual(pathOf([{ objectSearch: "served", fast: true, indexed: true }]), { path: "object", object: "served" });
+  assert.deepEqual(pathOf([{ objectSearch: "catching_up", fast: true, indexed: true }]), { path: "database", object: "catching_up" });
+  assert.deepEqual(pathOf([{ fast: true, indexed: true }]), { path: "database", object: null });
+  assert.deepEqual(pathOf([{ indexed: true, index: "words" }]), { path: "index", object: null });
+  assert.deepEqual(pathOf([{ indexed: false }, { objectSearch: "served" }]), { path: "scan+object", object: "served" });
+  assert.deepEqual(pathOf([]), { path: null, object: null });
 });
 
 test("a real-query part: cases need a query and an expected note, and shared notes must agree", () => {

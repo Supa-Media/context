@@ -36,6 +36,7 @@ type SearchScores = {
   recallAll5Pct?: number | null;
   byKind?: Record<string, { n: number; firstPct: number | null }>;
   byAbility?: Record<string, { n: number; recallAny5Pct: number | null }>;
+  byPath?: Record<string, number>;
 };
 type Summary = {
   total: number;
@@ -183,6 +184,7 @@ function SearchScore({ s }: { s: Summary }) {
       <p className="hint" style={{ margin: "0 0 10px" }}>
         Embeddings only: no model answers, so no cost. {x.n} questions in {Math.round(s.ms / 1000)} s; {x.first} with the right note first, {x.found} found at all
         {x.errors ? `, ${x.errors} errors` : ""}; p95 {secs(x.p95Ms)}.
+        {x.byPath ? ` Answered by ${Object.entries(x.byPath).map(([p, n]) => `${p} ${n}`).join(", ")}.` : ""}
       </p>
       {x.byAbility
         ? Object.entries(x.byAbility).map(([k, v]) => (
