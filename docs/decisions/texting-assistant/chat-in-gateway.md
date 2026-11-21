@@ -52,6 +52,9 @@ op (`tex_dev` sandbox `{ op: "intake", chatId, move: true }`,
 starts, with no text, after which the Worker's object passes that chat's every
 call on, whatever `INTAKE` says. `{ op: "intake" }` lists where each of the
 caller's chats is answered. Only then is `INTAKE` flipped for everyone.
+Dev2's 1:1 moved 2026-11-21 19:33Z (75 keys; its next texts answered from
+the gateway in about 7 s), Tex Devs at 22:01Z (47 keys), and `INTAKE` is
+`gateway` in production since.
 
 **A chat idle since the placement move is brought along whole.** The gateway's
 copy asks the Worker's placed inbox to arrive first (`/__arrive`,
