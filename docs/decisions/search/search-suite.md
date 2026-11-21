@@ -62,8 +62,8 @@ popular search benchmark instead of our own"; `apps/mcp/bench/evals/nanoBeir.mjs
 what we thought to write down, and nobody outside can compare a number from them. BEIR is the field's standard
 zero-shot retrieval benchmark (MTEB's retrieval tab is BEIR), scored by nDCG@10; NanoBEIR cuts 13 of its sets to 50
 queries and a few thousand documents each, every judged document kept and BM25's top hits as distractors, and is what
-Sentence Transformers' `NanoBEIREvaluator` reads. We read its `sentence-transformers/Nano<Set>-bm25` copies from the
-Hugging Face dataset viewer, because they also carry BM25's own ranking of every query: the same judgements scored on
+Sentence Transformers' `NanoBEIREvaluator` reads. We read its `sentence-transformers/Nano<Set>-bm25` copies (their parquet files
+from the Hugging Face Hub, at the revision it names), because they also carry BM25's own ranking of every query: the same judgements scored on
 that list are the reference row beside ours, so "better than BM25" is a measured claim. Each set is its own world: Sam's
 empty personal workspace, every document a note (`beir/<doc id>.md`), searched through the MCP endpoint on both paths.
 The headline is nDCG@10 averaged over sets (NanoBEIR's own), beside Recall@10, MRR@10 and our right note first.

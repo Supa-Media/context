@@ -47,37 +47,48 @@ test("a document id is a safe file name, and two that clash both get a note", ()
   assert.deepEqual(cases[0], { id: "t-q", query: "two", as: "Sam", kind: "t", expect: ["@sam/beir/a-b-2.md"], bm25: ["@sam/beir/a-b.md", "@sam/beir/a-b-2.md"] });
 });
 
-test("a set is read page by page from the dataset viewer, a busy page tried again, kept on disk, unjudged queries dropped", async () => {
+test("a set is read from its parquet files at the Hub's revision, a busy answer tried again, kept on disk, unjudged queries dropped", async () => {
   const dir = mkdtempSync(join(tmpdir(), "nanobeir-"));
-  const corpus = Array.from({ length: 130 }, (_, i) => ({ _id: `d${i}`, text: `text ${i}` }));
+  const sha = "a".repeat(40);
+  const tables = {
+    corpus: Array.from({ length: 130 }, (_, i) => ({ _id: `d${i}`, text: `text ${i}` })),
+    queries: [{ _id: "q1", text: "text 5" }, { _id: "q2", text: "nothing" }],
+    relevance: [{ "query-id": "q1", "positive-corpus-ids": ["d5"], "bm25-ranked-ids": ["d5", "d1"] }],
+  };
   const asked = [];
   let busy = true;
   const fetchImpl = async (url) => {
     asked.push(url);
-    if (url.startsWith("https://huggingface.co/api/datasets/")) return new Response(JSON.stringify({ sha: "abc123" }));
-    const u = new URL(url);
-    const config = u.searchParams.get("config");
-    const offset = Number(u.searchParams.get("offset"));
-    if (config === "corpus" && offset === 100 && busy) {
-      busy = false;
-      return new Response("busy", { status: 429 });
+    if (url.endsWith("/api/datasets/sentence-transformers/NanoSciFact-bm25")) {
+      return new Response(JSON.stringify({ sha, siblings: ["README.md", "corpus/train-00000-of-00001.parquet", "queries/train-00000-of-00001.parquet", "relevance/train-00000-of-00001.parquet"].map((rfilename) => ({ rfilename })) }));
     }
-    const all = config === "corpus" ? corpus : config === "queries" ? [{ _id: "q1", text: "text 5" }, { _id: "q2", text: "nothing" }] : [{ "query-id": "q1", "positive-corpus-ids": ["d5"], "bm25-ranked-ids": ["d5", "d1"] }];
-    return new Response(JSON.stringify({ rows: all.slice(offset, offset + 100).map((row) => ({ row })) }));
+    if (url.includes("/corpus/") && busy) {
+      busy = false;
+      return new Response("busy", { status: 503 });
+    }
+    const config = /resolve\/[0-9a-f]{40}\/(\w+)\//.exec(url)?.[1];
+    return new Response(JSON.stringify(tables[config]));
   };
+  const readParquet = async (bytes) => JSON.parse(new TextDecoder().decode(bytes));
   try {
-    const data = await loadNanoSet("scifact", dir, { fetchImpl, sleep: async () => {} });
-    assert.equal(data.revision, "abc123");
+    const data = await loadNanoSet("scifact", dir, { fetchImpl, readParquet, sleep: async () => {} });
+    assert.equal(data.revision, sha);
+    assert.ok(asked.every((u) => !u.includes("/resolve/") || u.includes(`/resolve/${sha}/`)), "files are read at the pinned revision");
     assert.equal(data.corpus.length, 130);
     assert.deepEqual(data.queries, [{ id: "q1", text: "text 5", relevant: ["d5"], bm25: ["d5", "d1"] }]);
     assert.ok(existsSync(join(dir, "nanobeir-scifact.json")));
     const again = asked.length;
-    await loadNanoSet("scifact", dir, { fetchImpl });
+    await loadNanoSet("scifact", dir, { fetchImpl, readParquet });
     assert.equal(asked.length, again, "a kept set is not fetched again");
     await assert.rejects(loadNanoSet("nope", dir, { fetchImpl }), /no NanoBEIR set nope/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a real parquet file reads into rows (hyparquet)", async () => {
+  const { parquetReadObjects } = await import("hyparquet");
+  assert.equal(typeof parquetReadObjects, "function");
 });
 
 test("the headline is the mean over sets, never over pooled queries, with BM25's own list scored beside it", () => {
