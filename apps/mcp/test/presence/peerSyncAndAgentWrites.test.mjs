@@ -475,6 +475,38 @@ export async function runPresencePeerSyncAndAgentWriteChecks(check) {
         decodeClientFrame(JSON.stringify({ t: "saved", v: "abc123" })).ok === true,
     );
 
+    /* ----------------- Tex writing for somebody in the note ---------------- */
+
+    const texLogBefore = (await askingRoom.readLog()).length;
+    const texToReader = readerSocket.sent.length;
+    await askingRoom.webSocketMessage(writerSocket, JSON.stringify({ t: "tex", th: "abcd", s: "run", o: 0, x: "20 confirmed" }));
+    const texRelayed = readerSocket.frames().slice(texToReader).find((frame) => frame.t === "tex");
+    check(
+      "a writer's Tex run reaches the others, named by the room and never logged",
+      texRelayed !== undefined &&
+        texRelayed.th === "abcd" &&
+        texRelayed.s === "run" &&
+        texRelayed.x === "20 confirmed" &&
+        typeof texRelayed.id === "string" &&
+        texRelayed.id !== "" &&
+        (await askingRoom.readLog()).length === texLogBefore,
+    );
+    const readerTexBefore = writerSocket.sent.length;
+    await askingRoom.webSocketMessage(readerSocket, JSON.stringify({ t: "tex", th: "abcd", s: "run", o: 0, x: "forged" }));
+    check(
+      "a read-only member cannot show Tex writing in a note it may not change",
+      writerSocket.frames().slice(readerTexBefore).every((frame) => frame.t !== "tex"),
+    );
+    check(
+      "a Tex frame with a bad thread, state or offset is refused, and a long one is caret-sized",
+      decodeClientFrame(JSON.stringify({ t: "tex", th: "AB", s: "run" })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "tex", th: "abcd", s: "go" })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "tex", th: "abcd", s: "run", o: -1 })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "tex", th: "abcd", s: "run", x: 5 })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "tex", th: "abcd", s: "run", x: "x".repeat(2000) })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "tex", th: "abcd", s: "end" })).ok === true,
+    );
+
     /* ----------------- two people on one canvas -------------------------- */
 
     const drawBefore = writerSocket.sent.length;

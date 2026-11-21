@@ -178,6 +178,24 @@ function applyFrame(state: PresenceState, frame: ServerFrame): PresenceState {
       return { ...state, members, stale: false };
     }
 
+    case "tex": {
+      if (frame.id === state.you) return state;
+      const at = state.members.findIndex((one) => one.id === frame.id);
+      if (at === -1) return state;
+      const current = state.members[at]!.tex ?? null;
+      let next: PresenceMember["tex"];
+      if (frame.state === "end") next = null;
+      else if (frame.offset === 0) next = { thread: frame.thread, text: frame.text };
+      // Pieces arrive in order on one socket; one that does not follow on is
+      // dropped rather than spliced in the wrong place, and the next run starts clean.
+      else if (current !== null && current.thread === frame.thread && current.text.length === frame.offset) {
+        next = { thread: frame.thread, text: current.text + frame.text };
+      } else return state;
+      const members = state.members.slice();
+      members[at] = { ...members[at]!, tex: next };
+      return { ...state, members };
+    }
+
     case "leave": {
       if (!state.members.some((one) => one.id === frame.id)) return state;
       return { ...state, members: state.members.filter((one) => one.id !== frame.id) };

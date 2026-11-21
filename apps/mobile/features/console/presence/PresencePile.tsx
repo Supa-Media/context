@@ -48,11 +48,14 @@ export function PresencePile({
   presence,
   compact,
   texWriting: texWritingProp,
+  you = null,
 }: {
   presence: Presence;
   compact: boolean;
   /** Tex is writing in this note now: its `#` face is drawn in the pile, even with nobody else here. */
   texWriting?: boolean;
+  /** This person's name: their own face shows last before Tex, even when nobody else is here. */
+  you?: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const triggerRef = useRef<View>(null);
@@ -65,7 +68,8 @@ export function PresencePile({
     setOpen(true);
   };
   const texWritingHere = useTexWriting();
-  const texWriting = texWritingProp ?? texWritingHere;
+  // Tex writing in this note: for this person (their editor says so) or for somebody else here (the room does).
+  const texWriting = texWritingProp ?? (texWritingHere || presence.members.some((member) => member.tex));
   const peek = presence.peek?.step ?? 0;
   useEffect(() => {
     if (peek === 0) return;
@@ -74,7 +78,7 @@ export function PresencePile({
     return () => clearTimeout(timer);
   }, [peek]);
   const shown = presenceShown(presence);
-  if (!shown && !texWriting) return null;
+  if (!shown && !texWriting && you === null) return null;
   // With nobody else here the pile is Tex alone, and it is not a list to open.
   const people = shown ? presence.members : [];
 
@@ -97,7 +101,7 @@ export function PresencePile({
     <>
       <View ref={triggerRef}>
         <PressRow
-          accessibilityLabel={shown ? presenceLabel(presence) : "Tex is writing"}
+          accessibilityLabel={shown ? presenceLabel(presence) : texWriting ? "Tex is writing" : "Only you are here"}
           ariaHasPopup="menu"
           ariaExpanded={open}
           radius={radii.pill}
@@ -120,7 +124,8 @@ export function PresencePile({
                 <Text variant="treeMeta" style={[styles.moreText, sized.text]}>{`+${more}`}</Text>
               </View>
             ) : null}
-            {texWriting ? <TexFace stacked={people.length > 0} sized={sized} /> : null}
+            {you !== null ? <YouFace name={you} stacked={faces.length > 0 || more > 0} sized={sized} /> : null}
+            {texWriting ? <TexFace stacked={people.length > 0 || you !== null} sized={sized} /> : null}
           </View>
           {reconnecting ? (
             <Text variant="meta" style={styles.note}>
@@ -191,6 +196,18 @@ function Face({
           testID="presence-face-inner"
         />
       )}
+    </View>
+  );
+}
+
+/** The viewer's own face, after everybody else's. */
+function YouFace({ name, stacked, sized }: { name: string; stacked: boolean; sized?: ReturnType<typeof sizeStyle> }) {
+  const styles = useThemedStyles(makeStyles);
+  const face = useFace(name);
+  const size = sized?.face.width ?? FACE;
+  return (
+    <View aria-hidden testID="presence-you" style={[styles.face, sized?.face, styles.ring, styles.noColor, stacked ? (sized?.stacked ?? styles.stacked) : null]}>
+      <FaceView face={face} name={name} size={size} testID="presence-you-inner" />
     </View>
   );
 }

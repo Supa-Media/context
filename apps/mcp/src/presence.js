@@ -109,6 +109,8 @@ export const MEMBER_IDLE_MS = 45_000;
  * to make structurally impossible rather than merely discouraged.
  */
 export const MAX_CLIENT_FRAME_BYTES = 1024;
+/** The longest run of Tex's new words a room relays, as an offset ceiling. */
+export const MAX_TEX_TEXT = 20_000;
 
 /**
  * The ceiling for a merge frame, which is a different size of thing.
@@ -425,6 +427,30 @@ export function decodeClientFrame(raw) {
     // is a hex digest or a quoted one, and a client is not writing prose here.
     if (!/^[A-Za-z0-9._:+/=-]+$/.test(parsed.v)) return { ok: false, reason: "bad_etag" };
     return { ok: true, msg: { t: "saved", v: parsed.v } };
+  }
+  if (parsed.t === "tex") {
+    /*
+      **Tex writing in this note for the person who asked it.**
+
+      A run of Tex in a comment thread happens in the asker's editor, and
+      its suggestion reaches the note only when it ends. This frame lets
+      everybody else in the room watch it the way the asker does: whose run,
+      which thread, and the new words as they arrive, sent as pieces at an
+      offset so each frame stays caret-sized. `end` takes it down.
+
+      Never logged, like a caret: it is somebody's run right now, and the
+      suggestion itself arrives in the note. Gated on write authority in the
+      room, because asking Tex to change a note is an edit. The thread id has
+      the comment format's own shape (`packages/shared/src/comments.cjs`), and
+      the words are text the peer draws with textContent, never markup.
+    */
+    if (typeof parsed.th !== "string" || !/^[a-z0-9]{4,12}$/.test(parsed.th)) return { ok: false, reason: "bad_tex" };
+    if (parsed.s !== "run" && parsed.s !== "end") return { ok: false, reason: "bad_tex" };
+    const offset = parsed.o === undefined ? 0 : parsed.o;
+    if (!Number.isInteger(offset) || offset < 0 || offset > MAX_TEX_TEXT) return { ok: false, reason: "bad_tex" };
+    const text = parsed.x === undefined ? "" : parsed.x;
+    if (typeof text !== "string") return { ok: false, reason: "bad_tex" };
+    return { ok: true, msg: { t: "tex", th: parsed.th, s: parsed.s, o: offset, x: text } };
   }
   if (parsed.t === "ping") return { ok: true, msg: { t: "ping" } };
   if (parsed.t === "bye") return { ok: true, msg: { t: "bye" } };

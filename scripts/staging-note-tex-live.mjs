@@ -38,6 +38,9 @@ const path = `projects/tex-in-note-live/${randomBytes(4).toString("hex")}.md`;
 const SENTENCE = "We meet on Saturday at the old library to plan the trip.";
 const WORDS = "on Saturday";
 let workspaceId = null;
+let token = null;
+/** Gaps against the mock that do not stop the rest of the run; the run fails on them at the end. */
+const gaps = [];
 
 /** One MCP tool call with the console grant; the tool's text, or a thrown error. */
 async function tool(token, name, args) {
@@ -86,6 +89,7 @@ try {
   workspaceId = personal.workspaceId;
   const { accessToken } = await convex.action(ref("functions/agentGrant:mintConsoleGrant"), { workspaceId });
   assert.ok(accessToken, "no console grant");
+  token = accessToken;
   pass(`signed in, console grant for @${personal.slug}`);
 
   await tool(accessToken, "write", { path, content: `# Trip\n\n${SENTENCE}\n` });
@@ -109,7 +113,8 @@ try {
   console.log(`  stream: ${kinds.join(" ")}`);
   const failed = events.find((event) => event.type === "error");
   assert.equal(failed, undefined, `the run ended in an error: ${failed?.message}`);
-  assert.ok(events.some((event) => event.type === "step" && typeof event.label === "string"), "no step lines");
+  // The mock draws Tex's working steps in the thread; without step lines the thread shows none.
+  if (!events.some((event) => event.type === "step" && typeof event.label === "string")) gaps.push("the stream has no step lines");
   const answer = events.findLast((event) => event.type === "answer");
   const edit = events.findLast((event) => event.type === "edit");
   const done = events.find((event) => event.type === "done");
@@ -152,10 +157,10 @@ try {
   assert.ok(row, "the run is not in the note's log");
   assert.equal(row.ask, "make this Sunday instead");
   pass(`the run is in "Tex in this note" (${listed.length} row(s))`);
+  assert.deepEqual(gaps, [], `gaps against the mock: ${gaps.join("; ")}`);
 } finally {
-  if (workspaceId !== null) {
-    await convex
-      .action(ref("functions/files:archiveEntry"), { workspaceId, path })
+  if (token !== null) {
+    await tool(token, "manage", { action: "archive", args: { path } })
       .then(() => console.log(`  archived ${path}`))
       .catch((error) => console.log(`  could not archive ${path}: ${error.message}`));
   }

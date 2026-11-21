@@ -210,6 +210,8 @@ export interface LiveEditorProps {
     commentFocus?: { thread: string; step: number } | null;
     /** A cast's room (`Presence.demo`): the page follows whoever is writing. */
     demo?: boolean;
+    /** Tex writing for this person, to the others in the room. See `Presence.announceTex`. */
+    announceTex?: (thread: string, state: "run" | "end", offset: number, text: string) => void;
   };
   /**
    * Scroll the surface this editor is laid out inside, by `delta` points.

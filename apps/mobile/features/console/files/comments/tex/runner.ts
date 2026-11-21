@@ -9,6 +9,7 @@
  * sees the suggestion at once and no server write races the open editor.
  */
 
+import { peerTexRuns, texRelay } from "./peerRuns";
 import { ChangeSet, StateEffect, StateField, type EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import { EditorView, type DecorationSet } from "@codemirror/view";
 import {
@@ -396,11 +397,12 @@ const EMPTY_RUNS: RunMap = new Map();
 
 /** The pending edit's decorations, following the runs and the thread's suggestion. */
 const pendingField = StateField.define<DecorationSet>({
-  create: (state) => pendingDecorations(state, state.field(texRuns, false) ?? EMPTY_RUNS),
+  create: (state) => pendingDecorations(state, state.field(texRuns, false) ?? EMPTY_RUNS, state.field(peerTexRuns, false)),
   update(value, tr) {
     const runsChanged = tr.startState.field(texRuns, false) !== tr.state.field(texRuns, false);
-    if (!tr.docChanged && !runsChanged) return value;
-    return pendingDecorations(tr.state, tr.state.field(texRuns, false) ?? EMPTY_RUNS);
+    const peersChanged = tr.startState.field(peerTexRuns, false) !== tr.state.field(peerTexRuns, false);
+    if (!tr.docChanged && !runsChanged && !peersChanged) return value;
+    return pendingDecorations(tr.state, tr.state.field(texRuns, false) ?? EMPTY_RUNS, tr.state.field(peerTexRuns, false));
   },
   provide: (field) => EditorView.decorations.from(field),
 });
@@ -410,5 +412,5 @@ const pendingField = StateField.define<DecorationSet>({
  * provides the thread state the decorations read.
  */
 export function texInNote(): Extension {
-  return [texRuns, pendingField];
+  return [texRuns, peerTexRuns, pendingField, texRelay((state) => state.field(texRuns, false))];
 }

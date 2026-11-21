@@ -25,11 +25,14 @@ export function BrowsePathBar({
   files,
   selected,
   presence,
+  you = null,
 }: {
   files: FileBrowser;
   selected: ReturnType<typeof entryAt>;
   /** The open note's room, for the pile. */
   presence?: Presence;
+  /** The viewer's own name, for their face in the pile. */
+  you?: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -46,7 +49,7 @@ export function BrowsePathBar({
   return (
     <View style={styles.row} testID="phone-presence-row">
       <View style={styles.pile}>
-        <PresencePile presence={presence} compact />
+        <PresencePile presence={presence} compact you={you} />
       </View>
     </View>
   );

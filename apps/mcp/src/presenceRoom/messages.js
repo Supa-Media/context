@@ -63,7 +63,8 @@ export async function webSocketMessage(ws, raw) {
       decoded.msg.t === "snap" ||
       decoded.msg.t === "draw" ||
       decoded.msg.t === "drawsnap" ||
-      decoded.msg.t === "saved") &&
+      decoded.msg.t === "saved" ||
+      decoded.msg.t === "tex") &&
     !attachment.canWrite
   ) {
     return;
@@ -203,6 +204,15 @@ export async function webSocketMessage(ws, raw) {
       { t: "pointer", id: attachment.id, x: decoded.msg.x, y: decoded.msg.y, s: decoded.msg.s },
       ws,
     );
+    return;
+  }
+
+  if (decoded.msg.t === "tex") {
+    // Tex writing for this member, relayed to everybody else and never logged
+    // (see `decodeClientFrame`). The room supplies whose run it is.
+    touch(room, attachment.id, now);
+    ws.serializeAttachment({ ...attachment, seen: now });
+    this.broadcast({ t: "tex", id: attachment.id, th: decoded.msg.th, s: decoded.msg.s, o: decoded.msg.o, x: decoded.msg.x }, ws);
     return;
   }
 

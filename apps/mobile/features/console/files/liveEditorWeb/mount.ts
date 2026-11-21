@@ -32,6 +32,7 @@ import { popover } from "../comments/popover";
 import { seltool } from "../comments/seltool";
 import { texInNote } from "../comments/tex/runner";
 import { texInNoteExtension } from "../comments/tex/noteRun";
+import { texRelaySend } from "../comments/tex/peerRuns";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
 import { spelling } from "../spelling/extension";
@@ -262,6 +263,8 @@ export function mountEditor({
       // Empty until the room answers; see the effect below.
       collab.current.of([]),
       reportSelection(() => presenceRef.current?.report),
+      // This editor's Tex runs, to the others in the note's live room (`peerRuns.ts`).
+      texRelaySend.of((thread, state, offset, text) => presenceRef.current?.announceTex?.(thread, state, offset, text)),
       /*
         Spelling: Context's own checker, whose fixes sit on top of the
         right-click menu. Nothing is drawn in the note (Dev2, 2026-10-28).
