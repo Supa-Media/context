@@ -1,4 +1,7 @@
 /**
+ * RETIRED 2026-11-21: a job's own alarm runs it now (`jobDrive.ts`). Kept only so instances started before then
+ * finish; nothing starts one. Delete with its binding once none is left.
+ *
  * The Cloudflare Workflow that sees one background job through (Dev2,
  * 2026-10-28). One instance per job, named by its id (`jobInstanceId`), so
  * starting the same job twice is refused rather than run twice. The job's
@@ -16,15 +19,15 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { ANSWER_RETRIES, ANSWER_TIMEOUT } from "./groupTurnWorkflow";
 import type { JobNext } from "./jobRun";
-import { jobTag, MAX_JOB_ATTEMPTS, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS } from "./jobs";
+import { jobTag } from "./jobs";
+import { MAX_JOB_PASSES, MAX_OVERLAP_WAITS } from "./jobDrive";
 import { logged } from "./agentError";
 import type { Env } from "./env";
 import { jobStub } from "./jobPlace";
 
 export type JobRunParams = { job: string };
-/** More passes than a job can take: every part's tries, plus its last word offered again (10 parts since 2026-10-31). */
-// A job on their own computer takes many more parts (`machineTurn.ts`): every pass either job may need.
-export const MAX_JOB_PASSES = Math.max(MAX_JOB_ATTEMPTS, MAX_MACHINE_JOB_ATTEMPTS) * (MAX_JOB_TRIES + 1) + 2;
+// The same limits the job's own alarm keeps (`jobDrive.ts`).
+export { MAX_JOB_PASSES, MAX_OVERLAP_WAITS };
 
 /** Asks the job's object at an internal path. */
 export type JobCall = (path: "/job-pass" | "/job-failed") => Promise<Response>;
@@ -38,13 +41,6 @@ export function jobInstanceId(job: string): string {
 export function logJobFlow(outcome: string, job: string, extra: { attempts?: number; reason?: string } = {}): void {
   console.log(JSON.stringify({ event: "group_turn", outcome, kind: "job", job: jobTag(job), ...extra }));
 }
-
-/**
- * Waits for a pass still running in the job's object (`runJob` `overlap`):
- * spent on top of the passes, up to past a pass's own timeout (20 minutes),
- * so a long pass whose step was retried never costs the job its parts.
- */
-export const MAX_OVERLAP_WAITS = 50;
 
 export async function runJobFlow(step: Pick<WorkflowStep, "do" | "sleep">, call: JobCall, job: string): Promise<string> {
   let overlaps = 0;

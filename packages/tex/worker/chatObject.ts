@@ -46,7 +46,6 @@ import { textsSessionDeps } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { jobAlarm } from "./jobRun";
-import { watchJob } from "./jobWatch";
 import { resumePausedJobs } from "./jobPause";
 import { jobUpdate } from "./jobTexts";
 import { pageJobsOf, pageSteerResponse } from "./texPage";
@@ -57,7 +56,7 @@ import { appCardConfig } from "./appCards";
 import { watchGroupPresenceDaily, whapiKeys } from "./whapi";
 import { noteCardDrawer } from "./noteCards";
 import { answerHanded, failHanded } from "./groupTurnRun";
-import type { GroupTurnParams } from "./groupTurnWorkflow";
+import { retryLater } from "./groupRetry";
 import { inboxByName, inboxIdOf, objectByName } from "./objectPlace";
 import { logDropped, logStep, textStep, sendStep } from "./stepEvents";
 import { readArrival } from "./providerTiming";
@@ -221,7 +220,7 @@ export class SenderInbox implements DurableObject {
       if (request.method !== "POST") return new Response(null, { status: 405 });
       return Response.json({ marked: await membersChanged(this.state.storage, Date.now()) });
     }
-    // A group turn's workflow (`groupTurnWorkflow.ts`): only this Worker's workflow reaches these.
+    // A group turn handed to a workflow before 2026-11-21 (`groupTurnWorkflow.ts`): only that workflow reaches these.
     if (path === "/group-answer" || path === "/group-failed") {
       const { turn } = (await request.json()) as { turn?: unknown };
       if (typeof turn !== "string") return new Response(null, { status: 400 });
@@ -242,7 +241,7 @@ export class SenderInbox implements DurableObject {
       return Response.json({ ok: true });
     }
     // A background job's own object is started, run, steered and mailed here (`jobRoutes.ts`); it reports to its chat's inbox below.
-    const job = await jobRoute(path, request, this.state.storage, this.env.JOB_RUN, () => this.jobDeps());
+    const job = await jobRoute(path, request, this.state.storage, () => this.jobDeps());
     if (job !== undefined) return job;
     if (path === "/job-update") {
       const update = readJobUpdate(await request.json());
@@ -391,10 +390,9 @@ export class SenderInbox implements DurableObject {
     await logged("alarm_handed_back", () => carryOnAfterHandback(this.state.storage, this.deps()));
     // A chat quiet long enough has its conversation scored (`reviewWatch.ts`).
     await logged("alarm_review", () => checkReview(this.state.storage, { ...this.deps(), mintGroup: (message, people) => this.mintGroup(message, people) }));
-    // A job's object has only `jobrun`; every other object finds nothing to run.
-    await logged("alarm_job", () => jobAlarm(this.state.storage, this.jobDeps(), this.env.JOB_RUN !== undefined));
-    // A stored job whose workflow was never started, or died without a word, is started or ended (`jobWatch.ts`).
-    await logged("alarm_job_watch", () => watchJob(this.state.storage, this.env.JOB_RUN, this.jobDeps()));
+    // A job's object has only `jobrun`; every other object finds nothing to run. Its pass is the gateway's job node
+    // where one wraps it (`JOB_STEP`, `packages/tex/gateway/texJob.js`), else run here (`jobDrive.ts`).
+    await logged("alarm_job", () => jobAlarm(this.state.storage, this.jobDeps(), this.env.JOB_STEP));
     // A chat's job paused at the daily limit starts again once it resets (`jobPause.ts`).
     // An ask to another chat still unanswered after its time comes back as one (`crossChat.ts`).
     await logged("alarm_cross_chat", () => crossTimeouts(this.state.storage, Date.now()));
@@ -462,9 +460,10 @@ export class SenderInbox implements DurableObject {
   }
 
   private deps(): InboxDeps & { startTurn?: (turn: string) => Promise<void>; answerFirst?: (work: Promise<unknown>) => void; simulatorStorage?: InboxStorage } {
-    const workflow = this.env.GROUP_TURN;
     return {
-      ...(workflow ? { startTurn: (turn: string) => startGroupTurn(workflow, this.state.id.toString(), turn), answerFirst: (work: Promise<unknown>) => this.handOff(work) } : {}),
+      // A group turn is answered beside the drain, and one that failed is tried again by this object's alarm (`groupRetry.ts`).
+      startTurn: (turn: string) => retryLater(this.state.storage, turn, Date.now()),
+      answerFirst: (work: Promise<unknown>) => this.handOff(work),
       fetch: this.out,
       ...(this.env.TEX_GRAPH !== undefined ? { texGraph: this.env.TEX_GRAPH } : {}),
       crossCall: (inbox: string, path: string, body: unknown) => this.crossCall(inbox, path, body),
@@ -502,16 +501,5 @@ export class SenderInbox implements DurableObject {
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },
     };
-  }
-}
-
-/** Start the workflow for one group turn; one already started under this id counts as started. */
-async function startGroupTurn(workflow: Workflow<GroupTurnParams>, inbox: string, turn: string): Promise<void> {
-  try {
-    await workflow.create({ id: turn, params: { inbox, turn } });
-  } catch (error) {
-    await workflow.get(turn).catch(() => {
-      throw error;
-    });
   }
 }

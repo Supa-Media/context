@@ -11,7 +11,8 @@
  *   - the Worker's other objects this one reaches (a chat's directory entry, and a job's object while jobs run in the
  *     Worker) are reached the same way (`inboxFetch`); a job's calls go through `packages/tex/worker/jobPlace.ts`, which starts
  *     a new job in the gateway's `TEX_JOB` while `TEX_JOBS` is "gateway" and sends every later call where it was born;
- *   - a group turn's retries stay the Worker's Workflow, started over the same RPC (`groupTurn`);
+ *   - a group turn that failed is tried again by this object's own alarm (`packages/tex/worker/groupRetry.ts`), as a job's
+ *     passes are run by its own (`texJob.js`): no Workflow, and no call back to the Worker for it (2026-11-21);
  *   - the control plane is reached as the Worker reached it, with `AGENT_WORKER_SECRET`.
  *
  * A chat comes here once, on its first call, by copying the Worker's object in (`packages/tex/worker/inboxMove.ts`, the
@@ -255,9 +256,6 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     TEX_LINE: app
       ? { line: () => appLine(state.storage), groupLine: () => { throw new Error("an app chat has no group line"); } }
       : rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
-    // A group turn's retries stay the Worker's Workflow: it reaches this chat through the Worker's object by its old
-    // id, which passes the call on here (`groupTurnWorkflow.ts`).
-    ...(rpc === undefined ? {} : { GROUP_TURN: { create: (options) => rpc.groupTurn({ op: "create", ...options }), get: (id) => rpc.groupTurn({ op: "get", id }) } }),
     IMAGES: env.IMAGES,
     // The Worker's datasets, bound here under the same names, so a text is timed and counted wherever its chat runs.
     TEX_TEXTS: env.TEX_TEXTS,

@@ -19,6 +19,7 @@ import type { Fetch } from "./clients";
 import { acceptJob, ENDED_KEY, resumeJob, runJob, type JobDeps } from "./jobRun";
 import { chatJobs, JOB_SHOWN_MS, notResumedText, PICKED_UP, readSteers, resumeJobs, RUN_KEY, startJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { DRIVE_KEY } from "./jobDrive";
 
 const NOW = 1_000_000;
 const PHONE = "+15555550100";
@@ -73,9 +74,10 @@ describe("picking an ended job back up", () => {
     expect(storage.data.has(RUN_KEY)).toBe(false);
     expect(storage.alarms.at(-1)).toBeGreaterThan(NOW + JOB_SHOWN_MS);
 
-    const started: Array<[string, number]> = [];
-    expect(await resumeJob(storage, NOW + 60_000, async (id, resumes) => void started.push([id, resumes]))).toBe(true);
-    expect(started).toEqual([["job-1234-abcd", 1]]);
+    expect(await resumeJob(storage, NOW + 60_000)).toBe(true);
+    // Its own alarm drives it again, counted as its first restart (`jobDrive.ts`).
+    expect(storage.data.get(DRIVE_KEY)).toEqual({ pass: 0, tries: 0, overlaps: 0, dueAt: NOW + 60_000, resumes: 1 });
+    expect(storage.alarms.at(-1)).toBe(NOW + 60_000);
     expect(storage.data.has(ENDED_KEY)).toBe(false);
     expect(await resumeJob(storage, NOW + 60_000)).toBe(false);
 
@@ -111,7 +113,7 @@ describe("picking an ended job back up", () => {
     await storage.put(ENDED_KEY, { run: run({ machine, machineSession: "sess_old" }), endedAt: NOW });
     const now = { ...machine, folder: "@work", repo: undefined };
     delete now.repo;
-    expect(await resumeJob(storage, NOW + 60_000, undefined, { id: "e1", text: "try again", resume: true, machine: now })).toBe(true);
+    expect(await resumeJob(storage, NOW + 60_000, { id: "e1", text: "try again", resume: true, machine: now })).toBe(true);
     const kept = await storage.get<JobRun>(RUN_KEY);
     expect(kept?.machine).toEqual({ ...machine, folder: "@work" });
     // A new folder is a new session there: Claude Code keeps its sessions per folder.
@@ -119,7 +121,7 @@ describe("picking an ended job back up", () => {
     // Another computer's settings never move a job.
     const other = new MemoryStorage();
     await other.put(ENDED_KEY, { run: run({ machine, machineSession: "sess_old" }), endedAt: NOW });
-    await resumeJob(other, NOW + 60_000, undefined, { id: "e2", text: "again", resume: true, machine: { ...now, machineId: "mch_2" } });
+    await resumeJob(other, NOW + 60_000, { id: "e2", text: "again", resume: true, machine: { ...now, machineId: "mch_2" } });
     expect((await other.get<JobRun>(RUN_KEY))?.machine).toEqual(machine);
     expect((await other.get<JobRun>(RUN_KEY))?.machineSession).toBe("sess_old");
   });
@@ -149,7 +151,7 @@ describe("picking an ended job back up", () => {
     const storage = new MemoryStorage();
     await acceptJob(storage, run({ attempt: 10, title: "Book the haircut" }), NOW);
     await runJob(storage, jobDeps([{ body: { answer: "Couldn't sign in.", unfinished: true } }]).deps);
-    expect(await resumeJob(storage, NOW + 60_000, undefined, { id: "e1", text: "book with santana, mens adult style cut", resume: true })).toBe(true);
+    expect(await resumeJob(storage, NOW + 60_000, { id: "e1", text: "book with santana, mens adult style cut", resume: true })).toBe(true);
     const next = jobDeps([{ body: { answer: "Booked with Santana.", verdict: "done" } }], NOW + 60_000);
     await runJob(storage, next.deps);
     expect(next.asked[0]).toMatchObject({ job: { followUps: ["book with santana, mens adult style cut"] } });
@@ -158,7 +160,7 @@ describe("picking an ended job back up", () => {
     const quiet = new MemoryStorage();
     await acceptJob(quiet, run({ attempt: 10 }), NOW);
     await runJob(quiet, jobDeps([{ body: { answer: "Short.", unfinished: true } }]).deps);
-    expect(await resumeJob(quiet, NOW + 60_000, undefined, { id: "e2", text: PICKED_UP, resume: true })).toBe(true);
+    expect(await resumeJob(quiet, NOW + 60_000, { id: "e2", text: PICKED_UP, resume: true })).toBe(true);
     const after = jobDeps([{ body: { answer: "Done.", verdict: "done" } }], NOW + 60_000);
     await runJob(quiet, after.deps);
     expect((after.asked[0]?.job as Record<string, unknown>)?.followUps).toBeUndefined();

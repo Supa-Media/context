@@ -67,7 +67,12 @@ async function pausedJob(why: "daily_limit" | "no_model" = "daily_limit") {
   await noteJobUpdate(inbox, update, NOW);
   const id = run!.id;
   const restarts: number[] = [];
-  const send = async (jobId: string, steer: Parameters<typeof resumeJob>[3]) => jobId === id && (await resumeJob(object, clock.now, async () => void restarts.push(clock.now), steer));
+  const send = async (jobId: string, steer: Parameters<typeof resumeJob>[2]) => {
+    if (jobId !== id) return false;
+    const taken = await resumeJob(object, clock.now, steer);
+    if (taken) restarts.push(clock.now);
+    return taken;
+  };
   const clock = { now: NOW };
   return { inbox, object, update, id, send, restarts, clock };
 }
