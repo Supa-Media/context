@@ -180,11 +180,13 @@ function noModel() {
  * under the daily cap). That answer also counts the turn,
  * so it is asked once, here, and never per round.
  */
-export async function openProvider(controlPlane, session, requested, env = {}, { background = false } = {}) {
+export async function openProvider(controlPlane, session, requested, env = {}, { background = false, noteRun = false } = {}) {
   if (requested !== undefined && requested !== null) throw noModel();
   if (!hasBuiltinModel(env)) throw noModel();
   // A background job's part or report is never counted against the cap (`apps/convex/functions/builtinModel.ts`).
-  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId, background ? { background: true } : undefined);
+  // `noteRun`: an ask in a note's comments (`noteRunRoute.js`), which the app's own grant may spend (`builtinModel.ts`).
+  const asked = { ...(background ? { background: true } : {}), ...(noteRun ? { noteRun: true } : {}) };
+  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId, Object.keys(asked).length > 0 ? asked : undefined);
   if (verdict?.allowed === true) return { provider: BUILTIN_PROVIDER };
   if (verdict?.reason === "daily_cap") {
     throw new AgentRefusal("daily_limit", "Today's questions are used up.");

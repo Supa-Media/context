@@ -169,7 +169,7 @@ async function chatOf(ledger, { now, timeZone, session }) {
 export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null }) {
   const started = Date.now();
   try {
-    await openProvider(controlPlane, session, undefined, env);
+    await openProvider(controlPlane, session, undefined, env, { noteRun: true });
   } catch (error) {
     if (error instanceof AgentRefusal) return { outcome: error.code === "daily_limit" ? "daily_limit" : "no_provider" };
     return { outcome: "model_unavailable" };
@@ -177,7 +177,7 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   const wanted = typeof node?.model === "string" ? TEX_CONFIG.models?.[node.model] : null;
   const chosen = typeof wanted === "string" && canRunBuiltin(wanted, env) ? wanted : null;
   const model = chosen ?? builtinModel(env);
-  const meter = builtinMeter(controlPlane, session, model, now);
+  const meter = builtinMeter(controlPlane, session, model, now, { noteRun: true });
   const rounds = node?.rounds ?? RUN_ROUNDS;
   const chatHistory = await chatOf(ledger, { now, timeZone, session });
 

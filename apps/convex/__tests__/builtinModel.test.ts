@@ -436,6 +436,39 @@ describe("Try it on the AI tab", () => {
     expect(await tryIt(t, accessToken)).toEqual({ allowed: false, reason: "not_texts" });
   });
 
+  /**
+   * Tex in a note's comments (the owner, 2026-11-20): the gateway's note-run route may spend on the app's own grant,
+   * metered on its workspace. Sabotage: drop the `noteRun` branch in `chargedWorkspace` and the first test fails; drop
+   * its client check and "another client's note run is refused" fails.
+   */
+  async function noteRun(t: T, accessToken: string) {
+    const response = await gatewayPost(t, "/gateway/builtin-model", { accessToken, expectedWorkspaceId: null, noteRun: true });
+    return (JSON.parse(await response.text()) as { verdict: unknown }).verdict;
+  }
+
+  test("a note run on the app's own grant may, counted on its own workspace, anybody's", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await consoleGrant(t, null);
+    const cap = JEV_FEATURES.assistant.dailyCallsPerWorkspace;
+    expect(await noteRun(t, accessToken)).toEqual({ allowed: true, remaining: cap - 1 });
+    expect((await usage(t, workspaceId))?.calls).toBe(1);
+    expect(await report(t, accessToken, { inputTokens: 10, outputTokens: 5, failed: false, ms: 1, noteRun: true })).toBe(true);
+    expect(await report(t, accessToken, { inputTokens: 10, outputTokens: 5, failed: false, ms: 1 })).toBe(false);
+  });
+
+  test("another client's note run is refused", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await consoleGrant(t, null);
+    await t.run(async (ctx) => {
+      const client = (await ctx.db.query("oauthClients").collect())[0]!;
+      const { _id, _creationTime, ...fields } = client;
+      await ctx.db.insert("oauthClients", { ...fields, clientId: "some_mcp_client" });
+      for (const grant of await ctx.db.query("oauthGrants").collect()) await ctx.db.patch(grant._id, { clientId: "some_mcp_client" });
+    });
+    expect(await noteRun(t, accessToken)).toEqual({ allowed: false, reason: "not_texts" });
+    expect(await usage(t, workspaceId)).toBeNull();
+  });
+
   test("an ordinary console turn is still refused, editor or not", async () => {
     const t = setupTest();
     const { accessToken } = await consoleGrant(t, "editor");
