@@ -1,8 +1,7 @@
 # Durable decisions
 
-Things that were argued through once and should not be silently reversed. Each
-names what a "simplification" of it would actually cost, and most name the
-test that fails if it is reversed.
+Things argued through once and not to be silently reversed. Each names what a
+"simplification" of it would cost, and most name the test that fails if so.
 
 These lived in `CLAUDE.md` until the file passed 2,700 lines. They moved here
 verbatim; nothing was summarised away. `CLAUDE.md` stays short enough to be
@@ -398,6 +397,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A workspace object keeps its own word index
 - A workspace object keeps its own meaning index
 - Tex searches every workspace; a named one is a boost, never a fence
+- Search is measured on three sets, and a search change merges only if the right note stays first
 
 ## [The mobile app and the console](./app-and-console.md)
 

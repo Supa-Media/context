@@ -25,7 +25,12 @@ export const labEvalTables = {
     via: v.string(),
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
-    /** The scores, costs and settings the run reported at its end (`bench/evals/cli.mjs` result, rows apart). */
+    /**
+     * The scores, costs and settings the run reported at its end (`bench/evals/cli.mjs` result, rows apart), cleaned by
+     * `cleanSummary`. A Search suite run keeps its `search` block (`cleanSearch`); a Claude Code run its `cc`. Both are
+     * optional, so a row reported before either existed stays valid. Stored as v.any, like the rows: the cleaners in
+     * `functions/labEvals.ts` are the validator.
+     */
     summary: v.optional(v.any()),
     /** How many rows have been reported so far. */
     rows: v.optional(v.number()),
@@ -33,7 +38,11 @@ export const labEvalTables = {
   })
     .index("by_started", ["startedAt"])
     .index("by_by", ["by", "startedAt"]),
-  /** One question of a run: its facts, the reader's answer and the verdict (`bench/evals/memoryRun.mjs` row). */
+  /**
+   * One question of a run: its facts, the reader's answer and the verdict (`bench/evals/memoryRun.mjs` row). A Search
+   * suite row (`bench/evals/searchSuite.mjs` rowOf) also carries `rank` (the first expected note's rank, or null) and
+   * `hits` (how many notes the search answered with); both are optional, and `answer` holds the first hits.
+   */
   labEvalRows: defineTable({
     runId: v.id("labEvalRuns"),
     i: v.number(),

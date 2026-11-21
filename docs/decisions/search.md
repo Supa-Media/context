@@ -156,3 +156,7 @@ This replaces the same day's fallback (`tools/searchNamed.js`), which appended t
 ### Search runs from a config of its own, and its ranking constants are that config's settings
 
 Moved to [Search runs from a config of its own, and its ranking constants are that config's settings](./search/search-config.md#search-runs-from-a-config-of-its-own-and-its-ranking-constants-are-that-configs-settings).
+
+### Search is measured on three sets, and a search change merges only if the right note stays first
+
+Moved to [Search is measured on three sets, and a search change merges only if the right note stays first](./search/search-suite.md#search-is-measured-on-three-sets-and-a-search-change-merges-only-if-the-right-note-stays-first).

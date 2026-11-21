@@ -14,6 +14,8 @@ export const CAPS = { commit: 1, pr: 10, day: 1000 } as const;
 /** The largest conversation kept, in bytes of its JSON. */
 export const MAX_CHAT_BYTES = 200_000;
 export const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
+/** A commit in full: 40 lowercase hex digits. */
+export const SHA = /^[0-9a-f]{40}$/;
 
 export interface Msg {
   id: string;
