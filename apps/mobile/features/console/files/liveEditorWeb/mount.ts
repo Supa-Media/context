@@ -29,6 +29,7 @@ import { propertySlot } from "./propertySlot";
 import { comments } from "../comments/extension";
 import { noteMail } from "../mail/extension";
 import { popover } from "../comments/popover";
+import { commentMargin } from "../comments/margin";
 import { seltool } from "../comments/seltool";
 import { texInNote } from "../comments/tex/runner";
 import { texInNoteExtension } from "../comments/tex/noteRun";
@@ -236,6 +237,7 @@ export function mountEditor({
         moderator: () => handlers.current.commentModerator === true,
       }),
       popover,
+      commentMargin,
       seltool,
       texInNote(),
       commentSheet({ placement: "viewport" }),

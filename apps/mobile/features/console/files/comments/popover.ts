@@ -1,9 +1,10 @@
 /**
  * The thread popover: on a wide pane, the open thread (or the comment being
- * written) as a card under its words, the way the mock draws it
- * (https://claude.ai/artifact/G8Udcec7fUh8jD7dnHkUN7). It replaces the margin
- * of cards beside the words: the note stays where it is, and one thread is open
- * at a time.
+ * written) as a card. Where the pane holds the comments margin (`margin.ts`)
+ * the card sits in it, beside its words, so it never covers the lines Tex is
+ * changing; Tex's progress and answer land in the same card under the comment
+ * (Dev2, 2026-11-21, artifact MVahUoUgRPthkPk5NMGzXc). A pane too thin for the
+ * margin docks the card to its bottom instead.
  *
  * A phone or a thin pane shows nothing here (`hasMargin`): `sheet.ts` opens
  * the same thread in a bottom sheet instead, so exactly one of them is showing
@@ -11,10 +12,9 @@
  *
  * The card's content is `popoverDom.ts`; this file decides what it shows,
  * writes what the person sends through the same commands the sheet uses, and
- * places the card under the words (8px under their bottom, its left edge
- * clamped inside the pane, as `placeCt` in the mock does). It is rebuilt only
- * when its data changes, so a half-typed comment survives the note being typed
- * into and the runner's live updates.
+ * places the card. It is rebuilt only when its data changes, so a half-typed
+ * or half-dictated comment survives the note being typed into and the
+ * runner's live updates.
  */
 
 import type { EditorView, PluginValue, ViewUpdate } from "@codemirror/view";
@@ -33,6 +33,7 @@ import {
   sendComment,
 } from "./extension";
 import { hasMargin } from "./model";
+import { marginColumn } from "./margin";
 import { buildCard, type CardActions, type CardModel } from "./popoverDom";
 import { TEX_AUTHOR, texInNoteHost } from "./tex/contract";
 import { keepPending, texMessageState, texRuns, undoPending } from "./tex/runner";
@@ -45,7 +46,12 @@ type Target = { kind: "draft"; from: number; to: number; prefill: string } | { k
 interface Placement {
   top: number;
   left: number;
+  /** Beside the words in the comments margin, or docked to the pane's bottom. */
+  where: "margin" | "dock";
 }
+
+/** How far above its words' line a card in the margin starts, so its first line sits level with them. */
+const LIFT = 6;
 
 class Popover implements PluginValue {
   private card: HTMLElement | null = null;
@@ -155,6 +161,7 @@ class Popover implements PluginValue {
     if (this.card) {
       // The new card takes the old one's place, so it does not flash at the top.
       root.style.cssText = this.card.style.cssText;
+      for (const where of ["cm-cw-margin", "cm-cw-dock"]) root.classList.toggle(where, this.card.classList.contains(where));
       // Only a card that is new pops in: the same thread redrawn (a run's
       // steps, Tex's words typing in) must not restart the fade on every redraw,
       // which kept it invisible for as long as Tex was writing.
@@ -193,28 +200,22 @@ class Popover implements PluginValue {
     if (target === null || card === null) return null;
     const view = this.view;
     const scroller = view.scrollDOM;
-    const start = view.coordsAtPos(target.from, 1);
-    const end = view.coordsAtPos(target.to, -1);
-    if (!start || !end) return null;
     const box = scroller.getBoundingClientRect();
-    const width = card.offsetWidth;
-    // Clamped inside the pane, like `placeCt`: a card at the right edge moves left.
-    const left = Math.max(0, Math.min(start.left - box.left - GAP, scroller.clientWidth - width));
-    // A pending edit's new words are drawn after the anchor and can run over
-    // several lines: the card goes under them, so it never covers what it
-    // asks the reader to keep or undo.
-    const id = target.kind === "thread" ? target.thread.id : null;
-    const inserted = id === null ? null : view.contentDOM.querySelector(`.cm-tex-ins[data-thread="${id}"]`);
-    const bottom = Math.max(end.bottom, inserted?.getBoundingClientRect().bottom ?? 0);
-    let top = bottom - box.top + GAP;
-    // A thread on the last lines in view opens above its words instead of
-    // running off the bottom of the pane, and is never pushed above its top.
-    const height = card.offsetHeight;
-    if (top + height > scroller.clientHeight) {
-      const above = start.top - box.top - GAP - height;
-      top = above >= 0 ? above : Math.max(0, scroller.clientHeight - height);
+    const column = marginColumn(view);
+    if (column !== null) {
+      const start = view.coordsAtPos(target.from, 1);
+      if (!start) return null;
+      // Level with its words, in the column beside them: nothing it covers is the note.
+      return { top: Math.max(0, start.top - box.top + scroller.scrollTop - LIFT), left: column.left, where: "margin" };
     }
-    return { top: top + scroller.scrollTop, left: left + scroller.scrollLeft };
+    // No room for the margin: docked to the bottom of the pane, the width of it.
+    const width = card.offsetWidth;
+    const height = card.offsetHeight;
+    return {
+      top: scroller.scrollTop + Math.max(0, scroller.clientHeight - height - GAP),
+      left: scroller.scrollLeft + Math.max(0, (scroller.clientWidth - width) / 2),
+      where: "dock",
+    };
   }
 
   private place(placement: Placement | null) {
@@ -224,6 +225,8 @@ class Popover implements PluginValue {
       return;
     }
     this.card.style.visibility = "";
+    this.card.classList.toggle("cm-cw-margin", placement.where === "margin");
+    this.card.classList.toggle("cm-cw-dock", placement.where === "dock");
     this.card.style.top = `${placement.top}px`;
     this.card.style.left = `${placement.left}px`;
     if (this.pendingFocus !== null) {

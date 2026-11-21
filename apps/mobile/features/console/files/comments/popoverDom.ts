@@ -17,6 +17,10 @@ import { resolvedBy } from "./model";
 import { TEX_AUTHOR, type Mentionable } from "./tex/contract";
 import { texMarkNode } from "../../../chaos/texMarkDom";
 import type { TexRunLive } from "./tex/runner";
+import { createDictationEngine } from "../../../voice/engine.web";
+import type { DictationEngine } from "../../../voice/engine";
+import { joinDictated } from "../../../voice/dictation";
+import { reasonFor } from "../../../voice/audience";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -45,6 +49,11 @@ export function chatIcon(): SVGSVGElement {
 /** The round send button's arrow. */
 export function sendIcon(): SVGSVGElement {
   return icon(["M12 19V5M5 12l7-7 7 7"], 2.4);
+}
+
+/** The microphone: a capsule, its cradle and a stem, drawn as the app's own mic is. */
+export function micIcon(): SVGSVGElement {
+  return icon(["M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z", "M19 10v2a7 7 0 0 1-14 0v-2", "M12 19v3"], 2);
 }
 
 /** Tex's avatar: its one mark, the blue googly-eyed # (`texMarkNode`). */
@@ -171,7 +180,7 @@ function threadRows(model: CardModel, actions: CardActions, report: (error: stri
     if (event.author === TEX_AUTHOR) rows.push(texRow(model, thread, event, index, actions, report));
     else rows.push(personRow(model, thread, event, index, actions));
   });
-  if (model.run !== null) rows.push(runRow(model.run));
+  if (model.run !== null) rows.push(runRow(model.run, thread.quote));
   const closed = resolvedBy(thread);
   if (closed) rows.push(el("div", "cm-cwresolved", `Resolved by ${closed.author}`));
   return rows;
@@ -246,15 +255,33 @@ function texRow(
   return row(texAvatar(), TEX_AUTHOR, bodyNodes(event.text), extra);
 }
 
+/**
+ * The run's step, naming the words where it says "the selected words": Writing
+ * after “honest”, as the artifact draws it. A long quote keeps the generic words.
+ */
+export function stepLabel(label: string, quote: string): string {
+  const words = quote.replace(/\s+/g, " ").trim();
+  const base = label || "Working";
+  if (words === "" || words.length > 40) return base;
+  return base.replace(/the selected words$/, `“${words}”`);
+}
+
 /** Tex's working line while a run goes, or the sentence it failed with. */
-function runRow(run: TexRunLive): HTMLElement {
+function runRow(run: TexRunLive, quote: string): HTMLElement {
   if (run.error !== null) return row(texAvatar(), TEX_AUTHOR, [el("span", "cm-cwerr", run.error)]);
   const step = el("span", "cm-cwstep");
-  step.append(el("span", "cm-spin"), el("span", "cm-shimmer", `${run.label || "Working"}…`));
+  step.append(el("span", "cm-spin"), el("span", "cm-shimmer", `${stepLabel(run.label, quote)}…`));
   return row(texAvatar(), TEX_AUTHOR, [step]);
 }
 
-/** The mention menu, the input and the round send button. */
+/** One engine for the window: the browser allows one recognition at a time. */
+let shared: DictationEngine | null = null;
+function dictationEngine(): DictationEngine {
+  shared ??= createDictationEngine();
+  return shared;
+}
+
+/** The mention menu, the input, the microphone and the round send button. */
 function composer(
   model: CardModel,
   actions: CardActions,
@@ -291,7 +318,15 @@ function composer(
   send.setAttribute("aria-label", "Send");
   send.append(sendIcon());
   send.addEventListener("mousedown", (event) => event.preventDefault());
-  box.append(input, send);
+  const mic = el("button", "cm-mic");
+  mic.type = "button";
+  mic.setAttribute("aria-label", "Dictate");
+  mic.setAttribute("aria-pressed", "false");
+  mic.append(micIcon());
+  mic.addEventListener("mousedown", (event) => event.preventDefault());
+  const engine = dictationEngine();
+  mic.hidden = !engine.available;
+  box.append(input, mic, send);
 
   const sync = () => {
     const value = input.value;
@@ -322,14 +357,82 @@ function composer(
     }
   };
 
+  /*
+    Live dictation (Dev2, 2026-11-21: "live dictation, and then when you pause,
+    the ability to like wait and edit or send"). The words arrive in the box as
+    they are said; Stop, or a pause the engine ends on, leaves them there to
+    edit; Enter sends, and stops the microphone first if it is still open.
+  */
+  let live = false;
+  let sendWhenDone = false;
+  let said = "";
+  let before = "";
+  const shown = (interim: string) => {
+    const tail = joinDictated(before + said, interim);
+    input.value = before + said + (interim.trim() === "" ? "" : tail);
+  };
+  const stopped = () => {
+    live = false;
+    mic.setAttribute("aria-pressed", "false");
+    mic.setAttribute("aria-label", "Dictate");
+    input.classList.remove("cm-cwin-live");
+    if (!input.isConnected) return;
+    input.value = before + said;
+    sync();
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+    if (sendWhenDone) {
+      sendWhenDone = false;
+      submit();
+    }
+  };
+  const listen = () => {
+    if (live) {
+      engine.finalize();
+      return;
+    }
+    live = true;
+    said = "";
+    before = input.value;
+    mic.setAttribute("aria-pressed", "true");
+    mic.setAttribute("aria-label", "Stop dictating");
+    input.classList.add("cm-cwin-live");
+    report(null);
+    engine.open({
+      interim: (text) => {
+        if (!input.isConnected) return engine.abandon();
+        shown(text);
+        sync();
+      },
+      final: (text) => {
+        said += joinDictated(before + said, text);
+        if (input.isConnected) shown("");
+      },
+      error: (reason) => report(reasonFor(reason, engine.unavailable)),
+      ended: stopped,
+    });
+  };
+  mic.addEventListener("click", listen);
+
   input.addEventListener("input", sync);
   input.addEventListener("keydown", (event) => {
     event.stopPropagation();
     if (event.key === "Escape") {
       event.preventDefault();
+      if (live) {
+        // Esc while the microphone is open drops what it was hearing, not the comment.
+        said = "";
+        engine.abandon();
+        return;
+      }
       actions.close();
     } else if (event.key === "Enter" && !event.isComposing) {
       event.preventDefault();
+      if (live) {
+        sendWhenDone = true;
+        engine.finalize();
+        return;
+      }
       // With the menu open, Enter takes its first choice: Tex when it is there.
       if (!menu.hidden && picks[0]) pick(picks[0].name);
       else submit();

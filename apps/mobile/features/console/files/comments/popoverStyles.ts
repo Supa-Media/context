@@ -8,6 +8,7 @@
  */
 
 import type { CommentPalette } from "./styles";
+import { MARGIN_CARD_PX as CARD, MARGIN_PX as MARGIN } from "./model";
 
 export function popoverStyles(colors: CommentPalette, font: string | undefined): string {
   return `
@@ -98,6 +99,48 @@ export function popoverStyles(colors: CommentPalette, font: string | undefined):
 .cm-send svg { width: 16px; height: 16px; }
 .cm-send:disabled { opacity: 0.35; cursor: default; }
 .cm-send:not(:disabled):active { transform: scale(0.9); }
+/* The comments margin (margin.ts): the text steps left and the threads live in a column on its right. */
+.cm-scroller.cm-cmt-margin > .cm-content {
+  padding-inline-start: max(0px, calc((100% - var(--lp-measure) * 1em - ${MARGIN}px) / 2)) !important;
+  padding-inline-end: calc(max(0px, calc((100% - var(--lp-measure) * 1em - ${MARGIN}px) / 2)) + ${MARGIN}px) !important;
+}
+.cm-cw.cm-cw-margin { width: ${CARD}px; }
+.cm-cw.cm-cw-dock { position: absolute; }
+.cm-cmargin { position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 20; font-family: ${font}; }
+.cm-cmargin-head {
+  position: absolute; top: 8px; width: ${CARD}px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: ${colors.muted};
+}
+.cm-cmargin-head b { color: ${colors.text}; font-weight: 600; }
+.cm-cmargin-toggle {
+  font: inherit; font-size: 11.5px; cursor: pointer; color: ${colors.text2};
+  border: 1px solid ${colors.line}; border-radius: 999px; padding: 2px 8px; background: ${colors.surface};
+}
+.cm-cmargin-toggle[aria-pressed="true"] { background: ${colors.chipFill}; }
+.cm-cmini {
+  position: absolute; width: ${CARD}px; box-sizing: border-box; text-align: left; cursor: pointer;
+  font: inherit; font-size: 12.5px; line-height: 1.35; color: ${colors.text2};
+  background: ${colors.surface}; border: 1px solid ${colors.line}; border-radius: 10px; padding: 8px 10px;
+  transition: top 200ms ease;
+}
+.cm-cmini:hover { border-color: ${colors.lineStrong}; }
+.cm-cmini:focus-visible { outline: 2px solid ${colors.accent}; outline-offset: 1px; }
+.cm-cmini-resolved { opacity: 0.7; }
+.cm-cmini-who { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.cm-cmini-who b { color: ${colors.text}; font-weight: 600; }
+.cm-cmini-who .cm-cmt-av { width: 18px; height: 18px; font-size: 9px; }
+.cm-cmini-more { margin-left: auto; font-size: 11px; color: ${colors.muted}; }
+.cm-cmini-more + .cm-cmini-more { margin-left: 6px; }
+.cm-cmini-body { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cm-mic {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+  color: ${colors.muted};
+}
+.cm-mic svg { width: 17px; height: 17px; }
+.cm-mic:hover { background: ${colors.chipFill}; }
+.cm-mic[aria-pressed="true"] { background: ${colors.critText}; color: ${colors.surface}; }
+.cm-cwin.cm-cwin-live { color: ${colors.text2}; }
 .cm-cmt-point { color: ${colors.accent}; cursor: pointer; user-select: none; }
 .cm-seltool {
   position: absolute; z-index: 20; box-sizing: border-box;
@@ -121,6 +164,7 @@ export function popoverStyles(colors: CommentPalette, font: string | undefined):
 @keyframes cm-pop { from { transform: translateY(4px) scale(0.97); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .cm-cw, .cm-seltool, .cm-spin, .cm-shimmer { animation: none; }
+  .cm-cmini { transition: none; }
 }
 `;
 }

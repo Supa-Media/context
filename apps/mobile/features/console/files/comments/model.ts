@@ -66,6 +66,11 @@ export function whenLabel(at: string, now: number = Date.now()): string {
  */
 export const WIDE_MIN = 460;
 
+/** The comments margin's width (`margin.ts`): the card's and its gaps. */
+export const MARGIN_PX = 320;
+/** A card's width in the comments margin. */
+export const MARGIN_CARD_PX = 296;
+
 /** Whether a pane this wide opens a thread in a card under its words (else the phone sheet). */
 export function hasMargin(width: number): boolean {
   return width >= WIDE_MIN;
