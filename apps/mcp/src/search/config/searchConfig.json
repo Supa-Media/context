@@ -105,7 +105,7 @@
         { "name": "boost", "type": "text", "optional": true },
         { "name": "workspaces", "type": "list" },
         { "name": "unreached", "type": "ids" },
-        { "name": "byWords", "type": "object" }
+        { "name": "byWords", "type": "object", "optional": true }
       ],
       "outSchema": [
         { "name": "query", "type": "text" },

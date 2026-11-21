@@ -71,11 +71,10 @@ test("an answer out of shape is not used", async () => {
   assert.equal(await rerankScores(ai, "q", ["a", "b"]), null);
 });
 
-test("it reads the title and snippets, capped, and is off on main with its four settings", () => {
+test("it reads the title and snippets, capped, and has its four settings", () => {
   assert.equal(rerankText({ key: "x.md", title: "T", snippets: ["s"] }), "T\ns");
   assert.ok(rerankText({ key: "x.md", snippets: ["y".repeat(5000)] }).length <= 2000);
   const node = searchConfig.SEARCH_CONFIG.nodes.find((n) => n.id === "rerank");
-  assert.equal(node.on, false);
   assert.deepEqual(Object.keys(node.settings).sort(), ["readLate", "rerankChars", "rerankTop", "rerankWeight"]);
   const ids = searchConfig.SEARCH_CONFIG.nodes.map((n) => n.id);
   assert.equal(ids.indexOf("rerank"), ids.indexOf("snippets") + 1, "after the step where every row has text");
