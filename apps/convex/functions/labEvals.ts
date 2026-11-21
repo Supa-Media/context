@@ -39,6 +39,11 @@ export const DEFAULT_N = 50;
 /** One person's runs waiting or running at once, and started in a day: a guard against a runaway loop. */
 export const MAX_OPEN = 3;
 export const MAX_PER_DAY = 20;
+/**
+ * A Search suite run asks no model (embeddings only, cents), so it has its own, wider daily guard: tuning search runs
+ * the sets many times a day, and a memory run's Claude spend is what MAX_PER_DAY is for.
+ */
+export const MAX_SEARCH_PER_DAY = 100;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** A run still going after this long counts as lost (the workflow's own limit is six hours). */
 export const STALE_MS = 7 * 60 * 60 * 1000;
@@ -288,7 +293,10 @@ export async function startEvalRun(ctx: MutationCtx, who: Who, a: Record<string,
     .collect();
   const open = mine.filter((r) => (r.stage === "queued" || r.stage === "running") && !lost(r, now));
   if (open.length >= MAX_OPEN) return { status: "refused", error: `you already have ${open.length} eval runs waiting or running (at most ${MAX_OPEN}): wait for one to finish` };
-  if (mine.length >= MAX_PER_DAY) return { status: "refused", error: `you have started ${MAX_PER_DAY} eval runs in the last day, the most a day allows` };
+  const isSearch = (id: string) => EVAL_BENCHES.find((b) => b.id === id)?.search === true;
+  const sameKind = mine.filter((r) => isSearch(r.bench) === bench.search);
+  const most = bench.search ? MAX_SEARCH_PER_DAY : MAX_PER_DAY;
+  if (sameKind.length >= most) return { status: "refused", error: `you have started ${most} ${bench.search ? "search" : "memory"} eval runs in the last day, the most a day allows` };
   const runId = await ctx.db.insert("labEvalRuns", {
     bench: bench.id,
     n,
