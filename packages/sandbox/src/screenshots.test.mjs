@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LAYOUTS, parseShots } from "./screenshots.mjs";
+import { LAYOUTS, authStorage, convexUrlOf, parseShots } from "./screenshots.mjs";
 
 test("shots are paths with steps, named in order", () => {
   const shots = parseShots("/; /files/a.md | click:frame-aside-toggle | wait:800 | key:Control+L | type:hello");
@@ -33,4 +33,14 @@ test("steps are the four kinds, with bounded waits and plain testIDs", () => {
 test("an empty list is the home page, and every layout Dev2 uses is taken", () => {
   assert.deepEqual(parseShots("").map((shot) => shot.path), ["/"]);
   assert.deepEqual(LAYOUTS.map((layout) => layout.name), ["desktop", "medium", "phone"]);
+});
+
+test("the tokens land where @convex-dev/auth reads them on the web", () => {
+  const url = convexUrlOf("happy-otter-123");
+  assert.equal(url, "https://happy-otter-123.convex.cloud");
+  assert.deepEqual(authStorage({ url, token: "jwt", refreshToken: "rt" }), {
+    __convexAuthJWT_httpshappyotter123convexcloud: "jwt",
+    __convexAuthRefreshToken_httpshappyotter123convexcloud: "rt",
+  });
+  assert.throws(() => convexUrlOf("evil.example/x"), /Not a preview deployment/);
 });
