@@ -138,7 +138,7 @@ export function RunNightly() {
   const sb = useSandbox();
   const busy = sb.busy || sb.running !== null;
   return (
-    <>
+    <div className="modes" role="group" aria-label="Run the nightly">
       {(["dream", "housekeeping"] as const).map((which) => (
         <button
           key={which}
@@ -150,7 +150,7 @@ export function RunNightly() {
           {busy ? "Running…" : which === "dream" ? "Run now" : "Run housekeeping"}
         </button>
       ))}
-    </>
+    </div>
   );
 }
 
