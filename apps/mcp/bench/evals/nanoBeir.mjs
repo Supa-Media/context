@@ -7,7 +7,8 @@
  * a corpus, queries and the documents judged relevant to each query ("qrels"), scored by nDCG@10. MTEB's retrieval
  * tab is BEIR. NanoBEIR (Zeta Alpha, 2024) cuts 13 of them to 50 queries and a corpus of a few thousand documents
  * (every relevant one kept, the rest BM25's top hits for the queries, so the distractors are hard). Sentence
- * Transformers' `NanoBEIREvaluator` reads the `sentence-transformers/Nano<Set>-bm25` copies used here, which also
+ * Transformers' `NanoBEIREvaluator` reads the `sentence-transformers/Nano<Set>-bm25` copies used here (their parquet
+ * files, pinned to the revision the Hub names), which also
  * carry BM25's own ranking of every query: the same qrels scored on BM25's list give a published reference row.
  *
  * One set is one world: Sam's empty personal workspace, every document one note (`beir/<doc id>.md`, its title as the
@@ -60,8 +61,7 @@ export const K = 10;
 /** The folder a set's documents are notes in, under Sam's personal workspace. */
 export const DOC_FOLDER = "beir";
 
-const ROWS = "https://datasets-server.huggingface.co/rows";
-const PAGE = 100;
+const HF = "https://huggingface.co";
 const WAITS_MS = [2_000, 5_000, 15_000, 30_000];
 const say = (line) => process.stderr.write(`${line}\n`);
 
@@ -71,22 +71,36 @@ export function fileOf(id) {
   return name || "doc";
 }
 
-/** Every row of one config of a set, from the Hugging Face dataset viewer, a page at a time, retried when busy. */
-async function rowsOf(repo, config, { fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
-  const rows = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const url = `${ROWS}?dataset=${encodeURIComponent(repo)}&config=${config}&split=train&offset=${offset}&length=${PAGE}`;
-    let page = null;
-    for (let tried = 0; page === null; tried += 1) {
-      const response = await fetchImpl(url).catch((error) => ({ ok: false, status: String(error?.message ?? error) }));
-      if (response.ok) page = await response.json();
-      else if (tried >= WAITS_MS.length) throw new Error(`${repo} ${config} rows at ${offset}: ${response.status}`);
-      else await sleep(WAITS_MS[tried]);
-    }
-    const got = (page.rows ?? []).map((r) => r.row);
-    rows.push(...got);
-    if (got.length < PAGE) return rows;
+/** A fetch tried again on a failed answer or a dropped connection: the Hub is a CDN, but a run must not die of one 503. */
+async function fetchOk(url, { fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  for (let tried = 0; ; tried += 1) {
+    const response = await fetchImpl(url).catch((error) => ({ ok: false, status: String(error?.message ?? error) }));
+    if (response.ok) return response;
+    if (tried >= WAITS_MS.length) throw new Error(`${url}: ${response.status}`);
+    await sleep(WAITS_MS[tried]);
   }
+}
+
+/** Parquet bytes as row objects (hyparquet: pure JavaScript, no native code, bench only). */
+async function readParquet(bytes) {
+  const { parquetReadObjects } = await import("hyparquet");
+  return parquetReadObjects({ file: bytes });
+}
+
+/**
+ * Every row of one config of a set: its parquet files in the set's own repository at one revision, downloaded whole
+ * from the Hub. (The dataset viewer's paged rows API was tried first: on GitHub's runners it slowed to minutes per set
+ * and answered 503, 2026-11-21.)
+ */
+async function rowsOf(repo, revision, files, config, options = {}) {
+  const parts = files.filter((f) => f.startsWith(`${config}/`) && f.endsWith(".parquet")).sort();
+  if (parts.length === 0) throw new Error(`${repo} has no ${config}/*.parquet`);
+  const rows = [];
+  for (const path of parts) {
+    const response = await fetchOk(`${HF}/datasets/${repo}/resolve/${revision}/${path}`, options);
+    rows.push(...(await (options.readParquet ?? readParquet)(await response.arrayBuffer())));
+  }
+  return rows;
 }
 
 /**
@@ -99,14 +113,15 @@ export async function loadNanoSet(setId, dir, options = {}) {
   if (!set) throw new Error(`no NanoBEIR set ${setId}: one of ${NANO_SETS.map((s) => s.id).join(", ")}`);
   const file = join(dir, `nanobeir-${set.id}.json`);
   if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8"));
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const info = await fetchImpl(`https://huggingface.co/api/datasets/${set.repo}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const [corpus, queries, relevance] = [await rowsOf(set.repo, "corpus", options), await rowsOf(set.repo, "queries", options), await rowsOf(set.repo, "relevance", options)];
+  const info = await (await fetchOk(`${HF}/api/datasets/${set.repo}`, options)).json();
+  const revision = typeof info?.sha === "string" && /^[0-9a-f]{40}$/.test(info.sha) ? info.sha : "main";
+  const files = (info?.siblings ?? []).map((f) => f?.rfilename).filter((f) => typeof f === "string");
+  const [corpus, queries, relevance] = [await rowsOf(set.repo, revision, files, "corpus", options), await rowsOf(set.repo, revision, files, "queries", options), await rowsOf(set.repo, revision, files, "relevance", options)];
   const rel = new Map(relevance.map((r) => [String(r["query-id"]), r]));
   const data = {
     id: set.id,
     repo: set.repo,
-    revision: typeof info?.sha === "string" ? info.sha : null,
+    revision: revision === "main" ? null : revision,
     corpus: corpus.map((d) => ({ id: String(d._id), title: typeof d.title === "string" ? d.title : "", text: String(d.text ?? "") })),
     queries: queries
       .map((q) => {
