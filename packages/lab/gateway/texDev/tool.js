@@ -50,7 +50,7 @@ function parseGraph(text) {
  * The tool's work for one connection. `call(action, args)` answers an MCP result. `env` is the gateway's, `session`
  * the connection's (its token goes to the control plane, which decides who it is), `sleep` for tests.
  */
-export function createTexDev({ env, session, controlPlane, defer = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined, noteRuns = null }) {
+export function createTexDev({ env, session, controlPlane, defer = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined, noteRuns = null, noteRun = null }) {
   const origin = appOriginOf(env) || "https://context.lc";
   const linkOf = (id) => `${origin}/lab?v=${id}`;
 
@@ -398,6 +398,18 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         if (args?.op === "note_runs") {
           const listed = noteRuns === null ? { error: "note_runs is not available here" } : await noteRuns(args);
           return listed.error ? toolError(listed.error) : json(listed);
+        }
+        // `note_run`: one ask run as the app's note comments run it, on a draft's `noteRun` node (`agent/noteRunLab.js`).
+        if (args?.op === "note_run") {
+          if (noteRun === null) return toolError("note_run is not available on this connection. Use the gateway's own tex_dev, then try again.");
+          let draftNode = null;
+          if (typeof args.draft === "string" && args.draft !== "" && args.draft !== "main") {
+            const { graph, error } = await draftGraph(args.draft);
+            if (error) return error;
+            draftNode = (graph?.nodes ?? []).find((node) => node?.id === "noteRun") ?? null;
+          }
+          const ran = await noteRun(args, draftNode);
+          return ran.error ? toolError(ran.error) : json(ran);
         }
         const answer = await sandbox(args ?? {});
         return answer?.error ? toolError(answer.error) : answer?.tool ? answer.tool : json(answer);

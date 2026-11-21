@@ -417,3 +417,15 @@ export async function replayAsAsked(store, session, record, work) {
     store.actor = asked;
   }
 }
+
+/** Which of these asks were settled approved within the hour a result is kept (`DONE_TTL_MS`): the app chat's card says Sent. */
+export async function settledApprovedIds(store, ids) {
+  const keys = await listAllKeysWithLegacy(store, DONE_PREFIX);
+  return new Set(ids.filter((id) => keys.some(({ key }) => key.endsWith(`-${id}.json`))));
+}
+
+/** The in-app card's edit of a held email's body (`heldEdit.js`), loaded on use: it reads the email gate, which reads this file. */
+export async function reviseHeldEmail(store, id, options) {
+  const { reviseHeldEmail: revise } = await import("./heldEdit.js");
+  return await revise(store, id, options);
+}

@@ -18,7 +18,7 @@ import { describe, it } from "node:test";
 import { handleAppChat } from "../../../packages/tex/gateway/agent/appChatRoute.js";
 import { EDIT_WINDOW_MS, buildRows, ledgerEntries } from "../../../packages/tex/gateway/agent/appChatRows.js";
 import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
-import { serveAppArrive, serveAppOutbox } from "../../../packages/tex/gateway/texChat/appChat.js";
+import { serveAppArrive, serveAppCard, serveAppOutbox } from "../../../packages/tex/gateway/texChat/appChat.js";
 
 const USER = "k7m2q9x4b8n3c6v1";
 const CHAT = `app:${USER}`;
@@ -528,5 +528,62 @@ describe("buildRows: a file row", () => {
     assert.equal(gone.unsent, true);
     assert.equal(gone.files, undefined);
     assert.equal(gone.pics, undefined);
+  });
+});
+
+describe("the app chat's cards", () => {
+  const card = (body) => new Request("https://chat/app/card", { method: "POST", body: JSON.stringify(body) });
+  const ASK = "abcdefgh12";
+  function placed() {
+    const storage = memoryStorage();
+    storage.map.set("__inbox_name", CHAT);
+    return { storage, blockConcurrencyWhile: (run) => run() };
+  }
+
+  it("keeps an ask's card under its id, and the outbox answers it by ask id", async () => {
+    const s = placed();
+    const answer = await serveAppCard(card({ inbox: CHAT, ask: ASK, state: "held", body: "Edited" }), { state: s, now: () => NOW });
+    assert.equal(answer.status, 200);
+    assert.deepEqual(await answer.json(), { ok: true });
+    assert.deepEqual(await s.storage.get(`app:card:${ASK}`), { state: "held", at: NOW, body: "Edited" });
+    const outbox = await (await serveAppOutbox(s.storage)).json();
+    assert.deepEqual(outbox.cards, { [ASK]: { state: "held", at: NOW, body: "Edited" } });
+  });
+
+  it("answers no cards for a chat never placed", async () => {
+    const outbox = await (await serveAppOutbox(memoryStorage())).json();
+    assert.deepEqual(outbox.cards, {});
+  });
+
+  it("is kept only for this object's own chat, never another's or one never placed", async () => {
+    const s = placed();
+    const other = await serveAppCard(card({ inbox: "app:a0000000000000000b", ask: ASK, state: "sent" }), { state: s, now: () => NOW });
+    assert.equal(other.status, 400);
+    assert.equal(await s.storage.get(`app:card:${ASK}`), undefined);
+    const phone = await serveAppCard(card({ inbox: "+15555550101", ask: ASK, state: "sent" }), { state: s, now: () => NOW });
+    assert.equal(phone.status, 400);
+    const unplaced = { storage: memoryStorage(), blockConcurrencyWhile: (run) => run() };
+    assert.equal((await serveAppCard(card({ inbox: CHAT, ask: ASK, state: "sent" }), { state: unplaced, now: () => NOW })).status, 400);
+  });
+
+  it("refuses an ask id that is not an ask's, a state that is not a card's, and a body that is not text or is too long", async () => {
+    const s = placed();
+    const bad = [
+      { ask: "short", state: "held" },
+      { ask: "has space!!", state: "held" },
+      { ask: "x".repeat(65), state: "held" },
+      { ask: ASK, state: "wait" },
+      { ask: ASK, state: "held", body: 42 },
+      { ask: ASK, state: "held", body: "b".repeat(24_001) },
+    ];
+    for (const body of bad) assert.equal((await serveAppCard(card({ inbox: CHAT, ...body }), { state: s, now: () => NOW })).status, 400, JSON.stringify(body));
+    assert.equal((await serveAppCard(new Request("https://chat/app/card", { method: "POST", body: "[1]" }), { state: s, now: () => NOW })).status, 400);
+    assert.equal(await s.storage.get(`app:card:${ASK}`), undefined);
+  });
+
+  it("counts against no send, so it leaves the day's sends where they were", async () => {
+    const s = placed();
+    await serveAppCard(card({ inbox: CHAT, ask: ASK, state: "sending" }), { state: s, now: () => NOW });
+    assert.equal(await s.storage.get("app:sends"), undefined);
   });
 });
