@@ -1,14 +1,14 @@
 /**
- * AN APP CHAT'S TURN GOES OVER A HOP, AS A PHONE'S DOES.
+ * EVERY CHAT'S TURN GOES OVER A HOP, AS A PHONE'S DOES FROM THE WORKER.
  *
  * Dev2's 8:25 AM app text (2026-11-20): the app chat's `TexChat` object ran the whole turn in-process and its isolate ran
  * out of memory before the reply went. Dev2 chose the phone's route: the turn (`POST <gateway>/agent`) leaves the
  * object over the network, and only the gateway's smaller routes stay in-process.
  *
- * Sabotage checked: making `isTurnCall` always false fails "the turn goes over the hop"; dropping the `app &&` guard
- * fails "a phone chat's turn stays in-process"; calling `inProcess()` without the kept clone fails "a hop that throws";
- * dropping `turnsHop` from the condition fails "a background job's part goes over the hop" (three `TexJob` `/job-pass`
- * memory resets, 2026-11-20 and 11-21).
+ * Sabotage checked: making `isTurnCall` always false fails "the turn goes over the hop"; putting an app-only guard back
+ * fails "a phone chat's turn goes over the hop too", "a group chat's ..." and "a background job's part ..." (three
+ * `TexJob` `/job-pass` memory resets, 2026-11-20 and 11-21); calling `inProcess()` without the kept clone fails "a hop
+ * that throws". Dev2 2026-11-21: one path for every chat's turn.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -48,17 +48,26 @@ describe("an app chat's turn", () => {
     assert.deepEqual(local, ["/agent/steer", "/agent/events"]);
   });
 
-  it("a phone chat's turn stays in-process", async () => {
+  it("a phone chat's turn goes over the hop too", async () => {
     const hopped = [];
-    const { env, local } = await envFor("+15555550100", async (request) => (hopped.push(request.url), new Response(null)));
+    const { env, local } = await envFor("+15555550100", async (request) => (hopped.push(request.url), Response.json({ hop: true })));
     await env.FETCH(`${SELF}/agent`, { method: "POST", body: "{}" });
-    assert.deepEqual(hopped, []);
-    assert.deepEqual(local, ["/agent"]);
+    await env.FETCH(`${SELF}/agent/steer`, { method: "POST", body: "{}" });
+    assert.deepEqual(hopped, [`${SELF}/agent`]);
+    assert.deepEqual(local, ["/agent/steer"]);
   });
 
-  it("a background job's part goes over the hop, as the job's object asks it (`texJob.js`)", async () => {
+  it("a group chat's turn goes over the hop too", async () => {
     const hopped = [];
-    const { env, local } = await envFor("job:0b7c2f4e-1111-4222-8333-944455556666", async (request) => (hopped.push(request.url), Response.json({ hop: true })), { jobsHere: true, turnsHop: true });
+    const { env, local } = await envFor("group:0b7c2f4e11114222", async (request) => (hopped.push(request.url), Response.json({ hop: true })));
+    await env.FETCH(`${SELF}/agent?group=1`, { method: "POST", body: "{}" });
+    assert.deepEqual(hopped, [`${SELF}/agent?group=1`]);
+    assert.deepEqual(local, []);
+  });
+
+  it("a background job's part goes over the hop (`texJob.js`)", async () => {
+    const hopped = [];
+    const { env, local } = await envFor("job:0b7c2f4e-1111-4222-8333-944455556666", async (request) => (hopped.push(request.url), Response.json({ hop: true })), { jobsHere: true });
     await env.FETCH(`${SELF}/agent`, { method: "POST", body: "{}" });
     await env.FETCH(`${SELF}/agent/steer`, { method: "POST", body: "{}" });
     assert.deepEqual(hopped, [`${SELF}/agent`]);
