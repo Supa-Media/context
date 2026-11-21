@@ -114,10 +114,21 @@ test("a ranking takes a draft's knobs that are in bounds and keeps the rest", ()
   assert.equal(rankingOf({ hits: 3 }, FUSE_RANKING).hits, 3);
 });
 
+/** The steps a run went through on its `wait` wires, and how often each step "Search each workspace" calls ran. */
+const pathOf = (runs) => runs.filter((r) => !String(r.via).endsWith(":uses")).map((r) => [r.node, r.ok]);
+const callsOf = (runs) => {
+  const out = {};
+  for (const r of runs) if (r.via === "each:uses") out[r.node] = (out[r.node] ?? 0) + 1;
+  return out;
+};
+
 test("searched across workspaces, the run is search, each, fuse, read from the config's wires", async () => {
   const runs = [];
   const found = await findNotes(setup(), "private", [], new Map(), "renewal", "", { log: (row) => runs.push(row) });
-  assert.deepEqual(runs.map((r) => [r.node, r.ok]), [["search", true], ["each", true], ["fuse", true]]);
+  assert.deepEqual(pathOf(runs), [["search", true], ["each", true], ["fuse", true]]);
+  // Every workspace goes through each of its steps once, each a run of its own the Lab shows (Dev2, 2026-11-21).
+  assert.deepEqual(callsOf(runs), { open: 2, words: 2, meaning: 2, merge: 2, prior: 2, snippets: 2 });
+  assert.ok(runs.every((r) => r.ok), "every step ran");
   assert.deepEqual(found.searched, ["@me", "@ops"]);
   assert.ok(found.hits.some((hit) => hit.key.startsWith("@ops/")));
   assert.ok(found.hits.length >= 4);
@@ -126,7 +137,8 @@ test("searched across workspaces, the run is search, each, fuse, read from the c
 test("a folder keeps a search here: search, each, and no fuse", async () => {
   const runs = [];
   const found = await findNotes(setup(), "private", [], new Map(), "renewal", "projects", { log: (row) => runs.push(row) });
-  assert.deepEqual(runs.map((r) => r.node), ["search", "each"]);
+  assert.deepEqual(pathOf(runs).map(([node]) => node), ["search", "each"]);
+  assert.deepEqual(callsOf(runs), { open: 1, words: 1, meaning: 1, merge: 1, prior: 1, snippets: 1 });
   assert.deepEqual(found.hits.map((hit) => hit.key), ["projects/renewal.md"]);
 });
 

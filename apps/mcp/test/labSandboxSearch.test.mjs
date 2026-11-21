@@ -105,8 +105,9 @@ test("searchInput checks the query and the only list", () => {
 test("draftSearchOf: no search steps is null; a sound config is kept; a broken one names its problem", () => {
   assert.deepEqual(draftSearchOf({ nodes: [{ id: "fd" }], edges: [] }), { config: null });
   const sound = labSearchGraph(SEARCH_CONFIG);
-  assert.equal(draftSearchOf(sound).config.nodes.length, 3);
-  assert.match(draftSearchOf(labSearchGraph(configWith("each", { minScore: 9 }))).error, /minScore/);
+  assert.equal(draftSearchOf(sound).config.nodes.length, SEARCH_CONFIG.nodes.length);
+  assert.equal(draftSearchOf(sound).config.edges.filter((e) => e.mode === "uses").length, 6, "the uses wires go to the Lab and back");
+  assert.match(draftSearchOf(labSearchGraph(configWith("meaning", { minScore: 9 }))).error, /minScore/);
 });
 
 test("the settings that differ from main are named per step", () => {
@@ -174,7 +175,12 @@ test("a try-out answers main and the draft, ranked, with each step's time, and n
   const config = configWith("fuse", { hits: 2 });
   const answer = await searchAnswer({ store, scope: "private", rules: [], overrides: new Map(), query: "renewal", config });
   assert.equal(answer.query, "renewal");
-  assert.deepEqual(answer.main.steps.map((s) => s.node), ["search", "each", "fuse"], "a search across workspaces runs fuse");
+  const path = answer.main.steps.filter((s) => !s.workspace).map((s) => s.node);
+  assert.deepEqual(path, ["search", "each", "fuse"], "a search across workspaces runs fuse");
+  // Each workspace's own steps, named by workspace, so the Lab shows where a search spent its time.
+  const perWorkspace = answer.main.steps.filter((s) => s.workspace);
+  assert.deepEqual([...new Set(perWorkspace.map((s) => s.workspace))].sort(), ["@me", "@ops"]);
+  assert.deepEqual([...new Set(perWorkspace.map((s) => s.node))].sort(), ["meaning", "merge", "open", "prior", "snippets", "words"]);
   assert.deepEqual(answer.main.searched, ["@me", "@ops"]);
   assert.ok(answer.main.steps.every((s) => s.ok === true && typeof s.ms === "number"));
   assert.ok(answer.main.hits.length > 2, "main shows its whole fused list");

@@ -216,6 +216,19 @@ export async function meaningMatches(
  * @returns {Array<{key: string, word: object|null, meaning: object|null}>}
  */
 export function mergeHits(wordHits, matches, keyField = "key", query = undefined, ranking = DEFAULT_RANKING) {
+  return lowerByPrior(scoreHits(wordHits, matches, keyField, query, ranking), ranking).map(({ key, word, meaning }) => ({ key, word, meaning }));
+}
+
+/** The weak entries (a loose word hit meaning did not find) go last, then by score, ties in the lists' order. */
+const weakFirstLast = (entry) => (entry.loose && entry.meaning === null ? 1 : 0);
+const byScoreThenOrder = (a, b) => weakFirstLast(a) - weakFirstLast(b) || b.score - a.score || a.order - b.order;
+
+/**
+ * Search step "Merge words and meaning" (`merge`): `mergeHits` before the path prior. Every entry carries its fused
+ * `score` (reciprocal ranks plus title and phrase evidence), its `order` in the two lists and whether it is `loose`,
+ * sorted by them, so the Lab shows what each note scored and the next step can scale it.
+ */
+export function scoreHits(wordHits, matches, keyField = "key", query = undefined, ranking = DEFAULT_RANKING) {
   // Reciprocal-rank constant (`ranking.rrfK`, the usual 60), so neither list's top dominates.
   const RRF_K = ranking.rrfK;
   const merged = new Map();
@@ -252,14 +265,16 @@ export function mergeHits(wordHits, matches, keyField = "key", query = undefined
       });
     }
   });
-  // The path prior scales the fused score (`search/priors.js`): an archived
-  // note or a log places below a live one with the same evidence. It only
-  // reorders; the sort below keeps the loose-hit rule and the tie order.
-  for (const entry of merged.values()) entry.score *= notePrior(entry.key, ranking);
-  const weak = (entry) => (entry.loose && entry.meaning === null ? 1 : 0);
-  return [...merged.values()]
-    .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
-    .map(({ key, word, meaning }) => ({ key, word, meaning }));
+  return [...merged.values()].sort(byScoreThenOrder);
+}
+
+/**
+ * Search step "Lower logs and archive" (`prior`): the path prior scales each fused score (`search/priors.js`), so an
+ * archived note or a log places below a live one with the same evidence. It only reorders; the sort keeps the
+ * loose-hit rule and the tie order. Entries are `scoreHits`'s; new entries come back, the given ones untouched.
+ */
+export function lowerByPrior(entries, ranking = DEFAULT_RANKING) {
+  return entries.map((entry) => ({ ...entry, score: entry.score * notePrior(entry.key, ranking) })).sort(byScoreThenOrder);
 }
 
 /**
@@ -361,13 +376,19 @@ async function snippetsFor(store, reading, chars, given) {
  * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number, query?: string | null,
  *   projection?: {client: () => object, filling: boolean} }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection, query, ranking: given } = {}) {
-  const settings = searchSettingsOf(store);
-  // The merge's knobs (`../ranking.js`): the search graph's "Search each workspace" step hands its own; main's otherwise.
+export async function withMeaning(store, found, matches, options = {}) {
+  return addMeaningOnly(store, lowerLogs(mergeWithMeaning(found, matches, options), options.ranking), options);
+}
+
+/**
+ * Search step "Merge words and meaning" (`merge`), the first part of `withMeaning`: a search probe dropped from the
+ * word hits, the meaning matches kept that may join (once the words found a note with every word, only a close one,
+ * `ranking.meaningFloor`), and the two lists fused by `scoreHits`. `entries` is null when meaning found nothing or was
+ * off (`meaning` says which), and the word hits then stand as they are.
+ */
+export function mergeWithMeaning(found, matches, { keyField = "key", query, ranking: given } = {}) {
+  // The merge's knobs (`../ranking.js`): the search graph's "Merge words and meaning" step hands its own; main's otherwise.
   const ranking = rankingOf(given);
-  const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
-  const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
-  const prose = typeof query === "string" && query.trim() !== "" && !queryLooksLikeCode(query);
   // A search probe is a benchmark's tool, read from the index by id, never an
   // answer: dropped from the word hits here as `meaningMatches` drops it from
   // the meaning matches (`../priors.js`).
@@ -375,34 +396,54 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
     const hits = found.hits.filter((hit) => !isSearchProbe(hit[keyField]));
     found = { ...found, hits, matchCount: Math.max(0, (found.matchCount ?? hits.length) - (found.hits.length - hits.length)) };
   }
-  if (!matches || matches.length === 0) {
+  if (!matches || matches.length === 0) return { found, entries: null, meaning: matches ? "none" : "off" };
+  // `every` of none is true: a word search that found nothing is the loosest.
+  const loosest = found.hits.every((hit) => hit.loose === true);
+  const wordRanks = new Set(found.hits.map((hit) => hit[keyField]));
+  // Words found notes with every word: a note only meaning found has to be
+  // close to be worth a row (`MEANING_EXTRA_FLOOR_WITH_WORDS`).
+  const kept = loosest ? matches : matches.filter((match) => wordRanks.has(match.path) || match.score >= ranking.meaningFloor);
+  return { found, entries: scoreHits(found.hits, kept, keyField, query, ranking), meaning: "on" };
+}
+
+/** Search step "Lower logs and archive" (`prior`) on a merge: its entries rescored by the path prior. */
+export function lowerLogs(merged, ranking = undefined) {
+  return merged.entries ? { ...merged, entries: lowerByPrior(merged.entries, rankingOf(ranking)) } : merged;
+}
+
+/**
+ * Search step "Add meaning-only notes" (`snippets`), the last part of `withMeaning`: the notes only meaning found are
+ * read for a snippet, at most `extraNotes` of them (`looseReads` when no note held every word), a code passage is
+ * not offered for a prose question, and the answer takes the word search's hit shape, each hit's evidence beside it.
+ */
+export async function addMeaningOnly(store, merged, { keyField = "key", extraNotes, snippetChars, projection, query, ranking: given } = {}) {
+  const settings = searchSettingsOf(store);
+  const ranking = rankingOf(given);
+  const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
+  const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
+  const prose = typeof query === "string" && query.trim() !== "" && !queryLooksLikeCode(query);
+  const { found, entries } = merged;
+  if (entries === null) {
     // `loose` is a ranking signal, never part of the answer; it and the word
     // rank ride beside the hits as `evidence`, for a search across
     // workspaces (`tools/search.js`) to rank by.
     const hits = found.hits.map(({ loose: _loose, ...hit }) => hit);
     const evidence = Object.fromEntries(found.hits.map((hit, rank) => [hit[keyField], { wordRank: rank, loose: hit.loose === true, meaningScore: null }]));
-    return { ...found, hits, evidence, meaning: matches ? "none" : "off" };
+    return { ...found, hits, evidence, meaning: merged.meaning };
   }
-  // `every` of none is true: a word search that found nothing is the loosest.
   const loosest = found.hits.every((hit) => hit.loose === true);
   const readCap = loosest ? Math.max(most, ranking.looseReads) : most;
   const wordRanks = new Map(found.hits.map((hit, rank) => [hit[keyField], rank]));
-  // Words found notes with every word: a note only meaning found has to be
-  // close to be worth a row (`MEANING_EXTRA_FLOOR_WITH_WORDS`).
-  const kept = loosest
-    ? matches
-    : matches.filter((match) => wordRanks.has(match.path) || match.score >= ranking.meaningFloor);
-  const merged = mergeHits(found.hits, kept, keyField, query, ranking);
   // The notes read for a snippet, all at once: one after another they were a
   // read's wait each, up to six in a row per workspace.
-  const reading = merged.filter((entry) => !entry.word).slice(0, readCap);
+  const reading = entries.filter((entry) => !entry.word).slice(0, readCap);
   const reads = await snippetsFor(store, reading, chars, projection);
   const out = [];
   // The evidence behind each hit, beside the hits rather than on them: a
   // search across workspaces (`tools/search.js`) ranks by it, since one
   // workspace's first word hit and another's are not the same strength.
   const evidence = {};
-  for (const entry of merged) {
+  for (const entry of entries) {
     // A passage of code found only by meaning is not offered for a prose question, as `fuseEverywhere` drops it.
     if (!entry.word && prose && looksLikeCode((reads.get(entry)?.snippets ?? []).join(" "))) continue;
     evidence[entry.key] = {

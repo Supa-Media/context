@@ -38,13 +38,20 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
 /** Which settings each step reads: a setting on a step that does not read it would be a knob that does nothing. */
 const SETTINGS_OF = Object.freeze({
   search: Object.freeze([]),
-  each: Object.freeze(["minScore", "extraNotes", "snippetChars", "looseReads", "meaningFloor", "rrfK", "titleWeight", "phraseBonus", "logPrior"]),
+  each: Object.freeze([]),
+  open: Object.freeze([]),
+  words: Object.freeze([]),
+  meaning: Object.freeze(["minScore"]),
+  merge: Object.freeze(["meaningFloor", "rrfK", "titleWeight", "phraseBonus"]),
+  prior: Object.freeze(["logPrior"]),
+  snippets: Object.freeze(["extraNotes", "snippetChars", "looseReads"]),
   fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior"]),
 });
 
 const NODE_KEYS = Object.freeze(["id", "label", "goal", "on", "model", "kind", "icon", "file", "note", "x", "y", "group", "settings", "inSchema", "outSchema", "log"]);
 const EDGE_KEYS = Object.freeze(["from", "to", "mode", "when"]);
-const MODES = Object.freeze(["wait"]);
+/** `wait`: the next step runs on this one's output. `uses`: "Search each workspace" calls the step once per workspace. */
+const MODES = Object.freeze(["wait", "uses"]);
 
 /** Why one setting's value is refused, or null when it may be used. */
 function settingProblem(name, value) {
@@ -96,7 +103,7 @@ function searchConfigProblems(config) {
       continue;
     }
     for (const k of Object.keys(e)) if (!EDGE_KEYS.includes(k)) out.push(`the wire ${name} has a field the search schema does not know: ${k}`);
-    if (!MODES.includes(e.mode)) out.push(`the wire ${name} has mode "${e.mode}": search wires wait (${MODES.join(", ")})`);
+    if (!MODES.includes(e.mode)) out.push(`the wire ${name} has mode "${e.mode}": search wires are ${MODES.join(" or ")}`);
     if (!Array.isArray(e.when) || e.when.length === 0) out.push(`the wire ${name} needs a when list`);
   }
   return out;

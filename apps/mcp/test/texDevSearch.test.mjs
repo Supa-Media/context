@@ -29,7 +29,7 @@ test("the guide names search and every other architecture's own config", () => {
   const text = typeof guideText === "function" ? guideText() : String(guideText);
   assert.match(text, /`search` \{ draft\?, query, only\? \}/);
   assert.match(text, /Search \(graph "search", apps\/mcp\/src\/search\/config\/searchConfig\.json\)/);
-  assert.match(text, /### Search graph \(3 steps/);
+  assert.match(text, /### Search graph \(9 steps/);
 });
 
 test("a search with no query, or a draft that is not a draft id, is refused before the Lab is asked", async () => {

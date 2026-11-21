@@ -33,15 +33,16 @@
 import searchConfig from "./config/searchConfig.cjs";
 
 const { SEARCH_SETTINGS_BOUNDS, settingsOf } = searchConfig;
-// The three numbers' defaults are the "Search each workspace" step's settings in search's config
-// (`config/searchConfig.json`; Dev2, 2026-11-21), which a Lab draft can change.
-const EACH = settingsOf("each");
+// The three numbers' defaults are settings of search's steps in its config (`config/searchConfig.json`; Dev2,
+// 2026-11-21), which a Lab draft can change: "Find by meaning" (`meaning`) and "Add meaning-only notes" (`snippets`).
+const MEANING = settingsOf("meaning");
+const SNIPPETS = settingsOf("snippets");
 
 export const DEFAULT_SEARCH_SETTINGS = Object.freeze({
   everywhere: true,
-  minScore: EACH.minScore,
-  extraNotes: EACH.extraNotes,
-  snippetChars: EACH.snippetChars,
+  minScore: MEANING.minScore,
+  extraNotes: SNIPPETS.extraNotes,
+  snippetChars: SNIPPETS.snippetChars,
 });
 
 const BOUNDS = {

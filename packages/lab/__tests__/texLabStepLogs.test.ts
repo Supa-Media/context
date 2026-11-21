@@ -66,6 +66,13 @@ const entries: LedgerEntry[] = [
   // Search's steps log each run as a node run (Dev2, 2026-11-21): what went in, what came out, and its own time.
   run("search", { query: "trip", prefix: "", only: null, role: "owner" }, { to: "each", query: "trip", prefix: "", names: ["ws_1"], here: true }),
   run("each", { query: "trip", names: ["ws_1"] }, { hits: [{ ws: "ws_1", path: "areas/trips/plan.md", words: 0.8 }] }),
+  // "Search each workspace" calls its steps once per workspace, each a node run of its own.
+  run("open", { workspace: "@me", here: true }, { workspace: "@me", reached: true, scope: "private", rules: 0 }),
+  run("words", { workspace: "@me", here: true, query: "trip", prefix: "" }, { found: { hits: [{ key: "areas/trips/plan.md" }], matchCount: 1 } }),
+  run("meaning", { workspace: "@me", here: true, query: "trip", prefix: "" }, { matches: [{ path: "areas/trips/plan.md", score: 0.7 }], off: false }),
+  run("merge", { workspace: "@me", found: { hits: [{ key: "areas/trips/plan.md" }] }, matches: [], off: false }, { merged: { entries: [{ key: "areas/trips/plan.md", score: 0.03 }] } }),
+  run("prior", { workspace: "@me", merged: { entries: [{ key: "areas/trips/plan.md", score: 0.03 }] } }, { merged: { entries: [{ key: "areas/trips/plan.md", score: 0.03 }] } }),
+  run("snippets", { workspace: "@me", merged: { entries: [{ key: "areas/trips/plan.md", score: 0.03 }] } }, { found: { hits: [{ key: "areas/trips/plan.md" }] } }),
   run("fuse", { hits: [{ ws: "ws_1", path: "areas/trips/plan.md", words: 0.8 }] }, { hits: [{ ws: "ws_1", path: "areas/trips/plan.md", score: 0.9 }] }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
   e({ kind: "brief", turn: T, asker: "seyi", ask: "plan the trip", tools: [], waiting: [] }),
