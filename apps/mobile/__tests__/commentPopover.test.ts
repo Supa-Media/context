@@ -262,3 +262,34 @@ describe("the selection toolbar", () => {
     expect(toolbar().hidden).toBe(true);
   });
 });
+
+describe("the card's subtitle", () => {
+  // Dev2's mock (2026-11-20): the header says Tex is in the thread as soon as a
+  // message asks it, before Tex has written a word.
+  const { buildCard } = jest.requireActual<typeof import("../features/console/files/comments/popoverDom")>("../features/console/files/comments/popoverDom");
+  const thread = (text: string) =>
+    parseComments(`<!--c:abcd-->x<!--/c:abcd-->\n\n\`\`\`comments\nabcd "x"\n- 2026-11-20T10:00:00Z @seyi: ${text}\n\`\`\`\n`).threads[0]!;
+  const model = (text: string) => ({
+    draft: false,
+    thread: thread(text),
+    prefill: "",
+    viewer: "@seyi",
+    editable: true,
+    tex: true,
+    people: [],
+    run: null,
+    texStates: [null],
+    deletable: [true],
+  });
+  const actions = { send: () => null, close: () => {}, resolve: () => null, keep: () => null, undo: () => null, remove: () => null };
+  const sub = (text: string) => buildCard(model(text) as never, actions as never).root.textContent ?? "";
+
+  test("a message that asks Tex puts Tex in the thread", () => {
+    expect(sub("@Tex who picks up the cake?")).toContain("Tex is in this thread");
+  });
+
+  test("a message to nobody still invites Tex", () => {
+    expect(sub("who picks up the cake?")).toContain("Type @ to bring in Tex");
+    expect(sub("email me at a@tex.com")).not.toContain("Tex is in this thread");
+  });
+});

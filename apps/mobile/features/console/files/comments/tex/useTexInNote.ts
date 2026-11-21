@@ -9,6 +9,7 @@
  */
 
 import { setTexWriting } from "./texWriting";
+import { texInNoteFixture } from "./fixtureTransport";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../../../agent/useConsoleGrant";
@@ -62,7 +63,11 @@ export function mentionablesOf(members: readonly { handle?: string; name?: strin
 }
 
 export function useTexInNote(options: { tex: TexTarget | null; note: NoteRef | null; people: Mentionable[] }): TexInNoteState {
-  const { tex, note, people } = options;
+  const { note, people } = options;
+  // The browser fixture's pretend gateway, when its screen set one (`fixtureTransport.ts`).
+  const fixture = options.tex === null ? texInNoteFixture() : null;
+  const tex = options.tex ?? fixture?.target ?? null;
+  const fetchImpl = fixture?.fetchImpl;
   const mint = useConsoleGrant();
   const workspaceId = tex?.workspaceId ?? null;
   const runRoute = tex === null ? null : noteRunEndpoint(tex.endpoint);
@@ -78,8 +83,10 @@ export function useTexInNote(options: { tex: TexTarget | null; note: NoteRef | n
     (refresh: GrantRefresh) =>
       workspaceId === null
         ? Promise.reject(new Error("No workspace"))
+        : fetchImpl !== undefined
+          ? Promise.resolve("fixture")
         : mintRef.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh).then((minted) => minted.accessToken),
-    [workspaceId],
+    [workspaceId, fetchImpl],
   );
 
   // Read by the methods, which the editor calls outside any render.
@@ -104,7 +111,7 @@ export function useTexInNote(options: { tex: TexTarget | null; note: NoteRef | n
     const current = latest.current.note;
     const token = ++epoch.current;
     if (current === null || runsRoute === null) return;
-    void fetchNoteRuns({ route: runsRoute, mint: mintForTex, workspace: current.workspace, noteId: current.noteId, path: current.path }).then((answer) => {
+    void fetchNoteRuns({ route: runsRoute, mint: mintForTex, workspace: current.workspace, noteId: current.noteId, path: current.path, fetchImpl }).then((answer) => {
       if (token !== epoch.current) return;
       if (Array.isArray(answer)) {
         setRows(answer);
@@ -115,7 +122,7 @@ export function useTexInNote(options: { tex: TexTarget | null; note: NoteRef | n
         setOff(answer.off === true);
       }
     });
-  }, [mintForTex, runsRoute]);
+  }, [mintForTex, runsRoute, fetchImpl]);
 
   // The log is read when the note changes, and not kept from the one before.
   useEffect(() => {
@@ -135,11 +142,11 @@ export function useTexInNote(options: { tex: TexTarget | null; note: NoteRef | n
     if (!ready || runRoute === null) return null;
     return {
       run: (request: NoteRunRequest, signal: AbortSignal) =>
-        runNoteRun({ route: runRoute, mint: mintForTex, request, signal }),
+        runNoteRun({ route: runRoute, mint: mintForTex, request, signal, fetchImpl }),
       runs: () => {
         const current = latest.current.note;
         if (current === null || runsRoute === null) return Promise.resolve({ error: "Tex isn't available right now." });
-        return fetchNoteRuns({ route: runsRoute, mint: mintForTex, workspace: current.workspace, noteId: current.noteId, path: current.path });
+        return fetchNoteRuns({ route: runsRoute, mint: mintForTex, workspace: current.workspace, noteId: current.noteId, path: current.path, fetchImpl });
       },
       note: () => latest.current.note,
       people: () => latest.current.people,
@@ -153,7 +160,7 @@ export function useTexInNote(options: { tex: TexTarget | null; note: NoteRef | n
         }
       },
     };
-  }, [ready, runRoute, runsRoute, mintForTex]);
+  }, [ready, runRoute, runsRoute, mintForTex, fetchImpl]);
 
   const refresh = useCallback(() => reload.current(), []);
 

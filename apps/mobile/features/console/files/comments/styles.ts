@@ -42,13 +42,11 @@ function marginStyles(colors: CommentPalette): string {
   return `
 .cm-lp-root .cm-scroller { position: relative; }
 .cm-lp-root .cm-cmt-hl {
-  background: ${colors.commentWash};
-  border-bottom: 2px solid ${colors.warn};
-  border-radius: 2px;
+  background: color-mix(in srgb, ${colors.warn} 22%, transparent);
+  border-radius: 3px;
   cursor: pointer;
 }
-.cm-lp-root .cm-cmt-hl-active { background: ${colors.commentWashActive}; }
-.cm-lp-root .cm-cmt-hl-resolved { background: transparent; border-bottom-style: dotted; }
+.cm-lp-root .cm-cmt-hl-resolved { background: transparent; border-bottom: 2px dotted ${colors.warn}; }
 .cm-cmt-resolved-row { padding: 12px 0 4px; }
 .cm-cmt-resolved-toggle { font: inherit; font-size: 12px; color: ${colors.muted}; background: transparent; border: 0; padding: 2px 0; cursor: pointer; }
 .cm-cmt-resolved-toggle:hover { color: ${colors.text}; }

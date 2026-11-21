@@ -47,7 +47,9 @@ export async function noteRunFromLab({ env, store, session, args, draftNode = nu
   const { node, from } = labNoteRunNode(env, draftNode);
   if (node === null) return { error: "There is no noteRun node on the draft, on main or on the shelf. Add it to the draft, then try again." };
   const dispatch = deps.dispatchFor ? deps.dispatchFor(store, session) : ownDispatch(store, session, env);
+  const readStarted = Date.now();
   const note = await readNoteAs(dispatch, parsed.path, target.context);
+  const noteReadMs = Date.now() - readStarted;
   if (note === null) return { error: "That note can't be read with your access. Name a note you can see, then try again." };
   const runNoteRun = deps.runNoteRun ?? (await import("./noteRun.js")).runNoteRun;
   // A Lab run is a Tex developer's (the Lab's own check, `labSandbox/route.js`), and like a test chat's turn it is not
@@ -80,6 +82,7 @@ export async function noteRunFromLab({ env, store, session, args, draftNode = nu
     now: started,
     timeZone: DEFAULT_TIME_ZONE,
     onStep: (step) => lines.push({ type: "step", ...step }),
+    noteReadMs,
   }).catch((error) => ({ outcome: "failed", why: String(error?.message ?? error?.name ?? "error").slice(0, 200) }));
   if (result.outcome === "answered") {
     lines.push({ type: "answer", text: result.answer });

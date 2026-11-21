@@ -222,8 +222,10 @@ test("a run answers with its JSON, shows each read as a step, and names the note
   assert.deepEqual(out.sources, [J19, G19], "the note itself first, then each note read, once");
   assert.equal(out.calls.length, 2);
   assert.ok(out.model, "the model that answered is named");
-  assert.deepEqual(steps.filter((s) => s.state === "running").map((s) => [s.label, s.source]), [["Reading Genesis 19", G19], ["Reading Judges 19", J19]]);
-  assert.equal(steps.filter((s) => s.state === "done").length, 2, "each step is told done");
+  assert.deepEqual(steps.filter((s) => s.state === "running").map((s) => [s.label, s.source]), [["Reading Judges 19", J19], ["Thinking", undefined], ["Reading Genesis 19", G19], ["Reading Judges 19", J19]], "the note read first, then the model's work and each read it asked for");
+  assert.equal(steps.filter((s) => s.state === "done").length, 4, "each step is told done");
+  assert.equal(steps.find((s) => s.id === "step-think" && s.state === "done").label, "Editing the selected words", "an answer with an edit says so");
+  assert.ok(steps.every((s) => s.state !== "done" || Number.isFinite(s.ms)), "every done step has its time");
   assert.ok(steps.every((s) => typeof s.id === "string" && s.id.length > 0));
   assert.equal(args.controlPlane.usage.length, 1, "the usage is metered");
   assert.deepEqual(args.controlPlane.asked[0][2], { noteRun: true }, "asked as a note run, which the app's own grant may spend");
@@ -233,8 +235,10 @@ test("a run answers with its JSON, shows each read as a step, and names the note
 test("the 1:1 history is read beside the run, and the ledger is never written", async () => {
   const reads = [], writes = [];
   const { args } = runArgs({ ledger: readOnlyLedger(reads, writes) });
-  const out = await runNoteRun(args);
+  const steps = [];
+  const out = await runNoteRun({ ...args, onStep: (step) => steps.push(step) });
   assert.equal(out.outcome, "answered");
+  assert.deepEqual(steps.filter((s) => s.id === "step-chat").map((s) => s.state), ["running", "done"], "the chat read is a step of its own");
   assert.ok(reads.length > 0 && reads.every((chat) => chat === "texts"), "read the asker's one-to-one chat");
   assert.deepEqual(writes, [], "the 1:1 ledger is never written");
   assert.ok(!out.sources.includes("Tex chat"), "no Tex chat source when nothing was read from it");
