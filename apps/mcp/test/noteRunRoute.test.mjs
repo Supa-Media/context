@@ -274,9 +274,9 @@ describe("the note: read through the person's own access", () => {
     assert.equal(d.calls.length, 0);
   });
 
-  it("answers 503 with the config as it is (no noteRun step) and no injected node", async () => {
+  it("runs with the config as it is (noteRun wired on main since 2026-11-21) and no injected node", async () => {
     const response = await postRun(body(), { env: { TEX_CHAT: chatNamespace().namespace }, deps: { ...depsFor({ dispatch: dispatcher().dispatch }), noteRunNode: undefined } });
-    assert.equal(response.status, 503);
+    assert.notEqual(response.status, 503);
   });
 
   it("answers 404 for a note the person cannot read, and never calls the run", async () => {

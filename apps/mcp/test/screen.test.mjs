@@ -171,9 +171,9 @@ describe("the screen is read back only within ten minutes", () => {
 });
 
 describe("the module is on only where the front door's ctx lists it", () => {
-  it("is off with no Lab draft (the main config lists no screen), and on when a draft's ctx does", () => {
+  it("is on in the main config (promoted 2026-11-21), and off when a draft's ctx leaves it out", () => {
     assert.equal(SCREEN_MODULE, "screen");
-    assert.equal(screenOn({}), false);
+    assert.equal(screenOn({}), true);
     assert.equal(screenOn(envWithCtx(["history", "shape"])), false);
     assert.equal(screenOn(envWithCtx(["history", SCREEN_MODULE])), true);
   });
