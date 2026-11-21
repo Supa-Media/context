@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { G, Path, Svg } from "react-native-svg";
 import { ICONS } from "./contextIcons/drawings";
-import { JOB_ICON_VIEW_BOX, circle, drawnStrokes, inkFor, type Point, type Stroke } from "./jobIcons/geometry";
+import { JOB_ICON_VIEW_BOX, arc, circle, drawnStrokes, inkFor, type Point, type Stroke } from "./jobIcons/geometry";
 
 /**
  * The writing bar's keys, drawn in Context's own brush (owner, 2026-11-08:
@@ -11,8 +11,8 @@ import { JOB_ICON_VIEW_BOX, circle, drawnStrokes, inkFor, type Point, type Strok
  * left"; "I hate the essentially emoji icon here … like our drawn microphone").
  *
  * The same hand-drawn strokes as the folder icons (`contextIcons/`) and the
- * built-in folders (`jobIcons/geometry.ts`): the checklist and microphone are
- * that set's own drawings, and the bulleted list, which the set has no use for,
+ * built-in folders (`jobIcons/geometry.ts`): the checklist is that set's own
+ * drawing, the microphone and calendar its shapes pared down for a key, and the bulleted list, which the set has no use for,
  * is drawn here in the same 100-unit box.
  *
  * Decorative: every key carries its own accessible name.
@@ -34,19 +34,37 @@ const panel = (columnX: number): readonly Stroke[] => [
 
 /** The live map: three notes joined by their links. */
 const LINKS: readonly Stroke[] = [
-  circle(26, 70, 9, -100, 375, 10),
-  circle(74, 28, 9, -100, 375, 10),
-  circle(76, 74, 9, -100, 375, 10),
-  [[33, 64], [67, 34]],
-  [[35, 71], [67, 73]],
+  circle(24, 72, 7, -100, 375, 10),
+  circle(76, 26, 7, -100, 375, 10),
+  circle(78, 76, 7, -100, 375, 10),
+  [[30, 66], [70, 32]],
+  [[32, 73], [70, 75]],
+];
+
+/*
+  At a key's size the set's own drawings carry too much: the calendar's dots and
+  the microphone's base and cradle ran into one blot at 18px. These are the same
+  shapes with only the strokes that read at that size: a calendar's page, rings
+  and header; a microphone's capsule, cradle and stem, as Claude's own is drawn.
+*/
+const CALENDAR: readonly Stroke[] = [
+  [[16, 24], [84, 24], [84, 84], [16, 84], [16, 22]],
+  [[16, 44], [84, 44]],
+  [[34, 12], [34, 30]],
+  [[66, 12], [66, 30]],
+];
+const MIC: readonly Stroke[] = [
+  [...arc(50, 28, 15, 15, 180, 360, 8), ...arc(50, 48, 15, 15, 0, 180, 8), [35, 27]],
+  arc(50, 50, 29, 26, 0, 180, 10),
+  [[50, 76], [50, 90]],
 ];
 
 const GLYPHS = {
   checklist: ICONS.checklist!,
   bullets: BULLETS,
-  mic: ICONS.mic!,
+  mic: MIC,
   search: ICONS.search!,
-  calendar: ICONS.calendar!,
+  calendar: CALENDAR,
   people: ICONS.people!,
   page: ICONS.page!,
   links: LINKS,
