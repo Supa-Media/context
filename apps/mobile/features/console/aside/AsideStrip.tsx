@@ -20,11 +20,12 @@ const ICONS: Record<Exclude<AsideTab, "tex">, IconName> = {
  * there whether the panel is open or folded (Dev2, 2026-11-20: "the meeting
  * and tex icon just live forever in a thin right column"), so the panel has
  * no tab row of its own. Folded, a press on a tab unfolds the panel on that
- * tab and the chevron at the top unfolds it as it was. Open, the tab showing
- * is filled, a press on it folds the panel (as the chevron, now pointing
- * right, does) and a press on another switches to it. The top bar has no panel button and the strip no rule
- * (Dev2, 2026-11-19: that corner "looks crazy", then "add back" on the
- * chevron). Meetings is drawn in Tex's blue (Dev2, 2026-11-19: "make blue?").
+ * tab and the panel button at the top unfolds it as it was. Open, the tab
+ * showing is filled, a press on it folds the panel (as the panel button does)
+ * and a press on another switches to it. The panel button mirrors the left
+ * sidebar's own toggle, and a hairline divides the strip from the open panel
+ * (Dev2, 2026-11-21 roast). Meetings is drawn in Tex's blue (Dev2, 2026-11-19:
+ * "make blue?").
  * The marks the tab row carries (a meeting recording) stay here too, so
  * folding it never hides something running.
  */
@@ -55,15 +56,16 @@ export function AsideStrip({
   // The live map, where the console provides its route; its button moved here from the file tree's toolbar.
   const mapRoute = useMapRoute();
   return (
-    <View style={styles.strip} testID="aside-strip" accessibilityRole={open ? "tablist" : undefined}>
+    <View style={[styles.strip, open && styles.stripBeside]} testID="aside-strip" accessibilityRole={open ? "tablist" : undefined}>
       <Pressable
         onPress={() => (open ? onFold() : onUnfold(null))}
         accessibilityRole="button"
-        accessibilityLabel={open ? "Fold the panel" : "Open the panel"}
+        accessibilityLabel={open ? "Hide the side panel" : "Show the side panel"}
         style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
         testID={open ? "aside-fold" : "aside-unfold"}
       >
-        <Icon name={open ? "chevronRight" : "chevronLeft"} size={16} color={colors.text2} />
+        {/* The left sidebar's toggle, mirrored, for parity (Dev2, 2026-11-21 roast: "the arrow doesn't really work here"). */}
+        <Icon name="panelRight" size={16} color={colors.text2} />
       </Pressable>
       {/*
         Search and the map ride here too (Dev2, 2026-11-20: "fold a search
@@ -142,6 +144,8 @@ export function AsideStrip({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     strip: { width: 48, alignItems: "center", gap: space.x1, paddingTop: space.x2 },
+    // Beside the open panel, a hairline between the rail and the panel, so the chat reads as its own column (Dev2, 2026-11-21 roast).
+    stripBeside: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line },
     button: { width: 36, height: 36, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
     current: { backgroundColor: colors.chrome },
     hover: { backgroundColor: colors.chrome },

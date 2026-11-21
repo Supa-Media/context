@@ -181,42 +181,6 @@ class PointWidget extends WidgetType {
 const hideMarker = Decoration.replace({});
 const hideBlock = Decoration.replace({ block: true });
 
-/**
- * Where resolved threads come back: one quiet line where the hidden block
- * is, "Show resolved (N)". The margin used to carry this toggle; with
- * threads opening under their words there is no margin, and resolving must
- * still never lose the history (Google Docs' "see resolved comments").
- */
-class ResolvedToggle extends WidgetType {
-  constructor(
-    readonly count: number,
-    readonly showing: boolean,
-  ) {
-    super();
-  }
-
-  eq(other: ResolvedToggle): boolean {
-    return other.count === this.count && other.showing === this.showing;
-  }
-
-  toDOM(view: EditorView): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "cm-cmt-resolved-row";
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "cm-cmt-resolved-toggle";
-    toggle.textContent = this.showing ? "Hide resolved" : `Show resolved (${this.count})`;
-    toggle.addEventListener("mousedown", (event) => event.preventDefault());
-    toggle.addEventListener("click", () => view.dispatch({ effects: setShowResolved.of(!this.showing) }));
-    row.append(toggle);
-    return row;
-  }
-
-  ignoreEvent(): boolean {
-    return true;
-  }
-}
-
 function build(state: EditorState): { all: DecorationSet; atomic: DecorationSet } {
   const parsed = state.field(commentsParsed);
   const ui = state.field(commentUi);
@@ -251,9 +215,9 @@ function build(state: EditorState): { all: DecorationSet; atomic: DecorationSet 
     atomic.push(range);
   }
   if (hidden !== null) {
-    const resolved = parsed.threads.filter((thread) => thread.status === "resolved" && parsed.anchors.has(thread.id)).length;
-    const cover = resolved > 0 ? Decoration.replace({ block: true, widget: new ResolvedToggle(resolved, ui.showResolved) }) : hideBlock;
-    const range = cover.range(hidden.from, hidden.to);
+    // The block is hidden whole, with no "Show resolved" line in its place: a resolved thread stays in the file and in
+    // the comment list, and the note itself stays clean (Dev2, 2026-11-21 roast: "no need for that either").
+    const range = hideBlock.range(hidden.from, hidden.to);
     ranges.push(range);
     atomic.push(range);
   }

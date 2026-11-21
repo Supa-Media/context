@@ -98,3 +98,32 @@ export const EMPTY: State = {
 export function texCountOf(lines: readonly ChatLine[]): number {
   return lines.filter((line) => !isPending(line) && line.who === "tex").length;
 }
+
+/**
+ * The last rows each chat showed, kept for this page's life, keyed by the
+ * hook's scope (workspace and route). A chat drawn again (the panel folded and
+ * opened, or moved between column and overlay) starts from these instead of an
+ * empty log, and the first read brings it up to date (Dev2, 2026-11-21: the
+ * panel "takes a while to load ... it should be more immediate"). Texts still
+ * sending are not kept: they belong to the mount that sent them.
+ */
+const remembered = new Map<string, ChatLine[]>();
+
+/** The state a chat starts from: what it last showed in this scope, or nothing. */
+export function startingState(scope: string): State {
+  const lines = remembered.get(scope);
+  return lines === undefined ? EMPTY : { ...EMPTY, phase: "listed", lines };
+}
+
+/** Keep what a chat shows now, for the next time it is drawn in this scope. */
+export function rememberLines(scope: string, lines: readonly ChatLine[]): void {
+  remembered.set(
+    scope,
+    lines.filter((line) => !isPending(line)),
+  );
+}
+
+/** Tests only: forget every chat. */
+export function forgetRememberedChats(): void {
+  remembered.clear();
+}

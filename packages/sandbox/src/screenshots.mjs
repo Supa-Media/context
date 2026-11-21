@@ -25,7 +25,9 @@
  *   type:<text>      type into whatever has focus
  * e.g. `/|click:frame-aside-toggle|wait:800`. Every shot is taken at every layout.
  *
- * Environment: PREVIEW_ROUTER_ORIGIN, PR, PERSONA, SHOTS (default "/"),
+ * MATRIX=1 also walks the panel matrix (uiMatrix.mjs) and fails on its problems.
+ *
+ * Environment: PREVIEW_ROUTER_ORIGIN, PR, PERSONA, SHOTS (default "/"), MATRIX,
  * CONVEX_DEPLOY_KEY (the preview deploy key), OUT_DIR (default "screenshots").
  */
 import { mkdirSync } from "node:fs";
@@ -35,6 +37,7 @@ import { pathToFileURL } from "node:url";
 import { originFrom } from "./smoke.mjs";
 import { PERSONAS } from "./sign-in-code.mjs";
 import { findConvexPreview } from "./teardown.mjs";
+import { runMatrix } from "./uiMatrix.mjs";
 
 /** Dev2's layouts: the desktop app with the tree and the Tex panel, a narrowed window, and a phone. */
 export const LAYOUTS = [
@@ -137,18 +140,24 @@ export async function main(env = process.env, { log = console.log, signIn = sign
   const { chromium } = require("@playwright/test");
   const browser = await chromium.launch().catch(() => chromium.launch({ channel: "chrome" }));
   const problems = [];
+  const matrixProblems = [];
   try {
     // One sign-in, put into every layout's storage before the app's first script runs.
     const storage = authStorage(await signIn(email, { deployment, deployKey: env.CONVEX_DEPLOY_KEY }));
     log(`signed in as ${persona}`);
 
-    for (const layout of LAYOUTS) {
-      const { name, width, height, ...rest } = layout;
-      const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, ...rest });
+    const signedIn = async ({ name: _name, width, height, ...rest }, scale = 2) => {
+      const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, ...rest });
       await context.addInitScript((items) => {
         // Only into an empty slot: this runs on every navigation, and the app rotates the refresh token as it goes.
         for (const [key, value] of Object.entries(items)) if (window.localStorage.getItem(key) === null) window.localStorage.setItem(key, value);
       }, storage);
+      return context;
+    };
+
+    for (const layout of LAYOUTS) {
+      const { name } = layout;
+      const context = await signedIn(layout);
       for (const shot of shots) {
         const tab = await context.newPage();
         tab.on("pageerror", (error) => problems.push(`${name} ${shot.path}: ${String(error?.message ?? error).split("\n")[0].slice(0, 160)}`));
@@ -169,17 +178,22 @@ export async function main(env = process.env, { log = console.log, signIn = sign
       }
       await context.close();
     }
+    // The panel matrix (uiMatrix.mjs): its problems fail the run, since each is a state a person can reach.
+    if (env.MATRIX === "1") matrixProblems.push(...(await runMatrix({ origin, layouts: LAYOUTS, newContext: (layout) => signedIn(layout, 1), out, log })));
   } finally {
     await browser.close();
   }
   // Problems are reported, not fatal: the pictures are the point, and a broken page is what they are for.
   for (const problem of problems) log(`problem: ${problem}`);
   log(`${shots.length * LAYOUTS.length} picture(s) in ${out}, ${problems.length} problem(s).`);
+  for (const problem of matrixProblems) log(`matrix problem: ${problem}`);
+  return { problems, matrixProblems };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    await main(process.env);
+    const { matrixProblems } = await main(process.env);
+    if (matrixProblems.length > 0) process.exitCode = 1;
   } catch (error) {
     console.error(`FAIL: ${error.message}`);
     process.exitCode = 1;
