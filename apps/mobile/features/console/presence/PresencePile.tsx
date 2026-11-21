@@ -1,3 +1,4 @@
+import { Tex } from "../../chaos/Tex";
 import { useTexWriting } from "../files/comments/tex/texWriting";
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -213,8 +214,8 @@ function YouFace({ name, stacked, sized }: { name: string; stacked: boolean; siz
 }
 
 /**
- * Tex's own face while a run is writing in the note: the black `#` of the
- * Tex avatar, the same one the chat draws. It is not a person and has no list.
+ * Tex's own face while a run is writing in the note: the blue googly-eyed #
+ * the chat header draws (`chaos/Tex`), the one Tex logo. Not a person; no list.
  */
 function TexFace({ stacked, sized }: { stacked: boolean; sized?: ReturnType<typeof sizeStyle> }) {
   const styles = useThemedStyles(makeStyles);
@@ -225,9 +226,7 @@ function TexFace({ stacked, sized }: { stacked: boolean; sized?: ReturnType<type
       testID="presence-tex"
       style={[styles.face, sized?.face, styles.ring, styles.tex, stacked ? (sized?.stacked ?? styles.stacked) : null]}
     >
-      <Text variant="treeMeta" style={[styles.texText, { fontSize: Math.round(size * 0.55), lineHeight: size - 4 }]}>
-        #
-      </Text>
+      <Tex chaos={0} size={size - 4} />
     </View>
   );
 }
@@ -276,7 +275,6 @@ const makeStyles = (c: Colors) =>
     more: { backgroundColor: c.surface3 },
     moreText: { color: c.muted, fontWeight: "700" },
     robot: { color: c.ink },
-    tex: { backgroundColor: c.text },
-    texText: { color: c.ground, fontWeight: "700" },
+    tex: { backgroundColor: c.surface, alignItems: "center", justifyContent: "center" },
     note: { color: c.muted },
   });

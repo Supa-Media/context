@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globa
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { parseComments } from "@context/shared/src/comments.cjs";
-import { comments, commentUi, setActiveThread } from "../features/console/files/comments/extension";
+import { comments, commentSent, commentUi, setActiveThread } from "../features/console/files/comments/extension";
 import { popover } from "../features/console/files/comments/popover";
 import { seltool } from "../features/console/files/comments/seltool";
 import { texInNoteHost, type TexInNoteHost } from "../features/console/files/comments/tex/contract";
@@ -82,7 +82,11 @@ function mount(doc: string, options: { withHost?: boolean; author?: string } = {
   const parent = document.createElement("div");
   document.body.append(parent);
   const { withHost = true, author = "@dev2" } = options;
-  const extensions = [comments({ author: () => author }), texRuns, popover, seltool, ...(withHost ? [texInNoteHost.of(host)] : [])];
+  // Tex hears of a sent comment through commentSent, as texInNote() wires it (proven for real in texInNoteRunner.test.ts).
+  const askTex = commentSent.of((v, sent) => {
+    if (v.state.facet(texInNoteHost) !== null && shouldAskTex(sent.before, sent.body)) startTexRun(v, sent.thread, sent.body);
+  });
+  const extensions = [comments({ author: () => author }), texRuns, popover, seltool, askTex, ...(withHost ? [texInNoteHost.of(host)] : [])];
   const view = new EditorView({ parent, state: EditorState.create({ doc, extensions }) });
   views.push(view);
   const card = () => view.scrollDOM.querySelector<HTMLElement>(".cm-cw");

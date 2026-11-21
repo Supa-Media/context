@@ -49,7 +49,7 @@ import {
   removeFromThread,
   setDraft,
   startCommentOn,
-  submitDraft,
+  sendComment,
 } from "./extension";
 import { button, carryOver, composer, el, message, report } from "./dom";
 import { eventsKey, hasMargin, messages, quoteLabel, resolvedBy } from "./model";
@@ -151,7 +151,8 @@ class Sheet implements PluginValue {
 
   private sync() {
     if (this.destroyed) return;
-    const narrow = !hasMargin(this.view.scrollDOM.clientWidth);
+    // The iOS app's web view has no card to fall back on, so there the sheet is the only way in at any width.
+    const narrow = this.placement === "inline" || !hasMargin(this.view.scrollDOM.clientWidth);
     const content = narrow ? sheetContent(this.view) : null;
     const editable = canComment(this.view.state);
     const signIn = this.view.state.facet(commentHost).signIn?.() !== undefined;
@@ -204,7 +205,7 @@ class Sheet implements PluginValue {
     body.append(head);
 
     if (content.kind === "draft") {
-      const { root } = composer("Add a comment…", (text) => submitDraft(this.view, text), () => this.close());
+      const { root } = composer("Add a comment…", (text) => sendComment(this.view, null, text), () => this.close());
       const actions = el("div", "cm-cmt-actions");
       actions.append(
         button("Cancel", "cm-cmt-link", () => this.close()),
@@ -212,7 +213,7 @@ class Sheet implements PluginValue {
           const input = body.querySelector("textarea");
           const text = input?.value.trim() ?? "";
           if (!text) return input?.focus();
-          report(body, submitDraft(this.view, text));
+          report(body, sendComment(this.view, null, text));
         }),
       );
       body.append(root, actions);
@@ -239,7 +240,7 @@ class Sheet implements PluginValue {
       return;
     }
     if (editable) {
-      const { root } = composer("Reply…", (text) => addToThread(this.view, thread.id, "comment", text), () => this.close());
+      const { root } = composer("Reply…", (text) => sendComment(this.view, thread.id, text), () => this.close());
       const actions = el("div", "cm-cmt-actions");
       actions.append(
         button("Resolve", "cm-cmt-resolve", () => report(body, addToThread(this.view, thread.id, "resolved"))),
@@ -247,7 +248,7 @@ class Sheet implements PluginValue {
           const input = body.querySelector("textarea");
           const text = input?.value.trim() ?? "";
           if (!text) return input?.focus();
-          const error = addToThread(this.view, thread.id, "comment", text);
+          const error = sendComment(this.view, thread.id, text);
           if (error === null && input) input.value = "";
           report(body, error);
         }),

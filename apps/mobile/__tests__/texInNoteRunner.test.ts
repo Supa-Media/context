@@ -17,7 +17,7 @@ import { afterEach, describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { parseComments, type CommentThread } from "@context/shared/src/comments.cjs";
-import { comments } from "../features/console/files/comments/extension";
+import { comments, sendComment } from "../features/console/files/comments/extension";
 import {
   keepPending,
   mentionsTex,
@@ -139,6 +139,25 @@ describe("which messages go to Tex", () => {
   test("a thread Tex has not joined takes a plain message as a plain message", () => {
     expect(shouldAskTex(threadOf(NOTE), "sounds good")).toBe(false);
     expect(shouldAskTex(null, "sounds good")).toBe(false);
+  });
+});
+
+describe("a message sent from the card or the phone's sheet", () => {
+  // Both send through sendComment; the sheet once wrote the reply and never told Tex (Dev2, 2026-11-21: "add it to the note" got nothing).
+  test("a follow-up in a thread Tex is in, naming nobody, starts a run", async () => {
+    const { host, requests } = harness([{ type: "done", runId: "run_s1", sources: [] }]);
+    const view = mount(WITH_SUGGESTION, host);
+    expect(sendComment(view, "k7f2", "add it to the note")).toBeNull();
+    await waitFor(() => requests.length === 1);
+    expect(requests[0]!.ask).toBe("add it to the note");
+  });
+
+  test("a plain reply in a thread Tex is not in starts nothing", async () => {
+    const { host, requests } = harness([{ type: "done", runId: "run_s2", sources: [] }]);
+    const view = mount(NOTE, host);
+    expect(sendComment(view, "k7f2", "sounds good")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(requests).toEqual([]);
   });
 });
 
