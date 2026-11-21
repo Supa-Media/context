@@ -75,22 +75,22 @@ flowchart LR
 | Meaning | `minScore` | 0.4 |
 | Close meaning only | `meaningFloor` | 0.5 |
 | Merge | `rrfK` | 60 |
-| Title and phrase | `titleWeight` | 0.003278688524590164 |
 | Title and phrase | `phraseBonus` | 0.00819672131147541 |
-| Title and phrase | `snippetPhraseBonus` | 0.00819672131147541 |
+| Title and phrase | `snippetPhraseBonus` | 0 |
+| Title and phrase | `titleWeight` | 0.003278688524590164 |
+| Lower logs and archive | `inboxPrior` | 0.5 |
 | Lower logs and archive | `logPrior` | 0.5 |
-| Lower logs and archive | `inboxPrior` | 1 |
 | Meaning-only budget | `extraNotes` | 3 |
 | Meaning-only budget | `looseReads` | 6 |
 | Read snippets | `snippetChars` | 200 |
-| Merge across workspaces | `hits` | 12 |
-| Merge across workspaces | `rrfK` | 60 |
-| Merge across workspaces | `loosePenalty` | 10 |
-| Merge across workspaces | `titleWeight` | 0.003278688524590164 |
-| Merge across workspaces | `phraseBonus` | 0.00819672131147541 |
-| Merge across workspaces | `snippetPhraseBonus` | 0.00819672131147541 |
-| Merge across workspaces | `meaningFloor` | 0.5 |
-| Merge across workspaces | `looseReads` | 6 |
 | Merge across workspaces | `boostFactor` | 1.2 |
+| Merge across workspaces | `hits` | 12 |
+| Merge across workspaces | `inboxPrior` | 0.5 |
 | Merge across workspaces | `logPrior` | 0.5 |
-| Merge across workspaces | `inboxPrior` | 1 |
+| Merge across workspaces | `loosePenalty` | 10 |
+| Merge across workspaces | `looseReads` | 6 |
+| Merge across workspaces | `meaningFloor` | 0.5 |
+| Merge across workspaces | `phraseBonus` | 0.00819672131147541 |
+| Merge across workspaces | `rrfK` | 60 |
+| Merge across workspaces | `snippetPhraseBonus` | 0 |
+| Merge across workspaces | `titleWeight` | 0.003278688524590164 |
