@@ -14,6 +14,7 @@
  *   the inbox communication list ignored     → "an inbox communication folder is a log" fails
  *   the `@name/` prefix not stripped         → "a workspace prefix is read through" fails
  *   meetings demoted with the logs           → "meetings are not logs" fails
+ *   meetings weighed as unfiled Inbox notes  → "meetings are not logs" fails
  *   `isSearchProbe` always false             → "a search-probe note is never an answer" fails
  */
 
@@ -21,6 +22,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { LOG_PRIOR, isSearchProbe, notePrior } from "../src/search/priors.js";
 import { mergeHits } from "../src/search/meaning/serve.js";
+import { DEFAULT_RANKING } from "../src/search/ranking.js";
 
 test("archived material ranks below an ordinary note", () => {
   assert.equal(notePrior("archive/chat-history/2026-10.md"), LOG_PRIOR);
@@ -41,10 +43,15 @@ test("the inbox's communication folders are logs; the rest of the inbox is not",
   }
   // Case-insensitive, and the inbox may carry its sort number.
   assert.equal(notePrior("0-Inbox/Email/2026-10.md"), LOG_PRIOR);
-  // A note the person wrote in the inbox, or another inbox folder, is not a log.
-  assert.equal(notePrior("inbox/bench/single-4.md"), 1);
-  assert.equal(notePrior("inbox/contacts/alice.md"), 1);
-  assert.equal(notePrior("inbox/notes.md"), 1);
+  // A note the person wrote in the inbox, or another inbox folder, is not a log: it takes the Inbox's own weight,
+  // whatever a draft sets it to.
+  for (const inboxPrior of [1, 0.8]) {
+    const ranking = { ...DEFAULT_RANKING, inboxPrior };
+    assert.equal(notePrior("inbox/bench/single-4.md", ranking), inboxPrior);
+    assert.equal(notePrior("inbox/contacts/alice.md", ranking), inboxPrior);
+    assert.equal(notePrior("inbox/notes.md", ranking), inboxPrior);
+    assert.equal(notePrior("inbox/email/2026-10.md", ranking), LOG_PRIOR);
+  }
 });
 
 test("Tex's log folders are logs; Tex's living notes are not", () => {
@@ -57,6 +64,8 @@ test("Tex's log folders are logs; Tex's living notes are not", () => {
 
 test("meetings are not logs", () => {
   assert.equal(notePrior("inbox/meetings/2026-10-30 standup.md"), 1);
+  // Nor are they unfiled captures, whatever weight a draft gives the rest of the Inbox.
+  assert.equal(notePrior("Inbox/Meetings/2026-10-30 standup.md", { ...DEFAULT_RANKING, inboxPrior: 0.5 }), 1);
   assert.equal(notePrior("projects/meetings/kickoff.md"), 1);
 });
 

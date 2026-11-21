@@ -18,6 +18,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PHRASE_BONUS, TITLE_WEIGHT, evidenceBonus, fileStem, hasPhrase, queryTerms, titleCoverage, unmarked } from "../src/search/evidence.js";
+import { DEFAULT_RANKING } from "../src/search/ranking.js";
 
 test("terms are the query's words in lowercase, without the one- and two-letter ones, once each", () => {
   assert.deepEqual(queryTerms("to be or not"), ["not"]);
@@ -86,7 +87,10 @@ test("snippet highlight marks are removed before the phrase is read, and typed c
 test("the bonus is the title weight times the coverage, plus the phrase bonus when there is a phrase", () => {
   assert.equal(evidenceBonus("workers comp renewal", { key: "x.md", title: "Workers comp" }), TITLE_WEIGHT * (2 / 3));
   assert.equal(evidenceBonus("workers comp renewal", { key: "x.md", title: "Workers comp renewal" }), TITLE_WEIGHT + PHRASE_BONUS);
-  assert.equal(evidenceBonus("workers comp", { key: "x.md", title: "Notes", snippets: ["the workers comp claim"] }), PHRASE_BONUS);
+  // A phrase only in the text counts the config's snippetPhraseBonus (`title` step), which a Lab draft may set apart
+  // from the title's phrase bonus.
+  assert.equal(evidenceBonus("workers comp", { key: "x.md", title: "Notes", snippets: ["the workers comp claim"] }), DEFAULT_RANKING.snippetPhraseBonus);
+  assert.equal(evidenceBonus("workers comp", { key: "x.md", title: "Notes", snippets: ["the workers comp claim"] }, { ...DEFAULT_RANKING, snippetPhraseBonus: 0.01 }), 0.01);
 });
 
 test("no query is no bonus, whatever the hit holds", () => {

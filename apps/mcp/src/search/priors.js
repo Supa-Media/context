@@ -22,6 +22,9 @@ export const LOG_PRIOR = DEFAULT_RANKING.logPrior;
 /** The Inbox's own folders that Context files communications into: the logs of a person's day. */
 const INBOX_LOG_FOLDERS = Object.freeze(["sessions", "imessage", "email", "google-chat", "calendar"]);
 
+/** The Inbox's folder of meeting notes: written to be kept where they land, so never weighed as unfiled. */
+const INBOX_MEETINGS_FOLDER = "meetings";
+
 /** Tex's folders that hold what Tex wrote down as it ran, not what Tex knows about the person. */
 const TEX_LOG_FOLDERS = Object.freeze(["heartbeat", "dreams", "housekeeping", "handbacks", "attention", "transcripts"]);
 
@@ -59,8 +62,10 @@ export function notePrior(path, ranking = DEFAULT_RANKING) {
   if (topLevelRole(top) === "archive") return LOG_PRIOR;
   if (topLevelRole(top) === "inbox" && INBOX_LOG_FOLDERS.includes(second?.toLowerCase())) return LOG_PRIOR;
   // Anything else in the Inbox is captured and not yet filed: a filed note with the same evidence is the one the
-  // person keeps (`inboxPrior`, 1 on main).
-  if (topLevelRole(top) === "inbox" && segments.length > 1) return ranking.inboxPrior ?? 1;
+  // person keeps (`inboxPrior`). Meeting notes stay where they land, so they keep 1.
+  if (topLevelRole(top) === "inbox" && segments.length > 1 && second?.toLowerCase() !== INBOX_MEETINGS_FOLDER) {
+    return ranking.inboxPrior ?? 1;
+  }
   if (top === TEX_FOLDER && TEX_LOG_FOLDERS.includes(second)) return LOG_PRIOR;
   if (segments.slice(0, -1).some((segment) => LOG_FOLDERS_ANYWHERE.includes(segment.toLowerCase()))) return LOG_PRIOR;
   return 1;
