@@ -5,6 +5,7 @@
  * decides nothing about them.
  */
 
+import { possessive } from "./possessive";
 import { StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
@@ -101,7 +102,7 @@ function LogRow({
             ? row.private
               ? "Lives in the comment thread, and used something only you can see. Not added to your Tex chat."
               : "Lives in the comment thread. Not added to your Tex chat."
-            : `Ran with ${name}'s access. Your private notes and Tex chat stayed out of it.`}
+            : `Ran with ${possessive(name)} access. Your private notes and Tex chat stayed out of it.`}
         </Text>
       </View>
     </View>

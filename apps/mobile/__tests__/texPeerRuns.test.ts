@@ -3,7 +3,7 @@
  *
  * Tex writing for somebody else in the note (Dev2's mock, "Co-write with
  * Sayo"): the room's frames, the roster, the pieces this editor sends, and
- * the "Tex for Sayo" caret the others draw.
+ * the "Sayo’s Tex" caret the others draw.
  *
  * Sabotage (2026-11-21): dropping the offset check in the reducer splices a
  * piece that arrives out of order into the words, and the "out of order"
@@ -17,6 +17,7 @@ import { EditorView } from "@codemirror/view";
 import { comments } from "../features/console/files/comments/extension";
 import { startTexRun, texInNote } from "../features/console/files/comments/tex/runner";
 import { texInNoteHost, type TexInNoteHost } from "../features/console/files/comments/tex/contract";
+import { possessive, texOf } from "../features/console/files/comments/tex/possessive";
 import {
   peerRunsOf,
   relayPieces,
@@ -145,12 +146,12 @@ describe("the pieces this editor sends", () => {
 });
 
 describe("what the others see", () => {
-  test("a peer's run draws its words with a caret named for whom Tex is writing", () => {
+  test("a peer's run draws its words with a caret named for whose Tex is writing", () => {
     const view = mount();
     view.dispatch({ effects: setPeerTexRuns.of([{ thread: "k7f2", text: "20 confirmed", who: "Sayo" }]) });
     const ins = view.contentDOM.querySelector(".cm-tex-ins") as HTMLElement;
     expect(ins.textContent).toBe("20 confirmed");
-    expect((ins.querySelector(".cm-tex-caret") as HTMLElement).dataset.who).toBe("Tex for Sayo");
+    expect((ins.querySelector(".cm-tex-caret") as HTMLElement).dataset.who).toBe("Sayo’s Tex");
     expect(view.contentDOM.querySelector(".cm-tex-del")?.textContent).toBe("18 confirmed");
   });
 
@@ -159,5 +160,14 @@ describe("what the others see", () => {
     view.dispatch({ effects: setPeerTexRuns.of([{ thread: "k7f2", text: "", who: "Sayo" }]) });
     expect(view.contentDOM.querySelector(".cm-tex-caret")).not.toBeNull();
     expect(view.contentDOM.querySelector(".cm-tex-del")).toBeNull();
+  });
+});
+
+describe("the caret's name", () => {
+  test("is the asker's Tex, with a curly apostrophe, and a name ending in s takes the apostrophe alone", () => {
+    expect(texOf("Sayo")).toBe("Sayo’s Tex");
+    expect(texOf("James")).toBe("James’ Tex");
+    expect(texOf("CHRIS")).toBe("CHRIS’ Tex");
+    expect(possessive("Seyi")).toBe("Seyi’s");
   });
 });
