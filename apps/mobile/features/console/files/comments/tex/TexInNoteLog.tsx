@@ -8,12 +8,12 @@
 import { StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
+import { isApplePlatform } from "../../../../design/applePlatform";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
+import { pointerType } from "../../../../design/tokens";
 import type { NoteRunRow } from "./contract";
 import { emptyLogSentence } from "./noteRun";
 
-/** The colour of someone who is not the viewer: the mock's purple. */
-const OTHER_AVATAR = "#6A46B8";
 
 export function TexInNoteLog({
   rows,
@@ -45,7 +45,7 @@ export function TexInNoteLog({
         </Text>
       ) : rows.length === 0 ? (
         <Text variant="meta" style={styles.empty} testID="tex-in-note-empty">
-          {emptyLogSentence(isMacPlatform())}
+          {emptyLogSentence(isApplePlatform())}
         </Text>
       ) : (
         rows.map((row) => <LogRow key={row.runId} row={row} viewer={viewer} accent={colors.accent} styles={styles} />)
@@ -70,7 +70,7 @@ function LogRow({
   const initial = name.charAt(0).toUpperCase() || "?";
   return (
     <View style={styles.row} testID="tex-in-note-row">
-      <View style={[styles.avatar, { backgroundColor: mine ? accent : OTHER_AVATAR }]}>
+      <View style={[styles.avatar, mine ? { backgroundColor: accent } : styles.otherAvatar]}>
         <Text variant="meta" style={styles.avatarText}>
           {initial}
         </Text>
@@ -107,33 +107,30 @@ function sameHandle(a: string, b: string): boolean {
   return a.replace(/^@/, "").toLowerCase() === b.replace(/^@/, "").toLowerCase();
 }
 
-/** The platform's own shortcut key: ⌘ on Apple devices, Ctrl elsewhere. */
-function isMacPlatform(): boolean {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform ?? "");
-}
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
     section: { marginTop: 24, paddingTop: 14, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
     heading: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-    headingText: { color: c.text, fontSize: 13, fontWeight: "600" },
-    empty: { color: c.muted, fontSize: 12.5, lineHeight: 18 },
+    headingText: { color: c.text, fontSize: pointerType.ui, fontWeight: "600" },
+    empty: { color: c.muted, fontSize: pointerType.meta, lineHeight: 18 },
     row: { flexDirection: "row", gap: 10, paddingVertical: 8 },
     avatar: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", marginTop: 1 },
-    avatarText: { color: "#fff", fontSize: 11, fontWeight: "600" },
+    otherAvatar: { backgroundColor: c.markTeam },
+    avatarText: { color: c.ink, fontSize: pointerType.label, fontWeight: "600" },
     body: { flex: 1, minWidth: 0, gap: 3 },
-    line: { color: c.text2, fontSize: 13, lineHeight: 18 },
+    line: { color: c.text2, fontSize: pointerType.ui, lineHeight: 18 },
     who: { color: c.text, fontWeight: "600" },
-    out: { color: c.text, fontSize: 13, lineHeight: 18 },
+    out: { color: c.text, fontSize: pointerType.ui, lineHeight: 18 },
     sources: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
     source: {
       color: c.muted,
-      fontSize: 11,
+      fontSize: pointerType.label,
       backgroundColor: c.surface3,
       borderRadius: 5,
       paddingHorizontal: 6,
       paddingVertical: 1,
       overflow: "hidden",
     },
-    priv: { color: c.muted, fontSize: 11.5, marginTop: 3 },
+    priv: { color: c.muted, fontSize: pointerType.label, marginTop: 3 },
   });

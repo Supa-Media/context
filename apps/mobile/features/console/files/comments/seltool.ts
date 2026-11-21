@@ -12,6 +12,7 @@
  */
 
 import { EditorView, ViewPlugin, type PluginValue, type ViewUpdate } from "@codemirror/view";
+import { isApplePlatform } from "../../../design/applePlatform";
 import { el } from "./dom";
 import { commentableSelection, commentUi, startComment, startTexComment } from "./extension";
 import { hasMargin } from "./model";
@@ -20,11 +21,6 @@ import { texInNoteHost } from "./tex/contract";
 
 /** How far above the selection's start the bar sits. */
 const LIFT = 42;
-
-function isMac(): boolean {
-  const nav = typeof navigator === "undefined" ? undefined : navigator;
-  return /Mac|iPhone|iPad|iPod/.test(`${nav?.platform ?? ""} ${nav?.userAgent ?? ""}`);
-}
 
 function toolButton(view: EditorView, label: string, shortcut: string, face: Node, run: (view: EditorView) => boolean): HTMLButtonElement {
   const node = el("button", "cm-seltool-btn");
@@ -121,7 +117,7 @@ class SelTool implements PluginValue {
     const kind = tex ? "tex" : "plain";
     if (this.built === kind) return;
     this.built = kind;
-    const mac = isMac();
+    const mac = isApplePlatform();
     const comment = toolButton(this.view, "Comment", mac ? "⌘M" : "Ctrl+M", chatIcon(), startComment);
     const nodes: HTMLElement[] = [comment];
     if (tex) {
