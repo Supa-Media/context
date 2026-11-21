@@ -13,6 +13,7 @@ flowchart LR
   n_search(["Query<br/>code<br/>apps/mcp/src/search/config/nodes.js"]):::start
   n_open["Open as you<br/>code<br/>apps/mcp/src/search/config/nodes.js · privacy/state.js"]:::code
   n_words["Words<br/>code<br/>apps/mcp/src/search/visibleNotes.js · objectSearch.js"]:::code
+  n_rerankWords["Rerank word hits<br/>code · off<br/>apps/mcp/src/search/rerank.js"]:::off
   n_meaning["Meaning<br/>code<br/>apps/mcp/src/search/meaning/serve.js meaningMatches"]:::code
   n_visible["Only what you may see<br/>code<br/>apps/mcp/src/search/config/nodes.js visibleStep"]:::code
   n_probes["Drop search probes<br/>code<br/>apps/mcp/src/search/stages.js dropProbes"]:::code
@@ -29,7 +30,8 @@ flowchart LR
   n_search -->|open| n_open
   n_open --> n_words
   n_open --> n_meaning
-  n_words --> n_visible
+  n_words --> n_rerankWords
+  n_rerankWords --> n_visible
   n_meaning --> n_visible
   n_visible --> n_probes
   n_probes --> n_floor
@@ -57,6 +59,7 @@ flowchart LR
 | Query | A search arrives (an AI client's search_notes, the app's search bar, Tex): pick the workspaces it asks, every one the person reaches unless a folder, a scope or the person's setting narrows it. | apps/mcp/src/search/config/nodes.js |
 | Open as you | Open every workspace asked the way a tool call naming it does: the person's role there and its own privacy rules. One that cannot be opened now is left out and named unreached, never guessed at. | apps/mcp/src/search/config/nodes.js · privacy/state.js |
 | Words | Nominates: notes holding the query's words in every workspace at once, ranked by the word index (BM25, titles and headings weighted), retried with any word when no note holds them all (those are marked loose). Only notes the person may see. | apps/mcp/src/search/visibleNotes.js · objectSearch.js |
+| Rerank word hits (off) | Ranks: each workspace’s first word hits (rerankTop, rerankChars of each) read beside the query by the cross-encoder in one call as soon as Words answers, while Meaning still runs, so its time hides behind Meaning’s; each hit keeps its score for Rerank, which then reads it no more. Never adds or drops a note. Off on main until a Lab draft shows it helps. | apps/mcp/src/search/rerank.js |
 | Meaning | Nominates: the nearest passages to the query's embedding (embedded once per search) in every workspace at once, at least minScore close. Only notes the person may see; never plumbing or a search probe. | apps/mcp/src/search/meaning/serve.js meaningMatches |
 | Only what you may see | Filters: both lists side by side per workspace, every note checked once more against the person's access there. A workspace whose word search failed is left out and named unreached. | apps/mcp/src/search/config/nodes.js visibleStep |
 | Drop search probes | Filters: a benchmark's search-probe note is never an answer. | apps/mcp/src/search/stages.js dropProbes |
@@ -66,7 +69,7 @@ flowchart LR
 | Lower logs and archive | Ranks: an archived note or a log (Inbox captures, Tex's own logs, review logs, retired setups) scores logPrior of a live note with the same evidence. A note still unfiled in the Inbox scores inboxPrior. | apps/mcp/src/search/stages.js lowerByPath · priors.js |
 | Meaning-only budget | Filters: every word hit stays; of the notes only meaning found, the best extraNotes (looseReads when no note held every word). | apps/mcp/src/search/stages.js meaningBudget |
 | Read snippets | Each kept note only meaning found is read for its title and the passage that matched, snippetChars long, all at once. | apps/mcp/src/search/meaning/serve.js readMeaningOnly |
-| Rerank (off) | Ranks: each workspace’s first rows (rerankTop, rerankChars of each) read beside the query by a cross-encoder, every workspace in one call; each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps. | apps/mcp/src/search/rerank.js |
+| Rerank (off) | Ranks: each workspace’s first rows (rerankTop, rerankChars of each) read beside the query by a cross-encoder, every workspace in one call; a row Rerank word hits already scored is not read again, and with readLate 0 the rest keep their places unread (no call here). Each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps. | apps/mcp/src/search/rerank.js |
 | Drop code passages | Filters: a code passage found only by meaning is not offered for a question in prose (one workspace; across several, Merge across workspaces does it), and a note that could not be read is dropped. | apps/mcp/src/search/stages.js answerHits |
 | Merge across workspaces | Merges and ranks when several workspaces answered: one list ranked by evidence rather than by workspace: word rank (a loose hit counted lower), rank among every meaning match, title and phrase evidence, the path prior and a named workspace's boost; the meaning-only budget once for the whole answer; at most hits shown. | apps/mcp/src/search/config/nodes.js · tools/search.js |
 | Answer | The fused list across workspaces, or the one workspace's, with who answered and who could not be reached. | apps/mcp/src/search/config/nodes.js answerStep |
@@ -75,6 +78,8 @@ flowchart LR
 
 | Step | Setting | Value |
 |---|---|---|
+| Rerank word hits | `rerankTop` | 8 |
+| Rerank word hits | `rerankChars` | 400 |
 | Meaning | `minScore` | 0.4 |
 | Close meaning only | `meaningFloor` | 0.5 |
 | Merge | `rrfK` | 60 |
@@ -89,6 +94,7 @@ flowchart LR
 | Rerank | `rerankTop` | 8 |
 | Rerank | `rerankWeight` | 1 |
 | Rerank | `rerankChars` | 400 |
+| Rerank | `readLate` | 1 |
 | Merge across workspaces | `boostFactor` | 1.2 |
 | Merge across workspaces | `hits` | 12 |
 | Merge across workspaces | `inboxPrior` | 0.5 |

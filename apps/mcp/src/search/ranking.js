@@ -18,6 +18,7 @@
  *   rerankTop     how many of a workspace's first rows the reranker reads (`rerank.js`; its step is off on main).
  *   rerankWeight  how much its order counts, as one more reciprocal-rank list: 1 counts as much as the words do.
  *   rerankChars   how much of each row's title and snippets it reads (400): fewer characters, a faster call.
+ *   readLate      1: Rerank reads the rows "Rerank word hits" did not score; 0: they keep their places unread, no call.
  *
  * In one workspace, each step that filters, merges or ranks reads its own (`IN_WORKSPACE_STEPS`); "Merge across
  * workspaces" (`fuse`) ranks every workspace's hits together by its own.
