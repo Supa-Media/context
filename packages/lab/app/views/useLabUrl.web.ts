@@ -6,6 +6,7 @@
  */
 import { useEffect } from "react";
 import { fit, lab, set, subscribe } from "../engine/state";
+import { pageNamed } from "../engine/pages";
 import { pickChat } from "./mine/useMine";
 import { placeOf, searchOf, type Place } from "./labPlace";
 
@@ -23,7 +24,7 @@ function go(p: Place) {
   const sel = p.node && lab.cur.graph.nodes.some((n) => n.id === p.node) ? { t: "node" as const, id: p.node } : null;
   // The canvas's page: another page draws other steps, so it is fitted again once drawn.
   // A node named without a page opens on the page it lives on.
-  const graphPage = p.graph ?? (sel && lab.cur.graph.nodes.find((n) => n.id === sel.id)?.graph === "nightly" ? "nightly" : "texting");
+  const graphPage = p.graph ?? (sel ? pageNamed(lab.cur.graph.nodes.find((n) => n.id === sel.id)?.graph) : "texting");
   if (graphPage !== lab.graphPage) setTimeout(fit, 0);
   set({ graphPage, mode: p.mode, view: p.view, sel, cfocus: null, ...(p.mode === "lab" ? { real: null } : {}), ...(p.moment ? { moment: p.moment } : {}), ...(p.mode === "testing" ? { setChat: p.set ?? null } : {}) });
 }

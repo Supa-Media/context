@@ -9,11 +9,12 @@
 import { GRAPHS, graphOf } from "@context/tex/src/texConfigSchema.cjs";
 import type { LabGraph, LabNode } from "../types";
 
-export type GraphPage = "texting" | "nightly";
+export type GraphPage = "texting" | "nightly" | "search";
 /** Every page, in the switcher's order, with the name it shows. */
 export const GRAPH_PAGES: ReadonlyArray<readonly [GraphPage, string]> = [
   ["texting", "Texting"],
   ["nightly", "Nightly"],
+  ["search", "Search"],
 ];
 export const DEFAULT_PAGE: GraphPage = "texting";
 
@@ -54,7 +55,7 @@ export function onPage(g: LabGraph, page: GraphPage): LabGraph {
 
 /** How many config steps each page holds (folded groups opened), for the switcher's titles. */
 export function stepCountsByPage(g: LabGraph): Record<GraphPage, number> {
-  const out: Record<GraphPage, number> = { texting: 0, nightly: 0 };
+  const out: Record<GraphPage, number> = { texting: 0, nightly: 0, search: 0 };
   const all: LabNode[] = [...g.nodes.filter((n) => !g.folded?.[n.id]), ...Object.values(g.folded ?? {}).flatMap((f) => f.nodes)];
   for (const n of all) out[pageNamed(graphOf(n))]++;
   return out;

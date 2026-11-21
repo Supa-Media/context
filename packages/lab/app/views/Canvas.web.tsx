@@ -200,6 +200,12 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
           />
         </svg>
       </div>
+      {g.nodes.length === 0 ? (
+        // A page with no steps yet (Search, 2026-11-21, until its steps are described): say so rather than draw nothing.
+        <div className="pageempty" id="pageEmpty">
+          No steps on this page yet. Add a step here, or move one onto it with its Graph setting.
+        </div>
+      ) : null}
       <ChangeTip marks={marks} stage={stage} />
       <div className="ctop">
       {lead}
