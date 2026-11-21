@@ -48,6 +48,12 @@ answers and the query that follows only scans. The warm call keeps nothing and c
 each call by what the object says it did: `inside:meaning_query_cold` or `inside:meaning_query_held`, and
 `inside:meaning_warm_loaded` or `inside:meaning_warm_held`.
 
+The warm call goes only after that workspace's word search has answered (`search/wordsFirst.js`, 2026-11-21). An
+object answers one call at a time, and in a large workspace the warm-up's read held the word search until meaning came
+back: live, Words ended on the same millisecond as Meaning in nearly every search, so Rerank word hits could not start
+early and added about 310 ms. The word search is about 20 ms of the object's time, well inside the model's embedding
+call, so meaning loses nothing. `apps/mcp/test/searchWordsFirst.test.mjs` fails if the warm call can go first.
+
 A query's fingerprint is also kept in the gateway's memory for ten minutes for the person who asked it
 (`search/meaning/queryVectors.js`), so the same words asked again skip the model. It is kept per person, never per
 workspace: shared, a member could tell that somebody else had just searched the same words by their own search

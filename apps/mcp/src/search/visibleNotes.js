@@ -8,6 +8,7 @@ import { createSearchTrace, logSearchTrace, reportSearchTiming } from "./trace.j
 import { DEFERRED_SYNC_FLOOR, FAST_SEARCH_FLOOR } from "./pacing.js";
 import { fastSearchAnswer, scanVisibleNotes } from "./scan.js";
 import { objectSearchAnswer } from "./objectSearch.js";
+import { wordSearchAsked } from "./wordsFirst.js";
 import { maintainIndexAfter } from "./maintenance.js";
 import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
 
@@ -134,7 +135,8 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
   let fromObject = null;
   if (store.objectSearch) {
     const objectSpan = trace.span("object");
-    fromObject = await objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart });
+    // Marked in flight, so the meaning warm-up waits for it rather than holding the object first (`wordsFirst.js`).
+    fromObject = await wordSearchAsked(store, objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart }));
     objectSpan();
   }
   if (fromObject !== null) {
