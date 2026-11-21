@@ -212,7 +212,9 @@ function check(base) {
   if (base) {
     // The checkout is the pull request merged onto main as it is now: diff from that main, not the event's older base,
     // which counted every Tex file merged since as this pull request's (as check-tex-change-has-case.mjs, #3870).
-    const changed = execFileSync("git", ["diff", "--name-only", mergedOnto() ?? base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
+    // Only in Actions: a local merge commit's first parent is the branch, not main.
+    const from = process.env.GITHUB_ACTIONS === "true" ? (mergedOnto() ?? base) : base;
+    const changed = execFileSync("git", ["diff", "--name-only", from, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
     problems.push(...changeProblems(changed, config, process.env.TEX_PR_BODY));
   }
   return problems;

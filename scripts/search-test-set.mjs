@@ -27,6 +27,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { mergedOnto } from "./check-tex-change-has-case.mjs";
 
 export const AUDIENCE = "context-tex-eval";
 export const STATUS = "Search test set";
@@ -126,7 +127,10 @@ export function noteCheck(body, cases) {
 }
 
 const gh = (args, inherit) => execFileSync("gh", args, inherit ? { stdio: "inherit" } : { encoding: "utf8" });
-const changedFiles = (base) => execFileSync("git", ["diff", "--name-only", base, "HEAD"], { encoding: "utf8" }).split("\n").filter(Boolean);
+// The checkout is the pull request merged onto main as it is now: diff from that main, not the event's older base,
+// which counted search files merged since as this pull request's (as check-tex-change-has-case.mjs, #3870).
+const changedFiles = (base) =>
+  execFileSync("git", ["diff", "--name-only", mergedOnto() ?? base, "HEAD"], { encoding: "utf8" }).split("\n").filter(Boolean);
 
 async function main() {
   const sub = process.argv[2];
