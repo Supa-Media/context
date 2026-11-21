@@ -25,7 +25,9 @@
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
 import { objectByName } from "../../../apps/mcp/src/objectPlace.js";
 import { JOB_NAME } from "./texJobName.js";
-import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppOutbox, serveAppPictureById, serveAppTurnCall } from "./texChat/appChat.js";
+import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppCard, serveAppOutbox, serveAppPictureById, serveAppTurnCall } from "./texChat/appChat.js";
+import { NOTE_RUNS_PATH, serveNoteRuns } from "./texChat/noteRuns.js";
+import { serveAppSeenGet, serveAppSeenPost } from "./texChat/appSeen.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -49,13 +51,19 @@ export function texChatClass({ gateway, texts }) {
 
     async fetch(request) {
       const url = new URL(request.url);
+      // A note's run log (`texChat/noteRuns.js`): its own object, named `noteruns:`, answered before any chat routing.
+      if (url.pathname === NOTE_RUNS_PATH) return await serveNoteRuns(request, this.state.storage);
       if (request.method === "POST" && url.pathname === "/arrive") return await this.arrive(request);
       // The app chat's calls (`texChat/appChat.js`): the gateway's `/tex/app-chat` route, and only for an app chat.
       if (request.method === "POST" && url.pathname === "/app/arrive") {
         return await serveAppArrive(request, { state: this.state, open: (name) => this.chat(name) });
       }
+      if (request.method === "POST" && url.pathname === "/app/card") return await serveAppCard(request, { state: this.state });
       if (request.method === "GET" && url.pathname === "/app/outbox") return await serveAppOutbox(this.state.storage, { alarms: this.state.storage });
       if (request.method === "POST" && (url.pathname === "/app/stop" || url.pathname === "/app/retry")) return await serveAppTurnCall(request, url.pathname, { state: this.state, open: (name) => this.chat(name) });
+      // The screen the app had open when the person texted (`texChat/appSeen.js`): an app chat's only, 404 for any other.
+      if (request.method === "POST" && url.pathname === "/app/seen") return await serveAppSeenPost(request, { storage: this.state.storage });
+      if (request.method === "GET" && url.pathname === "/app/seen") return await serveAppSeenGet(this.state.storage);
       if (request.method === "GET" && url.pathname.startsWith("/app/picture/")) return await serveAppPictureById(this.state.storage, url.pathname.slice("/app/picture/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
       return Response.json({ error: "unknown_route" }, { status: 404 });
@@ -261,13 +269,38 @@ export async function hopToGateway(hop, request, inProcess) {
  * A stand-in for the Worker's `SENDER_INBOX` namespace: each object reached by name through the Worker's RPC. Only
  * this chat's own id is known here (the one it had in the Worker, for counting: `objectPlace.ts` `inboxIdOf`).
  */
-function workerObjects(rpc, chatName, senderId, own) {
+function workerObjects(rpc, chatName, senderId, own, env = {}) {
   return {
     idFromName: (name) => workerId(name, chatName, senderId),
     idFromString: () => {
       throw new TypeError("a Worker object is reached by name here");
     },
-    get: (id) => workerStub(rpc, id, own),
+    get: (id) => workerStub(rpc, id, own, env),
+  };
+}
+
+/**
+ * The app chat a name names (`enam:app:<userId>` as `inboxByName` makes it, or bare), or null. An app chat lives only
+ * here, in `TEX_CHAT`: the Worker has no object of it, so a call to it over the Worker's RPC (a job's report, a
+ * cross-chat ask) landed in an empty Worker object and never reached the chat (in-app Tex section A5, 2026-11-20).
+ */
+export function appChatNameOf(name) {
+  const bare = typeof name === "string" && name.startsWith("enam:") ? name.slice("enam:".length) : name;
+  return typeof bare === "string" && /^app:[A-Za-z0-9_-]{1,64}$/.test(bare) ? bare : null;
+}
+
+/** A stub for an app chat's own object here, through its `/chat-call` door, as the Worker's moved objects are reached. */
+function appChatStub(namespace, name) {
+  const stub = objectByName(namespace, `chat:${name}`);
+  return {
+    fetch: async (input, init) => {
+      const request = input instanceof Request && init === undefined ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const headers = new Headers(request.headers);
+      headers.set(INBOX_NAME_HEADER, name);
+      const body = request.method === "GET" || request.method === "HEAD" ? null : await request.arrayBuffer();
+      return stub.fetch(new Request(`https://chat/chat-call${url.pathname}${url.search}`, { method: request.method, headers, body }));
+    },
   };
 }
 
@@ -277,13 +310,15 @@ function workerId(name, chatName, senderId) {
 }
 
 /** A stub for the Worker's object `id`, reached over the Worker's RPC. This chat's own name is served here (`own`). */
-function workerStub(rpc, id, own) {
+function workerStub(rpc, id, own, env = {}) {
+  const app = appChatNameOf(id.name);
   return {
     fetch: (input, init) => {
       if (own && id.name === own.name && typeof own.fetch === "function") {
         const request = input instanceof Request && init === undefined ? input : new Request(input, init);
         return own.fetch(request);
       }
+      if (app !== null && env.TEX_CHAT !== undefined) return appChatStub(env.TEX_CHAT, app).fetch(input, init);
       if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
       return rpc.inboxFetch({ name: id.name }, new Request(input, init));
     },
@@ -296,7 +331,7 @@ function workerStub(rpc, id, own) {
  * objects are made here by namespace, through `objectByName`; the Worker's are named and reached over RPC.
  */
 function senderObjects(env, rpc, chatName, senderId, jobsHere, own) {
-  if (!jobsHere) return workerObjects(rpc, chatName, senderId, own);
+  if (!jobsHere) return workerObjects(rpc, chatName, senderId, own, env);
   return {
     idFromName: (name) => (jobNameOf(name) === null ? workerId(name, chatName, senderId) : { name, toString: () => "" }),
     idFromString: () => {
@@ -304,7 +339,7 @@ function senderObjects(env, rpc, chatName, senderId, jobsHere, own) {
     },
     get: (id) => {
       const job = jobNameOf(id.name);
-      if (job === null) return workerStub(rpc, id, own);
+      if (job === null) return workerStub(rpc, id, own, env);
       const stub = objectByName(env.TEX_JOB, job);
       return { fetch: (input, init) => stub.fetch(new Request(input, init)) };
     },

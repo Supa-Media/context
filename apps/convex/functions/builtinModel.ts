@@ -30,6 +30,15 @@
  * grant of anybody else is refused exactly as before. It is metered on the
  * same feature, cap and kill switch, against the grant's own workspace.
  *
+ * A second, for Tex in a note's comments (decided by the owner, 2026-11-20,
+ * approving in-app Tex: "go ahead and orchestrate all of this"): a console
+ * grant may start a turn when the gateway says it is a note run, the ask a
+ * person typed in a note's comments in the app (`agent/noteRunRoute.js`),
+ * which reads only, as that person. Like Try it, the flag comes from the
+ * gateway's own route behind its secret, never from the app, and the turn is
+ * metered on the same feature, cap and kill switch, against the grant's own
+ * workspace. Any other console turn is refused exactly as before.
+ *
  * A background job's turns are not counted against the cap (decided by the
  * owner, 2026-10-31, after three restarted jobs used up a day's 100 in five
  * minutes): its parts, the advisor's check on each (inside the part's own
@@ -90,6 +99,7 @@ async function chargedWorkspace(
   hashedAccessToken: string,
   expectedWorkspaceId: string | null,
   tryIt = false,
+  noteRun = false,
 ): Promise<{ workspaceId: Id<"workspaces">; chat: boolean; group?: { groupId: Id<"textGroups">; who: UsageWho } } | { refused: "not_texts" } | null> {
   const turn = await resolveTurn(ctx, hashedAccessToken, expectedWorkspaceId);
   if (turn === null) return null;
@@ -107,6 +117,7 @@ async function chargedWorkspace(
   if (tryIt && turn.clientId === CONSOLE_CLIENT_ID && (await editsAiNotes(ctx, hashedAccessToken))) {
     return { workspaceId: turn.workspaceId, chat: false };
   }
+  if (noteRun && turn.clientId === CONSOLE_CLIENT_ID) return { workspaceId: turn.workspaceId, chat: false };
   return { refused: "not_texts" };
 }
 
@@ -129,6 +140,8 @@ export const startBuiltinTurn = internalMutation({
     tryIt: v.optional(v.boolean()),
     /** A background job's part or its report to the chat, said by the gateway; honoured for a chat's grant only. See the file's head. */
     background: v.optional(v.boolean()),
+    /** Set by the gateway's note-run route only (an ask in a note's comments); see the file's head. */
+    noteRun: v.optional(v.boolean()),
   },
   returns: v.union(
     v.null(),
@@ -136,7 +149,7 @@ export const startBuiltinTurn = internalMutation({
     v.object({ allowed: v.literal(false), reason: refusalValidator }),
   ),
   handler: async (ctx, args) => {
-    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true);
+    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true, args.noteRun === true);
     if (charged === null) return null;
     if ("refused" in charged) return { allowed: false as const, reason: charged.refused };
     return await countTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, Date.now(), { background: args.background === true && charged.chat });
@@ -169,10 +182,11 @@ export const recordBuiltinUsage = internalMutation({
     tryIt: v.optional(v.boolean()),
     /** The turn was counted as a background job's (`startBuiltinTurn`): a failure moves nothing on the cap. */
     background: v.optional(v.boolean()),
+    noteRun: v.optional(v.boolean()),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true);
+    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true, args.noteRun === true);
     if (charged === null || "refused" in charged) return false;
     const now = Date.now();
     const costMicroUsd = await recordTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, { ...args, background: args.background === true && charged.chat }, GLM_MODEL, now);

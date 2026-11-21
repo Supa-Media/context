@@ -198,12 +198,22 @@ describe("a pending approval in the log", () => {
     expect(tab.order("tex-row-r1", "tex-approval-ap_1", "tex-row-r2")).toBe(
       true,
     );
-    expect(tab.text()).toContain("Waiting for your OK");
+    expect(tab.text()).toContain("Waiting for you · nothing sends until you say so");
     expect(tab.text()).toContain(item.summary);
     expect(tab.text()).toContain("Asked by Claude Desktop");
-    expect(tab.find("tex-approval-approve-ap_1")?.textContent).toBe("Approve");
-    expect(tab.find("tex-approval-decline-ap_1")?.textContent).toBe("Decline");
+    expect(tab.find("tex-approval-approve-ap_1")?.textContent).toBe("Go ahead");
+    expect(tab.find("tex-approval-decline-ap_1")?.textContent).toBe("Not now");
     expect(tab.find("tex-approval-always-ap_1")).toBeNull();
+  });
+
+  test("no tool name and no raw JSON arguments are drawn on the card", () => {
+    const tab = mount([first, second], fakeApprovals({ items: [item] }).view);
+    const card = tab.find("tex-approval-ap_1")?.textContent ?? "";
+    expect(card).not.toContain("share_note");
+    expect(card).not.toContain("q4-plan.md");
+    expect(card).not.toContain("{");
+    expect(card).not.toContain('"note"');
+    expect(tab.find("tex-approval-ap_1")?.querySelector('[data-testid="tex-approval-args"]')).toBeNull();
   });
 
   test("Approve calls decide with approve, and the card flips to Approved with no buttons", () => {
@@ -258,12 +268,9 @@ describe("a pending approval in the log", () => {
       fakeApprovals({ items: [item], busyId: "ap_1" }).view,
     );
     expect(tab.find("tex-approval-busy-ap_1")?.textContent).toBe("Sending…");
-    expect(
-      tab.find("tex-approval-approve-ap_1")?.getAttribute("aria-disabled"),
-    ).toBe("true");
-    expect(
-      tab.find("tex-approval-decline-ap_1")?.getAttribute("aria-disabled"),
-    ).toBe("true");
+    // The buttons are replaced by the sending line, so there is nothing to press twice.
+    expect(tab.find("tex-approval-approve-ap_1")).toBeNull();
+    expect(tab.find("tex-approval-decline-ap_1")).toBeNull();
   });
 });
 

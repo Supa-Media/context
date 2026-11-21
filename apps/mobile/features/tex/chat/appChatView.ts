@@ -1,5 +1,5 @@
 import type { ChatLine } from "./appChatGateway";
-import { isPending, type AskChoice, type ReactionEmoji } from "./appChatGateway";
+import { isPending, type AnswerChoice, type AskChoice, type LiveRun, type ReactionEmoji } from "./appChatGateway";
 
 /** What the chat page draws, and what a person can do on it. */
 export interface AppChatView {
@@ -24,6 +24,11 @@ export interface AppChatView {
   send: (text: string, options?: { pictures?: readonly Blob[]; replyTo?: string | null }) => void;
   retry: (localId: string) => void;
   answer: (rowId: string, choice: AskChoice) => void;
+  /**
+   * The answer to a card (`row.ask.card`): send it, with the words the person changed when they changed them, or hold it
+   * back. Shown at once (sending, or held), undone when the route refuses it.
+   */
+  decide: (rowId: string, choice: AnswerChoice, body?: string) => void;
   /** A tapback on any row; shown at once, undone if the route refuses it. */
   react: (rowId: string, emoji: ReactionEmoji) => void;
   /** New words for one of the person's `editable` rows; shown at once, undone if the route refuses it. */
@@ -34,6 +39,14 @@ export interface AppChatView {
   pictureUrl: (id: string) => string | null;
   /** The person is typing: asks the gateway to warm the model's cache, at most once every `WARM_AGAIN_MS`. */
   typing: () => void;
+  /** The turn running now, for the live run card; null when none runs. */
+  run: LiveRun | null;
+  /** Stop the turn running now (the stop key, Esc). What Tex already did stays. */
+  stop: () => void;
+  /** Try again on one of the person's texts that shows failed or stopped. */
+  retryRow: (rowId: string) => void;
+  /** One short line shown above the composer for a moment, or null. */
+  toast: string | null;
 }
 
 export interface State {
@@ -48,14 +61,18 @@ export interface State {
   answers: Record<string, AskChoice>;
   /** A turn the person opened (a text or an answer), until Tex's next text or the give-up. */
   waiting: { texCount: number } | null;
+  /** The turn running now, its steps as they come (`liveSteps.js`). */
+  run: LiveRun | null;
+  /** One short line shown above the composer for a moment (the stop's). */
+  toast: string | null;
 }
 
-/** Polled once a second while a turn is open, and for this long after Tex starts typing. */
-export const FAST_MS = 1_000;
-/** Polled this often otherwise, so a background job's report shows up without a reload. */
-export const SLOW_MS = 10_000;
-/** The fast poll stops after this long, even if Tex is still typing or has not answered. */
+/** After a read that failed, the chat is read again this much later. */
+export const RETRY_MS = 10_000;
+/** A turn the person opened counts as Tex working for at most this long, if Tex says nothing. */
 export const FAST_WINDOW_MS = 120_000;
+/** How long the stop's toast shows. */
+export const TOAST_MS = 3_000;
 
 export const EMPTY: State = {
   phase: "idle",
@@ -66,6 +83,8 @@ export const EMPTY: State = {
   sendsInFlight: 0,
   answers: {},
   waiting: null,
+  run: null,
+  toast: null,
 };
 
 /** Tex's own texts on the page. A turn is over when this grows. */

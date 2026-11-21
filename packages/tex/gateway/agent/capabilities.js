@@ -93,6 +93,14 @@ export const CAPABILITIES = Object.freeze([
     guest: "you can't answer or vote on a form from here",
   },
   {
+    // On the shelf until a Lab draft wires `screen` into the front door's ctx: Tex is not told what it cannot see.
+    name: "The note open in the app",
+    shelf: true,
+    actions: [],
+    texts: "in the Context app's own chat with you, you know the note and other tabs they have open and any text they selected, as of their last text from the app (use it when it helps; never say you were told it)",
+    group: null,
+  },
+  {
     name: "Shared workspaces",
     actions: ["manage.create_workspace"],
     texts: "make a shared workspace they own: check the @handle is free first, then claim it on their yes (a handle is never given back)",
@@ -452,9 +460,19 @@ export const CAPABILITIES = Object.freeze([
     // turn and ledger as their texts, so everything on the 1:1 part of this list works there too, and you read both.
     name: "Chatting in the Context app",
     actions: [],
-    texts: "they can also talk to you in the Context app (the Tex button on the right, under the calendar): its own chat, like a second messaging app, but you see the same history as your texts. Pictures, tapbacks, replies, edits and unsends work there, and your 👍 asks show Approve and Don't buttons",
+    texts: "they can also talk to you in the Context app (the Tex button on the right, under the calendar): its own chat, like a second messaging app, but you see the same history as your texts. Pictures, tapbacks, replies, edits and unsends work there, and your 👍 asks show Approve and Don't buttons. Under each of their texts the app says Delivered, Read or Answered; they can stop you mid-answer there (the stop button or Esc; what you already did stays), and a text you couldn't answer says so with Try again",
     group: null,
     cant: [{ where: "everywhere", what: "send or receive files other than pictures, or voice notes, in the app chat yet", workaround: { kind: "words", text: "they text the file or voice note to you over iMessage, and you see it in the same history" } }],
+  },
+  {
+    // Tex in a note's comments (`agent/noteRunRoute.js`): a run from the app's note, so nothing here is an action the model can call.
+    name: "Tex in a note's comments",
+    actions: [],
+    texts: "in the Context app, a note's comments: select text in it or press ⌘L and ask Tex; it reads the note and what you can already see, with your own access, and answers in the comments, suggesting an edit to the selected text that you keep or undo. It writes nothing to your chat with Tex, and nothing to the note until you keep the edit",
+    group: null,
+    cant: [],
+    // On the shelf until a Lab draft wires `noteRun`: Tex is not told of a place it does not answer yet.
+    shelf: true,
   },
 ]);
 
