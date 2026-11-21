@@ -152,7 +152,10 @@ describe("what the others see", () => {
     const ins = view.contentDOM.querySelector(".cm-tex-ins") as HTMLElement;
     expect(ins.textContent).toBe("20 confirmed");
     expect((ins.querySelector(".cm-tex-caret") as HTMLElement).dataset.who).toBe("Sayo’s Tex");
-    expect(view.contentDOM.querySelector(".cm-tex-del")?.textContent).toBe("18 confirmed");
+    // Typed in place, as plain words: the old ones give way, nothing struck or tinted.
+    expect(view.contentDOM.querySelector(".cm-tex-del")).toBeNull();
+    expect(view.contentDOM.textContent).not.toContain("18 confirmed");
+    expect(ins.classList.contains("cm-tex-live")).toBe(true);
   });
 
   test("before any new words, only the caret shows and nothing is struck", () => {

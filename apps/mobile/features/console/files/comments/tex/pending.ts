@@ -1,14 +1,19 @@
 /**
- * How Tex's pending edit looks in the note: the anchored words struck through,
- * the new words inserted after them, and, while Tex is typing, a caret with
- * its name on it. Drawn as decorations, never as document text, so the words
- * only change when somebody presses Keep (the note is not written until then).
+ * How Tex's edit looks in the note while Tex types it: plain words with a
+ * caret carrying Tex's name, as if Tex were typing in the note. An addition
+ * appears after the highlighted words, outside the highlight; a rewrite takes
+ * the highlighted words' place. Drawn as decorations: the note is written once,
+ * when the run ends (runner.ts).
+ *
+ * A suggestion written before edits applied directly still draws as it did,
+ * old words struck and new ones tinted, until somebody keeps or undoes it.
  */
 
 import { texOf } from "./possessive";
 import { Decoration, WidgetType, type DecorationSet } from "@codemirror/view";
 import type { EditorState, Range } from "@codemirror/state";
 import { commentsParsed } from "../extension";
+import { anchorWords, isAddition } from "./edit";
 import type { TexRunLive } from "./runner";
 import type { PeerTexRun } from "./peerRuns";
 
@@ -23,18 +28,20 @@ class PendingWidget extends WidgetType {
     readonly thread: string,
     /** The caret's name: "Tex", or "Sayo’s Tex" when the run is somebody else's. */
     readonly who: string = "Tex",
+    /** Being typed now: plain text, no tint. */
+    readonly live: boolean = false,
   ) {
     super();
   }
 
   eq(other: PendingWidget): boolean {
-    return other.text === this.text && other.caret === this.caret && other.thread === this.thread && other.who === this.who;
+    return other.text === this.text && other.caret === this.caret && other.thread === this.thread && other.who === this.who && other.live === this.live;
   }
 
   toDOM(): HTMLElement {
     // textContent, never innerHTML: the words are a model's output.
     const span = document.createElement("span");
-    span.className = "cm-tex-ins";
+    span.className = this.live ? "cm-tex-ins cm-tex-live" : "cm-tex-ins";
     // The popover reads this to sit under the new words, not on top of them.
     span.dataset.thread = this.thread;
     span.textContent = this.text;
@@ -82,16 +89,23 @@ export function pendingDecorations(
     } else {
       continue;
     }
-    // An addition after the words keeps them: its text starts with them, so only the new part is drawn and nothing is
-    // struck. While it is being typed, the part that only retypes the words draws nothing yet.
+    if (caret) {
+      // Typing: plain words where they will land, with Tex's caret.
+      const words = anchorWords(state, anchor);
+      if (isAddition(words, text)) {
+        const tail = text.length > words.length ? text.slice(words.length) : "";
+        ranges.push(Decoration.widget({ widget: new PendingWidget(tail, true, thread.id, who, true), side: 1 }).range(anchor.closeEnd));
+      } else {
+        ranges.push(Decoration.replace({ widget: new PendingWidget(text, true, thread.id, who, true) }).range(anchor.from, anchor.to));
+      }
+      continue;
+    }
+    // An old suggestion: an addition after the words keeps them, so only the new part is drawn and nothing is struck.
     const words = state.sliceDoc(anchor.from, anchor.to);
     const adding = words !== "" && (text.startsWith(words) || words.startsWith(text));
     if (adding) text = text.length > words.length ? text.slice(words.length) : "";
-    // An empty range has no words to strike; the insertion still shows.
-    // Before a peer's run has any new words, only its caret shows: the words are not struck until Tex suggests others.
-    const striking = !adding && !(peer !== null && typing === null && text === "");
-    if (striking && anchor.from < anchor.to) ranges.push(Decoration.mark({ class: "cm-tex-del" }).range(anchor.from, anchor.to));
-    ranges.push(Decoration.widget({ widget: new PendingWidget(text, caret, thread.id, who), side: 1 }).range(anchor.to));
+    if (!adding && anchor.from < anchor.to) ranges.push(Decoration.mark({ class: "cm-tex-del" }).range(anchor.from, anchor.to));
+    ranges.push(Decoration.widget({ widget: new PendingWidget(text, false, thread.id, who), side: 1 }).range(anchor.to));
   }
   return Decoration.set(ranges, true);
 }
@@ -113,6 +127,7 @@ export function texInNoteStyles(colors: TexInNoteColors): string {
   return [
     `.cm-tex-del{background:${colors.del};color:${colors.crit};text-decoration:line-through;border-radius:3px}`,
     `.cm-tex-ins{background:${colors.ins};text-decoration:none;border-radius:3px;white-space:pre-wrap}`,
+    ".cm-tex-ins.cm-tex-live{background:none;border-radius:0}",
     `.cm-tex-caret{display:inline-block;position:relative;width:2px;height:1.15em;vertical-align:text-bottom;margin:0 1px;background:${colors.text};animation:cm-tex-blink 1s steps(2) infinite}`,
     `.cm-tex-caret::after{content:attr(data-who);position:absolute;left:-1px;top:-15px;font:600 10px/1 system-ui,sans-serif;color:${colors.ground};padding:2px 4px;border-radius:3px 3px 3px 0;white-space:nowrap;background:inherit}`,
     "@keyframes cm-tex-blink{50%{opacity:.35}}",

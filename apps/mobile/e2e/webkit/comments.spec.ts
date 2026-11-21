@@ -150,8 +150,8 @@ test("a comment that arrives in the file is a highlight that opens its thread", 
   expect(placed!.x + placed!.width).toBeLessThanOrEqual(scroller!.x + scroller!.width);
 });
 
-test("Tex answers in the thread, writes its edit into the note, and Keep makes it the text", async ({ page }) => {
-  // The whole in-note Tex path in the real app, from the Tex button to Keep,
+test("Tex answers in the thread and writes its edit straight into the note, which one undo takes back", async ({ page }) => {
+  // The whole in-note Tex path in the real app, from the Tex button to undo,
   // against a scripted pretend gateway (`comments/tex/fixtureTransport.ts`)
   // that streams real NDJSON through the real `runNoteRun`.
   await page.goto("/e2e-fixture?tex=fake");
@@ -165,23 +165,28 @@ test("Tex answers in the thread, writes its edit into the note, and Keep makes i
   const input = card.locator(".cm-cwin");
   await expect(input).toBeFocused();
   await expect(input).toHaveValue("@Tex ");
-  await input.pressSequentially("tighten this");
+  await input.pressSequentially("add a line after this");
   await page.keyboard.press("Enter");
 
-  // Working, then the edit drawn as struck old words and new ones, with Keep and Undo.
+  // Working, then the addition written into the note: no Keep, no Undo, nothing struck or tinted.
   await expect(card).toContainText("Reading this note");
-  await expect(page.locator(".cm-tex-ins")).toContainText("Checked by Tex", { timeout: 10_000 });
-  await expect(page.locator(".cm-tex-del")).toHaveCount(1);
-  await expect(card).toContainText("Rewrote the highlighted words.");
-  if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.TEX_SHOT ?? "test-results/tex-pending.png" });
-  await card.getByRole("button", { name: "Keep" }).click();
-
+  await expect(line).toContainText("Added by Tex.", { timeout: 10_000 });
+  await expect(card).toContainText("Added it after the highlighted words.");
+  await expect(card.getByRole("button", { name: "Keep" })).toHaveCount(0);
   await expect(page.locator(".cm-tex-ins")).toHaveCount(0);
-  await expect(line).toContainText("Checked by Tex");
+  await expect(page.locator(".cm-tex-del")).toHaveCount(0);
   await expect(page.locator(".cm-content")).not.toContainText("Tex suggests");
+  // The added words are the note's own text, not part of the highlight that was tagged.
+  await expect(line.locator(".cm-cmt-hl", { hasText: "Added by Tex" })).toHaveCount(0);
+  if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.TEX_SHOT ?? "test-results/tex-applied.png" });
+
+  // One undo in the editor takes the edit back; Tex's answer stays in the thread.
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(line).not.toContainText("Added by Tex.");
 
   // The run is in the note's log.
   const log = page.getByTestId("tex-in-note-log");
   await log.scrollIntoViewIfNeeded();
-  await expect(log).toContainText("tighten this");
+  await expect(log).toContainText("add a line after this");
 });
