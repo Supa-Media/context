@@ -15,6 +15,8 @@
  *   hits          most hits a search across every workspace shows (12).
  *   logPrior      what an archived note or a log scores, as a share of a live note with the same evidence (0.5).
  *   inboxPrior    the same for a note captured in the Inbox and not yet filed, outside its log folders (1 on main).
+ *   rerankTop     how many of a workspace's first rows the reranker reads (`rerank.js`; its step is off on main).
+ *   rerankWeight  how much its order counts, as one more reciprocal-rank list: 1 counts as much as the words do.
  *
  * In one workspace, each step that filters, merges or ranks reads its own (`IN_WORKSPACE_STEPS`); "Merge across
  * workspaces" (`fuse`) ranks every workspace's hits together by its own.

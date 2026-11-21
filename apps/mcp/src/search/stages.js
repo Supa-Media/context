@@ -14,8 +14,8 @@
  *   filter  answerHits        a code passage found only by meaning is not offered for a prose question; a note that
  *                             could not be read is dropped; the rest in the word search's hit shape, evidence beside it
  *
- * A row ("entry") keeps each part of its score apart (`w` word, `m` meaning, `title` evidence, `prior` the path's
- * multiplier) so the Lab shows why a note ranks; `scoreOf` adds them in the order the merge always has.
+ * A row ("entry") keeps each part of its score apart (`w` word, `m` meaning, `title` evidence, `r` the reranker's
+ * (`rerank.js`, after the read), `prior` the path's multiplier) so the Lab shows why a note ranks; `scoreOf` adds them in the order the merge always has.
  */
 import { DEFAULT_RANKING, rankingOf } from "./ranking.js";
 import { isSearchProbe, notePrior } from "./priors.js";
@@ -24,8 +24,8 @@ import { matchesOnlyInLinks } from "./linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "./codeLike.js";
 import { DEFAULT_SEARCH_SETTINGS } from "./settings.js";
 
-/** A row's score: word part plus title evidence, plus meaning part, times the path prior. */
-export const scoreOf = (entry) => ((entry.w ?? 0) + (entry.title ?? 0) + (entry.m ?? 0)) * (entry.prior ?? 1);
+/** A row's score: word part plus title evidence, plus meaning part, plus the reranker's part, times the path prior. */
+export const scoreOf = (entry) => ((entry.w ?? 0) + (entry.title ?? 0) + (entry.m ?? 0) + (entry.r ?? 0)) * (entry.prior ?? 1);
 
 /** A loose word hit meaning did not find goes last; then by score; ties keep the lists' order. */
 const weakLast = (entry) => (entry.loose && entry.meaning === null ? 1 : 0);
@@ -123,7 +123,12 @@ export function answerHits(found, entries, { keyField = "key", query = undefined
   const evidence = {};
   for (const entry of entries) {
     if (!entry.word && prose && looksLikeCode((entry.read?.snippets ?? []).join(" "))) continue;
-    evidence[entry.key] = { wordRank: wordRanks.get(entry.key) ?? null, loose: entry.word?.loose === true, meaningScore: entry.meaning ? entry.meaning.score : null };
+    evidence[entry.key] = {
+      wordRank: wordRanks.get(entry.key) ?? null,
+      loose: entry.word?.loose === true,
+      meaningScore: entry.meaning ? entry.meaning.score : null,
+      ...(typeof entry.rerankScore === "number" ? { rerankScore: entry.rerankScore } : {}),
+    };
     if (entry.word) {
       const { loose: _loose, ...word } = entry.word;
       out.push({ ...word, meaningOnly: false });
@@ -132,7 +137,7 @@ export function answerHits(found, entries, { keyField = "key", query = undefined
     }
   }
   const added = out.filter((hit) => hit.meaningOnly).length;
-  return { ...found, hits: out, evidence, matchCount: found.matchCount + added, meaning: "on" };
+  return { ...found, hits: out, evidence, matchCount: found.matchCount + added, meaning };
 }
 
 /** A ranking from a step's settings over main's. */

@@ -352,6 +352,34 @@
       ]
     },
     {
+      "id": "rerank",
+      "label": "Rerank",
+      "goal": "Ranks: each workspace’s first rows (rerankTop) read beside the query by a cross-encoder; each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps.",
+      "on": false,
+      "model": "code",
+      "icon": "star",
+      "file": "apps/mcp/src/search/rerank.js",
+      "x": 2640,
+      "y": 0,
+      "settings": { "rerankTop": 20, "rerankWeight": 1 },
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ]
+    },
+    {
       "id": "code",
       "label": "Drop code passages",
       "goal": "Filters: a code passage found only by meaning is not offered for a question in prose (one workspace; across several, Merge across workspaces does it), and a note that could not be read is dropped.",
@@ -359,7 +387,7 @@
       "model": "code",
       "icon": "trash",
       "file": "apps/mcp/src/search/stages.js answerHits",
-      "x": 2640,
+      "x": 2880,
       "y": 0,
       "settings": {},
       "inSchema": [
@@ -389,7 +417,7 @@
       "model": "code",
       "icon": "wire",
       "file": "apps/mcp/src/search/config/nodes.js · tools/search.js",
-      "x": 2880,
+      "x": 3120,
       "y": 110,
       "settings": {
         "boostFactor": 1.2,
@@ -402,7 +430,8 @@
         "phraseBonus": 0.00819672131147541,
         "rrfK": 60,
         "snippetPhraseBonus": 0,
-        "titleWeight": 0.003278688524590164
+        "titleWeight": 0.003278688524590164,
+        "rerankWeight": 1
       },
       "inSchema": [
         { "name": "query", "type": "text" },
@@ -425,7 +454,7 @@
       "model": "code",
       "icon": "send",
       "file": "apps/mcp/src/search/config/nodes.js answerStep",
-      "x": 3120,
+      "x": 3360,
       "y": 0,
       "settings": {},
       "inSchema": [
@@ -518,6 +547,12 @@
     },
     {
       "from": "snippets",
+      "to": "rerank",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "rerank",
       "to": "code",
       "mode": "wait",
       "when": ["*"]

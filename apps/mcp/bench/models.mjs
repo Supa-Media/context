@@ -388,6 +388,13 @@ export function fakeAi() {
         const texts = Array.isArray(input?.text) ? input.text : [];
         return { shape: [texts.length, MEANING_DIMENSIONS], data: texts.map(fakeEmbedding) };
       }
+      // The search reranker (`src/search/rerank.js`): the share of the query's words each text holds, words only.
+      if (model === "@cf/baai/bge-reranker-base") {
+        const terms = String(input?.query ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2);
+        const contexts = Array.isArray(input?.contexts) ? input.contexts : [];
+        const score = (text) => (terms.length ? terms.filter((t) => String(text).toLowerCase().includes(t)).length / terms.length : 0);
+        return { response: contexts.map((c, id) => ({ id, score: score(c?.text ?? "") })) };
+      }
       // Clef, the router (`src/agent/router.js`): a text that asks for a plan or
       // a judgement is `think`; a text that edits is `change`; the rest `lookup`.
       if (model === "@cf/cloudflare/clef") {

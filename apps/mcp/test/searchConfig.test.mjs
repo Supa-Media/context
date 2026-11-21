@@ -92,7 +92,7 @@ test("main's settings are the constants search ranked by before it had a config"
   const later = { snippetPhraseBonus: DEFAULT_RANKING.snippetPhraseBonus, inboxPrior: DEFAULT_RANKING.inboxPrior };
   assert.ok(later.snippetPhraseBonus >= 0 && later.inboxPrior > 0 && later.inboxPrior <= 1);
   assert.deepEqual(DEFAULT_RANKING, { ...before, ...later });
-  assert.deepEqual(FUSE_RANKING, { ...before, ...later, hits: 12, loosePenalty: 10, boostFactor: 1.2 });
+  assert.deepEqual(FUSE_RANKING, { ...before, ...later, hits: 12, loosePenalty: 10, boostFactor: 1.2, rerankWeight: 1 });
   assert.deepEqual({ ...DEFAULT_SEARCH_SETTINGS }, { everywhere: true, minScore: 0.4, extraNotes: 3, snippetChars: 200 });
   assert.equal(settingsOf("search").rrfK, undefined);
 });
@@ -103,8 +103,8 @@ test("the schema refuses a setting out of bounds, one a step does not read, and 
   assert.match(searchConfigProblems(draftWith("merge", { hits: 5 })).join(), /"merge" does not read hits/);
   assert.match(searchConfigProblems(draftWith("merge", { bogus: 1 })).join(), /"bogus" is not a search setting/);
   const extra = structuredClone(SEARCH_CONFIG);
-  extra.nodes.push({ id: "rerank", label: "Rerank", on: true, model: "code" });
-  assert.match(searchConfigProblems(extra).join(), /"rerank" is not a search step/);
+  extra.nodes.push({ id: "spellfix", label: "Spell fix", on: true, model: "code" });
+  assert.match(searchConfigProblems(extra).join(), /"spellfix" is not a search step/);
   const missing = structuredClone(SEARCH_CONFIG);
   delete missing.nodes.find((n) => n.id === "fuse").settings.hits;
   assert.match(searchConfigProblems(missing).join(), /"fuse" has no hits setting/);

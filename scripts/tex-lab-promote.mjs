@@ -365,7 +365,7 @@ function selfTest() {
   }
   const texSide = configFrom(hitsDraft, current, words);
   expect(texSide.config && configText(texSide.config) === configText(current), "a search change moved Tex's config");
-  expect(/^Search step [a-z]+ is new: its code must merge first$/.test(searchFrom(withSearch((g) => g.nodes.push({ ...fuseOf(g), id: "rerank", graph: "search" })), searchNow).refused ?? ""), "a new search step with no code passed");
+  expect(/^Search step [a-z]+ is new: its code must merge first$/.test(searchFrom(withSearch((g) => g.nodes.push({ ...fuseOf(g), id: "spellfix", graph: "search" })), searchNow).refused ?? ""), "a new search step with no code passed");
   expect(/is missing from the draft/.test(searchFrom(withSearch((g) => { g.nodes = g.nodes.filter((n) => n.id !== "title"); }), searchNow).refused ?? ""), "a search step missing from the draft passed");
   const outOfBounds = withSearch((g) => {
     fuseOf(g).settings = { ...fuseOf(g).settings, hits: 99 };
