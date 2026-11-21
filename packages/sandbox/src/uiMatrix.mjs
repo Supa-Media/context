@@ -17,8 +17,12 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-/** Every persona's workspace has this note at its root, so "a note open" means the same everywhere. */
-const NOTE = "activity";
+/**
+ * Notes every persona's workspace has, tried in order: the tree shows
+ * `activity` at the root, and the phone's Notes list shows the root `index`
+ * under Top level instead.
+ */
+const NOTES = ["activity", "index"];
 /** What Tex is asked while the panel is folded under it: a read, so a preview never sends anything. */
 const ASK = "what notes do I have?";
 
@@ -84,7 +88,12 @@ export async function runMatrix({ origin, layouts, newContext, out, log = consol
         await page.waitForTimeout(2500);
         await page.keyboard.press("Escape");
         if (note === "note") {
-          await page.getByText(NOTE, { exact: true }).first().click({ timeout: 10_000 });
+          const row = NOTES.map((name) => page.getByText(name, { exact: true }).first());
+          const shown = [];
+          for (const candidate of row) shown.push(await candidate.isVisible().catch(() => false));
+          const at = shown.indexOf(true);
+          if (at < 0) throw new Error(`none of ${NOTES.join(", ")} is shown to open`);
+          await row[at].click({ timeout: 10_000 });
           await page.waitForTimeout(2000);
         }
         if (layout.name === "phone") {
