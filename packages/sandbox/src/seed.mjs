@@ -255,10 +255,13 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
       // Staging's test upgrade, as staging calls it. The server accepts it on an isolated preview as well.
       await client.mutation(ref('functions/billing:activateTestPremium'), { workspaceId });
       // A plan that failed on an earlier deploy stays `failed`, and activating an active plan does not schedule
-      // provisioning again, so ask once here unless a run is already going or has finished.
+      // provisioning again, so ask once here unless storage is already there. A `running` left by an earlier deploy
+      // is asked again too: a run cut short (pr3940, 2026-11-21: a 503 from sign-in mid-seed) never leaves
+      // `running`, and every later deploy then waited three minutes on it and failed. A retry adopts the bucket a
+      // live run may have made, so asking during one is safe.
       const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId });
       const status = await client.query(ref('functions/billing:status'), { workspaceId });
-      if (binding?.status !== 'connected' && status.managedProvisioning !== 'running' && status.managedProvisioning !== 'ready') {
+      if (binding?.status !== 'connected' && status.managedProvisioning !== 'ready') {
         await client.mutation(ref('functions/managedProvisioning:retryManagedProvisioning'), { workspaceId });
       }
     }
