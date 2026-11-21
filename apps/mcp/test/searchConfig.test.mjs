@@ -120,7 +120,8 @@ test("a ranking takes a draft's knobs that are in bounds and keeps the rest", ()
 /** The steps a run went through, in config order (two nominators run side by side, so not in the order they ended). */
 const ORDER = SEARCH_CONFIG.nodes.map((n) => n.id);
 const pathOf = (runs) => runs.map((r) => r.node).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
-const IN_WORKSPACE = ["open", "words", "meaning", "visible", "probes", "floor", "merge", "title", "prior", "budget", "snippets", "code"];
+// Every step main runs between the query and the fuse, in the config's order: a step a promote turns on or off is in or out.
+const IN_WORKSPACE = SEARCH_CONFIG.nodes.filter((n) => n.on !== false && !["search", "fuse", "answer"].includes(n.id)).map((n) => n.id);
 
 test("searched across workspaces, the run goes left to right through every step, read from the config's wires", async () => {
   const runs = [];
@@ -219,9 +220,10 @@ test("a step turned off is passed over, and a step every search needs cannot be 
   for (const id of searchConfig.ALWAYS_ON) assert.match(searchConfigProblems(off(id)).join(), /cannot be turned off/);
 });
 
-test("every step off on main, turned on, still answers, its output in the shape its schema names", async () => {
-  const offOnMain = SEARCH_CONFIG.nodes.filter((n) => n.on === false).map((n) => n.id);
-  assert.ok(offOnMain.includes("rerank"));
+test("every step that can be turned off, turned on, still answers, its output in the shape its schema names", async () => {
+  // Whether main has it on or off: a step a draft can turn on must answer in its schema's shape (`texGraph.cjs`).
+  const offOnMain = SEARCH_CONFIG.nodes.filter((n) => !searchConfig.ALWAYS_ON.includes(n.id)).map((n) => n.id);
+  assert.ok(offOnMain.includes("rerank") && offOnMain.includes("rerankWords"));
   const main = await findNotes(setup(), "private", [], new Map(), "renewal", "");
   for (const id of offOnMain) {
     const config = structuredClone(SEARCH_CONFIG);
@@ -256,13 +258,21 @@ test("the word hits are reranked beside meaning, and Rerank uses those scores wi
   assert.equal(found.hits[0].key, "projects/renewal.md");
 });
 
-test("Rerank word hits sits between the word search and the visible check, off on main", () => {
+test("Rerank word hits sits between the word search and the visible check", () => {
   const ids = SEARCH_CONFIG.nodes.map((n) => n.id);
   const node = SEARCH_CONFIG.nodes.find((n) => n.id === "rerankWords");
-  assert.equal(node.on, false);
   assert.deepEqual(Object.keys(node.settings).sort(), ["rerankChars", "rerankTop"]);
   assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "words" && e.to === "rerankWords"));
   assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" && e.to === "visible"));
   assert.ok(!SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" && e.to === "meaning"), "it runs beside meaning, not before it");
   assert.ok(ids.includes("meaning"));
+});
+
+test("with the word search off, Rerank word hits on passes the search on unread", async () => {
+  const config = structuredClone(SEARCH_CONFIG);
+  config.nodes.find((n) => n.id === "words").on = false;
+  config.nodes.find((n) => n.id === "rerankWords").on = true;
+  const found = await findNotes(setup(), "private", [], new Map(), "renewal", "", { config });
+  assert.deepEqual(found.hits, []);
+  assert.deepEqual(found.unreached, []);
 });
