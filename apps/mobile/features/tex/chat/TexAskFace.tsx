@@ -125,7 +125,17 @@ export function AskFace({
 
       {actions !== undefined && actions !== null ? <View style={styles.actions}>{actions}</View> : null}
 
-      {footer !== undefined && footer !== null ? <View style={styles.footer}>{footer}</View> : null}
+      {footer !== undefined && footer !== null ? (
+        <View style={styles.footer}>
+          {typeof footer === "string" ? (
+            <Text variant="meta" style={styles.footerText}>
+              {footer}
+            </Text>
+          ) : (
+            footer
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -140,6 +150,8 @@ function BodyBox({ body }: { body: FaceBody }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const fieldFont = useFieldFont(pointerType.ui);
+  // The box grows to its words, so the whole email shows (the mock); a fixed height clipped it.
+  const [height, setHeight] = useState<number | null>(null);
 
   if (body.onChangeText === undefined) {
     return (
@@ -159,10 +171,12 @@ function BodyBox({ body }: { body: FaceBody }) {
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         multiline
+        scrollEnabled={false}
+        onContentSizeChange={(event) => setHeight(Math.ceil(event.nativeEvent.contentSize.height))}
         textAlignVertical="top"
         accessibilityLabel={body.label}
         testID={body.testID}
-        style={[styles.bodyBox, styles.bodyText, styles.bodyInput, fieldFont, focused && { backgroundColor: colors.ground }, NO_OUTLINE]}
+        style={[styles.bodyBox, styles.bodyText, styles.bodyInput, fieldFont, height !== null && { height: Math.max(MIN_BODY, height) }, focused && { backgroundColor: colors.ground }, NO_OUTLINE]}
       />
       <View
         pointerEvents="none"
@@ -175,7 +189,12 @@ function BodyBox({ body }: { body: FaceBody }) {
   );
 }
 
-/** One button of a card's row: `primary` is the accent fill, `ghost` a line and no fill. */
+/** The body box's padding. */
+const BODY_PAD = 10;
+/** The least height of an editable body; past it the box grows to its words (its content size includes the padding). */
+const MIN_BODY = 60;
+
+/** One button of a card's row: `primary` is the accent fill, `ghost` plain muted words with no line and no fill (the mock). */
 export function AskButton({
   label,
   variant,
@@ -285,12 +304,12 @@ const makeStyles = (colors: Colors) =>
     bodyBox: {
       marginVertical: space.x2,
       marginHorizontal: space.x3,
-      padding: 10,
+      padding: BODY_PAD,
       borderRadius: 9,
       backgroundColor: colors.surface2,
     },
     bodyText: { fontSize: pointerType.ui, lineHeight: 19, color: colors.text },
-    bodyInput: { marginVertical: 0, marginHorizontal: 0, minHeight: 60 },
+    bodyInput: { marginVertical: 0, marginHorizontal: 0, minHeight: MIN_BODY },
     ring: { ...StyleSheet.absoluteFillObject, borderRadius: 9 },
     actions: {
       flexDirection: "row",
@@ -302,12 +321,13 @@ const makeStyles = (colors: Colors) =>
     },
     button: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1 },
     buttonPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
-    buttonGhost: { backgroundColor: "transparent", borderColor: colors.line },
+    buttonGhost: { backgroundColor: "transparent", borderColor: "transparent" },
     buttonDisabled: { opacity: 0.5 },
     buttonText: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600" },
     buttonTextPrimary: { color: colors.ink },
-    buttonTextGhost: { color: colors.text2 },
+    buttonTextGhost: { color: colors.muted },
     sending: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x3, paddingBottom: space.x3 },
     sendingText: { fontSize: pointerType.meta, color: colors.muted },
     footer: { paddingHorizontal: space.x3, paddingBottom: 10 },
+    footerText: { color: colors.muted },
   });
