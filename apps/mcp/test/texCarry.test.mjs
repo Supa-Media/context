@@ -15,6 +15,9 @@
  *  4. `loggedTurn.js` rendering the stretch into the log block too (`all` unfiltered) → "byte-stable".
  *  6. `stretch.js` replaying a result whatever grant read it, or a stubbed call's arguments → "another grant".
  *  5. `turn.js` mapping history turns to `{role, text}` only → "carries text 1's".
+ *  7. `stretch.js` not returning the texts after its last answer (`left` dropped), or `loggedTurn.js` not showing them
+ *     → "a text nobody answered" (a group, 2026-11-21: a question judged quiet, then a bare "Tex", and Tex asked
+ *     what they needed: the question was in neither the log block nor the carried turns).
  */
 
 import assert from "node:assert/strict";
@@ -22,7 +25,8 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { gatewayBody, CONTEXT_BETA } from "../../../packages/tex/gateway/agent/aiGateway.js";
-import { STUB_GRANT, STUB_OTHER, STUB_WITHHELD, carryCounts, stretchSince, stretchTurns } from "../../../packages/tex/gateway/agent/stretch.js";
+import { STUB_GRANT, STUB_OTHER, STUB_WITHHELD, carryCounts, stretchLeft, stretchSince, stretchTurns } from "../../../packages/tex/gateway/agent/stretch.js";
+import { request, TEXTED_CHAT } from "./agentEgressFixtures.mjs";
 
 let world;
 const realNow = Date.now;
@@ -81,6 +85,27 @@ test("text 2 carries text 1's tool_use and tool_result; the prefix is byte-stabl
   const fresh = world.model.requests.at(-1);
   assert.equal(blocks(fresh).filter((block) => block.type === "tool_use" || block.type === "tool_result").length, 0, "an hour quiet: words only");
   assert.match(JSON.stringify(fresh.messages), /Elm St/, "the words are still there, in the log");
+});
+
+test("a text nobody answered, inside the stretch, is shown before the text that is answered (a group, 2026-11-21)", async () => {
+  offset = 0;
+  world.model.install([{ text: "The ticket money is due Friday." }]);
+  await textTex(world.env, TOKEN_TEXTS, "anything due this week?");
+  offset += 60_000;
+  // Their next text gets no turn (a group's judge said it wasn't for Tex): it is logged and nothing answers it.
+  const at = Date.now();
+  const unanswered = { id: `${at}-${String(900_001).padStart(6, "0")}`, at, chat: TEXTED_CHAT, from: { kind: "person" }, kind: "text", text: "Does anyone still owe for the tickets?" };
+  await request(world.env, TOKEN_TEXTS, "/agent/events", { conversation: "texts", events: [unanswered] });
+  offset += 30_000;
+  world.model.install([{ text: "Only Bo." }]);
+  await textTex(world.env, TOKEN_TEXTS, "Tex");
+  const asked = world.model.requests.at(-1);
+  const said = JSON.stringify(asked.messages);
+  assert.match(said, /Does anyone still owe for the tickets\?/, "the unanswered text reaches the model");
+  assert.equal(said.split("Does anyone still owe for the tickets?").length - 1, 1, "shown once");
+  const last = JSON.stringify(asked.messages.at(-1));
+  assert.ok(last.indexOf("Does anyone still owe for the tickets?") >= 0 && last.indexOf("Does anyone still owe for the tickets?") < last.lastIndexOf("Tex"), "in the new turn, before the text it answers");
+  assert.match(JSON.stringify(asked.messages.slice(0, -1)), /The ticket money is due Friday/, "the answer before it is still carried");
 });
 
 const H = 3_600_000; // the hour, written out: a test that read the constant would move with it
@@ -190,4 +215,14 @@ test("a write into another workspace is carried with where it went, and none of 
   assert.equal(answer.calls[0].result, `written: projects/x.md (etag c2.a)\nvisibility: private\n\n${STUB_WITHHELD}`);
   assert.deepEqual(answer.calls[0].args, { path: "projects/x.md", context: "@v2l" });
   assert.equal(carryCounts([answer]).stubWorkspace, 1);
+});
+
+test("the stretch hands back the texts after its last answer, and only those", () => {
+  const entries = [text("1", 10, A, "anything due?"), text("2", 12, "tex", "Friday.", "t1"), reply("t1", 13), text("3", 20, A, "anyone still owe?"), text("4", 30, A, "Tex")];
+  assert.deepEqual(stretchLeft(entries, { since: 0, covered: new Set(["4"]) }).map((entry) => entry.eid), ["3"]);
+  assert.deepEqual(stretchLeft(entries, { since: 15, covered: new Set(["4"]) }).map((entry) => entry.eid), ["3"], "after the stretch began");
+  assert.deepEqual(stretchLeft(entries.slice(0, 3), { since: 0, covered: new Set() }), [], "everything answered");
+  const between = [text("1", 10, A, "first"), text("2", 11, B, "aside"), text("3", 12, "tex", "Answer.", "t1"), reply("t1", 13), text("4", 30, A, "Tex")];
+  assert.deepEqual(stretchLeft(between, { since: 0, covered: new Set(["4"]) }), [], "a text before an answer is that answer's question, already carried");
+  assert.equal(stretchLeft(entries, { since: null, covered: new Set() }).length, 0, "no stretch");
 });

@@ -246,7 +246,7 @@ export async function runTheModel(t, via) {
     ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
     // With the log, the chat and its tapbacks are in the transcript, and the covered events are the question (`loggedTurn.js`).
-    question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
+    question: [logged === null && view === null ? chatLines(group) : "", logged === null ? reactedLine(reacted) : "", setAsideLine(setAside, dropped), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), logged?.left ?? "", (logged ? loggedQuestion(logged.question, quoted, logged.replying) : askedWith(question, quoted)), logged === null ? sleepLineNote(question) : ""].filter(Boolean).join("\n\n"),
     place: body.place ?? null,
     tools: [
       ...agentTools(offered),

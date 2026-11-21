@@ -32,7 +32,7 @@ import { dayFromLedger, earlierFromLedger, earlierRoom, faded, readLedger, summa
 import { ledgerPlace } from "./ledger.js";
 import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
-import { carryKey, MAX_CARRIED_CALLS, stretchSince, stretchTurns } from "./stretch.js";
+import { carryKey, MAX_CARRIED_CALLS, stretchLeft, stretchSince, stretchTurns } from "./stretch.js";
 import { groupQuestion } from "./groupLedgerHistory.js";
 
 const MAX_COVERS = 32;
@@ -86,6 +86,8 @@ export async function recordedTurn(store, run, { defer = () => false } = {}) {
   }
 }
 
+/** Before the texts said after Tex's last answer in the stretch that no turn took (`stretch.js` `stretchLeft`). */
+export const LEFT_PREFACE = "(Said in the chat since your last answer, before the text you are answering:)";
 export const LOG_PREFACE = "(The chat so far, oldest first, as it happened. \"You\" is you. The newest messages, the ones you are answering, come next.)";
 
 /*
@@ -195,7 +197,11 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   const told = [summaryLines(earlier.summaries), transcript].filter((part) => part !== "").join("\n\n");
   // The pieces the conversation threads re-show the chat from (`threadedTurn.js`).
   const parts = { shown: all, since: carried.since, answeredBy: [...earlier.events, ...events], tools: earlier.tools, facts: earlier.facts, summaries: earlier.summaries, answering, timeZone, byId };
-  return { covered, history: [...(told === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${told}` }]), ...carried.turns], carried: carried.turns, question, replying, parts };
+  // Their texts after the stretch's last answer that this turn doesn't answer: in neither the log block (it stops where the
+  // stretch begins) nor the carried turns (each a question and its answer), so shown here, before the text it answers.
+  const leftEvents = carried.left ? shown.filter((event) => carried.left.has(event.id)) : [];
+  const left = leftEvents.length === 0 ? "" : `${LEFT_PREFACE}\n${renderEvents(leftEvents, { timeZone, answeredBy: [...earlier.events, ...events], facts: earlier.facts })}`;
+  return { covered, history: [...(told === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${told}` }]), ...carried.turns], carried: carried.turns, question, left, replying, parts };
 }
 
 /**
@@ -251,8 +257,9 @@ async function carriedStretch(read, covered, group, grant) {
   try {
     const tools = (await read.ledger.read(read.chat, { kinds: ["tool"], since, limit: MAX_CARRIED_CALLS }))?.entries ?? [];
     const askedNow = [...new Set(covered.filter((event) => event.from?.kind === "person").map((event) => event.from?.who ?? event.from?.name ?? ""))];
-    const turns = stretchTurns(read.entries, tools, { since, covered: new Set(covered.map((event) => event.id)), group: group !== null, asker: askedNow.length === 1 ? askedNow[0] : null, grant, ...(group !== null ? { question: groupQuestion } : {}) });
-    return turns.length === 0 ? none : { since, turns };
+    const answering = new Set(covered.map((event) => event.id));
+    const turns = stretchTurns(read.entries, tools, { since, covered: answering, group: group !== null, asker: askedNow.length === 1 ? askedNow[0] : null, grant, ...(group !== null ? { question: groupQuestion } : {}) });
+    return turns.length === 0 ? none : { since, turns, left: new Set(stretchLeft(read.entries, { since, covered: answering }).map((entry) => entry.eid).filter((id) => typeof id === "string")) };
   } catch (error) {
     console.log(JSON.stringify({ event: "tex_stretch_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
     return none;
