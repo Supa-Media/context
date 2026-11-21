@@ -143,4 +143,22 @@ function promotedConfig(entry, graph, current) {
   return problems.length > 0 ? { refused: `${entry.label.toLowerCase()}: ${problems.join("; ")}` } : { config };
 }
 
-module.exports = { ARCHITECTURES, architectureOf, isOwnStep, draftStepsOf, ownGraphs, configFromDraft, texSideOf, ownProblems, ownVsMain, promotedConfig };
+/**
+ * An architecture's config file as text: two-space JSON, with each small flat object (a schema field, a step's
+ * settings) and each list of plain values on one line, so a file of many steps stays readable and under the
+ * repository's file-size limit. Promote writes it, and the files are kept in it.
+ */
+function configFileText(config) {
+  const flat = (v) => v !== null && typeof v === "object" && Object.values(v).every((x) => x === null || typeof x !== "object");
+  const inline = (v) => (Array.isArray(v) ? JSON.stringify(v) : `{ ${Object.entries(v).map(([k, x]) => `${JSON.stringify(k)}: ${JSON.stringify(x)}`).join(", ")} }`);
+  const out = (v, pad) => {
+    if (v === null || typeof v !== "object") return JSON.stringify(v);
+    if (flat(v) && (Array.isArray(v) || Object.keys(v).length === 0 || inline(v).length < 110)) return Array.isArray(v) || Object.keys(v).length ? inline(v) : "{}";
+    const inner = `${pad}  `;
+    if (Array.isArray(v)) return v.length ? `[\n${v.map((x) => inner + out(x, inner)).join(",\n")}\n${pad}]` : "[]";
+    return `{\n${Object.entries(v).map(([k, x]) => `${inner}${JSON.stringify(k)}: ${out(x, inner)}`).join(",\n")}\n${pad}}`;
+  };
+  return `${out(config, "")}\n`;
+}
+
+module.exports = { ARCHITECTURES, architectureOf, configFileText, isOwnStep, draftStepsOf, ownGraphs, configFromDraft, texSideOf, ownProblems, ownVsMain, promotedConfig };

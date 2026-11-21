@@ -23,7 +23,8 @@ import { canSee } from "../../privacy/engine.js";
 import { loadPrivacyState } from "../../privacy/state.js";
 import { PINNED_CONTEXT_NAME } from "../../orient/globalNote.js";
 import { searchVisibleNotes } from "../visibleNotes.js";
-import { addMeaningOnly, lowerLogs, meaningMatches, meaningSearchable, mergeWithMeaning, searchBothWays } from "../meaning/serve.js";
+import { meaningMatches, meaningSearchable, readMeaningOnly, searchBothWays } from "../meaning/serve.js";
+import { addEvidence, answerHits, closeMeaning, dropProbes, lowerByPath, meaningBudget, mergeLists, rankingFor } from "../stages.js";
 import { phase } from "../../mcp/phase.js";
 import { queryEmbedderFor } from "../meaning/queryVectors.js";
 import { searchSettingsOf } from "../settings.js";
@@ -119,7 +120,7 @@ function searchStep(input, io) {
     : searchSettingsOf(store).everywhere
     ? reachable
     : [];
-  return { to: here || names.length > 0 ? "each" : "none", query, prefix, names, here, ...(typeof boost === "string" ? { boost } : {}) };
+  return { to: here || names.length > 0 ? "open" : "none", query, prefix, names, here, ...(typeof boost === "string" ? { boost } : {}) };
 }
 
 /** The person-facing numbers a Lab draft's step sets (`minScore`, `extraNotes`, `snippetChars`); main reads the store's. */
@@ -129,137 +130,171 @@ function draftNumbers(io, names) {
   return Object.fromEntries(names.filter((name) => typeof settings[name] === "number").map((name) => [name, settings[name]]));
 }
 
-/**
- * `open`: one workspace opened the way a tool call addressed with `context: "@name"` opens it (`store.openContext`),
- * so it is searched under the person's role *there* and its own privacy rules: a note held back from a member is as
- * absent through this as through a direct search. The connection's own workspace is already open. The handles go back
- * to "Search each workspace" through `io.ctx.opened`, never through the output, which is logged.
- */
-async function openStep(input, io) {
-  const { workspace, here } = input;
-  const { store, scope, rules, overrides } = io.ctx;
-  const done = (handles) => {
-    io.ctx.opened?.set(workspace, handles);
-    return { workspace, reached: true, scope: String(handles.scope ?? ""), rules: Array.isArray(handles.rules) ? handles.rules.length : 0 };
-  };
-  if (here) return done({ store, scope, rules, overrides });
-  try {
-    const { session: target, store: targetStore } = await store.openContext(workspace);
-    const privacy = await loadPrivacyState(targetStore);
-    if (privacy.error) return { workspace, reached: false };
-    return done({ store: targetStore, scope: target.scope, rules: privacy.rules, overrides: privacy.overrides });
-  } catch {
-    return { workspace, reached: false };
-  }
-}
+/** What every step after `open` hands on: the search as asked, and each workspace's state so far. */
+const carry = (input, workspaces, more = {}) => ({
+  query: input.query,
+  prefix: input.prefix,
+  several: input.several,
+  ...(typeof input.boost === "string" ? { boost: input.boost } : {}),
+  workspaces,
+  unreached: input.unreached,
+  ...more,
+});
 
 /** The handles `open` left for a workspace: its store, and the person's scope and its rules there. */
-const handlesOf = (io, workspace) => io.ctx.opened.get(workspace);
+const handlesOf = (io, name) => io.ctx.opened.get(name);
 
-/** `words`: the word index's answer in one workspace (`../visibleNotes.js`), only notes the person may see. */
-async function wordsStep(input, io) {
-  const { store, scope, rules, overrides } = handlesOf(io, input.workspace);
-  const found = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, input.prefix));
-  return { found };
-}
+/** The query's rules (title and phrase evidence, link-only and code passages) apply in a workspace searched alone;
+ * across several, "Merge across workspaces" applies them from the evidence (`AS_ONE_OF_SEVERAL`). */
+const ruleQuery = (input) => (input.several ? null : input.query);
 
-/** `meaning`: the nearest passages in one workspace (`meaningMatches`), the query embedded once per search. */
-async function meaningStep(input, io) {
-  const { store, scope, rules, overrides } = handlesOf(io, input.workspace);
-  const { prefix, query } = input;
-  const embed = io.ctx.embed;
-  const matches = await phase(store, "meaning", () =>
-    meaningMatches(store, { query, scope, prefix: folderPrefix(prefix), isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}), ...draftNumbers(io, ["minScore"]) }),
-  );
-  return matches === null ? { off: true } : { matches, off: false };
-}
-
-/** `merge`: the two lists fused (`mergeWithMeaning`): reciprocal ranks, the meaning floor, title and phrase evidence. */
-function mergeStep(input, io) {
-  const matches = input.off ? null : input.matches ?? [];
-  const ranking = rankingOf(io.node?.settings, DEFAULT_RANKING);
-  return { merged: mergeWithMeaning(input.found, matches, { query: input.query ?? undefined, ranking }) };
-}
-
-/** `prior`: each merged score scaled by where its note lives (`lowerLogs`, `../priors.js`). */
-function priorStep(input, io) {
-  return { merged: lowerLogs(input.merged, rankingOf(io.node?.settings, DEFAULT_RANKING)) };
-}
-
-/** `snippets`: the closest notes only meaning found read for a snippet and added (`addMeaningOnly`). */
-async function snippetsStep(input, io) {
-  const { store } = handlesOf(io, input.workspace);
-  const ranking = rankingOf(io.node?.settings, DEFAULT_RANKING);
-  return { found: await addMeaningOnly(store, input.merged, { query: input.query ?? undefined, ranking, ...draftNumbers(io, ["extraNotes", "snippetChars"]) }) };
-}
+/** One step that does the same thing in every workspace, each workspace's state replaced by `fn`'s. */
+const perWorkspace = (fn) => async (input, io) => carry(input, await Promise.all(input.workspaces.map((ws) => fn(ws, input, io))));
 
 /**
- * One workspace through the steps "Search each workspace" calls (its `uses` wires): open, then words and meaning at
- * once, then merge, prior and snippets, each logged as its own run. A step that is off is passed over: words off finds
- * nothing by words, meaning off merges nothing, merge or prior off leaves the list as it came, snippets off adds no
- * meaning-only note. Null when the workspace could not be opened.
+ * `open`: every workspace asked, opened the way a tool call addressed with `context: "@name"` opens it
+ * (`store.openContext`), so it is searched under the person's role *there* and its own privacy rules: a note held back
+ * from a member is as absent through this as through a direct search. The connection's own workspace is already open.
+ * One that cannot be opened or read now is left out, never guessed at, and named in `unreached`. The handles go to the
+ * later steps through `io.ctx.opened`, never through the output, which is logged.
  */
-async function searchWorkspace(io, { workspace, here, query, prefix, shape }) {
-  const opened = await io.use.open({ workspace, here });
-  if (opened && opened.reached === false) return null;
-  if (!opened) {
-    // "Open the workspace as you" off: only the connection's own workspace, which is already open, is searched.
-    if (!here) return null;
-    io.ctx.opened.set(workspace, { store: io.ctx.store, scope: io.ctx.scope, rules: io.ctx.rules, overrides: io.ctx.overrides });
-  }
-  const asked = { workspace, here, query, prefix };
-  const [byWords, byMeaning] = await Promise.all([io.use.words(asked), io.use.meaning(asked)]);
-  const found = byWords?.found ?? { hits: [], matchCount: 0, matchCountIsFloor: false };
-  // The query's rules apply in the merge only when this workspace is searched alone: across several, the fusion
-  // applies them from the evidence (`AS_ONE_OF_SEVERAL`).
-  const ruleQuery = shape?.query === null ? null : query;
-  const matchesIn = byMeaning ?? { off: true };
-  const mergedOut = await io.use.merge({ workspace, query: ruleQuery, found, matches: matchesIn.matches ?? null, off: matchesIn.off });
-  const fallback = { found, entries: null, meaning: matchesIn.off ? "off" : "none" };
-  const merged = mergedOut?.merged ?? fallback;
-  const lowered = (await io.use.prior({ workspace, merged }))?.merged ?? merged;
-  const answered = await io.use.snippets({ workspace, query: ruleQuery, merged: lowered });
-  if (answered) return answered.found;
-  // "Add meaning-only notes" off: the merged word hits, in the answer's shape, and no note only meaning found.
-  const wordsOnly = { ...lowered, entries: lowered.entries ? lowered.entries.filter((entry) => entry.word) : null };
-  return addMeaningOnly(handlesOf(io, workspace).store, wordsOnly, { query: ruleQuery ?? undefined, ranking: DEFAULT_RANKING });
-}
-
-/**
- * `each`: every workspace asked, at once, this one included: waiting for this one first put a whole search in front
- * of the others. Each goes through `searchWorkspace`; a workspace that cannot be opened or read right now is left
- * out, never guessed at, and named in `unreached`.
- */
-async function eachStep(input, io) {
-  const { store } = io.ctx;
-  const { query, prefix, names, here: searchHere, boost } = input;
-  const currentName = currentNameOf(store);
-  const hereName = currentName ?? HERE_LABEL;
+async function openStep(input, io) {
+  const { store, scope, rules, overrides } = io.ctx;
+  const { query, prefix, names, here, boost } = input;
+  const hereName = currentNameOf(store) ?? HERE_LABEL;
   const several = names.length > 0;
   io.ctx.opened = new Map();
+  if (here) io.ctx.opened.set(hereName, { store, scope, rules, overrides });
+  // One query, one fingerprint across workspaces (`sharedEmbedder`); a search here alone embeds on its own terms.
   io.ctx.embed = several ? sharedEmbedder(store) : undefined;
-  // The index passes these searches start wait until every workspace has
-  // answered, so none of them queues behind another's (`../heldPasses.js`).
-  const passes = several ? holdSearchPasses(store) : null;
-  try {
-    const shape = several ? AS_ONE_OF_SEVERAL : undefined;
-    const searchingHere = searchHere ? searchWorkspace(io, { workspace: hereName, here: true, query, prefix, shape }) : null;
-    if (!several) {
-      const alone = await searchingHere;
-      return { to: "one", answer: { ...alone, searched: [hereName], unreached: [] } };
+  // The index passes these searches start wait until every workspace has answered (`../heldPasses.js`).
+  io.ctx.passes = several ? holdSearchPasses(store) : null;
+  const others = await Promise.all(
+    names.map(async (name) => {
+      try {
+        const { session: target, store: targetStore } = await store.openContext(name);
+        const privacy = await loadPrivacyState(targetStore);
+        if (privacy.error) return null;
+        io.ctx.opened.set(name, { store: targetStore, scope: target.scope, rules: privacy.rules, overrides: privacy.overrides });
+        return name;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const workspaces = [...(here ? [{ name: hereName, here: true }] : []), ...others.filter(Boolean).map((name) => ({ name, here: false }))];
+  return carry({ query, prefix, several, boost, unreached: names.filter((_, i) => others[i] === null) }, workspaces);
+}
+
+/** `words` (nominates): the word index's hits in every workspace at once (`../visibleNotes.js`), only notes the person may see. */
+async function wordsStep(input, io) {
+  const byWords = {};
+  await Promise.all(
+    input.workspaces.map(async (ws) => {
+      const { store, scope, rules, overrides } = handlesOf(io, ws.name);
+      try {
+        byWords[ws.name] = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, ws.here ? input.prefix : ""));
+      } catch (error) {
+        // Another workspace that cannot answer now is left out and named, as one that cannot be opened is; this one throws.
+        if (ws.here) throw error;
+        byWords[ws.name] = null;
+      }
+    }),
+  );
+  return carry(input, input.workspaces, { byWords });
+}
+
+/** `meaning` (nominates): the nearest passages to the query's embedding in every workspace at once (`meaningMatches`). */
+async function meaningStep(input, io) {
+  const byMeaning = {};
+  const embed = io.ctx.embed;
+  await Promise.all(
+    input.workspaces.map(async (ws) => {
+      const { store, scope, rules, overrides } = handlesOf(io, ws.name);
+      const prefix = folderPrefix(ws.here ? input.prefix : "");
+      byMeaning[ws.name] = await phase(store, "meaning", () =>
+        meaningMatches(store, { query: input.query, scope, prefix, isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}), ...draftNumbers(io, ["minScore"]) }),
+      );
+    }),
+  );
+  return carry(input, input.workspaces, { byMeaning });
+}
+
+/**
+ * `visible` (filters): both nominators' lists side by side per workspace, each note checked once more against the
+ * person's access there (`canSee`), so nothing they may not see goes on, whatever a nominator answered. A workspace
+ * whose word search failed is left out and named in `unreached`.
+ */
+function visibleStep(input, io) {
+  const workspaces = [];
+  const unreached = [...input.unreached];
+  for (const ws of input.workspaces) {
+    // Words off nominates nothing by words; a workspace whose word search failed is left out.
+    const found = input.byWords === undefined ? { hits: [], matchCount: 0, matchCountIsFloor: false } : input.byWords[ws.name];
+    if (!found) {
+      unreached.push(ws.name);
+      continue;
     }
-    const [here, ...answers] = await Promise.all([
-      searchingHere,
-      ...names.map(async (name) => {
-        const found = await searchWorkspace(io, { workspace: name, here: false, query, prefix: "", shape });
-        return found ? { name, found } : null;
-      }),
-    ]);
-    const workspaces = [...(here ? [{ name: hereName, here: true, found: here }] : []), ...answers.filter(Boolean)];
-    return { to: "several", query, ...(typeof boost === "string" ? { boost } : {}), workspaces, unreached: names.filter((_, index) => answers[index] === null) };
-  } finally {
-    passes?.release();
+    const { scope, rules, overrides } = handlesOf(io, ws.name);
+    const may = (path) => canSee(path, scope, rules, overrides);
+    const matches = input.byMeaning?.[ws.name] ?? null;
+    const hits = found.hits.filter((hit) => may(hit.key));
+    workspaces.push({
+      name: ws.name,
+      here: ws.here,
+      found: hits.length === found.hits.length ? found : { ...found, hits, matchCount: Math.max(0, found.matchCount - (found.hits.length - hits.length)) },
+      matches: matches === null ? null : matches.filter((match) => may(match.path)),
+      // Whether meaning was asked and answered at all (null: off), and whether it found anything, before any filter.
+      meaning: matches === null ? "off" : matches.length > 0 ? "on" : "none",
+    });
   }
+  return carry({ ...input, unreached }, workspaces);
+}
+
+/** `probes` (filters): a benchmark's search probe dropped from the word hits (`dropProbes`). */
+const probesStep = perWorkspace((ws) => ({ ...ws, found: dropProbes(ws.found) }));
+
+/** `floor` (filters): a note only meaning found must reach `meaningFloor` once the words found a note with every word. */
+const floorStep = perWorkspace((ws, _input, io) => ({ ...ws, matches: closeMeaning(ws.found, ws.matches, rankingFor(io.node?.settings)) }));
+
+/** `merge`: one row per note from the two lists, by reciprocal rank (`mergeLists`); none when meaning found nothing. */
+const mergeStep = perWorkspace((ws, input, io) => ({ ...ws, entries: mergeLists(ws.found.hits, ws.matches, "key", ruleQuery(input) ?? undefined, rankingFor(io.node?.settings), ws.meaning === "on") }));
+
+/** `title` (ranks): a word hit holding the query in its title or file name, or the whole query as a phrase, rises. */
+const titleStep = perWorkspace((ws, input, io) => ({ ...ws, entries: addEvidence(ws.entries, ruleQuery(input) ?? undefined, rankingFor(io.node?.settings)) }));
+
+/** `prior` (ranks): logs and archive scaled down (`lowerByPath`). */
+const priorStep = perWorkspace((ws, _input, io) => ({ ...ws, entries: lowerByPath(ws.entries, rankingFor(io.node?.settings)) }));
+
+/** `budget` (filters): the best few notes only meaning found are kept (`meaningBudget`). */
+const budgetStep = perWorkspace((ws, _input, io) => {
+  const { store } = handlesOf(io, ws.name);
+  const extraNotes = draftNumbers(io, ["extraNotes"]).extraNotes ?? searchSettingsOf(store).extraNotes;
+  return { ...ws, entries: meaningBudget(ws.found, ws.entries, { extraNotes, ranking: rankingFor(io.node?.settings) }) };
+});
+
+/** `snippets`: each kept note only meaning found is read for its title and the passage that matched. */
+const snippetsStep = perWorkspace(async (ws, _input, io) => {
+  const { store } = handlesOf(io, ws.name);
+  const chars = draftNumbers(io, ["snippetChars"]).snippetChars ?? searchSettingsOf(store).snippetChars;
+  return { ...ws, entries: await readMeaningOnly(store, ws.entries, chars) };
+});
+
+/**
+ * `code` (filters): a code passage found only by meaning is not offered for a prose question, and a note that could not
+ * be read is dropped; each workspace's answer then takes the word search's hit shape (`answerHits`).
+ */
+async function codeStep(input, io) {
+  const out = await perWorkspace((ws) => ({ name: ws.name, here: ws.here, found: answerHits(ws.found, ws.entries, { query: ruleQuery(input) ?? undefined, meaning: ws.meaning }) }))(input, io);
+  return { ...out, to: input.several ? "several" : "one" };
+}
+
+/** `answer`: what the search answers: the fused list across workspaces, or the one workspace's. */
+function answerStep(input) {
+  if (input.answer) return { answer: input.answer };
+  const ws = input.workspaces?.[0];
+  if (!ws) return { answer: { ...NOTHING } };
+  return { answer: { ...ws.found, searched: [ws.name], unreached: [] } };
 }
 
 /**
@@ -301,14 +336,55 @@ function fuseStep(input, io) {
 }
 
 /** Every search step's code, by its id in `searchConfig.json`. */
-export const SEARCH_NODES = Object.freeze({ search: searchStep, each: eachStep, fuse: fuseStep, open: openStep, words: wordsStep, meaning: meaningStep, merge: mergeStep, prior: priorStep, snippets: snippetsStep });
+export const SEARCH_NODES = Object.freeze({
+  search: searchStep,
+  open: openStep,
+  words: wordsStep,
+  meaning: meaningStep,
+  visible: visibleStep,
+  probes: probesStep,
+  floor: floorStep,
+  merge: mergeStep,
+  title: titleStep,
+  prior: priorStep,
+  budget: budgetStep,
+  snippets: snippetsStep,
+  code: codeStep,
+  fuse: fuseStep,
+  answer: answerStep,
+});
+
+/**
+ * A config with every step that is off passed over: its wires in are joined to its wires out, so a Lab draft can turn
+ * one step off and score the search without it (Dev2, 2026-11-21: "decent chunks... that can be tested in of itself").
+ * Words or meaning off nominates nothing by that way. The steps every search needs (`ALWAYS_ON`) are refused off by
+ * the schema.
+ */
+function withOffPassedOver(config) {
+  const off = new Set(config.nodes.filter((n) => n.on === false).map((n) => n.id));
+  if (off.size === 0) return config;
+  let edges = config.edges;
+  for (const id of off) {
+    const into = edges.filter((e) => e.to === id);
+    const outOf = edges.filter((e) => e.from === id);
+    const joined = into.flatMap((a) => outOf.filter((b) => b.to !== a.from).map((b) => ({ ...a, to: b.to })));
+    edges = [...edges.filter((e) => e.from !== id && e.to !== id), ...joined];
+  }
+  const seen = new Set();
+  edges = edges.filter((e) => {
+    const key = `${e.from}>${e.to}>${(e.when ?? []).join(",")}`;
+    return seen.has(key) ? false : (seen.add(key), true);
+  });
+  return { ...config, edges };
+}
 
 /** A runner per config object: building one checks its wires, which a search need not repeat. */
 const graphs = new WeakMap();
 function graphFor(config, log) {
-  if (log) return createGraph(config, SEARCH_NODES, { log });
+  // Concurrent: the two nominators, fed by the same step, run side by side.
+  if (log) return createGraph(withOffPassedOver(config), SEARCH_NODES, { log, concurrent: true });
   let graph = graphs.get(config);
-  if (!graph) graphs.set(config, (graph = createGraph(config, SEARCH_NODES)));
+  if (!graph) graphs.set(config, (graph = createGraph(withOffPassedOver(config), SEARCH_NODES, { concurrent: true })));
   return graph;
 }
 
@@ -321,6 +397,11 @@ export async function runSearch({ store, scope, rules, overrides, query, prefix 
   const draft = config !== SEARCH_CONFIG;
   if (draft) searchConfigOf(config);
   const input = { query, prefix, ...(Array.isArray(only) ? { only } : {}), ...(typeof boost === "string" ? { boost } : {}) };
-  const { outputs } = await graphFor(config, log).run("search", input, { store, scope, rules, overrides, draft });
-  return outputs.fuse?.answer ?? outputs.each?.answer ?? { ...NOTHING };
+  const ctx = { store, scope, rules, overrides, draft };
+  try {
+    const { outputs } = await graphFor(config, log).run("search", input, ctx);
+    return outputs.answer?.answer ?? { ...NOTHING };
+  } finally {
+    ctx.passes?.release();
+  }
 }

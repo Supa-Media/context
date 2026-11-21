@@ -287,6 +287,9 @@ function provisionalHeld(unless, facts) {
  *   now         () => number.
  *   onStart     ({ node, id, parent, at, via, input }) => void: each node run as it starts, before its code runs (the
  *               Lab's test chat shows running steps); never awaited, never throws out.
+ *   concurrent  true: a node starts as soon as every node that may feed it has finished, so two steps fed by the same
+ *               one run side by side (search's word and meaning nominators, Dev2 2026-11-21). False (Tex's runs): one
+ *               node at a time, in order. What runs, and on what input, is the same either way.
  *
  * Every run has an `id`, unique in this isolate, and the `parent` run that started it, recorded as it runs: the caller
  * for a `uses`, `loop` or `job` handle, the node whose fired wire fed it on a `wait` or `background` path, none for the
@@ -295,7 +298,7 @@ function provisionalHeld(unless, facts) {
 let runSeq = 0;
 /** A run id, unique in the isolate: every log entry gets its own, so a parent always names an entry that was kept. */
 const nextRunId = () => ((runSeq = (runSeq + 1) % Number.MAX_SAFE_INTEGER), `r${runSeq}`);
-function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null, start = null } = {}) {
+function createGraph(config, impls, { log = () => {}, background = null, handOff = null, now = Date.now, onStart = null, start = null, concurrent = false } = {}) {
   const problems = problemsOf(config);
   if (problems.length) throw new GraphError(problems.join("; "));
   const byId = new Map(config.nodes.map((n) => [n.id, n]));
@@ -477,16 +480,16 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
     // The run whose fired wire fed each node last: its parent (`runNode`). The start has none.
     const fedBy = new Map();
     const later = new Map();
-    for (const id of order) {
+    const step = async (id) => {
       const feeds = fed.get(id);
-      if (!feeds) continue; // nothing fired into it
+      if (!feeds) return; // nothing fired into it
       // Merged in wire order; a lone input is passed as it is.
       const given = feeds.length === 1 ? feeds[0] : Object.assign({}, ...feeds.filter(plain));
       if (later.get(id)) {
         const run = runNode(id, given, ctx, "background", fedBy.get(id)).catch(() => {});
         if (background) background(run);
         else await run;
-        continue;
+        return;
       }
       // A node a durable run already finished (`progress`, the host's store for this run: a job part resumed after a
       // crash or a deploy) is not run again: its kept output feeds on as it did (Dev2, 2026-11-17, jobs as config).
@@ -508,16 +511,28 @@ function createGraph(config, impls, { log = () => {}, background = null, handOff
         }
         if (r.ran && progress && !r.output?.failed) await progress.put(id, r.output);
       }
-      if (!r.ran) continue;
+      if (!r.ran) return;
       outputs[id] = r.output;
       ran.push(id);
-      if (r.handedOff || stops.has(id)) continue;
+      if (r.handedOff || stops.has(id)) return;
       for (const e of out(id, "wait")) if (fires(e, r.output)) (fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]), fedBy.set(e.to, r.id));
       for (const e of out(id, "background")) if (fires(e, r.output)) {
         fed.set(e.to, [...(fed.get(e.to) ?? []), carried(r.output)]);
         fedBy.set(e.to, r.id);
         later.set(e.to, true);
       }
+    };
+    if (!concurrent) {
+      for (const id of order) await step(id);
+    } else {
+      // Each node waits for every node in this run that has a wire into it, then runs (or finds nothing fed it).
+      const flow = config.edges.filter((e) => e.mode === "wait" || e.mode === "background");
+      const done = new Map();
+      for (const id of order) {
+        const before = [...new Set(flow.filter((e) => e.to === id && done.has(e.from)).map((e) => e.from))].map((from) => done.get(from));
+        done.set(id, Promise.all(before).then(() => step(id)));
+      }
+      await Promise.all(done.values());
     }
     return { outputs, ran };
   }

@@ -358,10 +358,15 @@ function selfTest() {
   expect(hitsSearch.config?.nodes.find((n) => n.id === "fuse").settings.hits === 8, "a fuse hits change was not written to search's config");
   expect(JSON.stringify(hitsSearch.config.nodes.filter((n) => n.id !== "fuse")) === JSON.stringify(searchNow.nodes.filter((n) => n.id !== "fuse")), "a fuse change moved another search step");
   expect(hitsSearch.config.about === searchNow.about && JSON.stringify(hitsSearch.config.edges) === JSON.stringify(searchNow.edges), "search's about or wires changed");
+  // Every architecture's file is kept in the text Promote writes, so a promote changes only the lines that changed.
+  for (const entry of OWN.ARCHITECTURES) {
+    const text = readFileSync(join(ROOT, entry.file), "utf8");
+    expect(OWN.configFileText(JSON.parse(text)) === text, `${entry.file} is not in the text Promote writes (configFileText)`);
+  }
   const texSide = configFrom(hitsDraft, current, words);
   expect(texSide.config && configText(texSide.config) === configText(current), "a search change moved Tex's config");
   expect(/^Search step [a-z]+ is new: its code must merge first$/.test(searchFrom(withSearch((g) => g.nodes.push({ ...fuseOf(g), id: "rerank", graph: "search" })), searchNow).refused ?? ""), "a new search step with no code passed");
-  expect(/is missing from the draft/.test(searchFrom(withSearch((g) => { g.nodes = g.nodes.filter((n) => n.id !== "each"); }), searchNow).refused ?? ""), "a search step missing from the draft passed");
+  expect(/is missing from the draft/.test(searchFrom(withSearch((g) => { g.nodes = g.nodes.filter((n) => n.id !== "title"); }), searchNow).refused ?? ""), "a search step missing from the draft passed");
   const outOfBounds = withSearch((g) => {
     fuseOf(g).settings = { ...fuseOf(g).settings, hits: 99 };
   });
@@ -449,7 +454,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     if (!args.includes("--check")) {
       for (const { file, config, entry } of ownWrites) {
-        writeFileSync(join(ROOT, file), `${JSON.stringify(config, null, 2)}\n`);
+        writeFileSync(join(ROOT, file), OWN.configFileText(config));
         // Its own page in docs/architecture/ is drawn from the file, as Tex's page is from Tex's config.
         writeFileSync(join(ROOT, ownPagePath(entry)), ownPageFor(entry, config));
       }

@@ -26,7 +26,7 @@ describe("the Lab's main graph is Tex's config", () => {
     const byText = (a: unknown[]) => a.map((x) => JSON.stringify(x)).sort();
     const search = labSearchGraph();
     expect(unfolded.nodes.filter((n) => n.graph !== "search")).toEqual(TEX_CONFIG.nodes);
-    expect(unfolded.nodes.filter((n) => n.graph === "search").map((n) => n.id)).toEqual(["search", "each", "open", "words", "meaning", "merge", "prior", "snippets", "fuse"]);
+    expect(unfolded.nodes.filter((n) => n.graph === "search").map((n) => n.id)).toEqual(["search", "open", "words", "meaning", "visible", "probes", "floor", "merge", "title", "prior", "budget", "snippets", "code", "fuse", "answer"]);
     expect(unfolded.nodes.filter((n) => n.graph === "search")).toMatchObject(search.nodes);
     expect(byText(unfolded.edges)).toEqual(byText([...TEX_CONFIG.edges, ...search.edges]));
     for (const [key, id] of Object.entries(TEX_CONFIG.models)) expect([key, BASE_MODELS[key]?.id]).toEqual([key, id]);

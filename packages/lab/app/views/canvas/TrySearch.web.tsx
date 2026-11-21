@@ -12,7 +12,7 @@ import { isMain, lab } from "../../engine/state";
 import { rankMoves, type RankHit, type RankMove } from "../../data/searchSettings";
 import { LAB_CSS_SEARCH } from "../../labCssSearch";
 
-type StepTime = { node: string; ms: number; ok: boolean };
+type StepTime = { node: string; ms: number; ok: boolean; notes?: number };
 type Side = { hits: RankHit[]; searched: string[]; steps: StepTime[] };
 type Answer = { query: string; main: Side; draft: Side | "same" | null; changed: string[] };
 type TryState = { status: "idle" } | { status: "running" } | { status: "done"; answer: Answer } | { status: "error"; text: string };
@@ -32,7 +32,7 @@ export function parseAnswer(b: Record<string, unknown>): Answer | { error: strin
           return { key: str(x.key), title: str(x.title) || str(x.key), ...(x.meaningOnly ? { meaningOnly: true } : {}) };
         })
       : [];
-    const steps = Array.isArray(o.steps) ? o.steps.map((s) => ({ node: str((s as Record<string, unknown>)?.node), ms: num((s as Record<string, unknown>)?.ms), ok: (s as Record<string, unknown>)?.ok !== false })) : [];
+    const steps = Array.isArray(o.steps) ? o.steps.map((s) => ({ node: str((s as Record<string, unknown>)?.node), ms: num((s as Record<string, unknown>)?.ms), ok: (s as Record<string, unknown>)?.ok !== false, ...(typeof (s as Record<string, unknown>)?.notes === "number" ? { notes: (s as Record<string, unknown>).notes as number } : {}) })) : [];
     return { hits, searched: Array.isArray(o.searched) ? o.searched.map(str) : [], steps };
   };
   const main = side(b.main);
@@ -83,7 +83,7 @@ function Column({ title, side, moves }: { title: string; side: Side; moves?: Ran
       )}
       <div className="trys-steps">
         {side.steps.map((s, i) => (
-          <span key={i} className={s.ok ? undefined : "bad"}>{`${s.node} ${Math.round(s.ms)} ms${s.ok ? "" : " (failed)"}`}</span>
+          <span key={i} className={s.ok ? undefined : "bad"}>{`${s.node}${s.notes === undefined ? "" : ` · ${s.notes} notes`} ${Math.round(s.ms)} ms${s.ok ? "" : " (failed)"}`}</span>
         ))}
       </div>
     </section>
