@@ -93,7 +93,7 @@ function isPlainText(bytes: Uint8Array): boolean {
   if (bytes.includes(0)) return false;
   if (BINARY_SIGNATURES.some((signature) => signature.every((value, index) => bytes[index] === value))) return false;
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
     return true;
   } catch {
     return false;
