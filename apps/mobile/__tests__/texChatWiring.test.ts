@@ -131,7 +131,7 @@ describe("the delivery line under a person's own row", () => {
 });
 
 describe("the run cards", () => {
-  test("a finished run sits above its Tex row; the newest is open, an older one folded", () => {
+  test("a finished run sits above its Tex row, folded like the mock until pressed", () => {
     const t = mount(
       fakeView({
         lines: [
@@ -141,10 +141,22 @@ describe("the run cards", () => {
       }),
     );
     expect(t.text()).toContain("Worked 12s");
-    expect(t.find("tex-run-t2-step-0")).not.toBeNull();
+    expect(t.find("tex-run-t2-step-0")).toBeNull();
     expect(t.find("tex-run-t1-step-0")).toBeNull();
     t.press("tex-run-t1-head");
     expect(t.find("tex-run-t1-step-0")).not.toBeNull();
+    t.press("tex-run-t1-head");
+    expect(t.find("tex-run-t1-step-0")).toBeNull();
+  });
+
+  test("a day label sits above the first line of each day", () => {
+    const day = 24 * 60 * 60 * 1000;
+    const t = mount(fakeView({ lines: [row({ id: "y1", text: "old", at: Date.now() - day }), row({ id: "n1", text: "new", at: Date.now() }), row({ id: "n2", text: "newer", at: Date.now() })] }));
+    expect(t.find("tex-day-y1")).not.toBeNull();
+    expect(t.find("tex-day-n1")).not.toBeNull();
+    expect(t.find("tex-day-n2")).toBeNull();
+    expect(t.text()).toContain("Yesterday");
+    expect(t.text()).toContain("Today");
   });
 
   test("a live run shows at the end of the list and the old typing mark is gone", () => {
@@ -195,5 +207,32 @@ describe("the header, the composer and the stop", () => {
     expect(t.find("tex-toast")?.textContent).toBe("Stopped. Tex keeps what it already did.");
     t.draw(fakeView({ toast: null }));
     expect(t.find("tex-toast")).toBeNull();
+  });
+});
+
+describe("an ask row with a card (the mock: Tex's bubble, then the card under it)", () => {
+  const ASKED = "Here's the email I'd send:\n\nFrom: me@example.test\nTo: sam@example.test\nSubject: Q4 plan\n\nHi Sam\n\nGive it a 👍 and I'll send it.";
+  const CARD = {
+    kind: "email" as const,
+    state: "wait" as const,
+    from: "me@example.test",
+    to: "sam@example.test",
+    cc: "",
+    subject: "Q4 plan",
+    thread: false,
+    body: "Hi Sam",
+    editable: true,
+  };
+
+  test("draws Tex's lead as a bubble over the card, without the copy or the 👍 line", () => {
+    const t = mount(fakeView({ lines: [row({ id: "t1", text: ASKED, ask: { id: "a1", open: true, card: CARD } })] }));
+    expect(t.find("tex-ask-lead-t1")?.textContent).toBe("Here's the email I'd send.");
+    expect(t.find("tex-ask-body-t1")).not.toBeNull();
+    expect(t.text()).not.toContain("Give it a");
+  });
+
+  test("a row with no card draws no lead", () => {
+    const t = mount(fakeView({ lines: [row({ id: "t2", text: "plain words" })] }));
+    expect(t.find("tex-ask-lead-t2")).toBeNull();
   });
 });

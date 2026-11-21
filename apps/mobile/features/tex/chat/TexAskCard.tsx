@@ -14,6 +14,20 @@ export const EDIT_HINT = "Click the text to change it.";
 export const THREAD_HINT = "A reply in the existing thread.";
 
 /**
+ * The words of Tex's bubble over a card: its own lead, without the copy the card already shows and without the
+ * texted "Give it a 👍" line the card's buttons stand in for (`textedApprovals.js` `askLine`). "Here's the email I'd
+ * send:" and its copy become "Here's the email I'd send." Words Tex wrote itself stay as they are. Empty when nothing
+ * is left, and then no bubble is drawn.
+ */
+export function askLead(text: string): string {
+  const yes = text.search(/(?:@\S+, )?give it a \u{1F44D}/iu);
+  const before = (yes >= 0 ? text.slice(0, yes) : text).trim();
+  const paragraphs = before.split(/\n\s*\n/);
+  if (paragraphs.length > 1 && paragraphs[0].trim().endsWith(":")) return paragraphs[0].trim().replace(/:$/, ".");
+  return before;
+}
+
+/**
  * One card Tex holds for the person's OK, from the route's `ask.card` (`appChatCards.js`).
  *
  * Draws what it is given. A press goes back up through `onDecide` as `(rowId, choice, body?)`. `body` is the words only
