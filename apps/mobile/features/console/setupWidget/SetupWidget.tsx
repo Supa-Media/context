@@ -103,12 +103,22 @@ export function SetupWidget({
   );
 }
 
-/** The host anchors the widget this far from the bottom, and keeps the same above it. */
+/** The widget's gap from the window's edges. */
 const WIDGET_MARGIN = 24;
+/** The console's `+` (`CreateButton`): 56pt, 24pt from the corner the widget shares with it. */
+const CREATE_BUTTON_SIZE = 56;
+const CREATE_BUTTON_GAP = 12;
+
+/**
+ * How far above the bottom the host anchors the widget: over the `+`, never on it. Both sat 24pt from the same
+ * corner, so the button covered the card's last row ("Take everything with you"), seen signed in on a preview,
+ * 2026-11-21.
+ */
+export const WIDGET_BOTTOM = WIDGET_MARGIN + CREATE_BUTTON_SIZE + CREATE_BUTTON_GAP;
 
 /** The tallest the widget may be in a window this high; the rest scrolls. */
 export function widgetMaxHeight(windowHeight: number): number {
-  return Math.max(0, windowHeight - 2 * WIDGET_MARGIN);
+  return Math.max(0, windowHeight - WIDGET_BOTTOM - WIDGET_MARGIN);
 }
 
 function actionFor(row: SetupRow, actions: SetupActions): { label: string; onPress?: () => void } {

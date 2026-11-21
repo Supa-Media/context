@@ -18,7 +18,7 @@ import { createRoot } from "react-dom/client";
 import { ConvexProvider } from "convex/react";
 import { getFunctionName } from "convex/server";
 import { setupView, showSetupWidget } from "../features/console/setupWidget/rules";
-import { SetupWidget, widgetMaxHeight, type SetupActions } from "../features/console/setupWidget/SetupWidget";
+import { SetupWidget, WIDGET_BOTTOM, widgetMaxHeight, type SetupActions } from "../features/console/setupWidget/SetupWidget";
 import { SetupDone, doneCardMaxHeight } from "../features/console/setupWidget/SetupDone";
 import { SetupWidgetHost } from "../features/console/setupWidget/SetupWidgetHost";
 import { setupRetired, setupWidgetRetiredKey } from "../features/console/setupWidget/useSetupWidget";
@@ -252,9 +252,14 @@ describe("it always fits the window and always closes", () => {
 
   test("the widget's header stays on screen above a long checklist", () => {
     for (const height of [380, 560, 900]) {
-      // Anchored 24px from the bottom, it may not grow past the top edge.
-      expect(24 + widgetMaxHeight(height)).toBeLessThanOrEqual(height - 16);
+      // Anchored above the `+`, it may not grow past the top edge.
+      expect(WIDGET_BOTTOM + widgetMaxHeight(height)).toBeLessThanOrEqual(height - 16);
     }
+  });
+
+  test("the widget sits above the + in the corner they share, not on it", () => {
+    // The + is 56pt, 24pt from the bottom: the card's last row was under it (2026-11-21).
+    expect(WIDGET_BOTTOM).toBeGreaterThanOrEqual(24 + 56 + 8);
   });
 
   test("a close mark sits in the card's corner, outside the part that scrolls", async () => {
