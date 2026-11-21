@@ -101,19 +101,27 @@ export function noteRunQuestion({ path, noteText, anchor, ask, history, pending,
     `The asker's own recent Tex chat, the newest last (their words with Tex; use it only where the ask needs it):\n\n${chatHistory ? tail(chatHistory, RUN_CHAT_CHARS) : "(not read)"}`,
     `Who reads this note: ${str(audience) || "only the asker"}. Everyone who reads it sees your answer, so quote their private notes or the Tex chat only where the ask needs them.`,
     "You can read their notes with the tools you are given (read_note, search_notes and the rest), and you cannot write anything. Read a note before you name it.",
-    'Answer with only a JSON object, nothing before or after it: {"answer": "one or two plain sentences", "replace": "the whole new text for the highlighted words" or null}. ' +
-      "Set replace only when the ask is to change the text: then give the whole new text for the highlighted words, not a diff. " +
-      "With a point in the note and no words highlighted, replace is the text to insert at that point. Otherwise replace is null.",
+    'Answer with only a JSON object, nothing before or after it: {"answer": "one or two plain sentences", "replace": null or "the whole new text for the highlighted words", "insert": null or "new text to add right after the highlighted words"}. ' +
+      "Tag Tex on words to work on the note with you. When the ask wants something written (an outline, a list, a draft, a fix, the next part, more detail), do it in the note: " +
+      "replace when the highlighted words themselves should change (give their whole new text, not a diff), insert when the new words belong after them and the highlighted words stay. " +
+      "Only a question about the note or the world (who, why, when, is this right, how would we) gets an answer with both null. The answer then says what you did in a sentence; it never repeats the text you put in the note. " +
+      "A follow-up such as \"add it to the note\" or \"put that in\" means the text you gave in the thread: insert it. " +
+      "With a point in the note and no words highlighted, insert is the text to add at that point.",
+    "Examples (invented people and words, for the shape only):\n" +
+      '- Highlighted "Team offsite in March", asked "give me a rough agenda here": {"answer": "Added a rough agenda under it.", "replace": null, "insert": "1. Morning: where we are\\n2. Lunch\\n3. Afternoon: the next three bets"}\n' +
+      '- Highlighted "recieve the keys on friday", asked "fix this": {"answer": "Fixed the spelling.", "replace": "receive the keys on Friday", "insert": null}\n' +
+      '- Highlighted "Budget: $4,000", asked "who set this number?": {"answer": "Priya set it in the March planning note.", "replace": null, "insert": null}',
   ].join("\n\n");
 }
 
 /**
- * The model's answer as `{ answer, replace }`. The JSON object is read from anywhere in the words; a string answer of
- * 1500 characters or fewer and a string replacement of 20000 or fewer are kept, and anything else is the raw words.
+ * The model's answer as `{ answer, replace, insert }`. The JSON object is read from anywhere in the words; a string
+ * answer of 1500 characters or fewer and a string replacement or insert of 20000 or fewer are kept, and anything else is
+ * the raw words. An insert beside a replacement is dropped: the replacement already says the words' whole new text.
  */
 export function parseNoteRun(answer) {
   const text = str(answer).trim();
-  const raw = { answer: text.slice(0, RUN_ANSWER_CHARS), replace: null };
+  const raw = { answer: text.slice(0, RUN_ANSWER_CHARS), replace: null, insert: null };
   const start = text.indexOf("{"), end = text.lastIndexOf("}");
   if (start === -1 || end <= start) return raw;
   let value;
@@ -124,9 +132,25 @@ export function parseNoteRun(answer) {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return raw;
   const answerOk = typeof value.answer === "string" && value.answer.trim() !== "" && value.answer.length <= RUN_ANSWER_CHARS;
-  const replaceOk = value.replace === null || (typeof value.replace === "string" && value.replace.length <= RUN_REPLACE_CHARS);
-  if (!answerOk || !replaceOk) return raw;
-  return { answer: value.answer.trim(), replace: value.replace };
+  const edit = (field) => field === undefined || field === null || (typeof field === "string" && field.length <= RUN_REPLACE_CHARS);
+  if (!answerOk || !edit(value.replace) || !edit(value.insert)) return raw;
+  const replace = typeof value.replace === "string" ? value.replace : null;
+  const insert = replace === null && typeof value.insert === "string" && value.insert.trim() !== "" ? value.insert : null;
+  return { answer: value.answer.trim(), replace, insert };
+}
+
+/**
+ * The whole new text for the anchor when Tex adds after the highlighted words: the words as they are, then the
+ * addition, on its own paragraph when either is a block (a line of its own, or more than one line), else after a
+ * space. With no words highlighted the addition is the text at the point. The client keeps one suggestion shape, the
+ * anchor's new text, and draws the kept words unstruck.
+ */
+export function withInsert(anchor, insert) {
+  const words = str(anchor?.text);
+  if (words === "") return insert;
+  const after = str(anchor?.after);
+  const block = /\n/.test(insert.trim()) || after === "" || after.startsWith("\n") || /^\s*([-*+]|\d+[.)]|#)\s/.test(insert);
+  return `${words}${block ? "\n\n" : " "}${insert.replace(/^\s+/, "")}`;
 }
 
 /** A tool step as a person reads it: `{ label, source }`, where `source` is the note's path when a note was read. */
@@ -264,6 +288,8 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   }
   await meter(turn.usage, false, turn.model);
   const parsed = parseNoteRun(turn.answer);
-  say({ id: "step-think", label: typeof parsed.replace === "string" ? "Editing the selected words" : "Writing the answer", state: "done", ms: Date.now() - thinking });
-  return { outcome: "answered", answer: parsed.answer, replace: parsed.replace, sources: sourcesOf(), calls, model: turn.model, usage: turn.usage ?? null, ms: Date.now() - started };
+  const replace = parsed.replace ?? (parsed.insert !== null ? withInsert(anchor, parsed.insert) : null);
+  const label = parsed.replace !== null ? "Editing the selected words" : parsed.insert !== null ? (str(anchor?.text) === "" ? "Writing it into the note" : "Adding below the selected words") : "Writing the answer";
+  say({ id: "step-think", label, state: "done", ms: Date.now() - thinking });
+  return { outcome: "answered", answer: parsed.answer, replace, sources: sourcesOf(), calls, model: turn.model, usage: turn.usage ?? null, ms: Date.now() - started };
 }

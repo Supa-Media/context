@@ -82,9 +82,14 @@ export function pendingDecorations(
     } else {
       continue;
     }
+    // An addition after the words keeps them: its text starts with them, so only the new part is drawn and nothing is
+    // struck. While it is being typed, the part that only retypes the words draws nothing yet.
+    const words = state.sliceDoc(anchor.from, anchor.to);
+    const adding = words !== "" && (text.startsWith(words) || words.startsWith(text));
+    if (adding) text = text.length > words.length ? text.slice(words.length) : "";
     // An empty range has no words to strike; the insertion still shows.
     // Before a peer's run has any new words, only its caret shows: the words are not struck until Tex suggests others.
-    const striking = !(peer !== null && typing === null && text === "");
+    const striking = !adding && !(peer !== null && typing === null && text === "");
     if (striking && anchor.from < anchor.to) ranges.push(Decoration.mark({ class: "cm-tex-del" }).range(anchor.from, anchor.to));
     ranges.push(Decoration.widget({ widget: new PendingWidget(text, caret, thread.id, who), side: 1 }).range(anchor.to));
   }

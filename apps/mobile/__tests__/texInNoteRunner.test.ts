@@ -142,6 +142,21 @@ describe("which messages go to Tex", () => {
   });
 });
 
+describe("what a pending edit draws", () => {
+  // Dev2, 2026-11-21: an outline added under a premise must read as an addition, not the premise struck and retyped.
+  test("an addition after the words draws only the new words, and strikes nothing", () => {
+    const view = mount(WITH_SUGGESTION.replace('Tex suggests: "cake, Saturday at 5"', 'Tex suggests: "cake\\n\\n1. Order it\\n2. Pick it up"'), null);
+    expect(view.dom.querySelector(".cm-tex-del")).toBeNull();
+    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe("\n\n1. Order it\n2. Pick it up");
+  });
+
+  test("a change to the words strikes them and draws the new words whole", () => {
+    const view = mount(WITH_SUGGESTION.replace('Tex suggests: "cake, Saturday at 5"', 'Tex suggests: "the birthday cake"'), null);
+    expect(view.dom.querySelector(".cm-tex-del")?.textContent).toBe("cake");
+    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe("the birthday cake");
+  });
+});
+
 describe("a message sent from the card or the phone's sheet", () => {
   // Both send through sendComment; the sheet once wrote the reply and never told Tex (Dev2, 2026-11-21: "add it to the note" got nothing).
   test("a follow-up in a thread Tex is in, naming nobody, starts a run", async () => {
@@ -180,8 +195,9 @@ describe("a run", () => {
     // The words are not written until somebody presses Keep.
     expect(doc).toContain("<!--c:k7f2-->cake<!--/c:k7f2-->");
     expect(threadOf(doc).pending?.text).toBe("cake, Saturday at 5");
-    expect(view.dom.querySelector(".cm-tex-del")?.textContent).toBe("cake");
-    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe("cake, Saturday at 5");
+    // The new text keeps the words and adds to them, so nothing is struck and only the addition is drawn.
+    expect(view.dom.querySelector(".cm-tex-del")).toBeNull();
+    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe(", Saturday at 5");
     expect(running).toEqual([true, false]);
     expect(done).toEqual(["run_1"]);
   });
@@ -204,7 +220,7 @@ describe("a run", () => {
     startTexRun(view, "k7f2", "add the time");
     await waitFor(() => runs(view).get("k7f2")?.typing === "cake, Saturday at 5");
     expect(view.dom.querySelector(".cm-tex-caret")).not.toBeNull();
-    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe("cake, Saturday at 5");
+    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe(", Saturday at 5");
     expect(view.state.doc.toString()).toBe(NOTE);
     release();
     await waitFor(() => !runs(view).has("k7f2"));
