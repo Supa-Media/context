@@ -130,8 +130,13 @@ export function AsidePanel({
     if (changedSinceSeen("noteKey", noteKey) && noteKey !== null) setChosen("note");
   }, [noteKey, setChosen]);
 
+  const frame = useFrame();
+  // Folded, or shut where the frame keeps a column for it (`regionsFor`), the
+  // panel is its rail alone. Drawn outside a frame it is whole.
+  const strip = frame.state.asideFolded || (!frame.state.asideOpen && frame.regions?.aside === "column");
   const texWarm = useWarmAfterLoad(tex !== null && showing === "tex");
-  const texShowing = showing === "tex" && tex !== null;
+  // The warm chat is drawn only in the open panel: folded, it stays mounted and hidden behind the rail.
+  const texShowing = showing === "tex" && tex !== null && !strip;
   const texChat: ReactNode =
     tex !== null && texWarm ? (
       <View style={texShowing ? styles.body : styles.hidden} testID={texShowing ? "aside-tex" : "aside-tex-warm"}>
@@ -148,7 +153,6 @@ export function AsidePanel({
 
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
-  const frame = useFrame();
   const setFolded = frame.setAsideFolded;
   const toggleAside = frame.toggleAside;
 
@@ -175,9 +179,6 @@ export function AsidePanel({
     />
   );
 
-  // Folded, or shut where the frame keeps a column for it (`regionsFor`), the
-  // panel is its rail alone. Drawn outside a frame it is whole.
-  const strip = frame.state.asideFolded || (!frame.state.asideOpen && frame.regions?.aside === "column");
   if (strip)
     return (
       <View style={styles.folded}>

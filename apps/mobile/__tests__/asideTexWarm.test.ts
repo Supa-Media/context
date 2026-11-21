@@ -12,7 +12,8 @@
  * when it mounts and what it is told.
  *
  * Sabotage (run once, then restored): replacing `useWarmAfterLoad(...)` with
- * its argument fails the first test.
+ * its argument fails the first test; dropping `!strip` from `texShowing` fails
+ * the folding test.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -32,10 +33,12 @@ jest.mock("../features/tex/chat/TexChatTab", () => ({
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel, TEX_WARM_MS } from "../features/console/aside/AsidePanel";
 import { forgetAsideChoice } from "../features/console/aside/asideChoice";
+import { FrameContext, type FrameApi } from "../features/app/appFrame/context";
+import { initialFrame } from "../features/app/frame";
 
 const TEX = { workspaceId: "ws1", endpoint: "https://gateway.example.test/mcp" };
 const roots: (() => void)[] = [];
@@ -47,7 +50,14 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-function mount(tex: typeof TEX | null) {
+/** The panel inside a frame of its own that only knows open and folded, as the desktop console draws it. */
+function Framed({ tex }: { tex: typeof TEX | null }) {
+  const [folded, setFolded] = useState(false);
+  const frame = { state: { ...initialFrame, asideOpen: true, asideFolded: folded }, setAsideFolded: setFolded } as unknown as FrameApi;
+  return createElement(FrameContext.Provider, { value: frame }, createElement(AsidePanel, { started: null, onOpenNote: () => {}, tex }));
+}
+
+function mount(tex: typeof TEX | null, framed = false) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -55,7 +65,9 @@ function mount(tex: typeof TEX | null) {
     act(() => root.unmount());
     container.remove();
   });
-  act(() => root.render(createElement(AsidePanel, { started: null, onOpenNote: () => {}, tex })));
+  act(() =>
+    root.render(framed ? createElement(Framed, { tex }) : createElement(AsidePanel, { started: null, onOpenNote: () => {}, tex })),
+  );
   const find = (id: string) => container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
   return {
     find,
@@ -98,5 +110,21 @@ describe("the Tex chat is warm before it is opened", () => {
     });
     expect(panel.find("aside-tex-warm")).toBeNull();
     expect(mockTexProps).toHaveLength(0);
+  });
+
+  // Dev2, 2026-11-21: folding the panel with Tex open left the chat drawn over the note.
+  test("folding the panel with Tex open hides the chat behind the rail and keeps it mounted", () => {
+    const panel = mount(TEX, true);
+    panel.press("aside-tab-tex");
+    expect(panel.find("aside-tex")).not.toBeNull();
+    panel.press("aside-fold");
+    expect(panel.find("aside-tex")).toBeNull();
+    const warm = panel.find("aside-tex-warm");
+    expect(warm).not.toBeNull();
+    expect(getComputedStyle(warm as HTMLElement).display).toBe("none");
+    expect(mockTexProps.at(-1)).toMatchObject({ active: false });
+    panel.press("aside-strip-tex");
+    expect(panel.find("aside-tex")).not.toBeNull();
+    expect(mockTexProps.at(-1)).toMatchObject({ active: true });
   });
 });
