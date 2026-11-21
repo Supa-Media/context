@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome";
 import { Button, PressRow } from "../design/components/Button";
+import { AccessoryGlyph } from "../console/files/AccessoryGlyph";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { TOAST_MS } from "../design/components/Toast";
@@ -419,7 +420,7 @@ export function VoiceButton({
             testID="voice-button"
             style={({ pressed }) => [styles.fab, (pressed || asking) && styles.fabActive]}
           >
-            <Icon name="mic" size={23} color={asking ? colors.ink : colors.accent} />
+            <AccessoryGlyph name="mic" size={24} color={asking ? colors.ink : colors.accent} />
           </Pressable>
         )}
 

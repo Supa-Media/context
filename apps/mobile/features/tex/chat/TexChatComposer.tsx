@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { AccessoryGlyph } from "../../console/files/AccessoryGlyph";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { useFieldFont } from "../../design/fieldFont";
@@ -371,7 +372,7 @@ export function TexChatComposer({
           {stopping ? (
             <Icon name="stop" size={20} color={colors.ground} />
           ) : micKey ? (
-            <Icon name="mic" size={17} color={dictation.live ? colors.ink : colors.muted} />
+            <AccessoryGlyph name="mic" size={18} color={dictation.live ? colors.ink : colors.accent} />
           ) : (
             <Icon name="arrowUp" size={16} color={colors.ink} />
           )}
