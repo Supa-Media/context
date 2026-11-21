@@ -297,7 +297,7 @@ async function rerankStep(input, io) {
   // The query itself, in one workspace or several: the reranker reads it beside the note, which no rule changes.
   const { lists, reranked } = await rerankAcross(ai, input.query, rows, { rerankTop, rerankWeight, rrfK: DEFAULT_RANKING.rrfK, ...(rerankChars ? { rerankChars } : {}) });
   const read = reranked.read > 0;
-  return carry(input, input.workspaces.map((ws, i) => ({ ...ws, entries: read && lists[i] !== rows[i] ? lists[i] : ws.entries })), { reranked });
+  return carry(input, input.workspaces.map((ws, i) => ({ ...ws, entries: read && lists[i] !== rows[i] ? lists[i] : ws.entries })), { log: { reranked } });
 }
 
 /**
