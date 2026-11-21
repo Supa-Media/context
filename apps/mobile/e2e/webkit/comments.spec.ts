@@ -166,14 +166,14 @@ test("Tex answers in the thread, writes its edit into the note, and Keep makes i
 
   // Working, then the edit drawn as struck old words and new ones, with Keep and Undo.
   await expect(card).toContainText("Reading this note");
-  await expect(page.locator(".cm-tex-ins")).toContainText("checked by Tex", { timeout: 10_000 });
+  await expect(page.locator(".cm-tex-ins")).toContainText("Checked by Tex", { timeout: 10_000 });
   await expect(page.locator(".cm-tex-del")).toHaveCount(1);
   await expect(card).toContainText("Rewrote the highlighted words.");
   if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.TEX_SHOT ?? "test-results/tex-pending.png" });
   await card.getByRole("button", { name: "Keep" }).click();
 
   await expect(page.locator(".cm-tex-ins")).toHaveCount(0);
-  await expect(line).toContainText("checked by Tex");
+  await expect(line).toContainText("Checked by Tex");
   await expect(page.locator(".cm-content")).not.toContainText("Tex suggests");
 
   // The run is in the note's log.
