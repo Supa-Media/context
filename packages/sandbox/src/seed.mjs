@@ -261,7 +261,9 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
       // live run may have made, so asking during one is safe.
       const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId });
       const status = await client.query(ref('functions/billing:status'), { workspaceId });
-      if (binding?.status !== 'connected' && status.managedProvisioning !== 'ready') {
+      // `ready` with no storage connected is asked again too: the plan says done and nothing is bound, so nothing
+      // else will bind it.
+      if (binding?.status !== 'connected') {
         await client.mutation(ref('functions/managedProvisioning:retryManagedProvisioning'), { workspaceId });
       }
     }
@@ -278,7 +280,12 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
       }
       await pause(2000);
     }
-    if (!ready) throw new Error(`${slug}: storage did not become ready.`);
+    if (!ready) {
+      // Say what it was waiting on, so a stuck preview is read from the log rather than guessed at.
+      const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId }).catch(() => null);
+      const status = owner ? await client.query(ref('functions/billing:status'), { workspaceId }).catch(() => null) : null;
+      throw new Error(`${slug}: storage did not become ready (binding ${binding?.status ?? 'none'}, provisioning ${status?.managedProvisioning ?? (owner ? 'unknown' : 'not the owner')}).`);
+    }
     // Search by meaning is the owner's switch, off until someone turns it on; production's rollout needs the
     // search database credential a preview does not have. The meaning index lives in the workspace object and
     // needs only the gateway's AI binding, so a preview turns it on for every workspace it seeds.
