@@ -8,6 +8,7 @@ import type { saveButton } from "../editor";
 import type { EditorControls } from "../LiveEditor";
 import type { NoteEditorProps } from "./props";
 import type { NoteEditorStyles } from "./styles";
+import type { TexInNoteState } from "../comments/tex/useTexInNote";
 
 /**
  * Everything the pieces of the note surface draw from, in one object.
@@ -68,4 +69,6 @@ export type NoteView = Omit<NoteEditorProps, "activityShared" | "activityEditabl
   manualSave: boolean;
   /** The viewer's \`@handle\` for signing comments, or null. */
   commenter: string | null;
+  /** Tex in this note: its host and log, or null where there is no Tex here. */
+  texInNote: TexInNoteState | null;
 };

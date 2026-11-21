@@ -1,3 +1,4 @@
+import { useTexWriting } from "../files/comments/tex/texWriting";
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -43,7 +44,16 @@ import type { PresenceMember } from "./protocol";
  * On the homepage a cast member can "click" a face (`presence.peek`): the list
  * opens as a press would open it, and closes itself after a moment.
  */
-export function PresencePile({ presence, compact }: { presence: Presence; compact: boolean }) {
+export function PresencePile({
+  presence,
+  compact,
+  texWriting: texWritingProp,
+}: {
+  presence: Presence;
+  compact: boolean;
+  /** Tex is writing in this note now: its `#` face is drawn in the pile, even with nobody else here. */
+  texWriting?: boolean;
+}) {
   const styles = useThemedStyles(makeStyles);
   const triggerRef = useRef<View>(null);
   const [open, setOpen] = useState(false);
@@ -54,6 +64,8 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
     });
     setOpen(true);
   };
+  const texWritingHere = useTexWriting();
+  const texWriting = texWritingProp ?? texWritingHere;
   const peek = presence.peek?.step ?? 0;
   useEffect(() => {
     if (peek === 0) return;
@@ -61,14 +73,17 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
     const timer = setTimeout(() => setOpen(false), PEEK_MS);
     return () => clearTimeout(timer);
   }, [peek]);
-  if (!presenceShown(presence)) return null;
+  const shown = presenceShown(presence);
+  if (!shown && !texWriting) return null;
+  // With nobody else here the pile is Tex alone, and it is not a list to open.
+  const people = shown ? presence.members : [];
 
   const reconnecting = presence.phase === "reconnecting";
   const geometry = pileGeometry(compact);
-  const { faces, more } = pileFaces(presence.members, geometry.limit);
+  const { faces, more } = pileFaces(people, geometry.limit);
   // Size and overlap as styles, so a phone's smaller pile is one object.
   const sized = sizeStyle(geometry);
-  const items: MenuItem<string>[] = presence.members.map((member) => ({
+  const items: MenuItem<string>[] = people.map((member) => ({
     id: member.id,
     label: member.name,
     // Read when the list opens, not on every caret move: the pile itself
@@ -82,13 +97,13 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
     <>
       <View ref={triggerRef}>
         <PressRow
-          accessibilityLabel={presenceLabel(presence)}
+          accessibilityLabel={shown ? presenceLabel(presence) : "Tex is writing"}
           ariaHasPopup="menu"
           ariaExpanded={open}
           radius={radii.pill}
           style={styles.pile}
           hoverStyle={styles.hover}
-          disabled={reconnecting || presence.members.length === 0}
+          disabled={reconnecting || people.length === 0}
           // On the control itself, so a check can read its accessible name.
           testID="presence-pile"
           onPress={openList}
@@ -105,6 +120,7 @@ export function PresencePile({ presence, compact }: { presence: Presence; compac
                 <Text variant="treeMeta" style={[styles.moreText, sized.text]}>{`+${more}`}</Text>
               </View>
             ) : null}
+            {texWriting ? <TexFace stacked={people.length > 0} sized={sized} /> : null}
           </View>
           {reconnecting ? (
             <Text variant="meta" style={styles.note}>
@@ -179,6 +195,26 @@ function Face({
   );
 }
 
+/**
+ * Tex's own face while a run is writing in the note: the black `#` of the
+ * Tex avatar, the same one the chat draws. It is not a person and has no list.
+ */
+function TexFace({ stacked, sized }: { stacked: boolean; sized?: ReturnType<typeof sizeStyle> }) {
+  const styles = useThemedStyles(makeStyles);
+  const size = sized?.face.width ?? FACE;
+  return (
+    <View
+      accessibilityLabel="Tex is writing"
+      testID="presence-tex"
+      style={[styles.face, sized?.face, styles.ring, styles.tex, stacked ? (sized?.stacked ?? styles.stacked) : null]}
+    >
+      <Text variant="treeMeta" style={[styles.texText, { fontSize: Math.round(size * 0.55), lineHeight: size - 4 }]}>
+        #
+      </Text>
+    </View>
+  );
+}
+
 const FACE = pileGeometry(false).face;
 
 /**
@@ -223,5 +259,7 @@ const makeStyles = (c: Colors) =>
     more: { backgroundColor: c.surface3 },
     moreText: { color: c.muted, fontWeight: "700" },
     robot: { color: c.ink },
+    tex: { backgroundColor: c.text },
+    texText: { color: c.ground, fontWeight: "700" },
     note: { color: c.muted },
   });

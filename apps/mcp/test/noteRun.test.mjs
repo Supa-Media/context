@@ -164,9 +164,11 @@ function runArgs(overrides = {}) {
   const ai = overrides.ai ?? fakeAi([reply('{"answer":"Moved the line.","replace":"The men of the city wanted to know them."}')]);
   const controlPlane = {
     verdict: overrides.verdict ?? { allowed: true },
-    async startBuiltinTurn() {
+    async startBuiltinTurn(...args) {
+      controlPlane.asked.push(args);
       return this.verdict;
     },
+    asked: [],
     async recordBuiltinUsage(...args) {
       controlPlane.usage.push(args);
     },
@@ -224,6 +226,8 @@ test("a run answers with its JSON, shows each read as a step, and names the note
   assert.equal(steps.filter((s) => s.state === "done").length, 2, "each step is told done");
   assert.ok(steps.every((s) => typeof s.id === "string" && s.id.length > 0));
   assert.equal(args.controlPlane.usage.length, 1, "the usage is metered");
+  assert.deepEqual(args.controlPlane.asked[0][2], { noteRun: true }, "asked as a note run, which the app's own grant may spend");
+  assert.equal(args.controlPlane.usage[0][2].noteRun, true, "metered as a note run");
 });
 
 test("the 1:1 history is read beside the run, and the ledger is never written", async () => {

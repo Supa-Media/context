@@ -28,7 +28,10 @@ import { selectTitle, titleLine } from "./titleLine";
 import { propertySlot } from "./propertySlot";
 import { comments } from "../comments/extension";
 import { noteMail } from "../mail/extension";
-import { commentRail } from "../comments/rail";
+import { popover } from "../comments/popover";
+import { seltool } from "../comments/seltool";
+import { texInNote } from "../comments/tex/runner";
+import { texInNoteExtension } from "../comments/tex/noteRun";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
 import { spelling } from "../spelling/extension";
@@ -57,6 +60,7 @@ export function mountEditor({
   onPreviewLinks,
   previews,
   collab,
+  texHost,
   setMenuAt,
   setTableAt,
 }: {
@@ -80,6 +84,7 @@ export function mountEditor({
   onPreviewLinks: LiveEditorProps["onPreviewLinks"];
   previews: { current: PluginPreviewRef };
   collab: { current: Compartment };
+  texHost: { current: Compartment };
   setMenuAt: (at: MenuOpen | null) => void;
   setTableAt: (at: MenuPoint | null) => void;
 }): (() => void) | undefined {
@@ -217,8 +222,9 @@ export function mountEditor({
       // The box under the title the note page's property chips are drawn in.
       propertySlot(),
       /*
-        Comments: the highlights, the hidden markers and block, the margin of
-        cards on a wide pane and the bottom sheet on a phone (files/comments/).
+        Comments: the highlights, the hidden markers and block, the thread popover
+        and selection toolbar on a wide pane and the bottom sheet on a phone
+        (files/comments/), and Tex in the note (files/comments/tex/).
         The name is read at the moment of commenting, off the handlers ref, so
         a sign-in that resolves after mount still signs. The iOS guest installs
         the same extension with its own host (`webview/guestExtras.ts`).
@@ -228,10 +234,14 @@ export function mountEditor({
         signIn: () => handlers.current.onSignInToComment,
         moderator: () => handlers.current.commentModerator === true,
       }),
-      commentRail,
+      popover,
+      seltool,
+      texInNote(),
       commentSheet({ placement: "viewport" }),
       // Mail at the note's end, folded to one line; signed like comments (files/mail/).
       noteMail(),
+      // Tex in this note: its button and host, reconfigured when a host appears or goes (comments/tex/).
+      texHost.current.of(texInNoteExtension(() => handlers.current.texInNote)),
       // Folder lists. The iOS guest asks its host for the same notes over the
       // bridge (`webview/guestExtras.ts`).
       listHost.of(lists),

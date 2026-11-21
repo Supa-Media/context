@@ -1,5 +1,5 @@
 /**
- * The pieces a comment card is built from, shared by the margin (`rail.ts`)
+ * The pieces a comment card is built from, shared by the card under the words (`popover.ts`)
  * and the phone's bottom sheet (`sheet.ts`), so a thread reads the same in
  * both.
  *

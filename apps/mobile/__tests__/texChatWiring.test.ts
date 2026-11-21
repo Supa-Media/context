@@ -56,6 +56,7 @@ function fakeView(over: Partial<AppChatView> = {}): AppChatView & { calls: Calls
     react: record("react") as AppChatView["react"],
     edit: record("edit") as AppChatView["edit"],
     unsend: record("unsend") as AppChatView["unsend"],
+    downloadFile: record("downloadFile") as AppChatView["downloadFile"],
     pictureUrl: () => null,
     typing: () => {},
     run: null,

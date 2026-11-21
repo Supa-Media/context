@@ -15,7 +15,7 @@
  *  - **Every field in it is 16px**, the size below which iOS zooms the page
  *    when a field takes focus.
  *
- * The margin (`rail.ts`) and this read one width rule, `hasMargin`, so a pane
+ * The card under the words (`popover.ts`) and this read one width rule, `hasMargin`, so a pane
  * shows cards or a sheet and never both.
  *
  * ## Two placements

@@ -24,6 +24,7 @@
  */
 
 import type { LiveStep } from "./appChatRun";
+import type { SeenBody } from "./appChatSeen";
 
 /** The two things a person can answer an approval with: a 👍 or a 👎 on Tex's text. */
 export type AskChoice = "approve" | "deny";
@@ -36,13 +37,27 @@ export type ReactionEmoji = (typeof TAPBACKS)[number];
 export const MAX_TEXT = 4000;
 /** The most pictures one text carries. Matches the route's own limit. */
 export const MAX_PICTURES = 4;
+/** The most pictures and files one text carries together. Matches the route's own limit. */
+export const MAX_ATTACHMENTS = 4;
 /** A picture's largest size after the page shrinks it, in bytes. The route refuses anything over 5 MB. */
 export const MAX_PICTURE_BYTES = 5_000_000;
+/** A file's largest size, in bytes. The route refuses anything over 10 MB. */
+export const MAX_FILE_BYTES = 10_000_000;
+/** A file's largest size in base64, as the route takes it. */
+export const MAX_FILE_BASE64 = Math.ceil((MAX_FILE_BYTES * 4) / 3) + 4;
 
 /** A tapback on a row: the person's own (`me`) or Tex's. */
 export interface RowReaction {
   who: "me" | "tex";
   emoji: string;
+}
+
+/** A file on a row: its id (for `fileRequest`), its name as it was kept, its kind and its size in bytes. */
+export interface AppChatFile {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
 }
 
 /** Where an ask's card is: waiting for the person, held back, being sent, sent, or no longer waiting. */
@@ -88,6 +103,8 @@ export interface AppChatRow {
   kind: "text" | "link" | "picture" | "file";
   /** Picture ids, read with `pictureRequest`. */
   pics?: string[];
+  /** Files the person sent, each read with `fileRequest`. */
+  files?: AppChatFile[];
   /** The text this one replies to, and its words when known. */
   replyTo?: { id: string; text?: string };
   /** The person changed the words after sending. */
@@ -134,6 +151,8 @@ export interface PendingLine {
   text: string;
   /** Object URLs of the pictures being sent, for the page to show meanwhile. */
   previews?: string[];
+  /** The names of the files being sent, for the page to show meanwhile. */
+  fileNames?: string[];
   /** The row it replies to, shown above it meanwhile. */
   replyTo?: { id: string; text?: string };
   /** The server's id once the send answered, so the next read replaces this line by id. */
@@ -168,28 +187,45 @@ export function appChatEndpoint(mcpEndpoint: string): string | null {
   return `${parsed.origin}/tex/app-chat`;
 }
 
-/** What a send carries: words, pictures as base64 (no `data:` prefix), and the row it replies to. */
+/** A file as a send carries it: its name, and its bytes in base64 (no `data:` prefix). */
+export interface SendFileBody {
+  name: string;
+  data: string;
+}
+
+/** What a send carries: words, pictures as base64 (no `data:` prefix), files, and the row it replies to. */
 export interface SendBody {
   op: "send";
   text: string;
   pictures?: string[];
+  files?: SendFileBody[];
   replyTo?: string;
+  /** What the person has open in the console (`appChatSeen.ts`). Sent only when there is one. */
+  seen?: SeenBody;
 }
 
 /**
- * `null` when there is nothing to send (no words and no pictures), the words are too long, or there are too many
- * pictures. The page checks this before it shows a pending line.
+ * `null` when there is nothing to send (no words, pictures or files), the words are too long, there are more than four
+ * pictures and files together, or a file has no name or is too big. The page checks this before it shows a pending line.
  */
-export function sendRequest(text: string, options: { pictures?: readonly string[]; replyTo?: string | null } = {}): SendBody | null {
+export function sendRequest(
+  text: string,
+  options: { pictures?: readonly string[]; files?: readonly SendFileBody[]; replyTo?: string | null; seen?: SeenBody | null } = {},
+): SendBody | null {
   const trimmed = text.trim();
   const pictures = options.pictures ?? [];
-  if (trimmed.length > MAX_TEXT || pictures.length > MAX_PICTURES) return null;
-  if (trimmed.length === 0 && pictures.length === 0) return null;
+  const files = options.files ?? [];
+  if (trimmed.length > MAX_TEXT || pictures.length + files.length > MAX_ATTACHMENTS) return null;
+  if (pictures.length > MAX_PICTURES) return null;
+  if (files.some((file) => file.name.trim() === "" || file.data.length === 0 || file.data.length > MAX_FILE_BASE64)) return null;
+  if (trimmed.length === 0 && pictures.length === 0 && files.length === 0) return null;
   return {
     op: "send",
     text: trimmed,
     ...(pictures.length > 0 ? { pictures: [...pictures] } : {}),
+    ...(files.length > 0 ? { files: files.map((file) => ({ name: file.name, data: file.data })) } : {}),
     ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+    ...(options.seen ? { seen: options.seen } : {}),
   };
 }
 
@@ -235,6 +271,11 @@ export function unsendRequest(msgId: string): { op: "unsend"; msgId: string } {
 /** One picture's bytes. The answer is the picture itself, never JSON. */
 export function pictureRequest(id: string): { op: "picture"; id: string } {
   return { op: "picture", id };
+}
+
+/** One file's bytes, to save. The answer is the file itself, as an attachment, never JSON. */
+export function fileRequest(id: string): { op: "file"; id: string } {
+  return { op: "file", id };
 }
 
 /**
@@ -326,6 +367,29 @@ function pictureIdsOf(value: unknown): string[] | undefined {
   return [...(value as string[])];
 }
 
+/** The longest name a file row shows: the route keeps 120 characters of it. */
+const FILE_NAME_MAX = 200;
+
+/**
+ * Files on a row, each one well-formed kept and each malformed one dropped, so a row shows only the files the server
+ * meant. `undefined` when none is left.
+ */
+function filesOf(value: unknown): AppChatFile[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: AppChatFile[] = [];
+  for (const entry of value) {
+    const record = objectOf(entry);
+    const id = nonEmptyString(record?.id);
+    const name = nonEmptyString(record?.name);
+    const type = nonEmptyString(record?.type);
+    const size = record?.size;
+    if (id === null || !HEX32.test(id) || name === null || name.length > FILE_NAME_MAX || type === null) continue;
+    if (typeof size !== "number" || !Number.isInteger(size) || size < 0) continue;
+    out.push({ id, name, type, size });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /** The text this one replies to. The id is required; a malformed words field drops only the words. */
 function replyToOf(value: unknown): AppChatRow["replyTo"] | undefined {
   const record = objectOf(value);
@@ -375,6 +439,8 @@ export function rowFrom(raw: unknown): AppChatRow | null {
   }
   const pics = pictureIdsOf(record.pics);
   if (pics !== undefined) row.pics = pics;
+  const files = filesOf(record.files);
+  if (files !== undefined) row.files = files;
   const replyTo = replyToOf(record.replyTo);
   if (replyTo !== undefined) row.replyTo = replyTo;
   if (record.edited === true) row.edited = true;
@@ -538,6 +604,12 @@ export function readPictureHead(status: number, contentType: string | null): { k
   return { kind: "failed", sentence: "That picture could not be loaded. Try again in a moment." };
 }
 
+/** Read one `file` answer's status. Only a 200 is the file to save; its bytes are read by the caller. */
+export function readFileHead(status: number): { kind: "file" } | { kind: "failed"; sentence: string } {
+  if (status === 200) return { kind: "file" };
+  return { kind: "failed", sentence: "That file could not be loaded. Try again in a moment." };
+}
+
 /** The page's order: by time, a pending line after a server row that shares its moment, then by id. */
 function orderOf(a: ChatLine, b: ChatLine): number {
   if (a.at !== b.at) return a.at - b.at;
@@ -590,14 +662,15 @@ export function mergeRows(old: readonly ChatLine[], fresh: readonly AppChatRow[]
       }
       continue;
     }
-    // Words match by words; a pictures-only line by the first new picture row of the person's.
-    const pictureOnly = line.text.trim() === "" && (line.previews?.length ?? 0) > 0;
+    // Words match by words; a line of only pictures or files by the first new row of the person's of its kind.
+    const attachmentOnly = line.text.trim() === "" && ((line.previews?.length ?? 0) > 0 || (line.fileNames?.length ?? 0) > 0);
+    const kindOfLine = line.fileNames !== undefined ? "file" : "picture";
     const match = fresh.find(
       (row) =>
         row.who === "me" &&
         !oldIds.has(row.id) &&
         !claimed.has(row.id) &&
-        (pictureOnly ? row.kind === "picture" && row.text.trim() === "" : sameText(row.text, line.text)),
+        (attachmentOnly ? row.kind === kindOfLine && row.text.trim() === "" : sameText(row.text, line.text)),
     );
     if (match) {
       claimed.add(match.id);

@@ -62,6 +62,7 @@ const entries: LedgerEntry[] = [
   run("partEnd", { cause: "unfinished", part: 1 }, { to: "carry", cause: "unfinished", room: true }),
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   run("connect", { notes: ["areas/trips/plan.md"], question: "plan the trip", tainted: false, group: false }, { outcome: "connected", notes: 1, links: [{ from: "areas/trips/plan.md", to: "areas/trips/budget.md", why: "the same trip", there: "written", back: "written" }] }),
+  run("noteRun", { path: "areas/trips/plan.md", noteText: "Fly out Friday.", anchor: { text: "Friday" }, ask: "make it Saturday", history: [], audience: "only the asker" }, { outcome: "answered", answer: "Changed it to Saturday.", replace: "Saturday", sources: ["areas/trips/plan.md"] }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
   e({ kind: "brief", turn: T, asker: "seyi", ask: "plan the trip", tools: [], waiting: [] }),
   step("fallback", { input: { from: "haiku", status: 529 }, output: { model: "glm" } }),

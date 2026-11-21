@@ -7,6 +7,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { isPending, type AnswerChoice, type AppChatRow, type AskChoice, type ChatLine, type ReactionEmoji } from "./appChatGateway";
 import { TexChatBar } from "./TexChatBar";
+import { TexChatFileChip, formatFileSize } from "./TexChatFileChip";
 import { TexChatWords } from "./TexChatWords";
 import { TexAskCard } from "./TexAskCard";
 
@@ -30,6 +31,8 @@ export interface TexChatRowProps {
   /** Set by the parent after a jump to this row; the bubble lights for a moment. */
   flash?: boolean;
   onOpenPicture: (url: string) => void;
+  /** Saves a file the row carries, by its id and name. */
+  onDownloadFile?: (id: string, name: string) => void;
   onAnswer: (rowId: string, choice: AskChoice) => void;
   /** A card's answer: send, with the words when the person changed them, or hold. */
   onDecide: (rowId: string, choice: AnswerChoice, body?: string) => void;
@@ -73,6 +76,13 @@ export function TexChatRow(props: TexChatRowProps) {
           <View style={[styles.pictures, styles.picturesMine]}>
             {line.previews.map((uri, index) => (
               <Image key={`${uri}-${index}`} source={{ uri }} style={styles.picture} resizeMode="cover" accessibilityLabel="Picture being sent" />
+            ))}
+          </View>
+        ) : null}
+        {line.fileNames !== undefined && line.fileNames.length > 0 ? (
+          <View style={[styles.pictures, styles.picturesMine]}>
+            {line.fileNames.map((name, index) => (
+              <TexChatFileChip key={`${name}-${index}`} testID={`tex-pending-file-${index}`} name={name} />
             ))}
           </View>
         ) : null}
@@ -166,6 +176,21 @@ export function TexChatRow(props: TexChatRowProps) {
             <View style={[styles.pictures, mine ? styles.picturesMine : styles.picturesTheirs]}>
               {row.pics.map((id) => (
                 <PictureTile key={id} id={id} pictureUrl={props.pictureUrl} onOpen={props.onOpenPicture} styles={styles} />
+              ))}
+            </View>
+          ) : null}
+
+          {row.files !== undefined && row.files.length > 0 ? (
+            <View style={[styles.pictures, mine ? styles.picturesMine : styles.picturesTheirs]}>
+              {row.files.map((file) => (
+                <TexChatFileChip
+                  key={file.id}
+                  testID={`tex-file-${file.id}`}
+                  name={file.name}
+                  detail={formatFileSize(file.size)}
+                  onPress={() => props.onDownloadFile?.(file.id, file.name)}
+                  pressLabel={`Download ${file.name}`}
+                />
               ))}
             </View>
           ) : null}

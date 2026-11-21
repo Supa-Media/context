@@ -6,7 +6,9 @@ import { useFieldFont } from "../../design/fieldFont";
 import { pointerType, radii, space, texChatType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useHoverTitle } from "../../design/useHoverTitle";
-import { MAX_PICTURES, MAX_TEXT } from "./appChatGateway";
+import { MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_TEXT } from "./appChatGateway";
+import type { PickedFile } from "./appChatFiles";
+import { TexChatFileChip } from "./TexChatFileChip";
 
 /** What the reply bar names: who the row is from, and its first line of words. */
 export interface ReplyTarget {
@@ -52,26 +54,34 @@ export function firstLine(text: string): string {
   return line.length > 80 ? `${line.slice(0, 79)}…` : line;
 }
 
+/** What the picker offers: pictures, PDFs and the plain text formats. */
+const PICK_ACCEPT = "image/*,application/pdf,.pdf,.txt,.md,.csv,.tsv,.json,.docx";
 /**
- * Asks the browser for images. A hidden file input, opened from the picture
- * button; nothing here runs on a surface with no document.
+ * The file names the route keeps (`packages/tex/worker/appFiles.ts`). A picker's accept list is only a hint, and one
+ * file it would refuse fails the whole send, so anything else is left out here.
  */
-function chooseImages(limit: number, onChosen: (files: Blob[]) => void): void {
+const KEPT_FILE = /\.(?:pdf|txt|md|csv|tsv|json|docx)$/i;
+
+/**
+ * Asks the browser for pictures and files. A hidden file input, opened from the
+ * attach button; nothing here runs on a surface with no document.
+ */
+function chooseFiles(onChosen: (files: PickedFile[]) => void): void {
   if (typeof document === "undefined") return;
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = "image/*";
+  input.accept = PICK_ACCEPT;
   input.multiple = true;
   input.onchange = () => {
-    const files = [...(input.files ?? [])].filter((file) => file.type.startsWith("image/")).slice(0, limit);
-    if (files.length > 0) onChosen(files);
+    const picked = [...(input.files ?? [])];
+    if (picked.length > 0) onChosen(picked);
   };
   input.click();
 }
 
 /**
- * The box at the foot of the chat: words, up to `MAX_PICTURES` pictures, the
- * reply or edit it is about, and the send.
+ * The box at the foot of the chat: words, up to `MAX_ATTACHMENTS` pictures and
+ * files, the reply or edit it is about, and the send.
  *
  * Enter sends; Shift+Enter is a newline. It owns the draft and the pictures
  * and hands them to `onSend` whole. The hook decides whether it went.
@@ -99,7 +109,7 @@ export function TexChatComposer({
   mode?: "send" | "stop";
   onCancelReply: () => void;
   onCancelEdit: () => void;
-  onSend: (text: string, pictures: Blob[]) => void;
+  onSend: (text: string, pictures: Blob[], files: PickedFile[]) => void;
   /** Pressed in stop mode with an empty box. */
   onStop?: () => void;
   /** The person typed in the box: the chat warms the model's cache for their text (`useAppChat` `typing`). */
@@ -110,6 +120,7 @@ export function TexChatComposer({
   const colors = useColors();
   const [text, setText] = useState("");
   const [pictures, setPictures] = useState<Picture[]>([]);
+  const [files, setFiles] = useState<PickedFile[]>([]);
   const [attachHover, setAttachHover] = useState(false);
   // The box grows with its words, one line to start (a web textarea is two rows tall by default), up to 120 px.
   const [inputHeight, setInputHeight] = useState(INPUT_MIN);
@@ -127,6 +138,7 @@ export function TexChatComposer({
       old.forEach(forget);
       return [];
     });
+    setFiles([]);
     // Keyed on the row, not its words: typing does not reset the box.
   }, [editId]);
 
@@ -139,21 +151,27 @@ export function TexChatComposer({
   );
 
   const editing = edit !== null;
-  const room = Math.max(0, MAX_PICTURES - pictures.length);
+  const room = Math.max(0, MAX_ATTACHMENTS - pictures.length - files.length);
   const hasWords = text.trim().length > 0;
   const hasPictures = pictures.length > 0;
-  const canSend = !disabled && !sending && (editing ? hasWords : hasWords || hasPictures) && text.trim().length <= MAX_TEXT;
-  const stopping = mode === "stop" && !editing && !hasWords && !hasPictures;
+  const hasFiles = files.length > 0;
+  const hasAttachments = hasPictures || hasFiles;
+  const canSend = !disabled && !sending && (editing ? hasWords : hasWords || hasAttachments) && text.trim().length <= MAX_TEXT;
+  const stopping = mode === "stop" && !editing && !hasWords && !hasAttachments;
   const buttonEnabled = stopping || canSend;
 
   const submit = () => {
     if (!canSend) return;
     const words = text.trim();
-    const files = editing ? [] : pictures.map((picture) => picture.file);
-    onSend(words, files);
+    onSend(
+      words,
+      editing ? [] : pictures.map((picture) => picture.file),
+      editing ? [] : files,
+    );
     if (!editing) {
       pictures.forEach(forget);
       setPictures([]);
+      setFiles([]);
     }
     setText("");
   };
@@ -166,12 +184,31 @@ export function TexChatComposer({
     submit();
   };
 
-  const addPictures = (files: Blob[]) => {
-    const next = files.slice(0, room).map((file) => {
-      pictureSeq += 1;
-      return { key: `pic-${pictureSeq}`, file, url: previewOf(file) };
-    });
-    setPictures((old) => [...old, ...next]);
+  /**
+   * Takes what the picker gave, in order, while the room lasts: a picture into the pictures, any other file into the
+   * files. A file over `MAX_FILE_BYTES` is left out; the hook would refuse it too.
+   */
+  const addPicked = (picked: PickedFile[]) => {
+    let left = room;
+    const nextPictures: Picture[] = [];
+    const nextFiles: PickedFile[] = [];
+    for (const file of picked) {
+      if (left <= 0) break;
+      if (file.type.startsWith("image/")) {
+        pictureSeq += 1;
+        nextPictures.push({ key: `pic-${pictureSeq}`, file, url: previewOf(file) });
+        left -= 1;
+      } else if (file.size <= MAX_FILE_BYTES && KEPT_FILE.test(file.name)) {
+        nextFiles.push(file);
+        left -= 1;
+      }
+    }
+    if (nextPictures.length > 0) setPictures((old) => [...old, ...nextPictures]);
+    if (nextFiles.length > 0) setFiles((old) => [...old, ...nextFiles]);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((old) => old.filter((_, at) => at !== index));
   };
 
   const removePicture = (key: string) => {
@@ -187,7 +224,7 @@ export function TexChatComposer({
 
   return (
     <View style={styles.composer} testID="tex-composer">
-      {hasPictures ? (
+      {hasAttachments ? (
         <View style={styles.thumbs} testID="tex-thumbs">
           {pictures.map((picture, index) => (
             <View key={picture.key} style={styles.thumb}>
@@ -206,6 +243,16 @@ export function TexChatComposer({
                 <Icon name="close" size={10} color={colors.text} />
               </Pressable>
             </View>
+          ))}
+          {files.map((file, index) => (
+            <TexChatFileChip
+              key={`file-${index}`}
+              testID={`tex-picked-file-${index}`}
+              name={file.name}
+              onRemove={() => removeFile(index)}
+              removeLabel={`Remove ${file.name}`}
+              removeTestID={`tex-remove-file-${index}`}
+            />
           ))}
         </View>
       ) : null}
@@ -240,7 +287,7 @@ export function TexChatComposer({
         {editing ? null : (
           <Pressable
             ref={attachRef}
-            onPress={() => chooseImages(room, addPictures)}
+            onPress={() => chooseFiles(addPicked)}
             onHoverIn={() => setAttachHover(true)}
             onHoverOut={() => setAttachHover(false)}
             disabled={room === 0 || disabled}
@@ -340,7 +387,7 @@ type Styles = ReturnType<typeof makeStyles>;
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     composer: { paddingTop: 8, paddingHorizontal: 12, paddingBottom: 12 },
-    thumbs: { flexDirection: "row", flexWrap: "wrap", gap: space.x2, marginBottom: 8 },
+    thumbs: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2, marginBottom: 8 },
     thumb: { width: 56, height: 56 },
     thumbImage: { width: 56, height: 56, borderRadius: radii.xs, backgroundColor: colors.chrome },
     thumbPlaceholder: { backgroundColor: colors.chromePressed },

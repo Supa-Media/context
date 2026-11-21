@@ -193,10 +193,11 @@ export function createSessionMethods({ post, required, env = null, sessionObject
      *
      * @returns {Promise<{allowed: true, remaining: number}|{allowed: false, reason: string}|null>}
      */
-    async startBuiltinTurn(accessToken, expectedWorkspaceId, { tryIt = false, background = false } = {}) {
+    async startBuiltinTurn(accessToken, expectedWorkspaceId, { tryIt = false, background = false, noteRun = false } = {}) {
       // `tryIt` only from the AI tab's Try it route (`agent/tryIt.js`): the control plane checks the person may.
       // `background`: a job's part or its report (`agent/route.js`), never counted against the daily cap.
-      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId, ...(tryIt ? { tryIt: true } : {}), ...(background ? { background: true } : {}) });
+      // `noteRun` only from an ask in a note's comments (`agent/noteRunRoute.js`): the app's own grant may spend it.
+      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId, ...(tryIt ? { tryIt: true } : {}), ...(background ? { background: true } : {}), ...(noteRun ? { noteRun: true } : {}) });
       return required(parsed, "verdict");
     },
 
@@ -257,10 +258,11 @@ export function createSessionMethods({ post, required, env = null, sessionObject
     async recordBuiltinUsage(
       accessToken,
       expectedWorkspaceId,
-      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms, tryIt = false, background = false },
+      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms, tryIt = false, background = false, noteRun = false },
     ) {
       await post("/gateway/builtin-model/usage", {
         ...(tryIt ? { tryIt: true } : {}),
+        ...(noteRun ? { noteRun: true } : {}),
         ...(background ? { background: true } : {}),
         accessToken,
         expectedWorkspaceId,

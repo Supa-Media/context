@@ -4,6 +4,9 @@ import {
   CARD_FIELD_MAX,
   CARD_TEXT_MAX,
   EDIT_SENTENCE,
+  MAX_ATTACHMENTS,
+  MAX_FILE_BASE64,
+  MAX_FILE_BYTES,
   MAX_PICTURES,
   MAX_TEXT,
   REACT_SENTENCE,
@@ -11,10 +14,12 @@ import {
   answerRequest,
   cardReplyWords,
   editRequest,
+  fileRequest,
   mergeRows,
   pictureRequest,
   readAnswer,
   readChat,
+  readFileHead,
   readPictureHead,
   readReact,
   readSend,
@@ -201,6 +206,13 @@ describe("sendRequest", () => {
     });
   });
 
+  test("the screen rides along when given, and is absent when not", () => {
+    const seen = { note: { workspace: "@work", path: "a.md" } };
+    expect(sendRequest("look", { seen })).toEqual({ op: "send", text: "look", seen });
+    expect(sendRequest("look", { seen: null })).toEqual({ op: "send", text: "look" });
+    expect(sendRequest("look")).not.toHaveProperty("seen");
+  });
+
   test("pictures alone are a send", () => {
     expect(sendRequest("", { pictures: ["aGk="] })).toEqual({ op: "send", text: "", pictures: ["aGk="] });
   });
@@ -363,6 +375,72 @@ describe("tapback toggling and line helpers", () => {
     expect(serverRowOf([pending({ localId: "m_1" })], "m_1")).toBeUndefined();
   });
 });
+
+describe("rowFrom: files", () => {
+  test("keeps each well-formed file and drops a malformed one", () => {
+    const row = rowFrom(
+      row_({
+        kind: "file",
+        files: [
+          { id: PIC, name: "report.pdf", type: "application/pdf", size: 3 },
+          { id: "not-hex", name: "a.pdf", type: "application/pdf", size: 3 },
+          { id: PIC2, name: "", type: "text/csv", size: 1 },
+          { id: PIC2, name: "b.csv", type: "text/csv", size: -1 },
+          { id: PIC2, name: "b.csv", type: "text/csv", size: 1.5 },
+          { id: PIC2, name: "c.csv", type: "text/csv", size: 9 },
+        ],
+      }),
+    );
+    expect(row?.files).toEqual([
+      { id: PIC, name: "report.pdf", type: "application/pdf", size: 3 },
+      { id: PIC2, name: "c.csv", type: "text/csv", size: 9 },
+    ]);
+  });
+
+  test("a row with no readable file list shows none", () => {
+    expect(rowFrom(row_({ kind: "file", files: "x" }))?.files).toBeUndefined();
+    expect(rowFrom(row_({ kind: "file", files: [{ id: "bad" }] }))?.files).toBeUndefined();
+    expect(rowFrom(row_({ kind: "file" }))).not.toHaveProperty("files");
+  });
+});
+
+describe("sendRequest: files", () => {
+  const FILE = { name: "a.pdf", data: "JVBERi0=" };
+
+  test("files ride along with their names and base64, beside any words", () => {
+    expect(sendRequest("see", { files: [FILE], replyTo: "m_0" })).toEqual({ op: "send", text: "see", files: [FILE], replyTo: "m_0" });
+    expect(sendRequest("", { files: [FILE] })).toEqual({ op: "send", text: "", files: [FILE] });
+  });
+
+  test("pictures and files share the four-attachment limit", () => {
+    expect(sendRequest("x", { pictures: ["aGk=", "aGk="], files: [FILE, FILE] })).not.toBeNull();
+    expect(sendRequest("x", { pictures: ["aGk=", "aGk="], files: [FILE, FILE, FILE] })).toBeNull();
+    expect(sendRequest("", { files: Array(MAX_ATTACHMENTS + 1).fill(FILE) })).toBeNull();
+  });
+
+  test("a file needs a name, and its base64 is no bigger than 10 MB of bytes", () => {
+    expect(sendRequest("x", { files: [{ name: "  ", data: "aGk=" }] })).toBeNull();
+    expect(sendRequest("", { files: [{ name: "a.pdf", data: "A".repeat(MAX_FILE_BASE64) }] })).not.toBeNull();
+    expect(sendRequest("", { files: [{ name: "a.pdf", data: "A".repeat(MAX_FILE_BASE64 + 1) }] })).toBeNull();
+    expect(MAX_FILE_BYTES).toBe(10_000_000);
+  });
+});
+
+describe("the file request and its answer", () => {
+  test("fileRequest asks for one file by its id", () => {
+    expect(fileRequest(PIC)).toEqual({ op: "file", id: PIC });
+  });
+
+  test("only a 200 is a file to save; anything else is a sentence", () => {
+    expect(readFileHead(200)).toEqual({ kind: "file" });
+    expect(readFileHead(404)).toEqual({ kind: "failed", sentence: "That file could not be loaded. Try again in a moment." });
+  });
+});
+
+/** A row with the given fields, for the rows of the page. */
+function row_(over: Record<string, unknown>) {
+  return { id: "m_9", who: "me", text: "", at: 1_000, kind: "file", ...over };
+}
 
 function emailCard(over: Record<string, unknown> = {}): Record<string, unknown> {
   return { kind: "email", state: "wait", from: "me@example.test", to: "sam@example.test", cc: "", subject: "Plan", thread: false, body: "Hi Sam,\n\nSee you.", editable: true, ...over };

@@ -6,6 +6,8 @@ import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
+import { mentionablesOf, noteRefOf, useTexInNote } from "../../files/comments/tex/useTexInNote";
+import { texChatTarget } from "../../layout/slots";
 import { trashedViewOf } from "../../files/noteEditor/trashed";
 import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
@@ -146,6 +148,8 @@ export function BrowseDocument({
     in a note does. The workspace's people are what an owner menu offers.
   */
   const people = data.members?.members;
+  // Tex in this note: the person's own Tex and the open note's log (`comments/tex/useTexInNote.ts`).
+  const texInNote = useTexInNote({ tex: texChatTarget(data), note: noteRefOf(current?.id, files.editor), people: mentionablesOf(people) });
   // Adding, nesting and moving a project's tasks, through the console's own writes (undefined for who may not write).
   const tasks = useTaskHost(files, local === undefined ? current?.id : undefined, folderLists, setFolderDialog);
   // The one editor, lent to a folder page's side peek: the note typed in there is the editor's note, in its room.
@@ -568,6 +572,7 @@ export function BrowseDocument({
         commenter={commenterFor(data.viewer?.name, data.visitor !== undefined)}
         // An owner may delete anyone's comments; everyone else only their own.
         commentModerator={data.visitor === undefined && capabilitiesForRole(current?.role).isOwner}
+        texInNote={texInNote}
         onSignInToComment={data.visitor?.signIn}
         // A visitor's edits stay in their tab; the foot must not say "bucket".
         local={data.visitor !== undefined}

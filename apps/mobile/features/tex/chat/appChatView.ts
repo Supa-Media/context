@@ -1,5 +1,7 @@
 import type { ChatLine } from "./appChatGateway";
 import { isPending, type AnswerChoice, type AskChoice, type LiveRun, type ReactionEmoji } from "./appChatGateway";
+import type { PickedFile } from "./appChatFiles";
+import type { SeenBody } from "./appChatSeen";
 
 /** What the chat page draws, and what a person can do on it. */
 export interface AppChatView {
@@ -18,10 +20,15 @@ export interface AppChatView {
   /** The answer the person gave to each approval this session: `approve` or `deny`. */
   answers: Record<string, AskChoice>;
   /**
-   * Send words, up to `MAX_PICTURES` pictures (each shrunk on this device to a JPEG under `MAX_PICTURE_BYTES` before it
-   * goes), or both, optionally as a reply to a row.
+   * Send words, up to `MAX_ATTACHMENTS` pictures and files together (each picture shrunk on this device to a JPEG under
+   * `MAX_PICTURE_BYTES` before it goes; each file up to `MAX_FILE_BYTES`), or both, optionally as a reply to a row.
    */
-  send: (text: string, options?: { pictures?: readonly Blob[]; replyTo?: string | null }) => void;
+  send: (
+    text: string,
+    options?: { pictures?: readonly Blob[]; files?: readonly PickedFile[]; replyTo?: string | null; seen?: SeenBody | null },
+  ) => void;
+  /** Save a file on a row to the device, asked for by id and named as the row names it. Nothing is saved where there is no document. */
+  downloadFile: (id: string, name: string) => void;
   retry: (localId: string) => void;
   answer: (rowId: string, choice: AskChoice) => void;
   /**
