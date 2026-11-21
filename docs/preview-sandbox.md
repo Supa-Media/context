@@ -30,7 +30,13 @@ and the code. "Checked on every preview" means the deploy's smoke test
    inside the runner and uploads pictures at the desktop (1440), medium (1100)
    and phone (390) layouts as the run's artifact
    (`packages/sandbox/src/screenshots.mjs`). Agents check a UI change this way
-   before it merges.
+   before it merges. The same Action also runs by itself after every preview
+   deploy of a pull request that touches `apps/mobile`: it walks the panel
+   matrix (`packages/sandbox/src/uiMatrix.mjs`: the file tree and the right
+   panel each open and closed, a note open or none, Tex answering while the
+   panel folds, at every layout) as delta, and posts a **UI matrix (signed
+   in)** status on the pull request that fails when a folded panel still
+   draws itself or the page scrolls sideways.
 5. Sign an AI agent in to drive the preview in its own browser, with no
    mailbox and no new secret:
    - `node packages/sandbox/src/agent-sign-in.mjs keygen` makes a throwaway
