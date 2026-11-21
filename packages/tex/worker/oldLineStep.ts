@@ -19,6 +19,14 @@ export type OldLineStepDeps = OldLineDeps & LineDeps & { texts?: TextsBinding; r
 
 type Outcome = "redirected" | "held" | "pass";
 
+/**
+ * The chats on Tex's old number: only a text there can be redirected or held (the node's own `SENDBLUE_CHAT`, in
+ * `graph/nodes/oldLine.js`). Every other text (Photon's line, WhatsApp) passes without the setting's read or the
+ * gateway's call, which cost each iMessage text up to 0.9 s before it reached the queue (2026-11-21, Dev2: "There's a
+ * gap between an app and iMessage").
+ */
+export const OLD_LINE_CHAT = /^sendblue:/;
+
 /** What the step's ledger record carries: whether each setting is there, never the number, the chat or words. */
 type Seen = { mode?: string; number?: boolean; archiveOn?: boolean; toldAgoMs?: number };
 
@@ -26,19 +34,20 @@ type Seen = { mode?: string; number?: boolean; archiveOn?: boolean; toldAgoMs?: 
 export async function oldLineStep(storage: InboxStorage, chatId: string, deps: OldLineStepDeps): Promise<Outcome> {
   const started = Date.now();
   const seen: Seen = {};
-  const done = async (outcome: Outcome, cause?: string, answerChars?: number): Promise<Outcome> => {
-    console.log(JSON.stringify({ event: "old_line", outcome, ...(cause ? { reason: cause } : {}) }));
+  const done = async (outcome: Outcome, cause?: string, answerChars?: number, why?: string): Promise<Outcome> => {
+    console.log(JSON.stringify({ event: "old_line", outcome, ...(cause ? { reason: cause } : why ? { reason: why } : {}) }));
     const to = outcome === "redirected" ? "redirect" : outcome === "held" ? "hold" : "pass";
     await logStep(storage, chatId, {
       name: "oldLine",
       ok: cause === undefined,
       ms: Date.now() - started,
       input: seen,
-      output: { to, ...(answerChars !== undefined ? { answerChars } : {}) },
+      output: { to, ...(answerChars !== undefined ? { answerChars } : {}), ...(why ? { why } : {}) },
       ...(cause ? { cause } : {}),
     }, deps.now());
     return outcome;
   };
+  if (!OLD_LINE_CHAT.test(chatId)) return await done("pass", undefined, undefined, "new_line");
   if (deps.texts === undefined) return await done("pass", "no_gateway");
   let setting;
   try {
