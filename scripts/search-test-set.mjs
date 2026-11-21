@@ -22,7 +22,7 @@
  *       a change that reaches search passes only on a successful "Search test set" status on its head commit
  *   node scripts/search-test-set.mjs dispatch  (same env, PR_NUMBER): starts "Search test set" on main when needed
  *   node scripts/search-test-set.mjs beir --change <result.json> --main <result.json> --out <beir.json>
- *       the public NanoBEIR step (`apps/mcp/bench/evals/nanoBeir.mjs`, the gate's four sets): exit 0 when neither
+ *       the public NanoBEIR step (`packages/bench/benchmarks/nanobeir/`, the gate's four sets): exit 0 when neither
  *       path's nDCG@10 fell more than BEIR_TOLERANCE below main's, 1 when one did
  *   node scripts/search-test-set.mjs --self-test
  */

@@ -1,0 +1,15 @@
+{
+  "name": "@context/bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Context's benchmarks: one folder per benchmark under benchmarks/ (bench.json + source.mjs), in BEIR's open format, and the one generated list the Lab, tex_dev, the eval workflow and the runner read. The runner that drives the gateway stays in apps/mcp/bench/evals.",
+  "scripts": {
+    "registry": "node scripts/registry.mjs",
+    "typecheck": "echo \"plain JS, checked by its tests (apps/mcp/test/unit.list)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  },
+  "dependencies": {
+    "hyparquet": "1.32.0"
+  }
+}

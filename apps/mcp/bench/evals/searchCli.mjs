@@ -1,66 +1,42 @@
 /**
- * THE SEARCH SUITE FROM A COMMAND LINE (`searchSuite.mjs`, `docs/decisions/search/search-suite.md`):
+ * EVERY SEARCH BENCHMARK, ONE RUNNER (`packages/bench`: one folder per benchmark; `docs/decisions/search/search-suite.md`):
  *
- *   node apps/mcp/bench/evals/cli.mjs search --bench search-hard [--n 40] --out result.json [--fake]
- *   node apps/mcp/bench/evals/cli.mjs search --bench search-real [--part dev|training] [--cases <file>] --out result.json
- *   (add --database-only to skip the workspace-object world each case is also searched in)
- *   node apps/mcp/bench/evals/cli.mjs search --bench longmemeval-retrieval --fetch <dir> --n 50 --out result.json
- *   node apps/mcp/bench/evals/cli.mjs search --bench nanobeir|nanobeir-gate --fetch <dir> [--sets nq,fiqa] [--n 100] --out result.json
- *   node apps/mcp/bench/evals/cli.mjs search --bench herb --fetch <dir> [--sets TrendForce,LeadForce] [--n 100] --out result.json
+ *   node apps/mcp/bench/evals/cli.mjs search --bench <run id> [--n 40] [--fetch <dir>] --out result.json [--fake]
+ *     --sets a,b        the sets (NanoBEIR) or products (HERB) to run, not the run's own
+ *     --part dev        a part of a custom set (search-real: training | dev)
+ *     --cases <file>    a part handed in from outside: how the search gate runs the sealed Test part
+ *     --database-only   skip the workspace-object world each case is also searched in
  *
- * `--cases <file>` runs a real-query set from a file instead of the repo's parts: how the search gate runs the sealed
- * Test part it was handed (`search-test-set.yml`), never kept in the repository. Only the embedder is called (Workers
- * AI when its keys are set, the bench's fake one otherwise or with `--fake`), so a run costs embeddings and seconds.
+ * A run's folder says what it is (`bench.json`) and reads its data (`source.mjs`): a BEIR set (`load`), whose
+ * documents become notes in Sam's empty personal workspace, one world per haystack; or its own worlds (`worlds`),
+ * laid over this bench's seven workspaces. Each case is one `search_notes` call through the MCP endpoint, on both
+ * ways production answers. Only the embedder is called (Workers AI when its keys are set, the bench's fake one
+ * otherwise or with `--fake`), so a run costs embeddings and minutes, never Claude. Scored as the folder says:
+ *
+ *   beir       nDCG@10, Recall@10, MRR@10 per set or question type and their mean (NanoBEIR's headline), beside a
+ *              reference ranking's (BM25) when the set has one
+ *   first      right note first, top 5, MRR, per kind
+ *   retrieval  are the answer documents in the top 5 (any, all), per ability
  */
-import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+
+import { benchmarkOf } from "../../../../packages/bench/src/registry.mjs";
+import { beirWorlds } from "../../../../packages/bench/src/beir.mjs";
+import { irScores, mean, r3 } from "../../../../packages/bench/src/score.mjs";
 
 import { REPO_BENCH_FOLDER } from "../folder.mjs";
-import { expandWorkspaces, readBenchFolder } from "../load.mjs";
-import { BENCHES, entryOf, sliceOf } from "./longMemEval.mjs";
-import { retrievalScores, retrieveQuestion } from "./memoryRetrieval.mjs";
-import { NANO_BENCHES, NANO_SETS, runNanoBeir } from "./nanoBeir.mjs";
-import { runHerb } from "./herb.mjs";
-import { loadHardSet } from "./searchSets.mjs";
-import { embedderFor, overlay, rowOf, runSearchCases, searchScores, searchSetOf } from "./searchSuite.mjs";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-/** The real-query set's visible parts; the Test part lives only in the eval service. */
-export const REAL_DIR = join(HERE, "..", "search", "real");
-export const REAL_PARTS = Object.freeze(["training", "dev"]);
-export const REAL_TODAY = "2026-11-21";
+import { expandWorkspaces, parseTest, readBenchFolder } from "../load.mjs";
+import { EVAL_PERSON, EVAL_WORKSPACE, evalBench } from "./memoryRun.mjs";
+import { embedderFor, overlay, rowOf, runSearchCases, searchScores, splitAddress, TOP_K } from "./searchSuite.mjs";
 
 const say = (line) => process.stderr.write(`${line}\n`);
-
-/**
- * A real-query part as one bench overlay and its cases. Each case brings the notes that make it hard
- * (`notes`, "@ws/path" → text); two cases naming the same address must agree on its text.
- */
-export function realSetOf(cases) {
-  if (!Array.isArray(cases)) throw new Error("a real-query set is a JSON array of cases");
-  const notes = {};
-  for (const c of cases) {
-    for (const key of ["id", "query", "as"]) if (typeof c?.[key] !== "string" || !c[key]) throw new Error(`case ${c?.id ?? "?"}: ${key} is missing`);
-    if (!Array.isArray(c.expect) || c.expect.length === 0) throw new Error(`case ${c.id}: expect names no note`);
-    for (const [address, text] of Object.entries(c.notes ?? {})) {
-      if (Object.hasOwn(notes, address) && notes[address] !== text) throw new Error(`case ${c.id}: ${address} differs from another case's note of that name`);
-      notes[address] = text;
-    }
-  }
-  return { notes, cases: cases.map(({ notes: _notes, ...c }) => ({ ...c, in: c.in ?? null, forbid: c.forbid ?? [] })) };
-}
-
-export async function readRealPart(part, file = null) {
-  if (!file && !REAL_PARTS.includes(part)) throw new Error(`--part is one of ${REAL_PARTS.join(", ")}`);
-  return JSON.parse(await readFile(file ?? join(REAL_DIR, `${part}.json`), "utf8"));
-}
+const pctOf = (n, of) => (of === 0 ? null : Math.round((1000 * n) / of) / 10);
+const listOf = (x) => (x ? String(x).split(",").map((s) => s.trim()).filter(Boolean) : null);
 
 /** The compatibility scores block the Lab's older readers show: right note first as "correct". */
 const labScores = (s) => ({ n: s.n, correct: s.first, pct: s.firstPct, asked: s.n, failed: s.errors, usd: { filing: 0, reading: 0, judging: 0, total: 0 } });
 
-const byKind = (records) => {
+/** Right note first per kind. */
+export function byKind(records) {
   const kinds = {};
   for (const r of records) {
     if (!(r.expect ?? []).length) continue;
@@ -69,71 +45,127 @@ const byKind = (records) => {
     if (r.rank === 1) k.first += 1;
   }
   return Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, { n: v.n, firstPct: Math.round((1000 * v.first) / v.n) / 10 }]));
-};
+}
 
-/** Run one search set and return the result object the Lab's eval workflow reports. */
+/**
+ * BEIR's scores of a run: `searchScores` over every case, plus `ndcg10`, `recall10`, `mrr10` as the mean over groups
+ * (a case's `kind`: NanoBEIR's set, HERB's question type; sets differ in size, so never over pooled queries),
+ * `bm25Ndcg10` (the reference ranking, null when the set has none), the object world's `objectNdcg10`, and `bySet`.
+ */
+export function beirScores(records) {
+  const bySet = {};
+  const hasBm25 = records.some((r) => Array.isArray(r.bm25));
+  for (const kind of [...new Set(records.map((r) => r.kind))]) {
+    const group = records.filter((r) => r.kind === kind);
+    const object = group.some((r) => r.object && typeof r.object === "object") ? irScores(group.filter((r) => r.object), (r) => r.object.hits) : null;
+    const first = searchScores(group);
+    bySet[kind] = { n: first.n, ...irScores(group), firstPct: first.firstPct, bm25Ndcg10: hasBm25 ? irScores(group, (r) => r.bm25).ndcg10 : null, ...(object ? { objectNdcg10: object.ndcg10 } : {}) };
+  }
+  const avg = (key) => r3(mean(Object.values(bySet).map((s) => s[key]).filter((x) => typeof x === "number")));
+  return {
+    ...searchScores(records),
+    ndcg10: avg("ndcg10"),
+    recall10: avg("recall10"),
+    mrr10: avg("mrr10"),
+    bm25Ndcg10: hasBm25 ? avg("bm25Ndcg10") : null,
+    ...(Object.values(bySet).some((s) => s.objectNdcg10 !== undefined) ? { objectNdcg10: avg("objectNdcg10") } : {}),
+    bySet,
+  };
+}
+
+/** A retrieval record: are its expected notes in the top 5, any of them and all of them. */
+export function withRecall(record) {
+  const top = (record.hits ?? []).slice(0, TOP_K);
+  const inTop = record.expect.filter((address) => top.includes(address)).length;
+  return { ...record, recallAny5: record.expect.length > 0 && inTop > 0, recallAll5: record.expect.length > 0 && inTop === record.expect.length };
+}
+
+/** Retrieval scores: `searchScores` plus `recallAny5Pct`, `recallAll5Pct` and `byAbility` { ability: { n, recallAny5Pct } }. */
+export function retrievalScores(records) {
+  const scored = records.filter((r) => (r.expect ?? []).length > 0);
+  const byAbility = {};
+  for (const ability of [...new Set(scored.map((r) => r.ability ?? "search"))]) {
+    const group = scored.filter((r) => (r.ability ?? "search") === ability);
+    byAbility[ability] = { n: group.length, recallAny5Pct: pctOf(group.filter((r) => r.recallAny5).length, group.length) };
+  }
+  return {
+    ...searchScores(records),
+    recallAny5Pct: pctOf(scored.filter((r) => r.recallAny5).length, scored.length),
+    recallAll5Pct: pctOf(scored.filter((r) => r.recallAll5).length, scored.length),
+    byAbility,
+  };
+}
+
+/** The expected notes a world does not have: a case naming one could never pass, so the run stops instead. */
+export function missingExpected(bench, cases) {
+  const missing = [];
+  for (const c of cases) {
+    for (const address of c.expect ?? []) {
+      const parts = splitAddress(address);
+      if (parts && bench.workspaces[parts[0]]?.files?.[parts[1]] !== undefined) continue;
+      missing.push(`${c.id} ${address}`);
+    }
+  }
+  return missing;
+}
+
+/** The worlds a run searches, from its folder's source: `{ total, worlds: [{ id, base, notes, cases, today }] }`. */
+export async function worldsOf(run, source, options) {
+  const n = options.n ?? null;
+  const sets = listOf(options.sets);
+  if (run.format === "beir") {
+    const loaded = await source.load({ run, dir: options.fetch ?? null, data: options.data ?? null, sets, n: run.slice === "source" ? n : null });
+    const perSet = run.slice === "per-set" && n !== null ? Math.max(1, Math.ceil(n / loaded.length)) : null;
+    const notes = { workspace: EVAL_WORKSPACE, as: EVAL_PERSON, ...run.notes };
+    const worlds = loaded.flatMap((set) =>
+      beirWorlds(set, { ...notes, n: run.slice === "source" ? null : perSet ?? n, slice: run.slice === "spread" ? "spread" : "first", caseIds: run.caseIds }).map((w) => ({ ...w, base: "empty", size: set.corpus.length })),
+    );
+    const total = loaded.every((set) => Number.isSafeInteger(set.total)) ? loaded.reduce((t, set) => t + set.total, 0) : null;
+    return { total, worlds };
+  }
+  const got = await source.worlds({ run, dir: options.fetch ?? null, part: options.part ?? undefined, cases: options.cases ?? null, today: options.today ?? null, sets, helpers: { parseTest } });
+  return { total: got.total, worlds: n === null ? got.worlds : got.worlds.map((w) => ({ ...w, cases: w.cases.slice(0, n) })) };
+}
+
+/** Run one search benchmark and return the result object the Lab's eval workflow reports. */
 export async function runSearchSet(options) {
-  const set = searchSetOf(options.bench ?? "search-hard");
-  if (!set) throw new Error(`no search set ${options.bench}`);
-  const ai = embedderFor({ fake: options.fake === true || !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN) });
-  const started = Date.now();
+  const { run, source } = await benchmarkOf(options.bench ?? "search-hard");
+  if (run.kind !== "search") throw new Error(`${run.id} is a memory benchmark: cli.mjs longmemeval --bench ${run.id}`);
   const n = options.n === undefined ? null : Number(options.n);
   if (n !== null && (!Number.isSafeInteger(n) || n < 1)) throw new Error("--n is a whole number of cases");
-  // A world's gateway logs a JSON line per step; a run prints one line per case instead.
+  if (run.format === "beir" && !options.fetch && !options.data) throw new Error(`--fetch <dir> is required: ${run.title} is downloaded there`);
+  const ai = embedderFor({ fake: options.fake === true || !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN) });
+  const objects = options["database-only"] !== true;
+  const started = Date.now();
+  // A world's gateway logs a JSON line per step; a run prints one line per world or case instead.
   const log = console.log;
   console.log = () => {};
   try {
-    if (set.id === "longmemeval-retrieval") {
-      const lme = BENCHES.find((b) => b.id === "longmemeval-s");
-      const file = options.data ?? (options.fetch ? await (await import("./cli.mjs")).fetchData(lme, options.fetch) : null);
-      if (!file) throw new Error("--data <file> or --fetch <dir> is required");
-      const data = JSON.parse(readFileSync(file, "utf8"));
-      const byId = new Map(data.map((item) => [item?.question_id, item]));
-      // Abstention questions have no answer session to find; retrieval recall leaves them out, as LongMemEval does.
-      const index = data.map((item, i) => entryOf(item, i)).filter((e) => e && e.ability !== "abstention");
-      const slice = sliceOf(index, n ?? index.length).map((e) => byId.get(e.id));
-      const records = [];
-      for (const item of slice) {
-        const record = await retrieveQuestion(item, { ai });
-        records.push(record);
-        say(`${record.id}: ${record.rank === null ? "miss" : `rank ${record.rank}`}${record.recallAll5 ? "" : record.recallAny5 ? " (some answer sessions past 5)" : ""}`);
+    const { total, worlds } = await worldsOf(run, source, { ...options, n });
+    const repo = worlds.some((w) => w.base === "repo") ? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : null;
+    const records = [];
+    const many = worlds.length > 20;
+    for (const w of worlds) {
+      const bench = overlay(w.base === "repo" ? repo : evalBench(), w.notes);
+      const missing = missingExpected(bench, w.cases);
+      if (missing.length) throw new Error(`expected notes that exist nowhere: ${missing.join(", ")}`);
+      if (!many) say(`${w.id}: ${Object.keys(w.notes).length} notes, ${w.cases.length} queries`);
+      const at = Date.now();
+      const got = await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, objects, log: many ? () => {} : (line) => process.stderr.write(line) });
+      got.forEach((record, i) => {
+        const c = w.cases[i];
+        const full = { ...record, ...(c.bm25 ? { bm25: c.bm25 } : {}), ...(c.ability ? { ability: c.ability } : {}), ...(c.missing?.length ? { missing: c.missing } : {}) };
+        records.push(run.score === "retrieval" ? withRecall(full) : full);
+        if (many) say(`${record.id}: ${record.rank === null ? "miss" : `rank ${record.rank}`}`);
+      });
+      if (!many && run.score === "beir") {
+        const s = beirScores(records.filter((r) => got.some((g) => g.id === r.id)));
+        say(`${w.id}: nDCG@10 ${s.ndcg10}${s.objectNdcg10 !== undefined ? ` (objects ${s.objectNdcg10})` : ""}${s.bm25Ndcg10 !== null ? `, BM25 ${s.bm25Ndcg10}` : ""}, right note first ${s.firstPct}% in ${Math.round((Date.now() - at) / 1000)} s`);
       }
-      const search = retrievalScores(records);
-      return { bench: set.id, variant: set.variant, total: index.length, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows: records.map((r) => ({ ...rowOf(r), ability: r.ability ?? "search" })) };
     }
-    if (NANO_BENCHES[set.id]) {
-      // NanoBEIR (`nanoBeir.mjs`): public sets fetched from Hugging Face into --fetch, each its own world.
-      if (!options.fetch) throw new Error("--fetch <dir> is required: the NanoBEIR sets are downloaded there");
-      const sets = options.sets ? String(options.sets).split(",").map((x) => x.trim()).filter(Boolean) : NANO_BENCHES[set.id];
-      for (const id of sets) if (!NANO_SETS.some((s) => s.id === id)) throw new Error(`--sets: no NanoBEIR set ${id}`);
-      const { records, search } = await runNanoBeir({ sets, dir: options.fetch, n, ai, objects: options["database-only"] !== true });
-      return { bench: set.id, variant: set.variant, total: records.length, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows: records.map(rowOf), records: options["keep-records"] ? records : undefined };
-    }
-    if (set.id === "herb") {
-      // HERB (`herb.mjs`): Salesforce's public workplace benchmark, fetched from Hugging Face into --fetch, one world.
-      if (!options.fetch) throw new Error("--fetch <dir> is required: HERB is downloaded there");
-      const products = options.sets ? String(options.sets).split(",").map((x) => x.trim()).filter(Boolean) : null;
-      const { records, search } = await runHerb({ dir: options.fetch, n, products, ai, objects: options["database-only"] !== true });
-      return { bench: set.id, variant: set.variant, total: records.length, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows: records.map(rowOf), records: options["keep-records"] ? records : undefined };
-    }
-    const base = expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER));
-    let today = null;
-    let notes;
-    let cases;
-    if (set.id === "search-hard") {
-      const hard = await loadHardSet();
-      today = hard.today ?? null;
-      ({ notes, cases } = hard);
-    } else {
-      ({ notes, cases } = realSetOf(await readRealPart(options.part ?? "dev", options.cases ?? null)));
-      // Pinned, so a recency prior ranks the same today and next month: the day the real set was written.
-      today = options.today ?? REAL_TODAY;
-    }
-    const total = cases.length;
-    const chosen = n === null ? cases : cases.slice(0, n);
-    const records = await runSearchCases({ bench: overlay(base, notes), cases: chosen, ai, today, objects: options["database-only"] !== true, log: (line) => process.stderr.write(line) });
-    const search = { ...searchScores(records), byKind: byKind(records) };
-    return { bench: set.id, variant: set.variant, total, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows: records.map(rowOf), records: options["keep-records"] ? records : undefined };
+    const search = run.score === "beir" ? beirScores(records) : run.score === "retrieval" ? retrievalScores(records) : { ...searchScores(records), byKind: byKind(records) };
+    const rows = records.map((r) => (run.score === "retrieval" ? { ...rowOf(r), ability: r.ability ?? "search" } : rowOf(r)));
+    return { bench: run.id, variant: run.variant, total: total ?? records.length, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows, records: options["keep-records"] ? records : undefined };
   } finally {
     console.log = log;
   }

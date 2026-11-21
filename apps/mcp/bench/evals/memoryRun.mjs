@@ -1,6 +1,8 @@
 /**
- * LONGMEMEVAL'S RUN: CONTEXT AS AN AI CLIENT'S MEMORY (Dev2, 2026-11-20: "LongMemEval is primarily for context, its
- * not supposed to test tex"; chose "Save each session raw, then file").
+ * A MEMORY RUN: CONTEXT AS AN AI CLIENT'S MEMORY (Dev2, 2026-11-20: "LongMemEval is primarily for context, its not
+ * supposed to test tex"; chose "Save each session raw, then file"). Any benchmark folder's BEIR set runs this way
+ * (`memoryCases` in `packages/bench/src/beir.mjs`): its dated documents are the past sessions, each query's `answer`
+ * what the judge grades against (Dev2, 2026-11-21: "reuse formats for all of our benchmarks").
  *
  * One question is one throwaway world (`../world.mjs`): the real gateway Worker in this process, over the in-memory
  * control plane and buckets, with one person and an empty personal workspace. Then, as a memory layer is measured:
@@ -11,7 +13,8 @@
  *      organizing) runs `filings` times across the history, the last just before the question.
  *   3. A fresh reader client, which saw none of it, is asked the question on its date. It has the Context MCP
  *      endpoint's own instructions and tools, nothing else, and answers when it is done looking.
- *   4. LongMemEval's own judge prompt grades the answer.
+ *   4. The benchmark's own judge prompt grades the answer (its `source.mjs` `judgePrompt`, LongMemEval's for it),
+ *      or a plain "does the response contain the answer" one when it has none.
  *
  * Every model call goes through one `send(body)` (`claudeTransport`, or the model socket for a Claude Code run), so
  * a run is priced per phase: saving costs nothing, filing is housekeeping's turns, reading is the reader's rounds.
@@ -22,7 +25,7 @@ import { atEarlierTime } from "../clock.mjs";
 import { anthropicGateway } from "../models.mjs";
 import { prepareRun } from "../warm.mjs";
 import { createWorld } from "../world.mjs";
-import { ABILITIES, abilityOf, judgePrompt, sessionsOf, transcriptOf, usdOf, utcMs, verdictOf } from "./longMemEval.mjs";
+import { usdOf } from "../../../../packages/bench/benchmarks/longmemeval/source.mjs";
 
 const DAY_MS = 86_400_000;
 
@@ -46,8 +49,16 @@ export const DEFAULTS = Object.freeze({
   readerTokens: 2_000,
 });
 
-/** The platform slug the saves carry: the client that wrote them. */
+/** The platform slug the saves carry, the client that wrote them, when the run names none: the benchmark's id. */
 const PLATFORM = "longmemeval";
+
+/** The judge's prompt a benchmark with none of its own gets: does the response hold the answer. */
+export function plainJudgePrompt({ question, answer }, response) {
+  return `I will give you a question, a correct answer, and a response from a model. Please answer yes if the response contains the correct answer. Otherwise, answer no. If the response is equivalent to the correct answer or contains all the intermediate steps to get the correct answer, you should also answer yes. If the response only contains a subset of the information required by the answer, answer no.\n\nQuestion: ${question}\n\nCorrect Answer: ${answer}\n\nModel Response: ${response}\n\nIs the model response correct? Answer yes or no only.`;
+}
+
+/** The judge's rule (LongMemEval's): correct when its answer contains "yes". */
+export const verdictOf = (text) => /yes/i.test(String(text ?? ""));
 
 /** The day a time falls on, as the world's clock takes it. */
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -152,10 +163,10 @@ export async function readAndAnswer(world, send, { question, askedAt, model = DE
   return { answer: "", error: "no answer within the reader's rounds", calls, usage, rounds };
 }
 
-/** LongMemEval's judge on one answer: its verdict and what it said. */
-export async function judge(send, item, answer, model = DEFAULTS.judge) {
-  const prompt = judgePrompt({ id: item.question_id, type: item.question_type, question: item.question, answer: item.answer }, answer || "(no answer)");
-  const got = await ask(send, { model, max_tokens: 10, temperature: 0, messages: [{ role: "user", content: prompt }] });
+/** The judge on one answer (`prompt`: the benchmark's own, or the plain one): its verdict and what it said. */
+export async function judge(send, c, answer, model = DEFAULTS.judge, prompt = plainJudgePrompt) {
+  const text = prompt({ id: c.id, type: c.kind, question: c.question, answer: c.answer }, answer || "(no answer)");
+  const got = await ask(send, { model, max_tokens: 10, temperature: 0, messages: [{ role: "user", content: text }] });
   const said = got.reply ? textOf(got.reply.content) : "";
   return { correct: got.reply ? verdictOf(said) : null, said, error: got.error, usage: got.usage };
 }
@@ -176,21 +187,24 @@ export function filingTimes(sessions, askedAt, filings) {
 }
 
 /**
- * One question, end to end. `models.send` is how Claude is reached; `models.ai` the world's Workers AI (embeddings
- * and small models); `models.housekeeping` an optional setup note for the filing runs. Returns the row a run keeps.
+ * One question, end to end: a memory case (`memoryCases`: `{ id, kind, ability, question, answer, date, asked,
+ * sessions: [{ id, at, title, content }] }`). `models.send` is how Claude is reached; `models.ai` the world's Workers
+ * AI (embeddings and small models); `models.housekeeping` an optional setup note for the filing runs. `options`
+ * takes `judgePrompt` (the benchmark's own) and `platform` (the saves' client) beside the defaults. Returns the row a
+ * run keeps.
  */
-export async function runQuestion(item, models, options = {}) {
+export async function runQuestion(c, models, options = {}) {
   const opts = { ...DEFAULTS, ...options };
-  const sessions = sessionsOf(item);
-  const askedAt = utcMs(item.question_date) ?? (sessions.at(-1)?.at ?? 0) + DAY_MS;
+  const sessions = c.sessions ?? [];
+  const askedAt = (c.date && Number.isFinite(Date.parse(c.date)) ? Date.parse(c.date) : null) ?? (sessions.at(-1)?.at ?? 0) + DAY_MS;
   const started = Date.now();
   const row = {
-    id: item.question_id,
-    type: item.question_type,
-    ability: abilityOf(item.question_id, item.question_type),
-    question: item.question,
-    expected: String(item.answer ?? ""),
-    date: item.question_date ?? null,
+    id: c.id,
+    type: c.kind,
+    ability: c.ability,
+    question: c.question,
+    expected: String(c.answer ?? ""),
+    date: c.asked ?? c.date ?? null,
     sessions: sessions.length,
     saved: 0,
     saveErrors: 0,
@@ -236,7 +250,7 @@ export async function runQuestion(item, models, options = {}) {
       const saved = await atEarlierTime(Date.now() - session.at, () =>
         world.mcp("tools/call", {
           name: "write",
-          arguments: { action: "save_session", content: transcriptOf(session), args: { platform: PLATFORM, completeness: "full-visible-transcript", title: `Chat ${isoDay(session.at)} ${hhmm(session.at)}`, session_id: session.id } },
+          arguments: { action: "save_session", content: session.content, args: { platform: opts.platform ?? PLATFORM, completeness: "full-visible-transcript", title: session.title || `Chat ${isoDay(session.at)} ${hhmm(session.at)}`, session_id: session.id } },
         }),
       );
       if (saved?.result && !saved.result.isError) row.saved += 1;
@@ -244,12 +258,12 @@ export async function runQuestion(item, models, options = {}) {
     }
     await fileUntil(askedAt);
     meter.phase("reading");
-    const read = await readAndAnswer(world, send, { question: item.question, askedAt, model: opts.reader, rounds: opts.readerRounds, maxTokens: opts.readerTokens });
+    const read = await readAndAnswer(world, send, { question: c.question, askedAt, model: opts.reader, rounds: opts.readerRounds, maxTokens: opts.readerTokens });
     row.answer = read.answer;
     row.calls = read.calls;
     if (read.error) row.error = `reader: ${read.error}`;
     meter.phase("judging");
-    const verdict = await judge(send, item, read.answer, opts.judge);
+    const verdict = await judge(send, c, read.answer, opts.judge, opts.judgePrompt ?? plainJudgePrompt);
     row.correct = verdict.correct;
     row.judgeSaid = verdict.said;
     if (verdict.error) row.error = [row.error, `judge: ${verdict.error}`].filter(Boolean).join("; ");
@@ -266,11 +280,15 @@ export async function runQuestion(item, models, options = {}) {
   return row;
 }
 
-/** A run's scores: overall, per ability (LongMemEval's five) and per question type; graded rows only. */
-export function scoresOf(rows) {
+/**
+ * A run's scores: overall, per ability and per question type; graded rows only. `abilities` is the benchmark's list in
+ * its order (LongMemEval's five), else the abilities the rows have.
+ */
+export function scoresOf(rows, abilities = null) {
   const graded = rows.filter((row) => row.correct === true || row.correct === false);
   const share = (list) => ({ n: list.length, correct: list.filter((row) => row.correct).length, pct: list.length ? Math.round((1000 * list.filter((row) => row.correct).length) / list.length) / 10 : null });
-  const byAbility = Object.fromEntries(ABILITIES.map((a) => [a.id, share(graded.filter((row) => row.ability === a.id))]));
+  const ids = abilities ? abilities.map((a) => a.id) : [...new Set(rows.map((row) => row.ability))].sort();
+  const byAbility = Object.fromEntries(ids.map((id) => [id, share(graded.filter((row) => row.ability === id))]));
   const types = [...new Set(graded.map((row) => row.type))].sort();
   const byType = Object.fromEntries(types.map((type) => [type, share(graded.filter((row) => row.type === type && row.ability !== "abstention"))]));
   const usd = rows.reduce((sum, row) => ({ filing: sum.filing + row.usd.filing, reading: sum.reading + row.usd.reading, judging: sum.judging + row.usd.judging }), { filing: 0, reading: 0, judging: 0 });

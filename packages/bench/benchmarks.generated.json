@@ -1,0 +1,194 @@
+{
+  "benchmarks": [
+    {
+      "id": "enterprise-rag-notes",
+      "title": "EnterpriseRAG Notes",
+      "kind": "search",
+      "format": "beir",
+      "about": "EnterpriseRAG-Bench (Onyx, 2026) cut to what people keep in Context: a made-up company's docs, wiki, meetings, tickets, pull requests and customer records filed as notes (its Slack and email left out, as Context saves neither), and the 343 questions whose answers are in them.",
+      "source": {
+        "name": "EnterpriseRAG-Bench (Onyx, arXiv 2605.05253), adapted: Slack and Gmail documents and every question citing them left out",
+        "url": "https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench",
+        "data": "onyx-dot-app/EnterpriseRAG-Bench on Hugging Face, fetched at run time at a pinned revision; never kept in this repository",
+        "license": "MIT, Copyright (c) Onyx (as the dataset card states); scores are ours and not comparable with its leaderboard"
+      }
+    },
+    {
+      "id": "herb",
+      "title": "HERB",
+      "kind": "search",
+      "format": "beir",
+      "about": "Salesforce's public benchmark of messy workplace data: 30 made-up products' Slack, meetings, docs, links and pull requests in one pool, 815 questions citing the artifacts that answer them.",
+      "source": {
+        "name": "HERB (Choubey et al., Salesforce AI Research, EMNLP 2025 industry track, arXiv 2506.23139)",
+        "url": "https://huggingface.co/datasets/Salesforce/HERB",
+        "data": "Salesforce/HERB on Hugging Face, fetched at run time at the revision the Hub names; never kept in this repository",
+        "license": "CC BY-NC 4.0 (non-commercial: we score with it and publish only our numbers)"
+      }
+    },
+    {
+      "id": "longmemeval",
+      "title": "LongMemEval",
+      "kind": "memory",
+      "format": "beir",
+      "about": "500 questions, each after a long history of past chats: Context as an AI client's memory. A memory run saves and files every past session, then a fresh reader answers and LongMemEval's own judge grades it; the retrieval run only asks whether search finds the answer sessions.",
+      "source": {
+        "name": "LongMemEval (Wu et al., ICLR 2025)",
+        "url": "https://github.com/xiaowu0162/LongMemEval",
+        "data": "xiaowu0162/longmemeval-cleaned on Hugging Face, fetched at run time",
+        "license": "MIT"
+      }
+    },
+    {
+      "id": "nanobeir",
+      "title": "NanoBEIR",
+      "kind": "search",
+      "format": "beir",
+      "about": "The standard public retrieval benchmark: BEIR's 13 sets cut to 50 queries each, scored by nDCG@10 beside BM25's own ranking.",
+      "source": {
+        "name": "NanoBEIR (Zeta Alpha, 2024), cut from BEIR (Thakur et al., NeurIPS 2021)",
+        "url": "https://huggingface.co/collections/zeta-alpha-ai/nanobeir",
+        "data": "sentence-transformers/Nano<Set>-bm25 on Hugging Face, fetched at run time at the revision the Hub names",
+        "license": "each set keeps its BEIR source's license"
+      }
+    },
+    {
+      "id": "search-hard",
+      "title": "Search",
+      "kind": "search",
+      "format": "custom",
+      "about": "Made-up questions as Priya, who reaches seven workspaces, written so the easy word match is the wrong note: notes that quote the question, other workspaces using the same words, long notes, archives, paraphrases.",
+      "source": {
+        "name": "Context's own, written for the Search suite (2026-11-21)",
+        "license": "MIT, this repository's"
+      }
+    },
+    {
+      "id": "search-real",
+      "title": "Search",
+      "kind": "search",
+      "format": "custom",
+      "about": "Real searches that failed (nothing opened, or searched again), rewritten never verbatim, each with the notes that make it hard. Split 60/20/20: Training and Dev here, Test sealed in the eval service and the search gate's.",
+      "source": {
+        "name": "Context's own, from the search quality log, rewritten",
+        "license": "MIT, this repository's"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "id": "enterprise-rag-notes",
+      "benchmark": "enterprise-rag-notes",
+      "title": "EnterpriseRAG Notes",
+      "variant": "10k notes",
+      "total": 343,
+      "kind": "search",
+      "search": true,
+      "score": "beir",
+      "about": "EnterpriseRAG-Bench without Slack or email: 343 questions over 10,000 of its notes (every cited one, the rest the closest-titled of the same kind), scored by nDCG@10 per question type. Embeddings only."
+    },
+    {
+      "id": "enterprise-rag-notes-full",
+      "benchmark": "enterprise-rag-notes",
+      "title": "EnterpriseRAG Notes",
+      "variant": "All 105k notes",
+      "total": 343,
+      "kind": "search",
+      "search": true,
+      "score": "beir",
+      "about": "The same 343 questions over every one of its 104,967 docs, wiki pages, meetings, tickets, pull requests and customer records. Hours, and a few dollars of embeddings."
+    },
+    {
+      "id": "herb",
+      "benchmark": "herb",
+      "title": "HERB",
+      "variant": "Workplace data",
+      "total": 815,
+      "kind": "search",
+      "search": true,
+      "score": "beir",
+      "about": "Salesforce's public benchmark of messy workplace data: 30 products' Slack, meetings, docs, links and pull requests in one pool (39,772 artifacts), 815 questions, scored by nDCG@10 per question type. Embeddings only."
+    },
+    {
+      "id": "longmemeval-s",
+      "benchmark": "longmemeval",
+      "title": "LongMemEval",
+      "variant": "S",
+      "total": 500,
+      "kind": "memory",
+      "search": false,
+      "about": "500 questions, each after about 50 past chat sessions (about 115k tokens)."
+    },
+    {
+      "id": "longmemeval-oracle",
+      "benchmark": "longmemeval",
+      "title": "LongMemEval",
+      "variant": "Oracle",
+      "total": 500,
+      "kind": "memory",
+      "search": false,
+      "about": "The same 500 questions with only the sessions that hold the evidence."
+    },
+    {
+      "id": "longmemeval-retrieval",
+      "benchmark": "longmemeval",
+      "title": "LongMemEval",
+      "variant": "Retrieval",
+      "total": 470,
+      "kind": "search",
+      "search": true,
+      "score": "retrieval",
+      "about": "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge. Embeddings only."
+    },
+    {
+      "id": "nanobeir",
+      "benchmark": "nanobeir",
+      "title": "NanoBEIR",
+      "variant": "All 13 sets",
+      "total": 649,
+      "kind": "search",
+      "search": true,
+      "score": "beir",
+      "about": "The standard public retrieval benchmark (BEIR's 13 sets cut to 50 queries each), scored by nDCG@10 beside BM25's own ranking. Embeddings only."
+    },
+    {
+      "id": "nanobeir-gate",
+      "benchmark": "nanobeir",
+      "title": "NanoBEIR",
+      "variant": "Gate's 4 sets",
+      "total": 200,
+      "kind": "search",
+      "search": true,
+      "score": "beir",
+      "about": "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change. Embeddings only.",
+      "sets": [
+        "msmarco",
+        "nq",
+        "fiqa",
+        "scifact"
+      ]
+    },
+    {
+      "id": "search-hard",
+      "benchmark": "search-hard",
+      "title": "Search",
+      "variant": "Made-up hard",
+      "total": 40,
+      "kind": "search",
+      "search": true,
+      "score": "first",
+      "about": "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives. Embeddings only."
+    },
+    {
+      "id": "search-real",
+      "benchmark": "search-real",
+      "title": "Search",
+      "variant": "Real queries (Dev)",
+      "total": 10,
+      "kind": "search",
+      "search": true,
+      "score": "first",
+      "about": "Real searches that failed (retried, or never opened), rewritten never verbatim: the Dev part. Embeddings only."
+    }
+  ]
+}

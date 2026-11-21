@@ -8,7 +8,7 @@ bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
 bench/test/load.test.mjs
 bench/test/longMemEval.test.mjs
-bench/test/herb.test.mjs
+bench/test/benchRun.test.mjs
 bench/test/ccUsage.test.mjs
 bench/test/mailbox.test.mjs
 bench/test/modelLog.test.mjs
@@ -747,4 +747,4 @@ test/searchRerank.test.mjs
 test/texDevSearch.test.mjs
 bench/test/searchSuite.test.mjs
 bench/test/searchHard.test.mjs
-bench/test/memoryRetrieval.test.mjs
+../../packages/bench/test/beir.test.mjs

@@ -13,8 +13,8 @@
 #           with the Context endpoint only, and LongMemEval's judge. Models "gw" asks the AI gateway as the bench
 #           always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
 #           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job.
-#           The Search suite (search-hard, search-real, longmemeval-retrieval, nanobeir, nanobeir-gate, herb;
-#           `apps/mcp/bench/evals/searchSuite.mjs`, NanoBEIR in `nanoBeir.mjs`)
+#           A search run (a benchmark folder's search runs, packages/bench/benchmarks.generated.json;
+#           run by `apps/mcp/bench/evals/searchCli.mjs`)
 #           runs `cli.mjs search` instead: embeddings only, no Claude Code steps, never a model answer. Its data is
 #           public or made up: search-hard is made up, longmemeval-retrieval is LongMemEval, HERB is Salesforce's public workplace set, NanoBEIR is BEIR's public
 #           sets from Hugging Face, and search-real's Dev part
@@ -88,12 +88,14 @@ jobs:
           bench=$(jq -r .bench "$RUNNER_TEMP/job.json")
           n=$(jq -r .n "$RUNNER_TEMP/job.json")
           models=$(jq -r .models "$RUNNER_TEMP/job.json")
-          [[ "$bench" =~ ^(longmemeval-(s|oracle)|search-hard|search-real|longmemeval-retrieval|nanobeir|nanobeir-gate|herb)$ ]] || { echo "::error::unknown bench"; exit 1; }
+          # Every run of every benchmark folder (packages/bench/benchmarks/), from the list the folders build.
+          kind=$(jq -r --arg id "$bench" '.runs[] | select(.id == $id) | .kind' packages/bench/benchmarks.generated.json)
+          [[ "$kind" =~ ^(search|memory)$ ]] || { echo "::error::unknown bench"; exit 1; }
           [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "::error::n is 1 to 999"; exit 1; }
           [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
           # The Search suite asks no model: it is embeddings only, whatever models the run was given.
           search=false
-          if [[ "$bench" =~ ^(search-hard|search-real|longmemeval-retrieval|nanobeir|nanobeir-gate|herb)$ ]]; then search=true; models=gw; fi
+          if [ "$kind" = "search" ]; then search=true; models=gw; fi
           echo "bench=$bench" >> "$GITHUB_OUTPUT"
           echo "n=$n" >> "$GITHUB_OUTPUT"
           echo "models=$models" >> "$GITHUB_OUTPUT"
@@ -179,7 +181,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/evals-data
-          key: lab-evals-data-${{ needs.prep.outputs.bench }}-v1
+          key: lab-evals-data-${{ needs.prep.outputs.bench }}-v2
 
       - name: Claude Code has its token
         if: needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true'

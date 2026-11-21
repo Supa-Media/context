@@ -1,0 +1,12 @@
+{
+  "id": "search-hard",
+  "title": "Search",
+  "kind": "search",
+  "format": "custom",
+  "about": "Made-up questions as Priya, who reaches seven workspaces, written so the easy word match is the wrong note: notes that quote the question, other workspaces using the same words, long notes, archives, paraphrases.",
+  "source": { "name": "Context's own, written for the Search suite (2026-11-21)", "license": "MIT, this repository's" },
+  "score": "first",
+  "runs": [
+    { "id": "search-hard", "variant": "Made-up hard", "total": 40, "about": "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives. Embeddings only." }
+  ]
+}
