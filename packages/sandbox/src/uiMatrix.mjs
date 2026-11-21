@@ -51,6 +51,28 @@ async function openTex(page) {
   if (!(await visible(page, "aside-tex"))) await press(page, "aside-tab-tex");
 }
 
+/** How far from its end the Tex log may open and still be "at the bottom". */
+const END_SLACK_PX = 48;
+
+/**
+ * Opens Tex from the rail and reads, a moment later, how far the log is from
+ * its end: 0 when it opened there, the whole history when it is still
+ * scrolling down from the top (Dev2, 2026-11-21: "it just rushes and scrolls
+ * all the way down"). `null` when the log is not there or does not overflow.
+ */
+export async function opensAway(page) {
+  if (!(await visible(page, "aside-tab-tex"))) return null;
+  await page.getByTestId("aside-tab-tex").first().click();
+  await page.waitForTimeout(80);
+  const away = await page.evaluate(() => {
+    const log = document.querySelector('[data-testid="tex-log"]');
+    if (log === null || log.scrollHeight <= log.clientHeight + 1) return null;
+    return Math.round(log.scrollHeight - log.scrollTop - log.clientHeight);
+  });
+  await page.waitForTimeout(700);
+  return away;
+}
+
 /** What is wrong in this state that a screenshot might not show. */
 export async function stateProblems(page, name, right) {
   const problems = [];
@@ -143,6 +165,10 @@ export async function runMatrix({ origin, layouts, newContext, out, log = consol
         await press(page, "aside-unfold");
         await page.waitForTimeout(20_000);
         await shot("tex-done", "open");
+        // Back to Tex from another tab, with history in the log: it must already be at its end.
+        await press(page, "aside-tab-meetings");
+        const away = await opensAway(page);
+        if (away !== null && away > END_SLACK_PX) problems.push(`${layout.name}-${note}: the Tex chat opened ${away}px above its end`);
       } catch (error) {
         problems.push(`${layout.name}-${note}: ${String(error?.message ?? error).split("\n")[0].slice(0, 160)}`);
         await page.screenshot({ path: join(dir, `${layout.name}-${note}-FAILED.png`) }).catch(() => {});
