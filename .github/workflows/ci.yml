@@ -105,6 +105,7 @@ jobs:
       # scripts/ci-change-scope.mjs (its self-test checks).
       skip-when-only: |
         packages/tex/src/texConfig.json
+        packages/tex/src/nightlyConfig.json
         packages/tex/src/texNodeShelf.json
         packages/tex/src/texPrompt/**
         packages/tex/src/texTraining.generated.json
@@ -194,6 +195,9 @@ jobs:
           - 'apps/mcp/src/presence.js'
           - 'apps/mcp/src/presenceRoom.js'
           - 'apps/mcp/src/presenceRoom/**'
+          - 'apps/mcp/src/search/config/labDraft.cjs'
+          - 'apps/mcp/src/search/config/searchConfig.cjs'
+          - 'apps/mcp/src/search/config/searchConfig.json'
           - 'apps/mcp/src/session.js'
           - 'apps/mcp/src/vault/sharedHosts.js'
           - 'apps/mcp/src/workspacePath.js'

@@ -12,6 +12,9 @@ import { problemsOf } from "../../../tex/src/texGraph.cjs";
 import { CONFIG_STAMP, TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 import SHELF from "../../../tex/src/texNodeShelf.json" with { type: "json" };
 import { EFFORTS as SCHEMA_EFFORTS, provisionalHoldProblems } from "../../../tex/src/texConfigSchema.cjs";
+// A draft's steps on another architecture's page (Search, ...) are checked against that architecture's own schema,
+// never against Tex's (Dev2, 2026-11-21; `architectures.cjs`).
+import { ownProblems, ownVsMain, texSideOf } from "../../../tex/src/architectures.cjs";
 
 const EFFORTS = new Set(SCHEMA_EFFORTS);
 
@@ -38,13 +41,15 @@ function modelProblem(n, own, models) {
  */
 export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(SHELF.nodes ?? {}), base = undefined) {
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return ["the draft has no steps and wires"];
-  const problems = problemsOf({ nodes: graph.nodes, edges: graph.edges }).map((p) => `runner: ${p}`);
+  // Tex's checks run on Tex's side of the draft only: every other architecture's steps have their own schema, checked below.
+  const tex = texSideOf(graph);
+  const problems = problemsOf({ nodes: tex.nodes, edges: tex.edges }).map((p) => `runner: ${p}`);
   // The same hold check CI and Promote run (`provisionalHoldProblems`), so a saved draft that drops one is refused here too.
-  problems.push(...provisionalHoldProblems(graph.edges));
+  problems.push(...provisionalHoldProblems(tex.edges));
   const known = new Set(current.nodes.map((n) => n.id));
   const shelved = new Set(shelf);
-  const ids = new Set(graph.nodes.map((n) => n?.id));
-  for (const n of graph.nodes) {
+  const ids = new Set(tex.nodes.map((n) => n?.id));
+  for (const n of tex.nodes) {
     if (!known.has(n.id) && !shelved.has(n.id)) problems.push(`promote: step "${n.id}" is new; the gateway has no code for it yet, so merge its code to main first, on the shelf (packages/tex/gateway/agent/graph/nodes/ and packages/tex/src/texNodeShelf.json)`);
     if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) problems.push(modelProblem(n, graph.models, current.models));
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) problems.push(`promote: step "${n.id}" has effort "${n.effort}" (${[...EFFORTS].join(", ")})`);
@@ -53,15 +58,23 @@ export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(S
   const fromNow = base === undefined || (current === TEX_CONFIG && base === CONFIG_STAMP);
   // A step deleted while off is retired to the shelf by Promote, its code kept (Dev2, 2026-11-20); one that is on is not.
   if (fromNow) for (const n of current.nodes) if (!ids.has(n.id) && n.on !== false) problems.push(`promote: step "${n.id}" is gone while it is on; the gateway still runs it, so turn it off first, then delete it`);
+  // Each other architecture's config as the draft holds it, checked by its own schema ("Search: ..."); a draft with none
+  // of a page's steps runs that architecture as main.
+  problems.push(...ownProblems(graph));
   return problems;
 }
 
+/** What a draft changes in every other architecture (Search, ...), as lines: "Search · Rank across workspaces: hits 12 → 8". */
+export const searchVsMain = (graph) => ownVsMain(graph);
+
 /** The fields each step differs in from main, `{ changed: {id: [fields]}, added: [ids], removed: [ids], wires: {added, removed} }`. */
 export function draftVsMain(graph, current = TEX_CONFIG) {
+  // Tex's side only: every other architecture's steps are compared with its own config (`ownVsMain`), not with Tex's.
+  const tex = texSideOf(graph);
   const main = new Map(current.nodes.map((n) => [n.id, n]));
   const changed = {};
   const added = [];
-  for (const n of graph.nodes) {
+  for (const n of tex.nodes) {
     const m = main.get(n.id);
     if (!m) {
       added.push(n.id);
@@ -70,10 +83,10 @@ export function draftVsMain(graph, current = TEX_CONFIG) {
     const fields = [...new Set([...Object.keys(m), ...Object.keys(n)])].filter((k) => k !== "x" && k !== "y" && JSON.stringify(m[k]) !== JSON.stringify(n[k]));
     if (fields.length) changed[n.id] = fields;
   }
-  const ids = new Set(graph.nodes.map((n) => n.id));
+  const ids = new Set(tex.nodes.map((n) => n.id));
   const removed = current.nodes.map((n) => n.id).filter((id) => !ids.has(id));
   const key = (e) => `${e.from} → ${e.to} (${e.mode}, when ${(e.when ?? ["*"]).join(",")})`;
   const before = new Set(current.edges.map(key));
-  const after = new Set(graph.edges.map(key));
-  return { changed, added, removed, wires: { added: [...after].filter((k) => !before.has(k)), removed: [...before].filter((k) => !after.has(k)) } };
+  const after = new Set(tex.edges.map(key));
+  return { changed, added, removed, wires: { added: [...after].filter((k) => !before.has(k)), removed: [...before].filter((k) => !after.has(k)) }, own: ownVsMain(graph) };
 }

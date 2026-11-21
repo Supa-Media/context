@@ -8,6 +8,8 @@ import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
 import { configStamp } from "@context/tex/src/texConfigStamp.cjs";
 import { foldGroups, type GroupDefs } from "../engine/groups";
 import type { LabEdge, LabGraph, LabNode } from "../types";
+// Every architecture with a config of its own (Search, ...), in the Lab draft's shape (`architectures.cjs`).
+import { ownGraphs } from "@context/tex/src/architectures.cjs";
 
 export const BASE_SHA: string = "888afb0";
 /** The stamp of the config this Lab was built with: a draft made from main keeps it, so Promote merges only its own changes. */
@@ -126,7 +128,15 @@ export function groupsOf(g: { groups?: Record<string, GroupDefs[string] | null> 
 }
 
 /** The Lab's start graph: the config with each group folded into its box (Dev2, 2026-11-14: "Focus on it opens all eleven steps"). */
-export function mainGraph0(): LabGraph {const c=JSON.parse(JSON.stringify(TEX_CONFIG)) as {nodes:LabNode[];edges:LabGraph["edges"]};return foldGroups({nodes:c.nodes,edges:c.edges},GROUPS)}
+export function mainGraph0(): LabGraph {
+  const c = JSON.parse(JSON.stringify(TEX_CONFIG)) as { nodes: LabNode[]; edges: LabGraph["edges"] };
+  // Every other architecture's steps sit in main beside Tex's, each tagged with its page (`graph: "search"`, ...) so the
+  // Lab draws them there (Dev2, 2026-11-21). Tex's own checks and Promote read only Tex's side (`texSideOf`).
+  const own = ownGraphs();
+  // Their configs keep only what they need; N fills in the rest of a canvas step's fields, as Tex's own steps have them.
+  const ownNodes = own.nodes.map((n) => N(String(n.id), String(n.label), n as Partial<LabNode>));
+  return foldGroups({ nodes: [...c.nodes, ...ownNodes], edges: [...c.edges, ...(own.edges as LabEdge[])] }, GROUPS);
+}
 
 export const WHEN: Array<[string, string]> = [["*","Always"],["action","After an action"],["lookup","Looking things up"],["email","An email"],["card","A card"],["stuck","Stuck"],["job","A job"],["group","Group chats"],["one","1:1 chats"],["down","Model down"],["big","Big ask"]];
 

@@ -24,6 +24,8 @@ export const TRAINING = trainingOf(GENERATED_TRAINING);
 import { configStamp } from "../../src/texConfigStamp.cjs";
 import { runOrder } from "../../src/texModuleChange.cjs";
 import { sandboxGateOf } from "../../../../apps/mcp/src/labSandbox/policy.js";
+// A draft's steps on another architecture's page (Search, ...) are never Tex's: they are taken out before Tex's steps are read (Dev2, 2026-11-21).
+import { texSideOf } from "../../src/architectures.cjs";
 import { EFFORTS as SCHEMA_EFFORTS } from "../../src/texConfigSchema.cjs";
 
 export const TEX_CONFIG = CONFIG;
@@ -261,8 +263,9 @@ const wiresRun = (edges, ids) => Array.isArray(edges) && edges.length > 0 && edg
  * it never runs as a step. What the gateway could not run is main's (`draftStep`). A real turn's env carries no gate,
  * so it never reaches here.
  */
-export function withDraft(config, draft) {
-  if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return config;
+export function withDraft(config, rawDraft) {
+  if (!rawDraft || typeof rawDraft !== "object" || !Array.isArray(rawDraft.nodes)) return config;
+  const draft = texSideOf(rawDraft);
   const own = draftWords(draft.modules);
   const words = { ...TEX_PROMPT_WORDS, ...own };
   const mains = new Set(config.nodes.map((node) => node.id));
@@ -298,8 +301,9 @@ export function withDraft(config, draft) {
  *
  * `asDrawn` is true only when none of these is so. Not a guess: the same rules `withDraft` applies.
  */
-export function draftFit(config, draft) {
-  if (!draft || typeof draft !== "object" || !Array.isArray(draft.nodes)) return { asDrawn: true };
+export function draftFit(config, rawDraft) {
+  if (!rawDraft || typeof rawDraft !== "object" || !Array.isArray(rawDraft.nodes)) return { asDrawn: true };
+  const draft = texSideOf(rawDraft);
   const mains = new Set(config.nodes.map((node) => node.id));
   const ahead = new Set(SHELF_NODES);
   const label = (node) => (typeof node?.label === "string" && node.label !== node.id ? `${node.id} (${node.label})` : node.id);

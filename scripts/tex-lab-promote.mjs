@@ -32,14 +32,22 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CONFIG, MODULE as MAP_MODULE, PAGE, moduleFor as mapModuleFor, pageFor } from "./tex-architecture.mjs";
+import { CONFIG, MODULE as MAP_MODULE, PAGE, moduleFor as mapModuleFor, pageFor, ownPageFor, ownPagePath } from "./tex-architecture.mjs";
 import { clashText, findBase, mergeOntoMain, picksOf, sideAt } from "./tex-lab-merge.mjs";
+import { NIGHTLY_PATH, joinedTexConfig, nightlyConfigText, texConfigText } from "./lib/texConfigFile.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptModuleFor, wordsOf } from "./tex-prompt-module.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ID = /^[a-z][A-Za-z0-9_-]{0,30}$/;
 // The wire modes, efforts and migrations are the schema's (`texConfigSchema.cjs`).
 const SCHEMA = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
+// Every other architecture has a config of its own (Search's `searchConfig.json`, ...; `architectures.cjs`), and a
+// draft's steps on its page are promoted into that file, never into Tex's (Dev2, 2026-11-21).
+const OWN = createRequire(import.meta.url)("../packages/tex/src/architectures.cjs");
+// Tex's own config is two files, texting and nightly, joined for every reader and split again here (`texConfigFiles.cjs`).
+const FILES = createRequire(import.meta.url)("../packages/tex/src/texConfigFiles.cjs");
+const SEARCH = createRequire(import.meta.url)("../apps/mcp/src/search/config/labDraft.cjs");
+export const SEARCH_FILE = OWN.architectureOf("search").file;
 const MODES = new Set(SCHEMA.MODES);
 const EFFORTS = new Set(SCHEMA.EFFORTS);
 const PROMPT_KEY = /^p-([a-z][a-z0-9-]{0,47})$/;
@@ -76,8 +84,9 @@ export function wordsFrom(modules, currentWords) {
 export function configFrom(graph, current, currentWords = {}, shelf = []) {
   const refuse = (why) => ({ refused: why });
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return refuse("the version has no steps and wires");
-  // A version saved under an older shape is brought to the current one first (`texConfigSchema.cjs` MIGRATIONS).
-  graph = SCHEMA.migrateGraph(graph);
+  // A version saved under an older shape is brought to the current one first (`texConfigSchema.cjs` MIGRATIONS), and
+  // Tex's side of it is what promotes: search's steps and wires are promoted by `searchFrom`, into their own file.
+  graph = OWN.texSideOf(SCHEMA.migrateGraph(graph));
   const madeWords = wordsFrom(graph.modules, currentWords);
   if (madeWords.refused) return madeWords;
   const known = new Set(current.nodes.map((n) => n.id));
@@ -146,6 +155,12 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
   return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)), retired };
 }
 
+/** The config a draft makes for one registered architecture over its current file (`architectures.cjs` `promotedConfig`). */
+export const ownFrom = (entry, graph, current) => OWN.promotedConfig(entry, SCHEMA.migrateGraph(graph), current);
+
+/** Search's: the config a draft's search steps make over `searchConfig.json`, `{ config }` or `{ refused }`. */
+export const searchFrom = (graph, current) => ownFrom(OWN.architectureOf("search"), graph, current);
+
 const CODE_HOMES = ["packages/tex/gateway/agent", "packages/tex/gateway/agent/graph/nodes", "packages/tex/gateway/agent/texEntryPoint", "packages/tex/gateway", "packages/tex/worker", "apps/mcp/src", "apps/agent/src", "packages/tex/src", "packages/shared/src"];
 
 /**
@@ -200,9 +215,13 @@ function selfTest() {
   const expect = (cond, what) => {
     if (!cond) throw new Error(`self-test: ${what}`);
   };
-  const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
+  const current = joinedTexConfig(ROOT);
   const words = wordsOf(ROOT);
-  expect(configText(current) === readFileSync(join(ROOT, CONFIG), "utf8"), "the committed config is not in the promote format");
+  const parts = FILES.splitConfig(current);
+  expect(configText(parts.tex) === texConfigText(ROOT), "the committed config is not in the promote format");
+  expect(FILES.nightlyText(parts.nightly) === nightlyConfigText(ROOT), "the committed nightly config is not in the promote format");
+  expect(parts.nightly.nodes.length > 0 && parts.tex.nodes.every((n) => n.graph !== "nightly"), "the nightly steps did not split into their own file");
+  expect(JSON.stringify(FILES.joinConfigs(parts.tex, parts.nightly)) === JSON.stringify(current), "splitting and joining the two files changed the config");
   const same = configFrom({ nodes: current.nodes, edges: current.edges }, current, words);
   expect(same.config && configText(same.config) === configText(current), "main's own graph does not promote to main's config");
   const graph = () => JSON.parse(JSON.stringify({ nodes: current.nodes, edges: current.edges }));
@@ -320,6 +339,37 @@ function selfTest() {
   expect(typeof refusedMerge.refused === "string" && refusedMerge.note === undefined, "a draft refused against its base was not refused");
   const plain = mergeDraft({ graph: graph(), found: { commit: "abcdef0123456", guessed: false }, base: { config: current, words }, main: { config: current, words } });
   expect(!plain.refused && /^merged onto main from abcdef0: 0 changes of its own, 0 of main's since kept$/.test(plain.note ?? ""), `an unchanged draft's merge note was wrong (${plain.refused ?? plain.note})`);
+  // Search's steps (Dev2, 2026-11-21): a draft's search change is promoted into search's own file, and Tex's config is
+  // left as it is. A draft with search steps that the checks refuse is refused whole.
+  const searchNow = JSON.parse(readFileSync(join(ROOT, SEARCH_FILE), "utf8"));
+  const withSearch = (mutate = () => {}) => {
+    const search = SEARCH.labSearchGraph(searchNow);
+    const g = { nodes: [...graph().nodes, ...search.nodes], edges: [...graph().edges, ...search.edges] };
+    mutate(g);
+    return g;
+  };
+  const fuseOf = (g) => g.nodes.find((n) => n.id === "fuse");
+  expect(JSON.stringify(searchFrom(withSearch(), searchNow).config) === JSON.stringify(searchNow), "a draft that changes no search setting changed search's config");
+  expect(searchFrom(graph(), searchNow).config === searchNow, "a draft with no search steps changed search's config");
+  const hitsDraft = withSearch((g) => {
+    fuseOf(g).settings = { ...fuseOf(g).settings, hits: 8 };
+  });
+  const hitsSearch = searchFrom(hitsDraft, searchNow);
+  expect(hitsSearch.config?.nodes.find((n) => n.id === "fuse").settings.hits === 8, "a fuse hits change was not written to search's config");
+  expect(JSON.stringify(hitsSearch.config.nodes.filter((n) => n.id !== "fuse")) === JSON.stringify(searchNow.nodes.filter((n) => n.id !== "fuse")), "a fuse change moved another search step");
+  expect(hitsSearch.config.about === searchNow.about && JSON.stringify(hitsSearch.config.edges) === JSON.stringify(searchNow.edges), "search's about or wires changed");
+  const texSide = configFrom(hitsDraft, current, words);
+  expect(texSide.config && configText(texSide.config) === configText(current), "a search change moved Tex's config");
+  expect(/^Search step [a-z]+ is new: its code must merge first$/.test(searchFrom(withSearch((g) => g.nodes.push({ ...fuseOf(g), id: "rerank", graph: "search" })), searchNow).refused ?? ""), "a new search step with no code passed");
+  expect(/is missing from the draft/.test(searchFrom(withSearch((g) => { g.nodes = g.nodes.filter((n) => n.id !== "each"); }), searchNow).refused ?? ""), "a search step missing from the draft passed");
+  const outOfBounds = withSearch((g) => {
+    fuseOf(g).settings = { ...fuseOf(g).settings, hits: 99 };
+  });
+  expect(/hits must be from 1 to 50/.test(searchFrom(outOfBounds, searchNow).refused ?? ""), "a search setting out of its bounds passed");
+  const unknownSetting = withSearch((g) => {
+    fuseOf(g).settings = { ...fuseOf(g).settings, hits: 8, nonsense: 1 };
+  });
+  expect(/nonsense/.test(searchFrom(unknownSetting, searchNow).refused ?? ""), "a search setting search does not have passed");
   console.log("tex-lab-promote self-test: ok");
 }
 
@@ -339,7 +389,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       console.error(`tex-lab-promote: refused: the version's graph is not JSON (${error.message})`);
       process.exit(1);
     }
-    const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
+    const current = joinedTexConfig(ROOT);
     const shelf = JSON.parse(readFileSync(join(ROOT, SHELF), "utf8"));
     const shelfIds = Object.keys(shelf.nodes ?? {});
     // A promotion is a merge onto main (Dev2, 2026-11-17): the draft's own changes since the main it started from
@@ -365,7 +415,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           picks = {};
         }
       }
-      const merged = mergeDraft({ graph, found, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, picks });
+      // Tex's side of the draft is what merges onto main; every other architecture's steps are written by `ownFrom` below.
+      const merged = mergeDraft({ graph: OWN.texSideOf(SCHEMA.migrateGraph(graph)), found, base: sideAt(found.commit), main: { config: current, words: wordsOf(ROOT) }, shelf: shelfIds, picks });
       if (merged.clashes?.length) {
         if (flag("--clashes")) writeFileSync(flag("--clashes"), JSON.stringify(merged.clashes.slice(0, 50).map((c) => ({ what: c.what.slice(0, 300), main: String(c.main).slice(0, 200), draft: String(c.draft).slice(0, 200), pick: c.pick === true }))));
         console.error(`tex-lab-promote: refused: ${clashText(merged.clashes, found.commit)}`);
@@ -384,8 +435,28 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       console.error(`tex-lab-promote: refused: ${made.refused}`);
       process.exit(1);
     }
+    // Every other architecture's steps the draft has (Search, ...): each into its own file, written only when its content
+    // changes. Refused, like Tex's, before anything is written.
+    const ownWrites = [];
+    for (const entry of OWN.ARCHITECTURES) {
+      const now = JSON.parse(readFileSync(join(ROOT, entry.file), "utf8"));
+      const made = ownFrom(entry, graph, now);
+      if (made.refused) {
+        console.error(`tex-lab-promote: refused: ${made.refused}`);
+        process.exit(1);
+      }
+      if (JSON.stringify(made.config) !== JSON.stringify(now)) ownWrites.push({ file: entry.file, config: made.config, entry });
+    }
     if (!args.includes("--check")) {
-      writeFileSync(join(ROOT, CONFIG), configText(made.config));
+      for (const { file, config, entry } of ownWrites) {
+        writeFileSync(join(ROOT, file), `${JSON.stringify(config, null, 2)}\n`);
+        // Its own page in docs/architecture/ is drawn from the file, as Tex's page is from Tex's config.
+        writeFileSync(join(ROOT, ownPagePath(entry)), ownPageFor(entry, config));
+      }
+      // Texting and nightly steps each go back to their own file (`texConfigFiles.cjs`).
+      const parts = FILES.splitConfig(made.config);
+      writeFileSync(join(ROOT, CONFIG), configText(parts.tex));
+      writeFileSync(join(ROOT, NIGHTLY_PATH), FILES.nightlyText(parts.nightly));
       // The drawing and the map every Tex agent reads are the config's, so a promoted wire changes Tex's prompts and the replay gate runs on it.
       writeFileSync(join(ROOT, PAGE), pageFor(readFileSync(join(ROOT, PAGE), "utf8"), made.config));
       writeFileSync(join(ROOT, MAP_MODULE), mapModuleFor(made.config));
@@ -401,6 +472,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       }
     }
     const changed = Object.keys(made.words);
-    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}${note ? `; ${note}` : ""}`);
+    const searchNote = ownWrites.length > 0 ? `, and ${ownWrites.map((w) => w.file).join(", ")}` : "";
+    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${NIGHTLY_PATH}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}${searchNote}${note ? `; ${note}` : ""}`);
   }
 }

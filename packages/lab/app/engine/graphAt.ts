@@ -6,6 +6,7 @@
  * Where it can't be loaded the version open is drawn and the run says so (`graphNote`), never a guess.
  */
 import { migrateGraph, SCHEMA_VERSION } from "@context/tex/src/texConfigSchema.cjs";
+import { joinConfigs, NIGHTLY_PATH } from "@context/tex/src/texConfigFiles.cjs";
 import { GROUPS } from "../data/graph";
 import type { LabGraph, LabNode } from "../types";
 import { foldGroups } from "./groups";
@@ -35,8 +36,11 @@ export function graphAt(code: string | null | undefined, get: typeof fetch = (..
   let p = fetched.get(code);
   if (!p) {
     const at = (path: string) => get(`https://raw.githubusercontent.com/${REPO}/${code}/${path}`).then((r) => (r.ok ? r.json() : null));
+    // Since 2026-11-21 the nightly steps have a file of their own (`texConfigFiles.cjs`): joined when the commit has it.
+    const nightly = at(NIGHTLY_PATH).catch(() => null);
     p = at(CONFIG_PATH)
       .then((config) => config ?? at(OLD_CONFIG_PATH))
+      .then(async (config) => (config ? joinConfigs(config, await nightly) : config))
       .then(graphOfConfig)
       .catch(() => null);
     fetched.set(code, p);

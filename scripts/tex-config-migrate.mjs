@@ -16,27 +16,32 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CONFIG_PATH, texConfigText } from "./lib/texConfigFile.mjs";
+import { CONFIG_PATH, NIGHTLY_PATH, joinedTexConfig, nightlyConfigText, texConfigText } from "./lib/texConfigFile.mjs";
 import { configText } from "./tex-lab-promote.mjs";
 
-const { SCHEMA_VERSION, configProblems, migrateGraph } = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
+const require = createRequire(import.meta.url);
+const { SCHEMA_VERSION, configProblems, migrateGraph } = require("../packages/tex/src/texConfigSchema.cjs");
+// Both of Tex's files, texting and nightly, share the schema: migrated joined, written back split (`texConfigFiles.cjs`).
+const { splitConfig, nightlyText } = require("../packages/tex/src/texConfigFiles.cjs");
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-const before = texConfigText(ROOT);
-const migrated = { ...migrateGraph(JSON.parse(before)), texConfig: SCHEMA_VERSION };
+const before = texConfigText(ROOT) + nightlyConfigText(ROOT);
+const migrated = { ...migrateGraph(joinedTexConfig(ROOT)), texConfig: SCHEMA_VERSION };
 const problems = configProblems(migrated);
 if (problems.length > 0) {
   console.error(`tex-config-migrate: the migrated config still does not match its schema: ${problems.join("; ")}`);
   process.exit(1);
 }
-const after = configText(migrated);
+const parts = splitConfig(migrated);
+const after = configText(parts.tex) + nightlyText(parts.nightly);
 if (process.argv.includes("--check")) {
   if (after !== before) {
-    console.error(`tex-config-migrate: ${CONFIG_PATH} is not at schema version ${SCHEMA_VERSION}: run node scripts/tex-config-migrate.mjs`);
+    console.error(`tex-config-migrate: ${CONFIG_PATH} and ${NIGHTLY_PATH} are not at schema version ${SCHEMA_VERSION}: run node scripts/tex-config-migrate.mjs`);
     process.exit(1);
   }
   console.log(`tex-config-migrate: ${CONFIG_PATH} is at schema version ${SCHEMA_VERSION}`);
 } else {
-  writeFileSync(join(ROOT, CONFIG_PATH), after);
+  writeFileSync(join(ROOT, CONFIG_PATH), configText(parts.tex));
+  writeFileSync(join(ROOT, NIGHTLY_PATH), nightlyText(parts.nightly));
   console.log(`tex-config-migrate: ${after === before ? "already" : "now"} at schema version ${SCHEMA_VERSION}${after === before ? "" : ": run node scripts/tex-architecture.mjs next"}`);
 }

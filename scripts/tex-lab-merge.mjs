@@ -24,11 +24,12 @@
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { CONFIG_PATH } from "./lib/texConfigFile.mjs";
+import { CONFIG_PATH, NIGHTLY_PATH, joinedTexConfig } from "./lib/texConfigFile.mjs";
 
 const require = createRequire(import.meta.url);
 const { applyOps, conflicts, diffGraphs, keysOf } = require("../packages/lab/src/texLabOps.cjs");
 const { configStamp, isStamp } = require("../packages/tex/src/texConfigStamp.cjs");
+const { joinConfigs } = require("../packages/tex/src/texConfigFiles.cjs");
 
 export { CONFIG_PATH };
 export const WORDS_PATH = "packages/tex/src/texPrompt";
@@ -213,9 +214,24 @@ export function clashText(clashes, baseCommit) {
 
 const git = (args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 
-/** `texConfig.json` and the prompt words at a commit. */
+/**
+ * Tex's config at a commit: `texConfig.json` joined with `nightlyConfig.json` (`texConfigFiles.cjs`), or the one file
+ * alone at a commit from before the nightly steps had a file of their own.
+ */
+export function configAt(commit, run = git) {
+  const tex = JSON.parse(run(["show", `${commit}:${CONFIG_PATH}`]));
+  let nightly = null;
+  try {
+    nightly = JSON.parse(run(["show", `${commit}:${NIGHTLY_PATH}`]));
+  } catch {
+    nightly = null;
+  }
+  return joinConfigs(tex, nightly);
+}
+
+/** Tex's config and the prompt words at a commit. */
 export function sideAt(commit, run = git) {
-  const config = JSON.parse(run(["show", `${commit}:${CONFIG_PATH}`]));
+  const config = configAt(commit, run);
   const words = {};
   for (const file of run(["ls-tree", "--name-only", `${commit}:${WORDS_PATH}`]).split("\n").filter((f) => f.endsWith(".md"))) {
     const text = run(["show", `${commit}:${WORDS_PATH}/${file}`]).replace(/^\uFEFF/, "").trim();
@@ -235,13 +251,13 @@ export function findBase({ stamp, made }, ref = "origin/main", run = git) {
   if (!isStamp(stamp)) return atTime ? { commit: atTime, guessed: true } : null;
   const stampAt = (c) => {
     try {
-      return configStamp(JSON.parse(run(["show", `${c}:${CONFIG_PATH}`])));
+      return configStamp(configAt(c, run));
     } catch {
       return null;
     }
   };
   if (atTime && stampAt(atTime) === stamp) return { commit: atTime, guessed: false };
-  for (const c of run(["log", "--format=%H", "-n", String(LOOK_BACK), ref, "--", CONFIG_PATH]).split("\n").filter(Boolean)) {
+  for (const c of run(["log", "--format=%H", "-n", String(LOOK_BACK), ref, "--", CONFIG_PATH, NIGHTLY_PATH]).split("\n").filter(Boolean)) {
     if (stampAt(c) === stamp) return { commit: c, guessed: false };
   }
   return null;
@@ -252,11 +268,10 @@ async function selfTest() {
     if (!cond) throw new Error(`tex-lab-merge self-test: ${what}`);
   };
   const { configFrom } = await import("./tex-lab-promote.mjs");
-  const { readFileSync } = await import("node:fs");
   const { join, dirname } = await import("node:path");
   const { wordsOf } = await import("./tex-prompt-module.mjs");
   const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const config = JSON.parse(readFileSync(join(ROOT, CONFIG_PATH), "utf8"));
+  const config = joinedTexConfig(ROOT);
   const words = wordsOf(ROOT);
   const copy = (x) => JSON.parse(JSON.stringify(x));
   const side = (c, w = words) => ({ config: c, words: w });
@@ -348,12 +363,18 @@ async function selfTest() {
   const fake = (args) => {
     if (args[0] === "rev-list") return commits.t + "\n";
     if (args[0] === "log") return "c-a\nc-b\n";
+    // These commits are from before the nightly file: reading it fails, as git does for a path a commit lacks.
+    if (args[0] === "show" && args[1].endsWith(NIGHTLY_PATH)) throw new Error("no such path");
     if (args[0] === "show") return JSON.stringify(configs[args[1].split(":")[0]]);
     throw new Error("unexpected git " + args.join(" "));
   };
   expect(findBase({ stamp: configStamp({ v: 2 }), made: 1 }, "main", fake)?.commit === "c-time", "the base at the draft's time was not used");
   expect(findBase({ stamp: configStamp({ v: 1 }), made: 1 }, "main", fake)?.commit === "c-b", "a base not at the draft's time was not found by its config");
   expect(findBase({ stamp: configStamp({ v: 9 }), made: 1 }, "main", fake) === null, "a stamp no commit has found a base");
+  // A commit with both files reads as one config, the nightly steps tagged, as the Lab and the gateway read it.
+  const both = (args) => (args[1].endsWith(NIGHTLY_PATH) ? JSON.stringify({ nightlyConfig: 1, nodes: [{ id: "n1" }], edges: [] }) : JSON.stringify({ texConfig: 4, nodes: [{ id: "t1" }], edges: [] }));
+  const joined = configAt("c", both);
+  expect(joined.nodes.map((n) => `${n.id}:${n.graph ?? ""}`).join() === "t1:,n1:nightly", "a commit's two config files were not joined");
   const guess = findBase({ made: 1 }, "main", fake);
   expect(guess?.commit === "c-time" && guess.guessed, "a draft with no stamp was not based on its time");
   console.log("tex-lab-merge self-test: ok");

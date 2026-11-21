@@ -78,6 +78,9 @@ export function cleanRow(x: unknown) {
     hits: num(r.hits),
     /** Search suite rows: which way the search was answered (`object`, `database`, `index`, `scan`; `+` joins several). */
     path: text(r.path, 40),
+    /** Search suite rows: the same search in the object world (`bench/evals/objectWorld.mjs`), its rank and path. */
+    objectRank: numOrNull(r.objectRank),
+    objectPath: text(r.objectPath, 40),
     judgeSaid: text(r.judgeSaid, 80),
     sessions: num(r.sessions),
     saved: num(r.saved),
@@ -130,6 +133,14 @@ export function cleanSearch(x: unknown) {
     ...(s.recallAny5Pct !== undefined ? { recallAny5Pct: numOrNull(s.recallAny5Pct) } : {}),
     ...(s.recallAll5Pct !== undefined ? { recallAll5Pct: numOrNull(s.recallAll5Pct) } : {}),
     ...(s.byKind !== undefined ? { byKind: mapOf(s.byKind, (k) => ({ n: num(k.n), firstPct: numOrNull(k.firstPct) })) } : {}),
+    ...(s.objects !== undefined
+      ? {
+          objects: (() => {
+            const o = obj(s.objects);
+            return { n: num(o.n), first: num(o.first), top5: num(o.top5), firstPct: numOrNull(o.firstPct), top5Pct: numOrNull(o.top5Pct), mrr: num(o.mrr), p50Ms: num(o.p50Ms), errors: num(o.errors), same: num(o.same), better: num(o.better), worse: num(o.worse) };
+          })(),
+        }
+      : {}),
     ...(s.byPath !== undefined ? { byPath: Object.fromEntries(Object.entries(obj(s.byPath)).slice(0, 10).map(([k, val]) => [k.slice(0, 40), num(val)])) } : {}),
     ...(s.byAbility !== undefined ? { byAbility: mapOf(s.byAbility, (k) => ({ n: num(k.n), recallAny5Pct: numOrNull(k.recallAny5Pct) })) } : {}),
   };
