@@ -7,8 +7,9 @@
  * Run by `.github/workflows/preview-screenshots.yml`; the pictures are the
  * run's artifact.
  *
- * The sign-in code is issued on the preview through the convex CLI once the
- * page asks for it, typed into the page, and never printed or written: this
+ * The persona's code is issued on the preview through the convex CLI and traded
+ * for tokens, which go straight into the page's storage; neither is printed or
+ * written: this
  * repository's Actions logs are public. Nothing printed is an origin either,
  * because the workers.dev subdomain names the account. The pictures hold only
  * the preview's seeded fictional data.
@@ -76,22 +77,37 @@ function slug(path, steps) {
   return (words || "home").slice(0, 60);
 }
 
-/** The code issuer, loaded only when a code is really issued (it imports the convex client). */
-async function issueForReal(email, options) {
-  const { issuePersonaCode } = await import("./seed.mjs");
-  return issuePersonaCode(email, options);
+/**
+ * Signs the persona in the way the seed does: a code issued on the preview, traded for tokens through `auth:signIn`.
+ * Going through the login page instead asks the preview to send a code first, which a preview cannot mail, replaces
+ * the issued one, and trips the "several codes already" limit after a couple of runs.
+ */
+async function signInForReal(email, { deployment, deployKey }) {
+  const [{ issuePersonaCode }, { ConvexHttpClient }, { makeFunctionReference }] = await Promise.all([
+    import("./seed.mjs"),
+    import("convex/browser"),
+    import("convex/server"),
+  ]);
+  const url = convexUrlOf(deployment);
+  const code = issuePersonaCode(email, { deployment, deployKey });
+  const client = new ConvexHttpClient(url, { logger: false });
+  const result = await client.action(makeFunctionReference("auth:signIn"), { provider: "email", params: { email, code } });
+  if (!result?.tokens?.token || !result.tokens.refreshToken) throw new Error("Signing the persona in returned no tokens.");
+  return { url, token: result.tokens.token, refreshToken: result.tokens.refreshToken };
 }
 
-/** Types the persona's address, waits for the code box, then issues a code and types it, so nothing replaces it. */
-export async function signIn(page, origin, { email, issueCode }) {
-  await page.goto(`${origin}/login`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-  await page.locator('[data-testid="login-email"]').fill(email, { timeout: 60_000 });
-  await page.locator('[data-testid="login-submit"]').first().click();
-  await page.locator('[data-testid="login-code"]').waitFor({ state: "visible", timeout: 60_000 });
-  const code = await issueCode();
-  await page.locator('[data-testid="login-code"]').fill(code);
-  await page.locator('[data-testid="login-submit"]').first().click();
-  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
+export const convexUrlOf = (deployment) => {
+  if (!/^[a-z0-9-]+$/.test(deployment)) throw new Error("Not a preview deployment name.");
+  return `https://${deployment}.convex.cloud`;
+};
+
+/**
+ * The browser storage @convex-dev/auth reads on the web (localStorage, namespaced by the Convex URL with everything
+ * but letters and digits dropped), so the app starts signed in. The tokens live only in this process and the page.
+ */
+export function authStorage({ url, token, refreshToken }) {
+  const namespace = url.replace(/[^a-zA-Z0-9]/g, "");
+  return { [`__convexAuthJWT_${namespace}`]: token, [`__convexAuthRefreshToken_${namespace}`]: refreshToken };
 }
 
 async function runSteps(page, steps) {
@@ -103,7 +119,7 @@ async function runSteps(page, steps) {
   }
 }
 
-export async function main(env = process.env, { log = console.log, issue = issueForReal, find = findConvexPreview } = {}) {
+export async function main(env = process.env, { log = console.log, signIn = signInForReal, find = findConvexPreview } = {}) {
   const origin = originFrom(env.PREVIEW_ROUTER_ORIGIN, "PREVIEW_ROUTER_ORIGIN");
   const pr = String(env.PR ?? "");
   if (!/^[1-9][0-9]{0,6}$/.test(pr)) throw new Error("PR must be a pull request number.");
@@ -122,17 +138,17 @@ export async function main(env = process.env, { log = console.log, issue = issue
   const browser = await chromium.launch().catch(() => chromium.launch({ channel: "chrome" }));
   const problems = [];
   try {
-    // One sign-in, carried to every layout as the signed-in browser state.
-    const first = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    const page = await first.newPage();
-    await signIn(page, origin, { email, issueCode: () => issue(email, { deployment, deployKey: env.CONVEX_DEPLOY_KEY }) });
-    const state = await first.storageState();
-    await first.close();
+    // One sign-in, put into every layout's storage before the app's first script runs.
+    const storage = authStorage(await signIn(email, { deployment, deployKey: env.CONVEX_DEPLOY_KEY }));
     log(`signed in as ${persona}`);
 
     for (const layout of LAYOUTS) {
       const { name, width, height, ...rest } = layout;
-      const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, storageState: state, ...rest });
+      const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, ...rest });
+      await context.addInitScript((items) => {
+        // Only into an empty slot: this runs on every navigation, and the app rotates the refresh token as it goes.
+        for (const [key, value] of Object.entries(items)) if (window.localStorage.getItem(key) === null) window.localStorage.setItem(key, value);
+      }, storage);
       for (const shot of shots) {
         const tab = await context.newPage();
         tab.on("pageerror", (error) => problems.push(`${name} ${shot.path}: ${String(error?.message ?? error).split("\n")[0].slice(0, 160)}`));
