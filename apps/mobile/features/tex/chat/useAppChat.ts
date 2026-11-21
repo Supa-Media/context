@@ -12,7 +12,6 @@ import {
   UNSEND_SENTENCE,
   appChatEndpoint,
   editRequest,
-  getRequest,
   warmRequest,
   WARM_AGAIN_MS,
   isPending,

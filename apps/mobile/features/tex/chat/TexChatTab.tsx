@@ -12,7 +12,7 @@ import {
   type ChatLine,
   type ReactionEmoji,
 } from "./appChatGateway";
-import { revealChunks, useRevealedText } from "./appChatReveal";
+import { useRevealedText } from "./appChatReveal";
 import { TexDeliveryLine } from "./TexDeliveryLine";
 import { TexRunCard } from "./TexRunCard";
 import { TexWorkingMark } from "./TexWorkingMark";
