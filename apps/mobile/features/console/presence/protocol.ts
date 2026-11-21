@@ -72,6 +72,12 @@ export interface PresenceMember {
    * own name, parked where you last typed, reads as a stranger in your note.
    */
   isYou: boolean;
+  /**
+   * Tex writing in a comment thread for this member, as their editor sends
+   * it (`texRelay.ts`): the thread and the new words so far. Absent or null
+   * when no run of theirs is going.
+   */
+  tex?: { thread: string; text: string } | null;
 }
 
 export type ServerFrame =
@@ -125,6 +131,8 @@ export type ServerFrame =
   | { t: "draw"; d: string }
   /** Where a peer's pointer is on a canvas, and what they have selected. */
   | { t: "pointer"; id: string; x: number; y: number; selected: string[] }
+  /** Tex writing for a peer: new words at `offset` in their run's text, or the run's end. */
+  | { t: "tex"; id: string; thread: string; state: "run" | "end"; offset: number; text: string }
   /**
    * The bucket moved: somebody in this room saved, or a tool wrote the note.
    *
@@ -311,6 +319,14 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
   if (frame.t === "draw") {
     return typeof frame.d === "string" && frame.d.length > 0 ? { t: "draw", d: frame.d } : null;
   }
+  if (frame.t === "tex") {
+    if (typeof frame.id !== "string" || frame.id.length === 0) return null;
+    if (typeof frame.th !== "string" || !/^[a-z0-9]{4,12}$/.test(frame.th)) return null;
+    if (frame.s !== "run" && frame.s !== "end") return null;
+    const offset = Number.isInteger(frame.o) && (frame.o as number) >= 0 ? (frame.o as number) : null;
+    if (offset === null || typeof frame.x !== "string") return null;
+    return { t: "tex", id: frame.id, thread: frame.th, state: frame.s as "run" | "end", offset, text: frame.x };
+  }
   if (frame.t === "pointer") {
     if (typeof frame.id !== "string" || frame.id.length === 0) return null;
     const x = Number(frame.x);
@@ -370,6 +386,11 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
 /** Transient authorization travels only to the room, never to a peer or storage. */
 export function liveUpdateFrame(documentId: string, update: string, accessToken: string): string {
   return JSON.stringify({ t: "live", documentId, d: update, accessToken });
+}
+
+/** Tex writing for this person in a comment thread: new words at `offset`, or the run's end. Never logged by the room. */
+export function texFrame(thread: string, state: "run" | "end", offset: number, text: string): string {
+  return JSON.stringify({ t: "tex", th: thread, s: state, o: offset, x: text });
 }
 
 /** Where this editor's caret is, as relative positions. */

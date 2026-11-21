@@ -49,6 +49,7 @@ import { insertTable } from "../markdownFormat";
 import { TableSizePicker } from "../TableSizePicker.web";
 import { closeFindPanel } from "../findInNote";
 import { setCaretLabels, setFollowCarets, setRemoteCarets } from "../../presence/remoteCarets";
+import { peerRunsOf, setPeerTexRuns } from "../comments/tex/peerRuns";
 import { useWindowDimensions } from "react-native";
 import { densityFor } from "../../../app/frame";
 import type { SharedDoc } from "../../presence/sharedDoc";
@@ -448,7 +449,8 @@ export function LiveEditor({
   useEffect(() => {
     const current = view.current;
     if (!current) return;
-    current.dispatch({ effects: setRemoteCarets.of(presence?.members ?? []) });
+    const members = presence?.members ?? [];
+    current.dispatch({ effects: [setRemoteCarets.of(members), setPeerTexRuns.of(peerRunsOf(members))] });
   }, [presence?.members]);
 
   // A cast keeps whoever is writing in view; a real room never moves the page.

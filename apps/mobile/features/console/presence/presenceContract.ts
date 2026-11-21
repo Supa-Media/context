@@ -87,6 +87,12 @@ export interface Presence {
    */
   announceSaved: (etag: string) => void;
   /**
+   * Tex writing for this person in a comment thread, to the others in the
+   * room (`comments/tex/peerRuns.ts`): new words at an offset, or the run's
+   * end. Absent where there is no room to tell.
+   */
+  announceTex?: (thread: string, state: "run" | "end", offset: number, text: string) => void;
+  /**
    * The canvas half, present in `drawing` mode and inert otherwise.
    *
    * Both calls are safe to make when there is no room: they drop the message,

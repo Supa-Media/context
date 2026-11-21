@@ -34,6 +34,7 @@ import {
   liveUpdateFrame,
   drawFrame,
   savedFrame,
+  texFrame,
   drawSnapshotFrame,
   pointerFrame,
   type PresenceMember,
@@ -341,6 +342,16 @@ export function usePresence(options: PresenceOptions): Presence {
    * the etag their editor opened with, and whoever is elected to save next
    * gets a conflict about a change that is already in their own text.
    */
+  const announceTex = useCallback((thread: string, state: "run" | "end", offset: number, text: string) => {
+    const live = socket.current;
+    if (!live || live.readyState !== WebSocket.OPEN) return;
+    try {
+      live.send(texFrame(thread, state, offset, text));
+    } catch {
+      // A peer that misses a piece drops the rest of that run and sees the suggestion when it lands in the note.
+    }
+  }, []);
+
   const announceSaved = useCallback((etag: string) => {
     const live = socket.current;
     if (!live || live.readyState !== WebSocket.OPEN) return;
@@ -411,6 +422,7 @@ export function usePresence(options: PresenceOptions): Presence {
     () => ({
       drawing,
       announceSaved,
+      announceTex,
       members: state.stale ? [] : shownMembers(state),
       phase: state.phase,
       summary: presenceSummary(state),
@@ -440,6 +452,6 @@ export function usePresence(options: PresenceOptions): Presence {
       whichever render happened to be last.
     */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, report, drawing, announceSaved, settledAt],
+    [state, report, drawing, announceSaved, announceTex, settledAt],
   );
 }

@@ -9,6 +9,7 @@ import { Decoration, WidgetType, type DecorationSet } from "@codemirror/view";
 import type { EditorState, Range } from "@codemirror/state";
 import { commentsParsed } from "../extension";
 import type { TexRunLive } from "./runner";
+import type { PeerTexRun } from "./peerRuns";
 
 /**
  * The inserted words. `eq` compares the text and the caret, so a pass that
@@ -19,12 +20,14 @@ class PendingWidget extends WidgetType {
     readonly text: string,
     readonly caret: boolean,
     readonly thread: string,
+    /** The caret's name: "Tex", or "Tex for Sayo" when the run is somebody else's. */
+    readonly who: string = "Tex",
   ) {
     super();
   }
 
   eq(other: PendingWidget): boolean {
-    return other.text === this.text && other.caret === this.caret && other.thread === this.thread;
+    return other.text === this.text && other.caret === this.caret && other.thread === this.thread && other.who === this.who;
   }
 
   toDOM(): HTMLElement {
@@ -37,7 +40,7 @@ class PendingWidget extends WidgetType {
     if (this.caret) {
       const caret = document.createElement("span");
       caret.className = "cm-tex-caret";
-      caret.dataset.who = "Tex";
+      caret.dataset.who = this.who;
       span.append(caret);
     }
     return span;
@@ -49,7 +52,11 @@ class PendingWidget extends WidgetType {
  * typing one) whose anchor is in the note. A run that is typing shows its
  * text in place of the pending one, so the note never shows two edits at once.
  */
-export function pendingDecorations(state: EditorState, runs: ReadonlyMap<string, TexRunLive>): DecorationSet {
+export function pendingDecorations(
+  state: EditorState,
+  runs: ReadonlyMap<string, TexRunLive>,
+  peers: ReadonlyMap<string, PeerTexRun> = new Map(),
+): DecorationSet {
   const parsed = state.field(commentsParsed, false);
   if (parsed === undefined) return Decoration.none;
   const ranges: Range<Decoration>[] = [];
@@ -57,19 +64,28 @@ export function pendingDecorations(state: EditorState, runs: ReadonlyMap<string,
     const anchor = parsed.anchors.get(thread.id);
     if (anchor === undefined) continue;
     const typing = runs.get(thread.id)?.typing ?? null;
+    // Somebody else's run in this thread, as the room relays it (`peerRuns.ts`).
+    const peer = peers.get(thread.id) ?? null;
     let text: string;
     let caret = false;
+    let who = "Tex";
     if (typing !== null) {
       text = typing;
       caret = true;
+    } else if (peer !== null) {
+      text = peer.text;
+      caret = true;
+      who = `Tex for ${peer.who}`;
     } else if (thread.pending !== null) {
       text = thread.pending.text;
     } else {
       continue;
     }
     // An empty range has no words to strike; the insertion still shows.
-    if (anchor.from < anchor.to) ranges.push(Decoration.mark({ class: "cm-tex-del" }).range(anchor.from, anchor.to));
-    ranges.push(Decoration.widget({ widget: new PendingWidget(text, caret, thread.id), side: 1 }).range(anchor.to));
+    // Before a peer's run has any new words, only its caret shows: the words are not struck until Tex suggests others.
+    const striking = !(peer !== null && typing === null && text === "");
+    if (striking && anchor.from < anchor.to) ranges.push(Decoration.mark({ class: "cm-tex-del" }).range(anchor.from, anchor.to));
+    ranges.push(Decoration.widget({ widget: new PendingWidget(text, caret, thread.id, who), side: 1 }).range(anchor.to));
   }
   return Decoration.set(ranges, true);
 }

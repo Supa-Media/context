@@ -338,7 +338,7 @@ export function BrowsePane({
    */
   /** See `BrowsePathBar`: on a phone, who else is in the note. */
   const pathBar = compact ? (
-    <BrowsePathBar files={files} selected={selected} presence={presence} />
+    <BrowsePathBar files={files} selected={selected} presence={presence} you={data.viewer?.name ?? null} />
   ) : null;
 
   /**
@@ -452,6 +452,7 @@ export function BrowsePane({
           openCrumbMenu={openCrumbMenu}
           presence={presence}
           summary={summary}
+          you={data.viewer?.name ?? null}
         />
       ) : null}
 

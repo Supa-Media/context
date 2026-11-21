@@ -34,6 +34,7 @@ export function BrowseNoteHead({
   openCrumbMenu,
   presence,
   summary,
+  you = null,
 }: {
   files: FileBrowser;
   selected: NonNullable<ReturnType<typeof entryAt>>;
@@ -48,6 +49,8 @@ export function BrowseNoteHead({
   presence?: Presence;
   /** The open note's meeting summary, when it is one. */
   summary?: MeetingSummary;
+  /** This person's name, so the pile shows their own face even alone. */
+  you?: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   // The open note in the trash: "In trash" by the path, Restore in Share's place.
@@ -213,7 +216,7 @@ export function BrowseNoteHead({
         <RedoSummary summary={summary} />
       ) : null}
       {presence !== undefined && selected.kind === "file" && files.editor.path === selected.path ? (
-        <PresencePile presence={presence} compact={false} />
+        <PresencePile presence={presence} compact={false} you={you} />
       ) : null}
       {/*
         Preview demo: only on a note with a cast block in it, and only on the
