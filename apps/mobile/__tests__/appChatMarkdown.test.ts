@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { chatBlocks, noteLinkOf, type ChatBlock, type ChatInline } from "../features/tex/chat/appChatMarkdown";
+import { chatBlocks, chatPlainText, noteLinkOf, type ChatBlock, type ChatInline } from "../features/tex/chat/appChatMarkdown";
 
 /** The inline runs of the first paragraph-like block. */
 function runsOf(text: string): ChatInline[] {
@@ -167,5 +167,18 @@ describe("the rest falls back to words", () => {
 
   test("an empty message has no blocks", () => {
     expect(chatBlocks("")).toEqual([]);
+  });
+});
+
+describe("chatPlainText", () => {
+  test("drops the Markdown a person never sees: link brackets, bold stars, list marks", () => {
+    expect(chatPlainText("Two things are open on [Saturday plan](https://example.test/x):\n\n- the **$3 fee**\n- the cake")).toBe(
+      "Two things are open on Saturday plan:\n• the $3 fee\n• the cake",
+    );
+  });
+
+  test("numbers an ordered list and keeps plain words as they are", () => {
+    expect(chatPlainText("1. one\n2. two")).toBe("1. one\n2. two");
+    expect(chatPlainText("just words")).toBe("just words");
   });
 });

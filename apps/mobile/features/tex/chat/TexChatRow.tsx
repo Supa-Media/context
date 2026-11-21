@@ -7,6 +7,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import { isPending, type AnswerChoice, type AppChatRow, type AskChoice, type ChatLine, type ReactionEmoji } from "./appChatGateway";
 import { TexChatBar } from "./TexChatBar";
+import { chatPlainText } from "./appChatMarkdown";
 import { TexChatFileChip, formatFileSize } from "./TexChatFileChip";
 import { TexChatWords } from "./TexChatWords";
 import { TexAskCard, askLead } from "./TexAskCard";
@@ -50,6 +51,9 @@ export interface TexChatRowProps {
   below?: ReactNode;
 }
 
+/** How long the bar stays after the pointer leaves the row, to reach it across the gap above the bubble. */
+const HOVER_GRACE_MS = 200;
+
 /**
  * One line of the chat with Tex: a bubble, its pictures, its reply quote, its
  * tapbacks, and the actions a person can take on it.
@@ -64,6 +68,34 @@ export function TexChatRow(props: TexChatRowProps) {
   const styles = useThemedStyles(makeStyles);
   const reduced = useReducedMotion();
   const [hovered, setHovered] = useState(false);
+  const leaving = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (leaving.current !== null) clearTimeout(leaving.current);
+  }, []);
+  // The bar floats above the bubble, over the row before it, so the pointer
+  // leaves the row on its way up to it: a short grace keeps it up, and the bar
+  // itself counts as the row while the pointer is on it.
+  const onBar = useRef(false);
+  const hoverIn = () => {
+    if (leaving.current !== null) clearTimeout(leaving.current);
+    leaving.current = null;
+    setHovered(true);
+  };
+  const hoverOut = () => {
+    if (leaving.current !== null) clearTimeout(leaving.current);
+    leaving.current = setTimeout(() => {
+      leaving.current = null;
+      if (!onBar.current) setHovered(false);
+    }, HOVER_GRACE_MS);
+  };
+  const barIn = () => {
+    onBar.current = true;
+    hoverIn();
+  };
+  const barOut = () => {
+    onBar.current = false;
+    hoverOut();
+  };
   const [pinned, setPinned] = useState(false);
   const [focused, setFocused] = useState(false);
   const lit = useFlash(props.flash === true);
@@ -139,8 +171,8 @@ export function TexChatRow(props: TexChatRowProps) {
 
   return (
     <Pressable
-      onHoverIn={canAct ? () => setHovered(true) : undefined}
-      onHoverOut={canAct ? () => setHovered(false) : undefined}
+      onHoverIn={canAct ? hoverIn : undefined}
+      onHoverOut={canAct ? hoverOut : undefined}
       onLongPress={canAct ? () => setPinned(true) : undefined}
       onPress={canAct && tapPins() ? () => setPinned((on) => !on) : undefined}
       onFocus={canAct ? () => setFocused(true) : undefined}
@@ -158,7 +190,7 @@ export function TexChatRow(props: TexChatRowProps) {
           {showBar ? (
             <TexChatBar
               rowId={row.id}
-              text={row.text}
+              text={chatPlainText(row.text)}
               mine={mine}
               ownReaction={ownReaction}
               canEdit={mine && row.editable === true}
@@ -169,6 +201,8 @@ export function TexChatRow(props: TexChatRowProps) {
               onEdit={act(() => props.onEdit(row))}
               onUnsend={act(() => props.onUnsend(row.id))}
               onCopied={act(() => props.onCopy?.(row))}
+              onPointerEnter={barIn}
+              onPointerLeave={barOut}
             />
           ) : null}
 

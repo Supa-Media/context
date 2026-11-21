@@ -138,19 +138,17 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
     chevron("head", u, w, c, { cx: 0.5, cy: 0.38, side: 0.26, angle: 135 }),
   ],
 
-  copy: (u, w, c) => {
-    /*
-      Two full outlines rather than a front sheet and a partial back one. The
-      partial version needs a path with a corner cut out of it, and this set
-      draws from rounded rectangles and bars — see the header. Fully
-      overlapped, the offset pair still reads as one sheet over another,
-      which is the whole of what the mark has to say.
-    */
-    return [
-      rect("back", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.66, y1: 0.66, radius: 0.11 }),
-      rect("front", u, w, c, { x0: 0.34, y0: 0.34, x1: 0.88, y1: 0.88, radius: 0.11 }),
-    ];
-  },
+  // A front sheet and the corner of the one behind it, as the in-app Tex mock
+  // draws it (2026-11-21 parity audit): two overlapped full outlines read as a
+  // knot at 15pt.
+  copy: (u, w, c) => [
+    glyph("g", u, w, c, {
+      paths: [
+        "M0.4583 0.375 L0.7917 0.375 A0.0833 0.0833 0 0 1 0.875 0.4583 L0.875 0.7917 A0.0833 0.0833 0 0 1 0.7917 0.875 L0.4583 0.875 A0.0833 0.0833 0 0 1 0.375 0.7917 L0.375 0.4583 A0.0833 0.0833 0 0 1 0.4583 0.375 Z",
+        "M0.2083 0.625 L0.1667 0.625 A0.0417 0.0417 0 0 1 0.125 0.5833 L0.125 0.1667 A0.0417 0.0417 0 0 1 0.1667 0.125 L0.5833 0.125 A0.0417 0.0417 0 0 1 0.625 0.1667 L0.625 0.2083",
+      ],
+    }),
+  ],
 
   clock: (u, w, c) => {
     /*
@@ -167,19 +165,16 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
     ];
   },
 
-  attach: (u, w, c) => {
-    /*
-      Two nested capsules, not a clip's actual path, which doubles back on
-      itself three times and is unreadable below about 28pt anyway. The
-      outer one is wider than a paperclip really is because the gap between
-      the two outlines has to survive a 2pt stroke at 20pt: any narrower and
-      the inner capsule's hole closes up and the mark reads as a filled pill.
-    */
-    return [
-      rect("outer", u, w, c, { x0: 0.16, y0: 0.06, x1: 0.84, y1: 0.94, radius: 0.34 }),
-      rect("inner", u, w, c, { x0: 0.36, y0: 0.24, x1: 0.64, y1: 0.7, radius: 0.14 }),
-    ];
-  },
+  // A paperclip, as the in-app Tex mock draws it (2026-11-21 parity audit): the
+  // earlier two nested capsules read as a "0" at the composer's 17pt. One
+  // stroked path, the mock's 24-unit drawing in the box's fractions.
+  attach: (u, w, c) => [
+    glyph("g", u, w, c, {
+      paths: [
+        "M0.875 0.5208 L0.5208 0.875 A0.2292 0.2292 0 0 1 0.1958 0.55 L0.5708 0.175 A0.1542 0.1542 0 0 1 0.7875 0.3917 L0.4125 0.7667 A0.075 0.075 0 0 1 0.3042 0.6583 L0.65 0.3125",
+      ],
+    }),
+  ],
 
   tag: (u, w, c) => {
     /*

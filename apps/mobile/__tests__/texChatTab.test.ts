@@ -353,6 +353,37 @@ describe("tapbacks and the row's actions", () => {
     expect(tab.find("tex-unsend-m1")).not.toBeNull();
   });
 
+  test("the bar stays while the pointer crosses from the bubble up to it, and goes once it leaves both", () => {
+    jest.useFakeTimers();
+    try {
+      const tab = mount(fakeView({ lines: [row({ id: "t1", text: "theirs" })] }));
+      const fire = (testId: string, type: string) => {
+        const node = tab.find(testId);
+        if (node === null) throw new Error(`no element with testID ${testId}`);
+        act(() => {
+          node.dispatchEvent(new MouseEvent(type, { bubbles: true, relatedTarget: document.body }));
+        });
+      };
+      tab.hover("tex-row-t1");
+      fire("tex-row-t1", "pointerleave");
+      fire("tex-row-t1", "mouseleave");
+      expect(tab.find("tex-bar-t1")).not.toBeNull();
+      // React makes onPointerEnter and onPointerLeave from pointerover and pointerout.
+      fire("tex-bar-t1", "pointerover");
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(tab.find("tex-bar-t1")).not.toBeNull();
+      fire("tex-bar-t1", "pointerout");
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(tab.find("tex-bar-t1")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("Tex's own rows offer no Edit or Unsend", () => {
     const tab = mount(fakeView({ lines: [row({ id: "t1", text: "theirs" })] }));
     tab.hover("tex-row-t1");
