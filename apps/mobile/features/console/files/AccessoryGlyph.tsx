@@ -6,9 +6,8 @@ import { JOB_ICON_VIEW_BOX, arc, circle, drawnStrokes, inkFor, type Point, type 
 /**
  * The writing bar's keys, drawn in Context's own brush (owner, 2026-11-08:
  * "I don't love the icons on top of the keyboard … can we do context style?"),
- * and since the 2026-11-21 roast the right rail's buttons and every microphone
- * key too (Dev2: "the icons on the right need to match our iconography on the
- * left"; "I hate the essentially emoji icon here … like our drawn microphone").
+ * and since the 2026-11-21 roast the right rail's buttons too (Dev2: "the
+ * icons on the right need to match our iconography on the left").
  *
  * The same hand-drawn strokes as the folder icons (`contextIcons/`) and the
  * built-in folders (`jobIcons/geometry.ts`): the checklist is that set's own

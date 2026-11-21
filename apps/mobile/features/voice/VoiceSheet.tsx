@@ -1,6 +1,5 @@
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { PressRow } from "../design/components/Button";
-import { AccessoryGlyph } from "../console/files/AccessoryGlyph";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { fonts, pointerType as t, radii } from "../design/tokens";
@@ -118,7 +117,7 @@ export function VoiceSheet({
             hoverStyle={canDictate ? styles.rowHovered : undefined}
           >
             <View style={[styles.glyph, canDictate && styles.glyphOffered]}>
-              <AccessoryGlyph name="mic" size={18} color={canDictate ? colors.accent : colors.muted} />
+              <Icon name="mic" size={17} color={canDictate ? colors.accent : colors.muted} />
             </View>
             <View style={styles.rowBody}>
               <Text variant="rowTitle" style={!canDictate && styles.dim}>
