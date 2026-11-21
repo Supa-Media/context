@@ -11,6 +11,11 @@
 # to a folder only this job's user reads, never printed, uploaded or cached, and deleted at the end; the runs' own
 # output goes to /dev/null. The service scores the ranks and says pass or fail with counts, which is all this prints.
 # Capped by the service like the Tex Test Set: 1 run a commit, 10 changes a pull request, 1000 a day.
+#
+# Beside it, the public standard: NanoBEIR's four gate sets (MS MARCO, NQ, FiQA, SciFact; apps/mcp/bench/evals/
+# nanoBeir.mjs, docs/decisions/search/search-suite.md) ranked on main and on the change, the same way. Public data, so its
+# scores are printed. The status passes only when the sealed part does not lose a right note first AND neither path's
+# NanoBEIR nDCG@10 falls more than BEIR_TOLERANCE below main's.
 
 name: Search test set
 
@@ -37,7 +42,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
@@ -87,6 +92,47 @@ jobs:
             (cd "$RUNNER_TEMP/$tree" && pnpm install --frozen-lockfile > /dev/null)
           done
 
+      # NanoBEIR's sets and main's embeddings of them are kept between runs. The embeddings file is saved only from
+      # main's run, before the change's code runs, and the change reads a copy of it.
+      - name: Keep NanoBEIR's sets between runs
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/nanobeir-data
+          key: search-gate-nanobeir-data-v1
+
+      - name: Restore main's NanoBEIR embeddings
+        id: embeds
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/nanobeir-embeddings
+          key: search-gate-nanobeir-embeddings-bge-m3-v1
+
+      - name: Rank NanoBEIR on main
+        id: beirmain
+        run: |
+          set +e -uo pipefail
+          mkdir -p "$RUNNER_TEMP/nanobeir-embeddings" "$RUNNER_TEMP/beir"
+          (cd "$RUNNER_TEMP/main" && BENCH_EMBED_CACHE="$RUNNER_TEMP/nanobeir-embeddings/vectors.txt" node apps/mcp/bench/evals/cli.mjs search --bench nanobeir-gate --fetch "$RUNNER_TEMP/nanobeir-data" --out "$RUNNER_TEMP/beir/main.json") 2>&1 | grep -v '^{' | tail -n 20
+          [ -s "$RUNNER_TEMP/beir/main.json" ] && echo "ran=true" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Save main's NanoBEIR embeddings
+        if: steps.embeds.outputs.cache-hit != 'true' && steps.beirmain.outputs.ran == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/nanobeir-embeddings
+          key: search-gate-nanobeir-embeddings-bge-m3-v1
+
+      - name: Rank NanoBEIR on the change and compare
+        id: beir
+        run: |
+          set +e -uo pipefail
+          cp "$RUNNER_TEMP/nanobeir-embeddings/vectors.txt" "$RUNNER_TEMP/beir/vectors.txt" 2>/dev/null || true
+          (cd "$RUNNER_TEMP/change" && BENCH_EMBED_CACHE="$RUNNER_TEMP/beir/vectors.txt" node apps/mcp/bench/evals/cli.mjs search --bench nanobeir-gate --fetch "$RUNNER_TEMP/nanobeir-data" --out "$RUNNER_TEMP/beir/change.json") 2>&1 | grep -v '^{' | tail -n 20
+          node scripts/search-test-set.mjs beir --change "$RUNNER_TEMP/beir/change.json" --main "$RUNNER_TEMP/beir/main.json" --out "$RUNNER_TEMP/beir/verdict.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "${PIPESTATUS[0]}" = "0" ] && echo "pass=true" >> "$GITHUB_OUTPUT" || echo "pass=false" >> "$GITHUB_OUTPUT"
+          exit 0
+
       - name: Take the search Test part from the eval service (never printed)
         id: start
         env:
@@ -126,6 +172,7 @@ jobs:
           HEAD: ${{ steps.pr.outputs.head }}
           CAPPED: ${{ steps.start.outputs.capped }}
           SCORE: ${{ steps.score.outcome }}
+          BEIR: ${{ steps.beir.outputs.pass }}
         run: |
           set -euo pipefail
           [ -n "$HEAD" ] || exit 0
@@ -136,9 +183,11 @@ jobs:
               exit 0
             fi
             state=failure; description="$(head -c 139 "$RUNNER_TEMP/sealed/refused")"
+          elif [ -f "$RUNNER_TEMP/sealed/verdict.json" ] && [ -f "$RUNNER_TEMP/beir/verdict.json" ]; then
+            [ "$SCORE" = "success" ] && [ "$BEIR" = "true" ] && state=success || state=failure
+            description="$(node --input-type=module -e 'import { combinedStatus } from "./scripts/search-test-set.mjs"; import { readFileSync } from "node:fs"; const read = (f) => JSON.parse(readFileSync(f, "utf8")); console.log(combinedStatus(read(process.argv[1]), read(process.argv[2])))' "$RUNNER_TEMP/sealed/verdict.json" "$RUNNER_TEMP/beir/verdict.json")"
           elif [ -f "$RUNNER_TEMP/sealed/verdict.json" ]; then
-            [ "$SCORE" = "success" ] && state=success || state=failure
-            description="$(node --input-type=module -e 'import { statusLine } from "./scripts/search-test-set.mjs"; import { readFileSync } from "node:fs"; console.log(statusLine(JSON.parse(readFileSync(process.argv[1], "utf8"))))' "$RUNNER_TEMP/sealed/verdict.json")"
+            state=failure; description="The NanoBEIR step gave no verdict: read the run"
           else
             state=failure; description="The search Test part failed before a verdict: read the run"
           fi

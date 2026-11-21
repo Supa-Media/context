@@ -13,9 +13,11 @@
 #           with the Context endpoint only, and LongMemEval's judge. Models "gw" asks the AI gateway as the bench
 #           always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
 #           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job.
-#           The Search suite (search-hard, search-real, longmemeval-retrieval; `apps/mcp/bench/evals/searchSuite.mjs`)
+#           The Search suite (search-hard, search-real, longmemeval-retrieval, nanobeir, nanobeir-gate;
+#           `apps/mcp/bench/evals/searchSuite.mjs`, NanoBEIR in `nanoBeir.mjs`)
 #           runs `cli.mjs search` instead: embeddings only, no Claude Code steps, never a model answer. Its data is
-#           public or made up: search-hard is made up, longmemeval-retrieval is LongMemEval, and search-real's Dev part
+#           public or made up: search-hard is made up, longmemeval-retrieval is LongMemEval, NanoBEIR is BEIR's public
+#           sets from Hugging Face, and search-real's Dev part
 #           is rewritten from real searches, never verbatim. Its Test part is sealed in the eval service and is never
 #           run here; only CI's search gate runs it.
 #   report  main's code, with the deploy key: the rows in batches and the summary (cleaned again by Convex), or why it
@@ -86,12 +88,12 @@ jobs:
           bench=$(jq -r .bench "$RUNNER_TEMP/job.json")
           n=$(jq -r .n "$RUNNER_TEMP/job.json")
           models=$(jq -r .models "$RUNNER_TEMP/job.json")
-          [[ "$bench" =~ ^(longmemeval-(s|oracle)|search-hard|search-real|longmemeval-retrieval)$ ]] || { echo "::error::unknown bench"; exit 1; }
+          [[ "$bench" =~ ^(longmemeval-(s|oracle)|search-hard|search-real|longmemeval-retrieval|nanobeir|nanobeir-gate)$ ]] || { echo "::error::unknown bench"; exit 1; }
           [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "::error::n is 1 to 999"; exit 1; }
           [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
           # The Search suite asks no model: it is embeddings only, whatever models the run was given.
           search=false
-          if [[ "$bench" =~ ^(search-hard|search-real|longmemeval-retrieval)$ ]]; then search=true; models=gw; fi
+          if [[ "$bench" =~ ^(search-hard|search-real|longmemeval-retrieval|nanobeir|nanobeir-gate)$ ]]; then search=true; models=gw; fi
           echo "bench=$bench" >> "$GITHUB_OUTPUT"
           echo "n=$n" >> "$GITHUB_OUTPUT"
           echo "models=$models" >> "$GITHUB_OUTPUT"
