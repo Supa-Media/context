@@ -20,6 +20,9 @@
  * checked with no key and no spend.
  */
 
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+
 import { MEANING_DIMENSIONS, MEANING_MODEL } from "../src/search/meaning/embed.js";
 import { priceUsd } from "./report.mjs";
 import { CREDIT_REST_MS, createCreditCache, noteCreditPaid, noteCreditSpent, payerSkipped } from "../../../packages/tex/gateway/agent/creditRest.js";
@@ -338,8 +341,31 @@ const EMBED_RETRY_WAITS_MS = [1_000, 4_000];
  * warm pass embeds every note once, and every conversation's searches embed
  * the same few queries, so a round pays for each passage and each query once.
  */
-export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms) => new Promise((done) => setTimeout(done, ms)), log = (line) => process.stderr.write(`${line}\n`) } = {}) {
+export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms) => new Promise((done) => setTimeout(done, ms)), log = (line) => process.stderr.write(`${line}\n`), file = null } = {}) {
   const known = new Map();
+  /*
+    THE SAME ANSWERS ON DISK (`file`, the search gate's NanoBEIR step): the
+    embedding model's answer for a text never changes, and a public corpus is
+    the same thousands of passages on every run, so main's run keeps them and
+    the change's run reads them back. Each line is the sha-256 of the text and
+    the vector as base64 float64, so the numbers come back bit for bit.
+  */
+  const keyOf = (text) => createHash("sha256").update(text).digest("hex");
+  const onDisk = new Map();
+  if (file && existsSync(file)) {
+    for (const line of readFileSync(file, "utf8").split("\n")) {
+      const [key, b64] = line.split(" ");
+      if (!key || !b64) continue;
+      const buf = Buffer.from(b64, "base64");
+      if (buf.length !== MEANING_DIMENSIONS * 8) continue;
+      onDisk.set(key, Array.from(new Float64Array(buf.buffer, buf.byteOffset, MEANING_DIMENSIONS)));
+    }
+  }
+  const remember = (texts, vectors) => {
+    if (!file) return;
+    const lines = texts.map((text, i) => `${keyOf(text)} ${Buffer.from(Float64Array.from(vectors[i]).buffer).toString("base64")}\n`);
+    appendFileSync(file, lines.join(""));
+  };
   /*
     THE EMBEDDING CALL, TRIED AGAIN. gh-125 to gh-127 (2026-10-30) each lost a
     whole round before any answer: one Workers AI embedding call failed during
@@ -368,12 +394,20 @@ export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms
     async run(model, input, options) {
       if (model !== MEANING_MODEL) return ai.run(model, input, options);
       const texts = Array.isArray(input?.text) ? input.text : [];
+      if (onDisk.size > 0) {
+        for (const text of texts) {
+          if (known.has(text)) continue;
+          const vector = onDisk.get(keyOf(text));
+          if (vector) known.set(text, vector);
+        }
+      }
       const missing = [...new Set(texts.filter((text) => !known.has(text)))];
       if (missing.length > 0) {
         const answer = await embedOnce(model, missing, options);
         const data = Array.isArray(answer?.data) ? answer.data : [];
         if (data.length !== missing.length) throw new Error("the embedding model answered with the wrong count");
         missing.forEach((text, index) => known.set(text, data[index]));
+        remember(missing, data);
       }
       return { shape: [texts.length, MEANING_DIMENSIONS], data: texts.map((text) => known.get(text)) };
     },

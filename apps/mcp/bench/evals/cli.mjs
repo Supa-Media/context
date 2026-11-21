@@ -94,6 +94,7 @@ const OPTIONS = {
   shard: { type: "string" },
   items: { type: "string" },
   part: { type: "string" },
+  sets: { type: "string" },
   cases: { type: "string" },
   today: { type: "string" },
   "keep-records": { type: "boolean" },
@@ -148,6 +149,7 @@ export async function main(argv = process.argv.slice(2)) {
     writeFileSync(options.out, JSON.stringify(result));
     const s = result.search;
     say(`${result.bench}: right note first ${s.first}/${s.n} (${s.firstPct ?? "-"}%), top 5 ${s.top5Pct ?? "-"}%, MRR ${s.mrr}, p50 ${s.p50Ms} ms${s.recallAny5Pct !== undefined ? `, recall@5 any ${s.recallAny5Pct}% all ${s.recallAll5Pct}%` : ""}${s.byPath ? `; answered by ${Object.entries(s.byPath).map(([p, n]) => `${p} ${n}`).join(", ")}` : ""}`);
+    if (s.ndcg10 !== undefined) say(`  NanoBEIR nDCG@10 ${s.ndcg10} (BM25 ${s.bm25Ndcg10}${s.objectNdcg10 !== undefined ? `, objects ${s.objectNdcg10}` : ""}), Recall@10 ${s.recall10}, MRR@10 ${s.mrr10}; ${Object.entries(s.bySet).map(([k, v]) => `${k} ${v.ndcg10}`).join(", ")}`);
     if (s.objects) say(`  in workspace objects: right note first ${s.objects.first}/${s.objects.n} (${s.objects.firstPct ?? "-"}%), top 5 ${s.objects.top5Pct ?? "-"}%, MRR ${s.objects.mrr}, p50 ${s.objects.p50Ms} ms; same rank ${s.objects.same}, better ${s.objects.better}, worse ${s.objects.worse}`);
     if (result.n > 0 && s.n === 0) throw new Error("no case was scored");
     return result;
