@@ -11,7 +11,7 @@
  * Staff only: every query behind it is `requireAdmin` (`functions/texLab.ts`);
  * the page asks `amIAdmin` only to say so kindly, as tex.lc/admin does.
  */
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { AdminChrome } from "./fromApp/AdminPane";
 import { StaffOnly } from "./fromApp/StaffOnly.web";
@@ -28,7 +28,8 @@ import type { View } from "./types";
 import { Compare } from "./views/Compare.web";
 import { Evals } from "./views/Evals.web";
 import { LiveChips } from "./views/LiveChanges.web";
-import { GraphPages, MoreMenu, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
+import { MoreMenu, RunNightly, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
+import { GRAPH_PAGES, stepCountsByPage, type GraphPage } from "./engine/pages";
 import { Modules } from "./views/Modules.web";
 import { Run } from "./views/Run.web";
 import { Sim } from "./views/Sim.web";
@@ -86,6 +87,49 @@ function useOpenFromLink() {
       setOpened(true);
     }
   }, [s.versions, opened]);
+}
+
+/** Each architecture's icon in the sidebar: Texting, Nightly, Search. */
+const PAGE_ICONS: Record<GraphPage, string> = {
+  texting: '<path d="M5 6.5h14v9H10l-4 3v-3H5z"/>',
+  nightly: '<path d="M19 14.5A7.5 7.5 0 0 1 9.5 5a7.5 7.5 0 1 0 9.5 9.5z"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+};
+
+/**
+ * The architectures under Architecture in the sidebar (Dev2, 2026-11-21: "put it as a sub component under architecture,
+ * and then move texting under there, move nightly under there, and then add search under there as well. So people know
+ * that we have like three different architectures"). Each is a page of the one config (`engine/pages.ts`); picking one
+ * opens the canvas on it, fitted, with nothing selected, as the top bar's switcher did before. Later ones (meeting
+ * summaries, say) are one more `GRAPHS` entry.
+ */
+function ArchPages({ onPick }: { onPick: () => void }) {
+  const s = useLab();
+  const counts = stepCountsByPage(G());
+  const pick = (page: GraphPage) => {
+    onPick();
+    if (page === s.graphPage && s.view === "canvas") return;
+    set({ graphPage: page, view: "canvas", sel: null, cfocus: null });
+    setTimeout(fit, 0);
+  };
+  return (
+    <div className="archpages" id="graphPages" role="group" aria-label="Architectures">
+      {GRAPH_PAGES.map(([page, name]) => (
+        <button
+          key={page}
+          className="rowi archpage"
+          data-graph={page}
+          aria-current={s.view === "canvas" && s.graphPage === page}
+          title={`${name}: ${counts[page]} step${counts[page] === 1 ? "" : "s"}`}
+          onClick={() => pick(page)}
+        >
+          <Svg d={PAGE_ICONS[page]} />
+          <span className="nm">{name}</span>
+          <span className="tag">{counts[page] || ""}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function TexLab() {
@@ -198,7 +242,7 @@ function Lab() {
           ) : (
             <>
               <VersionMenu />
-              <GraphPages />
+              {s.graphPage === "nightly" && s.view === "canvas" ? <RunNightly /> : null}
               <span className="dot" id="dirtyDot" title="Unsaved changes" hidden={!s.dirty} />
               {/* A saved version saves each edit as it happens, so Save shows only for what isn't saved yet (`engine/live.ts`). */}
               {s.dirty && !isMain() ? (
@@ -222,15 +266,18 @@ function Lab() {
         <div className={"body labnav" + (s.navMin ? " navmin" : "")} id="body" style={gridCols ? { gridTemplateColumns: gridCols } : undefined}>
           <nav className="side" id="side" aria-label="Lab" hidden={s.sideHidden && !phone()}>
             {NAV.map(([v, name, icon, tag]) => (
-              <button key={v} className="rowi" data-view={v} aria-current={s.view === v} title={name} onClick={() => (closeSide(), go(v))}>
-                <Svg d={icon} />
-                <span className="nm">{name}</span>
-                {tag ? (
-                  <span className="tag" id={tag}>
-                    {tags[tag]}
-                  </span>
-                ) : null}
-              </button>
+              <Fragment key={v}>
+                <button className="rowi" data-view={v} aria-current={s.view === v && v !== "canvas"} title={name} onClick={() => (closeSide(), go(v))}>
+                  <Svg d={icon} />
+                  <span className="nm">{name}</span>
+                  {tag ? (
+                    <span className="tag" id={tag}>
+                      {tags[tag]}
+                    </span>
+                  ) : null}
+                </button>
+                {v === "canvas" ? <ArchPages onPick={closeSide} /> : null}
+              </Fragment>
             ))}
             <div className="sidefoot">
               <button className="rowi" id="navMin" title={s.navMin ? "Show names" : "Fold the sidebar to icons"} onClick={() => set({ navMin: !s.navMin })}>

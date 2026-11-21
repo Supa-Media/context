@@ -65,7 +65,7 @@ export async function stepEntries(ledgerOf, workspaceId) {
 
 /**
  * The finished run card on the first Tex row of each answered turn (mock: "Worked 12s · 5 steps"): `{ secs, steps }`,
- * the turn's thinking and tool calls in order, timed from its first step, and the seconds from the oldest text it
+ * the turn's thinking and tool calls in order, timed from its first step, and the seconds from the newest text it
  * covers to its first answer. A turn with no steps kept gets no card.
  */
 function runCards(kept, entries) {
@@ -86,7 +86,9 @@ function runCards(kept, entries) {
     const steps = turnSteps.map((entry) => liveStepOf(entry, (Number.isFinite(entry.at) ? entry.at : first) - first)).filter((step) => step !== null).slice(-MAX_LIVE_STEPS);
     if (steps.length === 0) continue;
     const asked = event.covers.map((id) => atOf.get(id)).filter((at) => Number.isFinite(at));
-    const from = asked.length > 0 ? Math.min(...asked) : first;
+    // From the newest text it covers, the one that started it: a turn that also took in a day-old text worked seconds,
+    // never the day ("Worked 80681s", 2026-11-21, a lost turn's ask from the day before covered beside a new question).
+    const from = asked.length > 0 ? Math.max(...asked) : first;
     row.run = { secs: Math.max(1, Math.round((row.at - from) / 1000)), steps };
   }
 }

@@ -152,3 +152,11 @@ The incident: asked for "the <org> reading list", Tex read the org's name as a w
 This replaces the same day's fallback (`tools/searchNamed.js`), which appended title matches from elsewhere to a scoped search for every client. It changed the gateway's answer for all clients and still let Tex fence a search.
 
 **What a simplification would cost:** with `context` passed through as a filter, Tex answers "not written down" whenever a workspace shares a word with the question, and workspaces are named for their topics. Without the `Searched:` line, a reply can name a search it never ran. **Tests:** `agentSixTools.test.mjs` (a named workspace resolves to `boost`, `only` keeps it scoped), `searchEverywhereBoost.test.mjs` (the boost never drops a hit; `Searched:` lists only workspaces that answered), the replay case `search-names-google-chat` (the texted reply ends with the result's `Searched:` line though the model left it out), `searchedLine.test.mjs`, and the Training cases `reading-list-app` and `reading-list-text`.
+
+### Search runs from a config of its own, and its ranking constants are that config's settings
+
+Moved to [Search runs from a config of its own, and its ranking constants are that config's settings](./search/search-config.md#search-runs-from-a-config-of-its-own-and-its-ranking-constants-are-that-configs-settings).
+
+### Search is measured on three sets, and a search change merges only if the right note stays first
+
+Moved to [Search is measured on three sets, and a search change merges only if the right note stays first](./search/search-suite.md#search-is-measured-on-three-sets-and-a-search-change-merges-only-if-the-right-note-stays-first).

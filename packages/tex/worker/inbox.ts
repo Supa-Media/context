@@ -82,7 +82,7 @@ import type { ReplyPlace } from "./clients";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
-import { chooseTurn, decideWhileRunning, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
+import { chooseTurn, decideWhileRunning, leftoverText, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TextSource } from "./events"; import { warmDeps } from "./warm";
 import { sha256Hex } from "./groupChat";
 import { chatJobs, jobQuestion, notResumedText, notStartedText, resumeJobs, startJobs, steerJobs, viewLink, type JobRun, type JobSteer } from "./jobs";
@@ -366,9 +366,13 @@ async function acknowledgeText(storage: InboxStorage, deps: InboxDeps, message: 
   return (await tapback(storage, { chat: message.chatId, now: deps.now, by, asked: emoji, turn }, message.text, (sent) => lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, sent))) ?? undefined;
 }
 
-/** When the oldest of `entries` came in; nothing for texts queued before this was kept. */
-function arrivedAt(entries: Entry[]): number | undefined {
-  const times = entries.flatMap(([, entry]) => (entry.at === undefined ? [] : [entry.at]));
+/**
+ * When the oldest of `entries` came in; nothing for texts queued before this was kept. A leftover the judge took in
+ * (`leftoverText`) is not counted: the turn's wait is the newer texts', never the day a lost turn's text sat.
+ */
+function arrivedAt(entries: Entry[], now: number): number | undefined {
+  const fresh = entries.filter(([, entry]) => !leftoverText(entry, now));
+  const times = (fresh.length > 0 ? fresh : entries.slice(-1)).flatMap(([, entry]) => (entry.at === undefined ? [] : [entry.at]));
   return times.length === 0 ? undefined : Math.min(...times);
 }
 
@@ -384,7 +388,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   const covers = entries.flatMap(([, entry]) => (entry.ev ? [entry.ev] : [])).slice(-MAX_CANDIDATES);
   // A newer text merged into a failing burst brings no tries of its own: the burst's count is its most-tried text's.
   const tries = Math.max(...entries.map(([, entry]) => entry.tries ?? 0)) + 1;
-  const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries) };
+  const timing: TurnTiming = { started: deps.now(), arrived: arrivedAt(entries, deps.now()) };
   let turn: Answered;
   await markRunning(storage, entries, timing.started); // found by the next drain if this object is reset mid-turn
   try {
@@ -670,6 +674,8 @@ async function crossFor(storage: InboxStorage, message: Message, deps: InboxDeps
 async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps): Promise<Pick<ReplyDeps, "running" | "onJobs" | "onSteers">> {
   const spawn = deps.spawnJob;
   if (spawn === undefined || message.sms) return {};
+  // An in-app chat's jobs run as its user (`personSession.ts`), so only the object the gateway placed for that chat starts them.
+  if ((namesAppChat(message.from) || namesAppChat(message.chatId)) && (deps.appChat !== message.chatId || message.from !== message.chatId)) return {};
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
   return {
     running: await chatJobs(storage, deps.now(), { results: true }),

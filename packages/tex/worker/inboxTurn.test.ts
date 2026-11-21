@@ -426,3 +426,68 @@ describe("\"Tex, settings\" in a person's own chat", () => {
     expect(w.asks.length + w.decided.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * A text left in the queue by a turn lost before the watch existed (`inboxTurn.ts` `leftoverText`). 2026-11-20 8:25 AM:
+ * an app text's turn wrote the Daniel 6 note and was lost before its reply was recorded; the text sat until an
+ * unrelated "What's the capital Argentina" the next morning, and was answered again beside it (Dev2, 2026-11-21).
+ *
+ * Sabotage record (applied, run, observed failing, reverted):
+ *  1. `leftoverTurn` not called (leftovers judged as any text) → "the judge leaves it out" fails: gatherTheTurn answers
+ *     the day-old text first, on its own.
+ *  2. the fallback answering `fallbackTurn(burst)` → "decide down" fails: the leftover rides along unasked.
+ *  3. `markLeftover` not called → "the judge leaves it out" fails: no failed mark, no Try again.
+ */
+describe("a leftover text from a lost turn beside a new one", () => {
+  const CHAT = LINES[0].chatId;
+  const OLD_AT = 1_000;
+  const NEW_AT = OLD_AT + 22 * 3_600_000;
+  const later = (w: ReturnType<typeof world>): InboxDeps => ({ ...w.deps, now: () => NEW_AT + 1_000 });
+  const newestOnly = (body: Decided) => ({ ok: true, act: "answer", covers: [body.newest], stale: [], movedOn: false, confidence: 0.9 });
+
+  it("the judge leaves it out: only the new text is answered, and the leftover is marked failed with Try again", async () => {
+    const storage = new MemoryStorage();
+    const w = world(newestOnly);
+    await accept(storage, msg(CHAT, "e1", "Prepare daniel 6 notes"), OLD_AT);
+    await accept(storage, msg(CHAT, "e2", "What's the capital Argentina"), NEW_AT);
+    await drain(storage, later(w));
+    expect(w.decided).toHaveLength(1);
+    expect(w.decided[0].candidates).toHaveLength(2);
+    expect(w.asks.map((ask) => ask.question)).toEqual(["What's the capital Argentina"]);
+    expect((await storage.list({ prefix: "pending:" })).size).toBe(0);
+    const [oldEv] = w.decided[0].candidates;
+    expect(await storage.get(`failed:${oldEv}`)).toMatchObject({ why: "left", message: { text: "Prepare daniel 6 notes" } });
+    const steps = [...(await storage.list<{ e?: { kind: string; step?: { of?: string } } }>({ prefix: "ev:" })).values()].filter((v) => v.e?.kind === "step" && v.e.step?.of === "leftover");
+    expect(steps).toHaveLength(1);
+  });
+
+  it("a new text that carries it on: the judge covers both, and one turn answers them together", async () => {
+    const storage = new MemoryStorage();
+    const w = world(all);
+    await accept(storage, msg(CHAT, "e1", "Prepare daniel 6 notes"), OLD_AT);
+    await accept(storage, msg(CHAT, "e2", "can you please do what I asked?"), NEW_AT);
+    await drain(storage, later(w));
+    expect(w.asks.map((ask) => ask.question)).toEqual(["Prepare daniel 6 notes\ncan you please do what I asked?"]);
+    expect((await storage.list({ prefix: "failed:" })).size).toBe(0);
+  });
+
+  it("decide down: the new text is answered as before decide, and the leftover never rides along unasked", async () => {
+    const storage = new MemoryStorage();
+    const w = world(() => ({ ok: false, reason: "unavailable", cause: "no_group" }));
+    await accept(storage, msg(CHAT, "e1", "Prepare daniel 6 notes"), OLD_AT);
+    await accept(storage, msg(CHAT, "e2", "What's the capital Argentina"), NEW_AT);
+    await drain(storage, later(w));
+    expect(w.asks.map((ask) => ask.question)).toEqual(["What's the capital Argentina"]);
+    expect((await storage.list({ prefix: "failed:" })).size).toBe(1);
+  });
+
+  it("texts minutes apart are no leftovers: an older one decide left out is still answered first, on its own", async () => {
+    const storage = new MemoryStorage();
+    const w = world(newestOnly);
+    await accept(storage, msg(CHAT, "e1", "what's on my calendar"), OLD_AT);
+    await accept(storage, msg(CHAT, "e2", "also, capital of France?"), OLD_AT + 60_000);
+    await drain(storage, { ...w.deps, now: () => OLD_AT + 61_000 });
+    expect(w.asks.map((ask) => ask.question)).toEqual(["what's on my calendar", "also, capital of France?"]);
+    expect((await storage.list({ prefix: "failed:" })).size).toBe(0);
+  });
+});

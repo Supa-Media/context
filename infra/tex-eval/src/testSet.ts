@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
-import { counts, dayOf, mayRun, problemWith, unitTests, verdict, type Conversation, type Result, type Test, type Verdict } from "./rules";
+import { SHA, counts, dayOf, mayRun, problemWith, unitTests, verdict, type Conversation, type Result, type Test, type Verdict } from "./rules";
+import { searchCounts as countSearchCases, searchProblemWith, type SearchCase, type SearchResult } from "./searchRules";
+import { allCases, caseList, caseOf, createSearchTables, deleteCase, finishSearch, searchRunRows, seedCases, startSearch, upsertCase, type SearchRunRow } from "./searchStore";
 
 /**
  * The Test Set: one Durable Object, the only place its conversations are kept. Nothing here is logged but ids and
@@ -27,8 +29,6 @@ export interface RunRow {
   allowance: boolean;
 }
 
-const SHA = /^[0-9a-f]{40}$/;
-
 export class TestSet extends DurableObject {
   private sql: SqlStorage;
 
@@ -41,6 +41,8 @@ export class TestSet extends DurableObject {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS allowances (pr INTEGER PRIMARY KEY, left INTEGER NOT NULL)`);
     // Who changed what, by id only.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS audit (at INTEGER NOT NULL, who TEXT NOT NULL, what TEXT NOT NULL, subject TEXT NOT NULL)`);
+    // The Search Test: its own tables in this object (docs/decisions/testing/test-set-service.md).
+    createSearchTables(this.sql);
   }
 
   private audit(who: string, what: string, subject: string) {
@@ -104,6 +106,39 @@ export class TestSet extends DurableObject {
       .map((r): RunRow => ({ ...r, verdict: r.verdict ? (JSON.parse(r.verdict) as Verdict) : null, allowance: r.allowance === 1 }));
   }
 
+  // ---- the Search Test: people (the Lab, through the gateway) ----
+
+  searchList() {
+    return { cases: caseList(this.sql), counts: countSearchCases(allCases(this.sql)) };
+  }
+
+  searchGet(id: string): SearchCase | null {
+    return caseOf(this.sql, id);
+  }
+
+  searchPut(c: SearchCase, who: string) {
+    const problem = searchProblemWith(c);
+    if (problem) return { ok: false as const, problems: [problem] };
+    upsertCase(this.sql, c, who, Date.now());
+    this.audit(who, "search-put", c.id);
+    return { ok: true as const, kept: c.id, counts: countSearchCases(allCases(this.sql)) };
+  }
+
+  searchRemove(id: string, who: string) {
+    const had = deleteCase(this.sql, id);
+    if (had) this.audit(who, "search-remove", id);
+    return { removed: had ? id : null, counts: countSearchCases(allCases(this.sql)) };
+  }
+
+  searchCounts() {
+    return countSearchCases(allCases(this.sql));
+  }
+
+  /** Recent search runs: no ids, no words. */
+  searchRuns(limit = 20): SearchRunRow[] {
+    return searchRunRows(this.sql, Number(limit));
+  }
+
   // ---- main's Test Set workflow ----
 
   /** A run starts: capped, then handed every Test conversation. The same GitHub run asking again gets its own run back. */
@@ -154,5 +189,27 @@ export class TestSet extends DurableObject {
     }
     if (kept.length) this.audit(`github-run:${ghRun}`, "seed", `${kept.length} chats`);
     return { kept: kept.length, skipped, counts: counts(this.all()) };
+  }
+
+  // ---- the Search Test: main's search workflows ----
+
+  /** A search run starts: capped on search runs only, then handed every search case. */
+  startSearchRun(s: RunStart, now = Date.now()) {
+    const started = startSearch(this.sql, s, now);
+    if (!started.ok) return started;
+    if (!started.same) this.audit(s.actor ? `github:${s.actor}` : "github", "search-run", `#${s.pr} ${s.sha.slice(0, 7)}`);
+    return { ok: true as const, run: started.run, cases: started.cases };
+  }
+
+  /** The search run's answers come back: scored here, against the cases it was handed, once. */
+  finishSearchRun(run: string, ghRun: string, branch: SearchResult[], main: SearchResult[]) {
+    return finishSearch(this.sql, run, ghRun, branch, main);
+  }
+
+  /** The held-out search cases moved in by main's seed workflow: kept where no case has the id, never overwriting. */
+  seedSearch(cases: unknown[], ghRun: string, now = Date.now()) {
+    const { kept, skipped } = seedCases(this.sql, cases, ghRun, now);
+    if (kept.length) this.audit(`github-run:${ghRun}`, "search-seed", `${kept.length} cases`);
+    return { kept: kept.length, skipped, counts: countSearchCases(allCases(this.sql)) };
   }
 }

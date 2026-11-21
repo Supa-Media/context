@@ -13,6 +13,9 @@
 # pr-description.yml re-runs this only when the owner's skip line changed, and
 # the gate reads the live description.
 #
+# A change that reaches search code also needs a successful "Search test set" status (scripts/search-test-set.mjs,
+# search-test-set.yml): the sealed real-query Test part, ranked on the change and on main.
+#
 # On a merge group (the merge queue's trial commit) the gate does not run
 # again. The Test Set's status lives on the pull request's head commit, and a
 # trial commit must not spend a capped, sealed run a second time. The check
@@ -65,6 +68,21 @@ jobs:
           node scripts/tex-replay-required.mjs --self-test
           node scripts/tex-test-set-dispatch.mjs --self-test
           node scripts/merge-group.mjs --self-test
+          node scripts/search-test-set.mjs --self-test
+
+      # The search gate (docs/decisions/search/search-suite.md): a change that reaches search code starts the sealed
+      # search Test part on main now, and passes below only on a successful "Search test set" status. A fork never starts it.
+      - name: Start the Search test set when this change reaches search
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/search-test-set.mjs dispatch
 
       # Files that reach a model area start the Test Set now, before the
       # fingerprints. The gate below is unchanged: it still passes only on a
@@ -155,6 +173,17 @@ jobs:
             export PR_BODY
           fi
           node scripts/tex-replay-required.mjs
+
+      - name: Right note first did not drop on the search Test part, or the change reaches no search code
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/search-test-set.mjs gate
 
       # The merge queue: nothing above ran. Pass only when this check already
       # passed on the head commit of the pull request this group was built for.

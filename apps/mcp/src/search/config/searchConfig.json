@@ -1,0 +1,219 @@
+{
+  "searchConfig": 1,
+  "about": "Search's own config (Dev2, 2026-11-21: \"not only Tex uses search\"): every step a search runs, its settings and the wires between them. Read by the gateway's search for every caller (an AI client's search_notes, the app's search bar, Tex) through searchConfig.js, and edited in the Lab on the Search page. A Lab Promote changes this file in a pull request.",
+  "nodes": [
+    {
+      "id": "search",
+      "label": "Search",
+      "goal": "A search arrives (an AI client's search_notes, the app's search bar, Tex): pick the workspaces it asks, every one the person reaches unless a folder, a scope or the person's setting narrows it.",
+      "on": true,
+      "model": "code",
+      "kind": "input",
+      "icon": "search",
+      "file": "apps/mcp/src/search/config/nodes.js",
+      "x": 0,
+      "y": 0,
+      "settings": {},
+      "inSchema": [
+        {
+          "name": "query",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "only",
+          "type": "list",
+          "optional": true
+        },
+        {
+          "name": "boost",
+          "type": "text",
+          "optional": true
+        }
+      ],
+      "outSchema": [
+        {
+          "name": "to",
+          "type": "choice",
+          "options": "each, none"
+        },
+        {
+          "name": "query",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "names",
+          "type": "ids"
+        },
+        {
+          "name": "here",
+          "type": "yesno"
+        },
+        {
+          "name": "boost",
+          "type": "text",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "each",
+      "label": "Search each workspace",
+      "goal": "In every workspace asked, at once and under the person's role there: find notes by their words and by their meaning, and merge the two lists by reciprocal rank, title and phrase evidence and the path prior.",
+      "on": true,
+      "model": "code",
+      "icon": "search",
+      "file": "apps/mcp/src/search/config/nodes.js \u00b7 meaning/serve.js \u00b7 visibleNotes.js",
+      "x": 280,
+      "y": 0,
+      "settings": {
+        "minScore": 0.4,
+        "extraNotes": 3,
+        "snippetChars": 200,
+        "looseReads": 6,
+        "meaningFloor": 0.5,
+        "rrfK": 60,
+        "titleWeight": 0.003278688524590164,
+        "phraseBonus": 0.00819672131147541,
+        "logPrior": 0.5
+      },
+      "inSchema": [
+        {
+          "name": "to",
+          "type": "choice",
+          "options": "each"
+        },
+        {
+          "name": "query",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "names",
+          "type": "ids"
+        },
+        {
+          "name": "here",
+          "type": "yesno"
+        },
+        {
+          "name": "boost",
+          "type": "text",
+          "optional": true
+        }
+      ],
+      "outSchema": [
+        {
+          "name": "to",
+          "type": "choice",
+          "options": "one, several"
+        },
+        {
+          "name": "answer",
+          "type": "object",
+          "optional": true
+        },
+        {
+          "name": "query",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "name": "boost",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "name": "workspaces",
+          "type": "list",
+          "optional": true
+        },
+        {
+          "name": "unreached",
+          "type": "ids",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "fuse",
+      "label": "Rank across workspaces",
+      "goal": "One list from every workspace's, ranked by evidence rather than by workspace: word rank (a loose hit counted lower), rank among every meaning match, title and phrase evidence, the path prior and a named workspace's boost; at most the hits setting shown.",
+      "on": true,
+      "model": "code",
+      "icon": "rank",
+      "file": "apps/mcp/src/search/config/nodes.js \u00b7 tools/search.js",
+      "x": 560,
+      "y": 0,
+      "settings": {
+        "hits": 12,
+        "rrfK": 60,
+        "loosePenalty": 10,
+        "titleWeight": 0.003278688524590164,
+        "phraseBonus": 0.00819672131147541,
+        "meaningFloor": 0.5,
+        "looseReads": 6,
+        "boostFactor": 1.2,
+        "logPrior": 0.5
+      },
+      "inSchema": [
+        {
+          "name": "to",
+          "type": "choice",
+          "options": "several"
+        },
+        {
+          "name": "query",
+          "type": "text"
+        },
+        {
+          "name": "boost",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "name": "workspaces",
+          "type": "list"
+        },
+        {
+          "name": "unreached",
+          "type": "ids"
+        }
+      ],
+      "outSchema": [
+        {
+          "name": "answer",
+          "type": "object"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "search",
+      "to": "each",
+      "mode": "wait",
+      "when": [
+        "each"
+      ]
+    },
+    {
+      "from": "each",
+      "to": "fuse",
+      "mode": "wait",
+      "when": [
+        "several"
+      ]
+    }
+  ]
+}

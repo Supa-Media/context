@@ -57,6 +57,12 @@ export const LAB_CSS_5 = String.raw`
 .tl .labnav.navmin .side .rowi .nm,.tl .labnav.navmin .side .rowi .tag{display:none}
 .tl .labnav.navmin .side{padding:10px 6px}
 .tl .labnav .sidefoot{margin-top:auto}
+/* The architectures under Architecture (Texting, Nightly, Search): indented rows with their own icon; folded, icons only. */
+.tl .labnav .archpages{display:flex;flex-direction:column;gap:2px}
+.tl .labnav .side .rowi.archpage{padding-left:30px}
+.tl .labnav .side .rowi.archpage .i{width:15px;height:15px}
+.tl .labnav.navmin .side .rowi.archpage{padding-left:8px}
+.tl .pageempty{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:340px;text-align:center;font-size:13px;color:var(--dim);pointer-events:none}
 
 /* The canvas key, opened from the toolbar's ?. */
 .tl .keyw.keypop{flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:2px;position:absolute;top:auto;left:50%;bottom:calc(64px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:30;width:min(420px,calc(100% - 24px));padding:8px 10px}

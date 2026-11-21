@@ -16,7 +16,8 @@
  * across parts and across a restart of the whole job.
  */
 
-import { openSession, post, ServiceError, type Fetch } from "./clients";
+import { post, ServiceError, type Fetch } from "./clients";
+import { openPersonSession } from "./personSession";
 import { textsFromAnswer } from "./format";
 import type { JobAsk, JobRun, JobVerdict, StepHow } from "./jobs";
 
@@ -162,7 +163,7 @@ export async function machineTurn(
   // A person's own texts: their texting grant. A group chat: the chat's, on the computers lent to it.
   const grant = async (): Promise<string | null> => {
     if (origin.kind === "group") return (await hooks.groupGrant?.()) ?? null;
-    const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, origin.phone);
+    const session = await openPersonSession(deps, origin.phone);
     // Unlinked since: nothing of theirs runs, and nothing is said.
     return session.status === "linked" ? session.accessToken : null;
   };

@@ -19,7 +19,7 @@ const result = await build({
   format: "iife",
   jsx: "automatic",
   resolveExtensions: [".web.tsx", ".web.ts", ".tsx", ".ts", ".jsx", ".js", ".json"],
-  alias: { "convex/react": here("./tex-lab-preview/convexMock.js") },
+  alias: { "convex/react": here("./tex-lab-preview/convexMock.js"), "react-native": "react-native-web" },
   nodePaths: [here("../apps/mobile/node_modules"), here("../node_modules")],
   define: { "process.env.NODE_ENV": '"production"' },
   logLevel: "warning",
@@ -27,7 +27,8 @@ const result = await build({
     {
       name: "admin-stub",
       setup(b) {
-        b.onResolve({ filter: /\/admin\/(AdminPane|StaffFactorGate)$/ }, () => ({ path: here("./tex-lab-preview/adminStub.jsx") }));
+        b.onResolve({ filter: /\/(admin|fromApp)\/(AdminPane|StaffFactorGate)$/ }, () => ({ path: here("./tex-lab-preview/adminStub.jsx") }));
+        b.onResolve({ filter: /observability\/client$/ }, () => ({ path: here("./tex-lab-preview/observabilityStub.js") }));
       },
     },
   ],

@@ -24,6 +24,7 @@
  */
 
 import type { JobNote } from "./jobNote";
+import { isAppChat } from "./appChat";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 import { cut, MAX_INBOUND_TEXT } from "./inbound";
@@ -551,7 +552,8 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(Array.isArray(vaultLinks) && vaultLinks.length > 0 ? { vaultLinks: vaultLinks.filter((hash): hash is string => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash)).slice(0, 5) } : {}),
     ...(typeof ask === "string" && ask.trim() !== "" ? { ask: ask.slice(0, MAX_ASK) } : {}),
     ...(typeof pass === "string" && ID.test(pass) ? { pass } : {}),
-    ...(typeof by.from === "string" && /^\+[1-9]\d{6,14}$/.test(by.from) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),
+    // A phone, or an in-app chat's id (`appChat.ts`): without it an app job's report was dropped as unaddressed.
+    ...(typeof by.from === "string" && (/^\+[1-9]\d{6,14}$/.test(by.from) || isAppChat(by.from)) && typeof by.text === "string" ? { asked: { from: by.from, text: by.text.slice(0, MAX_ASKED) } } : {}),
     ...(Number.isInteger(first) && (first as number) >= 0 ? { first: first as number } : {}),
     ...(Number.isSafeInteger(resumeAt) && (resumeAt as number) > 0 ? { resumeAt: resumeAt as number } : {}),
     ...(read.length > 0 ? { pictures: read } : {}),

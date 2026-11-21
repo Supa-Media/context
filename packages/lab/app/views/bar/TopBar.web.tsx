@@ -2,13 +2,12 @@
  * The decluttered top bar's menus (mockup https://claude.ai/artifact/W21NekNf2vtnFLXXzAmp7N, approved by Dev2
  * 2026-11-16: "much cleaner"): one version picker that holds the versions, a new version, rename, Promote and how a
  * draft's changes are drawn; the Dev set score and a split ▶ Run Dev set whose menu picks the models; and ⋯ for the
- * look and the sync state; and the canvas's page, Texting or Nightly. Everything here is also a tex_dev action (list,
+ * look and the sync state; and, on the Nightly page, Run now (the pages themselves are in the sidebar, under Architecture). Everything here is also a tex_dev action (list,
  * create, rename, promote, run, runs, code, and snapshot or link with `graph`).
  */
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { emit, fit, G, isMain, lab, newVersion, openVersion, PLAY_SPEEDS, set, setSpeed, toast, type PlaySpeed } from "../../engine/state";
-import { GRAPH_PAGES, stepCountsByPage, type GraphPage } from "../../engine/pages";
+import { emit, isMain, lab, newVersion, openVersion, PLAY_SPEEDS, set, setSpeed, toast, type PlaySpeed } from "../../engine/state";
 import { isLive, live } from "../../engine/live";
 import { runNightlyNow, useSandbox } from "../../engine/sandbox";
 import { promoteVersion, useLab } from "../../store";
@@ -133,38 +132,13 @@ export function VersionMenu() {
   );
 }
 
-/**
- * The canvas's page (Dev2, 2026-11-20: "the nightly cleanup is a different type of AI job. It's not really texting, so
- * it should probably live in a different graph"): Texting or Nightly, drawn the way Lab | Testing is. A page opens on the
- * canvas, fitted, with nothing selected; it is kept in the address (`?graph=nightly`).
- */
-export function GraphPages() {
-  const s = useLab();
-  const counts = stepCountsByPage(G());
-  const pick = (page: GraphPage) => {
-    if (page === s.graphPage && s.view === "canvas") return;
-    set({ graphPage: page, view: "canvas", sel: null, cfocus: null });
-    setTimeout(fit, 0);
-  };
-  return (
-    <div className="modes pages" id="graphPages" role="group" aria-label="Graph">
-      {GRAPH_PAGES.map(([page, name]) => (
-        <button key={page} data-graph={page} aria-pressed={s.graphPage === page} title={`${name}: ${counts[page]} step${counts[page] === 1 ? "" : "s"}`} onClick={() => pick(page)}>
-          {name}
-        </button>
-      ))}
-      {s.graphPage === "nightly" ? <RunNightly /> : null}
-    </div>
-  );
-}
-
 /** Run now on the Nightly page: the nightly on the version open, in a test chat of your own 1:1 (`runNightlyNow`). */
-function RunNightly() {
+export function RunNightly() {
   const s = useLab();
   const sb = useSandbox();
   const busy = sb.busy || sb.running !== null;
   return (
-    <>
+    <div className="modes" role="group" aria-label="Run the nightly">
       {(["dream", "housekeeping"] as const).map((which) => (
         <button
           key={which}
@@ -176,7 +150,7 @@ function RunNightly() {
           {busy ? "Running…" : which === "dream" ? "Run now" : "Run housekeeping"}
         </button>
       ))}
-    </>
+    </div>
   );
 }
 

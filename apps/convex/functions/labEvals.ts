@@ -18,10 +18,18 @@ import { requireAdmin } from "./lib/admin";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CODE, LAB_REPO, codeOf } from "./texLabRuns";
 
-/** The benchmarks offered, and how many questions each holds. */
+/**
+ * The benchmarks offered, and how many questions each holds. `search` marks the Search suite
+ * (`apps/mcp/bench/evals/searchSuite.mjs`): embeddings only, never Claude, so its `models` is always gw and the Lab
+ * offers no Claude Code choice for it. search-real's total is 0 until its Dev part is in: the count comes from the Dev
+ * part, and no run starts before it. Its Test part is sealed and only CI runs it.
+ */
 export const EVAL_BENCHES = [
-  { id: "longmemeval-s", title: "LongMemEval", variant: "S", total: 500, about: "500 questions, each after about 50 past chat sessions (about 115k tokens)." },
-  { id: "longmemeval-oracle", title: "LongMemEval", variant: "Oracle", total: 500, about: "The same 500 questions with only the sessions that hold the evidence." },
+  { id: "longmemeval-s", title: "LongMemEval", variant: "S", total: 500, search: false, about: "500 questions, each after about 50 past chat sessions (about 115k tokens)." },
+  { id: "longmemeval-oracle", title: "LongMemEval", variant: "Oracle", total: 500, search: false, about: "The same 500 questions with only the sessions that hold the evidence." },
+  { id: "search-hard", title: "Search", variant: "Made-up hard", total: 40, search: true, about: "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives. Embeddings only." },
+  { id: "search-real", title: "Search", variant: "Real queries (Dev)", total: 10, search: true, about: "Real searches that failed (retried, or never opened), rewritten never verbatim: the Dev part. Embeddings only." },
+  { id: "longmemeval-retrieval", title: "LongMemEval", variant: "Retrieval", total: 470, search: true, about: "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge. Embeddings only." },
 ] as const;
 export const EVAL_WORKFLOW = "lab-eval-run.yml";
 /** The first slice a new benchmark is sized on (Dev2's ask: a 50-question slice first, then the full run's cost). */
@@ -46,6 +54,9 @@ const stageV = v.union(v.literal("queued"), v.literal("running"), v.literal("don
 const text = (x: unknown, most: number) => (typeof x === "string" ? x.slice(0, most) : "");
 const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
 const bool = (x: unknown) => (x === true ? true : x === false ? false : null);
+/** A number or null, kept as reported (a weekly share the usage read could not give is null, not 0). */
+const numOrNull = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
+const obj = (x: unknown): Record<string, unknown> => (x && typeof x === "object" ? (x as Record<string, unknown>) : {});
 
 /** One reported row, cleaned: the fields the Lab shows, each cut to its length. */
 export function cleanRow(x: unknown) {
@@ -61,6 +72,12 @@ export function cleanRow(x: unknown) {
     date: text(r.date, 40),
     answer: text(r.answer, 4_000),
     correct: bool(r.correct),
+    /** Search suite rows: the rank of the first expected note (null when none was found or none was expected). */
+    rank: numOrNull(r.rank),
+    /** Search suite rows: how many notes the search answered with. */
+    hits: num(r.hits),
+    /** Search suite rows: which way the search was answered (`object`, `database`, `index`, `scan`; `+` joins several). */
+    path: text(r.path, 40),
     judgeSaid: text(r.judgeSaid, 80),
     sessions: num(r.sessions),
     saved: num(r.saved),
@@ -82,13 +99,46 @@ export function cleanRow(x: unknown) {
   };
 }
 
+/** A map of at most 20 entries, each cleaned by `pick`; keys cut to 40 characters. */
+const mapOf = <T,>(m: unknown, pick: (x: Record<string, unknown>) => T) =>
+  Object.fromEntries(
+    Object.entries(obj(m))
+      .slice(0, 20)
+      .map(([k, val]) => [k.slice(0, 40), pick(obj(val))]),
+  );
+
+/**
+ * A Search suite run's scores (`apps/mcp/bench/evals/searchSuite.mjs` `searchScores`, plus longmemeval-retrieval's
+ * recall): right note first, top 5, found, mean reciprocal rank and time, per kind and per ability. Absent on a run
+ * that is not a search one.
+ */
+export function cleanSearch(x: unknown) {
+  if (!x || typeof x !== "object") return undefined;
+  const s = obj(x);
+  return {
+    n: num(s.n),
+    first: num(s.first),
+    top5: num(s.top5),
+    found: num(s.found),
+    firstPct: numOrNull(s.firstPct),
+    top5Pct: numOrNull(s.top5Pct),
+    foundPct: numOrNull(s.foundPct),
+    mrr: num(s.mrr),
+    p50Ms: num(s.p50Ms),
+    p95Ms: num(s.p95Ms),
+    errors: num(s.errors),
+    ...(s.recallAny5Pct !== undefined ? { recallAny5Pct: numOrNull(s.recallAny5Pct) } : {}),
+    ...(s.recallAll5Pct !== undefined ? { recallAll5Pct: numOrNull(s.recallAll5Pct) } : {}),
+    ...(s.byKind !== undefined ? { byKind: mapOf(s.byKind, (k) => ({ n: num(k.n), firstPct: numOrNull(k.firstPct) })) } : {}),
+    ...(s.byPath !== undefined ? { byPath: Object.fromEntries(Object.entries(obj(s.byPath)).slice(0, 10).map(([k, val]) => [k.slice(0, 40), num(val)])) } : {}),
+    ...(s.byAbility !== undefined ? { byAbility: mapOf(s.byAbility, (k) => ({ n: num(k.n), recallAny5Pct: numOrNull(k.recallAny5Pct) })) } : {}),
+  };
+}
+
 const share = (x: unknown) => {
   const s = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
   return { n: num(s.n), correct: num(s.correct), pct: typeof s.pct === "number" ? s.pct : null };
 };
-
-/** A number or null, kept as reported (a weekly share the usage read could not give is null, not 0). */
-const numOrNull = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
 
 /**
  * A Claude Code run's spend (`apps/mcp/bench/evals/ccUsage.mjs`): measured tokens and the weekly limit's share, in
@@ -127,7 +177,8 @@ export function cleanSummary(x: unknown) {
   const s = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
   const scores = (s.scores && typeof s.scores === "object" ? s.scores : {}) as Record<string, unknown>;
   const usd = (scores.usd && typeof scores.usd === "object" ? scores.usd : {}) as Record<string, unknown>;
-  const map = (m: unknown) => Object.fromEntries(Object.entries(m && typeof m === "object" ? (m as Record<string, unknown>) : {}).slice(0, 20).map(([k, val]) => [k.slice(0, 40), share(val)]));
+  const map = (m: unknown) => mapOf(m, share);
+  const search = cleanSearch(s.search);
   return {
     total: num(s.total),
     n: num(s.n),
@@ -137,6 +188,7 @@ export function cleanSummary(x: unknown) {
     ms: num(s.ms),
     fullRunUsd: num(s.fullRunUsd),
     ...(cleanCc(s.cc) ? { cc: cleanCc(s.cc) } : {}),
+    ...(search ? { search } : {}),
     scores: {
       ...share(scores),
       asked: num(scores.asked),
@@ -198,9 +250,10 @@ export async function startEvalRun(ctx: MutationCtx, who: Who, a: Record<string,
   const benchId = a.bench === undefined || a.bench === null ? EVAL_BENCHES[0].id : a.bench;
   const bench = EVAL_BENCHES.find((b) => b.id === benchId);
   if (!bench) return { status: "bad_request", error: `bench is one of ${EVAL_BENCHES.map((b) => b.id).join(", ")}` };
-  const n = a.n === undefined || a.n === null ? DEFAULT_N : a.n;
-  if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 1 || n > bench.total) return { status: "bad_request", error: `n is 1 to ${bench.total} questions (${DEFAULT_N} by default)` };
-  const models = a.models === undefined || a.models === null ? "gw" : a.models;
+  const n = a.n === undefined || a.n === null ? Math.min(DEFAULT_N, bench.total) : a.n;
+  if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 1 || n > bench.total) return { status: "bad_request", error: `n is 1 to ${bench.total} questions (${Math.min(DEFAULT_N, bench.total)} by default)` };
+  // The Search suite never asks Claude, so a models choice is not kept for it.
+  const models = bench.search ? "gw" : a.models === undefined || a.models === null ? "gw" : a.models;
   if (models !== "gw" && models !== "cc") return { status: "bad_request", error: "models is gw (the AI gateway) or cc (Claude Code)" };
   const code = a.code === undefined ? null : codeOf(a.code);
   if (code === undefined) return { status: "bad_request", error: `code is main, a pull request (#3401) or a branch name (${CODE.source})` };

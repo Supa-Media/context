@@ -54,7 +54,9 @@ const GROUP_FIELDS = Object.freeze(["label", "goal", "icon", "x", "y", "parent"]
  * really texting, so it should probably live in a different graph"). One config still holds every step; a step's
  * `graph` names its page, and a step with none is on "texting". A wire never joins two pages.
  */
-const GRAPHS = Object.freeze(["texting", "nightly"]);
+// Search (Dev2, 2026-11-21): "we have like three different architectures. Texting be the main one, and then there's
+// nightly, and then there's also our search".
+const GRAPHS = Object.freeze(["texting", "nightly", "search"]);
 /** The page a step lives on: its `graph`, or "texting". */
 const graphOf = (n) => (n && GRAPHS.includes(n.graph) ? n.graph : "texting");
 

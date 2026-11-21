@@ -221,4 +221,13 @@ describe("the finished run card", () => {
     assert.equal(rows.find((row) => row.id === "t2").run, undefined, "one card a turn");
     assert.equal(rows.find((row) => row.id === "e1").run, undefined);
   });
+
+  it("times a turn from the newest text it covers, so a day-old text it took in does not count the day (2026-11-21)", () => {
+    const old = person("e0", NOW - 80_000_000, "notes on Daniel 6");
+    const asked = person("e1", NOW - 14_000, "capital of Argentina?");
+    const answer = tex("t1", NOW, "Buenos Aires", { turn: "turn-1", covers: ["e0", "e1"] });
+    const steps = [{ kind: "thinking", turn: "turn-1", at: NOW - 12_000, text: "Buenos Aires" }];
+    const card = buildRows([], { events: [old, asked, answer] }, NOW, {}, steps).find((row) => row.id === "t1").run;
+    assert.equal(card.secs, 14);
+  });
 });

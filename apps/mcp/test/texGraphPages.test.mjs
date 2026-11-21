@@ -30,8 +30,9 @@ const ORIGIN = "https://context.example";
 const NIGHTLY = ["nightly", "dream", "daysum", "housekeep", "aboutExpire", "aboutCheck"];
 const copy = () => structuredClone(TEX_CONFIG);
 
-test("the pages are texting and nightly, and a step with no graph is on texting", () => {
-  assert.deepEqual([...GRAPHS], ["texting", "nightly"]);
+test("the pages are texting, nightly and search, and a step with no graph is on texting", () => {
+  assert.deepEqual([...GRAPHS], ["texting", "nightly", "search"]);
+  assert.equal(graphOf({ id: "x", graph: "search" }), "search");
   assert.ok(NODE_FIELDS.includes("graph"));
   assert.equal(graphOf({ id: "x" }), "texting");
   assert.equal(graphOf({ id: "x", graph: "nightly" }), "nightly");

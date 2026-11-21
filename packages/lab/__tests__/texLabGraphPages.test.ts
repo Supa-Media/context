@@ -69,10 +69,13 @@ describe("the canvas draws one page", () => {
     const counts = stepCountsByPage(G());
     expect(counts.nightly).toBe(6);
     expect(counts.texting).toBeGreaterThan(20);
+    // Search is a page of its own (Dev2, 2026-11-21), counted even while it has no steps.
+    expect(counts.search).toBe(0);
   });
 
   test("a page's name from anywhere is a page, or Texting", () => {
     expect(pageNamed("nightly")).toBe("nightly");
+    expect(pageNamed("search")).toBe("search");
     expect(pageNamed("weekly")).toBe("texting");
     expect(pageNamed(undefined)).toBe("texting");
     expect(pageField("texting")).toEqual({});
@@ -91,6 +94,7 @@ describe("the address keeps the page", () => {
     // An unknown page, and a page in Testing, fall back to the texting graph.
     expect(placeOf("?graph=weekly")).toEqual({ mode: "lab", view: "canvas", chat: "me", moment: null });
     expect(placeOf("?mode=testing&graph=nightly").graph).toBeUndefined();
+    expect(placeOf("?graph=search").graph).toBe("search");
   });
 });
 
