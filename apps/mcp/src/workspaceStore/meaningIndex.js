@@ -213,6 +213,19 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     return { path: live.path, ...where, etag: text.etag, tier };
   };
 
+  /**
+   * The rows whose tier `rules` would change, back on the log: a held row whose tier moves, and a live note held with
+   * no tier (left out) that the rules now give one. A row with the tier it had is left alone.
+   */
+  const retier = (rules, overrides) => {
+    const tiers = new Map(all(sql.exec("SELECT row_id, tier FROM ws_meaning_held")).map((row) => [row.row_id, row.tier ?? null]));
+    for (const live of all(sql.exec("SELECT id, path FROM ws_rows WHERE kind = 'file' AND gone = 0"))) {
+      if (!isIndexableNote(live.path)) continue;
+      const tier = meaningTierFor(effectiveVisibility(live.path, rules, overrides)) ?? null;
+      if ((tiers.has(live.id) ? tiers.get(live.id) : null) !== tier) log.again(live.id);
+    }
+  };
+
   /** Keep `vectors` (one per passage) as the row's passages, in place of what it had. */
   const keep = (rowId, want, vectors) => {
     forgetRow(rowId);
@@ -287,11 +300,13 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     running = true;
     try {
       const stamp = JSON.stringify([rules.accessVersion ?? null, rules.etag ?? null]);
+      const { rules: parsed, overrides } = parsedRules(rules);
       if (meta("rules") !== stamp) {
-        log.markAll("SELECT row_id FROM ws_meaning_held");
+        // First rules: every row. A change of rules: only the rows whose tier it moves (`searchIndex.js` does the same).
+        if (meta("rules") === null) log.markAll("SELECT row_id FROM ws_meaning_held");
+        else retier(parsed, overrides);
         setMeta("rules", stamp);
       }
-      const { rules: parsed, overrides } = parsedRules(rules);
       log.keysToRows();
       let spent = 0;
       const round = [];
