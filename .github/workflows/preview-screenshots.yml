@@ -24,36 +24,86 @@ on:
         description: "Paths with optional steps, ';'-separated (see screenshots.mjs), e.g. /;/|click:frame-aside-toggle|wait:800"
         type: string
         default: "/"
+      matrix:
+        description: "Also walk the panel matrix (uiMatrix.mjs): both panels open and closed, a note or none, Tex answering, every layout."
+        type: boolean
+        default: true
+  # Every pull request whose preview deployed and that touches the app gets the
+  # matrix, signed in, before it merges (Dev2, 2026-11-21). This runs main's copy
+  # of this file, and a preview only exists for a branch of this repository.
+  workflow_run:
+    workflows: [Preview]
+    types: [completed]
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
-  group: preview-screenshots-${{ inputs.pr }}
-  cancel-in-progress: false
+  group: preview-screenshots-${{ inputs.pr || github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
 
 jobs:
   shoot:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-latest
     environment: preview
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
+      # From a finished preview: its pull request, and whether it touches the app at all.
+      - name: Which pull request, and is it a UI change
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr }}
+          INPUT_MATRIX: ${{ inputs.matrix }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_PR" ]; then
+            echo "pr=$INPUT_PR" >> "$GITHUB_OUTPUT"
+            echo "matrix=$([ "$INPUT_MATRIX" = "true" ] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+            echo "run=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${BRANCH}" --jq '.[0].number // ""')"
+          ui=""
+          if [ -n "$pr" ]; then
+            ui="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/files?per_page=100" --paginate --jq '.[].filename' | grep -E '^(apps/mobile|packages/collaboration)/' | head -1 || true)"
+          fi
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "matrix=1" >> "$GITHUB_OUTPUT"
+          echo "run=$([ -n "$pr" ] && [ -n "$ui" ] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+
+      - name: Mark the matrix pending on the pull request
+        if: ${{ steps.target.outputs.run == '1' && steps.target.outputs.sha != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.target.outputs.sha }}
+        run: gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="UI matrix (signed in)" -f description="Walking both panels at every layout" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+
       - uses: pnpm/action-setup@v4
+        if: ${{ steps.target.outputs.run == '1' }}
 
       - uses: actions/setup-node@v5
+        if: ${{ steps.target.outputs.run == '1' }}
         with:
           node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+        if: ${{ steps.target.outputs.run == '1' }}
 
       - name: Read the preview's web app origin
+        if: ${{ steps.target.outputs.run == '1' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PR: ${{ inputs.pr }}
+          PR: ${{ steps.target.outputs.pr }}
         run: |
           set -euo pipefail
           [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr is a pull request number"; exit 1; }
@@ -65,22 +115,36 @@ jobs:
       # Playwright 1.56 does not know the runner's newer Ubuntu, so it is told to fetch the 24.04 build
       # (the same as the preview's own browser check); the runner's Chrome is the fallback.
       - name: Sign in and take the pictures
+        id: shoot
+        if: ${{ steps.target.outputs.run == '1' }}
         env:
           PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ubuntu24.04-x64
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
-          PR: ${{ inputs.pr }}
-          PERSONA: ${{ inputs.persona }}
-          SHOTS: ${{ inputs.shots }}
+          PR: ${{ steps.target.outputs.pr }}
+          PERSONA: ${{ inputs.persona || 'delta' }}
+          SHOTS: ${{ inputs.shots || '/console' }}
+          MATRIX: ${{ steps.target.outputs.matrix }}
           OUT_DIR: screenshots
         run: |
           set -euo pipefail
           pnpm --dir apps/mobile exec playwright install chromium || echo "Playwright's Chromium did not install; the runner's Chrome is used."
           node packages/sandbox/src/screenshots.mjs
 
+      - name: Report the matrix on the pull request
+        if: ${{ !cancelled() && steps.target.outputs.run == '1' && steps.target.outputs.sha != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.target.outputs.sha }}
+          OUTCOME: ${{ steps.shoot.outcome }}
+        run: |
+          state=$([ "$OUTCOME" = "success" ] && echo success || echo failure)
+          words=$([ "$state" = "success" ] && echo "Every panel state looked right; pictures in the run" || echo "A panel state is wrong; see the run's log and pictures")
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="UI matrix (signed in)" -f description="$words" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.target.outputs.run == '1' }}
         with:
-          name: preview-${{ inputs.pr }}-screenshots
+          name: preview-${{ steps.target.outputs.pr }}-screenshots
           path: screenshots/
           retention-days: 7
           if-no-files-found: warn
