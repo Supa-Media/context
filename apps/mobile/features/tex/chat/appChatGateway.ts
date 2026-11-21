@@ -24,6 +24,7 @@
  */
 
 import type { LiveStep } from "./appChatRun";
+import type { SeenBody } from "./appChatSeen";
 
 /** The two things a person can answer an approval with: a 👍 or a 👎 on Tex's text. */
 export type AskChoice = "approve" | "deny";
@@ -169,6 +170,8 @@ export interface SendBody {
   pictures?: string[];
   files?: SendFileBody[];
   replyTo?: string;
+  /** What the person has open in the console (`appChatSeen.ts`). Sent only when there is one. */
+  seen?: SeenBody;
 }
 
 /**
@@ -177,7 +180,7 @@ export interface SendBody {
  */
 export function sendRequest(
   text: string,
-  options: { pictures?: readonly string[]; files?: readonly SendFileBody[]; replyTo?: string | null } = {},
+  options: { pictures?: readonly string[]; files?: readonly SendFileBody[]; replyTo?: string | null; seen?: SeenBody | null } = {},
 ): SendBody | null {
   const trimmed = text.trim();
   const pictures = options.pictures ?? [];
@@ -192,6 +195,7 @@ export function sendRequest(
     ...(pictures.length > 0 ? { pictures: [...pictures] } : {}),
     ...(files.length > 0 ? { files: files.map((file) => ({ name: file.name, data: file.data })) } : {}),
     ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+    ...(options.seen ? { seen: options.seen } : {}),
   };
 }
 

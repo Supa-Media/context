@@ -49,6 +49,7 @@ import { TEX_ROUTE } from "../tex/texComputer";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { OpenAsideOn } from "./layout/frameBridges";
+import { seenFrom, useEditorSelection } from "../tex/chat/appChatSeen";
 import { Shortcuts } from "./layout/Shortcuts";
 import { Status } from "./layout/chrome";
 import type { CheckoutOutcome } from "@context/shared";
@@ -236,6 +237,8 @@ export function ConsoleFrame({
   // arrive at — and the strip showed one context's note names under another
   // context's name.
   const tabs = useTabs(data.files, data.selectedContextId);
+  // The highlight last made in the note, for what Tex is told when the person texts from the chat.
+  const getSelection = useEditorSelection(data.files.editor.path);
   const { history, step } = useConsoleHistory({
     data,
     router,
@@ -440,7 +443,23 @@ export function ConsoleFrame({
     shared: sharedShown ? { unseen: sharedEntry.unseen, here: sharedHere, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
-  const aside = consoleAsidePanel({ data, meetingsAt, router, approvals, joinMeeting, onSearch: insideContext ? () => setPaletteOpen(true) : null });
+  // What the person has open, read at each send from the Tex chat (never shown).
+  const texSeen = () =>
+    seenFrom({
+      slug: data.contexts.find((c) => c.id === data.selectedContextId)?.slug ?? null,
+      editorPath: data.files.editor.path,
+      tabPaths: tabs.state.tabs.map((t) => t.path),
+      selection: getSelection(),
+    });
+  const aside = consoleAsidePanel({
+    data,
+    meetingsAt,
+    router,
+    approvals,
+    joinMeeting,
+    onSearch: insideContext ? () => setPaletteOpen(true) : null,
+    texSeen,
+  });
   return (
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>

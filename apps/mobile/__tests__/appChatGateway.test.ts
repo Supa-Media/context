@@ -200,6 +200,13 @@ describe("sendRequest", () => {
     });
   });
 
+  test("the screen rides along when given, and is absent when not", () => {
+    const seen = { note: { workspace: "@work", noteId: "a.md", path: "a.md" } };
+    expect(sendRequest("look", { seen })).toEqual({ op: "send", text: "look", seen });
+    expect(sendRequest("look", { seen: null })).toEqual({ op: "send", text: "look" });
+    expect(sendRequest("look")).not.toHaveProperty("seen");
+  });
+
   test("pictures alone are a send", () => {
     expect(sendRequest("", { pictures: ["aGk="] })).toEqual({ op: "send", text: "", pictures: ["aGk="] });
   });

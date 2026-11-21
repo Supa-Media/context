@@ -18,10 +18,12 @@
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
-// The hook is replaced: the tab is drawn from the view it is given.
+// The hook is replaced: the tab is drawn from the view it is given. Only the test that mounts `TexChatTab` sets one.
+let mockTabView: unknown = null;
 jest.mock("../features/tex/chat/useAppChat", () => ({
   useAppChat: () => {
-    throw new Error("the Tex tab is drawn from the view it is given, in these tests");
+    if (mockTabView === null) throw new Error("the Tex tab is drawn from the view it is given, in these tests");
+    return mockTabView;
   },
 }));
 
@@ -29,7 +31,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AppChatRow, ChatLine, PendingLine } from "../features/tex/chat/appChatGateway";
 import type { AppChatView } from "../features/tex/chat/useAppChat";
-import { TEX_EMPTY, TEX_WORKING, TexChatView } from "../features/tex/chat/TexChatTab";
+import { TEX_EMPTY, TEX_WORKING, TexChatTab, TexChatView } from "../features/tex/chat/TexChatTab";
 import { AsideStrip } from "../features/console/aside/AsideStrip";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { forgetAsideChoice } from "../features/console/aside/asideChoice";
@@ -93,6 +95,7 @@ function pickFiles(files: File[]) {
 
 const roots: Array<() => void> = [];
 afterEach(() => {
+  mockTabView = null;
   forgetAsideChoice();
   while (roots.length > 0) roots.pop()?.();
   document.body.innerHTML = "";
@@ -379,7 +382,7 @@ describe("tapbacks and the row's actions", () => {
     expect(tab.find("tex-reply-bar")?.textContent).toContain("What next?");
     tab.type("tex-input", "Ship it");
     tab.press("tex-send");
-    expect(tab.calls).toEqual([["send", "Ship it", { pictures: [], replyTo: "t1" }]]);
+    expect(tab.calls).toEqual([["send", "Ship it", { pictures: [], replyTo: "t1", seen: null }]]);
     expect(tab.find("tex-reply-bar")).toBeNull();
   });
 
@@ -402,6 +405,39 @@ describe("tapbacks and the row's actions", () => {
     tab.press("tex-send");
     expect(tab.calls).toEqual([["edit", "m1", "hello"]]);
     expect(tab.find("tex-edit-bar")).toBeNull();
+  });
+});
+
+describe("what the person has open", () => {
+  test("a new text from the tab sends what the seen prop gives at that moment; an edit sends none", () => {
+    const view = fakeView({ lines: [row({ id: "m1", who: "me", text: "helo", editable: true })] });
+    mockTabView = view;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    const seen = { note: { workspace: "@work", noteId: "plan.md", path: "plan.md" }, selection: "budget" };
+    act(() => root.render(createElement(TexChatTab, { workspaceId: "w1", endpoint: "https://x.test/mcp", seen: () => seen })));
+    const field = () => container.querySelector<HTMLTextAreaElement>('[data-testid="tex-input"]');
+    const type = (text: string) =>
+      act(() => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+        setter?.call(field(), text);
+        field()?.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    const send = () =>
+      act(() => {
+        const node = container.querySelector('[data-testid="tex-send"]');
+        node?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        node?.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        node?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    type("look at this");
+    send();
+    expect(view.calls).toEqual([["send", "look at this", { pictures: [], replyTo: null, seen }]]);
   });
 });
 
@@ -507,7 +543,7 @@ describe("the box", () => {
     tab.key("tex-input", "Enter", true);
     expect(tab.calls).toEqual([]);
     tab.key("tex-input", "Enter", false);
-    expect(tab.calls).toEqual([["send", "first", { pictures: [], replyTo: null }]]);
+    expect(tab.calls).toEqual([["send", "first", { pictures: [], replyTo: null, seen: null }]]);
   });
 
   test("Send does nothing with no words and no pictures", () => {

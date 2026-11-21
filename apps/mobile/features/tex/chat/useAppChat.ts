@@ -56,6 +56,7 @@ export type { AppChatView } from "./appChatView";
 export { FAST_WINDOW_MS, RETRY_MS } from "./appChatView";
 import { PictureCache, encodePictures, previewUrlOf, revokeUrl } from "./appChatPictures";
 import { encodeFiles, saveBlob, type PickedFile } from "./appChatFiles";
+import type { SeenBody } from "./appChatSeen";
 import {
   patchRow,
   previewUrlsInUse,
@@ -256,7 +257,14 @@ export function useAppChat(options: {
 
   /** One send of a pending line already on the page: pictures shrunk and encoded first, then the route. */
   const dispatchSend = useCallback(
-    (localId: string, text: string, blobs: readonly Blob[], files: readonly PickedFile[], replyId: string | null) => {
+    (
+      localId: string,
+      text: string,
+      blobs: readonly Blob[],
+      files: readonly PickedFile[],
+      replyId: string | null,
+      seen: SeenBody | null,
+    ) => {
       const mark = epoch.current;
       setState((s) => ({
         ...s,
@@ -268,7 +276,9 @@ export function useAppChat(options: {
         const encoded = blobs.length > 0 ? await encodePictures(blobs) : [];
         const encodedFiles = files.length > 0 ? await encodeFiles(files) : [];
         const request =
-          encoded === null || encodedFiles === null ? null : sendRequest(text, { pictures: encoded, files: encodedFiles, replyTo: replyId });
+          encoded === null || encodedFiles === null
+            ? null
+            : sendRequest(text, { pictures: encoded, files: encodedFiles, replyTo: replyId, seen });
         const reply = request === null ? null : await ask(request);
         if (mark !== epoch.current) return;
         const read: SendRead =
@@ -306,7 +316,10 @@ export function useAppChat(options: {
   );
 
   const send = useCallback(
-    (text: string, options: { pictures?: readonly Blob[]; files?: readonly PickedFile[]; replyTo?: string | null } = {}) => {
+    (
+      text: string,
+      options: { pictures?: readonly Blob[]; files?: readonly PickedFile[]; replyTo?: string | null; seen?: SeenBody | null } = {},
+    ) => {
       if (!live) return;
       const trimmed = text.trim();
       const blobs = [...(options.pictures ?? [])];
@@ -342,7 +355,7 @@ export function useAppChat(options: {
         ...(replyId !== null ? { replyTo: replyRefFor(latest.current.lines, replyId) } : {}),
       };
       setState((s) => ({ ...s, lines: [...s.lines, line] }));
-      dispatchSend(localId, trimmed, blobs, files, replyId);
+      dispatchSend(localId, trimmed, blobs, files, replyId, options.seen ?? null);
     },
     [dispatchSend, live],
   );
@@ -352,7 +365,8 @@ export function useAppChat(options: {
       const line = latest.current.lines.find((item) => isPending(item) && item.localId === localId);
       if (line === undefined || !isPending(line)) return;
       const kept = parked.current.get(localId);
-      dispatchSend(localId, line.text, kept?.blobs ?? [], kept?.files ?? [], kept?.replyTo ?? line.replyTo?.id ?? null);
+      // A retry sends the words again, never the screen it was first sent with.
+      dispatchSend(localId, line.text, kept?.blobs ?? [], kept?.files ?? [], kept?.replyTo ?? line.replyTo?.id ?? null, null);
     },
     [dispatchSend],
   );
