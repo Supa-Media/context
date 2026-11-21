@@ -419,7 +419,7 @@ describe("what the person has open", () => {
       act(() => root.unmount());
       container.remove();
     });
-    const seen = { note: { workspace: "@work", noteId: "plan.md", path: "plan.md" }, selection: "budget" };
+    const seen = { note: { workspace: "@work", path: "plan.md" }, selection: "budget" };
     act(() => root.render(createElement(TexChatTab, { workspaceId: "w1", endpoint: "https://x.test/mcp", seen: () => seen })));
     const field = () => container.querySelector<HTMLTextAreaElement>('[data-testid="tex-input"]');
     const type = (text: string) =>

@@ -8,10 +8,12 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-/** A note as the route names it. `workspace` is "@slug"; `path` is relative and ends in `.md`. */
+/**
+ * A note as the route names it. `workspace` is "@slug"; `path` is relative and ends in `.md`. No note id: the console
+ * holds paths, and `screen.js` reads a note by its path (D1, #3901 made the id optional).
+ */
 export interface SeenNote {
   workspace: string;
-  noteId: string;
   path: string;
 }
 
@@ -26,15 +28,13 @@ export interface SeenBody {
 const MAX_TABS = 8;
 /** The most of a selection a send carries: longer is dropped, not cut. */
 const MAX_SELECTION = 2000;
-/** The most of a path the id keeps: its last characters. */
-const MAX_ID = 128;
 
 function isMarkdown(path: string): boolean {
   return /\.md$/i.test(path);
 }
 
 function noteOf(workspace: string, path: string): SeenNote {
-  return { workspace, noteId: path.slice(-MAX_ID), path };
+  return { workspace, path };
 }
 
 /**

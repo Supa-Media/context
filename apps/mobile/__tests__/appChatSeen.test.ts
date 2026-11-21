@@ -14,15 +14,15 @@ describe("seenFrom", () => {
         selection: "  the budget line  ",
       }),
     ).toEqual({
-      note: { workspace: "@work", noteId: "projects/plan.md", path: "projects/plan.md" },
-      tabs: [{ workspace: "@work", noteId: "areas/ideas.md", path: "areas/ideas.md" }],
+      note: { workspace: "@work", path: "projects/plan.md" },
+      tabs: [{ workspace: "@work", path: "areas/ideas.md" }],
       selection: "the budget line",
     });
   });
 
   test("an editor path that is not a .md is dropped, and so is its note; tabs still go", () => {
     const seen = seenFrom({ ...base, editorPath: "files/photo.PNG", tabPaths: ["notes/a.md"] });
-    expect(seen).toEqual({ tabs: [{ workspace: "@work", noteId: "notes/a.md", path: "notes/a.md" }] });
+    expect(seen).toEqual({ tabs: [{ workspace: "@work", path: "notes/a.md" }] });
     expect(seen?.note).toBeUndefined();
   });
 
@@ -32,7 +32,7 @@ describe("seenFrom", () => {
 
   test("the editor's path is not repeated among the tabs", () => {
     const seen = seenFrom({ ...base, tabPaths: ["projects/plan.md", "projects/plan.md", "b.md"] });
-    expect(seen?.tabs).toEqual([{ workspace: "@work", noteId: "b.md", path: "b.md" }]);
+    expect(seen?.tabs).toEqual([{ workspace: "@work", path: "b.md" }]);
   });
 
   test("tabs that are not .md are dropped", () => {
@@ -62,12 +62,8 @@ describe("seenFrom", () => {
     expect(seenFrom({ slug: "work", editorPath: null, tabPaths: [], selection: null })).toBeNull();
   });
 
-  test("a 200-character path's noteId is its last 128 characters", () => {
-    const path = `${"a".repeat(200 - 3)}.md`;
-    expect(path).toHaveLength(200);
-    const note = seenFrom({ ...base, editorPath: path })?.note;
-    expect(note?.noteId).toBe(path.slice(-128));
-    expect(note?.noteId).toHaveLength(128);
-    expect(note?.path).toBe(path);
+  test("a note carries its workspace and path only, never an id the console does not have", () => {
+    const note = seenFrom({ ...base, editorPath: "a/b.md" })?.note;
+    expect(note).toEqual({ workspace: "@work", path: "a/b.md" });
   });
 });
