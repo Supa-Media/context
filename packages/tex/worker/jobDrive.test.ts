@@ -66,8 +66,9 @@ async function runAlarms(storage: AlarmStorage, clock: { now: number }, step: Jo
 /** The job's real pass and couldn't-finish line, run in the object. */
 const steps = (storage: AlarmStorage, d: JobDeps): JobStep => async (step) => (step === "pass" ? await runJob(storage, d) : await failJob(storage, d));
 
-function driveLines(logs: ReturnType<typeof vi.spyOn>) {
-  return logs.mock.calls.flat().map((line) => JSON.parse(String(line))).filter((line) => line.event === "job_drive");
+type DriveLine = { event?: string; outcome?: string; job?: string; [key: string]: unknown };
+function driveLines(logs: { mock: { calls: unknown[][] } }): DriveLine[] {
+  return logs.mock.calls.flat().map((line): DriveLine => JSON.parse(String(line))).filter((line) => line.event === "job_drive");
 }
 
 afterEach(() => vi.restoreAllMocks());
