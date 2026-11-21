@@ -17,9 +17,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { LabSandboxObject, jobOutWith } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { runChatTurn, MemoryStorage } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { labJobFence, plain, LAB_KEY, LAB_RUN_HEADER, LAB_SANDBOX_HEADER } from "../../../packages/lab/gateway/labSandbox/jobBox.js";
+import { labJobFence, plain, serveJobOut, LAB_KEY, LAB_RUN_HEADER, LAB_SANDBOX_HEADER } from "../../../packages/lab/gateway/labSandbox/jobBox.js";
 import { PHOTON_NUMBER } from "../../../packages/lab/gateway/labSandbox/line.js";
 import { texJobClass, BORN_KEY } from "../../../packages/tex/gateway/texJob.js";
 import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
@@ -30,6 +30,9 @@ const LINE = { name: "photon", number: PHOTON_NUMBER, inMs: 0, outMs: 0, measure
 const ONE = { kind: "one", owner: "person:ws_a", ledgerChat: "texts", people: [{ handle: "ana", name: "You" }], line: LINE, sandboxId: "0123456789abcdef", origin: "https://gateway.example.invalid" };
 const SANDBOX = `labsandbox:u_alice:${ONE.sandboxId}`;
 const LabJob = texJobClass({ gateway: () => ({ fetch: async () => new Response(null, { status: 500 }) }), texts: () => ({ fetch: async () => new Response(null, { status: 500 }) }), fence: labJobFence });
+
+// What the gateway's route hands the test chat's object when the Worker loads it (`route.js`).
+jobOutWith(serveJobOut);
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 

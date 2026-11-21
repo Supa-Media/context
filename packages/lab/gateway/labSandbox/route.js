@@ -61,7 +61,8 @@ import { loggedSteps, oneRowPerText, realLedger, realRow } from "./realChat.js";
 import { saidTexts } from "../fromGateway/agent_sentOnItsOwn.js";
 import { bearerToken } from "../fromGateway/session.js";
 import { json } from "../fromGateway/http_responses.js";
-import { callSandbox, carryWith, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
+import { callSandbox, carryWith, jobOutWith, SANDBOX_TTL_MS, sandboxStub, SEED_CHUNK } from "./object.js";
+import { serveJobOut } from "./jobBox.js";
 import { eventId, RUNNING_STALE_MS, stepsOf } from "./harness.js";
 import { chatStepsOf, runTestText } from "./chatRun.js";
 import { carryFrom, carryInObject, objectCarry, objectRun, runInObject } from "./crossRuns.js"; // a test chat's asks of other chats
@@ -387,6 +388,8 @@ const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS })
 
 /** A new test row's ids: its event id and the row id built from it. */
 export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
+// A job box's calls out (`jobBox.js`), answered in the test chat's object.
+jobOutWith(serveJobOut);
 carryWith((env, state, body, op) => (op === "text.run" ? objectRun : objectCarry)(env, state, body, async () => ({ open, newIds, runTurn: runTestText, max: DAILY_SENDS })));
 
 /** The most texts one `send` lands together (`also`): a burst, as people send "say alpha", "say bravo" a second apart. */
