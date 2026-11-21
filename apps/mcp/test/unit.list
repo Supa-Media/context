@@ -726,3 +726,4 @@ bench/test/noteLinks.test.mjs
 test/noteConnect.test.mjs
 test/yesUnreadAsks.test.mjs
 test/texChatAppHop.test.mjs
+test/texChatAppReach.test.mjs
