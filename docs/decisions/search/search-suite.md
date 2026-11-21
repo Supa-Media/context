@@ -14,7 +14,7 @@ person through the MCP endpoint, in a warm bench world with both indexes filled,
 workspaces so it always searches a world of many notes. Only the embedder is called; a run costs embeddings and
 seconds, never Claude.
 
-- **Made-up hard** (`search-hard`, `apps/mcp/bench/search/hard/`): 40 questions as Priya, who reaches seven
+- **Made-up hard** (`search-hard`, `packages/bench/benchmarks/search-hard/`): 40 questions as Priya, who reaches seven
   workspaces, each of a kind that beats a word match: notes that quote the question, the same words in another
   workspace, an answer deep in a long note, an archived copy, a paraphrase, a title, a person, a date, a link, a near
   duplicate. Question 1 is the reading-list miss, rewritten.
@@ -22,9 +22,9 @@ seconds, never Claude.
   (`searchTimings`, [search-timings](./search-timings.md)) keeps no query by design, so the source is Tex's own
   logged tool calls: a note search that Tex searched again without opening a hit, or never opened, with the note it
   finally opened as the answer. Each case brings made-up notes of the same shape (the target and what outranked it).
-  Split 60/20/20: Training and Dev in `apps/mcp/bench/search/real/{training,dev}.json`, visible; Test sealed in the
+  Split 60/20/20: Training and Dev in `packages/bench/benchmarks/search-real/{training,dev}.json`, visible; Test sealed in the
   eval service. Its Dev part is the Lab's to run; the Test part never is.
-- **LongMemEval retrieval** (`longmemeval-retrieval`, `memoryRetrieval.mjs`): every past session of a LongMemEval S
+- **LongMemEval retrieval** (`longmemeval-retrieval`, `packages/bench/benchmarks/longmemeval/`): every past session of a LongMemEval S
   question saved as a dated note in an empty workspace; are the answer sessions in the top 5 (recall any and all @5)?
   No reader, no judge; abstention questions have nothing to find and are left out.
 
@@ -58,7 +58,7 @@ word when it declined, such as `catching_up`), and every run says how many went 
 as the other path's.
 
 **The public standard: NanoBEIR** (owner, 2026-11-21: "we should probably have a thread focused on bringing in a
-popular search benchmark instead of our own"; `apps/mcp/bench/evals/nanoBeir.mjs`). Our own sets can only measure
+popular search benchmark instead of our own"; `packages/bench/benchmarks/nanobeir/`). Our own sets can only measure
 what we thought to write down, and nobody outside can compare a number from them. BEIR is the field's standard
 zero-shot retrieval benchmark (MTEB's retrieval tab is BEIR), scored by nDCG@10; NanoBEIR cuts 13 of its sets to 50
 queries and a few thousand documents each, every judged document kept and BM25's top hits as distractors, and is what
@@ -78,7 +78,7 @@ a file (`BENCH_EMBED_CACHE`, saved to the Actions cache before the change runs);
 code never writes what main reads, and the corpus is embedded once rather than on every gate run.
 
 **Messy workplace data: HERB** (owner, 2026-11-21: "look for a new benchmark public that's better suited", then
-"ok, let's use herb then and see where we fall"; `apps/mcp/bench/evals/herb.mjs`). NanoBEIR's corpora are clean, one
+"ok, let's use herb then and see where we fall"; `packages/bench/benchmarks/herb/`). NanoBEIR's corpora are clean, one
 kind of text per set; our real searches lose to clutter (chat, transcripts, forwarded mail, logs sharing one word with
 the question). HERB (Salesforce AI Research, EMNLP 2025, arXiv 2506.23139) is 30 made-up products' Slack messages,
 meeting transcripts, documents, links and pull requests, 39,772 artifacts, with 815 questions about content, people,
@@ -89,8 +89,34 @@ per question type; a question cites a median of 52 artifacts, so nDCG@10 and rig
 compare, not Recall@10. Its licence is CC BY-NC 4.0: the data is downloaded at run time and never kept here, and only
 our numbers are published. In the Lab as `herb` (815 questions). It is a measure, not part of the gate.
 
+**The measure we keep: EnterpriseRAG Notes** (owner, 2026-11-21: "make sure HERB can be the final benchmark we need,
+i don't want to have to change benchmarks again", then "we don't save emails in context anymore though, or even chat
+threads"; `packages/bench/benchmarks/enterprise-rag-notes/`). HERB's licence is non-commercial and two thirds of it is
+chat. EnterpriseRAG-Bench (Onyx, arXiv 2605.05253, MIT) is one made-up company's data from nine tools, 511,962
+documents and 500 questions, each citing the documents that answer it, about 8% filed in the wrong tool on purpose.
+Its Slack and Gmail documents are left out, and every question citing one: Context saves neither. The rest is filed
+where Context keeps it, in PARA's folders (wiki and docs under `resources/`, meetings under `inbox/meetings/`, issues
+and pull requests under `projects/`, customer records and support tickets under `areas/`): 104,967 documents and 343
+questions. Because it is cut, its name says so and its scores are not the leaderboard's. The documents file (1.4 GB,
+sorted by tool) is read with HTTP range requests, only the kept tools' rows, and kept as BEIR files in the run's
+folder. `enterprise-rag-notes` searches 10,000 of the notes (every cited one, then per tool the documents whose titles
+share the most words with that tool's questions, the hard distractors, the same every run);
+`enterprise-rag-notes-full` searches all of them, which takes hours of embeddings. Scored like NanoBEIR, per question
+type. It is a measure, not part of the gate.
+
+**Every benchmark is a folder** (owner, 2026-11-21: "we are going to be creating a lot of custom bench marks
+internally ... define new bench marks in folders", "we love to reuse formats for all of our benchmarks").
+`packages/bench/benchmarks/<id>/` holds `bench.json` (what it is, its licence, how it is scored, its runs) and
+`source.mjs` (how it reads its data). The data is BEIR's open layout (`corpus.jsonl`, `queries.jsonl`,
+`qrels/test.tsv`), with optional fields for what BEIR cannot say: a document's `path`, `workspace` and `date`, a
+query's `answer` and `date`. One set runs both ways: a search run lays the documents out as notes and searches them; a
+memory run (`memoryCases`) saves the dated documents as sessions, and a reader answers and a judge grades.
+`node packages/bench/scripts/registry.mjs` writes `packages/bench/benchmarks.generated.json`, which the Lab, `tex_dev
+evals` and the eval workflow read; fast guards fail when a folder is malformed or the list is stale. How to add one:
+`packages/bench/README.md`.
+
 **What a simplification would cost:** a gate on the made-up set alone tunes search to questions we wrote; a Test part
 an agent can read is tuned against; letting a change's own harness read its ranks lets it grade itself. **Tests:**
-`apps/mcp/bench/test/searchHard.test.mjs`, `nanoBeir.test.mjs` (BEIR's nDCG, the mean over sets, the fetch, the embedding file), `herb.test.mjs`, `memoryRetrieval.test.mjs`, `searchSuite.test.mjs`,
+`apps/mcp/bench/test/searchHard.test.mjs`, `benchRun.test.mjs` (the mean over sets, recall, an end-to-end set, the embedding file), `packages/bench/test/beir.test.mjs` (BEIR's files and nDCG, every folder's source, the folder list), `searchSuite.test.mjs`,
 `scripts/search-test-set.mjs --self-test` (the paths, the gate, answers carry no words), `infra/tex-eval`'s search
 tests (doors, caps, verdict), and `apps/convex/__tests__/controlPlane/labEvals.test.ts`.

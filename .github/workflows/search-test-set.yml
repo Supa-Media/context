@@ -87,9 +87,13 @@ jobs:
           git worktree add "$RUNNER_TEMP/change" "$HEAD"
           git worktree add "$RUNNER_TEMP/main" "$BASE"
           for tree in change main; do
-            rm -rf "${RUNNER_TEMP:?}/${tree:?}/apps/mcp/bench"
-            cp -R apps/mcp/bench "${RUNNER_TEMP:?}/${tree:?}/apps/mcp/bench"
-            (cd "$RUNNER_TEMP/$tree" && pnpm install --frozen-lockfile > /dev/null)
+            # The harness is the runner (apps/mcp/bench) and the benchmarks it reads (packages/bench).
+            for dir in apps/mcp/bench packages/bench; do
+              rm -rf "${RUNNER_TEMP:?}/${tree:?}/${dir:?}"
+              cp -R "$dir" "${RUNNER_TEMP:?}/${tree:?}/$dir"
+            done
+            # A tree from before packages/bench existed has no lock entry for it: install it unfrozen there.
+            (cd "$RUNNER_TEMP/$tree" && { pnpm install --frozen-lockfile > /dev/null 2>&1 || pnpm install --no-frozen-lockfile > /dev/null; })
           done
 
       # NanoBEIR's sets and main's embeddings of them are kept between runs. The embeddings file is saved only from
@@ -98,7 +102,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/nanobeir-data
-          key: search-gate-nanobeir-data-v1
+          key: search-gate-nanobeir-data-v2
 
       - name: Restore main's NanoBEIR embeddings
         id: embeds

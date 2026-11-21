@@ -1,0 +1,32 @@
+{
+  "id": "enterprise-rag-notes",
+  "title": "EnterpriseRAG Notes",
+  "kind": "search",
+  "format": "beir",
+  "about": "EnterpriseRAG-Bench (Onyx, 2026) cut to what people keep in Context: a made-up company's docs, wiki, meetings, tickets, pull requests and customer records filed as notes (its Slack and email left out, as Context saves neither), and the 343 questions whose answers are in them.",
+  "source": {
+    "name": "EnterpriseRAG-Bench (Onyx, arXiv 2605.05253), adapted: Slack and Gmail documents and every question citing them left out",
+    "url": "https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench",
+    "data": "onyx-dot-app/EnterpriseRAG-Bench on Hugging Face, fetched at run time at a pinned revision; never kept in this repository",
+    "license": "MIT, Copyright (c) Onyx (as the dataset card states); scores are ours and not comparable with its leaderboard"
+  },
+  "notes": { "workspace": "sam", "as": "Sam", "folder": "resources" },
+  "score": "beir",
+  "slice": "spread",
+  "caseIds": "query",
+  "runs": [
+    {
+      "id": "enterprise-rag-notes",
+      "variant": "10k notes",
+      "total": 343,
+      "corpus": 10000,
+      "about": "EnterpriseRAG-Bench without Slack or email: 343 questions over 10,000 of its notes (every cited one, the rest the closest-titled of the same kind), scored by nDCG@10 per question type. Embeddings only."
+    },
+    {
+      "id": "enterprise-rag-notes-full",
+      "variant": "All 105k notes",
+      "total": 343,
+      "about": "The same 343 questions over every one of its 104,967 docs, wiki pages, meetings, tickets, pull requests and customer records. Hours, and a few dollars of embeddings."
+    }
+  ]
+}

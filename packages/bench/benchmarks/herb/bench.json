@@ -1,0 +1,25 @@
+{
+  "id": "herb",
+  "title": "HERB",
+  "kind": "search",
+  "format": "beir",
+  "about": "Salesforce's public benchmark of messy workplace data: 30 made-up products' Slack, meetings, docs, links and pull requests in one pool, 815 questions citing the artifacts that answer them.",
+  "source": {
+    "name": "HERB (Choubey et al., Salesforce AI Research, EMNLP 2025 industry track, arXiv 2506.23139)",
+    "url": "https://huggingface.co/datasets/Salesforce/HERB",
+    "data": "Salesforce/HERB on Hugging Face, fetched at run time at the revision the Hub names; never kept in this repository",
+    "license": "CC BY-NC 4.0 (non-commercial: we score with it and publish only our numbers)"
+  },
+  "notes": { "workspace": "sam", "as": "Sam", "folder": "herb" },
+  "score": "beir",
+  "slice": "spread",
+  "caseIds": "query",
+  "runs": [
+    {
+      "id": "herb",
+      "variant": "Workplace data",
+      "total": 815,
+      "about": "Salesforce's public benchmark of messy workplace data: 30 products' Slack, meetings, docs, links and pull requests in one pool (39,772 artifacts), 815 questions, scored by nDCG@10 per question type. Embeddings only."
+    }
+  ]
+}

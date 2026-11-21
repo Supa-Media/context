@@ -1,28 +1,29 @@
 #!/usr/bin/env node
 /**
- * THE LAB'S EVALS FROM A COMMAND LINE (`docs/decisions/testing/lab-evals.md`). One public benchmark over a slice of its
- * questions, each in its own throwaway world (`memoryRun.mjs`), the rows and scores written as JSON:
+ * THE LAB'S EVALS FROM A COMMAND LINE (`docs/decisions/testing/lab-evals.md`). One benchmark (a folder of
+ * `packages/bench/benchmarks/`) over a slice of its questions, each in its own throwaway world (`memoryRun.mjs`), the
+ * rows and scores written as JSON:
  *
- *   node apps/mcp/bench/evals/cli.mjs longmemeval --data longmemeval_s_cleaned.json --n 50 --out result.json \
- *     [--parallel 4] [--filings 4] [--reader claude-haiku-5-5] [--judge claude-sonnet-5-5] [--fake]
+ *   node apps/mcp/bench/evals/cli.mjs longmemeval [--bench longmemeval-s] --data longmemeval_s_cleaned.json --n 50 \
+ *     --out result.json [--parallel 4] [--filings 4] [--reader claude-haiku-5-5] [--judge claude-sonnet-5-5] [--fake]
+ *   node apps/mcp/bench/evals/cli.mjs search --bench <run id> ...   (searchCli.mjs)
  *
- * `--data` is the dataset file as Hugging Face serves it (one JSON array), or `--fetch <dir>` downloads it there first. The slice is `sliceOf`'s: the same n is the
- * same questions every time. One process answers one question at a time, because a world sets the process's clock;
+ * A memory run takes any benchmark's BEIR set: its source reads `--data` (the dataset file) or downloads into
+ * `--fetch <dir>`, and slices it (LongMemEval's slice is the same n questions every time). One process answers one question at a time, because a world sets the process's clock;
  * `--parallel k` runs k child processes over k shards of the slice. Claude is reached through the AI gateway
  * (`claudeTransport`), or through the model socket when `BENCH_MODEL_SOCKET` is set (the Lab's Claude Code runs).
  * Public data only: a row holds the dataset's own question, answer and the reader's reply, never anyone's notes.
  */
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, workersAi } from "../models.mjs";
 import { modelSocket, socketSend } from "../modelSocket.mjs";
-import { BENCHES, entryOf, sliceOf } from "./longMemEval.mjs";
+import { memoryCases } from "../../../../packages/bench/src/beir.mjs";
+import { benchmarkOf } from "../../../../packages/bench/src/registry.mjs";
 import { DEFAULTS, runQuestion, scoresOf } from "./memoryRun.mjs";
 
 const HERE = fileURLToPath(import.meta.url);
@@ -56,30 +57,6 @@ export function modelsFor(options, env = process.env) {
   return { send, ai, route: send.route ?? null, socket };
 }
 
-const HF = "https://huggingface.co";
-
-/**
- * The bench's dataset file in `dir`, downloaded from Hugging Face when it is not there yet: the file is found in the
- * dataset's own listing by the bench's pattern (`BENCHES`), so a renamed file is found or the run says so.
- */
-export async function fetchData(bench, dir, fetchImpl = fetch) {
-  const listed = await fetchImpl(`${HF}/api/datasets/${bench.repo}/tree/main`);
-  if (!listed.ok) throw new Error(`Hugging Face listing for ${bench.repo}: ${listed.status}`);
-  const files = (await listed.json()).filter((f) => f?.type === "file" && typeof f.path === "string" && /\.json$/i.test(f.path) && bench.file.test(f.path));
-  if (files.length !== 1) throw new Error(`${bench.repo} has ${files.length} files like ${bench.file}: ${files.map((f) => f.path).join(", ")}`);
-  const name = files[0].path.replace(/^.*\//, "");
-  const path = join(dir, name);
-  const size = files[0].lfs?.size ?? files[0].size ?? null;
-  if (existsSync(path) && (!size || statSync(path).size === size)) return path;
-  mkdirSync(dir, { recursive: true });
-  const got = await fetchImpl(`${HF}/datasets/${bench.repo}/resolve/main/${encodeURI(files[0].path)}`);
-  if (!got.ok || !got.body) throw new Error(`Hugging Face download of ${name}: ${got.status}`);
-  await pipeline(Readable.fromWeb(got.body), createWriteStream(`${path}.part`));
-  renameSync(`${path}.part`, path);
-  say(`downloaded ${name} (${Math.round(statSync(path).size / 1e6)} MB)`);
-  return path;
-}
-
 const OPTIONS = {
   data: { type: "string" },
   fetch: { type: "string" },
@@ -110,7 +87,8 @@ const usdOfRow = (row) => row.usd.filing + row.usd.reading + row.usd.judging;
 async function answerShard(options) {
   const items = JSON.parse(readFileSync(options.items, "utf8"));
   const models = modelsFor(options);
-  const run = { filings: Number(options.filings ?? DEFAULTS.filings), reader: options.reader ?? DEFAULTS.reader, judge: options.judge ?? DEFAULTS.judge };
+  const { run: bench, source } = await benchmarkOf(options.bench ?? "longmemeval-s");
+  const run = { filings: Number(options.filings ?? DEFAULTS.filings), reader: options.reader ?? DEFAULTS.reader, judge: options.judge ?? DEFAULTS.judge, platform: bench.benchmark, ...(source.judgePrompt ? { judgePrompt: source.judgePrompt } : {}) };
   const rows = [];
   // A world's gateway logs a JSON line per step; a shard prints one line per question instead.
   const log = console.log;
@@ -149,29 +127,26 @@ export async function main(argv = process.argv.slice(2)) {
     writeFileSync(options.out, JSON.stringify(result));
     const s = result.search;
     say(`${result.bench}: right note first ${s.first}/${s.n} (${s.firstPct ?? "-"}%), top 5 ${s.top5Pct ?? "-"}%, MRR ${s.mrr}, p50 ${s.p50Ms} ms${s.recallAny5Pct !== undefined ? `, recall@5 any ${s.recallAny5Pct}% all ${s.recallAll5Pct}%` : ""}${s.byPath ? `; answered by ${Object.entries(s.byPath).map(([p, n]) => `${p} ${n}`).join(", ")}` : ""}`);
-    if (s.ndcg10 !== undefined) say(`  ${result.bench === "herb" ? "HERB" : "NanoBEIR"} nDCG@10 ${s.ndcg10} (BM25 ${s.bm25Ndcg10}${s.objectNdcg10 !== undefined ? `, objects ${s.objectNdcg10}` : ""}), Recall@10 ${s.recall10}, MRR@10 ${s.mrr10}; ${Object.entries(s.bySet).map(([k, v]) => `${k} ${v.ndcg10}`).join(", ")}`);
+    if (s.ndcg10 !== undefined) say(`  nDCG@10 ${s.ndcg10} (BM25 ${s.bm25Ndcg10 ?? "none"}${s.objectNdcg10 !== undefined ? `, objects ${s.objectNdcg10}` : ""}), Recall@10 ${s.recall10}, MRR@10 ${s.mrr10}; ${Object.entries(s.bySet).map(([k, v]) => `${k} ${v.ndcg10}`).join(", ")}`);
     if (s.objects) say(`  in workspace objects: right note first ${s.objects.first}/${s.objects.n} (${s.objects.firstPct ?? "-"}%), top 5 ${s.objects.top5Pct ?? "-"}%, MRR ${s.objects.mrr}, p50 ${s.objects.p50Ms} ms; same rank ${s.objects.same}, better ${s.objects.better}, worse ${s.objects.worse}`);
     if (result.n > 0 && s.n === 0) throw new Error("no case was scored");
     return result;
   }
   if (options.items) return answerShard(options);
   for (const key of ["reader", "judge"]) if (options[key] && !MODEL.test(options[key])) throw new Error(`--${key} is a Claude model id`);
-  const bench = BENCHES.find((b) => b.id === (options.bench ?? "longmemeval-s"));
-  if (!bench) throw new Error(`no bench ${options.bench}`);
-  const file = options.data ?? (options.fetch ? await fetchData(bench, options.fetch) : null);
-  if (!file) throw new Error("--data <file> or --fetch <dir> is required");
-  const data = JSON.parse(readFileSync(file, "utf8"));
-  if (!Array.isArray(data)) throw new Error("the dataset file is not a JSON array");
-  const byId = new Map(data.map((item) => [item?.question_id, item]));
-  const index = data.map((item, i) => entryOf(item, i)).filter(Boolean);
-  const n = options.n === undefined ? index.length : Number(options.n);
-  if (!Number.isSafeInteger(n) || n < 1) throw new Error("--n is a whole number of questions");
-  const slice = sliceOf(index, n).map((entry) => byId.get(entry.id));
+  const { run: bench, source } = await benchmarkOf(options.bench ?? "longmemeval-s");
+  if (bench.kind !== "memory" && bench.format !== "beir") throw new Error(`${bench.id} has no memory run: its folder is not a BEIR set`);
+  const n = options.n === undefined ? null : Number(options.n);
+  if (n !== null && (!Number.isSafeInteger(n) || n < 1)) throw new Error("--n is a whole number of questions");
+  const [set] = await source.load({ run: { ...bench, kind: "memory" }, dir: options.fetch ?? null, data: options.data ?? null, n });
+  const all = memoryCases(set);
+  const slice = n === null || bench.slice === "source" ? all : all.slice(0, n);
+  const total = Number.isSafeInteger(set.total) ? set.total : all.length;
   const k = Math.max(1, Math.min(Number(options.parallel ?? 1) || 1, 16, slice.length));
-  say(`${bench.title} ${bench.variant}: ${slice.length} of ${index.length} questions, ${k} at once`);
+  say(`${bench.title} ${bench.variant}: ${slice.length} of ${total} questions, ${k} at once`);
   const dir = mkdtempSync(join(tmpdir(), "lab-eval-"));
   const filings = Number(options.filings ?? DEFAULTS.filings);
-  const pass = ["--filings", String(filings), ...(options.reader ? ["--reader", options.reader] : []), ...(options.judge ? ["--judge", options.judge] : []), ...(options.fake ? ["--fake"] : [])];
+  const pass = ["--bench", bench.id, "--filings", String(filings), ...(options.reader ? ["--reader", options.reader] : []), ...(options.judge ? ["--judge", options.judge] : []), ...(options.fake ? ["--fake"] : [])];
   const shards = Array.from({ length: k }, (_, s) => slice.filter((_, q) => q % k === s));
   const started = Date.now();
   await Promise.all(
@@ -180,27 +155,27 @@ export async function main(argv = process.argv.slice(2)) {
       return child(["--items", join(dir, `items-${s}.json`), "--out", join(dir, `rows-${s}.json`), "--shard", `${s + 1}/${k}`, ...pass]);
     }),
   );
-  const order = new Map(slice.map((item, q) => [item.question_id, q]));
+  const order = new Map(slice.map((c, q) => [c.id, q]));
   const rows = shards.flatMap((_, s) => JSON.parse(readFileSync(join(dir, `rows-${s}.json`), "utf8"))).sort((a, b) => order.get(a.id) - order.get(b.id));
-  const scores = scoresOf(rows);
+  const scores = scoresOf(rows, source.ABILITIES ?? null);
   const perQuestion = rows.length ? scores.usd.total / rows.length : 0;
   const result = {
     bench: bench.id,
     variant: bench.variant,
-    total: index.length,
+    total,
     n: rows.length,
     reader: options.reader ?? DEFAULTS.reader,
     judge: options.judge ?? DEFAULTS.judge,
     filings,
     ms: Date.now() - started,
     scores,
-    fullRunUsd: Math.round(perQuestion * index.length * 100) / 100,
+    fullRunUsd: Math.round(perQuestion * total * 100) / 100,
     rows,
   };
   writeFileSync(options.out, JSON.stringify(result));
   // A run that graded nothing failed, whatever it wrote: the first question's reason is the run's.
   if (rows.length > 0 && scores.n === 0) throw new Error(`no question was graded: ${rows.find((row) => row.error)?.error?.split("\n")[0] ?? "no reason given"}`.slice(0, 280));
-  say(`score ${scores.correct}/${scores.n} (${scores.pct ?? "-"}%), $${scores.usd.total.toFixed(2)}; all ${index.length} questions about $${result.fullRunUsd}`);
+  say(`score ${scores.correct}/${scores.n} (${scores.pct ?? "-"}%), $${scores.usd.total.toFixed(2)}; all ${total} questions about $${result.fullRunUsd}`);
   return result;
 }
 

@@ -91,6 +91,12 @@ Does search put the right note first? Three sets, one harness
   sessions saved as notes; is an answer session in search's top 5? No reader,
   no judge.
 
+Public sets sit beside these (NanoBEIR, HERB and EnterpriseRAG Notes), and
+every set is a folder in `packages/bench/benchmarks/` whose `bench.json` names
+its runs: the Lab lists `packages/bench/benchmarks.generated.json`, so a new
+folder shows up here with no change to the Lab
+([search-suite](../search/search-suite.md)).
+
 **Embeddings only.** A case is one `search_notes` call as the person through
 the endpoint, in a warm world with both indexes filled. No model answers, so a
 run has no dollars: the Lab shows "Embeddings only" where cost would be, offers

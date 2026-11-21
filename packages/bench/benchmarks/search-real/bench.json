@@ -1,0 +1,12 @@
+{
+  "id": "search-real",
+  "title": "Search",
+  "kind": "search",
+  "format": "custom",
+  "about": "Real searches that failed (nothing opened, or searched again), rewritten never verbatim, each with the notes that make it hard. Split 60/20/20: Training and Dev here, Test sealed in the eval service and the search gate's.",
+  "source": { "name": "Context's own, from the search quality log, rewritten", "license": "MIT, this repository's" },
+  "score": "first",
+  "runs": [
+    { "id": "search-real", "variant": "Real queries (Dev)", "total": 10, "about": "Real searches that failed (retried, or never opened), rewritten never verbatim: the Dev part. Embeddings only." }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "nanobeir",
+  "title": "NanoBEIR",
+  "kind": "search",
+  "format": "beir",
+  "about": "The standard public retrieval benchmark: BEIR's 13 sets cut to 50 queries each, scored by nDCG@10 beside BM25's own ranking.",
+  "source": {
+    "name": "NanoBEIR (Zeta Alpha, 2024), cut from BEIR (Thakur et al., NeurIPS 2021)",
+    "url": "https://huggingface.co/collections/zeta-alpha-ai/nanobeir",
+    "data": "sentence-transformers/Nano<Set>-bm25 on Hugging Face, fetched at run time at the revision the Hub names",
+    "license": "each set keeps its BEIR source's license"
+  },
+  "notes": { "workspace": "sam", "as": "Sam", "folder": "beir" },
+  "score": "beir",
+  "slice": "per-set",
+  "runs": [
+    {
+      "id": "nanobeir",
+      "variant": "All 13 sets",
+      "total": 649,
+      "about": "The standard public retrieval benchmark (BEIR's 13 sets cut to 50 queries each), scored by nDCG@10 beside BM25's own ranking. Embeddings only."
+    },
+    {
+      "id": "nanobeir-gate",
+      "variant": "Gate's 4 sets",
+      "total": 200,
+      "sets": ["msmarco", "nq", "fiqa", "scifact"],
+      "about": "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change. Embeddings only."
+    }
+  ]
+}

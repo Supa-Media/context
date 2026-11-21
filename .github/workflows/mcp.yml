@@ -123,6 +123,7 @@ jobs:
             packages/shared/**
             packages/tex/**
             packages/lab/**
+            packages/bench/**
             packages/communications/**
             packages/drawings/**
             packages/meetings/**
@@ -195,6 +196,7 @@ jobs:
             packages/shared/**
             packages/tex/**
             packages/lab/**
+            packages/bench/**
             packages/communications/**
             packages/drawings/**
             packages/meetings/**

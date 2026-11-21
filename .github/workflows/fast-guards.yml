@@ -286,3 +286,6 @@ jobs:
 
       - name: Tex's test conversations data is current
         run: node scripts/tex-sets-data.mjs --check
+
+      - name: Every benchmark folder checks, and the list of benchmarks is current
+        run: node packages/bench/scripts/registry.mjs --check

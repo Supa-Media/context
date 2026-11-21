@@ -14,8 +14,18 @@
  *    Markdown transcript an AI client saves with `save_context`;
  *  - `judgePrompt` and `verdictOf`: LongMemEval's own grading prompts (its `evaluate_qa.py`), one per question type,
  *    and its rule (the judge's answer contains "yes");
- *  - `usdOf`: what a call cost.
+ *  - `usdOf`: what a call cost;
+ *  - `fetchData`: the variant's file from Hugging Face, kept in the run's folder;
+ *  - `worlds`: the retrieval run (`longmemeval-retrieval`): each question's past sessions as saved notes, and the
+ *    question one search that should find its answer sessions in the top 5.
  */
+
+import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+import { HF } from "../../src/hub.mjs";
 
 /** The variants offered: the standard S file (about 115k tokens of history each) and the oracle (evidence only). */
 export const BENCHES = Object.freeze([
@@ -191,4 +201,97 @@ export function usdOf(model, usage) {
   if (price === null || !usage || typeof usage !== "object") return 0;
   const n = (v) => (Number.isFinite(v) ? v : 0);
   return (n(usage.input) * price.input + n(usage.output) * price.output + n(usage.cacheRead) * price.cacheRead + n(usage.cacheWrite) * price.cacheWrite) / 1e6;
+}
+
+// ── The data ───────────────────────────────────────────────────────────────
+
+const say = (line) => process.stderr.write(`${line}\n`);
+
+/**
+ * The variant's dataset file in `dir`, downloaded from Hugging Face when it is not there yet: the file is found in the
+ * dataset's own listing by the variant's pattern (`BENCHES`), so a renamed file is found or the run says so.
+ */
+export async function fetchData(bench, dir, fetchImpl = fetch) {
+  const listed = await fetchImpl(`${HF}/api/datasets/${bench.repo}/tree/main`);
+  if (!listed.ok) throw new Error(`Hugging Face listing for ${bench.repo}: ${listed.status}`);
+  const files = (await listed.json()).filter((f) => f?.type === "file" && typeof f.path === "string" && /\.json$/i.test(f.path) && bench.file.test(f.path));
+  if (files.length !== 1) throw new Error(`${bench.repo} has ${files.length} files like ${bench.file}: ${files.map((f) => f.path).join(", ")}`);
+  const name = files[0].path.replace(/^.*\//, "");
+  const path = join(dir, name);
+  const size = files[0].lfs?.size ?? files[0].size ?? null;
+  if (existsSync(path) && (!size || statSync(path).size === size)) return path;
+  mkdirSync(dir, { recursive: true });
+  const got = await fetchImpl(`${HF}/datasets/${bench.repo}/resolve/main/${encodeURI(files[0].path)}`);
+  if (!got.ok || !got.body) throw new Error(`Hugging Face download of ${name}: ${got.status}`);
+  await pipeline(Readable.fromWeb(got.body), createWriteStream(`${path}.part`));
+  renameSync(`${path}.part`, path);
+  say(`downloaded ${name} (${Math.round(statSync(path).size / 1e6)} MB)`);
+  return path;
+}
+
+// ── Retrieval: are the answer sessions in search's top 5? ──────────────────
+
+/** The folder a saved LongMemEval session lands in, under the person's personal workspace. */
+export const SESSION_FOLDER = "inbox/sessions/longmemeval";
+
+const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+/** A session id as a file name part: lower-case words joined by hyphens, never empty, never long. */
+export function slugOf(id) {
+  const slug = String(id ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .replace(/-+$/g, "");
+  return slug || "session";
+}
+
+/**
+ * One question as BEIR documents and a query, its own haystack (`group` = the question's id): each past session one
+ * dated document (`date`, the session's own id as `session`), kept as `inbox/sessions/longmemeval/<YYYY-MM-DD>-<session
+ * id slug>.md`, the way a raw saved session lands (two that slug alike on one day get `-2`, `-3`); the question asked
+ * on its date, with its answer, type and ability; its answer sessions its qrels. An answer session the dataset gives
+ * no usable date or turns for has no document, so the runner names it missing.
+ */
+export function beirOf(item) {
+  const qid = String(item.question_id);
+  const corpus = [];
+  const used = new Set();
+  for (const session of sessionsOf(item)) {
+    const day = isoDay(session.at);
+    const base = `${day}-${slugOf(session.id)}`;
+    let name = base;
+    for (let n = 2; used.has(name); n += 1) name = `${base}-${n}`;
+    used.add(name);
+    corpus.push({ _id: `${qid}/${session.id}`, group: qid, session: session.id, title: "", text: transcriptOf(session), date: new Date(session.at).toISOString(), path: `${SESSION_FOLDER}/${name}.md` });
+  }
+  const askedAt = utcMs(item.question_date) ?? (corpus.length ? Date.parse(corpus.at(-1).date) + 86_400_000 : null);
+  const kind = typeof item.question_type === "string" ? item.question_type : null;
+  const query = { _id: qid, group: qid, text: String(item.question ?? ""), kind, ability: abilityOf(qid, kind), answer: String(item.answer ?? ""), date: askedAt === null ? null : new Date(askedAt).toISOString(), asked: item.question_date ?? null };
+  const answers = Array.isArray(item?.answer_session_ids) ? item.answer_session_ids.map(String) : [];
+  return { corpus, query, qrels: answers.length ? { [qid]: Object.fromEntries(answers.map((sid) => [`${qid}/${sid}`, 1])) } : {} };
+}
+
+/**
+ * A run's set: the variant's questions as one BEIR set grouped by question, `n` of them in the same stratified slice
+ * every time (`total`: how many there were to slice from). A search run (`longmemeval-retrieval`, on the S file)
+ * leaves out abstention questions: they have no answer session to find, as LongMemEval's retrieval recall does.
+ */
+export async function load({ run, dir = null, data = null, n = null, fetchImpl = fetch }) {
+  const bench = benchOf(run.file ?? run.id) ?? benchOf("longmemeval-s");
+  const file = data ?? (dir ? await fetchData(bench, dir, fetchImpl) : null);
+  if (!file) throw new Error("--data <file> or --fetch <dir> is required");
+  const items = JSON.parse(readFileSync(file, "utf8"));
+  if (!Array.isArray(items)) throw new Error("the dataset file is not a JSON array");
+  const byId = new Map(items.map((item) => [item?.question_id, item]));
+  const index = items.map((item, i) => entryOf(item, i)).filter((e) => e && (run.kind !== "search" || e.ability !== "abstention"));
+  const set = { id: run.id, revision: null, total: index.length, corpus: [], queries: [], qrels: {} };
+  for (const entry of sliceOf(index, n ?? index.length)) {
+    const one = beirOf(byId.get(entry.id));
+    set.corpus.push(...one.corpus);
+    set.queries.push(one.query);
+    Object.assign(set.qrels, one.qrels);
+  }
+  return [set];
 }

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { REAL_DIR, REAL_PARTS, realSetOf } from "../evals/searchCli.mjs";
+import { HERE as REAL_DIR, PARTS as REAL_PARTS, realSetOf } from "../../../../packages/bench/benchmarks/search-real/source.mjs";
 import { overlay, pathOf, searchScores, splitAddress } from "../evals/searchSuite.mjs";
 import { REPO_BENCH_FOLDER } from "../folder.mjs";
 import { readBenchFolder } from "../load.mjs";

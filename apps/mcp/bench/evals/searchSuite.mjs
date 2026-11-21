@@ -3,15 +3,9 @@
  * our search results ... search quality is abysmal and it's going to affect our agents"; plan "Bench + Search graph +
  * gate", `docs/decisions/search/search-suite.md`.)
  *
- * One harness for every search set the Lab's Evals tab and the search gate run:
- *
- *   search-hard   made-up, harder than `ai/tests/search.md`: a person in seven workspaces, notes that quote the
- *                 question, long notes, archives (`apps/mcp/bench/search/hard/`)
- *   search-real   real searches that failed (nothing opened, or searched again), rewritten, never verbatim, each with
- *                 the notes that make it hard; Training and Dev in `apps/mcp/bench/search/real/`, Test sealed in the
- *                 eval service (`infra/tex-eval`)
- *   longmemeval-retrieval  LongMemEval's past sessions saved as notes; are the answer sessions in the top 5? (no reader,
- *                 no judge; `memoryRetrieval.mjs`)
+ * One harness for every search benchmark the Lab's Evals tab and the search gate run. The benchmarks themselves
+ * (what they are, their data, their license) are folders of `packages/bench/benchmarks/`; `searchCli.mjs` turns a
+ * folder into worlds and cases and runs them here.
  *
  * A case is { id, query, as, in?, expect: ["@workspace/path"], forbid?: [...] }. Its notes (`notes`, keyed
  * "@workspace/path") are laid over a copy of the bench's own workspaces, so every case searches a world of many
@@ -37,16 +31,6 @@ const PLAIN_TEXTING_SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthr
 /** How deep "in the top 5" looks: what an agent reads of an answer before it opens one. */
 export const TOP_K = 5;
 
-/** The sets the suite runs, as the Lab's Evals tab lists them. */
-export const SEARCH_SETS = Object.freeze([
-  { id: "search-hard", title: "Search", variant: "Made-up hard", about: "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives." },
-  { id: "search-real", title: "Search", variant: "Real queries (Dev)", about: "Real searches nobody opened or that were searched again, rewritten; the Dev part (Test is sealed and gates CI)." },
-  { id: "longmemeval-retrieval", title: "LongMemEval", variant: "Retrieval", about: "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge." },
-  { id: "nanobeir", title: "NanoBEIR", variant: "All 13 sets", about: "The standard public retrieval benchmark (BEIR, cut to 50 queries a set), scored by nDCG@10 beside BM25's own ranking." },
-  { id: "nanobeir-gate", title: "NanoBEIR", variant: "Gate's 4 sets", about: "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change." },
-  { id: "herb", title: "HERB", variant: "Workplace data", about: "Salesforce's public benchmark: 30 products' Slack, meetings, docs, links and pull requests in one pool (39,772 artifacts), 815 questions, scored by nDCG@10." },
-]);
-export const searchSetOf = (id) => SEARCH_SETS.find((set) => set.id === id) ?? null;
 
 /** "@ws/path" → ["ws", "path"], or null for anything else. */
 export function splitAddress(address) {
