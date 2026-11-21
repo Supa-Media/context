@@ -90,7 +90,7 @@
     {
       "id": "rerankWords",
       "label": "Rerank word hits",
-      "goal": "Ranks: each workspace’s first word hits (rerankTop, rerankChars of each) read beside the query by the cross-encoder in one call as soon as Words answers, while Meaning still runs, so its time hides behind Meaning’s; each hit keeps its score for Rerank, which then reads it no more. Never adds or drops a note. Off on main until a Lab draft shows it helps.",
+      "goal": "Ranks: each workspace’s first word hits (rerankTop, rerankChars of each) read beside the query by the cross-encoder one call per workspace, sent by Words the moment that workspace answers, while the others and Meaning still run, so its time hides behind theirs; each hit keeps its score for Rerank, which then reads it no more. Never adds or drops a note.",
       "on": true,
       "model": "code",
       "icon": "star",
@@ -100,21 +100,11 @@
       "settings": { "rerankTop": 8, "rerankChars": 400 },
       "inSchema": [
         { "name": "query", "type": "text" },
-        { "name": "prefix", "type": "text" },
-        { "name": "several", "type": "yesno" },
-        { "name": "boost", "type": "text", "optional": true },
-        { "name": "workspaces", "type": "list" },
-        { "name": "unreached", "type": "ids" },
-        { "name": "byWords", "type": "object", "optional": true }
+        { "name": "workspace", "type": "text" },
+        { "name": "found", "type": "object" }
       ],
       "outSchema": [
-        { "name": "query", "type": "text" },
-        { "name": "prefix", "type": "text" },
-        { "name": "several", "type": "yesno" },
-        { "name": "boost", "type": "text", "optional": true },
-        { "name": "workspaces", "type": "list" },
-        { "name": "unreached", "type": "ids" },
-        { "name": "byWords", "type": "object", "optional": true }
+        { "name": "found", "type": "object" }
       ]
     },
     {
@@ -524,11 +514,11 @@
     {
       "from": "words",
       "to": "rerankWords",
-      "mode": "wait",
+      "mode": "uses",
       "when": ["*"]
     },
     {
-      "from": "rerankWords",
+      "from": "words",
       "to": "visible",
       "mode": "wait",
       "when": ["*"]

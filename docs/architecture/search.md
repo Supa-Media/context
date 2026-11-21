@@ -30,8 +30,8 @@ flowchart LR
   n_search -->|open| n_open
   n_open --> n_words
   n_open --> n_meaning
-  n_words --> n_rerankWords
-  n_rerankWords --> n_visible
+  n_words -.->|uses| n_rerankWords
+  n_words --> n_visible
   n_meaning --> n_visible
   n_visible --> n_probes
   n_probes --> n_floor
@@ -59,7 +59,7 @@ flowchart LR
 | Query | A search arrives (an AI client's search_notes, the app's search bar, Tex): pick the workspaces it asks, every one the person reaches unless a folder, a scope or the person's setting narrows it. | apps/mcp/src/search/config/nodes.js |
 | Open as you | Open every workspace asked the way a tool call naming it does: the person's role there and its own privacy rules. One that cannot be opened now is left out and named unreached, never guessed at. | apps/mcp/src/search/config/nodes.js · privacy/state.js |
 | Words | Nominates: notes holding the query's words in every workspace at once, ranked by the word index (BM25, titles and headings weighted), retried with any word when no note holds them all (those are marked loose). Only notes the person may see. | apps/mcp/src/search/visibleNotes.js · objectSearch.js |
-| Rerank word hits | Ranks: each workspace’s first word hits (rerankTop, rerankChars of each) read beside the query by the cross-encoder in one call as soon as Words answers, while Meaning still runs, so its time hides behind Meaning’s; each hit keeps its score for Rerank, which then reads it no more. Never adds or drops a note. Off on main until a Lab draft shows it helps. | apps/mcp/src/search/rerank.js |
+| Rerank word hits | Ranks: each workspace’s first word hits (rerankTop, rerankChars of each) read beside the query by the cross-encoder one call per workspace, sent by Words the moment that workspace answers, while the others and Meaning still run, so its time hides behind theirs; each hit keeps its score for Rerank, which then reads it no more. Never adds or drops a note. | apps/mcp/src/search/rerank.js |
 | Meaning | Nominates: the nearest passages to the query's embedding (embedded once per search) in every workspace at once, at least minScore close. Only notes the person may see; never plumbing or a search probe. | apps/mcp/src/search/meaning/serve.js meaningMatches |
 | Only what you may see | Filters: both lists side by side per workspace, every note checked once more against the person's access there. A workspace whose word search failed is left out and named unreached. | apps/mcp/src/search/config/nodes.js visibleStep |
 | Drop search probes | Filters: a benchmark's search-probe note is never an answer. | apps/mcp/src/search/stages.js dropProbes |

@@ -177,7 +177,10 @@ test("a try-out answers main and the draft, ranked, with each step's time, and n
   assert.equal(answer.query, "renewal");
   const ORDER = SEARCH_CONFIG.nodes.filter((n) => n.on).map((n) => n.id);
   const path = answer.main.steps.map((s) => s.node).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
-  assert.deepEqual(path, ORDER, "a search across workspaces runs every step that is on, fuse included");
+  // "Rerank word hits" runs once per workspace searched (here two), as Words calls it for each.
+  const once = [...new Set(path)];
+  assert.deepEqual(once, ORDER, "a search across workspaces runs every step that is on, fuse included");
+  assert.equal(path.filter((id) => id === "rerankWords").length, 2);
   // Each step says how many notes it handed on, so the Lab shows where notes were added and removed.
   const notes = Object.fromEntries(answer.main.steps.map((s) => [s.node, s.notes]));
   assert.equal(notes.search, undefined, "the query hands on no notes");

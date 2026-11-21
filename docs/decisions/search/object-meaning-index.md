@@ -54,6 +54,14 @@ back: live, Words ended on the same millisecond as Meaning in nearly every searc
 early and added about 310 ms. The word search is about 20 ms of the object's time, well inside the model's embedding
 call, so meaning loses nothing. `apps/mcp/test/searchWordsFirst.test.mjs` fails if the warm call can go first.
 
+Rerank word hits is then called once per workspace, by Words over a `uses` wire, the moment that workspace's word
+search answers, rather than once for every workspace after the slowest has answered (Dev2, 2026-11-21: "rerank each
+workspace's word hits as soon as that workspace answers"). With one call after all of them, the search waited for the
+slowest workspace's word search and then for the whole batch; now each workspace's call starts as soon as it can and
+reads only its own hits. It is still a node, logged once per workspace, so nothing runs that the config does not
+name. A test in `apps/mcp/test/searchConfig.test.mjs` holds one workspace's word search until another's hits were
+read, and fails if the reranker waits for every workspace.
+
 A query's fingerprint is also kept in the gateway's memory for ten minutes for the person who asked it
 (`search/meaning/queryVectors.js`), so the same words asked again skip the model. It is kept per person, never per
 workspace: shared, a member could tell that somebody else had just searched the same words by their own search

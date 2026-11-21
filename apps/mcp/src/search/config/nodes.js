@@ -187,38 +187,50 @@ async function openStep(input, io) {
   return carry({ query, prefix, several, boost, unreached: names.filter((_, i) => others[i] === null) }, workspaces);
 }
 
-/** `words` (nominates): the word index's hits in every workspace at once (`../visibleNotes.js`), only notes the person may see. */
+/**
+ * `words` (nominates): the word index's hits in every workspace at once (`../visibleNotes.js`), only notes the person
+ * may see. Each workspace's hits go to `rerankWords` (a `uses` wire, when it is on) the moment that workspace answers,
+ * so its model call runs while the other workspaces and the meaning search are still answering (Dev2, 2026-11-21:
+ * "rerank each workspace's word hits as soon as that workspace answers").
+ */
 async function wordsStep(input, io) {
   const byWords = {};
+  const rerank = io.use?.rerankWords && io.on("rerankWords") ? io.use.rerankWords : null;
   await Promise.all(
     input.workspaces.map(async (ws) => {
       const { store, scope, rules, overrides } = handlesOf(io, ws.name);
+      let found;
       try {
-        byWords[ws.name] = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, ws.here ? input.prefix : ""));
+        found = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, ws.here ? input.prefix : ""));
       } catch (error) {
         // Another workspace that cannot answer now is left out and named, as one that cannot be opened is; this one throws.
         if (ws.here) throw error;
         byWords[ws.name] = null;
+        return;
       }
+      byWords[ws.name] = found;
+      if (!rerank || !found) return;
+      // A reranker that fails leaves this workspace's hits as they were: it never costs the search its word hits.
+      const read = await rerank({ query: input.query, workspace: ws.name, found }).catch(() => null);
+      if (read?.found) byWords[ws.name] = read.found;
     }),
   );
   return carry(input, input.workspaces, { byWords });
 }
 
 /**
- * `rerankWords` (ranks; off on main): the word hits read beside the query by the cross-encoder as soon as the word
- * search answers, in one call for every workspace, while `meaning` still runs (`../rerank.js` `rerankWordHits`); each
- * hit read keeps its score, which `rerank` uses without reading the note again.
+ * `rerankWords` (ranks), reached from `words` by a `uses` wire: one workspace's word hits read beside the query by the
+ * cross-encoder as soon as that workspace's word search answers, while the others and `meaning` still run
+ * (`../rerank.js` `rerankWordHits`); each hit read keeps its score, which `rerank` uses without reading the note again.
  */
 async function rerankWordsStep(input, io) {
   const { rerankTop = 8, rerankChars } = io.node?.settings ?? {};
-  if (input.byWords === undefined) return carry(input, input.workspaces, { log: { reranked: { skipped: "words is off" } } });
-  const { byWords, reranked } = await rerankWordHits(aiOf(input, io), input.query, input.byWords, { rerankTop, ...(rerankChars ? { rerankChars } : {}) });
-  return carry(input, input.workspaces, { byWords, log: { reranked } });
+  const { byWords, reranked } = await rerankWordHits(aiOf(input, io), input.query, { [input.workspace]: input.found }, { rerankTop, ...(rerankChars ? { rerankChars } : {}) });
+  return { found: byWords[input.workspace], log: { reranked } };
 }
 
 /** The gateway's Workers AI binding, for the reranker: the same for every workspace. */
-const aiOf = (input, io) => io.ctx.store?.ai ?? input.workspaces.map((ws) => handlesOf(io, ws.name)?.store?.ai).find(Boolean) ?? null;
+const aiOf = (input, io) => io.ctx.store?.ai ?? (input.workspaces ?? [{ name: input.workspace }]).map((ws) => handlesOf(io, ws.name)?.store?.ai).find(Boolean) ?? null;
 
 /** `meaning` (nominates): the nearest passages to the query's embedding in every workspace at once (`meaningMatches`). */
 async function meaningStep(input, io) {
@@ -401,14 +413,15 @@ function withOffPassedOver(config) {
   if (off.size === 0) return config;
   let edges = config.edges;
   for (const id of off) {
-    const into = edges.filter((e) => e.to === id);
-    const outOf = edges.filter((e) => e.from === id);
+    // Only `wait` wires are joined across it: a `uses` wire to or from a step that is off is simply gone.
+    const into = edges.filter((e) => e.to === id && e.mode === "wait");
+    const outOf = edges.filter((e) => e.from === id && e.mode === "wait");
     const joined = into.flatMap((a) => outOf.filter((b) => b.to !== a.from).map((b) => ({ ...a, to: b.to })));
     edges = [...edges.filter((e) => e.from !== id && e.to !== id), ...joined];
   }
   const seen = new Set();
   edges = edges.filter((e) => {
-    const key = `${e.from}>${e.to}>${(e.when ?? []).join(",")}`;
+    const key = `${e.from}>${e.to}>${e.mode}>${(e.when ?? []).join(",")}`;
     return seen.has(key) ? false : (seen.add(key), true);
   });
   return { ...config, edges };
