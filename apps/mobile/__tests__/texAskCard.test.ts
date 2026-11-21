@@ -17,6 +17,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AnswerChoice, AskCard } from "../features/tex/chat/appChatGateway";
 import { EDIT_HINT, TexAskCard, askLead } from "../features/tex/chat/TexAskCard";
+import { bodyHeight } from "../features/tex/chat/TexAskFace";
 
 const ROW = "r1";
 const AT = new Date(2026, 10, 19, 9, 5).getTime();
@@ -225,5 +226,25 @@ describe("the hint under the buttons", () => {
     mount(email());
     const hint = Array.from(document.querySelectorAll<HTMLElement>("[dir]")).find((node) => node.textContent === EDIT_HINT);
     expect(hint).toBeDefined();
+  });
+});
+
+describe("the editable body's height on web", () => {
+  // A textarea with content-box sizing: its scrollHeight is the larger of its height and its words, plus its padding.
+  const PAD = 10;
+  const scrollHeight = (height: number, words: number) => Math.max(height, words) + PAD * 2;
+
+  test("settles: a second measure gives the same height, so the box does not run away", () => {
+    const words = 180;
+    const first = bodyHeight(scrollHeight(60, words), true);
+    const second = bodyHeight(scrollHeight(first, words), true);
+    const third = bodyHeight(scrollHeight(second, words), true);
+    expect(first).toBe(words);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+  });
+
+  test("on native the measure is the words' own size", () => {
+    expect(bodyHeight(180, false)).toBe(180);
   });
 });

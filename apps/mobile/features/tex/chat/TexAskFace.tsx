@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, TextInput, View, type TextStyle } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, TextInput, View, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
@@ -172,7 +172,10 @@ function BodyBox({ body }: { body: FaceBody }) {
         onBlur={() => setFocused(false)}
         multiline
         scrollEnabled={false}
-        onContentSizeChange={(event) => setHeight(Math.ceil(event.nativeEvent.contentSize.height))}
+        onContentSizeChange={(event) => {
+          const next = bodyHeight(event.nativeEvent.contentSize.height, Platform.OS === "web");
+          setHeight((was) => (was !== null && Math.abs(was - next) < 1 ? was : next));
+        }}
         textAlignVertical="top"
         accessibilityLabel={body.label}
         testID={body.testID}
@@ -191,8 +194,18 @@ function BodyBox({ body }: { body: FaceBody }) {
 
 /** The body box's padding. */
 const BODY_PAD = 10;
-/** The least height of an editable body; past it the box grows to its words (its content size includes the padding). */
+/** The least height of an editable body; past it the box grows to its words. */
 const MIN_BODY = 60;
+
+/**
+ * The height to give the editable body for a measured content size. On web the measure is the textarea's scrollHeight,
+ * which counts the padding, while the height it is given is the content box without it: set back as it is, each
+ * measure would grow the box by its padding again and the box would run away. Taking the padding off makes it settle
+ * (scrollHeight = max(height, words) + padding). On native the measure is the words' own size.
+ */
+export function bodyHeight(measured: number, web: boolean): number {
+  return Math.max(0, Math.ceil(web ? measured - BODY_PAD * 2 : measured));
+}
 
 /** One button of a card's row: `primary` is the accent fill, `ghost` plain muted words with no line and no fill (the mock). */
 export function AskButton({
