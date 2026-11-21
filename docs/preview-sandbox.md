@@ -31,6 +31,23 @@ and the code. "Checked on every preview" means the deploy's smoke test
    and phone (390) layouts as the run's artifact
    (`packages/sandbox/src/screenshots.mjs`). Agents check a UI change this way
    before it merges.
+5. Sign an AI agent in to drive the preview in its own browser, with no
+   mailbox and no new secret:
+   - `node packages/sandbox/src/agent-sign-in.mjs keygen` makes a throwaway
+     key pair, keeps the private half in a file on the agent's machine and
+     prints the public half.
+   - Run **Actions → Preview agent sign-in** with the pull request number, a
+     persona and that public key. The runner signs the persona in on that
+     preview and prints one `AGENT_SIGN_IN …` line: the preview's address and
+     the session, sealed to the key (X25519 + AES-GCM). The log is public; the
+     line is unreadable without the private key.
+   - `node packages/sandbox/src/agent-sign-in.mjs open "<the line, or the whole
+     job log>"` writes a Playwright storage state and prints the address;
+     `browser.newContext({ storageState })` opens the app signed in. Add
+     `--shoot "/;/?tex=1"` to take the desktop, medium and phone pictures
+     there and then.
+   It is a workflow, not a tool on the Context MCP, so production never holds
+   the preview deploy key (`packages/sandbox/src/agent-sign-in.mjs`).
 
 ## Real, as in production
 
