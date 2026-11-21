@@ -6,6 +6,8 @@ import { shapeNote } from "../shapeGate.js";
 import { contextsFor } from "../../../../../apps/mcp/src/context/identity.js";
 import { markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
 import { devShareOn, devSharePrompt } from "../devShare.js";
+import { screenForTurn, screenNote, screenOn } from "../screen.js";
+import { CONSOLE_CLIENT_ID } from "./clients.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
 import { TRAINING, texCacheTtl, texConfigOf, texFreeze, texToolList } from "../texConfig.js";
@@ -51,6 +53,7 @@ import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withSearchRecord } from "../searchClaims.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
 import { turnEfforts } from "../production.js";
+import { withLive } from "../liveSteps.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS } from "../progress.js";
 import { askedWith, loggedQuestion, reactedLine } from "../quoted.js";
 import { HANDED_BACK_QUESTION } from "../handback.js";
@@ -235,6 +238,10 @@ export async function runTheModel(t, via) {
   const waitStart = eligible && acts && t.routeRead ? Date.now() : null;
   const routed = eligible && acts && t.routeRead ? await tex.wait("route", t.routeRead) : null;
   const waitedMs = waitStart === null ? null : Date.now() - waitStart;
+  // What the Context app had open when they texted it from its chat (`screen.js`): a 1:1 app turn, when the front door's ctx lists `screen`.
+  const screen = screenOn(env) && chatTurn && job === null && group === null && !runner && session.actorClientId === CONSOLE_CLIENT_ID && typeof session.actorUserId === "string"
+    ? await tex.step("screen", () => screenForTurn({ env, actorUserId: session.actorUserId, contexts: contextsFor(session), dispatch, ownId: session.workspaceId, now: Date.now() }).catch(() => null), null)
+    : null;
   const args = {
     ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
@@ -283,14 +290,14 @@ export async function runTheModel(t, via) {
     web: via.web(steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb), // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: threaded?.history ? [...threaded.history, ...(logged?.carried ?? [])] : logged?.history ?? shown, // the stretch's turns after it (`stretch.js`)
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online, and a job's per-part lines and a report (both changed nearly every text above the history: cache audit, 2026-11-20).
-    turnNote: [group !== null ? taggedLine(group) : "", job === null ? underNote(logged?.covered, { group: group !== null, speaker }) : "", shapeNote(shape), threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning, own: ownComputerWired }) : "", jobPartPrompt(job), carriedLine(rounds?.from), jobReportPrompt(report)].map((part) => part.trim()).filter(Boolean).join("\n\n"),
+    turnNote: [group !== null ? taggedLine(group) : "", job === null ? underNote(logged?.covered, { group: group !== null, speaker }) : "", shapeNote(shape), threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning, own: ownComputerWired }) : "", jobPartPrompt(job), carriedLine(rounds?.from), jobReportPrompt(report), screenNote(screen ?? {})].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     // In parts, so the prompt's manifest names which one changed between two texts (a cache miss, 2026-11-14); sent as one block.
     threadNote: [["group", group !== null ? (crossWired ? groupPrompt(group, home).replace(PERSONAL_TEX_LINE, CROSS_CHAT_GROUP_LINE) : groupPrompt(group, home)) : ""], ["cross", t.crossPrompt ?? ""], ["learned", learnedSkillsLine(learned)], ["background", background?.prompt ?? ""], ["plan", planning ? PLAN_HINT : ""], ["hub", chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : ""], ["job", jobBriefPrompt(job)], ["jobAdvisor", jobAdvisorLine(job, advising)], ["instructions", chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""]], steer,
     local: via.local((doIt?.wrapLocal ?? ((local) => local))([...earlier, ...(groupChats ? [groupChats.tool] : []), ...(reads !== null ? [readBackTool({ reads: reads.all, open: keptReads.open, reread: dispatch, onRead: (read) => markRead(ledger, read) })] : []), ...(threaded?.read_thread ? [threaded.read_thread] : []), ...(threaded?.read_day ? [threaded.read_day] : week?.read_day ? [week.read_day] : []), ...(chatTurn && job === null && !routine ? commandTools({ run: (command) => settingsChanged(env, controlPlane.texCommand(session.accessToken, command), command, group ? { chat: group.key } : { person: session.workspaceId }), group, consent: consentFor(question, egressJudge), snapshot: () => settingsSnapshot({ session, controlPlane, group, dispatch }), onMute: () => void (ledger.chatMuted = true) }) : []), ...(chatTurn && job === null && !routine ? computerTools({ env, session, controlPlane, group, words: question, judge: egressJudge }) : []), ...(chatTurn && job === null && !routine ? settingsTools({ session, controlPlane, group, dispatch, words: question, judge: egressJudge, onInvite: (invite) => void (ledger.chatInvite = invite) }) : []), ...crossTools, ...(tapping ? [tapping.local] : []), ...(ownComputer ? [ownComputer] : []), ...personalTex(chatTurn && job === null && !routine && !crossWired ? personalTexTool({ group, ledger, say: channel ? (line) => channel.say(line) : null, asker: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }) : null), ...personalTex(chatTurn && job === null && !routine && group !== null ? guestNameTool({ group, ledger: groupLedger(store, group) }) : null), ...(advising ? advisorTools({ model: production.advisor, effort: production.efforts?.[production.advisor], history: shown, question, request: advisorRequest({ ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "advisor" } }), meter, config: texConfigOf(env) }) : [])])), // the advisor, when the setup names one (`advisor.js`); watched for whether they asked for it (`doItChecks.js`)
     // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
     ...(knows === null ? {} : outgoing.knows(knows)), // and who they are by their account (`identity.js`); where they live starts a places card's distances (`visuals/distance.js`)
     localNow: { now: Date.now(), timeZone },
-    observe: chatLog === null ? withJobSteps(job, step, null, () => ledger.untrusted === true) : collectReads((t.reads = rereadCarried(rounds?.from ?? null, claims)), ledgerObserver(chatLog, withJobSteps(job, step, null, () => ledger.untrusted === true), ledgerAt)), // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger; what it read, for the facts its reply keeps (`toldFacts.js`)
+    observe: withLive(t.live, body?.live === true && job === null, chatLog === null ? withJobSteps(job, step, null, () => ledger.untrusted === true) : collectReads((t.reads = rereadCarried(rounds?.from ?? null, claims)), ledgerObserver(chatLog, withJobSteps(job, step, null, () => ledger.untrusted === true), ledgerAt))), // and, for an ask that asked (the app chat), each step to its run card (`liveSteps.js`) // a job's steps also go to its chat (`background.js`), and every step to the chat's ledger; what it read, for the facts its reply keeps (`toldFacts.js`)
     workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
     groups: groupChats?.prompt ?? "", // the group chats they are in (`groupChats.js`)
     devShare: group !== null && devShareOn(env) ? devSharePrompt(group.devShare) : "", // whether the developers can read this chat (`devShare.js`)

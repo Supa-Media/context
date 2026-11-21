@@ -10,6 +10,7 @@ import { attachHomeRoutineReports } from "../../../../packages/tex/gateway/agent
 import { deliverMail } from "../mail/deliver.js";
 import { runLabModel } from "../tools/runModel.js";
 import { createTexDev } from "../../../../packages/lab/gateway/texDev/tool.js";
+import { noteRunsFull } from "../../../../packages/tex/gateway/agent/noteRunRoute.js";
 import { editsPinnedContext } from "../context/identity.js";
 
 /**
@@ -221,7 +222,7 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // `tex_dev`: developing on Tex. Given only to a connection whose person edits @context-lc's AI setup; the control
   // plane decides again on every call that reads a draft or a chat (`texDev/tool.js`, `functions/texLabDrafts.ts`).
   if (editsPinnedContext(session)) {
-    const texDev = createTexDev({ env, session, controlPlane, defer: (work) => (typeof store.defer === "function" ? store.defer(work) : work) });
+    const texDev = createTexDev({ env, session, controlPlane, defer: (work) => (typeof store.defer === "function" ? store.defer(work) : work), noteRuns: (args) => noteRunsFull({ env, store, session, args }) });
     Object.defineProperty(store, "texDev", { value: texDev, enumerable: false, writable: false, configurable: true });
   }
   // `notify_me`: a ping for this connection's person. The control plane

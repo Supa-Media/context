@@ -16,3 +16,7 @@ export { APP_PICTURE_ORIGIN, forgetAppPicture, keepAppPicture, readAppPicture, s
 // The files the app chat's person sends (PDF, plain text, Word): kept and served as the pictures are (`appFiles.ts`).
 export { APP_FILE_TYPES, MAX_APP_FILE_BYTES, appFileIdOf, appFileUrl, forgetAppFile, keepAppFile, readAppFile, safeAppFileName, serveAppFile, sniffAppFile } from "./appFiles";
 export { HANDLES_KEY } from "./replyQuote";
+// The app's view of the queue, and its stop and Try again (`turnWatch.ts`).
+export { queueView, TURN_RUN_KEY } from "./turnWatch";
+export { TEXTS_QUEUE } from "./chatQueue";
+export { APP_RUN_KEY } from "./appRun";

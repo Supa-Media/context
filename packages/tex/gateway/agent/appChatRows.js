@@ -7,12 +7,14 @@
  * person's tapbacks (`taps`), and which texts can still be edited (`handles`). Both places hold the same events, so they
  * are merged by event id, the ledger's copy first.
  *
- * What a row carries is the contract's Row and nothing else: no tool arguments, no steps, no tokens. A person's edit and
+ * What a row carries is the contract's Row and nothing else: no tokens, and of a turn's steps only its run card (a Tex
+ * row's `run`: each step's name, its main argument and the first line of what it found, cut short by `liveSteps.js`). A person's edit and
  * an unsend are folded into the text they change (its words now, `edited`, or `unsent` with none); a tapback onto the
  * text it is on; a line Tex sent to nobody (`from` system) is left out.
  */
 
 import { ledgerFor, ONE_TO_ONE_CHAT } from "./ledger.js";
+import { liveStepOf, MAX_LIVE_STEPS } from "./liveSteps.js";
 import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
 
 /** How many ledger entries one read takes: the newest, which the page then trims to its rows. */
@@ -47,6 +49,48 @@ export async function ledgerEntries(ledgerOf, workspaceId) {
   return [...(read?.entries ?? [])].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
 }
 
+/** How many of the newest thinking and tool entries one read takes, for the finished turns' run cards. */
+export const STEPS_READ = 600;
+
+/**
+ * The newest thinking and tool entries of the person's 1:1, oldest first: each answered turn's run card is built from
+ * its own (`runCards`). Never the words of a result beyond the card's first line (`liveSteps.js`).
+ */
+export async function stepEntries(ledgerOf, workspaceId) {
+  const ledger = await ledgerOf({ person: workspaceId });
+  if (ledger === null || ledger === undefined) return [];
+  const read = await ledger.read(ONE_TO_ONE_CHAT, { before: Number.MAX_SAFE_INTEGER, kinds: ["thinking", "tool"], limit: STEPS_READ, jobs: false });
+  return [...(read?.entries ?? [])].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+}
+
+/**
+ * The finished run card on the first Tex row of each answered turn (mock: "Worked 12s · 5 steps"): `{ secs, steps }`,
+ * the turn's thinking and tool calls in order, timed from its first step, and the seconds from the oldest text it
+ * covers to its first answer. A turn with no steps kept gets no card.
+ */
+function runCards(kept, entries) {
+  const byTurn = new Map();
+  for (const entry of entries) {
+    if (typeof entry?.turn !== "string" || (entry.kind !== "thinking" && entry.kind !== "tool")) continue;
+    if (!byTurn.has(entry.turn)) byTurn.set(entry.turn, []);
+    byTurn.get(entry.turn).push(entry);
+  }
+  const atOf = new Map(kept.map(({ row }) => [row.id, row.at]));
+  const carded = new Set();
+  for (const { row, event } of kept) {
+    if (row.who !== "tex" || event.turn === null || carded.has(event.turn)) continue;
+    carded.add(event.turn);
+    const turnSteps = byTurn.get(event.turn) ?? [];
+    if (turnSteps.length === 0) continue;
+    const first = Math.min(...turnSteps.map((entry) => (Number.isFinite(entry.at) ? entry.at : row.at)));
+    const steps = turnSteps.map((entry) => liveStepOf(entry, (Number.isFinite(entry.at) ? entry.at : first) - first)).filter((step) => step !== null).slice(-MAX_LIVE_STEPS);
+    if (steps.length === 0) continue;
+    const asked = event.covers.map((id) => atOf.get(id)).filter((at) => Number.isFinite(at));
+    const from = asked.length > 0 ? Math.min(...asked) : first;
+    row.run = { secs: Math.max(1, Math.round((row.at - from) / 1000)), steps };
+  }
+}
+
 const plain = (value) => (value !== null && typeof value === "object" && !Array.isArray(value) ? value : {});
 
 /** The chat object's outbox for `chatId`. Throws when the object cannot answer. */
@@ -61,7 +105,64 @@ export async function outboxOf(namespace, chatId) {
     metas: plain(body?.metas),
     taps: plain(body?.taps),
     handles: plain(body?.handles),
+    queue: Array.isArray(body?.queue) ? body.queue.filter((item) => typeof item?.ev === "string") : [],
+    failed: plain(body?.failed),
+    stopped: plain(body?.stopped),
+    run: runOf(body?.run),
   };
+}
+
+/** The run card the app shows while a turn runs: `{ turn, covers, startedAt, steps }`, or null. */
+function runOf(raw) {
+  if (raw === null || typeof raw !== "object" || typeof raw.turn !== "string" || !Number.isFinite(raw.startedAt)) return null;
+  const steps = Array.isArray(raw.steps) ? raw.steps.filter((step) => step !== null && typeof step === "object" && (step.k === "think" || step.k === "tool")).slice(-40) : [];
+  return { turn: raw.turn, covers: Array.isArray(raw.covers) ? raw.covers.filter((id) => typeof id === "string") : [], startedAt: raw.startedAt, steps };
+}
+
+/**
+ * A short fingerprint of what the outbox shows: its events, the queue's states, the marked texts and the typing mark.
+ * The `wait` op holds a read until it changes (`appChatRoute.js`).
+ */
+export function outboxDigest(outbox, now = Date.now()) {
+  const parts = [
+    (outbox.events ?? []).map((event) => `${event.id}:${event.kind}:${event.delivered ?? ""}`).join(","),
+    (outbox.queue ?? []).map((item) => `${item.ev}:${item.state}`).join(","),
+    Object.keys(outbox.failed ?? {}).sort().join(","),
+    Object.keys(outbox.stopped ?? {}).sort().join(","),
+    Object.entries(outbox.taps ?? {}).map(([on, tap]) => `${on}:${tap?.emoji}`).sort().join(","),
+    typingNow(outbox.typingAt ?? null, now) ? "typing" : "",
+    outbox.run ? `${outbox.run.turn}:${outbox.run.steps.length}:${outbox.run.steps.at(-1)?.at ?? ""}:${outbox.run.steps.at(-1)?.text?.length ?? ""}` : "",
+  ];
+  let hash = 2166136261;
+  for (const char of parts.join("|")) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  return hash.toString(36);
+}
+
+/**
+ * Where each of the person's texts is, as the page shows under it (mock: Delivered · Read · Answered):
+ *  - `failed` (with `failedAt`): Tex could not answer it (`packages/tex/worker/turnWatch.ts`); Try again queues it.
+ *  - `stopped`: the person stopped the turn answering it.
+ *  - `answered`: a Tex text or tapback covers it.
+ *  - `reading`: the turn answering it is running.
+ *  - `queued`: waiting while another turn runs (Tex reads it once that step ends); `sent`: waiting, nothing running.
+ *  - `read`: out of the queue with no answer of its own (folded into a turn, or one Tex chose to let be).
+ */
+function deliveryStates(kept, events, { queue = [], failed = {}, stopped = {} }) {
+  const covered = new Set(events.filter((event) => whoOf(event) === "tex").flatMap((event) => event.covers));
+  const waiting = new Map(queue.map((item) => [item.ev, item.state]));
+  const busy = queue.some((item) => item.state === "running");
+  for (const { row } of kept) {
+    if (row.who !== "me") continue;
+    const mark = plain(failed[row.id]);
+    if (Number.isFinite(mark.at)) {
+      row.state = "failed";
+      row.failedAt = mark.at;
+    } else if (Number.isFinite(stopped[row.id])) row.state = "stopped";
+    else if (covered.has(row.id)) row.state = "answered";
+    else if (waiting.get(row.id) === "running") row.state = "reading";
+    else if (waiting.has(row.id)) row.state = busy ? "queued" : "sent";
+    else row.state = "read";
+  }
 }
 
 /** A ledger entry as an event: the ledger keeps the chat event's kind as `event` and its id as `eid`. */
@@ -152,8 +253,8 @@ const byTime = (a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
  *  - A text the person can still take back (theirs, not unsent, within `EDIT_WINDOW_MS`, and one the chat object still
  *    knows the handle of) is `unsendable`, and also `editable` when it is words with no pictures.
  */
-export function buildRows(ledgerEvents, outbox, now = Date.now(), out = {}) {
-  const { events: outboxEvents = [], metas = {}, taps = {}, handles = {} } = outbox ?? {};
+export function buildRows(ledgerEvents, outbox, now = Date.now(), out = {}, steps = []) {
+  const { events: outboxEvents = [], metas = {}, taps = {}, handles = {}, queue = [], failed = {}, stopped = {} } = outbox ?? {};
   const byId = new Map();
   for (const entry of ledgerEvents) {
     const event = fromLedger(entry);
@@ -228,6 +329,8 @@ export function buildRows(ledgerEvents, outbox, now = Date.now(), out = {}) {
     row.unsendable = true;
     if (row.kind !== "picture" && row.kind !== "file" && row.text.trim() !== "") row.editable = true;
   }
+  deliveryStates(kept, events, { queue, failed, stopped });
+  runCards(kept, steps);
   // The handle each row is known by to the chat object, an edited one's included, for an edit or unsend to name.
   out.handles = editable;
   return kept.map(({ row }) => row);

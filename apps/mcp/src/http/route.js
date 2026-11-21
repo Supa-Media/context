@@ -466,7 +466,7 @@ export async function route(request, env, ctx) {
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
         if (!wantsProgress(request)) return await held(() => handleAgent(request, env, store, session, controlPlane));
-        return streamTurn((progress, step, answered) => held(() => handleAgent(request, env, store, session, controlPlane, { progress, step, answered })), {
+        return streamTurn((progress, step, answered, live) => held(() => handleAgent(request, env, store, session, controlPlane, { progress, step, answered, live })), {
           waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
         });
       }
@@ -485,7 +485,7 @@ export async function route(request, env, ctx) {
       // The texting Worker saw a chat go quiet: score how it went (`agent/selfReview.js`).
       if (path === "/agent/review") return await handleReview(request, env, store, session, controlPlane);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
-      if (appRoute) return await appRoute(request, store, session, path, env);
+      if (appRoute) return await appRoute(request, store, session, path, env, ctx);
       // The app's search bar, on the same search an AI client runs (`appSearch.js`).
       if (path === APP_SEARCH_PATH) return await withSearchPassesHeld(store, () => handleAppSearch(request, store, session));
       if (texPageRoute) return await handleTexPage(request, env, store, session, { path, controlPlane });

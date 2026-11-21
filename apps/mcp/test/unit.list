@@ -95,6 +95,7 @@ test/inlineTags.test.mjs
 test/linkScanCost.test.mjs
 test/listingProps.test.mjs
 test/liveGrantAccess.test.js
+test/liveSteps.test.mjs
 test/liveToolList.test.mjs
 test/logicalDelete.test.mjs
 test/logicalDeleteListing.test.mjs
@@ -704,6 +705,10 @@ test/setsGold.test.mjs
 test/texExamples.test.mjs
 test/examplesNode.test.mjs
 test/appChat.test.mjs
+test/noteRunRoute.test.mjs
+test/noteRunStorage.test.mjs
+test/screen.test.mjs
+test/appChatDelivery.test.mjs
 test/setsFdTapbacks.test.mjs
 test/searchedLine.test.mjs
 test/emailChooseSender.test.mjs
@@ -722,5 +727,6 @@ test/actionArgs.test.mjs
 bench/test/codeLines.test.mjs
 bench/test/noteLinks.test.mjs
 test/noteConnect.test.mjs
+test/noteRun.test.mjs
 test/yesUnreadAsks.test.mjs
 test/texChatAppHop.test.mjs

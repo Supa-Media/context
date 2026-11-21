@@ -50,7 +50,7 @@ function parseGraph(text) {
  * The tool's work for one connection. `call(action, args)` answers an MCP result. `env` is the gateway's, `session`
  * the connection's (its token goes to the control plane, which decides who it is), `sleep` for tests.
  */
-export function createTexDev({ env, session, controlPlane, defer = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined }) {
+export function createTexDev({ env, session, controlPlane, defer = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, fetch: get = (...a) => globalThis.fetch(...a), ledgerOf = undefined, noteRuns = null }) {
   const origin = appOriginOf(env) || "https://context.lc";
   const linkOf = (id) => `${origin}/lab?v=${id}`;
 
@@ -394,6 +394,11 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
       case "sandbox": {
         // The Lab's test chats (`labSandbox/route.js`), the same route the Lab calls, on this connection's own grant,
         // shaped for an AI (`sandbox.js`): run cards, waits, a step whole, re-runs and drafts side by side.
+        // `note_runs`: a note's Tex runs in full, for a note this connection can read (`agent/noteRunRoute.js`).
+        if (args?.op === "note_runs") {
+          const listed = noteRuns === null ? { error: "note_runs is not available here" } : await noteRuns(args);
+          return listed.error ? toolError(listed.error) : json(listed);
+        }
         const answer = await sandbox(args ?? {});
         return answer?.error ? toolError(answer.error) : answer?.tool ? answer.tool : json(answer);
       }
