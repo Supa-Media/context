@@ -52,6 +52,8 @@ interface Placement {
 
 /** How far above its words' line a card in the margin starts, so its first line sits level with them. */
 const LIFT = 6;
+/** The pane's round + button (56 px, 24 px off the bottom) and a gap above it, so the docked card's send button is never under it. */
+const CREATE_CLEAR = 92;
 
 class Popover implements PluginValue {
   private card: HTMLElement | null = null;
@@ -208,11 +210,11 @@ class Popover implements PluginValue {
       // Level with its words, in the column beside them: nothing it covers is the note.
       return { top: Math.max(0, start.top - box.top + scroller.scrollTop - LIFT), left: column.left, where: "margin" };
     }
-    // No room for the margin: docked to the bottom of the pane, the width of it.
+    // No room for the margin: docked to the bottom of the pane, above the round + button there.
     const width = card.offsetWidth;
     const height = card.offsetHeight;
     return {
-      top: scroller.scrollTop + Math.max(0, scroller.clientHeight - height - GAP),
+      top: scroller.scrollTop + Math.max(0, scroller.clientHeight - height - CREATE_CLEAR),
       left: scroller.scrollLeft + Math.max(0, (scroller.clientWidth - width) / 2),
       where: "dock",
     };
