@@ -73,3 +73,5 @@ with about the same model time. Dev2 chose the phone's route: the app chat's `PO
 the gateway, a fresh isolate, as the texting Worker's does (`hopToGateway`); the smaller routes (`/agent/steer`,
 `/agent/events`, ...) stay in-process. Only a hop that throws before any answer runs the turn in-process, so a text
 is never dropped for want of the hop. Reverting it brings the memory reset back: `test/texChatAppHop.test.mjs` fails.
+
+See also [Tex in a note, and the note on screen](./notes-and-screen.md) (2026-11-20): the app chat carries what the app has open, and Tex can be asked inside a note.
