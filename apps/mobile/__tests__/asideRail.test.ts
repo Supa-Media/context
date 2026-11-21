@@ -96,3 +96,17 @@ describe("the right rail", () => {
     expect(rail({ open: false }).find("aside-tab-tex-count")).toBeNull();
   });
 });
+
+describe("the rail beside the panel (Dev2, 2026-11-21 roast)", () => {
+  test("open, a hairline divides the rail from the panel; folded there is no panel to divide from", () => {
+    const open = rail({ open: true });
+    expect(getComputedStyle(open.find("aside-strip")!).borderLeftWidth).not.toMatch(/^0(px)?$|^$/);
+    const folded = rail({ open: false });
+    expect(getComputedStyle(folded.find("aside-strip")!).borderLeftWidth).toMatch(/^0(px)?$|^$/);
+  });
+
+  test("the toggle is named as the left sidebar's is, a panel to show or hide rather than an arrow", () => {
+    expect(rail({ open: true }).find("aside-fold")?.getAttribute("aria-label")).toBe("Hide the side panel");
+    expect(rail({ open: false }).find("aside-unfold")?.getAttribute("aria-label")).toBe("Show the side panel");
+  });
+});

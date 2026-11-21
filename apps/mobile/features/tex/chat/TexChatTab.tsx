@@ -17,13 +17,11 @@ import { useRevealedText } from "./appChatReveal";
 import { dayLabels } from "./appChatDays";
 import { TexDeliveryLine } from "./TexDeliveryLine";
 import { TexRunCard } from "./TexRunCard";
-import { TexWorkingMark } from "./TexWorkingMark";
 import type { ApprovalsView } from "../../approvals/useApprovals";
 import { useAppChat, type AppChatView } from "./useAppChat";
 import { TexChatComposer, type EditTarget, type ReplyTarget } from "./TexChatComposer";
 import { TexChatRow, type TexChatRowProps } from "./TexChatRow";
 import type { PickedFile } from "./appChatFiles";
-import { TexChatHeader } from "./TexChatHeader";
 import { chatTimeline } from "./approvalTimeline";
 import { TexApprovalCard } from "./TexApprovalCard";
 import type { SeenBody } from "./appChatSeen";
@@ -46,8 +44,9 @@ const STICK_PX = 48;
  * The console's right-panel tab for the chat with Tex: the person's own chat
  * with Tex, the same history as their texts.
  *
- * Mounted only while the tab is showing, so the hook polls only then; leaving
- * the tab stops it. What it draws is decided by `AppChatView`, the hook's
+ * Kept mounted behind the other tabs once the console has loaded (`AsidePanel`),
+ * so opening it shows the chat at once; `active` says whether it is on screen.
+ * What it draws is decided by `AppChatView`, the hook's
  * return value, which the other half of the tab (`TexChatView`) takes as a
  * prop so it can be drawn with a fake.
  */
@@ -57,6 +56,7 @@ export function TexChatTab({
   approvals,
   onOpenNote,
   seen,
+  active = true,
 }: {
   workspaceId: string;
   endpoint: string;
@@ -66,6 +66,8 @@ export function TexChatTab({
   onOpenNote?: ((href: string, path: string) => void) | null;
   /** What the person has open, read at each new send and sent with it. */
   seen?: () => SeenBody | null;
+  /** Whether the tab is on screen; it is kept mounted, hidden, while another tab shows. */
+  active?: boolean;
 }) {
   const view = useAppChat({ workspaceId, endpoint, enabled: true });
   /*
@@ -76,9 +78,9 @@ export function TexChatTab({
   const refreshApprovals = useRef(approvals?.refresh);
   refreshApprovals.current = approvals?.refresh;
   useEffect(() => {
-    refreshApprovals.current?.();
-  }, []);
-  return <TexChatView view={view} approvals={approvals} onOpenNote={onOpenNote} seen={seen} />;
+    if (active) refreshApprovals.current?.();
+  }, [active]);
+  return <TexChatView view={view} approvals={approvals} onOpenNote={onOpenNote} seen={seen} active={active} />;
 }
 
 /** The tab's face: a header with Tex, the log, the typing mark, the approval, the box. */
@@ -87,12 +89,15 @@ export function TexChatView({
   approvals,
   onOpenNote,
   seen,
+  active = true,
 }: {
   view: AppChatView;
   approvals?: ApprovalsView;
   onOpenNote?: ((href: string, path: string) => void) | null;
   /** What the person has open, read when a new text is sent (edits carry none). */
   seen?: () => SeenBody | null;
+  /** False while hidden behind another tab: its keys (Esc) are left to whatever is on screen. */
+  active?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -131,23 +136,23 @@ export function TexChatView({
 
   // Esc closes the picture overlay.
   useEffect(() => {
-    if (opened === null || typeof document === "undefined") return;
+    if (!active || opened === null || typeof document === "undefined") return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpened(null);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [opened]);
+  }, [active, opened]);
 
   // Esc stops the turn while Tex is busy (web only). It yields to the picture overlay, which takes Esc first.
   useEffect(() => {
-    if (!view.busy || opened !== null || typeof document === "undefined") return;
+    if (!active || !view.busy || opened !== null || typeof document === "undefined") return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) view.stop();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [view.busy, view.stop, opened]);
+  }, [active, view.busy, view.stop, opened]);
 
   // The live run card's elapsed seconds tick once a second while a turn is open.
   useEffect(() => {
@@ -323,11 +328,7 @@ export function TexChatView({
         {view.busy && !running ? <Working styles={styles} colors={colors} /> : null}
       </ScrollView>
 
-      {/* The pill floats over the log, drawn after it so the chat scrolls behind and around it (Dev2 2026-11-21). */}
-      <View style={styles.float} pointerEvents="box-none" testID="tex-chat-float">
-        <TexChatHeader busy={view.busy} mark={<TexWorkingMark busy={view.busy} />} />
-      </View>
-
+      {/* No pill over the log: the panel's own tab already says this is Tex, and the run card says when it works (Dev2 2026-11-21). */}
       {view.error !== null ? (
         <Text variant="foot" style={styles.error} testID="tex-error">
           {view.error}
@@ -430,10 +431,9 @@ const makeStyles = (colors: Colors) =>
     muted: { color: colors.muted },
     day: { alignSelf: "center", fontSize: texChatType.status, marginTop: 10, marginBottom: 4 },
     log: { flex: 1, minHeight: 0 },
-    float: { position: "absolute", top: 0, left: 0, right: 0, alignItems: "center", zIndex: 2 },
     logBody: {
       flexGrow: 1,
-      paddingTop: 56,
+      paddingTop: 12,
       paddingHorizontal: 14,
       paddingBottom: 8,
       gap: 6,

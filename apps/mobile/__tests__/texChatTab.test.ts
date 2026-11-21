@@ -157,16 +157,12 @@ function mount(view: AppChatView & { calls: Calls }) {
 }
 
 describe("the header and the empty chat", () => {
-  test("the header is the Tex pill: its name and its status, with no line under it (Dev2, 2026-11-20 mock)", () => {
-    const tab = mount(fakeView());
-    expect(tab.text()).toContain("Tex");
-    expect(tab.find("tex-status")?.textContent).toBe("Ready");
-    expect(tab.text()).not.toContain("Its own chat");
-  });
-
-  test("the status says Working while Tex has a turn open", () => {
-    const tab = mount(fakeView({ busy: true }));
-    expect(tab.find("tex-status")?.textContent).toBe("Working");
+  test("there is no pill over the log: the panel's tab already says Tex (Dev2, 2026-11-21 roast)", () => {
+    const idle = mount(fakeView());
+    expect(idle.find("tex-status")).toBeNull();
+    expect(idle.find("tex-chat-float")).toBeNull();
+    const busy = mount(fakeView({ busy: true }));
+    expect(busy.find("tex-status")).toBeNull();
   });
 
   test("an empty chat says what to do in the middle of it", () => {

@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Comments in a real browser: select words, comment from the selection
- * toolbar, reply, resolve, and the history coming back with Show resolved
+ * toolbar, reply, resolve (no "Show resolved" line in the note: Dev2,
+ * 2026-11-21), the history coming back with ⌘Z
  * (files/comments/).
  *
  * Threads open in a card under their words (Dev2's in-note Tex mock,
@@ -69,10 +70,13 @@ test("a comment is written, answered and resolved under its words", async ({ pag
   await card.getByRole("button", { name: "Resolve" }).click();
   await expect(page.locator(".cm-cmt-hl")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Show resolved (1)" }).click();
+  await expect(page.getByRole("button", { name: /Show resolved/ })).toHaveCount(0);
+  // Undo brings the thread back: resolving is an edit to the file like any other.
+  await line.click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await expect(page.locator(".cm-cmt-hl")).toHaveCount(1);
   await page.locator(".cm-cmt-hl").click();
-  await expect(card).toContainText("Resolved by");
-  await expect(card).toContainText("eh, I don't really care");
+  await expect(card).toBeVisible();
 
   // Deleting asks first, in the card, and the first comment takes the thread.
   await card.getByRole("button", { name: "Delete this thread" }).click();
@@ -181,8 +185,6 @@ test("Tex answers in the thread and writes its edit straight into the note, whic
   await page.keyboard.press("ControlOrMeta+z");
   await expect(line).not.toContainText("Added by Tex.");
 
-  // The run is in the note's log.
-  const log = page.getByTestId("tex-in-note-log");
-  await log.scrollIntoViewIfNeeded();
-  await expect(log).toContainText("add a line after this");
+  // No log of Tex's runs is drawn under the note (Dev2, 2026-11-21 roast): the answer lives in its thread.
+  await expect(page.getByTestId("tex-in-note-log")).toHaveCount(0);
 });

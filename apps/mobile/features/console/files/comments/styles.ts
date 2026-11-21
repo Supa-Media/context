@@ -47,9 +47,6 @@ function marginStyles(colors: CommentPalette): string {
   cursor: pointer;
 }
 .cm-lp-root .cm-cmt-hl-resolved { background: transparent; border-bottom: 2px dotted ${colors.warn}; }
-.cm-cmt-resolved-row { padding: 12px 0 4px; }
-.cm-cmt-resolved-toggle { font: inherit; font-size: 12px; color: ${colors.muted}; background: transparent; border: 0; padding: 2px 0; cursor: pointer; }
-.cm-cmt-resolved-toggle:hover { color: ${colors.text}; }
 .cm-lp-root .cm-cmt-hl { transition: background-color 120ms ease; }
 .cm-cmt-msg { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start; }
 .cm-cmt-av {

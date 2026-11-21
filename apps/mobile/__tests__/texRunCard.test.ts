@@ -109,7 +109,7 @@ describe("TexRunCard", () => {
     expect(find(c, "r-head")?.textContent).toContain("3s");
   });
 
-  test("done and closed: Worked 41s, 7 steps, Show steps, and no step rows", () => {
+  test("done and closed: one small line, Worked 41s · 7 steps ›, no box and no step rows (Dev2, 2026-11-21 roast)", () => {
     const run: RunCardData = {
       live: false,
       secs: 41,
@@ -120,7 +120,8 @@ describe("TexRunCard", () => {
     const head = find(c, "run-2-head");
     expect(head?.textContent).toContain("Worked 41s");
     expect(head?.textContent).toContain("7 steps");
-    expect(head?.textContent).toContain("Show steps");
+    expect(head?.textContent).toBe("Worked 41s · 7 steps ›");
+    expect(getComputedStyle(find(c, "run-2") as HTMLElement).borderTopWidth).toMatch(/^0(px)?$|^$/);
     expect(find(c, "run-2-step-0")).toBeNull();
   });
 
@@ -143,7 +144,7 @@ describe("TexRunCard", () => {
     };
     const c = mount(createElement(TexRunCard, { run, now: T0, open: true, onToggle: () => {}, testID: "run-4" }));
 
-    expect(find(c, "run-4-head")?.textContent).toContain("Hide ▴");
+    expect(find(c, "run-4-head")?.textContent).toContain("⌄");
     expect(find(c, "run-4-step-0")?.textContent).toContain("Searched mail “from:puttery”");
     expect(find(c, "run-4-step-0")?.textContent).toContain("Thread “Your Event is Confirmed!”");
     expect(find(c, "run-4-step-0")?.textContent).toContain("0.9s");
