@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { CONFIG_PATH, readTexConfig } from "./lib/texConfigFile.mjs";
+import { CONFIG_PATH, joinedTexConfig, readTexConfig } from "./lib/texConfigFile.mjs";
 
 const { GRAPHS, graphOf } = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
 // Every architecture with a config of its own (Search, ...): each gets its own generated page (Dev2, 2026-11-21).
@@ -311,7 +311,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (problems.length > 0) process.exit(1);
     console.log("tex-architecture: current");
   } else {
-    const config = JSON.parse(read(ROOT, CONFIG));
+    const config = joinedTexConfig(ROOT);
     const problems = shapeProblems(config);
     if (problems.length > 0) {
       for (const problem of problems) console.error(`tex-architecture: ${problem}`);

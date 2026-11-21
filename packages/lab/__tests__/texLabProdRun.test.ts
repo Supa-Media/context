@@ -9,6 +9,7 @@
  */
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
+import { NIGHTLY_PATH, splitConfig } from "@context/tex/src/texConfigFiles.cjs";
 import { forgetGraphs, graphAt, graphNoteFor, graphOfConfig, OLD_CONFIG_PATH } from "@context/lab/app/engine/graphAt";
 import { prodPlay, prodPlayAtVersion } from "@context/lab/app/engine/prodRun";
 import { linesOf } from "@context/lab/app/engine/replayRead";
@@ -25,6 +26,7 @@ const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry 
 const TEX_SIDE_OF_MAIN = () => G().nodes.filter((n) => n.graph !== "search").map((n) => n.id);
 const T0 = Date.UTC(2026, 10, 14, 14);
 const CODE = "abc1234def5678";
+const NIGHTLY = NIGHTLY_PATH;
 const version = { code: CODE, setup: "a1b2c3d4e5f6" };
 
 /**
@@ -150,14 +152,26 @@ describe("the graph of the time", () => {
     const get = jest.fn(async (_url: string) => ({ ok: true, json: async () => TEX_CONFIG }) as never);
     const a = (await graphAt(CODE, get as never))!;
     const b = (await graphAt(CODE, get as never))!;
-    expect(get).toHaveBeenCalledTimes(1);
-    expect(get.mock.calls[0][0]).toBe(`https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`);
+    // Two files per commit since the nightly steps have their own (`texConfigFiles.cjs`), each fetched once.
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls.map((c) => c[0]).sort()).toEqual([
+      `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/${NIGHTLY}`,
+      `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`,
+    ]);
     expect(a.nodes.map((n) => n.id)).toEqual(TEX_SIDE_OF_MAIN());
     // Each caller's graph is its own: drawing or editing one never reaches the cache.
     a.nodes[0].label = "changed";
     expect(b.nodes[0].label).not.toBe("changed");
     await graphAt("deadbee1234", get as never);
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledTimes(4);
+  });
+
+  test("a commit with the nightly file of its own reads as the same graph, the nightly steps joined back", async () => {
+    const { tex, nightly } = splitConfig(TEX_CONFIG);
+    const get = jest.fn(async (url: string) => ({ ok: true, json: async () => (url.endsWith(`/${NIGHTLY_PATH}`) ? nightly : tex) }) as never);
+    const g = await graphAt(CODE, get as never);
+    expect(g?.nodes.map((n) => n.id)).toEqual(TEX_SIDE_OF_MAIN());
+    expect(g?.nodes.find((n) => n.id === "dream")?.graph).toBe("nightly");
   });
 
   test("a commit from before Tex had its own package is read at the old path", async () => {
@@ -167,6 +181,7 @@ describe("the graph of the time", () => {
     const g = await graphAt(CODE, get as never);
     expect(g?.nodes.map((n) => n.id)).toEqual(TEX_SIDE_OF_MAIN());
     expect(get.mock.calls.map((c) => c[0])).toEqual([
+      `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/${NIGHTLY}`,
       `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`,
       `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/shared/src/texConfig.json`,
     ]);
@@ -183,9 +198,9 @@ describe("the graph of the time", () => {
     expect(p.run.steps.some((s) => s.node === "answerCheck")).toBe(false);
     expect(p.run.steps.some((s) => s.node === "fd")).toBe(true);
     expect(p.run.graphNote).toBeUndefined();
-    // Played again: the same commit is not fetched twice.
+    // Played again: the same commit is not fetched twice (two files: Tex's config and the nightly one).
     await prodPlayAtVersion(entries(), linesFor(entries()), { id: "E1" }, G(), get as never);
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(2);
   });
 
   test("when the graph of the time can't load, today's is used and the run says so; the next look tries again", async () => {
@@ -196,8 +211,8 @@ describe("the graph of the time", () => {
     expect(p.run.graphNote).toBe("graph of 2026-11-14 (abc1234) unavailable, showing today's");
     expect(p.run.steps.some((s) => s.node === "answerCheck")).toBe(true);
     await prodPlayAtVersion(entries(), linesFor(entries()), { id: "E1" }, G(), get as never);
-    // Each look asks the package path, then the path before the move.
-    expect(get).toHaveBeenCalledTimes(4);
+    // Each look asks the nightly file, the package path, then the path before the move.
+    expect(get).toHaveBeenCalledTimes(6);
     // A network error is the same; so is a reply that is not a Tex config.
     const down = jest.fn(async () => Promise.reject(new Error("offline")));
     expect(await graphAt("1234567", down as never)).toBeNull();

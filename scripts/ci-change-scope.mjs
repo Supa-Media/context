@@ -43,6 +43,7 @@ const ROOT_INPUTS = [
  */
 export const TEX_DATA = [
   "packages/tex/src/texConfig.json",
+  "packages/tex/src/nightlyConfig.json",
   "packages/tex/src/texNodeShelf.json",
   "packages/tex/src/texPrompt/**",
   "packages/tex/src/texTraining.generated.json",
