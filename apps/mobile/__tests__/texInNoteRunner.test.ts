@@ -235,6 +235,18 @@ describe("a run", () => {
     expect(parseComments(doc).threads.map((t) => t.id).sort()).toEqual(["b2b2", "k7f2"]);
   });
 
+  test("markers and a comments block in Tex's edit are never written into the note", async () => {
+    const copied = "<!--c:k7f2-->cake<!--/c:k7f2-->, Saturday at 5\n\n```comments\nk7f2 \"cake\"\n- 2026-11-19T10:00:00Z @sayo: who?\n```";
+    const { host } = harness([{ type: "edit", replace: copied }, { type: "done", runId: "run_m", sources: [] }]);
+    const view = mount(NOTE, host);
+    startTexRun(view, "k7f2", "add the time");
+    await waitFor(() => !runs(view).has("k7f2"));
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("<!--c:k7f2-->cake<!--/c:k7f2-->, Saturday at 5");
+    expect(doc.match(/<!--c:k7f2-->/g)).toHaveLength(1);
+    expect(doc.match(/```comments/g)).toHaveLength(1);
+  });
+
   test("one undo takes back exactly Tex's edit and leaves its answer in the thread", async () => {
     const { host } = harness([{ type: "edit", replace: "cake, Saturday at 5" }, { type: "done", runId: "run_u", sources: [] }]);
     const view = mount(NOTE, host, "@dev2", [history()]);

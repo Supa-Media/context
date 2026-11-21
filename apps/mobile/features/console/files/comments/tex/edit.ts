@@ -11,7 +11,7 @@
  */
 
 import type { EditorState } from "@codemirror/state";
-import { MARKER_RE } from "@context/shared/src/comments.cjs";
+import { MARKER_RE, stripComments } from "@context/shared/src/comments.cjs";
 
 export interface TexAnchor {
   from: number;
@@ -37,7 +37,12 @@ export function isAddition(words: string, text: string): boolean {
 }
 
 /** The change that writes `replace` into the note, or null when it changes nothing. */
-export function texEditFor(state: EditorState, anchor: TexAnchor, replace: string): TexEdit | null {
+export function texEditFor(state: EditorState, anchor: TexAnchor, raw: string): TexEdit | null {
+  // Comment markers and comment or mail blocks are the editor's to write, never
+  // a model's: one copied from the note it read would land as a second thread
+  // with a taken id, or as the thread's lines in the note's text (both seen on
+  // a preview, 2026-11-21).
+  const replace = stripComments(raw);
   const words = anchorWords(state, anchor);
   if (replace === words) return null;
   if (words === "" || replace.startsWith(words)) {
