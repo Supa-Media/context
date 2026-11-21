@@ -5,6 +5,7 @@
  * only change when somebody presses Keep (the note is not written until then).
  */
 
+import { texOf } from "./possessive";
 import { Decoration, WidgetType, type DecorationSet } from "@codemirror/view";
 import type { EditorState, Range } from "@codemirror/state";
 import { commentsParsed } from "../extension";
@@ -20,7 +21,7 @@ class PendingWidget extends WidgetType {
     readonly text: string,
     readonly caret: boolean,
     readonly thread: string,
-    /** The caret's name: "Tex", or "Tex for Sayo" when the run is somebody else's. */
+    /** The caret's name: "Tex", or "Sayo’s Tex" when the run is somebody else's. */
     readonly who: string = "Tex",
   ) {
     super();
@@ -75,7 +76,7 @@ export function pendingDecorations(
     } else if (peer !== null) {
       text = peer.text;
       caret = true;
-      who = `Tex for ${peer.who}`;
+      who = texOf(peer.who);
     } else if (thread.pending !== null) {
       text = thread.pending.text;
     } else {

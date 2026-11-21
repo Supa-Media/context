@@ -4,7 +4,7 @@
  *
  * A run happens in the asker's editor and its suggestion reaches the note when
  * it ends. Dev2's mock ("Co-write with Sayo") shows the others watching it as it
- * goes: a caret named "Tex for Sayo", the new words arriving, Tex's face in the
+ * goes: a caret named "Sayo’s Tex", the new words arriving, Tex's face in the
  * pile. The live room carries that (`t: "tex"` frames, never logged), and this
  * module is both ends of it in the editor:
  *
