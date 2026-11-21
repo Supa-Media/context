@@ -3,6 +3,7 @@
  *
  *   node apps/mcp/bench/evals/cli.mjs search --bench search-hard [--n 40] --out result.json [--fake]
  *   node apps/mcp/bench/evals/cli.mjs search --bench search-real [--part dev|training] [--cases <file>] --out result.json
+ *   (add --database-only to skip the workspace-object world each case is also searched in)
  *   node apps/mcp/bench/evals/cli.mjs search --bench longmemeval-retrieval --fetch <dir> --n 50 --out result.json
  *
  * `--cases <file>` runs a real-query set from a file instead of the repo's parts: how the search gate runs the sealed
@@ -111,7 +112,7 @@ export async function runSearchSet(options) {
     }
     const total = cases.length;
     const chosen = n === null ? cases : cases.slice(0, n);
-    const records = await runSearchCases({ bench: overlay(base, notes), cases: chosen, ai, today, log: (line) => process.stderr.write(line) });
+    const records = await runSearchCases({ bench: overlay(base, notes), cases: chosen, ai, today, objects: options["database-only"] !== true, log: (line) => process.stderr.write(line) });
     const search = { ...searchScores(records), byKind: byKind(records) };
     return { bench: set.id, variant: set.variant, total, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows: records.map(rowOf), records: options["keep-records"] ? records : undefined };
   } finally {
