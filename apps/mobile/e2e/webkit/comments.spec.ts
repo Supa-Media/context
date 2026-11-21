@@ -185,8 +185,6 @@ test("Tex answers in the thread and writes its edit straight into the note, whic
   await page.keyboard.press("ControlOrMeta+z");
   await expect(line).not.toContainText("Added by Tex.");
 
-  // The run is in the note's log.
-  const log = page.getByTestId("tex-in-note-log");
-  await log.scrollIntoViewIfNeeded();
-  await expect(log).toContainText("add a line after this");
+  // No log of Tex's runs is drawn under the note (Dev2, 2026-11-21 roast): the answer lives in its thread.
+  await expect(page.getByTestId("tex-in-note-log")).toHaveCount(0);
 });
