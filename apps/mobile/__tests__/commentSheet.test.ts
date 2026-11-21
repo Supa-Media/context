@@ -208,10 +208,12 @@ describe("starting a comment on a phone", () => {
 });
 
 describe("the sheet's rules", () => {
-  test("phones have no margin; a desktop pane does", () => {
+  test("phones get the sheet; a desktop note gets the card, even narrowed by the open Tex panel", () => {
     expect(hasMargin(390)).toBe(false);
-    expect(hasMargin(779)).toBe(false);
-    expect(hasMargin(780)).toBe(true);
+    expect(hasMargin(459)).toBe(false);
+    expect(hasMargin(460)).toBe(true);
+    // A 1440pt window with the tree and the Tex panel open leaves the note about 600pt.
+    expect(hasMargin(600)).toBe(true);
   });
 
   test("a long quote is cut at a word, on one line", () => {

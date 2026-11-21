@@ -11,6 +11,8 @@
 
 import { faceNode, robotNode } from "../../faces/faceDom";
 import { isPerson, whenLabel } from "./model";
+import { TEX_AUTHOR } from "./tex/contract";
+import { texMarkNode } from "../../../chaos/texMarkDom";
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -19,8 +21,9 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: st
   return node;
 }
 
-/** A person is their face (`faces/`), an agent the robot; never initials. */
+/** A person is their face (`faces/`), Tex its one mark, another agent the robot; never initials. */
 export function avatar(author: string): HTMLElement {
+  if (author === TEX_AUTHOR) return texMarkNode("cm-cmt-av", 22);
   return isPerson(author) ? faceNode(author, "cm-cmt-av") : robotNode("cm-cmt-av cm-cmt-av-agent");
 }
 

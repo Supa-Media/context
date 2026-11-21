@@ -58,7 +58,10 @@ jobs:
             apps/mobile/features/console/files/**
             apps/mobile/features/console/map/live/**
             apps/mobile/features/console/presence/**
+            apps/mobile/features/chaos/figureGeometry.ts
+            apps/mobile/features/chaos/texMarkDom.ts
             apps/mobile/features/design/tokens/colors.ts
+            apps/mobile/features/design/tokens/landingColors.ts
             apps/mobile/features/voice/**
             apps/mobile/package.json
             packages/drawings/**

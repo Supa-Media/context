@@ -53,7 +53,7 @@ export function popoverStyles(colors: CommentPalette, font: string | undefined):
 .cm-cbody { color: ${colors.text2}; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .cm-at { color: ${colors.accent}; font-weight: 600; }
 .cm-cav { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
-.cm-cav-tex { background: ${colors.text}; color: ${colors.surface}; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cm-cav-tex { background: transparent; }
 .cm-cconfirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; margin-top: 6px; font-size: 12.5px; color: ${colors.text2}; }
 .cm-cconfirm > button { margin-left: 6px; }
 .cm-cacts { display: flex; gap: 6px; margin-top: 6px; }
@@ -115,7 +115,7 @@ export function popoverStyles(colors: CommentPalette, font: string | undefined):
 .cm-seltool-btn:hover { background: ${colors.muted}; }
 .cm-seltool-btn svg { width: 16px; height: 16px; }
 .cm-seltool kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; opacity: 0.6; }
-.cm-texbtn { font: 700 17px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: ${colors.accent}; }
+.cm-texbtn { display: inline-flex; }
 @keyframes cm-spin { to { transform: rotate(360deg); } }
 @keyframes cm-sh { to { background-position: -200% 0; } }
 @keyframes cm-pop { from { transform: translateY(4px) scale(0.97); opacity: 0; } }

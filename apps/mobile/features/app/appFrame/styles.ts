@@ -398,22 +398,18 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
    */
   seamClosed: {
     width: layout.seamClosedWidth,
-    borderRightWidth: 1,
-    borderRightColor: colors.line,
     /*
-      `surface3`, not `surface2`, and the difference is the whole point of the
-      strip. On the light palette `surface2` is #FAFAFA against a #FFFFFF
-      ground — a browser check showed it reading as nothing at all, so the only
-      thing saying a panel could come back was a hairline indistinguishable
-      from the rule between two columns. A recessed strip says "there is
-      something here" before anybody hovers it.
+      The chrome itself, with no rule: the note card's hairline beside it is the
+      one outline (Dev2, 2026-11-21: a rule here and the card's made "ugly
+      double lines"). The strip lights on hover (`seamClosedActive`) and its
+      chevron says what it does.
     */
-    backgroundColor: colors.surface3,
+    backgroundColor: colors.chromeSurface,
     alignItems: "center",
     justifyContent: "center",
     ...(Platform.OS === "web" ? ({ cursor: "pointer" } as unknown as ViewStyle) : null),
   },
-  seamClosedActive: { backgroundColor: colors.accentDim, borderRightColor: colors.accent },
+  seamClosedActive: { backgroundColor: colors.accentDim },
 
   seamPill: {
     width: layout.seamPillWidth,
