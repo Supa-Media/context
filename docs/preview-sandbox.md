@@ -44,8 +44,9 @@ and the code. "Checked on every preview" means the deploy's smoke test
    - `node packages/sandbox/src/agent-sign-in.mjs open "<the line, or the whole
      job log>"` writes a Playwright storage state and prints the address;
      `browser.newContext({ storageState })` opens the app signed in. Add
-     `--shoot "/;/?tex=1"` to take the desktop, medium and phone pictures
-     there and then.
+     `--shoot "/console"` to take the desktop, medium and phone pictures
+     there and then (the signed-in app is under `/console`; set
+     `CHROMIUM_PATH` to use a Chromium of your own).
    It is a workflow, not a tool on the Context MCP, so production never holds
    the preview deploy key (`packages/sandbox/src/agent-sign-in.mjs`).
 

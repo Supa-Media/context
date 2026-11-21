@@ -17,8 +17,8 @@
  *      node packages/sandbox/src/agent-sign-in.mjs open "<line or whole log>"
  *    It writes a Playwright storage state (`browser.newContext({ storageState })`)
  *    holding the session where the web app keeps it, and prints the address.
- *    `open --shoot "/;/?tex=1"` also takes the desktop, medium and phone
- *    pictures itself.
+ *    `open --shoot "/console"` also takes the desktop, medium and phone
+ *    pictures itself (set CHROMIUM_PATH to use a Chromium of your own).
  *
  * Only the fixture personas, only a `pr<N>` preview deployment, never staging
  * or production: the runner holds only the preview deploy key. The sealing is
@@ -170,7 +170,8 @@ async function takePictures(origin, stateFile, spec, outDir, log) {
   const [{ chromium }, { LAYOUTS, parseShots }] = await Promise.all([import("playwright"), import("./screenshots.mjs")]);
   const shots = parseShots(spec);
   mkdirSync(outDir, { recursive: true });
-  const browser = await chromium.launch();
+  // CHROMIUM_PATH: a browser of the agent's own when the repository's Playwright has none downloaded.
+  const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH, args: ["--no-sandbox"] } : {});
   try {
     for (const layout of LAYOUTS) {
       const { name, width, height, ...rest } = layout;
