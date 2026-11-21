@@ -142,7 +142,7 @@
       "on": true,
       "model": "code",
       "icon": "shield",
-      "file": "apps/mcp/src/search/config/nodes.js · privacy/state.js",
+      "file": "apps/mcp/src/search/config/nodes.js \u00b7 privacy/state.js",
       "x": 80,
       "y": 200,
       "settings": {},
@@ -184,7 +184,7 @@
       "on": true,
       "model": "code",
       "icon": "text",
-      "file": "apps/mcp/src/search/visibleNotes.js · objectSearch.js",
+      "file": "apps/mcp/src/search/visibleNotes.js \u00b7 objectSearch.js",
       "x": 280,
       "y": 200,
       "settings": {},
@@ -263,14 +263,15 @@
       "on": true,
       "model": "code",
       "icon": "wire",
-      "file": "apps/mcp/src/search/meaning/serve.js mergeWithMeaning · evidence.js",
+      "file": "apps/mcp/src/search/meaning/serve.js mergeWithMeaning \u00b7 evidence.js",
       "x": 680,
       "y": 200,
       "settings": {
         "meaningFloor": 0.5,
         "rrfK": 60,
         "titleWeight": 0.003278688524590164,
-        "phraseBonus": 0.00819672131147541
+        "phraseBonus": 0.00819672131147541,
+        "snippetPhraseBonus": 0.00819672131147541
       },
       "inSchema": [
         {
@@ -310,11 +311,12 @@
       "on": true,
       "model": "code",
       "icon": "queue",
-      "file": "apps/mcp/src/search/priors.js · meaning/serve.js lowerLogs",
+      "file": "apps/mcp/src/search/priors.js \u00b7 meaning/serve.js lowerLogs",
       "x": 880,
       "y": 200,
       "settings": {
-        "logPrior": 0.5
+        "logPrior": 0.5,
+        "inboxPrior": 1
       },
       "inSchema": [
         {
@@ -377,7 +379,7 @@
       "on": true,
       "model": "code",
       "icon": "judge",
-      "file": "apps/mcp/src/search/config/nodes.js · tools/search.js",
+      "file": "apps/mcp/src/search/config/nodes.js \u00b7 tools/search.js",
       "x": 1240,
       "y": 0,
       "settings": {
@@ -386,10 +388,12 @@
         "loosePenalty": 10,
         "titleWeight": 0.003278688524590164,
         "phraseBonus": 0.00819672131147541,
+        "snippetPhraseBonus": 0.00819672131147541,
         "meaningFloor": 0.5,
         "looseReads": 6,
         "boostFactor": 1.2,
-        "logPrior": 0.5
+        "logPrior": 0.5,
+        "inboxPrior": 1
       },
       "inSchema": [
         {

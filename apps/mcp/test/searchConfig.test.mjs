@@ -88,8 +88,11 @@ test("main's settings are the constants search ranked by before it had a config"
   assert.deepEqual(searchConfigProblems(SEARCH_CONFIG), []);
   // The values each knob had as a constant (tools/search.js, meaning/serve.js, evidence.js, priors.js, settings.js).
   const before = { rrfK: 60, titleWeight: 1 / 305, phraseBonus: 1 / 122, meaningFloor: 0.5, looseReads: 6, logPrior: 0.5 };
-  assert.deepEqual(DEFAULT_RANKING, before);
-  assert.deepEqual(FUSE_RANKING, { ...before, hits: 12, loosePenalty: 10, boostFactor: 1.2 });
+  // Knobs added later start at the value that ranks as before: a phrase in a snippet counts as one in the title, and
+  // the Inbox's unfiled notes keep their whole score.
+  const later = { snippetPhraseBonus: before.phraseBonus, inboxPrior: 1 };
+  assert.deepEqual(DEFAULT_RANKING, { ...before, ...later });
+  assert.deepEqual(FUSE_RANKING, { ...before, ...later, hits: 12, loosePenalty: 10, boostFactor: 1.2 });
   assert.deepEqual({ ...DEFAULT_SEARCH_SETTINGS }, { everywhere: true, minScore: 0.4, extraNotes: 3, snippetChars: 200 });
   assert.equal(settingsOf("search").rrfK, undefined);
 });
@@ -174,4 +177,28 @@ test("a Lab try-out with record: false writes no counted search row; a real sear
   await findNotes(home, "private", [], new Map(), "renewal", "");
   assert.equal(rows.length, 1, "a real search still writes its one row");
   assert.equal(rows[0].found, true);
+});
+
+// Two knobs for notes that quote the question (search-hard, 2026-11-21): a saved chat in the Inbox that quotes the
+// query word for word outranked the filed note it was about, on the phrase bonus its text earned.
+test("a phrase only in a note's text counts snippetPhraseBonus; one in its title or file name counts phraseBonus", async () => {
+  const { evidenceBonus, phraseIn } = await import("../src/search/evidence.js");
+  const echo = { key: "inbox/saved-chat.md", title: "Saved chat", snippets: ["You: packing list for the coast weekend, boots?"] };
+  const titled = { key: "trips/packing-list-for-the-coast-weekend.md", title: "Packing", snippets: [] };
+  const q = "packing list for the coast weekend";
+  assert.equal(phraseIn(q, echo), "snippet");
+  assert.equal(phraseIn(q, titled), "name");
+  const r = rankingOf({ snippetPhraseBonus: 0 });
+  assert.equal(evidenceBonus(q, echo, r), r.titleWeight * 0);
+  assert.ok(evidenceBonus(q, titled, r) >= r.phraseBonus);
+  assert.ok(evidenceBonus(q, echo) > 0, "main still counts a phrase in the text");
+});
+
+test("inboxPrior scales a note captured in the Inbox but not its log folders, and is 1 on main", async () => {
+  const { notePrior } = await import("../src/search/priors.js");
+  const r = rankingOf({ inboxPrior: 0.5 });
+  assert.equal(notePrior("@me/inbox/saved-chat.md", r), 0.5);
+  assert.equal(notePrior("inbox/sessions/2025-01-01.md", r), r.logPrior);
+  assert.equal(notePrior("projects/plan.md", r), 1);
+  assert.equal(notePrior("inbox/saved-chat.md"), 1);
 });

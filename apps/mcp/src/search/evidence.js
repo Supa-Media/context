@@ -109,10 +109,21 @@ export function titleCoverage(query, hit) {
  * @returns {boolean}
  */
 export function hasPhrase(query, hit) {
+  return phraseIn(query, hit) !== null;
+}
+
+/**
+ * Where the whole query appears as a phrase: "name" (the title or the file name), "snippet" (only in the text), or
+ * null. A note that quotes the question in its text (a saved chat, a hand-off) holds the phrase there and nowhere
+ * else, so the two are weighed apart (`phraseBonus`, `snippetPhraseBonus`).
+ */
+export function phraseIn(query, hit) {
   const phrase = words(query).join(" ");
-  if (!phrase) return false;
-  const haystacks = [hit.title, fileStem(hit.key), ...(hit.snippets ?? []).map(unmarked)];
-  return haystacks.some((text) => ` ${words(text).join(" ")} `.includes(` ${phrase} `));
+  if (!phrase) return null;
+  const holds = (text) => ` ${words(text).join(" ")} `.includes(` ${phrase} `);
+  if ([hit.title, fileStem(hit.key)].some(holds)) return "name";
+  if ((hit.snippets ?? []).map(unmarked).some(holds)) return "snippet";
+  return null;
 }
 
 /**
@@ -126,5 +137,8 @@ export function hasPhrase(query, hit) {
  */
 export function evidenceBonus(query, hit, ranking = DEFAULT_RANKING) {
   if (typeof query !== "string" || !query.trim()) return 0;
-  return ranking.titleWeight * titleCoverage(query, hit) + (hasPhrase(query, hit) ? ranking.phraseBonus : 0);
+  const where = phraseIn(query, hit);
+  const phrase = where === "name" ? ranking.phraseBonus : where === "snippet" ? (ranking.snippetPhraseBonus ?? ranking.phraseBonus) : 0;
+  return ranking.titleWeight * titleCoverage(query, hit) + phrase;
 }
+

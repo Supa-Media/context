@@ -28,11 +28,13 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
   loosePenalty: { min: 0, max: 1000, integer: false },
   titleWeight: { min: 0, max: 1, integer: false },
   phraseBonus: { min: 0, max: 1, integer: false },
+  snippetPhraseBonus: { min: 0, max: 1, integer: false },
   boostFactor: { min: 1, max: 10, integer: false },
   meaningFloor: { min: 0, max: 1, integer: false },
   looseReads: { min: 0, max: 20, integer: true },
   hits: { min: 1, max: 50, integer: true },
   logPrior: { min: 0, max: 1, integer: false },
+  inboxPrior: { min: 0, max: 1, integer: false },
 });
 
 /** Which settings each step reads: a setting on a step that does not read it would be a knob that does nothing. */
@@ -42,10 +44,10 @@ const SETTINGS_OF = Object.freeze({
   open: Object.freeze([]),
   words: Object.freeze([]),
   meaning: Object.freeze(["minScore"]),
-  merge: Object.freeze(["meaningFloor", "rrfK", "titleWeight", "phraseBonus"]),
-  prior: Object.freeze(["logPrior"]),
+  merge: Object.freeze(["meaningFloor", "rrfK", "titleWeight", "phraseBonus", "snippetPhraseBonus"]),
+  prior: Object.freeze(["logPrior", "inboxPrior"]),
   snippets: Object.freeze(["extraNotes", "snippetChars", "looseReads"]),
-  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior"]),
+  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior"]),
 });
 
 const NODE_KEYS = Object.freeze(["id", "label", "goal", "on", "model", "kind", "icon", "file", "note", "x", "y", "group", "settings", "inSchema", "outSchema", "log"]);
