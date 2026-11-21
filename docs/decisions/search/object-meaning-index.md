@@ -56,6 +56,18 @@ coming back faster.
 `apps/mcp/test/searchSpeedEquality.test.mjs` fails if a warmed query answers differently from one on an object just
 woken, or if one person's kept fingerprint answers another's search.
 
+## A woken object reads a snapshot, not a row a passage
+
+Decided 2026-11-21. Warming while the model answers was not enough: production showed `inside:meaning_warm_loaded`
+at 390 ms median and 4 s p90, so a search that woke an object waited on that read, and a search across workspaces
+waited on its slowest workspace. Reading one row a passage, each with its path, was the cost. The object now keeps a
+snapshot (`workspaceStore/meaningSnapshot.js`): every passage's bits, number, path and tier packed into one buffer,
+each distinct path once, in parts of 1 MB. It is written behind a build, marked stale by any write to the passages,
+and read only when it is marked good and holds as many passages as the table; otherwise the rows are read as before.
+A build reads the snapshot in before it writes, so the next snapshot is written from memory. Locally, 40,000 passages
+load in about 32 ms from the snapshot against 147 ms from rows. `apps/mcp/test/workspaceMeaningIndex.test.mjs` fails
+if a woken object reads row by row after a build, or answers from a stale snapshot.
+
 ## What it costs
 
 - Each object holds about 1.2 KB per passage: some 60 MB for a workspace of 50,000 passages, within an object's 10 GB.
