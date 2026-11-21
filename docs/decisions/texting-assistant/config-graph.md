@@ -365,3 +365,15 @@ and the `reads-back` replay fail if either is reversed.
   config and promotes it.
 - [One list of what Tex can do](./capabilities.md).
 - [Tex changes merge only through the replay gate](../testing/replay-gate.md).
+
+### Tex's config is two files: texting and nightly (2026-11-21)
+
+Dev2 (2026-11-21): "we can have like a texting config, text nightly config, and then search config", each an
+architecture iterated on the same way in the Lab and evals. The nightly cleanup's steps (Nightly, Dream, Day
+summaries, Housekeeping, the About me checks) and their wires live in `packages/tex/src/nightlyConfig.json`; the
+texting graph, the models, browsers and groups stay in `texConfig.json`. Both are Tex, run by one runner under one
+schema, so every reader gets them **joined** (`texConfigFiles.cjs` `joinConfigs`, each nightly step tagged
+`graph: "nightly"`), exactly the config it read before; Promote and `tex-config-migrate.mjs` split a joined config back
+(`splitConfig`). Search is different: its own schema and runner (`architectures.cjs`). Reversing this (one file again)
+costs nothing at runtime but takes away the separate file Dev2 asked for; `tex-lab-promote --self-test` fails if the
+two files stop round-tripping, and `tex-config-readers.mjs` fails a reader of either file outside the loaders.

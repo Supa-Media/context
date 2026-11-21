@@ -35,7 +35,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG, PAGE as DIAGRAM, generatedProblems } from "./tex-architecture.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleIsCurrent as promptIsCurrent } from "./tex-prompt-module.mjs";
 import { FOLDER as TRAINING_FOLDER, MODULE as TRAINING_MODULE, moduleIsCurrent as trainingIsCurrent } from "./tex-training-module.mjs";
-import { readTexConfig } from "./lib/texConfigFile.mjs";
+import { NIGHTLY_PATH, joinedTexConfig, readTexConfig } from "./lib/texConfigFile.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export { DIAGRAM };
@@ -174,7 +174,7 @@ export function watched(path, named) {
 
 /** Problems with a pull request's changes: node files changed, the config not, and no reason given. */
 export function changeProblems(changed, config, body) {
-  if (changed.includes(CONFIG)) return [];
+  if (changed.includes(CONFIG) || changed.includes(NIGHTLY_PATH)) return [];
   const hits = changed.filter((path) => watched(path, namedFiles(config)));
   if (hits.length === 0 || UNCHANGED.test(body ?? "")) return [];
   return [`these files are nodes of ${CONFIG}, which this pull request does not change: ${hits.join(", ")}. Change the config where the graph changed (and run node scripts/tex-architecture.mjs), or add "Tex diagram: unchanged because <reason>" to the pull request's description.`];
@@ -191,7 +191,7 @@ function filesUnder(dir) {
 }
 
 function check(base) {
-  const config = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
+  const config = joinedTexConfig(ROOT);
   const problems = generatedProblems(ROOT);
   problems.push(...stepProblems(graphSteps(ROOT), config));
   const naming = [];

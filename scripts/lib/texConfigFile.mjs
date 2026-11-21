@@ -12,16 +12,26 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const { texConfigOf } = require("../../packages/tex/src/texConfigSchema.cjs");
+const { NIGHTLY_PATH, joinConfigs } = require("../../packages/tex/src/texConfigFiles.cjs");
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /** The config's path from the repository root. */
 export const CONFIG_PATH = "packages/tex/src/texConfig.json";
 
-/** The config file's text, as committed. */
+/** The nightly cleanup's file (Dev2, 2026-11-21: Tex's config is two files, `texConfigFiles.cjs`). */
+export { NIGHTLY_PATH };
+
+/** The texting config file's text, as committed. */
 export const texConfigText = (root = ROOT) => readFileSync(join(root, CONFIG_PATH), "utf8");
 
-/** The config, parsed and checked against its schema (throws naming every problem). */
-export const readTexConfig = (root = ROOT) => texConfigOf(JSON.parse(texConfigText(root)));
+/** The nightly config file's text, as committed. */
+export const nightlyConfigText = (root = ROOT) => readFileSync(join(root, NIGHTLY_PATH), "utf8");
+
+/** The two files joined as one config, unchecked: what Promote and the merge compare a draft with. */
+export const joinedTexConfig = (root = ROOT) => joinConfigs(JSON.parse(texConfigText(root)), JSON.parse(nightlyConfigText(root)));
+
+/** The config (both files joined), parsed and checked against its schema (throws naming every problem). */
+export const readTexConfig = (root = ROOT) => texConfigOf(joinedTexConfig(root));
 
 /**
  * The config with the steps retired off it to the shelf (`texNodeShelf.json`, `retired: true`; 2026-11-20) put back,

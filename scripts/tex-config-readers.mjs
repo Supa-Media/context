@@ -33,10 +33,13 @@ export const LOADERS = {
   "scripts/tex-config-readers.mjs": "this check",
   "packages/tex/src/texConfig.d.cts": "the runtime loader's types",
   "packages/lab/app/engine/graphAt.ts": "the Lab reads the config at old commits from GitHub and migrates it",
+  "packages/tex/src/texConfigFiles.cjs": "joins and splits Tex's two files, texting and nightly",
+  "packages/tex/src/texConfigFiles.d.cts": "its types",
 };
 const CODE = /\.(c|m)?(j|t)sx?$/;
 /** `texConfig.json` inside a quoted string: an import, a require, a path. Comments name it in backticks, which pass. */
-const NAMED = /["'](?:[^"'\n]*\/)?texConfig\.json["']/;
+// Tex's config is two files since 2026-11-21 (`texConfigFiles.cjs`): the nightly one is read through the same loaders.
+const NAMED = /["'](?:[^"'\n]*\/)?(?:texConfig|nightlyConfig)\.json["']/;
 
 /** The files (repo-relative) that name the config in code but are not loaders. */
 export function strayReaders(files, read) {
@@ -46,7 +49,7 @@ export function strayReaders(files, read) {
 export function problems(root = ROOT) {
   const out = [];
   const files = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }).split("\n").filter(Boolean);
-  for (const f of strayReaders(files, (p) => readFileSync(join(root, p), "utf8"))) out.push(`${f} reads texConfig.json itself: read it through packages/tex/src/texConfig.cjs (runtime) or scripts/lib/texConfigFile.mjs (Node scripts)`);
+  for (const f of strayReaders(files, (p) => readFileSync(join(root, p), "utf8"))) out.push(`${f} reads texConfig.json or nightlyConfig.json itself: read it through packages/tex/src/texConfig.cjs (runtime) or scripts/lib/texConfigFile.mjs (Node scripts)`);
   try {
     readTexConfig(root);
   } catch (error) {
@@ -71,9 +74,10 @@ function selfTest() {
     "d.ts": "/** Reads `texConfig.json` through the loader. */",
     "e.md": '"texConfig.json"',
     "packages/tex/src/texConfig.cjs": 'require("./texConfig.json")',
+    "f.js": 'const n = require("../tex/src/nightlyConfig.json");',
   };
   const stray = strayReaders(Object.keys(text), (f) => text[f]);
-  expect(stray.join() === "a.ts,b.mjs,c.cjs", `the wrong files were caught: ${stray.join()}`);
+  expect(stray.join() === "a.ts,b.mjs,c.cjs,f.js", `the wrong files were caught: ${stray.join()}`);
   const p = problems();
   expect(p.length === 0, `the repository has problems: ${p.join("; ")}`);
   // A step field the schema does not know is caught, and so is a mode it does not know.

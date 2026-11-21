@@ -9,7 +9,9 @@
 "use strict";
 
 const { texConfigOf } = require("./texConfigSchema.cjs");
+const { joinConfigs } = require("./texConfigFiles.cjs");
 
-const TEX_CONFIG = texConfigOf(require("./texConfig.json"));
+// Two files, one config: the texting graph and the nightly cleanup's (`texConfigFiles.cjs`, Dev2 2026-11-21).
+const TEX_CONFIG = texConfigOf(joinConfigs(require("./texConfig.json"), require("./nightlyConfig.json")));
 
 module.exports = { TEX_CONFIG };

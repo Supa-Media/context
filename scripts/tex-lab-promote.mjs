@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 
 import { CONFIG, MODULE as MAP_MODULE, PAGE, moduleFor as mapModuleFor, pageFor, ownPageFor, ownPagePath } from "./tex-architecture.mjs";
 import { clashText, findBase, mergeOntoMain, picksOf, sideAt } from "./tex-lab-merge.mjs";
+import { NIGHTLY_PATH, joinedTexConfig, nightlyConfigText, texConfigText } from "./lib/texConfigFile.mjs";
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleFor as promptModuleFor, wordsOf } from "./tex-prompt-module.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -43,6 +44,8 @@ const SCHEMA = createRequire(import.meta.url)("../packages/tex/src/texConfigSche
 // Every other architecture has a config of its own (Search's `searchConfig.json`, ...; `architectures.cjs`), and a
 // draft's steps on its page are promoted into that file, never into Tex's (Dev2, 2026-11-21).
 const OWN = createRequire(import.meta.url)("../packages/tex/src/architectures.cjs");
+// Tex's own config is two files, texting and nightly, joined for every reader and split again here (`texConfigFiles.cjs`).
+const FILES = createRequire(import.meta.url)("../packages/tex/src/texConfigFiles.cjs");
 const SEARCH = createRequire(import.meta.url)("../apps/mcp/src/search/config/labDraft.cjs");
 export const SEARCH_FILE = OWN.architectureOf("search").file;
 const MODES = new Set(SCHEMA.MODES);
@@ -212,9 +215,13 @@ function selfTest() {
   const expect = (cond, what) => {
     if (!cond) throw new Error(`self-test: ${what}`);
   };
-  const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
+  const current = joinedTexConfig(ROOT);
   const words = wordsOf(ROOT);
-  expect(configText(current) === readFileSync(join(ROOT, CONFIG), "utf8"), "the committed config is not in the promote format");
+  const parts = FILES.splitConfig(current);
+  expect(configText(parts.tex) === texConfigText(ROOT), "the committed config is not in the promote format");
+  expect(FILES.nightlyText(parts.nightly) === nightlyConfigText(ROOT), "the committed nightly config is not in the promote format");
+  expect(parts.nightly.nodes.length > 0 && parts.tex.nodes.every((n) => n.graph !== "nightly"), "the nightly steps did not split into their own file");
+  expect(JSON.stringify(FILES.joinConfigs(parts.tex, parts.nightly)) === JSON.stringify(current), "splitting and joining the two files changed the config");
   const same = configFrom({ nodes: current.nodes, edges: current.edges }, current, words);
   expect(same.config && configText(same.config) === configText(current), "main's own graph does not promote to main's config");
   const graph = () => JSON.parse(JSON.stringify({ nodes: current.nodes, edges: current.edges }));
@@ -382,7 +389,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       console.error(`tex-lab-promote: refused: the version's graph is not JSON (${error.message})`);
       process.exit(1);
     }
-    const current = JSON.parse(readFileSync(join(ROOT, CONFIG), "utf8"));
+    const current = joinedTexConfig(ROOT);
     const shelf = JSON.parse(readFileSync(join(ROOT, SHELF), "utf8"));
     const shelfIds = Object.keys(shelf.nodes ?? {});
     // A promotion is a merge onto main (Dev2, 2026-11-17): the draft's own changes since the main it started from
@@ -446,7 +453,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         // Its own page in docs/architecture/ is drawn from the file, as Tex's page is from Tex's config.
         writeFileSync(join(ROOT, ownPagePath(entry)), ownPageFor(entry, config));
       }
-      writeFileSync(join(ROOT, CONFIG), configText(made.config));
+      // Texting and nightly steps each go back to their own file (`texConfigFiles.cjs`).
+      const parts = FILES.splitConfig(made.config);
+      writeFileSync(join(ROOT, CONFIG), configText(parts.tex));
+      writeFileSync(join(ROOT, NIGHTLY_PATH), FILES.nightlyText(parts.nightly));
       // The drawing and the map every Tex agent reads are the config's, so a promoted wire changes Tex's prompts and the replay gate runs on it.
       writeFileSync(join(ROOT, PAGE), pageFor(readFileSync(join(ROOT, PAGE), "utf8"), made.config));
       writeFileSync(join(ROOT, MAP_MODULE), mapModuleFor(made.config));
@@ -463,6 +473,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     const changed = Object.keys(made.words);
     const searchNote = ownWrites.length > 0 ? `, and ${ownWrites.map((w) => w.file).join(", ")}` : "";
-    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}${searchNote}${note ? `; ${note}` : ""}`);
+    console.log(`tex-lab-promote: ${args.includes("--check") ? "would write" : "wrote"} ${CONFIG}, ${NIGHTLY_PATH}, ${PAGE}'s drawing and table and ${MAP_MODULE}${changed.length > 0 ? `, and the words of ${changed.join(", ")}` : ""}${searchNote}${note ? `; ${note}` : ""}`);
   }
 }
