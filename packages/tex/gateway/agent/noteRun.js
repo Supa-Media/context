@@ -178,7 +178,7 @@ async function openNoteRunModel(controlPlane, session, env) {
  * ledger. `onStep({ id, label, state, ms?, source? })` is told as each read starts ("running") and ends ("done").
  * `workspace` is the run's workspace ("@name"), or null for the asker's own.
  */
-export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null }) {
+export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null, noteReadMs = null }) {
   const started = Date.now();
   try {
     await openNoteRunModel(controlPlane, session, env);
@@ -191,15 +191,6 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   const model = chosen ?? builtinModel(env);
   const meter = builtinMeter(controlPlane, session, model, now, { noteRun: true });
   const rounds = node?.rounds ?? RUN_ROUNDS;
-  const chatHistory = await chatOf(ledger, { now, timeZone, session });
-
-  // Steps: a read starts here ("running") and `observe` reports it finished ("done"), matched by name in order.
-  const allowed = noteRunTools(offered).map((tool) => tool.name);
-  const callTool = noteRunCallTool(dispatch, allowed, workspace);
-  const open = [];
-  const readPaths = [];
-  const calls = [];
-  let counter = 0;
   const say = (step) => {
     if (typeof onStep !== "function") return;
     try {
@@ -208,6 +199,25 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
       // A step that failed to show costs the step, never the run.
     }
   };
+  // Every step said is one that ran: the note (read by the caller, with its own time), the Tex chat and the model's work.
+  const noteLabel = `Reading ${noteName(path)}`;
+  say({ id: "step-note", label: noteLabel, state: "running", source: path });
+  say({ id: "step-note", label: noteLabel, state: "done", ms: Number.isFinite(noteReadMs) ? noteReadMs : 0, source: path });
+  let chatHistory = "";
+  if (ledger !== null && ledger !== undefined) {
+    const chatStarted = Date.now();
+    say({ id: "step-chat", label: "Checking your texts", state: "running" });
+    chatHistory = await chatOf(ledger, { now, timeZone, session });
+    say({ id: "step-chat", label: "Checking your texts", state: "done", ms: Date.now() - chatStarted });
+  }
+
+  // Steps: a read starts here ("running") and `observe` reports it finished ("done"), matched by name in order.
+  const allowed = noteRunTools(offered).map((tool) => tool.name);
+  const callTool = noteRunCallTool(dispatch, allowed, workspace);
+  const open = [];
+  const readPaths = [];
+  const calls = [];
+  let counter = 0;
   const tracked = async (name, args) => {
     if (!allowed.includes(name)) return callTool(name, args);
     const { label, source } = stepLabel({ name, args });
@@ -229,6 +239,8 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   const sourcesOf = () => [...new Set([path, ...readPaths, ...(chatHistory !== "" ? ["Tex chat"] : [])])].filter((source) => typeof source === "string" && source !== "");
 
   let turn;
+  const thinking = Date.now();
+  say({ id: "step-think", label: "Thinking", state: "running" });
   try {
     turn = await runTurn({
       question: noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience: audience ?? "only the asker" }),
@@ -245,11 +257,13 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
       roundCap: Math.max(rounds, RUN_ROUNDS),
     });
   } catch (error) {
+    say({ id: "step-think", label: "Thinking", state: "done", ms: Date.now() - thinking });
     await meter(null, true, error instanceof ProviderError ? error.model : model);
     if (!(error instanceof ProviderError)) throw error;
     return { outcome: "model_unavailable", model: error.model ?? model, sources: sourcesOf(), calls, ms: Date.now() - started };
   }
   await meter(turn.usage, false, turn.model);
   const parsed = parseNoteRun(turn.answer);
+  say({ id: "step-think", label: typeof parsed.replace === "string" ? "Editing the selected words" : "Writing the answer", state: "done", ms: Date.now() - thinking });
   return { outcome: "answered", answer: parsed.answer, replace: parsed.replace, sources: sourcesOf(), calls, model: turn.model, usage: turn.usage ?? null, ms: Date.now() - started };
 }
