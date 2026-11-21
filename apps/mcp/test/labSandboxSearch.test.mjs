@@ -106,7 +106,7 @@ test("draftSearchOf: no search steps is null; a sound config is kept; a broken o
   assert.deepEqual(draftSearchOf({ nodes: [{ id: "fd" }], edges: [] }), { config: null });
   const sound = labSearchGraph(SEARCH_CONFIG);
   assert.equal(draftSearchOf(sound).config.nodes.length, SEARCH_CONFIG.nodes.length);
-  assert.equal(draftSearchOf(sound).config.edges.filter((e) => e.mode === "uses").length, 6, "the uses wires go to the Lab and back");
+  assert.equal(draftSearchOf(sound).config.edges.length, SEARCH_CONFIG.edges.length, "every wire goes to the Lab and back");
   assert.match(draftSearchOf(labSearchGraph(configWith("meaning", { minScore: 9 }))).error, /minScore/);
 });
 
@@ -175,12 +175,14 @@ test("a try-out answers main and the draft, ranked, with each step's time, and n
   const config = configWith("fuse", { hits: 2 });
   const answer = await searchAnswer({ store, scope: "private", rules: [], overrides: new Map(), query: "renewal", config });
   assert.equal(answer.query, "renewal");
-  const path = answer.main.steps.filter((s) => !s.workspace).map((s) => s.node);
-  assert.deepEqual(path, ["search", "each", "fuse"], "a search across workspaces runs fuse");
-  // Each workspace's own steps, named by workspace, so the Lab shows where a search spent its time.
-  const perWorkspace = answer.main.steps.filter((s) => s.workspace);
-  assert.deepEqual([...new Set(perWorkspace.map((s) => s.workspace))].sort(), ["@me", "@ops"]);
-  assert.deepEqual([...new Set(perWorkspace.map((s) => s.node))].sort(), ["meaning", "merge", "open", "prior", "snippets", "words"]);
+  const ORDER = SEARCH_CONFIG.nodes.map((n) => n.id);
+  const path = answer.main.steps.map((s) => s.node).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+  assert.deepEqual(path, ORDER, "a search across workspaces runs every step, fuse included");
+  // Each step says how many notes it handed on, so the Lab shows where notes were added and removed.
+  const notes = Object.fromEntries(answer.main.steps.map((s) => [s.node, s.notes]));
+  assert.equal(notes.search, undefined, "the query hands on no notes");
+  assert.ok(notes.words > 0, "words nominated notes");
+  assert.equal(notes.answer, answer.main.hits.length, "the answer's count is its hits");
   assert.deepEqual(answer.main.searched, ["@me", "@ops"]);
   assert.ok(answer.main.steps.every((s) => s.ok === true && typeof s.ms === "number"));
   assert.ok(answer.main.hits.length > 2, "main shows its whole fused list");

@@ -14,3 +14,4 @@ export declare function texSideOf<T>(graph: T): T;
 export declare function ownProblems(graph: unknown): string[];
 export declare function ownVsMain(graph: unknown): string[];
 export declare function promotedConfig(entry: Architecture, graph: unknown, current: any): { config?: any; refused?: string };
+export declare function configFileText(config: unknown): string;

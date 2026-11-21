@@ -4,7 +4,7 @@
   "nodes": [
     {
       "id": "search",
-      "label": "Search",
+      "label": "Query",
       "goal": "A search arrives (an AI client's search_notes, the app's search bar, Tex): pick the workspaces it asks, every one the person reaches unless a folder, a scope or the person's setting narrows it.",
       "on": true,
       "model": "code",
@@ -15,373 +15,386 @@
       "y": 0,
       "settings": {},
       "inSchema": [
-        {
-          "name": "query",
-          "type": "text"
-        },
-        {
-          "name": "prefix",
-          "type": "text"
-        },
-        {
-          "name": "only",
-          "type": "list",
-          "optional": true
-        },
-        {
-          "name": "boost",
-          "type": "text",
-          "optional": true
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "only", "type": "list", "optional": true },
+        { "name": "boost", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "to",
-          "type": "choice",
-          "options": "each, none"
-        },
-        {
-          "name": "query",
-          "type": "text"
-        },
-        {
-          "name": "prefix",
-          "type": "text"
-        },
-        {
-          "name": "names",
-          "type": "ids"
-        },
-        {
-          "name": "here",
-          "type": "yesno"
-        },
-        {
-          "name": "boost",
-          "type": "text",
-          "optional": true
-        }
-      ]
-    },
-    {
-      "id": "each",
-      "label": "Search each workspace",
-      "goal": "Every workspace asked, at once: in each it opens the workspace as the person, finds notes by words and by meaning side by side, merges the two lists, lowers logs and archive, and adds the closest notes only meaning found. Each of those is its own step below, run once per workspace.",
-      "on": true,
-      "model": "code",
-      "icon": "router",
-      "file": "apps/mcp/src/search/config/nodes.js",
-      "x": 560,
-      "y": 0,
-      "settings": {},
-      "inSchema": [
-        {
-          "name": "to",
-          "type": "choice",
-          "options": "each"
-        },
-        {
-          "name": "query",
-          "type": "text"
-        },
-        {
-          "name": "prefix",
-          "type": "text"
-        },
-        {
-          "name": "names",
-          "type": "ids"
-        },
-        {
-          "name": "here",
-          "type": "yesno"
-        },
-        {
-          "name": "boost",
-          "type": "text",
-          "optional": true
-        }
-      ],
-      "outSchema": [
-        {
-          "name": "to",
-          "type": "choice",
-          "options": "one, several"
-        },
-        {
-          "name": "answer",
-          "type": "object",
-          "optional": true
-        },
-        {
-          "name": "query",
-          "type": "text",
-          "optional": true
-        },
-        {
-          "name": "boost",
-          "type": "text",
-          "optional": true
-        },
-        {
-          "name": "workspaces",
-          "type": "list",
-          "optional": true
-        },
-        {
-          "name": "unreached",
-          "type": "ids",
-          "optional": true
-        }
+        { "name": "to", "type": "choice", "options": "open, none" },
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "names", "type": "ids" },
+        { "name": "here", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true }
       ]
     },
     {
       "id": "open",
-      "label": "Open the workspace as you",
-      "goal": "Open one workspace the way a tool call naming it does: the person's role there and its own privacy rules, which every later step checks each note against (canSee). One that cannot be opened or read now is left out and named unreached, never guessed at.",
+      "label": "Open as you",
+      "goal": "Open every workspace asked the way a tool call naming it does: the person's role there and its own privacy rules. One that cannot be opened now is left out and named unreached, never guessed at.",
       "on": true,
       "model": "code",
       "icon": "shield",
-      "file": "apps/mcp/src/search/config/nodes.js \u00b7 privacy/state.js",
-      "x": 80,
-      "y": 200,
+      "file": "apps/mcp/src/search/config/nodes.js · privacy/state.js",
+      "x": 240,
+      "y": 0,
       "settings": {},
       "inSchema": [
-        {
-          "name": "workspace",
-          "type": "text"
-        },
-        {
-          "name": "here",
-          "type": "yesno"
-        }
+        { "name": "to", "type": "text", "optional": true },
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "names", "type": "ids" },
+        { "name": "here", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "workspace",
-          "type": "text"
-        },
-        {
-          "name": "reached",
-          "type": "yesno"
-        },
-        {
-          "name": "scope",
-          "type": "text",
-          "optional": true
-        },
-        {
-          "name": "rules",
-          "type": "number",
-          "optional": true
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
       ]
     },
     {
       "id": "words",
-      "label": "Find by words",
-      "goal": "The word index: notes holding the query's words, ranked by BM25 with titles and headings weighted, retried with any word when no note holds them all (those hits are marked loose). Only notes the person may see; the path it took (object, database, index or scan) is logged.",
+      "label": "Words",
+      "goal": "Nominates: notes holding the query's words in every workspace at once, ranked by the word index (BM25, titles and headings weighted), retried with any word when no note holds them all (those are marked loose). Only notes the person may see.",
       "on": true,
       "model": "code",
       "icon": "text",
-      "file": "apps/mcp/src/search/visibleNotes.js \u00b7 objectSearch.js",
-      "x": 280,
-      "y": 200,
+      "file": "apps/mcp/src/search/visibleNotes.js · objectSearch.js",
+      "x": 480,
+      "y": -110,
       "settings": {},
       "inSchema": [
-        {
-          "name": "workspace",
-          "type": "text"
-        },
-        {
-          "name": "here",
-          "type": "yesno"
-        },
-        {
-          "name": "query",
-          "type": "text"
-        },
-        {
-          "name": "prefix",
-          "type": "text"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "found",
-          "type": "object"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "byWords", "type": "object" }
       ]
     },
     {
       "id": "meaning",
-      "label": "Find by meaning",
-      "goal": "Embed the query (once per search, shared by every workspace) and find the nearest passages in the workspace's meaning index, at least minScore close. Only notes the person may see, never a log of the plumbing or a search probe.",
+      "label": "Meaning",
+      "goal": "Nominates: the nearest passages to the query's embedding (embedded once per search) in every workspace at once, at least minScore close. Only notes the person may see; never plumbing or a search probe.",
       "on": true,
       "model": "code",
       "icon": "star",
       "file": "apps/mcp/src/search/meaning/serve.js meaningMatches",
       "x": 480,
-      "y": 200,
-      "settings": {
-        "minScore": 0.4
-      },
+      "y": 110,
+      "settings": { "minScore": 0.4 },
       "inSchema": [
-        {
-          "name": "workspace",
-          "type": "text"
-        },
-        {
-          "name": "here",
-          "type": "yesno"
-        },
-        {
-          "name": "query",
-          "type": "text"
-        },
-        {
-          "name": "prefix",
-          "type": "text"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "matches",
-          "type": "list",
-          "optional": true
-        },
-        {
-          "name": "off",
-          "type": "yesno"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "byMeaning", "type": "object" }
+      ]
+    },
+    {
+      "id": "visible",
+      "label": "Only what you may see",
+      "goal": "Filters: both lists side by side per workspace, every note checked once more against the person's access there. A workspace whose word search failed is left out and named unreached.",
+      "on": true,
+      "model": "code",
+      "icon": "shield",
+      "file": "apps/mcp/src/search/config/nodes.js visibleStep",
+      "x": 720,
+      "y": 0,
+      "settings": {},
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true },
+        { "name": "byWords", "type": "object", "optional": true },
+        { "name": "byMeaning", "type": "object", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ]
+    },
+    {
+      "id": "probes",
+      "label": "Drop search probes",
+      "goal": "Filters: a benchmark's search-probe note is never an answer.",
+      "on": true,
+      "model": "code",
+      "icon": "trash",
+      "file": "apps/mcp/src/search/stages.js dropProbes",
+      "x": 960,
+      "y": 0,
+      "settings": {},
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ]
+    },
+    {
+      "id": "floor",
+      "label": "Close meaning only",
+      "goal": "Filters: once the words found a note with every word, a note only meaning found must be at least meaningFloor close.",
+      "on": true,
+      "model": "code",
+      "icon": "trash",
+      "file": "apps/mcp/src/search/stages.js closeMeaning",
+      "x": 1200,
+      "y": 0,
+      "settings": { "meaningFloor": 0.5 },
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
       ]
     },
     {
       "id": "merge",
-      "label": "Merge words and meaning",
-      "goal": "One list from the two by reciprocal rank (rrfK), a note both find rising. A note only meaning found joins only when close (meaningFloor) once the words found a note with every word; a word hit adds its title (titleWeight) and phrase (phraseBonus) evidence; a hit whose words sit only in a link counts as loose, and loose hits go last.",
+      "label": "Merge",
+      "goal": "Merges: one row per note from the word list and the meaning list, each adding 1 / (rrfK + rank + 1), so a note both find rises. A hit whose words sit only in a link counts as loose, and loose hits go last. No merge when meaning found nothing: the word hits stand as they are.",
       "on": true,
       "model": "code",
       "icon": "wire",
-      "file": "apps/mcp/src/search/meaning/serve.js mergeWithMeaning \u00b7 evidence.js",
-      "x": 680,
-      "y": 200,
+      "file": "apps/mcp/src/search/stages.js mergeLists",
+      "x": 1440,
+      "y": 0,
+      "settings": { "rrfK": 60 },
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ]
+    },
+    {
+      "id": "title",
+      "label": "Title and phrase",
+      "goal": "Ranks: a word hit gains titleWeight for each share of the query's terms its title or file name holds, and phraseBonus when the whole query is a phrase in its title or file name (snippetPhraseBonus when only in its text). Only when one workspace is searched; across several, Merge across workspaces does it.",
+      "on": true,
+      "model": "code",
+      "icon": "queue",
+      "file": "apps/mcp/src/search/stages.js addEvidence · evidence.js",
+      "x": 1680,
+      "y": 0,
       "settings": {
-        "meaningFloor": 0.5,
-        "rrfK": 60,
         "titleWeight": 0.003278688524590164,
         "phraseBonus": 0.00819672131147541,
         "snippetPhraseBonus": 0.00819672131147541
       },
       "inSchema": [
-        {
-          "name": "workspace",
-          "type": "text"
-        },
-        {
-          "name": "query",
-          "type": "text",
-          "optional": true
-        },
-        {
-          "name": "found",
-          "type": "object"
-        },
-        {
-          "name": "matches",
-          "type": "list",
-          "optional": true
-        },
-        {
-          "name": "off",
-          "type": "yesno"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "merged",
-          "type": "object"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
       ]
     },
     {
       "id": "prior",
       "label": "Lower logs and archive",
-      "goal": "Scale each merged score by where the note lives: an archived note, a log (Inbox captures of messages, email, calendar, Tex's own logs, review logs, retired setups) scores logPrior of a live note with the same evidence. It only reorders.",
+      "goal": "Ranks: an archived note or a log (Inbox captures, Tex's own logs, review logs, retired setups) scores logPrior of a live note with the same evidence. A note still unfiled in the Inbox scores inboxPrior.",
       "on": true,
       "model": "code",
       "icon": "queue",
-      "file": "apps/mcp/src/search/priors.js \u00b7 meaning/serve.js lowerLogs",
-      "x": 880,
-      "y": 200,
-      "settings": {
-        "logPrior": 0.5,
-        "inboxPrior": 1
-      },
+      "file": "apps/mcp/src/search/stages.js lowerByPath · priors.js",
+      "x": 1920,
+      "y": 0,
+      "settings": { "logPrior": 0.5, "inboxPrior": 1 },
       "inSchema": [
-        {
-          "name": "workspace",
-          "type": "text"
-        },
-        {
-          "name": "merged",
-          "type": "object"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "merged",
-          "type": "object"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ]
+    },
+    {
+      "id": "budget",
+      "label": "Meaning-only budget",
+      "goal": "Filters: every word hit stays; of the notes only meaning found, the best extraNotes (looseReads when no note held every word).",
+      "on": true,
+      "model": "code",
+      "icon": "trash",
+      "file": "apps/mcp/src/search/stages.js meaningBudget",
+      "x": 2160,
+      "y": 0,
+      "settings": { "extraNotes": 3, "looseReads": 6 },
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
       ]
     },
     {
       "id": "snippets",
-      "label": "Add meaning-only notes",
-      "goal": "Read a snippet for the closest notes only meaning found, at most extraNotes of them (looseReads when no note held every word), snippetChars long; a passage of code is not offered for a question in prose. Answers the workspace's hits, each with its evidence for ranking across workspaces.",
+      "label": "Read snippets",
+      "goal": "Each kept note only meaning found is read for its title and the passage that matched, snippetChars long, all at once.",
       "on": true,
       "model": "code",
       "icon": "card",
-      "file": "apps/mcp/src/search/meaning/serve.js addMeaningOnly",
-      "x": 1080,
-      "y": 200,
-      "settings": {
-        "extraNotes": 3,
-        "snippetChars": 200,
-        "looseReads": 6
-      },
+      "file": "apps/mcp/src/search/meaning/serve.js readMeaningOnly",
+      "x": 2400,
+      "y": 0,
+      "settings": { "snippetChars": 200 },
       "inSchema": [
-        {
-          "name": "workspace",
-          "type": "text"
-        },
-        {
-          "name": "query",
-          "type": "text",
-          "optional": true
-        },
-        {
-          "name": "merged",
-          "type": "object"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "found",
-          "type": "object"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ]
+    },
+    {
+      "id": "code",
+      "label": "Drop code passages",
+      "goal": "Filters: a code passage found only by meaning is not offered for a question in prose (one workspace; across several, Merge across workspaces does it), and a note that could not be read is dropped.",
+      "on": true,
+      "model": "code",
+      "icon": "trash",
+      "file": "apps/mcp/src/search/stages.js answerHits",
+      "x": 2640,
+      "y": 0,
+      "settings": {},
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "choice", "options": "one, several" }
       ]
     },
     {
       "id": "fuse",
-      "label": "Rank across workspaces",
-      "goal": "One list from every workspace's, ranked by evidence rather than by workspace: word rank (a loose hit counted lower), rank among every meaning match, title and phrase evidence, the path prior and a named workspace's boost; at most the hits setting shown.",
+      "label": "Merge across workspaces",
+      "goal": "Merges and ranks when several workspaces answered: one list ranked by evidence rather than by workspace: word rank (a loose hit counted lower), rank among every meaning match, title and phrase evidence, the path prior and a named workspace's boost; the meaning-only budget once for the whole answer; at most hits shown.",
       "on": true,
       "model": "code",
-      "icon": "judge",
-      "file": "apps/mcp/src/search/config/nodes.js \u00b7 tools/search.js",
-      "x": 1240,
-      "y": 0,
+      "icon": "wire",
+      "file": "apps/mcp/src/search/config/nodes.js · tools/search.js",
+      "x": 2880,
+      "y": 110,
       "settings": {
         "hits": 12,
         "rrfK": 60,
@@ -396,101 +409,140 @@
         "inboxPrior": 1
       },
       "inSchema": [
-        {
-          "name": "to",
-          "type": "choice",
-          "options": "several"
-        },
-        {
-          "name": "query",
-          "type": "text"
-        },
-        {
-          "name": "boost",
-          "type": "text",
-          "optional": true
-        },
-        {
-          "name": "workspaces",
-          "type": "list"
-        },
-        {
-          "name": "unreached",
-          "type": "ids"
-        }
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
       ],
       "outSchema": [
-        {
-          "name": "answer",
-          "type": "object"
-        }
+        { "name": "answer", "type": "object" }
+      ]
+    },
+    {
+      "id": "answer",
+      "label": "Answer",
+      "goal": "The fused list across workspaces, or the one workspace's, with who answered and who could not be reached.",
+      "on": true,
+      "model": "code",
+      "icon": "send",
+      "file": "apps/mcp/src/search/config/nodes.js answerStep",
+      "x": 3120,
+      "y": 0,
+      "settings": {},
+      "inSchema": [
+        { "name": "query", "type": "text", "optional": true },
+        { "name": "prefix", "type": "text", "optional": true },
+        { "name": "several", "type": "yesno", "optional": true },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list", "optional": true },
+        { "name": "unreached", "type": "ids", "optional": true },
+        { "name": "to", "type": "text", "optional": true },
+        { "name": "answer", "type": "object", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "answer", "type": "object" }
       ]
     }
   ],
   "edges": [
     {
       "from": "search",
-      "to": "each",
+      "to": "open",
       "mode": "wait",
-      "when": [
-        "each"
-      ]
+      "when": ["open"]
     },
     {
-      "from": "each",
+      "from": "open",
+      "to": "words",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "open",
+      "to": "meaning",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "words",
+      "to": "visible",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "meaning",
+      "to": "visible",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "visible",
+      "to": "probes",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "probes",
+      "to": "floor",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "floor",
+      "to": "merge",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "merge",
+      "to": "title",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "title",
+      "to": "prior",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "prior",
+      "to": "budget",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "budget",
+      "to": "snippets",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "snippets",
+      "to": "code",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "code",
       "to": "fuse",
       "mode": "wait",
-      "when": [
-        "several"
-      ]
+      "when": ["several"]
     },
     {
-      "from": "each",
-      "to": "open",
-      "mode": "uses",
-      "when": [
-        "workspace"
-      ]
+      "from": "code",
+      "to": "answer",
+      "mode": "wait",
+      "when": ["one"]
     },
     {
-      "from": "each",
-      "to": "words",
-      "mode": "uses",
-      "when": [
-        "workspace"
-      ]
-    },
-    {
-      "from": "each",
-      "to": "meaning",
-      "mode": "uses",
-      "when": [
-        "workspace"
-      ]
-    },
-    {
-      "from": "each",
-      "to": "merge",
-      "mode": "uses",
-      "when": [
-        "workspace"
-      ]
-    },
-    {
-      "from": "each",
-      "to": "prior",
-      "mode": "uses",
-      "when": [
-        "workspace"
-      ]
-    },
-    {
-      "from": "each",
-      "to": "snippets",
-      "mode": "uses",
-      "when": [
-        "workspace"
-      ]
+      "from": "fuse",
+      "to": "answer",
+      "mode": "wait",
+      "when": ["*"]
     }
   ]
 }

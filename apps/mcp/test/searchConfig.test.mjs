@@ -8,8 +8,8 @@
  *
  * Run as temporary local edits and reverted, 2026-11-21.
  *
- *   `each`'s rrfK in the JSON set to 61                              → "main's settings are the constants" fails
- *   the `each -> fuse` wire removed from the JSON                    → "searched across workspaces" fails (no fuse)
+ *   `merge`'s rrfK in the JSON set to 61                             → "main's settings are the constants" fails
+ *   the `code -> fuse` wire removed from the JSON                    → "searched across workspaces" fails (no fuse)
  *   `fuseStep` ignoring its node's `hits`                            → "a draft's hits" fails
  *   `runSearch` skipping the schema check on a draft                 → "a draft out of bounds is refused" fails
  */
@@ -100,8 +100,8 @@ test("main's settings are the constants search ranked by before it had a config"
 test("the schema refuses a setting out of bounds, one a step does not read, and a step search has no code for", () => {
   assert.match(searchConfigProblems(draftWith("fuse", { hits: 0 })).join(), /hits must be from 1 to 50/);
   assert.match(searchConfigProblems(draftWith("fuse", { hits: 2.5 })).join(), /hits must be a whole number/);
-  assert.match(searchConfigProblems(draftWith("each", { hits: 5 })).join(), /"each" does not read hits/);
-  assert.match(searchConfigProblems(draftWith("each", { bogus: 1 })).join(), /"bogus" is not a search setting/);
+  assert.match(searchConfigProblems(draftWith("merge", { hits: 5 })).join(), /"merge" does not read hits/);
+  assert.match(searchConfigProblems(draftWith("merge", { bogus: 1 })).join(), /"bogus" is not a search setting/);
   const extra = structuredClone(SEARCH_CONFIG);
   extra.nodes.push({ id: "rerank", label: "Rerank", on: true, model: "code" });
   assert.match(searchConfigProblems(extra).join(), /"rerank" is not a search step/);
@@ -117,31 +117,26 @@ test("a ranking takes a draft's knobs that are in bounds and keeps the rest", ()
   assert.equal(rankingOf({ hits: 3 }, FUSE_RANKING).hits, 3);
 });
 
-/** The steps a run went through on its `wait` wires, and how often each step "Search each workspace" calls ran. */
-const pathOf = (runs) => runs.filter((r) => !String(r.via).endsWith(":uses")).map((r) => [r.node, r.ok]);
-const callsOf = (runs) => {
-  const out = {};
-  for (const r of runs) if (r.via === "each:uses") out[r.node] = (out[r.node] ?? 0) + 1;
-  return out;
-};
+/** The steps a run went through, in config order (two nominators run side by side, so not in the order they ended). */
+const ORDER = SEARCH_CONFIG.nodes.map((n) => n.id);
+const pathOf = (runs) => runs.map((r) => r.node).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+const IN_WORKSPACE = ["open", "words", "meaning", "visible", "probes", "floor", "merge", "title", "prior", "budget", "snippets", "code"];
 
-test("searched across workspaces, the run is search, each, fuse, read from the config's wires", async () => {
+test("searched across workspaces, the run goes left to right through every step, read from the config's wires", async () => {
   const runs = [];
   const found = await findNotes(setup(), "private", [], new Map(), "renewal", "", { log: (row) => runs.push(row) });
-  assert.deepEqual(pathOf(runs), [["search", true], ["each", true], ["fuse", true]]);
-  // Every workspace goes through each of its steps once, each a run of its own the Lab shows (Dev2, 2026-11-21).
-  assert.deepEqual(callsOf(runs), { open: 2, words: 2, meaning: 2, merge: 2, prior: 2, snippets: 2 });
+  // Each step runs once, for every workspace at once (Dev2, 2026-11-21: nominate, filter, merge, rank, left to right).
+  assert.deepEqual(pathOf(runs), ["search", ...IN_WORKSPACE, "fuse", "answer"]);
   assert.ok(runs.every((r) => r.ok), "every step ran");
   assert.deepEqual(found.searched, ["@me", "@ops"]);
   assert.ok(found.hits.some((hit) => hit.key.startsWith("@ops/")));
   assert.ok(found.hits.length >= 4);
 });
 
-test("a folder keeps a search here: search, each, and no fuse", async () => {
+test("a folder keeps a search here: every step but the merge across workspaces", async () => {
   const runs = [];
   const found = await findNotes(setup(), "private", [], new Map(), "renewal", "projects", { log: (row) => runs.push(row) });
-  assert.deepEqual(pathOf(runs).map(([node]) => node), ["search", "each"]);
-  assert.deepEqual(callsOf(runs), { open: 1, words: 1, meaning: 1, merge: 1, prior: 1, snippets: 1 });
+  assert.deepEqual(pathOf(runs), ["search", ...IN_WORKSPACE, "answer"]);
   assert.deepEqual(found.hits.map((hit) => hit.key), ["projects/renewal.md"]);
 });
 
@@ -201,4 +196,24 @@ test("inboxPrior scales a note captured in the Inbox but not its log folders, an
   assert.equal(notePrior("inbox/sessions/2025-01-01.md", r), r.logPrior);
   assert.equal(notePrior("projects/plan.md", r), 1);
   assert.equal(notePrior("inbox/saved-chat.md"), 1);
+});
+
+test("a step turned off is passed over, and a step every search needs cannot be turned off", async () => {
+  const off = (id) => {
+    const config = structuredClone(SEARCH_CONFIG);
+    config.nodes.find((n) => n.id === id).on = false;
+    return config;
+  };
+  const main = await findNotes(setup(), "private", [], new Map(), "renewal", "");
+  // The path prior off: the archived note is no longer lowered, and the search still answers.
+  const runs = [];
+  const noPrior = await findNotes(setup(), "private", [], new Map(), "renewal", "", { config: off("prior"), log: (row) => runs.push(row) });
+  assert.ok(!runs.some((r) => r.node === "prior"), "the step that is off never runs");
+  assert.ok(runs.some((r) => r.node === "budget"), "the step after it still runs");
+  assert.equal(noPrior.hits.length, main.hits.length);
+  // Words off: only what meaning nominates (nothing here: the stores have no meaning index).
+  const noWords = await findNotes(setup(), "private", [], new Map(), "renewal", "", { config: off("words") });
+  assert.deepEqual(noWords.hits, []);
+  assert.deepEqual(noWords.unreached, [], "words off is not a workspace that failed");
+  for (const id of searchConfig.ALWAYS_ON) assert.match(searchConfigProblems(off(id)).join(), /cannot be turned off/);
 });

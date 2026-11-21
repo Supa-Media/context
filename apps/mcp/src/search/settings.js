@@ -34,14 +34,16 @@ import searchConfig from "./config/searchConfig.cjs";
 
 const { SEARCH_SETTINGS_BOUNDS, settingsOf } = searchConfig;
 // The three numbers' defaults are settings of search's steps in its config (`config/searchConfig.json`; Dev2,
-// 2026-11-21), which a Lab draft can change: "Find by meaning" (`meaning`) and "Add meaning-only notes" (`snippets`).
+// 2026-11-21), which a Lab draft can change: "Meaning" (`meaning`), "Meaning-only budget" (`budget`) and "Read
+// snippets" (`snippets`).
 const MEANING = settingsOf("meaning");
+const BUDGET = settingsOf("budget");
 const SNIPPETS = settingsOf("snippets");
 
 export const DEFAULT_SEARCH_SETTINGS = Object.freeze({
   everywhere: true,
   minScore: MEANING.minScore,
-  extraNotes: SNIPPETS.extraNotes,
+  extraNotes: BUDGET.extraNotes,
   snippetChars: SNIPPETS.snippetChars,
 });
 

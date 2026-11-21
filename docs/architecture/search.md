@@ -10,23 +10,37 @@ Search's own config (Dev2, 2026-11-21: "not only Tex uses search"): every step a
 
 ```mermaid
 flowchart LR
-  n_search(["Search<br/>code<br/>apps/mcp/src/search/config/nodes.js"]):::start
-  n_each["Search each workspace<br/>code<br/>apps/mcp/src/search/config/nodes.js"]:::code
-  n_open["Open the workspace as you<br/>code<br/>apps/mcp/src/search/config/nodes.js · privacy/state.js"]:::code
-  n_words["Find by words<br/>code<br/>apps/mcp/src/search/visibleNotes.js · objectSearch.js"]:::code
-  n_meaning["Find by meaning<br/>code<br/>apps/mcp/src/search/meaning/serve.js meaningMatches"]:::code
-  n_merge["Merge words and meaning<br/>code<br/>apps/mcp/src/search/meaning/serve.js mergeWithMeaning · evidence.js"]:::code
-  n_prior["Lower logs and archive<br/>code<br/>apps/mcp/src/search/priors.js · meaning/serve.js lowerLogs"]:::code
-  n_snippets["Add meaning-only notes<br/>code<br/>apps/mcp/src/search/meaning/serve.js addMeaningOnly"]:::code
-  n_fuse["Rank across workspaces<br/>code<br/>apps/mcp/src/search/config/nodes.js · tools/search.js"]:::code
-  n_search -->|each| n_each
-  n_each -->|several| n_fuse
-  n_each -.->|uses: workspace| n_open
-  n_each -.->|uses: workspace| n_words
-  n_each -.->|uses: workspace| n_meaning
-  n_each -.->|uses: workspace| n_merge
-  n_each -.->|uses: workspace| n_prior
-  n_each -.->|uses: workspace| n_snippets
+  n_search(["Query<br/>code<br/>apps/mcp/src/search/config/nodes.js"]):::start
+  n_open["Open as you<br/>code<br/>apps/mcp/src/search/config/nodes.js · privacy/state.js"]:::code
+  n_words["Words<br/>code<br/>apps/mcp/src/search/visibleNotes.js · objectSearch.js"]:::code
+  n_meaning["Meaning<br/>code<br/>apps/mcp/src/search/meaning/serve.js meaningMatches"]:::code
+  n_visible["Only what you may see<br/>code<br/>apps/mcp/src/search/config/nodes.js visibleStep"]:::code
+  n_probes["Drop search probes<br/>code<br/>apps/mcp/src/search/stages.js dropProbes"]:::code
+  n_floor["Close meaning only<br/>code<br/>apps/mcp/src/search/stages.js closeMeaning"]:::code
+  n_merge["Merge<br/>code<br/>apps/mcp/src/search/stages.js mergeLists"]:::code
+  n_title["Title and phrase<br/>code<br/>apps/mcp/src/search/stages.js addEvidence · evidence.js"]:::code
+  n_prior["Lower logs and archive<br/>code<br/>apps/mcp/src/search/stages.js lowerByPath · priors.js"]:::code
+  n_budget["Meaning-only budget<br/>code<br/>apps/mcp/src/search/stages.js meaningBudget"]:::code
+  n_snippets["Read snippets<br/>code<br/>apps/mcp/src/search/meaning/serve.js readMeaningOnly"]:::code
+  n_code["Drop code passages<br/>code<br/>apps/mcp/src/search/stages.js answerHits"]:::code
+  n_fuse["Merge across workspaces<br/>code<br/>apps/mcp/src/search/config/nodes.js · tools/search.js"]:::code
+  n_answer["Answer<br/>code<br/>apps/mcp/src/search/config/nodes.js answerStep"]:::code
+  n_search -->|open| n_open
+  n_open --> n_words
+  n_open --> n_meaning
+  n_words --> n_visible
+  n_meaning --> n_visible
+  n_visible --> n_probes
+  n_probes --> n_floor
+  n_floor --> n_merge
+  n_merge --> n_title
+  n_title --> n_prior
+  n_prior --> n_budget
+  n_budget --> n_snippets
+  n_snippets --> n_code
+  n_code -->|several| n_fuse
+  n_code -->|one| n_answer
+  n_fuse --> n_answer
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -38,39 +52,45 @@ flowchart LR
 
 | Step | Goal | Code |
 |---|---|---|
-| Search | A search arrives (an AI client's search_notes, the app's search bar, Tex): pick the workspaces it asks, every one the person reaches unless a folder, a scope or the person's setting narrows it. | apps/mcp/src/search/config/nodes.js |
-| Search each workspace | Every workspace asked, at once: in each it opens the workspace as the person, finds notes by words and by meaning side by side, merges the two lists, lowers logs and archive, and adds the closest notes only meaning found. Each of those is its own step below, run once per workspace. | apps/mcp/src/search/config/nodes.js |
-| Open the workspace as you | Open one workspace the way a tool call naming it does: the person's role there and its own privacy rules, which every later step checks each note against (canSee). One that cannot be opened or read now is left out and named unreached, never guessed at. | apps/mcp/src/search/config/nodes.js · privacy/state.js |
-| Find by words | The word index: notes holding the query's words, ranked by BM25 with titles and headings weighted, retried with any word when no note holds them all (those hits are marked loose). Only notes the person may see; the path it took (object, database, index or scan) is logged. | apps/mcp/src/search/visibleNotes.js · objectSearch.js |
-| Find by meaning | Embed the query (once per search, shared by every workspace) and find the nearest passages in the workspace's meaning index, at least minScore close. Only notes the person may see, never a log of the plumbing or a search probe. | apps/mcp/src/search/meaning/serve.js meaningMatches |
-| Merge words and meaning | One list from the two by reciprocal rank (rrfK), a note both find rising. A note only meaning found joins only when close (meaningFloor) once the words found a note with every word; a word hit adds its title (titleWeight) and phrase (phraseBonus) evidence; a hit whose words sit only in a link counts as loose, and loose hits go last. | apps/mcp/src/search/meaning/serve.js mergeWithMeaning · evidence.js |
-| Lower logs and archive | Scale each merged score by where the note lives: an archived note, a log (Inbox captures of messages, email, calendar, Tex's own logs, review logs, retired setups) scores logPrior of a live note with the same evidence. It only reorders. | apps/mcp/src/search/priors.js · meaning/serve.js lowerLogs |
-| Add meaning-only notes | Read a snippet for the closest notes only meaning found, at most extraNotes of them (looseReads when no note held every word), snippetChars long; a passage of code is not offered for a question in prose. Answers the workspace's hits, each with its evidence for ranking across workspaces. | apps/mcp/src/search/meaning/serve.js addMeaningOnly |
-| Rank across workspaces | One list from every workspace's, ranked by evidence rather than by workspace: word rank (a loose hit counted lower), rank among every meaning match, title and phrase evidence, the path prior and a named workspace's boost; at most the hits setting shown. | apps/mcp/src/search/config/nodes.js · tools/search.js |
+| Query | A search arrives (an AI client's search_notes, the app's search bar, Tex): pick the workspaces it asks, every one the person reaches unless a folder, a scope or the person's setting narrows it. | apps/mcp/src/search/config/nodes.js |
+| Open as you | Open every workspace asked the way a tool call naming it does: the person's role there and its own privacy rules. One that cannot be opened now is left out and named unreached, never guessed at. | apps/mcp/src/search/config/nodes.js · privacy/state.js |
+| Words | Nominates: notes holding the query's words in every workspace at once, ranked by the word index (BM25, titles and headings weighted), retried with any word when no note holds them all (those are marked loose). Only notes the person may see. | apps/mcp/src/search/visibleNotes.js · objectSearch.js |
+| Meaning | Nominates: the nearest passages to the query's embedding (embedded once per search) in every workspace at once, at least minScore close. Only notes the person may see; never plumbing or a search probe. | apps/mcp/src/search/meaning/serve.js meaningMatches |
+| Only what you may see | Filters: both lists side by side per workspace, every note checked once more against the person's access there. A workspace whose word search failed is left out and named unreached. | apps/mcp/src/search/config/nodes.js visibleStep |
+| Drop search probes | Filters: a benchmark's search-probe note is never an answer. | apps/mcp/src/search/stages.js dropProbes |
+| Close meaning only | Filters: once the words found a note with every word, a note only meaning found must be at least meaningFloor close. | apps/mcp/src/search/stages.js closeMeaning |
+| Merge | Merges: one row per note from the word list and the meaning list, each adding 1 / (rrfK + rank + 1), so a note both find rises. A hit whose words sit only in a link counts as loose, and loose hits go last. No merge when meaning found nothing: the word hits stand as they are. | apps/mcp/src/search/stages.js mergeLists |
+| Title and phrase | Ranks: a word hit gains titleWeight for each share of the query's terms its title or file name holds, and phraseBonus when the whole query is a phrase in its title or file name (snippetPhraseBonus when only in its text). Only when one workspace is searched; across several, Merge across workspaces does it. | apps/mcp/src/search/stages.js addEvidence · evidence.js |
+| Lower logs and archive | Ranks: an archived note or a log (Inbox captures, Tex's own logs, review logs, retired setups) scores logPrior of a live note with the same evidence. A note still unfiled in the Inbox scores inboxPrior. | apps/mcp/src/search/stages.js lowerByPath · priors.js |
+| Meaning-only budget | Filters: every word hit stays; of the notes only meaning found, the best extraNotes (looseReads when no note held every word). | apps/mcp/src/search/stages.js meaningBudget |
+| Read snippets | Each kept note only meaning found is read for its title and the passage that matched, snippetChars long, all at once. | apps/mcp/src/search/meaning/serve.js readMeaningOnly |
+| Drop code passages | Filters: a code passage found only by meaning is not offered for a question in prose (one workspace; across several, Merge across workspaces does it), and a note that could not be read is dropped. | apps/mcp/src/search/stages.js answerHits |
+| Merge across workspaces | Merges and ranks when several workspaces answered: one list ranked by evidence rather than by workspace: word rank (a loose hit counted lower), rank among every meaning match, title and phrase evidence, the path prior and a named workspace's boost; the meaning-only budget once for the whole answer; at most hits shown. | apps/mcp/src/search/config/nodes.js · tools/search.js |
+| Answer | The fused list across workspaces, or the one workspace's, with who answered and who could not be reached. | apps/mcp/src/search/config/nodes.js answerStep |
 
 ## Settings
 
 | Step | Setting | Value |
 |---|---|---|
-| Find by meaning | `minScore` | 0.4 |
-| Merge words and meaning | `meaningFloor` | 0.5 |
-| Merge words and meaning | `rrfK` | 60 |
-| Merge words and meaning | `titleWeight` | 0.003278688524590164 |
-| Merge words and meaning | `phraseBonus` | 0.00819672131147541 |
-| Merge words and meaning | `snippetPhraseBonus` | 0.00819672131147541 |
+| Meaning | `minScore` | 0.4 |
+| Close meaning only | `meaningFloor` | 0.5 |
+| Merge | `rrfK` | 60 |
+| Title and phrase | `titleWeight` | 0.003278688524590164 |
+| Title and phrase | `phraseBonus` | 0.00819672131147541 |
+| Title and phrase | `snippetPhraseBonus` | 0.00819672131147541 |
 | Lower logs and archive | `logPrior` | 0.5 |
 | Lower logs and archive | `inboxPrior` | 1 |
-| Add meaning-only notes | `extraNotes` | 3 |
-| Add meaning-only notes | `snippetChars` | 200 |
-| Add meaning-only notes | `looseReads` | 6 |
-| Rank across workspaces | `hits` | 12 |
-| Rank across workspaces | `rrfK` | 60 |
-| Rank across workspaces | `loosePenalty` | 10 |
-| Rank across workspaces | `titleWeight` | 0.003278688524590164 |
-| Rank across workspaces | `phraseBonus` | 0.00819672131147541 |
-| Rank across workspaces | `snippetPhraseBonus` | 0.00819672131147541 |
-| Rank across workspaces | `meaningFloor` | 0.5 |
-| Rank across workspaces | `looseReads` | 6 |
-| Rank across workspaces | `boostFactor` | 1.2 |
-| Rank across workspaces | `logPrior` | 0.5 |
-| Rank across workspaces | `inboxPrior` | 1 |
+| Meaning-only budget | `extraNotes` | 3 |
+| Meaning-only budget | `looseReads` | 6 |
+| Read snippets | `snippetChars` | 200 |
+| Merge across workspaces | `hits` | 12 |
+| Merge across workspaces | `rrfK` | 60 |
+| Merge across workspaces | `loosePenalty` | 10 |
+| Merge across workspaces | `titleWeight` | 0.003278688524590164 |
+| Merge across workspaces | `phraseBonus` | 0.00819672131147541 |
+| Merge across workspaces | `snippetPhraseBonus` | 0.00819672131147541 |
+| Merge across workspaces | `meaningFloor` | 0.5 |
+| Merge across workspaces | `looseReads` | 6 |
+| Merge across workspaces | `boostFactor` | 1.2 |
+| Merge across workspaces | `logPrior` | 0.5 |
+| Merge across workspaces | `inboxPrior` | 1 |

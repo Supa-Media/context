@@ -43,10 +43,10 @@ test("Tex's checks never see search's steps: a search step with no Tex code is n
 test("a setting change against search's config is named with its numbers, and on or off changes too", () => {
   const diff = draftVsMain(draftWith((g) => {
     fuse(g).settings = { ...fuse(g).settings, hits: 8 };
-    g.nodes.find((n) => n.id === "each").on = false;
+    g.nodes.find((n) => n.id === "title").on = false;
   }));
-  assert.ok(diff.own.includes("Search · Rank across workspaces: hits 12 → 8"), diff.own.join("\n"));
-  assert.ok(diff.own.includes("Search · Search each workspace: turned off"), diff.own.join("\n"));
+  assert.ok(diff.own.includes("Search · Merge across workspaces: hits 12 → 8"), diff.own.join("\n"));
+  assert.ok(diff.own.includes("Search · Title and phrase: turned off"), diff.own.join("\n"));
   assert.deepEqual(diff.added, []);
   assert.deepEqual(diff.changed, {});
 });

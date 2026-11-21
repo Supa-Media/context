@@ -9,7 +9,7 @@ function sideLines(side) {
   const hits = side.hits.length
     ? side.hits.map((hit, i) => `${i + 1}. ${hit.key}${hit.title ? ` — ${hit.title}` : ""}${hit.meaningOnly ? " (found by meaning)" : ""}`)
     : ["(no matches)"];
-  const steps = side.steps.length ? side.steps.map((s) => `${s.node} ${s.ms} ms${s.ok ? "" : " (failed)"}`).join(" → ") : "(no steps logged)";
+  const steps = side.steps.length ? side.steps.map((s) => `${s.node}${typeof s.notes === "number" ? ` ${s.notes} notes` : ""} ${s.ms} ms${s.ok ? "" : " (failed)"}`).join(" → ") : "(no steps logged)";
   return [...hits, `steps: ${steps}`, `searched: ${side.searched.join(", ") || "their own workspace"}`];
 }
 
