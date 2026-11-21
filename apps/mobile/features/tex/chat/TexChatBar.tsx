@@ -32,6 +32,9 @@ export interface TexChatBarProps {
   onUnsend: () => void;
   /** Called after Copy has written the text. */
   onCopied?: () => void;
+  /** The pointer reaching and leaving the bar, which the row counts as its own hover (web). */
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
 }
 
 /**
@@ -68,6 +71,8 @@ export function TexChatBar(props: TexChatBarProps) {
           transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [RISE, 0] }) }],
         },
       ]}
+      onPointerEnter={props.onPointerEnter}
+      onPointerLeave={props.onPointerLeave}
       testID={`tex-bar-${rowId}`}
     >
       {TAPBACKS.map((emoji) => {

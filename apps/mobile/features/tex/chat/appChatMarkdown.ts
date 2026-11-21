@@ -191,3 +191,27 @@ function folderOf(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash === -1 ? "" : path.slice(0, slash);
 }
+
+/**
+ * A message as the words a person reads, without its Markdown: what Copy puts on
+ * the clipboard and what a reply's quote shows (the mock's `plain`). A link keeps
+ * its words, a list item its bullet or number, a note card its title.
+ */
+export function chatPlainText(text: string): string {
+  const words = (content: ChatInline[]) => content.map((inline) => inline.text).join("");
+  return chatBlocks(text)
+    .flatMap((block): string[] => {
+      switch (block.kind) {
+        case "paragraph":
+        case "heading":
+          return [words(block.content)];
+        case "bullet":
+          return block.items.map((item) => `• ${words(item)}`);
+        case "ordered":
+          return block.items.map((item, index) => `${index + 1}. ${words(item)}`);
+        case "notecard":
+          return [block.title];
+      }
+    })
+    .join("\n");
+}

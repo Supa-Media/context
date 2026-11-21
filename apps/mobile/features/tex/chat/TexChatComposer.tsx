@@ -9,6 +9,7 @@ import { useHoverTitle } from "../../design/useHoverTitle";
 import { MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_TEXT } from "./appChatGateway";
 import type { PickedFile } from "./appChatFiles";
 import { TexChatFileChip } from "./TexChatFileChip";
+import { chatPlainText } from "./appChatMarkdown";
 
 /** What the reply bar names: who the row is from, and its first line of words. */
 export interface ReplyTarget {
@@ -260,8 +261,8 @@ export function TexChatComposer({
       {reply !== null ? (
         <Chip
           testID="tex-reply-bar"
-          icon="arrowLeft"
-          label={`${reply.who === "me" ? "Replying to yourself" : "Replying to Tex"}: ${firstLine(reply.text) || "a message"}`}
+          icon="reply"
+          label={`${reply.who === "me" ? "Replying to yourself" : "Replying to Tex"}: ${firstLine(chatPlainText(reply.text)) || "a message"}`}
           cancelLabel="Cancel reply"
           cancelTestID="tex-reply-cancel"
           onCancel={onCancelReply}
