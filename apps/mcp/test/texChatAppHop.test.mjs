@@ -6,7 +6,9 @@
  * object over the network, and only the gateway's smaller routes stay in-process.
  *
  * Sabotage checked: making `isTurnCall` always false fails "the turn goes over the hop"; dropping the `app &&` guard
- * fails "a phone chat's turn stays in-process"; calling `inProcess()` without the kept clone fails "a hop that throws".
+ * fails "a phone chat's turn stays in-process"; calling `inProcess()` without the kept clone fails "a hop that throws";
+ * dropping `turnsHop` from the condition fails "a background job's part goes over the hop" (three `TexJob` `/job-pass`
+ * memory resets, 2026-11-20 and 11-21).
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -16,9 +18,10 @@ const SELF = "https://gateway.example";
 const APP = "app:abcdefghijklmnop1234";
 const state = { waitUntil() {}, storage: { get: async () => undefined, put: async () => {}, delete: async () => true } };
 
-async function envFor(name, hop) {
+async function envFor(name, hop, extra = {}) {
   const local = [];
   const env = await chatEnv({ PUBLIC_ORIGIN: SELF }, state, name, "", {
+    ...extra,
     gateway: () => ({ fetch: async (request) => (local.push(new URL(request.url).pathname), Response.json({ local: true })) }),
     texts: () => ({ fetch: async () => new Response(null) }),
     hop,
@@ -51,6 +54,15 @@ describe("an app chat's turn", () => {
     await env.FETCH(`${SELF}/agent`, { method: "POST", body: "{}" });
     assert.deepEqual(hopped, []);
     assert.deepEqual(local, ["/agent"]);
+  });
+
+  it("a background job's part goes over the hop, as the job's object asks it (`texJob.js`)", async () => {
+    const hopped = [];
+    const { env, local } = await envFor("job:0b7c2f4e-1111-4222-8333-944455556666", async (request) => (hopped.push(request.url), Response.json({ hop: true })), { jobsHere: true, turnsHop: true });
+    await env.FETCH(`${SELF}/agent`, { method: "POST", body: "{}" });
+    await env.FETCH(`${SELF}/agent/steer`, { method: "POST", body: "{}" });
+    assert.deepEqual(hopped, [`${SELF}/agent`]);
+    assert.deepEqual(local, ["/agent/steer"]);
   });
 
   it("a hop that throws runs the turn in-process, with the body still whole", async () => {

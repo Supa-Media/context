@@ -198,7 +198,7 @@ export function chatState(state, senderId) {
  * The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. `jobsHere`: this object's job calls
  * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
  */
-export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request) }) {
+export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request), turnsHop = false }) {
   const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppFile, serveAppPicture } = await import("../../../packages/tex/worker/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
@@ -217,8 +217,10 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
       // An app chat's turn goes over a real hop to the gateway, as a phone's does from the texting Worker: in-process,
       // the whole turn (its prompt, history and reads) lived in this object's isolate, which ran out of memory and was
       // reset before the reply went (Dev2's 8:25 AM text, 2026-11-20; Dev2 chose the phone's route). Only when the hop
-      // itself cannot be made does the turn run here, as before.
-      if (app && self !== "" && isTurnCall(request.url, self)) return hopToGateway(hop, request, (kept) => gateway().fetch(kept, env, ctx));
+      // itself cannot be made does the turn run here, as before. A background job's object (`texJob.js`, `turnsHop`) hops
+      // too: a job's part is the longest turn there is, and in-process it reset the job's isolate (three `/job-pass`
+      // memory resets 2026-11-20 and 11-21, the coffee-shop job's among them).
+      if ((app || turnsHop) && self !== "" && isTurnCall(request.url, self)) return hopToGateway(hop, request, (kept) => gateway().fetch(kept, env, ctx));
       if (self !== "" && request.url.startsWith(`${self}/`)) return gateway().fetch(request, env, ctx);
       return fetch(request);
     },
