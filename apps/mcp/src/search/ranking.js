@@ -13,8 +13,9 @@
  *   hits          most hits a search across every workspace shows (12).
  *   logPrior      what an archived note or a log scores, as a share of a live note with the same evidence (0.5).
  *
- * Two steps rank, each by its own settings: "Search each workspace" (`each`) merges one workspace's word and meaning
- * lists, and "Rank across workspaces" (`fuse`) ranks every workspace's hits together.
+ * In one workspace, "Merge words and meaning" (`merge`), "Lower logs and archive" (`prior`) and "Add meaning-only
+ * notes" (`snippets`) rank by their own settings; "Rank across workspaces" (`fuse`) ranks every workspace's hits
+ * together by its own.
  */
 import searchConfig from "./config/searchConfig.cjs";
 
@@ -25,8 +26,12 @@ export const RANKING_KNOBS = Object.freeze(Object.keys(SEARCH_SETTINGS_BOUNDS).f
 
 const knobsOf = (settings) => Object.freeze(Object.fromEntries(RANKING_KNOBS.filter((name) => name in settings).map((name) => [name, settings[name]])));
 
-/** One workspace's merge, as main's config sets it (`each`): what every caller not on the search graph ranks by. */
-export const DEFAULT_RANKING = knobsOf(settingsOf("each"));
+/**
+ * One workspace's merge, as main's config sets it (the steps "Merge words and meaning" `merge`, "Lower logs and
+ * archive" `prior` and "Add meaning-only notes" `snippets`): what every caller not on the search graph ranks by.
+ */
+export const IN_WORKSPACE_STEPS = Object.freeze(["merge", "prior", "snippets"]);
+export const DEFAULT_RANKING = knobsOf(Object.assign({}, ...IN_WORKSPACE_STEPS.map((id) => settingsOf(id))));
 
 /** The ranking across workspaces, as main's config sets it (`fuse`). */
 export const FUSE_RANKING = knobsOf(settingsOf("fuse"));

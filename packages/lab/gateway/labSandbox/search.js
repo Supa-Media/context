@@ -49,9 +49,15 @@ export function draftSearchOf(graph) {
   return problems.length > 0 ? { error: problems.join("; ") } : { config };
 }
 
-/** The steps a run logged, each as the Lab shows it: its step, its time and whether it held. */
+/**
+ * The steps a run logged, each as the Lab shows it: its step, its time and whether it held, and, for a step "Search
+ * each workspace" calls once per workspace (open, words, meaning, merge, prior, snippets), which workspace it ran for.
+ */
 function stepsOf(rows) {
-  return rows.map((row) => ({ node: row.node, ms: row.ms, ok: row.ok }));
+  return rows.map((row) => {
+    const workspace = typeof row.input?.workspace === "string" ? row.input.workspace : null;
+    return { node: row.node, ms: row.ms, ok: row.ok, ...(workspace ? { workspace } : {}) };
+  });
 }
 
 /** One run's answer: the hits (key, title, meaningOnly), who answered, and each step. */
