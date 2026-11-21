@@ -67,6 +67,21 @@ describe("oldLineStep", () => {
     expect(sent).toEqual([]);
   });
 
+  it("passes a text on Tex's new line at once, with no setting read and no gateway call, and logs why", async () => {
+    // An iMessage text on Photon's line paid a control-plane read and a gateway round trip (up to 0.9 s) for a node
+    // that can only pass it (2026-11-21).
+    let reads = 0;
+    const storage = new MemoryStorage();
+    const { deps, sent, asked } = world();
+    const counted = { ...deps, fetch: (async (...args: Parameters<Fetch>) => (reads++, deps.fetch(...args))) as unknown as Fetch };
+    for (const chat of ["photon:+15555550199:+15555550100", "whapi:+15555550100"]) expect(await oldLineStep(storage, chat, counted)).toBe("pass");
+    expect(reads).toBe(0);
+    expect(asked).toEqual([]);
+    expect(sent).toEqual([]);
+    const steps = (await unwritten(storage)).filter((event) => event.kind === "step");
+    expect(steps[0]).toMatchObject({ step: { name: "oldLine", ok: true, output: { to: "pass", why: "new_line" } } });
+  });
+
   it("passes the text on when the node says pass, the gateway fails, or there is no gateway", async () => {
     for (const gateway of [() => Response.json({ to: "pass" }), () => new Response(null, { status: 422 }), () => Promise.reject(new Error("gone"))]) {
       const storage = new MemoryStorage();
