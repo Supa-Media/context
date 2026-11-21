@@ -17,7 +17,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AnswerChoice, AskCard } from "../features/tex/chat/appChatGateway";
 import { EDIT_HINT, TexAskCard, askLead } from "../features/tex/chat/TexAskCard";
-import { bodyHeight } from "../features/tex/chat/TexAskFace";
 
 const ROW = "r1";
 const AT = new Date(2026, 10, 19, 9, 5).getTime();
@@ -229,22 +228,21 @@ describe("the hint under the buttons", () => {
   });
 });
 
-describe("the editable body's height on web", () => {
-  // A textarea with content-box sizing: its scrollHeight is the larger of its height and its words, plus its padding.
-  const PAD = 10;
-  const scrollHeight = (height: number, words: number) => Math.max(height, words) + PAD * 2;
-
-  test("settles: a second measure gives the same height, so the box does not run away", () => {
-    const words = 180;
-    const first = bodyHeight(scrollHeight(60, words), true);
-    const second = bodyHeight(scrollHeight(first, words), true);
-    const third = bodyHeight(scrollHeight(second, words), true);
-    expect(first).toBe(words);
-    expect(second).toBe(first);
-    expect(third).toBe(first);
-  });
-
-  test("on native the measure is the words' own size", () => {
-    expect(bodyHeight(180, false)).toBe(180);
+describe("the editable body's height", () => {
+  test("follows its words through an invisible copy, and renders and types without a render loop", () => {
+    const errors: unknown[] = [];
+    const was = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    try {
+      const t = mount(email({ body: "Hi Kameela,\n\nWe'd like to add 2 more guests.\n\nThanks!" }));
+      expect(t.find(`tex-ask-body-${ROW}-mirror`)?.textContent).toBe("Hi Kameela,\n\nWe'd like to add 2 more guests.\n\nThanks!\n");
+      t.type(`tex-ask-body-${ROW}`, "Hi Kameela,\n\nOne more line.");
+      expect(t.find(`tex-ask-body-${ROW}-mirror`)?.textContent).toBe("Hi Kameela,\n\nOne more line.\n");
+      expect(errors.filter((e) => String(e).includes("Maximum update depth"))).toEqual([]);
+    } finally {
+      console.error = was;
+    }
   });
 });
