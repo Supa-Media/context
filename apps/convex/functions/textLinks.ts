@@ -661,14 +661,26 @@ async function zoneOfUser(ctx: QueryCtx, userId: Id<"users"> | null): Promise<st
   return effectiveTimeZone(undefined, userId === null ? null : await accountTimeZone(ctx, userId));
 }
 
+/** An in-app chat's sender (`packages/tex/worker/appChat.ts`): `app:` and the control plane's user id. */
+const APP_SENDER = /^app:([a-z0-9]{16,64})$/;
+
 /**
  * The workspace a 1:1 text's decision is metered against: the sender's personal workspace, resolved as
  * `applyTextsGrant` resolves it (a phone linked by code, texting not paused). Null when they would get no session.
+ * An in-app chat's sender is `app:<userId>`, with no phone: its user's personal workspace, as `applyAppTextsGrant`
+ * resolves it. Before this every app chat's decide was refused as `no_group`, so two waiting texts were always
+ * joined into one turn by the fallback (2026-11-21: a lost turn's day-old ask answered again beside a new question).
  */
 export const textsDecideWorkspace = internalQuery({
   args: { phone: v.string() },
   returns: v.union(v.id("workspaces"), v.null()),
   handler: async (ctx, args) => {
+    const app = APP_SENDER.exec(args.phone);
+    if (app !== null) {
+      const userId = ctx.db.normalizeId("users", app[1]!);
+      if (userId === null || (await phoneSignInPaused(ctx, userId))) return null;
+      return await personalWorkspaceOf(ctx, userId);
+    }
     if (!isPhoneNumber(args.phone)) return null;
     const link = await ctx.db
       .query("phoneLinks")

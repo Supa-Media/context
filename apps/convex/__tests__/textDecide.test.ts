@@ -223,6 +223,26 @@ describe("the decision", () => {
     expect(rows.map((row) => row.workspaceId)).toEqual([ada.workspaceId]);
   });
 
+  // 2026-11-21: an app chat's sender is `app:<userId>`, never a phone, so every app decide was refused as no_group and
+  // two waiting texts were joined by the fallback: a lost turn's day-old ask was answered again beside a new question.
+  test("an in-app chat's text is metered against its user's personal workspace; another user's id or a bad one is not", async () => {
+    const t = setupTest();
+    const ada = await texter(t, "ada", ADA);
+    const sent = clef(ANSWER);
+    const app = `app:${ada.userId}`;
+    const response = await decide(t, { chat: app, line: undefined, sender: app, style: "direct" });
+    expect(response.json).toMatchObject({ ok: true, act: "answer" });
+    expect(sent).toHaveLength(1);
+    const rows = await t.run((ctx) => ctx.db.query("jevUsage").collect());
+    expect(rows.map((row) => row.workspaceId)).toEqual([ada.workspaceId]);
+    // No such user, a malformed id, and a user with no personal workspace: unavailable, nothing asked.
+    const lone = await createUser(t, "lone@example.invalid");
+    for (const sender of ["app:aaaaaaaaaaaaaaaaaaaaaaaa", "app:NOT-A-USER", `app:${lone}`]) {
+      expect((await decide(t, { chat: sender, line: undefined, sender, style: "direct" })).json).toEqual({ ok: false, reason: "unavailable", cause: "no_group" });
+    }
+    expect(sent).toHaveLength(1);
+  });
+
   test("off and capped: ok false, and nothing is sent", async () => {
     const t = setupTest();
     const { ada } = await boundGroup(t);
