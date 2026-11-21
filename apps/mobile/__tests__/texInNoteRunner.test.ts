@@ -208,26 +208,62 @@ describe("a run", () => {
     expect(done).toEqual(["run_1"]);
   });
 
-  test("a rewrite replaces the highlighted words in place", async () => {
+  test("a rewrite takes the highlighted words out and writes the new ones after the thread, unhighlighted", async () => {
     const { host } = harness([{ type: "edit", replace: "birthday cake" }, { type: "done", runId: "run_r", sources: [] }]);
     const view = mount(NOTE, host);
     startTexRun(view, "k7f2", "say which cake");
     await waitFor(() => !runs(view).has("k7f2"));
     const doc = view.state.doc.toString();
-    expect(doc).toContain("Pick up the <!--c:k7f2-->birthday cake<!--/c:k7f2--> on Saturday.");
+    // The thread stays, as a point where the words were; the new words are the note's own text.
+    expect(doc).toContain("Pick up the <!--c:k7f2--><!--/c:k7f2-->birthday cake on Saturday.");
+    expect(parseComments(doc).threads.map((t) => t.id)).toEqual(["k7f2"]);
+    expect(view.dom.querySelector(".cm-cmt-hl")?.textContent ?? "").not.toContain("birthday");
     expect(doc).not.toContain("Tex suggests");
   });
 
-  test("one undo takes back exactly Tex's edit and leaves its answer in the thread", async () => {
+  test("a rewrite keeps another thread's markers inside the words", async () => {
+    const nested = NOTE.replace("<!--c:k7f2-->cake<!--/c:k7f2-->", "<!--c:k7f2-->the <!--c:b2b2-->cake<!--/c:b2b2--><!--/c:k7f2-->").replace(
+      "```\n",
+      ["", 'b2b2 "cake"', "- 2026-11-19T10:00:30Z @sayo: which one?", "```", ""].join("\n"),
+    );
+    const { host } = harness([{ type: "edit", replace: "a birthday cake" }, { type: "done", runId: "run_n", sources: [] }]);
+    const view = mount(nested, host);
+    startTexRun(view, "k7f2", "say which cake");
+    await waitFor(() => !runs(view).has("k7f2"));
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("<!--c:k7f2--><!--c:b2b2--><!--/c:b2b2--><!--/c:k7f2-->a birthday cake");
+    expect(parseComments(doc).threads.map((t) => t.id).sort()).toEqual(["b2b2", "k7f2"]);
+  });
+
+  test("markers and a comments block in Tex's edit are never written into the note", async () => {
+    const copied = "<!--c:k7f2-->cake<!--/c:k7f2-->, Saturday at 5\n\n```comments\nk7f2 \"cake\"\n- 2026-11-19T10:00:00Z @sayo: who?\n```";
+    const { host } = harness([{ type: "edit", replace: copied }, { type: "done", runId: "run_m", sources: [] }]);
+    const view = mount(NOTE, host);
+    startTexRun(view, "k7f2", "add the time");
+    await waitFor(() => !runs(view).has("k7f2"));
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("<!--c:k7f2-->cake<!--/c:k7f2-->, Saturday at 5");
+    expect(doc.match(/<!--c:k7f2-->/g)).toHaveLength(1);
+    expect(doc.match(/```comments/g)).toHaveLength(1);
+  });
+
+  test("one undo takes back Tex's edit and its line together, and the thread stays whole", async () => {
     const { host } = harness([{ type: "edit", replace: "cake, Saturday at 5" }, { type: "done", runId: "run_u", sources: [] }]);
     const view = mount(NOTE, host, "@dev2", [history()]);
     startTexRun(view, "k7f2", "add the time");
     await waitFor(() => !runs(view).has("k7f2"));
     expect(view.state.doc.toString()).toContain("cake<!--/c:k7f2-->, Saturday at 5 on");
     expect(undo(view)).toBe(true);
-    const doc = view.state.doc.toString();
-    expect(doc).toContain("Pick up the <!--c:k7f2-->cake<!--/c:k7f2--> on Saturday.");
-    expect(doc).toMatch(/- \S+ Tex: Done\./);
+    expect(view.state.doc.toString()).toBe(NOTE);
+  });
+
+  test("an answer alone is one undo step too, and undo never leaves Tex's line without its thread", async () => {
+    const { host } = harness([{ type: "answer", text: "Sayo is." }, { type: "done", runId: "run_ua", sources: [] }]);
+    const view = mount(NOTE, host, "@dev2", [history()]);
+    startTexRun(view, "k7f2", "who?");
+    await waitFor(() => !runs(view).has("k7f2"));
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(NOTE);
   });
 
   test("with an edit but no answer, the thread says Done, and asks nothing", async () => {

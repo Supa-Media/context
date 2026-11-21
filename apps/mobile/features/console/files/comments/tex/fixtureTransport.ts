@@ -7,7 +7,7 @@
  * target and sends its requests to `fakeNoteRunFetch` instead of the network:
  * the real `runNoteRun` and `fetchNoteRuns` read a real NDJSON stream and a
  * real JSON log, so the browser test proves the editor's whole path from the
- * Tex button to Keep, only the far end being invented. Nothing sets it outside
+ * Tex button to the edit in the note, only the far end being invented. Nothing sets it outside
  * that fixture screen, which renders only in a build made with
  * `EXPO_PUBLIC_E2E_FIXTURE=1`.
  */

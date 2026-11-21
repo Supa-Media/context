@@ -2,8 +2,8 @@
  * Tex runs inside a note: start one from a comment thread, stream its steps
  * into the thread, type its edit as it arrives, then write the edit straight
  * into the note and its answer into the thread. The person asked for the
- * edit, so there is nothing to accept: the edit is one step of the editor's
- * history, and ⌘Z takes it back (the answer in the thread stays).
+ * edit, so there is nothing to accept: the edit and Tex's line are one step
+ * of the editor's history, and ⌘Z takes them back.
  *
  * Tex's lines are written by the editor, not the gateway (see contract.ts):
  * the write goes through this editor's live binding, so everyone in the note
@@ -15,7 +15,7 @@
 
 import { peerTexRuns, texRelay } from "./peerRuns";
 import { isolateHistory } from "@codemirror/commands";
-import { ChangeSet, StateEffect, StateField, Transaction, type EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
+import { ChangeSet, StateEffect, StateField, type EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import { EditorView, type DecorationSet } from "@codemirror/view";
 import {
   MARKER_RE,
@@ -271,31 +271,19 @@ async function drive(view: EditorView, host: TexInNoteHost, request: NoteRunRequ
   if (failure === null) {
     const written = tellNote(view.state, thread, answer, replace);
     if (written.error === undefined) {
-      // The edit first, as its own step of the editor's history, so ⌘Z takes
-      // back exactly what Tex wrote. The run ends in the same transaction, so
-      // the typing preview and the written words never show together.
-      const ended = runEnded.of({ thread, keepError: true });
-      if (written.edit !== null) {
-        send(view, {
-          changes: written.edit,
-          effects: ended,
-          userEvent: "input.tex",
-          annotations: isolateHistory.of("full"),
-        });
-      }
-      // Then the answer in the thread, outside the history: undoing the edit
-      // leaves what Tex said, and ⌘Z never has to step over Tex's reply.
-      const said = written.edit === null ? written.said : tellThread(view.state, thread, written.body);
-      if (said !== null && !said.empty) {
-        send(view, {
-          changes: said,
-          effects: written.edit === null ? ended : [],
-          userEvent: "input.comment",
-          annotations: Transaction.addToHistory.of(false),
-        });
-      } else if (written.edit === null) {
-        send(view, { effects: ended });
-      }
+      // One transaction, one isolated step of the editor's history: the edit
+      // and Tex's line in the thread land together, and ⌘Z takes both back.
+      // Split, an undo past Tex's edit reaches the person's own comment first
+      // and takes the thread away from under Tex's line, which is left
+      // orphaned in the note (seen on a preview, 2026-11-21). The run ends in
+      // the same transaction, so the typing preview and the written words
+      // never show together.
+      send(view, {
+        changes: written.changes,
+        effects: runEnded.of({ thread, keepError: true }),
+        userEvent: "input.tex",
+        annotations: isolateHistory.of("full"),
+      });
       finish(view, thread, controller);
       const id = runId;
       if (id !== null) tellHost(() => host.onRunDone?.(id));
@@ -322,25 +310,19 @@ async function typeInto(view: EditorView, thread: string, replace: string, curre
 }
 
 /**
- * What a finished run writes: the edit in the note (null when it changes
- * nothing or the thread's highlight is gone), the line Tex says in the thread,
- * and, when there is no edit, that line as changes against the current text.
+ * What a finished run writes, as one change set: the edit in the note (none
+ * when it changes nothing or the thread's highlight is gone), then the line
+ * Tex says in the thread, computed against the text after the edit.
  */
-function tellNote(
-  state: EditorState,
-  thread: string,
-  answer: string | null,
-  replace: string | null,
-):
-  | { edit: { from: number; to: number; insert: string } | null; body: string; said: ChangeSet | null; error?: undefined }
-  | { error: string } {
+function tellNote(state: EditorState, thread: string, answer: string | null, replace: string | null): { changes: ChangeSet; error?: undefined } | { error: string } {
   try {
     const anchor = state.field(commentsParsed, false)?.anchors.get(thread);
     const found = replace !== null && anchor !== undefined ? texEditFor(state, anchor, replace) : null;
-    const edit = found === null ? null : { from: found.from, to: found.to, insert: found.insert };
-    const body = answer?.trim() || (edit !== null ? DONE_LINE : "");
-    if (edit !== null) return { edit, body, said: null };
-    return { edit, body, said: tellThread(state, thread, body) };
+    const edit = ChangeSet.of(found?.changes ?? [], state.doc.length);
+    const body = answer?.trim() || (found !== null ? DONE_LINE : "");
+    const after = state.update({ changes: edit }).state;
+    const said = tellThread(after, thread, body);
+    return { changes: said === null ? edit : edit.compose(said) };
   } catch {
     return { error: DEFAULT_ERROR };
   }

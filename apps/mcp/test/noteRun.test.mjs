@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { noteRunTools, noteRunCallTool, noteRunQuestion, parseNoteRun, stepLabel, runNoteRun, withInsert } from "../../../packages/tex/gateway/agent/noteRun.js";
+import { noteRunTools, noteRunCallTool, noteRunQuestion, parseNoteRun, lenientNoteRun, stepLabel, runNoteRun, withInsert } from "../../../packages/tex/gateway/agent/noteRun.js";
 
 const J19 = "Study/Judges/Judges 19.md";
 const G19 = "Study/Genesis/Genesis 19.md";
@@ -75,6 +75,26 @@ test("the question says it is Tex in a note's thread, and carries the note, the 
   assert.ok(!q.includes("TAIL_PAST_CAP") && q.includes("a".repeat(12_000)), "the note is capped at 12000 characters");
   assert.match(q, /\{"answer":/, "answers only JSON");
   assert.match(q, /"replace"/);
+});
+
+test("the question carries the note without its comment threads or markers, which an edit would otherwise copy", () => {
+  const noteText = "# Plan\n\nShip <!--c:ab12-->the outline<!--/c:ab12--> soon.\n\n```comments\nab12 \"the outline\"\n- 2026-11-21T05:40:40Z @alpha: @Tex give me a basic outline here\n```\n";
+  const q = noteRunQuestion({ path: "plan.md", noteText, anchor: { text: "the outline", before: "", after: "" }, ask: "give me a basic outline here", history: [], pending: null, chatHistory: "", audience: "only the asker" });
+  assert.match(q, /Ship the outline soon\./);
+  assert.doesNotMatch(q, /```comments/);
+  assert.doesNotMatch(q, /<!--c:/);
+});
+
+test("an answer whose values hold unescaped quotes is still read as its fields, never posted whole", () => {
+  const loose = '{"answer": "Added a basic plot outline after the highlighted words.", "replace": null, "insert": "\\n\\nAct 1\\n- She tests the starter, asking about its "ingredients," and her own thoughts."}';
+  const parsed = parseNoteRun(loose);
+  assert.equal(parsed.answer, "Added a basic plot outline after the highlighted words.");
+  assert.equal(parsed.replace, null);
+  assert.equal(parsed.insert, '\n\nAct 1\n- She tests the starter, asking about its "ingredients," and her own thoughts.');
+  assert.equal(lenientNoteRun('{"replace": "x"}'), null, "no answer key, nothing read");
+  const unclosed = parseNoteRun('```json\n{"answer": "The captain finds the letters."\n```');
+  assert.equal(unclosed.answer, "The captain finds the letters.", "an object never closed is still read");
+  assert.equal(lenientNoteRun('{"answer": 12}'), null, "a value that is not a string or null");
 });
 
 test("a collapsed point asks for the text to insert there, not a change to words", () => {

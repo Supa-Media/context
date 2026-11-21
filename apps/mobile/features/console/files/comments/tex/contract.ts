@@ -10,11 +10,12 @@
  * The gateway half is `POST /tex/note-run` (section D1). It streams what Tex
  * does and returns its answer and, when asked for a change, the whole new
  * text for the highlighted words. It never writes the note and never writes
- * the person's 1:1 chat: **the editor writes Tex's lines** into the note's
- * comments block (`- <at> Tex: …` and `- <at> Tex suggests: "…"`), through the
- * live collaboration binding, so everyone in the note sees the suggestion at
- * once and no server write races the open editor. Keep and Undo are the
- * person's own lines (`kept`, `undid`; `packages/shared/src/comments.cjs`).
+ * the person's 1:1 chat: **the editor writes** the edit into the note and
+ * Tex's answer into the comments block (`- <at> Tex: …`), through the live
+ * collaboration binding, so everyone in the note sees it at once and no
+ * server write races the open editor. The edit is applied directly, one step
+ * that ⌘Z takes back (`runner.ts`); `Tex suggests` lines with Keep and Undo
+ * are only what earlier runs wrote (`packages/shared/src/comments.cjs`).
  *
  * The run uses the asker's own access: Sayo's run reads what Sayo can see.
  */

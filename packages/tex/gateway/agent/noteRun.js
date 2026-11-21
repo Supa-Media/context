@@ -23,6 +23,7 @@ import { READ_DAY, weekTurn } from "./weekHistory.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { carryKey } from "./stretch.js";
 import { noteName } from "./noteConnect.js";
+import comments from "../../../shared/src/comments.cjs";
 
 /** The caps a run's words are held to: the note, the Tex chat, the ask, one thread line, the words beside the highlight. */
 export const RUN_NOTE_CHARS = 12_000;
@@ -90,10 +91,21 @@ function threadOf(history) {
  * What the model is asked: Tex inside a note's thread, the note, the highlight, the thread, the pending suggestion, the
  * asker's Tex chat, who reads the note, and the one shape the answer takes.
  */
+/**
+ * The note as its readers see it: the comment threads and mail at its end, and
+ * the markers around commented words, are conversation about the note, not the
+ * note. Tex's edit is written straight into the note, so a model shown that
+ * block copies it into the edit (found on a preview, 2026-11-21); the thread's
+ * own lines reach the prompt as its history instead.
+ */
+export function noteWords(text) {
+  return comments.stripComments(typeof text === "string" ? text : "").replace(/\n{3,}$/, "\n");
+}
+
 export function noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience }) {
   return [
     "This is Tex inside a note's comment thread, not a text from a person. Nobody is texted: your answer is posted in the thread for the people who read the note.",
-    `The note is ${str(path)}. Its words as they are now (up to ${RUN_NOTE_CHARS} characters):\n\n${clip(noteText, RUN_NOTE_CHARS)}`,
+    `The note is ${str(path)}. Its words as they are now (up to ${RUN_NOTE_CHARS} characters):\n\n${clip(noteWords(noteText), RUN_NOTE_CHARS)}`,
     anchorOf(anchor),
     `What the person asks: "${clip(ask, RUN_ASK_CHARS)}"`,
     `The comment thread so far:\n\n${threadOf(history)}`,
@@ -123,13 +135,23 @@ export function parseNoteRun(answer) {
   const text = str(answer).trim();
   const raw = { answer: text.slice(0, RUN_ANSWER_CHARS), replace: null, insert: null };
   const start = text.indexOf("{"), end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) return raw;
+  if (start === -1) return raw;
+  // An object a model forgot to close (seen on a preview, 2026-11-21) is read leniently to the end of the text.
+  if (end <= start) return checked(lenientNoteRun(text.slice(start).replace(/\s*```\s*$/, "")), raw);
   let value;
   try {
     value = JSON.parse(text.slice(start, end + 1));
   } catch {
-    return raw;
+    // A model writes "quoted" words inside a value without escaping them often
+    // enough that strict JSON alone posts the whole object as the answer (seen
+    // on a preview, 2026-11-21). The three keys are known, so read them leniently.
+    value = lenientNoteRun(text.slice(start, end + 1));
   }
+  return checked(value, raw);
+}
+
+/** The run's fields when `value` holds a usable answer and edits within their caps, else `raw`. */
+function checked(value, raw) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return raw;
   const answerOk = typeof value.answer === "string" && value.answer.trim() !== "" && value.answer.length <= RUN_ANSWER_CHARS;
   const edit = (field) => field === undefined || field === null || (typeof field === "string" && field.length <= RUN_REPLACE_CHARS);
@@ -137,6 +159,37 @@ export function parseNoteRun(answer) {
   const replace = typeof value.replace === "string" ? value.replace : null;
   const insert = replace === null && typeof value.insert === "string" && value.insert.trim() !== "" ? value.insert : null;
   return { answer: value.answer.trim(), replace, insert };
+}
+
+const RUN_FIELDS = ["answer", "replace", "insert"];
+const JSON_ESCAPES = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
+
+/**
+ * `{"answer","replace","insert"}` read without strict JSON: each value runs from
+ * its key to the next known key (or the closing brace), and is a string or
+ * null. Null when there is no answer key or a value is neither.
+ */
+export function lenientNoteRun(body) {
+  const keys = [];
+  for (const name of RUN_FIELDS) {
+    const found = new RegExp(`"${name}"\\s*:\\s*`).exec(body);
+    if (found) keys.push({ name, at: found.index, value: found.index + found[0].length });
+  }
+  if (!keys.some((key) => key.name === "answer")) return null;
+  keys.sort((a, b) => a.at - b.at);
+  const out = {};
+  for (let i = 0; i < keys.length; i += 1) {
+    const close = body.lastIndexOf("}");
+    const stop = i + 1 < keys.length ? keys[i + 1].at : close > keys[i].value ? close : body.length;
+    const piece = body.slice(keys[i].value, stop).trim().replace(/,$/, "").trim();
+    if (piece === "null") out[keys[i].name] = null;
+    else if (piece.length >= 2 && piece.startsWith('"') && piece.endsWith('"')) {
+      out[keys[i].name] = piece.slice(1, -1).replace(/\\(u[0-9a-fA-F]{4}|.)/g, (all, code) =>
+        code.length === 5 ? String.fromCharCode(parseInt(code.slice(1), 16)) : (JSON_ESCAPES[code] ?? all),
+      );
+    } else return null;
+  }
+  return out;
 }
 
 /**

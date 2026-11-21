@@ -180,7 +180,7 @@ test("Tex answers in the thread and writes its edit straight into the note, whic
   await expect(line.locator(".cm-cmt-hl", { hasText: "Added by Tex" })).toHaveCount(0);
   if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.TEX_SHOT ?? "test-results/tex-applied.png" });
 
-  // One undo in the editor takes the edit back; Tex's answer stays in the thread.
+  // One undo in the editor takes the edit back, with Tex's line in the thread.
   await page.locator(".cm-content").focus();
   await page.keyboard.press("ControlOrMeta+z");
   await expect(line).not.toContainText("Added by Tex.");
