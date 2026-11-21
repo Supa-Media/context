@@ -194,6 +194,13 @@ export function workspaceSearch(sql, { rows, objects }) {
 
   const waiting = () => log.pending();
 
+  /** The held rows whose tier `rules` would change, back on the log; a row with the tier it had is left alone. */
+  const retier = (rules, overrides) => {
+    for (const row of all(sql.exec("SELECT h.row_id AS id, h.path AS path, n.visibility AS visibility FROM ws_search_held h JOIN notes n ON n.path = h.path"))) {
+      if (effectiveVisibility(row.path, rules, overrides) !== row.visibility) log.again(row.id);
+    }
+  };
+
   /**
    * Bring the index up to the notes, spending at most `rows` changed rows and `bytes` of note text, and say how many
    * changes are still waiting (`null`: no member rules held, so no note's tier can be told).
@@ -203,11 +210,15 @@ export function workspaceSearch(sql, { rows, objects }) {
     const held = rows.rules("member");
     if (held === null) return null;
     const stamp = JSON.stringify([held.accessVersion ?? null, held.etag ?? null]);
+    const { rules, overrides } = parsedRules(held);
     if (meta("rules") !== stamp) {
-      allRowsDirty();
+      // First rules: every row. A change of rules: only the rows whose tier it moved, so sharing one folder does not
+      // send every note of a large workspace back through the index (and its searches to the search database while
+      // that runs: Cloudflare logs, 2026-11-21, 10,146 rows waiting after one change).
+      if (meta("rules") === null) allRowsDirty();
+      else retier(rules, overrides);
       setMeta("rules", stamp);
     }
-    const { rules, overrides } = parsedRules(held);
     log.keysToRows();
     let spent = 0;
     let done = 0;
