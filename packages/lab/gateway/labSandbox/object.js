@@ -20,6 +20,8 @@
 
 import { texLedger } from "../fromGateway/texStore_ledger.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
+/** Where a test chat's job box calls out (`jobBox.js` `JOB_OUT_PREFIX`). */
+const JOB_OUT_PREFIX = "/job-out/";
 
 export const SANDBOX_TTL_MS = 24 * 3_600_000;
 /**
@@ -424,6 +426,15 @@ export function carryWith(carry) {
   carryHere = typeof carry === "function" ? carry : null;
 }
 
+/**
+ * What answers a job box's calls (`jobBox.js` `serveJobOut`), handed in by the route as `carryWith` is: the control
+ * plane's typecheck reads this file, and the box's file pulls in the gateway's graph.
+ */
+let jobOutHere = null;
+export function jobOutWith(serve) {
+  jobOutHere = typeof serve === "function" ? serve : null;
+}
+
 /** The Durable Object class (`LabSandbox` in `wrangler.toml`). */
 export class LabSandboxObject {
   /** `carry` is what `cross.carry` and `text.run` run; only a test hands its own. */
@@ -435,6 +446,8 @@ export class LabSandboxObject {
   }
 
   async fetch(request) {
+    // A test chat's job box calling out (`jobBox.js`): answered on the fences of the run that started it, any method.
+    if (new URL(request.url).pathname.startsWith(JOB_OUT_PREFIX)) return jobOutHere === null ? Response.json({ error: "gone" }, { status: 410 }) : await jobOutHere(request);
     if (request.method !== "POST") return new Response(null, { status: 405 });
     const op = new URL(request.url).pathname.slice(1);
     let body = {};

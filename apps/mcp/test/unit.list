@@ -747,4 +747,5 @@ test/searchRerank.test.mjs
 test/texDevSearch.test.mjs
 bench/test/searchSuite.test.mjs
 bench/test/searchHard.test.mjs
+test/labSandboxJobBox.test.mjs
 ../../packages/bench/test/beir.test.mjs

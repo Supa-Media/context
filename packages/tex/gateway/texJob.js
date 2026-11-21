@@ -15,6 +15,11 @@
  *
  * A chat starts a job here only while `TEX_JOBS` is "gateway" (`packages/tex/worker/jobPlace.ts`, via `chatEnv`'s `JOBS`), and
  * the Worker hands calls to it through `jobCallForTexts`.
+ *
+ * The same class runs a Lab test chat's jobs (`LabJob`, `packages/lab/gateway/labSandbox/jobBox.js`), given a `fence`:
+ * what the inner object reaches outside itself (its `env`), the graph its passes run on, what its birth keeps, and its
+ * own few routes and alarm. Everything else (its birth, its alarm driving each pass, the job node, the node log) is
+ * this file's, so a job fix proven in the Lab is proven on this code. Without a fence nothing here changes.
  */
 
 import { chatEnv, chatState } from "./texChat.js";
@@ -43,7 +48,7 @@ const RUN_KEY = "jobrun";
  * The `TexJob` class, given the gateway's own handlers (`index.js`), read when a call needs them, as `texChatClass`
  * takes them.
  */
-export function texJobClass({ gateway, texts }) {
+export function texJobClass({ gateway, texts, fence = null }) {
   return class TexJob {
     constructor(state, env) {
       this.state = state;
@@ -53,6 +58,10 @@ export function texJobClass({ gateway, texts }) {
 
     async fetch(request) {
       const url = new URL(request.url);
+      if (fence !== null) {
+        const answered = await fence.serve(request, this.state, this.env);
+        if (answered) return answered;
+      }
       if (url.pathname === JOB_HERE_PATH) {
         if (request.method !== "GET") return new Response(null, { status: 405 });
         return Response.json({ here: (await this.state.storage.get(BORN_KEY)) !== undefined });
@@ -61,9 +70,12 @@ export function texJobClass({ gateway, texts }) {
         if (url.pathname !== JOB_START_PATH || request.method !== "POST") return Response.json({ here: false }, { status: 404 });
         const name = request.headers.get(JOB_NAME_HEADER);
         if (name === null || !JOB_NAME.test(name)) return Response.json({ error: "bad_request" }, { status: 400 });
+        // A fenced job keeps what its fence needs from its birth on; a birth its fence refuses makes nothing.
+        const kept = fence === null ? {} : fence.born(request);
+        if (kept === null) return Response.json({ error: "bad_request" }, { status: 400 });
         await this.state.blockConcurrencyWhile(async () => {
           if ((await this.state.storage.get(BORN_KEY)) === undefined) {
-            await this.state.storage.put({ [BORN_KEY]: Date.now(), [JOB_NAME_KEY]: name });
+            await this.state.storage.put({ ...kept, [BORN_KEY]: Date.now(), [JOB_NAME_KEY]: name });
           }
         });
       }
@@ -101,7 +113,8 @@ export function texJobClass({ gateway, texts }) {
         return { attempt: run?.attempt, sent: run?.sent, running: run !== undefined };
       };
       try {
-        const { output } = await gatewayGraph({ writer }).runNode("job", { step, jobId }, { job: { call, read } }, "TexJob");
+        const fenced = fence === null ? {} : await fence.graph(this.state, this.env);
+        const { output } = await gatewayGraph({ writer, ...fenced }).runNode("job", { step, jobId }, { job: { call, read } }, "TexJob");
         return output.next === "after" ? { kind: "after", ms: output.ms } : { kind: output.next };
       } catch (error) {
         console.log(JSON.stringify({ event: "job_pass_failed", job: jobId, step, name: error?.name ?? "error" }));
@@ -113,6 +126,7 @@ export function texJobClass({ gateway, texts }) {
 
     /** The job's alarm, passed on once the object is born; an unborn object has no job to run. */
     async alarm() {
+      if (fence !== null && (await fence.alarm(this.state))) return;
       if ((await this.state.storage.get(BORN_KEY)) === undefined) return;
       await (await this.job()).alarm();
     }
@@ -123,7 +137,7 @@ export function texJobClass({ gateway, texts }) {
       const id = this.state.id.toString();
       const name = await this.state.storage.get(JOB_NAME_KEY);
       const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
-      const env = await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true });
+      const env = fence === null ? await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true }) : await fence.env(this.state, this.env);
       // Its alarm runs each pass through the job node (`passNext`), never a Worker workflow.
       this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_STEP: (step) => this.passNext(step) });
       return this.inner;
