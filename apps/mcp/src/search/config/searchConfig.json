@@ -88,6 +88,36 @@
       ]
     },
     {
+      "id": "rerankWords",
+      "label": "Rerank word hits",
+      "goal": "Ranks: each workspace’s first word hits (rerankTop, rerankChars of each) read beside the query by the cross-encoder in one call as soon as Words answers, while Meaning still runs, so its time hides behind Meaning’s; each hit keeps its score for Rerank, which then reads it no more. Never adds or drops a note. Off on main until a Lab draft shows it helps.",
+      "on": false,
+      "model": "code",
+      "icon": "star",
+      "file": "apps/mcp/src/search/rerank.js",
+      "x": 480,
+      "y": -270,
+      "settings": { "rerankTop": 8, "rerankChars": 400 },
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "byWords", "type": "object" }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "byWords", "type": "object", "optional": true }
+      ]
+    },
+    {
       "id": "meaning",
       "label": "Meaning",
       "goal": "Nominates: the nearest passages to the query's embedding (embedded once per search) in every workspace at once, at least minScore close. Only notes the person may see; never plumbing or a search probe.",
@@ -354,14 +384,14 @@
     {
       "id": "rerank",
       "label": "Rerank",
-      "goal": "Ranks: each workspace’s first rows (rerankTop, rerankChars of each) read beside the query by a cross-encoder, every workspace in one call; each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps.",
+      "goal": "Ranks: each workspace’s first rows (rerankTop, rerankChars of each) read beside the query by a cross-encoder, every workspace in one call; a row Rerank word hits already scored is not read again, and with readLate 0 the rest keep their places unread (no call here). Each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps.",
       "on": false,
       "model": "code",
       "icon": "star",
       "file": "apps/mcp/src/search/rerank.js",
       "x": 2640,
       "y": 0,
-      "settings": { "rerankTop": 8, "rerankWeight": 1, "rerankChars": 400 },
+      "settings": { "rerankTop": 8, "rerankWeight": 1, "rerankChars": 400, "readLate": 1 },
       "inSchema": [
         { "name": "query", "type": "text" },
         { "name": "prefix", "type": "text" },
@@ -493,6 +523,12 @@
     },
     {
       "from": "words",
+      "to": "rerankWords",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "rerankWords",
       "to": "visible",
       "mode": "wait",
       "when": ["*"]

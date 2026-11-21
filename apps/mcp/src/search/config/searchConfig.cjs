@@ -38,6 +38,7 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
   rerankTop: { min: 2, max: 50, integer: true },
   rerankWeight: { min: 0, max: 5, integer: false },
   rerankChars: { min: 100, max: 2000, integer: true },
+  readLate: { min: 0, max: 1, integer: true },
 });
 
 /** Which settings each step reads: a setting on a step that does not read it would be a knob that does nothing. */
@@ -54,7 +55,8 @@ const SETTINGS_OF = Object.freeze({
   prior: Object.freeze(["logPrior", "inboxPrior"]),
   budget: Object.freeze(["extraNotes", "looseReads"]),
   snippets: Object.freeze(["snippetChars"]),
-  rerank: Object.freeze(["rerankTop", "rerankWeight", "rerankChars"]),
+  rerankWords: Object.freeze(["rerankTop", "rerankChars"]),
+  rerank: Object.freeze(["rerankTop", "rerankWeight", "rerankChars", "readLate"]),
   code: Object.freeze([]),
   answer: Object.freeze([]),
   fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior", "rerankWeight"]),

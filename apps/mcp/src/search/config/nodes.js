@@ -31,7 +31,7 @@ import { searchSettingsOf } from "../settings.js";
 import { folderPrefix } from "../indexable.js";
 import { holdSearchPasses } from "../heldPasses.js";
 import { fuseEverywhere } from "../fuse.js";
-import { rerankAcross } from "../rerank.js";
+import { rerankAcross, rerankWordHits } from "../rerank.js";
 import { DEFAULT_RANKING, FUSE_RANKING, rankingOf } from "../ranking.js";
 import searchConfig from "./searchConfig.cjs";
 
@@ -205,6 +205,21 @@ async function wordsStep(input, io) {
   return carry(input, input.workspaces, { byWords });
 }
 
+/**
+ * `rerankWords` (ranks; off on main): the word hits read beside the query by the cross-encoder as soon as the word
+ * search answers, in one call for every workspace, while `meaning` still runs (`../rerank.js` `rerankWordHits`); each
+ * hit read keeps its score, which `rerank` uses without reading the note again.
+ */
+async function rerankWordsStep(input, io) {
+  const { rerankTop = 8, rerankChars } = io.node?.settings ?? {};
+  if (input.byWords === undefined) return carry(input, input.workspaces, { log: { reranked: { skipped: "words is off" } } });
+  const { byWords, reranked } = await rerankWordHits(aiOf(input, io), input.query, input.byWords, { rerankTop, ...(rerankChars ? { rerankChars } : {}) });
+  return carry(input, input.workspaces, { byWords, log: { reranked } });
+}
+
+/** The gateway's Workers AI binding, for the reranker: the same for every workspace. */
+const aiOf = (input, io) => io.ctx.store?.ai ?? input.workspaces.map((ws) => handlesOf(io, ws.name)?.store?.ai).find(Boolean) ?? null;
+
 /** `meaning` (nominates): the nearest passages to the query's embedding in every workspace at once (`meaningMatches`). */
 async function meaningStep(input, io) {
   const byMeaning = {};
@@ -287,15 +302,14 @@ const snippetsStep = perWorkspace(async (ws, _input, io) => {
  * "Rank across workspaces". Never adds or drops a row; without a model, or when it fails, the rows stand.
  */
 async function rerankStep(input, io) {
-  const { rerankTop = 20, rerankWeight = 1, rerankChars } = io.node?.settings ?? {};
+  const { rerankTop = 20, rerankWeight = 1, rerankChars, readLate = 1 } = io.node?.settings ?? {};
   // Where meaning found nothing there are no rows yet: the word hits become rows in their own order, so the reranker
   // reads them too and, finding nothing to say, leaves that order.
   const rows = input.workspaces.map((ws) => ws.entries ?? (ws.found.hits.length > 1 ? mergeLists(ws.found.hits, [], "key", undefined, DEFAULT_RANKING, true) : null));
-  // One call for every workspace: the binding is the gateway's own Workers AI, the same for each.
-  const first = input.workspaces.map((ws) => handlesOf(io, ws.name)?.store?.ai).find(Boolean);
-  const ai = io.ctx.store?.ai ?? first ?? null;
+  // One call for every workspace (none when `rerankWords` read them all early): the gateway's own Workers AI.
+  const ai = aiOf(input, io);
   // The query itself, in one workspace or several: the reranker reads it beside the note, which no rule changes.
-  const { lists, reranked } = await rerankAcross(ai, input.query, rows, { rerankTop, rerankWeight, rrfK: DEFAULT_RANKING.rrfK, ...(rerankChars ? { rerankChars } : {}) });
+  const { lists, reranked } = await rerankAcross(ai, input.query, rows, { rerankTop, rerankWeight, rrfK: DEFAULT_RANKING.rrfK, readLate, ...(rerankChars ? { rerankChars } : {}) });
   const read = reranked.read > 0;
   return carry(input, input.workspaces.map((ws, i) => ({ ...ws, entries: read && lists[i] !== rows[i] ? lists[i] : ws.entries })), { log: { reranked } });
 }
@@ -369,6 +383,7 @@ export const SEARCH_NODES = Object.freeze({
   prior: priorStep,
   budget: budgetStep,
   snippets: snippetsStep,
+  rerankWords: rerankWordsStep,
   rerank: rerankStep,
   code: codeStep,
   fuse: fuseStep,
