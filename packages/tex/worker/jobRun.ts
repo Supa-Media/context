@@ -8,9 +8,9 @@
  * a phone's from its link, a group's after the chat's members are read again,
  * so somebody who joined a group meanwhile never gets an answer drawn from a
  * workspace they are not in. A pass never schedules itself: it says what
- * comes next (`JobNext`), and its driver waits. With Workflows that is the
- * job's own instance (`jobWorkflow.ts`, Dev2, 2026-10-28); without them (a
- * self-hosted Worker, most tests) it is the object's alarm (`armJobNext`).
+ * comes next (`JobNext`), and its driver waits: the object's own alarm
+ * (`jobDrive.ts`, Dev2, 2026-11-21; the `job-run` workflow before, from
+ * 2026-10-28, `jobWorkflow.ts`).
  *
  * A later text the chat's turn handed to the job (`steerJob`, "never mind,
  * make it yellow not green") is kept here as the person's own words. A turn
@@ -43,6 +43,7 @@ import { limitResetAt } from "./jobPause";
 import { STEER_TIMEOUT_MS } from "./steer";
 import { advisorVerdict, openJobNote } from "./jobNote";
 import { askPartEnd, partEndChoice } from "./jobPartEnd";
+import { driveJob, OVERLAP_WAIT_MS, startDrive, type JobStep } from "./jobDrive";
 import { carryPatch, freshness, mergeSaved, partResume, PROGRESS_KEY, readOutside, savedCall, withEnd, type JobSaved, type PartCause } from "./jobProgress";
 
 export type JobDeps = {
@@ -119,37 +120,33 @@ type Outcome =
 
 /** What a job's driver does after a pass: nothing more, the next pass now, or the next pass after `ms`. */
 export type JobNext = { kind: "done" } | { kind: "now" } | { kind: "after"; ms: number; overlap?: true };
-/** How long the workflow waits when it asked for a pass while one was still running (`overlap`). */
-export const OVERLAP_WAIT_MS = 30_000;
+export { OVERLAP_WAIT_MS };
 
 /**
- * Store a job to run. `POST /job-start`, from the chat's inbox. `start` starts
- * its workflow, which runs every pass; without one, the object's alarm does.
+ * Store a job to run. `POST /job-start`, from the chat's inbox. Its own alarm runs every pass (`jobDrive.ts`); a
+ * start retried for a job already stored only makes sure that alarm is set.
  */
-export async function acceptJob(storage: InboxStorage, run: JobRun, now: number, start?: () => Promise<void>): Promise<void> {
-  if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return start === undefined ? undefined : await start(); // a lost start, retried (`jobWatch.ts`)
-  await storage.put<Stored>(RUN_KEY, { ...run, sent: 0 });
-  if (start !== undefined) return await start();
-  await storage.setAlarm(now);
+export async function acceptJob(storage: InboxStorage, run: JobRun, now: number): Promise<void> {
+  if ((await storage.get<JobRun>(RUN_KEY)) === undefined) await storage.put<Stored>(RUN_KEY, { ...run, sent: 0 });
+  await startDrive(storage, (await storage.get<JobRun>(RUN_KEY))?.resumes ?? 0, now);
 }
 
-/** The alarm as a job's driver, when no workflow runs it: the next pass when `next` says. */
-export async function armJobNext(storage: InboxStorage, next: JobNext, now: number): Promise<void> {
-  if (next.kind === "now") await storage.setAlarm(now);
-  if (next.kind === "after") await storage.setAlarm(now + next.ms);
+/** A job's pass and its "couldn't finish" line, run in this object: the alarm's steps where no job node wraps them. */
+export function jobSteps(storage: InboxStorage, deps: () => JobDeps): JobStep {
+  return async (step) => (step === "pass" ? await runJob(storage, deps()) : await failJob(storage, deps()));
 }
 
 /**
- * The object's alarm. Without a workflow it runs each pass and arms the next. With one, its only alarm is the
- * one a job's end sets to drop the kept run (`finish`), and a run stored then is a resumed one its own instance
- * passes, so the alarm leaves it alone.
+ * The object's alarm, for a job: its due pass (`driveJob`), or with no job stored, the kept run of one that ended
+ * dropped once nobody can pick it up any more (`finish` sets that alarm). A job its workflow started before
+ * 2026-11-21 has no drive, and the alarm leaves it to that workflow.
  */
-export async function jobAlarm(storage: InboxStorage, deps: JobDeps, workflow: boolean): Promise<void> {
-  if (workflow && (await storage.get<Stored>(RUN_KEY)) !== undefined) return;
-  await armJobNext(storage, await runJob(storage, deps), deps.now());
+export async function jobAlarm(storage: InboxStorage, deps: JobDeps, step: JobStep = jobSteps(storage, () => deps)): Promise<void> {
+  if ((await storage.get<Stored>(RUN_KEY)) === undefined) await runJob(storage, deps);
+  await driveJob(storage, step, deps.now);
 }
 
-/** The workflow gave up on the job's pass: it ends, and the chat is told it couldn't finish. */
+/** Every try of the job's pass failed: it ends, and the chat is told it couldn't finish. */
 export async function failJob(storage: InboxStorage, deps: JobDeps): Promise<JobNext> {
   const run = await storage.get<Stored>(RUN_KEY);
   if (run === undefined) return { kind: "done" };
@@ -161,16 +158,11 @@ export async function failJob(storage: InboxStorage, deps: JobDeps): Promise<Job
  * `POST /job-steer` with `resume`: pick this object's ended job back up where
  * it stopped. The same ask, brief and finish line; its last answer and the
  * advisor's advice are what the first resumed part starts on, and its limit
- * starts again. `start` starts a new workflow for it (`jobWorkflow.ts`), named
- * by how many times it was resumed. False when nothing ended here in the last
+ * starts again. Its alarm drives it again from its first pass (`startDrive`),
+ * counted by how many times it was resumed. False when nothing ended here in the last
  * `JOB_SHOWN_MS`, or a run is still going.
  */
-export async function resumeJob(
-  storage: InboxStorage,
-  now: number,
-  start?: (id: string, resumes: number) => Promise<void>,
-  steer?: JobSteer,
-): Promise<boolean> {
+export async function resumeJob(storage: InboxStorage, now: number, steer?: JobSteer): Promise<boolean> {
   if ((await storage.get<JobRun>(RUN_KEY)) !== undefined) return false;
   const ended = await storage.get<Ended>(ENDED_KEY);
   if (ended === undefined || now > keptUntil(ended)) return false;
@@ -191,8 +183,7 @@ export async function resumeJob(
   await storage.put<Stored>(RUN_KEY, { ...(moved ? run : restarted), ...(current ? { machine: current } : {}), attempt: 1, tries: 0, startedAt: now, resumes, sent: 0, ...(ended.run.draft ? { unfinished: true as const } : {}) });
   await storage.delete(ENDED_KEY);
   log("resumed", ended.run.id);
-  if (start !== undefined) await start(ended.run.id, resumes);
-  else await storage.setAlarm(now);
+  await startDrive(storage, resumes, now);
   return true;
 }
 
@@ -248,9 +239,9 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     if (ended !== undefined && deps.now() > keptUntil(ended)) await storage.delete(ENDED_KEY);
     return { kind: "done" };
   }
-  // A pass is already running in this object: its workflow step was retried
-  // while it ran (Dev2, 2026-11-16, two passes typing into one sign-in). No
-  // second turn starts; the workflow asks again later, by when the first has
+  // A pass is already running in this object: its driver asked again while
+  // it ran (Dev2, 2026-11-16, two passes typing into one sign-in). No
+  // second turn starts; the driver asks again later, by when the first has
   // finished and stored what comes next. Before the lease below, so the
   // running pass keeps it. A pass in an object that was reset is not in
   // `live`; the lease (`PASS_KEY`) still silences the older one.

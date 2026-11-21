@@ -98,7 +98,7 @@ describe("mail a job sends to Tex or its advisor", () => {
     const storage = new MemoryStorage();
     await storage.put(RUN_KEY, run({ note: NOTE }));
     const { deps, reports, calls } = gateway();
-    const response = await jobRoute("/job-mail", mail("tex", "Open github.com/login/device and enter ABCD-1234."), storage, undefined, () => deps);
+    const response = await jobRoute("/job-mail", mail("tex", "Open github.com/login/device and enter ABCD-1234."), storage, () => deps);
     expect(await response?.json()).toEqual({ taken: true });
     expect(reports).toEqual([
       expect.objectContaining({ id: "job-1234-abcd", state: "running", texts: ["Open github.com/login/device and enter ABCD-1234."], asked: { from: PHONE, text: "sign dev2 in to github" } }),
@@ -111,7 +111,7 @@ describe("mail a job sends to Tex or its advisor", () => {
     await storage.put(RUN_KEY, run({ note: NOTE }));
     const { deps, calls } = gateway();
     for (let i = 0; i <= MAX_ADVISOR_ASKS; i += 1) {
-      const response = await jobRoute("/job-mail", mail("advisor", `stuck ${i}`, "sign-in", new Date(Date.UTC(2026, 10, 5, 14, i)).toISOString()), storage, undefined, () => deps);
+      const response = await jobRoute("/job-mail", mail("advisor", `stuck ${i}`, "sign-in", new Date(Date.UTC(2026, 10, 5, 14, i)).toISOString()), storage, () => deps);
       expect(await response?.json()).toEqual({ taken: true });
     }
     const advised = calls.filter((call) => call.path === "/agent/job/advise").map((call) => call.body);
@@ -126,7 +126,7 @@ describe("mail a job sends to Tex or its advisor", () => {
     await storage.put(RUN_KEY, run({ note: NOTE }));
     const { deps, reports } = gateway();
     for (const request of [mail("tex", "text them this", "research"), mail("tex", "text them this", "sign-in", undefined, "mb_00000009")]) {
-      const response = await jobRoute("/job-mail", request, storage, undefined, () => deps);
+      const response = await jobRoute("/job-mail", request, storage, () => deps);
       expect(await response?.json()).toEqual({ taken: false });
     }
     expect(reports).toEqual([]);
@@ -136,7 +136,7 @@ describe("mail a job sends to Tex or its advisor", () => {
     const storage = new MemoryStorage();
     await storage.put(RUN_KEY, run({ note: NOTE }));
     const { deps, calls } = gateway();
-    const response = await jobRoute("/job-mail", mail("advisor", "do my work", "research"), storage, undefined, () => deps);
+    const response = await jobRoute("/job-mail", mail("advisor", "do my work", "research"), storage, () => deps);
     expect(await response?.json()).toEqual({ taken: false });
     expect(calls).toHaveLength(0);
   });

@@ -1,4 +1,7 @@
 /**
+ * RETIRED 2026-11-21: a failed group turn is tried again by its chat's own alarm now (`groupRetry.ts`). Kept only so
+ * instances started before then finish; nothing starts one. Delete with its binding once none is left.
+ *
  * The Cloudflare Workflow that sees one group turn through (`groupTurnRun.ts`
  * says what stays in the chat's object and why). One instance per turn, named
  * by the turn's id, so starting the same turn twice is refused rather than

@@ -1,5 +1,8 @@
 # A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)
 
+> Superseded 2026-11-21 for the retrying: a failed turn is tried again by its chat's own alarm, with the same
+> tries and waits ([self-waking-boxes](./self-waking-boxes.md)). The rest of this page still holds.
+
 Decided by Dev2, 2026-10-27, after group texts went unanswered and the turn
 that failed was found only by tailing logs.
 

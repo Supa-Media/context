@@ -1,5 +1,7 @@
 # The texting assistant — several things at once
 
+> Since 2026-11-21 a job's own alarm runs its passes, not a Workflow ([self-waking-boxes](./self-waking-boxes.md)); where this page says "workflow", read the job's alarm, with the same retries and waits.
+
 _Part of [the texting assistant](../texting-assistant.md), beside
 [delegation](./delegation.md) and [progress](./progress.md)._
 

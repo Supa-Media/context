@@ -882,6 +882,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex reads one event log and decides when to answer (Dev2, 2026-10-26)](./texting-assistant/event-log.md)
 - [A group turn is seen through by a Cloudflare Workflow (Dev2, 2026-10-27)](./texting-assistant/group-turn-workflow.md)
 - [A busy group is answered fast, and only with a reply that still fits (2026-10-30)](./texting-assistant/group-turn-workflow.md#a-busy-group-is-answered-fast-and-only-with-a-reply-that-still-fits-2026-10-30)
+- [Jobs and group retries wake themselves (Dev2, 2026-11-21)](./texting-assistant/self-waking-boxes.md)
 - [How Tex talks: settings per person and per group (Dev2, 2026-10-28)](./texting-assistant/tex-settings.md)
 - [How Tex talks: custom instructions and two switches (Dev2, 2026-11-01)](./texting-assistant/custom-instructions.md)
 - [Tex settings retired: people tell Tex in words (Dev2, 2026-11-11)](./texting-assistant/retire-settings.md)
