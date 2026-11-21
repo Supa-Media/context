@@ -1,22 +1,26 @@
 /**
  * Tex runs inside a note: start one from a comment thread, stream its steps
- * into the thread, write its answer and suggested edit into the comments
- * block, and draw the pending edit in the note (old words struck, new words
- * inserted) until somebody presses Keep or Undo.
+ * into the thread, type its edit as it arrives, then write the edit straight
+ * into the note and its answer into the thread. The person asked for the
+ * edit, so there is nothing to accept: the edit is one step of the editor's
+ * history, and ⌘Z takes it back (the answer in the thread stays).
  *
  * Tex's lines are written by the editor, not the gateway (see contract.ts):
  * the write goes through this editor's live binding, so everyone in the note
- * sees the suggestion at once and no server write races the open editor.
+ * sees the edit at once and no server write races the open editor.
+ *
+ * Keep and Undo remain only for suggestions written before edits applied
+ * directly; new runs never write one.
  */
 
 import { peerTexRuns, texRelay } from "./peerRuns";
-import { ChangeSet, StateEffect, StateField, type EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
+import { ChangeSet, StateEffect, StateField, Transaction, type EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import { EditorView, type DecorationSet } from "@codemirror/view";
 import {
   MARKER_RE,
   stripComments,
   appendEvent,
-  applyChanges,
   keepSuggestion,
   type CommentChange,
   type CommentEvent,
@@ -25,6 +29,7 @@ import {
 import { commentHost, commentSent, commentsParsed } from "../extension";
 import { TEX_AUTHOR, texInNoteHost, type NoteRunEvent, type NoteRunRequest, type TexInNoteHost } from "./contract";
 import { pendingDecorations } from "./pending";
+import { texEditFor } from "./edit";
 
 export { texInNoteStyles } from "./pending";
 
@@ -49,7 +54,7 @@ export interface TexRunLive {
 type RunMap = ReadonlyMap<string, TexRunLive>;
 
 const DEFAULT_ERROR = "Tex couldn't finish this. Try again.";
-const DONE_LINE = "Done. Keep or undo?";
+const DONE_LINE = "Done.";
 const CANT_COMMENT = "This note can't take comments here.";
 const START_LABEL = "Reading";
 /** Context either side of the words, in characters. */
@@ -266,9 +271,31 @@ async function drive(view: EditorView, host: TexInNoteHost, request: NoteRunRequ
   if (failure === null) {
     const written = tellNote(view.state, thread, answer, replace);
     if (written.error === undefined) {
-      // One transaction: Tex's lines and the run's end land together, so the
-      // pending edit appears in the note the moment the thread says it.
-      send(view, { changes: written.changes, effects: runEnded.of({ thread, keepError: true }), userEvent: "input.comment" });
+      // The edit first, as its own step of the editor's history, so ⌘Z takes
+      // back exactly what Tex wrote. The run ends in the same transaction, so
+      // the typing preview and the written words never show together.
+      const ended = runEnded.of({ thread, keepError: true });
+      if (written.edit !== null) {
+        send(view, {
+          changes: written.edit,
+          effects: ended,
+          userEvent: "input.tex",
+          annotations: isolateHistory.of("full"),
+        });
+      }
+      // Then the answer in the thread, outside the history: undoing the edit
+      // leaves what Tex said, and ⌘Z never has to step over Tex's reply.
+      const said = written.edit === null ? written.said : tellThread(view.state, thread, written.body);
+      if (said !== null && !said.empty) {
+        send(view, {
+          changes: said,
+          effects: written.edit === null ? ended : [],
+          userEvent: "input.comment",
+          annotations: Transaction.addToHistory.of(false),
+        });
+      } else if (written.edit === null) {
+        send(view, { effects: ended });
+      }
       finish(view, thread, controller);
       const id = runId;
       if (id !== null) tellHost(() => host.onRunDone?.(id));
@@ -295,40 +322,39 @@ async function typeInto(view: EditorView, thread: string, replace: string, curre
 }
 
 /**
- * The one transaction that writes Tex's lines for a finished run: its answer
- * as a comment, and, when it asked for a change that differs from the words
- * now there, the new words as a suggestion. The second is computed against
- * the text after the first, then both are composed into one change set.
+ * What a finished run writes: the edit in the note (null when it changes
+ * nothing or the thread's highlight is gone), the line Tex says in the thread,
+ * and, when there is no edit, that line as changes against the current text.
  */
 function tellNote(
   state: EditorState,
   thread: string,
   answer: string | null,
   replace: string | null,
-): { changes: ChangeSet; error?: undefined } | { error: string } {
+):
+  | { edit: { from: number; to: number; insert: string } | null; body: string; said: ChangeSet | null; error?: undefined }
+  | { error: string } {
   try {
-    const text = state.doc.toString();
-    const length = state.doc.length;
-    const body = answer?.trim() || (replace !== null ? DONE_LINE : "");
-    let first: CommentChange[] = [];
-    if (body !== "") {
-      const said = appendEvent(text, { thread, kind: "comment", author: TEX_AUTHOR, body });
-      if (said.error !== undefined) return { error: said.error };
-      first = said.changes;
-    }
     const anchor = state.field(commentsParsed, false)?.anchors.get(thread);
-    let second: CommentChange[] = [];
-    if (replace !== null && anchor !== undefined && replace !== visibleWords(state.sliceDoc(anchor.from, anchor.to))) {
-      const suggested = appendEvent(applyChanges(text, first), { thread, kind: "suggestion", author: TEX_AUTHOR, body: replace });
-      if (suggested.error !== undefined) return { error: suggested.error };
-      second = suggested.changes;
-    }
-    let changes = ChangeSet.empty(length);
-    if (first.length > 0) changes = ChangeSet.of(first, length);
-    if (second.length > 0) changes = changes.compose(ChangeSet.of(second, changes.newLength));
-    return { changes };
+    const found = replace !== null && anchor !== undefined ? texEditFor(state, anchor, replace) : null;
+    const edit = found === null ? null : { from: found.from, to: found.to, insert: found.insert };
+    const body = answer?.trim() || (edit !== null ? DONE_LINE : "");
+    if (edit !== null) return { edit, body, said: null };
+    return { edit, body, said: tellThread(state, thread, body) };
   } catch {
     return { error: DEFAULT_ERROR };
+  }
+}
+
+/** Tex's line in the thread as changes against `state`, or null when there is nothing to say or it can't be written. */
+function tellThread(state: EditorState, thread: string, body: string): ChangeSet | null {
+  if (body === "") return null;
+  try {
+    const said = appendEvent(state.doc.toString(), { thread, kind: "comment", author: TEX_AUTHOR, body });
+    if (said.error !== undefined) return null;
+    return ChangeSet.of([...said.changes].sort((a, b) => a.from - b.from), state.doc.length);
+  } catch {
+    return null;
   }
 }
 
