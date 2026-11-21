@@ -150,8 +150,6 @@ function BodyBox({ body }: { body: FaceBody }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const fieldFont = useFieldFont(pointerType.ui);
-  // The box grows to its words, so the whole email shows (the mock); a fixed height clipped it.
-  const [height, setHeight] = useState<number | null>(null);
 
   if (body.onChangeText === undefined) {
     return (
@@ -165,6 +163,12 @@ function BodyBox({ body }: { body: FaceBody }) {
 
   return (
     <Pressable onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} style={styles.bodyWrap}>
+      {/* The box grows to its words, so the whole email shows (the mock). An invisible copy of the words, in the same
+          box and type, gives the box its height, and the field fills it: nothing is measured or kept, so nothing can
+          loop. The trailing line leaves room for the line being typed. */}
+      <Text style={[styles.bodyBox, styles.bodyText, styles.bodyInput, fieldFont, styles.bodyMirror]} aria-hidden testID={`${body.testID}-mirror`}>
+        {`${body.value}\n`}
+      </Text>
       <TextInput
         value={body.value}
         onChangeText={body.onChangeText}
@@ -172,11 +176,10 @@ function BodyBox({ body }: { body: FaceBody }) {
         onBlur={() => setFocused(false)}
         multiline
         scrollEnabled={false}
-        onContentSizeChange={(event) => setHeight(Math.ceil(event.nativeEvent.contentSize.height))}
         textAlignVertical="top"
         accessibilityLabel={body.label}
         testID={body.testID}
-        style={[styles.bodyBox, styles.bodyText, styles.bodyInput, fieldFont, height !== null && { height: Math.max(MIN_BODY, height) }, focused && { backgroundColor: colors.ground }, NO_OUTLINE]}
+        style={[styles.bodyBox, styles.bodyText, styles.bodyInput, styles.bodyField, fieldFont, focused && { backgroundColor: colors.ground }, NO_OUTLINE]}
       />
       <View
         pointerEvents="none"
@@ -191,8 +194,9 @@ function BodyBox({ body }: { body: FaceBody }) {
 
 /** The body box's padding. */
 const BODY_PAD = 10;
-/** The least height of an editable body; past it the box grows to its words (its content size includes the padding). */
+/** The least height of an editable body; past it the box grows to its words. */
 const MIN_BODY = 60;
+
 
 /** One button of a card's row: `primary` is the accent fill, `ghost` plain muted words with no line and no fill (the mock). */
 export function AskButton({
@@ -310,6 +314,8 @@ const makeStyles = (colors: Colors) =>
     },
     bodyText: { fontSize: pointerType.ui, lineHeight: 19, color: colors.text },
     bodyInput: { marginVertical: 0, marginHorizontal: 0, minHeight: MIN_BODY },
+    bodyMirror: { opacity: 0 },
+    bodyField: { ...StyleSheet.absoluteFillObject, minHeight: 0 },
     ring: { ...StyleSheet.absoluteFillObject, borderRadius: 9 },
     actions: {
       flexDirection: "row",

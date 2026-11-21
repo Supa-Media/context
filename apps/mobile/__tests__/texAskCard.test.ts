@@ -227,3 +227,22 @@ describe("the hint under the buttons", () => {
     expect(hint).toBeDefined();
   });
 });
+
+describe("the editable body's height", () => {
+  test("follows its words through an invisible copy, and renders and types without a render loop", () => {
+    const errors: unknown[] = [];
+    const was = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    try {
+      const t = mount(email({ body: "Hi Kameela,\n\nWe'd like to add 2 more guests.\n\nThanks!" }));
+      expect(t.find(`tex-ask-body-${ROW}-mirror`)?.textContent).toBe("Hi Kameela,\n\nWe'd like to add 2 more guests.\n\nThanks!\n");
+      t.type(`tex-ask-body-${ROW}`, "Hi Kameela,\n\nOne more line.");
+      expect(t.find(`tex-ask-body-${ROW}-mirror`)?.textContent).toBe("Hi Kameela,\n\nOne more line.\n");
+      expect(errors.filter((e) => String(e).includes("Maximum update depth"))).toEqual([]);
+    } finally {
+      console.error = was;
+    }
+  });
+});
