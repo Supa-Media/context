@@ -11,9 +11,9 @@
  *   scoreOf leaving `r` outside the path prior             "an archived copy … still ranks below it" fails
  *   fuseEverywhere ignoring rerankScore                    "across workspaces, the reranker's scores rank together" fails
  */
-import test from "node:test";
+import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { RERANK_MODEL, rerankEntries, rerankScores, rerankText } from "../src/search/rerank.js";
+import { RERANK_MODEL, forgetRerankScores, rerankAcross, rerankEntries, rerankScores, rerankText } from "../src/search/rerank.js";
 import { lowerByPath, mergeLists, scoreOf } from "../src/search/stages.js";
 import { fuseEverywhere } from "../src/search/fuse.js";
 import { FUSE_RANKING } from "../src/search/ranking.js";
@@ -29,6 +29,7 @@ const aiScoring = (scores) => ({
   },
 });
 const settings = { rerankTop: 3, rerankWeight: 1, rrfK: 60 };
+beforeEach(() => forgetRerankScores());
 
 test("the reranker's order moves the rows it read, and the rest keep their place below", async () => {
   const ai = aiScoring([0.1, 0.2, 0.9]);
@@ -69,12 +70,12 @@ test("an answer out of shape is not used", async () => {
   assert.equal(await rerankScores(ai, "q", ["a", "b"]), null);
 });
 
-test("it reads the title and snippets, capped, and is off on main with its two settings", () => {
+test("it reads the title and snippets, capped, and is off on main with its three settings", () => {
   assert.equal(rerankText({ key: "x.md", title: "T", snippets: ["s"] }), "T\ns");
   assert.ok(rerankText({ key: "x.md", snippets: ["y".repeat(5000)] }).length <= 2000);
   const node = searchConfig.SEARCH_CONFIG.nodes.find((n) => n.id === "rerank");
   assert.equal(node.on, false);
-  assert.deepEqual(Object.keys(node.settings).sort(), ["rerankTop", "rerankWeight"]);
+  assert.deepEqual(Object.keys(node.settings).sort(), ["rerankChars", "rerankTop", "rerankWeight"]);
   const ids = searchConfig.SEARCH_CONFIG.nodes.map((n) => n.id);
   assert.equal(ids.indexOf("rerank"), ids.indexOf("snippets") + 1, "after the step where every row has text");
 });
@@ -95,4 +96,27 @@ test("across workspaces, the reranker's scores rank together, and without them t
   const scored = (list, rerankScore) => list.map((h) => ({ ...h, rerankScore }));
   assert.deepEqual(fuseEverywhere([scored(a, 0.1), scored(b, 0.9)]).map((h) => h.key), ["@b/b.md", "a.md"]);
   assert.deepEqual(fuseEverywhere([scored(a, 0.1), scored(b, 0.9)], 12, { ranking: { ...FUSE_RANKING, rerankWeight: 0 } }).map((h) => h.key), ["a.md", "@b/b.md"]);
+});
+
+test("every workspace's rows go in one call, each read as at most rerankChars, and each list ranks by its own places", async () => {
+  const ai = aiScoring([0.1, 0.9, 0.8, 0.2]);
+  const a = rowsOf([{ key: "a1.md", title: "A1", snippets: ["x".repeat(900)] }, { key: "a2.md", title: "A2" }]);
+  const b = rowsOf([{ key: "@b/b1.md", title: "B1" }, { key: "@b/b2.md", title: "B2" }]);
+  const { lists, reranked } = await rerankAcross(ai, "q", [a, null, b], { ...settings, rerankWeight: 2, rerankChars: 120 });
+  assert.equal(ai.calls.length, 1, "one call for every workspace");
+  assert.equal(ai.calls[0].input.contexts.length, 4);
+  assert.ok(ai.calls[0].input.contexts.every((c) => c.text.length <= 120));
+  assert.deepEqual(lists[0].map((e) => e.key), ["a2.md", "a1.md"]);
+  assert.equal(lists[1], null);
+  assert.deepEqual(lists[2].map((e) => e.key), ["@b/b1.md", "@b/b2.md"]);
+  assert.deepEqual({ calls: reranked.calls, read: reranked.read, sent: reranked.sent }, { calls: 1, read: 4, sent: 4 });
+});
+
+test("a query and text already scored in this isolate is not sent again", async () => {
+  const ai = aiScoring([0.3, 0.7, 0.5]);
+  await rerankEntries(ai, "find c", rowsOf(hits), settings);
+  const again = await rerankEntries(ai, "find c", rowsOf(hits), settings);
+  assert.equal(ai.calls.length, 1);
+  assert.equal(again.reranked.calls, 0);
+  assert.deepEqual(again.entries.map((e) => e.rerankScore).slice(0, 3).sort(), [0.3, 0.5, 0.7]);
 });

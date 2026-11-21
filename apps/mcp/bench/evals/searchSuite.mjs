@@ -29,6 +29,7 @@ import { hitsOf, rankOf } from "../search.mjs";
 import { prepareRun } from "../warm.mjs";
 import { createWorld } from "../world.mjs";
 import { createObjectWorld } from "./objectWorld.mjs";
+import { forgetRerankScores } from "../../src/search/rerank.js";
 
 /** A world needs a texting setup note; no word of it reaches a search. */
 const PLAIN_TEXTING_SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
@@ -210,6 +211,9 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
         world.close();
       }
       if (objectWorld) {
+        // Each path pays for its own reranker call: the scores the database path's search left in this process
+        // would make the object path's look free (`src/search/rerank.js`).
+        forgetRerankScores();
         const started = realNow();
         const { value: answer, traces } = await catchingTraces(() => objectWorld.search(c.as, c.query, c.in ?? null));
         const hits = answer.ok ? hitsOf(answer.text, home) : [];

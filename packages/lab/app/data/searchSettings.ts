@@ -16,6 +16,7 @@ export const SETTING_TEXT: Readonly<Record<string, { label: string; tip: string 
   snippetPhraseBonus: { label: "Phrase-in-text bonus", tip: "Extra score when the query's words appear together only in the note's text, as a note quoting the question does." },
   inboxPrior: { label: "Inbox weight", tip: "How much weight a note still in the Inbox (not filed) gets against a filed one." },
   rerankTop: { label: "Notes reranked", tip: "How many of each workspace's first notes the reranker reads beside the query." },
+  rerankChars: { label: "Rerank text length", tip: "How many characters of each note the reranker reads: fewer is faster." },
   rerankWeight: { label: "Rerank weight", tip: "How much the reranker's order counts: 1 counts as much as the word search's." },
   loosePenalty: { label: "Loose-hit penalty", tip: "Pulls down a hit that only matches loosely." },
   boostFactor: { label: "Named-workspace boost", tip: "Multiplies the rank of a workspace the search names." },

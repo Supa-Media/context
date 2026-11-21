@@ -31,7 +31,7 @@ import { searchSettingsOf } from "../settings.js";
 import { folderPrefix } from "../indexable.js";
 import { holdSearchPasses } from "../heldPasses.js";
 import { fuseEverywhere } from "../fuse.js";
-import { rerankEntries } from "../rerank.js";
+import { rerankAcross } from "../rerank.js";
 import { DEFAULT_RANKING, FUSE_RANKING, rankingOf } from "../ranking.js";
 import searchConfig from "./searchConfig.cjs";
 
@@ -286,16 +286,19 @@ const snippetsStep = perWorkspace(async (ws, _input, io) => {
  * on the Workers AI binding its store carries; each read row adds a part for its place and keeps the model's score for
  * "Rank across workspaces". Never adds or drops a row; without a model, or when it fails, the rows stand.
  */
-const rerankStep = perWorkspace(async (ws, input, io) => {
-  const { store } = handlesOf(io, ws.name);
-  const { rerankTop = 20, rerankWeight = 1 } = io.node?.settings ?? {};
+async function rerankStep(input, io) {
+  const { rerankTop = 20, rerankWeight = 1, rerankChars } = io.node?.settings ?? {};
   // Where meaning found nothing there are no rows yet: the word hits become rows in their own order, so the reranker
   // reads them too and, finding nothing to say, leaves that order.
-  const rows = ws.entries ?? (ws.found.hits.length > 1 ? mergeLists(ws.found.hits, [], "key", undefined, DEFAULT_RANKING, true) : null);
+  const rows = input.workspaces.map((ws) => ws.entries ?? (ws.found.hits.length > 1 ? mergeLists(ws.found.hits, [], "key", undefined, DEFAULT_RANKING, true) : null));
+  // One call for every workspace: the binding is the gateway's own Workers AI, the same for each.
+  const first = input.workspaces.map((ws) => handlesOf(io, ws.name)?.store?.ai).find(Boolean);
+  const ai = io.ctx.store?.ai ?? first ?? null;
   // The query itself, in one workspace or several: the reranker reads it beside the note, which no rule changes.
-  const { entries, reranked } = await rerankEntries(store?.ai ?? io.ctx.store?.ai ?? null, input.query, rows, { rerankTop, rerankWeight, rrfK: DEFAULT_RANKING.rrfK });
-  return { ...ws, entries: reranked.read ? entries : ws.entries };
-});
+  const { lists, reranked } = await rerankAcross(ai, input.query, rows, { rerankTop, rerankWeight, rrfK: DEFAULT_RANKING.rrfK, ...(rerankChars ? { rerankChars } : {}) });
+  const read = reranked.read > 0;
+  return carry(input, input.workspaces.map((ws, i) => ({ ...ws, entries: read && lists[i] !== rows[i] ? lists[i] : ws.entries })), { reranked });
+}
 
 /**
  * `code` (filters): a code passage found only by meaning is not offered for a prose question, and a note that could not
