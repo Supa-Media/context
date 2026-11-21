@@ -67,3 +67,21 @@ memory, not Tex. Dropping the caps lets an agent tune by retrying.
 another repository or another audience gets in; `testSet.test.ts` if the caps
 or the verdict change; `apps/mcp/test/texTestSet.test.mjs` if an AI client's
 token or a non-editor reaches the conversations, or tex_dev sees a word.
+
+## The Search Test is a second set in the same service
+
+Decided by the owner, 2026-11-21 (Dev2's gate for search): the Search Test
+mirrors the Tex Test Set exactly, in the same `TestSet` Durable Object
+(`infra/tex-eval`, its own tables `search_cases` and `search_runs`, no new
+class or migration). Its cases hold a query, the note address or addresses
+that must come back first (`expect`, 1 to 5), and the notes they see; people
+write them in the Lab, and main's `search-test-set.yml` and
+`search-test-set-seed.yml` take them by OIDC on the `search-run` and
+`search-seed` doors, which no other workflow's token opens. The same caps
+apply (1 a commit, 10 changes a pull request, 1000 a day), counted on search
+runs only. The service scores each run once: a case with no answer is a
+miss, and the run passes when the change puts the expected note first at
+least as often as main (`searchVerdict`, `src/searchRules.ts`). Counts and
+run results carry no words. `src/oidc.test.ts`, `src/testSet.test.ts` and
+`src/searchRules.test.ts` fail if a token crosses doors, a cap or the verdict
+moves, or a seed overwrites a case.

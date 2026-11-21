@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { Refused, verify, githubKeys, type Door, type KeySource } from "./oidc";
 import type { Conversation, Result } from "./rules";
+import type { SearchCase, SearchResult } from "./searchRules";
 import { TestSet } from "./testSet";
 
 export { TestSet };
@@ -14,6 +15,10 @@ export { TestSet };
  *      POST /v1/runs            { pr, sha, base, change? } -> { run, conversations } within the caps, else 429 { error }
  *      POST /v1/runs/result     { run, branch: Result[], main: Result[] } -> { verdict } (pass/fail, counts by node)
  *      POST /v1/seed            { conversations } -> { kept, skipped } (the held-out cases moved in; never overwrites)
+ *      GET  /search/counts      the Search Test's counts, no words
+ *      POST /v1/search/runs     { pr, sha, base, change? } -> { run, cases } within the caps, else 429 { error }
+ *      POST /v1/search/runs/result  { run, branch: SearchResult[], main: SearchResult[] } -> { verdict } (search-run door)
+ *      POST /v1/search/seed     { cases } -> { kept, skipped, counts } (search-seed door; never overwrites)
  *  - `PeopleDoor` (RPC): the Lab's people, checked by the gateway (the app's own client, an @context-lc editor).
  */
 
@@ -24,6 +29,15 @@ export interface Env {
 }
 
 const one = (env: Env) => env.TEST_SET.get(env.TEST_SET.idFromName("test-set"));
+/** Which GitHub workflow door each HTTP path takes. */
+const DOORS = new Map<string, Door>([
+  ["/v1/runs", "run"],
+  ["/v1/runs/result", "run"],
+  ["/v1/seed", "seed"],
+  ["/v1/search/runs", "search-run"],
+  ["/v1/search/runs/result", "search-run"],
+  ["/v1/search/seed", "search-seed"],
+]);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "cache-control": "no-store" } });
 
 async function body<T>(request: Request): Promise<T | null> {
@@ -38,7 +52,8 @@ async function body<T>(request: Request): Promise<T | null> {
 export async function handle(request: Request, env: Env, keys: KeySource = githubKeys): Promise<Response> {
   const path = new URL(request.url).pathname.replace(/^\/tex-eval(?=\/)/, "");
   if (path === "/counts" && request.method === "GET") return json(await one(env).counts());
-  const door: Door | null = path === "/v1/runs" || path === "/v1/runs/result" ? "run" : path === "/v1/seed" ? "seed" : null;
+  if (path === "/search/counts" && request.method === "GET") return json(await one(env).searchCounts());
+  const door = DOORS.get(path);
   if (!door) return json({ error: "not_found" }, 404);
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (env.RUNS === "off") return json({ error: "this deployment runs no Test Set" }, 404);
@@ -50,9 +65,24 @@ export async function handle(request: Request, env: Env, keys: KeySource = githu
     throw error;
   }
   const ghRun = String(claims.run_id);
+  const actor = typeof claims.actor === "string" ? claims.actor : undefined;
+  if (path === "/v1/search/runs") {
+    const b = await body<{ pr?: number; sha?: string; base?: string; change?: string }>(request);
+    const started = await one(env).startSearchRun({ pr: Number(b?.pr), sha: String(b?.sha ?? ""), base: String(b?.base ?? ""), change: typeof b?.change === "string" ? b.change : undefined, ghRun, actor });
+    return started.ok ? json({ run: started.run, cases: started.cases }) : json({ error: started.why }, 429);
+  }
+  if (path === "/v1/search/runs/result") {
+    const b = await body<{ run?: string; branch?: SearchResult[]; main?: SearchResult[] }>(request);
+    const done = await one(env).finishSearchRun(String(b?.run ?? ""), ghRun, b?.branch ?? [], b?.main ?? []);
+    return done.ok ? json({ verdict: done.verdict }) : json({ error: done.why }, 404);
+  }
+  if (path === "/v1/search/seed") {
+    const b = await body<{ cases?: unknown[] }>(request);
+    return json(await one(env).seedSearch(b?.cases ?? [], ghRun));
+  }
   if (path === "/v1/runs") {
     const b = await body<{ pr?: number; sha?: string; base?: string; change?: string }>(request);
-    const started = await one(env).startRun({ pr: Number(b?.pr), sha: String(b?.sha ?? ""), base: String(b?.base ?? ""), change: typeof b?.change === "string" ? b.change : undefined, ghRun, actor: typeof claims.actor === "string" ? claims.actor : undefined });
+    const started = await one(env).startRun({ pr: Number(b?.pr), sha: String(b?.sha ?? ""), base: String(b?.base ?? ""), change: typeof b?.change === "string" ? b.change : undefined, ghRun, actor });
     return started.ok ? json({ run: started.run, conversations: started.conversations }) : json({ error: started.why }, 429);
   }
   if (path === "/v1/runs/result") {
@@ -87,6 +117,23 @@ export class PeopleDoor extends WorkerEntrypoint<Env> {
   }
   allow(pr: number, who: string) {
     return one(this.env).allow(Number(pr), String(who));
+  }
+  searchList() {
+    return one(this.env).searchList();
+  }
+  searchGet(id: string) {
+    return one(this.env).searchGet(String(id));
+  }
+  searchPut(search: SearchCase, who: string) {
+    return one(this.env).searchPut(search, String(who));
+  }
+  searchRemove(id: string, who: string) {
+    return one(this.env).searchRemove(String(id), String(who));
+  }
+  /** Search counts and the last ten search runs: no words. */
+  searchSummary() {
+    const set = one(this.env);
+    return Promise.all([set.searchCounts(), set.searchRuns(10)]).then(([counts, runs]) => ({ counts, runs }));
   }
   /** Counts and runs only: what tex_dev may show an agent. */
   summary() {

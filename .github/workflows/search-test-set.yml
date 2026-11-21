@@ -1,0 +1,152 @@
+# The search gate (docs/decisions/search/search-suite.md; Dev2, 2026-11-21: search code/config changes "run the
+# sealed test and can't merge if right-note-first drops").
+#
+# Runs on main only. "Tex replay required" dispatches it with ref main and the pull request's number when the change
+# reaches search (scripts/search-test-set.mjs SEARCH_PATHS); its GitHub OIDC token then names this file on main, the
+# only caller the eval service (infra/tex-eval) hands the search Test part to. The same file dispatched on a branch is
+# refused there, and refused here before it asks.
+#
+# Each tree (the change, and main at its merge base) runs with MAIN's bench harness laid over it, so a change can alter
+# what search ranks but not how a rank is read. Only the embedder is called (Workers AI). The cases and the answers go
+# to a folder only this job's user reads, never printed, uploaded or cached, and deleted at the end; the runs' own
+# output goes to /dev/null. The service scores the ranks and says pass or fail with counts, which is all this prints.
+# Capped by the service like the Tex Test Set: 1 run a commit, 10 changes a pull request, 1000 a day.
+
+name: Search test set
+
+run-name: Search test set for #${{ inputs.pr }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "The pull request to gate (its number)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  statuses: write
+  actions: write
+  pull-requests: read
+  id-token: write
+
+jobs:
+  search-test-set:
+    name: Run the search Test part on the change and on main
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      PR: ${{ inputs.pr }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Same-repository pull requests only: a fork's code never runs beside production's keys.
+      - name: The pull request and its commits
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a pull request number"; exit 1; }
+          info="$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid,isCrossRepository,state)"
+          head="$(jq -r .headRefOid <<< "$info")"
+          [ "$(jq -r .isCrossRepository <<< "$info")" = "false" ] || { echo "::error::a fork's pull request is never run here"; exit 1; }
+          [ "$(jq -r .state <<< "$info")" = "OPEN" ] || { echo "::error::pull request #$PR is not open"; exit 1; }
+          git fetch --no-tags origin "pull/$PR/head"
+          base="$(git merge-base origin/main "$head")"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$head" -f state=pending -f context="Search test set" \
+            -f description="Running the search Test part on the change and on main" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+
+      - name: The change and main, side by side, each with main's harness
+        env:
+          HEAD: ${{ steps.pr.outputs.head }}
+          BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          set -euo pipefail
+          git worktree add "$RUNNER_TEMP/change" "$HEAD"
+          git worktree add "$RUNNER_TEMP/main" "$BASE"
+          for tree in change main; do
+            rm -rf "${RUNNER_TEMP:?}/${tree:?}/apps/mcp/bench"
+            cp -R apps/mcp/bench "${RUNNER_TEMP:?}/${tree:?}/apps/mcp/bench"
+            (cd "$RUNNER_TEMP/$tree" && pnpm install --frozen-lockfile > /dev/null)
+          done
+
+      - name: Take the search Test part from the eval service (never printed)
+        id: start
+        env:
+          HEAD: ${{ steps.pr.outputs.head }}
+          BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          set +e -uo pipefail
+          umask 077
+          change="$(git diff "$BASE" "$HEAD" | git patch-id --stable | cut -d' ' -f1)"
+          node scripts/search-test-set.mjs start --pr "$PR" --sha "$HEAD" --base "$BASE" ${change:+--change "$change"} --dir "$RUNNER_TEMP/sealed" | tee -a "$GITHUB_STEP_SUMMARY"
+          code="${PIPESTATUS[0]}"
+          if [ "$code" = "3" ]; then echo "capped=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          exit "$code"
+
+      # Their output is dropped: it could hold a word of a case.
+      - name: Rank the Test part on the change and on main
+        if: steps.start.outputs.capped != 'true'
+        run: |
+          set -euo pipefail
+          umask 077
+          for tree in change main; do
+            side="$( [ "$tree" = change ] && echo branch || echo main )"
+            (cd "$RUNNER_TEMP/$tree" && node apps/mcp/bench/evals/cli.mjs search --bench search-real --cases "$RUNNER_TEMP/sealed/cases.json" --keep-records --out "$RUNNER_TEMP/sealed/$side-result.json") > /dev/null 2>&1 \
+              || echo "::warning::the $tree tree's run ended with an error; its unranked cases count as misses"
+            node scripts/search-test-set.mjs answers --result "$RUNNER_TEMP/sealed/$side-result.json" --out "$RUNNER_TEMP/sealed/$side.json"
+          done
+
+      - name: Score it in the eval service
+        id: score
+        if: steps.start.outputs.capped != 'true'
+        run: node scripts/search-test-set.mjs finish --dir "$RUNNER_TEMP/sealed" | tee -a "$GITHUB_STEP_SUMMARY"; exit "${PIPESTATUS[0]}"
+
+      - name: Mark the commit and re-run the pull request's check
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD: ${{ steps.pr.outputs.head }}
+          CAPPED: ${{ steps.start.outputs.capped }}
+          SCORE: ${{ steps.score.outcome }}
+        run: |
+          set -euo pipefail
+          [ -n "$HEAD" ] || exit 0
+          if [ "$CAPPED" = "true" ]; then
+            passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD/statuses" --jq '[.[] | select(.context == "Search test set" and .state == "success")][0].state // ""')"
+            if [ "$passed" = "success" ]; then
+              echo "This commit already has a successful Search test set status; a second run was capped and does not replace it."
+              exit 0
+            fi
+            state=failure; description="$(head -c 139 "$RUNNER_TEMP/sealed/refused")"
+          elif [ -f "$RUNNER_TEMP/sealed/verdict.json" ]; then
+            [ "$SCORE" = "success" ] && state=success || state=failure
+            description="$(node --input-type=module -e 'import { statusLine } from "./scripts/search-test-set.mjs"; import { readFileSync } from "node:fs"; console.log(statusLine(JSON.parse(readFileSync(process.argv[1], "utf8"))))' "$RUNNER_TEMP/sealed/verdict.json")"
+          else
+            state=failure; description="The search Test part failed before a verdict: read the run"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD" -f state="$state" -f context="Search test set" \
+            -f description="$description" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+          run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tex-replay-check.yml --commit "$HEAD" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          [ -z "$run" ] || gh run rerun "$run" --repo "$GITHUB_REPOSITORY" || true
+
+      - name: Forget the Test part
+        if: always()
+        run: rm -rf "${RUNNER_TEMP:?}/sealed"

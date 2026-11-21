@@ -1,0 +1,87 @@
+# Move the real-query set's Test part out of Context and into the sealed eval service
+# (docs/decisions/search/search-suite.md). Runs on main only, by hand: its GitHub OIDC token names this file on main,
+# the one caller the service's search seed door takes. It reads `@context-lc ai/search-held-out/test.md` as the
+# benchmark runner, sends its cases to the service, which never overwrites one already there, and only then empties
+# the note and archives it, so nothing is left for an agent to read. Counts only.
+name: Search test set seed
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  wait-turn:
+    name: Wait for earlier benchmark runs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Wait until no earlier run signs in as the benchmark runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+
+  seed:
+    name: Move the search Test part in
+    needs: wait-turn
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
+      BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
+      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Refuse to sign in beside another benchmark run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/bench-runner-lock.mjs --check
+      - name: Sign in as the benchmark runner and keep the rotated token
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm --silent ai signin
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+      - name: Pull the Test part (never printed)
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/held"
+          node scripts/search-test-set.mjs pull --out "$RUNNER_TEMP/held/cases.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Send it to the eval service
+        run: |
+          set -euo pipefail
+          umask 077
+          node scripts/search-test-set.mjs seed --file "$RUNNER_TEMP/held/cases.json" --out "$RUNNER_TEMP/seeded.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Take it out of Context
+        run: node scripts/search-test-set.mjs retire | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the runner's rotated token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/bench-runner.json" ] || exit 0
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+      - name: Forget the cases
+        if: always()
+        run: rm -rf "${RUNNER_TEMP:?}/held"

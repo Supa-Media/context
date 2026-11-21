@@ -740,3 +740,6 @@ test/texChatAppReach.test.mjs
 test/noteRunLab.test.mjs
 test/searchConfig.test.mjs
 test/texDevSearch.test.mjs
+bench/test/searchSuite.test.mjs
+bench/test/searchHard.test.mjs
+bench/test/memoryRetrieval.test.mjs

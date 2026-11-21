@@ -68,7 +68,53 @@ each session raw, then file** over a client that writes back as it chats
   tab does.
 - **Public data only, and never a gate.** A row holds the benchmark's own
   question and answer and the reader's reply. Evals never read or write the
-  Training, Dev or Test sets, and nothing here gates CI.
+  Training, Dev or Test sets, except the Search suite's search-real Dev part
+  (below), and nothing here gates CI.
+- **Search is its own suite.** The Search suite (below) asks a different
+  question, costs no model, and is not a memory benchmark.
+
+## The Search suite (Dev2, 2026-11-21)
+
+Does search put the right note first? Three sets, one harness
+(`apps/mcp/bench/evals/searchSuite.mjs`, the `search` subcommand of
+`evals/cli.mjs`), listed under **Search** in the Evals tab:
+
+- **search-hard**: 40 made-up questions in a world of seven workspaces, with
+  notes that quote the question, long notes and archives.
+- **search-real**: real searches that failed (nothing opened, or searched
+  again), rewritten, never verbatim. Its **Dev** part runs here and is the one
+  exception to "never the Dev set" above. Its **Test** part is sealed in the
+  eval service and is run only by CI's search gate, never by the Lab; the Lab
+  shows search-real's question count as 0 until the Dev part is in and starts
+  no run before then.
+- **longmemeval-retrieval**: LongMemEval's 470 non-abstention questions, past
+  sessions saved as notes; is an answer session in search's top 5? No reader,
+  no judge.
+
+**Embeddings only.** A case is one `search_notes` call as the person through
+the endpoint, in a warm world with both indexes filled. No model answers, so a
+run has no dollars: the Lab shows "Embeddings only" where cost would be, offers
+no Claude Code choice, and a run's `models` is always `gw`. The workflow
+(`.github/workflows/lab-eval-run.yml`) skips every Claude Code step for these
+sets.
+
+**Scores:** right note first (rank 1 of the expected notes), top 5, found at
+all, mean reciprocal rank of the first expected note, p50 and p95 time;
+longmemeval-retrieval adds Recall@5 "any" and "all". A privacy case (nothing
+expected, something forbidden) is a leak count, never a score.
+
+Public data only: search-hard is made up, longmemeval-retrieval is
+LongMemEval's own, and search-real's Dev part is rewritten. The rows hold the
+query, the expected note's path, its rank and the first hits' paths.
+
+**What a simplification would cost:** a model in the loop turns this into a
+test of the model; a verbatim real query leaks a person's words into a public
+row; a Test part that the Lab can run is a Test part someone can tune against.
+
+**The test that fails:** `apps/convex/__tests__/controlPlane/labEvals.test.ts`
+(search rows keep their rank and hits, the search block is cleaned and capped,
+a search set ignores a Claude choice, and search-real refuses until its Dev
+part is in).
 
 ## What a simplification would cost
 

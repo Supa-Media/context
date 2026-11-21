@@ -3,9 +3,11 @@
  * for this eval"; "LongMemEval is primarily for context, its not supposed to test tex"; chose "Save each session raw,
  * then file"). Public benchmarks run against Context as an AI client's memory: per question a throwaway workspace,
  * every past session saved raw at its date, housekeeping filing it, and a fresh reader answering with the Context
- * endpoint only (`apps/mcp/bench/evals/`). Runs go to GitHub (`functions/labEvals.ts`), so they keep going after the
- * tab closes. Scores per skill, each question's answer and verdict, and every run kept. `tex_dev` `evals`, `eval_run`
- * and `eval_remove` do everything here. Public data, separate from the Training, Dev and Test sets; nothing gates CI.
+ * endpoint only (`apps/mcp/bench/evals/`). The Search suite (search-hard, search-real, longmemeval-retrieval; Dev2,
+ * 2026-11-21) asks whether search puts the right note first: embeddings only, no Claude, so no cost and no Claude Code
+ * choice. Runs go to GitHub (`functions/labEvals.ts`), so they keep going after the tab closes. Scores per skill or per
+ * search metric, each question's answer and verdict, and every run kept. `tex_dev` `evals`, `eval_run` and
+ * `eval_remove` do everything here. Public data, separate from the Training, Dev and Test sets; nothing gates CI.
  */
 import { Fragment, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
@@ -16,6 +18,25 @@ import { Ic } from "./ic";
 import { PageHead } from "./parts";
 
 type Share = { n: number; correct: number; pct: number | null };
+/** The Search suite's scores (`apps/mcp/bench/evals/searchSuite.mjs`): right note first, top 5, MRR and time. */
+type SearchScores = {
+  n: number;
+  first: number;
+  top5: number;
+  found: number;
+  firstPct: number | null;
+  top5Pct: number | null;
+  foundPct: number | null;
+  mrr: number;
+  p50Ms: number;
+  p95Ms: number;
+  errors: number;
+  /** longmemeval-retrieval only: is any / every answer session in the top 5. */
+  recallAny5Pct?: number | null;
+  recallAll5Pct?: number | null;
+  byKind?: Record<string, { n: number; firstPct: number | null }>;
+  byAbility?: Record<string, { n: number; recallAny5Pct: number | null }>;
+};
 type Summary = {
   total: number;
   n: number;
@@ -26,6 +47,8 @@ type Summary = {
   fullRunUsd: number;
   /** A Claude Code run's spend: measured tokens and the weekly limit's share (`ccUsage.mjs`); absent on a gateway run. */
   cc?: { calls: number; tokens: number; weeklyPct: number | null; weeklyWhy: string | null; fullRunTokens: number | null; fullRunWeeklyPct: number | null };
+  /** A Search suite run's scores; absent on a benchmark that asks a model. */
+  search?: SearchScores;
   scores: Share & { asked: number; failed: number; byAbility: Record<string, Share>; byType: Record<string, Share>; usd: { filing: number; reading: number; judging: number; total: number; estimated?: boolean } };
 };
 type Question = {
@@ -37,6 +60,9 @@ type Question = {
   date: string;
   answer: string;
   correct: boolean | null;
+  /** Search suite rows: the rank of the first expected note (null: not found, or none expected) and the hits' count. */
+  rank?: number | null;
+  hits?: number;
   judgeSaid: string;
   sessions: number;
   saved: number;
@@ -66,7 +92,7 @@ type EvalRun = {
   error: string | null;
   questions?: Question[];
 };
-type Bench = { id: string; title: string; variant: string; total: number; about: string };
+type Bench = { id: string; title: string; variant: string; total: number; about: string; search: boolean };
 
 /** LongMemEval's five abilities, in the paper's order. */
 const ABILITIES: Array<[string, string]> = [
@@ -85,11 +111,20 @@ const ccSpend = (s: Summary) =>
     : "tokens not recorded";
 const usd = (x: number) => (x >= 10 ? `$${x.toFixed(0)}` : x >= 0.1 ? `$${x.toFixed(2)}` : `$${x.toFixed(3)}`);
 const pct = (s: Share | undefined) => (s && s.n ? `${s.pct ?? Math.round((100 * s.correct) / s.n)}%` : "–");
+/** A search percentage, or a dash when it was not measured (no expected note, or nothing to count). */
+const sp = (x: number | null | undefined) => (typeof x === "number" ? `${x}%` : "–");
+const secs = (x: number) => (x >= 1000 ? `${(x / 1000).toFixed(1)} s` : `${Math.round(x)} ms`);
 const live = (r: EvalRun) => r.stage === "queued" || r.stage === "running";
 const benchName = (benches: Bench[], id: string) => {
   const b = benches.find((x) => x.id === id);
   return b ? `${b.title} ${b.variant}` : id;
 };
+/** A Search suite run: embeddings only, so no model's cost and no Claude Code choice. */
+const searchRun = (r: EvalRun, benches: Bench[]) => benches.find((b) => b.id === r.bench)?.search === true || r.summary?.search !== undefined;
+/** A query's rank: the place of its first expected note in the search's answer, or that it was not found. */
+const rankOf = (q: Question) => (!q.expected ? "–" : q.rank ? `#${q.rank}` : "not found");
+/** The first two notes the search answered with (all of them are in the question's own view). */
+const firstHits = (q: Question) => q.answer.split("\n").slice(0, 2).join(", ");
 
 function Stage({ r }: { r: EvalRun }) {
   const [cls, words] = stageWords[r.stage];
@@ -101,19 +136,68 @@ function Stage({ r }: { r: EvalRun }) {
   );
 }
 
-/** One skill's bar: the share right, with its count. */
-function Bar({ label, s }: { label: string; s: Share | undefined }) {
-  const p = s && s.n ? (100 * s.correct) / s.n : 0;
+/** One bar: a width of the row, its value and a detail after it. */
+function BarRow({ label, width, value, detail }: { label: string; width: number; value: string; detail: string }) {
   return (
     <div className="evbar" style={{ display: "grid", gridTemplateColumns: "minmax(0,200px) minmax(0,1fr) 92px", gap: 10, alignItems: "center", margin: "6px 0" }}>
       <span>{label}</span>
       <span style={{ height: 8, borderRadius: 4, background: "var(--line, rgba(127,127,127,.25))", overflow: "hidden" }}>
-        <span style={{ display: "block", height: "100%", width: `${p}%`, background: "var(--accent, #4b7bec)" }} />
+        <span style={{ display: "block", height: "100%", width: `${width}%`, background: "var(--accent, #4b7bec)" }} />
       </span>
       <span className="tn" style={{ textAlign: "right" }}>
-        {pct(s)} <span className="hint">{s && s.n ? `${s.correct}/${s.n}` : ""}</span>
+        {value} <span className="hint">{detail}</span>
       </span>
     </div>
+  );
+}
+
+/** One skill's bar: the share right, with its count. */
+function Bar({ label, s }: { label: string; s: Share | undefined }) {
+  const p = s && s.n ? (100 * s.correct) / s.n : 0;
+  return <BarRow label={label} width={p} value={pct(s)} detail={s && s.n ? `${s.correct}/${s.n}` : ""} />;
+}
+
+/** A Search suite run's scores: right note first, top 5, MRR and time; Recall@5 for longmemeval-retrieval. */
+function SearchScore({ s }: { s: Summary }) {
+  const x = s.search;
+  if (!x) return null;
+  const tiles: Array<[string, string]> = [
+    ["Right note first", sp(x.firstPct)],
+    ["Top 5", sp(x.top5Pct)],
+    ["MRR", x.mrr.toFixed(2)],
+    ["p50 time", secs(x.p50Ms)],
+  ];
+  if (x.recallAny5Pct !== undefined) tiles.push(["Recall@5, any", sp(x.recallAny5Pct)], ["Recall@5, all", sp(x.recallAll5Pct)]);
+  return (
+    <>
+      <div className="flex" id="evScore" style={{ gap: 28, flexWrap: "wrap", margin: "4px 0 6px" }}>
+        {tiles.map(([label, value], i) => (
+          <div key={label}>
+            <div className="hint">{label}</div>
+            <div className="tn" style={{ fontSize: i === 0 ? 28 : 20 }}>
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="hint" style={{ margin: "0 0 10px" }}>
+        Embeddings only: no model answers, so no cost. {x.n} questions in {Math.round(s.ms / 1000)} s; {x.first} with the right note first, {x.found} found at all
+        {x.errors ? `, ${x.errors} errors` : ""}; p95 {secs(x.p95Ms)}.
+      </p>
+      {x.byAbility
+        ? Object.entries(x.byAbility).map(([k, v]) => (
+            <BarRow key={k} label={ABILITIES.find(([a]) => a === k)?.[1] ?? k} width={v.recallAny5Pct ?? 0} value={sp(v.recallAny5Pct)} detail={`${v.n} questions`} />
+          ))
+        : null}
+      {x.byKind ? (
+        <details style={{ marginTop: 8 }}>
+          <summary className="hint">By kind of question</summary>
+          {Object.entries(x.byKind).map(([k, v]) => (
+            <BarRow key={k} label={k} width={v.firstPct ?? 0} value={sp(v.firstPct)} detail={`${v.n} questions`} />
+          ))}
+        </details>
+      ) : null}
+    </>
   );
 }
 
@@ -124,6 +208,7 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
   if (run === undefined) return <p className="hint">Loading…</p>;
   if (run === null) return <p className="hint">This run is gone.</p>;
   const s = run.summary;
+  const search = searchRun(run, benches);
   const qs = (run.questions ?? []).filter((q) => (only === "all" ? true : only === "wrong" ? q.correct !== true : q.correct === true));
   return (
     <>
@@ -145,7 +230,7 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
               </a>
             </>
           ) : null}
-          , {run.models === "cc" ? "Claude Code" : "the AI gateway"}, started {ago(run.startedAt)} from {run.via}.
+          , {search ? "embeddings only" : run.models === "cc" ? "Claude Code" : "the AI gateway"}, started {ago(run.startedAt)} from {run.via}.
           {run.ghRunUrl ? (
             <>
               {" "}
@@ -156,7 +241,9 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
           ) : null}
         </p>
         {run.error ? <p className="lgno">{run.error}</p> : null}
-        {s ? (
+        {s && search ? (
+          <SearchScore s={s} />
+        ) : s ? (
           <>
             <p style={{ fontSize: 28, margin: "4px 0 2px" }} id="evScore">
               {pct(s.scores)} <span className="hint" style={{ fontSize: 14 }}>{`${s.scores.correct}/${s.scores.n} right${s.scores.failed ? `, ${s.scores.failed} could not run` : ""}`}</span>
@@ -205,43 +292,83 @@ function RunDetail({ id, benches }: { id: string; benches: Bench[] }) {
             <table className="ttbl" id="evQs">
               <tbody>
                 <tr>
-                  <th />
-                  <th>Question</th>
-                  <th>Skill</th>
-                  <th>Cost</th>
+                  {search ? (
+                    <>
+                      <th>Rank</th>
+                      <th>Query</th>
+                      <th>Expected</th>
+                      <th>First hits</th>
+                    </>
+                  ) : (
+                    <>
+                      <th />
+                      <th>Question</th>
+                      <th>Skill</th>
+                      <th>Cost</th>
+                    </>
+                  )}
                 </tr>
                 {qs.map((q) => (
                   <Fragment key={q.id}>
                     <tr data-q={q.id} style={{ cursor: "pointer" }} onClick={() => setOpen(open === q.id ? null : q.id)}>
-                      <td>{q.correct === true ? <span className="lgok">✓</span> : q.correct === false ? <span className="lgno">✗</span> : <span className="hint">–</span>}</td>
-                      <td>{q.question}</td>
-                      <td className="hint">{ABILITIES.find(([k]) => k === q.ability)?.[1] ?? q.ability}</td>
-                      <td className="tn">{run.models === "cc" ? (q.tokens ? `≈ ${toks(q.tokens.filing + q.tokens.reading + q.tokens.judging)} tok` : "–") : usd(q.usd.filing + q.usd.reading + q.usd.judging)}</td>
+                      {search ? (
+                        <>
+                          <td className={q.expected && !q.rank ? "lgno tn" : "tn"}>{rankOf(q)}</td>
+                          <td>{q.question}</td>
+                          <td className="hint">{q.expected || "–"}</td>
+                          <td className="hint" title={q.answer}>
+                            {firstHits(q)}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td>{q.correct === true ? <span className="lgok">✓</span> : q.correct === false ? <span className="lgno">✗</span> : <span className="hint">–</span>}</td>
+                          <td>{q.question}</td>
+                          <td className="hint">{ABILITIES.find(([k]) => k === q.ability)?.[1] ?? q.ability}</td>
+                          <td className="tn">{run.models === "cc" ? (q.tokens ? `≈ ${toks(q.tokens.filing + q.tokens.reading + q.tokens.judging)} tok` : "–") : usd(q.usd.filing + q.usd.reading + q.usd.judging)}</td>
+                        </>
+                      )}
                     </tr>
                     {open === q.id ? (
                       <tr>
                         <td />
                         <td colSpan={3}>
-                          <p>
-                            <b>Expected:</b> {q.expected}
-                          </p>
-                          <p style={{ whiteSpace: "pre-wrap" }}>
-                            <b>Answered:</b> {q.answer || <span className="hint">(nothing)</span>}
-                          </p>
-                          <p className="hint">
-                            {q.id} · {q.type} · asked {q.date} · {q.saved}/{q.sessions} sessions saved{q.saveErrors ? ` (${q.saveErrors} failed)` : ""} · filed {q.filings}×{q.filingErrors ? ` (${q.filingErrors} failed)` : ""} · judge said “{q.judgeSaid}” · {Math.round(q.ms / 1000)} s
-                          </p>
-                          {q.calls.length ? (
-                            <p className="hint">
-                              Reader:{" "}
-                              {q.calls.map((c, i) => (
-                                <span key={i} className={`tact ${c.error ? "err" : ""}`} title={c.input}>
-                                  {c.tool}
-                                  <b>{c.chars}</b>
-                                </span>
-                              ))}
-                            </p>
-                          ) : null}
+                          {search ? (
+                            <>
+                              <p>
+                                <b>Expected:</b> {q.expected || <span className="hint">(none: a privacy case)</span>}
+                              </p>
+                              <p style={{ whiteSpace: "pre-wrap" }}>
+                                <b>First hits:</b> {q.answer || <span className="hint">(none)</span>}
+                              </p>
+                              <p className="hint">
+                                {q.id} · {q.type} · {q.hits ?? 0} hits · {q.ms} ms
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p>
+                                <b>Expected:</b> {q.expected}
+                              </p>
+                              <p style={{ whiteSpace: "pre-wrap" }}>
+                                <b>Answered:</b> {q.answer || <span className="hint">(nothing)</span>}
+                              </p>
+                              <p className="hint">
+                                {q.id} · {q.type} · asked {q.date} · {q.saved}/{q.sessions} sessions saved{q.saveErrors ? ` (${q.saveErrors} failed)` : ""} · filed {q.filings}×{q.filingErrors ? ` (${q.filingErrors} failed)` : ""} · judge said “{q.judgeSaid}” · {Math.round(q.ms / 1000)} s
+                              </p>
+                              {q.calls.length ? (
+                                <p className="hint">
+                                  Reader:{" "}
+                                  {q.calls.map((c, i) => (
+                                    <span key={i} className={`tact ${c.error ? "err" : ""}`} title={c.input}>
+                                      {c.tool}
+                                      <b>{c.chars}</b>
+                                    </span>
+                                  ))}
+                                </p>
+                              ) : null}
+                            </>
+                          )}
                           {q.error ? <p className="lgno">{q.error}</p> : null}
                         </td>
                       </tr>
@@ -268,11 +395,25 @@ export function Evals({ visible = true }: { visible?: boolean }) {
   const [code, setCode] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const shown = picked ?? runs[0]?.id ?? null;
-  const total = benches.find((b) => b.id === bench)?.total ?? 500;
+  const choices: Bench[] = benches.length ? benches : [{ id: "longmemeval-s", title: "LongMemEval", variant: "S", total: 500, about: "", search: false }];
+  const chosen = choices.find((b) => b.id === bench);
+  const total = chosen?.total ?? 500;
+  const isSearch = chosen?.search === true;
+
+  const pick = (id: string) => {
+    setBench(id);
+    const b = choices.find((x) => x.id === id);
+    if (!b) return;
+    // A Search set is embeddings only: its whole set is its slice, and it never asks Claude.
+    if (b.search) {
+      setModels("gw");
+      setN(Math.max(1, b.total));
+    } else setN(Math.min(50, b.total));
+  };
 
   const run = async () => {
     try {
-      const { runId } = await start({ bench, n, models, ...(code.trim() ? { code: code.trim() } : {}) });
+      const { runId } = await start({ bench, n, models: isSearch ? "gw" : models, ...(code.trim() ? { code: code.trim() } : {}) });
       setPicked(runId);
       toast("Started on GitHub");
     } catch (e) {
@@ -284,34 +425,50 @@ export function Evals({ visible = true }: { visible?: boolean }) {
   return (
     <>
       <PageHead icon={<Ic k="star" />} title="Evals">
-        Public benchmarks of Context as an AI client's memory. Each question gets an empty workspace; every past session is saved raw at its date, Context files it, and a fresh reader answers
-        with only the Context endpoint. Separate from the Training, Dev and Test sets; nothing here gates CI.
+        Public benchmarks of Context. LongMemEval runs Context as an AI client's memory: each question gets an empty workspace, every past session is saved raw at its date, Context files
+        it, and a fresh reader answers with only the Context endpoint. The Search suite asks whether search puts the right note first (embeddings only, no Claude). Separate from the
+        Training, Dev and Test sets; nothing here gates CI.
       </PageHead>
       <div className="blk" style={{ marginTop: 0 }}>
         <h2>Run</h2>
         <div className="flex" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <select id="evBench" className="search" style={{ maxWidth: 220 }} value={bench} onChange={(e) => setBench(e.target.value)}>
-            {(benches.length ? benches : [{ id: "longmemeval-s", title: "LongMemEval", variant: "S", total: 500, about: "" }]).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.title} {b.variant}
-              </option>
-            ))}
+          <select id="evBench" className="search" style={{ maxWidth: 240 }} value={bench} onChange={(e) => pick(e.target.value)}>
+            <optgroup label="LongMemEval">
+              {choices
+                .filter((b) => !b.search)
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title} {b.variant}
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label="Search">
+              {choices
+                .filter((b) => b.search)
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title} {b.variant}
+                  </option>
+                ))}
+            </optgroup>
           </select>
           <label className="hint">
             Questions{" "}
-            <input id="evN" className="search" type="number" min={1} max={total} value={n} style={{ width: 80 }} onChange={(e) => setN(Math.max(1, Math.min(total, Math.round(Number(e.target.value) || 1))))} />
+            <input id="evN" className="search" type="number" min={1} max={Math.max(1, total)} value={n} style={{ width: 80 }} onChange={(e) => setN(Math.max(1, Math.min(total, Math.round(Number(e.target.value) || 1))))} />
           </label>
-          <select id="evModels" className="search" style={{ maxWidth: 200 }} value={models} onChange={(e) => setModels(e.target.value as "gw" | "cc")}>
-            <option value="gw">AI gateway</option>
-            <option value="cc">Claude Code (subscription)</option>
-          </select>
+          {isSearch ? null : (
+            <select id="evModels" className="search" style={{ maxWidth: 200 }} value={models} onChange={(e) => setModels(e.target.value as "gw" | "cc")}>
+              <option value="gw">AI gateway</option>
+              <option value="cc">Claude Code (subscription)</option>
+            </select>
+          )}
           <input id="evCode" className="search" placeholder="main, #PR or branch" value={code} style={{ maxWidth: 200 }} onChange={(e) => setCode(e.target.value)} />
-          <button className="primary" id="evRunBtn" onClick={() => void run()}>
+          <button className="primary" id="evRunBtn" disabled={total === 0} onClick={() => void run()}>
             ▶ Run
           </button>
         </div>
         <p className="hint" style={{ margin: "8px 0 0" }}>
-          {benches.find((b) => b.id === bench)?.about} The same number of questions is the same slice every time, stratified by question type.
+          {chosen?.about} {isSearch ? "The same number of questions is the same set every time." : "The same number of questions is the same slice every time, stratified by question type."}
         </p>
       </div>
       {runs.length ? (
@@ -337,8 +494,20 @@ export function Evals({ visible = true }: { visible?: boolean }) {
                     <td>
                       <code>{r.code ?? "main"}</code> {r.models === "cc" ? <span className="hint">cc</span> : null}
                     </td>
-                    <td>{r.summary ? pct(r.summary.scores) : <Stage r={r} />}</td>
-                    <td className="tn">{r.summary ? (r.models === "cc" ? ccSpend(r.summary) : usd(r.summary.scores.usd.total)) : "–"}</td>
+                    <td>{r.summary ? (searchRun(r, benches) ? sp(r.summary.search?.firstPct) : pct(r.summary.scores)) : <Stage r={r} />}</td>
+                    <td className="tn">
+                      {r.summary ? (
+                        searchRun(r, benches) ? (
+                          <span className="hint">Embeddings only</span>
+                        ) : r.models === "cc" ? (
+                          ccSpend(r.summary)
+                        ) : (
+                          usd(r.summary.scores.usd.total)
+                        )
+                      ) : (
+                        "–"
+                      )}
+                    </td>
                     <td>
                       {!live(r) ? (
                         <button

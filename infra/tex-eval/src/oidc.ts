@@ -15,6 +15,8 @@ const JWKS_URL = `${ISSUER}/.well-known/jwks`;
 export const WORKFLOWS = {
   run: `${REPOSITORY}/.github/workflows/tex-test-set.yml@refs/heads/main`,
   seed: `${REPOSITORY}/.github/workflows/tex-test-set-seed.yml@refs/heads/main`,
+  "search-run": `${REPOSITORY}/.github/workflows/search-test-set.yml@refs/heads/main`,
+  "search-seed": `${REPOSITORY}/.github/workflows/search-test-set-seed.yml@refs/heads/main`,
 } as const;
 export type Door = keyof typeof WORKFLOWS;
 

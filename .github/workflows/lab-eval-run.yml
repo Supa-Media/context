@@ -13,6 +13,11 @@
 #           with the Context endpoint only, and LongMemEval's judge. Models "gw" asks the AI gateway as the bench
 #           always does; "cc" answers every Claude call with Claude Code on CLAUDE_CODE_OAUTH_TOKEN
 #           (apps/mcp/bench/socketAnswerer.mjs), and the token never leaves this job.
+#           The Search suite (search-hard, search-real, longmemeval-retrieval; `apps/mcp/bench/evals/searchSuite.mjs`)
+#           runs `cli.mjs search` instead: embeddings only, no Claude Code steps, never a model answer. Its data is
+#           public or made up: search-hard is made up, longmemeval-retrieval is LongMemEval, and search-real's Dev part
+#           is rewritten from real searches, never verbatim. Its Test part is sealed in the eval service and is never
+#           run here; only CI's search gate runs it.
 #   report  main's code, with the deploy key: the rows in batches and the summary (cleaned again by Convex), or why it
 #           failed.
 #
@@ -47,6 +52,7 @@ jobs:
       n: ${{ steps.job.outputs.n }}
       models: ${{ steps.job.outputs.models }}
       sha: ${{ steps.code.outputs.sha }}
+      search: ${{ steps.job.outputs.search }}
       why: ${{ steps.why.outputs.why }}
     steps:
       - name: The run id is a Convex id
@@ -80,12 +86,16 @@ jobs:
           bench=$(jq -r .bench "$RUNNER_TEMP/job.json")
           n=$(jq -r .n "$RUNNER_TEMP/job.json")
           models=$(jq -r .models "$RUNNER_TEMP/job.json")
-          [[ "$bench" =~ ^longmemeval-(s|oracle)$ ]] || { echo "::error::unknown bench"; exit 1; }
+          [[ "$bench" =~ ^(longmemeval-(s|oracle)|search-hard|search-real|longmemeval-retrieval)$ ]] || { echo "::error::unknown bench"; exit 1; }
           [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "::error::n is 1 to 999"; exit 1; }
           [[ "$models" =~ ^(gw|cc)$ ]] || { echo "::error::unknown models"; exit 1; }
+          # The Search suite asks no model: it is embeddings only, whatever models the run was given.
+          search=false
+          if [[ "$bench" =~ ^(search-hard|search-real|longmemeval-retrieval)$ ]]; then search=true; models=gw; fi
           echo "bench=$bench" >> "$GITHUB_OUTPUT"
           echo "n=$n" >> "$GITHUB_OUTPUT"
           echo "models=$models" >> "$GITHUB_OUTPUT"
+          echo "search=$search" >> "$GITHUB_OUTPUT"
           echo "Run: $(jq -c . "$RUNNER_TEMP/job.json")"
 
       # Main, a same-repository pull request's head, or a branch here. A fork's pull request is refused: only code
@@ -170,7 +180,7 @@ jobs:
           key: lab-evals-data-${{ needs.prep.outputs.bench }}-v1
 
       - name: Claude Code has its token
-        if: needs.prep.outputs.models == 'cc'
+        if: needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -181,7 +191,7 @@ jobs:
           esac
 
       - name: Install Claude Code
-        if: needs.prep.outputs.models == 'cc'
+        if: needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true'
         run: npm install -g @anthropic-ai/claude-code@2.1.325
 
       - name: Run the eval
@@ -189,10 +199,21 @@ jobs:
           MODELS: ${{ needs.prep.outputs.models }}
           BENCH: ${{ needs.prep.outputs.bench }}
           N: ${{ needs.prep.outputs.n }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          SEARCH: ${{ needs.prep.outputs.search }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
           set +e -uo pipefail
           mkdir -p "$RUNNER_TEMP/out"
+          if [ "$SEARCH" = "true" ]; then
+            # Embeddings only: no Claude Code, no socket answerer, no subscription read.
+            node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+            code=$?
+            if [ "$code" != "0" ]; then
+              tail -n 1 "$RUNNER_TEMP/eval.log" | head -c 280 > "$RUNNER_TEMP/why" || true
+              exit "$code"
+            fi
+            exit 0
+          fi
           answerer=""
           if [ "$MODELS" = "cc" ]; then
             export BENCH_MODEL_SOCKET="$RUNNER_TEMP/sock"
