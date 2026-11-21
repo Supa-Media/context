@@ -23,6 +23,8 @@
  * a half-read history is not shown as the whole of it.
  */
 
+import type { LiveStep } from "./appChatRun";
+
 /** The two things a person can answer an approval with: a 👍 or a 👎 on Tex's text. */
 export type AskChoice = "approve" | "deny";
 
@@ -70,6 +72,24 @@ export interface AppChatRow {
   unsendable?: true;
   /** An approval Tex asked on this text. Absent when there was none. */
   ask?: { id: string; open: boolean };
+  /** Where the person's own text is (the line under it: Delivered · Read · Answered, failed, stopped, queued). */
+  state?: RowState;
+  /** When Tex gave up on a `failed` text. */
+  failedAt?: number;
+  /** A finished turn's run card, on its first Tex text: how long it worked and its steps. */
+  run?: { secs: number; steps: LiveStep[] };
+}
+
+/** The states the route names a person's text by (`appChatRows.js` `deliveryStates`). */
+export type RowState = "sent" | "reading" | "queued" | "answered" | "read" | "failed" | "stopped";
+const ROW_STATES: readonly RowState[] = ["sent", "reading", "queued", "answered", "read", "failed", "stopped"];
+
+/** The turn running now, as its live run card shows it. */
+export interface LiveRun {
+  turn: string;
+  covers: string[];
+  startedAt: number;
+  steps: LiveStep[];
 }
 
 /**
@@ -273,11 +293,48 @@ export function rowFrom(raw: unknown): AppChatRow | null {
   if (record.unsendable === true) row.unsendable = true;
   const reactions = reactionsOf(record.reactions);
   if (reactions !== undefined) row.reactions = reactions;
+  const state = ROW_STATES.find((one) => one === record.state);
+  if (state !== undefined && who === "me") row.state = state;
+  const failedAt = epochMs(record.failedAt);
+  if (failedAt !== null && state === "failed") row.failedAt = failedAt;
+  const card = objectOf(record.run);
+  const secs = epochMs(card?.secs);
+  const cardSteps = stepsOf(card?.steps);
+  if (who === "tex" && secs !== null && cardSteps !== null && cardSteps.length > 0) row.run = { secs, steps: cardSteps };
   return row;
 }
 
+/** A run card's steps, field by field; null when the list is not one. A step this build cannot draw is left out. */
+function stepsOf(value: unknown): LiveStep[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: LiveStep[] = [];
+  for (const raw of value.slice(-40)) {
+    const record = objectOf(raw);
+    const at = epochMs(record?.at);
+    if (record === null || (record.k !== "think" && record.k !== "tool") || at === null) continue;
+    const step: LiveStep = { k: record.k, at };
+    for (const key of ["text", "name", "what", "res"] as const) if (typeof record[key] === "string" && record[key] !== "") step[key] = (record[key] as string).slice(0, 300);
+    if (typeof record.ok === "boolean") step.ok = record.ok;
+    if (epochMs(record.ms) !== null) step.ms = record.ms as number;
+    if (record.held === true) step.held = true;
+    out.push(step);
+  }
+  return out;
+}
+
+/** The live run, or null when none runs or it cannot be read. */
+function liveRunOf(value: unknown): LiveRun | null {
+  const record = objectOf(value);
+  const turn = nonEmptyString(record?.turn);
+  const startedAt = epochMs(record?.startedAt);
+  const steps = stepsOf(record?.steps);
+  if (record === null || turn === null || startedAt === null || steps === null) return null;
+  const covers = Array.isArray(record.covers) ? record.covers.filter((id): id is string => typeof id === "string") : [];
+  return { turn, covers, startedAt, steps };
+}
+
 /** What a chat read answers with: the rows and Tex's typing mark, or a sentence for why not. */
-export type ChatRead = { kind: "listed"; rows: AppChatRow[]; typing: boolean } | { kind: "failed"; sentence: string };
+export type ChatRead = { kind: "listed"; rows: AppChatRow[]; typing: boolean; run: LiveRun | null; digest: string | null } | { kind: "failed"; sentence: string };
 
 /** What a send answers with: the server's id for the text, or a sentence. */
 export type SendRead = { kind: "sent"; msgId: string } | { kind: "failed"; sentence: string };
@@ -319,7 +376,28 @@ export function readChat(status: number, body: unknown): ChatRead {
     if (row === null) return { kind: "failed", sentence: chatSentence(200, null) };
     rows.push(row);
   }
-  return { kind: "listed", rows, typing: record?.typing === true };
+  const digest = typeof record?.digest === "string" && record.digest.length <= 16 ? record.digest : null;
+  return { kind: "listed", rows, typing: record?.typing === true, run: liveRunOf(record?.run), digest };
+}
+
+/** The chat, held open by the route until it changes from `since` (up to 20 s); at once with no `since`. */
+export function waitRequest(since: string | null): { op: "wait"; since?: string } {
+  return since === null ? { op: "wait" } : { op: "wait", since };
+}
+
+/** Stop the turn running now. */
+export function stopRequest(): { op: "stop" } {
+  return { op: "stop" };
+}
+
+/** Try again on one of the person's texts that shows failed or stopped. */
+export function retryRequest(msgId: string): { op: "retry"; msgId: string } {
+  return { op: "retry", msgId };
+}
+
+/** Whether a stop answer says a turn was stopped. */
+export function readStopped(status: number, body: unknown): boolean {
+  return status === 200 && objectOf(body)?.stopped === true;
 }
 
 /** Read one `send` answer. A 200 must name the text's id; without it the page cannot match the row later. */

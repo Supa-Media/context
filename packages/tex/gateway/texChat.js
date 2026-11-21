@@ -268,13 +268,38 @@ export async function hopToGateway(hop, request, inProcess) {
  * A stand-in for the Worker's `SENDER_INBOX` namespace: each object reached by name through the Worker's RPC. Only
  * this chat's own id is known here (the one it had in the Worker, for counting: `objectPlace.ts` `inboxIdOf`).
  */
-function workerObjects(rpc, chatName, senderId, own) {
+function workerObjects(rpc, chatName, senderId, own, env = {}) {
   return {
     idFromName: (name) => workerId(name, chatName, senderId),
     idFromString: () => {
       throw new TypeError("a Worker object is reached by name here");
     },
-    get: (id) => workerStub(rpc, id, own),
+    get: (id) => workerStub(rpc, id, own, env),
+  };
+}
+
+/**
+ * The app chat a name names (`enam:app:<userId>` as `inboxByName` makes it, or bare), or null. An app chat lives only
+ * here, in `TEX_CHAT`: the Worker has no object of it, so a call to it over the Worker's RPC (a job's report, a
+ * cross-chat ask) landed in an empty Worker object and never reached the chat (in-app Tex section A5, 2026-11-20).
+ */
+export function appChatNameOf(name) {
+  const bare = typeof name === "string" && name.startsWith("enam:") ? name.slice("enam:".length) : name;
+  return typeof bare === "string" && /^app:[A-Za-z0-9_-]{1,64}$/.test(bare) ? bare : null;
+}
+
+/** A stub for an app chat's own object here, through its `/chat-call` door, as the Worker's moved objects are reached. */
+function appChatStub(namespace, name) {
+  const stub = objectByName(namespace, `chat:${name}`);
+  return {
+    fetch: async (input, init) => {
+      const request = input instanceof Request && init === undefined ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const headers = new Headers(request.headers);
+      headers.set(INBOX_NAME_HEADER, name);
+      const body = request.method === "GET" || request.method === "HEAD" ? null : await request.arrayBuffer();
+      return stub.fetch(new Request(`https://chat/chat-call${url.pathname}${url.search}`, { method: request.method, headers, body }));
+    },
   };
 }
 
@@ -284,13 +309,15 @@ function workerId(name, chatName, senderId) {
 }
 
 /** A stub for the Worker's object `id`, reached over the Worker's RPC. This chat's own name is served here (`own`). */
-function workerStub(rpc, id, own) {
+function workerStub(rpc, id, own, env = {}) {
+  const app = appChatNameOf(id.name);
   return {
     fetch: (input, init) => {
       if (own && id.name === own.name && typeof own.fetch === "function") {
         const request = input instanceof Request && init === undefined ? input : new Request(input, init);
         return own.fetch(request);
       }
+      if (app !== null && env.TEX_CHAT !== undefined) return appChatStub(env.TEX_CHAT, app).fetch(input, init);
       if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
       return rpc.inboxFetch({ name: id.name }, new Request(input, init));
     },
@@ -303,7 +330,7 @@ function workerStub(rpc, id, own) {
  * objects are made here by namespace, through `objectByName`; the Worker's are named and reached over RPC.
  */
 function senderObjects(env, rpc, chatName, senderId, jobsHere, own) {
-  if (!jobsHere) return workerObjects(rpc, chatName, senderId, own);
+  if (!jobsHere) return workerObjects(rpc, chatName, senderId, own, env);
   return {
     idFromName: (name) => (jobNameOf(name) === null ? workerId(name, chatName, senderId) : { name, toString: () => "" }),
     idFromString: () => {
@@ -311,7 +338,7 @@ function senderObjects(env, rpc, chatName, senderId, jobsHere, own) {
     },
     get: (id) => {
       const job = jobNameOf(id.name);
-      if (job === null) return workerStub(rpc, id, own);
+      if (job === null) return workerStub(rpc, id, own, env);
       const stub = objectByName(env.TEX_JOB, job);
       return { fetch: (input, init) => stub.fetch(new Request(input, init)) };
     },
