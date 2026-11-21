@@ -67,43 +67,84 @@ export function forgetRerankScores() {
   KNOWN.clear();
 }
 
-/** A row with the reranker's part laid on, by its place among the rows read in its own list. */
-function withParts(entries, head, scores, { rerankWeight, rrfK }) {
-  const place = new Map(head.map((_, i) => i).sort((a, b) => scores[b] - scores[a] || a - b).map((i, rank) => [head[i], rank]));
-  const scoreOf = new Map(head.map((e, i) => [e, scores[i]]));
-  return ranked(entries.map((e) => (place.has(e) ? { ...e, r: rerankWeight / (rrfK + place.get(e) + 1), rerankScore: scoreOf.get(e) } : e)));
-}
-
 /**
- * Every workspace's rows with the reranker's part, in ONE model call: the first `rerankTop` rows of each list (in the
- * order the steps before left them), each read as at most `rerankChars` of its title and snippets, scored together;
- * a pair this isolate already scored is not sent again. Each read row adds `rerankWeight / (rrfK + its place in its
- * own list by score + 1)` as `r` and keeps `rerankScore`, and each list is ranked again. A list of fewer than two
- * rows, or null, is left as it is.
- *
- * Answers `{ lists, reranked }`: `reranked` is `{ calls, read, sent, chars, ms }` (calls 0 when every pair was
- * known), or `{ skipped }` saying why every list stands as it was.
+ * Score `texts` beside `query` in at most one model call: a pair this isolate already scored is not sent again.
+ * Answers `{ scores, calls, sent, chars }` (scores by index of `texts`), or `{ skipped }` saying why there are none.
  */
-export async function rerankAcross(ai, query, lists, { rerankTop, rerankWeight, rrfK, rerankChars = RERANK_CHARS }, now = Date.now) {
-  if (typeof query !== "string" || !query.trim()) return { lists, reranked: { skipped: "no words to read beside" } };
-  const heads = lists.map((entries) => (Array.isArray(entries) && entries.length >= 2 ? entries.slice(0, Math.min(rerankTop, entries.length)) : []));
-  const texts = heads.map((head) => head.map((e) => rowText(e).slice(0, rerankChars)));
-  const all = texts.flat();
-  if (all.length === 0) return { lists, reranked: { skipped: "fewer than two notes" } };
-  const wanted = [...new Set(all.filter((text) => !KNOWN.has(pairKey(query, text))))];
-  const started = now();
+async function scoreTexts(ai, query, texts) {
+  const wanted = [...new Set(texts.filter((text) => !KNOWN.has(pairKey(query, text))))];
   if (wanted.length > 0) {
     let scores;
     try {
       scores = await rerankScores(ai, query, wanted);
     } catch {
-      return { lists, reranked: { skipped: "the reranker failed" } };
+      return { skipped: "the reranker failed" };
     }
-    if (!scores) return { lists, reranked: { skipped: ai ? "the reranker answered out of shape" : "no model here" } };
+    if (!scores) return { skipped: ai ? "the reranker answered out of shape" : "no model here" };
     wanted.forEach((text, i) => remember(pairKey(query, text), scores[i]));
   }
-  const out = lists.map((entries, i) => (heads[i].length ? withParts(entries, heads[i], texts[i].map((text) => KNOWN.get(pairKey(query, text))), { rerankWeight, rrfK }) : entries));
-  return { lists: out, reranked: { calls: wanted.length ? 1 : 0, read: all.length, sent: wanted.length, chars: wanted.reduce((n, t) => n + t.length, 0), ms: now() - started } };
+  return { scores: texts.map((text) => KNOWN.get(pairKey(query, text))), calls: wanted.length ? 1 : 0, sent: wanted.length, chars: wanted.reduce((n, t) => n + t.length, 0) };
+}
+
+/**
+ * A row with the reranker's part laid on. The rows it scored are put in order of their scores, in the places those rows
+ * held among the rows read; a row with no score (`scores[i]` null: a note only meaning found, when the reranker read
+ * the word hits early and nothing late) keeps its place. Each row read adds `rerankWeight / (rrfK + place + 1)` as `r`.
+ */
+function withParts(entries, head, scores, { rerankWeight, rrfK }) {
+  const scored = head.map((_, i) => i).filter((i) => typeof scores[i] === "number");
+  const byScore = [...scored].sort((a, b) => scores[b] - scores[a] || a - b);
+  const placeOf = head.map((_, i) => i);
+  scored.forEach((slot, k) => {
+    placeOf[byScore[k]] = slot;
+  });
+  const place = new Map(head.map((e, i) => [e, placeOf[i]]));
+  const scoreOf = new Map(head.map((e, i) => [e, scores[i]]));
+  return ranked(
+    entries.map((e) => {
+      if (!place.has(e)) return e;
+      const score = scoreOf.get(e);
+      return { ...e, r: rerankWeight / (rrfK + place.get(e) + 1), ...(typeof score === "number" ? { rerankScore: score } : {}) };
+    }),
+  );
+}
+
+/** A score the early step (`rerankWordHits`) laid on a row's word hit, or null. */
+const earlyScore = (entry) => (typeof entry.word?.rerankScore === "number" ? entry.word.rerankScore : null);
+
+/**
+ * Every workspace's rows with the reranker's part, in at most ONE model call: the first `rerankTop` rows of each list
+ * (in the order the steps before left them). A row whose word hit "Rerank word hits" already scored keeps that score
+ * and is not read again; the others are read now, each as at most `rerankChars` of its title and snippets, all
+ * together, unless `readLate` is 0, when they keep their places unread (and the search adds no call here). Each read
+ * row adds `rerankWeight / (rrfK + its place in its own list + 1)` as `r` and keeps `rerankScore`, and each list is
+ * ranked again. A list of fewer than two rows, or null, is left as it is.
+ *
+ * Answers `{ lists, reranked }`: `reranked` is `{ calls, read, early, sent, chars, ms }` (calls 0 when every pair was
+ * known or read early), or `{ skipped }` saying why every list stands as it was.
+ */
+export async function rerankAcross(ai, query, lists, { rerankTop, rerankWeight, rrfK, rerankChars = RERANK_CHARS, readLate = 1 }, now = Date.now) {
+  if (typeof query !== "string" || !query.trim()) return { lists, reranked: { skipped: "no words to read beside" } };
+  const heads = lists.map((entries) => (Array.isArray(entries) && entries.length >= 2 ? entries.slice(0, Math.min(rerankTop, entries.length)) : []));
+  if (heads.every((head) => head.length === 0)) return { lists, reranked: { skipped: "fewer than two notes" } };
+  const early = heads.map((head) => head.map(earlyScore));
+  const texts = heads.map((head, w) => head.map((e, i) => (early[w][i] === null && readLate ? rowText(e).slice(0, rerankChars) : null)));
+  const late = texts.flat().filter((text) => text !== null);
+  const known = early.flat().filter((score) => score !== null).length;
+  if (late.length + known === 0) return { lists, reranked: { skipped: "no row was read early, and none is read late" } };
+  const started = now();
+  let got = { scores: [], calls: 0, sent: 0, chars: 0 };
+  if (late.length > 0) {
+    got = await scoreTexts(ai, query, late);
+    if (got.skipped) return { lists, reranked: { skipped: got.skipped } };
+  }
+  let k = 0;
+  const out = lists.map((entries, w) => {
+    if (!heads[w].length) return entries;
+    const scores = heads[w].map((_, i) => early[w][i] ?? (texts[w][i] !== null ? got.scores[k++] : null));
+    return withParts(entries, heads[w], scores, { rerankWeight, rrfK });
+  });
+  return { lists: out, reranked: { calls: got.calls, read: late.length + known, early: known, sent: got.sent, chars: got.chars, ms: now() - started } };
 }
 
 /** One list's rows with the reranker's part (`rerankAcross` for a single list): `{ entries, reranked }`. */
@@ -111,4 +152,37 @@ export async function rerankEntries(ai, query, entries, settings, now = Date.now
   if (!Array.isArray(entries) || entries.length < 2) return { entries, reranked: { skipped: "fewer than two notes" } };
   const { lists, reranked } = await rerankAcross(ai, query, [entries], settings, now);
   return { entries: lists[0], reranked: reranked.calls !== undefined ? { ...reranked } : reranked };
+}
+
+/**
+ * "Rerank word hits" (`rerankWords` in search's config, off on main): the word search's first `rerankTop` hits in
+ * every workspace read beside the query in ONE call as soon as the word search answers, while the meaning search is
+ * still running, so the call's time hides behind it instead of adding to the search's. Each hit read keeps the score
+ * as `rerankScore`, which rides on its row to "Rerank" (`rerankAcross` reads it there and does not read the note
+ * again). The word search's hits are already only notes the person may see (`visibleNotes.js`). Never adds or drops a
+ * hit; when the model fails, the hits stand unscored.
+ *
+ * Answers `{ byWords, reranked }`, `reranked` as `rerankAcross` says it.
+ */
+export async function rerankWordHits(ai, query, byWords, { rerankTop, rerankChars = RERANK_CHARS }, now = Date.now) {
+  if (!byWords || typeof byWords !== "object") return { byWords, reranked: { skipped: "the word search found nothing" } };
+  if (typeof query !== "string" || !query.trim()) return { byWords, reranked: { skipped: "no words to read beside" } };
+  const names = Object.keys(byWords);
+  const heads = names.map((name) => {
+    const hits = byWords[name]?.hits;
+    return Array.isArray(hits) && hits.length >= 2 ? hits.slice(0, Math.min(rerankTop, hits.length)) : [];
+  });
+  const texts = heads.flatMap((head) => head.map((hit) => rerankText(hit).slice(0, rerankChars)));
+  if (texts.length === 0) return { byWords, reranked: { skipped: "fewer than two notes" } };
+  const started = now();
+  const got = await scoreTexts(ai, query, texts);
+  if (got.skipped) return { byWords, reranked: { skipped: got.skipped } };
+  let k = 0;
+  const out = { ...byWords };
+  names.forEach((name, w) => {
+    if (!heads[w].length) return;
+    const scoreOf = new Map(heads[w].map((hit) => [hit, got.scores[k++]]));
+    out[name] = { ...byWords[name], hits: byWords[name].hits.map((hit) => (scoreOf.has(hit) ? { ...hit, rerankScore: scoreOf.get(hit) } : hit)) };
+  });
+  return { byWords: out, reranked: { calls: got.calls, read: texts.length, sent: got.sent, chars: got.chars, ms: now() - started } };
 }

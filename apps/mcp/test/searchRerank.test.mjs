@@ -10,10 +10,11 @@
  *   rerankScores accepting a missing id                    "an answer out of shape is not used" fails
  *   scoreOf leaving `r` outside the path prior             "an archived copy … still ranks below it" fails
  *   fuseEverywhere ignoring rerankScore                    "across workspaces, the reranker's scores rank together" fails
+ *   earlyScore ignoring a word hit's score                 "Rerank uses the early scores without a call…" fails
  */
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { RERANK_MODEL, forgetRerankScores, rerankAcross, rerankEntries, rerankScores, rerankText } from "../src/search/rerank.js";
+import { RERANK_MODEL, forgetRerankScores, rerankAcross, rerankEntries, rerankScores, rerankText, rerankWordHits } from "../src/search/rerank.js";
 import { lowerByPath, mergeLists, scoreOf } from "../src/search/stages.js";
 import { fuseEverywhere } from "../src/search/fuse.js";
 import { FUSE_RANKING } from "../src/search/ranking.js";
@@ -70,12 +71,12 @@ test("an answer out of shape is not used", async () => {
   assert.equal(await rerankScores(ai, "q", ["a", "b"]), null);
 });
 
-test("it reads the title and snippets, capped, and is off on main with its three settings", () => {
+test("it reads the title and snippets, capped, and is off on main with its four settings", () => {
   assert.equal(rerankText({ key: "x.md", title: "T", snippets: ["s"] }), "T\ns");
   assert.ok(rerankText({ key: "x.md", snippets: ["y".repeat(5000)] }).length <= 2000);
   const node = searchConfig.SEARCH_CONFIG.nodes.find((n) => n.id === "rerank");
   assert.equal(node.on, false);
-  assert.deepEqual(Object.keys(node.settings).sort(), ["rerankChars", "rerankTop", "rerankWeight"]);
+  assert.deepEqual(Object.keys(node.settings).sort(), ["readLate", "rerankChars", "rerankTop", "rerankWeight"]);
   const ids = searchConfig.SEARCH_CONFIG.nodes.map((n) => n.id);
   assert.equal(ids.indexOf("rerank"), ids.indexOf("snippets") + 1, "after the step where every row has text");
 });
@@ -119,4 +120,46 @@ test("a query and text already scored in this isolate is not sent again", async 
   assert.equal(ai.calls.length, 1);
   assert.equal(again.reranked.calls, 0);
   assert.deepEqual(again.entries.map((e) => e.rerankScore).slice(0, 3).sort(), [0.3, 0.5, 0.7]);
+});
+
+test("the word hits are scored early, in one call for every workspace, the first rerankTop of each", async () => {
+  const ai = aiScoring([0.2, 0.9, 0.5, 0.4]);
+  const byWords = {
+    "@me": { hits: [{ key: "a.md", title: "A" }, { key: "b.md", title: "B" }, { key: "c.md", title: "C" }], matchCount: 3 },
+    "@ops": { hits: [{ key: "x.md", title: "X" }, { key: "y.md", title: "Y" }], matchCount: 2 },
+    "@gone": null,
+  };
+  const { byWords: out, reranked } = await rerankWordHits(ai, "q", byWords, { rerankTop: 2, rerankChars: 100 });
+  assert.equal(ai.calls.length, 1);
+  assert.deepEqual(out["@me"].hits.map((h) => h.rerankScore), [0.2, 0.9, undefined]);
+  assert.deepEqual(out["@ops"].hits.map((h) => h.rerankScore), [0.5, 0.4]);
+  assert.equal(out["@gone"], null);
+  assert.equal(out["@me"].matchCount, 3);
+  assert.deepEqual({ calls: reranked.calls, read: reranked.read }, { calls: 1, read: 4 });
+  const failed = await rerankWordHits({ async run() { throw new Error("down"); } }, "another query", byWords, { rerankTop: 2 });
+  assert.equal(failed.byWords, byWords);
+  assert.equal(failed.reranked.skipped, "the reranker failed");
+});
+
+test("Rerank uses the early scores without a call, and with readLate 0 a row nobody read keeps its place", async () => {
+  const early = (key, score) => ({ key, word: { key, title: key, rerankScore: score }, meaning: null, w: 0.01, m: 0, title: 0, prior: 1, order: 0 });
+  const meaningOnly = { key: "m.md", word: null, meaning: { path: "m.md", score: 0.8 }, read: { title: "M", snippets: ["s"] }, w: 0, m: 0.0095, title: 0, prior: 1, order: 1 };
+  const rows = [early("a.md", 0.1), meaningOnly, early("c.md", 0.9)];
+  const ai = aiScoring([0.5]);
+  const { entries, reranked } = await rerankEntries(ai, "q", rows, { ...settings, rerankWeight: 2, readLate: 0 });
+  assert.equal(ai.calls.length, 0, "every score it needs was read early, or is not read");
+  assert.equal(reranked.calls, 0);
+  assert.equal(reranked.early, 2);
+  // c and a swap the places they held (0 and 2); m keeps place 1 and its own part.
+  const byKey = Object.fromEntries(entries.map((e) => [e.key, e]));
+  assert.equal(byKey["c.md"].r, 2 / (60 + 0 + 1));
+  assert.equal(byKey["m.md"].r, 2 / (60 + 1 + 1));
+  assert.equal(byKey["a.md"].r, 2 / (60 + 2 + 1));
+  assert.equal(byKey["m.md"].rerankScore, undefined);
+  assert.equal(entries[0].key, "c.md");
+  // readLate 1: only the row nobody read early is sent.
+  const late = await rerankEntries(ai, "q", rows, { ...settings, readLate: 1 });
+  assert.equal(ai.calls.length, 1);
+  assert.deepEqual(ai.calls[0].input.contexts.map((c) => c.text), ["M\ns"]);
+  assert.equal(late.reranked.early, 2);
 });

@@ -123,7 +123,7 @@ export function texJobClass({ gateway, texts }) {
       const id = this.state.id.toString();
       const name = await this.state.storage.get(JOB_NAME_KEY);
       const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
-      const env = await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true, turnsHop: true });
+      const env = await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true });
       // Its alarm runs each pass through the job node (`passNext`), never a Worker workflow.
       this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_STEP: (step) => this.passNext(step) });
       return this.inner;

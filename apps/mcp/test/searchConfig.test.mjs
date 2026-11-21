@@ -232,3 +232,37 @@ test("every step off on main, turned on, still answers, its output in the shape 
     assert.equal(turnedOn.hits.length, main.hits.length, `"${id}" on still answers`);
   }
 });
+
+test("the word hits are reranked beside meaning, and Rerank uses those scores with no second call", async () => {
+  const calls = [];
+  const ai = {
+    async run(model, input) {
+      calls.push(input.contexts.map((c) => c.text));
+      // The renewal plan scores highest, whatever else is read.
+      return { response: input.contexts.map((c, id) => ({ id, score: /renewal plan/i.test(c.text) ? 0.9 : 0.1 })) };
+    },
+  };
+  const store = setup();
+  store.ai = ai;
+  const config = structuredClone(SEARCH_CONFIG);
+  config.nodes.find((n) => n.id === "rerankWords").on = true;
+  const rerank = config.nodes.find((n) => n.id === "rerank");
+  rerank.on = true;
+  rerank.settings = { ...rerank.settings, readLate: 0 };
+  const runs = [];
+  const found = await findNotes(store, "private", [], new Map(), "renewal", "", { config, log: (row) => runs.push(row) });
+  assert.equal(calls.length, 1, "one call, for every workspace's word hits, before the snippets");
+  assert.ok(runs.findIndex((r) => r.node === "rerankWords") >= 0 && runs.some((r) => r.node === "rerank"));
+  assert.equal(found.hits[0].key, "projects/renewal.md");
+});
+
+test("Rerank word hits sits between the word search and the visible check, off on main", () => {
+  const ids = SEARCH_CONFIG.nodes.map((n) => n.id);
+  const node = SEARCH_CONFIG.nodes.find((n) => n.id === "rerankWords");
+  assert.equal(node.on, false);
+  assert.deepEqual(Object.keys(node.settings).sort(), ["rerankChars", "rerankTop"]);
+  assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "words" && e.to === "rerankWords"));
+  assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" && e.to === "visible"));
+  assert.ok(!SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" && e.to === "meaning"), "it runs beside meaning, not before it");
+  assert.ok(ids.includes("meaning"));
+});

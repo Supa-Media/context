@@ -38,6 +38,13 @@ type SearchScores = {
   byAbility?: Record<string, { n: number; recallAny5Pct: number | null }>;
   byPath?: Record<string, number>;
   objects?: { n: number; first: number; firstPct: number | null; top5Pct: number | null; mrr: number; same: number; better: number; worse: number };
+  /** NanoBEIR only (`nanoBeir.mjs`): BEIR's scores at 10 as the mean over sets, BM25's own ranking scored the same way. */
+  ndcg10?: number | null;
+  recall10?: number | null;
+  mrr10?: number | null;
+  bm25Ndcg10?: number | null;
+  objectNdcg10?: number | null;
+  bySet?: Record<string, { n: number; ndcg10: number | null; recall10: number | null; mrr10: number | null; firstPct: number | null; bm25Ndcg10: number | null; objectNdcg10: number | null }>;
 };
 type Summary = {
   total: number;
@@ -163,12 +170,16 @@ function Bar({ label, s }: { label: string; s: Share | undefined }) {
 function SearchScore({ s }: { s: Summary }) {
   const x = s.search;
   if (!x) return null;
-  const tiles: Array<[string, string]> = [
+  const two = (v: number | null | undefined) => (typeof v === "number" ? v.toFixed(3) : "–");
+  const tiles: Array<[string, string]> = [];
+  // NanoBEIR's headline is BEIR's own score, so it leads, with BM25's ranking of the same queries beside it.
+  if (x.ndcg10 !== undefined) tiles.push(["nDCG@10", two(x.ndcg10)], ["BM25 nDCG@10", two(x.bm25Ndcg10)], ["Objects nDCG@10", two(x.objectNdcg10)], ["Recall@10", two(x.recall10)]);
+  tiles.push(
     ["Right note first", sp(x.firstPct)],
     ["Top 5", sp(x.top5Pct)],
     ["MRR", x.mrr.toFixed(2)],
     ["p50 time", secs(x.p50Ms)],
-  ];
+  );
   if (x.recallAny5Pct !== undefined) tiles.push(["Recall@5, any", sp(x.recallAny5Pct)], ["Recall@5, all", sp(x.recallAll5Pct)]);
   return (
     <>
@@ -195,7 +206,21 @@ function SearchScore({ s }: { s: Summary }) {
             <BarRow key={k} label={ABILITIES.find(([a]) => a === k)?.[1] ?? k} width={v.recallAny5Pct ?? 0} value={sp(v.recallAny5Pct)} detail={`${v.n} questions`} />
           ))
         : null}
-      {x.byKind ? (
+      {x.bySet ? (
+        <div id="evSets" style={{ marginTop: 8 }}>
+          <div className="hint" style={{ marginBottom: 4 }}>nDCG@10 per set: ours (bar) against BM25&apos;s ranking of the same queries</div>
+          {Object.entries(x.bySet).map(([k, v]) => (
+            <BarRow
+              key={k}
+              label={`${k} (BM25 ${two(v.bm25Ndcg10)}, objects ${two(v.objectNdcg10)})`}
+              width={100 * (v.ndcg10 ?? 0)}
+              value={two(v.ndcg10)}
+              detail=""
+            />
+          ))}
+        </div>
+      ) : null}
+      {x.byKind && !x.bySet ? (
         <details style={{ marginTop: 8 }}>
           <summary className="hint">By kind of question</summary>
           {Object.entries(x.byKind).map(([k, v]) => (

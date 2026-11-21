@@ -12,6 +12,9 @@
  *   existing "a call through the Worker's stub" test).
  * - the VIA_NEW hand-back is skipped for a gateway-moved copy: 1 fails (the hand-back test).
  * Reverted after each run: 19 of 19 green.
+ * - (2026-11-21) `chatMove` skips the `/__arrive` ask before `out`: 2 fail (the idle-since-placement copy moved out
+ *   empty; the refused old inbox's placed copy marked moved). `arriveOnly` skips its "already moved" answer: 1 fails
+ *   (the moved inbox's arrive call forwarded to the gateway).
  */
 
 import { describe, expect, test } from "vitest";
@@ -157,6 +160,47 @@ describe("moving a chat's inbox out to the gateway", () => {
     placed.release!();
     await slow;
     expect((await chatMove(namespaceOf(world), { inbox: PHONE, op: "out" })).status).toBe(200);
+  });
+
+  test("a placed inbox nobody called since the placement copies its old inbox in first, and then moves out with it", async () => {
+    const world = new World();
+    const old = await oldInboxWith(world);
+    const answer = await chatMove(namespaceOf(world), { inbox: PHONE, op: "out" });
+    expect(answer.status).toBe(200);
+    const body = answer.body as { entries: Record<string, unknown> };
+    // The old inbox's keys, not an empty placed copy's: nothing is left behind in the unplaced object.
+    expect(body.entries.count).toBe(3);
+    expect(body.entries["pending:1"]).toEqual({ text: "hi", at: 5, tags: ["a"], nested: { n: 1, flag: true, none: null } });
+    expect((old.storage.data.get(PLACE_KEY) as Place).movedTo).toBe(placedName(PHONE));
+    const place = world.inbox(placedName(PHONE)).storage.data.get(PLACE_KEY) as Place;
+    expect(place).toMatchObject({ movedTo: GATEWAY, name: PHONE, arrivedAt: world.now, keys: 3 });
+  });
+
+  test("an old inbox that cannot hand over leaves the placed one unmoved: the gateway's copy is refused like a busy one", async () => {
+    const world = new World();
+    const old = await oldInboxWith(world);
+    world.fail = (name, path) => (name === PHONE && path === "/__move_out" ? Response.json({ busy: true }, { status: 409 }) : null);
+    const answer = await chatMove(namespaceOf(world), { inbox: PHONE, op: "out" });
+    expect(answer).toEqual({ status: 409, body: { busy: true, reason: "not_arrived" } });
+    const place = world.inbox(placedName(PHONE)).storage.data.get(PLACE_KEY) as Place;
+    expect(place.movedTo).toBeUndefined();
+    expect(place.arrivedAt).toBeUndefined();
+    expect(old.storage.data.get("count")).toBe(3);
+    // Asked again before the retry wait is up: still refused, and the old inbox is not asked again.
+    const asked = world.calls.length;
+    expect((await chatMove(namespaceOf(world), { inbox: PHONE, op: "out" })).status).toBe(409);
+    expect(world.calls.slice(asked)).toEqual([`${placedName(PHONE)} /__arrive`]);
+  });
+
+  test("the arrive call on an inbox already moved out answers at once and asks nobody", async () => {
+    const { world } = await arrivedWorld();
+    world.gateway = gatewayFake();
+    await chatMove(namespaceOf(world), { inbox: PHONE, op: "out" });
+    const asked = world.calls.length;
+    const ready = await world.placed(PHONE).fetch("https://inbox/__arrive", { method: "POST" });
+    expect(await ready.json()).toEqual({ arrived: true });
+    expect(world.calls.slice(asked)).toEqual([`${placedName(PHONE)} /__arrive`]);
+    expect((world.gateway as ReturnType<typeof gatewayFake>).calls).toEqual([]);
   });
 
   test("the gateway's ask carries no more than a sibling's: a stub call with to other than gateway is refused, one with to gateway is answered", async () => {

@@ -37,7 +37,7 @@ describe("the canvas draws one page", () => {
     expect(day.nodes.some((n) => NIGHTLY.includes(n.id))).toBe(false);
     // Search's steps are on their own page (Dev2, 2026-11-21): between the three pages every step is counted once.
     const search = onPage(G(), "search");
-    expect(ids(search)).toEqual(["answer", "budget", "code", "floor", "fuse", "meaning", "merge", "open", "prior", "probes", "rerank", "search", "snippets", "title", "visible", "words"]);
+    expect(ids(search)).toEqual(["answer", "budget", "code", "floor", "fuse", "meaning", "merge", "open", "prior", "probes", "rerank", "rerankWords", "search", "snippets", "title", "visible", "words"]);
     expect(day.nodes.length + night.nodes.length + search.nodes.length).toBe(G().nodes.length);
     // Every wire is on one page or the other: none crosses.
     expect(day.edges.length + night.edges.length + search.edges.length).toBe(G().edges.length);
@@ -73,7 +73,7 @@ describe("the canvas draws one page", () => {
     expect(counts.nightly).toBe(6);
     expect(counts.texting).toBeGreaterThan(20);
     // Search is a page of its own (Dev2, 2026-11-21): every step a search runs.
-    expect(counts.search).toBe(16);
+    expect(counts.search).toBe(17);
   });
 
   test("a page's name from anywhere is a page, or Texting", () => {

@@ -148,7 +148,7 @@ describe("the workflow's reports", () => {
     expect(run.questions[0]).not.toHaveProperty("secretField");
     expect(run.questions[1]).toMatchObject({ id: "q1", correct: false, calls: [{ tool: "search", input: '{"query":"bikes"}' }] });
     const listed = await door("evals", {});
-    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle", "search-hard", "search-real", "longmemeval-retrieval"]);
+    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle", "search-hard", "search-real", "longmemeval-retrieval", "nanobeir", "nanobeir-gate"]);
     expect(listed.runs[0]).toMatchObject({ id, stage: "done" });
     expect(listed.runs[0]).not.toHaveProperty("questions");
   });
@@ -230,6 +230,13 @@ describe("the Search suite's rows and scores", () => {
     expect(cleanSummary({ n: 1, total: 2 })).not.toHaveProperty("search");
   });
 
+  test("a NanoBEIR summary keeps nDCG@10, BM25's reference and each set's scores; another search run has none", () => {
+    const s = cleanSearch({ n: 200, first: 120, ndcg10: 0.61, recall10: 0.72, mrr10: 0.58, bm25Ndcg10: 0.55, objectNdcg10: 0.63, bySet: { nq: { n: 50, ndcg10: 0.5, bm25Ndcg10: 0.4, firstPct: 44, objectNdcg10: 0.52, extra: "x" } } });
+    expect(s).toMatchObject({ ndcg10: 0.61, bm25Ndcg10: 0.55, objectNdcg10: 0.63, bySet: { nq: { n: 50, ndcg10: 0.5, bm25Ndcg10: 0.4, firstPct: 44 } } });
+    expect(s?.bySet?.nq).not.toHaveProperty("extra");
+    expect(cleanSearch({ n: 40, first: 27 })).not.toHaveProperty("ndcg10");
+  });
+
   test("the Lab starts a search set on gateway embeddings only: its models choice is dropped, its default slice is the whole set, and search-real runs its 10 Dev cases", async () => {
     const w = await world();
     const hard = await w.door("eval_run", { bench: "search-hard", models: "cc" });
@@ -241,5 +248,14 @@ describe("the Search suite's rows and scores", () => {
     expect(await w.t.query(internal.functions.labEvals.job, { runId: real.id })).toMatchObject({ bench: "search-real", n: 10, models: "gw" });
     expect(await w.door("eval_run", { bench: "search-real", n: 11 })).toMatchObject({ status: "bad_request" });
     expect(await w.door("eval_run", { bench: "longmemeval-retrieval", n: 470 })).toMatchObject({ status: "ok" });
+  });
+
+  test("NanoBEIR runs on gateway embeddings: all 13 sets are 649 queries, the gate's four 200", async () => {
+    const w = await world();
+    const all = await w.door("eval_run", { bench: "nanobeir", n: 649 });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId: all.id })).toMatchObject({ bench: "nanobeir", n: 649, models: "gw" });
+    const gate = await w.door("eval_run", { bench: "nanobeir-gate", n: 200, models: "cc" });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId: gate.id })).toMatchObject({ bench: "nanobeir-gate", n: 200, models: "gw" });
+    expect(await w.door("eval_run", { bench: "nanobeir-gate", n: 201 })).toMatchObject({ status: "bad_request" });
   });
 });

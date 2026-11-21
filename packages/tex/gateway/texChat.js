@@ -68,6 +68,9 @@ export function texChatClass({ gateway, texts }) {
       if (request.method === "GET" && url.pathname.startsWith("/app/picture/")) return await serveAppPictureById(this.state.storage, url.pathname.slice("/app/picture/".length));
       if (request.method === "GET" && url.pathname.startsWith("/app/file/")) return await serveAppFileById(this.state.storage, url.pathname.slice("/app/file/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
+      // Staff moving one chat here before the rest (`packages/lab/gateway/labSandbox/intake.js`): its home, and the copy.
+      if (request.method === "GET" && url.pathname === "/home") return Response.json(await homeOf(this.state.storage));
+      if (request.method === "POST" && url.pathname === "/move-in") return await this.moveIn(request);
       return Response.json({ error: "unknown_route" }, { status: 404 });
     }
 
@@ -90,6 +93,17 @@ export function texChatClass({ gateway, texts }) {
       const answer = await chat.fetch(new Request(`https://inbox${path}${body.kind === "one" || body.kind === "group" ? origin : ""}`, init));
       const outcome = answer.ok ? await answer.json().catch(() => ({})) : {};
       return Response.json({ outcome: typeof outcome.outcome === "string" ? outcome.outcome : answer.ok ? "queued" : "failed" }, { status: answer.ok ? 200 : 503 });
+    }
+
+    /**
+     * Copies the Worker's chat in now, with no text to answer (`packages/lab/gateway/labSandbox/intake.js`): the same
+     * copy a handed-over text starts, so the chat's later texts and calls are answered here. Answers its home after.
+     */
+    async moveIn(request) {
+      const body = await request.json().catch(() => null);
+      if (body === null || typeof body.inbox !== "string" || !INBOX_NAME.test(body.inbox)) return Response.json({ error: "bad_body" }, { status: 400 });
+      const chat = await this.chat(body.inbox);
+      return Response.json({ ...(await homeOf(this.state.storage)), ...(chat === null ? { refused: true } : {}) });
     }
 
     /** A call the Worker's moved object passed on (`inboxMove.ts` `forward`): answered by the copy here. */
@@ -159,6 +173,12 @@ export function texChatClass({ gateway, texts }) {
   };
 }
 
+/** Where a chat is answered, read from this object's own place: "gateway" once copied in (or born here), else "worker". */
+export async function homeOf(storage) {
+  const place = await storage.get(PLACE_KEY);
+  return place?.arrivedAt === undefined ? { home: "worker" } : { home: "gateway", movedAt: place.arrivedAt, keys: Number.isSafeInteger(place.keys) ? place.keys : 0 };
+}
+
 /**
  * Copy the Worker's chat object in (`inboxMove.ts` `arrive`, run against the Worker over RPC), and keep its name and
  * id. A storage failure throws, and the caller drops the attempt so the next call retries. Anything but `arrived`
@@ -199,7 +219,7 @@ export function chatState(state, senderId) {
  * The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. `jobsHere`: this object's job calls
  * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
  */
-export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request), turnsHop = false }) {
+export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request) }) {
   const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppFile, serveAppPicture } = await import("../../../packages/tex/worker/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
@@ -215,13 +235,12 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
         if (!app) return Promise.resolve(new Response(null, { status: 404 }));
         return request.url.startsWith(`${APP_PICTURE_ORIGIN}/file/`) ? serveAppFile(state.storage, request.url) : serveAppPicture(state.storage, request.url);
       }
-      // An app chat's turn goes over a real hop to the gateway, as a phone's does from the texting Worker: in-process,
-      // the whole turn (its prompt, history and reads) lived in this object's isolate, which ran out of memory and was
-      // reset before the reply went (Dev2's 8:25 AM text, 2026-11-20; Dev2 chose the phone's route). Only when the hop
-      // itself cannot be made does the turn run here, as before. A background job's object (`texJob.js`, `turnsHop`) hops
-      // too: a job's part is the longest turn there is, and in-process it reset the job's isolate (three `/job-pass`
-      // memory resets 2026-11-20 and 11-21, the coffee-shop job's among them).
-      if ((app || turnsHop) && self !== "" && isTurnCall(request.url, self)) return hopToGateway(hop, request, (kept) => gateway().fetch(kept, env, ctx));
+      // Every chat's turn goes over a real hop to the gateway, as a phone's does from the texting Worker: in-process, the
+      // whole turn (its prompt, history and reads) lived in this object's isolate, which ran out of memory and was reset
+      // before the reply went (Dev2's 8:25 AM app text, 2026-11-20; three `TexJob` `/job-pass` resets, 2026-11-20 and
+      // 11-21). App chats, phone chats moved here and background jobs all take it (one path, Dev2 2026-11-21). Only when
+      // the hop itself cannot be made does the turn run here, as before.
+      if (self !== "" && isTurnCall(request.url, self)) return hopToGateway(hop, request, (kept) => gateway().fetch(kept, env, ctx));
       if (self !== "" && request.url.startsWith(`${self}/`)) return gateway().fetch(request, env, ctx);
       return fetch(request);
     },
@@ -265,7 +284,7 @@ export async function hopToGateway(hop, request, inProcess) {
   try {
     return await hop(request);
   } catch (error) {
-    console.log(JSON.stringify({ event: "app_turn_hop", outcome: "in_process", error: String(error?.name ?? "error").slice(0, 40) }));
+    console.log(JSON.stringify({ event: "turn_hop", outcome: "in_process", error: String(error?.name ?? "error").slice(0, 40) }));
     return inProcess(kept);
   }
 }

@@ -44,10 +44,33 @@ addresses it minted for pictures and pages, and its counts, still name it.
 **Which chats come is the Worker's `INTAKE` var**, `worker` on both
 deployments until the staging proof; nothing moves while it is.
 
+**Production moves one chat at a time first** (Dev2, 2026-11-21, approving the
+runtime simplification: "test on your chat first, then Tex Devs, then
+everyone"). A Tex developer moves a chat of their own with the Lab's `intake`
+op (`tex_dev` sandbox `{ op: "intake", chatId, move: true }`,
+`packages/lab/gateway/labSandbox/intake.js`): the same copy a handed-over text
+starts, with no text, after which the Worker's object passes that chat's every
+call on, whatever `INTAKE` says. `{ op: "intake" }` lists where each of the
+caller's chats is answered. Only then is `INTAKE` flipped for everyone.
+
+**A chat idle since the placement move is brought along whole.** The gateway's
+copy asks the Worker's placed inbox to arrive first (`/__arrive`,
+`inboxMove.ts`): one nobody has called since 2026-11-01 still holds nothing,
+its queue and state in the old, unplaced object, and moving that empty copy
+out would leave them there for good. Not arrived, and the copy is refused like
+a busy one: the text is answered by the Worker and the move is tried again.
+
+**No text is answered twice across a move.** A hand-over whose answer was
+lost falls back to the Worker's object, which, moved, passes the same text on;
+the chat's event-id check answers it `duplicate`
+(`apps/mcp/test/texChatMove.test.mjs`).
+
 What a "simplification" would cost: a rewrite of the chat object for the
 gateway forks every queue, turn and lane rule in two; calling the line from
 the gateway with keys of its own puts line credentials in a second Worker.
-Tests: `apps/mcp/test/texChatMove.test.mjs` (a handed-over text is copied in,
+Tests: `apps/mcp/test/labSandboxIntake.test.mjs` (only the caller's own chats
+move, and no phone or group id is answered or logged),
+`apps/mcp/test/texChatMove.test.mjs` (a handed-over text is copied in,
 queued and answered on the Worker's line; a refused copy leaves the Worker
 answering), `packages/tex/worker/gatewayMove.test.ts`, `handOver.test.ts`,
 `scripts/deploy-plan.test.mjs` (the chat code deploys both Workers).
