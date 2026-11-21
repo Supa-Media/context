@@ -4,13 +4,14 @@
  * The gateway's chat object runs the same `arrive()` as the placed inbox did (`inboxMove.ts`), and asks this Worker
  * over RPC (`TexRoutines.chatMove`): `out` marks the inbox moved to the gateway and answers its entries, digest and
  * alarm, `back` takes it back. The inbox's placed object is the one asked, by its placed name, without the name header
- * the old-inbox move refuses (`inboxMove.ts` `serveMoveOut`).
+ * the old-inbox move refuses (`inboxMove.ts` `serveMoveOut`). Before `out` it is asked to arrive (`ARRIVE_PATH`), with
+ * the header, so a chat idle since the placement move brings its old inbox along instead of leaving it behind.
  *
  * A job's object and a group's directory entry never move: they are not chats.
  */
 
 import { chatDirectoryName } from "./groupRoutines";
-import { GATEWAY, OLD_NAME, placedName } from "./inboxMove";
+import { ARRIVE_PATH, GATEWAY, INBOX_NAME_HEADER, OLD_NAME, placedName } from "./inboxMove";
 import { objectByName } from "./objectPlace";
 
 export type ChatMoveCall = { inbox: string; op: "out" | "back" };
@@ -33,6 +34,13 @@ export function readChatMove(call: unknown): ChatMoveCall {
 export async function chatMove(namespace: DurableObjectNamespace, call: unknown): Promise<ChatMoveAnswer> {
   const { inbox, op } = readChatMove(call);
   const stub = objectByName(namespace, placedName(inbox));
+  if (op === "out") {
+    // The placed inbox has to hold the chat before it hands it over: one not called since the placement move copies its
+    // old inbox in first. Not there yet (busy, or the copy failed) and the gateway's copy is refused like a busy one, so
+    // the text that asked is answered here, and the move is tried again on a later text.
+    const ready = await stub.fetch(`https://inbox${ARRIVE_PATH}`, { method: "POST", headers: { [INBOX_NAME_HEADER]: inbox } });
+    if (ready.status !== 200) return { status: 409, body: { busy: true, reason: "not_arrived" } };
+  }
   const response =
     op === "out"
       ? await stub.fetch("https://inbox/__move_out", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: inbox, to: GATEWAY }) })

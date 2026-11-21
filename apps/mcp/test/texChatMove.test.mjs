@@ -18,6 +18,7 @@
  *   5. `chat` left a rejected `this.opening` in place (2026-11-17): "a rejected copy is forgotten, and the next call
  *      copies" failed, the second call awaiting the same rejection.
  *   6. The failure log put `chat: name` back (2026-11-17): the same test failed, the line containing the phone number.
+ *   7. (2026-11-21) `moveIn` answered its home without calling `chat()`: "move-in copies the Worker's chat in" failed.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
@@ -280,6 +281,54 @@ describe("TexChat runs the Worker's chat object", () => {
     } finally {
       console.log = realLog;
     }
+  });
+
+  it("move-in copies the Worker's chat in with no text, and home says where it is answered (Dev2's chat first, 2026-11-21)", async () => {
+    controlPlane();
+    const worker = fakeWorker();
+    const { chat, storage } = chatObject(worker.rpc);
+    const before = await chat.fetch(new Request("https://chat/home"));
+    assert.deepEqual(await before.json(), { home: "worker" });
+    const moved = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
+    const body = await moved.json();
+    assert.equal(body.home, "gateway");
+    assert.equal(body.keys, 1);
+    assert.equal((await worker.old.get("__inbox_place")).movedTo, "gateway");
+    assert.deepEqual(await storage.get("history:1"), { text: "an older line" });
+    // Asked again: nothing is copied twice.
+    await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
+    assert.equal(worker.calls.move.length, 1);
+    // A text after is queued here, as a handed-over one is.
+    assert.deepEqual(await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { status: 200, body: { outcome: "queued" } });
+    const bad = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: "" }) }));
+    assert.equal(bad.status, 400);
+  });
+
+  it("move-in refused by a busy Worker object answers worker and leaves it answering", async () => {
+    controlPlane();
+    const worker = fakeWorker({ refuseMove: true });
+    const { chat, storage } = chatObject(worker.rpc);
+    const moved = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
+    assert.deepEqual(await moved.json(), { home: "worker", refused: true });
+    assert.equal(await storage.get("history:1"), undefined);
+  });
+
+  it("no text is answered twice across a move: a hand-over whose answer was lost, sent again by the Worker's moved object, is a duplicate", async () => {
+    controlPlane();
+    const worker = fakeWorker();
+    const { chat, storage, asked, work } = chatObject(worker.rpc);
+    // The hand-over queued the text here, but the Worker never read the answer (a dropped connection): it falls back to
+    // its own object (`handOver.ts`), which has moved, and passes the same text on (`inboxMove.ts` `forward`).
+    assert.deepEqual(await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { status: 200, body: { outcome: "queued" } });
+    const again = await chat.fetch(new Request("https://chat/chat-call/accept", { method: "POST", headers: { "x-inbox-name": PHONE }, body: JSON.stringify(message("m1", "hi")) }));
+    assert.deepEqual(await again.json(), { outcome: "duplicate" });
+    // And the webhook's own retry of it, handed over again.
+    assert.deepEqual(await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { status: 200, body: { outcome: "duplicate" } });
+    assert.equal([...(await storage.list({ prefix: "pending:" })).values()].length, 1);
+    await chat.alarm();
+    await Promise.allSettled(work);
+    assert.deepEqual(asked, ["hi"]);
+    assert.equal(worker.calls.line.filter((call) => call.method === "sendText").length, 1);
   });
 
   it("a copy the Worker refuses leaves the Worker answering", async () => {

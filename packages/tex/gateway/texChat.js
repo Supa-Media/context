@@ -67,6 +67,9 @@ export function texChatClass({ gateway, texts }) {
       if (request.method === "GET" && url.pathname.startsWith("/app/picture/")) return await serveAppPictureById(this.state.storage, url.pathname.slice("/app/picture/".length));
       if (request.method === "GET" && url.pathname.startsWith("/app/file/")) return await serveAppFileById(this.state.storage, url.pathname.slice("/app/file/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
+      // Staff moving one chat here before the rest (`packages/lab/gateway/labSandbox/intake.js`): its home, and the copy.
+      if (request.method === "GET" && url.pathname === "/home") return Response.json(await homeOf(this.state.storage));
+      if (request.method === "POST" && url.pathname === "/move-in") return await this.moveIn(request);
       return Response.json({ error: "unknown_route" }, { status: 404 });
     }
 
@@ -89,6 +92,17 @@ export function texChatClass({ gateway, texts }) {
       const answer = await chat.fetch(new Request(`https://inbox${path}${body.kind === "one" || body.kind === "group" ? origin : ""}`, init));
       const outcome = answer.ok ? await answer.json().catch(() => ({})) : {};
       return Response.json({ outcome: typeof outcome.outcome === "string" ? outcome.outcome : answer.ok ? "queued" : "failed" }, { status: answer.ok ? 200 : 503 });
+    }
+
+    /**
+     * Copies the Worker's chat in now, with no text to answer (`packages/lab/gateway/labSandbox/intake.js`): the same
+     * copy a handed-over text starts, so the chat's later texts and calls are answered here. Answers its home after.
+     */
+    async moveIn(request) {
+      const body = await request.json().catch(() => null);
+      if (body === null || typeof body.inbox !== "string" || !INBOX_NAME.test(body.inbox)) return Response.json({ error: "bad_body" }, { status: 400 });
+      const chat = await this.chat(body.inbox);
+      return Response.json({ ...(await homeOf(this.state.storage)), ...(chat === null ? { refused: true } : {}) });
     }
 
     /** A call the Worker's moved object passed on (`inboxMove.ts` `forward`): answered by the copy here. */
@@ -156,6 +170,12 @@ export function texChatClass({ gateway, texts }) {
       return this.inner;
     }
   };
+}
+
+/** Where a chat is answered, read from this object's own place: "gateway" once copied in (or born here), else "worker". */
+export async function homeOf(storage) {
+  const place = await storage.get(PLACE_KEY);
+  return place?.arrivedAt === undefined ? { home: "worker" } : { home: "gateway", movedAt: place.arrivedAt, keys: Number.isSafeInteger(place.keys) ? place.keys : 0 };
 }
 
 /**
