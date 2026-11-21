@@ -10,6 +10,7 @@
  */
 
 import { phaseTook } from "../../mcp/phase.js";
+import { afterWordSearch } from "../wordsFirst.js";
 
 /** Build calls one search sends behind its response, each at most `BUILD_PASSAGES` passages, one after another. */
 export const MEANING_BUILD_CALLS = 8;
@@ -65,9 +66,13 @@ export function meaningBuildBehind(store) {
 export function objectMeaningWarm(store) {
   const object = store?.objectMeaning ?? null;
   if (object === null || typeof object.meaningWarm !== "function") return Promise.resolve();
-  const sent = Date.now();
-  return Promise.resolve()
-    .then(() => object.meaningWarm())
+  let sent = 0;
+  // After the word search has answered, which would otherwise queue behind this read (`../wordsFirst.js`).
+  return afterWordSearch(store)
+    .then(() => {
+      sent = Date.now();
+      return object.meaningWarm();
+    })
     .then((answer) => {
       // Timed by whether it did the reading (`inside:meaning_warm_loaded`) or found it done (`inside:meaning_warm_held`).
       if (answer?.served === true) phaseTook(store, answer.loaded === true ? "meaning_warm_loaded" : "meaning_warm_held", Date.now() - sent);
