@@ -12,8 +12,8 @@
  */
 
 import { builtinMeter } from "./jobLog.js";
-import { AgentRefusal, openProvider, runTurn } from "./turn.js";
-import { builtinModel, canRunBuiltin } from "./builtin.js";
+import { AgentRefusal, runTurn } from "./turn.js";
+import { builtinModel, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { TEX_CONFIG } from "./texConfig.js";
@@ -161,6 +161,18 @@ async function chatOf(ledger, { now, timeZone, session }) {
 }
 
 /**
+ * May this run spend the built-in model? As `openProvider` (`turn.js`) asks for a text, but said as a note run: the
+ * app's own grant may spend one (`apps/convex/functions/builtinModel.ts`), counted on the same cap.
+ */
+async function openNoteRunModel(controlPlane, session, env) {
+  if (!hasBuiltinModel(env)) throw new AgentRefusal("no_provider", "No model is available for this run.");
+  const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId, { noteRun: true });
+  if (verdict?.allowed === true) return;
+  if (verdict?.reason === "daily_cap") throw new AgentRefusal("daily_limit", "Today's questions are used up.");
+  throw new AgentRefusal("no_provider", "No model is available for this run.");
+}
+
+/**
  * Run Tex in a note: `{ outcome, answer, replace, sources, calls, model, usage, ms }`, where outcome is "answered", or a
  * refusal ("daily_limit", "no_provider", "model_unavailable"). Writes nothing: not the note, not the thread, not the
  * ledger. `onStep({ id, label, state, ms?, source? })` is told as each read starts ("running") and ends ("done").
@@ -169,7 +181,7 @@ async function chatOf(ledger, { now, timeZone, session }) {
 export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null }) {
   const started = Date.now();
   try {
-    await openProvider(controlPlane, session, undefined, env);
+    await openNoteRunModel(controlPlane, session, env);
   } catch (error) {
     if (error instanceof AgentRefusal) return { outcome: error.code === "daily_limit" ? "daily_limit" : "no_provider" };
     return { outcome: "model_unavailable" };
@@ -177,7 +189,7 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   const wanted = typeof node?.model === "string" ? TEX_CONFIG.models?.[node.model] : null;
   const chosen = typeof wanted === "string" && canRunBuiltin(wanted, env) ? wanted : null;
   const model = chosen ?? builtinModel(env);
-  const meter = builtinMeter(controlPlane, session, model, now);
+  const meter = builtinMeter(controlPlane, session, model, now, { noteRun: true });
   const rounds = node?.rounds ?? RUN_ROUNDS;
   const chatHistory = await chatOf(ledger, { now, timeZone, session });
 

@@ -21,6 +21,8 @@ export async function gatewayBuiltinModelHandler(ctx: ActionCtx, body: Record<st
     tryIt: body.tryIt === true,
     // Only `true` asks for a background job's turn; the mutation believes it from a chat's grant only.
     background: body.background === true,
+    // Only `true` asks for the note-comments exception; the mutation believes it from the app's own grant only.
+    noteRun: body.noteRun === true,
   });
   return json({ verdict });
 }
@@ -45,6 +47,7 @@ export async function gatewayBuiltinUsageHandler(ctx: ActionCtx, body: Record<st
     ms: count("ms"),
     tryIt: body.tryIt === true,
     background: body.background === true,
+    noteRun: body.noteRun === true,
   });
   return json({ recorded });
 }

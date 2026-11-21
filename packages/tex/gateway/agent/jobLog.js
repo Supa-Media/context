@@ -137,7 +137,7 @@ export async function refusedRun(error, log) {
 }
 
 /** Report a turn's built-in usage to the control plane. A meter that can't be reached costs a report, never the turn. */
-export function builtinMeter(controlPlane, session, model, started) {
+export function builtinMeter(controlPlane, session, model, started, { noteRun = false } = {}) {
   return async (usage, failed, answering = model) => {
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
@@ -149,6 +149,7 @@ export function builtinMeter(controlPlane, session, model, started) {
         decision: 0,
         failed,
         ms: Date.now() - started,
+        ...(noteRun ? { noteRun: true } : {}),
       });
     } catch {
       // A meter that could not be reached costs us a report, not the turn.
