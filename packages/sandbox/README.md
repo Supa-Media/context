@@ -16,6 +16,7 @@ Nothing here is deployed. The GitHub workflows run these files directly with `no
 | `src/smoke.mjs` | Proves the deployed preview answers end to end | `deploy-preview.yml` |
 | `src/browser.mjs` | Opens the preview's `/login` in Chromium and fails on page errors or failed requests to its own hosts | `deploy-preview.yml` |
 | `src/sign-in-code.mjs` | Mails a persona's sign-in code to the team inbox | `preview-sign-in-code.yml` |
+| `src/screenshots.mjs` | Signs a persona in and screenshots a preview at the desktop, medium and phone layouts | `preview-screenshots.yml` |
 | `src/cleanup.mjs` | Deletes a closed pull request's preview, and sweeps for any left behind | `preview-cleanup.yml`, `deploy-preview.yml` |
 | `src/teardown.mjs` | Empties buckets, revokes tokens, deletes the Convex preview, and verifies nothing is left | `cleanup.mjs` |
 | `src/resources.mjs` | The registry of everything a preview owns (with its teardown) or only uses (with the reason it needs none) | `resources-check.mjs`, its test |
@@ -39,7 +40,7 @@ These pieces run inside a deployed app, so they stay with that app:
   `apps/convex/functions/lib/previewDeployment.ts`. Convex deploys only what is under `apps/convex/functions`.
 - **The `env.preview` sections:** the three Worker configs, `apps/mcp/wrangler.toml`, `apps/agent/wrangler.jsonc` and
   `infra/router/wrangler.jsonc`, which `src/config.mjs` renders.
-- **The workflows:** `.github/workflows/deploy-preview.yml`, `preview-cleanup.yml` and `preview-sign-in-code.yml`.
+- **The workflows:** `.github/workflows/deploy-preview.yml`, `preview-cleanup.yml`, `preview-sign-in-code.yml` and `preview-screenshots.yml`.
 
 Tests: `pnpm --filter @context/sandbox test`. In CI, `seed.test.mjs` and `smoke.test.mjs` are left out because they
 import the Convex client.

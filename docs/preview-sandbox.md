@@ -24,6 +24,13 @@ and the code. "Checked on every preview" means the deploy's smoke test
    sends no mail.
 3. Text Tex in the app's Tex chat, or at `/texts-simulator` on the texting
    assistant's host from a 555-01XX number. Nothing reaches a real phone.
+4. Look at it signed in without a person: run **Actions → Preview screenshots**
+   with the pull request number, a persona, and the shots (paths, each with
+   optional `click:`/`key:`/`wait:`/`type:` steps). It signs the persona in
+   inside the runner and uploads pictures at the desktop (1440), medium (1100)
+   and phone (390) layouts as the run's artifact
+   (`packages/sandbox/src/screenshots.mjs`). Agents check a UI change this way
+   before it merges.
 
 ## Real, as in production
 
