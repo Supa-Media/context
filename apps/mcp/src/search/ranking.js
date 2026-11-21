@@ -6,12 +6,15 @@
  *   rrfK          the reciprocal-rank constant: a hit at rank r adds 1 / (rrfK + r + 1). The usual 60.
  *   loosePenalty  places a loose (any-word) word hit is counted lower across workspaces (10).
  *   titleWeight   the bonus for each share of the query's terms a hit's title or file name holds (1/305).
- *   phraseBonus   the bonus when the whole query is a phrase in the hit (1/122).
+ *   phraseBonus   the bonus when the whole query is a phrase in the hit's title or file name (1/122).
+ *   snippetPhraseBonus  the same bonus when the phrase is only in its text (1/122 on main; a note quoting the
+ *                 question, a saved chat or a hand-off, earns it there).
  *   boostFactor   the multiplier a workspace a caller names with `boost` gets (1.2).
  *   meaningFloor  the closeness a note found only by meaning needs once the words found a note with every word (0.5).
  *   looseReads    notes found only by meaning one search may add when no note held every word (6).
  *   hits          most hits a search across every workspace shows (12).
  *   logPrior      what an archived note or a log scores, as a share of a live note with the same evidence (0.5).
+ *   inboxPrior    the same for a note captured in the Inbox and not yet filed, outside its log folders (1 on main).
  *
  * In one workspace, "Merge words and meaning" (`merge`), "Lower logs and archive" (`prior`) and "Add meaning-only
  * notes" (`snippets`) rank by their own settings; "Rank across workspaces" (`fuse`) ranks every workspace's hits

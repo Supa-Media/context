@@ -58,6 +58,9 @@ export function notePrior(path, ranking = DEFAULT_RANKING) {
   if (segments.length === 1 && top === ACTIVITY_PATH) return LOG_PRIOR;
   if (topLevelRole(top) === "archive") return LOG_PRIOR;
   if (topLevelRole(top) === "inbox" && INBOX_LOG_FOLDERS.includes(second?.toLowerCase())) return LOG_PRIOR;
+  // Anything else in the Inbox is captured and not yet filed: a filed note with the same evidence is the one the
+  // person keeps (`inboxPrior`, 1 on main).
+  if (topLevelRole(top) === "inbox" && segments.length > 1) return ranking.inboxPrior ?? 1;
   if (top === TEX_FOLDER && TEX_LOG_FOLDERS.includes(second)) return LOG_PRIOR;
   if (segments.slice(0, -1).some((segment) => LOG_FOLDERS_ANYWHERE.includes(segment.toLowerCase()))) return LOG_PRIOR;
   return 1;
