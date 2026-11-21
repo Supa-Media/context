@@ -411,6 +411,24 @@ export function submitDraft(view: EditorView, body: string): string | null {
   return run(view, draftTransaction(view.state, body));
 }
 
+/**
+ * Who hears of a comment somebody sent, after it is written: Tex in the note
+ * (`tex/runner.ts`) answers one that names it. Both the card and the phone's
+ * sheet send through `sendComment`, so a reply from either reaches Tex.
+ */
+export type CommentSent = (view: EditorView, sent: { thread: string; before: CommentThread | null; body: string }) => void;
+export const commentSent = Facet.define<CommentSent>();
+
+/** Send a comment: a new thread from the draft, or a reply on `thread`. Returns an error to show, or null. */
+export function sendComment(view: EditorView, thread: string | null, body: string): string | null {
+  const before = thread === null ? null : (view.state.field(commentsParsed).threads.find((one) => one.id === thread) ?? null);
+  const error = thread === null ? submitDraft(view, body) : addToThread(view, thread, "comment", body);
+  if (error !== null) return error;
+  const id = thread ?? view.state.field(commentUi).active;
+  if (id !== null) for (const listener of view.state.facet(commentSent)) listener(view, { thread: id, before, body });
+  return null;
+}
+
 /** Reply to, resolve or reopen a thread. Returns an error to show, or null. */
 export function addToThread(view: EditorView, thread: string, kind: "comment" | "resolved" | "reopened", body?: string): string | null {
   return run(view, threadTransaction(view.state, thread, kind, body));

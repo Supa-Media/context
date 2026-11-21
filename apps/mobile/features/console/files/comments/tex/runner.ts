@@ -22,7 +22,7 @@ import {
   type CommentEvent,
   type CommentThread,
 } from "@context/shared/src/comments.cjs";
-import { commentHost, commentsParsed } from "../extension";
+import { commentHost, commentSent, commentsParsed } from "../extension";
 import { TEX_AUTHOR, texInNoteHost, type NoteRunEvent, type NoteRunRequest, type TexInNoteHost } from "./contract";
 import { pendingDecorations } from "./pending";
 
@@ -412,5 +412,14 @@ const pendingField = StateField.define<DecorationSet>({
  * provides the thread state the decorations read.
  */
 export function texInNote(): Extension {
-  return [texRuns, peerTexRuns, pendingField, texRelay((state) => state.field(texRuns, false))];
+  return [
+    texRuns,
+    peerTexRuns,
+    pendingField,
+    texRelay((state) => state.field(texRuns, false)),
+    // A comment sent from the card or the phone's sheet: Tex answers when it is named, or is in the thread already.
+    commentSent.of((view, { thread, before, body }) => {
+      if (view.state.facet(texInNoteHost) !== null && shouldAskTex(before, body)) startTexRun(view, thread, body);
+    }),
+  ];
 }
