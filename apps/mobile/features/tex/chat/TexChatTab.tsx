@@ -109,12 +109,27 @@ export function TexChatView({
   const [now, setNow] = useState(() => Date.now());
   const log = useRef<ScrollView>(null);
   const stuck = useRef(true);
+  /*
+    Whether the log has been put at its end since it was last shown. Until it
+    has, it jumps there; after, new lines glide in. The chat is mounted hidden
+    behind the panel (`AsidePanel`), so showing it, or its history arriving,
+    must not animate a scroll from the first line down (Dev2, 2026-11-21:
+    "it just rushes and scrolls all the way down").
+  */
+  const placed = useRef(false);
+  const rows = useRef(0);
+  const toEnd = () => {
+    log.current?.scrollToEnd({ animated: placed.current });
+    // An empty log has no end to be at yet: the history arriving still jumps rather than glides.
+    if (rows.current > 0) placed.current = true;
+  };
   const ys = useRef(new Map<string, number>());
   // The rows the first load showed. A Tex text that arrives after it types in; these never do.
   const firstLoad = useRef<Set<string> | null>(null);
 
   const lines = view.lines;
   const timeline = chatTimeline(lines, approvals);
+  rows.current = timeline.length;
   if (firstLoad.current === null && view.phase === "listed") {
     firstLoad.current = new Set(lines.flatMap((line) => (isPending(line) ? [] : [line.id])));
   }
@@ -202,8 +217,20 @@ export function TexChatView({
           stuck.current = contentSize.height - (contentOffset.y + layoutMeasurement.height) < STICK_PX;
         }}
         scrollEventThrottle={64}
-        onContentSizeChange={() => {
-          if (stuck.current) log.current?.scrollToEnd({ animated: true });
+        onLayout={(event) => {
+          // Hidden, the log has no height; shown again, it opens at its end without a glide.
+          if (event.nativeEvent.layout.height === 0) {
+            placed.current = false;
+            return;
+          }
+          if (!placed.current) {
+            stuck.current = true;
+            toEnd();
+          }
+        }}
+        onContentSizeChange={(_width, height) => {
+          if (height === 0) return;
+          if (stuck.current) toEnd();
         }}
         testID="tex-log"
       >
