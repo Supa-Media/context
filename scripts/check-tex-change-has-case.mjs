@@ -90,7 +90,7 @@ function selfTest() {
 }
 
 /** HEAD's first parent when HEAD is a merge (fetched if the shallow checkout lacks it), else null. */
-function mergedOnto() {
+export function mergedOnto() {
   try {
     const parents = execFileSync("git", ["cat-file", "-p", "HEAD"], { encoding: "utf8" })
       .split("\n")

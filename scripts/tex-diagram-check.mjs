@@ -36,6 +36,7 @@ import { CONFIG, PAGE as DIAGRAM, generatedProblems } from "./tex-architecture.m
 import { FOLDER as PROMPT_FOLDER, MODULE as PROMPT_MODULE, moduleIsCurrent as promptIsCurrent } from "./tex-prompt-module.mjs";
 import { FOLDER as TRAINING_FOLDER, MODULE as TRAINING_MODULE, moduleIsCurrent as trainingIsCurrent } from "./tex-training-module.mjs";
 import { readTexConfig } from "./lib/texConfigFile.mjs";
+import { mergedOnto } from "./check-tex-change-has-case.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export { DIAGRAM };
@@ -209,7 +210,9 @@ function check(base) {
     problems.push(String(error.message));
   }
   if (base) {
-    const changed = execFileSync("git", ["diff", "--name-only", base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
+    // The checkout is the pull request merged onto main as it is now: diff from that main, not the event's older base,
+    // which counted every Tex file merged since as this pull request's (as check-tex-change-has-case.mjs, #3870).
+    const changed = execFileSync("git", ["diff", "--name-only", mergedOnto() ?? base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
     problems.push(...changeProblems(changed, config, process.env.TEX_PR_BODY));
   }
   return problems;
