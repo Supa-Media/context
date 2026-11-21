@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { noteRunTools, noteRunCallTool, noteRunQuestion, parseNoteRun, stepLabel, runNoteRun } from "../../../packages/tex/gateway/agent/noteRun.js";
+import { noteRunTools, noteRunCallTool, noteRunQuestion, parseNoteRun, stepLabel, runNoteRun, withInsert } from "../../../packages/tex/gateway/agent/noteRun.js";
 
 const J19 = "Study/Judges/Judges 19.md";
 const G19 = "Study/Genesis/Genesis 19.md";
@@ -86,10 +86,10 @@ test("a collapsed point asks for the text to insert there, not a change to words
 });
 
 test("the answer is read from JSON, tolerantly; anything else is the raw words", () => {
-  assert.deepEqual(parseNoteRun('Here: {"answer":"Done, one line.","replace":"the new words"}'), { answer: "Done, one line.", replace: "the new words" });
-  assert.deepEqual(parseNoteRun('{"answer":"Kept as it was.","replace":null}'), { answer: "Kept as it was.", replace: null });
-  assert.deepEqual(parseNoteRun("Plain words, no JSON."), { answer: "Plain words, no JSON.", replace: null });
-  assert.deepEqual(parseNoteRun('{"answer":42,"replace":"x"}'), { answer: '{"answer":42,"replace":"x"}', replace: null }, "a non-string answer is refused");
+  assert.deepEqual(parseNoteRun('Here: {"answer":"Done, one line.","replace":"the new words"}'), { answer: "Done, one line.", replace: "the new words", insert: null });
+  assert.deepEqual(parseNoteRun('{"answer":"Kept as it was.","replace":null}'), { answer: "Kept as it was.", replace: null, insert: null });
+  assert.deepEqual(parseNoteRun("Plain words, no JSON."), { answer: "Plain words, no JSON.", replace: null, insert: null });
+  assert.deepEqual(parseNoteRun('{"answer":42,"replace":"x"}'), { answer: '{"answer":42,"replace":"x"}', replace: null, insert: null }, "a non-string answer is refused");
   assert.equal(parseNoteRun(`{"answer":"${"y".repeat(1600)}","replace":null}`).answer.length, 1500, "the answer is held to 1500 characters");
   const long = parseNoteRun(`{"answer":"ok","replace":"${"z".repeat(20_001)}"}`);
   assert.equal(long.replace, null, "a replacement over 20000 characters is refused");
@@ -249,4 +249,32 @@ test("a refused or missing model says so and never throws", async () => {
   assert.equal((await runNoteRun(runArgs({ env: {} }).args)).outcome, "no_provider");
   const broken = runArgs({ ai: { async run() { throw new Error("upstream down"); } } });
   assert.equal((await runNoteRun(broken.args)).outcome, "model_unavailable");
+});
+
+// Dev2, 2026-11-21: "give me a basic plot outline here" on a highlighted premise got an answer in the thread, because
+// the only edit was the highlighted words' whole new text. An addition after them is its own shape now.
+test("an ask for content is added after the highlighted words, which stay as they are", async () => {
+  const steps = [];
+  const ai = fakeAi([reply('{"answer":"Added an outline under the premise.","replace":null,"insert":"1. Framed\\n2. Thrown in\\n3. Vindicated"}')]);
+  const { args } = runArgs({ ai, onStep: (step) => steps.push(step) });
+  const out = await runNoteRun({ ...args, anchor: { text: "A film set in 2025", before: "# Pitch\n\n", after: "\n\nTest" }, ask: "give me a basic plot outline here" });
+  assert.equal(out.replace, "A film set in 2025\n\n1. Framed\n2. Thrown in\n3. Vindicated", "the words, then the addition as its own paragraph");
+  assert.equal(steps.find((s) => s.id === "step-think" && s.state === "done").label, "Adding below the selected words");
+});
+
+test("an insert joins a sentence after a space, stands alone at a point, and never beside a replacement", () => {
+  assert.equal(withInsert({ text: "cake", after: " on Saturday." }, "and candles"), "cake and candles");
+  assert.equal(withInsert({ text: "Agenda", after: " for the day" }, "- one\n- two"), "Agenda\n\n- one\n- two", "a block is its own paragraph");
+  assert.equal(withInsert({ text: "", before: "x", after: "" }, "A new line."), "A new line.");
+  assert.deepEqual(parseNoteRun('{"answer":"Fixed.","replace":"new words","insert":"more"}'), { answer: "Fixed.", replace: "new words", insert: null });
+  assert.deepEqual(parseNoteRun('{"answer":"Added.","replace":null,"insert":"  "}'), { answer: "Added.", replace: null, insert: null }, "a blank insert is no edit");
+  assert.equal(parseNoteRun(`{"answer":"ok","insert":"${"z".repeat(20_001)}"}`).insert, null, "an insert past the cap is the raw words");
+});
+
+test("the question asks Tex to act on asks for content, answer questions only, and take a follow-up as an insert", () => {
+  const q = noteRunQuestion({ path: J19, noteText: "# Pitch\n", anchor: { text: "A film", before: "", after: "" }, ask: "add it to the note", history: [], pending: null, chatHistory: "", audience: "only you" });
+  assert.match(q, /"insert"/);
+  assert.match(q, /do it in the note/);
+  assert.match(q, /add it to the note/);
+  assert.match(q, /Only a question/);
 });

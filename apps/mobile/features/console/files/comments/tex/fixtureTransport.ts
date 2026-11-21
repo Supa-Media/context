@@ -32,7 +32,7 @@ export function texInNoteFixture(): TexInNoteFixture | null {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * A scripted Tex: two steps, then a suggestion for the highlighted words and
+ * A scripted Tex: two steps, then a rewrite of the highlighted words and
  * a short answer, then `done`. Asks are kept so the log lists them, newest
  * first, like the gateway's.
  */
@@ -46,7 +46,8 @@ export function fakeNoteRunFetch(options: { stepMs?: number } = {}): TexInNoteFi
     }
     const body = JSON.parse(String(init?.body ?? "{}")) as { ask?: string; anchor?: { text?: string }; path?: string };
     const words = body.anchor?.text ?? "";
-    const replace = words === "" ? "Added by Tex." : `${words.replace(/[.\s]+$/, "")}, checked by Tex.`;
+    // A true rewrite, never the words with more after them, so the test sees the old words struck.
+    const replace = words === "" ? "Added by Tex." : `Checked by Tex: ${words.replace(/[.\s]+$/, "")}.`;
     const answer = words === "" ? "Added a line at your cursor. Keep or undo?" : "Rewrote the highlighted words. Keep or undo?";
     const runId = `fixture-${runs.length + 1}`;
     const encoder = new TextEncoder();
