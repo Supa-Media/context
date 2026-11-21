@@ -169,9 +169,11 @@ describe("on a phone", () => {
     const band = app.find("nav-band");
     expect(band).not.toBeNull();
     expect(app.find("context-strip")).toBeNull();
-    expect(band!.closest('[data-testid="app-frame"] > div')).not.toBe(
-      app.find("account-menu")!.closest('[data-testid="app-frame"] > div'),
-    );
+    // The bar is the account's and not the band's. (The frame wraps the bar and the body in one row at every
+    // density since 2026-11-21, so "a different child of the frame" no longer tells them apart.)
+    const bar = app.find("app-top-bar");
+    expect(bar!.contains(app.find("account-menu"))).toBe(true);
+    expect(bar!.contains(band)).toBe(false);
 
     // The two controls that used to be here, and the chip that never was.
     expect(app.find("frame-drawer-toggle")).toBeNull();
