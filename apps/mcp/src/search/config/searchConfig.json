@@ -245,11 +245,7 @@
       "file": "apps/mcp/src/search/stages.js addEvidence · evidence.js",
       "x": 1680,
       "y": 0,
-      "settings": {
-        "titleWeight": 0.003278688524590164,
-        "phraseBonus": 0.00819672131147541,
-        "snippetPhraseBonus": 0.00819672131147541
-      },
+      "settings": { "phraseBonus": 0.00819672131147541, "snippetPhraseBonus": 0, "titleWeight": 0.003278688524590164 },
       "inSchema": [
         { "name": "query", "type": "text" },
         { "name": "prefix", "type": "text" },
@@ -278,7 +274,7 @@
       "file": "apps/mcp/src/search/stages.js lowerByPath · priors.js",
       "x": 1920,
       "y": 0,
-      "settings": { "logPrior": 0.5, "inboxPrior": 1 },
+      "settings": { "inboxPrior": 0.5, "logPrior": 0.5 },
       "inSchema": [
         { "name": "query", "type": "text" },
         { "name": "prefix", "type": "text" },
@@ -396,17 +392,17 @@
       "x": 2880,
       "y": 110,
       "settings": {
-        "hits": 12,
-        "rrfK": 60,
-        "loosePenalty": 10,
-        "titleWeight": 0.003278688524590164,
-        "phraseBonus": 0.00819672131147541,
-        "snippetPhraseBonus": 0.00819672131147541,
-        "meaningFloor": 0.5,
-        "looseReads": 6,
         "boostFactor": 1.2,
+        "hits": 12,
+        "inboxPrior": 0.5,
         "logPrior": 0.5,
-        "inboxPrior": 1
+        "loosePenalty": 10,
+        "looseReads": 6,
+        "meaningFloor": 0.5,
+        "phraseBonus": 0.00819672131147541,
+        "rrfK": 60,
+        "snippetPhraseBonus": 0,
+        "titleWeight": 0.003278688524590164
       },
       "inSchema": [
         { "name": "query", "type": "text" },
