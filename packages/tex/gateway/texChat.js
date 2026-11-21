@@ -198,7 +198,7 @@ export function chatState(state, senderId) {
  * The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. `jobsHere`: this object's job calls
  * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
  */
-export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request), turnsHop = false }) {
+export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request) }) {
   const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppFile, serveAppPicture } = await import("../../../packages/tex/worker/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
@@ -214,13 +214,12 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
         if (!app) return Promise.resolve(new Response(null, { status: 404 }));
         return request.url.startsWith(`${APP_PICTURE_ORIGIN}/file/`) ? serveAppFile(state.storage, request.url) : serveAppPicture(state.storage, request.url);
       }
-      // An app chat's turn goes over a real hop to the gateway, as a phone's does from the texting Worker: in-process,
-      // the whole turn (its prompt, history and reads) lived in this object's isolate, which ran out of memory and was
-      // reset before the reply went (Dev2's 8:25 AM text, 2026-11-20; Dev2 chose the phone's route). Only when the hop
-      // itself cannot be made does the turn run here, as before. A background job's object (`texJob.js`, `turnsHop`) hops
-      // too: a job's part is the longest turn there is, and in-process it reset the job's isolate (three `/job-pass`
-      // memory resets 2026-11-20 and 11-21, the coffee-shop job's among them).
-      if ((app || turnsHop) && self !== "" && isTurnCall(request.url, self)) return hopToGateway(hop, request, (kept) => gateway().fetch(kept, env, ctx));
+      // Every chat's turn goes over a real hop to the gateway, as a phone's does from the texting Worker: in-process, the
+      // whole turn (its prompt, history and reads) lived in this object's isolate, which ran out of memory and was reset
+      // before the reply went (Dev2's 8:25 AM app text, 2026-11-20; three `TexJob` `/job-pass` resets, 2026-11-20 and
+      // 11-21). App chats, phone chats moved here and background jobs all take it (one path, Dev2 2026-11-21). Only when
+      // the hop itself cannot be made does the turn run here, as before.
+      if (self !== "" && isTurnCall(request.url, self)) return hopToGateway(hop, request, (kept) => gateway().fetch(kept, env, ctx));
       if (self !== "" && request.url.startsWith(`${self}/`)) return gateway().fetch(request, env, ctx);
       return fetch(request);
     },
@@ -267,7 +266,7 @@ export async function hopToGateway(hop, request, inProcess) {
   try {
     return await hop(request);
   } catch (error) {
-    console.log(JSON.stringify({ event: "app_turn_hop", outcome: "in_process", error: String(error?.name ?? "error").slice(0, 40) }));
+    console.log(JSON.stringify({ event: "turn_hop", outcome: "in_process", error: String(error?.name ?? "error").slice(0, 40) }));
     return inProcess(kept);
   }
 }

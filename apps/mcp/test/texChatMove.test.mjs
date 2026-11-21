@@ -1,7 +1,8 @@
 /**
  * The gateway's TexChat runs the texting Worker's chat object as it is (step 3 of Tex's config graph,
  * docs/architecture/tex.md): a text handed over copies the Worker's chat in, is queued here, and is answered by the
- * gateway's own `/agent` in-process, the answer going out on the Worker's line over its RPC. The Worker's side of the
+ * gateway's own `/agent` over a real hop (a fresh gateway isolate, here the same fake gateway reached through `fetch`),
+ * the answer going out on the Worker's line over its RPC. The Worker's side of the
  * move is its real code (`inboxMove.ts` `serveMoveOut`), run on an in-memory object.
  *
  * Runs under `--experimental-transform-types` with `test/tsRegister.mjs` (`test/run.mjs`), which load the Worker's
@@ -100,7 +101,7 @@ function fakeWorker({ refuseMove = false } = {}) {
   return { rpc, old, calls };
 }
 
-/** The gateway's own `/agent`, answered in-process, and the control plane over the network. */
+/** The gateway's own `/agent`, reached over the hop (`texChat.js` `hopToGateway`), and the control plane over the network. */
 function fakeGateway() {
   const asked = [];
   const gateway = {
@@ -119,8 +120,14 @@ function fakeGateway() {
 }
 
 const realFetch = globalThis.fetch;
+/** The gateway a turn's hop reaches: the chat object's own fake, set by `chatObject`. */
+let hopTarget = null;
+/** Each turn that went over the hop rather than in-process. */
+let hopped = [];
 afterEach(() => {
   globalThis.fetch = realFetch;
+  hopTarget = null;
+  hopped = [];
 });
 
 function controlPlane() {
@@ -128,6 +135,7 @@ function controlPlane() {
   globalThis.fetch = async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+    if (hopTarget !== null && url.origin === new URL(SELF).origin) return (hopped.push(url.pathname), hopTarget.fetch(request));
     seen.push(url.pathname);
     if (url.pathname === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
     return Response.json({});
@@ -137,6 +145,7 @@ function controlPlane() {
 
 function chatObject(rpc, extra = {}) {
   const { gateway, texts, asked } = fakeGateway();
+  hopTarget = gateway;
   const TexChat = texChatClass({ gateway: () => gateway, texts: () => texts });
   const storage = new DoStorage();
   const work = [];
@@ -186,6 +195,8 @@ describe("TexChat runs the Worker's chat object", () => {
     await chat.alarm();
     await Promise.allSettled(work);
     assert.deepEqual(asked, ["hi"]);
+    // The phone chat's turn left the object over the hop, not in its own isolate (one path, Dev2 2026-11-21).
+    assert.deepEqual(hopped, ["/agent"]);
     const sent = worker.calls.line.filter((call) => call.method === "sendText");
     assert.equal(sent.length, 1);
     assert.equal(sent[0].inbox, PHONE);
