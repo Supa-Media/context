@@ -117,4 +117,4 @@ function settingsOf(id, config = SEARCH_CONFIG) {
   return node && node.settings && typeof node.settings === "object" ? node.settings : {};
 }
 
-module.exports = { SEARCH_SCHEMA_VERSION, SEARCH_SETTINGS_BOUNDS, SETTINGS_OF, SEARCH_CONFIG, searchConfigProblems, searchConfigOf, settingProblem, settingsOf };
+module.exports = { NODE_KEYS, EDGE_KEYS, SEARCH_SCHEMA_VERSION, SEARCH_SETTINGS_BOUNDS, SETTINGS_OF, SEARCH_CONFIG, searchConfigProblems, searchConfigOf, settingProblem, settingsOf };

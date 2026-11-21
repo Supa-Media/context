@@ -5,6 +5,7 @@
 
 import { MODES } from "../../../tex/src/texGraph.cjs";
 import { GRAPHS, graphOf } from "../../../tex/src/texConfigSchema.cjs";
+import { ARCHITECTURES } from "../../../tex/src/architectures.cjs";
 import { TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 
 const MODE_MEANING = {
@@ -75,6 +76,7 @@ export const ACTIONS = [
   ["modules", "{ draft?, key?, full? }", "the Lab's Modules: every context module by where it comes from, edited or new, and the steps that read it; with `key`, its whole words, fingerprints and the word diff against main (`full` keeps unchanged runs whole)"],
   ["steps", "{ draft?, step? }", "the Tests page's steps: each step's cases out of 20 and its own, the steps no case tests yet; with step, its case form (the given and want boxes from its shapes, with choices), the key for a new case and its own cases"],
   ["marks", "{ draft, vs?: \"main\" | \"last\" }", "the canvas's change marks: steps changed (each field from → to, moved), added and removed, wires new and gone, against main or the draft before its last revision"],
+  ["search", '{ draft?, query, only?: ["@name", ...] }', "one search try-out on a draft's search config next to main's, as the Lab's Search page runs it: main's and the draft's ranked keys (1., 2., ...), each step's time, and the settings that differ; a draft with no search steps searches as main does; `only` narrows the workspaces asked. A try-out never counts as a real search: nothing is recorded in the search-quality numbers"],
   [
     "sandbox",
     '{ op: "chats" | "sets" | "shared" | "list" } | { op: "ledger", chatId: <a shared chat>, kinds?, day?, before?, after?, job?, jobs? } | { op: "link", sandboxId, draft? } | { op: "open", source: "chat" | "set" | "maya" | "shared", chatId?, convId?, draft?, base?, last? } | ' +
@@ -133,7 +135,11 @@ export function guideText(config = TEX_CONFIG) {
   };
   const stepLine = (n) => `  - ${n.id} (${n.label}): ${n.model}${n.effort ? ", effort " + n.effort : ""}${n.on === false ? ", OFF" : ""}${n.timeoutS ? `, ${n.timeoutS} s limit` : ""}${n.file ? ` · code: ${n.file}` : ""}`;
   const groupLines = (nodes) => [...byGroup(nodes).entries()].flatMap(([group, members]) => [group ? `- group "${group}" (${groups[group]?.label ?? group}):` : "- steps:", ...members.map(stepLine)]);
+  // A page another architecture owns (Search, ...; `architectures.cjs`) lists its own config's steps, with their settings.
+  const settingsOf = (n) => (n.settings && Object.keys(n.settings).length ? ` · settings ${Object.entries(n.settings).map(([k, v]) => `${k} ${v}`).join(", ")}` : "");
   const steps = GRAPHS.flatMap((page) => {
+    const own = ARCHITECTURES.find((a) => a.page === page);
+    if (own) return [`### ${own.label} graph (${own.config.nodes.length} steps, graph: "${page}", its own config ${own.file}; ${own.runs})`, ...own.config.nodes.map((n) => `${stepLine(n)}${settingsOf(n)}`)];
     const nodes = config.nodes.filter((n) => graphOf(n) === page);
     return nodes.length ? [`### ${page[0].toUpperCase()}${page.slice(1)} graph (${nodes.length} steps${page === "texting" ? "" : `, graph: "${page}"`})`, ...groupLines(nodes)] : [];
   });
@@ -147,6 +153,7 @@ export function guideText(config = TEX_CONFIG) {
     "1. Make a draft (`create`), and edit it (`edit`) while a person watches or edits the same draft in the Lab (`link`). Every answer says what the other side changed; `changes` with `wait` listens for them.",
     "2. Look at it (`snapshot`, with a `test` to see its timings), weigh it (`sim`, `compare`), `check` it, and run it on the bench (`config`).",
     "3. `promote` it. Promote opens the pull request that writes the draft into texConfig.json, regenerates docs/architecture/tex.md and the map every Tex agent is told; it merges only through CI and the replay gate. Nothing you do here changes live Tex before that merge.",
+    `Other architectures have configs of their own and live in the same draft on their own page: ${ARCHITECTURES.map((a) => `${a.label} (graph "${a.page}", ${a.file})`).join("; ")}. Their steps' \`settings\` (numbers, bounded by that config's schema) are edited with \`edit\` like any field, \`check\` checks them by that schema, \`get\`'s vsMain.own names each change, and Promote writes them into that file (and docs/architecture/<page>.md), never into texConfig.json. \`search\` { draft?, query, only? } runs one search on the draft's Search config next to main's and shows both rankings; it never counts as a real search.`,
     "A draft changes config only. A new kind of step, a prompt's words or a node's code need a pull request in Supa-Media/context: the node code goes in packages/tex/gateway/agent/graph/nodes/, words in packages/tex/src/texPrompt/, and the capability list in packages/tex/gateway/agent/capabilities.js. Then run node scripts/tex-architecture.mjs. Tex changes add the replay case that proves them (docs/decisions/testing/replay-gate.md).",
     "Training examples: a step reads a step's Training labels (the Training Set's conversations, apps/mcp/bench/sets/training) through the context module `train:<nodeId>` in its `ctx`, like any read: its own by default, another step's by naming that one, none when taken out. `train:<nodeId>` shows each label as a short example; `train:<nodeId>:all:<chars>` shows every Training conversation with a label for that node whole, labels under their messages, as many whole ones as fit in <chars> (the front door reads train:fd:all:66000). Change which a step reads with an edit of its `ctx`; change the examples themselves by changing the Training conversations, then run node scripts/tex-training-module.mjs (docs/decisions/testing/test-sets.md).",
     "",

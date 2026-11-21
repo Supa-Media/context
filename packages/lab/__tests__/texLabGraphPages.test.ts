@@ -35,9 +35,12 @@ describe("the canvas draws one page", () => {
     expect(night.edges.map((e) => `${e.from}>${e.to}`).sort()).toEqual(["aboutExpire>aboutCheck", "dream>aboutExpire", "dream>daysum", "nightly>dream", "nightly>housekeep"]);
     const day = onPage(G(), "texting");
     expect(day.nodes.some((n) => NIGHTLY.includes(n.id))).toBe(false);
-    expect(day.nodes.length + night.nodes.length).toBe(G().nodes.length);
+    // Search's three steps are on their own page (Dev2, 2026-11-21): between the three pages every step is counted once.
+    const search = onPage(G(), "search");
+    expect(ids(search)).toEqual(["each", "fuse", "search"]);
+    expect(day.nodes.length + night.nodes.length + search.nodes.length).toBe(G().nodes.length);
     // Every wire is on one page or the other: none crosses.
-    expect(day.edges.length + night.edges.length).toBe(G().edges.length);
+    expect(day.edges.length + night.edges.length + search.edges.length).toBe(G().edges.length);
     // The folded groups (main's are all texting) stay with the texting page and leave the nightly one.
     expect(Object.keys(day.folded ?? {}).length).toBeGreaterThan(0);
     expect(night.folded).toBeUndefined();
@@ -69,8 +72,8 @@ describe("the canvas draws one page", () => {
     const counts = stepCountsByPage(G());
     expect(counts.nightly).toBe(6);
     expect(counts.texting).toBeGreaterThan(20);
-    // Search is a page of its own (Dev2, 2026-11-21), counted even while it has no steps.
-    expect(counts.search).toBe(0);
+    // Search is a page of its own (Dev2, 2026-11-21): its three steps.
+    expect(counts.search).toBe(3);
   });
 
   test("a page's name from anywhere is a page, or Texting", () => {

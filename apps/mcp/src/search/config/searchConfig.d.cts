@@ -1,4 +1,6 @@
 /** Types for `searchConfig.cjs`: search's config as `searchConfig.json` has it, and its schema. */
+export declare const NODE_KEYS: readonly string[];
+export declare const EDGE_KEYS: readonly string[];
 export declare const SEARCH_SCHEMA_VERSION: number;
 export declare const SEARCH_SETTINGS_BOUNDS: Readonly<Record<string, { min: number; max: number; integer: boolean }>>;
 export declare const SETTINGS_OF: Readonly<Record<string, readonly string[]>>;

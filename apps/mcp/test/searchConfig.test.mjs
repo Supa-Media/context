@@ -147,3 +147,19 @@ test("a draft's path prior changes the order: an archived note ranks as a live o
 test("a draft out of bounds is refused, never half-used", async () => {
   await assert.rejects(findNotes(setup(), "private", [], new Map(), "renewal", "", { config: draftWith("fuse", { hits: 500 }) }), /hits must be from 1 to 50/);
 });
+
+// A Lab try-out is not a real search (Dev2, 2026-11-21): `record: false` answers the same and writes no counted row.
+// Rows are observed as searchQuality.test.mjs observes them: the store's own timing reporter, which carries the row.
+test("a Lab try-out with record: false writes no counted search row; a real search writes one", async () => {
+  const rows = [];
+  const home = setup();
+  home.reportSearchTiming = async (fields) => {
+    rows.push(fields);
+  };
+  const tried = await findNotes(home, "private", [], new Map(), "renewal", "", { record: false });
+  assert.ok(tried.hits.length >= 4, "the try-out still answers");
+  assert.equal(rows.length, 0, "no row for a try-out");
+  await findNotes(home, "private", [], new Map(), "renewal", "");
+  assert.equal(rows.length, 1, "a real search still writes its one row");
+  assert.equal(rows[0].found, true);
+});

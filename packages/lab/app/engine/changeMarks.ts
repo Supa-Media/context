@@ -47,6 +47,7 @@ export const FIELD_NAMES: Array<[keyof LabNode | "inSchema", string]> = [
   ["outSchema", "output"],
   ["icon", "icon"],
   ["graph", "page"],
+  ["settings", "settings"],
 ];
 
 export const wireKey = (e: Pick<LabEdge, "from" | "to" | "mode" | "when" | "unless">) => `${e.from}>${e.to}:${e.mode}:${(e.when || []).join("/")}:${(e.unless || []).join("/")}`;
@@ -68,6 +69,7 @@ export function fieldText(n: LabNode | null | undefined, name: string): string {
   if (k === "on" || k === "log") return v ? "yes" : "no";
   if (k === "outSchema" || k === "inSchema") return Array.isArray(v) && v.length ? (v as Array<{ name: string }>).map((f) => f.name).join(", ") : "free text";
   if (Array.isArray(v)) return v.join(", ") || "none";
+  if (k === "settings" && v && typeof v === "object") return Object.entries(v as Record<string, number>).map(([key, n]) => `${key} ${n}`).join(", ") || "none";
   return v === undefined || v === null || v === "" ? "none" : String(v);
 }
 

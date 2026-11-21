@@ -20,6 +20,9 @@ const mockLedger = jest.fn<(chat: string, q: { kinds?: string[] }) => Promise<un
 jest.mock("@context/lab/app/views/mine/useMine", () => ({ ledgerSource: () => ({ ledger: (chat: string, q: { kinds?: string[] }) => mockLedger(chat, q) }) }));
 
 const e = (x: Partial<LedgerEntry> & { id: string; kind: string }): LedgerEntry => ({ at: 1_000, ...x }) as LedgerEntry;
+// A commit's texConfig.json is Tex's config only: search's steps (tagged `graph: "search"`) are not in it, so the graph
+// of a commit is main's Tex side (Dev2, 2026-11-21).
+const TEX_SIDE_OF_MAIN = () => G().nodes.filter((n) => n.graph !== "search").map((n) => n.id);
 const T0 = Date.UTC(2026, 10, 14, 14);
 const CODE = "abc1234def5678";
 const version = { code: CODE, setup: "a1b2c3d4e5f6" };
@@ -149,7 +152,7 @@ describe("the graph of the time", () => {
     const b = (await graphAt(CODE, get as never))!;
     expect(get).toHaveBeenCalledTimes(1);
     expect(get.mock.calls[0][0]).toBe(`https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`);
-    expect(a.nodes.map((n) => n.id)).toEqual(G().nodes.map((n) => n.id));
+    expect(a.nodes.map((n) => n.id)).toEqual(TEX_SIDE_OF_MAIN());
     // Each caller's graph is its own: drawing or editing one never reaches the cache.
     a.nodes[0].label = "changed";
     expect(b.nodes[0].label).not.toBe("changed");
@@ -162,7 +165,7 @@ describe("the graph of the time", () => {
       (url.endsWith(`/${OLD_CONFIG_PATH}`) ? { ok: true, json: async () => TEX_CONFIG } : { ok: false, json: async () => null }) as never,
     );
     const g = await graphAt(CODE, get as never);
-    expect(g?.nodes.map((n) => n.id)).toEqual(G().nodes.map((n) => n.id));
+    expect(g?.nodes.map((n) => n.id)).toEqual(TEX_SIDE_OF_MAIN());
     expect(get.mock.calls.map((c) => c[0])).toEqual([
       `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/tex/src/texConfig.json`,
       `https://raw.githubusercontent.com/Supa-Media/context/${CODE}/packages/shared/src/texConfig.json`,
