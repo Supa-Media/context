@@ -5,10 +5,11 @@ import { Text } from "../../design/components/Text";
 import { radii, space, texChatType } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
-import { isPending, type AppChatRow, type AskChoice, type ChatLine, type ReactionEmoji } from "./appChatGateway";
+import { isPending, type AnswerChoice, type AppChatRow, type AskChoice, type ChatLine, type ReactionEmoji } from "./appChatGateway";
 import { TexChatBar } from "./TexChatBar";
 import { TexChatFileChip, formatFileSize } from "./TexChatFileChip";
 import { TexChatWords } from "./TexChatWords";
+import { TexAskCard } from "./TexAskCard";
 
 /** The longest a picture is drawn, in points. The row keeps its aspect; the overlay shows it whole. */
 export const PICTURE_WIDTH = 220;
@@ -33,6 +34,8 @@ export interface TexChatRowProps {
   /** Saves a file the row carries, by its id and name. */
   onDownloadFile?: (id: string, name: string) => void;
   onAnswer: (rowId: string, choice: AskChoice) => void;
+  /** A card's answer: send, with the words when the person changed them, or hold. */
+  onDecide: (rowId: string, choice: AnswerChoice, body?: string) => void;
   onReact: (rowId: string, emoji: ReactionEmoji) => void;
   onReply: (row: AppChatRow) => void;
   onEdit: (row: AppChatRow) => void;
@@ -116,9 +119,12 @@ export function TexChatRow(props: TexChatRowProps) {
 
   const row = line;
   const mine = row.who === "me";
+  // A card replaces the ask's text bubble and its old Approve and Decline block.
+  const card = row.ask?.card;
   const answered = props.answer !== undefined;
   const canAct = !row.unsent;
-  const showBar = canAct && (hovered || pinned || focused);
+  // A card carries its own reply arrow and its own buttons, so it gets no hover bar (the mock).
+  const showBar = canAct && card === undefined && (hovered || pinned || focused);
   const ownReaction = row.reactions?.find((reaction) => reaction.who === "me")?.emoji;
 
   // Every action settles the bar first: pressing one unpins it.
@@ -146,7 +152,7 @@ export function TexChatRow(props: TexChatRowProps) {
           {mine ? "You unsent a message" : "Tex unsent a message"}
         </Text>
       ) : (
-        <View style={[styles.column, mine ? styles.mine : styles.theirs]}>
+        <View style={[styles.column, card !== undefined ? styles.full : mine ? styles.mine : styles.theirs]}>
           {showBar ? (
             <TexChatBar
               rowId={row.id}
@@ -189,7 +195,9 @@ export function TexChatRow(props: TexChatRowProps) {
             </View>
           ) : null}
 
-          {row.text.length > 0 ? (
+          {card !== undefined ? (
+            <TexAskCard rowId={row.id} card={card} onDecide={props.onDecide} onReply={() => props.onReply(row)} />
+          ) : row.text.length > 0 ? (
             <Bubble mine={mine} styles={styles} reactions={row.reactions} reduced={reduced} lit={lit}>
               <TexChatWords text={row.text} mine={mine} onOpenNote={props.onOpenNote} />
             </Bubble>
@@ -203,7 +211,7 @@ export function TexChatRow(props: TexChatRowProps) {
             </Text>
           ) : null}
 
-          {row.ask !== undefined && answered ? (
+          {card === undefined && row.ask !== undefined && answered ? (
             <View style={styles.askCard} testID={`tex-answer-${row.id}`}>
               <Text variant="meta" style={styles.answerText}>
                 {props.answer === "approve" ? "Approved" : "Declined"}
@@ -211,7 +219,7 @@ export function TexChatRow(props: TexChatRowProps) {
             </View>
           ) : null}
 
-          {row.ask !== undefined && !answered && props.askOpen ? (
+          {card === undefined && row.ask !== undefined && !answered && props.askOpen ? (
             <View style={styles.askCard}>
               <Text variant="meta" style={styles.askHeading}>
                 Waiting for your OK
@@ -415,6 +423,7 @@ const makeStyles = (colors: Colors) =>
     theirs: { alignSelf: "flex-start", alignItems: "flex-start", maxWidth: "86%" },
     alignEnd: { alignSelf: "flex-end" },
     alignStart: { alignSelf: "flex-start" },
+    full: { alignSelf: "stretch", maxWidth: "100%" },
     meta: { color: colors.muted },
     unsent: { color: colors.muted, fontStyle: "italic" },
     failed: { color: colors.critText },

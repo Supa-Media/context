@@ -1,22 +1,20 @@
 import { StyleSheet, View } from "react-native";
-import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { argsText, askedLine, clientLine, expiryLine } from "../../approvals/copy";
+import { askedLine, clientLine, expiryLine } from "../../approvals/copy";
 import type { Approval, DecisionAction } from "../../approvals/gateway";
 import type { ApprovalCardState } from "./approvalTimeline";
-
-/** The heading over a card that is waiting for the person's yes. */
-export const APPROVAL_HEADING = "Waiting for your OK";
+import { WAITING_HEAD } from "./TexAskCard";
+import { AskButton, AskFace, SendingLine, type FaceField, type FaceHead } from "./TexAskFace";
 
 /**
- * A held call from an AI client, drawn as a card in the Tex log on Tex's side.
+ * A held call from an AI client, drawn as a card in the Tex log on Tex's side, on the same face as Tex's own asks.
  *
- * Draws what it is given and decides nothing: a press goes back up through
- * `onDecide`, and the hook owns whether it took. Text is drawn as words only.
- * A vault payment's card and a vault key's first use run nothing, so their
- * arguments are not drawn: the tool and its arguments are for a call that runs.
+ * Draws what it is given and decides nothing: a press goes back up through `onDecide`, and the hook owns whether it
+ * took. The tool's name and its raw arguments are not drawn. A `send_email` call is drawn as its fields and its body;
+ * any other call as its summary and its detail. A vault payment's card and a vault key's first use run nothing, so
+ * they say so and carry no buttons beyond the decision.
  */
 export function TexApprovalCard({
   approval,
@@ -35,22 +33,47 @@ export function TexApprovalCard({
   const waiting = state === "pending" || state === "busy";
   const busy = state === "busy";
   const vaultUse = approval.kind === "vault_use";
-  const nothingRuns = vaultUse || approval.kind === "vault_pay";
+  const email = emailOf(approval);
+  const sendLabel = email !== null ? "Send" : "Go ahead";
 
-  return (
-    <View style={styles.card} testID={`tex-approval-${approval.id}`}>
-      {waiting ? (
-        <Text variant="meta" style={styles.heading}>
-          {APPROVAL_HEADING}
-        </Text>
-      ) : null}
-      <Text variant="body" style={styles.summary}>
-        {approval.summary}
-      </Text>
-      <Text variant="foot" style={styles.muted}>
-        {[clientLine(approval.client), askedLine(approval.createdAt, now), ...(waiting ? [expiryLine(approval.expiresAt, now)] : [])].join(" · ")}
-      </Text>
-      {approval.kind === "vault_pay" && waiting ? (
+  const head = headOf(approval.id, state);
+  const fields: FaceField[] | undefined = email !== null ? emailFields(email) : undefined;
+
+  const actions = waiting ? (
+    busy ? (
+      <SendingLine testID={`tex-approval-busy-${approval.id}`} />
+    ) : (
+      <>
+        {vaultUse ? (
+          <AskButton
+            label="Yes, from now on"
+            variant="ghost"
+            onPress={() => onDecide(approval.id, "approve_always")}
+            accessibilityLabel={`Yes, from now on: ${approval.summary}`}
+            testID={`tex-approval-always-${approval.id}`}
+          />
+        ) : null}
+        <AskButton
+          label={sendLabel}
+          variant="primary"
+          onPress={() => onDecide(approval.id, "approve")}
+          accessibilityLabel={`Approve: ${approval.summary}`}
+          testID={`tex-approval-approve-${approval.id}`}
+        />
+        <AskButton
+          label="Not now"
+          variant="ghost"
+          onPress={() => onDecide(approval.id, "deny")}
+          accessibilityLabel={`Decline: ${approval.summary}`}
+          testID={`tex-approval-decline-${approval.id}`}
+        />
+      </>
+    )
+  ) : null;
+
+  const footer = (
+    <View style={styles.footer}>
+      {waiting && approval.kind === "vault_pay" ? (
         <Text variant="foot" style={styles.muted} testID={`tex-approval-pay-${approval.id}`}>
           Allowing fills the card once, on this site only, in the next 10 minutes. Tex tells you the total before it pays.
         </Text>
@@ -60,100 +83,93 @@ export function TexApprovalCard({
           Audience: {approval.audience}
         </Text>
       ) : null}
-      {approval.detail !== undefined ? (
-        <Text variant="body" style={styles.detail} selectable>
-          {approval.detail}
+      <Text variant="foot" style={styles.muted}>
+        {[clientLine(approval.client), askedLine(approval.createdAt, now), ...(waiting ? [expiryLine(approval.expiresAt, now)] : [])].join(" · ")}
+      </Text>
+      {!waiting && note !== null ? (
+        <Text variant="foot" style={styles.muted} testID={`tex-approval-note-${approval.id}`}>
+          {note}
         </Text>
       ) : null}
-      {nothingRuns ? null : (
-        <View style={styles.args}>
-          <Text variant="mono" style={styles.tool}>
-            {approval.tool}
-          </Text>
-          <Text variant="mono" selectable>
-            {argsText(approval.args)}
-          </Text>
-        </View>
-      )}
-
-      {waiting ? (
-        <View style={styles.actions}>
-          {vaultUse ? (
-            <Button
-              label="Yes, from now on"
-              variant="decision"
-              disabled={busy}
-              onPress={() => onDecide(approval.id, "approve_always")}
-              accessibilityLabel={`Yes, from now on: ${approval.summary}`}
-              testID={`tex-approval-always-${approval.id}`}
-            />
-          ) : null}
-          <Button
-            label="Approve"
-            variant="accent"
-            disabled={busy}
-            onPress={() => onDecide(approval.id, "approve")}
-            accessibilityLabel={`Approve: ${approval.summary}`}
-            testID={`tex-approval-approve-${approval.id}`}
-          />
-          <Button
-            label="Decline"
-            variant="decision"
-            disabled={busy}
-            onPress={() => onDecide(approval.id, "deny")}
-            accessibilityLabel={`Decline: ${approval.summary}`}
-            testID={`tex-approval-decline-${approval.id}`}
-          />
-        </View>
-      ) : null}
-
-      {busy ? (
-        <Text variant="meta" style={styles.muted} testID={`tex-approval-busy-${approval.id}`}>
-          Sending…
-        </Text>
-      ) : null}
-      {waiting ? null : (
-        <View style={styles.status}>
-          <Text variant="meta" style={styles.statusText} testID={`tex-approval-state-${approval.id}`}>
-            {settledWords(state)}
-          </Text>
-          {note !== null ? (
-            <Text variant="foot" style={styles.muted} testID={`tex-approval-note-${approval.id}`}>
-              {note}
-            </Text>
-          ) : null}
-        </View>
-      )}
     </View>
+  );
+
+  return (
+    <AskFace
+      testID={`tex-approval-${approval.id}`}
+      head={head}
+      fields={fields}
+      title={email === null ? approval.summary : undefined}
+      body={
+        email !== null
+          ? { value: email.body, testID: `tex-approval-body-${approval.id}`, label: "Email text" }
+          : approval.detail !== undefined
+            ? { value: approval.detail, testID: `tex-approval-body-${approval.id}`, label: "Details" }
+            : undefined
+      }
+      actions={actions}
+      footer={footer}
+    />
   );
 }
 
-/** What a settled card says about itself, in the person's words. */
-function settledWords(state: ApprovalCardState): string {
-  if (state === "approved") return "Approved";
-  if (state === "declined") return "Declined";
-  return "No longer waiting";
+/** The head for each state. Settled cards keep their words: Approved, Declined, or No longer waiting. */
+function headOf(id: string, state: ApprovalCardState): FaceHead {
+  const testID = `tex-approval-state-${id}`;
+  if (state === "pending" || state === "busy") return { tone: "warn", icon: "lock", text: WAITING_HEAD };
+  if (state === "approved") return { tone: "ok", icon: "check", text: "Approved", testID };
+  if (state === "declined") return { tone: "muted", icon: null, text: "Declined", testID };
+  return { tone: "muted", icon: null, text: "No longer waiting", testID };
+}
+
+/** The email a `send_email` call would send, read from its arguments; `null` for any other call or a call that is not one plain email. */
+interface EmailShape {
+  from: string | null;
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+}
+
+function emailOf(approval: Approval): EmailShape | null {
+  if (approval.tool !== "send_email") return null;
+  const args = objectOf(approval.args);
+  if (args === null) return null;
+  // A forward or an attachment is not one plain email: it keeps the summary and the detail.
+  if (args.forward || (Array.isArray(args.attach) ? args.attach.length > 0 : Boolean(args.attach))) return null;
+  const to = listOf(args.to);
+  if (to === null || typeof args.subject !== "string" || typeof args.body !== "string") return null;
+  return {
+    from: typeof args.from === "string" && args.from.length > 0 ? args.from : null,
+    to,
+    cc: listOf(args.cc) ?? "",
+    subject: args.subject,
+    body: args.body,
+  };
+}
+
+function emailFields(email: EmailShape): FaceField[] {
+  const rows: FaceField[] = [];
+  if (email.from !== null) rows.push({ label: "From", value: email.from });
+  rows.push({ label: "To", value: email.to });
+  if (email.cc.length > 0) rows.push({ label: "Cc", value: email.cc });
+  rows.push({ label: "Subject", value: email.subject });
+  return rows;
+}
+
+function objectOf(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+/** A list of addresses as one comma-joined line; a single address as it is; anything else `null`. */
+function listOf(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value.join(", ");
+  return null;
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: {
-      alignSelf: "flex-start",
-      maxWidth: "85%",
-      gap: space.x2,
-      padding: space.x3,
-      borderWidth: 1,
-      borderColor: colors.line,
-      borderRadius: radii.card,
-      backgroundColor: colors.surface2,
-    },
-    heading: { color: colors.accentText },
-    summary: { color: colors.text },
-    detail: { color: colors.text },
+    footer: { gap: space.x1 },
     muted: { color: colors.muted },
-    tool: { color: colors.text },
-    args: { gap: space.x1, padding: space.x2, borderRadius: 6, backgroundColor: colors.chrome },
-    actions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
-    status: { gap: space.x1 },
-    statusText: { color: colors.text2 },
   });

@@ -60,6 +60,36 @@ export interface AppChatFile {
   size: number;
 }
 
+/** Where an ask's card is: waiting for the person, held back, being sent, sent, or no longer waiting. */
+export type CardState = "wait" | "held" | "sending" | "sent" | "gone";
+const CARD_STATES: readonly CardState[] = ["wait", "held", "sending", "sent", "gone"];
+
+/**
+ * An ask's card, as `appChatCards.js` writes it on the route. The email form is the held email, read back into its
+ * fields; the other form is an ask that is not one email (a calendar change, a vault use, a forward or attachments).
+ */
+export type AskCard =
+  | {
+      kind: "email";
+      state: CardState;
+      from: string | null;
+      to: string;
+      cc: string;
+      subject: string;
+      thread: boolean;
+      body: string;
+      editable: boolean;
+      at?: number;
+    }
+  | { kind: "other"; state: CardState; summary: string; detail: string | null; always?: true; at?: number };
+
+/**
+ * The most a card carries, as the route cuts it: a subject, a sender, a recipient or a summary to 500 characters, a body
+ * or a detail to 24,000. A card longer than this is malformed here, and the card is dropped rather than shown cut.
+ */
+export const CARD_FIELD_MAX = 500;
+export const CARD_TEXT_MAX = 24_000;
+
 /** One row of the app's own chat with Tex, as the page draws it. */
 export interface AppChatRow {
   /** The chat's event id. Stable across reads; a reaction, a reply, an edit and a picture name it. */
@@ -88,7 +118,7 @@ export interface AppChatRow {
   /** The person can still take this back, a picture included (their own, within 15 minutes). */
   unsendable?: true;
   /** An approval Tex asked on this text. Absent when there was none. */
-  ask?: { id: string; open: boolean };
+  ask?: { id: string; open: boolean; card?: AskCard };
   /** Where the person's own text is (the line under it: Delivered · Read · Answered, failed, stopped, queued). */
   state?: RowState;
   /** When Tex gave up on a `failed` text. */
@@ -222,6 +252,17 @@ export function editRequest(msgId: string, text: string): { op: "edit"; msgId: s
   return { op: "edit", msgId, text: trimmed };
 }
 
+/** The two answers a card takes: send it as it stands, or hold it back. */
+export type AnswerChoice = "send" | "hold";
+
+/**
+ * The answer to a card: `send` or `hold` on Tex's text `msgId`. `body` is the email's words only when the person changed
+ * them; left out, the held text goes as it was. The route compares the two and revises the held email only when they differ.
+ */
+export function answerRequest(msgId: string, choice: AnswerChoice, body?: string): { op: "answer"; msgId: string; choice: AnswerChoice; body?: string } {
+  return { op: "answer", msgId, choice, ...(body !== undefined ? { body } : {}) };
+}
+
 /** Take back one of the person's own `unsendable` rows. */
 export function unsendRequest(msgId: string): { op: "unsend"; msgId: string } {
   return { op: "unsend", msgId };
@@ -263,6 +304,52 @@ function nonEmptyString(value: unknown): string | null {
 
 function epochMs(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/** A string that is present, under its cap; anything else makes the whole card malformed. */
+function cappedText(value: unknown, max: number): string | undefined {
+  return typeof value === "string" && value.length <= max ? value : undefined;
+}
+
+/**
+ * One ask's card, field by field. `undefined` when this build cannot draw it: a card is all or nothing, so a card with
+ * one malformed field is not shown with the rest of it. Strings are checked against the route's caps, not cut here.
+ */
+export function askCardFrom(raw: unknown): AskCard | undefined {
+  const record = objectOf(raw);
+  if (record === null) return undefined;
+  const state = CARD_STATES.find((s) => s === record.state);
+  if (state === undefined) return undefined;
+  if (record.at !== undefined && epochMs(record.at) === null) return undefined;
+  const at = typeof record.at === "number" ? { at: record.at } : {};
+  if (record.kind === "email") {
+    const from = record.from === null ? null : cappedText(record.from, CARD_FIELD_MAX);
+    const to = cappedText(record.to, CARD_FIELD_MAX);
+    const cc = cappedText(record.cc, CARD_FIELD_MAX);
+    const subject = cappedText(record.subject, CARD_FIELD_MAX);
+    const body = cappedText(record.body, CARD_TEXT_MAX);
+    if (from === undefined || to === undefined || cc === undefined || subject === undefined || body === undefined) return undefined;
+    if (typeof record.thread !== "boolean" || typeof record.editable !== "boolean") return undefined;
+    return { kind: "email", state, from, to, cc, subject, thread: record.thread, body, editable: record.editable, ...at };
+  }
+  if (record.kind === "other") {
+    const summary = cappedText(record.summary, CARD_FIELD_MAX);
+    const detail = record.detail === null ? null : cappedText(record.detail, CARD_TEXT_MAX);
+    if (summary === undefined || detail === undefined) return undefined;
+    if (record.always !== undefined && record.always !== true) return undefined;
+    return { kind: "other", state, summary, detail, ...(record.always === true ? { always: true as const } : {}), ...at };
+  }
+  return undefined;
+}
+
+/**
+ * The words the composer quotes when the person replies to a card: "Email to <first recipient>: <subject>" for an email,
+ * and the row's own text for anything else.
+ */
+export function cardReplyWords(card: AskCard | undefined, text: string): string {
+  if (card === undefined || card.kind !== "email") return text;
+  const first = card.to.split(",")[0]?.trim() ?? "";
+  return first.length > 0 ? `Email to ${first}: ${card.subject}` : `Email: ${card.subject}`;
 }
 
 const KINDS: readonly AppChatRow["kind"][] = ["text", "link", "picture", "file"];
@@ -346,6 +433,9 @@ export function rowFrom(raw: unknown): AppChatRow | null {
     const askId = nonEmptyString(askRecord?.id);
     if (askId === null || typeof askRecord?.open !== "boolean") return null;
     row.ask = { id: askId, open: askRecord.open };
+    // A malformed card drops only the card: the ask still has its id and its open mark, so the row still reads.
+    const card = askCardFrom(askRecord.card);
+    if (card !== undefined) row.ask.card = card;
   }
   const pics = pictureIdsOf(record.pics);
   if (pics !== undefined) row.pics = pics;
@@ -481,6 +571,19 @@ export function readSend(status: number, body: unknown): SendRead {
 
 /** The sentence for a tapback or an answer the route refused. */
 export const REACT_SENTENCE = "That answer did not go through. Nothing changed. Try again in a moment.";
+/** The sentence for a card answer the route refused and gave no sentence for. */
+export const ANSWER_SENTENCE = "That answer did not go through. Nothing changed. Try again in a moment.";
+
+/** Read one card answer. Only a 200 says it went through; a 409 names a card that is no longer waiting, in its own words. */
+export function readAnswer(status: number, body: unknown): { kind: "answered" } | { kind: "failed"; sentence: string } {
+  if (status === 200) return { kind: "answered" };
+  if (status === 409) {
+    const message = objectOf(body)?.error;
+    if (typeof message === "string" && message.length > 0 && message.length <= 200) return { kind: "failed", sentence: message };
+  }
+  return { kind: "failed", sentence: errorSentence(status, body, ANSWER_SENTENCE) };
+}
+
 /** The sentence for an edit the route refused. */
 export const EDIT_SENTENCE = "That change did not go through. Nothing changed. Try again in a moment.";
 /** The sentence for an unsend the route refused. */

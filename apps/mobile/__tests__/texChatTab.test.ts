@@ -63,6 +63,7 @@ function fakeView(over: Partial<AppChatView> = {}): AppChatView & { calls: Calls
     send: record("send") as AppChatView["send"],
     retry: record("retry") as AppChatView["retry"],
     answer: record("answer") as AppChatView["answer"],
+    decide: record("decide") as AppChatView["decide"],
     react: record("react") as AppChatView["react"],
     edit: record("edit") as AppChatView["edit"],
     unsend: record("unsend") as AppChatView["unsend"],

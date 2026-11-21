@@ -1,5 +1,5 @@
 import type { ChatLine } from "./appChatGateway";
-import { isPending, type AskChoice, type LiveRun, type ReactionEmoji } from "./appChatGateway";
+import { isPending, type AnswerChoice, type AskChoice, type LiveRun, type ReactionEmoji } from "./appChatGateway";
 import type { PickedFile } from "./appChatFiles";
 import type { SeenBody } from "./appChatSeen";
 
@@ -31,6 +31,11 @@ export interface AppChatView {
   downloadFile: (id: string, name: string) => void;
   retry: (localId: string) => void;
   answer: (rowId: string, choice: AskChoice) => void;
+  /**
+   * The answer to a card (`row.ask.card`): send it, with the words the person changed when they changed them, or hold it
+   * back. Shown at once (sending, or held), undone when the route refuses it.
+   */
+  decide: (rowId: string, choice: AnswerChoice, body?: string) => void;
   /** A tapback on any row; shown at once, undone if the route refuses it. */
   react: (rowId: string, emoji: ReactionEmoji) => void;
   /** New words for one of the person's `editable` rows; shown at once, undone if the route refuses it. */

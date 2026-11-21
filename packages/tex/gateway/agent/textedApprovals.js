@@ -74,6 +74,8 @@ const SAYS_YES = new Set(["yes", "yess", "yesss", "yep", "yeah", "yea", "ya", "y
 const SAYS_SEND = new Set(["send", "file", "confirm", "confirmed", "approve", "approved"]);
 const ALSO_SAID = new Set([
   ...SAYS_YES, ...SAYS_SEND,
+  // "send the draft" is the in-app approval card's reply (Dev2, 2026-11-20). "draft" alone is no verdict: it says no yes and no send.
+  "draft", "drafts",
   "ok", "okay", "k", "sure", "please", "pls", "plz", "it", "them", "that", "this", "now", "already", "just", "go", "ahead", "do",
   "for", "right", "away", "asap", "the", "message", "email", "dm", "text", "again", "thanks", "thank", "you", "ty", "sent", "so",
   "and", "then", "absolutely", "definitely", "of", "course", "lol", "haha", "\u{1F64F}", "\u{1F525}", "\u2764", "\u{1F44C}",

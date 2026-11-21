@@ -11,9 +11,11 @@ import {
   MAX_TEXT,
   UNREACHABLE_SENTENCE,
   UNSEND_SENTENCE,
+  answerRequest,
   appChatEndpoint,
   editRequest,
   fileRequest,
+  readAnswer,
   warmRequest,
   WARM_AGAIN_MS,
   isPending,
@@ -32,7 +34,9 @@ import {
   sendRequest,
   tapbackRequest,
   unsendRequest,
+  type AnswerChoice,
   type AppChatRow,
+  type AskCard,
   type AskChoice,
   type ChatLine,
   type ChatRead,
@@ -399,6 +403,42 @@ export function useAppChat(options: {
     [ask, live, openTurn],
   );
 
+  /**
+   * A card's answer: shown at once (sending, or held), the request sent, and the card put back as it was when the route
+   * refuses it. Only a card still waiting takes an answer. A send opens a turn, as an answer to a 👍 does.
+   */
+  const decide = useCallback(
+    (rowId: string, choice: AnswerChoice, body?: string) => {
+      if (!live || answering.current.has(rowId)) return;
+      const row = serverRowOf(latest.current.lines, rowId);
+      const card = row?.who === "tex" ? row.ask?.card : undefined;
+      if (row === undefined || card === undefined || card.state !== "wait") return;
+      answering.current.add(rowId);
+      const mark = epoch.current;
+      const sending = choice === "send";
+      const optimistic: AskCard = {
+        ...card,
+        state: sending ? "sending" : "held",
+        ...(sending && body !== undefined && card.kind === "email" ? { body } : {}),
+      };
+      const shown = (r: AppChatRow): AppChatRow => (r.ask === undefined ? r : { ...r, ask: { ...r.ask, card: optimistic } });
+      const putBack = (r: AppChatRow): AppChatRow => (r.ask === undefined ? r : { ...r, ask: { ...r.ask, card } });
+      setState((s) => ({ ...s, error: null, lines: patchRow(s.lines, rowId, shown) }));
+      void ask(answerRequest(rowId, choice, body)).then((reply) => {
+        answering.current.delete(rowId);
+        if (mark !== epoch.current) return;
+        const read = reply === null ? { kind: "failed" as const, sentence: UNREACHABLE_SENTENCE } : readAnswer(reply.status, reply.body);
+        if (read.kind === "answered") {
+          if (sending) openTurn(latest.current.lines);
+          kick.current();
+        } else {
+          setState((s) => ({ ...s, error: read.sentence, lines: patchRow(s.lines, rowId, putBack) }));
+        }
+      });
+    },
+    [ask, live, openTurn],
+  );
+
   /** A change shown at once, the request sent, and the change undone when the route refuses it. */
   const changeRow = useCallback(
     (
@@ -590,6 +630,7 @@ export function useAppChat(options: {
       send,
       retry,
       answer,
+      decide,
       react,
       edit,
       unsend,
@@ -601,6 +642,6 @@ export function useAppChat(options: {
       retryRow,
       toast: state.toast,
     }),
-    [answer, downloadFile, edit, live, pictureUrl, react, retry, retryRow, send, state, stop, typing, unsend],
+    [answer, decide, downloadFile, edit, live, pictureUrl, react, retry, retryRow, send, state, stop, typing, unsend],
   );
 }

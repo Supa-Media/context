@@ -196,6 +196,12 @@ function useFakeTexChat(): AppChatView {
         later(() => setLines((prev) => [...prev, texText("Sent to Sam.")]), 1_200);
       }
     },
+    // The fixture has no held email, so a card answer only settles the card as its own page would.
+    decide(rowId, choice) {
+      updateRow(rowId, (row) =>
+        row.ask?.card ? { ...row, ask: { ...row.ask, card: { ...row.ask.card, state: choice === "send" ? "sending" : "held" } } } : row,
+      );
+    },
     react(rowId, emoji: ReactionEmoji) {
       updateRow(rowId, (row) => ({
         ...row,
