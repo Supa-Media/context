@@ -7,7 +7,8 @@
  * over the note, a state no single screenshot had visited. So this walks the
  * states rather than the pages, screenshots each one, and checks the two
  * things a picture alone hides: a folded panel draws nothing of itself but
- * its rail, and nothing makes the page scroll sideways.
+ * its rail, nothing makes the page scroll sideways, and controls floating over
+ * the same band do not cover each other.
  *
  * Run from `screenshots.mjs` when `MATRIX=1` (the Preview screenshots Action,
  * on every pull request that touches the app). The pictures go to
@@ -25,6 +26,11 @@ import { join } from "node:path";
 const NOTES = ["activity", "index"];
 /** What Tex is asked while the panel is folded under it: a read, so a preview never sends anything. */
 const ASK = "what notes do I have?";
+
+/** Pairs of controls that share a band of the screen and must never cover each other. */
+const OVERLAP_PAIRS = [["note-actions", "presence-pile"]];
+
+const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 const visible = async (page, id) => {
   const node = page.getByTestId(id);
@@ -55,6 +61,12 @@ export async function stateProblems(page, name, right) {
       const box = await warm.first().boundingBox();
       if (box !== null && box.width > 0) problems.push(`${name}: the hidden Tex chat takes ${Math.round(box.width)}x${Math.round(box.height)}`);
     }
+  }
+  // Controls that float over the same band must not cover each other (the phone's ••• over the presence pile).
+  for (const [a, b] of OVERLAP_PAIRS) {
+    if (!(await visible(page, a)) || !(await visible(page, b))) continue;
+    const [one, two] = [await page.getByTestId(a).first().boundingBox(), await page.getByTestId(b).first().boundingBox()];
+    if (one !== null && two !== null && overlaps(one, two)) problems.push(`${name}: ${a} covers ${b}`);
   }
   const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   if (sideways > 1) problems.push(`${name}: the page scrolls sideways by ${sideways}px`);

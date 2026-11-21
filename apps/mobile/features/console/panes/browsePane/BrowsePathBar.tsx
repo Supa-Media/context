@@ -58,5 +58,10 @@ export function BrowsePathBar({
 const makeStyles = () =>
   StyleSheet.create({
     row: { height: 0, overflow: "visible", zIndex: 1 },
-    pile: { position: "absolute", right: layout.readingMargin, bottom: 0, flexDirection: "row" },
+    /*
+      Clear of the top bar's ••• key, which floats over the same band at the
+      trailing edge: hung at the reading margin, the pile sat under it, half
+      covered (Dev2's UI matrix, 2026-11-21).
+    */
+    pile: { position: "absolute", right: layout.readingMargin + layout.chromeButton, bottom: 0, flexDirection: "row" },
   });
