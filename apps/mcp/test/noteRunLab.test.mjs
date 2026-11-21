@@ -50,9 +50,9 @@ describe("tex_dev note_run", () => {
     assert.deepEqual(d.seen.calls, [{ name: "read_note", args: { path: NOTE, context: "@team" } }]);
   });
 
-  it("falls back to the shelf's definition while neither the draft nor main has the node", () => {
+  it("uses main's node when the draft has none (wired on main since 2026-11-21)", () => {
     const { node, from } = labNoteRunNode({}, null);
-    assert.equal(from, "shelf");
+    assert.equal(from, "main");
     assert.equal(node.id, "noteRun");
   });
 
