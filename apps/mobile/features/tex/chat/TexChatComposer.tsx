@@ -10,6 +10,9 @@ import { MAX_ATTACHMENTS, MAX_FILE_BYTES, MAX_TEXT } from "./appChatGateway";
 import type { PickedFile } from "./appChatFiles";
 import { TexChatFileChip } from "./TexChatFileChip";
 import { chatPlainText } from "./appChatMarkdown";
+import { pageOnComputer } from "../../app/density";
+import { useComposerDictation } from "./useComposerDictation";
+import type { DictationEngine } from "../../voice/engine";
 
 /** What the reply bar names: who the row is from, and its first line of words. */
 export interface ReplyTarget {
@@ -87,6 +90,12 @@ function chooseFiles(onChosen: (files: PickedFile[]) => void): void {
  * Enter sends; Shift+Enter is a newline. It owns the draft and the pictures
  * and hands them to `onSend` whole. The hook decides whether it went.
  *
+ * The round key is a microphone, not a send arrow (Dev2, 2026-11-21: "people
+ * know that they could just click enter to send"): it dictates into the box.
+ * A touch screen with words in the box shows the send arrow instead, since a
+ * soft keyboard's return key is a newline here; so does a browser with no
+ * speech engine, where a microphone could only fail.
+ *
  * In `mode="stop"` with the box empty, the send key becomes a stop key that
  * calls `onStop` (Tex is working on a turn).
  */
@@ -101,6 +110,7 @@ export function TexChatComposer({
   onSend,
   onStop,
   onTyping,
+  dictationEngine,
 }: {
   sending: boolean;
   disabled: boolean;
@@ -115,6 +125,8 @@ export function TexChatComposer({
   onStop?: () => void;
   /** The person typed in the box: the chat warms the model's cache for their text (`useAppChat` `typing`). */
   onTyping?: () => void;
+  /** Injected by tests. Defaults to this surface's speech engine. */
+  dictationEngine?: DictationEngine;
 }) {
   const styles = useThemedStyles(makeStyles);
   const fieldFont = useFieldFont(pointerType.lede);
@@ -129,6 +141,9 @@ export function TexChatComposer({
   useHoverTitle(attachRef, "Attach a picture or file");
   const picturesNow = useRef<Picture[]>([]);
   picturesNow.current = pictures;
+  const textNow = useRef(text);
+  textNow.current = text;
+  const dictation = useComposerDictation({ getText: () => textNow.current, setText, engine: dictationEngine });
 
   // An edit puts its row's words in the box; leaving the edit empties it.
   const editId = edit?.id ?? null;
@@ -159,10 +174,13 @@ export function TexChatComposer({
   const hasAttachments = hasPictures || hasFiles;
   const canSend = !disabled && !sending && (editing ? hasWords : hasWords || hasAttachments) && text.trim().length <= MAX_TEXT;
   const stopping = mode === "stop" && !editing && !hasWords && !hasAttachments;
-  const buttonEnabled = stopping || canSend;
+  // The microphone stands in for send unless it cannot listen, or a touch screen needs a way to send its words.
+  const micKey = !stopping && !editing && dictation.available && (dictation.live || !hasWords || pageOnComputer());
+  const buttonEnabled = stopping || (micKey ? !disabled : canSend);
 
   const submit = () => {
     if (!canSend) return;
+    dictation.close();
     const words = text.trim();
     onSend(
       words,
@@ -180,6 +198,10 @@ export function TexChatComposer({
   const press = () => {
     if (stopping) {
       onStop?.();
+      return;
+    }
+    if (micKey) {
+      dictation.toggle();
       return;
     }
     submit();
@@ -284,6 +306,12 @@ export function TexChatComposer({
         />
       ) : null}
 
+      {dictation.live || dictation.error !== null ? (
+        <Text variant="meta" style={styles.listening} numberOfLines={2} testID="tex-dictation-line">
+          {dictation.error ?? (dictation.interim !== "" ? dictation.interim : "Listening…")}
+        </Text>
+      ) : null}
+
       <View style={[styles.box, attached && styles.boxAttached]}>
         {editing ? null : (
           <Pressable
@@ -304,6 +332,7 @@ export function TexChatComposer({
           value={text}
           onChangeText={(next) => {
             setText(next);
+            if (dictation.error !== null) dictation.dismiss();
             if (next.trim() !== "") onTyping?.();
           }}
           placeholder="Ask Tex, or tell it what to do"
@@ -330,10 +359,10 @@ export function TexChatComposer({
           onPress={press}
           disabled={!buttonEnabled}
           accessibilityRole="button"
-          accessibilityLabel={stopping ? "Stop Tex" : editing ? "Save edit" : "Send"}
+          accessibilityLabel={stopping ? "Stop Tex" : micKey ? (dictation.live ? "Stop dictating" : "Dictate") : editing ? "Save edit" : "Send"}
           accessibilityState={{ disabled: !buttonEnabled }}
           style={({ pressed }) => [
-            stopping ? styles.stop : styles.send,
+            stopping ? styles.stop : micKey ? (dictation.live ? styles.micLive : styles.mic) : styles.send,
             !buttonEnabled && styles.sendDisabled,
             pressed && buttonEnabled && styles.pressed,
           ]}
@@ -341,6 +370,8 @@ export function TexChatComposer({
         >
           {stopping ? (
             <Icon name="stop" size={20} color={colors.ground} />
+          ) : micKey ? (
+            <Icon name="mic" size={17} color={dictation.live ? colors.ink : colors.muted} />
           ) : (
             <Icon name="arrowUp" size={16} color={colors.ink} />
           )}
@@ -473,6 +504,22 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 16,
       backgroundColor: colors.text,
     },
+    mic: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 16,
+    },
+    micLive: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 16,
+      backgroundColor: colors.accent,
+    },
+    listening: { color: colors.muted, fontSize: texChatType.small, paddingHorizontal: 4, paddingBottom: 6 },
     sendDisabled: { opacity: 0.35 },
     pressed: { transform: [{ scale: 0.9 }] },
     disabled: { opacity: 0.45 },

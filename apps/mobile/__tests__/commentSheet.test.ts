@@ -107,6 +107,12 @@ describe("the thread sheet", () => {
     expect(parseComments(view.state.doc.toString()).threads[0]!.status).toBe("resolved");
   });
 
+  test("a note with a resolved thread draws no Show resolved line, only the words (Dev2, 2026-11-21 roast)", () => {
+    const { view } = mount(RESOLVED);
+    expect(view.dom.textContent).not.toMatch(/Show resolved|Hide resolved/);
+    expect(view.dom.querySelector(".cm-cmt-hl")).toBeNull();
+  });
+
   test("a resolved thread says so, and keeps its history", () => {
     const { open, layer } = mount(RESOLVED);
     open("k7f2");

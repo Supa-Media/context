@@ -8,7 +8,6 @@ import { noteGutterFor } from "../../../app/frame";
 import { pointerType } from "../../../design/tokens";
 import { EncryptedNotice, ManifestNotice } from "./notices";
 import { noteDocument } from "./document";
-import { TexInNoteLog } from "../comments/tex/TexInNoteLog";
 import { layout } from "../../../design/tokens";
 import { RecentRunsSection } from "../../routines/RecentRuns";
 import type { NoteView } from "./view";
@@ -190,18 +189,7 @@ export function noteFlow(view: NoteView) {
     */}
     {noteDocument(view)}
 
-    {/*
-      Tex in this note: the log of its runs, under the body so it scrolls with
-      the note. Only where there is a Tex to run one (`useTexInNote`).
-    */}
-    {texInNote?.host ? (
-      <TexInNoteLog
-        rows={texInNote.rows}
-        error={texInNote.error}
-        viewer={commenter}
-        gutter={compact ? layout.readingMargin : noteGutterFor(docWidth)}
-      />
-    ) : null}
+    {/* No "Tex in this note" log under the body: Tex's answers live in their threads, and the note stays clean (Dev2, 2026-11-21 roast). */}
 
     {/* A routine's recent runs, after the note's last line on a phone (`routines/RecentRuns.tsx`). */}
     {compact ? <RecentRunsSection where="below" gutter={layout.readingMargin} /> : null}

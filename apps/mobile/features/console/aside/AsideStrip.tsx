@@ -55,15 +55,16 @@ export function AsideStrip({
   // The live map, where the console provides its route; its button moved here from the file tree's toolbar.
   const mapRoute = useMapRoute();
   return (
-    <View style={styles.strip} testID="aside-strip" accessibilityRole={open ? "tablist" : undefined}>
+    <View style={[styles.strip, open && styles.stripBeside]} testID="aside-strip" accessibilityRole={open ? "tablist" : undefined}>
       <Pressable
         onPress={() => (open ? onFold() : onUnfold(null))}
         accessibilityRole="button"
-        accessibilityLabel={open ? "Fold the panel" : "Open the panel"}
+        accessibilityLabel={open ? "Hide the side panel" : "Show the side panel"}
         style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
         testID={open ? "aside-fold" : "aside-unfold"}
       >
-        <Icon name={open ? "chevronRight" : "chevronLeft"} size={16} color={colors.text2} />
+        {/* The left sidebar's toggle, mirrored, for parity (Dev2, 2026-11-21 roast: "the arrow doesn't really work here"). */}
+        <Icon name="panelRight" size={16} color={colors.text2} />
       </Pressable>
       {/*
         Search and the map ride here too (Dev2, 2026-11-20: "fold a search
@@ -142,6 +143,8 @@ export function AsideStrip({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     strip: { width: 48, alignItems: "center", gap: space.x1, paddingTop: space.x2 },
+    // Beside the open panel, a hairline between the rail and the panel, so the chat reads as its own column (Dev2, 2026-11-21 roast).
+    stripBeside: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line },
     button: { width: 36, height: 36, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
     current: { backgroundColor: colors.chrome },
     hover: { backgroundColor: colors.chrome },

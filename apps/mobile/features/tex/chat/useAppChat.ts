@@ -49,6 +49,8 @@ import { STOPPED_TOAST } from "./appChatRun";
 import {
   EMPTY,
   FAST_WINDOW_MS,
+  rememberLines,
+  startingState,
   RETRY_MS,
   TOAST_MS,
   texCountOf,
@@ -176,13 +178,14 @@ export function useAppChat(options: {
 
   // Everything that depends on the scope: the poll, its timers, and the epoch.
   const scope = live ? `${workspaceId}\n${route}` : null;
+
   useEffect(() => {
     epoch.current += 1;
     const mark = epoch.current;
     typingSince.current = null;
     waitingNow.current = null;
     clearTimeout(giveUp.current);
-    setState(EMPTY);
+    setState(scope === null ? EMPTY : startingState(scope));
     if (scope === null) {
       return () => {
         epoch.current += 1;
@@ -226,6 +229,8 @@ export function useAppChat(options: {
         if (!read.typing) typingSince.current = null;
         setState((s) => {
           const lines = mergeRows(s.lines, read.rows);
+          // Kept for the next time this chat is drawn (`startingState`); idempotent, so safe in an updater.
+          rememberLines(scope, lines);
           const waiting = s.waiting !== null && texCountOf(lines) > s.waiting.texCount ? null : s.waiting;
           if (waiting === null) waitingNow.current = null;
           return { ...s, phase: "listed", lines, typing: read.typing, run: read.run, loadError: null, waiting };
