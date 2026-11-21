@@ -18,7 +18,10 @@ object keeps the same index beside it and a search is one call to the object.
   every changed row and note key into two change tables, whatever wrote them. Before a search answers, the object
   looks at each changed row again: it indexes the note again where its text, path or tier changed, and drops the old
   path of a moved or removed one (`ws_search_held` says which row each indexed path came from). A change of member
-  rules marks every note row changed. Nothing is planned over the whole workspace on a search.
+  rules marks changed only the rows whose tier it moves (the first rules an object holds mark every row): marking
+  every row sent 10,146 rows of one workspace back through the index after one sharing change, and every search there
+  to the search database until the build caught up (Cloudflare logs, 2026-11-21). The meaning index does the same.
+  Nothing is planned over the whole workspace on a search.
 - **Chunks are removed by rowid.** The full-text tables' `path` column is `UNINDEXED`, so the search database's
   `DELETE ... WHERE path = ?` reads every chunk of every note. The object keeps each chunk's rowid
   (`ws_search_chunks`) and removes a note's chunks by them. Removing by path made each note's re-index cost grow with

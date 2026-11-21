@@ -153,6 +153,21 @@ test("a moved note and a change of rules keep its fingerprints; only a changed t
   assert.equal(paths(await query(object, "marble quarry"))[0], "plans/moved/a.md");
 });
 
+// Sabotage: mark every row again on each change of rules and `waiting` is every note, not the one that moved.
+test("a change of rules that moves one note's tier sends only that note back through the index", { skip }, async () => {
+  const object = await seeded([...TEAM_PLANS, { prefix: "notes", visibility: "team" }]);
+  for (let n = 1; n <= 20; n += 1) await note(object, n, `notes/n${n}.md`, `# N${n}\nharbor lantern`);
+  await note(object, 21, "plans/a.md", "# A\ncedar forest");
+  assert.deepEqual((await object.call("ws.meaning.build")).body, { served: true, waiting: 0 });
+
+  await object.call("ws.apply", { rules: { member: MEMBER([{ prefix: "notes", visibility: "team" }], [], 2) } });
+  const looked = await object.store.meaning.catchUp({ passages: 0 });
+  assert.equal(looked.waiting, 1, "only plans/a.md, whose tier moved, waits");
+  await object.call("ws.meaning.build");
+  assert.equal(paths(await query(object, "cedar forest", { tiers: ["team"] })).includes("plans/a.md"), false, "no longer team");
+  assert.deepEqual(paths(await query(object, "cedar forest", { tiers: ["private"] })), ["plans/a.md"], "now private");
+});
+
 test("a removed note is gone after the next build", { skip }, async () => {
   const object = await seeded();
   await note(object, 1, "plans/a.md", "# A\nwillow");

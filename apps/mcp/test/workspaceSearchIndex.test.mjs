@@ -131,6 +131,23 @@ test("a change to the member rules re-tiers a note: found in the private table, 
   assert.deepEqual(await answer(PRIVATE), ["plans/a.md"], "now a private note");
 });
 
+// Sabotage: put `allRowsDirty()` back for every change of rules and the search after it is not served.
+test("a change of rules that moves one folder's tier leaves the rest alone: the next search is still served", { skip }, async () => {
+  const object = await seeded([...TEAM_PLANS, { prefix: "notes", visibility: "team" }]);
+  const many = 4 * QUERY_ROWS;
+  for (let n = 1; n <= many; n += 1) await note(object, n, `notes/n${n}.md`, `# N${n}\nharbor`);
+  await note(object, many + 1, "plans/a.md", "# A\nharbor cedar");
+  assert.deepEqual((await object.call("ws.search.build")).body, { served: true, waiting: 0 });
+
+  // Only plans/ changes tier (team to private); the many notes under notes/ keep theirs.
+  await object.call("ws.apply", { rules: { member: MEMBER([{ prefix: "notes", visibility: "team" }], [], 2) } });
+  const after = await object.call("ws.search", { asks: [ask(TEAM, "cedar"), ask(PRIVATE, "cedar"), ask(TEAM, "harbor", 500)] });
+  assert.equal(after.body.served, true, "the search right after the change is answered here, not by the search database");
+  assert.deepEqual(paths(after.body.answers[0]), [], "plans/a.md is no longer team");
+  assert.deepEqual(paths(after.body.answers[1]), ["plans/a.md"], "it is private now");
+  assert.equal(after.body.answers[2].length, many, "the notes whose tier did not move are all still found as team");
+});
+
 test("a search over the budget says waiting, and a build catches up so the next search is served", { skip }, async () => {
   const object = await seeded();
   const many = 2 * QUERY_ROWS + 5;
