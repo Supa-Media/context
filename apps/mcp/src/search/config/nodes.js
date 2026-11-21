@@ -378,11 +378,27 @@ function withOffPassedOver(config) {
   return { ...config, edges };
 }
 
+/**
+ * How many notes a step handed on, all workspaces together, so the Lab shows where notes were added and removed (Dev2,
+ * 2026-11-21): a nominator's hits or matches, a filter's or a ranker's rows, the answer's hits. Null for a step that
+ * hands on no notes (the query, opening the workspaces). Counted from the whole output, before the log cuts it: a real
+ * search's rows run far past the log's size.
+ */
+export function notesHandedOn(_node, output) {
+  if (!output || typeof output !== "object") return null;
+  const count = (list) => (Array.isArray(list) ? list.length : 0);
+  if (output.answer && Array.isArray(output.answer.hits)) return output.answer.hits.length;
+  if (output.byWords) return Object.values(output.byWords).reduce((n, found) => n + count(found?.hits), 0);
+  if (output.byMeaning) return Object.values(output.byMeaning).reduce((n, matches) => n + count(matches), 0);
+  if (!Array.isArray(output.workspaces) || !output.workspaces.some((ws) => ws.found)) return null;
+  return output.workspaces.reduce((n, ws) => n + (Array.isArray(ws.entries) ? ws.entries.length : count(ws.found?.hits) + count(ws.matches)), 0);
+}
+
 /** A runner per config object: building one checks its wires, which a search need not repeat. */
 const graphs = new WeakMap();
 function graphFor(config, log) {
   // Concurrent: the two nominators, fed by the same step, run side by side.
-  if (log) return createGraph(withOffPassedOver(config), SEARCH_NODES, { log, concurrent: true });
+  if (log) return createGraph(withOffPassedOver(config), SEARCH_NODES, { log, concurrent: true, count: notesHandedOn });
   let graph = graphs.get(config);
   if (!graph) graphs.set(config, (graph = createGraph(withOffPassedOver(config), SEARCH_NODES, { concurrent: true })));
   return graph;

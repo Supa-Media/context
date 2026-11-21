@@ -428,3 +428,21 @@ test("a generator wire starts a run only at an input node", () => {
   bad.edges.push(wire("fd", "answer", "generator"));
   assert.match(problemsOf(bad).join(), /generator wire fd -> answer starts a run at "answer", which is not an input node/);
 });
+
+test("count: a node's item count is taken from its whole output, kept when the log cuts it, and never stops a run", async () => {
+  const config = { nodes: [node("a"), node("b"), node("c")], edges: [wire("a", "b"), wire("b", "c")] };
+  const long = Array.from({ length: 400 }, (_, i) => ({ key: `note-${i}`, text: "x".repeat(20) }));
+  const impls = { a: async () => ({ rows: long }), b: async () => ({ rows: long.slice(0, 3) }), c: async () => ({}) };
+  const rows = [];
+  const count = (id, output) => {
+    if (id === "c") throw new Error("a broken counter");
+    return Array.isArray(output?.rows) ? output.rows.length : null;
+  };
+  await createGraph(config, impls, { log: (r) => rows.push(r), count }).run("a", {});
+  const by = Object.fromEntries(rows.map((r) => [r.node, r]));
+  assert.ok(by.a.output.cut > 0, "the long output was cut in the log");
+  assert.equal(by.a.count, 400, "its count still came from the whole output");
+  assert.equal(by.b.count, 3);
+  assert.equal("count" in by.c, false, "a counter that throws leaves the count off, and the run goes on");
+  assert.equal(by.c.ok, true);
+});
