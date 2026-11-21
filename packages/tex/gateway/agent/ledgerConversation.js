@@ -57,7 +57,7 @@ export const askers = (entries) => [...new Set(entries.filter((entry) => entry.k
 const bySeq = (a, b) => (a.seq ?? 0) - (b.seq ?? 0);
 
 /** The turns of a ledger's entries (any order), oldest first, unbounded: `keep` bounds them. */
-export function conversationFromLedger(entries, { question: asQuestion = null, marked = false } = {}) {
+export function conversationFromLedger(entries, { question: asQuestion = null, marked = false, left = null } = {}) {
   const list = (Array.isArray(entries) ? entries : []).filter((entry) => entry !== null && typeof entry === "object").sort(bySeq);
   // A note of a text Tex sent on its own is shown only if the text was said: a send that never went out, and a routine's
   // note kept and not texted, are not shown as said (`sentOnItsOwn.js`). The turn still counts as one of their notes below.
@@ -164,6 +164,8 @@ export function conversationFromLedger(entries, { question: asQuestion = null, m
     }
   }
   flush();
+  // Their texts after the last answer have no turn to be the question of: handed to `left` (`stretch.js` `stretchLeft`), never dropped unsaid.
+  if (typeof left === "function" && asked.length > 0) left(asked.filter(Boolean));
   return turns;
 }
 

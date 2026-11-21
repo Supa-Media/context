@@ -31,6 +31,7 @@ import { answerGroup, turnFailed, type GroupDeps } from "./groupInbox";
 import { watchFailed } from "./reviewWatch";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 import { armBy } from "./events";
+import { arm, retryDelay, retryKey, RETRY_LIMIT, TRY_WATCH_MS, type Retry } from "./groupRetry";
 import { logStep } from "./stepEvents";
 import { chatEvent } from "./chatState";
 import { logProvisional, provisionalGate, type Allow, type ProvisionalGate, type Verdict } from "./provisional";
@@ -133,14 +134,46 @@ export async function liveTurns(storage: InboxStorage, deps: GroupDeps): Promise
       continue;
     }
     if (turn.started) {
-      if (deps.now() - turn.at < TURN_STALE_MS) continue;
-      log("stale");
-      await failHanded(storage, deps, turn.id);
+      // Past every try there could be: given up on, whoever was trying it.
+      if (deps.now() - turn.at >= TURN_STALE_MS) {
+        log("stale");
+        await failHanded(storage, deps, turn.id);
+        continue;
+      }
+      // Retried by this object's alarm (`groupRetry.ts`); one with no retry kept is a workflow's, from before 2026-11-21.
+      await retryDue(storage, deps, turn);
       continue;
     }
     if (turn.retryAt === undefined || deps.now() >= turn.retryAt) await start(storage, deps, turn);
   }
   return await handedTurns(storage);
+}
+
+/**
+ * A failed turn's retry, from the drain: tried again beside it once due, at most `RETRY_LIMIT` times; after the
+ * last, the chat is told. A try still running here is left to finish.
+ */
+async function retryDue(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): Promise<void> {
+  const retry = await storage.get<Retry>(retryKey(turn.id));
+  if (retry === undefined || deps.answerFirst === undefined) return;
+  if (answering.get(storage)?.has(turn.id)) return;
+  if (deps.now() < retry.dueAt) return await arm(storage, retry.dueAt, deps.now());
+  if (retry.tries >= RETRY_LIMIT + 1) return void (await failHanded(storage, deps, turn.id));
+  const tries = retry.tries + 1;
+  // Due again later should this try never come back (a restart): it then counts as failed.
+  await storage.put<Retry>(retryKey(turn.id), { tries, dueAt: deps.now() + TRY_WATCH_MS });
+  await arm(storage, deps.now() + TRY_WATCH_MS, deps.now());
+  log("retry_started", turn.reason, tries, turn.kind);
+  const work = answerHanded(storage, deps, turn.id).then(async (outcome) => {
+    if (outcome !== "failed") return;
+    const kept = await storage.get<Retry>(retryKey(turn.id));
+    if (kept === undefined) return;
+    // The last try failed: the next drain tells the chat. Otherwise the next try waits its turn.
+    const dueAt = kept.tries >= RETRY_LIMIT + 1 ? deps.now() : deps.now() + retryDelay(kept.tries);
+    await storage.put<Retry>(retryKey(turn.id), { ...kept, dueAt });
+    await arm(storage, dueAt, deps.now());
+  });
+  deps.answerFirst(work.catch(() => {}));
 }
 
 async function start(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): Promise<boolean> {
@@ -172,6 +205,7 @@ async function stuck(storage: InboxStorage, deps: GroupDeps, turn: HandedTurn): 
   const entries = await entriesOf(storage, turn);
   for (const [key] of entries) await storage.delete(key);
   await storage.delete(turnKey(turn.id));
+  await storage.delete(retryKey(turn.id));
   await chatEvent(storage, "failed", "stuck", { now: deps.now() });
   // Whatever waited behind it is drained now, as after any turn (`finish`).
   await storage.setAlarm(deps.now());
@@ -239,6 +273,7 @@ export async function failHanded(storage: InboxStorage, deps: GroupDeps, id: str
 /** The turn is over (`how`: answered, cancelled by a restart, or given up on): its place is free, and whatever waited for it is drained now. */
 async function finish(storage: InboxStorage, deps: GroupDeps, id: string, how: "done" | "cancelled" | "failed", stopped = false): Promise<"done"> {
   await storage.delete(turnKey(id));
+  await storage.delete(retryKey(id));
   // A provisional run Decide stopped was never the chat's turn: the drain goes on with the choice it made instead.
   if (!stopped) await chatEvent(storage, how, "turn", { now: deps.now() });
   await dropParts(storage, id);

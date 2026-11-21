@@ -13,7 +13,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import worker from "../../src/index.js";
 import { WorkspaceStore } from "../../src/workspaceStore.js";
-import { workspaceClient } from "../../src/workspaceStore/api.js";
+import { MAX_ROWS_PER_PUT, workspaceClient } from "../../src/workspaceStore/api.js";
 import { ACCESS_HOMES, objectToken } from "../../src/workspaceStore/access.js";
 import { sealBinding } from "../../src/workspaceStore/bindingSeal.js";
 import { sha256Hex } from "../../src/controlPlane/index.js";
@@ -149,7 +149,10 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
     const stub = stubOf(id);
     const store = stub.object.ready();
     store.rows.pinWorkspace(id);
-    store.rows.put(rowsOf(files, ids));
+    // A put takes at most MAX_ROWS_PER_PUT rows, as the gateway's own backfill sends them: a public benchmark's
+    // corpus is thousands of notes in one workspace.
+    const rows = rowsOf(files, ids);
+    for (let at = 0; at < rows.length; at += MAX_ROWS_PER_PUT) store.rows.put(rows.slice(at, at + MAX_ROWS_PER_PUT));
     store.rows.putRules(rules);
     for (const path of files) {
       const response = await stub.fetch(new Request("https://tex-store.internal/put", { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "put", key: `notes/${ids.get(path)}.md`, options: {} })) }, body: workspace.files[path] }));

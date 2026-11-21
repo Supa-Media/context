@@ -57,8 +57,28 @@ object world's scores beside the database's, and how many cases ranked the same,
 word when it declined, such as `catching_up`), and every run says how many went each way, so a score is never read
 as the other path's.
 
+**The public standard: NanoBEIR** (owner, 2026-11-21: "we should probably have a thread focused on bringing in a
+popular search benchmark instead of our own"; `apps/mcp/bench/evals/nanoBeir.mjs`). Our own sets can only measure
+what we thought to write down, and nobody outside can compare a number from them. BEIR is the field's standard
+zero-shot retrieval benchmark (MTEB's retrieval tab is BEIR), scored by nDCG@10; NanoBEIR cuts 13 of its sets to 50
+queries and a few thousand documents each, every judged document kept and BM25's top hits as distractors, and is what
+Sentence Transformers' `NanoBEIREvaluator` reads. We read its `sentence-transformers/Nano<Set>-bm25` copies from the
+Hugging Face dataset viewer, because they also carry BM25's own ranking of every query: the same judgements scored on
+that list are the reference row beside ours, so "better than BM25" is a measured claim. Each set is its own world: Sam's
+empty personal workspace, every document a note (`beir/<doc id>.md`), searched through the MCP endpoint on both paths.
+The headline is nDCG@10 averaged over sets (NanoBEIR's own), beside Recall@10, MRR@10 and our right note first.
+In the Lab: `nanobeir` (all 13, 649 queries) and `nanobeir-gate` (MS MARCO, NQ, FiQA, SciFact: short searches, plain
+questions, forum-style answers and claims, the four nearest to what people and agents type into notes search; 200
+queries over about 17,600 notes). **It joins the gate, it does not replace it:** a public set cannot be sealed, so a
+change could be tuned to it, and it knows nothing of several workspaces, archives or notes that quote the question,
+which is where our searches fail. So "Search test set" passes only when the sealed part's right note first does not
+drop AND neither path's NanoBEIR nDCG@10 (database and workspace object) falls more than 0.005 below main's
+(`BEIR_TOLERANCE`: about two queries each moving one place). Main ranks first and keeps every embedding it asked for in
+a file (`BENCH_EMBED_CACHE`, saved to the Actions cache before the change runs); the change reads a copy, so its
+code never writes what main reads, and the corpus is embedded once rather than on every gate run.
+
 **What a simplification would cost:** a gate on the made-up set alone tunes search to questions we wrote; a Test part
 an agent can read is tuned against; letting a change's own harness read its ranks lets it grade itself. **Tests:**
-`apps/mcp/bench/test/searchHard.test.mjs`, `memoryRetrieval.test.mjs`, `searchSuite.test.mjs`,
+`apps/mcp/bench/test/searchHard.test.mjs`, `nanoBeir.test.mjs` (BEIR's nDCG, the mean over sets, the fetch, the embedding file), `memoryRetrieval.test.mjs`, `searchSuite.test.mjs`,
 `scripts/search-test-set.mjs --self-test` (the paths, the gate, answers carry no words), `infra/tex-eval`'s search
 tests (doors, caps, verdict), and `apps/convex/__tests__/controlPlane/labEvals.test.ts`.
