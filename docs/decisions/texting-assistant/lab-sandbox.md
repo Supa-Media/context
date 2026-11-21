@@ -162,6 +162,20 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   false`, listed, and the job ends through `/job-failed`, so the chat hears it failed as it would); a tool that needs a
   browser or a computer (`browse`, `fill_login`, `fill_card`, `delegate`, the computer tools) is refused in words the
   turn reads as a refusal and listed (`MACHINE_REFUSAL`).
+- *A job runs on a real job box* (`labSandbox/jobBox.js`, 2026-11-21: the job box's memory fix and its own alarm could
+  not be tried in the Lab while jobs ran in memory with their alarm off). Where the gateway has `LAB_JOB`, a job a test
+  text starts is born in a `LabJob` Durable Object: the gateway's `TexJob` class itself (`texJobClass` with a `fence`),
+  one per test chat, text and job. Its start is held until the text's own answer is in and the job before it is done,
+  so the steps of one job hang under it alone; then its own alarm runs every pass (`jobDrive.ts`: retries, overlap
+  waits, the "couldn't finish" line), each pass the job node on the draft, its node log kept, and its turn leaving the
+  box over a real hop. The fence changes only what the box reaches: every call out (`/agent`, the texting routes, the
+  control plane, the chat's object, other jobs) goes to the test chat's object (`/job-out/*`), answered on the fences
+  of the text that started it, under a random run key held in memory and dead with the run. Every node the box runs is
+  a step as it starts and ends (the job node's input names the box's `pass` and `tries`); the run is listed in
+  `writes` ("ran on its own job box"). When the run ends (done, the 15-minute limit, Reset) the box is stopped and
+  deletes everything it kept; a box whose run is gone (a deploy) is answered 410 and deletes itself on its next
+  alarm. The box holds no token or secret. A job on a computer, one past 6, and a deployment without the binding keep
+  the in-memory path above. Tests: `apps/mcp/test/labSandboxJobBox.test.mjs` (sabotage list in its header).
 - *Writes happen in the test chat* (`labSandbox/sandboxTools.js`, `object.js` `sb_notes`, `sb_assets`). `write_note`
   writes the note whole into the test chat; a later turn's `read_note`, `read_notes` or `fetch` of it reads it there,
   and its `list_notes`, `search_notes` and `search` name it after the real answer (`afterRead`, in

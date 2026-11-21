@@ -115,6 +115,7 @@ import { moveForTexts, TEXTS_MOVE_PATH } from "../../../packages/tex/gateway/age
 import { texJobClass } from "../../../packages/tex/gateway/texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { labJobFence } from "../../../packages/lab/gateway/labSandbox/jobBox.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";
@@ -201,6 +202,11 @@ export const CreditRest = CreditRestObject;
 export const WorkspaceStore = WorkspaceStoreDurableObject;
 /** One Lab test chat, one Durable Object per person's test chat (`labSandbox/object.js`). */
 export const LabSandbox = LabSandboxObject;
+/**
+ * One Lab test chat's background job, one Durable Object per job (`labSandbox/jobBox.js`): the `TexJob` class itself, its
+ * own alarm driving each pass, fenced so every call out is answered by its test chat's object.
+ */
+export const LabJob = texJobClass({ gateway: () => gatewayWorker, texts: () => TexTexts, fence: labJobFence });
 
 /**
  * The session one text runs under, for the texting Worker alone (`agent/textsSession.js`). A named entrypoint has no

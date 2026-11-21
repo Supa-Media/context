@@ -46,7 +46,8 @@ import { sandboxNamespace } from "./wire.js";
 import { sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { attachmentsOf, pictureFetch } from "./inbound.js";
 import { hold, lineOf, rowLine } from "./line.js";
-import { JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
+import { boxNode, JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
+import { boxStub, openRun } from "./jobBox.js";
 import { assetId, assetUrl } from "../fromGateway/labSandbox_sandboxTools.js";
 import { fitSteps } from "./steps.js";
 
@@ -411,7 +412,7 @@ const PICTURE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/we
  * is what another chat's object hands this one (`/cross-ask`, `/cross-answer`) in place of a text over the line
  * (`crossRuns.js`); `sleep` and `now` only for tests. Never throws; answers `{ cross }`, what its turns sent another chat.
  */
-export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, inbound = null, agentRoute = null, textsRoute = null, now = Date.now, sleep = hold, jobLimitMs = JOB_LIMIT_MS }) {
+export async function runChatTurn({ env, stub, about, row, payload, token, config, origin, chat = null, inbound = null, agentRoute = null, textsRoute = null, now = Date.now, sleep = hold, jobLimitMs = JOB_LIMIT_MS, sandbox = null }) {
   const line = lineOf(about);
   const gate = sandboxGate(stub, about, row.id, { config, arrivedAt: row.at ?? now(), now });
   // The group chats a 1:1 test turn may read, as the control plane listed them for this chat (`texLabSandbox.ts`):
@@ -466,6 +467,9 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
   };
   // What this text's turns sent another chat (`jobs.js` `crossOut`), handed back for the route to carry (`crossRuns.js`).
   let crossOut = [];
+  // The run a job box reaches this text's fences through (`jobBox.js`): only where the gateway has job boxes, and only
+  // for a text its test chat's own object runs (`sandbox`, that object's name, which the box calls back).
+  const live = env?.LAB_JOB !== undefined && typeof sandbox === "string" ? openRun({ setup: null, env: null, namespace: null, node: null }) : null;
   try {
     await callSandbox(stub, "beat", { msgId: row.id, node: inbound === null ? "lineIn" : "text", steps: [] });
     // The line: the text reaches the chat object after the line's delay in, as a Photon text reaches the Worker.
@@ -521,8 +525,17 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
         return { storage: jobStorage, inbox: new SenderInbox(objectState(jobStorage, `lab-${sandboxId}-${name}`), envOf) };
       },
       parentOfJob: () => book.last("fd") ?? book.tail,
+      makeBox: live === null ? null : (name) => boxStub(env.LAB_JOB, { sandbox, rowId: row.id, jobName: name, run: live.key }),
     });
     envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace });
+    if (live !== null) {
+      Object.assign(live.entry, {
+        setup: { config: config ?? null, gateway: LAB_GATEWAY, controlPlane: LAB_CONTROL_PLANE, secret: LAB_WORKER_SECRET },
+        env: envOf,
+        namespace: registry.namespace,
+        node: (phase, run) => boxNode({ phase, run, registry, gate, book }),
+      });
+    }
     const inbox = new SenderInbox(objectState(storage, `lab-${sandboxId}`), envOf);
     registry.chat = inbox;
     crossOut = registry.crossOut;
@@ -585,6 +598,8 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     );
     console.log(JSON.stringify({ event: "lab_sandbox_chat_turn", ok: false, ms: at - started, reason: String(error?.name ?? "error").slice(0, 40) }));
   } finally {
+    // A box still calling after this is answered "gone", and deletes itself (`jobBox.js`).
+    live?.close();
     await gate.flush();
     // Only this text's own mark: a turn that outlived its mark never frees another text's.
     await callSandbox(stub, "release", { msgId: row.id }).catch(() => {});

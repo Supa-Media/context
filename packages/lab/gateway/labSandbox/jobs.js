@@ -9,7 +9,13 @@
  * writes kept in the test chat) and reports to the chat object (`/job-update`), whose own turn and line text the
  * result. Hand-back judge, Job check and the Advisor on job mail are reached through the job node's wires.
  *
- * What differs is only where the objects live: the job's object is the Worker's `SenderInbox` on storage in memory,
+ * Where the gateway has the `LAB_JOB` binding, the job is born in a real job box (`jobBox.js`): the gateway's `TexJob`
+ * class on its own Durable Object, its own alarm driving every pass (`jobDrive.ts`), its calls out answered here on this
+ * text's fences, and this file only watches it (`runBox`) until it is done or the limit is up, then stops it. Every node
+ * its passes run is a step as it starts and ends. A job on a computer, one past `MAX_JOBS`, and a deployment without the
+ * binding take the path below.
+ *
+ * Without a box, the job's object is the Worker's `SenderInbox` on storage in memory,
  * reached through `sandboxInboxes`, a namespace that holds this text's chat object and its jobs and nothing else, and
  * the passes are driven here (the Worker's workflow is not reached), one after another, until the job says done or
  * `JOB_LIMIT_MS` runs out. A job that would run on one of the person's computers is never run: its pass is refused, the
@@ -18,6 +24,7 @@
 
 import { gatewayGraph } from "../fromGateway/agent_graph_gatewayGraph.js";
 import { TEX_CONFIG, withDraft } from "../fromGateway/agent_texConfig.js";
+import { LAB_STATE_PATH, LAB_STOP_PATH } from "./jobBox.js";
 
 /** A job's passes in a test chat stop after this long (production's limit is 30 minutes, `jobRun.ts`). */
 export const JOB_LIMIT_MS = 15 * 60_000;
@@ -34,6 +41,8 @@ const MAX_WAIT_MS = 60_000;
 const RUN_KEY = "jobrun";
 /** A job's text keeps its running mark fresh at least this often, so a long job is never taken for a dead turn. */
 export const BEAT_MS = 60_000;
+/** How often a job box is looked at while it runs. */
+export const BOX_POLL_MS = 1_500;
 
 /**
  * `sleep`, in pieces no longer than `everyMs` with `beat()` before each: a job's wait (and its whole run, up to 15
@@ -69,7 +78,7 @@ function inner(request) {
  * object is refused and listed. `jobs` keeps each job's `{ name, inbox, storage, parent }`; `chat` is set once the chat
  * object exists.
  */
-export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null }) {
+export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBox = null }) {
   const jobs = new Map();
   /** The names a job reports to: its `run.inbox`, as the chat object gave it at `/job-start`. */
   const chats = new Set();
@@ -94,8 +103,22 @@ export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null }) {
         if (path !== "/job-start" || request.method !== "POST") return Response.json({ here: false }, { status: 404 });
         const run = await request.clone().json().catch(() => null);
         if (typeof run?.inbox === "string") chats.add(run.inbox);
-        job = { name, ...makeJob(name), parent: parentOfJob() };
+        // On a real job box (`jobBox.js`), unless it would run on a computer (never run here) or one too many (refused).
+        const boxes = [...jobs.values()].filter((kept) => kept.boxed).length;
+        const box = makeBox !== null && run?.machine === undefined && boxes < MAX_JOBS ? makeBox(name) : null;
+        if (box === null) job = { name, ...makeJob(name), parent: parentOfJob() };
+        else {
+          // Its start is held until its turn in `runJobs`, as a job in memory waits for its first pass: the text's own
+          // answer is in first, and one box runs at a time, so each pass's steps hang under it alone.
+          job = { name, inbox: box, boxed: true, passes: 0, failedLine: false, parent: parentOfJob(), start: await request.clone().text() };
+          jobs.set(name, job);
+          return Response.json({ ok: true });
+        }
         jobs.set(name, job);
+      }
+      if (job.boxed) {
+        await startBox(job);
+        return await job.inbox.fetch(request);
       }
       return await job.inbox.fetch(inner(request));
     }
@@ -132,6 +155,13 @@ export async function runJobs({ registry, gate, book, config = null, drain = asy
     if (job.done) continue;
     job.done = true;
     const jobId = job.name.replace(/^job:/, "");
+    // On its own box it is already running (its alarm started it at birth): watched, and stopped at the end.
+    if (job.boxed) {
+      const { passes, outcome } = await runBox({ job, jobId, gate, book, drain, now, wait, deadline });
+      ran.push({ jobId, passes, outcome, box: true });
+      console.log(JSON.stringify({ event: "lab_sandbox_job", passes, outcome, box: true }));
+      continue;
+    }
     if (gate.cancelled) {
       // Reset while this text ran: its jobs never start, as the test chat they would write to is gone.
       ran.push({ jobId, passes: 0, outcome: "reset" });
@@ -209,4 +239,81 @@ export async function runJobs({ registry, gate, book, config = null, drain = asy
     console.log(JSON.stringify({ event: "lab_sandbox_job", passes, outcome }));
   }
   return ran;
+}
+
+/**
+ * One job on its own box (`jobBox.js`): its alarm runs the passes, and this only drains the chat object between looks
+ * (a pass's report is a turn there) until the box has no job left, the limit is up, or the test chat is Reset; then the
+ * box is stopped, which deletes it. Answers its passes, as the box told them, and how it ended. Never throws.
+ */
+/**
+ * A node a job box's graph ran (`jobBox.js`), as it started or ended: a step on the run card, as a job in memory's are.
+ * A pass (the job node) hangs under the step that started its job, and what it runs after under the pass; each one
+ * counted on its job, and the "couldn't finish" line noted.
+ */
+export function boxNode({ phase, run, registry, gate, book }) {
+  if (typeof run?.node !== "string" || typeof run.id !== "string") return;
+  const pass = run.node === "job" && typeof run.parent !== "string";
+  const job = pass ? registry.jobs.get(`job:${String(run.input?.jobId ?? "")}`) : undefined;
+  if (phase === "start") {
+    if (pass) book.setAnchor(job?.parent ?? book.tail);
+    gate.onStart(run);
+    if (pass) {
+      book.setAnchor(book.stepOf(run.id));
+      if (job !== undefined) {
+        job.passes += run.input?.step === "failed" ? 0 : 1;
+        if (run.input?.step === "failed") job.failedLine = true;
+      }
+    }
+  } else gate.onNode(run);
+  gate.show?.();
+}
+
+/** Sends a box's held start (`/job-start`), once: the box is born, and its alarm runs its first pass. */
+export async function startBox(job) {
+  if (typeof job.start !== "string") return;
+  const body = job.start;
+  job.start = null;
+  const answer = await job.inbox.fetch(new Request("https://inbox/job-start", { method: "POST", headers: { "content-type": "application/json" }, body }));
+  if (!answer.ok) throw new Error(`the job box refused its start (${answer.status})`);
+}
+
+export async function runBox({ job, jobId, gate, book, drain, now, wait, deadline }) {
+  const look = async () => {
+    const answer = await job.inbox.fetch(new Request(`https://inbox${LAB_STATE_PATH}`)).catch(() => null);
+    return answer?.ok ? await answer.json().catch(() => null) : null;
+  };
+  let outcome = "cut";
+  let state = null;
+  try {
+    // What its passes run hangs under the step that started it, each pass's own under that pass (`object` `node`).
+    book.setAnchor(job.parent ?? book.tail);
+    if (gate.cancelled) throw Object.assign(new Error("reset"), { name: "reset" });
+    await startBox(job);
+    while (now() < deadline) {
+      if (gate.cancelled) {
+        outcome = "reset";
+        break;
+      }
+      await drain();
+      state = await look();
+      if (state !== null && (state.gone || !state.here || (!state.running && state.drive === null))) {
+        outcome = state.gone ? "gone" : job.failedLine ? "failed" : "done";
+        break;
+      }
+      await wait(Math.max(0, Math.min(BOX_POLL_MS, deadline - now())));
+    }
+    await drain();
+  } catch (error) {
+    outcome = error?.name === "reset" ? "reset" : "failed";
+    if (outcome === "failed") console.log(JSON.stringify({ event: "lab_sandbox_job_failed", box: true, reason: String(error?.name ?? "error").slice(0, 40) }));
+  } finally {
+    book.setAnchor(null);
+    // A box never born (its start held, then Reset) has nothing to stop.
+    if (typeof job.start === "string") job.start = null;
+    else await job.inbox.fetch(new Request(`https://inbox${LAB_STOP_PATH}`, { method: "POST" })).catch(() => null);
+  }
+  const said = { done: "done", failed: "ended with its couldn't-finish line", cut: "stopped at the test chat's limit", reset: "stopped by Reset", gone: "lost its run" }[outcome];
+  gate.record({ kind: "Job", summary: `job ${jobId.slice(0, 12)} ran on its own job box (LabJob, driven by its alarm): ${job.passes} pass${job.passes === 1 ? "" : "es"}, ${said}` });
+  return { passes: job.passes, outcome };
 }

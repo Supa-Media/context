@@ -748,3 +748,4 @@ test/texDevSearch.test.mjs
 bench/test/searchSuite.test.mjs
 bench/test/searchHard.test.mjs
 bench/test/memoryRetrieval.test.mjs
+test/labSandboxJobBox.test.mjs

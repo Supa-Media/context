@@ -20,6 +20,7 @@
 
 import { texLedger } from "../fromGateway/texStore_ledger.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
+import { JOB_OUT_PREFIX, serveJobOut } from "./jobBox.js";
 
 export const SANDBOX_TTL_MS = 24 * 3_600_000;
 /**
@@ -435,6 +436,8 @@ export class LabSandboxObject {
   }
 
   async fetch(request) {
+    // A test chat's job box calling out (`jobBox.js`): answered on the fences of the run that started it, any method.
+    if (new URL(request.url).pathname.startsWith(JOB_OUT_PREFIX)) return await serveJobOut(request);
     if (request.method !== "POST") return new Response(null, { status: 405 });
     const op = new URL(request.url).pathname.slice(1);
     let body = {};

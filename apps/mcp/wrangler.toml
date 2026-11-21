@@ -232,6 +232,14 @@ class_name = "LabSandbox"
 tag = "v8-lab-sandbox"
 new_sqlite_classes = ["LabSandbox"]
 
+# One Lab test chat's background job (packages/lab/gateway/labSandbox/jobBox.js): the TexJob class itself, its own
+# alarm driving each pass, every call out answered by the test chat's object on that text's fences (reads real, writes
+# kept in the test chat). One per test chat, text and job; deleted when its run ends. Self-hosting: leave it out, and
+# a test chat's jobs run in memory in its object.
+[[durable_objects.bindings]]
+name = "LAB_JOB"
+class_name = "LabJob"
+
 # Which AI Gateway payer's credit is spent (src/agent/creditRest.js): one object, a payer name and a timestamp,
 # never a key and never a prompt. Every isolate reads it, so a spent plan credit is skipped everywhere instead of
 # failing once per isolate and then being paid again on Unified Billing. Self-hosting on the free tier: leave it
@@ -243,6 +251,10 @@ class_name = "CreditRest"
 [[migrations]]
 tag = "v9-credit-rest"
 new_sqlite_classes = ["CreditRest"]
+
+[[migrations]]
+tag = "v10-lab-job"
+new_sqlite_classes = ["LabJob"]
 
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
@@ -479,6 +491,10 @@ name = "LAB_SANDBOX"
 class_name = "LabSandbox"
 
 [[env.staging.durable_objects.bindings]]
+name = "LAB_JOB"
+class_name = "LabJob"
+
+[[env.staging.durable_objects.bindings]]
 name = "CREDIT_REST"
 class_name = "CreditRest"
 
@@ -594,6 +610,10 @@ class_name = "SearchQualityKey"
 [[env.preview.durable_objects.bindings]]
 name = "LAB_SANDBOX"
 class_name = "LabSandbox"
+
+[[env.preview.durable_objects.bindings]]
+name = "LAB_JOB"
+class_name = "LabJob"
 
 [[env.preview.durable_objects.bindings]]
 name = "CREDIT_REST"

@@ -24,7 +24,7 @@
  * caller's token rides in that one call and is held in memory for the trip only, never stored.
  */
 
-import { callSandbox, sandboxStub } from "./object.js";
+import { callSandbox, sandboxName, sandboxStub } from "./object.js";
 import { RUNNING_STALE_MS } from "./harness.js";
 import { createControlPlane } from "../fromGateway/controlPlane.js";
 
@@ -213,7 +213,7 @@ export function objectRun(env, state, body, pieces, { aliveMs = ALIVE_MS } = {})
   const run = (async () => {
     try {
       const { open, newIds, runTurn, max } = await pieces();
-      const done = await runTurn({ env, stub, about: turn.about, row: turn.row, payload: asker.payload, token, config, origin, chat: asker.chat ?? null });
+      const done = await runTurn({ env, stub, about: turn.about, row: turn.row, payload: asker.payload, token, config, origin, chat: asker.chat ?? null, sandbox: sandboxName(who.userId, asker.sandboxId) });
       await carryFrom(done, { env, controlPlane: createControlPlane(env), token, who, origin, config, asker: { ...asker, stub } }, { open, newRow: newIds, runTurn, max });
     } catch (error) {
       console.log(JSON.stringify({ event: "lab_sandbox_object_run", ok: false, reason: String(error?.name ?? "error").slice(0, 40) }));
