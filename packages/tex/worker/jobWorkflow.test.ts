@@ -1,5 +1,6 @@
 /**
- * A background job seen through by its own Workflow instance (`jobWorkflow.ts`,
+ * A background job seen through by its own Workflow instance (`jobWorkflow.ts`, before 2026-11-21: now
+ * only jobs it started before then; `jobDrive.test.ts` covers the alarm that runs jobs now;
  * Dev2, 2026-10-28). Workflows itself never runs here: `step` is a stand-in
  * that runs each step inline and honours its retry limit.
  *
@@ -15,9 +16,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { ANSWER_RETRIES } from "./groupTurnWorkflow";
-import { acceptJob, armJobNext, ENDED_KEY, failJob, jobAlarm, runJob, type JobDeps, type JobNext } from "./jobRun";
-import { JOB_KEPT_MS, JOB_LINES, jobTag, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
-import { jobInstanceId, MAX_JOB_PASSES, MAX_OVERLAP_WAITS, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
+import { failJob, runJob, type JobDeps, type JobNext } from "./jobRun";
+import { JOB_LINES, jobTag, MAX_JOB_ATTEMPTS, RUN_KEY, type JobRun, type JobUpdate } from "./jobs";
+import { MAX_JOB_PASSES, MAX_OVERLAP_WAITS, runJobFlow, startJobFlow, type JobCall } from "./jobWorkflow";
 import { MemoryStorage } from "./memoryStorage.testing";
 
 const NOW = 1_000_000;
@@ -96,13 +97,11 @@ describe("a background job's workflow", () => {
   it("runs every pass through the instance, waits between them there, and never sets the object's alarm", async () => {
     const logs = vi.spyOn(console, "log").mockImplementation(() => {});
     const storage = new MemoryStorage();
-    const started: string[] = [];
-    await acceptJob(storage, RUN, NOW, async () => void started.push(jobInstanceId(RUN.id)));
+    await storage.put(RUN_KEY, { ...RUN, sent: 0 }); // a job its workflow started, before 2026-11-21
     const busy = { status: 503, body: { error: "model_unavailable" } };
     const { d, reports } = deps([busy, { body: { answer: "Found three so far.", exhausted: true } }, { body: { answer: "Wrote the note." } }]);
     const { step, sleeps } = fakeStep();
     expect(await runJobFlow(step, objectCall(storage, d), RUN.id)).toBe("done");
-    expect(started).toEqual(["job-job-1234-abcd"]);
     expect(storage.alarms).toEqual([]);
     expect(sleeps).toHaveLength(1);
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Wrote the note."] });
@@ -116,7 +115,7 @@ describe("a background job's workflow", () => {
   it("a job that takes every one of its parts, each after a busy model, still ends through its instance (2026-10-31)", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const storage = new MemoryStorage();
-    await acceptJob(storage, RUN, NOW, async () => {});
+    await storage.put(RUN_KEY, { ...RUN, sent: 0 });
     const busy = { status: 503, body: { error: "model_unavailable" } };
     const parts = Array.from({ length: MAX_JOB_ATTEMPTS }, (_, i) => [busy, busy, { body: { answer: i === MAX_JOB_ATTEMPTS - 1 ? "Wrote the note." : "More to do.", unfinished: true, verdict: "keep_going", advice: "Carry on." } }]).flat();
     const { d, reports } = deps(parts);
@@ -151,7 +150,7 @@ describe("a background job's workflow", () => {
   it("a pass that keeps failing is retried, then the job ends with its couldn't-finish line", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const storage = new MemoryStorage();
-    await acceptJob(storage, RUN, NOW, async () => {});
+    await storage.put(RUN_KEY, { ...RUN, sent: 0 });
     const { d, reports } = deps([]);
     const { step, runs } = fakeStep();
     expect(await runJobFlow(step, objectCall(storage, d, true), RUN.id)).toBe("failed");
@@ -177,41 +176,5 @@ describe("a background job's workflow", () => {
     await startJobFlow(workflow as never, RUN.id);
     await startJobFlow(workflow as never, RUN.id);
     expect(created).toEqual(["job-job-1234-abcd"]);
-  });
-
-  it("without a workflow (self-hosted, no Workflows), the alarm drives each pass as before", async () => {
-    const storage = new MemoryStorage();
-    await acceptJob(storage, RUN, NOW);
-    expect(storage.alarms).toEqual([NOW]);
-    await armJobNext(storage, { kind: "after", ms: 20_000 }, NOW);
-    await armJobNext(storage, { kind: "done" }, NOW);
-    expect(storage.alarms).toEqual([NOW, NOW + 20_000]);
-  });
-
-  it("the object's alarm runs the job's pass without a workflow, and with one only drops a kept run (2026-11-02)", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const busy = { status: 503, body: { error: "model_unavailable" } };
-    const alone = new MemoryStorage();
-    await acceptJob(alone, RUN, NOW);
-    const { d, reports } = deps([busy, { body: { answer: "Wrote the note." } }]);
-    await jobAlarm(alone, d, false);
-    expect(alone.alarms).toEqual([NOW, NOW + 20_000]);
-    await jobAlarm(alone, d, false);
-    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Wrote the note."] });
-    expect(alone.data.has(RUN_KEY)).toBe(false);
-
-    const kept = new MemoryStorage();
-    await kept.put(ENDED_KEY, { run: RUN, endedAt: NOW - JOB_KEPT_MS - 1 });
-    await jobAlarm(kept, deps([]).d, true);
-    expect(kept.data.has(ENDED_KEY)).toBe(false);
-
-    // Resumed before that alarm fired: its instance runs it, never the alarm.
-    const resumed = new MemoryStorage();
-    await resumed.put(RUN_KEY, { ...RUN, resumes: 1 });
-    const idle = deps([]);
-    await jobAlarm(resumed, idle.d, true);
-    expect(idle.reports).toEqual([]);
-    expect(resumed.alarms).toEqual([]);
-    expect(resumed.data.get(RUN_KEY)).toEqual({ ...RUN, resumes: 1 });
   });
 });

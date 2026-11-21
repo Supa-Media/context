@@ -30,6 +30,8 @@ export const EVAL_BENCHES = [
   { id: "search-hard", title: "Search", variant: "Made-up hard", total: 40, search: true, about: "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives. Embeddings only." },
   { id: "search-real", title: "Search", variant: "Real queries (Dev)", total: 10, search: true, about: "Real searches that failed (retried, or never opened), rewritten never verbatim: the Dev part. Embeddings only." },
   { id: "longmemeval-retrieval", title: "LongMemEval", variant: "Retrieval", total: 470, search: true, about: "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge. Embeddings only." },
+  { id: "nanobeir", title: "NanoBEIR", variant: "All 13 sets", total: 649, search: true, about: "The standard public retrieval benchmark (BEIR's 13 sets cut to 50 queries each), scored by nDCG@10 beside BM25's own ranking. Embeddings only." },
+  { id: "nanobeir-gate", title: "NanoBEIR", variant: "Gate's 4 sets", total: 200, search: true, about: "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change. Embeddings only." },
 ] as const;
 export const EVAL_WORKFLOW = "lab-eval-run.yml";
 /** The first slice a new benchmark is sized on (Dev2's ask: a 50-question slice first, then the full run's cost). */
@@ -143,6 +145,18 @@ export function cleanSearch(x: unknown) {
       : {}),
     ...(s.byPath !== undefined ? { byPath: Object.fromEntries(Object.entries(obj(s.byPath)).slice(0, 10).map(([k, val]) => [k.slice(0, 40), num(val)])) } : {}),
     ...(s.byAbility !== undefined ? { byAbility: mapOf(s.byAbility, (k) => ({ n: num(k.n), recallAny5Pct: numOrNull(k.recallAny5Pct) })) } : {}),
+    // NanoBEIR (`apps/mcp/bench/evals/nanoBeir.mjs`): nDCG@10, Recall@10, MRR@10 as the mean over sets, BM25's own
+    // ranking scored the same way, the object world's nDCG@10, and each set's.
+    ...(s.ndcg10 !== undefined
+      ? {
+          ndcg10: numOrNull(s.ndcg10),
+          recall10: numOrNull(s.recall10),
+          mrr10: numOrNull(s.mrr10),
+          bm25Ndcg10: numOrNull(s.bm25Ndcg10),
+          ...(s.objectNdcg10 !== undefined ? { objectNdcg10: numOrNull(s.objectNdcg10) } : {}),
+          bySet: mapOf(s.bySet, (k) => ({ n: num(k.n), ndcg10: numOrNull(k.ndcg10), recall10: numOrNull(k.recall10), mrr10: numOrNull(k.mrr10), firstPct: numOrNull(k.firstPct), bm25Ndcg10: numOrNull(k.bm25Ndcg10), objectNdcg10: numOrNull(k.objectNdcg10) })),
+        }
+      : {}),
   };
 }
 

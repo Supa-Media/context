@@ -96,3 +96,13 @@ turn reads the days the way production does. The bench chat has no day summaries
 days is held just inside them (six days less an hour) rather than dropped, and a run says how many it held. Seeding
 real day summaries for those lines is the follow-up. Test: `apps/mcp/test/setsFd.test.mjs` ("each earlier line is
 dated…") and `apps/mcp/bench/test/world.test.mjs` ("an earlier line with minutes before…").
+
+**Every text is shown, the last hour's too (Dev2, 2026-11-21).** Within an hour of activity the chat's last turns
+are carried as messages, each a question and Tex's answer with its tool calls (`stretch.js`), and the transcript
+stops where they begin, so the cache keeps reading both. A text after the last answer that no turn took (a group's
+judge said it wasn't for Tex, then someone tagged Tex) was in neither, and the model never saw it: a group asked Tex a
+question, then texted only its name, and was asked what it needed. Such texts (`stretchLeft`) are now shown in the
+new turn, before the text it answers, with their times and "(not answered)". Dev2 chose this over making the last
+hour a second history: one transcript of every text, the last hour adding only Tex's tool calls under the answers
+they belong to. Tests: `apps/mcp/test/texCarry.test.mjs` ("a text nobody answered…") and the replay case
+`unanswered-before-tag`.

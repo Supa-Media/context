@@ -2,6 +2,7 @@
 
 import type { GroupTurnParams } from "./groupTurnWorkflow";
 import type { JobRunParams } from "./jobWorkflow";
+import type { JobStep } from "./jobDrive";
 import type { TextsBinding } from "./gatewaySession";
 import type { TimingDataset } from "./textTiming";
 import type { CountDataset } from "./textCounts";
@@ -10,9 +11,15 @@ import type { GroupLine } from "./groupLine";
 
 export interface Env {
   SENDER_INBOX: DurableObjectNamespace;
-  /** Sees each group turn through, with retries (`groupTurnWorkflow.ts`); absent, group turns are answered in their object. */
+  /**
+   * The Workflows that saw group turns and jobs through until 2026-11-21 (`groupTurnWorkflow.ts`, `jobWorkflow.ts`): kept
+   * bound only so instances started before then finish. Nothing starts one now: a chat's and a job's own alarm retries
+   * (`groupRetry.ts`, `jobDrive.ts`).
+   */
   GROUP_TURN?: Workflow<GroupTurnParams>;
   JOB_RUN?: Workflow<JobRunParams>;
+  /** A job's pass and its "couldn't finish" line as the gateway's job node runs them (`packages/tex/gateway/texJob.js`); absent, run in the object. */
+  JOB_STEP?: JobStep;
   /** Linq's `whsec_…` webhook signing secret. */
   LINQ_WEBHOOK_SECRET: string;
   /** Linq Partner API key, used to send replies. */

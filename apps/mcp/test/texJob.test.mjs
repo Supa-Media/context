@@ -1,7 +1,7 @@
 /**
  * The gateway's TexJob (`src/texJob.js`): a background job's object run here as the texting Worker's SenderInbox, born
  * on its first `/job-start`, answering nothing before that, and reached by a chat's job calls and by the Worker's
- * `/texts/job-call/` route. The job's workflow is the Worker's own (`jobWorkflow.ts`), started over its RPC (`jobRun`).
+ * `/texts/job-call/` route. Since 2026-11-21 its own alarm runs each pass (`jobDrive.ts`), never the Worker's workflow.
  *
  * Runs under `--experimental-transform-types` with `test/tsRegister.mjs` (`test/run.mjs`): the Worker's TypeScript
  * (`jobRun.ts`, `chatObject.ts`) is what answers, on in-memory storage, with a fake workflow that records each start.
@@ -190,7 +190,7 @@ describe("an unborn job's object", () => {
 });
 
 describe("a job's start", () => {
-  it("births the object under the job's name, and the job's own object starts its workflow", async () => {
+  it("births the object under the job's name, and the job's own alarm is set to run it, with no workflow (2026-11-21)", async () => {
     const env = makeEnv();
     const started = await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-start", { name: NAME, body: run() }));
     assert.equal(started.status, 200);
@@ -199,9 +199,10 @@ describe("a job's start", () => {
     const object = objectOf(env);
     assert.equal(typeof (await object.state.storage.get(BORN_KEY)), "number");
     assert.equal(await object.state.storage.get(JOB_NAME_KEY), NAME);
-    // The inner object received `/job-start`, kept the run, and started its workflow in the Worker, over its RPC.
-    assert.equal(env.workflow.created.length, 1);
-    assert.deepEqual(env.workflow.created[0].params, { job: JOB });
+    // The inner object received `/job-start`, kept the run, and set its own alarm to drive it: no Worker workflow.
+    assert.equal(env.workflow.created.length, 0);
+    assert.deepEqual(await object.state.storage.get("jobdrive"), { pass: 0, tries: 0, overlaps: 0, dueAt: object.state.storage.alarm, resumes: 0 });
+    assert.equal(typeof object.state.storage.alarm, "number");
   });
 
   it("refuses a start whose name is not a job's, and an unborn object never answers as born", async () => {
@@ -232,7 +233,8 @@ describe("a job's start", () => {
     await new Promise((resolve) => setTimeout(resolve, 2));
     await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-start", { name: NAME, body: run() }));
     assert.equal(await objectOf(env).state.storage.get(BORN_KEY), born);
-    assert.equal(env.workflow.created.length, 1, "the run is started once");
+    assert.equal((await objectOf(env).state.storage.get("jobdrive")).dueAt, objectOf(env).state.storage.alarm, "the run is driven once");
+    assert.equal(env.workflow.created.length, 0);
   });
 });
 
@@ -252,6 +254,34 @@ describe("the job's alarm", () => {
     } finally {
       SenderInbox.prototype.alarm = original;
     }
+  });
+});
+
+describe("the job's alarm runs its pass", () => {
+  it("through the job node, logged in the job's node log, and counts a failed pass as a try", async () => {
+    const env = makeEnv();
+    await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-start", { name: NAME, body: run() }));
+    const object = objectOf(env);
+    let passes = 0;
+    const real = object.passNext.bind(object);
+    object.passNext = async (step) => {
+      passes += 1;
+      return await real(step);
+    };
+    // The inner object reads its step from the env it was built with: built now, after the spy.
+    object.inner = null;
+    object.state.storage.alarm = null;
+    await object.alarm();
+    assert.equal(passes, 1, "the alarm ran one pass, through TexJob's job node");
+    const nodes = await (await env.TEX_JOB.get(NAME).fetch(request("GET", "/job-nodes"))).json();
+    assert.ok(nodes.nodes.length >= 1, "the pass is in the job's node log");
+    // This test's run is too thin for a real pass (no message on its origin): the node fails, and the alarm counts it
+    // as the pass's first try, due again in 10 s.
+    assert.deepEqual(nodes.nodes.map((node) => [node.name, node.ok, node.input.step, node.via]), [["job", false, "pass", "TexJob"]]);
+    const drive = await object.state.storage.get("jobdrive");
+    assert.deepEqual({ pass: drive.pass, tries: drive.tries }, { pass: 0, tries: 1 });
+    assert.equal(object.state.storage.alarm, drive.dueAt);
+    assert.equal(env.workflow.created.length, 0);
   });
 });
 
@@ -300,17 +330,5 @@ describe("a chat's job calls", () => {
     await inbox.SENDER_INBOX.get(inbox.SENDER_INBOX.idFromName(`enam:${NAME}`)).fetch("https://inbox/job-here");
     assert.deepEqual(env.rpc.calls.inboxFetch.map((call) => call.name), [`enam:${NAME}`]);
     assert.equal(env.TEX_JOB.objects.size, 0, "no job object is made while jobs run in the Worker");
-  });
-});
-
-describe("jobRunOver", () => {
-  it("is the Worker's job workflow over its RPC, and nothing with no RPC (the alarm drives the job)", async () => {
-    const { jobRunOver } = await import("../../../packages/tex/gateway/texJob.js");
-    assert.equal(jobRunOver(undefined), undefined);
-    const calls = [];
-    const over = jobRunOver({ jobRun: async (call) => void calls.push(call) });
-    assert.deepEqual(await over.create({ id: "job-abc", params: { job: "abc" } }), { id: "job-abc" });
-    assert.deepEqual(await over.get("job-abc"), { id: "job-abc" });
-    assert.deepEqual(calls, [{ op: "create", id: "job-abc", params: { job: "abc" } }, { op: "get", id: "job-abc" }]);
   });
 });

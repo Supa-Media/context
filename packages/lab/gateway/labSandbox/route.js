@@ -67,6 +67,7 @@ import { chatStepsOf, runTestText } from "./chatRun.js";
 import { carryFrom, carryInObject, objectCarry, objectRun, runInObject } from "./crossRuns.js"; // a test chat's asks of other chats
 import { draftFit, TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
+import { intake } from "./intake.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
@@ -604,6 +605,8 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   // A search try-out on the caller's own 1:1 (`search.js`): main's search config and a draft's, neither counted. No test chat.
   if (input.op === "search") return await searchForPerson({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
   if (input.op === "ledger") return await sharedLedger(env, controlPlane, token, who, input);
+  // Where the caller's own chats are answered, and moving one into the gateway before the rest (`intake.js`).
+  if (input.op === "intake") return await intake(env, who, input);
   // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
   if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
 
@@ -677,6 +680,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
     }
     default:
-      return refused(400, "op is chats, sets, shared, ledger, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read or nightly");
+      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read or nightly");
   }
 }

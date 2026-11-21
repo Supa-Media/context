@@ -42,6 +42,8 @@ export const SEARCH_SETS = Object.freeze([
   { id: "search-hard", title: "Search", variant: "Made-up hard", about: "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives." },
   { id: "search-real", title: "Search", variant: "Real queries (Dev)", about: "Real searches nobody opened or that were searched again, rewritten; the Dev part (Test is sealed and gates CI)." },
   { id: "longmemeval-retrieval", title: "LongMemEval", variant: "Retrieval", about: "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge." },
+  { id: "nanobeir", title: "NanoBEIR", variant: "All 13 sets", about: "The standard public retrieval benchmark (BEIR, cut to 50 queries a set), scored by nDCG@10 beside BM25's own ranking." },
+  { id: "nanobeir-gate", title: "NanoBEIR", variant: "Gate's 4 sets", about: "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change." },
 ]);
 export const searchSetOf = (id) => SEARCH_SETS.find((set) => set.id === id) ?? null;
 
@@ -105,7 +107,7 @@ export function searchScores(records) {
     errors: records.filter((r) => r.error).length,
     leaks,
     // How many searches each way answered (`pathOf`), so a ranking seen on one path is not read as the other's.
-    ...(records.some((r) => r.object) ? { objects: objectScores(records) } : {}),
+    ...(records.some((r) => r.object && typeof r.object === "object") ? { objects: objectScores(records) } : {}),
     byPath: Object.fromEntries([...new Set(records.map((r) => r.path ?? "unknown"))].sort().map((p) => [p, records.filter((r) => (r.path ?? "unknown") === p).length])),
   };
 }
@@ -115,7 +117,7 @@ export function searchScores(records) {
  * `same`, `better` (ranked the expected note higher) and `worse`, over the cases both answered.
  */
 export function objectScores(records) {
-  const both = records.filter((r) => r.object);
+  const both = records.filter((r) => r.object && typeof r.object === "object");
   const side = searchScores(both.map(({ object, ...r }) => ({ ...r, ...object })));
   const scored = both.filter((r) => (r.expect ?? []).length > 0);
   const at = (rank) => (rank === null ? Infinity : rank);
@@ -129,7 +131,9 @@ export function objectScores(records) {
 
 /** The embedder a run uses: Workers AI, or the bench's fake one (`--fake`: words only, no network). */
 export function embedderFor({ fake = false, env = process.env } = {}) {
-  return fake ? cachedEmbeddings(fakeAi()) : cachedEmbeddings(workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN, env.AI_GATEWAY_ID ?? null));
+  // BENCH_EMBED_CACHE: a file the answers are kept in and read back from (the search gate's NanoBEIR step).
+  const file = env.BENCH_EMBED_CACHE || null;
+  return fake ? cachedEmbeddings(fakeAi(), { file }) : cachedEmbeddings(workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN, env.AI_GATEWAY_ID ?? null), { file });
 }
 
 /**

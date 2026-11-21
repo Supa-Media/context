@@ -11,12 +11,10 @@
  *     `{"here": false}`, so the Worker can tell a job it never started here from one it did;
  *   - the name header is taken off every call before the inner object sees it. The inner object's move gate would
  *     otherwise try to copy the object in from the Worker, which a job never was (`inboxMove.ts` `placeGate`);
- *   - the inner object starts its workflow in the Worker (`jobRunOver`) and reaches other jobs' objects here
- *     (`chatEnv`'s `jobsHere`). With no Worker RPC bound (self-hosting without the texting Worker), it has no
- *     workflow, and its alarm runs each pass (`jobRun.ts` `jobAlarm`).
+ *   - the inner object reaches other jobs' objects here (`chatEnv`'s `jobsHere`).
  *
  * A chat starts a job here only while `TEX_JOBS` is "gateway" (`packages/tex/worker/jobPlace.ts`, via `chatEnv`'s `JOBS`), and
- * the Worker hands calls to it through `jobCallForTexts`. Production keeps `TEX_JOBS` at "worker", so it is idle there.
+ * the Worker hands calls to it through `jobCallForTexts`.
  */
 
 import { chatEnv, chatState } from "./texChat.js";
@@ -36,7 +34,7 @@ export const JOB_START_PATH = "/job-start";
 export const JOB_HERE_PATH = "/job-here";
 /** The node log of the job's passes, as JSON: `{"nodes": [...]}` (`texJobLog.js`). */
 export const JOB_NODES_PATH = "/job-nodes";
-/** The Worker's run of a job, as the workflow's steps reach the object (`packages/tex/worker/jobRoutes.ts`). */
+/** A pass and the "couldn't finish" line, as a job workflow started before 2026-11-21 reaches the object (`packages/tex/worker/jobRoutes.ts`). */
 const PASS_STEPS = { "/job-pass": "pass", "/job-failed": "failed" };
 /** The key the texting Worker keeps a job's run under (`packages/tex/worker/jobs.ts` `RUN_KEY`). */
 const RUN_KEY = "jobrun";
@@ -78,12 +76,22 @@ export function texJobClass({ gateway, texts }) {
       return await inner.fetch(new Request(`https://inbox${url.pathname}${url.search}`, { method: request.method, headers, body }));
     }
 
-    /**
-     * One pass of the job, run through the job node on the gateway's graph (`graph/nodes/job.js`): the node calls the
-     * Worker's pass on this object, and reads the run back. Answers the same JSON the pass answers
-     * (`packages/tex/worker/jobRoutes.ts`); a failed node answers 500, which the workflow retries.
-     */
+    /** A legacy workflow's pass over HTTP: what comes next as JSON, or a 500 the workflow retries. */
     async pass(step) {
+      try {
+        const next = await this.passNext(step);
+        return Response.json({ next });
+      } catch {
+        return Response.json({ error: "job_pass_failed" }, { status: 500 });
+      }
+    }
+
+    /**
+     * One pass of the job, or its "couldn't finish" line, run through the job node on the gateway's graph
+     * (`graph/nodes/job.js`): the node calls the pass on the inner object, and reads the run back. Answers what comes
+     * next (`JobNext`); throws when the node failed, which the job's alarm counts as a failed try (`jobDrive.ts`).
+     */
+    async passNext(step) {
       const jobId = String(await this.state.storage.get(JOB_NAME_KEY)).replace(/^job:/, "");
       const writer = jobNodeWriter(this.state.storage, jobId);
       const inner = await this.job();
@@ -94,10 +102,10 @@ export function texJobClass({ gateway, texts }) {
       };
       try {
         const { output } = await gatewayGraph({ writer }).runNode("job", { step, jobId }, { job: { call, read } }, "TexJob");
-        return Response.json({ next: output.next === "after" ? { kind: "after", ms: output.ms } : { kind: output.next } });
+        return output.next === "after" ? { kind: "after", ms: output.ms } : { kind: output.next };
       } catch (error) {
         console.log(JSON.stringify({ event: "job_pass_failed", job: jobId, step, name: error?.name ?? "error" }));
-        return Response.json({ error: "job_pass_failed" }, { status: 500 });
+        throw error;
       } finally {
         await writer.flush();
       }
@@ -116,26 +124,9 @@ export function texJobClass({ gateway, texts }) {
       const name = await this.state.storage.get(JOB_NAME_KEY);
       const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
       const env = await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true });
-      this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_RUN: jobRunOver(this.env.TEXTING) });
+      // Its alarm runs each pass through the job node (`passNext`), never a Worker workflow.
+      this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_STEP: (step) => this.passNext(step) });
       return this.inner;
     }
-  };
-}
-
-/**
- * The Worker's job workflow as the inner object's `JOB_RUN`, over the Worker's RPC (`TexRoutines.jobRun`): `create`
- * and `get`, all `startJobFlow` uses. Undefined with no RPC, so the object's alarm drives the job instead.
- */
-export function jobRunOver(rpc) {
-  if (rpc === undefined || rpc === null) return undefined;
-  return {
-    create: async (options) => {
-      await rpc.jobRun({ op: "create", ...options });
-      return { id: options?.id };
-    },
-    get: async (id) => {
-      await rpc.jobRun({ op: "get", id });
-      return { id };
-    },
   };
 }

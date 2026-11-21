@@ -131,6 +131,21 @@ function callOf(entry, stub, grant) {
 }
 
 /**
+ * Their texts in the stretch after its last answer, other than the ones the new turn answers: a text no turn took
+ * (a group's judge said it wasn't for Tex, then someone tagged Tex). The carried turns are pairs of a question and its
+ * answer, so these are in none of them, and the log block stops where the stretch begins: before, they reached the
+ * model nowhere (a group, 2026-11-21: a question, then a text of only Tex's name, answered by asking what they needed).
+ * `loggedTurn.js` shows them in the new turn, before the text it answers. Oldest first; [] with no stretch.
+ */
+export function stretchLeft(entries, { since, covered = new Set() } = {}) {
+  if (!Number.isSafeInteger(since)) return [];
+  const inStretch = (Array.isArray(entries) ? entries : []).filter((entry) => Number.isSafeInteger(entry?.at) && entry.at >= since && !(typeof entry.eid === "string" && covered.has(entry.eid)));
+  let left = [];
+  conversationFromLedger(inStretch, { left: (texts) => void (left = texts) });
+  return left;
+}
+
+/**
  * The stretch's earlier turns as history, oldest first: user turns with their
  * words and time, assistant turns with `calls` beside their reply. `entries`
  * are the chat's slim ledger entries, `tools` its full `tool` entries since
