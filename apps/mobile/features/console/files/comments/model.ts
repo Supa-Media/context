@@ -57,10 +57,14 @@ export function whenLabel(at: string, now: number = Date.now()): string {
 }
 
 /**
- * Below this pane width there is no margin for cards: a thread opens in a
- * bottom sheet instead (`sheet.ts`), and a selection offers a Comment chip.
+ * Below this pane width a thread opens in a bottom sheet instead (`sheet.ts`),
+ * and a selection offers a Comment chip. It is the card's own width (420) and a
+ * gutter, not a margin's: the card opens under its words, so a note narrowed by
+ * the open Tex panel still gets it (Dev2, 2026-11-21: with the panel open the
+ * thread became "a bottom modal" and words could not be tagged). A phone, at
+ * 390, keeps the sheet.
  */
-export const WIDE_MIN = 780;
+export const WIDE_MIN = 460;
 
 /** Whether a pane this wide opens a thread in a card under its words (else the phone sheet). */
 export function hasMargin(width: number): boolean {

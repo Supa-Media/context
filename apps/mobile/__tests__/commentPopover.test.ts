@@ -205,7 +205,9 @@ describe("the popover", () => {
     type("ask @");
     expect(menu().hidden).toBe(false);
     const names = [...menu().querySelectorAll("button")].map((node) => node.textContent);
-    expect(names).toEqual(["#Tex", "Sayo"]);
+    expect(names).toEqual(["Tex", "Sayo"]);
+    // Tex is its one blue mark (an SVG), never a "#" glyph (Dev2 2026-11-21).
+    expect(menu().querySelector("button .cm-cav-tex svg")).not.toBeNull();
     type("no mention here");
     expect(menu().hidden).toBe(true);
     type("@");
@@ -234,7 +236,9 @@ describe("the selection toolbar", () => {
     expect(toolbar().hidden).toBe(false);
     expect(buttons).toHaveLength(2);
     expect(buttons[0]!.querySelector("svg")).not.toBeNull();
-    expect(buttons[1]!.querySelector(".cm-texbtn")!.textContent).toBe("#");
+    const mark = buttons[1]!.querySelector(".cm-texbtn")!;
+    expect(mark.querySelector("svg")).not.toBeNull();
+    expect(mark.textContent).toBe("");
     expect(buttons.map((node) => node.querySelector("kbd")!.textContent)).toEqual(["Ctrl+M", "Ctrl+L"]);
   });
 

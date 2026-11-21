@@ -15,6 +15,7 @@ import type { CommentEvent, CommentThread } from "@context/shared/src/comments.c
 import { avatar, button, el, report as reportTo } from "./dom";
 import { resolvedBy } from "./model";
 import { TEX_AUTHOR, type Mentionable } from "./tex/contract";
+import { texMarkNode } from "../../../chaos/texMarkDom";
 import type { TexRunLive } from "./tex/runner";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -46,11 +47,9 @@ export function sendIcon(): SVGSVGElement {
   return icon(["M12 19V5M5 12l7-7 7 7"], 2.4);
 }
 
-/** Tex's avatar: a black circle with a `#`. */
+/** Tex's avatar: its one mark, the blue googly-eyed # (`texMarkNode`). */
 export function texAvatar(): HTMLElement {
-  const node = el("span", "cm-cav cm-cav-tex", "#");
-  node.setAttribute("aria-hidden", "true");
-  return node;
+  return texMarkNode("cm-cav cm-cav-tex", 22);
 }
 
 /** The mention menu's bold `@handle`s and the highlight of them in a body. */
