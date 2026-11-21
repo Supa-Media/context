@@ -86,8 +86,9 @@ const SHARED_IGNORED = [
  * so a Worker change deploys the Worker, not Convex and the app. The Lab's
  * package is the same: its gateway folder is the gateway's, so the app and
  * Convex claim only the Lab files they import, not the gateway behind it.
+ * The benchmarks' package too: Convex imports only its generated list.
  */
-export const TEX_IMPORT_ONLY = ["@context/tex", "@context/lab"];
+export const TEX_IMPORT_ONLY = ["@context/tex", "@context/lab", "@context/bench"];
 /** The texting Worker's code, inside Tex's package; `apps/agent` is only its entry point and Wrangler config. */
 const TEX_WORKER = "packages/tex/worker";
 /** The gateway's Tex code (its chat, job and store objects), inside Tex's package; the gateway Worker is built from it. */

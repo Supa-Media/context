@@ -17,23 +17,20 @@ import { internalAction, internalQuery, query, type MutationCtx, type QueryCtx }
 import { requireAdmin } from "./lib/admin";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CODE, LAB_REPO, codeOf } from "./texLabRuns";
+import BENCH_LIST from "@context/bench/benchmarks.generated.json";
 
 /**
- * The benchmarks offered, and how many questions each holds. `search` marks the Search suite
- * (`apps/mcp/bench/evals/searchSuite.mjs`): embeddings only, never Claude, so its `models` is always gw and the Lab
- * offers no Claude Code choice for it. search-real's total is 0 until its Dev part is in: the count comes from the Dev
- * part, and no run starts before it. Its Test part is sealed and only CI runs it.
+ * The benchmarks offered, and how many questions each holds: every run of every folder of `packages/bench/benchmarks/`
+ * (`packages/bench/benchmarks.generated.json`, built by `node packages/bench/scripts/registry.mjs`), memory runs first.
+ * `search` marks a search run (`apps/mcp/bench/evals/searchCli.mjs`): embeddings only, never Claude, so its `models`
+ * is always gw and the Lab offers no Claude Code choice for it. search-real's Test part is sealed and only CI runs it.
  */
-export const EVAL_BENCHES = [
-  { id: "longmemeval-s", title: "LongMemEval", variant: "S", total: 500, search: false, about: "500 questions, each after about 50 past chat sessions (about 115k tokens)." },
-  { id: "longmemeval-oracle", title: "LongMemEval", variant: "Oracle", total: 500, search: false, about: "The same 500 questions with only the sessions that hold the evidence." },
-  { id: "search-hard", title: "Search", variant: "Made-up hard", total: 40, search: true, about: "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives. Embeddings only." },
-  { id: "search-real", title: "Search", variant: "Real queries (Dev)", total: 10, search: true, about: "Real searches that failed (retried, or never opened), rewritten never verbatim: the Dev part. Embeddings only." },
-  { id: "longmemeval-retrieval", title: "LongMemEval", variant: "Retrieval", total: 470, search: true, about: "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge. Embeddings only." },
-  { id: "nanobeir", title: "NanoBEIR", variant: "All 13 sets", total: 649, search: true, about: "The standard public retrieval benchmark (BEIR's 13 sets cut to 50 queries each), scored by nDCG@10 beside BM25's own ranking. Embeddings only." },
-  { id: "nanobeir-gate", title: "NanoBEIR", variant: "Gate's 4 sets", total: 200, search: true, about: "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change. Embeddings only." },
-  { id: "herb", title: "HERB", variant: "Workplace data", total: 815, search: true, about: "Salesforce's public benchmark of messy workplace data: 30 products' Slack, meetings, docs, links and pull requests in one pool (39,772 artifacts), 815 questions, scored by nDCG@10 per question type. Embeddings only." },
-] as const;
+export const EVAL_BENCHES: readonly { id: string; title: string; variant: string; total: number; search: boolean; about: string }[] = [
+  ...BENCH_LIST.runs.filter((r) => !r.search),
+  ...BENCH_LIST.runs.filter((r) => r.search),
+].map((r) => ({ id: r.id, title: r.title, variant: r.variant, total: r.total, search: r.search, about: r.about }));
+/** The run a request that names none starts. */
+export const DEFAULT_BENCH = "longmemeval-s";
 export const EVAL_WORKFLOW = "lab-eval-run.yml";
 /** The first slice a new benchmark is sized on (Dev2's ask: a 50-question slice first, then the full run's cost). */
 export const DEFAULT_N = 50;
@@ -151,7 +148,7 @@ export function cleanSearch(x: unknown) {
       : {}),
     ...(s.byPath !== undefined ? { byPath: Object.fromEntries(Object.entries(obj(s.byPath)).slice(0, 10).map(([k, val]) => [k.slice(0, 40), num(val)])) } : {}),
     ...(s.byAbility !== undefined ? { byAbility: mapOf(s.byAbility, (k) => ({ n: num(k.n), recallAny5Pct: numOrNull(k.recallAny5Pct) })) } : {}),
-    // NanoBEIR (`apps/mcp/bench/evals/nanoBeir.mjs`): nDCG@10, Recall@10, MRR@10 as the mean over sets, BM25's own
+    // NanoBEIR (`packages/bench/benchmarks/nanobeir/`): nDCG@10, Recall@10, MRR@10 as the mean over sets, BM25's own
     // ranking scored the same way, the object world's nDCG@10, and each set's.
     ...(s.ndcg10 !== undefined
       ? {
@@ -278,7 +275,7 @@ export async function evalRun(ctx: QueryCtx, id: string, now: number) {
 
 /** Start a run, or say why not. Shared by the Lab (`start`) and `tex_dev` (`evalAction`). */
 export async function startEvalRun(ctx: MutationCtx, who: Who, a: Record<string, unknown>, now: number): Promise<{ status: "ok"; runId: Id<"labEvalRuns"> } | { status: "bad_request" | "refused"; error: string }> {
-  const benchId = a.bench === undefined || a.bench === null ? EVAL_BENCHES[0].id : a.bench;
+  const benchId = a.bench === undefined || a.bench === null ? DEFAULT_BENCH : a.bench;
   const bench = EVAL_BENCHES.find((b) => b.id === benchId);
   if (!bench) return { status: "bad_request", error: `bench is one of ${EVAL_BENCHES.map((b) => b.id).join(", ")}` };
   const n = a.n === undefined || a.n === null ? Math.min(DEFAULT_N, bench.total) : a.n;

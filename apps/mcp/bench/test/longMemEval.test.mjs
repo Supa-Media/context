@@ -1,5 +1,5 @@
 /**
- * LongMemEval as a memory test of Context (`bench/evals/`): the slice is the same every time and stratified, the
+ * LongMemEval as a memory test of Context (`packages/bench/benchmarks/longmemeval/`, run by `bench/evals/`): the slice is the same every time and stratified, the
  * judge's prompt is LongMemEval's own per type, and one question runs end to end through a real gateway world on
  * scripted models: every session saved raw at its own date, housekeeping run the chosen number of times, a fresh
  * reader finding the saved session through search, and the judge grading it.
@@ -8,10 +8,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { abilityOf, entryOf, judgePrompt, sessionsOf, sliceOf, transcriptOf, utcMs, verdictOf } from "../evals/longMemEval.mjs";
+import { abilityOf, BENCHES, beirOf, entryOf, fetchData, judgePrompt, sessionsOf, sliceOf, transcriptOf, utcMs, verdictOf } from "../../../../packages/bench/benchmarks/longmemeval/source.mjs";
+import { memoryCases } from "../../../../packages/bench/src/beir.mjs";
 import { filingTimes, meteredSend, readAndAnswer, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
-import { fakeSend, fetchData } from "../evals/cli.mjs";
-import { BENCHES } from "../evals/longMemEval.mjs";
+import { fakeSend } from "../evals/cli.mjs";
+
+/** A LongMemEval item as the memory case its BEIR set gives (`memoryCases`). */
+const caseOf = (it) => {
+  const one = beirOf(it);
+  return memoryCases({ id: "t", corpus: one.corpus, queries: [one.query], qrels: one.qrels })[0];
+};
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,7 +114,7 @@ test("one question end to end: saved raw at each date, filed, found by a fresh r
   console.log = () => {};
   let row;
   try {
-    row = await runQuestion(item(0), { send, ai: cachedEmbeddings(fakeAi()) }, { filings: 2 });
+    row = await runQuestion(caseOf(item(0)), { send, ai: cachedEmbeddings(fakeAi()) }, { filings: 2, judgePrompt });
   } finally {
     console.log = log;
   }
@@ -197,7 +203,7 @@ test("the eval's world searches as production does: a fact deep in one of many l
   console.log = () => {};
   let row;
   try {
-    row = await runQuestion(q, { send, ai: cachedEmbeddings(fakeAi()) }, { filings: 0 });
+    row = await runQuestion(caseOf(q), { send, ai: cachedEmbeddings(fakeAi()) }, { filings: 0, judgePrompt });
   } finally {
     console.log = log;
   }

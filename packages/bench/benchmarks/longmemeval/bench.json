@@ -1,0 +1,43 @@
+{
+  "id": "longmemeval",
+  "title": "LongMemEval",
+  "kind": "memory",
+  "format": "beir",
+  "about": "500 questions, each after a long history of past chats: Context as an AI client's memory. A memory run saves and files every past session, then a fresh reader answers and LongMemEval's own judge grades it; the retrieval run only asks whether search finds the answer sessions.",
+  "source": {
+    "name": "LongMemEval (Wu et al., ICLR 2025)",
+    "url": "https://github.com/xiaowu0162/LongMemEval",
+    "data": "xiaowu0162/longmemeval-cleaned on Hugging Face, fetched at run time",
+    "license": "MIT"
+  },
+  "runs": [
+    {
+      "id": "longmemeval-s",
+      "variant": "S",
+      "total": 500,
+      "about": "500 questions, each after about 50 past chat sessions (about 115k tokens)."
+    },
+    {
+      "id": "longmemeval-oracle",
+      "variant": "Oracle",
+      "total": 500,
+      "about": "The same 500 questions with only the sessions that hold the evidence."
+    },
+    {
+      "id": "longmemeval-retrieval",
+      "variant": "Retrieval",
+      "kind": "search",
+      "score": "retrieval",
+      "total": 470,
+      "about": "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge. Embeddings only.",
+      "file": "longmemeval-s"
+    }
+  ],
+  "notes": {
+    "workspace": "sam",
+    "as": "Sam",
+    "folder": "inbox/sessions/longmemeval"
+  },
+  "slice": "source",
+  "caseIds": "query"
+}

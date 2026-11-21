@@ -1,5 +1,5 @@
 /**
- * The hard search set (`evals/searchSets.mjs`, `search/hard/`): forty questions, every kind used, every expected
+ * The hard search set (`packages/bench/benchmarks/search-hard/`): forty questions, every kind used, every expected
  * note real, none of them in an archive, and a small end-to-end run of the first three through the search suite
  * (`evals/searchSuite.mjs`) with the fake embedder, on the bench with the set's notes laid in.
  */
@@ -7,12 +7,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { HARD_KINDS, loadHardSet, missingExpected } from "../evals/searchSets.mjs";
+import { KINDS as HARD_KINDS, loadHardSet } from "../../../../packages/bench/benchmarks/search-hard/source.mjs";
+import { missingExpected } from "../evals/searchCli.mjs";
 import { embedderFor, overlay, runSearchCases } from "../evals/searchSuite.mjs";
 import { REPO_BENCH_FOLDER } from "../folder.mjs";
-import { expandWorkspaces, readBenchFolder } from "../load.mjs";
+import { expandWorkspaces, parseTest, readBenchFolder } from "../load.mjs";
 
-const set = await loadHardSet();
+const set = await loadHardSet({ parseTest });
 
 test("the hard set has forty questions, numbered and run as Priya", () => {
   assert.equal(set.cases.length, 40);
@@ -28,8 +29,8 @@ test("every kind is used, and no kind is unknown", () => {
 });
 
 test("every expected note exists, as an overlay note or in the bench", async () => {
-  const base = await readBenchFolder(REPO_BENCH_FOLDER);
-  assert.deepEqual(missingExpected(base, set.notes, set.cases), []);
+  const bench = overlay(expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)), set.notes);
+  assert.deepEqual(missingExpected(bench, set.cases), []);
   for (const c of set.cases) {
     assert.ok(c.expect.length >= 1 && c.expect.length <= 2, `${c.id} expects ${c.expect.length} notes`);
   }
