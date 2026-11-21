@@ -1,0 +1,41 @@
+# Tex in a note's comments, live against staging.
+#
+# Signs in as the seeded alpha@supa.media persona (docs/staging.md) and runs
+# scripts/staging-note-tex-live.mjs: the console grant, a saved note, a
+# highlight asked of Tex over /tex/note-run, Tex's lines and the Keep written
+# into the note's comments block, and the run in /tex/note-runs. The note is
+# archived at the end. Manual only.
+name: Tex in notes Live (staging)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: note-tex-live-staging
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Tex in a note against staging
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      APP_ENV: staging
+      STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
+      # Issues each persona's sign-in code (scripts/staging-sign-in-code.mjs);
+      # the fixed 000000 is gone (CASA 1.2.1, 2026-11-11).
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Ask Tex in a note as the alpha persona
+        run: node scripts/staging-note-tex-live.mjs
