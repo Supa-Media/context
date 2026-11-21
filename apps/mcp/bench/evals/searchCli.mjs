@@ -6,6 +6,7 @@
  *   (add --database-only to skip the workspace-object world each case is also searched in)
  *   node apps/mcp/bench/evals/cli.mjs search --bench longmemeval-retrieval --fetch <dir> --n 50 --out result.json
  *   node apps/mcp/bench/evals/cli.mjs search --bench nanobeir|nanobeir-gate --fetch <dir> [--sets nq,fiqa] [--n 100] --out result.json
+ *   node apps/mcp/bench/evals/cli.mjs search --bench herb --fetch <dir> [--sets TrendForce,LeadForce] [--n 100] --out result.json
  *
  * `--cases <file>` runs a real-query set from a file instead of the repo's parts: how the search gate runs the sealed
  * Test part it was handed (`search-test-set.yml`), never kept in the repository. Only the embedder is called (Workers
@@ -21,6 +22,7 @@ import { expandWorkspaces, readBenchFolder } from "../load.mjs";
 import { BENCHES, entryOf, sliceOf } from "./longMemEval.mjs";
 import { retrievalScores, retrieveQuestion } from "./memoryRetrieval.mjs";
 import { NANO_BENCHES, NANO_SETS, runNanoBeir } from "./nanoBeir.mjs";
+import { runHerb } from "./herb.mjs";
 import { loadHardSet } from "./searchSets.mjs";
 import { embedderFor, overlay, rowOf, runSearchCases, searchScores, searchSetOf } from "./searchSuite.mjs";
 
@@ -105,6 +107,13 @@ export async function runSearchSet(options) {
       const sets = options.sets ? String(options.sets).split(",").map((x) => x.trim()).filter(Boolean) : NANO_BENCHES[set.id];
       for (const id of sets) if (!NANO_SETS.some((s) => s.id === id)) throw new Error(`--sets: no NanoBEIR set ${id}`);
       const { records, search } = await runNanoBeir({ sets, dir: options.fetch, n, ai, objects: options["database-only"] !== true });
+      return { bench: set.id, variant: set.variant, total: records.length, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows: records.map(rowOf), records: options["keep-records"] ? records : undefined };
+    }
+    if (set.id === "herb") {
+      // HERB (`herb.mjs`): Salesforce's public workplace benchmark, fetched from Hugging Face into --fetch, one world.
+      if (!options.fetch) throw new Error("--fetch <dir> is required: HERB is downloaded there");
+      const products = options.sets ? String(options.sets).split(",").map((x) => x.trim()).filter(Boolean) : null;
+      const { records, search } = await runHerb({ dir: options.fetch, n, products, ai, objects: options["database-only"] !== true });
       return { bench: set.id, variant: set.variant, total: records.length, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows: records.map(rowOf), records: options["keep-records"] ? records : undefined };
     }
     const base = expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER));

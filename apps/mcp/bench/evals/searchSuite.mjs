@@ -44,6 +44,7 @@ export const SEARCH_SETS = Object.freeze([
   { id: "longmemeval-retrieval", title: "LongMemEval", variant: "Retrieval", about: "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge." },
   { id: "nanobeir", title: "NanoBEIR", variant: "All 13 sets", about: "The standard public retrieval benchmark (BEIR, cut to 50 queries a set), scored by nDCG@10 beside BM25's own ranking." },
   { id: "nanobeir-gate", title: "NanoBEIR", variant: "Gate's 4 sets", about: "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change." },
+  { id: "herb", title: "HERB", variant: "Workplace data", about: "Salesforce's public benchmark: 30 products' Slack, meetings, docs, links and pull requests in one pool (39,772 artifacts), 815 questions, scored by nDCG@10." },
 ]);
 export const searchSetOf = (id) => SEARCH_SETS.find((set) => set.id === id) ?? null;
 
