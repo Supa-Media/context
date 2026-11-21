@@ -60,7 +60,11 @@ const CLOSE_RE = new RegExp(`<!--/c:(${ID})-->`, "g");
 const MARKER_RE = new RegExp(`<!--/?c:${ID}-->`, "g");
 const HEADER_RE = new RegExp(`^(${ID})[ \\t]+("(?:[^"\\\\]|\\\\.)*")[ \\t]*$`);
 const COMMENT_RE = /^- (\S+) ([^:\n]+?): ?(.*)$/;
-const STATUS_RE = /^- (\S+) ([^:\n]+?) (resolved|reopened)[ \t]*$/;
+const STATUS_RE = /^- (\S+) ([^:\n]+?) (resolved|reopened|kept|undid)[ \t]*$/;
+/** Tex's suggested replacement for the anchored words, as one JSON string: `- <at> Tex suggests: "…"`. */
+const SUGGEST_RE = /^- (\S+) ([^:\n]+?) suggests: ("(?:[^"\\]|\\.)*")[ \t]*$/;
+/** The status words: a name ending in one would read back as a status line. */
+const STATUS_WORDS = /\s(resolved|reopened|kept|undid|suggests)$/i;
 const CONTINUATION = "    ";
 
 /** Longest author name kept; longer ones are cut. */
@@ -203,6 +207,19 @@ function parseComments(text) {
       thread.end = lastComment.end;
       continue;
     }
+    const suggestion = SUGGEST_RE.exec(row.text);
+    if (suggestion) {
+      lastComment = null;
+      let words = "";
+      try {
+        words = JSON.parse(suggestion[3]);
+      } catch {
+        words = suggestion[3].slice(1, -1);
+      }
+      thread.events.push({ at: suggestion[1], author: suggestion[2], kind: "suggestion", text: String(words), start: at, end: Math.min(next, block.bodyEnd) });
+      thread.end = Math.min(next, block.bodyEnd);
+      continue;
+    }
     const comment = COMMENT_RE.exec(row.text);
     const status = comment ? null : STATUS_RE.exec(row.text);
     if (comment) {
@@ -212,13 +229,28 @@ function parseComments(text) {
     } else if (status) {
       lastComment = null;
       thread.events.push({ at: status[1], author: status[2], kind: status[3], text: "", start: at, end: Math.min(next, block.bodyEnd) });
-      thread.status = status[3] === "resolved" ? "resolved" : "open";
+      if (status[3] === "resolved" || status[3] === "reopened") thread.status = status[3] === "resolved" ? "resolved" : "open";
       thread.end = Math.min(next, block.bodyEnd);
     } else if (row.text.trim() === "") {
       lastComment = null;
     }
   }
+  for (const t of threads) t.pending = pendingOf(t);
   return { block, threads, anchors };
+}
+
+/**
+ * The suggestion still waiting for Keep or Undo: the thread's last
+ * `suggests` line with no `kept` or `undid` after it. A newer suggestion
+ * replaces an older one, which is how a follow-up revises a pending edit.
+ */
+function pendingOf(thread) {
+  for (let i = thread.events.length - 1; i >= 0; i -= 1) {
+    const event = thread.events[i];
+    if (event.kind === "kept" || event.kind === "undid") return null;
+    if (event.kind === "suggestion") return { text: event.text, at: event.at, author: event.author, index: i };
+  }
+  return null;
 }
 
 /** A display name made safe for the author slot: one line, no colon, bounded. */
@@ -231,7 +263,7 @@ function sanitizeAuthor(name) {
     .slice(0, MAX_AUTHOR)
     .trim();
   // A name that ends in the status words would read back as a status line.
-  if (!cleaned || /\s(resolved|reopened)$/i.test(` ${cleaned}`)) return cleaned ? `${cleaned}.` : "Someone";
+  if (!cleaned || STATUS_WORDS.test(` ${cleaned}`)) return cleaned ? `${cleaned}.` : "Someone";
   return cleaned;
 }
 
@@ -243,7 +275,8 @@ function formatBody(body) {
 
 function eventLine({ at, author, kind, text }) {
   const who = sanitizeAuthor(author);
-  if (kind === "resolved" || kind === "reopened") return `- ${at} ${who} ${kind}`;
+  if (kind === "resolved" || kind === "reopened" || kind === "kept" || kind === "undid") return `- ${at} ${who} ${kind}`;
+  if (kind === "suggestion") return `- ${at} ${who} suggests: ${JSON.stringify(String(text ?? ""))}`;
   return `- ${at} ${who}: ${formatBody(text)}`;
 }
 
@@ -335,12 +368,14 @@ function locateQuote(text, quote, occurrence) {
  * Start a thread: anchor `[from, to)` (or the located `quote`) and add the
  * first comment. Returns `{ id, changes }` or `{ error }`.
  */
-function addThread(text, { quote, occurrence, from, to, author, body, at, id, random } = {}) {
+function addThread(text, { quote, occurrence, from, to, author, body, at, id, random, point } = {}) {
   const source = typeof text === "string" ? text : "";
   if (!String(body ?? "").trim()) return { error: "a comment needs some text" };
   let range;
   if (Number.isInteger(from) && Number.isInteger(to)) {
-    if (from < 0 || to > source.length || from >= to) return { error: "the selection is empty" };
+    // A point (the caret, no words) is allowed only when asked for: ⌘L at the
+    // cursor starts a thread where Tex will write, with nothing highlighted.
+    if (from < 0 || to > source.length || from > to || (from === to && point !== true)) return { error: "the selection is empty" };
     const regions = forbiddenRegions(source);
     if (regions.some(([start, end]) => from < end && to > start) || insideInlineCode(source, from)) {
       return { error: "code blocks and frontmatter cannot be commented on" };
@@ -379,7 +414,8 @@ function appendEvent(text, { thread, kind, author, body, at } = {}) {
   const source = typeof text === "string" ? text : "";
   const found = parseComments(source).threads.find((t) => t.id === thread);
   if (!found) return { error: `there is no comment thread "${thread}" on this note` };
-  if (!["comment", "resolved", "reopened"].includes(kind)) return { error: "unknown comment action" };
+  if (!["comment", "resolved", "reopened", "suggestion", "kept", "undid"].includes(kind)) return { error: "unknown comment action" };
+  if ((kind === "kept" || kind === "undid") && !found.pending) return { error: `thread ${thread} has no suggested edit to ${kind === "kept" ? "keep" : "undo"}` };
   if (kind === "comment" && !String(body ?? "").trim()) return { error: "a reply needs some text" };
   if (kind === "resolved" && found.status === "resolved") return { error: `thread ${thread} is already resolved` };
   if (kind === "reopened" && found.status === "open") return { error: `thread ${thread} is already open` };
@@ -387,6 +423,28 @@ function appendEvent(text, { thread, kind, author, body, at } = {}) {
   const before = source.slice(0, found.end);
   const insert = before.endsWith("\n") ? `${line}\n` : `\n${line}`;
   return { changes: [{ from: found.end, to: found.end, insert }] };
+}
+
+/**
+ * Keep a thread's pending suggestion: its words replace the anchored words,
+ * and a `kept` line records who kept it. The markers stay where they were,
+ * so the thread still points at the (new) words. Any other thread's marker
+ * inside the replaced words is kept, moved to the end of the new words,
+ * rather than deleted with them, so no other comment comes loose.
+ */
+function keepSuggestion(text, { thread, author, at } = {}) {
+  const source = typeof text === "string" ? text : "";
+  const parsed = parseComments(source);
+  const found = parsed.threads.find((t) => t.id === thread);
+  if (!found) return { error: `there is no comment thread "${thread}" on this note` };
+  if (!found.pending) return { error: `thread ${thread} has no suggested edit to keep` };
+  const anchor = parsed.anchors.get(thread);
+  if (!anchor) return { error: "the words this suggestion was for are gone" };
+  const kept = appendEvent(source, { thread, kind: "kept", author, at });
+  if (kept.error !== undefined) return kept;
+  const inner = source.slice(anchor.from, anchor.to);
+  const others = inner.match(MARKER_RE) ?? [];
+  return { changes: [{ from: anchor.from, to: anchor.to, insert: found.pending.text + others.join("") }, ...kept.changes] };
 }
 
 /**
@@ -520,6 +578,7 @@ module.exports = {
   locateQuote,
   addThread,
   appendEvent,
+  keepSuggestion,
   deleteComment,
   applyChanges,
   stripComments,

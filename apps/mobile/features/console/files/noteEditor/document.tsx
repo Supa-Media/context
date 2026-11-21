@@ -96,6 +96,7 @@ export function noteDocument(view: NoteView) {
     commenter,
     commentModerator,
     onSignInToComment,
+    texInNote,
     onImageProblem,
     folderLists,
     onTitleCaret,
@@ -518,6 +519,7 @@ export function noteDocument(view: NoteView) {
           commenter={commenter}
           commentModerator={commentModerator}
           onSignInToComment={onSignInToComment}
+          texInNote={texInNote?.host ?? null}
         />
         </>
         )}

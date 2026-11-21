@@ -731,6 +731,7 @@ test/noteConnect.test.mjs
 test/noteRun.test.mjs
 test/yesUnreadAsks.test.mjs
 test/texChatAppHop.test.mjs
+test/commentSuggestions.test.mjs
 test/heldEdit.test.mjs
 test/appChatAnswer.test.mjs
 test/texChatAppReach.test.mjs

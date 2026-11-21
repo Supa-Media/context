@@ -124,6 +124,7 @@ export function NoteEditor({
   commenter,
   commentModerator = false,
   onSignInToComment,
+  texInNote = null,
   local = false,
   folderLists,
   onTitleCaret,
@@ -453,6 +454,7 @@ export function NoteEditor({
     commenter: commenter ?? null,
     commentModerator,
     onSignInToComment,
+    texInNote,
     // Props, as destructured above.
     state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, onOpenTag, notePaths, onSuggest,

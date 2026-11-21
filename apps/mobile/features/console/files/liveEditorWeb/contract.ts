@@ -25,6 +25,7 @@ import type {
 import type { SpellingFix } from "./spelling";
 import type { LinkTarget } from "../linkMarkdown";
 import type { HeldLink } from "../linkHold";
+import type { TexInNoteHost } from "../comments/tex/contract";
 
 /**
  * The handful of things a *button* can ask the editor to do.
@@ -311,6 +312,11 @@ export interface LiveEditorProps {
   commentModerator?: boolean;
   /** A visitor's sign-in; a thread's reply field then says "Sign in to reply". */
   onSignInToComment?: () => void;
+  /**
+   * Tex in this note (`comments/tex/contract.ts`). Absent or null where there is no Tex here: the Tex
+   * button is then not drawn. Read at call time, so a host that arrives later is seen.
+   */
+  texInNote?: TexInNoteHost | null;
   onPreviewLinks?: (links: { href: string; text: string }[]) =>
     Promise<{ href: string; text: string }[]>;
 }
@@ -334,6 +340,7 @@ export interface EditorHandlers {
   commenter?: LiveEditorProps["commenter"];
   commentModerator?: LiveEditorProps["commentModerator"];
   onSignInToComment?: LiveEditorProps["onSignInToComment"];
+  texInNote?: LiveEditorProps["texInNote"];
 }
 
 /** Where the pointer was when the menu or the table picker was opened. */

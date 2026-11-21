@@ -70,6 +70,7 @@ import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 import { forgetIgnoredWords } from "../spelling/extension";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
+import { texInNoteExtension } from "../comments/tex/noteRun";
 import { hasMargin } from "../comments/model";
 import { redrawDiagrams } from "../livePreview/diagram";
 
@@ -87,6 +88,7 @@ export function LiveEditor({
   commenter,
   commentModerator,
   onSignInToComment,
+  texInNote,
   titleNote,
   propertyHost,
   accessibilityLabel,
@@ -133,6 +135,13 @@ export function LiveEditor({
    * selection and the undo history left alone.
    */
   const collab = useRef(new Compartment());
+  /**
+   * Tex in this note. The Tex button is drawn only while a host is there, so
+   * the facet is a compartment too: built with whatever is there at mount, and
+   * reconfigured when that answer flips (see the effect below). A host that
+   * changes while present is read through the handlers ref, not rebuilt.
+   */
+  const texHost = useRef(new Compartment());
   /**
    * The room this editor is **actually wired to**, or `null`.
    *
@@ -301,8 +310,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onLineState, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onLineState, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onLineState, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment, texInNote });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onLineState, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment, texInNote };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -343,6 +352,7 @@ export function LiveEditor({
       onPreviewLinks,
       previews,
       collab,
+      texHost,
       setMenuAt,
       setTableAt,
     });
@@ -351,6 +361,16 @@ export function LiveEditor({
     // down and losing the selection and undo history with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Tex in this note appears or goes: the editor's Tex facet follows. The
+  // first answer is the one the editor was built with, so nothing is sent then.
+  const hasTex = texInNote !== null && texInNote !== undefined;
+  const texWas = useRef(hasTex);
+  useEffect(() => {
+    if (texWas.current === hasTex || view.current === null) return;
+    texWas.current = hasTex;
+    view.current.dispatch({ effects: texHost.current.reconfigure(texInNoteExtension(() => handlers.current.texInNote)) });
+  }, [hasTex]);
 
   // The line under the title, into the editor — see `titleLine.ts`. A state
   // effect, like the roster below, so it redraws without touching the

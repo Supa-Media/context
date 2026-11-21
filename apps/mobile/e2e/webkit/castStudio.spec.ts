@@ -194,7 +194,7 @@ test("pace: chosen in the studio, kept in the note, and the scene's times follow
   await expect(stage(page)).toContainText("this page is live", { timeout: 20_000 });
 });
 
-test("the stage draws the workspace's emoji, and a comment card on the last line stays in view", async ({ page }) => {
+test("the stage draws the workspace's emoji, and a comment thread on the last line stays in view", async ({ page }) => {
   // A short window, so the note ends near the bottom of the stage.
   await page.setViewportSize({ width: 1440, height: 640 });
   await page.goto(PAGE);
@@ -205,7 +205,7 @@ test("the stage draws the workspace's emoji, and a comment card on the last line
 
   // Played from the reply: the comment is on the page with its thread open.
   await page.getByTestId("studio-step-2").click();
-  const card = frame.locator(".cm-cmt-card").first();
+  const card = frame.locator(".cm-cw").first();
   await expect(card).toContainText("I don't really care", { timeout: 20_000 });
   await page.waitForTimeout(800);
   const box = await card.boundingBox();
@@ -306,8 +306,8 @@ test("a page in a folder beside the scene shows in that folder, and the show com
 
   await page.getByTestId("studio-step-4").click();
   await expect(stage(page)).toContainText("Cancun Airbnb", { timeout: 20_000 });
-  // Back on the scene's own page, where the comment lands in its margin.
-  await expect(frame.locator(".cm-cmt-card").first()).toContainText("you still owe James $700.", { timeout: 30_000 });
+  // Back on the scene's own page, where the comment opens under its words.
+  await expect(frame.locator(".cm-cw").first()).toContainText("you still owe James $700.", { timeout: 30_000 });
   await expect(stage(page)).toContainText("Free is free");
   await expect(stage(page)).not.toContainText("Cancun Airbnb");
   await page.getByTestId("studio-stage").screenshot({ path: test.info().outputPath("folders-back.png") });
