@@ -36,11 +36,11 @@ test("an empty list is the home page, and every layout Dev2 uses is taken", () =
 });
 
 test("the tokens land where @convex-dev/auth reads them on the web", () => {
-  const url = convexUrlOf("happy-otter-123");
-  assert.equal(url, "https://happy-otter-123.convex.cloud");
+  const url = convexUrlOf("your-deployment");
+  assert.equal(url, "https://your-deployment.convex.cloud");
   assert.deepEqual(authStorage({ url, token: "jwt", refreshToken: "rt" }), {
-    __convexAuthJWT_httpshappyotter123convexcloud: "jwt",
-    __convexAuthRefreshToken_httpshappyotter123convexcloud: "rt",
+    __convexAuthJWT_httpsyourdeploymentconvexcloud: "jwt",
+    __convexAuthRefreshToken_httpsyourdeploymentconvexcloud: "rt",
   });
   assert.throws(() => convexUrlOf("evil.example/x"), /Not a preview deployment/);
 });
