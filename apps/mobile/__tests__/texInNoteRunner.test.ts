@@ -247,16 +247,23 @@ describe("a run", () => {
     expect(doc.match(/```comments/g)).toHaveLength(1);
   });
 
-  test("one undo takes back exactly Tex's edit and leaves its answer in the thread", async () => {
+  test("one undo takes back Tex's edit and its line together, and the thread stays whole", async () => {
     const { host } = harness([{ type: "edit", replace: "cake, Saturday at 5" }, { type: "done", runId: "run_u", sources: [] }]);
     const view = mount(NOTE, host, "@dev2", [history()]);
     startTexRun(view, "k7f2", "add the time");
     await waitFor(() => !runs(view).has("k7f2"));
     expect(view.state.doc.toString()).toContain("cake<!--/c:k7f2-->, Saturday at 5 on");
     expect(undo(view)).toBe(true);
-    const doc = view.state.doc.toString();
-    expect(doc).toContain("Pick up the <!--c:k7f2-->cake<!--/c:k7f2--> on Saturday.");
-    expect(doc).toMatch(/- \S+ Tex: Done\./);
+    expect(view.state.doc.toString()).toBe(NOTE);
+  });
+
+  test("an answer alone is one undo step too, and undo never leaves Tex's line without its thread", async () => {
+    const { host } = harness([{ type: "answer", text: "Sayo is." }, { type: "done", runId: "run_ua", sources: [] }]);
+    const view = mount(NOTE, host, "@dev2", [history()]);
+    startTexRun(view, "k7f2", "who?");
+    await waitFor(() => !runs(view).has("k7f2"));
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(NOTE);
   });
 
   test("with an edit but no answer, the thread says Done, and asks nothing", async () => {

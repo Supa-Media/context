@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { noteRunTools, noteRunCallTool, noteRunQuestion, parseNoteRun, stepLabel, runNoteRun, withInsert } from "../../../packages/tex/gateway/agent/noteRun.js";
+import { noteRunTools, noteRunCallTool, noteRunQuestion, parseNoteRun, lenientNoteRun, stepLabel, runNoteRun, withInsert } from "../../../packages/tex/gateway/agent/noteRun.js";
 
 const J19 = "Study/Judges/Judges 19.md";
 const G19 = "Study/Genesis/Genesis 19.md";
@@ -83,6 +83,16 @@ test("the question carries the note without its comment threads or markers, whic
   assert.match(q, /Ship the outline soon\./);
   assert.doesNotMatch(q, /```comments/);
   assert.doesNotMatch(q, /<!--c:/);
+});
+
+test("an answer whose values hold unescaped quotes is still read as its fields, never posted whole", () => {
+  const loose = '{"answer": "Added a basic plot outline after the highlighted words.", "replace": null, "insert": "\\n\\nAct 1\\n- She tests the starter, asking about its "ingredients," and her own thoughts."}';
+  const parsed = parseNoteRun(loose);
+  assert.equal(parsed.answer, "Added a basic plot outline after the highlighted words.");
+  assert.equal(parsed.replace, null);
+  assert.equal(parsed.insert, '\n\nAct 1\n- She tests the starter, asking about its "ingredients," and her own thoughts.');
+  assert.equal(lenientNoteRun('{"replace": "x"}'), null, "no answer key, nothing read");
+  assert.equal(lenientNoteRun('{"answer": 12}'), null, "a value that is not a string or null");
 });
 
 test("a collapsed point asks for the text to insert there, not a change to words", () => {

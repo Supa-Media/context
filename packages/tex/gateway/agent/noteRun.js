@@ -140,7 +140,10 @@ export function parseNoteRun(answer) {
   try {
     value = JSON.parse(text.slice(start, end + 1));
   } catch {
-    return raw;
+    // A model writes "quoted" words inside a value without escaping them often
+    // enough that strict JSON alone posts the whole object as the answer (seen
+    // on a preview, 2026-11-21). The three keys are known, so read them leniently.
+    value = lenientNoteRun(text.slice(start, end + 1));
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return raw;
   const answerOk = typeof value.answer === "string" && value.answer.trim() !== "" && value.answer.length <= RUN_ANSWER_CHARS;
@@ -149,6 +152,36 @@ export function parseNoteRun(answer) {
   const replace = typeof value.replace === "string" ? value.replace : null;
   const insert = replace === null && typeof value.insert === "string" && value.insert.trim() !== "" ? value.insert : null;
   return { answer: value.answer.trim(), replace, insert };
+}
+
+const RUN_FIELDS = ["answer", "replace", "insert"];
+const JSON_ESCAPES = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
+
+/**
+ * `{"answer","replace","insert"}` read without strict JSON: each value runs from
+ * its key to the next known key (or the closing brace), and is a string or
+ * null. Null when there is no answer key or a value is neither.
+ */
+export function lenientNoteRun(body) {
+  const keys = [];
+  for (const name of RUN_FIELDS) {
+    const found = new RegExp(`"${name}"\\s*:\\s*`).exec(body);
+    if (found) keys.push({ name, at: found.index, value: found.index + found[0].length });
+  }
+  if (!keys.some((key) => key.name === "answer")) return null;
+  keys.sort((a, b) => a.at - b.at);
+  const out = {};
+  for (let i = 0; i < keys.length; i += 1) {
+    const stop = i + 1 < keys.length ? keys[i + 1].at : body.lastIndexOf("}");
+    const piece = body.slice(keys[i].value, stop).trim().replace(/,$/, "").trim();
+    if (piece === "null") out[keys[i].name] = null;
+    else if (piece.length >= 2 && piece.startsWith('"') && piece.endsWith('"')) {
+      out[keys[i].name] = piece.slice(1, -1).replace(/\\(u[0-9a-fA-F]{4}|.)/g, (all, code) =>
+        code.length === 5 ? String.fromCharCode(parseInt(code.slice(1), 16)) : (JSON_ESCAPES[code] ?? all),
+      );
+    } else return null;
+  }
+  return out;
 }
 
 /**
