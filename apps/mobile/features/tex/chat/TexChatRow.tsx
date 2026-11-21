@@ -9,7 +9,7 @@ import { isPending, type AnswerChoice, type AppChatRow, type AskChoice, type Cha
 import { TexChatBar } from "./TexChatBar";
 import { TexChatFileChip, formatFileSize } from "./TexChatFileChip";
 import { TexChatWords } from "./TexChatWords";
-import { TexAskCard } from "./TexAskCard";
+import { TexAskCard, askLead } from "./TexAskCard";
 
 /** The longest a picture is drawn, in points. The row keeps its aspect; the overlay shows it whole. */
 export const PICTURE_WIDTH = 220;
@@ -119,8 +119,10 @@ export function TexChatRow(props: TexChatRowProps) {
 
   const row = line;
   const mine = row.who === "me";
-  // A card replaces the ask's text bubble and its old Approve and Decline block.
+  // A card replaces the ask's old Approve and Decline block, and the email copy in its text: Tex's lead stays a bubble
+  // over the card (the mock).
   const card = row.ask?.card;
+  const words = card !== undefined ? askLead(row.text) : row.text;
   const answered = props.answer !== undefined;
   const canAct = !row.unsent;
   // A card carries its own reply arrow and its own buttons, so it gets no hover bar (the mock).
@@ -192,6 +194,14 @@ export function TexChatRow(props: TexChatRowProps) {
                   pressLabel={`Download ${file.name}`}
                 />
               ))}
+            </View>
+          ) : null}
+
+          {card !== undefined && words.length > 0 ? (
+            <View style={styles.theirs} testID={`tex-ask-lead-${row.id}`}>
+              <Bubble mine={mine} styles={styles} reactions={row.reactions} reduced={reduced} lit={lit}>
+                <TexChatWords text={words} mine={mine} onOpenNote={props.onOpenNote} />
+              </Bubble>
             </View>
           ) : null}
 

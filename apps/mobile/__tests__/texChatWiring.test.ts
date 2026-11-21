@@ -197,3 +197,30 @@ describe("the header, the composer and the stop", () => {
     expect(t.find("tex-toast")).toBeNull();
   });
 });
+
+describe("an ask row with a card (the mock: Tex's bubble, then the card under it)", () => {
+  const ASKED = "Here's the email I'd send:\n\nFrom: me@example.test\nTo: sam@example.test\nSubject: Q4 plan\n\nHi Sam\n\nGive it a 👍 and I'll send it.";
+  const CARD = {
+    kind: "email" as const,
+    state: "wait" as const,
+    from: "me@example.test",
+    to: "sam@example.test",
+    cc: "",
+    subject: "Q4 plan",
+    thread: false,
+    body: "Hi Sam",
+    editable: true,
+  };
+
+  test("draws Tex's lead as a bubble over the card, without the copy or the 👍 line", () => {
+    const t = mount(fakeView({ lines: [row({ id: "t1", text: ASKED, ask: { id: "a1", open: true, card: CARD } })] }));
+    expect(t.find("tex-ask-lead-t1")?.textContent).toBe("Here's the email I'd send.");
+    expect(t.find("tex-ask-body-t1")).not.toBeNull();
+    expect(t.text()).not.toContain("Give it a");
+  });
+
+  test("a row with no card draws no lead", () => {
+    const t = mount(fakeView({ lines: [row({ id: "t2", text: "plain words" })] }));
+    expect(t.find("tex-ask-lead-t2")).toBeNull();
+  });
+});

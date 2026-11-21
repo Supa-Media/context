@@ -16,7 +16,7 @@ import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AnswerChoice, AskCard } from "../features/tex/chat/appChatGateway";
-import { TexAskCard } from "../features/tex/chat/TexAskCard";
+import { EDIT_HINT, TexAskCard, askLead } from "../features/tex/chat/TexAskCard";
 
 const ROW = "r1";
 const AT = new Date(2026, 10, 19, 9, 5).getTime();
@@ -201,5 +201,29 @@ describe("a call that is not one email", () => {
   test("a vault key's first use offers no standing yes here: Go ahead answers it once", () => {
     const tab = mount(other({ always: true }));
     expect(tab.find("tex-ask-always-r1")).toBeNull();
+  });
+});
+
+describe("Tex's lead over a card", () => {
+  test("an email ask keeps its first line, as a sentence, and drops the copy and the 👍 line", () => {
+    expect(askLead("Here's the email I'd send:\n\nFrom: a@example.test\nTo: b@example.test\n\nHi\n\nGive it a 👍 and I'll send it.")).toBe("Here's the email I'd send.");
+  });
+  test("a group ask's tagged yes line goes too", () => {
+    expect(askLead("Here's the email I'd send from @sam's email:\n\nTo: b@example.test\n\n@sam, give it a 👍 and I'll send it. Only @sam can OK it.")).toBe("Here's the email I'd send from @sam's email.");
+  });
+  test("a one-paragraph ask keeps its words before the 👍", () => {
+    expect(askLead("Before I pay, I need your OK to pay the venue. Give it a 👍 and I'll fill it in.")).toBe("Before I pay, I need your OK to pay the venue.");
+  });
+  test("words Tex wrote itself stay whole, and nothing left means no bubble", () => {
+    expect(askLead("Here's the email. It goes as a reply in your thread.")).toBe("Here's the email. It goes as a reply in your thread.");
+    expect(askLead("Give it a 👍 and I'll send it.")).toBe("");
+  });
+});
+
+describe("the hint under the buttons", () => {
+  test("is drawn as small text, not bare words in a box", () => {
+    mount(email());
+    const hint = Array.from(document.querySelectorAll<HTMLElement>("[dir]")).find((node) => node.textContent === EDIT_HINT);
+    expect(hint).toBeDefined();
   });
 });
