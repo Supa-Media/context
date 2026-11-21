@@ -18,6 +18,7 @@ import { commentableSelection, commentUi, startComment, startTexComment } from "
 import { hasMargin } from "./model";
 import { chatIcon } from "./popoverDom";
 import { texInNoteHost } from "./tex/contract";
+import { texMarkNode } from "../../../chaos/texMarkDom";
 
 /** How far above the selection's start the bar sits. */
 const LIFT = 42;
@@ -121,7 +122,7 @@ class SelTool implements PluginValue {
     const comment = toolButton(this.view, "Comment", mac ? "⌘M" : "Ctrl+M", chatIcon(), startComment);
     const nodes: HTMLElement[] = [comment];
     if (tex) {
-      nodes.push(toolButton(this.view, "Ask Tex", mac ? "⌘L" : "Ctrl+L", el("span", "cm-texbtn", "#"), startTexComment));
+      nodes.push(toolButton(this.view, "Ask Tex", mac ? "⌘L" : "Ctrl+L", texMarkNode("cm-texbtn", 18), startTexComment));
     }
     this.node.replaceChildren(...nodes);
   }

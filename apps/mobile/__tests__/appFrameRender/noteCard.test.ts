@@ -3,7 +3,10 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { mountFrame } from "./fixtures";
+import { createElement, mountFrame, TogglesProbe } from "./fixtures";
+
+/** A pointer width where the panel is no longer a column. */
+const MEDIUM = 900;
 
 /**
  * THE NOTE CARD AND THE FULL-HEIGHT PANEL (Dev2, 2026-11-20, the approved in-app Tex mock).
@@ -40,6 +43,28 @@ describe("the right panel as a column", () => {
     expect(bar!.contains(column)).toBe(false);
     expect(column!.parentElement!.contains(bar)).toBe(true);
     expect(column!.parentElement!.firstElementChild!.contains(bar)).toBe(true);
+    frame.unmount();
+  });
+});
+
+describe("the panel moving out of its column", () => {
+  /*
+    2026-11-21: the row holding the panel came and went with it, so a width where the panel stops being a column
+    (medium density, where opening Tex overlays it) handed React a different tree and remounted the body. The note
+    editor went with it, and a Tex run writing into that editor lost what it wrote.
+  */
+  test("keeps the note's own nodes rather than remounting them", () => {
+    const frame = mountFrame(MEDIUM, [
+      createElement(TogglesProbe, { key: "probe" }),
+      createElement("span", { key: "note", "data-testid": "note-body" }, "the note"),
+    ]);
+    const before = frame.find("note-body");
+    expect(before).not.toBeNull();
+    // Shut, the panel is its strip in a column; opened at medium it comes in over the note instead.
+    expect(frame.find("frame-aside-column")).not.toBeNull();
+    frame.press("probe-toggle-aside");
+    expect(frame.find("frame-aside-column")).toBeNull();
+    expect(frame.find("note-body")).toBe(before);
     frame.unmount();
   });
 });

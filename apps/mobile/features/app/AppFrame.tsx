@@ -299,22 +299,17 @@ export function AppFrame({
       >
         {/*
           The right panel beside the bar and the body, the frame's full height, where it is a column (Dev2, 2026-11-20,
-          the in-app Tex mock). Elsewhere the bar and the body are the frame's own children, as before.
+          the in-app Tex mock). The row and its main column are always here and only the panel is conditional: a
+          wrapper that came and went with the panel was a different tree to React, so opening the Tex panel at medium
+          density remounted the body, the note editor and any Tex run writing into it (2026-11-21).
         */}
-        {asideOutside ? (
-          <View style={styles.frameRow}>
-            <View style={styles.frameMain}>
-              {topBar}
-              {body}
-            </View>
-            {frameAsideColumn({ styles, state, aside, setAsideWidth })}
-          </View>
-        ) : (
-          <>
+        <View style={styles.frameRow}>
+          <View style={styles.frameMain}>
             {topBar}
             {body}
-          </>
-        )}
+          </View>
+          {asideOutside ? frameAsideColumn({ styles, state, aside, setAsideWidth }) : null}
+        </View>
 
         {frameStatusRow({ styles, regions, status, hasExplorer, toggleExplorer, account })}
 

@@ -5,11 +5,10 @@ import type { Colors } from "../../design/theme";
 /** `styles.ts`'s `NO_DRAG_REGION`, here so this file does not import the file that spreads it. */
 const NO_DRAG_REGION = { WebkitAppRegion: "no-drag" } as unknown as ViewStyle;
 
-/** The note card's insets from the tree, the window's top and the panel, and its corner, as the mock draws them. */
+/** The note card's insets from the tree, the window's top and the panel, as the mock draws them. */
 const CARD_LEFT = 8;
 const CARD_TOP = 4;
 const CARD_RIGHT = 6;
-const CARD_RADIUS = 12;
 
 /** The frame's row with the right panel beside it, and the note card, spread into `makeStyles`. */
 export const noteCardStyles = (colors: Colors) =>
@@ -19,9 +18,11 @@ export const noteCardStyles = (colors: Colors) =>
   frameMain: { flex: 1, minWidth: 0, minHeight: 0 },
 
   /*
-    The note card (Dev2, 2026-11-20, the in-app Tex mock): the tabs and the page are one card on the chrome, inset
-    from the tree and the panel, rounded at its top corners, ringed by a hairline. `topCard` is its top, in the bar;
-    `editor` is the rest.
+    The note card (Dev2, 2026-11-20, the in-app Tex mock): the page is a card on the chrome, inset from the tree and
+    the panel. Its outline is ONE line (Dev2, 2026-11-21: "a clean outline", not "ugly double lines"): the tabs sit on
+    the chrome, the hairline under them is the card's top edge, and the tab in front rings itself and opens into the
+    page, so the tab's ring and the card's sides are one continuous line. No second ring round the tabs.
+    `topCard` is the tab row, in the bar; `editor` is the rest.
   */
   topCard: {
     alignSelf: "stretch",
@@ -35,12 +36,6 @@ export const noteCardStyles = (colors: Colors) =>
     paddingTop: 6,
     paddingHorizontal: space.x2,
     gap: space.x2,
-    backgroundColor: colors.pageSurface,
-    borderTopLeftRadius: CARD_RADIUS,
-    borderTopRightRadius: CARD_RADIUS,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: 0,
-    borderColor: colors.line,
     ...NO_DRAG_REGION,
   },
   /** The hairline under the tabs, drawn first so the tab in front covers it and opens into the page. */

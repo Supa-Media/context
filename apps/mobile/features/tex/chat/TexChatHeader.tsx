@@ -7,7 +7,8 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
 /**
  * The pill at the top of Tex's chat: the Tex mark, its name, and whether it is
- * ready or working. Centred, with no sub line and no divider under it.
+ * ready or working. A floating capsule with a soft shadow: no band behind it,
+ * so the chat shows around it as it scrolls (Dev2 2026-11-21, like Grok's).
  *
  * `mark` replaces the still Tex mark: the working animation is drawn by the
  * chat engine (section A's TexWorkingMark), so this file only places it.
@@ -40,16 +41,20 @@ const makeStyles = (colors: Colors) =>
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
-      marginTop: 6,
-      marginBottom: 4,
+      marginTop: 10,
       paddingTop: 4,
       paddingBottom: 4,
       paddingLeft: 8,
       paddingRight: 14,
       borderWidth: 1,
       borderColor: colors.line,
-      borderRadius: 10,
+      borderRadius: 999,
       backgroundColor: colors.surface2,
+      shadowColor: "#000",
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
     },
     words: { flexDirection: "row", alignItems: "baseline", gap: 10 },
     name: { fontSize: texChatType.bubble, fontWeight: "600", color: colors.text },

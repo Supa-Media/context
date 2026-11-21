@@ -188,8 +188,6 @@ export function TexChatView({
 
   return (
     <View style={styles.root} testID="tex-chat">
-      <TexChatHeader busy={view.busy} mark={<TexWorkingMark busy={view.busy} />} />
-
       <ScrollView
         ref={log}
         style={styles.log}
@@ -325,6 +323,11 @@ export function TexChatView({
         {view.busy && !running ? <Working styles={styles} colors={colors} /> : null}
       </ScrollView>
 
+      {/* The pill floats over the log, drawn after it so the chat scrolls behind and around it (Dev2 2026-11-21). */}
+      <View style={styles.float} pointerEvents="box-none" testID="tex-chat-float">
+        <TexChatHeader busy={view.busy} mark={<TexWorkingMark busy={view.busy} />} />
+      </View>
+
       {view.error !== null ? (
         <Text variant="foot" style={styles.error} testID="tex-error">
           {view.error}
@@ -427,9 +430,10 @@ const makeStyles = (colors: Colors) =>
     muted: { color: colors.muted },
     day: { alignSelf: "center", fontSize: texChatType.status, marginTop: 10, marginBottom: 4 },
     log: { flex: 1, minHeight: 0 },
+    float: { position: "absolute", top: 0, left: 0, right: 0, alignItems: "center", zIndex: 2 },
     logBody: {
       flexGrow: 1,
-      paddingTop: 40,
+      paddingTop: 56,
       paddingHorizontal: 14,
       paddingBottom: 8,
       gap: 6,
