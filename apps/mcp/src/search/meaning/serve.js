@@ -31,6 +31,7 @@ import { queryEmbedderFor } from "./queryVectors.js";
 import { snippetFromText } from "./snippet.js";
 import { rankMeaningMatches } from "./project.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
+import { DEFAULT_RANKING, rankingOf } from "../ranking.js";
 import { isSearchProbe, notePrior } from "../priors.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
@@ -71,7 +72,7 @@ export const MEANING_MIN_SCORE = DEFAULT_SEARCH_SETTINGS.minScore;
  * where a plainly-worded question's real matches mostly sit. A meaning match
  * the words also found is never dropped by this; it only ranks.
  */
-export const MEANING_EXTRA_FLOOR_WITH_WORDS = 0.5;
+export const MEANING_EXTRA_FLOOR_WITH_WORDS = DEFAULT_RANKING.meaningFloor;
 
 /** Notes found only by meaning that one search may read for a snippet. */
 export const MEANING_SNIPPET_READS = 3;
@@ -81,13 +82,11 @@ export const MEANING_SNIPPET_READS = 3;
  * half of the answer (a question asked in a person's own words, "who left
  * the team"), so more of it is shown.
  */
-export const MEANING_SNIPPET_READS_LOOSE = 6;
+export const MEANING_SNIPPET_READS_LOOSE = DEFAULT_RANKING.looseReads;
 
 /** The words a person reads beside a note found only by meaning. */
 export const MEANING_ONLY_LABEL = "Same topic, different words";
 
-/** Reciprocal-rank constant: the usual 60, so neither list's top dominates. */
-const RRF_K = 60;
 
 /** Whether this store's Vectorize index may be asked: one that takes writes. A filling one may: its notes are real. */
 function vectorizeAnswers(store) {
@@ -216,7 +215,9 @@ export async function meaningMatches(
  * @param {string} [query] the person's words, as typed
  * @returns {Array<{key: string, word: object|null, meaning: object|null}>}
  */
-export function mergeHits(wordHits, matches, keyField = "key", query = undefined) {
+export function mergeHits(wordHits, matches, keyField = "key", query = undefined, ranking = DEFAULT_RANKING) {
+  // Reciprocal-rank constant (`ranking.rrfK`, the usual 60), so neither list's top dominates.
+  const RRF_K = ranking.rrfK;
   const merged = new Map();
   const shaped = (hit) => ({ key: hit[keyField], title: hit.title, snippets: Array.isArray(hit.snippets) ? hit.snippets : [] });
   const looseHit = (hit) => hit.loose === true || matchesOnlyInLinks(query, [hit.title, ...shaped(hit).snippets]);
@@ -224,7 +225,7 @@ export function mergeHits(wordHits, matches, keyField = "key", query = undefined
   const anyWhole = wordHits.some((hit) => !looseHit(hit));
   wordHits.forEach((hit, rank) => {
     const counted = !(looseHit(hit) && anyWhole);
-    const title = counted ? evidenceBonus(query, shaped(hit)) : 0;
+    const title = counted ? evidenceBonus(query, shaped(hit), ranking) : 0;
     merged.set(hit[keyField], {
       key: hit[keyField],
       word: hit,
@@ -254,7 +255,7 @@ export function mergeHits(wordHits, matches, keyField = "key", query = undefined
   // The path prior scales the fused score (`search/priors.js`): an archived
   // note or a log places below a live one with the same evidence. It only
   // reorders; the sort below keeps the loose-hit rule and the tie order.
-  for (const entry of merged.values()) entry.score *= notePrior(entry.key);
+  for (const entry of merged.values()) entry.score *= notePrior(entry.key, ranking);
   const weak = (entry) => (entry.loose && entry.meaning === null ? 1 : 0);
   return [...merged.values()]
     .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
@@ -360,8 +361,10 @@ async function snippetsFor(store, reading, chars, given) {
  * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number, query?: string | null,
  *   projection?: {client: () => object, filling: boolean} }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection, query } = {}) {
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection, query, ranking: given } = {}) {
   const settings = searchSettingsOf(store);
+  // The merge's knobs (`../ranking.js`): the search graph's "Search each workspace" step hands its own; main's otherwise.
+  const ranking = rankingOf(given);
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
   const prose = typeof query === "string" && query.trim() !== "" && !queryLooksLikeCode(query);
@@ -382,14 +385,14 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   }
   // `every` of none is true: a word search that found nothing is the loosest.
   const loosest = found.hits.every((hit) => hit.loose === true);
-  const readCap = loosest ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
+  const readCap = loosest ? Math.max(most, ranking.looseReads) : most;
   const wordRanks = new Map(found.hits.map((hit, rank) => [hit[keyField], rank]));
   // Words found notes with every word: a note only meaning found has to be
   // close to be worth a row (`MEANING_EXTRA_FLOOR_WITH_WORDS`).
   const kept = loosest
     ? matches
-    : matches.filter((match) => wordRanks.has(match.path) || match.score >= MEANING_EXTRA_FLOOR_WITH_WORDS);
-  const merged = mergeHits(found.hits, kept, keyField, query);
+    : matches.filter((match) => wordRanks.has(match.path) || match.score >= ranking.meaningFloor);
+  const merged = mergeHits(found.hits, kept, keyField, query, ranking);
   // The notes read for a snippet, all at once: one after another they were a
   // read's wait each, up to six in a row per workspace.
   const reading = merged.filter((entry) => !entry.word).slice(0, readCap);

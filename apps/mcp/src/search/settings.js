@@ -30,17 +30,24 @@
  * so a typo in a var or a note cannot ask for ten thousand reads.
  */
 
+import searchConfig from "./config/searchConfig.cjs";
+
+const { SEARCH_SETTINGS_BOUNDS, settingsOf } = searchConfig;
+// The three numbers' defaults are the "Search each workspace" step's settings in search's config
+// (`config/searchConfig.json`; Dev2, 2026-11-21), which a Lab draft can change.
+const EACH = settingsOf("each");
+
 export const DEFAULT_SEARCH_SETTINGS = Object.freeze({
   everywhere: true,
-  minScore: 0.4,
-  extraNotes: 3,
-  snippetChars: 200,
+  minScore: EACH.minScore,
+  extraNotes: EACH.extraNotes,
+  snippetChars: EACH.snippetChars,
 });
 
 const BOUNDS = {
-  minScore: { min: 0, max: 1, integer: false },
-  extraNotes: { min: 0, max: 10, integer: true },
-  snippetChars: { min: 50, max: 2000, integer: true },
+  minScore: SEARCH_SETTINGS_BOUNDS.minScore,
+  extraNotes: SEARCH_SETTINGS_BOUNDS.extraNotes,
+  snippetChars: SEARCH_SETTINGS_BOUNDS.snippetChars,
 };
 
 /** The front-matter and JSON key for each setting. */

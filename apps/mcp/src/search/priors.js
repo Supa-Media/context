@@ -14,9 +14,10 @@
 
 import { TEX_FOLDER, topLevelRole } from "../../../../packages/shared/src/folderRoles.cjs";
 import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
+import { DEFAULT_RANKING } from "./ranking.js";
 
 /** The multiplier for a log or archived note: half the score of an ordinary one with the same evidence. */
-export const LOG_PRIOR = 0.5;
+export const LOG_PRIOR = DEFAULT_RANKING.logPrior;
 
 /** The Inbox's own folders that Context files communications into: the logs of a person's day. */
 const INBOX_LOG_FOLDERS = Object.freeze(["sessions", "imessage", "email", "google-chat", "calendar"]);
@@ -46,7 +47,8 @@ function withoutWorkspace(path) {
  * @param {string} path
  * @returns {number}
  */
-export function notePrior(path) {
+export function notePrior(path, ranking = DEFAULT_RANKING) {
+  const LOG_PRIOR = ranking.logPrior;
   if (typeof path !== "string") return 1;
   const segments = withoutWorkspace(path).split("/");
   const [top, second] = segments;
