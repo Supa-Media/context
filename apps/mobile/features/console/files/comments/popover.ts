@@ -37,8 +37,6 @@ import { marginColumn } from "./margin";
 import { buildCard, type CardActions, type CardModel } from "./popoverDom";
 import { TEX_AUTHOR, texInNoteHost } from "./tex/contract";
 import { keepPending, texMessageState, texRuns, undoPending } from "./tex/runner";
-
-/** The gap between the words and the card. */
 const GAP = 8;
 
 type Target = { kind: "draft"; from: number; to: number; prefill: string } | { kind: "thread"; thread: CommentThread; from: number; to: number };
