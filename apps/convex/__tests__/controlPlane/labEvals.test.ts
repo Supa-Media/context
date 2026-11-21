@@ -18,7 +18,7 @@ import { hashToken } from "../../functions/lib/crypto";
 import { addMember, createUser, createWorkspace, drainScheduled, gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
-import { DEFAULT_N, MAX_OPEN, cleanSummary } from "../../functions/labEvals";
+import { DEFAULT_N, MAX_OPEN, cleanRow, cleanSearch, cleanSummary } from "../../functions/labEvals";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -148,7 +148,7 @@ describe("the workflow's reports", () => {
     expect(run.questions[0]).not.toHaveProperty("secretField");
     expect(run.questions[1]).toMatchObject({ id: "q1", correct: false, calls: [{ tool: "search", input: '{"query":"bikes"}' }] });
     const listed = await door("evals", {});
-    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle"]);
+    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle", "search-hard", "search-real", "longmemeval-retrieval"]);
     expect(listed.runs[0]).toMatchObject({ id, stage: "done" });
     expect(listed.runs[0]).not.toHaveProperty("questions");
   });
@@ -177,4 +177,69 @@ test("a Claude Code run's summary keeps its measured tokens and weekly share; an
   expect(kept.cc).toMatchObject({ calls: 9, tokens: 1234, weeklyPct: null, weeklyWhy: "the usage read answered 403", fullRunTokens: 12340, fullRunWeeklyPct: null });
   expect(kept.cc).not.toHaveProperty("extra");
   expect(cleanSummary({ n: 1, total: 2 })).not.toHaveProperty("cc");
+});
+
+// ── The Search suite (`apps/mcp/bench/evals/searchSuite.mjs` rowOf and searchScores) ──
+
+const searchRow = (over: Record<string, unknown> = {}) => ({
+  id: "s1",
+  type: "bikes",
+  ability: "search",
+  question: "where did I put the spare key?",
+  expected: "@seyi/home/keys.md",
+  date: "",
+  answer: "@seyi/home/keys.md\n@seyi/home/drawer.md",
+  correct: true,
+  rank: 1,
+  hits: 2,
+  sessions: 0,
+  ms: 812,
+  error: null,
+  ...over,
+});
+
+describe("the Search suite's rows and scores", () => {
+  test("a search row keeps its rank and hit count; a privacy row keeps a null rank; a Claude row has no rank", () => {
+    expect(cleanRow(searchRow())).toMatchObject({ rank: 1, hits: 2, correct: true, ms: 812 });
+    expect(cleanRow(searchRow({ rank: null, hits: 0, correct: false }))).toMatchObject({ rank: null, hits: 0 });
+    expect(cleanRow(searchRow({ rank: "3", hits: "x" }))).toMatchObject({ rank: null, hits: 0 });
+    expect(cleanRow(row(0, true))).toMatchObject({ rank: null, hits: 0 });
+  });
+
+  test("a search summary keeps its block, cleaned; per-kind and per-ability maps are capped at 20 keys", () => {
+    const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`kind${i}-${"k".repeat(60)}`, { n: 2, firstPct: 50, extra: 1 }]));
+    const summary = cleanSummary({
+      total: 40,
+      n: 40,
+      ms: 9000,
+      scores: { n: 40, correct: 30, pct: 75, usd: { total: 0, filing: 0, reading: 0, judging: 0 } },
+      search: { n: 40, first: 30, top5: 36, found: 38, firstPct: 75, top5Pct: 90, foundPct: 95, mrr: 0.84, p50Ms: 120, p95Ms: 480, errors: 0, leaks: ["x"], byKind: many, byAbility: { update: { n: 3, recallAny5Pct: null, extra: 2 } } },
+    }) as { search?: Record<string, any> };
+    expect(summary.search).toMatchObject({ n: 40, first: 30, top5: 36, found: 38, firstPct: 75, top5Pct: 90, foundPct: 95, mrr: 0.84, p50Ms: 120, p95Ms: 480, errors: 0 });
+    expect(summary.search).not.toHaveProperty("leaks");
+    expect(summary.search).not.toHaveProperty("recallAny5Pct");
+    expect(Object.keys(summary.search?.byKind ?? {})).toHaveLength(20);
+    expect(Object.keys(Object.values(summary.search?.byKind ?? {})[0] ?? {}).sort()).toEqual(["firstPct", "n"]);
+    expect(summary.search?.byAbility).toEqual({ update: { n: 3, recallAny5Pct: null } });
+  });
+
+  test("a retrieval summary keeps Recall@5 any and all; an unread share and a missing block stay null or absent", () => {
+    expect(cleanSearch({ n: 470, first: 1, top5: 2, found: 3, firstPct: null, top5Pct: 1.5, foundPct: 2, mrr: 0.1, p50Ms: 1, p95Ms: 2, errors: 0, recallAny5Pct: 91.2, recallAll5Pct: 80 })).toMatchObject({ recallAny5Pct: 91.2, recallAll5Pct: 80, firstPct: null });
+    expect(cleanSearch({ n: 1 })).not.toHaveProperty("recallAny5Pct");
+    expect(cleanSearch(undefined)).toBeUndefined();
+    expect(cleanSummary({ n: 1, total: 2 })).not.toHaveProperty("search");
+  });
+
+  test("the Lab starts a search set on gateway embeddings only: its models choice is dropped, its default slice is the whole set, and search-real runs its 10 Dev cases", async () => {
+    const w = await world();
+    const hard = await w.door("eval_run", { bench: "search-hard", models: "cc" });
+    expect(hard).toMatchObject({ status: "ok" });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId: hard.id })).toMatchObject({ bench: "search-hard", n: 40, models: "gw" });
+    expect(await w.door("eval_run", { bench: "search-hard", n: 41 })).toMatchObject({ status: "bad_request" });
+    const real = await w.door("eval_run", { bench: "search-real" });
+    expect(real).toMatchObject({ status: "ok" });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId: real.id })).toMatchObject({ bench: "search-real", n: 10, models: "gw" });
+    expect(await w.door("eval_run", { bench: "search-real", n: 11 })).toMatchObject({ status: "bad_request" });
+    expect(await w.door("eval_run", { bench: "longmemeval-retrieval", n: 470 })).toMatchObject({ status: "ok" });
+  });
 });

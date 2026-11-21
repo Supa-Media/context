@@ -93,6 +93,10 @@ const OPTIONS = {
   fake: { type: "boolean" },
   shard: { type: "string" },
   items: { type: "string" },
+  part: { type: "string" },
+  cases: { type: "string" },
+  today: { type: "string" },
+  "keep-records": { type: "boolean" },
 };
 
 const MODEL = /^claude-(haiku|sonnet|opus)-[0-9-]{1,12}$/;
@@ -132,9 +136,19 @@ function child(args) {
 /** The whole run: read the dataset, slice it, answer the shards, and write the result. */
 export async function main(argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
-  if (command !== "longmemeval") throw new Error("usage: cli.mjs longmemeval --data <file> --n <count> --out <file>");
+  if (command !== "longmemeval" && command !== "search") throw new Error("usage: cli.mjs longmemeval --data <file> --n <count> --out <file> | cli.mjs search --bench <set> --out <file>");
   const { values: options } = parseArgs({ args: rest, options: OPTIONS, strict: true });
   if (!options.out) throw new Error("--out is required");
+  if (command === "search") {
+    // The Search suite (`searchCli.mjs`): embeddings only, no Claude, one process.
+    const { runSearchSet } = await import("./searchCli.mjs");
+    const result = await runSearchSet(options);
+    writeFileSync(options.out, JSON.stringify(result));
+    const s = result.search;
+    say(`${result.bench}: right note first ${s.first}/${s.n} (${s.firstPct ?? "-"}%), top 5 ${s.top5Pct ?? "-"}%, MRR ${s.mrr}, p50 ${s.p50Ms} ms${s.recallAny5Pct !== undefined ? `, recall@5 any ${s.recallAny5Pct}% all ${s.recallAll5Pct}%` : ""}`);
+    if (result.n > 0 && s.n === 0) throw new Error("no case was scored");
+    return result;
+  }
   if (options.items) return answerShard(options);
   for (const key of ["reader", "judge"]) if (options[key] && !MODEL.test(options[key])) throw new Error(`--${key} is a Claude model id`);
   const bench = BENCHES.find((b) => b.id === (options.bench ?? "longmemeval-s"));

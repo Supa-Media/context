@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sqlStorage } from "../test/sql";
 import { CAPS, counts, mayRun, problemWith, unitTests, verdict, type Conversation } from "./rules";
 import { TestSet } from "./testSet";
+import type { SearchCase } from "./searchRules";
 
 const conv = (id: string, stars: Record<string, number> = { decide: 1 }): Conversation => ({
   id,
@@ -166,5 +167,94 @@ describe("the Test Set object", () => {
     expect(seeded).toMatchObject({ kept: 1, counts: { chats: 2, stars: 2 } });
     expect(seeded.skipped).toHaveLength(2);
     expect(s.get("lease")?.msgs).toHaveLength(2);
+  });
+});
+
+describe("the Search Test object", () => {
+  const sc = (id: string, extra: Partial<SearchCase> = {}): SearchCase => ({
+    id,
+    set: "test",
+    query: "when does my lease end",
+    as: "sam",
+    expect: ["@seyi/home/lease.md"],
+    kind: "lease",
+    notes: { "@seyi/home/lease.md": "The lease ends in June. Words only people read." },
+    ...extra,
+  });
+
+  it("keeps search cases people write, lists them with no query or note words, and forgets what they remove", () => {
+    const s = set();
+    expect(s.searchPut(sc("lease"), "user_1")).toMatchObject({ ok: true, kept: "lease", counts: { cases: 1, byKind: { lease: 1 } } });
+    expect(s.searchPut({ ...sc("x"), set: "dev" } as unknown as SearchCase, "user_1")).toMatchObject({ ok: false, problems: [expect.stringMatching(/set must be "test"/)] });
+    // The Tex Test Set is untouched by search cases.
+    expect(s.counts()).toMatchObject({ chats: 0 });
+    const listed = s.searchList();
+    expect(listed.cases[0]).toEqual({ id: "lease", kind: "lease", queryLength: sc("x").query.length, expect: 1, by: "user_1", at: expect.any(Number) });
+    const text = JSON.stringify(listed);
+    expect(text).not.toMatch(/when does|Words only|lease end/);
+    expect(s.searchGet("lease")?.query).toBe("when does my lease end");
+    expect(s.searchRemove("lease", "user_1")).toMatchObject({ removed: "lease", counts: { cases: 0 } });
+    expect(s.searchGet("lease")).toBeNull();
+  });
+
+  it("caps search runs on search runs only: a Tex run on the same commit does not spend one", () => {
+    const s = set();
+    s.searchPut(sc("lease"), "user_1");
+    s.put({ id: "tex-chat", set: "test", msgs: [] }, "user_1");
+    const now = Date.UTC(2026, 10, 18, 12);
+    expect(s.startRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "tex-1" }, now).ok).toBe(true);
+    const first = s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "s-1" }, now);
+    expect(first).toMatchObject({ ok: true, cases: [{ id: "lease" }] });
+    // The same GitHub run asking again gets its own run back.
+    expect(s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "s-1" }, now)).toMatchObject({ ok: true, run: first.ok ? first.run : "" });
+    expect(s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "s-2" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/commit/) });
+    expect(s.startSearchRun({ pr: 7, sha: "not-a-commit", base: sha("f"), ghRun: "s-3" }, now)).toMatchObject({ ok: false });
+    expect(s.searchRuns()).toHaveLength(1);
+  });
+
+  it("caps a pull request at ten changes, and a day at a thousand runs, as the Test Set does", () => {
+    const s = set();
+    s.searchPut(sc("lease"), "user_1");
+    const now = Date.UTC(2026, 10, 18, 12);
+    for (let i = 0; i < CAPS.pr; i += 1) expect(s.startSearchRun({ pr: 7, sha: (0xa00 + i).toString(16).padStart(40, "a"), base: sha("f"), ghRun: `c${i}`, change: (0xb00 + i).toString(16).padStart(40, "b") }, now).ok).toBe(true);
+    expect(s.startSearchRun({ pr: 7, sha: sha("1"), base: sha("f"), ghRun: "eleventh", change: sha("c") }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/pull request/) });
+    for (let pr = 100; pr < 100 + CAPS.day - CAPS.pr; pr += 1) expect(s.startSearchRun({ pr, sha: pr.toString(16).padStart(40, "0"), base: sha("f"), ghRun: `d${pr}` }, now).ok).toBe(true);
+    expect(s.startSearchRun({ pr: 999, sha: sha("9"), base: sha("f"), ghRun: "over" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/today/) });
+    expect(s.startSearchRun({ pr: 999, sha: sha("9"), base: sha("f"), ghRun: "tomorrow" }, now + 86_400_000).ok).toBe(true);
+  });
+
+  it("scores a search run once, only for the GitHub run that started it, against the cases it was handed", () => {
+    const s = set();
+    s.searchPut(sc("lease"), "user_1");
+    const started = s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "1" });
+    if (!started.ok) throw new Error("no run");
+    s.searchPut(sc("later"), "user_1");
+    expect(s.finishSearchRun(started.run, "2", [], [])).toMatchObject({ ok: false });
+    const done = s.finishSearchRun(started.run, "1", [{ id: "lease", rank: 2 }], [{ id: "lease", rank: 1 }]);
+    expect(done).toMatchObject({ ok: true, verdict: { pass: false, total: 1, first: 0, mainFirst: 1 } });
+    // A second answer changes nothing.
+    expect(s.finishSearchRun(started.run, "1", [{ id: "lease", rank: 1 }], [])).toMatchObject({ verdict: { first: 0 } });
+    expect(s.searchRuns()[0]).toMatchObject({ pr: 7, verdict: { pass: false, total: 1 } });
+  });
+
+  it("keeps search runs and counts with no words", () => {
+    const s = set();
+    s.searchPut(sc("case-one"), "user_1");
+    const started = s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "11" });
+    if (!started.ok) throw new Error("no run");
+    s.finishSearchRun(started.run, "11", [{ id: "case-one", rank: 1 }], [{ id: "case-one", rank: 1 }]);
+    const text = JSON.stringify({ counts: s.searchCounts(), runs: s.searchRuns() });
+    expect(text).not.toMatch(/when does|lease end|Words only/);
+    expect(text).not.toContain("case-one");
+  });
+
+  it("seeds the held-out search cases without overwriting one a person wrote, and skips a bad one by id", () => {
+    const s = set();
+    s.searchPut(sc("lease", { query: "original words" }), "user_1");
+    const seeded = s.seedSearch([sc("lease", { query: "moved words" }), sc("ferry"), { ...sc("bad"), set: "training" }], "99");
+    expect(seeded).toMatchObject({ kept: 1, counts: { cases: 2 } });
+    expect(seeded.skipped).toEqual([expect.stringContaining("lease: already here"), expect.stringContaining("bad: ")]);
+    expect(s.searchGet("lease")?.query).toBe("original words");
+    expect(s.searchGet("ferry")).not.toBeNull();
   });
 });
