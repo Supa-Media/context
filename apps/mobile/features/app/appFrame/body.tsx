@@ -54,7 +54,10 @@ export function frameBody({
   compact,
   toggleFocus,
   insets,
+  asideOutside = false,
 }: {
+  /** The right panel runs the frame's full height beside the bar and this body (`frameAsideColumn`), so it is not drawn here. */
+  asideOutside?: boolean;
   styles: FrameStyles;
   regions: Regions;
   state: FrameState;
@@ -106,7 +109,7 @@ export function frameBody({
         is Android's and ignored on web. Each platform reads its own.
       */}
       <View
-        style={[styles.editor, regions.aside === "column" && styles.editorBesideAside]}
+        style={[styles.editor, !compact && styles.editorCard]}
         {...(regions.scrim ? INERT : null)}
         importantForAccessibility={regions.scrim ? "no-hide-descendants" : "auto"}
       >
@@ -150,7 +153,7 @@ export function frameBody({
         `overlay` arm below, and the whole reason `wide` gets one and
         `medium` gets the other.
       */}
-      {regions.aside === "column" ? (
+      {regions.aside === "column" && !asideOutside ? (
         <View style={[styles.asideColumn, { width: asideUnfolded(state) ? state.asideWidth + ASIDE_FOLDED_WIDTH : ASIDE_FOLDED_WIDTH }]}>{aside}</View>
       ) : null}
 
@@ -160,7 +163,7 @@ export function frameBody({
         is wider than a hairline, so part of it lies over the editor, and
         as the column's own child the editor would take those presses.
       */}
-      {regions.aside === "column" && asideUnfolded(state) ? (
+      {regions.aside === "column" && !asideOutside && asideUnfolded(state) ? (
         <AsideResizer width={state.asideWidth + ASIDE_FOLDED_WIDTH} onResize={(next) => setAsideWidth(next - ASIDE_FOLDED_WIDTH)} />
       ) : null}
 
@@ -334,5 +337,34 @@ export function frameBody({
       ) : null}
 
     </View>
+  );
+}
+
+/**
+ * The right panel as a column the frame's full height, beside the top bar and the body rather than under the bar (Dev2,
+ * 2026-11-20, the in-app Tex mock: the panel and its rail run from the window's top edge, like the file tree). Its drag
+ * handle is laid over its leading border after it, for `ExplorerResizer`'s hit-testing reason.
+ */
+export function frameAsideColumn({
+  styles,
+  state,
+  aside,
+  setAsideWidth,
+}: {
+  styles: FrameStyles;
+  state: FrameState;
+  aside?: ReactNode;
+  setAsideWidth: (width: number) => void;
+}) {
+  const width = asideUnfolded(state) ? state.asideWidth + ASIDE_FOLDED_WIDTH : ASIDE_FOLDED_WIDTH;
+  return (
+    <>
+      <View style={[styles.asideColumn, { width }]} testID="frame-aside-column">
+        {aside}
+      </View>
+      {asideUnfolded(state) ? (
+        <AsideResizer width={width} onResize={(next) => setAsideWidth(next - ASIDE_FOLDED_WIDTH)} />
+      ) : null}
+    </>
   );
 }

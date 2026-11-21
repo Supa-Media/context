@@ -460,6 +460,7 @@ function TabItem({
         style={[styles.hit, closeGone && styles.hitTight]}
         testID={`tab-open-${tab.path}`}
       >
+        {tight ? null : <Icon name="file" size={13} color={active ? colors.text : colors.chromeMuted} style={styles.fileIcon} />}
         <Text
           // Squeezed, a title fades out rather than ending in "…", which at
           // 44pt would be a third of the tab (Chrome does the same).
@@ -612,10 +613,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderTopRightRadius: 8,
   },
 
-  /** The page's own surface, which is what makes this the page's front edge. */
-  tabActive: { backgroundColor: colors.pageSurface },
+  /**
+   * The page's own surface, ringed by a hairline open at its foot (Dev2, 2026-11-20, the in-app Tex mock): the tabs
+   * sit inside the note card on the page's surface, so the ring is what shows the one in front, and its surface covers
+   * the card's hairline under the tabs (`topCardRule`), so the tab opens into the page.
+   */
+  tabActive: {
+    backgroundColor: colors.pageSurface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 0,
+    borderColor: colors.line,
+  },
 
-  tabIdle: { backgroundColor: "transparent" },
+  tabIdle: {
+    backgroundColor: "transparent",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 0,
+    borderColor: "transparent",
+  },
 
   /*
     No vertical padding: `tab` sets the height now, so padding here would fight
@@ -631,6 +646,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingLeft: 12,
     paddingRight: 6,
   },
+
+  /** A page mark before the name, as the mock draws every tab. */
+  fileIcon: { marginRight: 6 },
 
   /** No ✕ beside it, so the letters get the tab's whole width, evenly inset. */
   hitTight: { paddingLeft: 12, paddingRight: 0 },

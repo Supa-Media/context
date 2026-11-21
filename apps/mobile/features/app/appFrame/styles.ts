@@ -1,6 +1,7 @@
 import { Platform, StyleSheet, type ViewStyle } from "react-native";
 import { layout, radii, space } from "../../design/tokens";
 import type { Colors, Shadows } from "../../design/theme";
+import { noteCardStyles } from "./noteCardStyles";
 
 /* -------------------------------------------------------------------------- */
 
@@ -39,6 +40,7 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     backgroundColor: colors.ground,
     overflow: "hidden",
   },
+  ...noteCardStyles(colors),
 
   topBar: {
     height: layout.topBarHeight,
@@ -291,16 +293,8 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     position: "relative",
   },
 
-  /*
-    The page is a card on the chrome (Dev2, 2026-11-20, from the in-app Tex
-    mock: "take inspiration from grokbot"): beside the right panel its top
-    trailing corner is rounded (`editorBesideAside`), and no hairline runs
-    between the two. Its leading corner stays square, where the active tab
-    joins it. It clips to that corner: the note page paints its own ground,
-    which drew a square corner over the rounded one.
-  */
+  /** The page: the note card's body under its top (see `topCard`). */
   editor: { flex: 1, minWidth: 0, backgroundColor: colors.pageSurface },
-  editorBesideAside: { borderTopRightRadius: radii.card, overflow: "hidden" },
 
   /**
    * The right panel as a column.

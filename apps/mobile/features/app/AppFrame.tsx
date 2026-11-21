@@ -4,7 +4,7 @@ import { viewportHeight } from "../design/css";
 import { useThemedStyles } from "../design/theme";
 import { FrameContext } from "./appFrame/context";
 import { FrameBare, FrameFillsParent } from "./appFrame/fillParent";
-import { frameBody } from "./appFrame/body";
+import { frameAsideColumn, frameBody } from "./appFrame/body";
 import { frameBottomBar, frameStatusRow } from "./appFrame/bottomEdge";
 import { makeStyles } from "./appFrame/styles";
 import { frameTopBar } from "./appFrame/topBar";
@@ -233,6 +233,47 @@ export function AppFrame({
     api,
   } = useFrameController({ explorer, aside, bottomBar: bare ? undefined : bottomBar, bare });
   const fillsParent = useContext(FrameFillsParent);
+  const asideOutside = !compact && regions.aside === "column";
+
+  const topBar = bare && compact ? null : frameTopBar({
+    styles,
+    compact,
+    insets,
+    contentInsets,
+    holdsLights,
+    lightsLeadPx,
+    density,
+    accountSlot,
+    lead,
+    tabs,
+    syncSlot,
+    topTrailing,
+    onSearch,
+    asideToggle,
+    regions,
+    hasExplorer,
+    columnTools,
+    explorerWidth: state.explorerWidth,
+    toggleExplorer,
+  });
+  const body = frameBody({
+    styles,
+    regions,
+    state,
+    explorer,
+    explorerFoldable,
+    toggleExplorer,
+    setExplorerPeeking,
+    children,
+    setExplorerWidth,
+    aside,
+    setAsideWidth,
+    closeOverlays,
+    compact,
+    toggleFocus,
+    insets,
+    asideOutside,
+  });
 
   return (
     <FrameContext.Provider value={api}>
@@ -256,45 +297,24 @@ export function AppFrame({
         ]}
         testID="app-frame"
       >
-        {bare && compact ? null : frameTopBar({
-          styles,
-          compact,
-          insets,
-          contentInsets,
-          holdsLights,
-          lightsLeadPx,
-          density,
-          accountSlot,
-          lead,
-          tabs,
-          syncSlot,
-          topTrailing,
-          onSearch,
-          asideToggle,
-          regions,
-          hasExplorer,
-          columnTools,
-          explorerWidth: state.explorerWidth,
-          toggleExplorer,
-        })}
-
-        {frameBody({
-          styles,
-          regions,
-          state,
-          explorer,
-          explorerFoldable,
-          toggleExplorer,
-          setExplorerPeeking,
-          children,
-          setExplorerWidth,
-          aside,
-          setAsideWidth,
-          closeOverlays,
-          compact,
-          toggleFocus,
-          insets,
-        })}
+        {/*
+          The right panel beside the bar and the body, the frame's full height, where it is a column (Dev2, 2026-11-20,
+          the in-app Tex mock). Elsewhere the bar and the body are the frame's own children, as before.
+        */}
+        {asideOutside ? (
+          <View style={styles.frameRow}>
+            <View style={styles.frameMain}>
+              {topBar}
+              {body}
+            </View>
+            {frameAsideColumn({ styles, state, aside, setAsideWidth })}
+          </View>
+        ) : (
+          <>
+            {topBar}
+            {body}
+          </>
+        )}
 
         {frameStatusRow({ styles, regions, status, hasExplorer, toggleExplorer, account })}
 
