@@ -20,11 +20,12 @@ const ICONS: Record<Exclude<AsideTab, "tex">, IconName> = {
  * there whether the panel is open or folded (Dev2, 2026-11-20: "the meeting
  * and tex icon just live forever in a thin right column"), so the panel has
  * no tab row of its own. Folded, a press on a tab unfolds the panel on that
- * tab and the chevron at the top unfolds it as it was. Open, the tab showing
- * is filled, a press on it folds the panel (as the chevron, now pointing
- * right, does) and a press on another switches to it. The top bar has no panel button and the strip no rule
- * (Dev2, 2026-11-19: that corner "looks crazy", then "add back" on the
- * chevron). Meetings is drawn in Tex's blue (Dev2, 2026-11-19: "make blue?").
+ * tab and the panel button at the top unfolds it as it was. Open, the tab
+ * showing is filled, a press on it folds the panel (as the panel button does)
+ * and a press on another switches to it. The panel button mirrors the left
+ * sidebar's own toggle, and a hairline divides the strip from the open panel
+ * (Dev2, 2026-11-21 roast). Meetings is drawn in Tex's blue (Dev2, 2026-11-19:
+ * "make blue?").
  * The marks the tab row carries (a meeting recording) stay here too, so
  * folding it never hides something running.
  */
