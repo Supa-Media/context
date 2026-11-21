@@ -5,7 +5,12 @@
 /**
  * Tex inside a note (`files/comments/tex/runner.ts`): which messages go to
  * Tex, what a run is told, what it writes into the thread and the note, and
- * how Keep and Undo settle the pending edit.
+ * how Keep and Undo settle a suggestion written before edits applied directly.
+ *
+ * Sabotage (run once, then restored): `tellNote` was made to write the edit
+ * at `anchor.to` (inside the highlight) instead of `anchor.closeEnd`. Result:
+ * the addition and undo tests failed on the note's text. Dropping the
+ * history annotations failed the undo test.
  *
  * Sabotage (run once, then restored): `keepPending` was changed to write only
  * the `kept` line and skip the replace of the anchored words. Result: 1 of 25
@@ -14,7 +19,8 @@
  */
 
 import { afterEach, describe, expect, test } from "@jest/globals";
-import { EditorState } from "@codemirror/state";
+import { EditorState, type Extension } from "@codemirror/state";
+import { history, undo } from "@codemirror/commands";
 import { EditorView } from "@codemirror/view";
 import { parseComments, type CommentThread } from "@context/shared/src/comments.cjs";
 import { comments, sendComment } from "../features/console/files/comments/extension";
@@ -86,14 +92,14 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function mount(doc: string, host: TexInNoteHost | null, author: string | null = "@dev2"): EditorView {
+function mount(doc: string, host: TexInNoteHost | null, author: string | null = "@dev2", more: Extension[] = []): EditorView {
   const parent = document.createElement("div");
   document.body.append(parent);
   const view = new EditorView({
     parent,
     state: EditorState.create({
       doc,
-      extensions: [comments({ author: () => author }), texInNote(), texInNoteHost.of(host)],
+      extensions: [comments({ author: () => author }), texInNote(), texInNoteHost.of(host), ...more],
     }),
   });
   views.push(view);
@@ -177,7 +183,7 @@ describe("a message sent from the card or the phone's sheet", () => {
 });
 
 describe("a run", () => {
-  test("writes Tex's answer and its suggestion into the thread, and draws the suggestion until Keep", async () => {
+  test("writes Tex's addition straight into the note after the highlight, and its answer into the thread", async () => {
     const { host, running, done } = harness([
       { type: "step", id: "s1", label: "Reading the note", state: "running" },
       { type: "step", id: "s1", label: "Reading the note", state: "done", ms: 40 },
@@ -191,23 +197,57 @@ describe("a run", () => {
 
     const doc = view.state.doc.toString();
     expect(doc).toMatch(/- \S+ Tex: Sayo said he would pick it up on Saturday\./);
-    expect(doc).toMatch(/- \S+ Tex suggests: "cake, Saturday at 5"/);
-    // The words are not written until somebody presses Keep.
-    expect(doc).toContain("<!--c:k7f2-->cake<!--/c:k7f2-->");
-    expect(threadOf(doc).pending?.text).toBe("cake, Saturday at 5");
-    // The new text keeps the words and adds to them, so nothing is struck and only the addition is drawn.
+    // Nothing to accept: no suggestion line, no pending edit, no Keep or Undo.
+    expect(doc).not.toContain("Tex suggests");
+    expect(threadOf(doc).pending).toBeNull();
+    // The added words are the note's own text, after the comment's close marker, not inside the highlight.
+    expect(doc).toContain("<!--c:k7f2-->cake<!--/c:k7f2-->, Saturday at 5 on Saturday.");
+    expect(view.dom.querySelector(".cm-tex-ins")).toBeNull();
     expect(view.dom.querySelector(".cm-tex-del")).toBeNull();
-    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe(", Saturday at 5");
     expect(running).toEqual([true, false]);
     expect(done).toEqual(["run_1"]);
   });
 
-  test("with an edit but no answer, the thread says Done and asks to keep or undo", async () => {
+  test("a rewrite replaces the highlighted words in place", async () => {
+    const { host } = harness([{ type: "edit", replace: "birthday cake" }, { type: "done", runId: "run_r", sources: [] }]);
+    const view = mount(NOTE, host);
+    startTexRun(view, "k7f2", "say which cake");
+    await waitFor(() => !runs(view).has("k7f2"));
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("Pick up the <!--c:k7f2-->birthday cake<!--/c:k7f2--> on Saturday.");
+    expect(doc).not.toContain("Tex suggests");
+  });
+
+  test("one undo takes back exactly Tex's edit and leaves its answer in the thread", async () => {
+    const { host } = harness([{ type: "edit", replace: "cake, Saturday at 5" }, { type: "done", runId: "run_u", sources: [] }]);
+    const view = mount(NOTE, host, "@dev2", [history()]);
+    startTexRun(view, "k7f2", "add the time");
+    await waitFor(() => !runs(view).has("k7f2"));
+    expect(view.state.doc.toString()).toContain("cake<!--/c:k7f2-->, Saturday at 5 on");
+    expect(undo(view)).toBe(true);
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("Pick up the <!--c:k7f2-->cake<!--/c:k7f2--> on Saturday.");
+    expect(doc).toMatch(/- \S+ Tex: Done\./);
+  });
+
+  test("with an edit but no answer, the thread says Done, and asks nothing", async () => {
     const { host } = harness([{ type: "edit", replace: "cake, Saturday at 5" }, { type: "done", runId: "run_2", sources: [] }]);
     const view = mount(NOTE, host);
     startTexRun(view, "k7f2", "add the time");
     await waitFor(() => !runs(view).has("k7f2"));
-    expect(view.state.doc.toString()).toMatch(/- \S+ Tex: Done\. Keep or undo\?/);
+    const doc = view.state.doc.toString();
+    expect(doc).toMatch(/- \S+ Tex: Done\.\n/);
+    expect(doc).not.toMatch(/Keep or undo/);
+  });
+
+  test("an answer with no edit writes only the answer", async () => {
+    const { host } = harness([{ type: "answer", text: "Sayo is." }, { type: "done", runId: "run_a", sources: [] }]);
+    const view = mount(NOTE, host);
+    startTexRun(view, "k7f2", "who?");
+    await waitFor(() => !runs(view).has("k7f2"));
+    const doc = view.state.doc.toString();
+    expect(doc).toMatch(/- \S+ Tex: Sayo is\./);
+    expect(doc).toContain("Pick up the <!--c:k7f2-->cake<!--/c:k7f2--> on Saturday.");
   });
 
   test("while Tex types, the new words show in the note with a caret, and the note is not written yet", async () => {
@@ -220,7 +260,11 @@ describe("a run", () => {
     startTexRun(view, "k7f2", "add the time");
     await waitFor(() => runs(view).get("k7f2")?.typing === "cake, Saturday at 5");
     expect(view.dom.querySelector(".cm-tex-caret")).not.toBeNull();
-    expect(view.dom.querySelector(".cm-tex-ins")?.textContent).toBe(", Saturday at 5");
+    // Plain words where they will land, outside the highlight, with nothing tinted or struck.
+    const typed = view.dom.querySelector(".cm-tex-ins");
+    expect(typed?.textContent).toBe(", Saturday at 5");
+    expect(typed?.classList.contains("cm-tex-live")).toBe(true);
+    expect(view.dom.querySelector(".cm-tex-del")).toBeNull();
     expect(view.state.doc.toString()).toBe(NOTE);
     release();
     await waitFor(() => !runs(view).has("k7f2"));

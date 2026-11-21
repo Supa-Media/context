@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, StyleSheet, View, type TextStyle } from "react-native";
 import { Circle, Path, Svg } from "react-native-svg";
 import { Text } from "../../design/components/Text";
-import { radii, space, texChatType } from "../../design/tokens";
+import { space, texChatType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import {
@@ -120,8 +120,10 @@ function lastToolIndex(steps: LiveStep[]): number {
  * Tex's run card: what it did for one text, drawn as the mock's `.run`.
  *
  * Live, the header shows a spinner, the current step in shimmering words and
- * the elapsed seconds, and the steps are always open. Settled, the header
- * shows the total time and step count and folds the steps away until pressed.
+ * the elapsed seconds, and the steps are always open. Settled, it is one small
+ * grey line, "Worked 95s · 3 steps ›", with no box, and the steps fold away
+ * until it is pressed (Dev2, 2026-11-21 roast: the boxed card was "a really big
+ * clunky UI" for that). The steps hang under a hairline, not in a card.
  * Words only: a step's text is drawn as text, never as markup.
  */
 export function TexRunCard({
@@ -147,7 +149,7 @@ export function TexRunCard({
   const lastTool = lastToolIndex(run.steps);
 
   return (
-    <View style={styles.card} testID={testID}>
+    <View style={styles.run} testID={testID}>
       <Pressable
         style={styles.head}
         disabled={live}
@@ -166,18 +168,9 @@ export function TexRunCard({
             </Text>
           </>
         ) : (
-          <>
-            <GlyphIcon name="check" color={colors.ok} size={14} weight={2.5} />
-            <Text variant="foot" style={styles.title}>
-              {head.label}
-            </Text>
-            <Text variant="foot" style={styles.muted}>
-              {`· ${head.steps}`}
-            </Text>
-            <Text variant="mono" style={styles.time}>
-              {open ? "Hide ▴" : "Show steps ▾"}
-            </Text>
-          </>
+          <Text variant="meta" style={styles.done} numberOfLines={1}>
+            {`${head.label} · ${head.steps} ${open ? "⌄" : "›"}`}
+          </Text>
         )}
       </Pressable>
 
@@ -225,30 +218,23 @@ const spinStyles = StyleSheet.create({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: {
-      alignSelf: "stretch",
-      borderWidth: 1,
-      borderColor: colors.line,
-      borderRadius: radii.card,
-      backgroundColor: colors.ground,
-      overflow: "hidden",
-    },
+    run: { alignSelf: "stretch" },
     head: {
       flexDirection: "row",
       alignItems: "center",
+      alignSelf: "flex-start",
       gap: space.x2,
-      paddingVertical: space.x2,
-      paddingHorizontal: space.x3,
+      paddingVertical: 2,
     },
-    title: { color: colors.text, fontWeight: "600", flexShrink: 1 },
-    muted: { color: colors.muted },
+    title: { color: colors.text2, flexShrink: 1 },
+    done: { color: colors.muted, fontSize: texChatType.status },
     time: { color: colors.appDim, marginLeft: "auto" },
     steps: {
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-      paddingTop: space.x2 - 2,
-      paddingBottom: space.x2,
-      paddingHorizontal: space.x3 - 2,
+      marginLeft: 5,
+      borderLeftWidth: StyleSheet.hairlineWidth,
+      borderLeftColor: colors.line,
+      paddingLeft: space.x2,
+      paddingVertical: 2,
       gap: 2,
     },
     step: {

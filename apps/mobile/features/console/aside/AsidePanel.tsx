@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { pendingCount } from "../../approvals/copy";
 import type { ApprovalsView } from "../../approvals/useApprovals";
@@ -84,7 +84,9 @@ export function AsidePanel({
   /**
    * The chat with Tex, for the owner of the personal workspace this console has open: that
    * workspace's id and the MCP endpoint the console shows. `null` elsewhere, and then there is no
-   * Tex tab. The tab mounts only while it is showing, so the chat polls only then.
+   * Tex tab. The chat is loaded in the background soon after the console is, and stays mounted
+   * (hidden) behind the other tabs and the folded rail, so opening Tex shows it at once (Dev2,
+   * 2026-11-21: "it should be more immediate"). Its one held-open read is all it costs meanwhile.
    */
   tex?: { workspaceId: string; endpoint: string } | null;
   /** Open the search palette, from the rail's magnifier. `null` hides it. */
@@ -128,6 +130,22 @@ export function AsidePanel({
     if (changedSinceSeen("noteKey", noteKey) && noteKey !== null) setChosen("note");
   }, [noteKey, setChosen]);
 
+  const texWarm = useWarmAfterLoad(tex !== null && showing === "tex");
+  const texShowing = showing === "tex" && tex !== null;
+  const texChat: ReactNode =
+    tex !== null && texWarm ? (
+      <View style={texShowing ? styles.body : styles.hidden} testID={texShowing ? "aside-tex" : "aside-tex-warm"}>
+        <TexChatTab
+          workspaceId={tex.workspaceId}
+          endpoint={tex.endpoint}
+          approvals={approvals}
+          onOpenNote={onOpenNote}
+          seen={texSeen ?? undefined}
+          active={texShowing}
+        />
+      </View>
+    ) : null;
+
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
   const frame = useFrame();
@@ -160,7 +178,13 @@ export function AsidePanel({
   // Folded, or shut where the frame keeps a column for it (`regionsFor`), the
   // panel is its rail alone. Drawn outside a frame it is whole.
   const strip = frame.state.asideFolded || (!frame.state.asideOpen && frame.regions?.aside === "column");
-  if (strip) return <View style={styles.folded}>{rail(false)}</View>;
+  if (strip)
+    return (
+      <View style={styles.folded}>
+        {texChat}
+        {rail(false)}
+      </View>
+    );
 
   return (
     <View style={styles.row}>
@@ -173,23 +197,32 @@ export function AsidePanel({
           <View style={styles.body} testID="aside-map-note">
             {map.note}
           </View>
-        ) : showing === "tex" && tex !== null ? (
-          <View style={styles.body} testID="aside-tex">
-            <TexChatTab
-              workspaceId={tex.workspaceId}
-              endpoint={tex.endpoint}
-              approvals={approvals}
-              onOpenNote={onOpenNote}
-              seen={texSeen ?? undefined}
-            />
-          </View>
-        ) : (
+        ) : texShowing ? null : (
           <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />
         )}
+        {texChat}
       </View>
       {rail(true)}
     </View>
   );
+}
+
+/** How long after the console loads the hidden Tex chat starts loading, so the page's own reads go first. */
+export const TEX_WARM_MS = 1500;
+
+/** True at once when `now`, else once the page has had `TEX_WARM_MS` to load; it never goes back to false. */
+function useWarmAfterLoad(now: boolean): boolean {
+  const [warm, setWarm] = useState(now);
+  useEffect(() => {
+    if (warm) return;
+    if (now) {
+      setWarm(true);
+      return;
+    }
+    const timer = setTimeout(() => setWarm(true), TEX_WARM_MS);
+    return () => clearTimeout(timer);
+  }, [now, warm]);
+  return warm || now;
 }
 
 const makeStyles = (_colors: Colors) =>
@@ -198,4 +231,5 @@ const makeStyles = (_colors: Colors) =>
     folded: { flex: 1, alignItems: "flex-end" },
     panel: { flex: 1, minWidth: 0, paddingTop: space.x2 },
     body: { flex: 1, minHeight: 0 },
+    hidden: { display: "none" },
   });

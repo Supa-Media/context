@@ -74,7 +74,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(view: AppChatView & { calls: Calls }) {
+function mount(view: AppChatView & { calls: Calls }, active = true) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root: Root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -82,7 +82,7 @@ function mount(view: AppChatView & { calls: Calls }) {
     act(() => root.unmount());
     container.remove();
   });
-  const draw = (next: AppChatView & { calls: Calls }) => act(() => root.render(createElement(TexChatView, { view: next })));
+  const draw = (next: AppChatView & { calls: Calls }) => act(() => root.render(createElement(TexChatView, { view: next, active })));
   draw(view);
   const find = (testId: string) => container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   return {
@@ -192,6 +192,14 @@ describe("the header, the composer and the stop", () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(t.calls).toContainEqual(["stop"]);
+  });
+
+  test("Esc leaves a busy turn alone while the chat is hidden behind another tab", () => {
+    const t = mount(fakeView({ busy: true }), false);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(t.calls.filter((call) => call[0] === "stop")).toEqual([]);
   });
 
   test("Esc does nothing when Tex is not busy", () => {

@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Comments in a real browser: select words, comment from the selection
- * toolbar, reply, resolve, and the history coming back with Show resolved
+ * toolbar, reply, resolve (no "Show resolved" line in the note: Dev2,
+ * 2026-11-21), the history coming back with ⌘Z
  * (files/comments/).
  *
  * Threads open in a card under their words (Dev2's in-note Tex mock,
@@ -69,10 +70,13 @@ test("a comment is written, answered and resolved under its words", async ({ pag
   await card.getByRole("button", { name: "Resolve" }).click();
   await expect(page.locator(".cm-cmt-hl")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Show resolved (1)" }).click();
+  await expect(page.getByRole("button", { name: /Show resolved/ })).toHaveCount(0);
+  // Undo brings the thread back: resolving is an edit to the file like any other.
+  await line.click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await expect(page.locator(".cm-cmt-hl")).toHaveCount(1);
   await page.locator(".cm-cmt-hl").click();
-  await expect(card).toContainText("Resolved by");
-  await expect(card).toContainText("eh, I don't really care");
+  await expect(card).toBeVisible();
 
   // Deleting asks first, in the card, and the first comment takes the thread.
   await card.getByRole("button", { name: "Delete this thread" }).click();
@@ -146,8 +150,8 @@ test("a comment that arrives in the file is a highlight that opens its thread", 
   expect(placed!.x + placed!.width).toBeLessThanOrEqual(scroller!.x + scroller!.width);
 });
 
-test("Tex answers in the thread, writes its edit into the note, and Keep makes it the text", async ({ page }) => {
-  // The whole in-note Tex path in the real app, from the Tex button to Keep,
+test("Tex answers in the thread and writes its edit straight into the note, which one undo takes back", async ({ page }) => {
+  // The whole in-note Tex path in the real app, from the Tex button to undo,
   // against a scripted pretend gateway (`comments/tex/fixtureTransport.ts`)
   // that streams real NDJSON through the real `runNoteRun`.
   await page.goto("/e2e-fixture?tex=fake");
@@ -161,23 +165,26 @@ test("Tex answers in the thread, writes its edit into the note, and Keep makes i
   const input = card.locator(".cm-cwin");
   await expect(input).toBeFocused();
   await expect(input).toHaveValue("@Tex ");
-  await input.pressSequentially("tighten this");
+  await input.pressSequentially("add a line after this");
   await page.keyboard.press("Enter");
 
-  // Working, then the edit drawn as struck old words and new ones, with Keep and Undo.
+  // Working, then the addition written into the note: no Keep, no Undo, nothing struck or tinted.
   await expect(card).toContainText("Reading this note");
-  await expect(page.locator(".cm-tex-ins")).toContainText("Checked by Tex", { timeout: 10_000 });
-  await expect(page.locator(".cm-tex-del")).toHaveCount(1);
-  await expect(card).toContainText("Rewrote the highlighted words.");
-  if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.TEX_SHOT ?? "test-results/tex-pending.png" });
-  await card.getByRole("button", { name: "Keep" }).click();
-
+  await expect(line).toContainText("Added by Tex.", { timeout: 10_000 });
+  await expect(card).toContainText("Added it after the highlighted words.");
+  await expect(card.getByRole("button", { name: "Keep" })).toHaveCount(0);
   await expect(page.locator(".cm-tex-ins")).toHaveCount(0);
-  await expect(line).toContainText("Checked by Tex");
+  await expect(page.locator(".cm-tex-del")).toHaveCount(0);
   await expect(page.locator(".cm-content")).not.toContainText("Tex suggests");
+  // The added words are the note's own text, not part of the highlight that was tagged.
+  await expect(line.locator(".cm-cmt-hl", { hasText: "Added by Tex" })).toHaveCount(0);
+  if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.TEX_SHOT ?? "test-results/tex-applied.png" });
 
-  // The run is in the note's log.
-  const log = page.getByTestId("tex-in-note-log");
-  await log.scrollIntoViewIfNeeded();
-  await expect(log).toContainText("tighten this");
+  // One undo in the editor takes the edit back; Tex's answer stays in the thread.
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(line).not.toContainText("Added by Tex.");
+
+  // No log of Tex's runs is drawn under the note (Dev2, 2026-11-21 roast): the answer lives in its thread.
+  await expect(page.getByTestId("tex-in-note-log")).toHaveCount(0);
 });
