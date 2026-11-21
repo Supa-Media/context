@@ -251,8 +251,11 @@ describe("the tab strip draws what tabs.ts says", () => {
     const state = tabsReducer(openTabs(NOTES), { type: "opened", path: PLAN, mode: "preview" });
     const strip = mountStrip(state);
 
-    const previewLabel = strip.need(`tab-open-${PLAN}`).firstElementChild as HTMLElement;
-    const pinnedLabel = strip.need(`tab-open-${NOTES}`).firstElementChild as HTMLElement;
+    // The label is the child with words: a page mark leads it (the in-app Tex mock, 2026-11-20).
+    const labelOf = (id: string) =>
+      Array.from(strip.need(id).children).find((child) => (child.textContent ?? "").length > 0) as HTMLElement;
+    const previewLabel = labelOf(`tab-open-${PLAN}`);
+    const pinnedLabel = labelOf(`tab-open-${NOTES}`);
     expect(getComputedStyle(previewLabel).fontStyle).toBe("italic");
     expect(getComputedStyle(pinnedLabel).fontStyle).not.toBe("italic");
 

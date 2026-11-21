@@ -88,13 +88,42 @@ export function frameTopBar({
           </View>
         )}
         <FrameIconButton
-          label={regions.explorer === "column" ? "Hide the file tree" : "Show the file tree"}
+          label={
+            regions.explorer === "column"
+              ? "Hide the file tree"
+              : "Show the file tree"
+          }
           icon="panelLeft"
           onPress={toggleExplorer}
           testID="frame-toggle-explorer"
         />
       </>
     );
+
+  const trailing = (
+    <>
+      {compact && syncSlot != null ? (
+        <View style={styles.syncLead}>{syncSlot}</View>
+      ) : null}
+      {topTrailing == null && !(onSearch && !compact) && !asideToggle ? null : (
+        <View
+          style={[
+            styles.topTrail,
+            compact && styles.topTrailCompact,
+            compact && syncSlot != null && styles.topTrailAfterSync,
+          ]}
+        >
+          {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
+          {topTrailing}
+          {/*
+          No panel button (Dev2, 2026-11-19: "remove"): at a pointer density
+          the right panel is always there, shut as its strip of tabs, and a
+          tab opens it (`regionsFor`).
+        */}
+        </View>
+      )}
+    </>
+  );
 
   return (
     <View
@@ -130,7 +159,10 @@ export function frameTopBar({
     >
       {columnHead ? (
         <View
-          style={[styles.columnHead, { width: explorerWidth, paddingLeft: lightsLeadPx || space.x3 }]}
+          style={[
+            styles.columnHead,
+            { width: explorerWidth, paddingLeft: lightsLeadPx || space.x3 },
+          ]}
           testID="frame-column-head"
         >
           {navigation}
@@ -207,7 +239,23 @@ export function frameTopBar({
         strip across the top of the phone's note. Nothing failed; it was
         visible only in a screenshot.
       */}
-      {tabs == null || compact ? null : <View style={styles.topTabs}>{tabs}</View>}
+      {/*
+        THE NOTE CARD'S TOP (Dev2, 2026-11-20, the in-app Tex mock, Grok-style): at a pointer density the open notes
+        and the trailing group sit inside the top of a card in the page's own surface, rounded at its top corners,
+        with a hairline under the tabs. The page below continues it (`editorCard`), so the tabs and the note read as
+        one card on the chrome rather than tabs hanging from a bar that spans the window.
+      */}
+      {compact ? null : (
+        <View style={styles.topCard} testID="frame-note-card-top">
+          <View style={styles.topCardRule} />
+          {tabs == null ? (
+            <View style={styles.topCardFill} />
+          ) : (
+            <View style={styles.topTabs}>{tabs}</View>
+          )}
+          {trailing}
+        </View>
+      )}
 
       {/*
         The trailing slot, which on a phone is **the** grouped container.
@@ -251,24 +299,7 @@ export function frameTopBar({
         between them, which would float this in the middle of the glass —
         the mistake the search comment below records once already.
       */}
-      {compact && syncSlot != null ? <View style={styles.syncLead}>{syncSlot}</View> : null}
-      {topTrailing == null && !(onSearch && !compact) && !asideToggle ? null : (
-        <View
-          style={[
-            styles.topTrail,
-            compact && styles.topTrailCompact,
-            compact && syncSlot != null && styles.topTrailAfterSync,
-          ]}
-        >
-          {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
-          {topTrailing}
-          {/*
-            No panel button (Dev2, 2026-11-19: "remove"): at a pointer density
-            the right panel is always there, shut as its strip of tabs, and a
-            tab opens it (`regionsFor`).
-          */}
-        </View>
-      )}
+      {compact ? trailing : null}
     </View>
   );
 }
