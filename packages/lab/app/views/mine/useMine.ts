@@ -18,6 +18,7 @@ import { realIO, realTimes } from "../../engine/realTimes";
 import { turnPromptOf } from "../../engine/promptAt";
 import { emit, lab, toast } from "../../engine/state";
 import { traceMine } from "../../engine/traces";
+import { isOneToOne, ledgerChatOf, onlyOfChat, withAppChat } from "../../engine/appChat";
 
 let source: TexPageSource | null = null;
 /** The signed-in person's own ledger source (set once `MineLoader` has their workspace), for reading a real text's run (`playProd.ts`). */
@@ -32,7 +33,7 @@ export async function readMyChats() {
   const r = await source.overview("me", "chats");
   if (r.kind !== "ok") return;
   const chats = r.value.chats.length ? r.value.chats : [r.value.chat];
-  lab.myChats = chats.map((c) => ({ key: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) }));
+  lab.myChats = withAppChat(chats.map((c) => ({ key: c.key, name: c.key === "me" ? "Just you and Tex" : c.name, ...(c.people ? { people: c.people } : {}) })));
   emit();
 }
 
@@ -58,7 +59,7 @@ export async function readMyTexts(older = false) {
   reading = true;
   const chat = lab.myChat;
   try {
-    const r = await source.ledger(chat, { kinds: LINE_KINDS, jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
+    const r = await source.ledger(ledgerChatOf(chat), { kinds: LINE_KINDS, jobs: false, before: older && lab.myOlder !== null ? lab.myOlder : LATEST });
     if (chat !== lab.myChat) return;
     if (r.kind !== "ok") {
       if (!older) lab.myTexts = "failed";
@@ -66,9 +67,9 @@ export async function readMyTexts(older = false) {
       return;
     }
     const known = new Set(seen.map((e) => e.id));
-    seen = [...seen, ...r.value.entries.filter((e) => !known.has(e.id))];
+    seen = [...seen, ...onlyOfChat(chat, r.value.entries).filter((e) => !known.has(e.id))];
     const first = !Array.isArray(lab.myTexts);
-    const read = linesOf(seen, chat !== "me");
+    const read = linesOf(seen, !isOneToOne(chat));
     lab.myTexts = read.texts;
     lab.myLines = read.lines;
     // As You, the canvas traces your newest text until you pick another.
@@ -106,7 +107,7 @@ export async function readJobWork(id: string) {
   jobsRead.add(chat + "|" + id);
   let before = LATEST;
   for (let i = 0; i < 20; i++) {
-    const r = await source.ledger(chat, { kinds: JOB_KINDS, job: id, before });
+    const r = await source.ledger(ledgerChatOf(chat), { kinds: JOB_KINDS, job: id, before });
     if (r.kind !== "ok" || chat !== lab.myChat) {
       jobsRead.delete(chat + "|" + id);
       break;
@@ -135,7 +136,7 @@ export async function readTurnTimes(t: MyText) {
   const more: LedgerEntry[] = [];
   let before = LATEST;
   for (let i = 0; i < PAGES_BACK; i++) {
-    const r = await source.ledger(lab.myChat, { kinds: DETAIL_KINDS, day, before });
+    const r = await source.ledger(ledgerChatOf(lab.myChat), { kinds: DETAIL_KINDS, day, before });
     if (r.kind !== "ok") break;
     more.push(...r.value.entries);
     const oldest = Math.min(...r.value.entries.map((e) => e.at));
@@ -150,7 +151,7 @@ export async function readTurnReads(id: string) {
   const t = Array.isArray(lab.myTexts) ? lab.myTexts.find((x) => x.id === id) : null;
   if (!source || !t?.turn || lab.myReads[id]) return;
   const day = new Date(t.at).toLocaleDateString("en-CA");
-  const r = await source.ledger(lab.myChat, { kinds: ["tool"], day, before: LATEST });
+  const r = await source.ledger(ledgerChatOf(lab.myChat), { kinds: ["tool"], day, before: LATEST });
   if (r.kind !== "ok") return;
   lab.myReads = { ...lab.myReads, [id]: readsOf(r.value.entries, t.turn) };
   emit();

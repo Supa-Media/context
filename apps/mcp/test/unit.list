@@ -706,6 +706,9 @@ test/texExamples.test.mjs
 test/examplesNode.test.mjs
 test/appChat.test.mjs
 test/appChatCards.test.mjs
+test/noteRunRoute.test.mjs
+test/noteRunStorage.test.mjs
+test/screen.test.mjs
 test/appChatDelivery.test.mjs
 test/setsFdTapbacks.test.mjs
 test/searchedLine.test.mjs
@@ -725,7 +728,9 @@ test/actionArgs.test.mjs
 bench/test/codeLines.test.mjs
 bench/test/noteLinks.test.mjs
 test/noteConnect.test.mjs
+test/noteRun.test.mjs
 test/yesUnreadAsks.test.mjs
 test/texChatAppHop.test.mjs
 test/heldEdit.test.mjs
 test/appChatAnswer.test.mjs
+test/texChatAppReach.test.mjs
