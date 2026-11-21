@@ -11,7 +11,7 @@ const VIEWS: View[] = ["canvas", "modules", "convo", "tools", "sim", "tests", "r
 /** `graph`: the canvas's page, only when it is not the texting graph (the default stays out of the place and the address). */
 export type Place = { mode: "lab" | "testing"; view: View; chat: string; moment: string | null; node?: string | null; set?: string | null; graph?: GraphPage | null };
 /** The pages an address may name; the texting graph is the default and is never written. */
-const PAGES_NAMED: GraphPage[] = ["nightly"];
+const PAGES_NAMED: GraphPage[] = ["nightly", "search"];
 
 const CHAT = /^[A-Za-z0-9_-]{1,80}$/;
 const MOMENT = /^[A-Za-z0-9_.:-]{1,120}$/;

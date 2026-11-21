@@ -95,7 +95,7 @@ const cell = (text) => String(text).replaceAll("|", "\\|");
 const mid = (id) => `n_${id.replace(/[^A-Za-z0-9_]/g, "_")}`;
 
 /** How each Lab page is titled on the page. */
-const GRAPH_TITLES = Object.freeze({ texting: "Texting", nightly: "Nightly" });
+const GRAPH_TITLES = Object.freeze({ texting: "Texting", nightly: "Nightly", search: "Search" });
 
 /**
  * The drawing: one Mermaid flowchart per Lab page that has steps, each under its title, the texting graph first. A

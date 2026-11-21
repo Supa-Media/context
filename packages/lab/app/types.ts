@@ -39,7 +39,7 @@ export type LabNode = {
   /** The config group this step belongs to (`texConfig.json`'s node `group`); a folded group's box has none. */
   group?: string;
   /** The Lab page the step lives on (`texConfig.json`'s node `graph`, `engine/pages.ts`); none is "texting". */
-  graph?: "texting" | "nightly";
+  graph?: "texting" | "nightly" | "search";
 };
 
 /** `allow`, on a provisional wire only: what its step may do before the go ("revertible" when absent; Dev2, 2026-11-17). */
