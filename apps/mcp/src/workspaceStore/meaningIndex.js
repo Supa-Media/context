@@ -32,6 +32,8 @@ import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../../../../packages/tex/gateway/texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
 import { snippetFromText } from "../search/meaning/snippet.js";
+import { SNAPSHOT_PART, decodeSnapshot, encodeSnapshot } from "./meaningSnapshot.js";
+import { TIERS, WORDS } from "./meaningShape.js";
 
 /** Passages one build call embeds (16 model calls of 32); the object answers other calls while it waits on them. */
 export const BUILD_PASSAGES = 512;
@@ -44,10 +46,8 @@ export const EMBED_PARALLEL = 4;
 export const QUERY_TOP_K = 50;
 /** Passages scored by their bytes after the bits' scan. */
 export const CANDIDATES = 400;
-const WORDS = MEANING_DIMENSIONS / 32;
 /** The index's own layout; an index from an earlier one is emptied and built again. */
 const LAYOUT = "1";
-const TIERS = ["private", "team"];
 /** Ids per `IN (...)`: a Durable Object binds at most 100 parameters a statement. */
 const IN_BATCH = 90;
 
@@ -66,6 +66,9 @@ const SCHEMA = [
   // What each row's passages were made from: a row whose text is the same is moved or re-tiered, never embedded again.
   `CREATE TABLE IF NOT EXISTS ws_meaning_held (row_id TEXT PRIMARY KEY, path TEXT NOT NULL, etag TEXT NOT NULL, tier TEXT)`,
   `CREATE TABLE IF NOT EXISTS ws_meaning_meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  // Every passage's bits, path, passage number and tier, packed into a few large parts (`encodeSnapshot`), so an
+  // object woken from idle reads its index back in a handful of reads, not one row a passage.
+  `CREATE TABLE IF NOT EXISTS ws_meaning_snapshot (part INTEGER PRIMARY KEY, data BLOB NOT NULL)`,
 ];
 
 /** The model refused this input itself, every shorter way, while it still takes a plain one (`embed.js`). */
@@ -154,6 +157,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       if (meta("layout") !== LAYOUT) {
         sql.exec("DELETE FROM ws_meaning_passages");
         sql.exec("DELETE FROM ws_meaning_held");
+        sql.exec("DELETE FROM ws_meaning_snapshot");
         sql.exec("DELETE FROM ws_meaning_meta");
         log.clearKeys();
         log.markAll("SELECT row_id FROM ws_meaning_held");
@@ -170,8 +174,47 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
   // The bits of every passage, in memory: loaded on the first query, kept level by every write here after it.
   let held = null;
   let packed = null;
+  // Whether the snapshot table holds exactly the passages kept (`null`: not yet asked of the meta table).
+  let snapshotOk = null;
+  const snapshotValid = () => (snapshotOk ??= meta("snapshot") === "1");
+  /** A write to the passages: the snapshot no longer matches them until the next `saveSnapshot`. */
+  const invalidate = () => {
+    if (snapshotValid()) sql.exec("DELETE FROM ws_meaning_meta WHERE name = 'snapshot'");
+    snapshotOk = false;
+  };
+  /** The snapshot, read back where it is valid and holds as many passages as the table does; otherwise `null`. */
+  const readSnapshot = () => {
+    if (!snapshotValid()) return null;
+    const parts = all(sql.exec("SELECT data FROM ws_meaning_snapshot ORDER BY part")).map((row) => bytesOf(row.data));
+    if (parts.length === 0) return null;
+    const total = parts.reduce((sum, part) => sum + part.length, 0);
+    const bytes = new Uint8Array(total);
+    let at = 0;
+    for (const part of parts) {
+      bytes.set(part, at);
+      at += part.length;
+    }
+    const decoded = decodeSnapshot(bytes);
+    const count = Number(all(sql.exec("SELECT COUNT(*) AS n FROM ws_meaning_passages"))[0]?.n ?? -1);
+    return decoded !== null && decoded.packed.ids.length === count ? decoded : null;
+  };
+  /** Write what is held as the snapshot (the held passages read in first where they are not yet). */
+  const saveSnapshot = () => {
+    const bytes = encodeSnapshot([...load()]);
+    sql.exec("DELETE FROM ws_meaning_snapshot");
+    for (let part = 0; part * SNAPSHOT_PART < bytes.length; part += 1) {
+      sql.exec("INSERT INTO ws_meaning_snapshot (part, data) VALUES (?, ?)", part, bytes.subarray(part * SNAPSHOT_PART, (part + 1) * SNAPSHOT_PART));
+    }
+    setMeta("snapshot", "1");
+    snapshotOk = true;
+  };
   const load = () => {
     if (held !== null) return held;
+    const snapshot = readSnapshot();
+    if (snapshot !== null) {
+      ({ held, packed } = snapshot);
+      return held;
+    }
     held = new Map();
     for (const row of all(sql.exec("SELECT id, path, chunk, tier, bits FROM ws_meaning_passages"))) {
       const bytes = bytesOf(row.bits);
@@ -195,6 +238,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
     return packed;
   };
   const forgetRow = (rowId) => {
+    invalidate();
     if (held !== null) for (const row of all(sql.exec("SELECT id FROM ws_meaning_passages WHERE row_id = ?", rowId))) held.delete(Number(row.id));
     packed = null;
     sql.exec("DELETE FROM ws_meaning_passages WHERE row_id = ?", rowId);
@@ -229,6 +273,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
   /** Keep `vectors` (one per passage) as the row's passages, in place of what it had. */
   const keep = (rowId, want, vectors) => {
     forgetRow(rowId);
+    invalidate();
     vectors.forEach((values, chunk) => {
       const vector = unit(values);
       if (vector === null) return;
@@ -307,6 +352,9 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
         else retier(parsed, overrides);
         setMeta("rules", stamp);
       }
+      // The passages read back from the snapshot before any is written, so every write below keeps what is held level
+      // and the snapshot after it is written from memory (a woken object's few reads, never one row a passage).
+      if (held === null && snapshotValid()) load();
       log.keysToRows();
       let spent = 0;
       const round = [];
@@ -325,6 +373,7 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
           if (was !== null && was.etag === want.etag) {
             // The same text: moved or re-tiered, never embedded again.
             if (was.path !== want.path || was.tier !== want.tier) {
+              invalidate();
               sql.exec("UPDATE ws_meaning_passages SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
               sql.exec("UPDATE ws_meaning_held SET path = ?, tier = ? WHERE row_id = ?", want.path, want.tier, rowId);
               if (held !== null) {
@@ -381,6 +430,8 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       }
       const waiting = log.pending();
       if (waiting === 0 && meta("complete") === null) setMeta("complete", String(Date.now()));
+      // Written behind a build, never in front of a query: the next object woken from idle reads it back whole.
+      if (!snapshotValid() && meta("complete") !== null) saveSnapshot();
       return { waiting };
     } finally {
       running = false;

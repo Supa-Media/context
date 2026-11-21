@@ -17,6 +17,7 @@ import { workspaceRows } from "../src/workspaceStore/rows.js";
 import { workspaceMarks } from "../src/workspaceStore/marks.js";
 import { workspaceSearch } from "../src/workspaceStore/searchIndex.js";
 import { workspaceMeaning, quantized, signBits } from "../src/workspaceStore/meaningIndex.js";
+import { decodeSnapshot, encodeSnapshot } from "../src/workspaceStore/meaningSnapshot.js";
 import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
 import { HOMES } from "../src/workspaceStore/api.js";
 import { MEANING_BUILD_CALLS, meaningBuildBehind, objectMeaningMatches } from "../src/search/meaning/objectMeaning.js";
@@ -460,4 +461,77 @@ test("a model that refuses everything is a failure, not a skip", { skip }, async
     },
   });
   assert.equal((await object.call("ws.meaning.build")).body.failed, true);
+});
+
+// --- The snapshot (src/workspaceStore/meaningSnapshot.js): a woken object reads its index back in a few reads ---
+
+/** The same object's storage under a fresh index, as a Durable Object woken from idle has: nothing held in memory. */
+function wokenFrom(object) {
+  const seen = [];
+  const sql = { exec: (query, ...binds) => (seen.push(query), object.store.sql.exec(query, ...binds)) };
+  const meaning = workspaceMeaning(sql, { rows: object.store.rows, objects: object.store.objects, embed: object.embed });
+  return { meaning, seen };
+}
+const rowByRowRead = (seen) => seen.some((query) => /SELECT id, path, chunk, tier, bits FROM ws_meaning_passages/.test(query));
+
+test("encodeSnapshot and decodeSnapshot give back every passage, in order; anything else decodes to null", () => {
+  const bitsOf = (seed) => Uint32Array.from({ length: MEANING_DIMENSIONS / 32 }, (_, i) => (seed * 2654435761 + i) >>> 0);
+  const entries = [
+    [3, { path: "plans/a.md", chunk: 0, tier: "team", bits: bitsOf(1) }],
+    [7, { path: "plans/a.md", chunk: 1, tier: "team", bits: bitsOf(2) }],
+    [9, { path: "mine/ü.md", chunk: 0, tier: "private", bits: bitsOf(3) }],
+  ];
+  const decoded = decodeSnapshot(encodeSnapshot(entries));
+  assert.deepEqual([...decoded.held.keys()], [3, 7, 9]);
+  for (const [id, entry] of entries) {
+    const back = decoded.held.get(id);
+    assert.deepEqual({ ...back, bits: [...back.bits] }, { ...entry, bits: [...entry.bits] });
+  }
+  assert.deepEqual([...decoded.packed.tiers], [1, 1, 0]);
+  assert.deepEqual(decodeSnapshot(encodeSnapshot([])).packed.ids.length, 0);
+  const bytes = encodeSnapshot(entries);
+  assert.equal(decodeSnapshot(bytes.subarray(0, bytes.length - 1)), null, "a cut snapshot is no snapshot");
+  assert.equal(decodeSnapshot(new Uint8Array([1, 2])), null);
+});
+
+// Sabotage: drop `saveSnapshot()` from the end of `catchUp` and the woken object reads row by row.
+test("an object woken from idle answers from the snapshot, without reading its passages row by row", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/garden.md", "# Garden\ntomatoes basil compost watering");
+  await note(object, 2, "plans/budget.md", "# Budget\ninvoice payroll taxes quarterly");
+  await object.call("ws.meaning.build");
+  const before = (await query(object, "tomatoes compost")).body.matches;
+
+  const woken = wokenFrom(object);
+  const after = woken.meaning.query(fingerprint("tomatoes compost"));
+  assert.equal(rowByRowRead(woken.seen), false, "read from the snapshot");
+  assert.deepEqual(after.matches.map(({ path, chunk, score }) => ({ path, chunk, score })), before.map(({ path, chunk, score }) => ({ path, chunk, score })));
+});
+
+// Sabotage: drop `invalidate()` from `keep` and the woken object answers the old text's path from a stale snapshot.
+test("a write marks the snapshot stale, the next build writes it again, and a woken object sees the change", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# A\ncedar forest");
+  await object.call("ws.meaning.build");
+  await note(object, 2, "plans/b.md", "# B\nmarble quarry");
+  await object.call("ws.apply", { rows: [{ id: "r1", noteId: ID(1), path: "plans/moved/a.md", kind: "file", storageKey: `notes/${ID(1)}.md`, at: 20 }], at: 20 });
+  await object.call("ws.meaning.build");
+
+  const woken = wokenFrom(object);
+  const paths = woken.meaning.query(fingerprint("marble quarry")).matches.map((match) => match.path);
+  assert.equal(rowByRowRead(woken.seen), false);
+  assert.equal(paths[0], "plans/b.md", "the new note is in the snapshot");
+  assert.ok(paths.includes("plans/moved/a.md") && !paths.includes("plans/a.md"), "the moved note under its new path");
+});
+
+test("a snapshot whose count differs from the passages table is not trusted: the rows are read instead", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# A\ncedar forest");
+  await object.call("ws.meaning.build");
+  // A passage written behind the snapshot's back (a crash between the two, say), with the snapshot still marked good.
+  object.store.sql.exec("INSERT INTO ws_meaning_passages (row_id, path, chunk, tier, bits, q, scale) SELECT row_id, 'plans/extra.md', 9, tier, bits, q, scale FROM ws_meaning_passages LIMIT 1");
+  const woken = wokenFrom(object);
+  const paths = woken.meaning.query(fingerprint("cedar forest")).matches.map((match) => match.path);
+  assert.equal(rowByRowRead(woken.seen), true, "fell back to the rows");
+  assert.ok(paths.includes("plans/extra.md"));
 });
