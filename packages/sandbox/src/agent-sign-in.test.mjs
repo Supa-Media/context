@@ -17,7 +17,7 @@ async function minted(publicKey, overrides = {}, { signIn } = {}) {
   const lines = [];
   const calls = [];
   await mint(env({ PUBLIC_KEY: publicKey, ...overrides }), {
-    find: async (key, name) => (name === "pr42" ? "fake-deploy-123" : null),
+    find: async (key, name) => (name === "pr42" ? "example-deployment" : null),
     signIn: signIn ?? (async (args) => (calls.push(args), { token: "jwt-fake", refreshToken: "refresh-fake" })),
     log: (line) => lines.push(line),
   });
@@ -29,15 +29,15 @@ test("a session minted in CI opens only with the agent's private key, and the lo
   const pub = keygen(keyFile, { log: () => {} });
   const { lines, calls } = await minted(pub);
   const log = lines.join("\n");
-  assert.ok(!log.includes("jwt-fake") && !log.includes("refresh-fake") && !log.includes("fake-sub") && !log.includes("fake-deploy"), "nothing readable in the public log");
-  assert.deepEqual(calls[0], { convexUrl: "https://fake-deploy-123.convex.cloud", deployment: "fake-deploy-123", deployKey: "preview:team|proj|fake", email: "alpha@supa.media" });
+  assert.ok(!log.includes("jwt-fake") && !log.includes("refresh-fake") && !log.includes("fake-sub") && !log.includes("example-deployment"), "nothing readable in the public log");
+  assert.deepEqual(calls[0], { convexUrl: "https://example-deployment.convex.cloud", deployment: "example-deployment", deployKey: "preview:team|proj|fake", email: "alpha@supa.media" });
 
   const state = join(dir(), "state.json");
   const payload = await open(`noise\n2026 ${log}\nmore`, { keyFile, stateFile: state, log: () => {} });
   assert.equal(payload.origin, ORIGIN);
   assert.equal(payload.persona, "alpha");
-  const keys = authStorageKeys("https://fake-deploy-123.convex.cloud");
-  assert.equal(keys.jwt, "__convexAuthJWT_httpsfakedeploy123convexcloud");
+  const keys = authStorageKeys("https://example-deployment.convex.cloud");
+  assert.equal(keys.jwt, "__convexAuthJWT_httpsexampledeploymentconvexcloud");
   assert.deepEqual(JSON.parse(readFileSync(state, "utf8")).origins[0].localStorage, [
     { name: keys.jwt, value: "jwt-fake" },
     { name: keys.refresh, value: "refresh-fake" },
@@ -71,12 +71,12 @@ test("mint refuses anything but a fixture persona on this pull request's preview
 test("open refuses a sealed origin that is not a preview router", async () => {
   const keyFile = join(dir(), "k.pem");
   const pub = keygen(keyFile, { log: () => {} });
-  const line = seal({ v: 1, pr: 1, persona: "alpha", origin: "https://context.lc", convexUrl: "https://x.convex.cloud", token: "t", refreshToken: "r" }, parsePublicKey(pub));
+  const line = seal({ v: 1, pr: 1, persona: "alpha", origin: "https://context.lc", convexUrl: "https://example-deployment.convex.cloud", token: "t", refreshToken: "r" }, parsePublicKey(pub));
   await assert.rejects(open(line, { keyFile, stateFile: join(dir(), "s.json"), log: () => {} }), /not a preview router/);
 });
 
 test("storage state puts the session on the preview's own origin", () => {
-  const state = storageState({ origin: ORIGIN, convexUrl: "https://a-b-1.convex.cloud", token: "t", refreshToken: "r" });
+  const state = storageState({ origin: ORIGIN, convexUrl: "https://example-deployment.convex.cloud", token: "t", refreshToken: "r" });
   assert.equal(state.origins.length, 1);
   assert.equal(state.origins[0].origin, ORIGIN);
 });
