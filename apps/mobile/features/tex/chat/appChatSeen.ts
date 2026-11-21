@@ -107,3 +107,18 @@ export function useEditorSelection(notePath: string | null): () => string | null
 
   return useCallback(() => last.current, []);
 }
+
+/**
+ * What the person has open, read at each send from the Tex chat (never shown):
+ * the selected context's open note, its other tabs, and the last highlight in
+ * the note.
+ */
+export function useTexSeen(
+  data: { contexts: readonly { id: string; slug: string }[]; selectedContextId: string | null; files: { editor: { path: string | null } } },
+  tabPaths: () => readonly string[],
+): () => SeenBody | null {
+  const editorPath = data.files.editor.path;
+  const getSelection = useEditorSelection(editorPath);
+  const slug = data.contexts.find((c) => c.id === data.selectedContextId)?.slug ?? null;
+  return () => seenFrom({ slug, editorPath, tabPaths: tabPaths(), selection: getSelection() });
+}
