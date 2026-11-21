@@ -49,6 +49,7 @@ import { TEX_ROUTE } from "../tex/texComputer";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { OpenAsideOn } from "./layout/frameBridges";
+import { useTexSeen } from "../tex/chat/appChatSeen";
 import { Shortcuts } from "./layout/Shortcuts";
 import { Status } from "./layout/chrome";
 import type { CheckoutOutcome } from "@context/shared";
@@ -236,6 +237,7 @@ export function ConsoleFrame({
   // arrive at — and the strip showed one context's note names under another
   // context's name.
   const tabs = useTabs(data.files, data.selectedContextId);
+  const texSeen = useTexSeen(data, () => tabs.state.tabs.map((t) => t.path));
   const { history, step } = useConsoleHistory({
     data,
     router,
@@ -440,7 +442,7 @@ export function ConsoleFrame({
     shared: sharedShown ? { unseen: sharedEntry.unseen, here: sharedHere, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
-  const aside = consoleAsidePanel({ data, meetingsAt, router, approvals, joinMeeting, onSearch: insideContext ? () => setPaletteOpen(true) : null });
+  const aside = consoleAsidePanel({ data, meetingsAt, router, approvals, joinMeeting, onSearch: insideContext ? () => setPaletteOpen(true) : null, texSeen });
   return (
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>

@@ -8,6 +8,7 @@ import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
 import type { PastWorkspace } from "../../meetings/usePastMeetings";
 import { TexChatTab } from "../../tex/chat/TexChatTab";
+import type { SeenBody } from "../../tex/chat/appChatSeen";
 import { useMapSide } from "./mapSide";
 import { AsideStrip } from "./AsideStrip";
 import { changedSinceSeen, useAsideChoice } from "./asideChoice";
@@ -50,6 +51,7 @@ export function AsidePanel({
   tex = null,
   pastFrom = null,
   onSearch = null,
+  texSeen = null,
 }: {
   /** The workspaces whose meeting notes the Meetings tab lists under Past; `null` where there is no control plane. */
   pastFrom?: readonly PastWorkspace[] | null;
@@ -87,6 +89,8 @@ export function AsidePanel({
   tex?: { workspaceId: string; endpoint: string } | null;
   /** Open the search palette, from the rail's magnifier. `null` hides it. */
   onSearch?: (() => void) | null;
+  /** What the person has open in the console, for the Tex chat's sends. Absent or `null` sends none. */
+  texSeen?: (() => SeenBody | null) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useAsideChoice();
@@ -171,7 +175,13 @@ export function AsidePanel({
           </View>
         ) : showing === "tex" && tex !== null ? (
           <View style={styles.body} testID="aside-tex">
-            <TexChatTab workspaceId={tex.workspaceId} endpoint={tex.endpoint} approvals={approvals} onOpenNote={onOpenNote} />
+            <TexChatTab
+              workspaceId={tex.workspaceId}
+              endpoint={tex.endpoint}
+              approvals={approvals}
+              onOpenNote={onOpenNote}
+              seen={texSeen ?? undefined}
+            />
           </View>
         ) : (
           <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />

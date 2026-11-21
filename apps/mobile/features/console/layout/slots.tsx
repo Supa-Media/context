@@ -23,6 +23,7 @@ import { selectedContext, type ConsoleData } from "../types";
 import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
+import type { SeenBody } from "../../tex/chat/appChatSeen";
 
 /*
   The console's pieces of `AppFrame`'s slots: the phone's sync pill,
@@ -117,6 +118,7 @@ export function consoleAsidePanel({
   approvals,
   joinMeeting = null,
   onSearch = null,
+  texSeen = null,
 }: {
   data: ConsoleData;
   meetingsAt: number | null;
@@ -126,6 +128,8 @@ export function consoleAsidePanel({
   joinMeeting?: ConsoleAside["joinMeeting"];
   /** Open the search palette, from the rail's magnifier; `null` outside a context. */
   onSearch?: (() => void) | null;
+  /** What the person has open in the console, sent with each text to Tex. */
+  texSeen?: (() => SeenBody | null) | null;
 }) {
   /*
     The right panel's contents. Supplied here rather than by the pane for
@@ -172,6 +176,7 @@ export function consoleAsidePanel({
         approvals={data.demo ? undefined : approvals}
         onJoin={joinMeeting}
         onSearch={onSearch}
+        texSeen={texSeen}
         pastFrom={pastFrom}
         /*
           A finished meeting's note, opened in the editor behind the

@@ -18,10 +18,12 @@
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
-// The hook is replaced: the tab is drawn from the view it is given.
+// The hook is replaced: the tab is drawn from the view it is given. Only the test that mounts `TexChatTab` sets one.
+let mockTabView: unknown = null;
 jest.mock("../features/tex/chat/useAppChat", () => ({
   useAppChat: () => {
-    throw new Error("the Tex tab is drawn from the view it is given, in these tests");
+    if (mockTabView === null) throw new Error("the Tex tab is drawn from the view it is given, in these tests");
+    return mockTabView;
   },
 }));
 
@@ -29,11 +31,13 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AppChatRow, ChatLine, PendingLine } from "../features/tex/chat/appChatGateway";
 import type { AppChatView } from "../features/tex/chat/useAppChat";
-import { TEX_EMPTY, TEX_WORKING, TexChatView } from "../features/tex/chat/TexChatTab";
+import { TEX_EMPTY, TEX_WORKING, TexChatTab, TexChatView } from "../features/tex/chat/TexChatTab";
 import { AsideStrip } from "../features/console/aside/AsideStrip";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { forgetAsideChoice } from "../features/console/aside/asideChoice";
 import { texChatTarget } from "../features/console/layout/slots";
+import { MAX_FILE_BYTES } from "../features/tex/chat/appChatGateway";
+import { formatFileSize } from "../features/tex/chat/TexChatFileChip";
 
 const AT = Date.UTC(2026, 10, 19, 9, 0);
 
@@ -64,6 +68,7 @@ function fakeView(over: Partial<AppChatView> = {}): AppChatView & { calls: Calls
     edit: record("edit") as AppChatView["edit"],
     unsend: record("unsend") as AppChatView["unsend"],
     pictureUrl: (id: string) => (id === "pic-loading" ? null : `blob:${id}`),
+    downloadFile: record("downloadFile") as AppChatView["downloadFile"],
     typing: () => {},
     run: null,
     stop: record("stop") as AppChatView["stop"],
@@ -74,8 +79,24 @@ function fakeView(over: Partial<AppChatView> = {}): AppChatView & { calls: Calls
   };
 }
 
+/** A file the picker would give: its name and kind, and its size as the browser reports it. */
+function fileOf(name: string, type: string, size = 1_000): File {
+  const file = new File(["x"], name, { type });
+  Object.defineProperty(file, "size", { value: size });
+  return file;
+}
+
+/** Stands in for the browser's file dialog: a click on the hidden input hands it these files. */
+function pickFiles(files: File[]) {
+  return jest.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
+    Object.defineProperty(this, "files", { value: files });
+    this.onchange?.(new Event("change"));
+  });
+}
+
 const roots: Array<() => void> = [];
 afterEach(() => {
+  mockTabView = null;
   forgetAsideChoice();
   while (roots.length > 0) roots.pop()?.();
   document.body.innerHTML = "";
@@ -362,7 +383,7 @@ describe("tapbacks and the row's actions", () => {
     expect(tab.find("tex-reply-bar")?.textContent).toContain("What next?");
     tab.type("tex-input", "Ship it");
     tab.press("tex-send");
-    expect(tab.calls).toEqual([["send", "Ship it", { pictures: [], replyTo: "t1" }]]);
+    expect(tab.calls).toEqual([["send", "Ship it", { pictures: [], replyTo: "t1", seen: null }]]);
     expect(tab.find("tex-reply-bar")).toBeNull();
   });
 
@@ -388,6 +409,134 @@ describe("tapbacks and the row's actions", () => {
   });
 });
 
+describe("what the person has open", () => {
+  test("a new text from the tab sends what the seen prop gives at that moment; an edit sends none", () => {
+    const view = fakeView({ lines: [row({ id: "m1", who: "me", text: "helo", editable: true })] });
+    mockTabView = view;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    const seen = { note: { workspace: "@work", path: "plan.md" }, selection: "budget" };
+    act(() => root.render(createElement(TexChatTab, { workspaceId: "w1", endpoint: "https://x.test/mcp", seen: () => seen })));
+    const field = () => container.querySelector<HTMLTextAreaElement>('[data-testid="tex-input"]');
+    const type = (text: string) =>
+      act(() => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+        setter?.call(field(), text);
+        field()?.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    const send = () =>
+      act(() => {
+        const node = container.querySelector('[data-testid="tex-send"]');
+        node?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        node?.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        node?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    type("look at this");
+    send();
+    expect(view.calls).toEqual([["send", "look at this", { pictures: [], replyTo: null, seen }]]);
+  });
+});
+
+describe("files", () => {
+  test("a file on a row shows its chip with its size, and pressing it asks for the download", () => {
+    const id = "a".repeat(32);
+    const tab = mount(
+      fakeView({
+        lines: [
+          row({
+            id: "f1",
+            who: "me",
+            kind: "file",
+            text: "can you check this?",
+            files: [{ id, name: "Q3 budget.pdf", type: "application/pdf", size: 245760 }],
+          }),
+        ] as ChatLine[],
+      }),
+    );
+    expect(tab.find(`tex-file-${id}`)?.textContent).toContain("Q3 budget.pdf");
+    expect(tab.find(`tex-file-${id}`)?.textContent).toContain("240 KB");
+    expect(tab.find(`tex-file-${id}`)?.getAttribute("aria-label")).toBe("Download Q3 budget.pdf");
+    tab.press(`tex-file-${id}`);
+    expect(tab.calls).toEqual([["downloadFile", id, "Q3 budget.pdf"]]);
+  });
+
+  test("a file still sending shows its name, and is not a button", () => {
+    const pending: PendingLine = {
+      pending: true,
+      localId: "local-7",
+      who: "me",
+      text: "",
+      at: AT,
+      state: "sending",
+      fileNames: ["notes.md"],
+    };
+    const tab = mount(fakeView({ lines: [pending] as ChatLine[] }));
+    expect(tab.find("tex-pending-file-0")?.textContent).toContain("notes.md");
+    expect(tab.find("tex-pending-file-0")?.getAttribute("role")).toBeNull();
+  });
+
+  test("sizes read in KB and then MB", () => {
+    expect(formatFileSize(245760)).toBe("240 KB");
+    expect(formatFileSize(1_258_291)).toBe("1.2 MB");
+    expect(formatFileSize(10)).toBe("1 KB");
+  });
+
+  test("the picker's files go to send with the words: pictures to pictures, the rest to files, over 10 MB left out", () => {
+    const tab = mount(fakeView());
+    const pdf = fileOf("Q3 budget.pdf", "application/pdf", 245760);
+    const huge = fileOf("huge.pdf", "application/pdf", MAX_FILE_BYTES + 1);
+    const spy = pickFiles([pdf, huge]);
+    roots.push(() => spy.mockRestore());
+    tab.press("tex-picture");
+    expect(tab.find("tex-picked-file-0")?.textContent).toContain("Q3 budget.pdf");
+    expect(tab.find("tex-picked-file-1")).toBeNull();
+    tab.press("tex-send");
+    expect(tab.calls.length).toBe(1);
+    const [name, text, options] = tab.calls[0] as [string, string, { pictures: unknown[]; files: File[] }];
+    expect(name).toBe("send");
+    expect(text).toBe("");
+    expect(options.pictures).toEqual([]);
+    expect(options.files).toHaveLength(1);
+    expect(options.files[0]).toBe(pdf);
+    // Sent: the chips are gone with the files.
+    expect(tab.find("tex-picked-file-0")).toBeNull();
+  });
+
+  test("a picture and files share four places, and the picker's pictures come first", () => {
+    const tab = mount(fakeView());
+    const spy = pickFiles([
+      fileOf("a.png", "image/png"),
+      fileOf("b.pdf", "application/pdf"),
+      fileOf("c.txt", "text/plain"),
+      fileOf("d.csv", "text/csv"),
+      fileOf("e.json", "application/json"),
+    ]);
+    roots.push(() => spy.mockRestore());
+    tab.press("tex-picture");
+    expect(tab.find("tex-remove-0")).not.toBeNull();
+    expect(tab.find("tex-picked-file-0")?.textContent).toContain("b.pdf");
+    expect(tab.find("tex-picked-file-2")?.textContent).toContain("d.csv");
+    expect(tab.find("tex-picked-file-3")).toBeNull();
+  });
+
+  test("a picked file can be removed before it is sent", () => {
+    const tab = mount(fakeView());
+    const spy = pickFiles([fileOf("Q3 budget.pdf", "application/pdf")]);
+    roots.push(() => spy.mockRestore());
+    tab.press("tex-picture");
+    expect(tab.find("tex-remove-file-0")?.getAttribute("aria-label")).toBe("Remove Q3 budget.pdf");
+    tab.press("tex-remove-file-0");
+    expect(tab.find("tex-picked-file-0")).toBeNull();
+    tab.press("tex-send");
+    expect(tab.calls).toEqual([]);
+  });
+});
+
 describe("the box", () => {
   test("Enter sends, and Shift+Enter does not", () => {
     const tab = mount(fakeView());
@@ -395,7 +544,7 @@ describe("the box", () => {
     tab.key("tex-input", "Enter", true);
     expect(tab.calls).toEqual([]);
     tab.key("tex-input", "Enter", false);
-    expect(tab.calls).toEqual([["send", "first", { pictures: [], replyTo: null }]]);
+    expect(tab.calls).toEqual([["send", "first", { pictures: [], replyTo: null, seen: null }]]);
   });
 
   test("Send does nothing with no words and no pictures", () => {

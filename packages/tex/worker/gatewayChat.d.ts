@@ -14,6 +14,16 @@ export function keepAppPicture(storage: unknown, bytes: Uint8Array, now: number)
 export function readAppPicture(storage: unknown, id: string): Promise<{ mediaType: string; bytes: Uint8Array } | null>;
 export function forgetAppPicture(storage: unknown, id: string): Promise<void>;
 export function serveAppPicture(storage: unknown, url: string): Promise<Response>;
+export const APP_FILE_TYPES: ReadonlySet<string>;
+export const MAX_APP_FILE_BYTES: 10000000;
+export function appFileIdOf(url: string): string | null;
+export function appFileUrl(id: string, name: string): string;
+export function forgetAppFile(storage: unknown, id: string): Promise<void>;
+export function keepAppFile(storage: unknown, bytes: Uint8Array, name: string, now: number): Promise<string | null>;
+export function readAppFile(storage: unknown, id: string): Promise<{ mediaType: string; name: string; bytes: Uint8Array } | null>;
+export function safeAppFileName(raw: string): string;
+export function serveAppFile(storage: unknown, url: string): Promise<Response>;
+export function sniffAppFile(bytes: Uint8Array, name: string): string | null;
 export const HANDLES_KEY: "evhandles";
 export function queueView(storage: unknown): Promise<{ queue: { ev: string; state: "waiting" | "running"; at?: number; tries?: number }[]; failed: Record<string, { at: number; why?: string }>; stopped: Record<string, number> }>;
 export const TURN_RUN_KEY: "turn:run";

@@ -26,7 +26,10 @@ const CARD_PREFIX = "app:card:";
 const SENDS_KEY = "app:sends";
 /** A person's sends a UTC day, across the app chat (the page's cap, `agent/appChatRoute.js` carries the same number). */
 export const APP_DAILY_SENDS = 200;
-/** A person's pictures a UTC day, across the app chat: each is kept in the chat's object, which holds at most 10 GB. */
+/**
+ * A person's pictures and files a UTC day, across the app chat: each is kept in the chat's object, which holds at most
+ * 10 GB. A file counts as a picture does, so the one cap holds both.
+ */
 export const APP_DAILY_PICTURES = 60;
 /** The app line's typing mark counts as Tex working for this long after it was set. */
 export const TYPING_MS = 20_000;
@@ -114,23 +117,50 @@ function bytesOf(data) {
 }
 
 /**
- * Keeps a send's pictures and answers them as the inbound attachments the chat object reads (`attachments.ts`), each
- * at its `app-chat.invalid` address, or null when one is not a picture this chat keeps.
+ * Keeps a send's pictures and files, and answers them as the inbound attachments the chat object reads (`attachments.ts`),
+ * each at its `app-chat.invalid` address: the pictures first, then the files. Null when one is not a kind this chat
+ * keeps; what was kept of the send is then taken back, so nothing is left behind.
  */
-async function keptPictures(storage, pictures, now) {
-  const { keepAppPicture, readAppPicture } = await import("../../worker/gatewayChat.js");
-  const ids = [];
-  const attachments = [];
+async function keptAttachments(storage, pictures, files, now) {
+  const { keepAppPicture, readAppPicture, keepAppFile, readAppFile, appFileUrl } = await import("../../worker/gatewayChat.js");
+  const kept = { ids: [], files: [], attachments: [] };
   for (const [index, data] of pictures.entries()) {
     const bytes = bytesOf(data);
     const id = bytes === null ? null : await keepAppPicture(storage, bytes, now);
-    if (id === null) return null;
-    const kept = await readAppPicture(storage, id);
-    const extension = { "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp" }[kept?.mediaType] ?? "jpg";
-    ids.push(id);
-    attachments.push({ url: `https://app-chat.invalid/pic/${id}.${extension}`, mimeType: kept?.mediaType ?? "image/jpeg", filename: `picture-${index + 1}.${extension}`, size: bytes.byteLength });
+    if (id === null) {
+      await forgetKept(storage, kept);
+      return null;
+    }
+    const picture = await readAppPicture(storage, id);
+    const extension = { "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp" }[picture?.mediaType] ?? "jpg";
+    kept.ids.push(id);
+    kept.attachments.push({ url: `https://app-chat.invalid/pic/${id}.${extension}`, mimeType: picture?.mediaType ?? "image/jpeg", filename: `picture-${index + 1}.${extension}`, size: bytes.byteLength });
   }
-  return { ids, attachments };
+  for (const file of files) {
+    const bytes = typeof file?.name === "string" && typeof file.data === "string" ? bytesOf(file.data) : null;
+    const id = bytes === null ? null : await keepAppFile(storage, bytes, file.name, now);
+    if (id === null) {
+      await forgetKept(storage, kept);
+      return null;
+    }
+    // Recorded at once, so a file that cannot be read back is taken back with the rest.
+    const record = await readAppFile(storage, id);
+    kept.files.push({ id, name: record?.name ?? "file", type: record?.mediaType ?? "", size: record?.bytes.byteLength ?? 0 });
+    if (record === null) {
+      await forgetKept(storage, kept);
+      return null;
+    }
+    // The name and the kind are the ones kept, cleaned by the store, so the address, the attachment and the row agree.
+    kept.attachments.push({ url: appFileUrl(id, record.name), mimeType: record.mediaType, filename: record.name, size: record.bytes.byteLength });
+  }
+  return kept;
+}
+
+/** Takes back everything a send kept: its pictures and its files, every piece. */
+async function forgetKept(storage, kept) {
+  const { forgetAppPicture, forgetAppFile } = await import("../../worker/gatewayChat.js");
+  for (const id of kept.ids) await forgetAppPicture(storage, id);
+  for (const file of kept.files) await forgetAppFile(storage, file.id);
 }
 
 /**
@@ -138,8 +168,9 @@ async function keptPictures(storage, pictures, now) {
  * builds (the shapes Photon's line hands the chat object: `inboundOf` in `labSandbox/chatRun.js`). Every call counts
  * against the day's cap first and is given back if the chat object does not take it.
  *
- *  - `one`: a text, with up to `MAX_APP_PICTURES` pictures (base64), kept here and handed over as attachments. Answers
- *    the event id the object logged it under, and keeps the pictures' ids beside that event for the app to show.
+ *  - `one`: a text, with up to `MAX_APP_PICTURES` pictures and files together (base64; a file is `{ name, data }`), kept
+ *    here and handed over as attachments. Answers the event id the object logged it under, and keeps the pictures' ids
+ *    and the files' `{ id, name, type, size }` beside that event for the app to show.
  *  - `react`: a tapback; `tap: { on, emoji }` is kept as the person's last tapback on that event, for the app to show
  *    (`emoji: null` for one taken back).
  *  - `edit`: an edit or an unsend, as `/edit` takes it.
@@ -158,34 +189,48 @@ export async function serveAppArrive(request, { state, open, now = Date.now }) {
   const own = await state.storage.get(NAME_KEY);
   if (own !== undefined && own !== body.inbox) return Response.json({ error: "bad_body" }, { status: 400 });
   const pictures = body.kind === "one" && Array.isArray(body.pictures) ? body.pictures : [];
-  if (pictures.length > MAX_APP_PICTURES) return Response.json({ error: "bad_body" }, { status: 400 });
-  if (!(await takeSend(state, now(), pictures.length))) {
+  const files = body.kind === "one" && Array.isArray(body.files) ? body.files : [];
+  // Pictures and files share one limit per text, and one day's cap (`takeSend`).
+  const count = pictures.length + files.length;
+  if (count > MAX_APP_PICTURES) return Response.json({ error: "bad_body" }, { status: 400 });
+  if (!(await takeSend(state, now(), count))) {
     console.log(JSON.stringify({ event: "app_chat_arrive", kind: body.kind, outcome: "limit" }));
     return Response.json({ outcome: "limit" }, { status: 429 });
   }
   let message = body.message;
-  let ids = [];
-  if (pictures.length > 0) {
-    const kept = await keptPictures(state.storage, pictures, now());
+  let kept = null;
+  if (count > 0) {
+    kept = await keptAttachments(state.storage, pictures, files, now());
     if (kept === null) {
-      await giveBackSend(state, now(), pictures.length);
+      await giveBackSend(state, now(), count);
       return Response.json({ error: "bad_picture" }, { status: 400 });
     }
-    ids = kept.ids;
     message = { ...message, attachments: kept.attachments };
   }
   const chat = await open(body.inbox);
   const answer = chat === null ? null : await chat.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify(message) }));
   const ok = answer !== null && answer.ok;
-  if (!ok) await giveBackSend(state, now(), pictures.length);
+  if (!ok) {
+    await giveBackSend(state, now(), count);
+    // The chat object did not take the text: what was kept for it is taken back too.
+    if (kept !== null) await forgetKept(state.storage, kept);
+  }
   const outcome = ok ? await answer.json().catch(() => ({})) : {};
   const result = ok ? (typeof outcome.outcome === "string" ? outcome.outcome : "queued") : chat === null ? "not_here" : "failed";
   let ev = null;
   if (ok && body.kind === "one") {
     ev = await eventOfHandle(state.storage, message.messageId);
-    // Kept beside the event: its pictures, and the row it replies to (a picture has no words to find it by).
+    // Kept beside the event: its pictures and files, and the row it replies to (a picture has no words to find it by).
     const replyOn = typeof body.replyOn === "string" && body.replyOn.length <= 64 ? body.replyOn : null;
-    if (ev !== null && (ids.length > 0 || replyOn !== null)) await state.storage.put(`${META_PREFIX}${ev}`, { ...(ids.length > 0 ? { pics: ids } : {}), ...(replyOn !== null ? { replyTo: replyOn } : {}) });
+    const pics = kept?.ids ?? [];
+    const fileMeta = kept?.files ?? [];
+    if (ev !== null && (pics.length > 0 || fileMeta.length > 0 || replyOn !== null)) {
+      await state.storage.put(`${META_PREFIX}${ev}`, {
+        ...(pics.length > 0 ? { pics } : {}),
+        ...(fileMeta.length > 0 ? { files: fileMeta } : {}),
+        ...(replyOn !== null ? { replyTo: replyOn } : {}),
+      });
+    }
   }
   if (ok && body.kind === "react" && typeof body.tap?.on === "string") {
     // A tapback taken back (`emoji: null`) is no longer shown.
@@ -197,13 +242,23 @@ export async function serveAppArrive(request, { state, open, now = Date.now }) {
     const kept = (await state.storage.get(`${META_PREFIX}${body.on}`)) ?? {};
     await state.storage.put(`${META_PREFIX}${body.on}`, { ...kept, text: String(body.message.text ?? "").slice(0, 4_000) });
   }
-  // An unsent text's pictures are deleted, not only hidden (`forget`: the ids the route found on that text).
-  if (ok && body.kind === "edit" && body.message.kind === "unsent" && Array.isArray(body.forget)) {
-    const { forgetAppPicture } = await import("../../worker/gatewayChat.js");
-    for (const id of body.forget) if (typeof id === "string") await forgetAppPicture(state.storage, id);
+  // An unsent text's pictures and files are deleted, not only hidden (`forget`, `forgetFiles`: the ids the route found on that text).
+  if (ok && body.kind === "edit" && body.message.kind === "unsent") {
+    const { forgetAppPicture, forgetAppFile } = await import("../../worker/gatewayChat.js");
+    for (const id of Array.isArray(body.forget) ? body.forget : []) if (typeof id === "string") await forgetAppPicture(state.storage, id);
+    for (const id of Array.isArray(body.forgetFiles) ? body.forgetFiles : []) if (typeof id === "string") await forgetAppFile(state.storage, id);
   }
-  console.log(JSON.stringify({ event: "app_chat_arrive", kind: body.kind, outcome: result, pictures: ids.length }));
+  console.log(JSON.stringify({ event: "app_chat_arrive", kind: body.kind, outcome: result, attachments: count }));
   return Response.json({ outcome: result, ...(ev !== null ? { ev } : {}) }, { status: ok ? 200 : 503 });
+}
+
+/** `GET /app/file/<id>`: one of this chat's kept files (its bytes and kind), or 404. The route names it to the person. */
+export async function serveAppFileById(storage, id) {
+  if (!(await isAppChatName(await storage.get(NAME_KEY)))) return new Response(null, { status: 404 });
+  const { readAppFile } = await import("../../worker/gatewayChat.js");
+  const kept = await readAppFile(storage, id);
+  if (kept === null) return new Response(null, { status: 404 });
+  return new Response(kept.bytes, { headers: { "content-type": kept.mediaType } });
 }
 
 /** The card states the app may keep for an ask: `held` (shown, waiting), `sending` (the yes went out), `sent`. */

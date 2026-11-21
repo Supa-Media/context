@@ -13,6 +13,8 @@ export { setChatBound } from "./groupChat";
 // The in-app chat with Tex (`appChat.ts`): its chat ids, its line, and the typing mark the gateway reads back.
 export { appLine, isAppChat, appUserOf, APP_TYPING_KEY } from "./appChat";
 export { APP_PICTURE_ORIGIN, forgetAppPicture, keepAppPicture, readAppPicture, serveAppPicture } from "./appPictures";
+// The files the app chat's person sends (PDF, plain text, Word): kept and served as the pictures are (`appFiles.ts`).
+export { APP_FILE_TYPES, MAX_APP_FILE_BYTES, appFileIdOf, appFileUrl, forgetAppFile, keepAppFile, readAppFile, safeAppFileName, serveAppFile, sniffAppFile } from "./appFiles";
 export { HANDLES_KEY } from "./replyQuote";
 // The app's view of the queue, and its stop and Try again (`turnWatch.ts`).
 export { queueView, TURN_RUN_KEY } from "./turnWatch";

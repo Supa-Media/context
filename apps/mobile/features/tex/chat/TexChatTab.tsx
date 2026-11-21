@@ -21,9 +21,11 @@ import type { ApprovalsView } from "../../approvals/useApprovals";
 import { useAppChat, type AppChatView } from "./useAppChat";
 import { TexChatComposer, type EditTarget, type ReplyTarget } from "./TexChatComposer";
 import { TexChatRow, type TexChatRowProps } from "./TexChatRow";
+import type { PickedFile } from "./appChatFiles";
 import { TexChatHeader } from "./TexChatHeader";
 import { chatTimeline } from "./approvalTimeline";
 import { TexApprovalCard } from "./TexApprovalCard";
+import type { SeenBody } from "./appChatSeen";
 
 /** How long a row stays lit after the log jumps to it. */
 const FLASH_MS = 1500;
@@ -53,6 +55,7 @@ export function TexChatTab({
   endpoint,
   approvals,
   onOpenNote,
+  seen,
 }: {
   workspaceId: string;
   endpoint: string;
@@ -60,6 +63,8 @@ export function TexChatTab({
   approvals?: ApprovalsView;
   /** Opens a note a row links to, by its href and path; `null` where the console cannot open one. */
   onOpenNote?: ((href: string, path: string) => void) | null;
+  /** What the person has open, read at each new send and sent with it. */
+  seen?: () => SeenBody | null;
 }) {
   const view = useAppChat({ workspaceId, endpoint, enabled: true });
   /*
@@ -72,7 +77,7 @@ export function TexChatTab({
   useEffect(() => {
     refreshApprovals.current?.();
   }, []);
-  return <TexChatView view={view} approvals={approvals} onOpenNote={onOpenNote} />;
+  return <TexChatView view={view} approvals={approvals} onOpenNote={onOpenNote} seen={seen} />;
 }
 
 /** The tab's face: a header with Tex, the log, the typing mark, the approval, the box. */
@@ -80,10 +85,13 @@ export function TexChatView({
   view,
   approvals,
   onOpenNote,
+  seen,
 }: {
   view: AppChatView;
   approvals?: ApprovalsView;
   onOpenNote?: ((href: string, path: string) => void) | null;
+  /** What the person has open, read when a new text is sent (edits carry none). */
+  seen?: () => SeenBody | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -165,14 +173,15 @@ export function TexChatView({
     setFlashId(rowId);
   };
 
-  const send = (text: string, pictures: Blob[]) => {
+  const send = (text: string, pictures: Blob[], files: PickedFile[]) => {
     stuck.current = true;
     if (edit !== null) {
       view.edit(edit.id, text);
       setEdit(null);
       return;
     }
-    view.send(text, { pictures, replyTo: reply?.id ?? null });
+    // Files ride along only when there are some, so a words-and-pictures send looks as it always did.
+    view.send(text, { pictures, ...(files.length > 0 ? { files } : {}), replyTo: reply?.id ?? null, seen: seen?.() ?? null });
     setReply(null);
   };
 
@@ -248,6 +257,7 @@ export function TexChatView({
                 pictureUrl={view.pictureUrl}
                 timeLabel={timeLabel}
                 onOpenPicture={setOpened}
+                onDownloadFile={view.downloadFile}
                 onAnswer={(rowId: string, choice: AskChoice) => view.answer(rowId, choice)}
                 onDecide={(rowId, choice, body) => view.decide(rowId, choice, body)}
                 onReact={react}
