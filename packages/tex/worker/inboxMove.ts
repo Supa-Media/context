@@ -43,6 +43,12 @@ export const PLACE_KEY = "__inbox_place";
 
 const MOVE_OUT = "/__move_out";
 const MOVE_BACK = "/__move_back";
+/**
+ * A call that only makes a placed inbox arrive (copy its old, unplaced inbox in) and says whether it has. The gateway
+ * move asks it first (`gatewayMove.ts`): a placed inbox nobody has called since the placement move (2026-11-01) holds
+ * nothing yet, and moving that empty copy out would leave the old inbox's queue and state behind for good.
+ */
+export const ARRIVE_PATH = "/__arrive";
 
 export interface Place {
   movedTo?: string;
@@ -334,6 +340,31 @@ async function finishArrive(storage: MoveStorage, now: () => number, started: nu
   }
 }
 
+/**
+ * `ARRIVE_PATH`: the placed inbox copies its old one in if it has not, and answers `{ arrived }` (200) or why not
+ * (409). One already arrived, or already moved on, answers at once and asks nothing, so the gateway's copy never
+ * waits on a call that would come back to it.
+ */
+async function arriveOnly(
+  request: Request,
+  storage: MoveStorage,
+  stubs: InboxStubs,
+  blockConcurrencyWhile: <T>(run: () => Promise<T>) => Promise<T>,
+  now: () => number,
+): Promise<Response> {
+  const place = ((await storage.get<Place>(PLACE_KEY)) ?? {}) as Place;
+  if (place.movedTo !== undefined || place.arrivedAt !== undefined) return Response.json({ arrived: true });
+  const name = request.headers.get(INBOX_NAME_HEADER);
+  if (name === null || !OLD_NAME.test(name)) return new Response(null, { status: 400 });
+  if (place.failedAt !== undefined && now() - place.failedAt < RETRY_MOVE_MS) return Response.json({ arrived: false, reason: "waiting" }, { status: 409 });
+  const pulled = await pullOld(stubs, name);
+  const finished = await blockConcurrencyWhile(() => finishArrive(storage, now, now(), pulled));
+  if (finished.tellOld) await tellOldBack(stubs, name);
+  logMove(finished.outcome);
+  if (finished.outcome.outcome === "arrived") return Response.json({ arrived: true });
+  return Response.json({ arrived: false, reason: finished.outcome.outcome }, { status: 409 });
+}
+
 /** The old inbox's alarm once moved: clear its copy when the three days are up. True when it handled the alarm. */
 export async function movedAlarm(storage: MoveStorage, now: number): Promise<boolean> {
   const place = (await storage.get<Place>(PLACE_KEY)) as Place | undefined;
@@ -370,6 +401,7 @@ export async function placeGate(
 ): Promise<{ response: Response } | { request: Request }> {
   const move = await serveMoveOut(request, storage, busy, now());
   if (move !== null) return { response: move };
+  if (new URL(request.url).pathname === ARRIVE_PATH) return { response: await arriveOnly(request, storage, stubs, blockConcurrencyWhile, now) };
   const body = request.method === "GET" || request.method === "HEAD" ? null : await request.arrayBuffer();
   const place = ((await storage.get<Place>(PLACE_KEY)) ?? {}) as Place;
   if (place.movedTo !== undefined && place.purgedAt === undefined && request.headers.get(VIA_NEW_HEADER) !== null) {

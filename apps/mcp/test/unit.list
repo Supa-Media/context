@@ -676,6 +676,7 @@ test/agentAdvisorToolList.test.mjs
 test/emailLinks.test.mjs
 test/agentPatientBrowser.test.mjs
 test/labSandboxShared.test.mjs
+test/labSandboxIntake.test.mjs
 test/weekHistory.test.mjs
 test/agentProvisional.test.mjs
 test/sharedFolderDefault.test.mjs
