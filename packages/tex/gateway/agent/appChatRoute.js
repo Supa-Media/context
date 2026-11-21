@@ -20,6 +20,11 @@
  *  - `{ op: "edit", msgId, text }` / `{ op: "unsend", msgId }` → `{ msgId }`: the person's own text, while it is
  *    `editable` (words) or `unsendable` (any of theirs), for 15 minutes as in Messages, as Photon's line hands an edit or an unsend (node `edit`).
  *  - `{ op: "picture", id }` → the picture's bytes: one shown in this chat's rows, never another's.
+ *  - `{ op: "answer", msgId, choice: "send" | "hold", body? }` → `{ msgId, state }`: the card on Tex's text that holds
+ *    something for the person's OK (`appChatCards.js`). `send` takes the card's edited email body when it has one
+ *    (`tools/heldEdit.js`: the body only, the person's own Tex 1:1 email), arms that one ask and sends the same 👍 the
+ *    texted approval takes (`thumbsUpIsYes`), so every check a texted yes has still runs in the gateway. `hold` is Not
+ *    now: the card says Tex kept the draft, and nothing is settled, run or started.
  *  - `{ op: "stop" }` → `{ stopped }`: the person stopped the turn running (mock: "Stopped. Tex keeps what it already
  *    did."); its texts show `stopped`, and Try again on one queues it again. `stopped` is false when nothing was running.
  *  - `{ op: "retry", msgId }` → `{ msgId }`: Try again on a text that shows `failed` or `stopped`.
@@ -50,6 +55,8 @@ export const MAX_APP_PICTURES = 4;
 const MAX_PICTURE_BASE64 = Math.ceil((5_000_000 * 4) / 3) + 4;
 /** The words of a tapback's text, as a Photon tapback's are kept (`inboundOf`). */
 const MAX_REACTION_WORDS = 1_000;
+/** The longest email body a card's Send takes (`tools/heldEdit.js` refuses one that will not fit in a held copy). */
+const MAX_EMAIL_BODY = 24_000;
 /** Messages' six tapbacks, by the emoji the app sends, named as the Worker reads them (`reactions.ts`). */
 const TAPBACKS = new Map([["❤️", "Loved"], ["👍", "Liked"], ["👎", "Disliked"], ["😂", "Laughed at"], ["‼️", "Emphasized"], ["❓", "Questioned"]]);
 /** The picture kinds served back (`packages/tex/worker/appPictures.ts`): none can carry a script. */
@@ -83,7 +90,7 @@ export async function handleAppChat(request, store, session, path, env, deps = {
   return out;
 }
 
-async function serveAppChat(request, _store, session, _path, env, deps = {}) {
+async function serveAppChat(request, store, session, _path, env, deps = {}) {
   const { ledgerOf = (owner) => ledgerFor(env, owner), now = Date.now, sleep } = deps;
   if (session?.actorClientId !== CONSOLE_CLIENT_ID || session.workspaceKind !== "personal" || session.role !== "owner") {
     return refuse(403, "forbidden");
@@ -106,7 +113,7 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
   }
   if (body === null || typeof body !== "object" || Array.isArray(body)) return refuse(400, "Send a JSON object with an op.");
   if (env?.TEX_CHAT === undefined) return refuse(503, UNREACHABLE_MESSAGE);
-  const ctx = { env, chatId, session, ledgerOf, now, ...(sleep ? { sleep } : {}) };
+  const ctx = { env, chatId, session, ledgerOf, now, store, ...(sleep ? { sleep } : {}) };
   try {
     if (body.op === "get") return await get(ctx);
     if (body.op === "send") return await send(ctx, body);
@@ -116,7 +123,8 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
     if (body.op === "warm") return await warm(ctx, body);
     if (body.op === "wait") return await wait(ctx, body);
     if (body.op === "stop" || body.op === "retry") return await turnCall(ctx, body);
-    return refuse(400, "op is get, wait, send, react, edit, unsend, picture, warm, stop or retry.");
+    if (body.op === "answer") return await answerCard(ctx, body);
+    return refuse(400, "op is get, wait, send, react, edit, unsend, picture, warm, stop, retry or answer.");
   } catch (error) {
     // The error's name only: a read's message can carry the words it read.
     console.log(JSON.stringify({ event: "app_chat", op: String(body.op), outcome: "unreachable", error: String(error?.name ?? "error").slice(0, 40) }));
@@ -125,10 +133,11 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
 }
 
 /** Every row of the chat, oldest first, with the outbox's typing mark: the one read a `get`, `send`'s reply and `react`'s check all need. */
-async function readChat({ env, chatId, session, ledgerOf, now }) {
+async function readChat({ env, chatId, session, ledgerOf, now, store }, { cards = false } = {}) {
   const [ledger, outbox, steps] = await Promise.all([ledgerEntries(ledgerOf, session.workspaceId), outboxOf(env.TEX_CHAT, chatId), stepEntries(ledgerOf, session.workspaceId)]);
   const out = {};
   const rows = buildRows(ledger, outbox, now(), out, steps);
+  if (cards) await withCards(rows, { env, chatId, store, session, kept: outbox.cards ?? {}, now: now() });
   // Tex is working while a turn of this chat runs, the typing mark or not.
   const typing = typingNow(outbox.typingAt, now()) || outbox.queue.some((item) => item.state === "running");
   return { rows, typing, handles: out.handles, digest: outboxDigest(outbox, now()), run: outbox.run };
@@ -142,7 +151,7 @@ async function wait(ctx, body) {
     const until = ctx.now() + WAIT_MS;
     while (ctx.now() < until && outboxDigest(await outboxOf(ctx.env.TEX_CHAT, ctx.chatId), ctx.now()) === since) await sleep(WAIT_EVERY_MS);
   }
-  const { rows, typing, digest, run } = await readChat(ctx);
+  const { rows, typing, digest, run } = await readChat(ctx, { cards: true });
   console.log(JSON.stringify({ event: "app_chat", op: "wait", outcome: digest === since ? "same" : "changed" }));
   return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest, run });
 }
@@ -173,7 +182,7 @@ async function warm({ env, session }, body) {
 }
 
 async function get(ctx) {
-  const { rows, typing, digest, run } = await readChat(ctx);
+  const { rows, typing, digest, run } = await readChat(ctx, { cards: true });
   console.log(JSON.stringify({ event: "app_chat", op: "get", outcome: "ok" }));
   return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest, run });
 }
@@ -189,8 +198,16 @@ async function send(ctx, body) {
   let replied = null;
   if (body.replyTo !== undefined) {
     if (typeof body.replyTo !== "string") return refuse(400, "replyTo is the id of a text in this chat.");
-    replied = (await readChat(ctx)).rows.find((row) => row.id === body.replyTo && !row.unsent) ?? null;
+    replied = (await readChat(ctx, { cards: true })).rows.find((row) => row.id === body.replyTo && !row.unsent) ?? null;
     if (replied === null) return refuse(400, "That text is not in this chat.");
+    // A yes or no replied onto a card answers that card's ask, armed again if Tex has asked something since (Dev2,
+    // 2026-11-20: reply "send the draft" to the card). The yes itself is still read and settled by the gateway's turn.
+    if (cardWaits(replied.ask?.card) && pictures.length === 0) {
+      const { approvalVerdict } = await import("./textedApprovals.js");
+      const verdict = approvalVerdict(text);
+      if (verdict !== null) await armOne(ctx, replied.ask.id);
+      if (verdict === "approve") await keepCard(ctx, replied.ask.id, { state: "sending" });
+    }
   }
   const eventId = eventIdOf();
   // The same shape Photon's inbound message takes (`labSandbox/chatRun.js` `inboundOf`): the quoted words only when the reply has any.
@@ -281,4 +298,97 @@ async function arrive({ env, chatId }, call, msgId) {
   const said = await answer.json().catch(() => ({}));
   // A send answers the event id the chat logged it under, which its row will carry; otherwise the id the call named.
   return json({ msgId: typeof said?.ev === "string" ? said.ev : msgId });
+}
+
+/** Whether a card still waits for the person: it can be sent, kept, or answered by a reply. */
+function cardWaits(card) {
+  return card !== undefined && card !== null && (card.state === "wait" || card.state === "held");
+}
+
+/**
+ * Each ask row's card (`appChatCards.js`), from the held record while it waits and from what the chat object kept after.
+ * A held record that cannot be read leaves the rows without cards, never with a wrong one: the page then shows the
+ * ask's words, as before.
+ */
+async function withCards(rows, { env, chatId, store, session, kept, now }) {
+  const asks = rows.filter((row) => row.who === "tex" && typeof row.ask?.id === "string");
+  if (asks.length === 0 || store === undefined || store === null) return;
+  const ids = asks.map((row) => row.ask.id);
+  const [{ listPending, settledApprovedIds }, { cardOf }] = await Promise.all([import("../../../../apps/mcp/src/tools/approvals.js"), import("./appChatCards.js")]);
+  let pending, doneIds;
+  try {
+    [pending, doneIds] = await Promise.all([listPending(store, { userId: session.actorUserId, ids, now }), settledApprovedIds(store, ids)]);
+  } catch (error) {
+    console.log(JSON.stringify({ event: "app_chat_cards", outcome: "unread", error: String(error?.name ?? "error").slice(0, 40) }));
+    return;
+  }
+  const live = new Map(pending.map(({ record }) => [record.id, record]));
+  for (const row of asks) {
+    const id = row.ask.id;
+    const done = doneIds.has(id);
+    const record = live.get(id) ?? null;
+    const card = cardOf({ record, kept: kept[id], askText: row.text, now, done });
+    if (card !== null) row.ask.card = card;
+    // Settled on a yes said in words ("send the draft"): kept as sent, so the card still says so once the hour's record is gone.
+    if (record === null && done && kept[id]?.state !== "sent") await keepCard({ env, chatId }, id, { state: "sent", ...(typeof kept[id]?.body === "string" ? { body: kept[id].body } : {}) }).catch(() => {});
+  }
+}
+
+/** Arms one ask for the person's next yes, as a texted ask is armed when it goes out (`armForText`). */
+async function armOne({ store, session, now }, id) {
+  const { armForText } = await import("../../../../apps/mcp/src/tools/approvals.js");
+  await armForText(store, { userId: session.actorUserId, ids: [id], chat: null, now: now() });
+}
+
+/** What the chat object keeps for a card: `held`, or `sending` with the body that went. */
+async function keepCard({ env, chatId }, ask, kept) {
+  const answer = await objectByName(env.TEX_CHAT, `chat:${chatId}`).fetch(
+    new Request("https://chat/app/card", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ inbox: chatId, ask, ...kept }) }),
+  );
+  if (!answer.ok) throw new Error(`card ${answer.status}`);
+}
+
+const EDIT_REFUSED = {
+  not_found: "That draft is no longer waiting.",
+  not_editable: "This draft can't be changed here. Tell Tex what to change instead.",
+  empty: "The email needs some words.",
+  too_long: "That's too long for one email here. Shorten it, or tell Tex what to change.",
+  invalid: "That draft can't be sent as it is. Tell Tex what to change.",
+  conflict: "The draft changed just now. Try again.",
+};
+
+async function answerCard(ctx, body) {
+  if (body.choice !== "send" && body.choice !== "hold") return refuse(400, "choice is send or hold.");
+  if (typeof body.msgId !== "string") return refuse(400, "msgId is the id of Tex's text in this chat.");
+  if (body.body !== undefined && (typeof body.body !== "string" || body.body.length > MAX_EMAIL_BODY)) return refuse(400, "body is the email's text.");
+  const row = (await readChat(ctx, { cards: true })).rows.find((each) => each.id === body.msgId && each.who === "tex" && each.ask?.card !== undefined);
+  if (row === undefined) return refuse(400, "That is not something Tex is holding in this chat.");
+  const card = row.ask.card;
+  if (!cardWaits(card)) return refuse(409, "That one is no longer waiting.");
+  const id = row.ask.id;
+  if (body.choice === "hold") {
+    await keepCard(ctx, id, { state: "held" });
+    console.log(JSON.stringify({ event: "app_chat", op: "answer", outcome: "held" }));
+    return json({ msgId: row.id, state: "held" });
+  }
+  const { pendingById } = await import("../../../../apps/mcp/src/tools/approvals.js");
+  let record = await pendingById(ctx.store, id, { userId: ctx.session.actorUserId, now: ctx.now() });
+  if (record === null) return refuse(409, "That one is no longer waiting.");
+  if (body.body !== undefined && card.kind === "email" && body.body.replace(/\r\n/g, "\n").trim() !== String(card.body ?? "").trim()) {
+    if (card.editable !== true) return refuse(400, EDIT_REFUSED.not_editable);
+    const { reviseHeldEmail } = await import("../../../../apps/mcp/src/tools/approvals.js");
+    const revised = await reviseHeldEmail(ctx.store, id, { userId: ctx.session.actorUserId, body: body.body, now: ctx.now() });
+    if (!revised.ok) return refuse(revised.why === "conflict" || revised.why === "not_found" ? 409 : 400, EDIT_REFUSED[revised.why] ?? EDIT_REFUSED.invalid);
+    record = revised.record;
+  }
+  await armOne(ctx, id);
+  const { askLine } = await import("./textedApprovals.js");
+  // The words the 👍 is on: the ask as it now stands, so the gateway's check matches the copy the person sends.
+  const words = askLine([record]).trim().slice(0, MAX_REACTION_WORDS);
+  await keepCard(ctx, id, { state: "sending", ...(card.kind === "email" ? { body: String(record.args?.body ?? "") } : {}) });
+  const eventId = eventIdOf();
+  const message = { kind: "reaction", eventId, chatId: ctx.chatId, from: ctx.chatId, messageId: eventId, reaction: { how: "Liked", words, onTex: true } };
+  const answer = await arrive(ctx, { kind: "react", message, tap: { on: row.id, emoji: "👍" } }, row.id);
+  if (!answer.ok) return answer;
+  return json({ msgId: row.id, state: "sending" });
 }
