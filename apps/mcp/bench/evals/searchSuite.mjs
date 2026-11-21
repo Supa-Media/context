@@ -177,6 +177,18 @@ async function catchingTraces(fn) {
 export async function runSearchCases({ bench, cases, ai, today = null, settings = null, objects = true, onRecord = () => {}, log = () => {} }) {
   const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, `@${row.workspace}`]));
   const prepared = await prepareRun(bench, { today, ai });
+  // Every model call the searches make, timed: the reranker's and the query embedding's, beside each case's line.
+  const calls = [];
+  const realAi = ai;
+  ai = realAi && typeof realAi.run === "function" ? { ...realAi, async run(model, input, ...rest) {
+    const started = realNow();
+    try {
+      return await realAi.run(model, input, ...rest);
+    } finally {
+      calls.push({ model: String(model).split("/").pop(), ms: realNow() - started, n: Array.isArray(input?.contexts) ? input.contexts.length : Array.isArray(input?.text) ? input.text.length : 1, chars: Array.isArray(input?.contexts) ? input.contexts.reduce((t, c) => t + String(c.text ?? "").length, 0) : 0 });
+    }
+  } } : realAi;
+  const callsBetween = (from, to = calls.length) => calls.slice(from, to).map((c) => `${c.model} ${Math.round(c.ms)}ms n${c.n}${c.chars ? ` ${c.chars}ch` : ""}`).join(", ");
   const passages = [...prepared.embedded.values()].reduce((total, n) => total + n, 0);
   log(`warmed ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes\n`);
   const models = { gatewayFetch: fakeGateway(), ai, ...(settings ? { searchSettings: settings } : {}) };
@@ -187,9 +199,12 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
     for (const [i, c] of cases.entries()) {
       const home = c.in ?? personal.get(c.as);
       if (!home) throw new Error(`case ${c.id}: ${c.as} has no personal workspace`);
+      let dbCalls = calls.length;
+      let objCalls = null;
       const world = await createWorld(bench, c.as, PLAIN_TEXTING_SETUP, models, today, prepared);
       let record;
       try {
+        dbCalls = calls.length;
         const started = realNow();
         const { value: answer, traces } = await catchingTraces(() => world.search(c.query, c.in ?? null));
         const hits = answer.ok ? hitsOf(answer.text, home) : [];
@@ -214,6 +229,7 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
         // Each path pays for its own reranker call: the scores the database path's search left in this process
         // would make the object path's look free (`src/search/rerank.js`).
         forgetRerankScores();
+        objCalls = calls.length;
         const started = realNow();
         const { value: answer, traces } = await catchingTraces(() => objectWorld.search(c.as, c.query, c.in ?? null));
         const hits = answer.ok ? hitsOf(answer.text, home) : [];
@@ -228,7 +244,7 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
       records.push(record);
       onRecord(record, i);
       const said = (rank) => (record.expect.length === 0 ? "privacy" : rank === null ? "miss" : `rank ${rank}`);
-      log(`${c.id}: ${said(record.rank)}${record.object ? `, object ${said(record.object.rank)}` : ""}\n`);
+      log(`${c.id}: ${said(record.rank)}${record.object ? `, object ${said(record.object.rank)}` : ""} | db ${Math.round(record.ms)}ms [${callsBetween(dbCalls, objCalls ?? calls.length)}]${objectWorld ? ` | obj ${Math.round(record.object.ms)}ms [${callsBetween(objCalls)}]` : ""}\n`);
     }
   } finally {
     prepared.close();
