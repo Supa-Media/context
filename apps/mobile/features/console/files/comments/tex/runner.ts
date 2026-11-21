@@ -332,12 +332,12 @@ function tellNote(
   answer: string | null,
   replace: string | null,
 ):
-  | { edit: { from: number; to: number; insert: string } | null; body: string; said: ChangeSet | null; error?: undefined }
+  | { edit: { from: number; to: number; insert: string }[] | null; body: string; said: ChangeSet | null; error?: undefined }
   | { error: string } {
   try {
     const anchor = state.field(commentsParsed, false)?.anchors.get(thread);
     const found = replace !== null && anchor !== undefined ? texEditFor(state, anchor, replace) : null;
-    const edit = found === null ? null : { from: found.from, to: found.to, insert: found.insert };
+    const edit = found === null ? null : found.changes;
     const body = answer?.trim() || (edit !== null ? DONE_LINE : "");
     if (edit !== null) return { edit, body, said: null };
     return { edit, body, said: tellThread(state, thread, body) };

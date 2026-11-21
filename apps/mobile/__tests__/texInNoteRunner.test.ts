@@ -208,13 +208,16 @@ describe("a run", () => {
     expect(done).toEqual(["run_1"]);
   });
 
-  test("a rewrite replaces the highlighted words in place", async () => {
+  test("a rewrite takes the highlighted words out and writes the new ones after the thread, unhighlighted", async () => {
     const { host } = harness([{ type: "edit", replace: "birthday cake" }, { type: "done", runId: "run_r", sources: [] }]);
     const view = mount(NOTE, host);
     startTexRun(view, "k7f2", "say which cake");
     await waitFor(() => !runs(view).has("k7f2"));
     const doc = view.state.doc.toString();
-    expect(doc).toContain("Pick up the <!--c:k7f2-->birthday cake<!--/c:k7f2--> on Saturday.");
+    // The thread stays, as a point where the words were; the new words are the note's own text.
+    expect(doc).toContain("Pick up the <!--c:k7f2--><!--/c:k7f2-->birthday cake on Saturday.");
+    expect(parseComments(doc).threads.map((t) => t.id)).toEqual(["k7f2"]);
+    expect(view.dom.querySelector(".cm-cmt-hl")?.textContent ?? "").not.toContain("birthday");
     expect(doc).not.toContain("Tex suggests");
   });
 
@@ -228,7 +231,7 @@ describe("a run", () => {
     startTexRun(view, "k7f2", "say which cake");
     await waitFor(() => !runs(view).has("k7f2"));
     const doc = view.state.doc.toString();
-    expect(doc).toContain("<!--c:k7f2-->a birthday cake<!--c:b2b2--><!--/c:b2b2--><!--/c:k7f2-->");
+    expect(doc).toContain("<!--c:k7f2--><!--c:b2b2--><!--/c:b2b2--><!--/c:k7f2-->a birthday cake");
     expect(parseComments(doc).threads.map((t) => t.id).sort()).toEqual(["b2b2", "k7f2"]);
   });
 
