@@ -92,6 +92,8 @@ test("an answer whose values hold unescaped quotes is still read as its fields, 
   assert.equal(parsed.replace, null);
   assert.equal(parsed.insert, '\n\nAct 1\n- She tests the starter, asking about its "ingredients," and her own thoughts.');
   assert.equal(lenientNoteRun('{"replace": "x"}'), null, "no answer key, nothing read");
+  const unclosed = parseNoteRun('```json\n{"answer": "The captain finds the letters."\n```');
+  assert.equal(unclosed.answer, "The captain finds the letters.", "an object never closed is still read");
   assert.equal(lenientNoteRun('{"answer": 12}'), null, "a value that is not a string or null");
 });
 

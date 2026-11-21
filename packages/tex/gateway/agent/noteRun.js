@@ -135,7 +135,9 @@ export function parseNoteRun(answer) {
   const text = str(answer).trim();
   const raw = { answer: text.slice(0, RUN_ANSWER_CHARS), replace: null, insert: null };
   const start = text.indexOf("{"), end = text.lastIndexOf("}");
-  if (start === -1 || end <= start) return raw;
+  if (start === -1) return raw;
+  // An object a model forgot to close (seen on a preview, 2026-11-21) is read leniently to the end of the text.
+  if (end <= start) return checked(lenientNoteRun(text.slice(start).replace(/\s*```\s*$/, "")), raw);
   let value;
   try {
     value = JSON.parse(text.slice(start, end + 1));
@@ -145,6 +147,11 @@ export function parseNoteRun(answer) {
     // on a preview, 2026-11-21). The three keys are known, so read them leniently.
     value = lenientNoteRun(text.slice(start, end + 1));
   }
+  return checked(value, raw);
+}
+
+/** The run's fields when `value` holds a usable answer and edits within their caps, else `raw`. */
+function checked(value, raw) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return raw;
   const answerOk = typeof value.answer === "string" && value.answer.trim() !== "" && value.answer.length <= RUN_ANSWER_CHARS;
   const edit = (field) => field === undefined || field === null || (typeof field === "string" && field.length <= RUN_REPLACE_CHARS);
@@ -172,7 +179,8 @@ export function lenientNoteRun(body) {
   keys.sort((a, b) => a.at - b.at);
   const out = {};
   for (let i = 0; i < keys.length; i += 1) {
-    const stop = i + 1 < keys.length ? keys[i + 1].at : body.lastIndexOf("}");
+    const close = body.lastIndexOf("}");
+    const stop = i + 1 < keys.length ? keys[i + 1].at : close > keys[i].value ? close : body.length;
     const piece = body.slice(keys[i].value, stop).trim().replace(/,$/, "").trim();
     if (piece === "null") out[keys[i].name] = null;
     else if (piece.length >= 2 && piece.startsWith('"') && piece.endsWith('"')) {
