@@ -28,6 +28,7 @@ import { realNow } from "../clock.mjs";
 import { hitsOf, rankOf } from "../search.mjs";
 import { prepareRun } from "../warm.mjs";
 import { createWorld } from "../world.mjs";
+import { createObjectWorld } from "./objectWorld.mjs";
 
 /** A world needs a texting setup note; no word of it reaches a search. */
 const PLAIN_TEXTING_SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
@@ -103,7 +104,25 @@ export function searchScores(records) {
     errors: records.filter((r) => r.error).length,
     leaks,
     // How many searches each way answered (`pathOf`), so a ranking seen on one path is not read as the other's.
+    ...(records.some((r) => r.object) ? { objects: objectScores(records) } : {}),
     byPath: Object.fromEntries([...new Set(records.map((r) => r.path ?? "unknown"))].sort().map((p) => [p, records.filter((r) => (r.path ?? "unknown") === p).length])),
+  };
+}
+
+/**
+ * The same scores for the object world's answers (`record.object`), and how often its rank was the database world's:
+ * `same`, `better` (ranked the expected note higher) and `worse`, over the cases both answered.
+ */
+export function objectScores(records) {
+  const both = records.filter((r) => r.object);
+  const side = searchScores(both.map(({ object, ...r }) => ({ ...r, ...object })));
+  const scored = both.filter((r) => (r.expect ?? []).length > 0);
+  const at = (rank) => (rank === null ? Infinity : rank);
+  return {
+    ...side,
+    same: scored.filter((r) => at(r.rank) === at(r.object.rank)).length,
+    better: scored.filter((r) => at(r.object.rank) < at(r.rank)).length,
+    worse: scored.filter((r) => at(r.object.rank) > at(r.rank)).length,
   };
 }
 
@@ -150,15 +169,19 @@ async function catchingTraces(fn) {
 /**
  * Run `cases` in one warm world built from `bench` (already overlaid and expanded): one record per case, in order.
  * `onRecord(record, i)` hears each as it lands. `settings` is a search setup's settings (`SEARCH_SETTINGS`), null
- * for the code's own.
+ * for the code's own. With `objects` (the default), each case is also searched in the object world
+ * (`objectWorld.mjs`), the bench's workspaces kept in workspace objects, and the record carries that answer as
+ * `object: { hits, rank, ms, path, object }`, so the two ways production answers are compared per query.
  */
-export async function runSearchCases({ bench, cases, ai, today = null, settings = null, onRecord = () => {}, log = () => {} }) {
+export async function runSearchCases({ bench, cases, ai, today = null, settings = null, objects = true, onRecord = () => {}, log = () => {} }) {
   const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, `@${row.workspace}`]));
   const prepared = await prepareRun(bench, { today, ai });
   const passages = [...prepared.embedded.values()].reduce((total, n) => total + n, 0);
   log(`warmed ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes\n`);
   const models = { gatewayFetch: fakeGateway(), ai, ...(settings ? { searchSettings: settings } : {}) };
   const records = [];
+  const objectWorld = objects ? await createObjectWorld(bench, { ai, settings }) : null;
+  if (objectWorld) log(`object world: ${Object.keys(bench.workspaces).length} workspace objects, both indexes built\n`);
   try {
     for (const [i, c] of cases.entries()) {
       const home = c.in ?? personal.get(c.as);
@@ -186,12 +209,26 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
       } finally {
         world.close();
       }
+      if (objectWorld) {
+        const started = realNow();
+        const { value: answer, traces } = await catchingTraces(() => objectWorld.search(c.as, c.query, c.in ?? null));
+        const hits = answer.ok ? hitsOf(answer.text, home) : [];
+        record.object = {
+          hits,
+          rank: record.expect.length ? rankOf(hits, record.expect) : null,
+          ms: realNow() - started,
+          ...pathOf(traces),
+          error: answer.ok ? null : String(answer.text).slice(0, 200),
+        };
+      }
       records.push(record);
       onRecord(record, i);
-      log(`${c.id}: ${record.expect.length === 0 ? "privacy" : record.rank === null ? "miss" : `rank ${record.rank}`}\n`);
+      const said = (rank) => (record.expect.length === 0 ? "privacy" : rank === null ? "miss" : `rank ${rank}`);
+      log(`${c.id}: ${said(record.rank)}${record.object ? `, object ${said(record.object.rank)}` : ""}\n`);
     }
   } finally {
     prepared.close();
+    objectWorld?.close();
   }
   return records;
 }
@@ -212,6 +249,7 @@ export function rowOf(record) {
     sessions: 0,
     ms: Math.round(record.ms),
     path: record.path ?? null,
+    ...(record.object ? { objectRank: record.object.rank, objectPath: record.object.path ?? null } : {}),
     error: record.error,
   };
 }

@@ -46,8 +46,13 @@ the service passes it when right note first on the change is no lower than on ma
 part moves in once from `@context-lc ai/search-held-out/test.md` through `search-test-set-seed.yml`, which then empties
 and archives that note.
 
-**Caveat, measured not hidden:** the bench world searches buckets with a search database, not workspace objects, so a
-ranking difference that only the object path has is not seen yet. Each search records which way it was answered
+**Both paths, per query.** The bench world searches buckets with a search database; production's workspaces whose home
+is `object` answer from their workspace objects. So each case of the made-up and real sets is also searched in an
+object world (`apps/mcp/bench/evals/objectWorld.mjs`): every bench workspace in the real `WorkspaceStore` Durable
+Object over an in-memory SQLite, with its rows, text, rules, members, sealed binding and both indexes built, and each
+person's own object holding their reach and a connection, searched through the same MCP endpoint. A run reports the
+object world's scores beside the database's, and how many cases ranked the same, better or worse there
+(`--database-only` skips it). The gate still reads the database world's rank. Each search records which way it was answered
 (`pathOf`, from the gateway's own `event: "search"` trace: `object`, `database`, `index` or `scan`, and the object's
 word when it declined, such as `catching_up`), and every run says how many went each way, so a score is never read
 as the other path's.
