@@ -19,12 +19,15 @@ const SESSION = {
 const NOTE = "projects/a.md";
 const readOk = { content: [{ type: "text", text: `etag: @team/n1:e1\npath: ${NOTE}\nvisibility: team\n\nThe body.` }] };
 
-function deps({ read = readOk, result = { outcome: "answered", answer: "Done.", replace: "New words.", sources: [NOTE], calls: [{ tool: "read_note" }], model: "m", usage: {}, ms: 5 } } = {}) {
+function deps({ read = readOk, who = { status: "ok", userId: "u1" }, result = { outcome: "answered", answer: "Done.", replace: "New words.", sources: [NOTE], calls: [{ tool: "read_note" }], model: "m", usage: {}, ms: 5 } } = {}) {
   const seen = { calls: [], run: null };
   return {
     seen,
     dispatchFor: () => async (name, args) => (seen.calls.push({ name, args }), read),
-    controlPlane: {},
+    controlPlane: {
+      labSandbox: async (_token, action) => (action === "who" ? who : null),
+      startBuiltinTurn: async () => ({ allowed: false, reason: "not_texts" }),
+    },
     offered: [],
     ledger: null,
     runNoteRun: async (args) => {
@@ -69,5 +72,20 @@ describe("tex_dev note_run", () => {
     const out = await noteRunFromLab({ env: {}, store: {}, session: SESSION, args: { workspace: "@team", path: NOTE, ask: "hi" } }, d);
     assert.deepEqual(out.lines.at(-1), { type: "error", message: "daily_limit" });
     assert.equal(out.lines.some((l) => l.type === "answer"), false);
+  });
+
+  it("runs only for a Tex developer, before any run", async () => {
+    const d = deps({ who: { status: "refused" } });
+    const out = await noteRunFromLab({ env: {}, store: {}, session: SESSION, args: { workspace: "@team", path: NOTE, ask: "hi" } }, d);
+    assert.match(out.error, /Only Tex developers/);
+    assert.equal(d.seen.run, null);
+  });
+
+  it("spends the model as a Lab run, never through this AI client's grant, and records nothing", async () => {
+    const d = deps();
+    await noteRunFromLab({ env: {}, store: {}, session: SESSION, args: { workspace: "@team", path: NOTE, ask: "hi" } }, d);
+    assert.deepEqual(await d.seen.run.controlPlane.startBuiltinTurn("t", "wsA", { noteRun: true }), { allowed: true, remaining: 100 });
+    assert.equal(await d.seen.run.controlPlane.recordBuiltinUsage("t", "wsA", {}), undefined);
+    assert.equal(typeof d.seen.run.controlPlane.labSandbox, "function");
   });
 });

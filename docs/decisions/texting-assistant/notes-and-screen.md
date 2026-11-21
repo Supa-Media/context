@@ -25,7 +25,12 @@ they text it from the app, and be askable from inside a note's comments without 
   of a note it cannot read. Newest 50, 90 days. `GET /tex/note-runs` lists them to whoever can read the note; another
   person's run shows only the note itself as its source. tex_dev's sandbox op `note_runs` reads the full log.
 - Refused with 503 until a Lab draft wires `noteRun` (shelf first, Dev2 2026-11-16).
+- The run spends the built-in model on the app's own (console) grant: the control plane allows a console turn when the
+  gateway's note-run route says it is a note run, metered on the same cap and kill switch as a text, against the grant's
+  own workspace (`apps/convex/functions/builtinModel.ts`). Any other console turn is still refused. tex_dev's `note_run`
+  runs only for a Tex developer (the Lab's own check) and, like a Lab test chat, is not counted.
 
 What a simplification would cost: keying the log by the client's id lets anyone who can read one note write into
 another's log (`noteRunRoute.test.mjs` "the run log's key"); letting a write tool into the run lets a comment change notes
-without Keep (`noteRun.test.mjs` "offered only read door's tools").
+without Keep (`noteRun.test.mjs` "offered only read door's tools"); dropping the note-run exception leaves every
+comment ask refused the model (`builtinModel.test.ts` "a note run on the app's own grant may").

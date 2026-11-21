@@ -27,6 +27,14 @@ export function labNoteRunNode(env, draftNode = null) {
   return shelved ? { node: shelved, from: "shelf" } : { node: null, from: null };
 }
 
+/** The control plane a Lab run spends through: the model allowed and its usage answered as done, as a test chat's are. */
+export function labControlPlane(real) {
+  const lab = Object.create(real);
+  lab.startBuiltinTurn = async () => ({ allowed: true, remaining: 100 });
+  lab.recordBuiltinUsage = async () => {};
+  return lab;
+}
+
 /** The op: `args` as the route's body (thread, anchor and history may be left out) plus `draft`'s node, `deps` for tests. */
 export async function noteRunFromLab({ env, store, session, args, draftNode = null }, deps = {}) {
   const body = { thread: "lab", anchor: { text: "", before: "", after: "" }, history: [], pending: null, ...(args ?? {}) };
@@ -42,11 +50,19 @@ export async function noteRunFromLab({ env, store, session, args, draftNode = nu
   const note = await readNoteAs(dispatch, parsed.path, target.context);
   if (note === null) return { error: "That note can't be read with your access. Name a note you can see, then try again." };
   const runNoteRun = deps.runNoteRun ?? (await import("./noteRun.js")).runNoteRun;
+  // A Lab run is a Tex developer's (the Lab's own check, `labSandbox/route.js`), and like a test chat's turn it is not
+  // counted against anyone's daily cap (`labSandbox/policy.js`): this connection's grant is an AI client's, which the
+  // control plane would refuse the built-in model.
+  const real = deps.controlPlane ?? createControlPlane(env);
+  const who = await Promise.resolve(real.labSandbox?.(session.accessToken, "who")).catch(() => null);
+  if (who === null || who === undefined) return { error: "The control plane did not answer. Try again in a minute." };
+  if (who.status === "refused" || typeof who.userId !== "string") return { error: "Only Tex developers (staff who edit @context-lc) run note runs from the Lab. Ask for Lab access, then try again." };
+  const controlPlane = labControlPlane(real);
   const lines = [];
   const started = Date.now();
   const result = await runNoteRun({
     env,
-    controlPlane: deps.controlPlane ?? createControlPlane(env),
+    controlPlane,
     session,
     dispatch,
     offered: deps.offered ?? (await grantedToolsFor(session, store, { texts: true })),
