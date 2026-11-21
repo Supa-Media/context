@@ -26,7 +26,8 @@
  * few to answer "what is it doing?".
  */
 
-import { askAgent, askAgentStream, openSession, post, ServiceError, type AgentAnswer, type Fetch } from "./clients";
+import { askAgent, askAgentStream, post, ServiceError, type AgentAnswer, type Fetch } from "./clients";
+import { openPersonSession } from "./personSession";
 import { textsFromAnswer, textsWithExact } from "./format";
 import { askControlPlane, GROUP_LINES } from "./groupInbox";
 import { peopleHash, peopleOf, sha256Hex } from "./groupChat";
@@ -109,8 +110,8 @@ type Outcome =
   | { kind: "retry"; why?: string; cause?: "model_down" }
   /** It ran and broke: carry on in a new turn, if one is left. `cause`: why, when it is known (`jobProgress.ts`). */
   | { kind: "broken"; cause: "check_limit" | "timeout" | "crash" }
-  /** Ends here, with this to say, or silently. */
-  | { kind: "stop"; text?: string }
+  /** Ends here, with this to say, or silently. `status`: why, kept on the chat's entry for `job_status` and the Lab, never texted. */
+  | { kind: "stop"; text?: string; status?: string }
   /** The gateway refused to run it (`daily_limit`, `no_model`): it waits on them, and says why. */
   | { kind: "refused"; why: "daily_limit" | "no_model" }
   /** The gateway turned the part down before anything ran (`clients.ts` `refused`): the same ask is turned down again, so it ends here and says why. */
@@ -446,7 +447,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
         : outcome.kind === "rejected"
           ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [JOB_LINES.rejected(run.title, outcome.why)] }
         : outcome.kind === "stop"
-          ? { state: "failed", ...(outcome.text ? { texts: [outcome.text] } : {}) }
+          ? { state: "failed", ...(outcome.status ? { status: outcome.status.slice(0, 280) } : {}), ...(outcome.text ? { texts: [outcome.text] } : {}) }
           : outcome.kind === "retry" && outcome.why
             ? // Out of tries at a service that didn't answer: said, so neither Tex nor the person is left guessing (2026-11-06).
               { state: "failed", status: `Stopped: ${outcome.why}`.slice(0, 280), texts: [JOB_LINES.failed(run.title, outcome.why)] }
@@ -621,9 +622,8 @@ async function phoneTurn(
   onStep: (text: string, how?: StepHow) => Promise<void>,
 ): Promise<Outcome> {
   if (run.origin.kind !== "phone") return { kind: "stop" };
-  const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, run.origin.phone);
-  // Unlinked since: nothing of theirs is read, and nothing is said.
-  if (session.status !== "linked") return { kind: "stop" };
+  const session = await openPersonSession(deps, run.origin.phone);
+  if (session.status !== "linked") return (log("no_session", run.id), { kind: "stop", status: "Stopped: their account could not be opened to run it (no session)" }); // unlinked since: nothing read or said to them, but logged and kept on its entry
   turn.accessToken = session.accessToken;
   const answer = await askAgent(
     deps.fetch,
@@ -645,7 +645,7 @@ async function phoneTurn(
 /** The job's own grant now, a person's or its group chat's, for a call of its own beside a part; null when it may not run. */
 export async function jobToken(run: JobRun, deps: JobDeps): Promise<string | null> {
   if (run.origin.kind === "group") return await groupGrant(run, deps);
-  const session = await openSession(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, run.origin.phone);
+  const session = await openPersonSession(deps, run.origin.phone);
   return session.status === "linked" ? session.accessToken : null;
 }
 
