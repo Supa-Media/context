@@ -284,7 +284,12 @@ test("an ask for content is added after the highlighted words, which stay as the
 
 test("an insert joins a sentence after a space, stands alone at a point, and never beside a replacement", () => {
   assert.equal(withInsert({ text: "cake", after: " on Saturday." }, "and candles"), "cake and candles");
-  assert.equal(withInsert({ text: "Agenda", after: " for the day" }, "- one\n- two"), "Agenda\n\n- one\n- two", "a block is its own paragraph");
+  assert.equal(withInsert({ text: "Agenda", after: " for the day" }, "- one\n- two"), "Agenda\n\n- one\n- two", "a list Tex did not start on its own line still gets one");
+  // Where an addition sits is Tex's call, joined as it began it (Dev2, 2026-11-21: a haiku "starting with this word" was forced under a blank line).
+  assert.equal(withInsert({ text: "honest", after: "\nharbor" }, " morning light\nslips through the quiet window"), "honest morning light\nslips through the quiet window", "a leading space carries on the same line, even on a line of its own");
+  assert.equal(withInsert({ text: "Agenda", after: "" }, "\n\n1. Morning"), "Agenda\n\n1. Morning", "a blank line Tex wrote is a new paragraph");
+  assert.equal(withInsert({ text: "Agenda", after: "" }, "\nNext line"), "Agenda\nNext line", "one newline is the next line, not a paragraph");
+  assert.equal(withInsert({ text: "cake", after: "" }, ", please"), "cake, please", "punctuation joins with no space");
   assert.equal(withInsert({ text: "", before: "x", after: "" }, "A new line."), "A new line.");
   assert.deepEqual(parseNoteRun('{"answer":"Fixed.","replace":"new words","insert":"more"}'), { answer: "Fixed.", replace: "new words", insert: null });
   assert.deepEqual(parseNoteRun('{"answer":"Added.","replace":null,"insert":"  "}'), { answer: "Added.", replace: null, insert: null }, "a blank insert is no edit");
