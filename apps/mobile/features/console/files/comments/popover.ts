@@ -30,12 +30,12 @@ import {
   removeFromThread,
   setActiveThread,
   setDraft,
-  submitDraft,
+  sendComment,
 } from "./extension";
 import { hasMargin } from "./model";
 import { buildCard, type CardActions, type CardModel } from "./popoverDom";
 import { TEX_AUTHOR, texInNoteHost } from "./tex/contract";
-import { keepPending, shouldAskTex, startTexRun, texMessageState, texRuns, undoPending } from "./tex/runner";
+import { keepPending, texMessageState, texRuns, undoPending } from "./tex/runner";
 
 /** The gap between the words and the card. */
 const GAP = 8;
@@ -232,24 +232,12 @@ class Popover implements PluginValue {
     }
   }
 
-  /** Writes what the person sent: a new thread from the draft, or a reply; then asks Tex if the message names it. */
+  /** Writes what the person sent: a new thread from the draft, or a reply (Tex hears of it through `commentSent`). */
   private send(body: string): string | null {
-    const state = this.view.state;
-    const ui = state.field(commentUi);
-    const host = state.facet(texInNoteHost);
-    if (ui.draft !== null) {
-      const error = submitDraft(this.view, body);
-      if (error !== null) return error;
-      const id = this.view.state.field(commentUi).active;
-      if (id !== null && host !== null && shouldAskTex(null, body)) startTexRun(this.view, id, body);
-      return null;
-    }
+    const ui = this.view.state.field(commentUi);
+    if (ui.draft !== null) return sendComment(this.view, null, body);
     if (ui.active === null) return "Nothing is open to comment on.";
-    const thread = state.field(commentsParsed).threads.find((one) => one.id === ui.active);
-    const error = addToThread(this.view, ui.active, "comment", body);
-    if (error !== null) return error;
-    if (thread && host !== null && shouldAskTex(thread, body)) startTexRun(this.view, ui.active, body);
-    return null;
+    return sendComment(this.view, ui.active, body);
   }
 
   /** Esc or ✕: a draft is dropped (nothing is written); a thread is put away. */
