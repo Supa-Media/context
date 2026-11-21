@@ -20,12 +20,15 @@ import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAn
 import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
 import { createSetActions, repoConversation, repoGoldRoute } from "./sets.js";
+import { searchText } from "./search.js";
 import { failureView } from "../../src/texFailures.cjs";
 import { routeSummary } from "../../../tex/src/texRouteSummary.cjs";
 import { snapshotGraph } from "./snapshot.js";
 import { GRAPHS } from "../../../tex/src/texConfigSchema.cjs";
 import { createDraftWrites } from "./writes.js";
 import { testSetSummary } from "../fromGateway/http_texTestSet.js";
+// Every architecture with a config of its own (Search, ...), in a Lab draft's shape (`architectures.cjs`).
+import { ownGraphs } from "../../../tex/src/architectures.cjs";
 
 export const TEX_DEV_WHO = "tex_dev is for people who edit @context-lc's AI setup.";
 const UNREACHABLE = "The Lab's drafts could not be reached just now. Try again in a minute.";
@@ -35,7 +38,12 @@ const POLL_MS = 2_000;
 const DRAFT = /^v[0-9a-z]{1,16}$/;
 
 const json = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, null, 1) }] });
-const mainGraph = () => JSON.parse(JSON.stringify({ nodes: TEX_CONFIG.nodes, edges: TEX_CONFIG.edges }));
+// Main as the Lab draws it: Tex's config with every other architecture's steps beside it (Dev2, 2026-11-21), so a
+// snapshot or a diff of main shows their pages too. A copy each call: the caller may edit what it is given.
+const mainGraph = () => {
+  const own = ownGraphs();
+  return JSON.parse(JSON.stringify({ nodes: [...TEX_CONFIG.nodes, ...own.nodes], edges: [...TEX_CONFIG.edges, ...own.edges] }));
+};
 
 function parseGraph(text) {
   try {
@@ -380,6 +388,17 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         } catch (error) {
           return toolError(error?.status === 404 ? "There is no such chat; chats lists yours." : "That chat's history could not be read just now.");
         }
+      }
+      // One search try-out on a draft's search config next to main's (`labSandbox/search.js`, the op `search` on the Lab's
+      // route): unrecorded, so it never counts as a real search. `draft` is optional: without it, main is compared to nothing.
+      case "search": {
+        const onDraft = typeof args.draft === "string" && args.draft !== "" && args.draft !== "main";
+        if (onDraft && !DRAFT.test(args.draft)) return toolError('Name the draft: { draft: "v…" } (list shows them), or leave draft out for main.');
+        if (typeof args.query !== "string" || args.query.trim() === "") return toolError("search takes { draft?, query, only? }: query is the words to search for.");
+        const body = { op: "search", query: args.query, ...(onDraft ? { versionId: args.draft } : {}), ...(args.only !== undefined ? { only: args.only } : {}) };
+        const answer = await sandboxRoute(body);
+        if (!answer.ok) return toolError(answer.answer?.error ?? "The search could not run just now.");
+        return { content: [{ type: "text", text: searchText(answer.answer, onDraft ? args.draft : null) }] };
       }
       // What the Lab computes and shows in the browser, with its own functions (`lab.js`).
       case "sim":

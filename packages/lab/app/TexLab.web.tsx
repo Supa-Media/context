@@ -28,6 +28,7 @@ import type { View } from "./types";
 import { Compare } from "./views/Compare.web";
 import { Evals } from "./views/Evals.web";
 import { LiveChips } from "./views/LiveChanges.web";
+import { TrySearch } from "./views/canvas/TrySearch.web";
 import { MoreMenu, RunNightly, RunSplit, SpeedMenu, VersionMenu } from "./views/bar/TopBar.web";
 import { GRAPH_PAGES, stepCountsByPage, type GraphPage } from "./engine/pages";
 import { Modules } from "./views/Modules.web";
@@ -290,6 +291,8 @@ function Lab() {
           <main className="main" id="main">
             <div id="v-canvas" hidden={s.view !== "canvas"}>
               {s.view === "canvas" ? <ArchCanvas /> : null}
+              {/* The Search page's "Try a search" (`views/canvas/TrySearch.web.tsx`): main and the draft, side by side. */}
+              {s.view === "canvas" && s.graphPage === "search" ? <TrySearch /> : null}
             </div>
             {PAGES.map(([v, id, style, render]) => (
               <div key={v} className="pg" id={"v-" + v} hidden={s.view !== v}>

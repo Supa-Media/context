@@ -63,6 +63,10 @@ const entries: LedgerEntry[] = [
   run("learn", { question: "plan the trip" }, { nudge: { outcome: "skipped" }, reflect: { outcome: "skipped" } }),
   run("connect", { notes: ["areas/trips/plan.md"], question: "plan the trip", tainted: false, group: false }, { outcome: "connected", notes: 1, links: [{ from: "areas/trips/plan.md", to: "areas/trips/budget.md", why: "the same trip", there: "written", back: "written" }] }),
   run("noteRun", { path: "areas/trips/plan.md", noteText: "Fly out Friday.", anchor: { text: "Friday" }, ask: "make it Saturday", history: [], audience: "only the asker" }, { outcome: "answered", answer: "Changed it to Saturday.", replace: "Saturday", sources: ["areas/trips/plan.md"] }),
+  // Search's steps log each run as a node run (Dev2, 2026-11-21): what went in, what came out, and its own time.
+  run("search", { query: "trip", prefix: "", only: null, role: "owner" }, { to: "each", query: "trip", prefix: "", names: ["ws_1"], here: true }),
+  run("each", { query: "trip", names: ["ws_1"] }, { hits: [{ ws: "ws_1", path: "areas/trips/plan.md", words: 0.8 }] }),
+  run("fuse", { hits: [{ ws: "ws_1", path: "areas/trips/plan.md", words: 0.8 }] }, { hits: [{ ws: "ws_1", path: "areas/trips/plan.md", score: 0.9 }] }),
   step("door", { input: { chat: "group", kind: "text", covers: ["1000-000001"] }, output: { model: "anthropic/claude-haiku-5-5", effort: "medium", reviewer: "on", advisor: "on", planner: "off" } }),
   e({ kind: "brief", turn: T, asker: "seyi", ask: "plan the trip", tools: [], waiting: [] }),
   step("fallback", { input: { from: "haiku", status: 529 }, output: { model: "glm" } }),

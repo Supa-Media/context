@@ -140,6 +140,15 @@ export function setSandboxCall(c: SandboxCall | null) {
   call = c;
 }
 
+/**
+ * A gateway route op a Lab panel asks with the test chat's grant, outside the test chat's own state (the Search page's
+ * "Try a search" panel, `op: "search"`). The same call every sandbox op makes.
+ */
+export function callSandboxRoute(op: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (!call) return Promise.reject(new Error("Sign in to the console to use the test chat"));
+  return call(op as SandboxOp, body);
+}
+
 const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);

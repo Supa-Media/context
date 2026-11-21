@@ -13,6 +13,8 @@
  *    they are in, with how many people it holds besides Tex.
  *  - `sets` → `{ sets: [{ id, title, set: "training" | "dev", kind, people, texts }] }`: the Training and Dev
  *    conversations a test chat can start from, the Lab's drafts over the repo's copy. Never the Test Set.
+ *  - `search { query, versionId?, graph?, only? }` → `{ query, main, draft, changed }`: one search of the caller's own
+ *    workspaces on main's search config and on a draft's (`search.js`), each unrecorded, so a try-out is never a real search.
  *  - `shared` and `ledger { chatId, ... }`: the chats people shared with the developers and their history files, read
  *    only (`shared.js`); `open { source: "shared", chatId }` opens a test chat over one, run as its person.
  *  - `open { source: "chat" | "set" | "maya" | "shared", chatId?, convId?, versionId?, base? }` → `{ sandboxId, people, rows }`:
@@ -69,6 +71,7 @@ import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inboun
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
 import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
+import { searchForPerson } from "./search.js";
 
 export { oneRowPerText };
 
@@ -598,6 +601,8 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "open") return await open(env, controlPlane, token, who, input, origin);
   if (input.op === "list") return json(await listOf(env, who.userId));
   if (input.op === "shared") return await sharedList(controlPlane, token);
+  // A search try-out on the caller's own 1:1 (`search.js`): main's search config and a draft's, neither counted. No test chat.
+  if (input.op === "search") return await searchForPerson({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
   if (input.op === "ledger") return await sharedLedger(env, controlPlane, token, who, input);
   // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
   if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
@@ -672,6 +677,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
     }
     default:
-      return refused(400, "op is chats, sets, shared, ledger, list, open, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read or nightly");
+      return refused(400, "op is chats, sets, shared, ledger, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read or nightly");
   }
 }

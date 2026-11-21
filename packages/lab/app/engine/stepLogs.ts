@@ -74,6 +74,11 @@ export const STEP_LOGS: Record<string, StepLog> = {
   rungTools: { got: "node run rungTools: nothing (it reads the turn's tool calls)", gave: "node run rungTools: the apps and web it already tried and the apps that failed", settings: "code (no model)", time: "node run: its own time" },
   handoff: { got: "node run handoff: their ask, the held draft, its notice, what the turn found and the cause (rounds, check, route or ladder)", gave: "node run handoff: hand (the job's title, brief and done-when) or keep, and why", settings: "code (no model)", time: "node run: its own time; the job starts over handoff -> jobStart" },
   housekeep: { got: "step housekeep: the time zone", gave: "step housekeep: the outcome and the status", settings: "its model" , time: "node run: its own time" },
+  // Search's steps (Dev2, 2026-11-21): the search config's own runner logs each step's run as a node run (`step` "node"),
+  // with what went in, what came out and its own time, and the settings it ran with (searchConfig.json).
+  search: { got: "node run search: the query, the prefix, the only and boost lists, and the person's role", gave: "node run search: the workspaces to search (each, or none) and the query as it goes on", settings: "search's own settings (searchConfig.json)", time: "node run: its own time (plain code)" },
+  each: { got: "node run each: the query and each workspace asked, with the person's role there", gave: "node run each: the note hits per workspace, by words and by meaning, before they are merged", settings: "search's own settings: the score floor, extra notes, snippet length, meaning floor, rank constant", time: "node run: its own time, including each workspace's meaning call" },
+  fuse: { got: "node run fuse: the per-workspace hit lists", gave: "node run fuse: the merged hits, ranked, with title, phrase and path evidence", settings: "search's own settings: how many hits, the rank constant, the title and phrase weights", time: "node run: its own time (plain code)" },
 };
 
 /** Step names the gateway and Worker log under another canvas step's name. */

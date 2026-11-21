@@ -21,6 +21,7 @@ import { draftProblems } from "../../../packages/lab/gateway/texDev/check.js";
 import { turnsOf } from "../../../packages/lab/gateway/texDev/probe.js";
 import { turnAnswer } from "../../../packages/lab/gateway/texDev/replay.js";
 import { CONFIG_STAMP, TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { labSearchGraph } from "../../../apps/mcp/src/search/config/labDraft.cjs";
 
 function session(role) {
   return {
@@ -92,7 +93,8 @@ test("create from main sends main's graph; a refusal from the control plane is t
   const call = createTexDev({ env: { APP_ORIGIN: "https://context.example" }, session: session("editor"), controlPlane: plane });
   const made = jsonOf(await call("create", { name: "Try" }));
   assert.equal(made.link, "https://context.example/lab?v=vabc");
-  assert.equal(JSON.parse(plane.calls[0].args.graph).nodes.length, TEX_CONFIG.nodes.length);
+  // Main is Tex's config with search's three steps beside it (Dev2, 2026-11-21).
+  assert.equal(JSON.parse(plane.calls[0].args.graph).nodes.length, TEX_CONFIG.nodes.length + labSearchGraph().nodes.length);
   // It keeps the main it was made from, so Promote merges only its own changes (texConfigStamp.cjs).
   assert.equal(plane.calls[0].args.base, configStamp(TEX_CONFIG));
   assert.equal(plane.calls[0].token, "tok");

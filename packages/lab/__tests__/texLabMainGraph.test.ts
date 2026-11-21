@@ -14,15 +14,21 @@ import { mainGraph } from "@context/lab/app/data/graph";
 import { unfoldGroups } from "@context/lab/app/engine/groups";
 import { BASE_MODELS } from "@context/lab/app/data/models";
 import { TEX_CONFIG } from "@context/tex/src/texConfig.cjs";
+import { labSearchGraph } from "../../../apps/mcp/src/search/config/labDraft.cjs";
 
 describe("the Lab's main graph is Tex's config", () => {
   test("main's graph is the config itself, and the config names each model as the Lab's table does", () => {
     // The Lab shows the config's door steps folded into one box; unfolded, the graph is the config (texLabGroups.test.ts).
     // Unfolding restores the config's steps in order and its wires as a set (the order of wires may differ).
+    // Search's steps sit in main too (Dev2, 2026-11-21), tagged `graph: "search"`: Tex's side is the config, and search's
+    // side is search's config in the draft's shape (apps/mcp/src/search/config/labDraft.cjs).
     const unfolded = unfoldGroups(mainGraph());
     const byText = (a: unknown[]) => a.map((x) => JSON.stringify(x)).sort();
-    expect(unfolded.nodes).toEqual(TEX_CONFIG.nodes);
-    expect(byText(unfolded.edges)).toEqual(byText(TEX_CONFIG.edges));
+    const search = labSearchGraph();
+    expect(unfolded.nodes.filter((n) => n.graph !== "search")).toEqual(TEX_CONFIG.nodes);
+    expect(unfolded.nodes.filter((n) => n.graph === "search").map((n) => n.id)).toEqual(["search", "each", "fuse"]);
+    expect(unfolded.nodes.filter((n) => n.graph === "search")).toMatchObject(search.nodes);
+    expect(byText(unfolded.edges)).toEqual(byText([...TEX_CONFIG.edges, ...search.edges]));
     for (const [key, id] of Object.entries(TEX_CONFIG.models)) expect([key, BASE_MODELS[key]?.id]).toEqual([key, id]);
     for (const n of TEX_CONFIG.nodes) expect([n.id, n.model === "code" || n.model in TEX_CONFIG.models]).toEqual([n.id, true]);
   });

@@ -1,6 +1,6 @@
 {
   "searchConfig": 1,
-  "about": "Search's own config (Dev2, 2026-11-21: \"not only Tex uses search\"): every step a search runs, its settings and the wires between them. Read by the gateway's search for every caller (an AI client's search_notes, the app's search bar, Tex) through searchConfig.js, and edited in the Lab on the Search page. A Lab Promote changes this file in a pull request.",
+  "about": "Search's own config (Dev2, 2026-11-21: \"not only Tex uses search\"): every step a search runs, its settings and the wires between them. Read by the gateway's search for every caller (an AI client's search_notes, the app's search bar, Tex) through searchConfig.cjs, and edited in the Lab on the Search page. A Lab Promote changes this file in a pull request.",
   "nodes": [
     {
       "id": "search",

@@ -26,6 +26,8 @@ import { createRequire } from "node:module";
 import { CONFIG_PATH, readTexConfig } from "./lib/texConfigFile.mjs";
 
 const { GRAPHS, graphOf } = createRequire(import.meta.url)("../packages/tex/src/texConfigSchema.cjs");
+// Every architecture with a config of its own (Search, ...): each gets its own generated page (Dev2, 2026-11-21).
+const { ARCHITECTURES } = createRequire(import.meta.url)("../packages/tex/src/architectures.cjs");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const CONFIG = CONFIG_PATH;
@@ -247,6 +249,42 @@ export function pageFor(page, config) {
 
 const read = (root, path) => readFileSync(join(root, path), "utf8");
 
+/** Where an architecture's own generated page lives: `docs/architecture/<page>.md`. */
+export const ownPagePath = (entry) => `docs/architecture/${entry.page}.md`;
+
+/**
+ * An architecture's own page, whole, from its config alone (`architectures.cjs`): who runs it, its drawing and each
+ * step's settings. A sibling of Tex's page, never part of it, because Tex's page is read into every Tex prompt.
+ */
+export function ownPageFor(entry, config = entry.config) {
+  const nodes = config.nodes;
+  const settings = nodes.flatMap((n) => Object.entries(n.settings ?? {}).map(([name, value]) => `| ${cell(n.label)} | \`${name}\` | ${value} |`));
+  return [
+    `# ${entry.label} architecture`,
+    "",
+    `<!-- Generated from ${entry.file} by node scripts/tex-architecture.mjs; edit the config (or the Lab's ${entry.label} page), never this page. -->`,
+    "",
+    cell(config.about ?? ""),
+    "",
+    `**Who runs it.** ${entry.runs}`,
+    "",
+    "## Drawing",
+    "",
+    flowchartFor({ models: {}, groups: {}, ...config }, nodes, config.edges),
+    "",
+    "## Steps",
+    "",
+    "| Step | Goal | Code |",
+    "|---|---|---|",
+    ...nodes.map((n) => `| ${cell(n.label)}${n.on ? "" : " (off)"} | ${cell(n.goal ?? "")} | ${cell(n.file ?? "")} |`),
+    "",
+    "## Settings",
+    "",
+    ...(settings.length ? ["| Step | Setting | Value |", "|---|---|---|", ...settings] : ["None."]),
+    "",
+  ].join("\n");
+}
+
 /** Everything stale or wrong between the config, the page and the module, for `tex-diagram-check.mjs`. */
 export function generatedProblems(root = ROOT) {
   const config = readTexConfig(root);
@@ -254,6 +292,15 @@ export function generatedProblems(root = ROOT) {
   if (problems.length > 0) return problems;
   if (pageFor(read(root, PAGE), config) !== read(root, PAGE)) problems.push(`${PAGE} is not what ${CONFIG} draws: run node scripts/tex-architecture.mjs`);
   if (moduleFor(config) !== read(root, MODULE)) problems.push(`${MODULE} is not what ${CONFIG} says: run node scripts/tex-architecture.mjs`);
+  for (const entry of ARCHITECTURES) {
+    let page = null;
+    try {
+      page = read(root, ownPagePath(entry));
+    } catch {
+      /* missing is stale */
+    }
+    if (page !== ownPageFor(entry)) problems.push(`${ownPagePath(entry)} is not what ${entry.file} draws: run node scripts/tex-architecture.mjs`);
+  }
   return problems;
 }
 
@@ -272,6 +319,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     writeFileSync(join(ROOT, PAGE), pageFor(read(ROOT, PAGE), config));
     writeFileSync(join(ROOT, MODULE), moduleFor(config));
-    console.log(`tex-architecture: wrote ${PAGE} and ${MODULE}`);
+    for (const entry of ARCHITECTURES) writeFileSync(join(ROOT, ownPagePath(entry)), ownPageFor(entry));
+    console.log(`tex-architecture: wrote ${PAGE}, ${MODULE}${ARCHITECTURES.map((entry) => ` and ${ownPagePath(entry)}`).join("")}`);
   }
 }

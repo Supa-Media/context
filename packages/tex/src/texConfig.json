@@ -1,5 +1,5 @@
 {
-  "texConfig": 3,
+  "texConfig": 4,
   "about": "Tex as it runs: every step, its model, effort, on or off, time limit, rounds and the context it reads in order, and every wire. The Tex Architecture Lab opens this as main and promotes a version by changing this file in a pull request; the gateway reads it. Nothing else holds these values (Dev2, 2026-11-13).",
   "models": {
     "haiku-5-5": "anthropic/claude-haiku-5-5",

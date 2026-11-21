@@ -28,16 +28,19 @@ export { AS_ONE_OF_SEVERAL, searchOne } from "../search/config/nodes.js";
  *
  * `config` is a Lab draft's search config, to search on it instead of main's.
  *
+ * `record`, false from the Lab's try-outs, answers the same and writes no counted row (`reportCountedSearch`): a
+ * try-out is not a real search, so it does not count in the search-quality numbers.
+ *
  * The answer carries `searched` (who actually answered, this workspace first, by its `@name`, else "their own
  * workspace") and `unreached` (the names that could not be opened, read or searched).
  */
-export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null, boost = null, config = undefined, log = null } = {}) {
+export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null, boost = null, config = undefined, log = null, record = true } = {}) {
   store.lastSearch = null;
   // The one counted row for this search is written from here, after the answer is fused (`search/quality.js`).
   store.searchRowPending = true;
   try {
     const answer = await runSearch({ store, scope, rules, overrides, query, prefix, only, boost, ...(config ? { config } : {}), log });
-    reportCountedSearch(store, answer.hits.map((hit) => hit.key));
+    if (record) reportCountedSearch(store, answer.hits.map((hit) => hit.key));
     return answer;
   } finally {
     store.searchRowPending = false;

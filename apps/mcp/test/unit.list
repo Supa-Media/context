@@ -638,6 +638,7 @@ test/texDevCases.test.mjs
 test/texDevSets.test.mjs
 test/texDevRuns.test.mjs
 test/texDevEvals.test.mjs
+test/texDevSearchCheck.test.mjs
 test/texDevFailures.test.mjs
 test/texRunBand.test.mjs
 test/texRunStats.test.mjs
@@ -656,6 +657,7 @@ test/texTraining.test.mjs
 test/texTestSet.test.mjs
 test/labSandbox.test.mjs
 test/labSandboxNightly.test.mjs
+test/labSandboxSearch.test.mjs
 test/labSandboxChat.test.mjs
 test/labSandboxCross.test.mjs
 test/editNode.test.mjs
@@ -737,3 +739,4 @@ test/appChatAnswer.test.mjs
 test/texChatAppReach.test.mjs
 test/noteRunLab.test.mjs
 test/searchConfig.test.mjs
+test/texDevSearch.test.mjs
