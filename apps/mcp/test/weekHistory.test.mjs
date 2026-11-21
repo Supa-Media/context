@@ -310,3 +310,31 @@ test("read_day opens a routine's text weeks later, as Tex's own text with why it
   assert.match(text, /You: RENT-DUE/);
   assert.match(text, /routine tex\/routines\/monthly\/rent\.md ran on its schedule/);
 });
+
+// 2026-11-21: a one-to-one turn wrote the Daniel 6 note and was lost before its reply went out. The next turn saw the
+// ask with no answer and nothing of what was done, and started the work again. A lost turn's drafted answer is shown,
+// not delivered, with the tools it used. Sabotage: `lostReplies` returning [] → this test fails; the group case keeps
+// held group drafts out of a group's history.
+test("a one-to-one turn lost before its reply went out is shown as its drafted answer, never delivered, with its tools", async () => {
+  const { ONE_TO_ONE_CHAT } = await import("../../../packages/tex/gateway/agent/ledger.js");
+  const asked = NOW - 22 * 3_600_000;
+  const turn = "turn-lost-1";
+  const entries = (chat) => [
+    said(chat, NOW - 60_000, "Seyi", "What's the capital Argentina"),
+    { v: 1, id: "r1", at: asked + 40_000, kind: "reply", turn, text: "Daniel 6 is saved in your Bible study folder.", clean: true },
+    { v: 1, id: "t1", at: asked + 30_000, kind: "tool", turn, name: "write_note", ok: true },
+    said(chat, asked, "Seyi", "Prepare daniel 6 notes"),
+  ];
+  const start = weekStart(NOW, ZONE);
+  const view = weekView({ entries: entries(ONE_TO_ONE_CHAT), chat: ONE_TO_ONE_CHAT, start, timeZone: ZONE, chars: 100_000 });
+  assert.match(view.text, /You: Daniel 6 is saved in your Bible study folder\./);
+  assert.match(view.text, /\(not delivered: its turn was lost before this was sent, so they never saw it; what that turn did still happened\)/);
+  assert.match(view.text, /\(used: write_note\)/);
+  const group = weekView({ entries: entries("group-abc"), chat: "group-abc", start, timeZone: ZONE, chars: 100_000 });
+  assert.doesNotMatch(group.text, /Daniel 6 is saved/, "a group's drafts are not shown this way");
+  // A turn whose text went out is shown once, as said.
+  const sent = [said(ONE_TO_ONE_CHAT, asked + 41_000, "tex", "Daniel 6 is saved in your Bible study folder.", { turn }), ...entries(ONE_TO_ONE_CHAT)].sort((a, b) => b.at - a.at);
+  const once = weekView({ entries: sent, chat: ONE_TO_ONE_CHAT, start, timeZone: ZONE, chars: 100_000 });
+  assert.equal(once.text.match(/Daniel 6 is saved/g)?.length, 1);
+  assert.doesNotMatch(once.text, /not delivered/);
+});

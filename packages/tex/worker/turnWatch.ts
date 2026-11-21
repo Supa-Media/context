@@ -83,6 +83,19 @@ export async function recoverLostTurn(storage: InboxStorage, chat: string | unde
 }
 
 /**
+ * Leftover texts (`inboxTurn.ts` `leftoverText`) a new turn did not take in: each marked `failed:<ev>` with why "left",
+ * so the app shows it with Try again, and one `text` step `of: "leftover"` in the ledger, so the Lab and tex_dev see
+ * which texts went and why. The caller drops them from the queue.
+ */
+export async function markLeftover(storage: InboxStorage, chat: string, entries: Entry[], now: number): Promise<void> {
+  if (entries.length === 0) return;
+  for (const [, item] of entries) if (item.ev !== undefined) await storage.put<MarkedText>(`${FAILED_PREFIX}${item.ev}`, { at: now, why: "left", message: item.message });
+  const covers = entries.flatMap(([, item]) => (item.ev ? [item.ev] : []));
+  const waited = Math.max(...entries.map(([, item]) => (item.at === undefined ? 0 : now - item.at)));
+  await logStep(storage, chat, { name: "text", of: "leftover", ok: false, cause: "left", output: { outcome: "failed", covers, waitedMs: waited } }, now);
+}
+
+/**
  * The person's stop: cancels the turn running in `chat` and marks the texts it answers stopped. What it said:
  * `stopped` with those texts, or `idle` when nothing is running (or the gateway would not stop it: it already sent).
  */

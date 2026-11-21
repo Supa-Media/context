@@ -23,6 +23,7 @@ import { noteAbout, sentOnItsOwn } from "./sentOnItsOwn.js";
 import { isLinkedText, isUnsentNote, isUnsentText, keptNotTexted, linkedSends, notesByTurn } from "./sentOnItsOwn.js";
 import { shownFacts } from "./toldFacts.js";
 import { withGuestNames } from "./groupGuestNames.js";
+import { ONE_TO_ONE_CHAT } from "./ledger.js";
 
 /** The most entries one read of the ledger asks for; a turn reads at most `MAX_PAGES` of them. */
 const PAGE = DESK_LEDGER.options.limit;
@@ -169,6 +170,19 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
     seen.add(shown.id);
     events.push(shown);
   }
+  // A one-to-one turn lost after it drafted its answer: shown as the answer it drafted, never delivered, with the tools
+  // it used under it, so the next turn knows what that turn already did (Dev2, 2026-11-21: "just because we didn't
+  // record a turn, we don't know whether it succeeded"; that day's lost turn had written the note it was asked for).
+  if (chat === ONE_TO_ONE_CHAT) {
+    for (const event of lostReplies(list, before)) {
+      if (seen.has(event.id)) continue;
+      const shown = fade ? faded(event, fadeFrom) : event;
+      room -= String(shown.text ?? "").length + 40;
+      if (room < 0) break;
+      seen.add(shown.id);
+      events.push(shown);
+    }
+  }
   // Faded, the oldest day is shown whole or not at all, so what is shown of the past only moves once a day and the
   // cached history ahead of it stays the same from one text to the next (the context review, 2026-11-06).
   const kept = fade && room <= 0 && events.length > 0 ? wholeDays(events) : events;
@@ -176,6 +190,30 @@ export function earlierFromLedger(entries, chat, { before = Number.MAX_SAFE_INTE
   // Faded, the days older than every text shown are given as the summaries written the night after (`daySummaries.js`).
   const summaries = fade ? daysBefore(entries, kept.length > 0 ? kept[0].at : before) : [];
   return { events: kept, tools, facts, summaries };
+}
+
+/** How long after its drafted answer a turn with no text out counts as lost: a send still on its way is not. */
+export const LOST_AFTER_MS = 5 * 60_000;
+
+/**
+ * Turns that drafted an answer (`reply`) and never got a text out or a note kept, older than `before` and at least
+ * `LOST_AFTER_MS` older than the newest entry: each as one of Tex's texts, `delivered: false`, `reason: "lost"`, newest
+ * first as `entries` are. A turn that chose silence drafts no words, so it is never one.
+ */
+export function lostReplies(entries, before = Number.MAX_SAFE_INTEGER) {
+  const list = Array.isArray(entries) ? entries : [];
+  const newest = list.reduce((max, entry) => (Number.isFinite(entry?.at) && entry.at > max ? entry.at : max), -Infinity);
+  const out = new Set();
+  for (const entry of list) if ((entry?.kind === "text" && entry.from?.kind === "tex") || entry?.kind === "note") out.add(entry?.turn);
+  const lost = [];
+  for (const entry of list) {
+    if (entry?.kind !== "reply" || entry.backfill !== undefined || typeof entry.turn !== "string" || out.has(entry.turn)) continue;
+    const text = typeof entry.text === "string" ? entry.text.trim() : "";
+    if (text === "" || !Number.isSafeInteger(entry.at) || !(entry.at < before) || newest - entry.at < LOST_AFTER_MS) continue;
+    out.add(entry.turn);
+    lost.push({ id: `lost-${entry.turn}`, at: entry.at, kind: "text", from: { kind: "tex" }, turn: entry.turn, text, delivered: false, reason: "lost" });
+  }
+  return lost;
 }
 
 /**
