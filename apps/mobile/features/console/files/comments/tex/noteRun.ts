@@ -171,7 +171,7 @@ export interface NoteRunOptions {
  */
 export async function* runNoteRun(options: NoteRunOptions): AsyncGenerator<NoteRunEvent> {
   const { route, mint, request, signal } = options;
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl: typeof fetch = (input, init) => (options.fetchImpl ?? globalThis.fetch)(input, init);
   if (signal.aborted) return;
   let response: Response;
   try {
@@ -244,7 +244,7 @@ export interface NoteRunsOptions {
 
 /** The note's log: its rows, or a sentence for why they could not be read. Never throws. */
 export async function fetchNoteRuns(options: NoteRunsOptions): Promise<NoteRunRow[] | { error: string; off?: true }> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl: typeof fetch = (input, init) => (options.fetchImpl ?? globalThis.fetch)(input, init);
   const url = `${options.route}?workspace=${encodeURIComponent(options.workspace)}&noteId=${encodeURIComponent(options.noteId)}${options.path === undefined ? "" : `&path=${encodeURIComponent(options.path)}`}`;
   let response: Response;
   try {

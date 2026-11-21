@@ -69,12 +69,17 @@ export function useTexInNote(options: { tex: TexTarget | null; note: NoteRef | n
   const runsRoute = tex === null ? null : noteRunsEndpoint(tex.endpoint);
   const noteKey = note === null ? null : `${note.workspace}\n${note.noteId}\n${note.path}`;
 
+  // The grant source through a ref: a `mint` that is a new function on each
+  // render (as a test double is) must not rebuild the host or reload the log,
+  // or the reload's own state change renders again and loops for ever.
+  const mintRef = useRef(mint);
+  mintRef.current = mint;
   const mintForTex = useCallback<NoteRunMint>(
     (refresh: GrantRefresh) =>
       workspaceId === null
         ? Promise.reject(new Error("No workspace"))
-        : mint({ workspaceId: workspaceId as Id<"workspaces"> }, refresh).then((minted) => minted.accessToken),
-    [mint, workspaceId],
+        : mintRef.current({ workspaceId: workspaceId as Id<"workspaces"> }, refresh).then((minted) => minted.accessToken),
+    [workspaceId],
   );
 
   // Read by the methods, which the editor calls outside any render.
