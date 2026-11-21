@@ -27,4 +27,9 @@ describe("a chat drawn again", () => {
     rememberLines("ws1\nroute", [SENT]);
     expect(startingState("ws2\nroute")).toBe(EMPTY);
   });
+
+  test("a text still sending is not carried over", () => {
+    rememberLines("ws1\nroute", [SENT, SENDING]);
+    expect(startingState("ws1\nroute").lines).toEqual([SENT]);
+  });
 });

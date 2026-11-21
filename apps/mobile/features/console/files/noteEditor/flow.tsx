@@ -44,7 +44,6 @@ export function noteFlow(view: NoteView) {
     docWidth,
     trashed,
     commenter,
-    texInNote,
   } = view;
   /*
     THE NAME, AS A FIELD, WHERE THE NOTE HAS NO TITLE OF ITS OWN.
