@@ -19,6 +19,7 @@
 
 import { SNIPPET_CLOSE, SNIPPET_OPEN } from "./d1/query.js";
 import { FILLER_WORDS, stem } from "./text.js";
+import { DEFAULT_RANKING } from "./ranking.js";
 
 /** A word of one or two letters is not a term: "a", "of", "to". */
 const MIN_TERM_LENGTH = 3;
@@ -41,7 +42,7 @@ const MIN_TERM_LENGTH = 3;
  * rank 10 with a title match would score 0.0446, above a rank-0 note on both
  * (0.0328).
  */
-export const TITLE_WEIGHT = 1 / 305;
+export const TITLE_WEIGHT = DEFAULT_RANKING.titleWeight;
 
 /**
  * The whole query as a phrase in the title, the file name or a snippet. Half a
@@ -49,7 +50,7 @@ export const TITLE_WEIGHT = 1 / 305;
  * (coverage 1 plus the phrase) lifts clear of a rank-0 hit with no title, while
  * the coverage weight alone stays under the strong-on-both note.
  */
-export const PHRASE_BONUS = 1 / 122;
+export const PHRASE_BONUS = DEFAULT_RANKING.phraseBonus;
 
 /** A snippet with any FTS highlight marks removed. The marks are empty today (`d1/query.js`); the rule stays if they are not. */
 export function unmarked(text) {
@@ -123,7 +124,7 @@ export function hasPhrase(query, hit) {
  * @param {{key: string, title?: string, snippets?: string[]}} hit
  * @returns {number}
  */
-export function evidenceBonus(query, hit) {
+export function evidenceBonus(query, hit, ranking = DEFAULT_RANKING) {
   if (typeof query !== "string" || !query.trim()) return 0;
-  return TITLE_WEIGHT * titleCoverage(query, hit) + (hasPhrase(query, hit) ? PHRASE_BONUS : 0);
+  return ranking.titleWeight * titleCoverage(query, hit) + (hasPhrase(query, hit) ? ranking.phraseBonus : 0);
 }

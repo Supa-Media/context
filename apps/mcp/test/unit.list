@@ -736,3 +736,4 @@ test/heldEdit.test.mjs
 test/appChatAnswer.test.mjs
 test/texChatAppReach.test.mjs
 test/noteRunLab.test.mjs
+test/searchConfig.test.mjs
