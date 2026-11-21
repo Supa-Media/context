@@ -34,12 +34,29 @@ export { AS_ONE_OF_SEVERAL, searchOne } from "../search/config/nodes.js";
  * The answer carries `searched` (who actually answered, this workspace first, by its `@name`, else "their own
  * workspace") and `unreached` (the names that could not be opened, read or searched).
  */
+/** One line for a search's steps (`findNotes`): each step's start after the first, and its time, in ms. */
+function logStepTimes(steps) {
+  if (steps.length === 0) return;
+  const t0 = Math.min(...steps.map((row) => (typeof row.at === "number" ? row.at : Infinity)));
+  const start = Number.isFinite(t0) ? t0 : 0;
+  const end = Math.max(...steps.map((row) => (typeof row.at === "number" ? row.at - start : 0) + row.ms));
+  console.log(JSON.stringify({ event: "step_times", total: end, steps: steps.map((row) => [row.node, typeof row.at === "number" ? row.at - start : null, row.ms]) }));
+}
+
 export async function findNotes(store, scope, rules, overrides, query, prefix = "", { only = null, boost = null, config = undefined, log = null, record = true } = {}) {
   store.lastSearch = null;
   // The one counted row for this search is written from here, after the answer is fused (`search/quality.js`).
   store.searchRowPending = true;
   try {
-    const answer = await runSearch({ store, scope, rules, overrides, query, prefix, only, boost, ...(config ? { config } : {}), log });
+    // Each step's start and time, one line per search (`step_times`): where a live search's time goes, step by step,
+    // with no word of the query or of a note in it.
+    const steps = [];
+    const keep = (row) => {
+      if (row && typeof row.node === "string" && typeof row.ms === "number") steps.push(row);
+      if (log) log(row);
+    };
+    const answer = await runSearch({ store, scope, rules, overrides, query, prefix, only, boost, ...(config ? { config } : {}), log: keep });
+    logStepTimes(steps);
     if (record) reportCountedSearch(store, answer.hits.map((hit) => hit.key));
     return answer;
   } finally {
