@@ -17,3 +17,4 @@ export { HANDLES_KEY } from "./replyQuote";
 // The app's view of the queue, and its stop and Try again (`turnWatch.ts`).
 export { queueView, TURN_RUN_KEY } from "./turnWatch";
 export { TEXTS_QUEUE } from "./chatQueue";
+export { APP_RUN_KEY } from "./appRun";

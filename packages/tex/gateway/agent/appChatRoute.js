@@ -9,7 +9,8 @@
  * never registers), for a personal workspace the person owns. The chat is always `app:<session.actorUserId>`: nothing
  * in the body names a chat, a user or a workspace, and every id the body names is checked against this chat's rows.
  *
- *  - `{ op: "get" }` → `{ rows, typing }`: the newest rows, oldest first, and whether Tex is working.
+ *  - `{ op: "get" }` → `{ rows, typing, digest, run }`: the newest rows, oldest first, whether Tex is working, and
+ *    the run card of the turn running now (`run`: `{ turn, covers, startedAt, steps }` or null; `liveSteps.js`).
  *  - `{ op: "send", text?, pictures?, replyTo? }` → `{ msgId }`: words (trimmed, up to 4000 characters) and up to four
  *    pictures (base64 JPEG, PNG, GIF or WebP, each up to 5 MB; the bytes decide the kind), at least one of the two.
  *    `replyTo` names a row of this chat (its words are quoted, as a Messages reply's are).
@@ -22,7 +23,7 @@
  *  - `{ op: "stop" }` → `{ stopped }`: the person stopped the turn running (mock: "Stopped. Tex keeps what it already
  *    did."); its texts show `stopped`, and Try again on one queues it again. `stopped` is false when nothing was running.
  *  - `{ op: "retry", msgId }` → `{ msgId }`: Try again on a text that shows `failed` or `stopped`.
- *  - `{ op: "wait", since? }` → `{ rows, typing, digest }`: `get`, held up to `WAIT_MS` until the chat's outbox
+ *  - `{ op: "wait", since? }` → `{ rows, typing, digest, run }`: `get`, held up to `WAIT_MS` until the chat's outbox
  *    changes from the `digest` the app last had (one request open, no polling loop in the app); at once without `since`.
  *  - `{ op: "warm", cause: "open" | "typing" }` → `{ when, why? }`: the person opened the chat or started typing, so
  *    the model's cache is warmed for their next text when node `warm` is wired (`textsWarm.js`); a skip otherwise.
@@ -33,7 +34,7 @@
 
 import { ledgerFor, ONE_TO_ONE_CHAT } from "./ledger.js";
 import { objectByName } from "../../../../apps/mcp/src/objectPlace.js";
-import { ROWS_SHOWN, buildRows, ledgerEntries, outboxDigest, outboxOf, typingNow } from "./appChatRows.js";
+import { ROWS_SHOWN, buildRows, ledgerEntries, outboxDigest, outboxOf, stepEntries, typingNow } from "./appChatRows.js";
 
 export const APP_CHAT_PATH = "/tex/app-chat";
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
@@ -124,12 +125,12 @@ async function serveAppChat(request, _store, session, _path, env, deps = {}) {
 
 /** Every row of the chat, oldest first, with the outbox's typing mark: the one read a `get`, `send`'s reply and `react`'s check all need. */
 async function readChat({ env, chatId, session, ledgerOf, now }) {
-  const [ledger, outbox] = await Promise.all([ledgerEntries(ledgerOf, session.workspaceId), outboxOf(env.TEX_CHAT, chatId)]);
+  const [ledger, outbox, steps] = await Promise.all([ledgerEntries(ledgerOf, session.workspaceId), outboxOf(env.TEX_CHAT, chatId), stepEntries(ledgerOf, session.workspaceId)]);
   const out = {};
-  const rows = buildRows(ledger, outbox, now(), out);
+  const rows = buildRows(ledger, outbox, now(), out, steps);
   // Tex is working while a turn of this chat runs, the typing mark or not.
   const typing = typingNow(outbox.typingAt, now()) || outbox.queue.some((item) => item.state === "running");
-  return { rows, typing, handles: out.handles, digest: outboxDigest(outbox, now()) };
+  return { rows, typing, handles: out.handles, digest: outboxDigest(outbox, now()), run: outbox.run };
 }
 
 /** `wait`: the chat's rows once its outbox differs from `since`, or after `WAIT_MS` either way. */
@@ -140,9 +141,9 @@ async function wait(ctx, body) {
     const until = ctx.now() + WAIT_MS;
     while (ctx.now() < until && outboxDigest(await outboxOf(ctx.env.TEX_CHAT, ctx.chatId), ctx.now()) === since) await sleep(WAIT_EVERY_MS);
   }
-  const { rows, typing, digest } = await readChat(ctx);
+  const { rows, typing, digest, run } = await readChat(ctx);
   console.log(JSON.stringify({ event: "app_chat", op: "wait", outcome: digest === since ? "same" : "changed" }));
-  return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest });
+  return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest, run });
 }
 
 /** `stop` and `retry`: passed to the chat's object (`texChat/appChat.js` `serveAppTurnCall`); retry only on a row that shows failed or stopped. */
@@ -171,9 +172,9 @@ async function warm({ env, session }, body) {
 }
 
 async function get(ctx) {
-  const { rows, typing, digest } = await readChat(ctx);
+  const { rows, typing, digest, run } = await readChat(ctx);
   console.log(JSON.stringify({ event: "app_chat", op: "get", outcome: "ok" }));
-  return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest });
+  return json({ rows: rows.slice(-ROWS_SHOWN), typing, digest, run });
 }
 
 async function send(ctx, body) {

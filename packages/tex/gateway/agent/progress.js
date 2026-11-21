@@ -207,13 +207,14 @@ export function diedOf(error) {
  * it: `{"progress": "..."}` lines as they happen, `{"step": "..."}` for a
  * job's own steps, `{"tick": n}` while nothing does, for a job's part one
  * `{"answered": {...}}` as soon as its answer is ready (before the advisor's
- * check, so the answer outlives a failure after it), and last
+ * check, so the answer outlives a failure after it), `{"live": {...}}` for each
+ * step of a turn asked with `live: true` (the app's run card), and last
  * `{"status": 200, "body": {...}}`.
  *
  * The HTTP status of the stream itself is 200; the turn's status travels in
  * the last line, because it is only known at the end.
  *
- * @param {(progress: (text: string) => Promise<void>, step: (text: string, how?: object) => Promise<void>, answered: (body: object) => Promise<void>) => Promise<Response>} run
+ * @param {(progress: (text: string) => Promise<void>, step: (text: string, how?: object) => Promise<void>, answered: (body: object) => Promise<void>, live: (step: object) => Promise<void>) => Promise<Response>} run
  * @param {{waitUntil?: (work: Promise<unknown>) => void, heartbeatMs?: number}} [options]
  */
 export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS } = {}) {
@@ -256,6 +257,8 @@ export function streamTurn(run, { waitUntil = null, heartbeatMs = HEARTBEAT_MS }
               ? write({ draft: how.draft })
               : Promise.resolve(),
         (body) => write({ answered: body }),
+        // `live`: one of the turn's steps as the app's run card shows it, only for an ask that asked (`liveSteps.js`).
+        (step) => write({ live: step }),
       );
       const body = await response.json().catch(() => null);
       await write({ status: response.status, body });

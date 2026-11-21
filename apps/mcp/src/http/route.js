@@ -466,7 +466,7 @@ export async function route(request, env, ctx) {
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
         if (!wantsProgress(request)) return await held(() => handleAgent(request, env, store, session, controlPlane));
-        return streamTurn((progress, step, answered) => held(() => handleAgent(request, env, store, session, controlPlane, { progress, step, answered })), {
+        return streamTurn((progress, step, answered, live) => held(() => handleAgent(request, env, store, session, controlPlane, { progress, step, answered, live })), {
           waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
         });
       }

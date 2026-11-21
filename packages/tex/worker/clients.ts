@@ -329,6 +329,7 @@ export async function askAgent(
     warm, beside,
     recent,
     again,
+    onLive,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -362,6 +363,8 @@ export async function askAgent(
     recent?: readonly TexEvent[]; // the outbox: what the gateway has not taken yet, added to the ledger's day (`warmCopy.js` `mergeEvents`)
     /** A try after one that failed: the gateway goes on from what that try did (`packages/tex/gateway/agent/savedRounds.js`). */
     again?: boolean;
+    /** Each of the turn's steps as the app's run card shows it: the ask says `live: true`, and is streamed (`appRun.ts`). */
+    onLive?: (step: unknown) => void;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -390,8 +393,9 @@ export async function askAgent(
     ...(warm ? { warm, ...(beside && beside.length > 0 ? { beside } : {}) } : {}),
     ...(recent && recent.length > 0 ? { recent } : {}),
     ...(again ? { again: true } : {}),
+    ...(onLive ? { live: true } : {}),
   };
-  if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
+  if (onProgress || onLive) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress ?? (async () => {}), onStep, onLive);
   let result: { status: number; json: unknown };
   try {
     result = await post(
@@ -489,6 +493,7 @@ export async function askAgentStream(
   ask: { question: string } & Record<string, unknown>,
   onProgress: (text: string) => Promise<void>,
   onStep?: (text: string, how?: StepHow) => Promise<void>,
+  onLive?: (step: unknown) => void,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
   let timedOut = false;
@@ -550,6 +555,12 @@ export async function askAgentStream(
           const result = typeof parsed.result === "string" && parsed.result.trim() ? parsed.result.trim().slice(0, MAX_STEP_RESULT) : "";
           const how: StepHow = { ...(parsed.failed === true ? { failed: true as const, ...(why ? { why } : {}) } : {}), ...(result ? { result } : {}), ...(parsed.held === true ? { held: true as const } : {}), ...(parsed.outside === true ? { outside: true as const } : {}) };
           await onStep?.(parsed.step.trim().slice(0, 140), Object.keys(how).length > 0 ? how : undefined);
+          touch();
+          continue;
+        }
+        if (parsed.live !== null && typeof parsed.live === "object") {
+          // A step for the app's run card (`appRun.ts`): shown, never part of the answer.
+          onLive?.(parsed.live);
           touch();
           continue;
         }

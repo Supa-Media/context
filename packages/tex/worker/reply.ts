@@ -68,6 +68,8 @@ import { appUserOf, namesAppChat } from "./appChat";
 export type Message = Extract<Inbound, { kind: "message" }> & { channel?: "simulator"; setting?: true; askYes?: true };
 
 export type ReplyDeps = {
+  /** An app chat's run card: each of the turn's steps as it takes it (`appRun.ts`). */
+  onLive?: (step: unknown) => void;
   /** The app chat id this chat object is, when the gateway placed it for the Context app (`env.ts` `APP_CHAT`). */
   appChat?: string;
   /** Tex asks Tex across chats (`crossChat.ts`), once the config wires the gate: what this chat holds of its asks, and where its asks and an ask-run's answer go. */
@@ -344,7 +346,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`packages/tex/gateway/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm, ...(deps.again ? { again: true } : {}) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm, ...(deps.again ? { again: true } : {}), ...(deps.onLive ? { onLive: deps.onLive } : {}) },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.

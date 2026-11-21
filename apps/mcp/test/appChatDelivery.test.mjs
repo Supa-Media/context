@@ -187,3 +187,38 @@ describe("the route's stop, retry and wait", () => {
     assert.ok(clock >= NOW + WAIT_MS);
   });
 });
+
+describe("the run card while a turn runs", () => {
+  it("get answers the running turn's steps, and a new step changes the digest wait holds on", async () => {
+    const run = { turn: "turn-1", covers: ["e1"], startedAt: NOW - 4_000, steps: [{ k: "think", at: 100, text: "Looking" }] };
+    const state = { outbox: { events: [person("e1", NOW - 5, "hi")], queue: [{ ev: "e1", state: "running" }], run } };
+    const chat = chatNamespace(state);
+    const first = await call({ op: "get" }, chat);
+    assert.deepEqual(first.body.run, run);
+    state.outbox = { ...state.outbox, run: { ...run, steps: [...run.steps, { k: "tool", at: 900, name: "read_note", ok: true }] } };
+    const next = await call({ op: "wait", since: first.body.digest }, chat, { sleep: async () => {} });
+    assert.notEqual(next.body.digest, first.body.digest);
+    assert.equal(next.body.run.steps.length, 2);
+  });
+});
+
+describe("the finished run card", () => {
+  it("goes on the first Tex row of each answered turn, with its steps in order and how long it worked", () => {
+    const asked = person("e1", NOW - 12_000, "notes on Daniel 6");
+    const first = tex("t1", NOW, "Here they are", { turn: "turn-1", covers: ["e1"] });
+    const second = tex("t2", NOW + 10, "And a link", { turn: "turn-1", covers: ["e1"] });
+    const steps = [
+      { kind: "thinking", turn: "turn-1", at: NOW - 11_000, text: "They want the chapter 6 notes" },
+      { kind: "tool", turn: "turn-1", at: NOW - 9_000, name: "read_note", args: { path: "areas/daniel-5.md" }, ok: true, ms: 80, result: "etag: x\n# Daniel 5" },
+      { kind: "tool", turn: "other", at: NOW - 9_000, name: "search", args: { query: "nope" }, ok: true },
+    ];
+    const rows = buildRows([], { events: [asked, first, second] }, NOW, {}, steps);
+    const card = rows.find((row) => row.id === "t1").run;
+    assert.equal(card.secs, 12);
+    assert.deepEqual(card.steps.map((step) => [step.k, step.at]), [["think", 0], ["tool", 2_000]]);
+    assert.equal(card.steps[1].what, "areas/daniel-5.md");
+    assert.equal(card.steps[1].res, "# Daniel 5");
+    assert.equal(rows.find((row) => row.id === "t2").run, undefined, "one card a turn");
+    assert.equal(rows.find((row) => row.id === "e1").run, undefined);
+  });
+});
