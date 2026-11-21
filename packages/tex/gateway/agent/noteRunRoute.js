@@ -244,7 +244,9 @@ async function serveRun(request, store, session, env, ctx, deps) {
 
   const wired = dependencies(env, deps);
   const dispatch = wired.dispatchFor(store, session);
+  const readStarted = Date.now();
   const note = await readNoteAs(dispatch, parsed.path, target.context);
+  const noteReadMs = Date.now() - readStarted;
   if (note === null) return refuse(404, NOT_READABLE_MESSAGE);
 
   const ledger = wired.ledgerOf({ person: session.workspaceId }) ?? null;
@@ -285,6 +287,7 @@ async function serveRun(request, store, session, env, ctx, deps) {
         now: started,
         timeZone: DEFAULT_TIME_ZONE,
         onStep: (step) => send(stepLine(step)),
+        noteReadMs,
       });
     } catch (error) {
       console.log(JSON.stringify({ event: "note_run", outcome: "failed", error: String(error?.name ?? "error").slice(0, 40) }));

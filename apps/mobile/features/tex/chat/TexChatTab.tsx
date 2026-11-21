@@ -14,6 +14,7 @@ import {
   type ReactionEmoji,
 } from "./appChatGateway";
 import { useRevealedText } from "./appChatReveal";
+import { dayLabels } from "./appChatDays";
 import { TexDeliveryLine } from "./TexDeliveryLine";
 import { TexRunCard } from "./TexRunCard";
 import { TexWorkingMark } from "./TexWorkingMark";
@@ -112,11 +113,9 @@ export function TexChatView({
   if (firstLoad.current === null && view.phase === "listed") {
     firstLoad.current = new Set(lines.flatMap((line) => (isPending(line) ? [] : [line.id])));
   }
-  // The newest finished run card is open; the others fold away until pressed.
-  let newestRunId: string | null = null;
-  for (const line of lines) {
-    if (!isPending(line) && line.run !== undefined) newestRunId = line.id;
-  }
+  // A finished run folds to "Worked Ns · N steps" until pressed, as the mock draws it; only the live run shows its steps.
+  // "Yesterday" / "Today" above the first line of each day.
+  const days = dayLabels(lines, new Date(now));
   const running = Boolean(view.run);
   // The approval Tex is waiting on, if any: its buttons show under that row only.
   const askId = openAskRow(lines)?.id ?? null;
@@ -233,6 +232,7 @@ export function TexChatView({
           const timeLabel = ownState ? null : timeLabels.get(line) ?? null;
           const finished = !isPending(line) && line.run !== undefined ? line.run : null;
           const reveal = !isPending(line) && line.who === "tex" && isNewArrival(firstLoad.current, line.id);
+          const day = days.get(line);
           return (
             <View
               key={key}
@@ -240,12 +240,17 @@ export function TexChatView({
                 if (!isPending(line)) ys.current.set(line.id, event.nativeEvent.layout.y);
               }}
             >
+              {day !== undefined ? (
+                <Text style={[styles.muted, styles.day]} testID={`tex-day-${key}`}>
+                  {day}
+                </Text>
+              ) : null}
               {finished !== null && !isPending(line) ? (
                 <TexRunCard
                   run={{ live: false, secs: finished.secs, steps: finished.steps }}
                   now={now}
-                  open={runOpen[line.id] ?? line.id === newestRunId}
-                  onToggle={() => setRunOpen((old) => ({ ...old, [line.id]: !(old[line.id] ?? line.id === newestRunId) }))}
+                  open={runOpen[line.id] ?? false}
+                  onToggle={() => setRunOpen((old) => ({ ...old, [line.id]: !(old[line.id] ?? false) }))}
                   testID={`tex-run-${line.id}`}
                 />
               ) : null}
@@ -420,6 +425,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: { flex: 1, minHeight: 0, position: "relative" },
     muted: { color: colors.muted },
+    day: { alignSelf: "center", fontSize: texChatType.status, marginTop: 10, marginBottom: 4 },
     log: { flex: 1, minHeight: 0 },
     logBody: {
       flexGrow: 1,

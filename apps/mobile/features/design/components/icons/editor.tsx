@@ -99,14 +99,13 @@ export const editorIcons: Record<EditorIconName, DrawFn> = {
     bar("a3", u, w, c, { cx: 0.71, cy: 0.5, length: 0.28, angle: 60 }),
     chevron("head", u, w, c, { cx: 0.24, cy: 0.6, side: 0.28, angle: 180 }),
   ],
-  // Reply: a left head on a shaft that turns down at the right, so it
-  // answers rather than undoes. The turn is two bars, as the arch above is
-  // three, because this set has no curve at constant weight to spend.
+  // Reply: a left head on a shaft that curls down at the right, so it answers
+  // rather than undoes; the in-app Tex mock's drawing (2026-11-21 parity audit),
+  // one weight all the way round as a stroked path.
   reply: (u, w, c) => [
-    chevron("head", u, w, c, { cx: 0.34, cy: 0.4, side: 0.28, angle: -135 }),
-    bar("shaft", u, w, c, { cx: 0.37, cy: 0.4, length: 0.46 }),
-    bar("turn", u, w, c, { cx: 0.7, cy: 0.5, length: 0.28, angle: 45 }),
-    bar("drop", u, w, c, { cx: 0.8, cy: 0.7, length: 0.24, angle: 90 }),
+    glyph("g", u, w, c, {
+      paths: ["M0.375 0.5833 L0.1667 0.375 L0.375 0.1667", "M0.1667 0.375 L0.5833 0.375 A0.25 0.25 0 0 1 0.8333 0.625 L0.8333 0.7917"],
+    }),
   ],
   redo: (u, w, c) => [
     bar("a1", u, w, c, { cx: 0.29, cy: 0.5, length: 0.28, angle: -60 }),
