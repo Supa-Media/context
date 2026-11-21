@@ -67,6 +67,10 @@ function fakeView(over: Partial<AppChatView> = {}): AppChatView & { calls: Calls
     pictureUrl: (id: string) => (id === "pic-loading" ? null : `blob:${id}`),
     downloadFile: record("downloadFile") as AppChatView["downloadFile"],
     typing: () => {},
+    run: null,
+    stop: record("stop") as AppChatView["stop"],
+    retryRow: record("retryRow") as AppChatView["retryRow"],
+    toast: null,
     ...over,
     calls,
   };

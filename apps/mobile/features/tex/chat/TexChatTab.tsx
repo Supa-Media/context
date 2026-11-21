@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { radii, space, texChatType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useReducedMotion } from "../../design/useReducedMotion";
 import {
@@ -12,10 +12,14 @@ import {
   type ChatLine,
   type ReactionEmoji,
 } from "./appChatGateway";
+import { useRevealedText } from "./appChatReveal";
+import { TexDeliveryLine } from "./TexDeliveryLine";
+import { TexRunCard } from "./TexRunCard";
+import { TexWorkingMark } from "./TexWorkingMark";
 import type { ApprovalsView } from "../../approvals/useApprovals";
 import { useAppChat, type AppChatView } from "./useAppChat";
 import { TexChatComposer, type EditTarget, type ReplyTarget } from "./TexChatComposer";
-import { TexChatRow } from "./TexChatRow";
+import { TexChatRow, type TexChatRowProps } from "./TexChatRow";
 import type { PickedFile } from "./appChatFiles";
 import { TexChatHeader } from "./TexChatHeader";
 import { chatTimeline } from "./approvalTimeline";
@@ -87,12 +91,25 @@ export function TexChatView({
   const [edit, setEdit] = useState<EditTarget | null>(null);
   const [opened, setOpened] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
+  const [runOpen, setRunOpen] = useState<Record<string, boolean>>({});
+  const [now, setNow] = useState(() => Date.now());
   const log = useRef<ScrollView>(null);
   const stuck = useRef(true);
   const ys = useRef(new Map<string, number>());
+  // The rows the first load showed. A Tex text that arrives after it types in; these never do.
+  const firstLoad = useRef<Set<string> | null>(null);
 
   const lines = view.lines;
   const timeline = chatTimeline(lines, approvals);
+  if (firstLoad.current === null && view.phase === "listed") {
+    firstLoad.current = new Set(lines.flatMap((line) => (isPending(line) ? [] : [line.id])));
+  }
+  // The newest finished run card is open; the others fold away until pressed.
+  let newestRunId: string | null = null;
+  for (const line of lines) {
+    if (!isPending(line) && line.run !== undefined) newestRunId = line.id;
+  }
+  const running = Boolean(view.run);
   // The approval Tex is waiting on, if any: its buttons show under that row only.
   const askId = openAskRow(lines)?.id ?? null;
   // Rows from one person share a time under the last of them, read off the lines alone.
@@ -114,6 +131,24 @@ export function TexChatView({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [opened]);
+
+  // Esc stops the turn while Tex is busy (web only). It yields to the picture overlay, which takes Esc first.
+  useEffect(() => {
+    if (!view.busy || opened !== null || typeof document === "undefined") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) view.stop();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [view.busy, view.stop, opened]);
+
+  // The live run card's elapsed seconds tick once a second while a turn is open.
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
 
   // The row a jump landed on is lit for a moment, then goes back to plain.
   useEffect(() => {
@@ -146,7 +181,7 @@ export function TexChatView({
 
   return (
     <View style={styles.root} testID="tex-chat">
-      <TexChatHeader busy={view.busy} />
+      <TexChatHeader busy={view.busy} mark={<TexWorkingMark busy={view.busy} />} />
 
       <ScrollView
         ref={log}
@@ -185,7 +220,11 @@ export function TexChatView({
           }
           const line = entry.line;
           const key = isPending(line) ? line.localId : line.id;
-          const timeLabel = timeLabels.get(line) ?? null;
+          // A person's own text with a delivery state says its time in that line, so the group's time is not said twice.
+          const ownState = !isPending(line) && line.who === "me" && line.state !== undefined;
+          const timeLabel = ownState ? null : timeLabels.get(line) ?? null;
+          const finished = !isPending(line) && line.run !== undefined ? line.run : null;
+          const reveal = !isPending(line) && line.who === "tex" && isNewArrival(firstLoad.current, line.id);
           return (
             <View
               key={key}
@@ -193,8 +232,18 @@ export function TexChatView({
                 if (!isPending(line)) ys.current.set(line.id, event.nativeEvent.layout.y);
               }}
             >
-              <TexChatRow
+              {finished !== null && !isPending(line) ? (
+                <TexRunCard
+                  run={{ live: false, secs: finished.secs, steps: finished.steps }}
+                  now={now}
+                  open={runOpen[line.id] ?? line.id === newestRunId}
+                  onToggle={() => setRunOpen((old) => ({ ...old, [line.id]: !(old[line.id] ?? line.id === newestRunId) }))}
+                  testID={`tex-run-${line.id}`}
+                />
+              ) : null}
+              <RevealingRow
                 line={line}
+                reveal={reveal}
                 askOpen={!isPending(line) && line.id === askId}
                 answer={isPending(line) ? undefined : view.answers[line.id]}
                 pictureUrl={view.pictureUrl}
@@ -216,10 +265,31 @@ export function TexChatView({
                 onJump={jump}
                 onOpenNote={onOpenNote ?? null}
                 flash={!isPending(line) && line.id === flashId}
+                below={
+                  !isPending(line) && line.who === "me" && line.state !== undefined ? (
+                    <TexDeliveryLine
+                      state={line.state}
+                      at={timeText(line.at)}
+                      failedAt={line.failedAt !== undefined ? timeText(line.failedAt) : undefined}
+                      onRetry={() => view.retryRow(line.id)}
+                      testID={`tex-delivery-${line.id}`}
+                    />
+                  ) : undefined
+                }
               />
             </View>
           );
         })}
+
+        {view.run ? (
+          <TexRunCard
+            run={{ live: true, turn: view.run.turn, startedAt: view.run.startedAt, steps: view.run.steps }}
+            now={now}
+            open
+            onToggle={() => {}}
+            testID="tex-run-live"
+          />
+        ) : null}
 
         {/*
           A refused or unanswered decision leaves its card waiting and says why here. A settled
@@ -238,12 +308,18 @@ export function TexChatView({
           </Text>
         ) : null}
 
-        {view.busy ? <Working styles={styles} colors={colors} /> : null}
+        {view.busy && !running ? <Working styles={styles} colors={colors} /> : null}
       </ScrollView>
 
       {view.error !== null ? (
         <Text variant="foot" style={styles.error} testID="tex-error">
           {view.error}
+        </Text>
+      ) : null}
+
+      {typeof view.toast === "string" ? (
+        <Text variant="meta" style={styles.toast} testID="tex-toast">
+          {view.toast}
         </Text>
       ) : null}
 
@@ -256,6 +332,8 @@ export function TexChatView({
         onCancelEdit={() => setEdit(null)}
         onSend={send}
         onTyping={view.typing}
+        mode={view.busy ? "stop" : "send"}
+        onStop={view.stop}
       />
 
       {opened !== null ? (
@@ -271,6 +349,18 @@ export function TexChatView({
       ) : null}
     </View>
   );
+}
+
+/** Whether a Tex text is one that arrived after the first load, so it types in. */
+function isNewArrival(firstLoad: Set<string> | null, id: string): boolean {
+  return firstLoad !== null && !firstLoad.has(id);
+}
+
+/** A row that types its Tex words in when it is new; the row itself is drawn by `TexChatRow`. */
+function RevealingRow({ reveal, ...props }: TexChatRowProps & { reveal: boolean }) {
+  const shown = useRevealedText(props.line.text, reveal && !isPending(props.line));
+  const line = reveal && !isPending(props.line) ? { ...props.line, text: shown } : props.line;
+  return <TexChatRow {...props} line={line} />;
 }
 
 /** Tex's typing mark: three dots in a Tex-side bubble, and what it is doing. */
@@ -346,6 +436,7 @@ const makeStyles = (colors: Colors) =>
     },
     dot: { width: 6, height: 6, borderRadius: radii.pill },
     error: { color: colors.critText, paddingHorizontal: space.x4 },
+    toast: { color: colors.muted, fontSize: texChatType.small, alignSelf: "center", paddingHorizontal: space.x4, paddingBottom: space.x1 },
     overlay: {
       position: "absolute",
       top: 0,

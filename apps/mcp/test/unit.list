@@ -730,3 +730,4 @@ test/noteConnect.test.mjs
 test/noteRun.test.mjs
 test/yesUnreadAsks.test.mjs
 test/texChatAppHop.test.mjs
+test/texChatAppReach.test.mjs

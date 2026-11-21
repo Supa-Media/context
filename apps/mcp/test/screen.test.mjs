@@ -82,6 +82,8 @@ describe("validSeen keeps what is valid and drops the rest", () => {
     // A path that names another workspace inside itself is not a note path here: the workspace is the field, never the path.
     assert.deepEqual(validSeen({ note: { ...NOTE, path: "@shared/plan.md" }, tabs: [TAB] }), { tabs: [TAB] });
     assert.deepEqual(validSeen({ note: { ...NOTE, noteId: 7 }, tabs: [TAB] }), { tabs: [TAB] });
+    // The console names notes by path: no id, or an empty one, is kept as workspace and path.
+    assert.deepEqual(validSeen({ note: { workspace: "@home", path: "a.md" }, tabs: [{ workspace: "@home", noteId: "", path: "b.md" }] }), { note: { workspace: "@home", path: "a.md" }, tabs: [{ workspace: "@home", path: "b.md" }] });
     assert.deepEqual(validSeen({ note: { ...NOTE, workspace: "" }, tabs: [TAB] }), { tabs: [TAB] });
     assert.deepEqual(validSeen({ note: { ...NOTE, noteId: "x".repeat(129) }, tabs: [TAB] }), { tabs: [TAB] });
   });

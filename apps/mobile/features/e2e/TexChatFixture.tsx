@@ -151,6 +151,12 @@ function useFakeTexChat(): AppChatView {
     sending: false,
     error: null,
     answers,
+    run: null,
+    toast: null,
+    stop() {
+      setBusy(false);
+    },
+    retryRow() {},
     send(text, options) {
       const pictureIds = (options?.pictures ?? []).map((blob) => {
         const id = freshId();

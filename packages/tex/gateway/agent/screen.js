@@ -70,13 +70,18 @@ function notePath(value) {
   return path;
 }
 
-/** One note as the app names it: `{ workspace, noteId, path }`, every field valid, or null. */
+/**
+ * One note as the app names it: `{ workspace, path }` and, when the app has one, `noteId`; null when the workspace or
+ * path is not valid. The console names notes by path (2026-11-21), so a missing id is fine; a malformed one drops the note.
+ */
 function noteOf(value) {
   if (!isPlainObject(value)) return null;
   const workspace = short(value.workspace, MAX_ID);
-  const noteId = short(value.noteId, MAX_ID);
   const path = notePath(value.path);
-  return workspace === null || noteId === null || path === null ? null : { workspace, noteId, path };
+  if (workspace === null || path === null) return null;
+  if (value.noteId === undefined || value.noteId === "") return { workspace, path };
+  const noteId = short(value.noteId, MAX_ID);
+  return noteId === null ? null : { workspace, noteId, path };
 }
 
 /**
