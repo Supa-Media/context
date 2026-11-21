@@ -32,6 +32,7 @@ export const EVAL_BENCHES = [
   { id: "longmemeval-retrieval", title: "LongMemEval", variant: "Retrieval", total: 470, search: true, about: "LongMemEval's past sessions saved as notes: are the answer sessions in search's top 5? No reader, no judge. Embeddings only." },
   { id: "nanobeir", title: "NanoBEIR", variant: "All 13 sets", total: 649, search: true, about: "The standard public retrieval benchmark (BEIR's 13 sets cut to 50 queries each), scored by nDCG@10 beside BM25's own ranking. Embeddings only." },
   { id: "nanobeir-gate", title: "NanoBEIR", variant: "Gate's 4 sets", total: 200, search: true, about: "NanoBEIR's MS MARCO, NQ, FiQA and SciFact: the four the search gate runs on every search change. Embeddings only." },
+  { id: "herb", title: "HERB", variant: "Workplace data", total: 815, search: true, about: "Salesforce's public benchmark of messy workplace data: 30 products' Slack, meetings, docs, links and pull requests in one pool (39,772 artifacts), 815 questions, scored by nDCG@10 per question type. Embeddings only." },
 ] as const;
 export const EVAL_WORKFLOW = "lab-eval-run.yml";
 /** The first slice a new benchmark is sized on (Dev2's ask: a 50-question slice first, then the full run's cost). */

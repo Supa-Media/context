@@ -159,7 +159,7 @@ describe("the workflow's reports", () => {
     expect(run.questions[0]).not.toHaveProperty("secretField");
     expect(run.questions[1]).toMatchObject({ id: "q1", correct: false, calls: [{ tool: "search", input: '{"query":"bikes"}' }] });
     const listed = await door("evals", {});
-    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle", "search-hard", "search-real", "longmemeval-retrieval", "nanobeir", "nanobeir-gate"]);
+    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle", "search-hard", "search-real", "longmemeval-retrieval", "nanobeir", "nanobeir-gate", "herb"]);
     expect(listed.runs[0]).toMatchObject({ id, stage: "done" });
     expect(listed.runs[0]).not.toHaveProperty("questions");
   });
@@ -268,5 +268,14 @@ describe("the Search suite's rows and scores", () => {
     const gate = await w.door("eval_run", { bench: "nanobeir-gate", n: 200, models: "cc" });
     expect(await w.t.query(internal.functions.labEvals.job, { runId: gate.id })).toMatchObject({ bench: "nanobeir-gate", n: 200, models: "gw" });
     expect(await w.door("eval_run", { bench: "nanobeir-gate", n: 201 })).toMatchObject({ status: "bad_request" });
+  });
+
+  test("HERB runs on gateway embeddings, all 815 questions at most, and keeps its per-type scores with no BM25 row", async () => {
+    const w = await world();
+    const all = await w.door("eval_run", { bench: "herb", n: 815, models: "cc" });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId: all.id })).toMatchObject({ bench: "herb", n: 815, models: "gw" });
+    expect(await w.door("eval_run", { bench: "herb", n: 816 })).toMatchObject({ status: "bad_request" });
+    const s = cleanSearch({ n: 815, first: 100, ndcg10: 0.2, recall10: 0.02, mrr10: 0.3, bm25Ndcg10: null, objectNdcg10: 0.18, bySet: { person: { n: 260, ndcg10: 0.15, bm25Ndcg10: null, firstPct: 12 } } });
+    expect(s).toMatchObject({ ndcg10: 0.2, bm25Ndcg10: null, bySet: { person: { n: 260, ndcg10: 0.15, bm25Ndcg10: null } } });
   });
 });

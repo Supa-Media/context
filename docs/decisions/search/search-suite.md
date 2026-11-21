@@ -77,8 +77,20 @@ drop AND neither path's NanoBEIR nDCG@10 (database and workspace object) falls m
 a file (`BENCH_EMBED_CACHE`, saved to the Actions cache before the change runs); the change reads a copy, so its
 code never writes what main reads, and the corpus is embedded once rather than on every gate run.
 
+**Messy workplace data: HERB** (owner, 2026-11-21: "look for a new benchmark public that's better suited", then
+"ok, let's use herb then and see where we fall"; `apps/mcp/bench/evals/herb.mjs`). NanoBEIR's corpora are clean, one
+kind of text per set; our real searches lose to clutter (chat, transcripts, forwarded mail, logs sharing one word with
+the question). HERB (Salesforce AI Research, EMNLP 2025, arXiv 2506.23139) is 30 made-up products' Slack messages,
+meeting transcripts, documents, links and pull requests, 39,772 artifacts, with 815 questions about content, people,
+customers, pull requests and links, each citing the artifacts it is answered from. One world holds every artifact as
+a note (the paper's pool is one), plus the people and customer profiles; the products' own team and customer lists are
+left out, as the dataset card says a retrieval run must. Scored like NanoBEIR, a cited artifact being a relevant note,
+per question type; a question cites a median of 52 artifacts, so nDCG@10 and right note first are the numbers to
+compare, not Recall@10. Its licence is CC BY-NC 4.0: the data is downloaded at run time and never kept here, and only
+our numbers are published. In the Lab as `herb` (815 questions). It is a measure, not part of the gate.
+
 **What a simplification would cost:** a gate on the made-up set alone tunes search to questions we wrote; a Test part
 an agent can read is tuned against; letting a change's own harness read its ranks lets it grade itself. **Tests:**
-`apps/mcp/bench/test/searchHard.test.mjs`, `nanoBeir.test.mjs` (BEIR's nDCG, the mean over sets, the fetch, the embedding file), `memoryRetrieval.test.mjs`, `searchSuite.test.mjs`,
+`apps/mcp/bench/test/searchHard.test.mjs`, `nanoBeir.test.mjs` (BEIR's nDCG, the mean over sets, the fetch, the embedding file), `herb.test.mjs`, `memoryRetrieval.test.mjs`, `searchSuite.test.mjs`,
 `scripts/search-test-set.mjs --self-test` (the paths, the gate, answers carry no words), `infra/tex-eval`'s search
 tests (doors, caps, verdict), and `apps/convex/__tests__/controlPlane/labEvals.test.ts`.

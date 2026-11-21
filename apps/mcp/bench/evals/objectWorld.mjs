@@ -179,12 +179,17 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
     store.binding.put({ sealed: await sealBinding(answer, { secret: SECRET, workspaceId: id }), at: Date.now(), epoch: store.binding.get().epoch });
     let waiting = 0;
     for (const op of ["ws.search.build", "ws.meaning.build"]) {
-      for (let pass = 0; pass < BUILD_PASSES; pass += 1) {
+      // A pass indexes a bounded number of notes, so a large world (HERB's 40,000) takes as many passes as it needs;
+      // the run fails only when BUILD_PASSES passes in a row index nothing.
+      let stuck = 0;
+      for (let before = Infinity; stuck < BUILD_PASSES; ) {
         const built = await call(stub, op, { workspaceId: id });
         waiting = built?.waiting ?? 0;
         if (!(waiting > 0)) break;
+        stuck = waiting < before ? 0 : stuck + 1;
+        before = Math.min(before, waiting);
       }
-      if (waiting > 0) throw new Error(`${name}: ${op} still has ${waiting} waiting after ${BUILD_PASSES} passes`);
+      if (waiting > 0) throw new Error(`${name}: ${op} still has ${waiting} waiting after ${BUILD_PASSES} passes with no progress`);
     }
     log(`object ${name}: ${files.length} notes, both indexes built\n`);
   }

@@ -173,7 +173,9 @@ function SearchScore({ s }: { s: Summary }) {
   const two = (v: number | null | undefined) => (typeof v === "number" ? v.toFixed(3) : "–");
   const tiles: Array<[string, string]> = [];
   // NanoBEIR's headline is BEIR's own score, so it leads, with BM25's ranking of the same queries beside it.
-  if (x.ndcg10 !== undefined) tiles.push(["nDCG@10", two(x.ndcg10)], ["BM25 nDCG@10", two(x.bm25Ndcg10)], ["Objects nDCG@10", two(x.objectNdcg10)], ["Recall@10", two(x.recall10)]);
+  // HERB has no BM25 list (`herb.mjs`), so its run leaves that tile out rather than show a dash.
+  const bm25 = typeof x.bm25Ndcg10 === "number";
+  if (x.ndcg10 !== undefined) tiles.push(["nDCG@10", two(x.ndcg10)], ...(bm25 ? [["BM25 nDCG@10", two(x.bm25Ndcg10)] as [string, string]] : []), ["Objects nDCG@10", two(x.objectNdcg10)], ["Recall@10", two(x.recall10)]);
   tiles.push(
     ["Right note first", sp(x.firstPct)],
     ["Top 5", sp(x.top5Pct)],
@@ -208,11 +210,11 @@ function SearchScore({ s }: { s: Summary }) {
         : null}
       {x.bySet ? (
         <div id="evSets" style={{ marginTop: 8 }}>
-          <div className="hint" style={{ marginBottom: 4 }}>nDCG@10 per set: ours (bar) against BM25&apos;s ranking of the same queries</div>
+          <div className="hint" style={{ marginBottom: 4 }}>{bm25 ? <>nDCG@10 per set: ours (bar) against BM25&apos;s ranking of the same queries</> : <>nDCG@10 per question type</>}</div>
           {Object.entries(x.bySet).map(([k, v]) => (
             <BarRow
               key={k}
-              label={`${k} (BM25 ${two(v.bm25Ndcg10)}, objects ${two(v.objectNdcg10)})`}
+              label={bm25 ? `${k} (BM25 ${two(v.bm25Ndcg10)}, objects ${two(v.objectNdcg10)})` : `${k}, ${v.n} questions (objects ${two(v.objectNdcg10)})`}
               width={100 * (v.ndcg10 ?? 0)}
               value={two(v.ndcg10)}
               detail=""
