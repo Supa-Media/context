@@ -247,7 +247,6 @@ export async function startEvalRun(ctx: MutationCtx, who: Who, a: Record<string,
   const benchId = a.bench === undefined || a.bench === null ? EVAL_BENCHES[0].id : a.bench;
   const bench = EVAL_BENCHES.find((b) => b.id === benchId);
   if (!bench) return { status: "bad_request", error: `bench is one of ${EVAL_BENCHES.map((b) => b.id).join(", ")}` };
-  if (bench.total === 0) return { status: "bad_request", error: `${bench.title} ${bench.variant} has no questions yet: its Dev part is not in` };
   const n = a.n === undefined || a.n === null ? Math.min(DEFAULT_N, bench.total) : a.n;
   if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 1 || n > bench.total) return { status: "bad_request", error: `n is 1 to ${bench.total} questions (${Math.min(DEFAULT_N, bench.total)} by default)` };
   // The Search suite never asks Claude, so a models choice is not kept for it.
