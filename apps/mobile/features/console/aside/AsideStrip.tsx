@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, View } from "react-native";
-import { Icon, type IconName } from "../../design/components/Icon";
+import { AccessoryGlyph, type AccessoryGlyphName } from "../files/AccessoryGlyph";
 import { Dot } from "../../design/components/Dot";
 import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -8,12 +8,19 @@ import { Text } from "../../design/components/Text";
 import { ASIDE_TABS, type AsideTab } from "./tabs";
 import { useMapRoute } from "../map/live/MapRouteContext";
 
-/** The rail's icon for each tab that draws one. Tex draws its own figure instead. */
-const ICONS: Record<Exclude<AsideTab, "tex">, IconName> = {
+/**
+ * The rail's drawing for each tab that has one; Tex draws its own figure
+ * instead. Every button on the rail is drawn in Context's brush and Tex's
+ * blue, as the file tree's own folders are (Dev2, 2026-11-21 roast: "the icons
+ * on the right need to match our iconography on the left").
+ */
+const ICONS: Record<Exclude<AsideTab, "tex">, AccessoryGlyphName> = {
   activity: "people",
-  note: "file",
+  note: "page",
   meetings: "calendar",
 };
+/** The drawn rail's icon size: the file tree's folder icons' own. */
+const GLYPH = 18;
 
 /**
  * The right rail: a slim strip down the right edge with one button per tab,
@@ -65,7 +72,7 @@ export function AsideStrip({
         testID={open ? "aside-fold" : "aside-unfold"}
       >
         {/* The left sidebar's toggle, mirrored, for parity (Dev2, 2026-11-21 roast: "the arrow doesn't really work here"). */}
-        <Icon name="panelRight" size={16} color={colors.text2} />
+        <AccessoryGlyph name="panelRight" size={GLYPH} color={colors.accent} />
       </Pressable>
       {/*
         Search and the map ride here too (Dev2, 2026-11-20: "fold a search
@@ -80,7 +87,7 @@ export function AsideStrip({
           style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
           testID="aside-strip-search"
         >
-          <Icon name="search" size={16} color={colors.text2} />
+          <AccessoryGlyph name="search" size={GLYPH} color={colors.accent} />
         </Pressable>
       ) : null}
       {mapRoute !== undefined ? (
@@ -92,7 +99,7 @@ export function AsideStrip({
           style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, mapRoute.open && styles.current, hovered && styles.hover]}
           testID="aside-strip-map"
         >
-          <Icon name="liveMap" size={16} color={mapRoute.open ? colors.text : colors.text2} />
+          <AccessoryGlyph name="links" size={GLYPH} color={colors.accent} />
         </Pressable>
       ) : null}
       {onSearch !== null || mapRoute !== undefined ? <View style={styles.rule} /> : null}
@@ -118,11 +125,7 @@ export function AsideStrip({
             // Tex's figure, in ink, under the calendar: the rail's one drawing rather than an icon.
             <Tex chaos={0} size={22} testID="aside-strip-tex-figure" />
           ) : (
-            <Icon
-              name={ICONS[tab.key]}
-              size={16}
-              color={tab.key === "meetings" ? colors.accent : tab.key === showing ? colors.text : colors.text2}
-            />
+            <AccessoryGlyph name={ICONS[tab.key]} size={GLYPH} color={colors.accent} />
           )}
           {/* Recording, unless you are already reading Meetings: a mark on what you are looking at says nothing. */}
           {tab.key === "meetings" && recording && !(open && showing === "meetings") ? (

@@ -45,7 +45,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/agentOwners.ts": "24e740b4ad29aaa79f28518728e9572c43bacb1755dad2772a7801541201f7cf",
   "apps/mobile/features/console/files/comments/dom.ts": "1a81714f589d8034f04f053b03c8dc6426816912ae6eec31e2c16ab404b921dc",
   "apps/mobile/features/console/files/comments/extension.ts": "fd66b137388ddfa4b4ccf5ca58c7a80a6a1c63394241d4b0ce4d93228873ebb1",
-  "apps/mobile/features/console/files/comments/model.ts": "cde449f37f0f619ba48e554eb29c3af73a6b4622ee57a7d31ee5a8096f5f3ecd",
+  "apps/mobile/features/console/files/comments/model.ts": "394276add0e90982d4a000691620e4f3046192957e6dab049b8a08f5509d76e2",
   "apps/mobile/features/console/files/comments/sheet.ts": "c3ee715b4a8816a6b9183376c26f17ba97af3a6cfd0e72d4db2b992b405ba8a5",
   "apps/mobile/features/console/files/comments/styles.ts": "1365ea252b765562634bdfb4b29ac4729c058945962f31eab7aa17d27dcf3555",
   "apps/mobile/features/console/files/comments/tex/contract.ts": "4eb3e45dda756c995fda2c819f903f496e683f3bf92cc20971276252e7f169a3",

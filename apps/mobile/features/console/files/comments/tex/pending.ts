@@ -12,7 +12,7 @@
 import { texOf } from "./possessive";
 import { Decoration, WidgetType, type DecorationSet } from "@codemirror/view";
 import type { EditorState, Range } from "@codemirror/state";
-import { commentsParsed } from "../extension";
+import { commentHost, commentsParsed } from "../extension";
 import { anchorWords, isAddition } from "./edit";
 import type { TexRunLive } from "./runner";
 import type { PeerTexRun } from "./peerRuns";
@@ -55,6 +55,13 @@ class PendingWidget extends WidgetType {
   }
 }
 
+/** The viewer's name for their own Tex's caret: the handle, capitalised ("@seyi" is "Seyi"), or null. */
+function viewerName(state: EditorState): string | null {
+  const handle = state.facet(commentHost).author();
+  const name = handle?.replace(/^@/, "").trim() ?? "";
+  return name === "" ? null : name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 /**
  * The decorations for every thread with a pending suggestion (or a run
  * typing one) whose anchor is in the note. A run that is typing shows its
@@ -68,6 +75,7 @@ export function pendingDecorations(
   const parsed = state.field(commentsParsed, false);
   if (parsed === undefined) return Decoration.none;
   const ranges: Range<Decoration>[] = [];
+  const self = viewerName(state);
   for (const thread of parsed.threads) {
     const anchor = parsed.anchors.get(thread.id);
     if (anchor === undefined) continue;
@@ -80,6 +88,8 @@ export function pendingDecorations(
     if (typing !== null) {
       text = typing;
       caret = true;
+      // Your own run's caret carries your name too, "Seyi’s Tex", as the people beside you see it (Dev2, 2026-11-21).
+      if (self !== null) who = texOf(self);
     } else if (peer !== null) {
       text = peer.text;
       caret = true;

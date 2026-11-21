@@ -1,4 +1,4 @@
-import { bar, chevron, cradle, dot, rect, ring, shackle, type DrawFn } from "./primitives";
+import { bar, chevron, cradle, dot, glyph, rect, ring, shackle, type DrawFn } from "./primitives";
 
 type StatusIconName =
   | "plus"
@@ -140,23 +140,18 @@ export const statusIcons: Record<StatusIconName, DrawFn> = {
     ];
   },
 
-  mic: (u, w, c) => {
-    /*
-      A capsule in a cradle, on a stem, on a base.
-
-      The cradle's arms sit outside the capsule's sides (0.22/0.78 against
-      0.34/0.66) rather than crossing it, which is what keeps the two reading
-      as separate objects at 17pt instead of as one blot. The capsule's radius
-      is half its own width, so it is a stadium rather than a rounded box —
-      the same trick `radii.pill` plays on the toolbar, one drawing down.
-    */
-    return [
-      rect("capsule", u, w, c, { x0: 0.34, y0: 0.1, x1: 0.66, y1: 0.6, radius: 0.16 }),
-      cradle("cradle", u, w, c, { x0: 0.22, y0: 0.42, x1: 0.78, y1: 0.72 }),
-      bar("stem", u, w, c, { cx: 0.5, cy: 0.8, length: 0.12, angle: 90 }),
-      bar("base", u, w, c, { cx: 0.5, cy: 0.88, length: 0.3 }),
-    ];
-  },
+  // A capsule, its cradle and a stem, one thin line like the composer's paperclip
+  // beside it (Dev2, 2026-11-21: "make it similar to the paperclip"). The earlier
+  // boxed cradle on a base read as a studio microphone emoji.
+  mic: (u, w, c) => [
+    glyph("g", u, w, c, {
+      paths: [
+        "M0.5 0.0833 A0.125 0.125 0 0 1 0.625 0.2083 L0.625 0.5 A0.125 0.125 0 0 1 0.375 0.5 L0.375 0.2083 A0.125 0.125 0 0 1 0.5 0.0833",
+        "M0.7917 0.4167 L0.7917 0.5 A0.2917 0.2917 0 0 1 0.2083 0.5 L0.2083 0.4167",
+        "M0.5 0.7917 L0.5 0.9167",
+      ],
+    }),
+  ],
 
   share: (u, w, c) => {
     /*

@@ -50,10 +50,17 @@ test("a comment is written, answered and resolved under its words", async ({ pag
   await expect(page.locator(".cm-content")).not.toContainText("<!--c:");
   await expect(page.locator(".cm-content")).not.toContainText("```comments");
 
-  // The card sits under the words, and opening it never moves the text.
+  // The card never covers its words: beside them in the comments margin when
+  // the pane has room for it, docked below them when it does not. Opening it
+  // never moves the text.
   const words = await page.locator(".cm-cmt-hl").boundingBox();
   const placed = await card.boundingBox();
-  expect(placed!.y).toBeGreaterThanOrEqual(words!.y + words!.height - 1);
+  if (await card.evaluate((node) => node.classList.contains("cm-cw-margin"))) {
+    expect(placed!.x).toBeGreaterThanOrEqual(words!.x + words!.width);
+    expect(Math.abs(placed!.y - words!.y)).toBeLessThan(words!.height * 2);
+  } else {
+    expect(placed!.y).toBeGreaterThanOrEqual(words!.y + words!.height - 1);
+  }
   const textLeft = async () => (await line.boundingBox())?.x ?? NaN;
   const settled = await textLeft();
   await page.keyboard.press("Escape");

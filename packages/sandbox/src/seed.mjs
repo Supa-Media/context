@@ -267,6 +267,12 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
       const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId });
       if (binding?.status === 'connected') { ready = true; break; }
       if (binding?.status === 'error') throw await storageFailure({ slug, errorCode: binding.errorCode, env, log });
+      // Bound but never checked after 30 seconds: an earlier deploy's check was cut short (pr3940, 2026-11-21: a 503
+      // mid-seed left delta's binding "unverified" with its plan "ready", and nothing checks it again). Ask once.
+      if (owner && attempt === 15 && binding?.status === 'unverified') {
+        log(`${slug}: storage still unverified, checking it again.`);
+        await client.mutation(ref('functions/storage:reverifyStorage'), { workspaceId }).catch((error) => log(`${slug}: recheck refused: ${String(error?.message ?? error).slice(0, 160)}`));
+      }
       if (owner) {
         const status = await client.query(ref('functions/billing:status'), { workspaceId });
         if (status.managedProvisioning === 'failed') {
@@ -275,7 +281,12 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
       }
       await pause(2000);
     }
-    if (!ready) throw new Error(`${slug}: storage did not become ready.`);
+    if (!ready) {
+      // Say what it was waiting on, so a stuck preview is read from the log rather than guessed at.
+      const binding = await client.query(ref('functions/storage:getStorageBinding'), { workspaceId }).catch(() => null);
+      const status = owner ? await client.query(ref('functions/billing:status'), { workspaceId }).catch(() => null) : null;
+      throw new Error(`${slug}: storage did not become ready (binding ${binding?.status ?? 'none'}, provisioning ${status?.managedProvisioning ?? (owner ? 'unknown' : 'not the owner')}).`);
+    }
     // Search by meaning is the owner's switch, off until someone turns it on; production's rollout needs the
     // search database credential a preview does not have. The meaning index lives in the workspace object and
     // needs only the gateway's AI binding, so a preview turns it on for every workspace it seeds.
