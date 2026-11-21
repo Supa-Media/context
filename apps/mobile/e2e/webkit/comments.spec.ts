@@ -145,3 +145,39 @@ test("a comment that arrives in the file is a highlight that opens its thread", 
   const placed = await card.boundingBox();
   expect(placed!.x + placed!.width).toBeLessThanOrEqual(scroller!.x + scroller!.width);
 });
+
+test("Tex answers in the thread, writes its edit into the note, and Keep makes it the text", async ({ page }) => {
+  // The whole in-note Tex path in the real app, from the Tex button to Keep,
+  // against a scripted pretend gateway (`comments/tex/fixtureTransport.ts`)
+  // that streams real NDJSON through the real `runNoteRun`.
+  await page.goto("/e2e-fixture?tex=fake");
+  const line = await selectLine(page, "Tenancy is bucket-level");
+  const toolbar = page.locator(".cm-seltool");
+  await expect(toolbar).toBeVisible();
+  await expect(toolbar.locator("button")).toHaveCount(2);
+  await toolbar.getByRole("button", { name: /Ask Tex/ }).click();
+
+  const card = page.locator(".cm-cw");
+  const input = card.locator(".cm-cwin");
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue("@Tex ");
+  await input.pressSequentially("tighten this");
+  await page.keyboard.press("Enter");
+
+  // Working, then the edit drawn as struck old words and new ones, with Keep and Undo.
+  await expect(card).toContainText("Reading this note");
+  await expect(page.locator(".cm-tex-ins")).toContainText("checked by Tex", { timeout: 10_000 });
+  await expect(page.locator(".cm-tex-del")).toHaveCount(1);
+  await expect(card).toContainText("Rewrote the highlighted words.");
+  if (process.env.E2E_CSP_NONCE !== "1") await page.screenshot({ path: process.env.TEX_SHOT ?? "test-results/tex-pending.png" });
+  await card.getByRole("button", { name: "Keep" }).click();
+
+  await expect(page.locator(".cm-tex-ins")).toHaveCount(0);
+  await expect(line).toContainText("checked by Tex");
+  await expect(page.locator(".cm-content")).not.toContainText("Tex suggests");
+
+  // The run is in the note's log.
+  const log = page.getByTestId("tex-in-note-log");
+  await log.scrollIntoViewIfNeeded();
+  await expect(log).toContainText("tighten this");
+});

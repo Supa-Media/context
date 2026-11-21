@@ -32,7 +32,7 @@ export function TexInNoteLog({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   return (
-    <View style={[styles.section, { paddingHorizontal: gutter }]} testID="tex-in-note-log">
+    <View style={[styles.section, { marginHorizontal: gutter }]} testID="tex-in-note-log">
       <View style={styles.heading}>
         <Icon name="sparkle" size={14} color={colors.muted} />
         <Text variant="meta" style={styles.headingText}>
@@ -65,8 +65,10 @@ function LogRow({
   accent: string;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const name = row.who.replace(/^@/, "");
+  const handle = row.who.replace(/^@/, "");
   const mine = viewer !== null && sameHandle(row.who, viewer);
+  // As the mock writes it: "You" for the viewer's own runs, a name for anybody else's.
+  const name = mine ? "You" : handle.charAt(0).toUpperCase() + handle.slice(1);
   const initial = name.charAt(0).toUpperCase() || "?";
   return (
     <View style={styles.row} testID="tex-in-note-row">
@@ -95,7 +97,11 @@ function LogRow({
           </View>
         ) : null}
         <Text variant="meta" style={styles.priv}>
-          {row.private ? `Ran with ${name}'s access.` : "Lives with this note. Not added to your Tex chat."}
+          {mine
+            ? row.private
+              ? "Lives in the comment thread, and used something only you can see. Not added to your Tex chat."
+              : "Lives in the comment thread. Not added to your Tex chat."
+            : `Ran with ${name}'s access. Your private notes and Tex chat stayed out of it.`}
         </Text>
       </View>
     </View>
@@ -110,9 +116,9 @@ function sameHandle(a: string, b: string): boolean {
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    section: { marginTop: 24, paddingTop: 14, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
+    section: { marginTop: 36, paddingTop: 14, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
     heading: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-    headingText: { color: c.text, fontSize: pointerType.ui, fontWeight: "600" },
+    headingText: { color: c.muted, fontSize: pointerType.meta, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.72 },
     empty: { color: c.muted, fontSize: pointerType.meta, lineHeight: 18 },
     row: { flexDirection: "row", gap: 10, paddingVertical: 8 },
     avatar: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", marginTop: 1 },

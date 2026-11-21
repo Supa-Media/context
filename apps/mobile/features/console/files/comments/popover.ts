@@ -155,6 +155,10 @@ class Popover implements PluginValue {
     if (this.card) {
       // The new card takes the old one's place, so it does not flash at the top.
       root.style.cssText = this.card.style.cssText;
+      // Only a card that is new pops in: the same thread redrawn (a run's
+      // steps, Tex's words typing in) must not restart the fade on every redraw,
+      // which kept it invisible for as long as Tex was writing.
+      root.style.animation = this.key === key ? "none" : "";
       this.card.replaceWith(root);
     } else {
       root.style.visibility = "hidden";
@@ -165,7 +169,9 @@ class Popover implements PluginValue {
       if (kept.start !== null && kept.end !== null) input.setSelectionRange(kept.start, kept.end);
       input.dispatchEvent(new Event("input"));
     }
-    if (input !== null && ((model.draft && !sameCard) || hadFocus)) this.pendingFocus = input;
+    // A focus still waiting for the card to be placed moves to the new input:
+    // the old one is gone, and sending a message must leave the cursor in the box.
+    if (input !== null && ((model.draft && !sameCard) || hadFocus || this.pendingFocus !== null)) this.pendingFocus = input;
     this.card = root;
     this.input = input;
     this.key = key;

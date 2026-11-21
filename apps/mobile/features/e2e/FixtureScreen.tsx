@@ -8,6 +8,7 @@ import { MailFixture } from "./MailFixture";
 import { AppFrameVisualFixture, fixtureTabs } from "./AppFrameVisualFixture";
 import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
+import { fakeNoteRunFetch, setTexInNoteFixture, texInNoteFixture } from "../console/files/comments/tex/fixtureTransport";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
 import { ProjectsFixture } from "./projects/ProjectsFixture";
@@ -47,6 +48,8 @@ export interface FixtureParams {
    */
   note?: string | string[];
   user?: string | string[];
+  /** No `screen`: `fake` gives the open note a Tex answered by a scripted pretend gateway. */
+  tex?: string | string[];
   /** `screen=phone-check`: `1` draws the step for an account that may skip it. */
   skip?: string | string[];
   /** `screen=projects`: `member` draws the page for somebody who may only read. */
@@ -184,6 +187,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
     );
   }
 
+  // `tex=fake`: Tex in the open note, answered by a scripted pretend gateway (`fixtureTransport.ts`).
+  if (first(params.tex) === "fake" && texInNoteFixture() === null) setTexInNoteFixture(fakeNoteRunFetch());
   // The console, and whatever a return from Stripe said on the way in.
   return (
     <E2EFixtureScreen

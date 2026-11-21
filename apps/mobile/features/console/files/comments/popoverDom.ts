@@ -132,7 +132,10 @@ export function buildCard(model: CardModel, actions: CardActions): BuiltCard {
 }
 
 function subtitle(model: CardModel): string {
-  if (model.thread?.events.some((event) => event.author === TEX_AUTHOR)) return "Tex is in this thread";
+  // As in the mock, Tex is in the thread from the moment a message asks it, before it has answered.
+  if (model.run !== null || model.thread?.events.some((event) => event.author === TEX_AUTHOR || /(^|\s)@tex\b/i.test(event.text ?? ""))) {
+    return "Tex is in this thread";
+  }
   const parts: string[] = [];
   if (model.tex) parts.push("Tex");
   if (model.people[0]) parts.push(model.people[0].name);

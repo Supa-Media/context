@@ -301,7 +301,7 @@ export function liveEditorCss(colors: Colors): string {
 ${livePreviewStyles}
 ${commentStyles(colors, fonts.body)}
 ${popoverStyles(colors, fonts.body)}
-${texInNoteStyles({ text: colors.text, ground: colors.ground, ins: `color-mix(in srgb, ${colors.ok} 18%, transparent)`, del: `color-mix(in srgb, ${colors.crit} 15%, transparent)`, crit: colors.crit })}
+${texInNoteStyles({ text: colors.text, ground: colors.ground, ins: `color-mix(in srgb, ${colors.ok} 18%, ${colors.ground})`, del: `color-mix(in srgb, ${colors.crit} 15%, ${colors.ground})`, crit: colors.crit })}
 ${mailStyles(colors, fonts.body)}
 `;
 }
