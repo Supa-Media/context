@@ -11,7 +11,7 @@ import { selectedContext, type ConsoleData } from "../types";
 import { setupView, showSetupWidget } from "./rules";
 import { DONE_TOP } from "./SetupDone";
 import { SetupDoneLive } from "./SetupDoneLive";
-import { SetupWidget } from "./SetupWidget";
+import { SetupWidget, WIDGET_BOTTOM } from "./SetupWidget";
 import { useSetupWidget } from "./useSetupWidget";
 import { useMessageSlot } from "../../messages/useInAppMessage";
 
@@ -150,7 +150,8 @@ function SetupWidgetLive({
 }
 
 const styles = StyleSheet.create({
-  corner: { position: "absolute", right: 24, bottom: 24 },
+  // Over the `+` that shares this corner (`WIDGET_BOTTOM`).
+  corner: { position: "absolute", right: 24, bottom: WIDGET_BOTTOM },
   center: {
     position: "absolute",
     top: 0,
