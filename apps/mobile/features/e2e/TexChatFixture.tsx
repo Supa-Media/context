@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useFrame } from "../app/AppFrame";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
 import { AsideStrip } from "../console/aside/AsideStrip";
 import type { AsideTab } from "../console/aside/tabs";
-import { Icon } from "../design/components/Icon";
-import { Text } from "../design/components/Text";
-import { layout, radii, space } from "../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../design/theme";
+import { space } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 import type { AppChatRow, AskChoice, ChatLine, ReactionEmoji } from "../tex/chat/appChatGateway";
 import type { AppChatView } from "../tex/chat/appChatView";
+import type { LiveStep } from "../tex/chat/appChatRun";
 import { TexChatView } from "../tex/chat/TexChatTab";
 
 /**
@@ -112,14 +111,70 @@ function seedRows(now: number): AppChatRow[] {
 }
 
 /**
+ * `seed=mock`: the approved mock's chat (artifact "In-app Tex", Approval demo), so a screenshot of this board sits
+ * beside the mock's. Every value is invented.
+ */
+function mockRows(now: number): AppChatRow[] {
+  const day = new Date(now);
+  const at = (daysBack: number, h: number, m: number) =>
+    new Date(day.getFullYear(), day.getMonth(), day.getDate() - daysBack, h, m).getTime();
+  const steps = (start: number, n: number): LiveStep[] =>
+    Array.from({ length: n }, (_, i) => ({ k: "tool" as const, at: start + i * 1_000, name: "search", what: "Public Worship notes", ok: true, ms: 900 }));
+  return [
+    { id: "m1", who: "me", kind: "text", text: "whats on the public worship reading list?", at: at(1, 10, 30), state: "read" },
+    {
+      id: "m2",
+      who: "tex",
+      kind: "text",
+      text: "I can't find a reading list in the Public Worship notes. Two searches came up empty, and the background job I started gave up without finding one.\n\nSend me the list's name or a link and I'll read it.",
+      at: at(1, 10, 32),
+      run: { secs: 94, steps: steps(at(1, 10, 30), 3) },
+    },
+    {
+      id: "m3",
+      who: "me",
+      kind: "text",
+      text: "Prepare daniel 6 notes for me in the same format I use for bible study",
+      at: at(0, 8, 25),
+      state: "failed",
+      failedAt: at(0, 8, 25),
+    },
+    { id: "m4", who: "me", kind: "text", text: "Email Puttery about 2 more guests", at: now - 60_000, state: "read" },
+    {
+      id: "m5",
+      who: "tex",
+      kind: "text",
+      text: "Here's the email. It goes as a reply in your Puttery thread, and it waits for you.",
+      at: now - 57_000,
+      run: { secs: 3, steps: steps(now - 60_000, 3) },
+      ask: {
+        id: "a1",
+        open: true,
+        card: {
+          kind: "email",
+          state: "wait",
+          from: "you@gmail.example",
+          to: "Kameela · events@puttery.example",
+          cc: "",
+          subject: "Re: Puttery - New York City: Your Event is Confirmed!",
+          thread: true,
+          body: "Hi Kameela,\n\nWe'd like to add 2 more guests to Saturday's 7 PM party, bringing us to 20. Could you update the booking and let me know the new total?\n\nThanks!",
+          editable: true,
+        },
+      },
+    },
+  ];
+}
+
+/**
  * A local `AppChatView`: sends, reactions, edits, unsends and answers change the
  * rows in `useState`, and nothing leaves the page.
  *
  * Timers are cleared on unmount, so leaving the screen cannot write into a view
  * that is gone.
  */
-function useFakeTexChat(): AppChatView {
-  const [lines, setLines] = useState<ChatLine[]>(() => seedRows(Date.now()));
+function useFakeTexChat(mock = false): AppChatView {
+  const [lines, setLines] = useState<ChatLine[]>(() => (mock ? mockRows : seedRows)(Date.now()));
   const [busy, setBusy] = useState(false);
   const [answers, setAnswers] = useState<Record<string, AskChoice>>({});
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -225,15 +280,13 @@ function useFakeTexChat(): AppChatView {
 }
 
 /**
- * The right panel with the Tex tab showing. Folded, it is the product's own
- * `AsideStrip`; open, a tab row and `TexChatView`, mirroring `AsidePanel`'s
- * tab row (its styles are private to that file).
+ * The right panel with the Tex tab showing, beside the product's own rail (`AsideStrip`), as `AsidePanel` lays it out
+ * (its Tex tab mounts `useAppChat`, which reaches the network).
  */
 function TexAside({ folded, view }: { folded: boolean; view: AppChatView }) {
   const frame = useFrame();
   const setFolded = frame.setAsideFolded;
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
 
   useEffect(() => {
     setFolded(folded);
@@ -244,71 +297,31 @@ function TexAside({ folded, view }: { folded: boolean; view: AppChatView }) {
   }
 
   return (
-    <View style={styles.panel} testID="aside-panel">
-      <View style={styles.tabs} accessibilityRole="tablist">
-        <View style={styles.tab}>
-          <Text variant="rowSub" style={styles.muted}>
-            Meetings
-          </Text>
+    <View style={styles.row}>
+      <View style={styles.panel} testID="aside-panel">
+        <View style={styles.body} testID="aside-tex">
+          <TexChatView view={view} />
         </View>
-        <View style={[styles.tab, styles.tabCurrent]} accessibilityState={{ selected: true }}>
-          <Text variant="rowSub" style={styles.tabLabelCurrent}>
-            Tex
-          </Text>
-        </View>
-        <View style={styles.tabsGap} />
-        <Pressable
-          onPress={() => setFolded(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Fold the panel"
-          style={styles.fold}
-          testID="aside-fold"
-        >
-          <Icon name="chevronRight" size={16} color={colors.text2} />
-        </Pressable>
       </View>
-      <View style={styles.body} testID="aside-tex">
-        <TexChatView view={view} />
-      </View>
+      <AsideStrip tabs={TABS} showing="tex" recording={false} open onUnfold={() => {}} onFold={() => setFolded(true)} onSearch={() => {}} />
     </View>
   );
 }
 
-function TexChatBoard({ folded }: { folded: boolean }) {
-  const view = useFakeTexChat();
+function TexChatBoard({ folded, mock }: { folded: boolean; mock: boolean }) {
+  const view = useFakeTexChat(mock);
   return <AppFrameVisualFixture panel fakeMeeting={false} aside={<TexAside folded={folded} view={view} />} />;
 }
 
 export function TexChatFixture({ params }: { params: Record<string, string | string[] | undefined> }) {
   const fold = (Array.isArray(params.fold) ? params.fold[0] : params.fold) === "1";
-  return <TexChatBoard folded={fold} />;
+  const mock = (Array.isArray(params.seed) ? params.seed[0] : params.seed) === "mock";
+  return <TexChatBoard folded={fold} mock={mock} />;
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (_colors: Colors) =>
   StyleSheet.create({
-    panel: { flex: 1, minWidth: 0 },
-    tabs: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x1,
-      paddingHorizontal: space.x2,
-      paddingTop: space.x2,
-      paddingBottom: space.x1,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.line,
-    },
-    tab: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x1,
-      minHeight: layout.minTouchTarget,
-      paddingHorizontal: space.x3,
-      borderRadius: radii.control,
-    },
-    tabCurrent: { backgroundColor: colors.chrome },
-    tabsGap: { flex: 1 },
-    fold: { width: 36, minHeight: layout.minTouchTarget, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
-    muted: { color: colors.muted },
-    tabLabelCurrent: { color: colors.text },
+    row: { flex: 1, minWidth: 0, flexDirection: "row" },
+    panel: { flex: 1, minWidth: 0, paddingTop: space.x2 },
     body: { flex: 1, minHeight: 0 },
   });

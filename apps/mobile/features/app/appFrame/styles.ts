@@ -274,6 +274,8 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     minHeight: 0,
     flexDirection: "row",
     position: "relative",
+    // The chrome, which shows only at the page card's rounded corner; the frame's own ground is the page's colour.
+    backgroundColor: colors.chromeSurface,
   },
 
   /*
@@ -294,10 +296,11 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     mock: "take inspiration from grokbot"): beside the right panel its top
     trailing corner is rounded (`editorBesideAside`), and no hairline runs
     between the two. Its leading corner stays square, where the active tab
-    joins it.
+    joins it. It clips to that corner: the note page paints its own ground,
+    which drew a square corner over the rounded one.
   */
   editor: { flex: 1, minWidth: 0, backgroundColor: colors.pageSurface },
-  editorBesideAside: { borderTopRightRadius: radii.card },
+  editorBesideAside: { borderTopRightRadius: radii.card, overflow: "hidden" },
 
   /**
    * The right panel as a column.
