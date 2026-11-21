@@ -35,6 +35,8 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
   hits: { min: 1, max: 50, integer: true },
   logPrior: { min: 0, max: 1, integer: false },
   inboxPrior: { min: 0, max: 1, integer: false },
+  rerankTop: { min: 2, max: 50, integer: true },
+  rerankWeight: { min: 0, max: 5, integer: false },
 });
 
 /** Which settings each step reads: a setting on a step that does not read it would be a knob that does nothing. */
@@ -51,9 +53,10 @@ const SETTINGS_OF = Object.freeze({
   prior: Object.freeze(["logPrior", "inboxPrior"]),
   budget: Object.freeze(["extraNotes", "looseReads"]),
   snippets: Object.freeze(["snippetChars"]),
+  rerank: Object.freeze(["rerankTop", "rerankWeight"]),
   code: Object.freeze([]),
   answer: Object.freeze([]),
-  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior"]),
+  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior", "rerankWeight"]),
 });
 
 /** The steps every search needs, which a draft may not turn off: the others are passed over when off (`config/nodes.js`). */

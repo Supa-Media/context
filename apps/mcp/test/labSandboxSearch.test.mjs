@@ -175,9 +175,9 @@ test("a try-out answers main and the draft, ranked, with each step's time, and n
   const config = configWith("fuse", { hits: 2 });
   const answer = await searchAnswer({ store, scope: "private", rules: [], overrides: new Map(), query: "renewal", config });
   assert.equal(answer.query, "renewal");
-  const ORDER = SEARCH_CONFIG.nodes.map((n) => n.id);
+  const ORDER = SEARCH_CONFIG.nodes.filter((n) => n.on).map((n) => n.id);
   const path = answer.main.steps.map((s) => s.node).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
-  assert.deepEqual(path, ORDER, "a search across workspaces runs every step, fuse included");
+  assert.deepEqual(path, ORDER, "a search across workspaces runs every step that is on, fuse included");
   // Each step says how many notes it handed on, so the Lab shows where notes were added and removed.
   const notes = Object.fromEntries(answer.main.steps.map((s) => [s.node, s.notes]));
   assert.equal(notes.search, undefined, "the query hands on no notes");

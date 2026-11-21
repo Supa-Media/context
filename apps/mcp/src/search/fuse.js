@@ -108,6 +108,10 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
   // A note not yet fingerprinted (see the test header) takes the middle of the
   // meaning ranking, not nothing: the index builds behind searches.
   const medianRank = median(byMeaning.map((_, rank) => rank));
+  // The reranker's scores (`search/rerank.js`, when its step ran): one model read every workspace's first rows, so
+  // like meaning's they rank together; a row it did not read adds nothing.
+  const byRerank = eligible.filter(({ hit }) => typeof hit.rerankScore === "number").sort((a, b) => b.hit.rerankScore - a.hit.rerankScore);
+  const rerankRank = new Map(byRerank.map((entry, rank) => [entry, rank]));
   const scored = eligible.map((entry) => {
     const { hit } = entry;
     const counted = typeof hit.wordRank === "number" && !(hit.loose && anyWhole);
@@ -119,10 +123,11 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     // The title and phrase evidence (`search/evidence.js`): only for a word hit that counts,
     // so a loose hit gets none while a strict one exists, as its words do not count either.
     const title = counted ? evidenceBonus(query, hit, ranking) : 0;
+    const reread = rerankRank.has(entry) ? (ranking.rerankWeight ?? 1) / (RRF_K + rerankRank.get(entry) + 1) : 0;
     // The path prior (`search/priors.js`): an archived note or a log scores half
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
     const nudge = boost?.has(entry.list) ? ranking.boostFactor : 1;
-    return { ...entry, score: (word + meaning + title) * notePrior(hit.key, ranking) * nudge };
+    return { ...entry, score: (word + meaning + title + reread) * notePrior(hit.key, ranking) * nudge };
   });
   const byScore = (a, b) => b.score - a.score || a.list - b.list || a.order - b.order;
   const budget = anyWhole ? extraNotes : ranking.looseReads;
