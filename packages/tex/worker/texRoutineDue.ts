@@ -21,6 +21,8 @@ import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./
 import { readMailDelivery } from "./jobMail";
 import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
 import { jobObject } from "./jobObject";
+import { census, CENSUS_PATH, type CensusCounts, type ObjectCensus } from "./workerCensus";
+import { objectById } from "./objectPlace";
 import type { TextsBinding } from "./gatewaySession";
 import { chatMove as moveChat } from "./gatewayMove";
 import { inboxFetch, inboxId } from "./chatCalls";
@@ -55,6 +57,19 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
   /** One of this Worker's objects, called by the gateway's copy of a chat by its placed name (`chatCalls.ts`). */
   async inboxFetch(call: { name?: unknown } | null, request: Request): Promise<Response> {
     return await inboxFetch(this.env.SENDER_INBOX, call, request);
+  }
+
+  /**
+   * What each of this Worker's objects named by id still holds, counted (`workerCensus.ts`): the Lab's staff `intake`
+   * op asks it before the SenderInbox class is deleted. Rejects more than `CENSUS_BATCH` ids (`TypeError`).
+   */
+  async census(call: { ids?: unknown } | null): Promise<CensusCounts> {
+    return await census(async (id) => {
+      const stub = objectById(this.env.SENDER_INBOX, id);
+      if (stub === null) return null;
+      const answer = await stub.fetch(`https://inbox${CENSUS_PATH}`);
+      return answer.ok ? ((await answer.json()) as ObjectCensus) : null;
+    }, call?.ids);
   }
 
   /** The id a chat had here, for the addresses its pictures and pages are served at (`chatCalls.ts`). */

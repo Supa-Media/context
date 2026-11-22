@@ -15,6 +15,10 @@
  *    as the control plane lists them for staff), `SWEEP_BATCH` at a time from `after`: counts of where they are
  *    answered, and with `move: true` each one still in the Worker copied in. `next` names the following batch. Counts
  *    only, never a chat: this is how the last chats move after `INTAKE` flips, and how "none left" is proven.
+ *  - `{ op: "intake", workerIds: [<object id>, ...] }` → for staff, what each of the texting Worker's SenderInbox
+ *    objects still holds (`packages/tex/worker/workerCensus.ts`, at most 50 ids a call, listed from Cloudflare's API):
+ *    moved, purged, empty, or here by kind, with the ids of those here. How the Worker's class is proven empty
+ *    before it is deleted (Dev2 chose "sweep, then delete", 2026-11-22).
  *
  * Nothing here answers or logs an inbox's name: a 1:1's is the person's phone number, and a group's its line's id.
  */
@@ -104,10 +108,22 @@ async function sweep(env, input, { controlPlane, token }) {
   return json({ total: all.length, people: phones.length, groups: groups.length, after, looked: batch.length, ...counts, next });
 }
 
+/** `intake { workerIds }`: the Worker's objects by id, counted by what they hold; staff only, as `sweep` is. */
+async function workerCensus(env, input, { controlPlane, token }) {
+  if (typeof env?.TEXTING?.census !== "function") return refused(501, "this deployment has no texting Worker to count");
+  const listed = await controlPlane.labSandbox(token, "intakeChats", {}).catch(() => null);
+  if (listed === null) return refused(503, "the control plane did not answer");
+  if (listed.status === "refused") return refused(403, "Only staff count the Worker's objects.");
+  if (listed.status !== "ok") return refused(502, `the control plane answered ${listed.status} to the chat list`);
+  if (input.workerIds.length > 50 || input.workerIds.some((id) => typeof id !== "string" || !CHAT_KEY.test(id))) return refused(400, "workerIds: at most 50 object ids, each 64 hex.");
+  return json(await env.TEXTING.census({ ids: input.workerIds }));
+}
+
 /** `intake`: the caller's chats and where each is answered, or one moved in. */
 export async function intake(env, who, input, plane = {}) {
   if (env?.TEX_CHAT === undefined) return refused(501, "this deployment has no chat objects");
   if (input.sweep === true) return await sweep(env, input, plane);
+  if (Array.isArray(input.workerIds)) return await workerCensus(env, input, plane);
   const chats = chatsOf(who);
   if (input.chatId === undefined) {
     const listed = [];
