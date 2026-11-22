@@ -165,6 +165,8 @@ async function openStep(input, io) {
   const hereName = currentNameOf(store) ?? HERE_LABEL;
   const several = names.length > 0;
   io.ctx.opened = new Map();
+  // Settled when "Meaning" has answered for every workspace (never, when it is off).
+  io.ctx.meaningDone = new Promise((resolve) => (io.ctx.meaningEnded = resolve));
   if (here) io.ctx.opened.set(hereName, { store, scope, rules, overrides });
   // One query, one fingerprint across workspaces (`sharedEmbedder`); a search here alone embeds on its own terms.
   io.ctx.embed = several ? sharedEmbedder(store) : undefined;
@@ -224,10 +226,25 @@ async function wordsStep(input, io) {
  * (`../rerank.js` `rerankWordHits`); each hit read keeps its score, which `rerank` uses without reading the note again.
  */
 async function rerankWordsStep(input, io) {
-  const { rerankTop = 8, rerankChars } = io.node?.settings ?? {};
-  const { byWords, reranked } = await rerankWordHits(aiOf(input, io), input.query, { [input.workspace]: input.found }, { rerankTop, ...(rerankChars ? { rerankChars } : {}) });
-  return { found: byWords[input.workspace], log: { reranked } };
+  const { rerankTop = 8, rerankChars, waitAfterMeaning = WAIT_AFTER_MEANING } = io.node?.settings ?? {};
+  const read = rerankWordHits(aiOf(input, io), input.query, { [input.workspace]: input.found }, { rerankTop, ...(rerankChars ? { rerankChars } : {}) });
+  // Once meaning has answered, the search waits at most `waitAfterMeaning` ms more for this call; past that this
+  // workspace's hits go on in the word search's order, unread (the call's scores are still remembered for next time).
+  let timer;
+  let settled = false;
+  const late = io.ctx.meaningDone ? io.ctx.meaningDone.then(() => (settled ? null : new Promise((resolve) => (timer = setTimeout(() => resolve(LATE), waitAfterMeaning))))) : null;
+  read.catch(() => {}); // a call let go late never ends as an unhandled rejection
+  const got = await (late ? Promise.race([read, late]) : read).finally(() => {
+    settled = true;
+    clearTimeout(timer);
+  });
+  if (got === LATE) return { found: input.found, log: { reranked: { skipped: `still reading ${waitAfterMeaning} ms after meaning answered` } } };
+  return { found: got.byWords[input.workspace], log: { reranked: got.reranked } };
 }
+
+/** How long a search waits for a workspace's word-hit rerank once meaning has answered, unless the config says. */
+const WAIT_AFTER_MEANING = 5000;
+const LATE = Symbol("late");
 
 /** The gateway's Workers AI binding, for the reranker: the same for every workspace. */
 const aiOf = (input, io) => io.ctx.store?.ai ?? (input.workspaces ?? [{ name: input.workspace }]).map((ws) => handlesOf(io, ws.name)?.store?.ai).find(Boolean) ?? null;
@@ -236,15 +253,20 @@ const aiOf = (input, io) => io.ctx.store?.ai ?? (input.workspaces ?? [{ name: in
 async function meaningStep(input, io) {
   const byMeaning = {};
   const embed = io.ctx.embed;
-  await Promise.all(
-    input.workspaces.map(async (ws) => {
-      const { store, scope, rules, overrides } = handlesOf(io, ws.name);
-      const prefix = folderPrefix(ws.here ? input.prefix : "");
-      byMeaning[ws.name] = await phase(store, "meaning", () =>
-        meaningMatches(store, { query: input.query, scope, prefix, isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}), ...draftNumbers(io, ["minScore"]) }),
-      );
-    }),
-  );
+  try {
+    await Promise.all(
+      input.workspaces.map(async (ws) => {
+        const { store, scope, rules, overrides } = handlesOf(io, ws.name);
+        const prefix = folderPrefix(ws.here ? input.prefix : "");
+        byMeaning[ws.name] = await phase(store, "meaning", () =>
+          meaningMatches(store, { query: input.query, scope, prefix, isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}), ...draftNumbers(io, ["minScore"]) }),
+        );
+      }),
+    );
+  } finally {
+    // "Rerank word hits" stops waiting on a workspace's call a while after this (its `waitAfterMeaning`).
+    io.ctx.meaningEnded?.();
+  }
   return carry(input, input.workspaces, { byMeaning });
 }
 

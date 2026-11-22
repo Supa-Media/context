@@ -18,6 +18,7 @@ export const SETTING_TEXT: Readonly<Record<string, { label: string; tip: string 
   rerankTop: { label: "Notes reranked", tip: "How many of each workspace's first notes the reranker reads beside the query." },
   rerankChars: { label: "Rerank text length", tip: "How many characters of each note the reranker reads: fewer is faster." },
   readLate: { label: "Read the rest late", tip: "1: Rerank reads the notes Rerank word hits did not (a second call). 0: they keep their places unread, with no call after the snippets." },
+  waitAfterMeaning: { label: "Wait after meaning (ms)", tip: "Once meaning has answered, how much longer a search waits for a workspace's word-hit rerank; past it that workspace's hits keep the word search's order, unread. Lower is faster." },
   rerankWeight: { label: "Rerank weight", tip: "How much the reranker's order counts: 1 counts as much as the word search's." },
   loosePenalty: { label: "Loose-hit penalty", tip: "Pulls down a hit that only matches loosely." },
   boostFactor: { label: "Named-workspace boost", tip: "Multiplies the rank of a workspace the search names." },

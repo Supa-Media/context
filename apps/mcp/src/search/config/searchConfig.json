@@ -97,7 +97,7 @@
       "file": "apps/mcp/src/search/rerank.js",
       "x": 480,
       "y": -270,
-      "settings": { "rerankTop": 8, "rerankChars": 400 },
+      "settings": { "rerankTop": 8, "rerankChars": 400, "waitAfterMeaning": 5000 },
       "inSchema": [
         { "name": "query", "type": "text" },
         { "name": "workspace", "type": "text" },
