@@ -59,6 +59,15 @@ export default {
       const last = String(results[0] ?? "").trim().split(/\n\s*\n/).at(-1) ?? "";
       assert.match(last, /^Searched: @egress, @egress-team\.$/m, "the result's last line names every workspace it covered");
 
+      // 2026-11-21 (owner's pick): the floor adds the line only to an answer that says something isn't there. A reply that
+      // searched to find a note and then used it ("Saved to the team's meetings inbox…") texted a stray Searched line.
+      // Sabotage: drop the `saysNotThere` check in `withSearchedLine` and this fails.
+      const found = await chat.text("put the weekly meeting in the team notes", [
+        { toolCalls: [{ name: "search", args: { query: "weekly meeting" } }] },
+        { text: "Saved to the team's meetings inbox. It's team-visible, so everyone there can see it." },
+      ]);
+      assert.equal(found.answer, "Saved to the team's meetings inbox. It's team-visible, so everyone there can see it.", "a reply that found what it searched for goes without the Searched line");
+
       // A background job's part: its searches named one workspace, and its answer claims it searched every one. The
       // notice goes back in a second round, and the answer that follows is the one kept (`claimCheck.js`, `searchClaims.js`).
       // A 1:1 text on the front door gives no reply checks (`front-door.md`), so the claim is checked on a job's part.

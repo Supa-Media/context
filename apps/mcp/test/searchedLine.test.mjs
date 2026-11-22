@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { searchedLineOf, withSearchedLine, withSearchRecord } from "../../../packages/tex/gateway/agent/searchClaims.js";
+import { saysNotThere, searchedLineOf, withSearchedLine, withSearchRecord } from "../../../packages/tex/gateway/agent/searchClaims.js";
 
 /** A tool result shaped as the gateway returns it: its text in one text part. */
 const resultOf = (text, extra = {}) => ({ content: [{ type: "text", text }], ...extra });
@@ -94,4 +94,34 @@ test("withSearchedLine leaves a blank reply unchanged", () => {
 test("withSearchedLine uses the last recorded line", () => {
   const searched = ["Searched: @a, @b.", "Searched: @c, @d."];
   assert.equal(withSearchedLine("Nothing.", searched), "Nothing.\n\nSearched: @c, @d.");
+});
+
+// 2026-11-21 (owner's pick): the line goes only beside an answer that says something isn't there. A reply that used a
+// search to find a note and then saved it got a stray "Searched: …" text in a live 1:1 chat.
+test("withSearchedLine leaves a reply that found what it looked for unchanged", () => {
+  const reply = "Saved to the team's meetings inbox: inbox/meetings/2026-11-21-weekly.md. It's team-visible.\n\nhttps://context.lc/note/@team/inbox/meetings/2026-11-21-weekly.md";
+  assert.equal(withSearchedLine(reply, ["Searched: @a, @b, @c."]), reply);
+  assert.equal(withSearchedLine("The guild reading list has three books: Dune, Emma and Beloved.", ["Searched: @a, @b."]), "The guild reading list has three books: Dune, Emma and Beloved.");
+});
+
+test("saysNotThere reads answers that say something isn't there", () => {
+  for (const said of [
+    "Nothing on the public worship reading list.",
+    "I couldn't find a note about the retreat.",
+    "I can’t find that email anywhere.",
+    "The address isn't in your notes.",
+    "There's no record of the November switch.",
+    "None of your notes mention Julie.",
+    "A search didn't turn one up.",
+    "It's not written down anywhere I can read.",
+  ]) assert.ok(saysNotThere(said), said);
+});
+
+test("saysNotThere passes answers that found what they looked for", () => {
+  for (const said of [
+    "Saved to Supa's meetings inbox: inbox/meetings/2026-11-21-supa-weekly-steering.md. It's team-visible, so the team can see it. I left out the personal bit.",
+    "The transcript is machine-made, so check the names against the recording.",
+    "Your Deuteronomy 32 note links the other chapters and the authorship notes.",
+    "Doreen's timecard has Wednesday filled in, so there are hours to pay.",
+  ]) assert.ok(!saysNotThere(said), said);
 });
