@@ -122,6 +122,29 @@ row; a Test part that the Lab can run is a Test part someone can tune against.
 a search set ignores a Claude choice, and search-real refuses until its Dev
 part is in).
 
+## The standing bench objects (Dev2, 2026-11-22)
+
+A search benchmark's notes do not change from run to run, so they are loaded once and kept, and every search of a
+run is asked at once (Dev2: "why can't we just have a benchmark object that contains the notes"; a run in seconds,
+not minutes). Each copy of a bench workspace is a `BenchStore` Durable Object (`packages/lab/gateway/bench/store.js`):
+the gateway's own `WorkspaceStore` class in the `BENCH_STORE` namespace, with an environment of its own
+(`bench/env.js`) in which every workspace and person object is a bench object, the gateway secret is the gateway's
+with a suffix, and no control plane answers. A search runs through the gateway's MCP endpoint as the bench person,
+so the object path that ranks is production's.
+
+- **Copies, not one object.** One object answers one search at a time (about 0.4 s on 10,000 notes), so a run deals
+  its cases across up to 16 copies. The first copy is loaded by the run; the others clone it on their own alarms once
+  it is built, and their embeddings come from the bench's vector cache, so the model embeds each passage once.
+- **Kept by key.** A world's key hashes its notes, its people and the code that builds the indexes (the import
+  closure of `searchIndex.js` and `meaningIndex.js`, `remoteBench.mjs` `INDEX_CODE`): a change to any of them is a new
+  world, loaded on the next run.
+- **Where.** Main's Lab search runs ask production (`lab-eval-run.yml` `--remote`), falling back to the local run
+  when the bench cannot be reached. A pull request's preview gateway has bench objects of its own, running its code;
+  sending a pull request's Lab run there is the next step.
+- **Who.** `POST /tex-lab/bench` admits GitHub's signed token for `lab-eval-run.yml` on main (`bench/oidc.js`, no
+  stored secret) or a Tex developer's own grant. It reaches only objects of the world a call names, and those hold
+  public benchmark notes only. The sealed Test sets never go there.
+
 ## What a simplification would cost
 
 Running the histories through Tex again measures Tex's chat history, not the
@@ -130,6 +153,9 @@ one question's sessions answer another's. Scoring with a judge prompt of our
 own makes the number incomparable with every published LongMemEval result.
 
 ## The test that fails
+
+`apps/mcp/test/benchRoute.test.mjs` (a world loaded, cloned and searched through the route; a call reaching another
+world's objects; the door) and `benchOidc.test.mjs` fail when the bench objects lose their isolation or their door.
 
 `apps/mcp/bench/test/longMemEval.test.mjs` (the slice, the judge's templates,
 filing times, one question end to end through a real world) and

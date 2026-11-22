@@ -15,11 +15,9 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import worker from "../../src/index.js";
-import { WorkspaceStore } from "../../src/workspaceStore.js";
-import { MAX_ROWS_PER_PUT, workspaceClient } from "../../src/workspaceStore/api.js";
-import { ACCESS_HOMES, objectToken } from "../../src/workspaceStore/access.js";
-import { sealBinding } from "../../src/workspaceStore/bindingSeal.js";
-import { sha256Hex } from "../../src/controlPlane/index.js";
+import { BenchStore } from "../../../../packages/lab/gateway/bench/store.js";
+import { benchUserOf } from "../../../../packages/lab/gateway/bench/world.js";
+import { searchOnce, setUpPerson, setUpWorkspace } from "../../../../packages/lab/gateway/bench/setup.js";
 import { createWorkerCtx } from "../../test/workerCtx.mjs";
 import { fixtureVisibility } from "../world.mjs";
 import { wireSearchSettings } from "../../src/search/settings.js";
@@ -34,7 +32,9 @@ function durableSqlite(file = null) {
   // Each statement prepared once: building a 10,000-note world prepares the same few hundred thousand times.
   const statements = new Map();
   const sql = {
-    exec(query, ...binds) {
+    exec(query, ...values) {
+      // A Durable Object's SQL takes an ArrayBuffer for a blob; node's takes bytes.
+      const binds = values.map((value) => (value instanceof ArrayBuffer ? new Uint8Array(value) : value));
       if (!statements.has(query)) {
         if (statements.size >= 2_000) statements.clear(); // a query built with a varying IN list stays bounded
         statements.set(query, db.prepare(query));
@@ -59,38 +59,49 @@ function durableSqlite(file = null) {
       throw error;
     }
   };
-  return { sql, transact, db, close: () => db.close() };
+  return { sql, transact, db, forget: () => statements.clear(), close: () => db.close() };
 }
 
-/** Workspace objects by name: each the real Durable Object class over its own in-memory SQLite. */
-function namespace(env, seeds = new Map()) {
+/**
+ * Workspace objects by name: each the bench's Durable Object class (`BenchStore`, the gateway's `WorkspaceStore` in a
+ * bench environment) over its own in-memory SQLite. `alarms` keeps the time each object last armed its alarm.
+ */
+export function namespace(env, seeds = new Map()) {
   const objects = new Map();
+  const alarms = new Map();
   return {
     objects,
+    alarms,
     idFromName: (name) => ({ name, toString: () => name }),
     get(id) {
       if (!objects.has(id.name)) {
-        const { sql, transact, db, close } = durableSqlite(seeds.get(id.name) ?? null);
+        const { sql, transact, db, forget, close } = durableSqlite(seeds.get(id.name) ?? null);
         const state = {
           id,
-          storage: { sql, transactionSync: transact, sync: async () => {}, getAlarm: async () => null, setAlarm: async () => {}, deleteAlarm: async () => {} },
+          storage: {
+            sql,
+            transactionSync: transact,
+            sync: async () => {},
+            getAlarm: async () => null,
+            setAlarm: async (at) => void alarms.set(id.name, at),
+            deleteAlarm: async () => void alarms.delete(id.name),
+            deleteAll: async () => {
+              // Virtual tables first: dropping one drops its shadow tables with it.
+              for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY sql LIKE 'CREATE VIRTUAL%' DESC").all()) db.exec(`DROP TABLE IF EXISTS "${name}"`);
+              forget();
+            },
+          },
           getWebSockets: () => [],
           acceptWebSocket() {},
           setWebSocketAutoResponse() {},
           waitUntil() {},
         };
-        const object = new WorkspaceStore(state, env);
+        const object = new BenchStore(state, env);
         objects.set(id.name, { fetch: (request) => object.fetch(request), object, db, close });
       }
       return objects.get(id.name);
     },
   };
-}
-
-/** A stable note id from a workspace and a path: the same note gets the same id on every run. */
-async function noteIdOf(workspace, path) {
-  const hex = (await sha256Hex(`${workspace}/${path}`)).slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 const objectWorkspaceId = (name) => `wo_${name.replace(/[^A-Za-z0-9_-]/g, "_")}`;
@@ -109,21 +120,35 @@ function rulesOf(bench, name) {
   };
 }
 
-function rowsOf(files, ids) {
-  const folders = new Set();
-  for (const path of files) {
-    const parts = path.split("/");
-    for (let i = 1; i < parts.length; i += 1) folders.add(parts.slice(0, i).join("/"));
-  }
-  const at = 1;
-  return [
-    ...[...folders].sort().map((path) => ({ id: `d-${path}`, path, kind: "folder", at })),
-    ...files.map((path) => ({ id: `f-${ids.get(path)}`, noteId: ids.get(path), path, kind: "file", storageKey: `notes/${ids.get(path)}.md`, etag: `e-${ids.get(path).slice(0, 8)}`, at })),
-  ];
-}
-
 const call = async (stub, op, fields) =>
   await (await stub.fetch(new Request(`https://tex-store.internal/${op}`, { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op })) }, body: JSON.stringify(fields) }))).json();
+
+/**
+ * What a bench world sets up (`packages/lab/gateway/bench/setup.js`): each workspace's notes, rules and members under
+ * the id `idOf(name)` gives it, and each person with a personal workspace, their reach and their user id. The local
+ * object world and the standing bench objects (`remoteBench.mjs`) set up the same plan.
+ */
+export function planOf(bench, idOf) {
+  const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, row.workspace]));
+  const roleOf = (row) => row.role ?? (row.personal ? "owner" : "member");
+  const workspaces = Object.entries(bench.workspaces).map(([name, workspace]) => ({
+    workspaceId: idOf(name),
+    name,
+    kind: bench.people.some((row) => row.workspace === name && row.personal) ? "personal" : "shared",
+    files: Object.keys(workspace.files).filter((path) => path.endsWith(".md")),
+    rules: rulesOf(bench, name),
+    members: bench.people.filter((row) => row.workspace === name).map((row) => ({ userId: benchUserOf(row.person), personalWorkspaceId: idOf(personal.get(row.person)), role: roleOf(row), groups: [], at: 1 })),
+  }));
+  const people = [...new Set(bench.people.map((row) => row.person))]
+    .filter((person) => personal.has(person))
+    .map((person) => ({
+      person,
+      personalWorkspaceId: idOf(personal.get(person)),
+      userId: benchUserOf(person),
+      reach: bench.people.filter((row) => row.person === person).map((row) => ({ workspaceId: idOf(row.workspace), slug: row.workspace, kind: row.personal ? "personal" : "shared", role: roleOf(row), groups: [], at: 1 })),
+    }));
+  return { workspaces, people };
+}
 
 /**
  * Build the object world for `bench` (already overlaid): every workspace in its object with both indexes built, and a
@@ -131,6 +156,8 @@ const call = async (stub, op, fields) =>
  */
 export async function createObjectWorld(bench, { ai = null, settings = null, log = () => {}, from = null } = {}) {
   const env = {
+    // Already a bench environment (`packages/lab/gateway/bench/env.js`): each object is a `BenchStore` over it as is.
+    BENCH_WORLD: true,
     GATEWAY_SECRET: SECRET,
     CONTROL_PLANE_URL: "https://control.bench.invalid",
     CONTROL_PLANE_SECRET: "b".repeat(40),
@@ -154,51 +181,15 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
   env.WORKSPACE_STORE = ns;
   const stubOf = (id) => ns.get(ns.idFromName(`workspace:${id}`));
 
-  const people = [...new Set(bench.people.map((row) => row.person))];
-  const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, row.workspace]));
-  const userOf = (person) => `user_bench_${person.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
-
-  for (const [name, workspace] of from ? [] : Object.entries(bench.workspaces)) {
-    const id = objectWorkspaceId(name);
-    const files = Object.keys(workspace.files).filter((path) => path.endsWith(".md"));
-    const ids = new Map();
-    for (const path of files) ids.set(path, await noteIdOf(name, path));
-    const client = workspaceClient(env, id);
-    await client.setHome("object");
-    await client.setEncryption("none");
-    const rules = rulesOf(bench, name);
-    await client.rules.put(rules, "member");
+  const plan = planOf(bench, objectWorkspaceId);
+  for (const workspace of from ? [] : plan.workspaces) {
+    const { workspaceId: id, name, files } = workspace;
+    const { ids } = await setUpWorkspace(env, workspace);
     const stub = stubOf(id);
-    const store = stub.object.ready();
-    store.rows.pinWorkspace(id);
-    // A put takes at most MAX_ROWS_PER_PUT rows, as the gateway's own backfill sends them: a public benchmark's
-    // corpus is thousands of notes in one workspace.
-    const rows = rowsOf(files, ids);
-    for (let at = 0; at < rows.length; at += MAX_ROWS_PER_PUT) store.rows.put(rows.slice(at, at + MAX_ROWS_PER_PUT));
-    store.rows.putRules(rules);
     for (const path of files) {
-      const response = await stub.fetch(new Request("https://tex-store.internal/put", { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "put", key: `notes/${ids.get(path)}.md`, options: {} })) }, body: workspace.files[path] }));
+      const response = await stub.fetch(new Request("https://tex-store.internal/put", { method: "POST", headers: { "x-tex-call": encodeURIComponent(JSON.stringify({ op: "put", key: `notes/${ids[path]}.md`, options: {} })) }, body: bench.workspaces[name].files[path] }));
       if (response.status !== 200) throw new Error(`${name}/${path}: the object refused the note (${response.status})`);
     }
-    const kind = bench.people.some((row) => row.workspace === name && row.personal) ? "personal" : "shared";
-    const members = bench.people.filter((row) => row.workspace === name).map((row) => ({ userId: userOf(row.person), personalWorkspaceId: objectWorkspaceId(personal.get(row.person)), role: row.role ?? (row.personal ? "owner" : "member"), groups: [], at: 1 }));
-    store.members.put("members", members);
-    store.members.setHome("object");
-    const answer = {
-      binding: { workspaceId: id, provider: "r2", endpoint: "https://s3.bench-objects.invalid", bucket: `bench-objects-${name}`, accessKeyId: `AKIABENCHOBJ${String(name.length).padStart(4, "0")}`, secretAccessKey: "benchObjectSecretNotReal", capabilities: { conditionalWrite: true }, notesHome: "object", status: "active" },
-      searchIndex: null,
-      meaningIndex: null,
-      encryptionKey: null,
-      rotation: null,
-      noteCap: null,
-      managedEncryption: null,
-      privacy: rules,
-      idLayout: "keys",
-      features: {},
-      keyed: true,
-      kind,
-    };
-    store.binding.put({ sealed: await sealBinding(answer, { secret: SECRET, workspaceId: id }), at: Date.now(), epoch: store.binding.get().epoch });
     let waiting = 0;
     for (const op of ["ws.search.build", "ws.meaning.build"]) {
       // A pass indexes a bounded number of notes, so a large world (HERB's 40,000) takes as many passes as it needs;
@@ -217,19 +208,7 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
   }
 
   const tokens = new Map();
-  for (const person of people) {
-    const own = personal.get(person);
-    if (!own) continue;
-    const pwid = objectWorkspaceId(own);
-    const secret = (await sha256Hex(`bench-object-token-${person}`)).slice(0, 43).replace(/[^A-Za-z0-9_-]/g, "a");
-    const token = objectToken("access", pwid, secret.padEnd(43, "a"));
-    const access = workspaceClient(env, pwid).access;
-    await access.pin(userOf(person));
-    await access.reach.put(bench.people.filter((row) => row.person === person).map((row) => ({ workspaceId: objectWorkspaceId(row.workspace), slug: row.workspace, kind: row.personal ? "personal" : "shared", role: row.role ?? (row.personal ? "owner" : "member"), groups: [], at: 1 })));
-    await access.connections.put([{ grantId: `g_${pwid}`, clientId: "bench-search", clientName: "Bench search", workspaceId: pwid, scopes: ["context:read", "context:private"], tokenHash: await sha256Hex(token), refreshHash: await sha256Hex(`${token}r`), expiresAt: Date.now() + 86_400_000, status: "active", at: 1 }]);
-    await access.setHome(ACCESS_HOMES.OBJECT);
-    tokens.set(person, token);
-  }
+  for (const person of plan.people) tokens.set(person.person, await setUpPerson(env, person));
 
   return {
     /** One `search_notes` as `person`, through the MCP endpoint, as `world.mjs` `search` does. */
@@ -245,7 +224,9 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
         log(...args);
       };
       try {
-        return await searchOnce(ctx, settle, token, query, context);
+        const answer = await searchOnce((request, env) => worker.fetch(request, env, ctx), env, token, query, context);
+        await settle();
+        return answer;
       } finally {
         console.log = log;
       }
@@ -261,20 +242,4 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
       if (copies) rmSync(copies, { recursive: true, force: true });
     },
   };
-
-  async function searchOnce(ctx, settle, token, query, context) {
-      const response = await worker.fetch(
-        new Request("https://mcp.bench.invalid/mcp", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "search_notes", arguments: { query, ...(context ? { context } : {}) } } }),
-        }),
-        env,
-        ctx,
-      );
-      await settle();
-      const body = await response.json().catch(() => null);
-      const text = (body?.result?.content ?? []).map((block) => block.text ?? "").join("\n");
-      return { ok: response.status === 200 && body?.result?.isError !== true, text, status: response.status };
-  }
 }

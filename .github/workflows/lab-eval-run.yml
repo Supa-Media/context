@@ -54,6 +54,7 @@ jobs:
       n: ${{ steps.job.outputs.n }}
       models: ${{ steps.job.outputs.models }}
       sha: ${{ steps.code.outputs.sha }}
+      remote: ${{ steps.code.outputs.remote }}
       search: ${{ steps.job.outputs.search }}
       why: ${{ steps.why.outputs.why }}
     steps:
@@ -115,6 +116,8 @@ jobs:
           if [ -z "$code" ]; then
             sha=$(git rev-parse HEAD)
             echo "Code: main at $sha"
+            # Main's search runs are asked of production's standing bench objects (packages/lab/gateway/bench/).
+            echo "remote=https://mcp.context.lc" >> "$GITHUB_OUTPUT"
           elif [[ "$code" =~ ^#([1-9][0-9]{0,6})$ ]]; then
             n="${BASH_REMATCH[1]}"
             curl -fsS -H "authorization: Bearer $GH_TOKEN" -H "accept: application/vnd.github+json" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$n" > "$RUNNER_TEMP/pr.json" || say "there is no pull request #$n in this repository"
@@ -144,6 +147,12 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     environment: production
+    # `id-token: write`: GitHub's signed token for the bench route (packages/lab/gateway/bench/oidc.js), which admits
+    # this workflow on main only. It reaches the bench objects' public benchmark notes and nothing else.
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
     # A full 500-question run at ten at once is about five hours; GitHub's own limit is six.
     timeout-minutes: 355
     env:
@@ -225,6 +234,7 @@ jobs:
           BENCH: ${{ needs.prep.outputs.bench }}
           N: ${{ needs.prep.outputs.n }}
           SEARCH: ${{ needs.prep.outputs.search }}
+          REMOTE: ${{ needs.prep.outputs.remote }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
           set +e -uo pipefail
@@ -232,8 +242,19 @@ jobs:
           if [ "$SEARCH" = "true" ]; then
             # Embeddings only: no Claude Code, no socket answerer, no subscription read.
             mkdir -p "$RUNNER_TEMP/evals-embeddings"
-            BENCH_EMBED_CACHE="$RUNNER_TEMP/evals-embeddings/vectors.txt" BENCH_WORLD_CACHE="$RUNNER_TEMP/evals-worlds" node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --parallel 4 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
-            code=$?
+            code=1
+            # Main's code: every search at once on production's standing bench objects, which keep the notes loaded
+            # between runs (`cli.mjs search --remote`). Code older than the remote mode, or a bench that cannot be
+            # reached, runs here as before.
+            if [ -n "$REMOTE" ] && grep -q 'remote: { type' apps/mcp/bench/evals/cli.mjs; then
+              node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --remote "$REMOTE" --copies 16 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+              code=$?
+              [ "$code" = "0" ] || echo "::warning::the bench objects did not answer; running here instead"
+            fi
+            if [ "$code" != "0" ]; then
+              BENCH_EMBED_CACHE="$RUNNER_TEMP/evals-embeddings/vectors.txt" BENCH_WORLD_CACHE="$RUNNER_TEMP/evals-worlds" node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --parallel 4 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+              code=$?
+            fi
             if [ "$code" != "0" ]; then
               tail -n 1 "$RUNNER_TEMP/eval.log" | head -c 280 > "$RUNNER_TEMP/why" || true
               exit "$code"
