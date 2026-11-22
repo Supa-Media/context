@@ -20,7 +20,9 @@
  *    moved, purged, empty, or here by kind, with the ids of those here. How the Worker's class is proven empty
  *    before it is deleted (Dev2 chose "sweep, then delete", 2026-11-22). With `match: true`, each object still holding
  *    data also says which kind of chat it was made from (`1:1`, `group`, `directory`, or null when no name Tex knows
- *    hashes to it) and whether the gateway holds that chat, with its masked key names; never the name.
+ *    hashes to it) and whether the gateway holds that chat, with its masked key names; never the name. With `move: true`
+ *    too, a 1:1 object no known name matched works out its own from the chat it last answered (checked against its id
+ *    in the Worker) and is copied into the gateway: `adopted` counts them.
  *
  * Nothing here answers or logs an inbox's name: a 1:1's is the person's phone number, and a group's its line's id.
  */
@@ -131,7 +133,8 @@ async function workerCensus(env, input, { controlPlane, token }) {
     candidates.push({ name: `group-key:${key}`, match: "directory", held: groupName !== null });
     if (groupName !== null) candidates.push({ name: groupName, match: "group" });
   }
-  const counts = await env.TEXTING.census({ ids: input.workerIds, names: candidates.map((candidate) => candidate.name) });
+  const adopt = input.move === true;
+  const { adoptable = [], ...counts } = await env.TEXTING.census({ ids: input.workerIds, names: candidates.map((candidate) => candidate.name), ...(adopt ? { adopt: true } : {}) });
   const hereObjects = [];
   for (const object of counts.hereObjects ?? []) {
     const { named, ...rest } = object;
@@ -143,7 +146,18 @@ async function workerCensus(env, input, { controlPlane, token }) {
     const inGateway = candidate.match === "directory" ? candidate.held : (await homeAt(env, candidate.name, false)).home === "gateway";
     hereObjects.push({ ...rest, match: candidate.match, inGateway });
   }
-  return json({ ...counts, hereObjects, names: { people: phones.length, groups: groups.length } });
+  // With `move`, each chat object that worked out its own name (checked against its id in the Worker) is copied in,
+  // as a text from it would; the name is used here only.
+  const adopted = { moved: 0, refused: 0 };
+  for (const found of adopt && Array.isArray(adoptable) ? adoptable : []) {
+    const object = hereObjects.find((here) => here.id === found?.id);
+    if (object === undefined || typeof found.name !== "string" || !PHONE.test(found.name)) continue;
+    const moved = await homeAt(env, found.name, true);
+    object.adopted = moved.home === "gateway";
+    adopted[object.adopted ? "moved" : "refused"] += 1;
+  }
+  console.log(JSON.stringify({ event: "lab_intake_census", match: true, move: adopt, here: hereObjects.length, ...(adopt ? { adopted: adopted.moved, refused: adopted.refused } : {}) }));
+  return json({ ...counts, hereObjects, names: { people: phones.length, groups: groups.length }, ...(adopt ? { adopted } : {}) });
 }
 
 /** `intake`: the caller's chats and where each is answered, or one moved in. */

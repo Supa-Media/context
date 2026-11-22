@@ -7,8 +7,9 @@
 //   `censusOf` treating any PLACE_KEY as moved (ignoring movedTo)   "an object with data and no move is here" fails
 //   `census` counting a failed ask as empty                          "a malformed id or a failed ask" fails
 //   `census` dropping `nameAt` (no `named` index)                    "an object still here answers the index ..." fails
+//   `adoptable` keeping a name without checking its id                "a 1:1 object works out its own name ..." fails
 import { describe, expect, it } from "vitest";
-import { census, censusOf, maskKey, namesById, type ObjectCensus } from "./workerCensus";
+import { adoptable, census, censusOf, maskKey, namesById, selfNames, type ObjectCensus } from "./workerCensus";
 import { PLACE_KEY } from "./inboxMove";
 
 function storage(seed: Record<string, unknown>) {
@@ -57,6 +58,7 @@ describe("telling which chat an object still here is, without a name crossing ba
     expect(maskKey("mail:someone@example.invalid")).toBe("#@#");
     expect(maskKey("group:AbCdEfGhIjKlMnOpQr")).toBe("group:#");
     expect(maskKey("gstate")).toBe("gstate");
+    expect(maskKey("seen:sendblue:7CD1E2F3-A0E5-4B3C-9D8E-1F2A3B4C5D6E")).toBe("seen:sendblue:#");
     const shape = (maskKey("x".repeat(60)) + maskKey("pending:" + "5".repeat(10))).length;
     expect(shape).toBeLessThan(60);
   });
@@ -72,5 +74,26 @@ describe("telling which chat an object still here is, without a name crossing ba
     ]);
     expect(JSON.stringify(counts)).not.toContain("5555");
     expect(() => namesById(Array(2001).fill("x"), idOf)).toThrow(TypeError);
+  });
+});
+
+describe("a 1:1 object no known name matches", () => {
+  it("works out its own name from the chat it last answered, and keeps it only when its id is the object's", async () => {
+    const chat = (chatId: unknown) => ({ get: async <T,>(key: string) => (key === "chat" ? ({ chatId, at: 1 } as T) : undefined) });
+    expect(await selfNames(chat("sendblue:+15555550199:+15555550100"))).toEqual(["+15555550199", "+15555550100"]);
+    expect(await selfNames(chat("whapi:15555550100@s.whatsapp.net"))).toEqual(["+15555550100"]);
+    expect(await selfNames(chat(7))).toEqual([]);
+    expect(await selfNames({ get: async () => undefined })).toEqual([]);
+    const idOf = (name: string) => (name === "+15555550100" ? "a".repeat(64) : "f".repeat(64));
+    const here = [
+      { id: "a".repeat(64), kind: "chat" as const, keys: 8, shape: [] },
+      { id: "b".repeat(64), kind: "chat" as const, keys: 8, shape: [] },
+      { id: "c".repeat(64), kind: "chat" as const, keys: 8, shape: [], named: 0 },
+      { id: "d".repeat(64), kind: "directory" as const, keys: 1, shape: [] },
+    ];
+    const asked: string[] = [];
+    const found = await adoptable(here, async (id) => (asked.push(id[0]), ["+15555550199", "+15555550100"]), idOf);
+    expect(found).toEqual([{ id: "a".repeat(64), name: "+15555550100" }]);
+    expect(asked).toEqual(["a", "b"]);
   });
 });

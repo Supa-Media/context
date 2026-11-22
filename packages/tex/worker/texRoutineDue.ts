@@ -21,7 +21,7 @@ import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./
 import { readMailDelivery } from "./jobMail";
 import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
 import { jobObject } from "./jobObject";
-import { census, CENSUS_PATH, namesById, type CensusCounts, type ObjectCensus } from "./workerCensus";
+import { adoptable, census, CENSUS_PATH, namesById, SELF_NAMES_PATH, type Adoptable, type CensusCounts, type ObjectCensus } from "./workerCensus";
 import { objectById, objectIdText } from "./objectPlace";
 import type { TextsBinding } from "./gatewaySession";
 import { chatMove as moveChat } from "./gatewayMove";
@@ -63,21 +63,36 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
    * What each of this Worker's objects named by id still holds, counted (`workerCensus.ts`): the Lab's staff `intake`
    * op asks it before the SenderInbox class is deleted. Rejects more than `CENSUS_BATCH` ids (`TypeError`).
    * `names` (the caller's candidate chat names) are hashed here, and each object still here answers which one it was
-   * made from by index, never by name.
+   * made from by index, never by name. With `adopt`, each chat object no candidate matched works out its own name from
+   * the chat it last answered, kept only when that name's id is its own, and hands it back for the gateway to move.
    */
-  async census(call: { ids?: unknown; names?: unknown } | null): Promise<CensusCounts> {
-    const byId = namesById(call?.names, (name) => objectIdText(this.env.SENDER_INBOX, name));
-    return await census(
+  async census(call: { ids?: unknown; names?: unknown; adopt?: unknown } | null): Promise<CensusCounts & { adoptable?: Adoptable[] }> {
+    const idOf = (name: string) => objectIdText(this.env.SENDER_INBOX, name);
+    const byId = namesById(call?.names, idOf);
+    const askObject = async (id: string, path: string): Promise<Response | null> => {
+      const stub = objectById(this.env.SENDER_INBOX, id);
+      return stub === null ? null : await stub.fetch(`https://inbox${path}`);
+    };
+    const counts = await census(
       async (id) => {
-        const stub = objectById(this.env.SENDER_INBOX, id);
-        if (stub === null) return null;
-        const answer = await stub.fetch(`https://inbox${CENSUS_PATH}`);
-        return answer.ok ? ((await answer.json()) as ObjectCensus) : null;
+        const answer = await askObject(id, CENSUS_PATH);
+        return answer?.ok ? ((await answer.json()) as ObjectCensus) : null;
       },
       call?.ids,
       (id) => byId.get(id),
     );
+    if (call?.adopt !== true) return counts;
+    const found = await adoptable(
+      counts.hereObjects,
+      async (id) => {
+        const answer = await askObject(id, SELF_NAMES_PATH);
+        return answer?.ok ? ((await answer.json()) as string[]) : [];
+      },
+      idOf,
+    );
+    return { ...counts, adoptable: found };
   }
+
 
   /** The id a chat had here, for the addresses its pictures and pages are served at (`chatCalls.ts`). */
   async inboxId(call: { name?: unknown } | null): Promise<string> {
