@@ -58,6 +58,7 @@ test('Google on a preview is its emulators, with a fake client, never staging\'s
   const { set } = previewEnvValues(env);
   assert.equal(set.EMULATORS_ORIGIN, 'https://context-emulators-pr42.fixture-sub.workers.dev');
   assert.equal(set.GOOGLE_OAUTH_CLIENT_ID, 'preview-emulated.apps.googleusercontent.com');
+  assert.equal(set.GOOGLE_AGENT_OAUTH_CLIENT_ID, 'preview-emulated-agent.apps.googleusercontent.com');
   assert.equal(set.MAIL_CONNECT_ENABLED, 'true');
   assert.equal(set.CALENDAR_CONNECT_ENABLED, 'true');
   for (const value of Object.values(set)) assert.doesNotMatch(String(value), /staging-real/);

@@ -35,6 +35,9 @@ const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 export const EMULATED_GOOGLE = {
   GOOGLE_OAUTH_CLIENT_ID: 'preview-emulated.apps.googleusercontent.com',
   GOOGLE_OAUTH_CLIENT_SECRET: 'preview-emulated-not-a-secret',
+  // The AI-side client a new connection's "Allow AI access" consents to; without it Tex can read nothing.
+  GOOGLE_AGENT_OAUTH_CLIENT_ID: 'preview-emulated-agent.apps.googleusercontent.com',
+  GOOGLE_AGENT_OAUTH_CLIENT_SECRET: 'preview-emulated-agent-not-a-secret',
   MAIL_CONNECT_ENABLED: 'true',
   CALENDAR_CONNECT_ENABLED: 'true',
 };
