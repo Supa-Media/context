@@ -20,6 +20,7 @@
 
 import { texLedger } from "../fromGateway/texStore_ledger.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
+import { BridgeMailbox } from "./bridge.js";
 /** Where a test chat's job box calls out (`jobBox.js` `JOB_OUT_PREFIX`). */
 const JOB_OUT_PREFIX = "/job-out/";
 
@@ -443,6 +444,7 @@ export class LabSandboxObject {
     this.env = env;
     this.carry = carry;
     this.tables = null;
+    this.bridge = null;
   }
 
   async fetch(request) {
@@ -455,6 +457,12 @@ export class LabSandboxObject {
       body = await request.json();
     } catch {
       return Response.json({ error: "bad_call" }, { status: 400 });
+    }
+    // A test chat on a pull request's preview: its mailbox to the workflow that carries its calls (`bridge.js`).
+    if (op.startsWith("bridge.")) {
+      this.bridge ??= new BridgeMailbox(this.state);
+      const said = await this.bridge.serve(op, body ?? {});
+      return said === null ? Response.json({ error: "unknown_op" }, { status: 400 }) : Response.json(said);
     }
     // Whether this is a test chat, read without making a table or arming the alarm: an address nobody opened stays empty.
     if (op === "exists") return Response.json({ exists: chatKept(this.state.storage.sql) });

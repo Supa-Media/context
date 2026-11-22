@@ -75,6 +75,7 @@ import { sandboxAsset } from "./pages.js";
 import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
 import { checkInTestChat } from "./checkin.js";
 import { searchForPerson } from "./search.js";
+import { forwardToPreview, openOnPreview } from "./preview.js";
 
 export { oneRowPerText };
 
@@ -385,7 +386,7 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
 }
 
 /** What the nightly's ops (`nightlyRoute.js`) use of this route's own. */
-const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS });
+const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS, indexStub, byOf, json, aboutOf });
 
 /** A new test row's ids: its event id and the row id built from it. */
 export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
@@ -528,6 +529,7 @@ async function listOf(env, userId) {
       kind: chat.kind,
       chat: chat.chat,
       versionId: state.meta.chat.versionId ?? "main",
+      ...(state.meta.chat.remote ? { code: `#${state.meta.chat.remote.pr}` } : {}),
       openedBy: chat.by ?? "Lab",
       openedAt: chat.at,
       ...(chat.used ? { lastBy: chat.used.by ?? "Lab", lastAt: chat.used.at } : {}),
@@ -603,7 +605,8 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     return json({ chats: [{ chatId: "me", name: "You and Tex", kind: "1:1", people: 1 }, ...groups] });
   }
   if (input.op === "sets") return await setsList(controlPlane, token);
-  if (input.op === "open") return await open(env, controlPlane, token, who, input, origin);
+  // `code: "#N"`: the test chat runs on pull request N's own preview, its code and its data (`preview.js`).
+  if (input.op === "open") return (await openOnPreview({ env, controlPlane, token, who, input, origin, helpers: routeHelpers() })) ?? (await open(env, controlPlane, token, who, input, origin));
   if (input.op === "list") return json(await listOf(env, who.userId));
   if (input.op === "shared") return await sharedList(controlPlane, token);
   // A search try-out on the caller's own 1:1 (`search.js`): main's search config and a draft's, neither counted. No test chat.
@@ -621,6 +624,9 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   const state = kept ? await callSandbox(stub, "state", {}) : null;
   if (!state?.meta?.chat) return refused(404, "There is no such test chat (Reset or a day unused deletes one).");
 
+  // A test chat on a pull request's preview: every call is the preview's to answer (`preview.js`); Reset clears both.
+  const forwarded = state.meta.chat.remote ? await forwardToPreview({ env, controlPlane, token, who, stub, state, input, helpers: routeHelpers() }) : null;
+  if (forwarded !== null) return forwarded;
   const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn, graph: input.graph };
   if (["send", "react", "edit", "unsend", "retry", "use"].includes(input.op)) {
     await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: { at: Date.now(), by: byOf(input.by), op: input.op } }).catch(() => {});

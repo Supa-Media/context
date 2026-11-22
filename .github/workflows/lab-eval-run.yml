@@ -368,10 +368,28 @@ jobs:
           set -euo pipefail
           f="$RUNNER_TEMP/out/result.json"
           total=$(jq '.rows | length' "$f")
-          for ((from = 0; from < total; from += 5)); do
-            jq -c --arg id "$RUN_ID" --argjson from "$from" '{runId: $id, stage: "running", from: $from, rows: .rows[$from:($from + 5)]}' "$f" > "$RUNNER_TEMP/batch.json"
-            npx convex run functions/labEvals:report "$(cat "$RUNNER_TEMP/batch.json")" > /dev/null 2>&1
-          done
+          # Rows go in batches of at most 50 rows (the report's own cap) and about 64 KB (one command-line argument holds
+          # 128 KB), six calls at once: a 343-question search run reports in seconds rather than a minute, one call per
+          # five rows. Each batch names its own place (`from`), so the order they land in does not matter.
+          mkdir -p "$RUNNER_TEMP/batches"
+          node -e '
+            const fs = require("fs");
+            const [file, dir, runId] = process.argv.slice(1);
+            const rows = JSON.parse(fs.readFileSync(file, "utf8")).rows;
+            let from = 0, n = 0;
+            while (from < rows.length) {
+              let take = 0, bytes = 0;
+              while (from + take < rows.length && take < 50) {
+                const size = JSON.stringify(rows[from + take]).length;
+                if (take > 0 && bytes + size > 64000) break;
+                bytes += size;
+                take += 1;
+              }
+              fs.writeFileSync(`${dir}/${String(n++).padStart(4, "0")}.json`, JSON.stringify({ runId, stage: "running", from, rows: rows.slice(from, from + take) }));
+              from += take;
+            }
+          ' "$f" "$RUNNER_TEMP/batches" "$RUN_ID"
+          ls "$RUNNER_TEMP/batches"/*.json | xargs -P 6 -I {} sh -c 'npx convex run functions/labEvals:report "$(cat "$1")" > /dev/null 2>&1' _ {}
           npx convex run functions/labEvals:report "$(jq -c --arg id "$RUN_ID" '{runId: $id, stage: "done", summary: (del(.rows))}' "$f")" > /dev/null 2>&1
           echo "Reported $total rows: $(jq -c '{n: .scores.n, correct: .scores.correct, pct: .scores.pct, usd: .scores.usd.total, fullRunUsd}' "$f")"
 

@@ -9,6 +9,8 @@ import type { LeftBehind } from "../storage/handoff/leftBehind";
 export interface WorkspaceSummary {
   workspaceId: Id<"workspaces">;
   slug: string;
+  /** Former handles that still open it (a username keeps its old names). */
+  aliases?: string[];
   displayName: string;
   kind: string;
   role: string;

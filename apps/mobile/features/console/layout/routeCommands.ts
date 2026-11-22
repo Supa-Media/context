@@ -6,6 +6,7 @@ import {
   useOptionalLocalSearchParams,
 } from "../../app/useOptionalLocalSearchParams";
 import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
+import { formerHandleRedirect } from "../formerHandles";
 import { trashFromQuery } from "../trash/TrashRouteContext";
 import { mapFromQuery } from "../map/live/route";
 import { inboxFolder } from "../files/jobIcons/folderJobs";
@@ -72,7 +73,8 @@ export function useContextRouteResolution({
   router: ConsoleRouter;
   pathname: string;
 }): string {
-  const resolution = resolveContextRoute({
+  const query = useOptionalGlobalSearchParams<Record<string, string | string[]>>();
+  const resolution = formerHandleRedirect({ route, contexts: data.contexts, query }) ?? resolveContextRoute({
     route,
     contexts: data.contexts,
     selectedContextId: data.selectedContextId,

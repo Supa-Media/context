@@ -82,6 +82,9 @@ describe("changing a username", () => {
       const own = reach.rows.find((row) => row.workspaceId === String(workspaceId));
       expect(own).toMatchObject({ slug: "kemi-ade", aliases: ["kemi"] });
     });
+    // The app's workspace list carries the old name, so a link to /console/@kemi lands on @kemi-ade.
+    const listed = await asUser(t, userId).query(api.functions.workspaces.listMyWorkspaces, {});
+    expect(listed.find((row) => row.workspaceId === workspaceId)).toMatchObject({ slug: "kemi-ade", aliases: ["kemi"] });
   });
 
   test("twice in a lifetime: a change back to a former name needs no new claim and still counts, and a third is refused", async () => {
