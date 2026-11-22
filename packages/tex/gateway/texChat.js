@@ -8,9 +8,8 @@
  *   - the gateway's own routes (`/agent`, `/agent/steer`, ...) and `TexTexts` are called in-process, with no HTTP hop;
  *   - the line (sending, typing, read, tapback, members) is the texting Worker's, over its `TEXTING` RPC entrypoint
  *     (`lineCall`, `groupLineCall`), because the line's keys stay in the Worker;
- *   - the Worker's other objects this one reaches (a chat's directory entry, and a job's object while jobs run in the
- *     Worker) are reached the same way (`inboxFetch`); a job's calls go through `packages/tex/worker/jobPlace.ts`, which starts
- *     a new job in the gateway's `TEX_JOB` while `TEX_JOBS` is "gateway" and sends every later call where it was born;
+ *   - every other object it reaches (another chat, a group's directory entry, a job) is the gateway's, by name
+ *     (`senderObjects`);
  *   - a group turn that failed is tried again by this object's own alarm (`packages/tex/worker/groupRetry.ts`), as a job's
  *     passes are run by its own (`texJob.js`): no Workflow, and no call back to the Worker for it (2026-11-21);
  *   - the control plane is reached as the Worker reached it, with `AGENT_WORKER_SECRET`.
@@ -261,8 +260,6 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, own 
     GATEWAY_TEXTS: { fetch: (input, init) => texts().fetch(new Request(input, init), env, ctx) },
     CONTROL_PLANE_ORIGIN: typeof env.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL : "",
     AGENT_WORKER_SECRET: typeof env.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "",
-    // Where a new background job starts (`packages/tex/worker/jobPlace.ts`): its calls then follow where it was born.
-    JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
     SENDER_INBOX: senderObjects(env, name, senderId, own),
     // An app chat's line texts nobody: its replies are the chat object's events, which the app reads (`appChat.ts`).
     TEX_LINE: app

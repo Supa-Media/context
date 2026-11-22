@@ -1,16 +1,16 @@
 /**
- * A group turn handed to a Cloudflare Workflow (`groupTurnWorkflow.ts`;
+ * A group turn handed to its retries (the chat's own alarm since 2026-11-21, `groupRetry.ts`; first a Workflow,
  * decided by Dev2, 2026-10-27,
  * docs/decisions/texting-assistant/group-turn-workflow.md).
  *
  * The chat's object still chooses the turn (decide, `groupTurn.ts`) and still
  * runs it, because a turn reads and writes this object's storage throughout
  * and a message that lands meanwhile is steered into it here (`steer.ts`).
- * What moves to the workflow is the retrying: the workflow asks this object
- * to answer the turn (`/group-answer`), retries that with backoff when it
- * throws, and once it gives up asks for the failed line (`/group-failed`).
- * Each turn is then one instance on the Workflows dashboard, with its step,
- * its attempts and its error.
+ * What is handed over is the retrying: the turn is answered (`answerHanded`),
+ * tried again with backoff when it throws, and once the tries run out the
+ * chat hears the failed line (`failHanded`). The `group_turn` log keeps the
+ * workflow's outcome names (`workflow_started`, ...), which
+ * `scripts/tex-alert.mjs` reads.
  *
  * `gturn:<id>` holds each handed turn: its id (the instance's), the keys of
  * the waiting messages it answers, its asker, and how often its workflow

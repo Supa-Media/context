@@ -13,7 +13,7 @@ import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { LINES, setup } from "./groupWorld.testing";
 import { answerHanded, failHanded, handedTurns, turnKey, type HandedTurn } from "./groupTurnRun";
-import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
+import { runGroupTurn, type InboxCall } from "./groupTurnDrive.testing";
 import type { Fetch } from "./clients";
 
 /** A chat whose turns are answered first and handed to a workflow only on failure; `kept` is what `answerFirst` holds. */

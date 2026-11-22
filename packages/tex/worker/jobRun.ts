@@ -10,7 +10,7 @@
  * workspace they are not in. A pass never schedules itself: it says what
  * comes next (`JobNext`), and its driver waits: the object's own alarm
  * (`jobDrive.ts`, Dev2, 2026-11-21; the `job-run` workflow before, from
- * 2026-10-28, `jobWorkflow.ts`).
+ * 2026-10-28, deleted 2026-11-22).
  *
  * A later text the chat's turn handed to the job (`steerJob`, "never mind,
  * make it yellow not green") is kept here as the person's own words. A turn

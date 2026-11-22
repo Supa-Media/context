@@ -17,8 +17,8 @@ export async function jobRoute(path: string, request: Request, storage: InboxSto
     await acceptJob(storage, (await request.json()) as JobRun, Date.now());
     return Response.json({ ok: true });
   }
-  // A pass, and the "couldn't finish" line: the job node's calls in the gateway (`texJob.js`), and a workflow's
-  // that started its job before 2026-11-21 (`jobWorkflow.ts`).
+  // A pass, and the "couldn't finish" line: the job node's calls in the gateway (`texJob.js`), driven by
+  // the job's own alarm (`jobDrive.ts`).
   if (path === "/job-pass") return Response.json({ next: await runJob(storage, deps()) });
   if (path === "/job-failed") return Response.json({ next: await failJob(storage, deps()) });
   if (path === "/job-steer") {

@@ -61,7 +61,7 @@ test("the rendered preview names its own pull request and workers.dev host, and 
   assert.deepEqual(agent.services.map((s) => s.service), ["context-mcp-pr42"]);
   assert.equal(agent.vars.SIMULATOR, "on");
   assert.equal(agent.vars.APP_CARDS, "off");
-  assert.deepEqual(agent.workflows.map((w) => w.name), ["group-turn-pr42", "job-run-pr42"]);
+  assert.equal(agent.workflows, undefined, "the texting Worker makes no Workflow since 2026-11-22");
   const router = JSON.parse(rendered("router").section);
   assert.deepEqual(router.services.map((s) => s.service), ["context-agent-pr42", "context-agent-pr42"]);
 });
@@ -142,10 +142,13 @@ test("an Analytics Engine dataset without a _preview suffix is a problem", () =>
   assert.ok(configProblems(inject("mcp", staging), { pr: PR }).length > 0);
 });
 
+/** A preview Workflow binding, for the naming guard: the texting Worker binds none since 2026-11-22. */
+const workflow = (name) => ({ name, binding: "GROUP_TURN", class_name: "GroupTurnWorkflow" });
+
 test("a workflow name that does not end with the preview name is a problem", () => {
-  const change = { toml: "", json: (p) => { p.workflows[0].name = "group-turn"; } };
+  const change = { toml: "", json: (p) => { p.workflows = [workflow("group-turn")]; } };
   assert.ok(configProblems(inject("agent", change), { pr: PR }).length > 0);
-  const other = { toml: "", json: (p) => { p.workflows[0].name = "group-turn-pr7"; } };
+  const other = { toml: "", json: (p) => { p.workflows = [workflow("group-turn-pr7")]; } };
   assert.ok(configProblems(inject("agent", other), { pr: PR }).length > 0);
 });
 
@@ -197,18 +200,14 @@ test("renderConfig rejects a malformed pull request number or subdomain, without
   assert.doesNotThrow(() => renderConfig(text, { pr: PR, subdomain: "a".repeat(63) }));
 });
 
-test("the agent preview's Workflows are per-pull-request, never a production or staging name", () => {
-  const agent = JSON.parse(rendered("agent").section);
-  const names = agent.workflows.map((w) => w.name);
-  assert.deepEqual(names, ["group-turn-pr42", "job-run-pr42"]);
-  for (const forbidden of ["group-turn", "job-run", "group-turn-staging", "job-run-staging"]) {
-    assert.equal(names.includes(forbidden), false, `${forbidden} must never be a preview Workflow`);
-  }
+test("a preview Workflow named for its own pull request is not a problem", () => {
+  const section = inject("agent", { toml: "", json: (p) => { p.workflows = [workflow(`group-turn-pr${PR}`)]; } });
+  assert.equal(configProblems(section, { pr: PR }).some((problem) => problem.includes("workflow name")), false);
 });
 
 test("a preview Workflow named as the staging or production Workflow is a problem", () => {
   for (const name of ["group-turn", "job-run", "group-turn-staging", "job-run-staging"]) {
-    const section = inject("agent", { toml: "", json: (p) => { p.workflows[0].name = name; } });
+    const section = inject("agent", { toml: "", json: (p) => { p.workflows = [workflow(name)]; } });
     assert.ok(
       configProblems(section, { pr: PR }).some((problem) => problem.includes("workflow name")),
       `${name} must be flagged`,

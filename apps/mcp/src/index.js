@@ -194,8 +194,8 @@ export const TexStore = TexStoreDurableObject;
  */
 export const TexChat = texChatClass({ gateway: () => gatewayWorker, texts: () => TexTexts });
 /**
- * Each background job's object, one Durable Object per job (`texJob.js`): the texting Worker's job object run here.
- * Idle unless `TEX_JOBS` is "gateway" (`wrangler.toml`).
+ * Each background job's object, one Durable Object per job (`texJob.js`): the texting Worker's job object run here,
+ * its passes on its own alarm.
  */
 export const TexJob = texJobClass({ gateway: () => gatewayWorker, texts: () => TexTexts });
 /** The search quality log's key root (`search/qualityKeyObject.js`), reached only from this Worker. */

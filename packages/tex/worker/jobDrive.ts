@@ -3,7 +3,7 @@
  * chosen over moving the job workflow into the gateway; design https://claude.ai/artifact/AcEGnAtBKWqeTAcXa1vveX).
  *
  * The job's object keeps where its run is at `DRIVE_KEY` and its alarm runs each pass (`driveJob`), doing what the
- * texting Worker's `job-run` workflow did (`jobWorkflow.ts`), with nothing outside the object:
+ * texting Worker's `job-run` workflow did (retired 2026-11-22), with nothing outside the object:
  *   - each pass says what comes next (`JobNext`): the next pass now, after a wait, or nothing more;
  *   - a pass that throws is tried three more times, 10, 20 and 40 s apart, and after the last the job ends with its
  *     "couldn't finish" line (`/job-failed`), itself tried until it lands (`MAX_FAIL_TRIES`);

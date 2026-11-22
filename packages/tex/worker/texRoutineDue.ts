@@ -20,12 +20,10 @@ import { runScopedRoutine, textPhone, type RoutineDeps, type RoutineScope } from
 import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./texPage";
 import { readMailDelivery } from "./jobMail";
 import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
-import { jobStub } from "./jobPlace";
+import { jobObject } from "./jobObject";
 import type { TextsBinding } from "./gatewaySession";
 import { chatMove as moveChat } from "./gatewayMove";
-import { groupTurn, inboxFetch, inboxId, jobRun } from "./chatCalls";
-import type { JobRunParams } from "./jobWorkflow";
-import type { GroupTurnParams } from "./groupTurnWorkflow";
+import { inboxFetch, inboxId } from "./chatCalls";
 import { checkGroupLineCall, checkLineCall, groupLineCallDeps, lineCallDeps, runGroupLineCall, runLineCall, type GroupLineCall, type LineCall, type LineCallEnv, type LineCallResult } from "./lineCalls";
 
 /** A person's owner is their personal workspace's id, as the gateway names its Tex store. */
@@ -37,10 +35,7 @@ export type TexRoutineEnv = LineCallEnv & {
   AGENT_WORKER_SECRET: string;
   GATEWAY_ORIGIN: string;
   SENDER_INBOX: DurableObjectNamespace;
-  GROUP_TURN?: Workflow<GroupTurnParams>;
-  JOB_RUN?: Workflow<JobRunParams>;
-  /** A job's object is reached through the gateway when it holds the job, or starts new ones there (`jobPlace.ts`). */
-  JOBS?: string;
+  /** A job's object is the gateway's `TexJob`, reached through it (`jobObject.ts`). */
   GATEWAY_TEXTS?: TextsBinding;
 };
 
@@ -65,16 +60,6 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
   /** The id a chat had here, for the addresses its pictures and pages are served at (`chatCalls.ts`). */
   async inboxId(call: { name?: unknown } | null): Promise<string> {
     return inboxId(this.env.SENDER_INBOX, call);
-  }
-
-  /** Start or find a group turn's Workflow for the gateway's copy of a chat (`chatCalls.ts`). */
-  async groupTurn(call: { op?: unknown; id?: unknown; params?: unknown } | null): Promise<{ ok: true }> {
-    return await groupTurn(this.env.GROUP_TURN, call);
-  }
-
-  /** Start or find a background job's Workflow for a job the gateway's `TexJob` holds (`chatCalls.ts`). */
-  async jobRun(call: { op?: unknown; id?: unknown; params?: unknown } | null): Promise<{ ok: true }> {
-    return await jobRun(this.env.JOB_RUN, call);
   }
 
   /** The Tex page's view of a chat's jobs (`texPage.ts`); rejects a chat that names neither a phone nor a group key (`TypeError`). */
@@ -125,7 +110,7 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
   async mailDeliver(call: unknown): Promise<{ taken: boolean }> {
     const delivery = readMailDelivery(call);
     if (delivery === null) throw new TypeError("a delivery names a job, its mailbox and one mail line");
-    const job = jobStub(this.env, delivery.jobId, { spawn: false });
+    const job = jobObject(this.env, delivery.jobId);
     const response = await job.fetch("https://inbox/job-mail", { method: "POST", body: JSON.stringify(delivery) });
     if (!response.ok) return { taken: false };
     return { taken: ((await response.json()) as { taken?: unknown }).taken === true };

@@ -30,7 +30,7 @@ import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { answerAll, BO, LINES, setup, untaggedSilent, type Answer, type Decide } from "./groupWorld.testing";
 import { answerHanded, failHanded, handedTurns, turnKey } from "./groupTurnRun";
-import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
+import { runGroupTurn, type InboxCall } from "./groupTurnDrive.testing";
 import { answeredByCode } from "./groupBeside";
 import { recheckDraft } from "./groupRecheck";
 import { say, sendingFor } from "./groupSay";
@@ -39,7 +39,7 @@ import type { GroupPending } from "./groupTurn";
 const queue = (body: Decide): Answer => (body.running ? ({ ...answerAll(body), midTurn: "queue" } as Answer) : answerAll(body));
 const ASK_ID = "aaaaaaaa-0000-4000-8000-000000000002";
 
-/** A chat whose turns go to a workflow, run by hand (`groupTurnWorkflow.test.ts` has the full stand-in). */
+/** A chat whose turns go to a workflow, run by hand (`groupTurnHanded.test.ts` has the full stand-in). */
 function handed(groupId: string, opts: Parameters<typeof setup>[1] = {}) {
   const storage = new MemoryStorage();
   const w = setup(groupId, opts);

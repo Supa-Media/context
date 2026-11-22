@@ -3,7 +3,7 @@
  * `docs/decisions/texting-assistant/interleaved-updates.md`): as many as the
  * turn sends, in order, each logged as Tex's, and only while nobody new is
  * here. Threading under the ask is `groupInbox.test.ts`'s; a retry is
- * `groupTurnWorkflow.test.ts`'s.
+ * `groupTurnHanded.test.ts`'s.
  */
 
 import { describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import { ADA, BO, CY, LINE, LINES, answerAll, chatLog, setup, type Answer, type Decide } from "./groupWorld.testing";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 import { answerHanded, failHanded } from "./groupTurnRun";
-import { runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
+import { runGroupTurn, type InboxCall } from "./groupTurnDrive.testing";
 import type { Fetch } from "./clients";
 import { membersChanged } from "./groupMembers";
 import { isWhapiGroup } from "./whapi";
