@@ -20,3 +20,5 @@ export { HANDLES_KEY } from "./replyQuote";
 export { queueView, TURN_RUN_KEY } from "./turnWatch";
 export { TEXTS_QUEUE } from "./chatQueue";
 export { APP_RUN_KEY } from "./appRun";
+// A group chat's directory entry, kept in the gateway (`packages/tex/gateway/texChat/directory.js`).
+export { CHAT_WHERE_KEY, chatWhereOf } from "./groupRoutines";

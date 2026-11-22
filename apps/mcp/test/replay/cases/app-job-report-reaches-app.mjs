@@ -21,7 +21,7 @@ export default {
       { waitUntil() {}, storage: { get: async () => undefined, put: async () => {}, delete: async () => true } },
       "job:j1",
       "",
-      { gateway: () => ({ fetch: async () => new Response(null) }), texts: () => ({ fetch: async () => new Response(null) }), jobsHere: true },
+      { gateway: () => ({ fetch: async () => new Response(null) }), texts: () => ({ fetch: async () => new Response(null) }) },
     );
     const answer = await env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(`enam:${APP}`)).fetch("https://inbox/job-update", { method: "POST", body: JSON.stringify({ id: "j1", state: "done" }) });
     assert.equal(answer.status, 200);

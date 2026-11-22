@@ -27,12 +27,18 @@ function world() {
   const homes = new Map();
   const asked = [];
   const state = { refuse: false };
+  const directory = [];
   const TEX_CHAT = {
     idFromName: (name) => ({ name }),
     get: (id) => ({
       fetch: async (input, init) => {
         const request = input instanceof Request ? input : new Request(input, init);
         const path = new URL(request.url).pathname;
+        // A group's directory entry is its own gateway object (`texChat/directory.js`), read through its chat-call door.
+        if (path === "/chat-call/chat-where") {
+          directory.push(`${id.name} ${request.headers.get("x-inbox-name")}`);
+          return Response.json(id.name === `chat:group-key:${MINE}` ? { line: "+15555550199", groupId: GROUP_ID } : null);
+        }
         asked.push(`${id.name} ${request.method} ${path}`);
         if (path === "/move-in") {
           const body = await request.json();
@@ -44,14 +50,7 @@ function world() {
       },
     }),
   };
-  const directory = [];
-  const TEXTING = {
-    async inboxFetch({ name }, request) {
-      directory.push(`${name} ${new URL(request.url).pathname}`);
-      if (name === `enam:group-key:${MINE}`) return Response.json({ line: "+15555550199", groupId: GROUP_ID });
-      return Response.json(null);
-    },
-  };
+  const TEXTING = { inboxFetch: async () => assert.fail("the directory is read in the gateway, never the Worker") };
   const env = { LAB_SANDBOX: {}, TEX_CHAT, TEXTING, CONTROL_PLANE_URL: "https://control.example.invalid", GATEWAY_SECRET: "gw-secret-example-not-real-000000" };
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -86,7 +85,7 @@ test("intake lists the caller's own chats and where each is answered", async () 
     });
     // The 1:1 is its phone's object; the group is read from its directory entry, then its own object.
     assert.deepEqual(w.asked, [`chat:${PHONE} GET /home`, `chat:sendblue-group:${GROUP_ID} GET /home`]);
-    assert.deepEqual(w.directory, [`enam:group-key:${MINE} /chat-where`]);
+    assert.deepEqual(w.directory, [`chat:group-key:${MINE} group-key:${MINE}`]);
     assert.equal(w.homes.size, 0, "listing moves nothing");
   } finally {
     w.restore();

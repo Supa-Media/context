@@ -311,9 +311,12 @@ describe("the route that hands a call to a job", () => {
 });
 
 describe("a chat's job calls", () => {
-  it("reach the gateway's job object for a job's name, and the Worker's objects for any other", async () => {
+  // Part C of the runtime simplification (2026-11-22): every object a chat reaches is the gateway's.
+  it("reach the gateway's job object for a job's name, and the gateway's chat object for any other", async () => {
     const env = makeEnv({ rpc: fakeWorkerRpc() });
-    const inbox = await chatEnv(env, fakeState(CHAT), CHAT, "", { gateway: gateway, texts: texts, jobsHere: true });
+    const chats = [];
+    env.TEX_CHAT = { idFromName: (name) => name, get: (name) => ({ fetch: async (request) => (chats.push([name, new URL(request.url).pathname]), Response.json({ ok: true })) }) };
+    const inbox = await chatEnv(env, fakeState(CHAT), CHAT, "", { gateway: gateway, texts: texts });
     const jobId = inbox.SENDER_INBOX.idFromName(`enam:${NAME}`);
     const jobAnswer = await inbox.SENDER_INBOX.get(jobId).fetch("https://inbox/job-here");
     assert.deepEqual(await jobAnswer.json(), { here: false });
@@ -321,14 +324,7 @@ describe("a chat's job calls", () => {
 
     const chatId = inbox.SENDER_INBOX.idFromName("enam:chat-two");
     await inbox.SENDER_INBOX.get(chatId).fetch("https://inbox/accept", { method: "POST", body: "{}" });
-    assert.deepEqual(env.rpc.calls.inboxFetch.map((call) => call.name), ["enam:chat-two"]);
-  });
-
-  it("reach the Worker's objects for a job's name when jobs are not in the gateway", async () => {
-    const env = makeEnv({ jobs: false, rpc: fakeWorkerRpc() });
-    const inbox = await chatEnv(env, fakeState(CHAT), CHAT, "", { gateway: gateway, texts: texts, jobsHere: false });
-    await inbox.SENDER_INBOX.get(inbox.SENDER_INBOX.idFromName(`enam:${NAME}`)).fetch("https://inbox/job-here");
-    assert.deepEqual(env.rpc.calls.inboxFetch.map((call) => call.name), [`enam:${NAME}`]);
-    assert.equal(env.TEX_JOB.objects.size, 0, "no job object is made while jobs run in the Worker");
+    assert.deepEqual(chats, [["chat:chat-two", "/chat-call/accept"]]);
+    assert.deepEqual(env.rpc.calls.inboxFetch ?? [], []);
   });
 });

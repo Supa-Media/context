@@ -29,3 +29,5 @@ export function queueView(storage: unknown): Promise<{ queue: { ev: string; stat
 export const TURN_RUN_KEY: "turn:run";
 export const TEXTS_QUEUE: { counter: string; prefix: string; max: number };
 export const APP_RUN_KEY: "app:run";
+export const CHAT_WHERE_KEY: "chatwhere";
+export function chatWhereOf(value: unknown): { line: string; groupId: string } | null;

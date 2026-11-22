@@ -35,14 +35,18 @@ function chatsOf(who) {
 }
 
 /**
- * The Worker's inbox name for a chat, or null: a 1:1's is the person's phone number (as the line hands it over, E.164);
- * a group's is `sendblue-group:<its id>`, read from the group's directory entry in the Worker (`groupRoutines.ts`), as
+ * The inbox name for a chat, or null: a 1:1's is the person's phone number (as the line hands it over, E.164); a
+ * group's is `sendblue-group:<its id>`, read from the group's directory entry in the gateway
+ * (`packages/tex/gateway/texChat/directory.js`, which reads the texting Worker's entry once when it holds none yet), as
  * a group routine finds its chat (`packages/tex/worker/index.ts` `runInChat`).
  */
 export async function inboxNameOf(env, who, chat) {
   if (chat.kind === "1:1") return typeof who.phone === "string" && PHONE.test(who.phone) ? who.phone : null;
-  if (env.TEXTING === undefined) return null;
-  const found = await env.TEXTING.inboxFetch({ name: `enam:group-key:${chat.chatId}` }, new Request("https://inbox/chat-where", { method: "GET" })).catch(() => null);
+  if (env.TEX_CHAT === undefined) return null;
+  const name = `group-key:${chat.chatId}`;
+  const found = await objectByName(env.TEX_CHAT, `chat:${name}`)
+    .fetch("https://chat/chat-call/chat-where", { method: "GET", headers: { "x-inbox-name": name } })
+    .catch(() => null);
   if (!found?.ok) return null;
   const where = await found.json().catch(() => null);
   return typeof where?.groupId === "string" && where.groupId !== "" && where.groupId.length <= 400 ? `sendblue-group:${where.groupId}` : null;

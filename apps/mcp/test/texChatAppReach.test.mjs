@@ -21,13 +21,13 @@ function namespace(calls) {
   };
 }
 
-async function envFor(name, { jobsHere = false, chats = [], rpc = [] } = {}) {
+async function envFor(name, { chats = [], rpc = [] } = {}) {
   return chatEnv(
     { PUBLIC_ORIGIN: "https://gateway.example", TEX_CHAT: namespace(chats), TEXTING: { inboxFetch: async (id, request) => (rpc.push([id.name, new URL(request.url).pathname]), Response.json({ worker: true })) } },
     state,
     name,
     "",
-    { gateway: () => ({ fetch: async () => new Response(null) }), texts: () => ({ fetch: async () => new Response(null) }), jobsHere },
+    { gateway: () => ({ fetch: async () => new Response(null) }), texts: () => ({ fetch: async () => new Response(null) }) },
   );
 }
 
@@ -35,7 +35,7 @@ describe("calls to an app chat by name", () => {
   it("a job's report reaches the app chat's own object here, never the Worker", async () => {
     const chats = [];
     const rpc = [];
-    const env = await envFor("job:j1", { jobsHere: true, chats, rpc });
+    const env = await envFor("job:j1", { chats, rpc });
     const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(`enam:${APP}`));
     const answer = await stub.fetch("https://inbox/job-update", { method: "POST", body: '{"id":"j1"}' });
     assert.equal(answer.status, 200);
@@ -43,13 +43,14 @@ describe("calls to an app chat by name", () => {
     assert.deepEqual(rpc, []);
   });
 
-  it("a phone's chat is still reached through the Worker", async () => {
+  // Part C of the runtime simplification (2026-11-22): every chat lives in `TEX_CHAT`, so a phone's is reached there too.
+  it("a phone's chat is reached here too, never through the Worker", async () => {
     const chats = [];
     const rpc = [];
-    const env = await envFor("job:j1", { jobsHere: true, chats, rpc });
+    const env = await envFor("job:j1", { chats, rpc });
     await env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName("enam:+15555550100")).fetch("https://inbox/job-update", { method: "POST", body: "{}" });
-    assert.deepEqual(chats, []);
-    assert.deepEqual(rpc, [["enam:+15555550100", "/job-update"]]);
+    assert.deepEqual(chats, [["chat:+15555550100", "/chat-call/job-update", "+15555550100", "{}"]]);
+    assert.deepEqual(rpc, []);
   });
 
   it("names an app chat only by its exact shape", () => {

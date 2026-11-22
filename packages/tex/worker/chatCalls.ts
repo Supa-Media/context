@@ -20,7 +20,7 @@ const NAME = /^[^\0]{1,512}$/;
  *
  * The fetch has no deadline. `SenderInbox.fetch` waits on `placeGate` (`inboxMove.ts`) and then on the route,
  * and either can wait on another object or on the gateway with nothing bounding it. A deadline that answered
- * an error would fail the caller: `inboxFetch` is not retried (`texChat.js` `workerStub` returns the promise).
+ * an error would fail the caller: `inboxFetch` is not retried (`texChat.js` `senderObjects` returns the promise).
  * The line says which object and which path, and how long it took, so a hang can be told from a slow route.
  */
 export async function inboxFetch(namespace: DurableObjectNamespace, call: { name?: unknown } | null, request: Request): Promise<Response> {

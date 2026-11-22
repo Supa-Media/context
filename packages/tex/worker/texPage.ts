@@ -14,7 +14,8 @@
 import { chatDirectoryName, chatWhereOf } from "./groupRoutines";
 import { lastTurnPeople } from "./groupChat";
 import { groupInboxName } from "./groupInbox";
-import { inboxByName } from "./objectPlace";
+import { chatInGateway } from "./gatewayChats";
+import type { TextsBinding } from "./gatewaySession";
 import type { InboxStorage } from "./inbox";
 import { JOB_PREFIX, sweptJobs, type JobEntry, type JobState, type JobStep, type JobSteer } from "./jobs";
 
@@ -103,13 +104,13 @@ export function readPageChat(value: unknown): PageChat | null {
  * The inbox a page's chat is kept in, or null when there is no such chat. A
  * group's key is looked up in its directory entry, which knows the group.
  */
-export async function inboxForPageChat(env: { SENDER_INBOX: DurableObjectNamespace }, chat: PageChat): Promise<{ fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> } | null> {
-  if ("phone" in chat) return inboxByName(env.SENDER_INBOX, chat.phone);
-  const directory = inboxByName(env.SENDER_INBOX, chatDirectoryName(chat.groupKey));
+export async function inboxForPageChat(env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding }, chat: PageChat): Promise<{ fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> } | null> {
+  if ("phone" in chat) return chatInGateway(env, chat.phone);
+  const directory = chatInGateway(env, chatDirectoryName(chat.groupKey));
   const found = await directory.fetch("https://inbox/chat-where", { method: "GET" });
   const where = found.ok ? chatWhereOf(await found.json()) : null;
   if (where === null) return null;
-  return inboxByName(env.SENDER_INBOX, groupInboxName(where.groupId));
+  return chatInGateway(env, groupInboxName(where.groupId));
 }
 
 /**

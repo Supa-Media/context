@@ -67,7 +67,7 @@ describe("an app chat's turn", () => {
 
   it("a background job's part goes over the hop (`texJob.js`)", async () => {
     const hopped = [];
-    const { env, local } = await envFor("job:0b7c2f4e-1111-4222-8333-944455556666", async (request) => (hopped.push(request.url), Response.json({ hop: true })), { jobsHere: true });
+    const { env, local } = await envFor("job:0b7c2f4e-1111-4222-8333-944455556666", async (request) => (hopped.push(request.url), Response.json({ hop: true })));
     await env.FETCH(`${SELF}/agent`, { method: "POST", body: "{}" });
     await env.FETCH(`${SELF}/agent/steer`, { method: "POST", body: "{}" });
     assert.deepEqual(hopped, [`${SELF}/agent`]);

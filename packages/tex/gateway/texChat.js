@@ -30,6 +30,7 @@ import { JOB_NAME } from "./texJobName.js";
 import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveAppArrive, serveAppCard, serveAppFileById, serveAppOutbox, serveAppPictureById, serveAppTurnCall } from "./texChat/appChat.js";
 import { NOTE_RUNS_PATH, serveNoteRuns } from "./texChat/noteRuns.js";
 import { serveAppSeenGet, serveAppSeenPost } from "./texChat/appSeen.js";
+import { isDirectoryName, serveDirectory } from "./texChat/directory.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -111,6 +112,8 @@ export function texChatClass({ gateway, texts }) {
     async chatCall(request, url) {
       const name = request.headers.get(INBOX_NAME_HEADER);
       if (name === null || !INBOX_NAME.test(name)) return new Response(null, { status: 400 });
+      // A group's directory entry is not a chat: it is answered from this object's own storage (`texChat/directory.js`).
+      if (isDirectoryName(name)) return await serveDirectory(request, url.pathname.slice("/chat-call".length), { storage: this.state.storage, rpc: this.env.TEXTING, name });
       const chat = await this.chat(name);
       if (chat === null) return new Response(null, { status: 503 });
       const path = url.pathname.slice("/chat-call".length);
@@ -217,10 +220,10 @@ export function chatState(state, senderId) {
 }
 
 /**
- * The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. `jobsHere`: this object's job calls
- * (`job:<id>`) reach the gateway's `TEX_JOB` objects rather than the Worker's.
+ * The Worker's `Env`, as the chat object reads it, made of the gateway's bindings. Every other object it reaches (a
+ * chat, a job, a directory entry) is the gateway's (`senderObjects`).
  */
-export async function chatEnv(env, state, name, senderId, { gateway, texts, jobsHere = false, own = null, hop = (request) => fetch(request) }) {
+export async function chatEnv(env, state, name, senderId, { gateway, texts, own = null, hop = (request) => fetch(request) }) {
   const { remoteLine, remoteGroupLine, appLine, APP_PICTURE_ORIGIN, serveAppFile, serveAppPicture } = await import("../../../packages/tex/worker/gatewayChat.js");
   const ctx = { waitUntil: (work) => state.waitUntil(work), passThroughOnException() {} };
   const self = typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.replace(/\/+$/, "") : "";
@@ -249,10 +252,9 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     GATEWAY_TEXTS: { fetch: (input, init) => texts().fetch(new Request(input, init), env, ctx) },
     CONTROL_PLANE_ORIGIN: typeof env.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL : "",
     AGENT_WORKER_SECRET: typeof env.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "",
-    // The Worker's other objects (a job's, a chat's directory entry), reached through the Worker.
     // Where a new background job starts (`packages/tex/worker/jobPlace.ts`): its calls then follow where it was born.
     JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
-    SENDER_INBOX: senderObjects(env, rpc, name, senderId, jobsHere, own),
+    SENDER_INBOX: senderObjects(env, rpc, name, senderId, own),
     // An app chat's line texts nobody: its replies are the chat object's events, which the app reads (`appChat.ts`).
     TEX_LINE: app
       ? { line: () => appLine(state.storage), groupLine: () => { throw new Error("an app chat has no group line"); } }
@@ -290,31 +292,21 @@ export async function hopToGateway(hop, request, inProcess) {
 }
 
 /**
- * A stand-in for the Worker's `SENDER_INBOX` namespace: each object reached by name through the Worker's RPC. Only
- * this chat's own id is known here (the one it had in the Worker, for counting: `objectPlace.ts` `inboxIdOf`).
- */
-function workerObjects(rpc, chatName, senderId, own, env = {}) {
-  return {
-    idFromName: (name) => workerId(name, chatName, senderId),
-    idFromString: () => {
-      throw new TypeError("a Worker object is reached by name here");
-    },
-    get: (id) => workerStub(rpc, id, own, env),
-  };
-}
-
-/**
  * The app chat a name names (`enam:app:<userId>` as `inboxByName` makes it, or bare), or null. An app chat lives only
- * here, in `TEX_CHAT`: the Worker has no object of it, so a call to it over the Worker's RPC (a job's report, a
- * cross-chat ask) landed in an empty Worker object and never reached the chat (in-app Tex section A5, 2026-11-20).
+ * here, in `TEX_CHAT`, and is born here (`texChat/appChat.js`); it is never copied from the texting Worker.
  */
 export function appChatNameOf(name) {
-  const bare = typeof name === "string" && name.startsWith("enam:") ? name.slice("enam:".length) : name;
+  const bare = bareName(name);
   return typeof bare === "string" && /^app:[A-Za-z0-9_-]{1,64}$/.test(bare) ? bare : null;
 }
 
-/** A stub for an app chat's own object here, through its `/chat-call` door, as the Worker's moved objects are reached. */
-function appChatStub(namespace, name) {
+/** A name as a `SENDER_INBOX` lookup was made with it (`enam:<name>`, `objectPlace.ts` `inboxByName`), bare. */
+function bareName(name) {
+  return typeof name === "string" && name.startsWith("enam:") ? name.slice("enam:".length) : name;
+}
+
+/** A stub for a chat's own object here (or a group's directory entry), through its `/chat-call` door. */
+function chatCallStub(namespace, name) {
   const stub = objectByName(namespace, `chat:${name}`);
   return {
     fetch: async (input, init) => {
@@ -328,50 +320,56 @@ function appChatStub(namespace, name) {
   };
 }
 
-/** The id a Worker's object has under `name`: its name, and for this chat's own name, the id it had in the Worker. */
-function workerId(name, chatName, senderId) {
+/** The id an object has under `name`: its name, and for this chat's own name, the id it had in the Worker. */
+function chatId(name, chatName, senderId) {
   return { name, toString: () => (name === `enam:${chatName}` ? senderId : "") };
 }
 
-/** A stub for the Worker's object `id`, reached over the Worker's RPC. This chat's own name is served here (`own`). */
-function workerStub(rpc, id, own, env = {}) {
-  const app = appChatNameOf(id.name);
+/**
+ * The `SENDER_INBOX` the chat object reads, all of it the gateway's (part C of the runtime simplification, Dev2 approved
+ * https://claude.ai/artifact/AcEGnAtBKWqeTAcXa1vveX): this chat's own name is served by this object (`own`), a job's
+ * name (`enam:job:<id>`) by the gateway's `TEX_JOB` object of that name, and every other name (another chat, a group's
+ * directory entry) by its `TEX_CHAT` object, through the same `/chat-call` door the texting Worker uses. A chat still in
+ * the Worker is copied in on that first call, as a handed-over text copies it. Nothing goes through the Worker's
+ * objects, so a cross-chat ask, a job's report and a directory write no longer make the round trip there and back.
+ *
+ * One exception stays the Worker's until its SenderInbox goes: the `group-moves` object (`groupMoves.ts`), the table of
+ * groups moved to Tex's new number, which the Worker's own webhook and line read too. It is not a chat, so it is never
+ * copied in as one.
+ */
+function senderObjects(env, rpc, chatName, senderId, own) {
   return {
-    fetch: (input, init) => {
-      if (own && id.name === own.name && typeof own.fetch === "function") {
-        const request = input instanceof Request && init === undefined ? input : new Request(input, init);
-        return own.fetch(request);
-      }
-      if (app !== null && env.TEX_CHAT !== undefined) return appChatStub(env.TEX_CHAT, app).fetch(input, init);
-      if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
-      return rpc.inboxFetch({ name: id.name }, new Request(input, init));
+    idFromName: (name) => chatId(name, chatName, senderId),
+    idFromString: () => {
+      throw new TypeError("an object is reached by name here");
     },
+    get: (id) => ({
+      fetch: (input, init) => {
+        if (own && id.name === own.name && typeof own.fetch === "function") {
+          return own.fetch(input instanceof Request && init === undefined ? input : new Request(input, init));
+        }
+        const job = jobNameOf(id.name);
+        if (job !== null) {
+          if (env.TEX_JOB === undefined) return Promise.resolve(new Response(null, { status: 503 }));
+          return objectByName(env.TEX_JOB, job).fetch(new Request(input, init));
+        }
+        const bare = bareName(id.name);
+        if (WORKER_ONLY.has(bare)) {
+          if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
+          return rpc.inboxFetch({ name: id.name }, new Request(input, init));
+        }
+        if (env.TEX_CHAT === undefined || typeof bare !== "string" || !INBOX_NAME.test(bare)) return Promise.resolve(new Response(null, { status: 503 }));
+        return chatCallStub(env.TEX_CHAT, bare).fetch(input, init);
+      },
+    }),
   };
 }
 
-/**
- * The `SENDER_INBOX` the chat object reads: a job's name (`enam:job:<id>`, as `inboxByName` makes it) goes to the
- * gateway's `TEX_JOB` object of that name, and every other name to the Worker's objects, as before. Only the job
- * objects are made here by namespace, through `objectByName`; the Worker's are named and reached over RPC.
- */
-function senderObjects(env, rpc, chatName, senderId, jobsHere, own) {
-  if (!jobsHere) return workerObjects(rpc, chatName, senderId, own, env);
-  return {
-    idFromName: (name) => (jobNameOf(name) === null ? workerId(name, chatName, senderId) : { name, toString: () => "" }),
-    idFromString: () => {
-      throw new TypeError("a job is reached by name here");
-    },
-    get: (id) => {
-      const job = jobNameOf(id.name);
-      if (job === null) return workerStub(rpc, id, own, env);
-      const stub = objectByName(env.TEX_JOB, job);
-      return { fetch: (input, init) => stub.fetch(new Request(input, init)) };
-    },
-  };
-}
+/** Objects that stay the texting Worker's until its SenderInbox goes (`senderObjects`). */
+const WORKER_ONLY = new Set(["group-moves"]);
 
 /** The job's object name (`job:<id>`) inside a name a `SENDER_INBOX` lookup was made with, or null for any other name. */
 function jobNameOf(name) {
-  const bare = typeof name === "string" && name.startsWith("enam:") ? name.slice("enam:".length) : name;
+  const bare = bareName(name);
   return typeof bare === "string" && JOB_NAME.test(bare) ? bare : null;
 }
