@@ -27,7 +27,8 @@ import { NOTHING_FOUND, briefOf, researchSection } from "../../../packages/tex/g
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 import { SHELF_NODES, TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
-import { checkInLook, lookThroughGraph } from "../../../packages/tex/gateway/agent/heartbeat.js";
+import { checkInLook } from "../../../packages/tex/gateway/agent/checkInLook.js";
+import { everyDraftGoes } from "../../../packages/tex/gateway/agent/heartbeat.js";
 
 const INVITE = {
   id: "ev1",
@@ -144,22 +145,98 @@ test("both steps have code, are off the shelf and wired from the check-in (promo
   assert.equal(research.model, "haiku-5-5", "Haiku only for Tex steps (Dev2, 2026-11-22)");
 });
 
-test("the check-in's look runs as the Front door node on the checkin -> fd wire, and logs as its own step", async () => {
+/**
+ * A check-in on the config's own graph (Dev2, 2026-11-14: "it's not fine for the connections between node to be code";
+ * 2026-11-22: a Lab test chat's check-in said its answer check "logged no run"): Check-in, the look as the Front door,
+ * each draft through the Answer check over `fd -> answerCheck`, a send-back over its loop wire, a tool call over
+ * `fd -> tools`, and Text them last. `look` stands in for `turn.js` `runTurn`: it calls its tool and checks its drafts
+ * as the real model loop does.
+ */
+function checkInRun({ codeNotice = null, failWith = null, config = TEX_CONFIG } = {}) {
   const runs = [];
-  const nodes = Object.create(GATEWAY_NODES, { fd: { value: checkInLook } });
-  const graph = gatewayGraph({ config: TEX_CONFIG, nodes, log: (run) => runs.push(run) });
-  assert.ok(graph.wired("checkin", "fd"), "main wires the look");
-  const turn = await lookThroughGraph(graph, async () => ({ answer: "Your hearing is tomorrow.", model: "anthropic/claude-haiku-5-5", steps: [{}, {}], exhausted: false }));
-  assert.equal(turn.answer, "Your hearing is tomorrow.", "the look's turn comes back");
-  const fd = runs.find((run) => run.node === "fd");
-  assert.ok(fd, "the look logged as the fd step");
-  assert.equal(fd.via, "checkin:wait");
-  assert.deepEqual(fd.output, { pending: false, draftChars: 25, answeredBy: "anthropic/claude-haiku-5-5", steps: 2, exhausted: false });
+  const drafts = [];
+  const t = { answerChecks: null, reviewedAs: null, judge: null, finishCheckIn: null };
+  const checkinStub = async (_input, io) => {
+    io.ctx.checkin.look = {};
+    await io.ctx.checkin.prepare(io);
+    return { to: "look", log: { counts: { changed: 1 }, calendar: false } };
+  };
+  const nodes = Object.create(GATEWAY_NODES, { fd: { value: checkInLook }, checkin: { value: checkinStub } });
+  const graph = gatewayGraph({ config, nodes, log: (run) => runs.push(run) });
+  let checked = 0;
+  const ctxObj = {
+    look: null,
+    prepare: async (io) => {
+      t.researched = "checkinResearch" in io.use;
+      t.answerChecks = {
+        code: async (draft) => {
+          checked += 1;
+          return { notice: checked === 1 && codeNotice ? codeNotice : null, review: false };
+        },
+        review: async () => null,
+      };
+      t.reviewedAs = "checkin";
+      t.look = async (answerCheck, via) => {
+        if (failWith) throw failWith;
+        const callTool = via.tools(async (name) => ({ content: [{ type: "text", text: `read ${name}` }] }));
+        const read = await callTool("read_note", { path: "a.md" });
+        let answer = `Your hearing is tomorrow (${read.content[0].text}).`;
+        drafts.push(answer);
+        const notice = await answerCheck(answer, { messages: [] });
+        if (notice) {
+          answer = "Your hearing is tomorrow at 9.";
+          drafts.push(answer);
+          await answerCheck(answer, { messages: [] });
+        }
+        return { answer, model: "anthropic/claude-haiku-5-5", steps: [{ ok: true, tool: "read_note" }], exhausted: false };
+      };
+      t.finishCheckIn = async (turn) => new Response(JSON.stringify({ outcome: "speak", answer: turn.answer }), { headers: { "content-type": "application/json" } });
+    },
+  };
+  return { runs, drafts, t, run: () => graph.run("checkin", { timeZone: "America/New_York", started: 1 }, { checkin: ctxObj, turn: t }) };
+}
 
-  const failing = gatewayGraph({ config: TEX_CONFIG, nodes, log: (run) => runs.push(run) });
+test("a check-in runs Check-in, the look, the Answer check, a tool call and Text them as logged nodes on the config's wires", async () => {
+  const { runs, t, run } = checkInRun();
+  const ran = await run();
+  assert.deepEqual(ran.ran, ["checkin", "fd", "answerCheck", "send"], "the run follows checkin -> fd -> answerCheck -> send");
+  const nodes = runs.map((r) => r.node);
+  assert.ok(nodes.includes("tools"), "the look's tool call ran as the Tools node over fd -> tools");
+  const check = runs.find((r) => r.node === "answerCheck");
+  assert.ok(check, "the Answer check logged a run (it logged none before, 2026-11-22)");
+  assert.equal(check.output.sentBack, 0);
+  const fd = runs.find((r) => r.node === "fd" && r.via === "wait");
+  assert.ok(fd, "the look logged as the fd step the checkin -> fd wire fed");
+  assert.equal(fd.output.pending, true, "the look stopped at its draft for the Answer check");
+  const send = runs.find((r) => r.node === "send");
+  assert.equal(send.output.texts, "Your hearing is tomorrow (read read_note).".length, "Text them said what goes back, by length");
+  assert.equal(t.researched, true, "Research is Check-in's own uses wire");
+  assert.equal((await t.response.json()).answer, "Your hearing is tomorrow (read read_note).");
+});
+
+test("an Answer check send-back goes over its loop wire to the look, which writes it again", async () => {
+  const { runs, drafts, t, run } = checkInRun({ codeNotice: "Say the time." });
+  await run();
+  assert.equal(drafts.length, 2, "the look wrote the draft again");
+  const check = runs.find((r) => r.node === "answerCheck");
+  assert.equal(check.output.sentBack, 1, "the send-back is logged on the Answer check");
+  assert.ok(runs.some((r) => r.node === "fd" && r.via === "answerCheck:loop"), "the look resumed over answerCheck -> fd");
+  assert.equal((await t.response.json()).answer, "Your hearing is tomorrow at 9.");
+});
+
+test("a look that throws fails the run with its own error, so the check-in can log it failed", async () => {
   const boom = new Error("provider down");
-  await assert.rejects(() => lookThroughGraph(failing, async () => { throw boom; }), (error) => error === boom, "a failed look throws its own error, as before");
+  const { run } = checkInRun({ failWith: boom });
+  await assert.rejects(run, (error) => error === boom);
+});
 
-  const unwired = { wired: () => false };
-  assert.equal((await lookThroughGraph(unwired, async () => ({ answer: "direct" }))).answer, "direct", "a config without the wire looks as before");
+test("a draft with the Answer check off still checks in once: the look's drafts go as they are", async () => {
+  const off = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((n) => (n.id === "answerCheck" ? { ...n, on: false } : n)) };
+  const { t, drafts, run } = checkInRun({ codeNotice: "never read", config: off });
+  const ran = await run();
+  assert.ok(!ran.ran.includes("send"), "nothing fed Text them");
+  assert.ok(t.drafts.waiting, "the look waits at its draft");
+  const turn = await everyDraftGoes(t.drafts);
+  assert.equal(turn.answer, "Your hearing is tomorrow (read read_note).", "the draft went as it was");
+  assert.equal(drafts.length, 1, "the look ran once, never again beside the stopped one");
 });

@@ -92,10 +92,10 @@ test("a look with something changed goes on to look, with its counts and the liv
   const tree = [{ path: "1-projects/launch.md", etag: "c1", updatedAt: NOW - 1000 }];
   const { io, checkinCtx } = ioFor({ tree, files: { "1-projects/launch.md": { body: `${SENTINEL}\n`, etag: "c1" } } });
   const out = await checkin(input({ since: NOW - HOUR_MS }), io);
+  // The counts ride in `log`, which the `checkin -> fd` wire does not carry on to the Front door (2026-11-22).
   assert.deepEqual(out, {
     to: "look",
-    counts: { changed: 1, mail: 0, slack: 0, chat: 0, owed: 0 },
-    calendar: false,
+    log: { counts: { changed: 1, mail: 0, slack: 0, chat: 0, owed: 0 }, calendar: false },
   });
   assertPlain(out);
   assert.deepEqual(

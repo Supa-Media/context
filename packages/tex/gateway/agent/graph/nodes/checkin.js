@@ -9,9 +9,10 @@
  * set only on the `look` branch. Note text, mail and functions never go in the
  * output, so the output can be logged and replayed as it is.
  *
- * Outputs:
+ * Outputs (`to` is the tag its wires fire on):
  *   - { to: "done", status, body }: the check-in ends here with that HTTP answer.
- *   - { to: "look", counts, calendar }: the model's look goes ahead; the values are in `io.ctx.checkin.look`.
+ *   - { to: "look", log: { counts, calendar } }: the model's look goes ahead over `checkin -> fd`; the values are in
+ *     `io.ctx.checkin.look`.
  *
  * It imports only from the agent's own modules, never from another node, and
  * never from `heartbeat.js`, which imports this file.
@@ -107,9 +108,15 @@ export async function checkin(input, io) {
   }
 
   io.ctx.checkin.look = { changed, mail, mailboxes, owed, calendar, slack, chat, conversation, settings, settingsNote, mutes, until };
+  // The rest of the gather (`heartbeat.js` `prepareLook`): the look's question, and Research over this node's own
+  // `checkin -> checkinResearch` wire, so it is logged as this node's call. Absent in a test of this node alone.
+  if (typeof io.ctx.checkin.prepare === "function") await io.ctx.checkin.prepare(io);
+  // `look` fires the config's `checkin -> fd` wire; what it found rides in `log`, which the wire does not carry on.
   return {
     to: "look",
-    counts: { changed: changed.length, mail: mail.length, slack: slack.length, chat: chat.length, owed: owed.length },
-    calendar: calendar !== null,
+    log: {
+      counts: { changed: changed.length, mail: mail.length, slack: slack.length, chat: chat.length, owed: owed.length },
+      calendar: calendar !== null,
+    },
   };
 }

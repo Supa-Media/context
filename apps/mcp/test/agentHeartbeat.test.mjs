@@ -415,6 +415,12 @@ export async function runAgentHeartbeatChecks(check) {
         lookNote.ms >= 0 && lookNote.timing?.v === 3 && lookNote.timing.rounds.length === 3 &&
         lookNote.timing.rounds.every((round) => round.prompt?.modules?.length > 0),
     );
+    // Dev2, 2026-11-22: a check-in's answer check "logged no run": the look runs the config's graph, every step a node.
+    const lookNodes = new Set(lookSteps.filter((entry) => entry.step === "node").map((entry) => entry.name));
+    check(
+      "a check-in runs Check-in, the look, its tool calls, the Answer check and Text them as logged nodes",
+      ["checkin", "fd", "tools", "answerCheck", "send"].every((node) => lookNodes.has(node)),
+    );
     const conversation = { turns: conversationTurns(bucket) };
     check(
       "a texted check-in joins the texting conversation, so a reply has it in front of it",

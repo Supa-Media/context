@@ -25,6 +25,11 @@ async function sentOf(response) {
 
 export async function sendNode(_input, io) {
   const t = io.ctx.turn;
+  // A check-in's look (`../../heartbeat.js`): what it found becomes the text the Worker sends, and the day's log entry.
+  if (typeof t.finishCheckIn === "function") {
+    t.response = await t.finishCheckIn(t.turn ?? null);
+    return { when: [(t.sentAs = "checkin")], ...(await sentOf(t.response)) };
+  }
   const threads = typeof t.threadsSort === "function" ? ["threads"] : [];
   if (t.drafts === undefined) return { when: [(t.sentAs = "answered")], ...(await sentOf(t.response)) };
   if (t.response === undefined) t.response = await finishARoutine(t);

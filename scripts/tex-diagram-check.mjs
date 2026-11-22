@@ -18,6 +18,12 @@
  *   5. With `--base <sha>` (a pull request): a change to `texEntryPoint.js`, a file under `texEntryPoint/`, or any
  *      node's file must change the config too, unless the pull request's description (env `TEX_PR_BODY`) has a line
  *      `Tex diagram: unchanged because <reason>`.
+ *   7. Every file under `packages/tex/gateway/agent` that turns the model back with words of its own (a code send-back
+ *      or hold: it exports a `…_NOTICE` constant, or a `…Notice`, `…Check`, `…Gate`, `…Judge` or `…Hold` function) is
+ *      a node's file, a shelf node's file, or on CODE_CHECKS_NOT_NODED_YET (Dev2, 2026-11-14: "every model call and
+ *      code branch in or around a turn must be a config node"). Found 2026-11-22: #3614 refused a check-in's first
+ *      `say_nothing` from a word list in a new file, and no check saw it, because it named no model. The list only
+ *      shrinks: a new hold gets a node (or goes in an existing node's file), never a line here.
  *   6. Every step the Lab's test chat records by a name of its own (`packages/lab/gateway/labSandbox/`: `book.line("x"` and
  *      `book.begin({ node: "x"`) is a node of the config, or one of `LAB_TRANSPORT`, the simulated phone line a test
  *      text goes over (Dev2, 2026-11-16: "pretend it's a Photon iMessage thing"). Those are the sandbox's transport, not
@@ -44,8 +50,8 @@ const ENTRY = "packages/tex/gateway/agent/texEntryPoint.js";
 const STEPS_DIR = "packages/tex/gateway/agent/texEntryPoint/";
 /** Where a model may be named; each file that names one is a node's file, or on a list below. */
 const MODEL_FOLDERS = ["packages/tex/gateway/agent", "packages/tex/worker", "apps/convex/functions/lib/jev"];
-/** Where a node's file is looked for, by its path's end. */
-const NAMED_FOLDERS = ["apps/mcp/src", "packages/tex/worker", "apps/convex/functions/lib/jev"];
+/** Where a node's file is looked for, by its path's end: the gateway's agent moved to packages/tex/gateway (2026-11-20), and check 5 watched only its old home until 2026-11-22. */
+const NAMED_FOLDERS = ["apps/mcp/src", "packages/tex/gateway", "packages/tex/worker", "apps/convex/functions/lib/jev"];
 const MODEL_ID = /["'`](?:anthropic\/claude-[a-z0-9.-]+|@cf\/[a-z0-9._-]+\/[a-z0-9._-]+|gemini-[a-z0-9.-]+)["'`]/;
 /** Files that name a model to carry or price calls for nodes, and are never a model call of their own. */
 export const PLUMBING = Object.freeze({
@@ -60,6 +66,43 @@ export const PLUMBING = Object.freeze({
 export const NOT_NODED_YET = Object.freeze({
   "packages/tex/gateway/agent/decide.js": "Clef's small choices on a person's computer",
 });
+/** A code send-back or hold: a notice the model loop is handed, or a function that decides one (check 7). */
+const HOLDS = /export\s+(?:const\s+[A-Z0-9_]*NOTICE\b|(?:async\s+)?function\s+\w*(?:Notice|Check|Gate|Judge|Hold)\s*\()/;
+/**
+ * Code send-backs and holds that run today inside the Front door's loop or the Answer check without a node of their
+ * own (check 7; paths under packages/tex/gateway/agent). Each is waiting for its node, or for its node's file to name
+ * it; the list only shrinks.
+ */
+export const CODE_CHECKS_NOT_NODED_YET = Object.freeze([
+  "browserWalls.js",
+  "bugCheck.js",
+  "checkoutChecks.js",
+  "confession.js",
+  "finishedOffer.js",
+  "keptClaims.js",
+  "lastRound.js",
+  "ledger.js",
+  "linkCheck.js",
+  "lookFirst.js",
+  "otherRoutes.js",
+  "otherSites.js",
+  "pageCoverFloor.js",
+  "pageNotice.js",
+  "progress.js",
+  "readClaims.js",
+  "recordRead.js",
+  "replyChecks.js",
+  "saveAccount.js",
+  "sayNothing.js",
+  "searchClaims.js",
+  "standsCheck.js",
+  "stopsShort.js",
+  "stuckAsks.js",
+  "timeLog.js",
+  "visuals/notice.js",
+  "wordy.js",
+  "workPage.js",
+]);
 /** Where a Tex agent's prompt is written: each file here that gives a model a system prompt puts the map ahead of it (`texArchitecture.js`). */
 const AGENT_FOLDER = "packages/tex/gateway/agent";
 /** Files that carry a system prompt without writing one: the transport, the day told at its door (`withToday`), the turn that sends runTheModel's prompt, and a card template's field named system. */
@@ -153,6 +196,25 @@ export function modelFileProblems(naming, config, shelfFiles = []) {
   return problems;
 }
 
+/**
+ * Problems with the files that turn the model back (`holding`: their paths under `AGENT_FOLDER`): one no node names, the
+ * shelf does not hold and the list does not hold, or a list entry that is stale (it has its node, or holds nothing now).
+ */
+export function holdProblems(holding, config, shelfFiles = [], listed = CODE_CHECKS_NOT_NODED_YET) {
+  const files = config.nodes.map((n) => n.file ?? "").join(" · ");
+  const named = (path) => pageNames(files, path) || shelfFiles.includes(`${AGENT_FOLDER}/${path}`);
+  const problems = [];
+  for (const path of holding) {
+    if (path.startsWith("graph/nodes/") || named(path) || listed.includes(path)) continue;
+    problems.push(`${AGENT_FOLDER}/${path} turns the model back with words of its own (a code send-back or hold) but is no node's file in ${CONFIG}: give it a node, or put it in the file of the node that runs it (Dev2, 2026-11-14: every code branch in a turn is a config node)`);
+  }
+  for (const path of listed) {
+    if (named(path)) problems.push(`${AGENT_FOLDER}/${path} is a node's file now: take it off CODE_CHECKS_NOT_NODED_YET in scripts/tex-diagram-check.mjs`);
+    else if (!holding.includes(path)) problems.push(`${AGENT_FOLDER}/${path} holds nothing now (or is gone): take it off CODE_CHECKS_NOT_NODED_YET in scripts/tex-diagram-check.mjs`);
+  }
+  return problems;
+}
+
 /** Whether a page names a file: its name, as a whole word, anywhere on it. */
 export function pageNames(page, path) {
   const base = path.split("/").pop();
@@ -201,6 +263,7 @@ function check(base) {
   problems.push(...modelFileProblems(naming, config, Object.values(shelf.nodes ?? {}).flatMap((n) => n.files ?? [])));
   const agentFiles = filesUnder(join(ROOT, AGENT_FOLDER)).map((file) => ({ path: relative(join(ROOT, AGENT_FOLDER), file), source: readFileSync(file, "utf8") }));
   problems.push(...mapProblems(agentFiles));
+  problems.push(...holdProblems(agentFiles.filter(({ source }) => HOLDS.test(source)).map(({ path }) => path), config, Object.values(shelf.nodes ?? {}).flatMap((n) => n.files ?? [])));
   const labFiles = filesUnder(join(ROOT, LAB_FOLDER)).map((file) => ({ path: relative(join(ROOT, LAB_FOLDER), file), source: readFileSync(file, "utf8") }));
   problems.push(...transportProblems(labFiles, config));
   if (!promptIsCurrent(ROOT)) problems.push(`${PROMPT_MODULE} is not what ${PROMPT_FOLDER}/*.md make: run node scripts/tex-prompt-module.mjs`);
@@ -253,6 +316,16 @@ function selfTest() {
   expect(transportProblems(lab('book.line("lineSideways", {})'), config).length === 1, "an unlisted line step passed");
   expect(transportProblems(lab('export const TRANSPORT_STEPS = Object.freeze(["lineIn"]);'), config).length === 1, "a transport list out of step passed");
   expect(transportProblems([], { ...config, nodes: [...config.nodes, node("lineIn")] }).length === 1, "transport that became a node passed");
+  const holder = (id, file) => ({ id, file });
+  const holds = { nodes: [holder("answerCheck", "replyJudge.js")], edges: [] };
+  expect(HOLDS.test("export const CHECK_IN_SPEAK_NOTICE = \"x\";") && HOLDS.test("export async function quietGate(x) {") && !HOLDS.test("export const NOTICE_COUNT = 1;"), "holds misread");
+  expect(holdProblems(["checkInSpeak.js"], holds, [], []).length === 1, "a new hold with no node passed (#3614)");
+  expect(holdProblems(["replyJudge.js", "graph/nodes/quietCheck.js"], holds, [], []).length === 0, "a node's hold refused");
+  expect(holdProblems(["fresh.js"], holds, [`${AGENT_FOLDER}/fresh.js`], []).length === 0, "a shelf node's hold refused");
+  expect(holdProblems(["old.js"], holds, [], ["old.js"]).length === 0, "a listed hold refused");
+  expect(holdProblems([], holds, [], ["old.js"]).length === 1, "a listed file that holds nothing stayed listed");
+  expect(holdProblems(["replyJudge.js"], holds, [], ["replyJudge.js"]).length === 1, "a listed file that has its node stayed listed");
+  expect(watched("packages/tex/gateway/agent/replyJudge.js", ["replyJudge.js"]), "a gateway node's file is not watched (check 5)");
   console.log("tex-diagram-check self-test: ok");
 }
 
