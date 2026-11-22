@@ -20,6 +20,7 @@ import searchConfig from "../src/search/config/searchConfig.cjs";
 import { DEFAULT_RANKING, FUSE_RANKING, rankingOf } from "../src/search/ranking.js";
 import { DEFAULT_SEARCH_SETTINGS } from "../src/search/settings.js";
 import { findNotes } from "../src/tools/search.js";
+import { SEARCH_NODES } from "../src/search/config/nodes.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { withServedTree } from "./servedTree.mjs";
 
@@ -126,8 +127,9 @@ const IN_WORKSPACE = SEARCH_CONFIG.nodes.filter((n) => n.on !== false && !["sear
 test("searched across workspaces, the run goes left to right through every step, read from the config's wires", async () => {
   const runs = [];
   const found = await findNotes(setup(), "private", [], new Map(), "renewal", "", { log: (row) => runs.push(row) });
-  // Each step runs once, for every workspace at once (Dev2, 2026-11-21: nominate, filter, merge, rank, left to right).
-  assert.deepEqual(pathOf(runs), ["search", ...IN_WORKSPACE, "fuse", "answer"]);
+  // Each step runs once, for every workspace at once (Dev2, 2026-11-21: nominate, filter, merge, rank, left to right),
+  // but "Rerank word hits", which Words calls once for each workspace as it answers (here two).
+  assert.deepEqual(pathOf(runs), ["search", ...IN_WORKSPACE.flatMap((id) => (id === "rerankWords" ? [id, id] : [id])), "fuse", "answer"]);
   assert.ok(runs.every((r) => r.ok), "every step ran");
   assert.deepEqual(found.searched, ["@me", "@ops"]);
   assert.ok(found.hits.some((hit) => hit.key.startsWith("@ops/")));
@@ -253,19 +255,42 @@ test("the word hits are reranked beside meaning, and Rerank uses those scores wi
   rerank.settings = { ...rerank.settings, readLate: 0 };
   const runs = [];
   const found = await findNotes(store, "private", [], new Map(), "renewal", "", { config, log: (row) => runs.push(row) });
-  assert.equal(calls.length, 1, "one call, for every workspace's word hits, before the snippets");
-  assert.ok(runs.findIndex((r) => r.node === "rerankWords") >= 0 && runs.some((r) => r.node === "rerank"));
+  assert.equal(calls.length, 2, "one call per workspace's word hits, as each answers, and none from Rerank");
+  assert.equal(runs.filter((r) => r.node === "rerankWords").length, 2);
+  assert.ok(runs.some((r) => r.node === "rerank"));
   assert.equal(found.hits[0].key, "projects/renewal.md");
 });
 
-test("Rerank word hits sits between the word search and the visible check", () => {
-  const ids = SEARCH_CONFIG.nodes.map((n) => n.id);
+test("Rerank word hits is used by the word search, once per workspace, and never waits on meaning", () => {
   const node = SEARCH_CONFIG.nodes.find((n) => n.id === "rerankWords");
   assert.deepEqual(Object.keys(node.settings).sort(), ["rerankChars", "rerankTop"]);
-  assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "words" && e.to === "rerankWords"));
-  assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" && e.to === "visible"));
-  assert.ok(!SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" && e.to === "meaning"), "it runs beside meaning, not before it");
-  assert.ok(ids.includes("meaning"));
+  assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "words" && e.to === "rerankWords" && e.mode === "uses"));
+  assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "words" && e.to === "visible" && e.mode === "wait"));
+  assert.ok(!SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" || (e.to === "rerankWords" && e.from !== "words")), "only the word search reaches it");
+});
+
+test("each workspace's word hits are reranked the moment that workspace answers, not after the slowest", async () => {
+  // The real steps, with @ops's word search held until @me's hits were reranked: a reranker that waited for every
+  // workspace would never be called, and the search would hang.
+  const store = setup();
+  const ctx = { store, scope: "private", rules: [], overrides: new Map(), draft: true };
+  const io = (id, extra = {}) => ({ node: SEARCH_CONFIG.nodes.find((n) => n.id === id), ctx, on: () => true, ...extra });
+  const opened = await SEARCH_NODES.open(await SEARCH_NODES.search({ query: "renewal", prefix: "" }, io("search")), io("open"));
+  let releaseOps;
+  const opsHeld = new Promise((resolve) => (releaseOps = resolve));
+  const ops = ctx.opened.get("@ops");
+  const held = new Proxy(ops.store, { get: (target, key) => (typeof target[key] === "function" ? async (...args) => (await opsHeld, target[key](...args)) : target[key]) });
+  ctx.opened.set("@ops", { ...ops, store: held });
+  const order = [];
+  const rerankWords = async (arg) => {
+    order.push(arg.workspace);
+    releaseOps();
+    return { found: { ...arg.found, hits: arg.found.hits.map((hit) => ({ ...hit, rerankScore: 0.5 })) } };
+  };
+  const out = await Promise.race([SEARCH_NODES.words(opened, io("words", { use: { rerankWords } })), new Promise((_, reject) => setTimeout(() => reject(new Error("the reranker waited for every workspace")), 2000))]);
+  ctx.passes?.release();
+  assert.deepEqual(order, ["@me", "@ops"], "@me read first, while @ops still searched");
+  assert.ok(Object.values(out.byWords).every((found) => found.hits.length > 0 && found.hits.every((hit) => hit.rerankScore === 0.5)));
 });
 
 test("with the word search off, Rerank word hits on passes the search on unread", async () => {

@@ -67,8 +67,12 @@ const ALWAYS_ON = Object.freeze(["search", "open", "visible", "code", "fuse", "a
 
 const NODE_KEYS = Object.freeze(["id", "label", "goal", "on", "model", "kind", "icon", "file", "note", "x", "y", "group", "settings", "inSchema", "outSchema", "log"]);
 const EDGE_KEYS = Object.freeze(["from", "to", "mode", "when"]);
-/** Search's wires all wait: each step runs on the output of the ones before it, left to right. */
-const MODES = Object.freeze(["wait"]);
+/**
+ * Search's wires wait (each step runs on the output of the ones before it, left to right), or a step uses another: it
+ * calls it for one part of its work, as Words hands each workspace's hits to "Rerank word hits" the moment that
+ * workspace answers (Dev2, 2026-11-21).
+ */
+const MODES = Object.freeze(["wait", "uses"]);
 
 /** Why one setting's value is refused, or null when it may be used. */
 function settingProblem(name, value) {
@@ -121,7 +125,7 @@ function searchConfigProblems(config) {
       continue;
     }
     for (const k of Object.keys(e)) if (!EDGE_KEYS.includes(k)) out.push(`the wire ${name} has a field the search schema does not know: ${k}`);
-    if (!MODES.includes(e.mode)) out.push(`the wire ${name} has mode "${e.mode}": search wires wait (${MODES.join(", ")})`);
+    if (!MODES.includes(e.mode)) out.push(`the wire ${name} has mode "${e.mode}": search wires are ${MODES.join(" or ")}`);
     if (!Array.isArray(e.when) || e.when.length === 0) out.push(`the wire ${name} needs a when list`);
   }
   return out;
