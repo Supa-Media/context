@@ -9,6 +9,7 @@
 //   intake.js `homeAt` always GET /home (move ignored)              "move: true copies the 1:1 in ..." fails
 //   intake.js log line carrying `name`                              "no phone or group id ..." fails
 //   intake.js `sweep` counting a refused move as moved              "a sweep moves every chat ..." fails
+//   intake.js `workerCensus` dropping the 50-id cap (2026-11-22)      "a census of the Worker's objects ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -69,7 +70,7 @@ function world() {
     const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, null);
     return { status: response.status, body: await response.json() };
   };
-  return { call, asked, directory, homes, logs, set refuse(value) { state.refuse = value; }, restore: () => { globalThis.fetch = original; console.log = realLog; } };
+  return { env, call, asked, directory, homes, logs, set refuse(value) { state.refuse = value; }, restore: () => { globalThis.fetch = original; console.log = realLog; } };
 }
 
 test("intake lists the caller's own chats and where each is answered", async () => {
@@ -171,6 +172,27 @@ test("a sweep pages from after, and a refused move is counted as refused, not mo
     const moved = await w.call(DEV, { op: "intake", sweep: true, move: true });
     assert.equal(moved.body.moved, 0);
     assert.equal(moved.body.refused, 3);
+  } finally {
+    w.restore();
+  }
+});
+
+test("a census of the Worker's objects by id is staff only, at most 50 well-formed ids, and passes the counts on", async () => {
+  const w = world();
+  const asked = [];
+  const counts = { looked: 1, moved: 1, purged: 0, empty: 0, here: { chat: 0, job: 0, directory: 0, "group-moves": 0 }, hereIds: [], failed: 0 };
+  w.env.TEXTING.census = async (call) => { asked.push(call.ids.length); return counts; };
+  try {
+    assert.equal((await w.call(STRANGER, { op: "intake", workerIds: [MINE] })).status, 403);
+    assert.equal((await w.call(DEV, { op: "intake", workerIds: ["../x"] })).status, 400);
+    assert.equal((await w.call(DEV, { op: "intake", workerIds: Array(51).fill(MINE) })).status, 400);
+    assert.deepEqual(asked, [], "nothing asked before the checks pass");
+    const answered = await w.call(DEV, { op: "intake", workerIds: [MINE, NOT_MINE] });
+    assert.equal(answered.status, 200);
+    assert.deepEqual(answered.body, counts);
+    assert.deepEqual(asked, [2]);
+    delete w.env.TEXTING.census;
+    assert.equal((await w.call(DEV, { op: "intake", workerIds: [MINE] })).status, 501);
   } finally {
     w.restore();
   }

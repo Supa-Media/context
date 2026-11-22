@@ -8,6 +8,7 @@
 import { retryText, stopTurn } from "./turnWatch";
 import { jobRoute } from "./jobRoutes";
 import { jobObject } from "./jobObject";
+import { CENSUS_PATH, censusOf } from "./workerCensus";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, keepEdit, react, type InboxDeps, type InboxStorage } from "./inbox";
@@ -75,6 +76,8 @@ export class SenderInbox implements DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
+    // What this object still holds, counted before any move gate could pass the call on (`workerCensus.ts`).
+    if (new URL(request.url).pathname === CENSUS_PATH) return Response.json(await censusOf(this.state.storage));
     const stubs = (name: string) => objectByName(this.env.SENDER_INBOX, name);
     const gate = await placeGate(request, this.state.storage as unknown as MoveStorage, stubs, this.busy, (run) => this.state.blockConcurrencyWhile(run), Date.now, this.env.GATEWAY_TEXTS);
     if ("response" in gate) return gate.response;
