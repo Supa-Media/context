@@ -76,6 +76,17 @@ test("fuse: with sharedWords on, the hit on the shared scale wins; off (main), e
 });
 
 test("the two knobs are bounded: out of bounds keeps main's value", () => {
-  assert.equal(rankingOf({ sharedWords: 2 }, FUSE_RANKING).sharedWords, FUSE_RANKING.sharedWords);
+  assert.equal(rankingOf({ sharedWords: 3 }, FUSE_RANKING).sharedWords, FUSE_RANKING.sharedWords);
   assert.equal(rankingOf({ workspaceWeight: 1.5 }, FUSE_RANKING).workspaceWeight, FUSE_RANKING.workspaceWeight);
+});
+
+test("fuse with sharedWords 2: the scale orders word hits, and a hit holding every word still outranks an any-word one", () => {
+  const query = "church budget";
+  const terms = queryTerms(query);
+  const strict = { ...hit("a.md", 0, "church budget", terms), title: "" };
+  const loose = { ...hit("@big/b.md", 0, "church church church", terms), title: "", loose: true };
+  const wordStats = [{ n: 10, df: { church: 5, budget: 5 } }, { n: 10, df: { church: 1 } }];
+  const two = fuseEverywhere([[strict], [loose]], 12, { query, wordStats, ranking: rankingOf({ sharedWords: 2 }, FUSE_RANKING) });
+  assert.equal(two[0].key, "a.md");
+  assert.equal(two.some((h) => h.key === "@big/b.md"), true, "a loose hit stays in the answer, below");
 });

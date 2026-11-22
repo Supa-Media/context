@@ -95,7 +95,7 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
   );
   // One word scale across workspaces (`sharedWords.js`), when the ranking asks for it and every workspace can say.
   const shared =
-    ranking.sharedWords === 1 && typeof query === "string" && Array.isArray(wordStats)
+    ranking.sharedWords >= 1 && typeof query === "string" && Array.isArray(wordStats)
       ? sharedWordRanks(
           lists.map((_, list) => all.filter((entry) => entry.list === list).map((entry) => entry.hit)),
           wordStats,
@@ -103,7 +103,10 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
           { floor: ranking.workspaceWeight ?? 0 },
         )
       : null;
-  const anyWhole = shared === null && all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
+  // With `sharedWords` 2 the scale only replaces each workspace's word rank: a hit holding every word still outranks an
+  // any-word one, as without it. With 1 every word hit counts on the scale alone.
+  const keepsLoose = shared === null || ranking.sharedWords === 2;
+  const anyWhole = keepsLoose && all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
   const isMeaningOnly = ({ hit }) => typeof hit.wordRank !== "number";
   // A passage of code found only by meaning is noise for a question asked in
   // prose (`search/codeLike.js`): the same search added three code passages
@@ -132,7 +135,8 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
   const scored = eligible.map((entry) => {
     const { hit } = entry;
     const counted = typeof hit.wordRank === "number" && !(hit.loose && anyWhole);
-    const word = !counted ? 0 : shared?.rank.has(hit) ? 1 / (RRF_K + shared.rank.get(hit) + 1) : 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0));
+    const place = shared?.rank.has(hit) ? shared.rank.get(hit) : hit.wordRank;
+    const word = !counted ? 0 : 1 / (RRF_K + place + 1 + (hit.loose && keepsLoose ? LOOSE_PENALTY : 0));
     const strictWord = typeof hit.wordRank === "number" && !hit.loose;
     let meaning = 0;
     if (meaningRank.has(entry)) meaning = 1 / (RRF_K + meaningRank.get(entry) + 1);

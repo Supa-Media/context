@@ -40,7 +40,7 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
   rerankChars: { min: 100, max: 2000, integer: true },
   readLate: { min: 0, max: 1, integer: true },
   waitAfterMeaning: { min: 0, max: 5000, integer: true },
-  sharedWords: { min: 0, max: 1, integer: true },
+  sharedWords: { min: 0, max: 2, integer: true },
   workspaceWeight: { min: 0, max: 1, integer: false },
 });
 

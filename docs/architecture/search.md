@@ -108,5 +108,5 @@ flowchart LR
 | Merge across workspaces | `snippetPhraseBonus` | 0 |
 | Merge across workspaces | `titleWeight` | 0.003278688524590164 |
 | Merge across workspaces | `rerankWeight` | 1 |
-| Merge across workspaces | `sharedWords` | 1 |
+| Merge across workspaces | `sharedWords` | 2 |
 | Merge across workspaces | `workspaceWeight` | 0 |
