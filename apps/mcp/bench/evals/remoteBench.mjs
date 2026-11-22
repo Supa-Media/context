@@ -3,8 +3,8 @@
  * search at once: production's for main, a pull request's preview for its code (`cli.mjs search --remote <origin>`).
  *
  * A world is loaded once and kept there under its key (`remoteWorldKey`): its notes, its people and the code that
- * builds its indexes. A run whose world is already there only searches. Otherwise the first copy is loaded from here,
- * every other copy clones it on its own alarm, and the run waits until every copy has its indexes built.
+ * builds its indexes. A run whose world is already there only searches. Otherwise the first copy is loaded from here and
+ * built, every other copy is then loaded from here at once, and the run waits until every copy has its indexes built.
  *
  * One object answers one search at a time (about 0.4 s for 10,000 notes), so the cases are dealt across `copies`
  * copies of the same notes and asked all together. Only the object path is scored: a bench object is a workspace
@@ -160,16 +160,23 @@ export async function ensureRemoteWorld(call, bench, { copies, log = () => {}, t
   const first = await statusOf(0);
   // A copy is reloaded when it was never set up, or a load stopped before all its notes were in.
   const stale = (status) => Object.values(status).some((s) => !s.set || (s.notes < s.want && !s.cloning));
+  // Each workspace's notes, keyed as a copy keeps them, made once for every copy.
+  const notesOf = new Map();
+  for (const workspace of plans[0].workspaces) notesOf.set(workspace.name, await Promise.all(workspace.files.map(async (path) => ({ key: `notes/${await noteIdOf(workspace.name, path)}.md`, text: bench.workspaces[workspace.name].files[path] }))));
+  /** A copy set up and its notes put, from here: pages of every workspace, `limit` calls at once. */
+  const loadCopy = async (copy, limit) => {
+    await call({ op: "setup", world, copy, plan: plans[copy] });
+    const pages = plans[copy].workspaces.flatMap((workspace) => pagesOf(notesOf.get(workspace.name)).map((notes) => ({ workspaceId: workspace.workspaceId, notes })));
+    await pool(pages, limit, (page) => call({ op: "notes", world, copy, ...page }));
+  };
   if (stale(first)) {
     log(`bench world ${world.slice(0, 8)}: loading copy 1 of ${copies}\n`);
-    await call({ op: "setup", world, copy: 0, plan: plans[0] });
-    for (const workspace of plans[0].workspaces) {
-      const notes = await Promise.all(workspace.files.map(async (path) => ({ key: `notes/${await noteIdOf(workspace.name, path)}.md`, text: bench.workspaces[workspace.name].files[path] })));
-      await pool(pagesOf(notes), 4, (page) => call({ op: "notes", world, copy: 0, workspaceId: workspace.workspaceId, notes: page }));
-    }
+    await loadCopy(0, 4);
   }
-  // The other copies clone the first once it is built, so its embeddings are in the vector cache before they ask:
-  // cloning sooner would have every copy embed the same passages at once.
+  // The other copies are loaded once the first is built, so its embeddings are in the vector cache before they ask:
+  // loading sooner would have every copy embed the same passages at once. They are loaded from here, all at once,
+  // rather than cloned from the first copy: sixteen copies pulling from one object waited in its queue (a 16-copy
+  // load spent about 5 minutes cloning against about 1 for the first copy alone).
   const waitFor = async (list) => {
     for (let said = 0; ; ) {
       const statuses = await pool(list, 16, statusOf);
@@ -187,11 +194,9 @@ export async function ensureRemoteWorld(call, bench, { copies, log = () => {}, t
   await waitFor([0]);
   await pool(
     Array.from({ length: copies - 1 }, (_, i) => i + 1),
-    8,
+    16,
     async (copy) => {
-      if (!stale(await statusOf(copy))) return;
-      await call({ op: "setup", world, copy, plan: plans[copy] });
-      for (const workspace of plans[copy].workspaces) await call({ op: "clone", world, copy, workspaceId: workspace.workspaceId, from: plans[0].workspaces.find((w) => w.name === workspace.name).workspaceId });
+      if (stale(await statusOf(copy))) await loadCopy(copy, 2);
     },
   );
   await waitFor(Array.from({ length: copies }, (_, copy) => copy));

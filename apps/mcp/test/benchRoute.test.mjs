@@ -196,8 +196,9 @@ test("the CLI's remote run loads a world once, deals the cases across its copies
     const records = await runRemoteSearchCases(call, { bench, cases, copies: 3, perCall: 1, log: () => {}, poll: 0 });
     assert.deepEqual(records.map((r) => r.rank), [1, 1, 1], JSON.stringify(records.map((r) => [r.id, r.hits, r.error])));
     assert.deepEqual(records.map((r) => r.object.rank), [1, 1, 1]);
-    assert.equal(ops.filter((op) => op === "notes").length, 1, "the notes are sent once, to the first copy");
-    assert.equal(ops.filter((op) => op === "clone").length, 2, "the other two copies clone it");
+    assert.equal(ops.filter((op) => op === "notes").length, 3, "each copy's notes are sent from here, a page each");
+    assert.equal(ops.filter((op) => op === "clone").length, 0, "no copy waits in the first copy's queue to clone it");
+    assert.equal(new Set(h.embeds).size, h.embeds.length, "the later copies read the first copy's embeddings from the vector cache");
     // A second run of the same world only searches.
     ops.length = 0;
     await runRemoteSearchCases(call, { bench, cases, copies: 3, perCall: 1, log: () => {} });
