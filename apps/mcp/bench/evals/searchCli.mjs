@@ -155,7 +155,8 @@ export async function runSearchSet(options) {
   const fake = options.fake === true || !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN);
   const ai = embedderFor({ fake });
   const embedder = fake ? "fake" : "workers-ai";
-  const objects = options["database-only"] !== true;
+  // Which worlds answer (`runSearchCases` `paths`): the workspace objects alone unless asked for the search database too.
+  const paths = options["database-only"] === true ? "database" : options["with-database"] === true ? "both" : "objects";
   // Where built worlds are kept and loaded from (`worldCache.mjs`); none means every run builds its own.
   const cache = options["world-cache"] ?? process.env.BENCH_WORLD_CACHE ?? null;
   const remote = options.remote ? benchClient(String(options.remote)) : null;
@@ -176,7 +177,7 @@ export async function runSearchSet(options) {
       for (const w of all) {
         const bench = overlay(w.base === "repo" ? repo ?? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : evalBench(), w.notes);
         const at = Date.now();
-        const built = await warmWorlds(bench, { cache, ai, embedder, today: w.today ?? null, objects, keepOnly: true });
+        const built = await warmWorlds(bench, { cache, ai, embedder, today: w.today ?? null, objects: paths !== "database", bucket: paths !== "objects", keepOnly: true });
         built.prepared?.close();
         built.objectWorld?.close();
         if (!many) say(`${w.id}: world ${built.loaded ? "already kept" : "built and kept"} in ${Math.round((Date.now() - at) / 1000)} s`);
@@ -193,7 +194,7 @@ export async function runSearchSet(options) {
       // `--remote <origin>`: the standing bench objects on that gateway (`remoteBench.mjs`), every case at once.
       const got = remote
         ? await runRemoteSearchCases(remote, { bench, cases: w.cases, copies: Number(options.copies ?? 16), log: caseLog })
-        : await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, objects, cache, embedder, log: caseLog });
+        : await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, paths, cache, embedder, log: caseLog });
       got.forEach((record, i) => {
         const c = w.cases[i];
         const full = { ...record, ...(c.bm25 ? { bm25: c.bm25 } : {}), ...(c.ability ? { ability: c.ability } : {}), ...(c.missing?.length ? { missing: c.missing } : {}) };

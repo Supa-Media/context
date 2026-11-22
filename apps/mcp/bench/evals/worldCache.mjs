@@ -71,9 +71,9 @@ export function codeHash(repo = REPO) {
 }
 
 /** A kept world's name: the bench, the settings, the embedder, the day and the code, hashed. */
-export function worldKey({ bench, settings = null, embedder, today = null, objects = true, repo = REPO }) {
+export function worldKey({ bench, settings = null, embedder, today = null, objects = true, bucket = true, repo = REPO }) {
   const hash = createHash("sha256");
-  hash.update(JSON.stringify({ people: bench.people, settings, embedder, today, objects, code: codeHash(repo) }));
+  hash.update(JSON.stringify({ people: bench.people, settings, embedder, today, objects, ...(bucket ? {} : { bucket }), code: codeHash(repo) }));
   for (const name of Object.keys(bench.workspaces).sort()) {
     hash.update(`\0workspace\0${name}`);
     const files = bench.workspaces[name].files;
@@ -139,17 +139,18 @@ function loadBucketWorld(dir) {
  * Both worlds for a run: loaded from `cache` when it holds them under this run's key, otherwise built and, when
  * `cache` is set, kept there for the next run. Returns `{ prepared, objectWorld, loaded }`.
  */
-export async function warmWorlds(bench, { cache = null, ai = null, embedder = "none", today = null, settings = null, objects = true, keepOnly = false, log = () => {} }) {
-  const key = cache ? worldKey({ bench, settings, embedder, today, objects }) : null;
+export async function warmWorlds(bench, { cache = null, ai = null, embedder = "none", today = null, settings = null, objects = true, bucket = true, keepOnly = false, log = () => {} }) {
+  const key = cache ? worldKey({ bench, settings, embedder, today, objects, bucket }) : null;
   const dir = key ? join(cache, key) : null;
   // `keepOnly`: make sure the world is kept, and open nothing when it already is.
   if (keepOnly && dir && existsSync(join(dir, "done"))) return { prepared: null, objectWorld: null, loaded: true };
   if (dir && existsSync(join(dir, "done"))) {
-    const prepared = loadBucketWorld(join(dir, "bucket"));
+    const prepared = bucket ? loadBucketWorld(join(dir, "bucket")) : null;
     const objectWorld = objects ? await createObjectWorld(bench, { ai, settings, from: join(dir, "objects") }) : null;
     return { prepared, objectWorld, loaded: true };
   }
-  const prepared = await prepareRun(bench, { today, ai });
+  // `bucket: false`: the object world alone, as every managed workspace is searched; no search database is built.
+  const prepared = bucket ? await prepareRun(bench, { today, ai }) : null;
   const objectWorld = objects ? await createObjectWorld(bench, { ai, settings }) : null;
   if (dir) {
     // Written beside, then renamed into place: a run that reads the folder sees all of a world or none of it, and
@@ -157,7 +158,7 @@ export async function warmWorlds(bench, { cache = null, ai = null, embedder = "n
     mkdirSync(cache, { recursive: true });
     const part = `${dir}.part-${process.pid}`;
     rmSync(part, { recursive: true, force: true });
-    saveBucketWorld(prepared, join(part, "bucket"));
+    if (prepared) saveBucketWorld(prepared, join(part, "bucket"));
     if (objectWorld) {
       mkdirSync(join(part, "objects"), { recursive: true });
       objectWorld.save(join(part, "objects"));

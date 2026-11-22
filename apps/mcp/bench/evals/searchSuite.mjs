@@ -158,11 +158,15 @@ async function catchingTraces(fn) {
 /**
  * Run `cases` in one warm world built from `bench` (already overlaid and expanded): one record per case, in order.
  * `onRecord(record, i)` hears each as it lands. `settings` is a search setup's settings (`SEARCH_SETTINGS`), null
- * for the code's own. With `objects` (the default), each case is also searched in the object world
- * (`objectWorld.mjs`), the bench's workspaces kept in workspace objects, and the record carries that answer as
- * `object: { hits, rank, ms, path, object }`, so the two ways production answers are compared per query.
+ * for the code's own. `paths` says which worlds answer: "objects" (the default) searches the object world only
+ * (`objectWorld.mjs`, the bench's workspaces kept in workspace objects, which is how every managed workspace is
+ * searched since 2026-11-20); "database" the bucket world and its search database only; "both" each case in both,
+ * the object answer as `object: { hits, rank, ms, path, object }`, so the two ways are compared per query. With the
+ * object world alone, a record's own answer is the object's, and `object` repeats it.
  */
-export async function runSearchCases({ bench, cases, ai, today = null, settings = null, objects = true, cache = null, embedder = "unnamed", onRecord = () => {}, log = () => {} }) {
+export async function runSearchCases({ bench, cases, ai, today = null, settings = null, paths = "objects", cache = null, embedder = "unnamed", onRecord = () => {}, log = () => {} }) {
+  const database = paths !== "objects";
+  const objects = paths !== "database";
   const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, `@${row.workspace}`]));
   const warmStarted = realNow();
   // Every model call the searches make, timed: the reranker's and the query embedding's, beside each case's line.
@@ -178,9 +182,9 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
   } } : realAi;
   const callsBetween = (from, to = calls.length) => calls.slice(from, to).map((c) => `${c.model} ${Math.round(c.ms)}ms n${c.n}${c.chars ? ` ${c.chars}ch` : ""}`).join(", ");
   // Both worlds, built once and kept in `cache` (`worldCache.mjs`): a later run of the same notes and code loads them.
-  const { prepared, objectWorld, loaded } = await warmWorlds(bench, { cache, ai, embedder, today, settings, objects, log });
-  const passages = [...prepared.embedded.values()].reduce((total, n) => total + n, 0);
-  log(`${loaded ? "loaded" : "built"} ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes${objectWorld ? ", and their workspace objects" : ""} in ${Math.round((realNow() - warmStarted) / 1000)} s\n`);
+  const { prepared, objectWorld, loaded } = await warmWorlds(bench, { cache, ai, embedder, today, settings, objects, bucket: database, log });
+  const passages = prepared ? [...prepared.embedded.values()].reduce((total, n) => total + n, 0) : null;
+  log(`${loaded ? "loaded" : "built"} ${Object.keys(bench.workspaces).length} workspaces${prepared ? `, ${passages} passages in their meaning indexes` : ""}${objectWorld ? `${prepared ? "," : ""} in their workspace objects` : ""} in ${Math.round((realNow() - warmStarted) / 1000)} s\n`);
   const models = { gatewayFetch: fakeGateway(), ai, ...(settings ? { searchSettings: settings } : {}) };
   const records = [];
   try {
@@ -189,21 +193,16 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
       if (!home) throw new Error(`case ${c.id}: ${c.as} has no personal workspace`);
       let dbCalls = calls.length;
       let objCalls = null;
-      const world = await createWorld(bench, c.as, PLAIN_TEXTING_SETUP, models, today, prepared);
-      let record;
-      try {
+      const base = { id: c.id, query: c.query, as: c.as, in: c.in ?? null, kind: c.kind ?? null, expect: c.expect ?? [], forbid: c.forbid ?? [] };
+      let record = base;
+      const world = database ? await createWorld(bench, c.as, PLAIN_TEXTING_SETUP, models, today, prepared) : null;
+      if (world) try {
         dbCalls = calls.length;
         const started = realNow();
         const { value: answer, traces } = await catchingTraces(() => world.search(c.query, c.in ?? null));
         const hits = answer.ok ? hitsOf(answer.text, home) : [];
         record = {
-          id: c.id,
-          query: c.query,
-          as: c.as,
-          in: c.in ?? null,
-          kind: c.kind ?? null,
-          expect: c.expect ?? [],
-          forbid: c.forbid ?? [],
+          ...base,
           hits,
           rank: (c.expect ?? []).length ? rankOf(hits, c.expect) : null,
           ms: realNow() - started,
@@ -228,14 +227,17 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
           ...pathOf(traces),
           error: answer.ok ? null : String(answer.text).slice(0, 200),
         };
+        // The object path alone (the default: every managed workspace searches in its object): it is the record's own
+        // answer too, so every score, the gate's included, reads it.
+        if (!world) record = { ...record, ...record.object, object: record.object };
       }
       records.push(record);
       onRecord(record, i);
       const said = (rank) => (record.expect.length === 0 ? "privacy" : rank === null ? "miss" : `rank ${rank}`);
-      log(`${c.id}: ${said(record.rank)}${record.object ? `, object ${said(record.object.rank)}` : ""} | db ${Math.round(record.ms)}ms [${callsBetween(dbCalls, objCalls ?? calls.length)}]${objectWorld ? ` | obj ${Math.round(record.object.ms)}ms [${callsBetween(objCalls)}]` : ""}\n`);
+      log(world ? `${c.id}: ${said(record.rank)}${record.object ? `, object ${said(record.object.rank)}` : ""} | db ${Math.round(record.ms)}ms [${callsBetween(dbCalls, objCalls ?? calls.length)}]${objectWorld ? ` | obj ${Math.round(record.object.ms)}ms [${callsBetween(objCalls)}]` : ""}\n` : `${c.id}: ${said(record.rank)} | ${Math.round(record.ms)}ms [${callsBetween(objCalls)}]\n`);
     }
   } finally {
-    prepared.close();
+    prepared?.close();
     objectWorld?.close();
   }
   return records;

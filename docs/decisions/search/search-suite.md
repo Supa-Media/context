@@ -52,7 +52,13 @@ object world (`apps/mcp/bench/evals/objectWorld.mjs`): every bench workspace in 
 Object over an in-memory SQLite, with its rows, text, rules, members, sealed binding and both indexes built, and each
 person's own object holding their reach and a connection, searched through the same MCP endpoint. A run reports the
 object world's scores beside the database's, and how many cases ranked the same, better or worse there
-(`--database-only` skips it). The gate still reads the database world's rank. Each search records which way it was answered
+(`--database-only` skips it).
+
+**The object path alone, since 2026-11-22** (Dev2: "why do we still have two different types of search?"). Every
+managed workspace searches in its object since 2026-11-20, so a run builds and searches the object world only, and
+its headline (`ndcg10`, right note first) and the gate (the sealed part's rank and NanoBEIR's `objectNdcg10`) read
+the object path. `--with-database` adds the bucket world and its search database back, which is how the four
+bring-your-own-storage workspaces still search until they get objects of their own. Each search records which way it was answered
 (`pathOf`, from the gateway's own `event: "search"` trace: `object`, `database`, `index` or `scan`, and the object's
 word when it declined, such as `catching_up`), and every run says how many went each way, so a score is never read
 as the other path's.
