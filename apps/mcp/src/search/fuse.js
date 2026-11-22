@@ -8,6 +8,7 @@ import { notePrior } from "./priors.js";
 import { evidenceBonus } from "./evidence.js";
 import { matchesOnlyInLinks } from "./linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "./codeLike.js";
+import { sharedWordRanks } from "./sharedWords.js";
 
 /** Most hits a search across every workspace shows (`ranking.hits`). */
 const EVERYWHERE_HITS = FUSE_RANKING.hits;
@@ -71,8 +72,14 @@ function median(values) {
  * @param {{extraNotes?: number, query?: string, boost?: Set<number> | null}} [options] the store's `extraNotes` setting
  *   (`search/settings.js`), and the query whose title and phrase evidence counts (`search/evidence.js`);
  *   without a query the order is the one the ranks give
+ * `wordStats` is each list's workspace statistics (`sharedWords.js`), in the same order. With the ranking's
+ * `sharedWords` 1 and statistics from every workspace with word hits, a word hit's place is its place among every
+ * workspace's word hits on one BM25 scale rather than in its own workspace, and every word hit counts (the scale
+ * already rewards holding more of the query's rare words); with `workspaceWeight` above 0 each workspace's hits are
+ * also multiplied by its share of the best evidence, never less than `workspaceWeight`. Without statistics the order
+ * is the one the per-workspace ranks give.
  */
-export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, query, boost = null, ranking = FUSE_RANKING } = {}) {
+export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, query, boost = null, ranking = FUSE_RANKING, wordStats = null } = {}) {
   // Reciprocal-rank constant (the usual 60), and how far down a loose (any-word) hit is counted, so a note that
   // merely shares "team" with the query never outranks a real match (`search/ranking.js`).
   const { rrfK: RRF_K, loosePenalty: LOOSE_PENALTY } = ranking;
@@ -86,7 +93,17 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
       return { hit: linkOnly ? { ...hit, loose: true } : hit, list, order, original: hit };
     }),
   );
-  const anyWhole = all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
+  // One word scale across workspaces (`sharedWords.js`), when the ranking asks for it and every workspace can say.
+  const shared =
+    ranking.sharedWords === 1 && typeof query === "string" && Array.isArray(wordStats)
+      ? sharedWordRanks(
+          lists.map((_, list) => all.filter((entry) => entry.list === list).map((entry) => entry.hit)),
+          wordStats,
+          query,
+          { floor: ranking.workspaceWeight ?? 0 },
+        )
+      : null;
+  const anyWhole = shared === null && all.some(({ hit }) => typeof hit.wordRank === "number" && !hit.loose);
   const isMeaningOnly = ({ hit }) => typeof hit.wordRank !== "number";
   // A passage of code found only by meaning is noise for a question asked in
   // prose (`search/codeLike.js`): the same search added three code passages
@@ -115,7 +132,7 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
   const scored = eligible.map((entry) => {
     const { hit } = entry;
     const counted = typeof hit.wordRank === "number" && !(hit.loose && anyWhole);
-    const word = counted ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
+    const word = !counted ? 0 : shared?.rank.has(hit) ? 1 / (RRF_K + shared.rank.get(hit) + 1) : 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0));
     const strictWord = typeof hit.wordRank === "number" && !hit.loose;
     let meaning = 0;
     if (meaningRank.has(entry)) meaning = 1 / (RRF_K + meaningRank.get(entry) + 1);
@@ -126,7 +143,7 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     const reread = rerankRank.has(entry) ? (ranking.rerankWeight ?? 1) / (RRF_K + rerankRank.get(entry) + 1) : 0;
     // The path prior (`search/priors.js`): an archived note or a log scores half
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
-    const nudge = boost?.has(entry.list) ? ranking.boostFactor : 1;
+    const nudge = (boost?.has(entry.list) ? ranking.boostFactor : 1) * (shared ? shared.weight[entry.list] : 1);
     return { ...entry, score: (word + meaning + title + reread) * notePrior(hit.key, ranking) * nudge };
   });
   const byScore = (a, b) => b.score - a.score || a.list - b.list || a.order - b.order;
@@ -139,5 +156,10 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     .slice(0, most);
   for (const entry of answer) if (isMeaningOnly(entry)) entry.original.meaningOnly = true;
   // The hits as given: a link-only hit's `loose` was a ranking signal, never part of the answer.
-  return answer.map(({ original }) => original);
+  // The word counts were a ranking signal, never part of the answer.
+  return answer.map(({ original }) => {
+    if (!original.words) return original;
+    const { words: _words, ...hit } = original;
+    return hit;
+  });
 }

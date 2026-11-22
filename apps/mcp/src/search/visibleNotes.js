@@ -26,11 +26,11 @@ import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
  * answers when there is no usable index — a fallback a Worker can afford
  * because the alternative is telling somebody their note does not exist.
  */
-export async function searchVisibleNotes(store, scope, rules, overrides, query, prefix, { apart = null } = {}) {
+export async function searchVisibleNotes(store, scope, rules, overrides, query, prefix, { apart = null, wordStats = false } = {}) {
   const seen = { started: false };
   let found;
   try {
-    found = await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen, apart);
+    found = await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen, apart, wordStats);
   } catch (error) {
     if (!error?.[BUDGET_EXHAUSTED] || !seen.started) throw error;
     if (typeof store.setExtraOperationCharge === "function") store.setExtraOperationCharge(null);
@@ -83,7 +83,7 @@ async function rescueFromProjection(store, scope, rules, overrides, query, prefi
  * `apart`: one path the asker already holds (`related_notes`' seed), answered as if absent by the indexed answers, so
  * the any-word retry runs when the only note holding every word is that one. It only ever narrows an answer.
  */
-async function searchWithinBudget(store, scope, rules, overrides, query, prefix, seen, apart = null) {
+async function searchWithinBudget(store, scope, rules, overrides, query, prefix, seen, apart = null, wordStats = false) {
   // Request-scoped metadata on the per-request store, same as `store.actor`:
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
@@ -136,7 +136,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
   if (store.objectSearch) {
     const objectSpan = trace.span("object");
     // Marked in flight, so the meaning warm-up waits for it rather than holding the object first (`wordsFirst.js`).
-    fromObject = await wordSearchAsked(store, objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart }));
+    fromObject = await wordSearchAsked(store, objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart, wordStats }));
     objectSpan();
   }
   if (fromObject !== null) {
@@ -157,6 +157,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
       reducedRecallNotes: [],
       degraded: false,
       projectionOnly: true,
+      ...(fromObject.wordStats ? { wordStats: fromObject.wordStats } : {}),
     };
   }
   if (store.searchIndex) {

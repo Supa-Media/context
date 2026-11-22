@@ -19,6 +19,10 @@
  *   rerankWeight  how much its order counts, as one more reciprocal-rank list: 1 counts as much as the words do.
  *   rerankChars   how much of each row's title and snippets it reads (400): fewer characters, a faster call.
  *   readLate      1: Rerank reads the rows "Rerank word hits" did not score; 0: they keep their places unread, no call.
+ *   sharedWords   1: across workspaces, every word hit is scored on one BM25 scale, every workspace's statistics pooled
+ *                 (`sharedWords.js`); 0: each workspace's own word rank, a loose hit counted lower (main).
+ *   workspaceWeight  above 0: each workspace's hits weighed by its share of the best shared-scale evidence, never
+ *                 below this floor (0 on main: every workspace counts the same).
  *
  * In one workspace, each step that filters, merges or ranks reads its own (`IN_WORKSPACE_STEPS`); "Merge across
  * workspaces" (`fuse`) ranks every workspace's hits together by its own.

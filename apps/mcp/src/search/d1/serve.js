@@ -326,6 +326,7 @@ export async function answerFromProjection(
     limit = SEARCH_RESULT_LIMIT,
     missIsAnswer = false,
     lazyRetry = false,
+    countWords = false,
   } = {}
 ) {
   const depth = pageDepth(limit);
@@ -391,6 +392,9 @@ export async function answerFromProjection(
       // the chunk, so this is the note's own text as it was copied, and the
       // array shape is what both surfaces already render.
       snippets: note.snippet ? [note.snippet] : [],
+      // With `countWords`, how often each query word is in the hit's title and best chunk, as the object counted
+      // them, for one word scale across workspaces (`../sharedWords.js`).
+      ...(countWords && note.words ? { words: note.words } : {}),
       // No note held every word, so these hold some of them: "who left the
       // team" matching anything that says "team". Search by meaning ranks its
       // matches above hits this weak (`meaning/serve.js`, `mergeHits`).

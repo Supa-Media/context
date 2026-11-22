@@ -196,15 +196,19 @@ test("the search is not served while the object is not the home of the notes", {
   assert.deepEqual((await object.call("ws.search.build")).body, { served: false });
 });
 
-test("asks naming another table, an empty match, a row cap outside 1 to 500, or more than six asks are refused", { skip }, async () => {
+test("asks naming another table, an empty match, a row cap outside 1 to 500, more than eight asks, or a bad stats ask are refused", { skip }, async () => {
   const object = await seeded();
   const refused = [
     [ask("ws_rows", "x")],
     [{ ...ask(TEAM, "x"), match: "" }],
     [ask(TEAM, "x", 0)],
     [ask(TEAM, "x", 501)],
-    Array.from({ length: 7 }, () => ask(TEAM, "x")),
+    Array.from({ length: 9 }, () => ask(TEAM, "x")),
     [],
+    [{ table: TEAM, stats: [] }],
+    [{ table: TEAM, stats: Array.from({ length: 25 }, (_, i) => `w${i}`) }],
+    [{ table: TEAM, stats: [""] }],
+    [{ table: TEAM, stats: ["x".repeat(65)] }],
   ];
   for (const asks of refused) {
     const answer = await object.call("ws.search", { asks });
@@ -275,4 +279,47 @@ test("a person's Tex note is found from its Tex tables; a group chat's home note
   const answer = (await object.call("ws.search", { asks: [ask(TEAM, "hollyhock")] })).body;
   assert.equal(answer.served, true);
   assert.deepEqual(paths(answer.answers[0]), ["tex/about.md"]);
+});
+
+test("a stats ask counts a table's chunks and the chunks holding each word, quoted so a word is never an operator, and every row then carries its word counts", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# Budget\nwillow willow oak");
+  await note(object, 2, "plans/b.md", "# B\nwillow");
+  await note(object, 3, "plans/c.md", "# C\nnothing here");
+  const answer = await object.call("ws.search", { asks: [ask(TEAM, "willow"), { table: TEAM, stats: ["willow", "oak", "absent", "or", "near"] }] });
+  assert.equal(answer.status, 200);
+  const [rows, stats] = answer.body.answers;
+  assert.equal(stats.n >= 3, true, "every chunk of the table is counted");
+  assert.deepEqual(stats.df, { willow: 2, oak: 1, absent: 0, or: 0, near: 0 });
+  const a = rows.find((row) => row.path === "plans/a.md");
+  assert.equal(a.words.tf.willow, 2);
+  assert.equal(a.words.tf.oak, 1);
+  assert.equal(typeof a.words.len, "number");
+  assert.equal("chunk" in a, false, "the chunk itself never travels");
+  // Without a stats ask the rows are as before.
+  const plain = await object.call("ws.search", { asks: [ask(TEAM, "willow")] });
+  assert.equal("words" in plain.body.answers[0][0], false);
+});
+
+test("asked for word statistics, the gateway's object search sums them over its tables and gives each hit its counts; not asked, it sends no stats ask", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# A\nwillow oak");
+  await note(object, 2, "plans/b.md", "# B\nwillow");
+  const env = { WORKSPACE_STORE: { idFromName: (name) => ({ name }), get: () => ({ fetch: (request) => serveWorkspaceStore(object.store, request) }) } };
+  const sent = [];
+  const client = workspaceClient(env, "w1");
+  const store = { objectSearch: { ...client, search: (asks) => (sent.push(asks), client.search(asks)) }, defer: () => {} };
+  const live = parsedRules(MEMBER(TEAM_PLANS));
+  const trace = { set: () => {} };
+  const asked = await objectSearchAnswer(store, "team", live.rules, live.overrides, "willow oak", "", trace, { wordStats: true });
+  assert.deepEqual(asked.wordStats.df, { willow: 2, oak: 1 });
+  assert.equal(asked.wordStats.n >= 2, true);
+  const a = asked.hits.find((hit) => hit.key === "plans/a.md");
+  assert.deepEqual(a.words.tf, { willow: 1, oak: 1 });
+  assert.equal(sent[0].some((one) => Array.isArray(one.stats)), true);
+  sent.length = 0;
+  const plain = await objectSearchAnswer(store, "team", live.rules, live.overrides, "willow oak", "", trace);
+  assert.equal(plain.wordStats, undefined);
+  assert.equal(plain.hits.some((hit) => "words" in hit), false);
+  assert.equal(sent.flat().some((one) => Array.isArray(one.stats)), false, "a search that will not use statistics never asks for them");
 });

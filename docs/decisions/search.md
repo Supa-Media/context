@@ -160,3 +160,7 @@ Moved to [Search runs from a config of its own, and its ranking constants are th
 ### Search is measured on three sets, and a search change merges only if the right note stays first
 
 Moved to [Search is measured on three sets, and a search change merges only if the right note stays first](./search/search-suite.md#search-is-measured-on-three-sets-and-a-search-change-merges-only-if-the-right-note-stays-first).
+
+### Across workspaces, word hits can be scored on one scale, and each workspace weighed by its evidence
+
+Moved to [Across workspaces, word hits can be scored on one scale, and each workspace weighed by its evidence](./search/shared-word-scale.md#across-workspaces-word-hits-can-be-scored-on-one-scale-and-each-workspace-weighed-by-its-evidence).
