@@ -397,9 +397,9 @@ test("a group test text's turn gets what the control plane said about the chat, 
   }
 });
 
-test("tex_dev's guide documents the sandbox's pictures, replies, tapbacks, edits, unsends and sets", () => {
-  const line = guideText().split("\n").find((l) => l.startsWith("- sandbox "));
-  for (const word of ["pics", "replyTo", '"react"', "emoji", '"edit"', '"unsend"', '"sets"', "edit step"]) assert.ok(line.includes(word), `the guide's sandbox line names ${word}`);
+test("tex_dev's guide documents the test chat's pictures, replies, tapbacks, edits, unsends and sets", () => {
+  const line = guideText().split("\n").find((l) => l.startsWith("- test_chat "));
+  for (const word of ["pics", "replyTo", '"react"', "emoji", '"edit"', '"unsend"', '"sets"', "edit step"]) assert.ok(line.includes(word), `the guide's test_chat line names ${word}`);
   assert.ok(!line.includes("Tex doesn't receive edits yet"));
 });
 
