@@ -71,7 +71,8 @@ export const SWEEP_BATCH = 25;
 async function sweep(env, input, { controlPlane, token }) {
   const listed = await controlPlane.labSandbox(token, "intakeChats", {}).catch(() => null);
   if (listed === null) return refused(503, "the control plane did not answer");
-  if (listed.status !== "ok") return refused(403, "Only staff sweep every chat.");
+  if (listed.status === "refused") return refused(403, "Only staff sweep every chat.");
+  if (listed.status !== "ok") return refused(502, `the control plane answered ${listed.status} to the chat list`);
   const phones = (Array.isArray(listed.phones) ? listed.phones : []).filter((phone) => typeof phone === "string" && PHONE.test(phone));
   const groups = (Array.isArray(listed.groups) ? listed.groups : []).filter((key) => typeof key === "string" && CHAT_KEY.test(key));
   const all = [...phones.map((phone) => ({ kind: "1:1", phone })), ...groups.map((key) => ({ kind: "group", chatId: key }))];

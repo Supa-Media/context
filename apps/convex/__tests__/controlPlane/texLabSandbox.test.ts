@@ -97,4 +97,15 @@ describe("Lab test chats, control plane", () => {
     expect(await w.lab("draft", { draft: "nope" })).toEqual({ status: "not_found" });
     expect(await w.lab("nonsense")).toEqual({ status: "bad_request" });
   });
+
+  // The intake sweep's list went through the forGateway handler in its test but not this route, whose action list
+  // missed it: every production sweep answered "Only staff sweep every chat." (2026-11-22).
+  test("the intake sweep's chat list passes the route for staff, and only for staff", async () => {
+    const w = await world();
+    await w.t.run(async (ctx) => {
+      await ctx.db.insert("phoneLinks", { userId: w.alice, phone: "+15555550100", linkedAt: 1 });
+    });
+    expect(await w.lab("intakeChats")).toMatchObject({ status: "ok", phones: ["+15555550100"] });
+    expect(await w.lab("intakeChats", {}, ACCESS_B)).toEqual({ status: "refused" });
+  });
 });
