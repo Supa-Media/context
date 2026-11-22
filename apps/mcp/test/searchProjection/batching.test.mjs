@@ -23,7 +23,7 @@ import {
   noteStore,
   projectPass,
 } from "./fixtures.mjs";
-import { D1_BATCH_STATEMENTS, D1_GROUP_BYTES, groupStatements } from "../../src/search/d1/client.js";
+import { D1_BATCH_STATEMENTS, D1_GROUP_BYTES, D1_RESPONSE_BYTE_CAP, groupStatements } from "../../src/search/d1/client.js";
 import { projectNote, upsertStatements } from "../../src/search/d1/project.js";
 
 function noteStatements(path, content) {
@@ -46,6 +46,35 @@ export async function runBatchingChecks(check) {
     const rows = backend.rows("SELECT path FROM notes WHERE path = ?", ["1-projects/batched.md"]);
     check("and the note is really there", rows.length === 1);
     backend.close();
+  }
+
+  {
+    // Reads in one batch are each bounded on their own: six reads of a large workspace answer more than one read's
+    // cap, and that is one request, not a refused batch asked again statement by statement (2026-11-22).
+    const row = { path: "a.md", body: "x".repeat(Math.ceil(D1_RESPONSE_BYTE_CAP / 3)) };
+    let sent = 0;
+    const client = createD1Client(DESCRIPTOR, {
+      fetchImpl: async (url, init) => {
+        sent += 1;
+        const body = JSON.parse(init.body);
+        const result = (Array.isArray(body.batch) ? body.batch : [body]).map(() => ({ results: [row, row], success: true }));
+        return new Response(JSON.stringify({ success: true, result }), { status: 200, headers: { "Content-Type": "application/json" } });
+      },
+    });
+    const reads = Array.from({ length: 3 }, () => ({ sql: "SELECT path, body FROM notes_team_fts WHERE notes_team_fts MATCH ?", params: ["x"] }));
+    const answers = await client.queryAll(reads);
+    check("reads answering more than one read's cap together are one request", sent === 1 && answers.length === 3 && answers.every((rows) => rows.length === 2));
+    const huge = { path: "b.md", body: "x".repeat(D1_RESPONSE_BYTE_CAP * 2) };
+    const bounded = createD1Client(DESCRIPTOR, {
+      fetchImpl: async () => new Response(JSON.stringify({ success: true, result: [{ results: [huge], success: true }] }), { status: 200 }),
+    });
+    let refused = false;
+    try {
+      await bounded.query("SELECT path, body FROM notes_team_fts WHERE notes_team_fts MATCH ?", ["x"]);
+    } catch (error) {
+      refused = error?.code === "REFUSED";
+    }
+    check("and one read over its cap is still refused", refused);
   }
 
   {

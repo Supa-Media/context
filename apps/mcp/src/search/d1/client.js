@@ -112,9 +112,14 @@ export function groupStatements(list) {
  * Every statement this gateway sends is either a write (a tiny envelope back)
  * or a bounded `SELECT` over a window of paths. A trusted service having a bad
  * day is still a way to exhaust a Worker, so the body is bounded here the way
- * `controlPlane.js` bounds its own.
+ * `controlPlane.js` bounds its own. The cap is per statement: a batch of n
+ * reads may answer n times as much, since each read is bounded on its own. A
+ * batch held to one statement's cap was refused on any large workspace (six
+ * reads of up to 200 chunks each), after D1 had run every statement, and
+ * then every statement was asked again one by one: twice the work and an
+ * extra round trip on every search (2026-11-22).
  */
-const D1_RESPONSE_BYTE_CAP = 1_000_000;
+export const D1_RESPONSE_BYTE_CAP = 1_000_000;
 
 /**
  * Failure codes, and the whole set of them.
@@ -242,7 +247,7 @@ export function createD1Client(descriptor, options = {}) {
    * `shapeOf` names the statement for a failure's detail. Everything that can
    * go wrong becomes a `D1Error` from the closed set, with a cause of ours.
    */
-  async function post(payload, shapeOf) {
+  async function post(payload, shapeOf, cap = D1_RESPONSE_BYTE_CAP) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), D1_TIMEOUT_MS);
     const started = Date.now();
@@ -284,7 +289,7 @@ export function createD1Client(descriptor, options = {}) {
 
     if (!response) throw new D1Error("UNAVAILABLE", detail("network"));
     const declared = Number(response.headers?.get?.("content-length"));
-    if (Number.isFinite(declared) && declared > D1_RESPONSE_BYTE_CAP) {
+    if (Number.isFinite(declared) && declared > cap) {
       throw new D1Error("REFUSED", detail("oversize"));
     }
     let text;
@@ -293,7 +298,7 @@ export function createD1Client(descriptor, options = {}) {
     } catch {
       throw new D1Error("UNAVAILABLE", detail("body_read"));
     }
-    if (text.length > D1_RESPONSE_BYTE_CAP) throw new D1Error("REFUSED", detail("oversize"));
+    if (text.length > cap) throw new D1Error("REFUSED", detail("oversize"));
     let body = null;
     try {
       body = JSON.parse(text);
@@ -434,6 +439,7 @@ export function createD1Client(descriptor, options = {}) {
         ({ result } = await post(
           { batch: list.map(({ sql, params }) => ({ sql, params: params ?? [] })) },
           `BATCH ${list.length}`,
+          D1_RESPONSE_BYTE_CAP * list.length,
         ));
       } catch (error) {
         if (!(error instanceof D1Error && error.code === "REFUSED")) throw error;

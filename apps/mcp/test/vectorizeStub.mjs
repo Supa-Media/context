@@ -25,16 +25,23 @@ export const VECTORIZE_TOKEN = "vectorize-token-not-a-real-one-0000";
 
 const ROUTE = /\/vectorize\/v2\/indexes\/([^/]+)\/(upsert|delete_by_ids|query)$/;
 
+// Each stored vector's squared norm, worked out once: a query over a 10,000-note benchmark compares against some
+// 50,000 vectors, and summing each one's squares again on every query was a third of its time (2026-11-22).
+const SQUARES = new WeakMap();
+function squares(v) {
+  let n = SQUARES.get(v);
+  if (n === undefined) {
+    n = 0;
+    for (let i = 0; i < v.length; i += 1) n += v[i] * v[i];
+    SQUARES.set(v, n);
+  }
+  return n;
+}
+
 function cosine(a, b) {
   let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  const norm = Math.sqrt(na) * Math.sqrt(nb);
+  for (let i = 0; i < a.length; i += 1) dot += a[i] * b[i];
+  const norm = Math.sqrt(squares(a)) * Math.sqrt(squares(b));
   return norm === 0 ? 0 : dot / norm;
 }
 
