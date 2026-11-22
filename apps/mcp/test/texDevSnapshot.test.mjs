@@ -112,7 +112,7 @@ test("a changed step is ringed and a new one tagged, against a base", () => {
   const base = main();
   const draft = main();
   draft.nodes.find((n) => n.id === "fd").goal += " And be brief.";
-  draft.nodes.push({ ...draft.nodes[0], id: "extra", label: "Extra step", x: 900, y: 700 });
+  draft.nodes.push({ ...draft.nodes.find((n) => !n.group), id: "extra", label: "Extra step", x: 900, y: 700 });
   const html = graphSvg(draft, { base });
   const marks = [...html.matchAll(/<g class="mark (new|changed)" transform="translate\(([-\d.]+),([-\d.]+)\)"/g)];
   assert.deepEqual(marks.map((m) => m[1]).sort(), ["changed", "new"]);

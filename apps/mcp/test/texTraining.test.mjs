@@ -142,8 +142,9 @@ test("every other model step that reads Training is given it after its own words
   // A step turned off runs nowhere (the retired Job check, whose role reads the live Job advisor since 2026-11-18).
   const off = (id) => TEX_CONFIG.nodes.find((n) => n.id === id)?.on !== true; // off, or retired off the config (2026-11-20)
   // Decide, the Router and the Before-asking gate are Clef reads, given their Training in their own state (textDecide.cjs,
-  // routerContext.js, askGate.js), never a system prompt.
-  for (const id of TRAINING_READERS) if (!["decide", "router", "askGate", "fd", "job"].includes(id) && !off(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
+  // routerContext.js, askGate.js), never a system prompt. The check-in's Quiet check and Research put theirs after
+  // their own words from the run's config (quietCheck.js, checkinResearch.js), so a Lab draft's examples reach them.
+  for (const id of TRAINING_READERS) if (!["decide", "router", "askGate", "fd", "job", "quietCheck", "checkinResearch"].includes(id) && !off(id)) assert.ok(roled.has(id), `${id} reads Training but has no role in texArchitecture.js`);
   for (const role of Object.keys(ROLES)) {
     const training = trainingFor(role);
     const built = withArchitecture("OWN WORDS", role);
