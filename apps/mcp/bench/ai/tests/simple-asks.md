@@ -19,7 +19,7 @@ every_answer:
 
 Added on 2026-11-11 for one-judge PR 3 (Dev2: "a simple ask gets its first reply in under 5 s"). The Instinct test measured 12 to 38 s for asks like these. Each is answered from what Tex already knows, with no tool and no page, so its time is the gates around the answer and one model round.
 
-Questions 1 to 5 are the speed bar: their median time must be under 5 s. Question 6 reads one of Maya's notes, so it is a lookup and is reported apart from the bar; one notes search adds a model round.
+Questions 1 to 5 are the speed bar: their median time must be under 5 s. Question 6 reads one of Maya's notes, so it is a lookup and is reported apart from the bar; one notes search adds a model round. Question 7 was added on 2026-11-22 with username changes (Dev2: twice in a lifetime, the old name kept): it is answered from Tex's capability list, which names the app path, and is reported apart from the bar too.
 
 ## 1. what's 17 times 23
 
@@ -61,4 +61,13 @@ Questions 1 to 5 are the speed bar: their median time must be under 5 s. Questio
 - kind: task
 - person starts: "when's my dentist appointment?"
 - must: say Tuesday, October 13 at 3 pm
+- must not: send more than one text
+
+## 7. Can I change my username?
+
+- kind: task
+- person starts: "can I change my username?"
+- must: say yes, in the Context app under Settings, Profile, Username
+- may: say it can be changed twice, or that the old name stays theirs and keeps working
+- must not: say a username can never be changed
 - must not: send more than one text

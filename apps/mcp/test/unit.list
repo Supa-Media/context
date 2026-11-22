@@ -753,3 +753,4 @@ test/labSandboxJobBox.test.mjs
 ../../packages/bench/test/beir.test.mjs
 test/consentContext.test.mjs
 bench/test/worldCache.test.mjs
+test/usernameAliases.test.mjs

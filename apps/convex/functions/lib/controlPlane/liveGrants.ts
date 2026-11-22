@@ -26,6 +26,7 @@ import { invitationsStillCount } from "../textGroupInvited";
 import { READS_AS_CHAT_NAME } from "../nodes/chatFolders";
 import { chatHomeOf } from "../textGroupHome";
 import { speaksUpOf } from "../texChatRules";
+import { aliasesField } from "../workspaces/aliases";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
 export interface LiveGrant {
@@ -270,6 +271,7 @@ export async function contextsForGrant(
   Array<{
     workspaceId: Id<"workspaces">;
     slug: string;
+    aliases?: string[];
     role: string;
     kind: "personal" | "shared";
     grantedNames?: string[];
@@ -285,12 +287,14 @@ export async function contextsForGrant(
   const own: {
     workspaceId: Id<"workspaces">;
     slug: string;
+    aliases?: string[];
     role: string;
     kind: "personal" | "shared";
     grantedNames?: string[];
   } = {
     workspaceId: live.workspace._id,
     slug: live.workspace.slug,
+    ...aliasesField(live.workspace),
     role: live.role,
     kind: live.workspace.kind,
   };
@@ -338,11 +342,13 @@ export async function contextsForGrant(
     const row = {
       workspaceId: workspace._id,
       slug: workspace.slug,
+      ...aliasesField(workspace),
       role: membership.role,
       kind: workspace.kind,
     } as {
       workspaceId: Id<"workspaces">;
       slug: string;
+      aliases?: string[];
       role: string;
       kind: "personal" | "shared";
       grantedNames?: string[];

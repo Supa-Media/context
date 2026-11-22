@@ -36,6 +36,7 @@ const MAX_GROUPS = 100;
 type WorkspaceRow = {
   workspaceId: Id<"workspaces">;
   slug: string;
+  aliases?: string[];
   role: string;
   kind: "personal" | "shared";
   grantedNames?: string[];
@@ -69,6 +70,7 @@ function cacheable(live: { run?: unknown; grant: { clientId: string } }): boolea
 const workspaceValidator = v.object({
   workspaceId: v.id("workspaces"),
   slug: v.string(),
+  aliases: v.optional(v.array(v.string())),
   role: v.string(),
   kind: v.union(v.literal("personal"), v.literal("shared")),
   grantedNames: v.optional(v.array(v.string())),

@@ -232,6 +232,11 @@ const refuse = (message) => {
 export const MAX_ROW_NAMES = 1000;
 /** A row grant's name as the control plane sends it, without its `@` (`privacy/rowAccess.js` `ROW_NAME_PATTERN`). */
 const ROW_NAME = /^#[a-z0-9-]{8,64}(?:!edit)?$/;
+/** The most former names one workspace keeps: a username changes twice in a lifetime (`apps/convex/functions/lib/usernameChange.ts`). */
+export const MAX_ALIASES = 8;
+const ALIAS = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** A workspace's former names, as `names` holds them: lower-case, without `@`. */
+export const aliasList = (value) => Array.isArray(value) && value.length <= MAX_ALIASES && value.every((name) => typeof name === "string" && ALIAS.test(name.toLowerCase()));
 const rowNames = (value) => Array.isArray(value) && value.length <= MAX_ROW_NAMES && value.every((name) => typeof name === "string" && ROW_NAME.test(name));
 
 /**
@@ -243,6 +248,8 @@ const rowNames = (value) => Array.isArray(value) && value.length <= MAX_ROW_NAME
  * as the control plane's `grantedNamesFor` gives them: what opens a note or folder shared with them by name, and a
  * Tex group chat's sealed home (2026-11-02: without them the app's connection opened none of a person's chat homes).
  * The app's own client and every AI connection are given them, as its groups (`personRows.js` `sessionFor`). Left out when there are none.
+ * `aliases` are the workspace's former names, still its own (a changed username, `MAX_ALIASES` at most), which a
+ * call may address it by (`session.js` `sessionForContext`). Left out when there are none.
  */
 export function checkReachRow(row) {
   if (!row || typeof row !== "object") refuse("not a reach row");
@@ -252,9 +259,11 @@ export function checkReachRow(row) {
   if (!ROLES.includes(row.role)) refuse("not a role");
   if (!names(row.groups ?? [])) refuse("not a list of names");
   if (!rowNames(row.rowNames ?? [])) refuse("not a list of row names");
+  if (!aliasList(row.aliases ?? [])) refuse("not a list of former names");
   if (row.pinned !== undefined && typeof row.pinned !== "boolean") refuse("pinned is true or false");
   if (!clock(row.at)) refuse("a row needs its writer's clock");
   const held = [...new Set(row.rowNames ?? [])];
+  const aliases = [...new Set((row.aliases ?? []).map((name) => name.toLowerCase()))];
   return {
     workspaceId: row.workspaceId,
     slug: row.slug.toLowerCase(),
@@ -262,6 +271,7 @@ export function checkReachRow(row) {
     role: row.role,
     groups: [...(row.groups ?? [])],
     ...(held.length > 0 ? { rowNames: held } : {}),
+    ...(aliases.length > 0 ? { aliases } : {}),
     pinned: row.pinned === true,
     at: row.at,
   };

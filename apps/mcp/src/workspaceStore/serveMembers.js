@@ -12,7 +12,7 @@
  * A whole copy (`snapshot`) owes the person objects nothing: copying every person's reach is its own step.
  */
 
-import { ACCESS_OPS, AccessRowRefused, ROW_KEYS } from "./access.js";
+import { ACCESS_OPS, AccessRowRefused, ROW_KEYS, aliasList } from "./access.js";
 
 const IDENTITY = "identity";
 const HANDLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -22,7 +22,7 @@ export const INVITE_FIND = "ws.invites.find";
 /** `{}` → `{pending}`: send what the reach outbox still owes. */
 export const REACH_FLUSH = "ws.reach.flush";
 
-/** This workspace's handle and kind, for a person's reach row; null until a member write has said. */
+/** This workspace's handle, kind and former names, for a person's reach row; null until a member write has said. */
 function identityOf(store) {
   const held = store.members.getMeta(IDENTITY);
   return held && typeof held.slug === "string" && typeof held.kind === "string" ? held : null;
@@ -33,7 +33,10 @@ function keepIdentity(store, workspace) {
   if (typeof workspace !== "object" || !HANDLE.test(workspace.slug ?? "") || (workspace.kind !== "personal" && workspace.kind !== "shared")) {
     throw new AccessRowRefused("a workspace is named by its handle and kind");
   }
-  store.members.setMeta(IDENTITY, { slug: workspace.slug, kind: workspace.kind });
+  // A changed username's former names, still the workspace's own (`apps/convex/functions/lib/usernameChange.ts`).
+  if (workspace.aliases !== undefined && !aliasList(workspace.aliases)) throw new AccessRowRefused("not a list of former names");
+  const aliases = [...new Set((workspace.aliases ?? []).map((name) => name.toLowerCase()))];
+  store.members.setMeta(IDENTITY, { slug: workspace.slug, kind: workspace.kind, ...(aliases.length > 0 ? { aliases } : {}) });
 }
 
 /**
@@ -87,7 +90,8 @@ function owe(store, workspaceId, member, removed, at) {
   }
   const identity = identityOf(store);
   if (identity === null) throw new AccessRowRefused("a member write names the workspace's handle and kind first (`workspace`)");
-  const row = { workspaceId, slug: identity.slug, kind: identity.kind, role: member.role, groups: member.groups, at: member.at };
+  const aliases = Array.isArray(identity.aliases) && identity.aliases.length > 0 ? { aliases: identity.aliases } : {};
+  const row = { workspaceId, slug: identity.slug, kind: identity.kind, ...aliases, role: member.role, groups: member.groups, at: member.at };
   store.members.owe(person, workspaceId, ACCESS_OPS.REACH_PUT, { personalWorkspaceId: person, rows: [row] });
 }
 

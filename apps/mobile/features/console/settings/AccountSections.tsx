@@ -28,6 +28,7 @@ import { SpellingSettings } from "./panels/SpellingSettings";
 import { TexHabits } from "./panels/TexHabits";
 import { TexSettings } from "./panels/TexSettings";
 import { YourPicture } from "./panels/YourPicture";
+import { UsernameRows } from "./panels/UsernameRows";
 import { MessagesPanel } from "./panels/MessagesPanel";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
 
@@ -171,12 +172,17 @@ export function AccountSection({
       <YourPicture />
 
       <Card style={styles.spaced}>
-        <Row style={styles.firstRow}>
-          <Grow>
-            <Text variant="rowTitle">{owned ? "Username" : "Signed in as"}</Text>
-          </Grow>
-          <Text variant="mono">{data.viewer.name}</Text>
-        </Row>
+        {/* A username can be changed twice, and the old one stays theirs (Dev2, 2026-11-22). Not in the demo. */}
+        {owned && personal !== undefined && !data.demo ? (
+          <UsernameRows username={personal.slug} />
+        ) : (
+          <Row style={styles.firstRow}>
+            <Grow>
+              <Text variant="rowTitle">{owned ? "Username" : "Signed in as"}</Text>
+            </Grow>
+            <Text variant="mono">{data.viewer.name}</Text>
+          </Row>
+        )}
         {/*
           Only where it is the address this person's own workspace was issued.
           `viewerIdentity` substitutes a derived one when the open context is

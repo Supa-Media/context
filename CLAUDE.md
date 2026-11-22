@@ -274,8 +274,10 @@ different membership — never modelled separately, and in particular:
   reaches every context its person is a live member of.
 - **Membership carries an explicit role** (`owner` | `editor` | `member`).
   Write access to someone else's context is never implied by read.
-- **Usernames and workspace slugs share one global namespace**, unique and
-  stable, with a reserved-word list. Sharing is addressed by name.
+- **Usernames and workspace slugs share one global namespace**, unique, with a
+  reserved-word list. Sharing is addressed by name. A username changes at most
+  twice and keeps its old names
+  ([username-changes](./docs/decisions/identity-and-access/username-changes.md)).
 - **Audit records the acting identity, not just the scope.**
 
 Cross-context work is addressed by a `context: "@name"` argument on the tool

@@ -25,10 +25,10 @@ import { useFieldFont } from "../../design/fieldFont";
  * paragraph as too wordy (2026-09-27). The preview updates as they type.
  *
  * The capture address is labelled reserved rather than working (see
- * `captureHonesty.test.ts`). The one sentence kept is that it is permanent.
- * There is no release, rename, or reclaim path in the control plane (issue
- * #10), and finding that out later, from a support reply, is the outcome it
- * exists to prevent.
+ * `captureHonesty.test.ts`). The one sentence kept is how far it can change:
+ * twice in a lifetime, and the old name stays theirs and keeps working
+ * (`functions/lib/usernameChange.ts`, Dev2 2026-11-22). Finding that out later,
+ * from a support reply, is the outcome it exists to prevent.
  *
  * ## Two rules about what is shown back
  *
@@ -119,7 +119,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
       </View>
 
       <Text variant="foot" style={styles.permanent}>
-        You can't change it later.
+        You can change it twice later, and you keep the old one.
       </Text>
 
       {/*

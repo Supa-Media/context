@@ -318,7 +318,7 @@ export function sessionForContext(session, name) {
     new SessionRefusal(403, "insufficient_scope", "This connection has no access to that context.");
   if (wanted === null) throw refuse();
 
-  const covered = (session?.workspaces || []).find((entry) => entry.slug === wanted);
+  const covered = (session?.workspaces || []).find((entry) => answersTo(entry, wanted));
   if (!covered) throw refuse();
   if (covered.workspaceId === session.workspaceId) return session;
 
@@ -468,6 +468,15 @@ export function chatNamesOf(names) {
   return all.includes(READS_AS_CHAT) ? all : null;
 }
 
+/**
+ * Whether a covered workspace answers to `name`: its handle, or one of its former names (a changed username keeps
+ * its old ones, `apps/convex/functions/lib/usernameChange.ts`). Only names the control plane listed for a workspace
+ * this connection already covers, so an alias widens nothing: it is a second spelling of a row already here.
+ */
+export function answersTo(entry, name) {
+  return entry.slug === name || (Array.isArray(entry.aliases) && entry.aliases.includes(name));
+}
+
 function selectWorkspace(session, slug) {
   if (!slug) {
     const fallback = session.workspaces.find((w) => w.workspaceId === session.defaultWorkspaceId);
@@ -479,7 +488,7 @@ function selectWorkspace(session, slug) {
     }
     return fallback;
   }
-  const match = session.workspaces.find((w) => w.slug === slug);
+  const match = session.workspaces.find((w) => answersTo(w, slug));
   if (!match) {
     throw new SessionRefusal(
       403,

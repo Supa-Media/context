@@ -36,7 +36,7 @@ export type TakeAwayStep =
       userIds: string[];
       inviteIds: string[];
       /** Member rows to put first (a fold's account moved into, members leaving a group), with the workspace's name. */
-      puts?: { rows: Record<string, unknown>[]; workspace: { slug: string; kind: string } };
+      puts?: { rows: Record<string, unknown>[]; workspace: { slug: string; kind: string; aliases?: string[] } };
     }
   | { scope: "person"; workspaceId: Id<"workspaces">; home: AccessHome; grantIds: string[] };
 

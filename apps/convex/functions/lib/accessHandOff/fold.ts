@@ -23,6 +23,7 @@ import { groupNames } from "../accessObjects/expected";
 import { personalWorkspaceOf } from "../faces/people";
 import type { AccessWrite } from "./record";
 import type { TakeAwayStep } from "./takeAway";
+import { objectIdentity } from "../workspaces/aliases";
 
 /** Queue the objects' half of a fold, when any of its workspaces decides its members in its object. */
 export async function queueFold(ctx: MutationCtx, fromId: Id<"users">, intoId: Id<"users">, workspaceIds: Id<"workspaces">[]): Promise<void> {
@@ -64,7 +65,7 @@ export async function foldSteps(ctx: QueryCtx, job: Doc<"accessTakeAways">): Pro
       membership !== null && into !== null
         ? {
             rows: [{ userId: String(intoId), personalWorkspaceId: String(into._id), role: membership.role, groups: await groupNames(ctx, workspaceId, intoId), at: job.at }],
-            workspace: { slug: workspace.slug, kind: workspace.kind },
+            workspace: objectIdentity(workspace),
           }
         : undefined;
     steps.push({ scope: "workspace", workspaceId, home, userIds: [String(fromId)], inviteIds: [], ...(puts ? { puts } : {}) });

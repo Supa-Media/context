@@ -152,6 +152,8 @@ export const resolveGrantByAccessTokenReturns = v.union(
       v.object({
         workspaceId: v.id("workspaces"),
         slug: v.string(),
+        // A changed username's former names, still this workspace's own (`lib/workspaces/aliases.ts`).
+        aliases: v.optional(v.array(v.string())),
         role: v.string(),
         kind: v.union(v.literal("personal"), v.literal("shared")),
         // Only the first-party console grant carries this live, per-request
