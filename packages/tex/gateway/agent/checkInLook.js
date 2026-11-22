@@ -27,10 +27,10 @@ export async function checkInLook(input, io) {
 function toolsVia(t, tools) {
   const calls = (t.toolCalls = { mcp: null, web: null, local: new Map(), held: new Map() });
   let n = 0;
-  const through = async (kind, name, args) => {
+  const through = async (kind, name, args, turnSoFar) => {
     n += 1;
     const call = n;
-    calls.held.set(call, { args });
+    calls.held.set(call, { args, turnSoFar });
     try {
       await tools({ kind, name, call });
       return calls.held.get(call).result;
@@ -39,6 +39,14 @@ function toolsVia(t, tools) {
     }
   };
   return {
+    // A tool the look answers itself (say_nothing, which `turn.js` adds), over the same wire.
+    local: (entries) =>
+      entries.map((entry) => {
+        const name = entry?.tool?.name;
+        if (typeof name !== "string" || typeof entry.call !== "function") return entry;
+        calls.local.set(name, entry.call);
+        return { ...entry, call: (args, turnSoFar) => through("local", name, args, turnSoFar) };
+      }),
     tools: (inner) => ((calls.mcp = inner), (name, args) => through("mcp", name, args)),
     web: (web) => {
       if (!web || typeof web.call !== "function") return web;
