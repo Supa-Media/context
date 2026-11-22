@@ -2,8 +2,8 @@
  * Every workspace moved onto its workspace object on its own (`functions/workspaceObjectsMove.ts`,
  * `workspaceObjectsMoveRows.ts`, `lib/workspaceObjects/moveStep.ts`; owner, 2026-11-20).
  *
- * Sabotage, each confirmed to fail a case here: let a bucket of the workspace's own be moved (own_storage skipped),
- * jump `dual` straight to access (notes never compared), switch texting before the person's access is in the
+ * Sabotage, each confirmed to fail a case here: skip a bucket of the workspace's own again (owner, 2026-11-22: it moves
+ * like a managed one), jump `dual` straight to access (notes never compared), switch texting before the person's access is in the
  * object, let a second run take a held workspace, sweep a workspace tried within the hour, and leave a new managed
  * bucket's binding without a run scheduled.
  */
@@ -46,9 +46,15 @@ describe("the next step", () => {
     expect(nextMoveStep(shared).step).toBe("done");
   });
 
-  test("a bucket of the workspace's own, no storage, or a gone workspace is never moved", () => {
-    expect(nextMoveStep({ ...base, storage: "own" })).toEqual({ step: "skip", why: "own_storage" });
-    expect(nextMoveStep({ ...base, storage: "own", notes: "dual" })).toEqual({ step: "skip", why: "own_storage" });
+  test("a bucket of the workspace's own moves like a managed one", () => {
+    const own = { ...base, storage: "own" as const };
+    expect(nextMoveStep(own).step).toBe("notes_arm");
+    expect(nextMoveStep({ ...own, notes: "dual" }).step).toBe("notes_copy_check");
+    expect(nextMoveStep({ ...own, notes: "object" }).step).toBe("access_arm");
+    expect(nextMoveStep({ ...own, notes: "object", access: "object", personAccess: "object", texting: "object" }).step).toBe("done");
+  });
+
+  test("no storage or a gone workspace is never moved", () => {
     expect(nextMoveStep({ ...base, storage: "none" })).toEqual({ step: "skip", why: "no_storage" });
     expect(nextMoveStep({ ...base, exists: false })).toEqual({ step: "skip", why: "gone" });
   });
@@ -102,15 +108,15 @@ describe("facts, lease, sweep and census", () => {
     expect(await t.mutation(internal.functions.workspaceObjectsMoveRows.claimMove, { workspaceId, now: 40, until: 2000 })).toBe(true);
   });
 
-  test("the sweep never lists a bucket of one's own, no storage, or a workspace already moved", async () => {
+  test("the sweep lists a bucket of one's own, never no storage or a workspace already moved", async () => {
     const t = convexTest(schema, modules);
-    await workspace(t, "shared", "own");
+    const own = await workspace(t, "shared", "own");
     await workspace(t, "shared", "none");
     const moved = await workspace(t, "shared", "managed");
     await t.run(async (ctx) => {
       await ctx.db.insert("workspaceObjectHomes", { workspaceId: moved, home: "object", since: 1, access: "object" } as never);
     });
-    expect(await t.query(internal.functions.workspaceObjectsMoveRows.toMove, { now: 10 })).toEqual([]);
+    expect(await t.query(internal.functions.workspaceObjectsMoveRows.toMove, { now: 10 })).toEqual([own]);
   });
 
   test("the census counts by storage and home, moved and not, in counts only", async () => {
@@ -127,10 +133,10 @@ describe("facts, lease, sweep and census", () => {
       workspaces: 4,
       storage: { none: 1, own: 1, managed: 2 },
       moved: 1,
-      notMoved: 1,
-      next: { notes_arm: 1 },
-      lastNote: { never_tried: 1 },
-      notes: { bucket: 1, dual: 0, object: 1 },
+      notMoved: 2,
+      next: { notes_arm: 2 },
+      lastNote: { never_tried: 2 },
+      notes: { bucket: 2, dual: 0, object: 1 },
       ownNotes: { bucket: 1 },
       texFolders: { none: 4, one: 0, many: 0 },
     });

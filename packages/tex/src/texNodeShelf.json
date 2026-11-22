@@ -206,6 +206,21 @@
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
       "node": {"label":"Reflect","goal":"After a hard or corrected turn, write down what worked as a learned skill for next time.","log":true,"on":false,"rounds":4,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"reflect.js","note":"","icon":"star","model":"haiku-5-5","effort":"off","id":"reflect","inSchema":[{"name":"question","type":"text"},{"name":"tainted","type":"yesno"},{"name":"ownText","type":"yesno"},{"name":"canWrite","type":"yesno"}],"outSchema":[{"name":"outcome","type":"text"},{"name":"reason","type":"text","optional":true},{"name":"where","type":"text","optional":true},{"name":"error","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"model","type":"text","optional":true}]}
+    },
+    "quietCheck": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/quietCheck.js",
+        "packages/tex/gateway/agent/sayNothing.js",
+        "packages/tex/gateway/agent/heartbeat.js"
+      ],
+      "why": "Whether a check-in's silence stands (Dev2, 2026-11-22: \"let refusal become a real node that we can tune\"). A look that calls say_nothing asks it: a model reads what the look was shown, their calendar with who answered each invite how, and the look's reason, judged from train:quietCheck examples, and lets the silence stand or refuses it once with what to text about. Unwired, the check-in keeps the word list of checkInSpeak.js: a Lab draft turns it on with checkin -> quietCheck (uses)."
+    },
+    "checkinResearch": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/checkinResearch.js",
+        "packages/tex/gateway/agent/heartbeat.js"
+      ],
+      "why": "A check-in's research before the look decides (Dev2, 2026-11-22: \"check-ins are not real time, so we can take our time\"): a turn of its own on read-only tools (notes, mail, calendar, texts, web search) that hands the look a brief, one finding a line with its urgency, source and the one next step Tex could offer. Unwired, the look runs as before: a Lab draft turns it on with checkin -> checkinResearch (uses)."
     }
   }
 }

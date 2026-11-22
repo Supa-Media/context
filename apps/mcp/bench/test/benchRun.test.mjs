@@ -83,6 +83,13 @@ test("a tiny NanoBEIR set, kept as BEIR's files, runs end to end through search 
     assert.equal(out.search.bySet.scifact.n, 2);
     assert.equal(out.search.ndcg10, 1);
     assert.equal(out.search.objectNdcg10, 1);
+    // By default the workspace objects alone answer, as every managed workspace searches; `with-database` adds the
+    // bucket world's search database, still how the bring-your-own-storage workspaces search.
+    assert.deepEqual(out.search.byPath, { object: 2 }, JSON.stringify(out.search.byPath));
+    const both = await quiet(() => runSearchSet({ bench: "nanobeir", sets: "scifact", fetch: dir, fake: true, "with-database": true }));
+    assert.equal(both.search.ndcg10, 1);
+    assert.equal(both.search.objectNdcg10, 1);
+    assert.ok(Object.keys(both.search.byPath).some((path) => path !== "object"), JSON.stringify(both.search.byPath));
     assert.ok(out.search.bm25Ndcg10 < 1, "BM25's list put the second query's note second");
     assert.deepEqual(out.rows.map((r) => r.id), ["scifact-q1", "scifact-q2"]);
     // In two processes, each asking every other question: the same rows in the same order, scored as one run.

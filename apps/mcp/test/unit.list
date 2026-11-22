@@ -386,6 +386,7 @@ test/agentJobRestart.test.mjs
 test/jobReportEntry.test.mjs
 test/jobReportReply.test.mjs
 test/agentHeartbeatFailure.test.mjs
+test/checkInQuietResearch.test.mjs
 test/checkInSpeak.test.mjs
 test/groupMemoryCarry.test.mjs
 test/groupPageCopy.test.mjs
@@ -754,3 +755,5 @@ test/labSandboxJobBox.test.mjs
 test/consentContext.test.mjs
 bench/test/worldCache.test.mjs
 test/usernameAliases.test.mjs
+test/benchRoute.test.mjs
+test/benchOidc.test.mjs

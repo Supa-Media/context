@@ -54,6 +54,8 @@ jobs:
       n: ${{ steps.job.outputs.n }}
       models: ${{ steps.job.outputs.models }}
       sha: ${{ steps.code.outputs.sha }}
+      remote: ${{ steps.code.outputs.remote }}
+      pr: ${{ steps.code.outputs.pr }}
       search: ${{ steps.job.outputs.search }}
       why: ${{ steps.why.outputs.why }}
     steps:
@@ -115,12 +117,16 @@ jobs:
           if [ -z "$code" ]; then
             sha=$(git rev-parse HEAD)
             echo "Code: main at $sha"
+            # Main's search runs are asked of production's standing bench objects (packages/lab/gateway/bench/).
+            echo "remote=https://mcp.context.lc" >> "$GITHUB_OUTPUT"
           elif [[ "$code" =~ ^#([1-9][0-9]{0,6})$ ]]; then
             n="${BASH_REMATCH[1]}"
             curl -fsS -H "authorization: Bearer $GH_TOKEN" -H "accept: application/vnd.github+json" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$n" > "$RUNNER_TEMP/pr.json" || say "there is no pull request #$n in this repository"
             [ "$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/pr.json")" = "$GITHUB_REPOSITORY" ] || say "pull request #$n is from a fork: only this repository's branches run"
             sha=$(jq -r .head.sha "$RUNNER_TEMP/pr.json")
             echo "Code: pull request #$n at $sha"
+            # Its search runs are asked of its own preview's bench objects, which run its code (the run job finds them).
+            echo "pr=$n" >> "$GITHUB_OUTPUT"
           elif [[ "$code" =~ ^[A-Za-z0-9._/-]{1,120}$ && "$code" != -* && "$code" != *..* ]]; then
             sha=$(git ls-remote origin "refs/heads/$code" | cut -f1)
             [ -n "$sha" ] || say "there is no branch $code in this repository"
@@ -144,6 +150,12 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     environment: production
+    # `id-token: write`: GitHub's signed token for the bench route (packages/lab/gateway/bench/oidc.js), which admits
+    # this workflow on main only. It reaches the bench objects' public benchmark notes and nothing else.
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
     # A full 500-question run at ten at once is about five hours; GitHub's own limit is six.
     timeout-minutes: 355
     env:
@@ -158,6 +170,30 @@ jobs:
     outputs:
       why: ${{ steps.why.outputs.why }}
     steps:
+      # A pull request's search run asks its own preview gateway's bench objects (`deploy-preview.yml`), which run its
+      # code. The preview's host names the account, so it is masked and kept out of the job's outputs. The API token is
+      # this step's alone, read before the pull request's code is checked out, and only reads the workers.dev name.
+      - name: Find the pull request's preview bench
+        if: needs.prep.outputs.search == 'true' && needs.prep.outputs.pr != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PR: ${{ needs.prep.outputs.pr }}
+        run: |
+          set -uo pipefail
+          sub=$(curl -fsS --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r '.result.subdomain // ""') || sub=""
+          if [ -z "$sub" ]; then echo "::warning::the workers.dev name could not be read: running here"; exit 0; fi
+          echo "::add-mask::$sub"
+          origin="https://context-mcp-pr$PR.$sub.workers.dev"
+          # A bench that is there refuses a call with no token (401); anything else means no preview to ask.
+          status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$origin/tex-lab/bench" || true)
+          if [ "$status" = "401" ]; then
+            echo "REMOTE=$origin" >> "$GITHUB_ENV"
+            echo "Pull request #$PR's preview bench answers."
+          else
+            echo "::warning::pull request #$PR has no preview bench to ask ($status): running here"
+          fi
+
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.prep.outputs.sha }}
@@ -225,6 +261,7 @@ jobs:
           BENCH: ${{ needs.prep.outputs.bench }}
           N: ${{ needs.prep.outputs.n }}
           SEARCH: ${{ needs.prep.outputs.search }}
+          MAIN_REMOTE: ${{ needs.prep.outputs.remote }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
           set +e -uo pipefail
@@ -232,8 +269,21 @@ jobs:
           if [ "$SEARCH" = "true" ]; then
             # Embeddings only: no Claude Code, no socket answerer, no subscription read.
             mkdir -p "$RUNNER_TEMP/evals-embeddings"
-            BENCH_EMBED_CACHE="$RUNNER_TEMP/evals-embeddings/vectors.txt" BENCH_WORLD_CACHE="$RUNNER_TEMP/evals-worlds" node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --parallel 4 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
-            code=$?
+            # Main asks production; a pull request asks its preview, found above.
+            REMOTE="${REMOTE:-$MAIN_REMOTE}"
+            code=1
+            # Every search at once on standing bench objects (production's for main, the preview's for a pull request), which keep the notes loaded
+            # between runs (`cli.mjs search --remote`). Code older than the remote mode, or a bench that cannot be
+            # reached, runs here as before.
+            if [ -n "$REMOTE" ] && grep -q 'remote: { type' apps/mcp/bench/evals/cli.mjs; then
+              node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --remote "$REMOTE" --copies 16 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+              code=$?
+              [ "$code" = "0" ] || echo "::warning::the bench objects did not answer; running here instead"
+            fi
+            if [ "$code" != "0" ]; then
+              BENCH_EMBED_CACHE="$RUNNER_TEMP/evals-embeddings/vectors.txt" BENCH_WORLD_CACHE="$RUNNER_TEMP/evals-worlds" node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --parallel 4 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+              code=$?
+            fi
             if [ "$code" != "0" ]; then
               tail -n 1 "$RUNNER_TEMP/eval.log" | head -c 280 > "$RUNNER_TEMP/why" || true
               exit "$code"

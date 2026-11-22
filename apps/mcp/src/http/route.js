@@ -90,6 +90,7 @@ import { TEX_EVAL_PREFIX, handleTexEval } from "./texTestSet.js";
 import { CREDIT_REST_PATH, handleCreditRest } from "../../../../packages/tex/gateway/agent/creditRest.js";
 import { LAB_SANDBOX_PATH, handleLabSandbox } from "../../../../packages/lab/gateway/labSandbox/route.js";
 import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../../../../packages/lab/gateway/labSandbox/pages.js";
+import { BENCH_PATH, handleBench } from "../../../../packages/lab/gateway/bench/route.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -215,6 +216,8 @@ export async function route(request, env, ctx) {
     if (path === LIVE_TICKET_PATH) return await handleLiveTicket(request, env, { slug, pathToken, origin });
     // The Lab's test chats (`labSandbox/route.js`): the caller's own grant, the control plane deciding who may.
     if (path === LAB_SANDBOX_PATH && !slug) return await handleLabSandbox(request, env, ctx, { origin });
+    // The standing bench objects (`bench/route.js`): public benchmark notes, searched here in the bench's own environment.
+    if (path === BENCH_PATH && !slug) return await handleBench(request, env, ctx, { gateway: (inner, benchEnv) => route(inner, benchEnv, ctx) });
     // A test chat's pages and pictures (`labSandbox/pages.js`): its owner's own grant only, gone with the test chat.
     if (path.startsWith(LAB_SANDBOX_PAGES) && !slug) return await handleLabSandboxPage(request, env, path);
     // The app's live file tree and access screens from the objects (`live/treeRoute.js`, `live/accessRoute.js`): sockets, likewise.

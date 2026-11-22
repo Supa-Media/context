@@ -56,9 +56,9 @@ rules and the text in one place that answers both in one call.
   after a backfill and a parity check with zero differences, and go back in
   one step. Old bucket keys and Convex node tables stay three days as the
   rollback, then go.
-- **Bring your own bucket is retired.** Nobody new can connect one; each
-  workspace on one gets a full export first and is listed to the owner before
-  it is cut over.
+- **Bring your own bucket is retired for new connections.** Nobody new can
+  connect one. A workspace already on one stays supported and moves onto its
+  object like any other (below, "A bucket of the workspace's own").
 - **Self-hosting** runs the same objects on `workerd` (`wrangler dev` or a
   workerd deployment), so cloning and deploying without us still works.
 
@@ -83,7 +83,7 @@ with no `workspaceObjectHomes` record reads as `bucket`).
   A step that cannot prove the copy stops with a closed word on the record
   (`moveNote`) and the workspace stays where it was, tried again an hour later.
   A lease (`moveLeaseUntil`) keeps two runs off one workspace.
-- **A bucket of the workspace's own is never moved**, and a workspace with no
+- **A bucket of the workspace's own moves too** (below); a workspace with no
   storage waits for its bucket.
 - The "Workspace objects move" workflow prints the census (counts only) and
   can start the sweep at once.
@@ -91,6 +91,35 @@ with no `workspaceObjectHomes` record reads as `bucket`).
 *Simplification cost:* going back to moving by hand leaves every new
 workspace on the slow path forever; forcing the switch without the parity
 check lets a cut-short copy answer as if whole. Tests:
+`apps/convex/__tests__/workspaceObjectsMove.test.ts`.
+
+## A bucket of the workspace's own moves onto its object too
+
+Decided by the owner, 2026-11-22, choosing "Full object, their bucket as copy"
+over an object that holds only the rows and search indexes, and over leaving
+them on the search database: "we're still gonna support this, but we're just
+not supporting it for future people... it shouldn't be slower in searching
+and indexing notes". Until then the sweep skipped a workspace on a bucket of
+its own, so it alone was still searched through the per-context search
+database, the one reason that path was kept.
+
+- **It moves like a managed workspace**: armed, copied, compared, switched,
+  through the same steps and guards (`lib/workspaceObjects/moveStep.ts`).
+- **The owner's bucket stays whole.** In `object` every save and delete is
+  still made in the workspace's bucket, written behind the response
+  (`store/workspaceRouting.js`), whichever bucket the binding names; for this
+  workspace that is the owner's. Older saved versions stay read from it. It is
+  never emptied: Context still never deletes what a save did not.
+- **Nothing written into it from outside is picked up**, as for any bucket
+  since 2026-10-15, so the object needs no sync back from it.
+- **Why not an object of rows and indexes only:** the word index and its
+  snippets hold the note text anyway, so it would keep nothing more of the
+  owner's content out of the object, and it would add a third home and keep
+  every note read on the slow bucket path.
+
+*Simplification cost:* skipping these workspaces again keeps a second search
+path (the search database) alive for a handful of workspaces, and their search
+slower and scored differently from everyone else's. Tests:
 `apps/convex/__tests__/workspaceObjectsMove.test.ts`.
 
 ## Where the objects run: the gateway's account

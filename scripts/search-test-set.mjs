@@ -95,17 +95,14 @@ export function statusLine(v) {
 /**
  * NanoBEIR's part of the gate: how far below main a change's nDCG@10 (mean over the gate's four sets) may land before
  * it fails. One query moving from first to second in one set of 50 moves that mean by about 0.002, so this lets a
- * couple of such moves through and stops anything wider. Both ways production answers are held to it: the search
- * database and the workspace object.
+ * couple of such moves through and stops anything wider. It holds the way production answers: every managed
+ * workspace searches in its workspace object (since 2026-11-20), so the object path's nDCG@10 is the one compared.
  */
 export const BEIR_TOLERANCE = 0.005;
 
 /** The NanoBEIR verdict of two `cli.mjs search --bench nanobeir-gate` results: { pass, paths: [{ path, change, main, pass }] }. */
 export function beirVerdict(change, main) {
-  const paths = [
-    ["database", (r) => r?.search?.ndcg10],
-    ["objects", (r) => r?.search?.objectNdcg10],
-  ].map(([path, of]) => {
+  const paths = [["objects", (r) => r?.search?.objectNdcg10]].map(([path, of]) => {
     const c = of(change);
     const m = of(main);
     // A side that ran no queries, or a change that lost a path main has, cannot pass; a path main lacks is not held.
@@ -129,8 +126,8 @@ export function beirLines(v) {
 /** The status GitHub shows when both parts ran: the sealed part's counts and NanoBEIR's nDCG@10 (140 characters). */
 export function combinedStatus(v, beir) {
   const f = (x) => (typeof x === "number" ? x.toFixed(3) : "-");
-  const db = beir.paths.find((p) => p.path === "database");
-  const nano = beir.pass ? `NanoBEIR ${f(db?.change)} vs ${f(db?.main)}` : `NanoBEIR dropped: ${beir.paths.filter((p) => !p.pass).map((p) => `${p.path} ${f(p.change)} vs ${f(p.main)}`).join(", ") || "a side failed"}`;
+  const objects = beir.paths.find((p) => p.path === "objects");
+  const nano = beir.pass ? `NanoBEIR ${f(objects?.change)} vs ${f(objects?.main)}` : `NanoBEIR dropped: ${beir.paths.filter((p) => !p.pass).map((p) => `${p.path} ${f(p.change)} vs ${f(p.main)}`).join(", ") || "a side failed"}`;
   const sealedPart = v.total === 0 ? "Test part empty" : v.pass ? `first ${v.first}/${v.total} (main ${v.mainFirst})` : `first dropped ${v.first}/${v.total} (main ${v.mainFirst})`;
   return `${sealedPart}; ${nano}`.slice(0, 140);
 }
@@ -325,13 +322,13 @@ function selfTest() {
   const side = (ndcg10, objectNdcg10, extra = {}) => ({ n: 200, search: { errors: 0, ndcg10, objectNdcg10, bySet: {} }, ...extra });
   ok("NanoBEIR: the same score passes", beirVerdict(side(0.6, 0.62), side(0.6, 0.62)).pass);
   ok("NanoBEIR: a drop within the tolerance passes", beirVerdict(side(0.596, 0.62), side(0.6, 0.62)).pass);
-  ok("NanoBEIR: a database drop past it fails", !beirVerdict(side(0.59, 0.62), side(0.6, 0.62)).pass);
+  ok("NanoBEIR: a database drop alone is not held (no managed workspace searches that way)", beirVerdict(side(0.59, 0.62), side(0.6, 0.62)).pass);
   ok("NanoBEIR: an objects drop past it fails though the database rose", !beirVerdict(side(0.7, 0.6), side(0.6, 0.62)).pass);
   ok("NanoBEIR: a change that did not run fails", !beirVerdict(null, side(0.6, 0.62)).pass && !beirVerdict(side(0.6, 0.62, { n: 0 }), side(0.6, 0.62)).pass);
   ok("NanoBEIR: a change that lost the objects path fails", !beirVerdict(side(0.6, undefined), side(0.6, 0.62)).pass);
   ok("NanoBEIR: a side with errors fails", !beirVerdict({ n: 200, search: { errors: 3, ndcg10: 0.6, objectNdcg10: 0.62 } }, side(0.6, 0.62)).pass);
-  ok("NanoBEIR: the status names both parts", /first 7\/10.*NanoBEIR 0\.600 vs 0\.600/.test(combinedStatus({ pass: true, total: 10, first: 7, mainFirst: 7 }, beirVerdict(side(0.6, 0.62), side(0.6, 0.62)))));
-  ok("NanoBEIR: a drop is named in the status", /NanoBEIR dropped: database/.test(combinedStatus({ pass: true, total: 10, first: 7, mainFirst: 7 }, beirVerdict(side(0.5, 0.62), side(0.6, 0.62)))));
+  ok("NanoBEIR: the status names both parts", /first 7\/10.*NanoBEIR 0\.620 vs 0\.620/.test(combinedStatus({ pass: true, total: 10, first: 7, mainFirst: 7 }, beirVerdict(side(0.6, 0.62), side(0.6, 0.62)))));
+  ok("NanoBEIR: a drop is named in the status", /NanoBEIR dropped: objects/.test(combinedStatus({ pass: true, total: 10, first: 7, mainFirst: 7 }, beirVerdict(side(0.6, 0.5), side(0.6, 0.62)))));
   if (failed) process.exit(1);
   console.log("\nself-test: all cases behave as stated.");
 }
