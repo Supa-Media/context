@@ -230,8 +230,14 @@ async function rerankWordsStep(input, io) {
   const read = rerankWordHits(aiOf(input, io), input.query, { [input.workspace]: input.found }, { rerankTop, ...(rerankChars ? { rerankChars } : {}) });
   // Once meaning has answered, the search waits at most `waitAfterMeaning` ms more for this call; past that this
   // workspace's hits go on in the word search's order, unread (the call's scores are still remembered for next time).
-  const late = io.ctx.meaningDone ? io.ctx.meaningDone.then(() => new Promise((resolve) => setTimeout(() => resolve(LATE), waitAfterMeaning))) : null;
-  const got = await (late ? Promise.race([read, late]) : read);
+  let timer;
+  let settled = false;
+  const late = io.ctx.meaningDone ? io.ctx.meaningDone.then(() => (settled ? null : new Promise((resolve) => (timer = setTimeout(() => resolve(LATE), waitAfterMeaning))))) : null;
+  read.catch(() => {}); // a call let go late never ends as an unhandled rejection
+  const got = await (late ? Promise.race([read, late]) : read).finally(() => {
+    settled = true;
+    clearTimeout(timer);
+  });
   if (got === LATE) return { found: input.found, log: { reranked: { skipped: `still reading ${waitAfterMeaning} ms after meaning answered` } } };
   return { found: got.byWords[input.workspace], log: { reranked: got.reranked } };
 }
