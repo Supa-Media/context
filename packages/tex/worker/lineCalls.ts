@@ -18,8 +18,10 @@ import { appCardConfig } from "./appCards";
 import { noteCardDrawer } from "./noteCards";
 import { sendblueKeys } from "./sendblue";
 import { whapiKeys } from "./whapi";
+import type { TextsBinding } from "./gatewaySession";
 import { remoteLinkNotes } from "./photonLinkBubbles";
 import { inboxByName } from "./objectPlace";
+import { chatNamespace } from "./gatewayChats";
 import type { CountDataset } from "./textCounts";
 
 /** The methods of `Line` the gateway may call (`line.ts`). */
@@ -36,6 +38,8 @@ export type LineCallResult = { ok: true; value: unknown } | { ok: false; error: 
 /** What the Worker's line keys and media hosting need from its bindings. */
 export type LineCallEnv = {
   SENDER_INBOX: DurableObjectNamespace;
+  /** The gateway's `TexTexts`: the chat a line call names is the gateway's (`gatewayChats.ts`). */
+  GATEWAY_TEXTS?: TextsBinding;
   LINQ_API_KEY: string;
   CONTROL_PLANE_ORIGIN: string;
   AGENT_WORKER_SECRET: string;
@@ -113,7 +117,7 @@ export async function runGroupLineCall(deps: GroupLineDeps, call: GroupLineCall)
 
 /** A picture hosted by the chat's own object, at the address its line sends (`chatObject.ts` `/host-picture`). */
 async function hostPictureAt(env: LineCallEnv, inbox: string, picture: Picture): Promise<string> {
-  const response = await inboxByName(env.SENDER_INBOX, inbox).fetch("https://inbox/host-picture", { method: "POST", body: JSON.stringify(picture) });
+  const response = await inboxByName(chatNamespace(env), inbox).fetch("https://inbox/host-picture", { method: "POST", body: JSON.stringify(picture) });
   if (!response.ok) throw new Error("the chat's inbox did not host the picture");
   const { url } = (await response.json()) as { url?: unknown };
   if (typeof url !== "string") throw new Error("the chat's inbox did not host the picture");
@@ -126,7 +130,7 @@ function sharedDeps(env: LineCallEnv, inbox: string) {
     sendblue: sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET, env.SENDBLUE_STATUS_URL),
     whapi: whapiKeys(env.WHAPI_TOKEN, env.WHAPI_LINE),
     photon: env.PHOTON ?? null,
-    linkNotes: remoteLinkNotes(inboxByName(env.SENDER_INBOX, inbox)),
+    linkNotes: remoteLinkNotes(inboxByName(chatNamespace(env), inbox)),
     hostPicture: (picture: Picture) => hostPictureAt(env, inbox, picture),
     noteCardPicture: noteCardDrawer((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET),
     textCounts: env.TEX_COUNTS,
@@ -141,5 +145,5 @@ export function lineCallDeps(env: LineCallEnv, inbox: string): LineDeps {
 /** The deps of the Worker's group line, as `groupInbox.ts` builds them. */
 export function groupLineCallDeps(env: LineCallEnv, inbox: string): GroupLineDeps {
   // A group staff moved to the new number is sent to there, as the Worker's own group queue does (`groupMoves.ts`).
-  return { ...sharedDeps(env, inbox), movedTo: groupMovedTo(env.SENDER_INBOX) };
+  return { ...sharedDeps(env, inbox), movedTo: groupMovedTo(chatNamespace(env)) };
 }

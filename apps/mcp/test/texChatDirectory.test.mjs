@@ -113,15 +113,15 @@ describe("a group's directory entry", () => {
 });
 
 describe("the group-moves table", () => {
-  it("stays the Worker's object until its SenderInbox goes: never copied into the gateway as a chat", async () => {
-    const rpc = [];
-    const TEX_CHAT = { idFromName: (name) => name, get: () => ({ fetch: async () => assert.fail("not a gateway chat") }) };
-    const TEXTING = { inboxFetch: async (id, request) => (rpc.push([id.name, new URL(request.url).pathname]), Response.json({ ok: true })) };
+  it("is its gateway object, like a chat's, never the Worker's", async () => {
+    const chats = [];
+    const TEX_CHAT = { idFromName: (name) => name, get: (name) => ({ fetch: async (request) => (chats.push([name, new URL(request.url).pathname]), Response.json({ ok: true })) }) };
+    const TEXTING = { inboxFetch: async () => assert.fail("the Worker is not asked") };
     const env = await chatEnv({ PUBLIC_ORIGIN: "https://gw.example", TEXTING, TEX_CHAT }, { waitUntil() {}, storage: storage() }, "sendblue-group:grp-1", "", {
       gateway: () => ({ fetch: async () => new Response(null) }),
       texts: () => ({ fetch: async () => new Response(null) }),
     });
     await env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName("enam:group-moves")).fetch("https://inbox/group-move/pending", { method: "POST", body: "{}" });
-    assert.deepEqual(rpc, [["enam:group-moves", "/group-move/pending"]]);
+    assert.deepEqual(chats, [["chat:group-moves", "/chat-call/group-move/pending"]]);
   });
 });
