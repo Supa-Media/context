@@ -110,10 +110,31 @@ export function withSearchRecord(callTool, searched) {
 }
 
 /**
+ * An answer that says something isn't there: "Nothing on the reading list", "I couldn't find it", "it isn't in your
+ * notes", "no record of". Only such an answer needs the workspaces a search covered beside it (2026-11-21, owner's
+ * pick: a reply that used a search only to find a note, "Saved to Supa's meetings inbox…", got a stray Searched line).
+ */
+const NOT_THERE = [
+  /\bnothing\b/i,
+  /\b(?:couldn't|could not|can't|cannot|didn't|did not|don't|do not|haven't|have not|wasn't able to|was unable to)\s+(?:\w+\s+){0,2}?(?:find|see|spot|locate|turn up|come across)\b/i,
+  /\b(?:isn't|is not|wasn't|was not|aren't|are not|weren't|were not)\s+(?:\w+\s+){0,3}?(?:in|on|anywhere|there|written|saved|listed|noted|recorded|mentioned)\b/i,
+  /\b(?:no|none of)\s+(?:\w+\s+){0,4}?(?:record|note|notes|mention|sign|trace|match|matches|results?|hits?|entry|entries|list|file|copy)\b/i,
+  /\b(?:not|never)\s+(?:found|written down|saved|recorded|mentioned|listed)\b/i,
+  /\bdidn't turn (?:one |anything |it )?up\b|\bturned up nothing\b|\bcame up empty\b/i,
+];
+
+/** Whether an answer says something wasn't found or isn't there. */
+export function saysNotThere(answer) {
+  const said = String(answer ?? "").replace(/[‘’]/g, "'");
+  return NOT_THERE.some((pattern) => pattern.test(said));
+}
+
+/**
  * The reply's floor for a multi-workspace search (2026-11-19: a live front-door reply to "whats on the public worship
  * reading list?" left out the Searched line, though the result carried it). The front door runs no reply checks, so the
  * last recorded line is appended here from the tool record, instead of trusting the model to copy it. Only a line the
- * tool result carried is ever added.
+ * tool result carried is ever added, and only to an answer that says something isn't there (`saysNotThere`): a reply
+ * that found what it searched for has nothing for the line to qualify (owner's pick, 2026-11-21).
  * @param {string} answer the reply text
  * @param {string[] | undefined} searched the Searched lines this turn's searches returned
  */
@@ -121,6 +142,7 @@ export function withSearchedLine(answer, searched) {
   if (!Array.isArray(searched) || searched.length === 0 || typeof answer !== "string" || answer.trim() === "") return answer;
   const line = searched.at(-1);
   if (answer.includes(line)) return answer;
+  if (!saysNotThere(answer)) return answer;
   return `${answer.replace(/\s+$/, "")}\n\n${line}`;
 }
 
