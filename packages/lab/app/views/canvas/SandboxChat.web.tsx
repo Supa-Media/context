@@ -296,7 +296,7 @@ export function SandboxChat() {
         }}
         empty={
           <div className="scne">
-            {sb.busy ? "Opening the test chat…" : sb.problem || `Text Tex below to try ${s.cur.name} in this chat`}
+            {sb.busy ? "Opening the test chat…" : sb.problem || (sb.preview?.starting ? `Starting pull request #${sb.preview.pr}'s preview: its GitHub run takes about a minute` : `Text Tex below to try ${s.cur.name} in this chat`)}
             {!sb.busy && sb.problem && sb.linked ? (
               <>
                 {" "}
@@ -313,9 +313,15 @@ export function SandboxChat() {
               {folded ? "▴" : "▾"}
             </button>
             <b className="dtitle">Test chat</b>
-            <span className="sbxtag" title="Nothing here reaches the real chat, the workspace or anyone's phone">
-              Sandbox
-            </span>
+            {sb.preview ? (
+              <span className="sbxtag" id="sbCode" title={`Pull request #${sb.preview.pr}'s own preview answers: its code, its fictional people, never production's data`}>
+                PR #{sb.preview.pr}
+              </span>
+            ) : (
+              <span className="sbxtag" title="Nothing here reaches the real chat, the workspace or anyone's phone">
+                Test only
+              </span>
+            )}
             <ChatPick versionId={versionId} />
             <DockSwitch view={view} onView={setDockView} />
             <SandboxWrites />

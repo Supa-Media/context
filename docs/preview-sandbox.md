@@ -61,6 +61,10 @@ and the code. "Checked on every preview" means the deploy's smoke test
    It is a workflow, not a tool on the Context MCP, so production never holds
    the preview deploy key (`packages/sandbox/src/agent-sign-in.mjs`).
 
+Or try Tex there from production's Lab: in a test chat's picker, set **Code** to `#<pr>` and open Maya or a
+Training/Dev conversation (tex_dev: `test_chat open { code: "#<pr>", source: "maya" }`). The preview's own Tex,
+running the pull request's code, answers as `alpha`; the first open takes about a minute.
+
 ## Real, as in production
 
 | What | How it is known |

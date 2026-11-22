@@ -109,6 +109,13 @@ export type SandboxState = {
    * when it was main's (2026-11-16).
    */
   fit: { asDrawn: boolean; says?: string } | null;
+  /**
+   * Whose code answers the next test chat opened: "main" (this deployment) or a pull request, "#<number>", whose own
+   * preview runs it with its fictional people (Dev2, 2026-11-22: "run on PR #N's code").
+   */
+  code: string;
+  /** The open test chat's pull request, when it runs on one, and whether its preview is still starting (about a minute). */
+  preview: { pr: number; starting: boolean } | null;
 };
 
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
@@ -117,7 +124,7 @@ export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSo
 export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page" | "nightly";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -136,6 +143,18 @@ export function useSandbox(): SandboxState {
 
 let call: SandboxCall | null = null;
 /** The gateway route, set by the Lab once it has a grant for the person's own workspace (`SandboxLoader`). */
+/** Whose code the next test chat runs: "main", or a pull request ("#4012", "4012"); `null` when it is neither. */
+export function setSandboxCode(code: string): string | null {
+  const t = code.trim();
+  const m = /^(?:#|pr)?([1-9][0-9]{0,6})$/i.exec(t);
+  const next = !t || t === "main" ? "main" : m ? "#" + m[1] : null;
+  if (next !== null && next !== sandbox.code) {
+    sandbox.code = next;
+    emit();
+  }
+  return next;
+}
+
 export function setSandboxCall(c: SandboxCall | null) {
   call = c;
 }
@@ -224,6 +243,11 @@ let seen = new Set<string>();
 
 function take(b: Record<string, unknown>) {
   if (typeof b.sandboxId === "string") sandbox.id = b.sandboxId;
+  // A test chat on a pull request's preview: `starting` until the preview's own test chat is open (the GitHub run).
+  const pv = b.preview && typeof b.preview === "object" ? (b.preview as Record<string, unknown>) : null;
+  const pr = typeof b.code === "string" ? Number(b.code.replace("#", "")) : num(pv?.pr);
+  if (pr) sandbox.preview = { pr, starting: pv?.starting === true };
+  else if (sandbox.preview && Array.isArray(b.rows)) sandbox.preview = { ...sandbox.preview, starting: false };
   if (b.fit && typeof b.fit === "object") {
     const f = b.fit as Record<string, unknown>;
     sandbox.fit = { asDrawn: f.asDrawn !== false, ...(typeof f.says === "string" ? { says: f.says } : {}) };
@@ -274,7 +298,7 @@ const IDLE_POLL_MS = 2500;
 function poll() {
   if (polling) clearTimeout(polling);
   polling = null;
-  if (!sandbox.id || (!sandbox.running && !sandbox.shared)) return;
+  if (!sandbox.id || (!sandbox.running && !sandbox.shared && !sandbox.preview?.starting)) return;
   const after = lastRealId();
   polling = setTimeout(() => void run("get", after ? { after } : {}, false), sandbox.running ? POLL_MS : IDLE_POLL_MS);
 }
@@ -413,7 +437,9 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   sandbox.running = null;
   sandbox.hot = null;
   sandbox.fit = null;
-  return run("open", { source: source.kind, ...(source.kind === "chat" || source.kind === "shared" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
+  sandbox.preview = null;
+  const code = sandbox.code !== "main" ? { code: sandbox.code } : {};
+  return run("open", { ...code, source: source.kind, ...(source.kind === "chat" || source.kind === "shared" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
 }
 /** What a `list` entry's source says, as a source the picker and Reset can open again. */
 function sourceOf(c: Record<string, unknown>): SandboxSource {
@@ -468,7 +494,7 @@ export async function attachSandbox(sandboxId: string, versionId: string, recent
   if (polling) clearTimeout(polling);
   polling = null;
   rawRows = [];
-  Object.assign(sandbox, { id: sandboxId, linked: sandboxId, problem: null, shared: true, versionId: recent?.versionId ?? versionId, rows: [], writes: [], running: null, hot: null, fit: null, people: [], handles: {}, as: "" });
+  Object.assign(sandbox, { id: sandboxId, linked: sandboxId, problem: null, shared: true, versionId: recent?.versionId ?? versionId, rows: [], writes: [], running: null, hot: null, fit: null, people: [], handles: {}, as: "", preview: null });
   if (recent) sandbox.source = recent.source;
   seenFor = null;
   if (!call) return run("get", {});
@@ -650,7 +676,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null });
   seenFor = null;
   seen = new Set();
   if (polling) clearTimeout(polling);

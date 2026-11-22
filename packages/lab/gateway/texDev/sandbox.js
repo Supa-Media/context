@@ -376,11 +376,25 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     const opened = await call({ ...body, op: "open", ...(typeof args.draft === "string" ? { versionId: args.draft } : {}) });
     if (opened.error) return opened;
     const shown = Number.isSafeInteger(last) && last >= 0 ? Math.min(last, MAX_ROWS_SHOWN) : ROWS_SHOWN;
-    const rows = opened.rows ?? [];
+    let rows = opened.rows ?? [];
+    let people = opened.people;
+    // On a pull request's preview (`code: "#N"`), the preview opens it once its GitHub run has started (about a
+    // minute): wait for that, as a send waits for its card, and say so if it is still starting.
+    let starting = opened.preview?.starting === true;
+    for (const until = now() + MAX_WAIT_S * 1000; starting && now() < until; ) {
+      await sleep(POLL_MS * 2);
+      const seen = await call({ op: "get", sandboxId: opened.sandboxId });
+      if (seen.error || seen.preview?.starting) continue;
+      rows = seen.rows ?? [];
+      people = (await about(opened.sandboxId)).people ?? people;
+      starting = false;
+    }
     return {
       sandboxId: opened.sandboxId,
+      ...(opened.code ? { code: opened.code } : {}),
+      ...(starting ? { preview: { starting: true, next: "its pull request's preview is still starting its GitHub run: rows { sandboxId } or about shows when it is open" } } : {}),
       draft: body.versionId ?? args.draft ?? "main",
-      people: opened.people,
+      people,
       total: rows.length,
       last: rows.slice(rows.length - shown).map(compactRow),
       ...(opened.fit?.asDrawn === false ? { fit: opened.fit } : {}),
