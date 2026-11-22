@@ -61,9 +61,10 @@ did not have to leave a case behind.
    that status is green. The run's summary is the feedback for the change's
    author: which cases regressed and what each expected, held-out ones by cause.
    The core area's judged answers (each answer and the judge's reason on every
-   line, the change's and main's) are kept in
-   `@context-lc ai/results/replay/<sha>/` (`pnpm ai gate records`), never the
-   repository or the log, so a regression is read before anything is changed
+   line, the change's and main's) are kept as
+   the run's `tex-replay-core-answers` artifact, never the repository, the log
+   or a workspace (2026-11-22: per-commit copies in `@context-lc` crowded
+   search), so a regression is read before anything is changed
    or re-run (2026-11-13: core q13 failed 3/3 on a four-word diagram edit and
    nobody could see the answers).
    **An area is reached by its prompts too** (decided by the owner,

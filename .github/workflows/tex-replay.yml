@@ -357,13 +357,19 @@ jobs:
           fi
           exit "$code"
 
-      # The core area's answers and the judge's reason on every line, the change's and main's, into
-      # @context-lc ai/results/replay/<sha>/ (never the repository or the log), so a regression can be
-      # read rather than guessed at. Before the token is put back: it may refresh the sign-in.
-      - name: Keep the core area's judged answers in Context
-        if: always() && contains(steps.areas.outputs.areas, 'core') && steps.signin.outcome == 'success'
-        continue-on-error: true
-        run: pnpm --silent ai gate records --scratch "$RUNNER_TEMP/gate" --sha "$HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The core area's answers and the judge's reason on every line, the change's and main's, kept as the run's
+      # artifact (never the repository, the log or a workspace: copies of runs crowded search), so a regression can be
+      # read rather than guessed at. The key files stay behind.
+      - name: Keep the core area's judged answers
+        if: always() && contains(steps.areas.outputs.areas, 'core')
+        uses: actions/upload-artifact@v4
+        with:
+          name: tex-replay-core-answers
+          path: |
+            ${{ runner.temp }}/gate/core-*.md
+            !${{ runner.temp }}/gate/core-* key.md
+          if-no-files-found: ignore
+          retention-days: 30
 
       # The job tasks' records (each practice task's page, parts and checks; held-out ones are never written), so a
       # pass can be read rather than trusted.
