@@ -164,8 +164,14 @@ async function rangeReader(url) {
 
 /** The run's set: the adapted set, cut to the run's `corpus` notes when it names a size. */
 export async function load({ run, dir, ...options }) {
-  const set = await loadSet(dir, options);
-  const out = sliceCorpus(set, run.corpus ?? null);
+  const size = run.corpus ?? null;
+  // The cut kept beside the whole set: a run reads 10,000 notes, not 105,000 to throw most away (and each process
+  // of a parallel run reads it again).
+  const cutFolder = size && dir ? join(dir, "enterprise-rag-notes", `notes-${size}`) : null;
+  const cut = cutFolder ? readBeir(cutFolder) : null;
+  const set = cut ?? (await loadSet(dir, options));
+  const out = cut ?? sliceCorpus(set, size);
+  if (cutFolder && !cut) writeBeir(cutFolder, out);
   say(`EnterpriseRAG Notes: ${out.corpus.length} notes, ${Object.keys(out.qrels).length} questions with cited notes${set.revision ? ` (revision ${set.revision.slice(0, 7)})` : ""}`);
   return [out];
 }

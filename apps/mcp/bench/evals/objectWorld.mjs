@@ -26,9 +26,15 @@ const BUILD_PASSES = 200;
 
 function durableSqlite() {
   const db = new DatabaseSync(":memory:");
+  // Each statement prepared once: building a 10,000-note world prepares the same few hundred thousand times.
+  const statements = new Map();
   const sql = {
     exec(query, ...binds) {
-      const statement = db.prepare(query);
+      if (!statements.has(query)) {
+        if (statements.size >= 2_000) statements.clear(); // a query built with a varying IN list stays bounded
+        statements.set(query, db.prepare(query));
+      }
+      const statement = statements.get(query);
       if (/^\s*SELECT/i.test(query)) {
         const all = statement.all(...binds);
         return { toArray: () => all };

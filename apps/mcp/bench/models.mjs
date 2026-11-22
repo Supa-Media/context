@@ -353,7 +353,13 @@ export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms
   const keyOf = (text) => createHash("sha256").update(text).digest("hex");
   const onDisk = new Map();
   if (file && existsSync(file)) {
-    for (const line of readFileSync(file, "utf8").split("\n")) {
+    // Cut at each newline as bytes: a 10,000-note corpus's vectors are larger than the longest string V8 holds.
+    const bytes = readFileSync(file);
+    for (let start = 0; start < bytes.length; ) {
+      let end = bytes.indexOf(10, start);
+      if (end === -1) end = bytes.length;
+      const line = bytes.toString("latin1", start, end);
+      start = end + 1;
       const [key, b64] = line.split(" ");
       if (!key || !b64) continue;
       const buf = Buffer.from(b64, "base64");

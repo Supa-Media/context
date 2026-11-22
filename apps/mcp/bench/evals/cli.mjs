@@ -106,6 +106,36 @@ async function answerShard(options) {
   writeFileSync(options.out, JSON.stringify(rows));
 }
 
+/**
+ * A search run in k processes: the data fetched once here, then k children (`--shard s/k`), each writing its records,
+ * put back in the order one process would have asked them and scored as one run.
+ */
+async function searchInParallel(options, argv) {
+  const { resultOf } = await import("./searchCli.mjs");
+  const k = Math.max(1, Math.min(Number(options.parallel) || 1, 16));
+  const started = Date.now();
+  // Fetched and cut once, before any child reads it: k children downloading the same corpus at once would race.
+  const { run, source } = await benchmarkOf(options.bench ?? "search-hard");
+  if (run.format === "beir" && (options.fetch || options.data)) await source.load({ run, dir: options.fetch ?? null, data: options.data ?? null, sets: options.sets ? String(options.sets).split(",") : null, n: null });
+  const dir = mkdtempSync(join(tmpdir(), "search-shards-"));
+  const without = (args, names) => args.filter((arg, i) => !names.includes(arg) && !names.includes(args[i - 1]));
+  const base = without(argv, ["--parallel", "--out", "--keep-records"]);
+  await Promise.all(
+    Array.from({ length: k }, (_, s) =>
+      new Promise((resolve, reject) => {
+        const proc = spawn(process.execPath, [...process.execArgv, HERE, "search", ...base, "--shard", `${s + 1}/${k}`, "--out", join(dir, `shard-${s}.json`)], { stdio: ["ignore", "inherit", "inherit"] });
+        proc.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`search shard ${s + 1}/${k} exited ${code}`))));
+        proc.on("error", reject);
+      }),
+    ),
+  );
+  const parts = Array.from({ length: k }, (_, s) => JSON.parse(readFileSync(join(dir, `shard-${s}.json`), "utf8")));
+  // Dealt back round-robin: shard s held cases s, s + k, s + 2k, ..., so this is one process's order.
+  const records = [];
+  for (let i = 0; parts.some((p) => i < (p.records ?? []).length); i += 1) for (const p of parts) if (i < (p.records ?? []).length) records.push(p.records[i]);
+  return resultOf(run, { total: parts[0]?.total ?? null, records, ms: Date.now() - started, keep: options["keep-records"] === true });
+}
+
 function child(args) {
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, [HERE, "longmemeval", ...args], { stdio: ["ignore", "inherit", "inherit"] });
@@ -121,9 +151,11 @@ export async function main(argv = process.argv.slice(2)) {
   const { values: options } = parseArgs({ args: rest, options: OPTIONS, strict: true });
   if (!options.out) throw new Error("--out is required");
   if (command === "search") {
-    // The Search suite (`searchCli.mjs`): embeddings only, no Claude, one process.
+    // The Search suite (`searchCli.mjs`): embeddings only, no Claude. `--parallel k` searches in k processes, each
+    // building the same world and asking every k-th question: a search is CPU in this process, so one process asks
+    // one at a time however many it is handed (2026-11-22: 343 questions over 10,000 notes, two seconds each).
     const { runSearchSet } = await import("./searchCli.mjs");
-    const result = await runSearchSet(options);
+    const result = Number(options.parallel ?? 1) > 1 && !options.shard ? await searchInParallel(options, rest) : await runSearchSet(options);
     writeFileSync(options.out, JSON.stringify(result));
     const s = result.search;
     say(`${result.bench}: right note first ${s.first}/${s.n} (${s.firstPct ?? "-"}%), top 5 ${s.top5Pct ?? "-"}%, MRR ${s.mrr}, p50 ${s.p50Ms} ms${s.recallAny5Pct !== undefined ? `, recall@5 any ${s.recallAny5Pct}% all ${s.recallAll5Pct}%` : ""}${s.byPath ? `; answered by ${Object.entries(s.byPath).map(([p, n]) => `${p} ${n}`).join(", ")}` : ""}`);
