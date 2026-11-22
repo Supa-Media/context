@@ -138,9 +138,10 @@ so the object path that ranks is production's.
 - **Kept by key.** A world's key hashes its notes, its people and the code that builds the indexes (the import
   closure of `searchIndex.js` and `meaningIndex.js`, `remoteBench.mjs` `INDEX_CODE`): a change to any of them is a new
   world, loaded on the next run.
-- **Where.** Main's Lab search runs ask production (`lab-eval-run.yml` `--remote`), falling back to the local run
-  when the bench cannot be reached. A pull request's preview gateway has bench objects of its own, running its code;
-  sending a pull request's Lab run there is the next step.
+- **Where.** Main's Lab search runs ask production (`lab-eval-run.yml` `--remote`); a pull request's ask its own
+  preview gateway (`deploy-preview.yml`), whose bench objects run its code, so a change is scored before it merges.
+  Either falls back to the local run when the bench cannot be reached. The preview's host is found in the run job
+  and masked, since its workers.dev name names the account.
 - **Who.** `POST /tex-lab/bench` admits GitHub's signed token for `lab-eval-run.yml` on main (`bench/oidc.js`, no
   stored secret) or a Tex developer's own grant. It reaches only objects of the world a call names, and those hold
   public benchmark notes only. The sealed Test sets never go there.
