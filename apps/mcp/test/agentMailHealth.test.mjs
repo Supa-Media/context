@@ -43,6 +43,7 @@ import { heartbeatPath } from "../../../packages/tex/gateway/agent/heartbeat.js"
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { fakeModel } from "./heartbeatModelFixture.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-mail-health.test";
@@ -58,26 +59,6 @@ const PRIVACY_MANIFEST =
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  4-archive: private\n\nnote_overrides:\n  # none\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
-
-function fakeModel() {
-  const requests = [];
-  let script = [];
-  return {
-    requests,
-    install(replies) {
-      script = [...replies];
-    },
-    async handle(_url, init) {
-      requests.push(JSON.parse(init.body));
-      const step = script.shift();
-      if (!step) throw new Error("fake model: the script ran out");
-      return new Response(JSON.stringify({ content: [{ type: "text", text: step.text }], stop_reason: "end_turn" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    },
-  };
-}
 
 async function post(env, token, path, body) {
   const { ctx, settle } = createWorkerCtx();
