@@ -54,7 +54,7 @@ import { parseWhapiWebhook, whapiGroupChanges, whapiGroupNames } from "./whapiIn
 import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
 import { inboxByName, objectById } from "./objectPlace";
-import { chatInGateway } from "./gatewayChats";
+import { chatInGateway, chatNamespace } from "./gatewayChats";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 export { JobRunWorkflow } from "./jobWorkflow";
 
@@ -104,7 +104,7 @@ export default {
     if (url.pathname === "/new-line") return newLine(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
     if (url.pathname.startsWith("/photon/attachment/")) return photonAttachment(request, env, url);
-    if (url.pathname.startsWith("/sendblue/status/")) return sendblueStatus(request, env.SENDER_INBOX, env.SENDBLUE_STATUS_URL, url);
+    if (url.pathname.startsWith("/sendblue/status/")) return sendblueStatus(request, chatNamespace(env), env.SENDBLUE_STATUS_URL, url);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
     if (line === null) return new Response(null, { status: 404 });
     if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -208,7 +208,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         movePerson: async (phone, body) => {
-          const response = await inboxByName(env.SENDER_INBOX, phone).fetch("https://inbox/move", { method: "POST", body: JSON.stringify(body) });
+          const response = await chatInGateway(env, phone).fetch("https://inbox/move", { method: "POST", body: JSON.stringify(body) });
           if (!response.ok) return "unreachable";
           return ((await response.json()) as { outcome: MoveOutcome }).outcome;
         },
@@ -279,7 +279,7 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     return new Response(null, { status: 200 });
   }
   // A group staff moved to the new number is heard there (`groupMoves.ts`); the old line's copy of it is not a second one.
-  if (line === "sendblue" && (await groupMovedTo(env.SENDER_INBOX)(grouped.groupId)) !== null) {
+  if (line === "sendblue" && (await groupMovedTo(chatNamespace(env))(grouped.groupId)) !== null) {
     logWebhook(line, "ignored", "group_moved");
     return new Response(null, { status: 200 });
   }
@@ -464,7 +464,7 @@ async function newLine(request: Request, env: Env): Promise<Response> {
       controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
       workerSecret: env.AGENT_WORKER_SECRET,
       tellPhone: async (phone, body) => {
-        const stub = inboxByName(env.SENDER_INBOX, phone);
+        const stub = chatInGateway(env, phone);
         const response = await stub.fetch("https://inbox/new-line", { method: "POST", body: JSON.stringify(body) });
         if (!response.ok) return "failed";
         return ((await response.json()) as { told: Told }).told;

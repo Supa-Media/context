@@ -15,10 +15,12 @@
  * hex digits) unless the browser already has one.
  */
 
+import type { TextsBinding } from "./gatewaySession";
 import { cut } from "./inbound";
 import { groupInboxName } from "./groupInbox";
 import type { GroupMessage } from "./sendblueGroups";
 import { inboxByName } from "./objectPlace";
+import { chatNamespace } from "./gatewayChats";
 import type { InboxStorage } from "./inbox";
 import { claim, clear, record, SIMULATED_PHONE, thread } from "./simulatorLog";
 import { isSimulatedGroup, mintSimGroupId, SIM_GROUP_ID, SIM_GROUP_LINE, SIM_MEMBERS_KEY, simMembersOk } from "./simulatedGroup";
@@ -86,7 +88,7 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
  * The Worker's side of `/texts-simulator/api/group/*`. The caller has checked the simulator is on and the key's shape;
  * this checks every id, number and member before the group object sees anything.
  */
-export async function handleSimulatorGroup(request: Request, env: { SENDER_INBOX: DurableObjectNamespace }, path: string, keyHash: string, url: URL): Promise<Response> {
+export async function handleSimulatorGroup(request: Request, env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding }, path: string, keyHash: string, url: URL): Promise<Response> {
   const action = ({ "/api/group/send": "send", "/api/group/thread": "thread", "/api/group/clear": "clear" } as Record<string, SimGroupAction>)[path];
   if (action === undefined) return new Response(null, { status: 404 });
   if (request.method !== (action === "thread" ? "GET" : "POST")) return new Response(null, { status: 405 });
@@ -114,7 +116,7 @@ export async function handleSimulatorGroup(request: Request, env: { SENDER_INBOX
   if (groupId === null || !SIM_GROUP_ID.test(groupId) || !isSimulatedGroup(groupId)) return new Response(null, { status: 400 });
 
   const payload: SimGroupBody = { keyHash, groupId, phone, members, text };
-  const there = await inboxByName(env.SENDER_INBOX, groupInboxName(groupId)).fetch(`https://inbox/sim-group/${action}`, {
+  const there = await inboxByName(chatNamespace(env), groupInboxName(groupId)).fetch(`https://inbox/sim-group/${action}`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

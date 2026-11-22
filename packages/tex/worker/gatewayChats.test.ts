@@ -5,7 +5,10 @@
  * binding is bound fails "never the Worker's object".
  */
 import { describe, expect, it } from "vitest";
-import { chatInGateway } from "./gatewayChats";
+import { chatInGateway, chatNamespace } from "./gatewayChats";
+import { inboxByName, objectByName } from "./objectPlace";
+import { textPhone } from "./routines";
+import { arrivedAs, clearGroupMoveCache } from "./groupMoves";
 
 function namespace(calls: string[]): DurableObjectNamespace {
   return {
@@ -36,9 +39,62 @@ describe("chatInGateway", () => {
     expect(worker).toEqual([]);
   });
 
+  it("leaves the Worker's object answering when the gateway cannot hold the chat (501, 503) or cannot be reached", async () => {
+    for (const answer of [() => new Response(null, { status: 503 }), () => new Response(null, { status: 501 }), () => Promise.reject(new Error("down"))]) {
+      const worker: string[] = [];
+      const GATEWAY_TEXTS = { fetch: async () => answer() };
+      const reply = await chatInGateway({ SENDER_INBOX: namespace(worker), GATEWAY_TEXTS }, "+15555550100").fetch("https://inbox/send-status", { method: "POST", body: "{}" });
+      expect(await reply.json()).toEqual({ worker: true });
+      expect(worker).toEqual(["enam:+15555550100 /send-status"]);
+    }
+  });
+
+  it("passes the gateway's other answers on, errors included", async () => {
+    const worker: string[] = [];
+    const GATEWAY_TEXTS = { fetch: async () => new Response(null, { status: 400 }) };
+    const reply = await chatInGateway({ SENDER_INBOX: namespace(worker), GATEWAY_TEXTS }, "+15555550100").fetch("https://inbox/send-status", { method: "POST", body: "{}" });
+    expect(reply.status).toBe(400);
+    expect(worker).toEqual([]);
+  });
+
   it("is the Worker's own object without the gateway binding (self-hosting)", async () => {
     const worker: string[] = [];
     await chatInGateway({ SENDER_INBOX: namespace(worker) }, "+15555550100").fetch("https://inbox/page-jobs", { method: "POST" });
     expect(worker).toEqual(["enam:+15555550100 /page-jobs"]);
+  });
+});
+
+describe("chatNamespace", () => {
+  function gateway() {
+    const seen: { url: string; name: string | null }[] = [];
+    return { seen, GATEWAY_TEXTS: { fetch: async (url: string, init?: RequestInit) => (seen.push({ url, name: new Headers(init?.headers).get("x-inbox-name") }), Response.json({ texted: true, outcome: "ok" })) } };
+  }
+
+  it("makes every reader written against the namespace reach the gateway's chat of that name, placed or not", async () => {
+    const worker: string[] = [];
+    const { seen, GATEWAY_TEXTS } = gateway();
+    const ns = chatNamespace({ SENDER_INBOX: namespace(worker), GATEWAY_TEXTS });
+    await inboxByName(ns, "+15555550100").fetch("https://inbox/send-status", { method: "POST", body: "{}" });
+    await objectByName(ns, "group-moves").fetch("https://inbox/group-move/arrive", { method: "POST", body: "{}" });
+    expect(seen).toEqual([
+      { url: "https://gateway/texts/chat-call/send-status", name: "+15555550100" },
+      { url: "https://gateway/texts/chat-call/group-move/arrive", name: "group-moves" },
+    ]);
+    expect(worker).toEqual([]);
+  });
+
+  it("is the Worker's own namespace without the gateway binding", () => {
+    const ns = namespace([]);
+    expect(chatNamespace({ SENDER_INBOX: ns })).toBe(ns);
+  });
+
+  it("carries a routine's text and a moved group's lookup to the gateway (`routines.ts`, `groupMoves.ts`)", async () => {
+    const worker: string[] = [];
+    const { seen, GATEWAY_TEXTS } = gateway();
+    await textPhone({ SENDER_INBOX: namespace(worker), GATEWAY_TEXTS }, "+15555550101", "hello", "key-1").catch(() => null);
+    clearGroupMoveCache();
+    await arrivedAs(chatNamespace({ SENDER_INBOX: namespace(worker), GATEWAY_TEXTS }), { photonGroupId: "g", photonLine: "", from: "", participants: [] });
+    expect(seen.map((call) => call.name)).toEqual(["+15555550101", "group-moves"]);
+    expect(worker).toEqual([]);
   });
 });

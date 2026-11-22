@@ -19,6 +19,7 @@
  * the path or a phone number.
  */
 
+import type { TextsBinding } from "./gatewaySession";
 import {
   fetchDueRoutines,
   reportRoutineResult,
@@ -34,6 +35,7 @@ import { record } from "./simulator";
 import { rememberText, threadUnder } from "./threads";
 import { keepBeside } from "./warm";
 import { inboxByName } from "./objectPlace";
+import { chatNamespace } from "./gatewayChats";
 import { addEvent, kindOf, type TextSource } from "./events";
 import { flushWithReader } from "./chatRead";
 import { ownSourceOf, recordedTurn, sendRecorded } from "./texSends";
@@ -140,7 +142,7 @@ const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
 /** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`; `source` and `turn` tag the Tex text it records. */
 export async function textPhone(
-  env: { SENDER_INBOX: DurableObjectNamespace },
+  env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding },
   phone: string,
   text: string,
   idempotencyKey: string,
@@ -149,7 +151,7 @@ export async function textPhone(
   source?: string,
   turn?: string,
 ): Promise<PhoneTexted> {
-  const stub = inboxByName(env.SENDER_INBOX, phone);
+  const stub = inboxByName(chatNamespace(env), phone);
   const response = await stub.fetch(ROUTINE_TEXT_URL, {
     method: "POST",
     body: JSON.stringify({

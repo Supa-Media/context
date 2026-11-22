@@ -254,7 +254,7 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, own 
     AGENT_WORKER_SECRET: typeof env.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "",
     // Where a new background job starts (`packages/tex/worker/jobPlace.ts`): its calls then follow where it was born.
     JOBS: env.TEX_JOBS === "gateway" && env.TEX_JOB !== undefined ? "gateway" : "worker",
-    SENDER_INBOX: senderObjects(env, rpc, name, senderId, own),
+    SENDER_INBOX: senderObjects(env, name, senderId, own),
     // An app chat's line texts nobody: its replies are the chat object's events, which the app reads (`appChat.ts`).
     TEX_LINE: app
       ? { line: () => appLine(state.storage), groupLine: () => { throw new Error("an app chat has no group line"); } }
@@ -333,11 +333,10 @@ function chatId(name, chatName, senderId) {
  * the Worker is copied in on that first call, as a handed-over text copies it. Nothing goes through the Worker's
  * objects, so a cross-chat ask, a job's report and a directory write no longer make the round trip there and back.
  *
- * One exception stays the Worker's until its SenderInbox goes: the `group-moves` object (`groupMoves.ts`), the table of
- * groups moved to Tex's new number, which the Worker's own webhook and line read too. It is not a chat, so it is never
- * copied in as one.
+ * The `group-moves` table (`groupMoves.ts`) is reached the same way: it is copied in from the Worker on its first call,
+ * as a chat is, and the Worker's own webhook and line read it in the gateway too (`gatewayChats.ts` `chatNamespace`).
  */
-function senderObjects(env, rpc, chatName, senderId, own) {
+function senderObjects(env, chatName, senderId, own) {
   return {
     idFromName: (name) => chatId(name, chatName, senderId),
     idFromString: () => {
@@ -354,19 +353,12 @@ function senderObjects(env, rpc, chatName, senderId, own) {
           return objectByName(env.TEX_JOB, job).fetch(new Request(input, init));
         }
         const bare = bareName(id.name);
-        if (WORKER_ONLY.has(bare)) {
-          if (rpc === undefined) return Promise.resolve(new Response(null, { status: 503 }));
-          return rpc.inboxFetch({ name: id.name }, new Request(input, init));
-        }
         if (env.TEX_CHAT === undefined || typeof bare !== "string" || !INBOX_NAME.test(bare)) return Promise.resolve(new Response(null, { status: 503 }));
         return chatCallStub(env.TEX_CHAT, bare).fetch(input, init);
       },
     }),
   };
 }
-
-/** Objects that stay the texting Worker's until its SenderInbox goes (`senderObjects`). */
-const WORKER_ONLY = new Set(["group-moves"]);
 
 /** The job's object name (`job:<id>`) inside a name a `SENDER_INBOX` lookup was made with, or null for any other name. */
 function jobNameOf(name) {

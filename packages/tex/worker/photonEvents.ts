@@ -18,6 +18,7 @@ import { arrivedAs, asOldGroup, removeOldNumber, type Matched } from "./groupMov
 import { post } from "./clients";
 import { toChat } from "./handOver";
 import { inboxByName } from "./objectPlace";
+import { chatNamespace } from "./gatewayChats";
 import { photonAttachmentUrl, photonGroupGuid } from "./photon";
 import { photonGroupMembers } from "./photonClient";
 import { arrivalOf, providerTime } from "./providerTiming";
@@ -60,9 +61,9 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
   if (sendStatus !== null) {
     // A moved group's sends are reported to the old group's object, where the group lives (`groupMoves.ts`).
     const group = sendStatus.object.kind === "group" ? sendStatus.object.groupId : null;
-    const old = group === null ? null : (await arrivedAs(env.SENDER_INBOX, { photonGroupId: group, photonLine: "", from: "", participants: [] })).from;
+    const old = group === null ? null : (await arrivedAs(chatNamespace(env), { photonGroupId: group, photonLine: "", from: "", participants: [] })).from;
     const name = group === null ? (sendStatus.object as { phone: string }).phone : groupInboxName(old?.groupId ?? group);
-    const result = await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(sendStatus) });
+    const result = await inboxByName(chatNamespace(env), name).fetch("https://inbox/send-status", { method: "POST", body: JSON.stringify(sendStatus) });
     console.log(JSON.stringify({ event: "photon_send_status", status: sendStatus.report?.status, outcome: result.ok ? "noted" : "failed" }));
     return result.ok ? 200 : 503;
   }
@@ -119,7 +120,7 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     // A group staff moved here from the old number is still that group (`groupMoves.ts`): filed under its old id and line.
     const chat = photonGroupGuid(parsed.groupId);
     const members = env.PHOTON && chat !== null ? () => photonGroupMembers(env.PHOTON as Fetcher, { line: parsed.line, chat }) : undefined;
-    const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: parsed.groupId, photonLine: parsed.line, from: parsed.from, participants: parsed.participants }, members);
+    const arrival = await arrivedAs(chatNamespace(env), { photonGroupId: parsed.groupId, photonLine: parsed.line, from: parsed.from, participants: parsed.participants }, members);
     if (arrival.matched !== undefined) return await finishGroupMove(env, parsed.line, parsed.groupId, arrival.matched);
     const message = arrival.from === null ? parsed : asOldGroup(parsed, arrival.from);
     // A group's message goes to the group's own queue, never a sender's (`groupWebhook`, `index.ts`).
@@ -158,7 +159,7 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
 async function groupChange(env: Env, change: NonNullable<ReturnType<typeof photonGroupChange>>): Promise<number> {
   // Only the alias is looked up: with no sender, no pending move can match, so a change (the old number adding Tex's
   // new one, mid-move) never ties the groups without the swap note that finishes the move.
-  const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: change.groupId, photonLine: change.line, from: "", participants: [] });
+  const arrival = await arrivedAs(chatNamespace(env), { photonGroupId: change.groupId, photonLine: change.line, from: "", participants: [] });
   const place = arrival.from === null ? { groupId: change.groupId, line: change.line } : { groupId: arrival.from.groupId, line: arrival.from.line };
   if (change.change === "renamed") {
     await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, place, change.name);
@@ -182,12 +183,12 @@ async function noteDropped(env: Env, dropped: PhotonDropped, provider: unknown):
     let name = dropped.from;
     if (dropped.groupId !== undefined) {
       // Only the moved group's alias is read: no sender is named, so a drop can never be taken for the old number's swap note.
-      const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: dropped.groupId, photonLine: dropped.line ?? "", from: "", participants: [] });
+      const arrival = await arrivedAs(chatNamespace(env), { photonGroupId: dropped.groupId, photonLine: dropped.line ?? "", from: "", participants: [] });
       chat = arrival.from?.groupId ?? dropped.groupId;
       name = groupInboxName(chat);
     }
     if (chat === undefined || name === undefined) return;
-    const result = await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/dropped", {
+    const result = await inboxByName(chatNamespace(env), name).fetch("https://inbox/dropped", {
       method: "POST",
       body: JSON.stringify({ chat, kind: dropped.groupId !== undefined ? "group" : "one", reason: dropped.reason, provider }),
     });
@@ -202,7 +203,7 @@ async function photonEdit(env: Env, edit: PhotonEdit, provider: unknown): Promis
   let brought: PhotonEdit & { provider?: unknown } = { ...edit, provider };
   let name = edit.from;
   if (edit.groupId !== undefined) {
-    const arrival = await arrivedAs(env.SENDER_INBOX, { photonGroupId: edit.groupId, photonLine: edit.line, from: edit.from, participants: edit.participants ?? [edit.from] });
+    const arrival = await arrivedAs(chatNamespace(env), { photonGroupId: edit.groupId, photonLine: edit.line, from: edit.from, participants: edit.participants ?? [edit.from] });
     if (arrival.from !== null) brought = asOldGroup({ ...brought, groupId: edit.groupId, participants: edit.participants ?? [edit.from] }, arrival.from);
     name = groupInboxName(brought.groupId ?? edit.groupId);
   }

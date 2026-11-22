@@ -6,7 +6,9 @@
  * call; a group's directory entry (`group-key:`) is answered from the gateway's own copy (`texChat/directory.js`).
  *
  * Without the `GATEWAY_TEXTS` binding (self-hosting without the gateway's entrypoint) it is the Worker's own object,
- * as before.
+ * as before. While the Worker's SenderInbox exists, a gateway that cannot hold the chat (a 501 or 503: its copy was
+ * refused, the Worker's object being busy) or cannot be reached leaves the Worker's object answering, as a failed text
+ * hand-over does (`handOver.ts`), so a lookup is never lost to a move that has not happened yet.
  */
 
 import type { TextsBinding } from "./gatewaySession";
@@ -25,7 +27,36 @@ export function chatInGateway(env: { SENDER_INBOX: DurableObjectNamespace; GATEW
       const headers = new Headers(request.headers);
       headers.set(INBOX_NAME_HEADER, name);
       const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
-      return await binding.fetch(`${GATEWAY_CALL_PREFIX}${url.pathname}${url.search}`, { method: request.method, headers, body });
+      const there = await binding.fetch(`${GATEWAY_CALL_PREFIX}${url.pathname}${url.search}`, { method: request.method, headers, body }).catch(() => null);
+      if (there !== null && there.status !== 501 && there.status !== 503) return there;
+      console.log(JSON.stringify({ event: "chat_in_gateway", outcome: "worker", status: there?.status ?? 0 }));
+      return await inboxByName(env.SENDER_INBOX, name).fetch(request.url, { method: request.method, headers: request.headers, body });
     },
   };
+}
+
+/**
+ * The Worker's `SENDER_INBOX` as its readers should see it now: a namespace whose every object is the gateway's chat of
+ * that name (`chatInGateway`), so code written against the namespace (`inboxByName`, `objectByName`) reaches the
+ * gateway unchanged. A name placed as `enam:<name>` is the chat `<name>`. Without the `GATEWAY_TEXTS` binding it is the
+ * Worker's own namespace (self-hosting). Only reads by name go here: an object reached by its id (`objectById`, a
+ * picture's or a page's address) is still the Worker's, which passes the call on.
+ */
+export function chatNamespace(env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding }): DurableObjectNamespace {
+  if (env.GATEWAY_TEXTS === undefined) return env.SENDER_INBOX;
+  const bare = (name: string) => (name.startsWith("enam:") ? name.slice("enam:".length) : name);
+  return {
+    idFromName: (name: string) => ({ name, toString: () => "", equals: () => false }),
+    idFromString: () => {
+      throw new TypeError("a chat in the gateway is reached by name");
+    },
+    newUniqueId: () => {
+      throw new TypeError("a chat in the gateway is reached by name");
+    },
+    get: (id: { name?: string }) => chatInGateway(env, bare(String(id.name ?? ""))),
+    getByName: (name: string) => chatInGateway(env, bare(name)),
+    jurisdiction: () => {
+      throw new TypeError("a chat in the gateway has no jurisdiction here");
+    },
+  } as unknown as DurableObjectNamespace;
 }
