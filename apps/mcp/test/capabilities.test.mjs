@@ -93,7 +93,8 @@ test("setting up a computer (community compute) is Tex's own job, on the list", 
 test("a group with no mail shared is told how to share it, never to not offer it", () => {
   const words = chatMailPrompt({ mail: [] });
   assert.doesNotMatch(words, /never offer/);
-  assert.match(words, /Tex, share my mail from <address> here/);
+  assert.match(words, /asking you in any words, or by saying yes when you offer/, "offered, never a set phrase to type (Lab, 2026-11-22)");
+  assert.match(words, /never tell them to type a set phrase/);
   assert.match(words, /chat_share_mail/);
 });
 
