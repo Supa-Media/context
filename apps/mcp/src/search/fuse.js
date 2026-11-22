@@ -9,6 +9,7 @@ import { evidenceBonus } from "./evidence.js";
 import { matchesOnlyInLinks } from "./linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "./codeLike.js";
 import { sharedWordRanks } from "./sharedWords.js";
+import { openWeight } from "./opens.js";
 
 /** Most hits a search across every workspace shows (`ranking.hits`). */
 const EVERYWHERE_HITS = FUSE_RANKING.hits;
@@ -147,7 +148,9 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
     const reread = rerankRank.has(entry) ? (ranking.rerankWeight ?? 1) / (RRF_K + rerankRank.get(entry) + 1) : 0;
     // The path prior (`search/priors.js`): an archived note or a log scores half
     // what the same evidence does on a live note. Hit keys carry `@name/`, which it reads through.
-    const nudge = (boost?.has(entry.list) ? ranking.boostFactor : 1) * (shared ? shared.weight[entry.list] : 1);
+    // And how often the note was opened ("Opened before", `opens.js`), counted in its own workspace: only for a note
+    // holding every word, so opens order the notes a query is about and never lift one it merely brushes.
+    const nudge = (boost?.has(entry.list) ? ranking.boostFactor : 1) * (shared ? shared.weight[entry.list] : 1) * (strictWord ? openWeight(hit.opens, ranking) : 1);
     return { ...entry, score: (word + meaning + title + reread) * notePrior(hit.key, ranking) * nudge };
   });
   const byScore = (a, b) => b.score - a.score || a.list - b.list || a.order - b.order;
@@ -161,9 +164,10 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS, { extraNotes = DEF
   for (const entry of answer) if (isMeaningOnly(entry)) entry.original.meaningOnly = true;
   // The hits as given: a link-only hit's `loose` was a ranking signal, never part of the answer.
   // The word counts were a ranking signal, never part of the answer.
+  // So were the open counts.
   return answer.map(({ original }) => {
-    if (!original.words) return original;
-    const { words: _words, ...hit } = original;
+    if (!original.words && !original.opens) return original;
+    const { words: _words, opens: _opens, ...hit } = original;
     return hit;
   });
 }

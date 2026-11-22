@@ -70,6 +70,8 @@ export function remoteWorldKey(bench, repo = REPO) {
     hash.update(`\0workspace\0${name}`);
     const files = bench.workspaces[name].files;
     for (const path of Object.keys(files).sort()) hash.update(`\0${path}\0${files[path]}`);
+    // Its open history too: the same notes opened differently rank differently.
+    if (bench.workspaces[name].opens?.length) hash.update(`\0opens\0${JSON.stringify(bench.workspaces[name].opens)}`);
   }
   return hash.digest("hex").slice(0, 32);
 }

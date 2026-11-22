@@ -90,7 +90,7 @@ test("main's settings are the constants search ranked by before it had a config"
   // The values each knob had as a constant (tools/search.js, meaning/serve.js, evidence.js, priors.js, settings.js).
   const before = { rrfK: 60, titleWeight: 1 / 305, phraseBonus: 1 / 122, meaningFloor: 0.5, looseReads: 6, logPrior: 0.5 };
   // Knobs added later are a Lab draft's to tune (a promote changes them without touching this test), so take main's.
-  const later = { snippetPhraseBonus: DEFAULT_RANKING.snippetPhraseBonus, inboxPrior: DEFAULT_RANKING.inboxPrior };
+  const later = { snippetPhraseBonus: DEFAULT_RANKING.snippetPhraseBonus, inboxPrior: DEFAULT_RANKING.inboxPrior, openMine: DEFAULT_RANKING.openMine, openPeople: DEFAULT_RANKING.openPeople, openAi: DEFAULT_RANKING.openAi };
   assert.ok(later.snippetPhraseBonus >= 0 && later.inboxPrior > 0 && later.inboxPrior <= 1);
   assert.deepEqual(DEFAULT_RANKING, { ...before, ...later });
   // The shared word scale and workspace weight (`sharedWords.js`) are the bench's to switch on, so take main's too.

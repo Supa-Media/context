@@ -22,6 +22,8 @@
  *   sharedWords   1 or 2: across workspaces, every word hit is scored on one BM25 scale, every workspace's statistics
  *                 pooled (`sharedWords.js`); 2 (main) also keeps the all-words-first rules (loose demotion, meaning
  *                 floor and budget), which 1 drops; 0: each workspace's own word rank, a loose hit counted lower.
+ *   openMine, openPeople, openAi  how much a note's opens raise it ("Opened before", `opens.js`): the searcher's own
+ *                 opens in the app, everyone else's, and AI clients' reads, each as weight x log2(1 + opens).
  *   workspaceWeight  above 0: each workspace's hits weighed by its share of the best shared-scale evidence, never
  *                 below this floor (0 on main: weighing lowered the split bench).
  *
@@ -42,7 +44,7 @@ const knobsOf = (settings) => Object.freeze(Object.fromEntries(RANKING_KNOBS.fil
  * phrase" `title`, "Lower logs and archive" `prior` and "Meaning-only budget" `budget`): what every caller not on the
  * search graph ranks by.
  */
-export const IN_WORKSPACE_STEPS = Object.freeze(["floor", "merge", "title", "prior", "budget"]);
+export const IN_WORKSPACE_STEPS = Object.freeze(["floor", "merge", "title", "prior", "opens", "budget"]);
 export const DEFAULT_RANKING = knobsOf(Object.assign({}, ...IN_WORKSPACE_STEPS.map((id) => settingsOf(id))));
 
 /** The ranking across workspaces, as main's config sets it (`fuse`). */

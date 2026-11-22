@@ -26,6 +26,7 @@ export const KINDS = Object.freeze([
   "date",
   "link-only",
   "near-duplicate",
+  "opened",
 ]);
 
 /** Every .md file under `dir`, as forward-slash paths relative to it. */
@@ -58,11 +59,13 @@ export async function loadHardSet({ parseTest, folder = HERE }) {
     if (!KINDS.includes(q.kind)) throw new Error(`questions.md question ${q.n}: kind "${q.kind}" is not one of ${KINDS.join(", ")}`);
     return { id: `hard-${q.n}`, query: q.text, as: q.as ?? test.front.run_as, in: q.in ?? null, expect: q.expect, forbid: q.forbid, kind: q.kind };
   });
-  return { today: test.front.today ?? null, runAs: test.front.run_as, notes: await readNotes(folder), cases };
+  // The world's open history (`opens.json`): "@ws/path" → { person: count, ai: count } (`search/opens.js`).
+  const opens = JSON.parse(await readFile(join(folder, "opens.json"), "utf8").catch(() => "{}"));
+  return { today: test.front.today ?? null, runAs: test.front.run_as, notes: await readNotes(folder), opens, cases };
 }
 
 /** The run's one world: the hard set over the bench's own workspaces. */
 export async function worlds({ helpers }) {
   const hard = await loadHardSet({ parseTest: helpers.parseTest });
-  return { total: hard.cases.length, worlds: [{ id: "search-hard", base: "repo", notes: hard.notes, cases: hard.cases, today: hard.today }] };
+  return { total: hard.cases.length, worlds: [{ id: "search-hard", base: "repo", notes: hard.notes, opens: hard.opens, cases: hard.cases, today: hard.today }] };
 }

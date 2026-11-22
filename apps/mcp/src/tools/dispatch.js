@@ -76,6 +76,7 @@ import { toolAppChange, toolAppRead } from "./apps.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
 import { WorkspaceBusy } from "../store/objectLookup.js";
 import { reportOpenedNote } from "../search/quality.js";
+import { countAiRead } from "../search/opens.js";
 
 /**
  * The tools that only list and read: their walks are answered from the Convex
@@ -118,6 +119,8 @@ export async function callTool(name, args, store, scope, options = {}) {
     const result = await runTool(name, args, TREE_LISTING_TOOLS.has(name) ? servedListingStore(store) : store, scope, options);
     // A note's content handed back is an open of the search hit that named it, if one did (`search/quality.js`).
     reportOpenedNote(name, args, store, result);
+    // And one AI read of the note, counted apart from people's opens for search to rank by (`search/opens.js`).
+    countAiRead(name, args, store, result);
     return result;
   } catch (error) {
     if (error instanceof TreeUnavailable) return toolError(error.message);

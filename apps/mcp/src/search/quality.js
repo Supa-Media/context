@@ -18,7 +18,7 @@
  */
 
 /** The clients that run a Tex turn. A search inside one of those turns is Tex's; any other client's is an AI client's. */
-const TEX_CLIENTS = new Set([
+export const TEX_CLIENTS = new Set([
   "context_texts",
   "context_texts_group",
   "context_routines",

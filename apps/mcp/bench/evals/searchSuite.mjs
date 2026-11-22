@@ -40,9 +40,10 @@ export function splitAddress(address) {
 /**
  * The bench with `notes` laid in: each "@ws/path" → text added to that workspace's files (a new workspace is made
  * when `people` names who reaches it). The bench passed in is not changed. Throws on an address that names no
- * workspace and no person, so a typo is a failure and not a case that can never pass.
+ * workspace and no person, so a typo is a failure and not a case that can never pass. `opens` lays in the world's
+ * open history the same way.
  */
-export function overlay(bench, notes = {}, people = []) {
+export function overlay(bench, notes = {}, people = [], opens = {}) {
   const workspaces = Object.fromEntries(Object.entries(bench.workspaces).map(([name, ws]) => [name, { ...ws, files: { ...ws.files }, generated: [...(ws.generated ?? [])] }]));
   const rows = [...bench.people, ...people];
   for (const row of people) {
@@ -54,6 +55,13 @@ export function overlay(bench, notes = {}, people = []) {
     const [name, path] = parts;
     if (!workspaces[name]) throw new Error(`${address}: no workspace ${name} in the bench and no person given for it`);
     workspaces[name].files[path] = String(text);
+  }
+  // `opens`: "@ws/path" → { person: count, ai: count }, the world's open history (`search/opens.js`), as a list per workspace.
+  for (const [address, counts] of Object.entries(opens ?? {})) {
+    const parts = splitAddress(address);
+    if (!parts || !workspaces[parts[0]]?.files[parts[1]]) throw new Error(`opens: ${address} is no note in the bench`);
+    const [name, path] = parts;
+    workspaces[name].opens = [...(workspaces[name].opens ?? []), ...Object.entries(counts).map(([who, count]) => ({ path, who, count }))];
   }
   return { ...bench, people: rows, workspaces };
 }

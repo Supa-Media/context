@@ -26,6 +26,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_READ } from "../session.js";
 import { normalizePath } from "../notes/paths.js";
 import { loadPrivacyState } from "../privacy/state.js";
+import { countPersonOpen } from "../search/opens.js";
 
 export const NOTE_READ_PATH = "/files/read";
 
@@ -92,6 +93,8 @@ export async function handleNoteRead(request, store, session) {
   const encrypted = isEncryptedNote(markdown.text);
   const visibility = effectiveVisibility(path, rules, overrides);
   const inherited = visibilityOf(path, rules);
+  // One open by this person, for search to rank by (`search/opens.js`).
+  countPersonOpen(store, path);
   return json({
     kind: "file",
     path,

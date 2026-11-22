@@ -24,7 +24,8 @@ import { loadPrivacyState } from "../../privacy/state.js";
 import { PINNED_CONTEXT_NAME } from "../../orient/globalNote.js";
 import { searchVisibleNotes } from "../visibleNotes.js";
 import { meaningMatches, meaningSearchable, readMeaningOnly, searchBothWays } from "../meaning/serve.js";
-import { addEvidence, answerHits, closeMeaning, dropProbes, lowerByPath, meaningBudget, mergeLists, rankingFor } from "../stages.js";
+import { addEvidence, answerHits, byOpens, closeMeaning, dropProbes, lowerByPath, meaningBudget, mergeLists, rankingFor } from "../stages.js";
+import { opensOf } from "../opens.js";
 import { phase } from "../../mcp/phase.js";
 import { queryEmbedderFor } from "../meaning/queryVectors.js";
 import { searchSettingsOf } from "../settings.js";
@@ -316,6 +317,18 @@ const titleStep = perWorkspace((ws, input, io) => ({ ...ws, entries: addEvidence
 /** `prior` (ranks): logs and archive scaled down (`lowerByPath`). */
 const priorStep = perWorkspace((ws, _input, io) => ({ ...ws, entries: lowerByPath(ws.entries, rankingFor(io.node?.settings)) }));
 
+/**
+ * `opens` (ranks): each workspace's rows scaled by how often their notes were opened there (`../opens.js`): the
+ * searcher's own opens in the app, everyone else's, AI clients' reads. One call to each workspace's object, for the
+ * paths already found and seen; a workspace whose notes are not in an object, or whose object cannot say, ranks as before.
+ */
+const opensStep = perWorkspace(async (ws, _input, io) => {
+  const { store } = handlesOf(io, ws.name);
+  const paths = ws.entries ? ws.entries.map((e) => e.key) : ws.found.hits.map((hit) => hit.key);
+  const opens = await opensOf(store, paths);
+  return { ...ws, entries: byOpens(ws.entries, ws.found, opens, rankingFor(io.node?.settings)) };
+});
+
 /** `budget` (filters): the best few notes only meaning found are kept (`meaningBudget`). */
 const budgetStep = perWorkspace((ws, _input, io) => {
   const { store } = handlesOf(io, ws.name);
@@ -415,6 +428,7 @@ export const SEARCH_NODES = Object.freeze({
   merge: mergeStep,
   title: titleStep,
   prior: priorStep,
+  opens: opensStep,
   budget: budgetStep,
   snippets: snippetsStep,
   rerankWords: rerankWordsStep,

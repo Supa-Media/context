@@ -164,3 +164,7 @@ Moved to [Search is measured on three sets, and a search change merges only if t
 ### Across workspaces, word hits are scored on one scale (and a workspace can be weighed by its evidence)
 
 Moved to [Across workspaces, word hits are scored on one scale (and a workspace can be weighed by its evidence)](./search/shared-word-scale.md#across-workspaces-word-hits-are-scored-on-one-scale-and-a-workspace-can-be-weighed-by-its-evidence).
+
+### Every open of a note is logged in its workspace's object, and search ranks a note that holds every word by its opens
+
+Moved to [Every open of a note is logged in its workspace's object, and search ranks a note that holds every word by its opens](./search/note-opens.md#every-open-of-a-note-is-logged-in-its-workspaces-object-and-search-ranks-a-note-that-holds-every-word-by-its-opens).

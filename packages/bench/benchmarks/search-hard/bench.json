@@ -7,6 +7,6 @@
   "source": { "name": "Context's own, written for the Search suite (2026-11-21)", "license": "MIT, this repository's" },
   "score": "first",
   "runs": [
-    { "id": "search-hard", "variant": "Made-up hard", "total": 40, "about": "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives. Embeddings only." }
+    { "id": "search-hard", "variant": "Made-up hard", "total": 41, "about": "Made-up questions in a world of seven workspaces, with notes that quote the question, long notes and archives. Embeddings only." }
   ]
 }
