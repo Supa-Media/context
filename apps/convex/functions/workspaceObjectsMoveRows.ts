@@ -115,7 +115,7 @@ export const releaseMove = internalMutation({
   },
 });
 
-/** The workspaces a sweep should move now: managed storage, not wholly moved, not held, not tried within the hour. */
+/** The workspaces a sweep should move now: with storage (managed or their own), not wholly moved, not held, not tried within the hour. */
 export const toMove = internalQuery({
   args: { now: v.number() },
   returns: v.array(v.id("workspaces")),
@@ -148,7 +148,7 @@ export const census = internalQuery({
     const counts = {
       workspaces: 0,
       storage: { none: 0, own: 0, managed: 0 },
-      /** Of the managed: wholly on their object, and the next step for the rest. */
+      /** Of those with storage (managed or their own): wholly on their object, and the next step for the rest. */
       moved: 0,
       notMoved: 0,
       next: {} as Record<string, number>,
@@ -157,7 +157,7 @@ export const census = internalQuery({
       access: accessCounts(),
       personAccess: accessCounts(),
       texting: { convex: 0, object: 0 },
-      /** Own-storage workspaces by notes home: they stay where they are. */
+      /** Own-storage workspaces by notes home, also counted in `notes`: they move like managed ones since 2026-11-22. */
       ownNotes: homeCounts(),
       /**
        * Workspaces by how many live folders do the `tex` job: two or more is a state the job rules never leave, in which
@@ -178,7 +178,7 @@ export const census = internalQuery({
       ).filter((row) => row.goneAt === undefined && row.kind === "folder").length;
       counts.texFolders[tex === 0 ? "none" : tex === 1 ? "one" : "many"] += 1;
       if (facts.storage === "own") counts.ownNotes[facts.notes] += 1;
-      if (facts.storage !== "managed") continue;
+      if (facts.storage === "none") continue;
       counts.notes[facts.notes] += 1;
       counts.access[facts.access] += 1;
       if (facts.personal && facts.hasPerson) {

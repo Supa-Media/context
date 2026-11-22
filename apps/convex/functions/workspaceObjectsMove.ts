@@ -8,8 +8,9 @@
  *
  * - **A new workspace** starts moving the moment its managed bucket is bound (`managedProvisioningFns/complete.ts`):
  *   armed before its first folders are written, copied, compared and switched within minutes.
- * - **Every other workspace** on managed storage is picked up by `sweep`, hourly, until it is wholly on its object.
- * - **A bucket of the workspace's own** is never moved, and a workspace with no storage waits for its bucket.
+ * - **Every other workspace** with storage, managed or a bucket of its own (owner, 2026-11-22), is picked up by
+ *   `sweep`, hourly, until it is wholly on its object. An own bucket stays whole as the copy every save is written
+ *   behind to; a workspace with no storage waits for its bucket.
  *
  * `advance` takes one step at a time (`lib/workspaceObjects/moveStep.ts`) through the same functions the workflows
  * call, so each switch keeps its own guard: `object` only after a fresh, clean parity check. A step that cannot prove
@@ -231,7 +232,7 @@ export const advance = internalAction({
   },
 });
 
-/** Hourly: starts a run for each managed workspace not yet wholly on its object and not tried within the hour. */
+/** Hourly: starts a run for each workspace with storage not yet wholly on its object and not tried within the hour. */
 export const sweep = internalAction({
   args: {},
   returns: v.object({ started: v.number(), waiting: v.number() }),
