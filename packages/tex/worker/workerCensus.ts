@@ -21,14 +21,15 @@ export type CensusKind = "chat" | "job" | "directory" | "group-moves";
 export type ObjectCensus = { state: CensusState; keys: number; kind?: CensusKind; shape?: string[] };
 
 /**
- * A key's name with anything that could name a person or a chat masked: a run of 3+ digits (a phone), a run of 8+ hex
- * (an id), any run of 16+ word characters, and anything around an `@`, each `#`; cut at 40 characters.
+ * A key's name with anything that could name a person or a chat masked: a phone, a run of 8+ hex or dashes (an id),
+ * any other run of 3+ digits, any run of 16+ word characters, and anything around an `@`, each `#`; cut at 40.
  */
 export function maskKey(key: string): string {
   return key
     .replace(/\S*@\S*/g, "#@#")
-    .replace(/\+?\d{3,}/g, "#")
+    .replace(/\+\d{3,}/g, "#")
     .replace(/[0-9a-f-]{8,}/gi, "#")
+    .replace(/\d{3,}/g, "#")
     .replace(/[A-Za-z0-9_]{16,}/g, "#")
     .slice(0, 40);
 }
@@ -106,4 +107,37 @@ export function namesById(names: unknown, idOf: (name: string) => string): Map<s
     if (typeof name === "string" && name !== "" && name.length <= NAME_CHARS) byId.set(idOf(name), index);
   });
   return byId;
+}
+
+/** The path an object answers its own possible names on: only `TexRoutines.census`, inside this Worker, asks it. */
+export const SELF_NAMES_PATH = "/__census/self-names";
+
+/**
+ * The names a 1:1 object may have been made from, read from the chat it last answered (`inbox.ts` `CHAT_KEY`): every
+ * phone in that chat's id (Sendblue's `sendblue:<line>:<phone>`, a WhatsApp jid's digits). The caller keeps only the
+ * one whose object id is this object's, so a wrong guess never moves anything. A group's object keeps no name.
+ */
+export async function selfNames(storage: { get<T = unknown>(key: string): Promise<T | undefined> }): Promise<string[]> {
+  const chat = await storage.get<{ chatId?: unknown }>("chat");
+  if (typeof chat?.chatId !== "string" || chat.chatId.length > 300) return [];
+  const phones = [...chat.chatId.matchAll(/\+?(\d{7,15})/g)].map((match) => `+${match[1]}`);
+  return [...new Set(phones)].filter((phone) => /^\+[1-9]\d{6,14}$/.test(phone));
+}
+
+/** An object still here whose own name was worked out and checked against its id: handed to the gateway to move. */
+export type Adoptable = { id: string; name: string };
+
+/**
+ * For each object still here that no candidate matched, its own possible names (`ask`), kept only when the name's
+ * object id (`idOf`) is the object's own. At most `CENSUS_BATCH`.
+ */
+export async function adoptable(here: HereObject[], ask: (id: string) => Promise<string[]>, idOf: (name: string) => string): Promise<Adoptable[]> {
+  const found: Adoptable[] = [];
+  for (const object of here.slice(0, CENSUS_BATCH)) {
+    if (object.named !== undefined || object.kind !== "chat") continue;
+    const names = await ask(object.id).catch(() => [] as string[]);
+    const name = names.find((candidate) => idOf(candidate) === object.id);
+    if (name !== undefined) found.push({ id: object.id, name });
+  }
+  return found;
 }
