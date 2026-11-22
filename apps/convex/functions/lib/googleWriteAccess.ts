@@ -15,6 +15,8 @@
  *    corrected and the change goes (`functions/googleScopeCheck.ts`).
  */
 
+// A preview sends these calls to its emulators (`emulators.ts`); a no-op anywhere else.
+import "./emulators";
 import { CHAT_SEND_SCOPE, canSendEmail, canWriteCalendar, type GoogleProduct } from "./googleOAuth";
 
 /** Whether a grant lets Context act through a service, not only read it. Gmail sends on compose or send. */

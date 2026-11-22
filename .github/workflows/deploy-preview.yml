@@ -284,6 +284,13 @@ jobs:
             echo "T_CONVEX=$(date +%s)"
           } >> "$GITHUB_ENV"
 
+      # The preview's stand-ins for Google (and the other outside APIs in
+      # packages/emulators): fake accounts only, one per persona. The gateway
+      # is built to send its Google calls here (`--define` below) and the
+      # Convex deployment is pointed here by convex-env.mjs (EMULATORS_ORIGIN).
+      - name: Deploy the emulators
+        run: pnpm --dir packages/emulators exec wrangler deploy --env preview --name "context-emulators-pr$PR" --message "Preview pr$PR $HEAD_SHA"
+
       # The gateway first: the texting assistant binds it, so it must exist.
       # Staging's screenshot and eval Workers are bound by name, as they are.
       # The gateway and the texting assistant bind each other, and Cloudflare
@@ -303,7 +310,7 @@ jobs:
             config=wrangler.preview.bootstrap.toml
             echo "GATEWAY_REDEPLOY=true" >> "$GITHUB_ENV"
           fi
-          pnpm --dir apps/mcp exec wrangler deploy --config "$config" --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
+          pnpm --dir apps/mcp exec wrangler deploy --config "$config" --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --define "__CONTEXT_EMULATORS__:\"https://context-emulators-pr$PR.$WORKERS_DEV_SUBDOMAIN.workers.dev\"" --message "Preview pr$PR $HEAD_SHA"
 
       # No --env on wrangler secret commands: wrangler appends -<env> to --name there,
       # so the secrets would land on a separate context-<svc>-pr<N>-preview Worker.
@@ -347,7 +354,7 @@ jobs:
       # assistant exists. Its secrets carry over to the new version.
       - name: Deploy the gateway again with its texting binding
         if: ${{ needs.resolve.outputs.mcp == 'true' && needs.resolve.outputs.agent == 'true' && env.GATEWAY_REDEPLOY == 'true' }}
-        run: pnpm --dir apps/mcp exec wrangler deploy --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --message "Preview pr$PR $HEAD_SHA"
+        run: pnpm --dir apps/mcp exec wrangler deploy --config wrangler.preview.toml --env preview --name "context-mcp-pr$PR" --var "TEX_CODE_VERSION:$HEAD_SHA" --define "__CONTEXT_EMULATORS__:\"https://context-emulators-pr$PR.$WORKERS_DEV_SUBDOMAIN.workers.dev\"" --message "Preview pr$PR $HEAD_SHA"
 
       # A preview whose pull request never touched the app had no web app at
       # all: the router is also deployed when its Worker does not exist yet.

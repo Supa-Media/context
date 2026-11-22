@@ -3,7 +3,7 @@ import { SERVICES } from "./services.mjs";
 import { defaultSeed } from "./seed.mjs";
 
 export { SERVICES, service } from "./services.mjs";
-export { emulatedUrl, emulatedHosts } from "./hosts.mjs";
+export { emulatedUrl, emulatedHosts } from "./hosts.js";
 export { defaultSeed, PERSONAS, personaEmail } from "./seed.mjs";
 
 /**

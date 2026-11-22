@@ -6,7 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.mjs",
-    "./hosts": "./src/hosts.mjs"
+    "./hosts": "./src/hosts.js"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",

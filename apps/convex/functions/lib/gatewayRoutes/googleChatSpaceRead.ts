@@ -22,6 +22,8 @@
  * member of. Nothing of a message is stored or logged; only statuses are.
  */
 
+// A preview sends these calls to its emulators (`emulators.ts`); a no-op anywhere else.
+import "../emulators";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";

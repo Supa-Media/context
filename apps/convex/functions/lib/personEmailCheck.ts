@@ -10,6 +10,8 @@
  * went with nothing confirmed rather than refusing one Gmail already took.
  */
 
+// A preview sends these calls to its emulators (`emulators.ts`); a no-op anywhere else.
+import "./emulators";
 import { timeoutFetch } from "./filesFns/forwardSyncSupport";
 
 const GMAIL_MESSAGES = "https://gmail.googleapis.com/gmail/v1/users/me/messages/";

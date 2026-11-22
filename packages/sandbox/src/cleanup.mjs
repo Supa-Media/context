@@ -6,8 +6,8 @@
  *   node packages/sandbox/src/cleanup.mjs delete <N>   one pull request's preview
  *   node packages/sandbox/src/cleanup.mjs sweep       every closed one, and a count
  *
- * A preview is three Workers on workers.dev (`context-router-pr<N>`,
- * `context-agent-pr<N>`, `context-mcp-pr<N>`), two Workflows (`group-turn-pr<N>`,
+ * A preview is four Workers on workers.dev (`context-router-pr<N>`,
+ * `context-agent-pr<N>`, `context-mcp-pr<N>`, `context-emulators-pr<N>`), two Workflows (`group-turn-pr<N>`,
  * `job-run-pr<N>`), and storage its Convex deployment created, named with the
  * prefix `pr<N>-`: R2 buckets, D1 databases and Vectorize indexes, plus one
  * bucket-scoped R2 token per bucket (`Context — pr<N>-ctx-<id>`) and the Convex
@@ -33,7 +33,7 @@ import { deleteConvexPreview, emptyAndDeleteBucket, listAccountTokens, previewTo
 export const PREVIEW_CEILING = 45;
 
 // The optional -preview suffix is the stray Worker name left by the secret bug (see deploy-preview.yml).
-const PREVIEW_WORKER = /^context-(mcp|agent|router)-pr([1-9][0-9]{0,6})(?:-preview)?$/;
+const PREVIEW_WORKER = /^context-(mcp|agent|router|emulators)-pr([1-9][0-9]{0,6})(?:-preview)?$/;
 const RESOURCE_PREFIX = /^pr([1-9][0-9]{0,6})-/;
 export const PREVIEW_WORKFLOWS = ["group-turn", "job-run"];
 const WORKFLOW_PREVIEW = /^(group-turn|job-run)-pr([1-9][0-9]{0,6})$/;
@@ -41,9 +41,9 @@ const WORKFLOW_PREVIEW = /^(group-turn|job-run)-pr([1-9][0-9]{0,6})$/;
 const MAX_PAGES = 100;
 const PAGE_SIZE = 100;
 /** Each Worker's checkout, where its own wrangler is installed. */
-export const WORKER_DIRS = { router: "infra/router", agent: "apps/agent", mcp: "apps/mcp" };
+export const WORKER_DIRS = { router: "infra/router", agent: "apps/agent", mcp: "apps/mcp", emulators: "packages/emulators" };
 /** Deleted in this order: a Worker bound by another goes after it. */
-const DELETE_ORDER = ["router", "agent", "mcp"];
+const DELETE_ORDER = ["router", "agent", "mcp", "emulators"];
 const API = "https://api.cloudflare.com/client/v4";
 
 /** Whether a name is one of pull request `n`'s resources, by exact prefix or suffix. */

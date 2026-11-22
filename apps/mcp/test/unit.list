@@ -759,4 +759,5 @@ bench/test/worldCache.test.mjs
 test/usernameAliases.test.mjs
 test/benchRoute.test.mjs
 test/benchOidc.test.mjs
+test/emulators.test.mjs
 test/labPreviewChat.test.mjs

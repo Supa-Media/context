@@ -7,6 +7,8 @@
  * function; this module registers none and opens no credential.
  */
 
+// A preview sends these calls to its emulators (`emulators.ts`); a no-op anywhere else.
+import "../emulators";
 import { ConvexError } from "convex/values";
 import type { Id } from "../../../_generated/dataModel";
 import { getAuthUserId } from "../signedIn";

@@ -22,6 +22,8 @@
  * or logged; Google's error body can quote it, so only a status is.
  */
 
+// A preview sends these calls to its emulators (`emulators.ts`); a no-op anywhere else.
+import "../emulators";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";

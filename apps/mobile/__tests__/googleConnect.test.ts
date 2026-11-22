@@ -29,6 +29,19 @@ describe("Google connect helpers", () => {
     expect(isGoogleAuthorizeUrl("javascript:alert(1)")).toBe(false);
   });
 
+  test("on a preview, accepts only that preview's own Google emulator", () => {
+    const preview = "https://context-router-pr42.fake-sub.workers.dev";
+    expect(googleRedirectUri(preview)).toBe(`${preview}/connect/google`);
+    expect(googleRedirectUri("https://context-router-pr42.fake-sub.workers.dev.evil.example")).toBeNull();
+    const emulated = "https://context-emulators-pr42.fake-sub.workers.dev/google/o/oauth2/v2/auth?state=s";
+    expect(isGoogleAuthorizeUrl(emulated, preview)).toBe(true);
+    expect(isGoogleAuthorizeUrl(emulated, "https://context.lc")).toBe(false);
+    expect(isGoogleAuthorizeUrl(emulated, null)).toBe(false);
+    expect(isGoogleAuthorizeUrl("https://context-emulators-pr43.fake-sub.workers.dev/google/o/oauth2/v2/auth", preview)).toBe(false);
+    expect(isGoogleAuthorizeUrl("https://context-emulators-pr42.other-sub.workers.dev/google/o/oauth2/v2/auth", preview)).toBe(false);
+    expect(isGoogleAuthorizeUrl("https://context-emulators-pr42.fake-sub.workers.dev/resend/emails", preview)).toBe(false);
+  });
+
   test("the OAuth state carries the browser-only completion secret lookup", () => {
     const values = new Map<string, string>();
     Object.defineProperty(globalThis, "sessionStorage", {

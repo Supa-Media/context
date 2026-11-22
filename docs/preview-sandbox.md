@@ -89,7 +89,7 @@ running the pull request's code, answers as `alpha`; the first open takes about 
 | Tex's examples index | Off | It is production's shared index and refused on a preview (`texExamplesIndex.ts`) |
 | Its own screenshot, transcription and Tex eval Workers | Staging's, shared by every preview | One copy is enough for stateless helpers |
 | The desktop and phone apps | The web app only | Native builds are separate, manual releases |
-| Google sign-in, Gmail and Calendar | Being replaced by emulators (below); today sign in with a persona code and test Google on staging | Real Google accepts only redirect addresses registered in advance, and every preview's host is new. An emulator has no such limit (Dev2, 2026-11-22: mock outside APIs in previews) |
+| Google sign-in, Gmail and Calendar | The preview's own emulators (`context-emulators-pr<N>`, [packages/emulators](../packages/emulators/README.md)): connect Google as any persona; staging's Google client is never copied | Real Google accepts only redirect addresses registered in advance, and every preview's host is new. An emulator has no such limit (Dev2, 2026-11-22: mock outside APIs in previews) |
 
 ## Known gaps, planned
 
@@ -99,7 +99,7 @@ running the pull request's code, answers as `alpha`; the first open takes about 
 | Web app in a real browser | A smoke check: Chromium opens `/login` with no page errors | In review (#3790) |
 | Background jobs | Unproven on a preview: asked from the app chat for a job, Tex answered directly and no job ran (pr3790, 2026-11-20). Next: a task that needs a job, and job reports to the app chat and the simulator | Open |
 | Texting as beta or gamma | Their simulator numbers (555-0102, 555-0103) answered "your notes aren't ready": the seed skipped storage for workspaces with no fixture notes. Now provisioned | Fixed in this change |
-| Gmail, Calendar, Google sign-in and Resend | [`packages/emulators`](../packages/emulators/README.md): one place for every API stand-in (Vercel Labs' emulate, our own, or elsewhere), deployed per preview as `context-emulators-pr<N>`, with the gateway and Convex sending Google and Resend calls there | Package merged; preview wiring next |
+| Gmail, Calendar, Google sign-in and Resend | [`packages/emulators`](../packages/emulators/README.md): one place for every API stand-in (Vercel Labs' emulate, our own, or elsewhere), deployed per preview as `context-emulators-pr<N>`, with the gateway (built with `__CONTEXT_EMULATORS__`) and Convex (`EMULATORS_ORIGIN`, preview only) sending Google calls there | Wired; Resend, Calendar sync tokens and Google Chat next |
 | Word search checked by the smoke test | One exact-word search beside the meaning search | Planned |
 | A Lab run aimed at a preview runs the pull request's code as a replay on GitHub; it does not call the preview's gateway or data | Run against the preview's gateway | Planned |
 | The Lab run's records are kept in production's Convex | Keep them in the preview | Planned |

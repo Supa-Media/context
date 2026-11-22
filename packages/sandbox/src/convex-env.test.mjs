@@ -37,6 +37,8 @@ const env = {
   CUSTOM_DOMAINS_TARGET: 'saas.example.net',
   GOOGLE_PUSH_TOPIC: 'projects/x/topics/y',
   GOOGLE_PUSH_SERVICE_ACCOUNT: 'service-account-value',
+  GOOGLE_OAUTH_CLIENT_ID: 'staging-real-client.apps.googleusercontent.com',
+  GOOGLE_OAUTH_CLIENT_SECRET: 'staging-real-secret',
   EMPTY_ONE: '',
   PREVIEW_NAME: 'pr42',
   PREVIEW_WORKERS_DEV: 'fixture-sub.workers.dev',
@@ -50,6 +52,16 @@ test('preview values set the preview identity and no staging identity', () => {
   assert.equal(set.APP_ORIGIN, 'https://context-router-pr42.fixture-sub.workers.dev');
   assert.equal(set.SITE_URL, set.APP_ORIGIN);
   assert.equal(set.STORAGE_MOVER_ORIGIN, 'https://context-mcp-pr42.fixture-sub.workers.dev');
+});
+
+test('Google on a preview is its emulators, with a fake client, never staging\'s real one', () => {
+  const { set } = previewEnvValues(env);
+  assert.equal(set.EMULATORS_ORIGIN, 'https://context-emulators-pr42.fixture-sub.workers.dev');
+  assert.equal(set.GOOGLE_OAUTH_CLIENT_ID, 'preview-emulated.apps.googleusercontent.com');
+  assert.equal(set.GOOGLE_AGENT_OAUTH_CLIENT_ID, 'preview-emulated-agent.apps.googleusercontent.com');
+  assert.equal(set.MAIL_CONNECT_ENABLED, 'true');
+  assert.equal(set.CALENDAR_CONNECT_ENABLED, 'true');
+  for (const value of Object.values(set)) assert.doesNotMatch(String(value), /staging-real/);
 });
 
 test('preview values never include a forbidden key or the staging deployment name', () => {

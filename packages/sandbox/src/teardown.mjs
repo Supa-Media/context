@@ -150,7 +150,7 @@ export async function deleteConvexPreview(key, n, { fetchImpl = fetch, log = con
 export async function verifyGone(env, n, { api, tokenApi = api, storageAccounts, isPreviewResource, fetchImpl = fetch } = {}) {
   const left = [];
   const account = env.CLOUDFLARE_ACCOUNT_ID;
-  const workerNames = new Set(["mcp", "agent", "router"].flatMap((k) => [`context-${k}-pr${n}`, `context-${k}-pr${n}-preview`]));
+  const workerNames = new Set(["mcp", "agent", "router", "emulators"].flatMap((k) => [`context-${k}-pr${n}`, `context-${k}-pr${n}-preview`]));
   const list = async (path) => {
     const result = await api.request("GET", path);
     return Array.isArray(result) ? result : (result?.workflows ?? result?.buckets ?? result?.indexes ?? result?.databases ?? []);

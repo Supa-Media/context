@@ -11,5 +11,13 @@
   // emulate locates its fonts from import.meta.url, which a bundled Worker lacks.
   "define": { "import.meta.url": "\"file:///emulators/index.js\"" },
   "durable_objects": { "bindings": [{ "name": "EMULATORS", "class_name": "Emulators" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Emulators"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Emulators"] }],
+  // What a preview deploys (`--env preview --name context-emulators-pr<N>`): the same Worker.
+  // define and durable_objects are not inherited by an environment, so they are repeated.
+  "env": {
+    "preview": {
+      "define": { "import.meta.url": "\"file:///emulators/index.js\"" },
+      "durable_objects": { "bindings": [{ "name": "EMULATORS", "class_name": "Emulators" }] }
+    }
+  }
 }

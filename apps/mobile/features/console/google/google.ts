@@ -5,6 +5,13 @@ export const GOOGLE_REDIRECT_ORIGINS: readonly string[] = Object.freeze([
   "http://localhost:4601",
 ]);
 
+/**
+ * A pull request preview's web app (`context-router-pr<N>.<account>.workers.dev`). Its Google is the
+ * preview's own emulators Worker (packages/emulators), which accepts any redirect address, so connect
+ * works there too; Convex still allows only its own APP_ORIGIN.
+ */
+const PREVIEW_ROUTER = /^https:\/\/context-router-pr([1-9][0-9]{0,6})\.([a-z0-9-]+)\.workers\.dev$/;
+
 const GOOGLE_COMPLETION_PREFIX = "context.googleConnect.";
 
 export function browserOrigin(): string | null {
@@ -15,18 +22,27 @@ export function browserOrigin(): string | null {
 
 export function googleRedirectUri(origin: string | null | undefined): string | null {
   if (typeof origin !== "string") return null;
-  if (!GOOGLE_REDIRECT_ORIGINS.includes(origin)) return null;
+  if (!GOOGLE_REDIRECT_ORIGINS.includes(origin) && !PREVIEW_ROUTER.test(origin)) return null;
   return `${origin}${GOOGLE_CALLBACK_PATH}`;
 }
 
-export function isGoogleAuthorizeUrl(url: string): boolean {
+export function isGoogleAuthorizeUrl(url: string, origin: string | null = browserOrigin()): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     return false;
   }
-  return parsed.protocol === "https:" && parsed.hostname === "accounts.google.com";
+  if (parsed.protocol !== "https:") return false;
+  if (parsed.hostname === "accounts.google.com") return true;
+  // On a preview only: that same preview's emulators, never another preview's or any other host.
+  const preview = origin === null ? null : PREVIEW_ROUTER.exec(origin);
+  return (
+    preview !== null &&
+    parsed.hostname === `context-emulators-pr${preview[1]}.${preview[2]}.workers.dev` &&
+    parsed.port === "" &&
+    parsed.pathname.startsWith("/google/o/oauth2/")
+  );
 }
 
 export function stateFromGoogleAuthorizeUrl(url: string): string | null {
