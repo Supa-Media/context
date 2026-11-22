@@ -748,6 +748,7 @@ test/texChatDirectory.test.mjs
 test/texChatById.test.mjs
 test/noteRunLab.test.mjs
 test/searchConfig.test.mjs
+test/searchOpens.test.mjs
 test/searchRerank.test.mjs
 test/texDevSearch.test.mjs
 bench/test/searchSuite.test.mjs

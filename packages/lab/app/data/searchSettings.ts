@@ -30,6 +30,9 @@ export const SETTING_TEXT: Readonly<Record<string, { label: string; tip: string 
   minScore: { label: "Meaning cut-off", tip: "A note the meaning search scores below this is left out." },
   extraNotes: { label: "Meaning-only notes added", tip: "Notes found by meaning alone, added after the full matches." },
   snippetChars: { label: "Snippet length", tip: "Characters of each note shown under its title." },
+  openMine: { label: "Your opens weight", tip: "How much each of your own opens of a note lifts it, by the logarithm of the count; only a note holding every word of the query." },
+  openPeople: { label: "Others' opens weight", tip: "How much other people's opens of a note lift it, by the logarithm of the count; only a note holding every word." },
+  openAi: { label: "AI reads weight", tip: "How much AI clients' reads of a note lift it, kept small because AI reads what it later discards; only a note holding every word." },
 };
 
 /** A setting's label, or its name when it has none (a setting the Lab does not know yet still shows). */
