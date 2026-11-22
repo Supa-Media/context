@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { authStorageKeys, keygen, mint, open, parsePublicKey, seal, storageState, unseal } from "./agent-sign-in.mjs";
+import { authStorageKeys, keygen, mint, open, parsePublicKey, proof, seal, storageState, unseal } from "./agent-sign-in.mjs";
 
 const dir = () => mkdtempSync(join(tmpdir(), "agent-sign-in-"));
 const ORIGIN = "https://context-router-pr42.fake-sub.workers.dev";
@@ -79,4 +79,31 @@ test("storage state puts the session on the preview's own origin", () => {
   const state = storageState({ origin: ORIGIN, convexUrl: "https://example-deployment.convex.cloud", token: "t", refreshToken: "r" });
   assert.equal(state.origins.length, 1);
   assert.equal(state.origins[0].origin, ORIGIN);
+});
+
+test("a waiting email code reaches only the agent: sealed in the log, printed by open", async () => {
+  const keyFile = join(dir(), "key.pem");
+  const pub = keygen(keyFile, { log: () => {} });
+  const lines = [];
+  const calls = [];
+  await proof(env({ PUBLIC_KEY: pub, PERSONA: "beta" }), {
+    find: async (key, name) => (name === "pr42" ? "example-deployment" : null),
+    issue: async (args) => (calls.push(args), "482913"),
+    log: (line) => lines.push(line),
+  });
+  const log = lines.join("\n");
+  assert.ok(!log.includes("482913") && !log.includes("example-deployment"), "nothing readable in the public log");
+  assert.deepEqual(calls[0], { deployment: "example-deployment", deployKey: "preview:team|proj|fake", email: "beta@supa.media" });
+  const said = [];
+  const opened = await open(log, { keyFile, log: (line) => said.push(line) });
+  assert.equal(opened.code, "482913");
+  assert.match(said.join("\n"), /beta on preview pr42: 482913/);
+});
+
+test("proof refuses anything but a fixture persona and a preview deploy key", async () => {
+  const pub = keygen(join(dir(), "k.pem"), { log: () => {} });
+  const options = { find: async () => "example-deployment", issue: async () => "111111", log: () => {} };
+  await assert.rejects(proof(env({ PUBLIC_KEY: pub, PERSONA: "seyi" }), options), /PERSONA must be one of/);
+  await assert.rejects(proof(env({ PUBLIC_KEY: pub, CONVEX_DEPLOY_KEY: "prod:team|x" }), options), /preview deploy key/);
+  await assert.rejects(proof(env({ PUBLIC_KEY: pub }), { ...options, find: async () => null }), /no preview deployment/);
 });

@@ -77,9 +77,9 @@ export function cliFailureReason(stderr, status, error) {
     .slice(0, 300);
 }
 
-/** Issues one fresh code for a persona on the named preview deployment. */
-export function issuePersonaCode(email, { deployment, deployKey, run = spawnSync } = {}) {
-  const result = run(process.execPath, [CLI, 'run', '--deployment', deployment, 'functions/signInCodes:issue', JSON.stringify({ email })], {
+/** Runs one internal function on the preview that answers `{ code }`, and returns the code, never echoing it. */
+function runCodeIssuer(name, email, { deployment, deployKey, run = spawnSync } = {}) {
+  const result = run(process.execPath, [CLI, 'run', '--deployment', deployment, name, JSON.stringify({ email })], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -91,6 +91,19 @@ export function issuePersonaCode(email, { deployment, deployKey, run = spawnSync
     throw new Error(`Issuing a preview code failed: ${cliFailureReason(result.stderr, result.status, result.error)}`);
   }
   return parseIssuedCode(result.stdout);
+}
+
+/** Issues one fresh code for a persona on the named preview deployment. */
+export function issuePersonaCode(email, options = {}) {
+  return runCodeIssuer('functions/signInCodes:issue', email, options);
+}
+
+/**
+ * The digits of the "Check it's you" code a persona's session just asked for on
+ * the preview (`functions/emailProof:previewReissue`), for an agent with no mailbox.
+ */
+export function issueEmailProofCode(email, options = {}) {
+  return runCodeIssuer('functions/emailProof:previewReissue', email, options);
 }
 
 /**
