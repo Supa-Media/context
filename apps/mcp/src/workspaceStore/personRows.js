@@ -303,6 +303,7 @@ export function sessionFor(store, tokenHash, now = Date.now()) {
   const entry = (row) => ({
     workspaceId: row.workspaceId,
     slug: row.slug,
+    ...(Array.isArray(row.aliases) && row.aliases.length > 0 ? { aliases: row.aliases } : {}),
     role: row.role,
     kind: row.kind,
     ...(namesOf(row).length > 0 ? { grantedNames: [...new Set(namesOf(row))] } : {}),

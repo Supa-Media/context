@@ -8,6 +8,9 @@
 import { v } from "convex/values";
 import { requireAuthId } from "./lib/signedIn";
 import { query } from "../_generated/server";
+import { mutation } from "./lib/rowWatch/mutations";
+import { changeUsername, usernameState } from "./lib/usernameChange";
+import { requireEmailProof } from "./lib/emailProof";
 import type { Id } from "../_generated/dataModel";
 import { checkAvailability } from "./lib/nameClaims";
 import { resolveAddressedUser } from "./lib/identities";
@@ -170,5 +173,40 @@ export const personByName = query({
     const userId = await resolveAddressedUser(ctx, parsed.invitee);
     // A name can outlive its account: a deleted person is nobody, as `setGrantees` treats them.
     return { found: userId !== null && (await ctx.db.get(userId)) !== null };
+  },
+});
+
+const usernameStateValidator = v.object({
+  username: v.string(),
+  formerNames: v.array(v.string()),
+  changesLeft: v.number(),
+});
+
+/**
+ * The signed-in person's username, the former names that are still theirs, and how many changes they have left
+ * (two in a lifetime: `lib/usernameChange.ts`). `null` for an account with no workspace of its own.
+ */
+export const myUsername = query({
+  args: {},
+  returns: v.union(v.null(), usernameStateValidator),
+  handler: async (ctx) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    return await usernameState(ctx, userId);
+  },
+});
+
+/**
+ * Change the signed-in person's username. Their old one stays theirs and keeps working; a change back to it is
+ * allowed and counts. Refusals carry a `code` (`lib/usernameChange.ts` `changeUsername`), and a device that has not
+ * confirmed an emailed code lately is asked for one first (`EMAIL_PROOF_REQUIRED`).
+ */
+export const changeMyUsername = mutation({
+  args: { name: v.string() },
+  returns: usernameStateValidator,
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    // A big change: a phone alone never makes it (`lib/emailProof.ts`; the app asks for the emailed code and retries).
+    await requireEmailProof(ctx, userId);
+    return await changeUsername(ctx, userId, args.name);
   },
 });

@@ -32,6 +32,7 @@ import { failureOf } from "./lib/workspaceObjects/failures";
 import { inviteRow, memberRow } from "./lib/accessObjects/expected";
 import { isPending } from "./lib/invitations/forCaller";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
+import { objectIdentity } from "./lib/workspaces/aliases";
 
 const addsValidator = v.object({ userIds: v.array(v.string()), inviteIds: v.array(v.string()) });
 
@@ -166,13 +167,13 @@ export const addRows = internalQuery({
       if (invite !== null && invite.workspaceId === workspaceId && isPending(invite, now)) invites.push(await inviteRow(invite, now));
       else gone.push(raw);
     }
-    return { workspace: { slug: workspace.slug, kind: workspace.kind }, members, invites, gone };
+    return { workspace: objectIdentity(workspace), members, invites, gone };
   },
 });
 
 /** The calls a round of joins and invitations makes on a workspace object: the gateway's own client. */
 export interface AddsObject {
-  members: { put(rows: unknown[], extra: { workspace: { slug: string; kind: string } }): Promise<unknown> };
+  members: { put(rows: unknown[], extra: { workspace: { slug: string; kind: string; aliases?: string[] } }): Promise<unknown> };
   invites: { put(rows: unknown[]): Promise<unknown>; remove(ids: string[], at: number): Promise<unknown> };
 }
 export type OpenAdds = (workspaceId: Id<"workspaces">) => AddsObject | null;
@@ -183,7 +184,7 @@ const refusedAnswer = (answer: unknown) => answer === null || typeof answer !== 
 async function pushAdds(ctx: ActionCtx, workspaceId: Id<"workspaces">, adds: { userIds: string[]; inviteIds: string[] }, open: OpenAdds): Promise<void> {
   const now = Date.now();
   const rows = (await ctx.runQuery(internal.functions.accessObjectPush.addRows, { workspaceId, ...adds, now })) as {
-    workspace: { slug: string; kind: string };
+    workspace: { slug: string; kind: string; aliases?: string[] };
     members: unknown[];
     invites: unknown[];
     gone: string[];

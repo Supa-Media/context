@@ -179,6 +179,11 @@ export async function identifiersForUser(
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null || workspace.kind !== "personal") continue;
     identifiers.push({ kind: "name", value: workspace.slug });
+    // A changed username's former names still reach them (`lib/usernameChange.ts`): an invitation or share sent to
+    // the old name before the change is theirs.
+    for (const former of workspace.formerSlugs ?? []) {
+      if (former !== workspace.slug) identifiers.push({ kind: "name", value: former });
+    }
   }
 
   return identifiers;

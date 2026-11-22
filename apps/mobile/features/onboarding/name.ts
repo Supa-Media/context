@@ -8,10 +8,9 @@
  *  - the path other people address them by, `@name/1-projects/note.md`;
  *  - the mailbox they forward things into, `name@context.lc`.
  *
- * And it cannot be changed afterwards. There is no release, rename, or reclaim
- * path anywhere in the control plane (issue #10), so "you can sort it out
- * later" is not true and must not be implied. The screen says this before the
- * field, not in a footnote under it.
+ * And it can be changed only twice afterwards, ever, with the old name kept as
+ * theirs (`functions/lib/usernameChange.ts`, Dev2 2026-11-22), so "you can sort
+ * it out later" is only partly true and must not be implied beyond that.
  *
  * ## Where the rules come from
  *

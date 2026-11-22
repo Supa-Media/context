@@ -28,6 +28,7 @@ import { pinReaderNames } from "../pinnedReaders";
 import { sharedWithUser } from "../shares/recipients";
 import { CONVEX_ONLY_CLIENTS } from "../accessHandOff/record";
 import { grantedNamesFor } from "../grantedNames";
+import { aliasesField } from "../workspaces/aliases";
 
 export type AccessTable = "members" | "invites" | "reach" | "sharedToMe" | "connections";
 export const WORKSPACE_TABLES: readonly AccessTable[] = ["members", "invites"];
@@ -175,6 +176,7 @@ export async function reachOf(ctx: QueryCtx, userId: Id<"users">, now: number): 
     rows.push({
       workspaceId: String(workspace._id),
       slug: workspace.slug.toLowerCase(),
+      ...aliasesField(workspace),
       kind: workspace.kind,
       role: membership.role,
       groups: await groupNames(ctx, workspace._id, userId),

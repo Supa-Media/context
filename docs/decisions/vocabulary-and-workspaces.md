@@ -113,8 +113,10 @@ Do not model these separately, and in particular:
   someone else's context are different grants; write is never implied. Start
   with `owner` | `editor` | `member`, mapping onto the existing
   private/team visibility tiers.
-- **Usernames and workspace slugs share one global namespace**, unique and
-  stable, with a reserved-word list. Sharing is addressed by name.
+- **Usernames and workspace slugs share one global namespace**, unique, with a
+  reserved-word list. Sharing is addressed by name. A username may change twice
+  in a lifetime and keeps its old names as its own
+  ([username-changes](./identity-and-access/username-changes.md), 2026-11-22).
 - **Audit records the acting identity, not just the scope.** `actorScope:
   "team"` is useless once "team" is four people.
 

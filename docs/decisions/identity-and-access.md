@@ -181,3 +181,7 @@ account cannot join other workspaces, accept outside grants, attach another
 sign-in address or hold a Google connection. It receives ordinary workspace
 permissions, never the production test account privileges. Issued-code and reach
 tests prove these boundaries.
+
+### A username changes twice, and the old one stays yours
+
+See [A username changes twice, and the old one stays yours](./identity-and-access/username-changes.md).

@@ -15,6 +15,7 @@ import { internalMutationAfterTakeAway } from "./lib/rowWatch/mutations";
 import { takeAwaySteps, type TakeAwayStep, type TakeAwayTarget } from "./lib/accessHandOff/takeAway";
 import { foldSteps } from "./lib/accessHandOff/fold";
 import { finishUngroup, ungroupSteps } from "./lib/accessHandOff/ungroup";
+import { renameSteps } from "./lib/accessHandOff/rename";
 import { leaveDroppedDomains } from "./lib/domainMembership";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 import { deleteAccountFor, deleteWorkspaceCascade } from "./account";
@@ -28,7 +29,7 @@ const backoffMs = (attempt: number) => Math.min(30_000 * 2 ** attempt, 6 * 60 * 
 
 /** The calls a take-away makes on one object: the gateway's own client (`apps/mcp/src/workspaceStore/api.js`). */
 export interface TakeAwayObject {
-  members: { remove(userIds: string[], at: number): Promise<unknown>; put(rows: unknown[], extra: { workspace: { slug: string; kind: string } }): Promise<unknown> };
+  members: { remove(userIds: string[], at: number): Promise<unknown>; put(rows: unknown[], extra: { workspace: { slug: string; kind: string; aliases?: string[] } }): Promise<unknown> };
   invites: { remove(ids: string[], at: number): Promise<unknown> };
   access: { connections: { revoke(grantId: string, at: number): Promise<unknown> } };
 }
@@ -43,6 +44,7 @@ export const planOf = internalQuery({
     if (job === null) return null;
     if (job.kind === "fold") return { at: job.at, attempt: job.attempt, steps: await foldSteps(ctx, job) };
     if (job.kind === "ungroup") return { at: job.at, attempt: job.attempt, steps: await ungroupSteps(ctx, job) };
+    if (job.kind === "rename") return { at: job.at, attempt: job.attempt, steps: await renameSteps(ctx, job) };
     const target: TakeAwayTarget =
       job.kind === "account"
         ? { kind: "account", userId: job.userId! }
@@ -135,8 +137,8 @@ export const finish = internalMutationAfterTakeAway({
       return true;
     }
     await ctx.db.delete(id);
-    // A fold is already in Convex: the objects were all that was owed.
-    if (job.kind === "fold") return true;
+    // A fold or a rename is already in Convex: the objects were all that was owed.
+    if (job.kind === "fold" || job.kind === "rename") return true;
     if (job.kind === "leave" && job.userId !== undefined) {
       await leaveDroppedDomains(ctx, job.userId, job.workspaceIds ?? []);
     } else if (job.kind === "account" && job.userId !== undefined) {

@@ -68,11 +68,12 @@ async function handleOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | nu
     if (membership.role !== "owner") continue;
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null || workspace.kind !== "personal") continue;
+    // The current name: a changed username keeps its former names' rows here too (`lib/usernameChange.ts`).
     const claim = await ctx.db
       .query("names")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .first();
-    if (claim !== null) return claim.name;
+      .withIndex("by_name", (q) => q.eq("name", workspace.slug))
+      .unique();
+    if (claim !== null && claim.workspaceId === workspace._id) return claim.name;
   }
   return null;
 }

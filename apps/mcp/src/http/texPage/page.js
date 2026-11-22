@@ -52,7 +52,11 @@ export function handleOf(value) {
 export function checkViewer(session, handle) {
   if (session?.actorClientId !== CONSOLE_CLIENT_ID) throw new PageRefusal(403, "forbidden", "Only the Context app can show this page.");
   const mine = ownHandle(session);
-  if (mine === null || handleOf(handle) !== mine) throw new PageRefusal(403, "not_yours", "This page belongs to someone else.");
+  // A page link written before a username change still opens: the former names are still theirs.
+  const own = (session?.workspaces || []).find((w) => w?.kind === "personal" && w?.role === "owner");
+  const asked = handleOf(handle);
+  const theirs = mine !== null && (asked === mine || (Array.isArray(own?.aliases) && own.aliases.includes(asked)));
+  if (!theirs) throw new PageRefusal(403, "not_yours", "This page belongs to someone else.");
 }
 
 /**

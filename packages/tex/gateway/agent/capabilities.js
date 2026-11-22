@@ -75,6 +75,7 @@ export const CAPABILITIES = Object.freeze([
       { where: "group", what: "read anyone's personal notes or saved logins, or a calendar its person hasn't shared with this chat", workaround: { kind: "words", text: "they text you on their own for it, or put the note in a shared workspace everyone here is in" } },
       { where: "guest", what: "archive, comment on, add a picture to or remember in a note, or move a folder", workaround: { kind: "words", text: "someone here who is on Context texts you on their own for it" } },
       { where: "everywhere", what: "delete a workspace or close their account", workaround: { kind: "app_path", text: "Context app → Settings → General → Delete this workspace, or Settings → Profile → Delete account" } },
+      { where: "everywhere", what: "change their username (twice in a lifetime; the old name stays theirs and keeps working)", workaround: { kind: "app_path", text: "Context app → Settings → Profile → Username → Change" } },
       { where: "everywhere", what: "make or change a people group, or switch a plugin on or off", workaround: { kind: "app_path", text: "Context app → Settings → People & sharing (groups), or Settings → Plugins (that row shows only to people already using plugins)" } },
     ],
   },

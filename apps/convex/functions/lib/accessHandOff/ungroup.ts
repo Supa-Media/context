@@ -17,6 +17,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { accessHomeOf } from "../accessObjects/home";
 import { memberRow } from "../accessObjects/expected";
 import type { TakeAwayStep } from "./takeAway";
+import { objectIdentity } from "../workspaces/aliases";
 
 export type Ungroup = {
   workspaceId: Id<"workspaces">;
@@ -61,7 +62,7 @@ export async function ungroupSteps(ctx: QueryCtx, job: Doc<"accessTakeAways">): 
     const row = member === null ? null : await memberRow(ctx, member, job.at, job.groupId);
     if (row !== null) rows.push(row);
   }
-  return [{ scope: "workspace", workspaceId, home, userIds: [], inviteIds: [], puts: { rows, workspace: { slug: workspace.slug, kind: workspace.kind } } }];
+  return [{ scope: "workspace", workspaceId, home, userIds: [], inviteIds: [], puts: { rows, workspace: objectIdentity(workspace) } }];
 }
 
 /**

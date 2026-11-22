@@ -8,6 +8,7 @@
 
 import { ROW_NAME_PATTERN } from "./privacy/rowAccess.js";
 import { FLAG_ID_PATTERN, MAX_PERSON_FLAGS } from "./workspaceStore/personFlags.js";
+import { MAX_ALIASES } from "./workspaceStore/access.js";
 
 /** A refusal the caller may see. Carries no tenant detail, ever. */
 export class SessionRefusal extends Error {
@@ -72,7 +73,13 @@ export function normalizeSession(raw) {
     const homeOnly = entry.homeOnly === true && clientId === TEXTS_GROUP_CLIENT;
     const chatHome =
       (entry.setupOnly === true || homeOnly) && typeof entry.chatHome === "string" && CHAT_HOME_PATTERN.test(entry.chatHome) ? entry.chatHome : null;
-    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true, ...(homeOnly ? { homeOnly: true } : {}), ...(chatHome ? { chatHome } : {}) };
+    // A changed username's former names (`apps/convex/functions/lib/usernameChange.ts`): still this workspace's own, so
+    // `context: "@old"` reaches it (`session.js` `sessionForContext`). Malformed is an auth failure, like the rest.
+    if (entry.aliases !== undefined && (!Array.isArray(entry.aliases) || entry.aliases.length > MAX_ALIASES || entry.aliases.some((name) => typeof name !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(name.toLowerCase())))) {
+      throw fail();
+    }
+    const aliases = [...new Set((entry.aliases ?? []).map((name) => name.toLowerCase()))].filter((name) => name !== slug);
+    return { workspaceId: entry.workspaceId, slug, ...(aliases.length > 0 ? { aliases } : {}), role: entry.role, kind, grantedNames, setupOnly: entry.setupOnly === true, ...(homeOnly ? { homeOnly: true } : {}), ...(chatHome ? { chatHome } : {}) };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   // A group chat's grant carries the pin marked setup-only (`liveGrants.ts`):

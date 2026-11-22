@@ -62,6 +62,15 @@ export const workspaceTables = {
     /** Normalized, globally unique, also present as a row in `names`. */
     slug: v.string(),
     /**
+     * The names this personal workspace answered to before, oldest first. Each keeps its row in `names`, pointing
+     * here, so the old name stays theirs and keeps working as an alias (links, mail, `context: "@old"`); it is
+     * freed only with the workspace (decided by the owner, 2026-11-22;
+     * `docs/decisions/identity-and-access/username-changes.md`).
+     */
+    formerSlugs: v.optional(v.array(v.string())),
+    /** How many times the username was changed. Two in a lifetime (`lib/usernameChange.ts`). */
+    slugChanges: v.optional(v.number()),
+    /**
      * The Sort setting of the workspace's top level, from the sort button at the top of the tree, and of every folder
      * with none of its own (`LISTING_SORTS`, `functions/folderSort.ts`, owner 2026-11-04). Absent: the order a folder
      * with no setting draws.
