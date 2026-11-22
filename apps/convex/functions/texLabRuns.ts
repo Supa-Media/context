@@ -573,7 +573,7 @@ export const report = internalMutation({
 
 // ── GitHub ────────────────────────────────────────────────────────────────
 
-async function dispatchWorkflow(file: string, inputs: Record<string, string>): Promise<{ ok: true; url: string | null } | { ok: false; error: string }> {
+export async function dispatchWorkflow(file: string, inputs: Record<string, string>): Promise<{ ok: true; url: string | null } | { ok: false; error: string }> {
   const token = process.env.GH_ADMIN_TOKEN;
   if (!token) return { ok: false, error: "this deployment cannot start GitHub runs (GH_ADMIN_TOKEN is not set)" };
   let res: Response;

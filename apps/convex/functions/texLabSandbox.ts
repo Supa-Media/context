@@ -175,6 +175,13 @@ export async function intakeChats(ctx: QueryCtx): Promise<{ phones: string[]; gr
   return { phones, groups };
 }
 
+/** Whether a grant's person may use the Lab's test chats (`sandboxCaller`), for the one write the route makes. */
+export const mayUseTestChats = internalQuery({
+  args: { hashedAccessToken: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { hashedAccessToken }) => (await sandboxCaller(ctx, hashedAccessToken)) !== null,
+});
+
 /** One `/gateway/tex/lab-sandbox` call. Reads only, always an answer with a `status`. */
 export const forGateway = internalQuery({
   args: { hashedAccessToken: v.string(), action: v.string(), args: v.any() },

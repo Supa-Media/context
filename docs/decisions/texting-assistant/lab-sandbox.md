@@ -371,3 +371,31 @@ nothing else) and is never idle through a long model call. A deploy still resets
 as it does a production job's pass; the mark then goes stale and the next text gets in. Its test is `apps/mcp/test/labSandboxObjectRun.test.mjs` (sabotaged): a
 job whose own turn takes 90 s of the clock reaches its report while the request keeps no work. A simplification that
 runs the turn in the request again fails "the request keeps no work".
+
+## A test chat on a pull request's code
+
+Decided by the owner, 2026-11-22: test chats gain "run on PR #N's code", so a change is tried in a test chat before it
+merges, and it runs on that pull request's **own preview** (its code, its fictional people, the stand-in Google and
+mail of `packages/emulators`), never production's data. `open { code: "#N" }` (tex_dev `test_chat`, or the Lab
+picker's Code field) opens it; `main` or nothing is this deployment's own code, as before.
+
+Production never holds a preview's keys and a preview never holds production's. Production keeps only a stand-in test
+chat (its `chat.remote` names the pull request and a mailbox) and a mailbox object of its own
+(`labSandbox/bridge.js`, `labsandbox:bridge:<random id>`). The Convex route's `previewChat` action, for someone who may
+use test chats, dispatches `.github/workflows/lab-preview-chat.yml` on main with the pull request and the mailbox id,
+both public. That run (`packages/sandbox/src/lab-bridge.mjs`) signs the fictional `alpha` persona in on the preview
+with the preview deploy key CI already holds, mints alpha a console grant there (alpha is the preview's Tex developer,
+`convex-env.mjs` `PREVIEW_STAFF`), and reaches production's mailbox door (`POST /tex-lab/sandbox/bridge`,
+`labSandbox/preview.js`) only with GitHub's signed token naming that workflow on main (`bench/oidc.js`, its own
+audience `context-lab-preview`). No secret was added anywhere. It takes the calls waiting, hands each to the preview's
+own `/tex-lab/sandbox`, and its answer back, with the preview's id for the test chat put back to production's.
+
+What a person sees: the first open takes about a minute (the GitHub run starting); the dock says so and tex_dev's open
+waits, then answers `preview.starting`. The run stops after twenty minutes unused, and the next call starts another
+(that call is dropped from the mailbox when nobody took it, so a retry never runs twice). Reset clears the preview's
+copy and stops the run. Actions logs are public, so the run prints counts and statuses only. A test chat on a preview
+starts from Maya or a Training/Dev conversation: a person's own chats live in production and are never sent there.
+
+Its tests are `apps/mcp/test/labPreviewChat.test.mjs` (sabotaged): a simplification that lets the bench's token, a
+branch's token or another workflow through the door fails "only the preview workflow on main", and one that keeps a
+call nobody took fails "dropped, never run twice".

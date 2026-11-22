@@ -91,6 +91,7 @@ import { CREDIT_REST_PATH, handleCreditRest } from "../../../../packages/tex/gat
 import { LAB_SANDBOX_PATH, handleLabSandbox } from "../../../../packages/lab/gateway/labSandbox/route.js";
 import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../../../../packages/lab/gateway/labSandbox/pages.js";
 import { BENCH_PATH, handleBench } from "../../../../packages/lab/gateway/bench/route.js";
+import { BRIDGE_PATH as LAB_BRIDGE_PATH, handleBridge } from "../../../../packages/lab/gateway/labSandbox/preview.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -216,6 +217,8 @@ export async function route(request, env, ctx) {
     if (path === LIVE_TICKET_PATH) return await handleLiveTicket(request, env, { slug, pathToken, origin });
     // The Lab's test chats (`labSandbox/route.js`): the caller's own grant, the control plane deciding who may.
     if (path === LAB_SANDBOX_PATH && !slug) return await handleLabSandbox(request, env, ctx, { origin });
+    // The workflow that carries a test chat's calls to a pull request's preview (`labSandbox/preview.js`).
+    if (path === LAB_BRIDGE_PATH && !slug) return await handleBridge(request, env);
     // The standing bench objects (`bench/route.js`): public benchmark notes, searched here in the bench's own environment.
     if (path === BENCH_PATH && !slug) return await handleBench(request, env, ctx, { gateway: (inner, benchEnv) => route(inner, benchEnv, ctx) });
     // A test chat's pages and pictures (`labSandbox/pages.js`): its owner's own grant only, gone with the test chat.
