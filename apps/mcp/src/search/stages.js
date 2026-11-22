@@ -9,13 +9,14 @@
  *   merge   mergeLists        one row per note: its word rank's and its meaning rank's reciprocal-rank parts
  *   rank    addEvidence       the query's terms in the title or file name, the whole query as a phrase
  *   rank    lowerByPath       an archived note or a log scores `logPrior` of a live one
+ *   rank    byOpens           a note people open rises: the searcher's own opens, everyone else's, AI reads (`opens.js`)
  *   filter  meaningBudget     at most `extraNotes` notes only meaning found (`looseReads` when no note held every word)
  *   (read)                    the kept meaning-only notes are read for a snippet (`meaning/serve.js`)
  *   filter  answerHits        a code passage found only by meaning is not offered for a prose question; a note that
  *                             could not be read is dropped; the rest in the word search's hit shape, evidence beside it
  *
  * A row ("entry") keeps each part of its score apart (`w` word, `m` meaning, `title` evidence, `r` the reranker's
- * (`rerank.js`, after the read), `prior` the path's multiplier) so the Lab shows why a note ranks; `scoreOf` adds them in the order the merge always has.
+ * (`rerank.js`, after the read), `prior` the path's multiplier, `used` the opens' multiplier) so the Lab shows why a note ranks; `scoreOf` adds them in the order the merge always has.
  */
 import { DEFAULT_RANKING, rankingOf } from "./ranking.js";
 import { isSearchProbe, notePrior } from "./priors.js";
@@ -23,9 +24,10 @@ import { evidenceBonus } from "./evidence.js";
 import { matchesOnlyInLinks } from "./linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "./codeLike.js";
 import { DEFAULT_SEARCH_SETTINGS } from "./settings.js";
+import { openWeight } from "./opens.js";
 
-/** A row's score: word part plus title evidence, plus meaning part, plus the reranker's part, times the path prior. */
-export const scoreOf = (entry) => ((entry.w ?? 0) + (entry.title ?? 0) + (entry.m ?? 0) + (entry.r ?? 0)) * (entry.prior ?? 1);
+/** A row's score: word part plus title evidence, plus meaning part, plus the reranker's part, times the path prior and the opens'. */
+export const scoreOf = (entry) => ((entry.w ?? 0) + (entry.title ?? 0) + (entry.m ?? 0) + (entry.r ?? 0)) * (entry.prior ?? 1) * (entry.used ?? 1);
 
 /** A loose word hit meaning did not find goes last; then by score; ties keep the lists' order. */
 const weakLast = (entry) => (entry.loose && entry.meaning === null ? 1 : 0);
@@ -97,6 +99,20 @@ export function lowerByPath(entries, ranking = DEFAULT_RANKING) {
   return ranked(entries.map((e) => ({ ...e, prior: notePrior(e.key, ranking) })));
 }
 
+/**
+ * Rank: each row's score scaled by how often its note was opened (`opens.js` `openWeight`), `opens` being the note's
+ * counts by path (`{ mine, people, ai }`, from its workspace's object). Rows with no word-and-meaning merge (null) are
+ * made rows in the word hits' order first, when any of them was opened, so an opened note can rise there too.
+ */
+export function byOpens(entries, found, opens, ranking = DEFAULT_RANKING, keyField = "key") {
+  if (!opens || Object.keys(opens).length === 0) return entries;
+  const rows = entries ?? (found.hits.some((hit) => opens[hit[keyField]]) ? mergeLists(found.hits, [], keyField, undefined, ranking, true) : null);
+  if (!rows) return entries;
+  // Only a note holding every word rises: opens order the notes a query is about, never lift one it merely brushes.
+  const about = (e) => e.word && !e.loose;
+  return ranked(rows.map((e) => (opens[e.key] ? { ...e, opens: opens[e.key], ...(about(e) ? { used: openWeight(opens[e.key], ranking) } : {}) } : e)));
+}
+
 /** Filter: every word hit, and the best `extraNotes` notes only meaning found (`looseReads` when no hit held every word). */
 export function meaningBudget(found, entries, { extraNotes = DEFAULT_SEARCH_SETTINGS.extraNotes, ranking = DEFAULT_RANKING } = {}) {
   if (!entries) return entries;
@@ -128,6 +144,7 @@ export function answerHits(found, entries, { keyField = "key", query = undefined
       loose: entry.word?.loose === true,
       meaningScore: entry.meaning ? entry.meaning.score : null,
       ...(typeof entry.rerankScore === "number" ? { rerankScore: entry.rerankScore } : {}),
+      ...(entry.opens ? { opens: entry.opens } : {}),
     };
     if (entry.word) {
       const { loose: _loose, ...word } = entry.word;

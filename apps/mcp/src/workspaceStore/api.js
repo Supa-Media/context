@@ -212,6 +212,12 @@ export function workspaceClient(env, workspaceId) {
     // The object's own word index (`searchIndex.js`): a search's queries, and a catch-up pass behind a response.
     search: async (asks) => await ask("ws.search", { asks }),
     searchBuild: async () => await ask("ws.search.build"),
+    // How often notes are opened (`opens.js`): one open recorded, and a search's counts for the paths it found.
+    opens: {
+      record: async ({ path, who = null, by, surface, client = null, clientName = null, count = 1 }) =>
+        await ask("ws.opens.record", { path, who, by, ...(surface ? { surface } : {}), client, clientName, count }),
+      of: async (paths, who = null) => await ask("ws.opens.of", { paths, who }),
+    },
     // The object's own meaning index (`meaningIndex.js`): the passages closest to a query's fingerprint, and a build.
     meaningQuery: async (vector, { tiers = null } = {}) => await ask("ws.meaning.query", { vector, tiers }),
     meaningWarm: async () => await ask("ws.meaning.warm"),

@@ -16,12 +16,15 @@ export async function benchCall(env, workspaceId, path, body = {}) {
 }
 
 /** A bench workspace's rows, rules, members and binding, its notes read from its object. Answers `{ids}` by path. */
-export async function setUpWorkspace(env, { workspaceId, name, kind, files, rules, members }) {
+export async function setUpWorkspace(env, { workspaceId, name, kind, files, rules, members, opens = [] }) {
   const client = workspaceClient(env, workspaceId);
   await client.setHome("object");
   await client.setEncryption("none");
   await client.rules.put(rules, "member");
-  return await benchCall(env, workspaceId, "/bench/setup", { workspaceId, name, kind, files, rules, members });
+  const answer = await benchCall(env, workspaceId, "/bench/setup", { workspaceId, name, kind, files, rules, members });
+  // The world's open history (`workspaceStore/opens.js`): who opened which note how often, in the app or by an AI.
+  for (const open of opens) await client.opens.record(open);
+  return answer;
 }
 
 /**

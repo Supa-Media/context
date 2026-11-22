@@ -21,6 +21,7 @@ flowchart LR
   n_merge["Merge<br/>code<br/>apps/mcp/src/search/stages.js mergeLists"]:::code
   n_title["Title and phrase<br/>code<br/>apps/mcp/src/search/stages.js addEvidence · evidence.js"]:::code
   n_prior["Lower logs and archive<br/>code<br/>apps/mcp/src/search/stages.js lowerByPath · priors.js"]:::code
+  n_opens["Opened before<br/>code<br/>apps/mcp/src/search/stages.js byOpens · opens.js · workspaceStore/opens.js"]:::code
   n_budget["Meaning-only budget<br/>code<br/>apps/mcp/src/search/stages.js meaningBudget"]:::code
   n_snippets["Read snippets<br/>code<br/>apps/mcp/src/search/meaning/serve.js readMeaningOnly"]:::code
   n_rerank["Rerank<br/>code<br/>apps/mcp/src/search/rerank.js"]:::code
@@ -38,7 +39,8 @@ flowchart LR
   n_floor --> n_merge
   n_merge --> n_title
   n_title --> n_prior
-  n_prior --> n_budget
+  n_prior --> n_opens
+  n_opens --> n_budget
   n_budget --> n_snippets
   n_snippets --> n_rerank
   n_rerank --> n_code
@@ -67,6 +69,7 @@ flowchart LR
 | Merge | Merges: one row per note from the word list and the meaning list, each adding 1 / (rrfK + rank + 1), so a note both find rises. A hit whose words sit only in a link counts as loose, and loose hits go last. No merge when meaning found nothing: the word hits stand as they are. | apps/mcp/src/search/stages.js mergeLists |
 | Title and phrase | Ranks: a word hit gains titleWeight for each share of the query's terms its title or file name holds, and phraseBonus when the whole query is a phrase in its title or file name (snippetPhraseBonus when only in its text). Only when one workspace is searched; across several, Merge across workspaces does it. | apps/mcp/src/search/stages.js addEvidence · evidence.js |
 | Lower logs and archive | Ranks: an archived note or a log (Inbox captures, Tex's own logs, review logs, retired setups) scores logPrior of a live note with the same evidence. A note still unfiled in the Inbox scores inboxPrior. | apps/mcp/src/search/stages.js lowerByPath · priors.js |
+| Opened before | Ranks: a note people open rises, counted in the note's own workspace: the searcher's own opens in the app (openMine), everyone else's (openPeople) and AI clients' reads (openAi), each apart and each as weight x log2(1 + opens), and only for a note holding every word, so opens order the notes a query is about and never lift one it merely brushes. Being listed by a search never counts, only an open. | apps/mcp/src/search/stages.js byOpens · opens.js · workspaceStore/opens.js |
 | Meaning-only budget | Filters: every word hit stays; of the notes only meaning found, the best extraNotes (looseReads when no note held every word). | apps/mcp/src/search/stages.js meaningBudget |
 | Read snippets | Each kept note only meaning found is read for its title and the passage that matched, snippetChars long, all at once. | apps/mcp/src/search/meaning/serve.js readMeaningOnly |
 | Rerank | Ranks: each workspace’s first rows (rerankTop, rerankChars of each) read beside the query by a cross-encoder, every workspace in one call; a row Rerank word hits already scored is not read again, and with readLate 0 the rest keep their places unread (no call here). Each adds a part for its place (rerankWeight, as one more reciprocal-rank list, under the path prior) and keeps the model’s score, which Rank across workspaces ranks together. Never adds or drops a note. Off on main until a Lab draft shows it helps. | apps/mcp/src/search/rerank.js |
@@ -89,6 +92,9 @@ flowchart LR
 | Title and phrase | `titleWeight` | 0.003278688524590164 |
 | Lower logs and archive | `inboxPrior` | 0.5 |
 | Lower logs and archive | `logPrior` | 0.5 |
+| Opened before | `openMine` | 0.3 |
+| Opened before | `openPeople` | 0.1 |
+| Opened before | `openAi` | 0.02 |
 | Meaning-only budget | `extraNotes` | 3 |
 | Meaning-only budget | `looseReads` | 6 |
 | Read snippets | `snippetChars` | 200 |
@@ -110,3 +116,6 @@ flowchart LR
 | Merge across workspaces | `rerankWeight` | 1 |
 | Merge across workspaces | `sharedWords` | 2 |
 | Merge across workspaces | `workspaceWeight` | 0 |
+| Merge across workspaces | `openMine` | 0.3 |
+| Merge across workspaces | `openPeople` | 0.1 |
+| Merge across workspaces | `openAi` | 0.02 |

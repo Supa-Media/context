@@ -138,6 +138,8 @@ export function planOf(bench, idOf) {
     files: Object.keys(workspace.files).filter((path) => path.endsWith(".md")),
     rules: rulesOf(bench, name),
     members: bench.people.filter((row) => row.workspace === name).map((row) => ({ userId: benchUserOf(row.person), personalWorkspaceId: idOf(personal.get(row.person)), role: roleOf(row), groups: [], at: 1 })),
+    // Its open history (`overlay`): an AI client's reads under no one, a person's under their bench user id.
+    opens: (workspace.opens ?? []).map(({ path, who, count }) => (who === "ai" ? { path, by: "ai", count } : { path, who: benchUserOf(who), by: "person", count })),
   }));
   const people = [...new Set(bench.people.map((row) => row.person))]
     .filter((person) => personal.has(person))

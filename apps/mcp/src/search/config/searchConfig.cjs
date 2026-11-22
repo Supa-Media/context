@@ -42,6 +42,9 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
   waitAfterMeaning: { min: 0, max: 5000, integer: true },
   sharedWords: { min: 0, max: 2, integer: true },
   workspaceWeight: { min: 0, max: 1, integer: false },
+  openMine: { min: 0, max: 5, integer: false },
+  openPeople: { min: 0, max: 5, integer: false },
+  openAi: { min: 0, max: 5, integer: false },
 });
 
 /** Which settings each step reads: a setting on a step that does not read it would be a knob that does nothing. */
@@ -56,13 +59,14 @@ const SETTINGS_OF = Object.freeze({
   merge: Object.freeze(["rrfK"]),
   title: Object.freeze(["titleWeight", "phraseBonus", "snippetPhraseBonus"]),
   prior: Object.freeze(["logPrior", "inboxPrior"]),
+  opens: Object.freeze(["openMine", "openPeople", "openAi"]),
   budget: Object.freeze(["extraNotes", "looseReads"]),
   snippets: Object.freeze(["snippetChars"]),
   rerankWords: Object.freeze(["rerankTop", "rerankChars", "waitAfterMeaning"]),
   rerank: Object.freeze(["rerankTop", "rerankWeight", "rerankChars", "readLate"]),
   code: Object.freeze([]),
   answer: Object.freeze([]),
-  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior", "rerankWeight", "sharedWords", "workspaceWeight"]),
+  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior", "rerankWeight", "sharedWords", "workspaceWeight", "openMine", "openPeople", "openAi"]),
 });
 
 /** The steps every search needs, which a draft may not turn off: the others are passed over when off (`config/nodes.js`). */

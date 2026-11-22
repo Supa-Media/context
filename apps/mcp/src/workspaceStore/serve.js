@@ -33,6 +33,7 @@ import { absentHere, plainUnderHomes, texHomeOwner } from "./lookupMiss.js";
 import { namesTaken } from "./namesTaken.js";
 import { SearchAskRefused } from "./searchIndex.js";
 import { MeaningAskRefused } from "./meaningIndex.js";
+import { OpensRefused } from "./opens.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 import { withLookupBody } from "./lookupBody.js";
 import { restampRowVersions } from "./rowVersions.js";
@@ -349,6 +350,14 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
         // The gateway's search, over this object's own word index (`searchIndex.js`); its `canSee` filters the rows.
         if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
         return Response.json(store.search.search(fields.asks));
+      case "ws.opens.record":
+        // One open of a note: a person's in the app (from the control plane) or an AI client's read (`opens.js`).
+        if (!store.opens || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json({ served: true, ...store.opens.record(fields) });
+      case "ws.opens.of":
+        // How often the notes a search found were opened: the asker's own, everyone's, AI clients' (`opens.js`).
+        if (!store.opens || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+        return Response.json({ served: true, ...store.opens.of(fields) });
       case "ws.search.build": {
         if (!store.search || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
         const waiting = store.search.catchUp();
@@ -457,7 +466,7 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
         return Response.json({ error: "unknown_op" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused || error instanceof MailAskRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
+    if (error instanceof WorkspaceRowRefused || error instanceof AccessRowRefused || error instanceof WorkspaceMarkRefused || error instanceof FactAskRefused || error instanceof BindingRowRefused || error instanceof SearchAskRefused || error instanceof MeaningAskRefused || error instanceof MailAskRefused || error instanceof OpensRefused) return Response.json({ error: "refused", message: error.message }, { status: 422 });
     throw error;
   }
 }

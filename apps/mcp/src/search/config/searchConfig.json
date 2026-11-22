@@ -314,6 +314,35 @@
       ]
     },
     {
+      "id": "opens",
+      "label": "Opened before",
+      "goal": "Ranks: a note people open rises, counted in the note's own workspace: the searcher's own opens in the app (openMine), everyone else's (openPeople) and AI clients' reads (openAi), each apart and each as weight x log2(1 + opens), and only for a note holding every word, so opens order the notes a query is about and never lift one it merely brushes. Being listed by a search never counts, only an open.",
+      "on": true,
+      "model": "code",
+      "icon": "star",
+      "file": "apps/mcp/src/search/stages.js byOpens · opens.js · workspaceStore/opens.js",
+      "x": 2160,
+      "y": 0,
+      "settings": { "openMine": 0.3, "openPeople": 0.1, "openAi": 0.02 },
+      "inSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" },
+        { "name": "to", "type": "text", "optional": true }
+      ],
+      "outSchema": [
+        { "name": "query", "type": "text" },
+        { "name": "prefix", "type": "text" },
+        { "name": "several", "type": "yesno" },
+        { "name": "boost", "type": "text", "optional": true },
+        { "name": "workspaces", "type": "list" },
+        { "name": "unreached", "type": "ids" }
+      ]
+    },
+    {
       "id": "budget",
       "label": "Meaning-only budget",
       "goal": "Filters: every word hit stays; of the notes only meaning found, the best extraNotes (looseReads when no note held every word).",
@@ -321,7 +350,7 @@
       "model": "code",
       "icon": "trash",
       "file": "apps/mcp/src/search/stages.js meaningBudget",
-      "x": 2160,
+      "x": 2400,
       "y": 0,
       "settings": { "extraNotes": 3, "looseReads": 6 },
       "inSchema": [
@@ -350,7 +379,7 @@
       "model": "code",
       "icon": "card",
       "file": "apps/mcp/src/search/meaning/serve.js readMeaningOnly",
-      "x": 2400,
+      "x": 2640,
       "y": 0,
       "settings": { "snippetChars": 200 },
       "inSchema": [
@@ -379,7 +408,7 @@
       "model": "code",
       "icon": "star",
       "file": "apps/mcp/src/search/rerank.js",
-      "x": 2640,
+      "x": 2880,
       "y": 0,
       "settings": { "readLate": 0, "rerankChars": 400, "rerankTop": 8, "rerankWeight": 1 },
       "inSchema": [
@@ -407,7 +436,7 @@
       "model": "code",
       "icon": "trash",
       "file": "apps/mcp/src/search/stages.js answerHits",
-      "x": 2880,
+      "x": 3120,
       "y": 0,
       "settings": {},
       "inSchema": [
@@ -437,7 +466,7 @@
       "model": "code",
       "icon": "wire",
       "file": "apps/mcp/src/search/config/nodes.js · tools/search.js",
-      "x": 3120,
+      "x": 3360,
       "y": 110,
       "settings": {
         "boostFactor": 1.2,
@@ -453,7 +482,10 @@
         "titleWeight": 0.003278688524590164,
         "rerankWeight": 1,
         "sharedWords": 2,
-        "workspaceWeight": 0
+        "workspaceWeight": 0,
+        "openMine": 0.3,
+        "openPeople": 0.1,
+        "openAi": 0.02
       },
       "inSchema": [
         { "name": "query", "type": "text" },
@@ -476,7 +508,7 @@
       "model": "code",
       "icon": "send",
       "file": "apps/mcp/src/search/config/nodes.js answerStep",
-      "x": 3360,
+      "x": 3600,
       "y": 0,
       "settings": {},
       "inSchema": [
@@ -563,6 +595,12 @@
     },
     {
       "from": "prior",
+      "to": "opens",
+      "mode": "wait",
+      "when": ["*"]
+    },
+    {
+      "from": "opens",
       "to": "budget",
       "mode": "wait",
       "when": ["*"]

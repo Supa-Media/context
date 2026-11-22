@@ -24,6 +24,7 @@
 import { workspaceMachines } from "./workspaceStore/machines.js";
 import { machineSockets } from "./workspaceStore/machineSockets.js";
 import { workspaceMarks } from "./workspaceStore/marks.js";
+import { workspaceOpens } from "./workspaceStore/opens.js";
 import { workspaceHandles } from "./workspaceStore/handleCache.js";
 import { workspaceAccess } from "./workspaceStore/accessRows.js";
 import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
@@ -118,6 +119,8 @@ export class WorkspaceStore {
       search: workspaceSearch(sql, { rows, objects }),
       // Its own meaning index (`workspaceStore/meaningIndex.js`), built with the model this Worker is bound to.
       meaning: workspaceMeaning(sql, { rows, objects, embed: bindingEmbedder(this.env?.AI) }),
+      // How often each note is opened, by people and by AI clients, for search to rank by (`workspaceStore/opens.js`).
+      opens: workspaceOpens(sql),
       // "A change is coming" (`workspaceStore/marks.js`): left by a writer before it changes the tree in Convex.
       marks: workspaceMarks(sql),
       // Who each note and folder is open to, and the rules rendered from it (`workspaceStore/accessRows.js`).

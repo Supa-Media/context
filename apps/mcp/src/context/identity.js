@@ -23,6 +23,8 @@ export function actorFor(session) {
     workspaceKind: session.workspaceKind,
     userId: session.actorUserId,
     clientId: session.actorClientId,
+    // The name the client registered: display text for the opens log (`search/opens.js`), never read for a decision.
+    clientName: typeof session.actorClientName === "string" ? session.actorClientName : null,
     grantId: session.grantId,
     // A grant made for a Tex group chat, under any client: a run on a computer started from a group is the group's
     // still, and the vault gives it only the group's keys (`vault/access.js` `workspaceOnly`).

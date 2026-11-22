@@ -1,5 +1,5 @@
 /**
- * The hard search set (`packages/bench/benchmarks/search-hard/`): forty questions, every kind used, every expected
+ * The hard search set (`packages/bench/benchmarks/search-hard/`): forty-one questions, every kind used, every expected
  * note real, none of them in an archive, and a small end-to-end run of the first three through the search suite
  * (`evals/searchSuite.mjs`) with the fake embedder, on the bench with the set's notes laid in.
  */
@@ -15,9 +15,9 @@ import { expandWorkspaces, parseTest, readBenchFolder } from "../load.mjs";
 
 const set = await loadHardSet({ parseTest });
 
-test("the hard set has forty questions, numbered and run as Priya", () => {
-  assert.equal(set.cases.length, 40);
-  assert.deepEqual(set.cases.map((c) => c.id), Array.from({ length: 40 }, (_, i) => `hard-${i + 1}`));
+test("the hard set has forty-one questions, numbered and run as Priya", () => {
+  assert.equal(set.cases.length, 41);
+  assert.deepEqual(set.cases.map((c) => c.id), Array.from({ length: 41 }, (_, i) => `hard-${i + 1}`));
   assert.equal(set.runAs, "Priya");
   assert.equal(set.today, "2026-10-08");
 });

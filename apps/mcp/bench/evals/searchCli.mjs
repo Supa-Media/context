@@ -175,7 +175,7 @@ export async function runSearchSet(options) {
     if (options["warm-only"] === true) {
       // Build and keep every world, ask nothing: a `--parallel` run's parent does this once so its shards load.
       for (const w of all) {
-        const bench = overlay(w.base === "repo" ? repo ?? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : evalBench(), w.notes, w.people ?? []);
+        const bench = overlay(w.base === "repo" ? repo ?? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : evalBench(), w.notes, w.people ?? [], w.opens ?? {});
         const at = Date.now();
         const built = await warmWorlds(bench, { cache, ai, embedder, today: w.today ?? null, objects: paths !== "database", bucket: paths !== "objects", keepOnly: true });
         built.prepared?.close();
@@ -185,7 +185,7 @@ export async function runSearchSet(options) {
       return null;
     }
     for (const w of worlds) {
-      const bench = overlay(w.base === "repo" ? repo : evalBench(), w.notes, w.people ?? []);
+      const bench = overlay(w.base === "repo" ? repo : evalBench(), w.notes, w.people ?? [], w.opens ?? {});
       const missing = missingExpected(bench, w.cases);
       if (missing.length) throw new Error(`expected notes that exist nowhere: ${missing.join(", ")}`);
       if (!many) say(`${w.id}: ${Object.keys(w.notes).length} notes, ${w.cases.length} queries`);

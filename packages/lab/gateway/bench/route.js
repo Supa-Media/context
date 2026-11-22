@@ -110,7 +110,9 @@ export async function handleBench(request, env, ctx, { gateway, verify = verifyG
     for (const workspace of workspaces) {
       if (!Array.isArray(workspace.files) || !workspace.files.every((path) => typeof path === "string" && path.length <= 1_000)) return refused(400, "files are paths");
       if (!(workspace.members ?? []).every((m) => ownId(world, copy, m.personalWorkspaceId))) return refused(400, "every member's id is this copy's");
-      await setUpWorkspace(bench, { workspaceId: workspace.workspaceId, name: String(workspace.name), kind: workspace.kind === "shared" ? "shared" : "personal", files: workspace.files, rules: workspace.rules, members: workspace.members ?? [] });
+      const opens = workspace.opens ?? [];
+      if (!Array.isArray(opens) || opens.length > 1_000 || !opens.every((o) => o && typeof o.path === "string" && (o.by === "ai" || (o.by === "person" && typeof o.who === "string")) && Number.isInteger(o.count))) return refused(400, "opens are paths, who and counts");
+      await setUpWorkspace(bench, { workspaceId: workspace.workspaceId, name: String(workspace.name), kind: workspace.kind === "shared" ? "shared" : "personal", files: workspace.files, rules: workspace.rules, members: workspace.members ?? [], opens: opens.map(({ path, who, by, count }) => (by === "ai" ? { path, by, count } : { path, who, by, count })) });
     }
     for (const person of people) await setUpPerson(bench, { personalWorkspaceId: person.personalWorkspaceId, userId: String(person.userId), reach: person.reach ?? [] });
     await touch(bench, ctx, world, workspaces.map((w) => w.workspaceId));
