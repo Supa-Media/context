@@ -24,6 +24,7 @@ import { judgeWords } from "../src/privacy/judge.js";
 import { consentContext, namesOrAnswers, offeredLine, whereLine, MAX_OFFERED, MAX_YES } from "../../../packages/tex/gateway/agent/consentContext.js";
 import { OWN_WORDS_REFUSAL, commandTools, consentFor, refusedWords } from "../../../packages/tex/gateway/agent/commandTools.js";
 import { LAB_SANDBOX_KEY, sandboxPrecheck } from "../src/labSandbox/policy.js";
+import { CAPABILITIES } from "../../../packages/tex/gateway/agent/capabilities.js";
 
 const CONFIG = { url: "https://gateway.ai.cloudflare.com/v1/x/y/anthropic/v1/messages", token: "t".repeat(24), creditKey: null };
 
@@ -129,4 +130,12 @@ test("a short yes to Tex's own offer reaches the judge, which is shown the offer
   assert.equal(asked.length, 1);
   assert.equal(namesOrAnswers(/\bcalendar\b/i, "do it", offer, true), true);
   assert.equal(namesOrAnswers(/\bcalendar\b/i, "share my calendar", "", false), true, "naming it passes as before");
+});
+
+test("Tex is told a yes to its own share offer is enough, so it offers instead of dictating a phrase (Lab, 2026-11-22)", () => {
+  for (const action of ["command.chat_share_calendar", "command.chat_share_mail"]) {
+    const line = CAPABILITIES.find((entry) => entry.actions?.includes(action));
+    assert.ok(line, action);
+    assert.match(line.group, /their plain yes to your offer is enough: never tell them to type a set phrase/, action);
+  }
 });
