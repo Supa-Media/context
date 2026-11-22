@@ -263,7 +263,7 @@ test("the word hits are reranked beside meaning, and Rerank uses those scores wi
 
 test("Rerank word hits is used by the word search, once per workspace, and never waits on meaning", () => {
   const node = SEARCH_CONFIG.nodes.find((n) => n.id === "rerankWords");
-  assert.deepEqual(Object.keys(node.settings).sort(), ["rerankChars", "rerankTop"]);
+  assert.deepEqual(Object.keys(node.settings).sort(), ["rerankChars", "rerankTop", "waitAfterMeaning"]);
   assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "words" && e.to === "rerankWords" && e.mode === "uses"));
   assert.ok(SEARCH_CONFIG.edges.some((e) => e.from === "words" && e.to === "visible" && e.mode === "wait"));
   assert.ok(!SEARCH_CONFIG.edges.some((e) => e.from === "rerankWords" || (e.to === "rerankWords" && e.from !== "words")), "only the word search reaches it");
@@ -291,6 +291,21 @@ test("each workspace's word hits are reranked the moment that workspace answers,
   ctx.passes?.release();
   assert.deepEqual(order, ["@me", "@ops"], "@me read first, while @ops still searched");
   assert.ok(Object.values(out.byWords).every((found) => found.hits.length > 0 && found.hits.every((hit) => hit.rerankScore === 0.5)));
+});
+
+test("once meaning has answered, a workspace's rerank is waited on only waitAfterMeaning ms more", async () => {
+  // A reranker that never answers: past the wait, the hits go on in the word search's order, unread.
+  const never = { run: () => new Promise(() => {}) };
+  const node = { ...SEARCH_CONFIG.nodes.find((n) => n.id === "rerankWords") };
+  const found = { hits: [{ key: "a.md", title: "A" }, { key: "b.md", title: "B" }], matchCount: 2, matchCountIsFloor: false };
+  const run = (settings, meaningDone) =>
+    SEARCH_NODES.rerankWords({ query: "renewal", workspace: "@me", found }, { node: { ...node, settings: { ...node.settings, ...settings } }, ctx: { store: { ai: never }, opened: new Map(), ...(meaningDone ? { meaningDone } : {}) }, on: () => true });
+  const out = await run({ waitAfterMeaning: 20 }, Promise.resolve());
+  assert.deepEqual(out.found, found, "the word order stands");
+  assert.match(out.log.reranked.skipped, /20 ms after meaning/);
+  // With meaning off (nothing settles), there is no deadline: the call is waited on.
+  const waited = await Promise.race([run({ waitAfterMeaning: 0 }, null).then(() => "answered"), new Promise((resolve) => setTimeout(() => resolve("still waiting"), 100))]);
+  assert.equal(waited, "still waiting");
 });
 
 test("with the word search off, Rerank word hits on passes the search on unread", async () => {

@@ -62,6 +62,13 @@ reads only its own hits. It is still a node, logged once per workspace, so nothi
 name. A test in `apps/mcp/test/searchConfig.test.mjs` holds one workspace's word search until another's hits were
 read, and fails if the reranker waits for every workspace.
 
+A search also waits for a workspace's rerank only so long once Meaning has answered (`waitAfterMeaning` on Rerank word
+hits, 2026-11-22): past that, that workspace's hits go on in the word search's order, unread, and the call's scores are
+still remembered for the next search. Live after the per-workspace change, a search over six workspaces still added
+about 160 ms at p50, all of it the slowest workspace's own rerank after its late word search. Main keeps the wait at
+5,000 ms, which is no change; a lower wait is a ranking choice, made in a Lab draft. A test in
+`apps/mcp/test/searchConfig.test.mjs` fails if the wait is not kept, or if a search with Meaning off gets a deadline.
+
 A query's fingerprint is also kept in the gateway's memory for ten minutes for the person who asked it
 (`search/meaning/queryVectors.js`), so the same words asked again skip the model. It is kept per person, never per
 workspace: shared, a member could tell that somebody else had just searched the same words by their own search

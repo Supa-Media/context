@@ -80,6 +80,7 @@ flowchart LR
 |---|---|---|
 | Rerank word hits | `rerankTop` | 8 |
 | Rerank word hits | `rerankChars` | 400 |
+| Rerank word hits | `waitAfterMeaning` | 5000 |
 | Meaning | `minScore` | 0.4 |
 | Close meaning only | `meaningFloor` | 0.5 |
 | Merge | `rrfK` | 60 |
