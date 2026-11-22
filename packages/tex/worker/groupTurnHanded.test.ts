@@ -1,10 +1,9 @@
 /**
- * A group turn handed to its workflow (`groupTurnRun.ts`, `groupTurnWorkflow.ts`;
- * Dev2, 2026-10-27).
- *
- * Workflows itself is not run here: `step` is a stand-in that runs each step
- * inline, as many times as its `retries.limit` allows plus one, and the
- * workflow reaches the chat's object by calling its routes' functions.
+ * A group turn handed over and answered with retries (`groupTurnRun.ts`,
+ * `groupRetry.ts`; Dev2, 2026-10-27, retries on the chat's alarm since
+ * 2026-11-21). The tries are driven by `groupTurnDrive.testing.ts`, whose
+ * `step` runs each try inline, as many times as its `retries.limit` allows
+ * plus one, calling the chat's own functions.
  *
  * Sabotage (temporary local edits, reverted):
  *  - `once` in `groupSay.ts` always sending → "a retry sends only what did not
@@ -18,7 +17,7 @@ import { acceptGroup, drainGroup, GROUP_LINES } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { answerAll, LINES, setup } from "./groupWorld.testing";
 import { answerHanded, failHanded, MAX_GROUP_TURNS, MAX_STARTS, START_RETRY_MS, handedTurns, turnKey } from "./groupTurnRun";
-import { ANSWER_RETRIES, runGroupTurn, type InboxCall } from "./groupTurnWorkflow";
+import { ANSWER_RETRIES, runGroupTurn, type InboxCall } from "./groupTurnDrive.testing";
 import type { Fetch } from "./clients";
 import { checkReview, REVIEW_KEY, REVIEW_QUIET_MS, watchConversation } from "./reviewWatch";
 

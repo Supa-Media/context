@@ -113,7 +113,7 @@ export type GroupDeps = {
   spawnJob?: (id: string, run: JobRun) => Promise<void>;
   /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
   steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
-  /** Starts the workflow that answers a chosen turn (`groupTurnWorkflow.ts`); absent, the turn is answered here. */
+  /** Hands a chosen turn to its retries (`groupRetry.ts`); absent, the turn is answered here. */
   startTurn?: (turn: string) => Promise<void>;
   /** Present, a chosen turn is answered here at once and its workflow only retries a failure (`groupTurnRun.ts`); keeps that answer alive. */
   answerFirst?: (work: Promise<unknown>) => void;

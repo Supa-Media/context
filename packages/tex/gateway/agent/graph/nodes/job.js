@@ -1,11 +1,11 @@
 /**
  * THE JOB NODE: one pass of a background job (`texConfig.json` "job"), run on the gateway's runner. The job's object
- * (`packages/tex/gateway/texJob.js`) runs it for each `/job-pass` or `/job-failed` the workflow sends; the pass itself is the
+ * (`packages/tex/gateway/texJob.js`) runs it for each pass or "couldn't finish" line its alarm drives (`jobDrive.ts`); the pass itself is the
  * texting Worker's `runJob` / `failJob` (`packages/tex/worker/jobRun.ts`), reached through `io.ctx.job.call`.
  *
  * While the pass runs, this node's io is lent under the job's id (`jobHandles.js`), so Job check, the Hand-back judge
  * and the Advisor on job mail are reached through this node's wires. The lend is always returned, even when the pass
- * throws. A non-ok answer fails the node, and the workflow retries the step as before.
+ * throws. A non-ok answer fails the node, and the job's alarm counts it as a failed try.
  *
  * `io.ctx.job`: `call(path)` (a Promise of the Response) and `read()` (the job's run: `attempt`, `sent`, `running`).
  */

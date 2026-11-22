@@ -125,9 +125,11 @@ test("a new binding kind in a preview config fails until it is registered", asyn
   assert.ok(found.some((line) => line.includes("env.preview.queues")), JSON.stringify(found));
 });
 
-test("a preview Workflow cleanup does not know fails", async () => {
-  const found = await withChange("apps/agent/wrangler.jsonc", (text) => text.replace("job-run-__PREVIEW__", "job-walk-__PREVIEW__"));
+test("a preview Workflow cleanup does not know fails, and one cleanup knows passes", async () => {
+  const found = await withChange("apps/agent/wrangler.jsonc", (text) => text.replace('"name": "context-agent-__PREVIEW__",', '"name": "context-agent-__PREVIEW__", "workflows": [{ "name": "job-walk-__PREVIEW__", "binding": "JOB_WALK", "class_name": "JobWalk" }],'));
   assert.ok(found.some((line) => line.includes("PREVIEW_WORKFLOWS")), JSON.stringify(found));
+  const known = await withChange("apps/agent/wrangler.jsonc", (text) => text.replace('"name": "context-agent-__PREVIEW__",', '"name": "context-agent-__PREVIEW__", "workflows": [{ "name": "job-run-__PREVIEW__", "binding": "JOB_RUN", "class_name": "JobRunWorkflow" }],'));
+  assert.ok(!known.some((line) => line.includes("PREVIEW_WORKFLOWS")), JSON.stringify(known));
 });
 
 test("a fourth preview Worker that cleanup does not delete fails", async () => {

@@ -337,7 +337,6 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
     TEX_LINE: line,
     IMAGES: images,
     LINQ_API_KEY: "",
-    JOBS: "worker",
   };
 }
 
@@ -509,7 +508,14 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const routes = textsRoute ?? textsRoutes({ about, sandboxEnv, ctx, gate });
     // The chat's session is this text's own token, whoever answers the other routes.
     const linked = { status: "linked", accessToken: labToken, ...(about.timeZone ? { timeZone: about.timeZone } : {}), ...(payload?.defaultWorkspaceId ? { personalWorkspaceId: payload.defaultWorkspaceId } : {}) };
-    const texts = (request) => (new URL(request.url).pathname === "/texts/session" ? Response.json(linked) : routes(request));
+    // A test chat's jobs are its own objects (`jobs.js`), never the gateway's job home: a 501 sends the chat to them
+    // (`packages/tex/worker/jobObject.ts`), whoever answers the other routes.
+    const texts = (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/texts/session") return Response.json(linked);
+      if (path.startsWith("/texts/job-call/")) return Response.json({ error: "no_job_home" }, { status: 501 });
+      return routes(request);
+    };
     const { SenderInbox, remoteLine, remoteGroupLine, setChatBound } = await import("../../../tex/worker/gatewayChat.js");
     const inboxName = about.kind === "group" ? `group:${address.groupId}` : address.phones.values().next().value ?? "lab";
     const chatLine = { line: (chatId) => remoteLine(kept.rpc, inboxName, chatId), groupLine: (groupId) => remoteGroupLine(kept.rpc, inboxName, groupId) };
@@ -671,8 +677,6 @@ function textsRoutes({ about, sandboxEnv, ctx, gate }) {
     if (path === TEXTS_OLD_LINE_PATH) return await oldLineForTexts(request);
     // Node `edit` on the test chat's draft, as `/texts/edit` runs it on main's (`textsEdit.js`).
     if (path === TEXTS_EDIT_PATH) return await editForTexts(request, { graph: gatewayGraph({ config: gate.config ? withDraft(TEX_CONFIG, gate.config) : TEX_CONFIG }) });
-    // Where a job is (`jobPlace.ts`): a test chat's jobs are its own objects (`jobs.js`), never the gateway's job home.
-    if (path.startsWith("/texts/job-call/")) return Response.json({ error: "no_job_home" }, { status: 501 });
     gate.record({ kind: "Other", summary: `asked the gateway ${path}` });
     return Response.json({ error: "not_in_lab" }, { status: 403 });
   };

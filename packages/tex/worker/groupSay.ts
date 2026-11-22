@@ -57,7 +57,7 @@ export async function dropParts(storage: InboxStorage, turn: string): Promise<vo
 
 /**
  * Send one part, unless the same turn already sent this same part at this
- * same position: a workflow retry runs the turn again (`groupTurnWorkflow.ts`),
+ * same position: a retry runs the turn again (`groupRetry.ts`),
  * and what reached the chat the first time is not sent twice.
  */
 async function once(storage: InboxStorage, under: string, part: string, send: () => Promise<void>): Promise<void> {

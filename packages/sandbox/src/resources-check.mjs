@@ -79,9 +79,10 @@ export function problems({ read = (rel) => readFileSync(join(REPO, rel), "utf8")
       if (!(key in USED_BINDINGS)) found.push(`${source.source}: env.preview.${key} is not in packages/sandbox/src/resources.mjs; say whether a preview owns it (and how it is torn down) or only uses it`);
     }
     if (source.id === "agent") {
-      const bases = previewWorkflowBases(text).sort();
-      if (JSON.stringify(bases) !== JSON.stringify([...PREVIEW_WORKFLOWS].sort())) {
-        found.push(`${source.source}: preview workflows ${bases.join(", ")} differ from PREVIEW_WORKFLOWS in packages/sandbox/src/cleanup.mjs (${PREVIEW_WORKFLOWS.join(", ")}), so cleanup would miss one`);
+      // Cleanup may know more than the config makes now (an older preview's Workflows), never fewer.
+      const missed = previewWorkflowBases(text).filter((base) => !PREVIEW_WORKFLOWS.includes(base)).sort();
+      if (missed.length > 0) {
+        found.push(`${source.source}: preview workflows ${missed.join(", ")} missing from PREVIEW_WORKFLOWS in packages/sandbox/src/cleanup.mjs (${PREVIEW_WORKFLOWS.join(", ")}), so cleanup would miss one`);
       }
     }
   }

@@ -104,7 +104,7 @@ describe("inbox", () => {
   });
 
   // Dev2's one-door plan (2026-11-05): a 1:1 turn that failed after it started is tried again, as a group's is
-  // (`groupTurnWorkflow.ts`: three more times), where it used to say "something went wrong" at once.
+  // (`groupRetry.ts`: three more times), where it used to say "something went wrong" at once.
   it("tries a turn that failed after it started three more times, then says so once", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1", "q"), 1_000);

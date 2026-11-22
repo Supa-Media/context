@@ -35,6 +35,7 @@ export const PREVIEW_CEILING = 45;
 // The optional -preview suffix is the stray Worker name left by the secret bug (see deploy-preview.yml).
 const PREVIEW_WORKER = /^context-(mcp|agent|router|emulators)-pr([1-9][0-9]{0,6})(?:-preview)?$/;
 const RESOURCE_PREFIX = /^pr([1-9][0-9]{0,6})-/;
+// The texting Worker no longer makes these (deleted 2026-11-22); kept so previews deployed before then are cleaned up.
 export const PREVIEW_WORKFLOWS = ["group-turn", "job-run"];
 const WORKFLOW_PREVIEW = /^(group-turn|job-run)-pr([1-9][0-9]{0,6})$/;
 /** Pages read from a paginated list before the sweep gives up rather than guess. */

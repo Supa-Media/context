@@ -7,7 +7,7 @@
 
 import { retryText, stopTurn } from "./turnWatch";
 import { jobRoute } from "./jobRoutes";
-import { jobStub } from "./jobPlace";
+import { jobObject } from "./jobObject";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, keepEdit, react, type InboxDeps, type InboxStorage } from "./inbox";
@@ -55,7 +55,6 @@ import { simulatedGroupInbox, type SimGroupBody } from "./simulatorGroup";
 import { appCardConfig } from "./appCards";
 import { watchGroupPresenceDaily, whapiKeys } from "./whapi";
 import { noteCardDrawer } from "./noteCards";
-import { answerHanded, failHanded } from "./groupTurnRun";
 import { retryLater } from "./groupRetry";
 import { inboxByName, inboxIdOf, objectByName } from "./objectPlace";
 import { logDropped, logStep, textStep, sendStep } from "./stepEvents";
@@ -219,13 +218,6 @@ export class SenderInbox implements DurableObject {
     if (path === "/group-members-changed") {
       if (request.method !== "POST") return new Response(null, { status: 405 });
       return Response.json({ marked: await membersChanged(this.state.storage, Date.now()) });
-    }
-    // A group turn handed to a workflow before 2026-11-21 (`groupTurnWorkflow.ts`): only that workflow reaches these.
-    if (path === "/group-answer" || path === "/group-failed") {
-      const { turn } = (await request.json()) as { turn?: unknown };
-      if (typeof turn !== "string") return new Response(null, { status: 400 });
-      const deps = this.deps();
-      return Response.json({ outcome: await (path === "/group-answer" ? answerHanded : failHanded)(this.state.storage, deps, turn) });
     }
     if (path === "/group-routine") {
       const run = chatRoutineRunOf(await request.json());
@@ -491,12 +483,12 @@ export class SenderInbox implements DurableObject {
       now: () => Date.now(),
       ...this.remoteLines(),
       spawnJob: async (id: string, run: JobRun) => {
-        const stub = jobStub(this.env, id, { spawn: true });
+        const stub = jobObject(this.env, id);
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
       },
       steerJob: async (id: string, steer: JobSteer) => {
-        const stub = jobStub(this.env, id, { spawn: false });
+        const stub = jobObject(this.env, id);
         const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
         return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },

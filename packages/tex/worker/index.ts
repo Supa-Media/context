@@ -55,8 +55,6 @@ import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
 import { inboxByName, objectById } from "./objectPlace";
 import { chatByIdInGateway, chatInGateway, chatNamespace } from "./gatewayChats";
-export { GroupTurnWorkflow } from "./groupTurnWorkflow";
-export { JobRunWorkflow } from "./jobWorkflow";
 
 export type { Env } from "./env";
 import type { Env } from "./env";

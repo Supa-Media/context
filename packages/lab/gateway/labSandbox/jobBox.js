@@ -194,7 +194,6 @@ export const labJobFence = {
         get: (id) => ({ fetch: forward("inbox", String(id?.name ?? "")) }),
       },
       LINQ_API_KEY: "",
-      JOBS: "worker",
     };
   },
 };

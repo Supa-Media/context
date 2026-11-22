@@ -119,7 +119,7 @@ export type ReplyDeps = {
    * ran, as during a deploy), or one that failed after it started, throws
    * `TryLater` instead of saying something went wrong. A started turn is
    * tried again as a group's is (Dev2's one-door plan, 2026-11-05: 1:1 gains
-   * the group's retries; `groupTurnWorkflow.ts`), though its tools may have
+   * the group's retries; `groupRetry.ts`), though its tools may have
    * run: a held send is asked again, never sent, and the same ask is deduped.
    */
   retry?: boolean;

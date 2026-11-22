@@ -65,7 +65,7 @@ describe("the job node's output", () => {
     assert.deepEqual(paths, ["/job-failed", "/job-pass"]);
   });
 
-  it("an answer that is not ok fails the node, naming the path and the status; the workflow then retries", async () => {
+  it("an answer that is not ok fails the node, naming the path and the status; the job's alarm then tries again", async () => {
     await assert.rejects(runPass("pass", { call: async () => new Response("no", { status: 500 }) }), /\/job-pass answered 500/);
   });
 });
@@ -164,32 +164,29 @@ describe("a job's object runs its pass through the node", () => {
     const storage = new DoStorage();
     const state = { storage, id: { toString: () => NAME }, blockConcurrencyWhile: (run) => run(), waitUntil: () => {} };
     const rpc = { chatMove: async () => ({ status: 404, body: null }), inboxFetch: async () => Response.json({}), inboxId: async () => "", lineCall: async () => ({ ok: true, value: null }), groupLineCall: async () => ({ ok: true, value: null }), groupTurn: async () => null };
-    const env = { TEX_JOBS: "gateway", TEX_JOB_RUN: { create: async (o) => ({ id: o.id }), get: async (id) => ({ id }) }, TEXTING: rpc, rpc };
+    const env = { TEXTING: rpc, rpc };
     const object = new TexJobObject(state, env);
-    return { storage, object, pass: (path) => object.fetch(new Request(`https://job${path}`, { method: "POST" })), nodes: () => object.fetch(new Request("https://job/job-nodes")) };
+    return { storage, object, pass: (step) => object.passNext(step), nodes: () => object.fetch(new Request("https://job/job-nodes")) };
   };
 
-  it("answers a pass with the JSON its inner object answers, and keeps one node entry readable at GET /job-nodes", async () => {
+  it("answers a pass with what its inner object answers, and keeps one node entry readable at GET /job-nodes", async () => {
     const { storage, object, pass, nodes } = bornObject();
     await storage.put({ [BORN_KEY]: 1, [JOB_NAME_KEY]: NAME });
-    const through = await pass("/job-pass");
-    assert.equal(through.status, 200);
+    const through = await pass("pass");
     const direct = await (await object.job()).fetch(new Request("https://inbox/job-pass", { method: "POST" }));
-    const body = await through.json();
-    assert.deepEqual(body, await direct.json());
-    assert.deepEqual(body, { next: { kind: "done" } });
+    assert.deepEqual({ next: through }, await direct.json());
+    assert.deepEqual(through, { kind: "done" });
 
     const { nodes: kept } = await (await nodes()).json();
     assert.equal(kept.length, 1);
     assert.deepEqual([kept[0].step, kept[0].name, kept[0].ok, kept[0].output.next], ["node", "job", true, "done"]);
   });
 
-  it("answers 500 when the node fails (the workflow retries), records the failed node, and gives the lend back", async () => {
+  it("throws when the node fails (the job's alarm tries again), records the failed node, and gives the lend back", async () => {
     const { storage, object, pass, nodes } = bornObject();
     await storage.put({ [BORN_KEY]: 1, [JOB_NAME_KEY]: NAME });
     object.inner = { fetch: async () => new Response("no", { status: 500 }) };
-    const failed = await pass("/job-failed");
-    assert.equal(failed.status, 500);
+    await assert.rejects(pass("failed"));
     const { nodes: kept } = await (await nodes()).json();
     assert.deepEqual(kept.map((e) => [e.name, e.ok]), [["job", false]]);
     assert.equal(borrowJob(JOB), null);
@@ -198,7 +195,7 @@ describe("a job's object runs its pass through the node", () => {
   it("keeps the last 50 node entries, trimmed on each flush", async () => {
     const { storage, pass } = bornObject();
     await storage.put({ [BORN_KEY]: 1, [JOB_NAME_KEY]: NAME, [JOB_NODES_KEY]: Array.from({ length: JOB_NODES_KEPT }, (_, i) => ({ name: `old${i}`, ok: true })) });
-    await pass("/job-pass");
+    await pass("pass");
     const kept = await storage.get(JOB_NODES_KEY);
     assert.equal(kept.length, JOB_NODES_KEPT);
     assert.equal(kept.at(-1).name, "job");
@@ -206,9 +203,16 @@ describe("a job's object runs its pass through the node", () => {
   });
 
   it("an unborn object's node log answers 404 like every path it does not own", async () => {
-    const { pass, nodes } = bornObject();
+    const { nodes, object } = bornObject();
     assert.equal((await nodes()).status, 404);
-    assert.equal((await pass("/job-pass")).status, 404);
+    assert.equal((await object.fetch(new Request("https://job/job-pass", { method: "POST" }))).status, 404);
+  });
+
+  it("a born object never runs a pass asked from outside: only its own alarm does, through the node", async () => {
+    const { storage, object, nodes } = bornObject();
+    await storage.put({ [BORN_KEY]: 1, [JOB_NAME_KEY]: NAME });
+    for (const path of ["/job-pass", "/job-failed"]) assert.equal((await object.fetch(new Request(`https://job${path}`, { method: "POST" }))).status, 404);
+    assert.deepEqual((await (await nodes()).json()).nodes, []);
   });
 });
 

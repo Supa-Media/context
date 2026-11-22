@@ -4,7 +4,7 @@
  * `/texts/job-call/` route. Since 2026-11-21 its own alarm runs each pass (`jobDrive.ts`), never the Worker's workflow.
  *
  * Runs under `--experimental-transform-types` with `test/tsRegister.mjs` (`test/run.mjs`): the Worker's TypeScript
- * (`jobRun.ts`, `chatObject.ts`) is what answers, on in-memory storage, with a fake workflow that records each start.
+ * (`jobRun.ts`, `chatObject.ts`) is what answers, on in-memory storage.
  *
  * Sabotage record (run 2026-11-14, each break reverted before the next):
  *   1. The unborn guard in `TexJob.fetch` removed (`if (false)`): "an unborn job refuses every path but its start" failed
@@ -94,22 +94,6 @@ function fakeWorkerRpc() {
   return { rpc, calls };
 }
 
-/** The workflow binding: records each instance started, and refuses one already there, as `Workflow.create` does. */
-function fakeWorkflow() {
-  const created = [];
-  return {
-    created,
-    async create(options) {
-      if (created.some((one) => one.id === options.id)) throw new Error("instance already exists");
-      created.push(options);
-      return { id: options.id };
-    },
-    async get(id) {
-      return { id };
-    },
-  };
-}
-
 const gateway = () => ({ fetch: async () => Response.json({}, { status: 404 }) });
 const texts = () => ({ fetch: async () => Response.json({}, { status: 404 }) });
 const TexJobObject = texJobClass({ gateway, texts });
@@ -132,14 +116,8 @@ function jobNamespace(env) {
 }
 
 /** The gateway's environment for a job: the bindings a `TexJob` and its chat read. */
-function makeEnv({ jobs = true, job = true, workflow = fakeWorkflow(), rpc = fakeWorkerRpc() } = {}) {
-  // The Worker's job workflow, as its RPC starts it (`chatCalls.ts` `jobRun`): the inner object's `JOB_RUN` is this.
-  rpc.rpc.jobRun = async (call) => {
-    if (call.op === "get") await workflow.get(call.id);
-    else await workflow.create({ id: call.id, params: call.params });
-    return { ok: true };
-  };
-  const env = { TEX_JOBS: jobs ? "gateway" : "worker", TEXTING: rpc.rpc, rpc, workflow };
+function makeEnv({ job = true, rpc = fakeWorkerRpc() } = {}) {
+  const env = { TEXTING: rpc.rpc, rpc };
   if (job) env.TEX_JOB = jobNamespace(env);
   return env;
 }
@@ -158,12 +136,8 @@ const request = (method, path, { name, body, headers = {} } = {}) =>
 const objectOf = (env, name = NAME) => env.TEX_JOB.objects.get(name);
 
 describe("an unborn job's object", () => {
-  it("refuses every path but its start, and /job-here says it is not here", async () => {
+  it("refuses every path but its start, saying it is not here", async () => {
     const env = makeEnv();
-    const here = await env.TEX_JOB.get(NAME).fetch(request("GET", "/job-here"));
-    assert.equal(here.status, 200);
-    assert.deepEqual(await here.json(), { here: false });
-
     const steer = await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-steer", { name: NAME, body: { id: "s1", text: "faster" } }));
     assert.equal(steer.status, 404);
     assert.deepEqual(await steer.json(), { here: false });
@@ -180,7 +154,7 @@ describe("an unborn job's object", () => {
     };
     try {
       const env = makeEnv();
-      await env.TEX_JOB.get(NAME).fetch(request("GET", "/job-here"));
+      await env.TEX_JOB.get(NAME).fetch(request("GET", "/job-nodes"));
       await objectOf(env).alarm();
       assert.equal(alarms, 0);
     } finally {
@@ -199,8 +173,7 @@ describe("a job's start", () => {
     const object = objectOf(env);
     assert.equal(typeof (await object.state.storage.get(BORN_KEY)), "number");
     assert.equal(await object.state.storage.get(JOB_NAME_KEY), NAME);
-    // The inner object received `/job-start`, kept the run, and set its own alarm to drive it: no Worker workflow.
-    assert.equal(env.workflow.created.length, 0);
+    // The inner object received `/job-start`, kept the run, and set its own alarm to drive it.
     assert.deepEqual(await object.state.storage.get("jobdrive"), { pass: 0, tries: 0, overlaps: 0, dueAt: object.state.storage.alarm, resumes: 0 });
     assert.equal(typeof object.state.storage.alarm, "number");
   });
@@ -209,15 +182,12 @@ describe("a job's start", () => {
     const env = makeEnv();
     const bad = await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-start", { name: "chat-one", body: run() }));
     assert.equal(bad.status, 400);
-    assert.equal(env.workflow.created.length, 0);
     assert.equal(await objectOf(env).state.storage.get(BORN_KEY), undefined);
   });
 
-  it("after birth, /job-here is true, /job-steer reaches the inner object, and the name header is not seen inside", async () => {
+  it("after birth, /job-steer reaches the inner object, and the name header is not seen inside", async () => {
     const env = makeEnv();
     await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-start", { name: NAME, body: run() }));
-    const here = await env.TEX_JOB.get(NAME).fetch(request("GET", "/job-here"));
-    assert.deepEqual(await here.json(), { here: true });
 
     const steer = await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-steer", { name: NAME, body: { id: "s1", text: "faster" } }));
     assert.equal(steer.status, 200);
@@ -234,7 +204,6 @@ describe("a job's start", () => {
     await env.TEX_JOB.get(NAME).fetch(request("POST", "/job-start", { name: NAME, body: run() }));
     assert.equal(await objectOf(env).state.storage.get(BORN_KEY), born);
     assert.equal((await objectOf(env).state.storage.get("jobdrive")).dueAt, objectOf(env).state.storage.alarm, "the run is driven once");
-    assert.equal(env.workflow.created.length, 0);
   });
 });
 
@@ -281,20 +250,19 @@ describe("the job's alarm runs its pass", () => {
     const drive = await object.state.storage.get("jobdrive");
     assert.deepEqual({ pass: drive.pass, tries: drive.tries }, { pass: 0, tries: 1 });
     assert.equal(object.state.storage.alarm, drive.dueAt);
-    assert.equal(env.workflow.created.length, 0);
   });
 });
 
 describe("the route that hands a call to a job", () => {
   it("names the job by its header, refuses any other name, and 501s without the binding", async () => {
     const env = makeEnv();
-    const notAJob = await jobCallForTexts(request("GET", "/texts/job-call/job-here", { name: CHAT }), env);
+    const notAJob = await jobCallForTexts(request("GET", "/texts/job-call/job-nodes", { name: CHAT }), env);
     assert.equal(notAJob.status, 400);
-    const bare = await jobCallForTexts(request("GET", "/texts/job-call/job-here"), env);
+    const bare = await jobCallForTexts(request("GET", "/texts/job-call/job-nodes"), env);
     assert.equal(bare.status, 400);
 
     const selfHosted = makeEnv({ job: false });
-    const absent = await jobCallForTexts(request("GET", "/texts/job-call/job-here", { name: NAME }), selfHosted);
+    const absent = await jobCallForTexts(request("GET", "/texts/job-call/job-nodes", { name: NAME }), selfHosted);
     assert.equal(absent.status, 501);
     assert.deepEqual(await absent.json(), { error: "no_job_home" });
   });
@@ -302,8 +270,8 @@ describe("the route that hands a call to a job", () => {
   it("passes the path after the prefix, with its query, to the job's object, and the texting entrypoint routes the prefix", async () => {
     assert.equal(TEXTS_JOB_CALL_PREFIX, "/texts/job-call/");
     const env = makeEnv();
-    const answer = await TexTexts.fetch(request("GET", "/texts/job-call/job-here", { name: NAME }), env, undefined);
-    assert.equal(answer.status, 200);
+    const answer = await TexTexts.fetch(request("GET", "/texts/job-call/job-nodes", { name: NAME }), env, undefined);
+    assert.equal(answer.status, 404);
     assert.deepEqual(await answer.json(), { here: false });
     assert.deepEqual(env.TEX_JOB.placements.map((placement) => placement.id), [NAME]);
     assert.equal(typeof TexJob, "function");
@@ -318,7 +286,7 @@ describe("a chat's job calls", () => {
     env.TEX_CHAT = { idFromName: (name) => name, get: (name) => ({ fetch: async (request) => (chats.push([name, new URL(request.url).pathname]), Response.json({ ok: true })) }) };
     const inbox = await chatEnv(env, fakeState(CHAT), CHAT, "", { gateway: gateway, texts: texts });
     const jobId = inbox.SENDER_INBOX.idFromName(`enam:${NAME}`);
-    const jobAnswer = await inbox.SENDER_INBOX.get(jobId).fetch("https://inbox/job-here");
+    const jobAnswer = await inbox.SENDER_INBOX.get(jobId).fetch("https://inbox/job-nodes");
     assert.deepEqual(await jobAnswer.json(), { here: false });
     assert.ok(env.TEX_JOB.objects.has(NAME), "the job's object is the gateway's");
 
