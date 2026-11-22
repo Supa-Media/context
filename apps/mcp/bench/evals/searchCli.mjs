@@ -127,6 +127,22 @@ export async function worldsOf(run, source, options) {
   return { total: got.total, worlds: n === null ? got.worlds : got.worlds.map((w) => ({ ...w, cases: w.cases.slice(0, n) })) };
 }
 
+/** `--shard s/k` as `{ index: s - 1, of: k }`, or null. */
+export function shardOf(text) {
+  if (!text) return null;
+  const match = /^(\d+)\/(\d+)$/.exec(String(text));
+  const [index, of] = match ? [Number(match[1]), Number(match[2])] : [0, 0];
+  if (!match || of < 1 || index < 1 || index > of) throw new Error("--shard is s/k, 1 <= s <= k");
+  return { index: index - 1, of };
+}
+
+/** A run's result from its records (one process's, or every shard's put back in order): what the Lab reports. */
+export function resultOf(run, { total = null, records, ms, keep = false }) {
+  const search = run.score === "beir" ? beirScores(records) : run.score === "retrieval" ? retrievalScores(records) : { ...searchScores(records), byKind: byKind(records) };
+  const rows = records.map((r) => (run.score === "retrieval" ? { ...rowOf(r), ability: r.ability ?? "search" } : rowOf(r)));
+  return { bench: run.id, variant: run.variant, total: total ?? records.length, n: records.length, ms, search, scores: labScores(search), rows, records: keep ? records : undefined };
+}
+
 /** Run one search benchmark and return the result object the Lab's eval workflow reports. */
 export async function runSearchSet(options) {
   const { run, source } = await benchmarkOf(options.bench ?? "search-hard");
@@ -141,7 +157,10 @@ export async function runSearchSet(options) {
   const log = console.log;
   console.log = () => {};
   try {
-    const { total, worlds } = await worldsOf(run, source, { ...options, n });
+    const { total, worlds: all } = await worldsOf(run, source, { ...options, n });
+    const shard = shardOf(options.shard);
+    // One process's share of a `--parallel` run: every k-th case of each world (`cli.mjs search --parallel k`).
+    const worlds = shard ? all.map((w) => ({ ...w, cases: w.cases.filter((_, i) => i % shard.of === shard.index) })).filter((w) => w.cases.length > 0) : all;
     const repo = worlds.some((w) => w.base === "repo") ? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : null;
     const records = [];
     const many = worlds.length > 20;
@@ -163,9 +182,8 @@ export async function runSearchSet(options) {
         say(`${w.id}: nDCG@10 ${s.ndcg10}${s.objectNdcg10 !== undefined ? ` (objects ${s.objectNdcg10})` : ""}${s.bm25Ndcg10 !== null ? `, BM25 ${s.bm25Ndcg10}` : ""}, right note first ${s.firstPct}% in ${Math.round((Date.now() - at) / 1000)} s`);
       }
     }
-    const search = run.score === "beir" ? beirScores(records) : run.score === "retrieval" ? retrievalScores(records) : { ...searchScores(records), byKind: byKind(records) };
-    const rows = records.map((r) => (run.score === "retrieval" ? { ...rowOf(r), ability: r.ability ?? "search" } : rowOf(r)));
-    return { bench: run.id, variant: run.variant, total: total ?? records.length, n: records.length, ms: Date.now() - started, search, scores: labScores(search), rows, records: options["keep-records"] ? records : undefined };
+    // A shard reports the whole run's total, not its share of it.
+    return resultOf(run, { total: total ?? all.reduce((sum, w) => sum + w.cases.length, 0), records, ms: Date.now() - started, keep: options["keep-records"] === true || shard !== null });
   } finally {
     console.log = log;
   }

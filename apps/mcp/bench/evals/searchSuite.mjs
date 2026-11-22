@@ -165,6 +165,7 @@ async function catchingTraces(fn) {
  */
 export async function runSearchCases({ bench, cases, ai, today = null, settings = null, objects = true, onRecord = () => {}, log = () => {} }) {
   const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, `@${row.workspace}`]));
+  const warmStarted = realNow();
   const prepared = await prepareRun(bench, { today, ai });
   // Every model call the searches make, timed: the reranker's and the query embedding's, beside each case's line.
   const calls = [];
@@ -179,11 +180,12 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
   } } : realAi;
   const callsBetween = (from, to = calls.length) => calls.slice(from, to).map((c) => `${c.model} ${Math.round(c.ms)}ms n${c.n}${c.chars ? ` ${c.chars}ch` : ""}`).join(", ");
   const passages = [...prepared.embedded.values()].reduce((total, n) => total + n, 0);
-  log(`warmed ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes\n`);
+  log(`warmed ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes in ${Math.round((realNow() - warmStarted) / 1000)} s\n`);
   const models = { gatewayFetch: fakeGateway(), ai, ...(settings ? { searchSettings: settings } : {}) };
   const records = [];
+  const objectStarted = realNow();
   const objectWorld = objects ? await createObjectWorld(bench, { ai, settings }) : null;
-  if (objectWorld) log(`object world: ${Object.keys(bench.workspaces).length} workspace objects, both indexes built\n`);
+  if (objectWorld) log(`object world: ${Object.keys(bench.workspaces).length} workspace objects, both indexes built in ${Math.round((realNow() - objectStarted) / 1000)} s\n`);
   try {
     for (const [i, c] of cases.entries()) {
       const home = c.in ?? personal.get(c.as);

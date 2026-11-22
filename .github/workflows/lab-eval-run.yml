@@ -183,6 +183,17 @@ jobs:
           path: ${{ runner.temp }}/evals-data
           key: lab-evals-data-${{ needs.prep.outputs.bench }}-v2
 
+      # A search run's embeddings, kept by text: every run after the first embeds only what is new (its queries, a
+      # changed note), so a 10,000-note corpus is embedded once rather than on every run. Saved after every run
+      # under its own key, the newest restored.
+      - name: Keep the embeddings between runs
+        if: needs.prep.outputs.search == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/evals-embeddings
+          key: lab-evals-embeddings-${{ needs.prep.outputs.bench }}-${{ github.run_id }}
+          restore-keys: lab-evals-embeddings-${{ needs.prep.outputs.bench }}-
+
       - name: Claude Code has its token
         if: needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true'
         env:
@@ -210,7 +221,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           if [ "$SEARCH" = "true" ]; then
             # Embeddings only: no Claude Code, no socket answerer, no subscription read.
-            node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+            mkdir -p "$RUNNER_TEMP/evals-embeddings"
+            BENCH_EMBED_CACHE="$RUNNER_TEMP/evals-embeddings/vectors.txt" node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --parallel 4 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
             code=$?
             if [ "$code" != "0" ]; then
               tail -n 1 "$RUNNER_TEMP/eval.log" | head -c 280 > "$RUNNER_TEMP/why" || true

@@ -12,7 +12,8 @@ import { test } from "node:test";
 
 import { writeBeir } from "../../../../packages/bench/src/beir.mjs";
 import { cachedEmbeddings, fakeAi } from "../models.mjs";
-import { beirScores, missingExpected, retrievalScores, runSearchSet, withRecall } from "../evals/searchCli.mjs";
+import { beirScores, missingExpected, retrievalScores, runSearchSet, shardOf, withRecall } from "../evals/searchCli.mjs";
+import { main } from "../evals/cli.mjs";
 
 const quiet = async (fn) => {
   const write = process.stderr.write;
@@ -84,6 +85,15 @@ test("a tiny NanoBEIR set, kept as BEIR's files, runs end to end through search 
     assert.equal(out.search.objectNdcg10, 1);
     assert.ok(out.search.bm25Ndcg10 < 1, "BM25's list put the second query's note second");
     assert.deepEqual(out.rows.map((r) => r.id), ["scifact-q1", "scifact-q2"]);
+    // In two processes, each asking every other question: the same rows in the same order, scored as one run.
+    const out2 = join(dir, "two.json");
+    await quiet(() => main(["search", "--bench", "nanobeir", "--sets", "scifact", "--fetch", dir, "--fake", "--parallel", "2", "--out", out2]));
+    const two = JSON.parse(readFileSync(out2, "utf8"));
+    assert.deepEqual(two.rows.map((r) => [r.id, r.rank]), out.rows.map((r) => [r.id, r.rank]));
+    assert.equal(two.search.ndcg10, out.search.ndcg10);
+    assert.equal(two.total, 2);
+    assert.deepEqual(shardOf("2/3"), { index: 1, of: 3 });
+    assert.throws(() => shardOf("4/3"), /--shard/);
     await assert.rejects(runSearchSet({ bench: "nanobeir", sets: "nope", fetch: dir, fake: true }), /no NanoBEIR set nope/);
     await assert.rejects(runSearchSet({ bench: "nanobeir", fake: true }), /--fetch <dir> is required/);
     await assert.rejects(runSearchSet({ bench: "longmemeval-s", fake: true }), /memory benchmark/);
