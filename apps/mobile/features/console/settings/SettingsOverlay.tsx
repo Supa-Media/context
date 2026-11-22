@@ -180,6 +180,7 @@ export function SettingsOverlay({
       onSignOut={onSignOut}
       onSignOutEverywhere={onSignOutEverywhere}
       onOpenInvitation={onOpenInvitation}
+      onSwitchContext={onSwitchContext}
       onSelect={(next) => {
         onSelect(next);
         setListing(false);

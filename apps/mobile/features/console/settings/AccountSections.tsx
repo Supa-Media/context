@@ -52,9 +52,12 @@ export function AccountSection({
   onSignOutEverywhere,
   onOpenInvitation,
   onSelect,
+  onSwitchContext,
 }: {
   section: SettingsSectionKey;
   data: ConsoleData;
+  /** Opens a context's settings by handle: after a username change, the new one. */
+  onSwitchContext?: (slug: string) => void;
   /** Open another section, for the row that links to Feedback. */
   onSelect?: (key: SettingsSectionKey) => void;
   /**
@@ -174,7 +177,7 @@ export function AccountSection({
       <Card style={styles.spaced}>
         {/* A username can be changed twice, and the old one stays theirs (Dev2, 2026-11-22). Not in the demo. */}
         {owned && personal !== undefined && !data.demo ? (
-          <UsernameRows username={personal.slug} />
+          <UsernameRows username={personal.slug} onRenamed={onSwitchContext} />
         ) : (
           <Row style={styles.firstRow}>
             <Grow>

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useRouter } from "expo-router";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../../../design/components/Button";
 import { Row, Grow } from "../../../design/components/Card";
@@ -11,7 +10,6 @@ import { TextLink } from "../../../design/components/TextLink";
 import { space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { nameFeedback, nameStatus, normalizedName, shouldCheckAvailability } from "../../../onboarding/name";
-import { settingsHref } from "../../nav";
 
 /**
  * The Username row on Settings › Profile, with Change (Dev2, 2026-11-22: "only allow people to change twice in a
@@ -19,10 +17,20 @@ import { settingsHref } from "../../nav";
  * shows what it will do first: the new name, that the old one stays theirs and keeps working, and how many changes
  * are left. A former name of their own is always free to them, so it is offered without asking the server.
  */
-export function UsernameRows({ username }: { username: string }) {
+export function UsernameRows({
+  username,
+  onRenamed,
+}: {
+  username: string;
+  /**
+   * Moves the page to the new handle, since its address names the workspace by
+   * it. Handed down from the route rather than read from `expo-router` here, so
+   * the render suites that mount Settings need no router.
+   */
+  onRenamed?: (name: string) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
   const state = useQuery(api.functions.names.myUsername, isAuthenticated ? {} : "skip");
   const changeUsername = useMutation(api.functions.names.changeMyUsername);
@@ -49,8 +57,7 @@ export function UsernameRows({ username }: { username: string }) {
       const after = await changeUsername({ name: wanted });
       setEditing(false);
       setTyped("");
-      // The page's address names the workspace by its handle: move it to the new one.
-      router.replace(settingsHref(after.username, "profile"));
+      onRenamed?.(after.username);
     } catch (failure) {
       const message = (failure as { data?: { message?: string } })?.data?.message;
       setError(message ?? "That didn't change. Try again.");
