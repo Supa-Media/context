@@ -509,6 +509,13 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
         if (ran.error) return ran;
         return { ...ran, card: await cardNow(args.sandboxId, ran.msgId) };
       }
+      // A check-in now (`labSandbox/checkin.js`): in a test chat of your 1:1, on its draft, its card as a text's.
+      case "checkin": {
+        if (needId(args)) return needId(args);
+        const ran = await call({ op: "checkin", sandboxId: args.sandboxId, ...(args.hours === undefined ? {} : { hours: args.hours }) });
+        if (ran.error) return ran;
+        return { ...ran, card: await cardNow(args.sandboxId, ran.msgId) };
+      }
       default:
         // The route's own: chats, sets, get, back, drop, reset.
         return await call(args);

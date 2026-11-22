@@ -73,6 +73,7 @@ import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inboun
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
 import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
+import { checkInTestChat } from "./checkin.js";
 import { searchForPerson } from "./search.js";
 
 export { oneRowPerText };
@@ -678,11 +679,14 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       return json(await callSandbox(stub, "ledger.read", { chat: state.meta.chat.ledgerChat, options: readOptions(input.options) }));
     case "nightly":
       return await nightlyInTestChat({ ...deps, helpers: routeHelpers() }, state, input);
+    // A check-in now, on the test chat's draft (`checkin.js`): its reads real, its writes in the test copy, its text a row.
+    case "checkin":
+      return await checkInTestChat({ ...deps, helpers: routeHelpers() }, state, input);
     case "page": {
       const asset = await sandboxAsset(env, who.userId, input.sandboxId, input.id);
       return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
     }
     default:
-      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read or nightly");
+      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read, nightly or checkin");
   }
 }
