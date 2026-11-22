@@ -369,8 +369,8 @@ jobs:
           f="$RUNNER_TEMP/out/result.json"
           total=$(jq '.rows | length' "$f")
           # Rows go in batches of at most 50 rows (the report's own cap) and about 64 KB (one command-line argument holds
-          # 128 KB), six calls at once: a 343-question search run reports in seconds rather than a minute, one call per
-          # five rows. Each batch names its own place (`from`), so the order they land in does not matter.
+          # 128 KB): a 343-question search run reports in 7 calls rather than 69, one call per five rows. One call at a
+          # time: every call rewrites the run's row count, so calls at once collide and Convex gives up on some.
           mkdir -p "$RUNNER_TEMP/batches"
           node -e '
             const fs = require("fs");
@@ -389,7 +389,9 @@ jobs:
               from += take;
             }
           ' "$f" "$RUNNER_TEMP/batches" "$RUN_ID"
-          ls "$RUNNER_TEMP/batches"/*.json | xargs -P 6 -I {} sh -c 'npx convex run functions/labEvals:report "$(cat "$1")" > /dev/null 2>&1' _ {}
+          for batch in "$RUNNER_TEMP/batches"/*.json; do
+            npx convex run functions/labEvals:report "$(cat "$batch")" > /dev/null 2> "$RUNNER_TEMP/report.err" || { tail -c 600 "$RUNNER_TEMP/report.err" >&2; exit 1; }
+          done
           npx convex run functions/labEvals:report "$(jq -c --arg id "$RUN_ID" '{runId: $id, stage: "done", summary: (del(.rows))}' "$f")" > /dev/null 2>&1
           echo "Reported $total rows: $(jq -c '{n: .scores.n, correct: .scores.correct, pct: .scores.pct, usd: .scores.usd.total, fullRunUsd}' "$f")"
 
