@@ -163,23 +163,3 @@ test("the check-in's look runs as the Front door node on the checkin -> fd wire,
   const unwired = { wired: () => false };
   assert.equal((await lookThroughGraph(unwired, async () => ({ answer: "direct" }))).answer, "direct", "a config without the wire looks as before");
 });
-
-test("the check-in's look runs as the Front door node on the checkin -> fd wire, and logs as its own step", async () => {
-  const runs = [];
-  const nodes = Object.create(GATEWAY_NODES, { fd: { value: checkInLook } });
-  const graph = gatewayGraph({ config: TEX_CONFIG, nodes, log: (run) => runs.push(run) });
-  assert.ok(graph.wired("checkin", "fd"), "main wires the look");
-  const turn = await lookThroughGraph(graph, async () => ({ answer: "Your hearing is tomorrow.", model: "anthropic/claude-haiku-5-5", steps: [{}, {}], exhausted: false }));
-  assert.equal(turn.answer, "Your hearing is tomorrow.", "the look's turn comes back");
-  const fd = runs.find((run) => run.node === "fd");
-  assert.ok(fd, "the look logged as the fd step");
-  assert.equal(fd.via, "checkin:wait");
-  assert.deepEqual(fd.output, { pending: false, draftChars: 25, answeredBy: "anthropic/claude-haiku-5-5", steps: 2, exhausted: false });
-
-  const failing = gatewayGraph({ config: TEX_CONFIG, nodes, log: (run) => runs.push(run) });
-  const boom = new Error("provider down");
-  await assert.rejects(() => lookThroughGraph(failing, async () => { throw boom; }), (error) => error === boom, "a failed look throws its own error, as before");
-
-  const unwired = { wired: () => false };
-  assert.equal((await lookThroughGraph(unwired, async () => ({ answer: "direct" }))).answer, "direct", "a config without the wire looks as before");
-});
