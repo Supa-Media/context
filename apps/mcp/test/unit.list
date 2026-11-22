@@ -387,7 +387,6 @@ test/jobReportEntry.test.mjs
 test/jobReportReply.test.mjs
 test/agentHeartbeatFailure.test.mjs
 test/checkInQuietResearch.test.mjs
-test/checkInSpeak.test.mjs
 test/groupMemoryCarry.test.mjs
 test/groupPageCopy.test.mjs
 test/pictureCompressionUnit.test.mjs

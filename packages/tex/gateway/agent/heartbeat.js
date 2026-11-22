@@ -56,7 +56,6 @@ import { replyJudge } from "./replyJudge.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
-import { CHECK_IN_SPEAK_NOTICE, mailWorthAText } from "./checkInSpeak.js";
 import { SAY_NOTHING } from "./sayNothing.js";
 import { READ_SOURCE_PREFIX } from "./sources.js";
 import { appendConversation } from "./conversation.js";
@@ -511,7 +510,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       sayNothing: true,
       // Whether the look's silence stands: the Quiet check step decides, when the config wires it (`checkin -> quietCheck`,
       // `graph/nodes/quietCheck.js`; Dev2, 2026-11-22: "let refusal become a real node that we can tune"). A config
-      // without that wire keeps the word list (`checkInSpeak.js`) until the wire is promoted and the list removed.
+      // without that wire lets the look's silence stand; the word list it replaced (`checkInSpeak.js`) is gone.
       ...(graph.wired("checkin", "quietCheck")
         ? {
             sayNothingJudge: async (why) => {
@@ -519,7 +518,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
               return verdict?.to === "speak" ? { notice: speakNotice(verdict.why) } : null;
             },
           }
-        : { sayNothingNotice: mailWorthAText(mail.map((entry) => entry.line)) ? CHECK_IN_SPEAK_NOTICE : null }),
+        : {}),
       scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
       callTool: heartbeatCallTool(dispatch),
       web: checkInWeb(env, session.egress.ledger), // search only (`checkInWeb`)

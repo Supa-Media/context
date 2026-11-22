@@ -57,24 +57,6 @@ export const sayNothingRefused = {
 };
 
 /**
- * The first `say_nothing` is refused with `notice`, so the model writes the text.
- * The next call ends the turn, the same as `sayNothingLocal`. One hold, then silence stands.
- */
-export function sayNothingOnce(notice) {
-  let held = false;
-  return {
-    tool: SAY_NOTHING_DEFINITION,
-    call: async () => {
-      if (!held) {
-        held = true;
-        return { isError: true, content: [{ type: "text", text: notice }] };
-      }
-      return { content: [{ type: "text", text: "Nothing will be texted. Your turn ends here." }] };
-    },
-  };
-}
-
-/**
  * The first `say_nothing` asks `judge` (a check-in's Quiet check step, `graph/nodes/quietCheck.js`) with the call's
  * `why`. A judge that answers `{ notice }` refuses this silence with it, so the model writes the text; one that answers
  * null, or fails, lets the silence stand. The next call ends the turn whatever: one hold, then silence stands.

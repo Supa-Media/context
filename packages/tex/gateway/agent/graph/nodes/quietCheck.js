@@ -1,8 +1,8 @@
 /**
- * The Quiet check node, `quietCheck` (Dev2, 2026-11-22; on the node shelf until a Lab draft wires
- * `checkin -> quietCheck`, mode `uses`). A check-in that chose to text nothing asks it whether silence is right.
+ * The Quiet check node, `quietCheck` (Dev2, 2026-11-22; wired `checkin -> quietCheck`, mode `uses`, since the Lab
+ * promote that day). A check-in that chose to text nothing asks it whether silence is right.
  *
- * It replaces a word list (`checkInSpeak.js`, 2026-11-18) that refused a check-in's first silence whenever any new
+ * It replaced a word list (`checkInSpeak.js`, 2026-11-18, deleted 2026-11-22) that refused a check-in's first silence whenever any new
  * email was not a newsletter, a receipt or marketing. On 2026-11-22 that list overrode a right silence: Tex then
  * offered to RSVP yes to an invite Dev2 had already accepted. Dev2: "let refusal become a real node that we can tune".
  *
