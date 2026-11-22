@@ -44,6 +44,19 @@ export function wordCounts(text, terms) {
   return { tf, len: words.length };
 }
 
+/**
+ * A hit's counts per field, as the word index's own BM25 scores them (`d1/query.js` COLUMN_WEIGHTS): FTS5 scores each
+ * column on its own, normalized by that column's length, and sums them weighted (title 4, headings, which hold the
+ * file name, 2.5, body 1). Body counts stay at the top level (`tf`, `len`), so a hit counted before fields still
+ * scores; `title` and `name` are `{ tf, len }` of their own. Without them a short note named for the query lost to a
+ * longer one that only says the words in its text.
+ */
+export const FIELD_WEIGHTS = { title: 4, name: 2.5, body: 1 };
+export function fieldWordCounts({ title = "", path = "", body = "" }, terms) {
+  const name = String(path ?? "").split("/").pop().replace(/\.[^.]*$/, "");
+  return { ...wordCounts(body, terms), title: wordCounts(title, terms), name: wordCounts(name, terms) };
+}
+
 /** Statistics of several workspaces as one: chunks counted together, and per word the chunks holding it. */
 export function pooledStats(statsList) {
   let n = 0;
@@ -56,19 +69,33 @@ export function pooledStats(statsList) {
   return { n, df };
 }
 
-/** BM25 of one hit's counts against pooled statistics, with `avgLen` the mean length of the chunks scored. */
-export function bm25Of(words, terms, pooled, avgLen) {
-  if (!words || !words.tf) return 0;
-  const norm = avgLen > 0 ? words.len / avgLen : 1;
+/** BM25 of one field's counts against pooled statistics, with `avgLen` the mean length of that field in the hits. */
+function fieldScore(counts, terms, pooled, avgLen) {
+  if (!counts || !counts.tf) return 0;
+  const norm = avgLen > 0 ? counts.len / avgLen : 1;
   let score = 0;
   for (const term of terms) {
-    const f = words.tf[term] ?? 0;
+    const f = counts.tf[term] ?? 0;
     if (f === 0) continue;
     const df = pooled.df[term] ?? 0;
     const idf = Math.log(1 + (pooled.n - df + 0.5) / (df + 0.5));
     score += (idf * f * (K1 + 1)) / (f + K1 * (1 - B + B * norm));
   }
   return score;
+}
+
+/**
+ * BM25 of one hit's counts against pooled statistics. `avgLen` is the mean body length of the hits scored, or
+ * `{ body, title, name }` the mean of each field; the title and name fields, when counted, add their weighted scores.
+ */
+export function bm25Of(words, terms, pooled, avgLen) {
+  if (!words || !words.tf) return 0;
+  const avg = typeof avgLen === "number" ? { body: avgLen } : (avgLen ?? {});
+  return (
+    FIELD_WEIGHTS.body * fieldScore(words, terms, pooled, avg.body ?? 0) +
+    FIELD_WEIGHTS.title * fieldScore(words.title, terms, pooled, avg.title ?? 0) +
+    FIELD_WEIGHTS.name * fieldScore(words.name, terms, pooled, avg.name ?? 0)
+  );
 }
 
 /**
@@ -94,7 +121,8 @@ export function sharedWordRanks(lists, statsList, query, { floor = 0, top = 50 }
   const all = wordHits.flatMap((hits, list) => hits.map((hit) => ({ hit, list })));
   if (all.length === 0) return null;
   const pooled = pooledStats(statsList.filter((_, i) => wordHits[i].length > 0));
-  const avgLen = all.reduce((total, { hit }) => total + hit.words.len, 0) / all.length;
+  const mean = (field) => all.reduce((total, { hit }) => total + ((field ? hit.words[field]?.len : hit.words.len) ?? 0), 0) / all.length;
+  const avgLen = { body: mean(null), title: mean("title"), name: mean("name") };
   const scored = all.map((entry) => ({ ...entry, score: bm25Of(entry.hit.words, terms, pooled, avgLen) }));
   scored.sort((a, b) => b.score - a.score || a.list - b.list || a.hit.wordRank - b.hit.wordRank);
   const rank = new Map(scored.map(({ hit }, place) => [hit, place]));

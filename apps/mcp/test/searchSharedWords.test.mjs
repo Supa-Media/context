@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { bm25Of, pooledStats, queryTerms, sharedWordRanks, termsOf, wordCounts } from "../src/search/sharedWords.js";
+import { bm25Of, fieldWordCounts, pooledStats, queryTerms, sharedWordRanks, termsOf, wordCounts } from "../src/search/sharedWords.js";
 import { fuseEverywhere } from "../src/search/fuse.js";
 import { FUSE_RANKING, rankingOf } from "../src/search/ranking.js";
 
@@ -15,6 +15,22 @@ test("words are cut as FTS5's unicode61 cuts them: lower-case, no accents, lette
   assert.deepEqual(termsOf("Café Q3-budget, NAÏVE!"), ["cafe", "q3", "budget", "naive"]);
   assert.deepEqual(queryTerms("the the budget The"), ["the", "budget"]);
   assert.deepEqual(wordCounts("budget the budget", ["budget", "plan"]), { tf: { budget: 2 }, len: 3 });
+});
+
+test("fields count as the word index weighs them: a short note named for the query beats one only saying it in its text", () => {
+  // Juniper logo (search-real's Dev part): the brand note is titled and named for the product; another note says
+  // "Juniper" and "logo" in a longer title and more often in its text. FTS5 ranks the brand note first in its own
+  // workspace (title 4, file name 2.5, each normalized by its own length); the shared scale must too.
+  const terms = queryTerms("Juniper logo");
+  assert.deepEqual(fieldWordCounts({ title: "Juniper", path: "brand/juniper.md", body: "the logo" }, terms), {
+    tf: { logo: 1 }, len: 2, title: { tf: { juniper: 1 }, len: 1 }, name: { tf: { juniper: 1 }, len: 1 },
+  });
+  const brand = { key: "brand/juniper.md", wordRank: 0, words: fieldWordCounts({ title: "Juniper", path: "resources/brand/juniper.md", body: `${"colour type spacing ".repeat(40)} logo logo` }, terms) };
+  const rewrite = { key: "projects/juniper-prompt-rewrite.md", wordRank: 1, words: fieldWordCounts({ title: "Juniper prompt rewrite", path: "projects/juniper-prompt-rewrite.md", body: `juniper juniper ${"prompt ".repeat(20)} logo logo` }, terms) };
+  const shared = sharedWordRanks([[brand, rewrite]], [{ n: 9, df: { juniper: 3, logo: 3 } }], "Juniper logo");
+  assert.equal(shared.rank.get(brand), 0);
+  // Body counts alone (a hit counted before fields) still score.
+  assert.ok(bm25Of({ tf: { logo: 1 }, len: 5 }, terms, { n: 9, df: { logo: 3 } }, 5) > 0);
 });
 
 test("pooled statistics add chunks and per-word counts, skipping a workspace with none", () => {
