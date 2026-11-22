@@ -152,6 +152,10 @@ export function beirWorld(set, { workspace = "sam", as = "Sam", folder = "beir",
     notes[address] = noteOf(doc);
   }
   const judged = set.queries.filter((q) => relevantOf(set, String(q._id)).length > 0);
+  // Every workspace a document names besides the searcher's own is a shared one the searcher is a member of, so a
+  // search with no workspace named reaches all of them, as a person's own search does.
+  const others = [...new Set(set.corpus.map((doc) => doc.workspace ?? workspace))].filter((ws) => ws !== workspace).sort();
+  const people = others.map((ws) => ({ person: as, workspace: ws, personal: false, role: "member" }));
   const cases = sliceOf(judged, n, slice).map((q) => {
     const qid = String(q._id);
     return {
@@ -166,7 +170,7 @@ export function beirWorld(set, { workspace = "sam", as = "Sam", folder = "beir",
       ...(Array.isArray(q.bm25) ? { bm25: q.bm25.map((d) => addressOf.get(String(d))).filter(Boolean) } : {}),
     };
   });
-  return { notes, cases };
+  return { notes, cases, people };
 }
 
 /** The set's haystacks: one per `group` when its documents carry one, else the whole set as one. */

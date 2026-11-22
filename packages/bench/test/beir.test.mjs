@@ -12,7 +12,7 @@ import { test } from "node:test";
 
 import { beirOf, load as loadLongMemEval, slugOf } from "../benchmarks/longmemeval/source.mjs";
 import { loadRaw as loadHerb, toBeir as herbBeir } from "../benchmarks/herb/source.mjs";
-import { FOLDERS, keptDocuments, sliceCorpus, slugOf as noteSlug, toBeir as erbBeir } from "../benchmarks/enterprise-rag-notes/source.mjs";
+import { FOLDERS, SPLIT, keptDocuments, sliceCorpus, slugOf as noteSlug, splitSet, toBeir as erbBeir } from "../benchmarks/enterprise-rag-notes/source.mjs";
 import { loadSet as loadNanoSet, SETS as NANO_SETS } from "../benchmarks/nanobeir/source.mjs";
 import { beirWorld, beirWorlds, fileOf, memoryCases, readBeir, relevantOf, writeBeir } from "../src/beir.mjs";
 import { mrrAt, ndcgAt, recallAt } from "../src/score.mjs";
@@ -291,6 +291,16 @@ test("EnterpriseRAG Notes reads only the kept tools' rows, files each in its PAR
   const world = beirWorld(set, { folder: "resources" });
   assert.ok(world.notes["@sam/resources/wiki/billing-runbook.md"].startsWith("# Billing Runbook!"));
   assert.deepEqual(world.cases.map((c) => c.expect), [["@sam/resources/wiki/billing-runbook.md"]]);
+  assert.deepEqual(world.people, [], "one workspace: nobody else to reach");
+  // The split run: each note in its tool's workspace, and the searcher a member of every shared one.
+  const split = beirWorld(splitSet(set), { folder: "resources" });
+  assert.ok(split.notes[`@${SPLIT.confluence}/resources/wiki/billing-runbook.md`]);
+  assert.ok(split.notes[`@${SPLIT.linear}/projects/issues/refund-bug.md`]);
+  assert.deepEqual(split.cases.map((c) => c.expect), [[`@${SPLIT.confluence}/resources/wiki/billing-runbook.md`]]);
+  assert.deepEqual(
+    split.people,
+    ["acme-eng", "acme-wiki"].map((workspace) => ({ person: "Sam", workspace, personal: false, role: "member" })),
+  );
 });
 
 test("EnterpriseRAG Notes' everyday slice keeps every cited note, then the closest-titled of each tool, the same every run", () => {

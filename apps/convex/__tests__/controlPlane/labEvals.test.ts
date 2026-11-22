@@ -159,7 +159,7 @@ describe("the workflow's reports", () => {
     expect(run.questions[0]).not.toHaveProperty("secretField");
     expect(run.questions[1]).toMatchObject({ id: "q1", correct: false, calls: [{ tool: "search", input: '{"query":"bikes"}' }] });
     const listed = await door("evals", {});
-    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle", "enterprise-rag-notes", "enterprise-rag-notes-full", "herb", "longmemeval-retrieval", "nanobeir", "nanobeir-gate", "search-hard", "search-real"]);
+    expect(listed.benches.map((b: { id: string }) => b.id)).toEqual(["longmemeval-s", "longmemeval-oracle", "enterprise-rag-notes", "enterprise-rag-notes-split", "enterprise-rag-notes-full", "herb", "longmemeval-retrieval", "nanobeir", "nanobeir-gate", "search-hard", "search-real"]);
     expect(listed.runs[0]).toMatchObject({ id, stage: "done" });
     expect(listed.runs[0]).not.toHaveProperty("questions");
   });

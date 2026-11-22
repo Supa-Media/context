@@ -42,6 +42,26 @@ export const FOLDERS = Object.freeze({
 });
 export const LEFT_OUT = Object.freeze(["slack", "gmail"]);
 
+/**
+ * A split run's workspaces (Dev2, 2026-11-22: search ranks every workspace as equal, and no benchmark measured it,
+ * since each kept every note in one workspace). One person, Sam, whose personal workspace holds the meetings they
+ * recorded, and who is a member of three shared ones the way a team's tools would be: engineering's issues, tickets
+ * and pull requests, the company wiki and docs, and sales' customer records. Each search names no workspace, so it
+ * asks all four, and the right note has to win across them.
+ */
+export const SPLIT = Object.freeze({
+  fireflies: "sam",
+  linear: "acme-eng",
+  jira: "acme-eng",
+  github: "acme-eng",
+  confluence: "acme-wiki",
+  google_drive: "acme-wiki",
+  hubspot: "acme-sales",
+});
+
+/** The set with each note in its tool's workspace (`SPLIT`). */
+export const splitSet = (set) => ({ ...set, corpus: set.corpus.map((d) => ({ ...d, workspace: SPLIT[d.tool] ?? "sam" })) });
+
 const say = (line) => process.stderr.write(`${line}\n`);
 
 /** A title as a file name: lower-case words joined by hyphens, never empty, never long. */
@@ -170,8 +190,9 @@ export async function load({ run, dir, ...options }) {
   const cutFolder = size && dir ? join(dir, "enterprise-rag-notes", `notes-${size}`) : null;
   const cut = cutFolder ? readBeir(cutFolder) : null;
   const set = cut ?? (await loadSet(dir, options));
-  const out = cut ?? sliceCorpus(set, size);
-  if (cutFolder && !cut) writeBeir(cutFolder, out);
-  say(`EnterpriseRAG Notes: ${out.corpus.length} notes, ${Object.keys(out.qrels).length} questions with cited notes${set.revision ? ` (revision ${set.revision.slice(0, 7)})` : ""}`);
+  const sliced = cut ?? sliceCorpus(set, size);
+  if (cutFolder && !cut) writeBeir(cutFolder, sliced);
+  const out = run.split === true ? splitSet(sliced) : sliced;
+  say(`EnterpriseRAG Notes: ${out.corpus.length} notes${run.split === true ? ` in ${new Set(out.corpus.map((d) => d.workspace)).size} workspaces` : ""}, ${Object.keys(out.qrels).length} questions with cited notes${set.revision ? ` (revision ${set.revision.slice(0, 7)})` : ""}`);
   return [out];
 }
