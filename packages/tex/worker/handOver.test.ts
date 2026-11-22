@@ -3,13 +3,12 @@
  *   1. toChat's fallback broken: `if (outcome === "failed")` replaced so a failed hand-over returns a 503 Response
  *      instead of null. Failing: "a failed hand-over falls back to the SenderInbox" (index-level) and the toChat
  *      failed-outcome cases.
- *   2. default broken: intakeOf returns "gateway" for undefined. Failing: "unset INTAKE is worker" and the index-level
- *      "INTAKE unset keeps the SenderInbox" case (the binding was then called).
- *   Both reverted; this file is the green state.
+ *   Reverted; this file is the green state. The `INTAKE` switch and its default case went 2026-11-22: every text is
+ *   handed over whenever the gateway is bound.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
-import { handOver, intakeOf, toChat } from "./handOver";
+import { handOver, toChat } from "./handOver";
 import type { TextsBinding } from "./gatewaySession";
 
 type Call = { url: string; body: Record<string, unknown> };
@@ -34,22 +33,6 @@ const CALL = { kind: "one" as const, inbox: "chat:+15555550100", eventId: "linq:
 
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-describe("intakeOf", () => {
-  it("is gateway only for exactly that string, trimmed", () => {
-    expect(intakeOf("gateway")).toBe("gateway");
-    expect(intakeOf("  gateway\n")).toBe("gateway");
-  });
-
-  it("is worker for unset, empty, and anything else", () => {
-    expect(intakeOf(undefined)).toBe("worker");
-    expect(intakeOf("")).toBe("worker");
-    expect(intakeOf("worker")).toBe("worker");
-    expect(intakeOf("Gateway")).toBe("worker");
-    expect(intakeOf("gateway-ish")).toBe("worker");
-    expect(intakeOf("true")).toBe("worker");
-  });
 });
 
 describe("handOver", () => {
@@ -103,15 +86,14 @@ describe("handOver", () => {
 });
 
 describe("toChat", () => {
-  it("is null without a call to the binding when INTAKE is unset or worker", async () => {
+  it("hands over whenever the gateway is bound, with no switch to read", async () => {
     const { binding: b, calls } = binding(answer("queued"));
-    expect(await toChat({ GATEWAY_TEXTS: b }, "one", "chat:+15555550100", { eventId: "e" })).toBeNull();
-    expect(await toChat({ INTAKE: "worker", GATEWAY_TEXTS: b }, "one", "chat:+15555550100", { eventId: "e" })).toBeNull();
-    expect(calls).toEqual([]);
+    expect((await toChat({ GATEWAY_TEXTS: b }, "one", "chat:+15555550100", { eventId: "e" }))?.status).toBe(200);
+    expect(calls).toHaveLength(1);
   });
 
-  it("is null when the gateway binding is absent, even with INTAKE=gateway", async () => {
-    expect(await toChat({ INTAKE: "gateway" }, "one", "chat:+15555550100", {})).toBeNull();
+  it("is null when the gateway binding is absent (self-hosting without it)", async () => {
+    expect(await toChat({}, "one", "chat:+15555550100", {})).toBeNull();
   });
 
   // The SenderInbox's routes answer 200 for every outcome, "full" included, and the webhook answers `result.ok`; the
@@ -119,7 +101,7 @@ describe("toChat", () => {
   it("answers 200 for every outcome, full included, and sends the event id it carries", async () => {
     for (const outcome of ["queued", "duplicate", "full", "held"]) {
       const { binding: b, calls } = binding(answer(outcome));
-      const response = await toChat({ INTAKE: "gateway", GATEWAY_TEXTS: b }, "one", "chat:+15555550100", { eventId: "linq:evt_9", text: "hi" }, "https://agent.example");
+      const response = await toChat({ GATEWAY_TEXTS: b }, "one", "chat:+15555550100", { eventId: "linq:evt_9", text: "hi" }, "https://agent.example");
       expect(response?.status).toBe(200);
       expect(calls[0].body).toMatchObject({ kind: "one", inbox: "chat:+15555550100", eventId: "linq:evt_9", origin: "https://agent.example" });
     }
@@ -129,14 +111,14 @@ describe("toChat", () => {
     const lines: string[] = [];
     vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
     const { binding: b } = binding(answer("queued", 500));
-    expect(await toChat({ INTAKE: "gateway", GATEWAY_TEXTS: b }, "react", "chat:+15555550100", { text: "hi" })).toBeNull();
+    expect(await toChat({ GATEWAY_TEXTS: b }, "react", "chat:+15555550100", { text: "hi" })).toBeNull();
     expect(lines.map((line) => JSON.parse(line))).toContainEqual({ event: "intake_handover_fallback", kind: "react" });
     expect(lines.join("\n")).not.toMatch(/5555550|hi"/);
   });
 
   it("carries no event id for a members change, which has none", async () => {
     const { binding: b, calls } = binding(answer("queued"));
-    await toChat({ INTAKE: "gateway", GATEWAY_TEXTS: b }, "members", "sendblue-group:abc", null);
+    await toChat({ GATEWAY_TEXTS: b }, "members", "sendblue-group:abc", null);
     expect(calls[0].body).toEqual({ kind: "members", inbox: "sendblue-group:abc", message: null });
   });
 });
@@ -193,20 +175,18 @@ function workerEnv(extra: Partial<Env>): { env: Env; seen: { inboxFetched: numbe
   return { env, seen };
 }
 
-describe("the webhook with INTAKE", () => {
-  it("keeps the SenderInbox when INTAKE is unset, and never calls the binding", async () => {
-    const { binding: b, calls } = binding(answer("queued"));
-    const w = workerEnv({ GATEWAY_TEXTS: b });
+describe("the webhook hands over", () => {
+  it("keeps the SenderInbox only without a gateway binding", async () => {
+    const w = workerEnv({});
     vi.spyOn(console, "log").mockImplementation(() => {});
     const response = await worker.fetch(await signedRequest(received), w.env);
     expect(response.status).toBe(200);
     expect(w.seen.inboxFetched).toBe(1);
-    expect(calls).toEqual([]);
   });
 
-  it("hands a 1:1 text to the gateway with INTAKE=gateway, and leaves the inbox alone", async () => {
+  it("hands a 1:1 text to the gateway, and leaves the inbox alone", async () => {
     const { binding: b, calls } = binding(answer("queued"));
-    const w = workerEnv({ INTAKE: "gateway", GATEWAY_TEXTS: b });
+    const w = workerEnv({ GATEWAY_TEXTS: b });
     vi.spyOn(console, "log").mockImplementation(() => {});
     const response = await worker.fetch(await signedRequest(received), w.env);
     expect(response.status).toBe(200);
@@ -218,7 +198,7 @@ describe("the webhook with INTAKE", () => {
 
   it("falls back to the SenderInbox when the hand-over fails, so the text is not dropped", async () => {
     const { binding: b, calls } = binding(answer("queued", 500));
-    const w = workerEnv({ INTAKE: "gateway", GATEWAY_TEXTS: b });
+    const w = workerEnv({ GATEWAY_TEXTS: b });
     vi.spyOn(console, "log").mockImplementation(() => {});
     const response = await worker.fetch(await signedRequest(received), w.env);
     expect(response.status).toBe(200);

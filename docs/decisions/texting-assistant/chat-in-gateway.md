@@ -41,8 +41,12 @@ Worker's object busy leaves that object answering, and the hand-over falls
 back to it. The copy keeps the id the object had in the Worker, so the
 addresses it minted for pictures and pages, and its counts, still name it.
 
-**Which chats come is the Worker's `INTAKE` var**, `worker` on both
-deployments until the staging proof; nothing moves while it is.
+**Which chats came was the Worker's `INTAKE` var**, `worker` on both
+deployments until the staging proof; nothing moved while it was. The var is
+gone since 2026-11-22 (part C of the runtime simplification): the Worker hands
+every text over whenever `GATEWAY_TEXTS` is bound, and falls back to its
+SenderInbox only when the hand-over fails or the binding is absent
+(self-hosting without the gateway's entrypoint).
 
 **Production moves one chat at a time first** (Dev2, 2026-11-21, approving the
 runtime simplification: "test on your chat first, then Tex Devs, then
@@ -53,8 +57,8 @@ starts, with no text, after which the Worker's object passes that chat's every
 call on, whatever `INTAKE` says. `{ op: "intake" }` lists where each of the
 caller's chats is answered. Only then is `INTAKE` flipped for everyone.
 Dev2's 1:1 moved 2026-11-21 19:33Z (75 keys; its next texts answered from
-the gateway in about 7 s), Tex Devs at 22:01Z (47 keys), and `INTAKE` is
-`gateway` in production since.
+the gateway in about 7 s), Tex Devs at 22:01Z (47 keys), and `INTAKE` was
+`gateway` in production from 2026-11-22 06:28Z until the var was deleted.
 
 **A chat idle since the placement move is brought along whole.** The gateway's
 copy asks the Worker's placed inbox to arrive first (`/__arrive`,

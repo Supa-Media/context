@@ -1,9 +1,7 @@
 /**
- * Where an incoming text's head runs (`INTAKE`, step 3 of Tex's config graph, docs/architecture/tex.md).
- *
- * "worker" keeps today's path: the webhook hands the text to its SenderInbox Durable Object. "gateway" hands it to
- * the gateway's `TexTexts` entrypoint at `/texts/arrive`, which queues it in the gateway's TexChat. The default is
- * "worker", so nothing changes until the var is flipped.
+ * Every incoming text's head runs in the gateway (step 3 of Tex's config graph, docs/architecture/tex.md): the webhook
+ * hands it to the gateway's `TexTexts` entrypoint at `/texts/arrive`, which queues it in the gateway's TexChat. The
+ * `INTAKE` switch that picked between this and the Worker's SenderInbox is gone (every chat moved 2026-11-22).
  *
  * A hand-over that fails (a non-200, a throw, an outcome it does not know) falls back to the SenderInbox, so a text
  * is never dropped by the move. The log names the kind and the outcome, never the text, the phone or the inbox name.
@@ -11,19 +9,12 @@
 
 import type { TextsBinding } from "./gatewaySession";
 
-export type Intake = "worker" | "gateway";
-
 /** The hand-over's kinds: a 1:1 text, a group message, a tapback, a group whose members changed, and an edit of a text. */
 export type HandOverKind = "one" | "group" | "react" | "members" | "edit";
 
 /** Every outcome the chat object's routes answer with (`inbox.ts` accept and react, `groupInbox.ts` acceptGroup, an edit's "same"). */
 const OUTCOMES = ["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped", "redirected", "same"] as const;
 export type HandOverOutcome = (typeof OUTCOMES)[number] | "failed";
-
-/** "gateway" only for exactly that string (trimmed); anything else, unset included, is "worker". */
-export function intakeOf(value: string | undefined): Intake {
-  return typeof value === "string" && value.trim() === "gateway" ? "gateway" : "worker";
-}
 
 /**
  * POSTs one text (or tapback, or members change) to the gateway's `/texts/arrive`. Resolves to the gateway's outcome,
@@ -67,16 +58,16 @@ function eventIdOf(message: unknown): string | undefined {
 /**
  * The Worker's one call site per forward. Returns the Response to answer the webhook with when the gateway took the
  * text (200 for every outcome, as the SenderInbox's own routes answer: the webhook is not asked to send it again), or null
- * when the SenderInbox should take it: the var says "worker", the binding is absent, or the hand-over failed.
+ * when the SenderInbox should take it: the binding is absent (self-hosting without it), or the hand-over failed.
  */
 export async function toChat(
-  env: { INTAKE?: string; GATEWAY_TEXTS?: TextsBinding },
+  env: { GATEWAY_TEXTS?: TextsBinding },
   kind: HandOverKind,
   inbox: string,
   message: unknown,
   origin?: string,
 ): Promise<Response | null> {
-  if (intakeOf(env.INTAKE) !== "gateway" || env.GATEWAY_TEXTS === undefined) return null;
+  if (env.GATEWAY_TEXTS === undefined) return null;
   const outcome = await handOver(env.GATEWAY_TEXTS, { kind, inbox, eventId: eventIdOf(message), message, origin });
   if (outcome === "failed") {
     console.log(JSON.stringify({ event: "intake_handover_fallback", kind }));

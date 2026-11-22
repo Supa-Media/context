@@ -186,7 +186,7 @@ describe("texts simulator", () => {
       },
     };
     const { env, objects } = setup("on");
-    const there = { ...env, INTAKE: "gateway", GATEWAY_TEXTS: gateway };
+    const there = { ...env, GATEWAY_TEXTS: gateway };
     const sent = await worker.fetch(api("/send", { key: KEY, body: { phone: PHONE, text: "hi" } }), there);
     expect(await sent.json()).toEqual({ outcome: "queued" });
     expect(calls).toHaveLength(1);

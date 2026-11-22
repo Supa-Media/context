@@ -123,7 +123,7 @@ describe("a webhook", () => {
     const env = {
       SENDER_INBOX: { idFromName: (name: string) => ({ name }), get: () => ({ fetch: async () => Response.json({ outcome: "queued" }) }) } as unknown as DurableObjectNamespace,
       LINQ_WEBHOOK_SECRET: SECRET, LINQ_API_KEY: "k", AGENT_WORKER_SECRET: "s", CONTROL_PLANE_ORIGIN: "https://cp.example", GATEWAY_ORIGIN: "https://gw.example",
-      INTAKE: "gateway", GATEWAY_TEXTS: gateway,
+      GATEWAY_TEXTS: gateway,
     } as Env;
     vi.spyOn(console, "log").mockImplementation(() => {});
     expect((await worker.fetch(await signedLinq(body), env)).status).toBe(200);
