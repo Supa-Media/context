@@ -88,6 +88,17 @@
       "about": "EnterpriseRAG-Bench without Slack or email: 343 questions over 10,000 of its notes (every cited one, the rest the closest-titled of the same kind), scored by nDCG@10 per question type. Embeddings only."
     },
     {
+      "id": "enterprise-rag-notes-split",
+      "benchmark": "enterprise-rag-notes",
+      "title": "EnterpriseRAG Notes",
+      "variant": "10k notes, 4 workspaces",
+      "total": 343,
+      "kind": "search",
+      "search": true,
+      "score": "beir",
+      "about": "The same 343 questions and 10,000 notes, split the way a person reaches them: their own workspace (meetings) and three shared ones (engineering, wiki and docs, sales). Each search asks all four, so it measures ranking across workspaces. Embeddings only."
+    },
+    {
       "id": "enterprise-rag-notes-full",
       "benchmark": "enterprise-rag-notes",
       "title": "EnterpriseRAG Notes",

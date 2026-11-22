@@ -108,7 +108,11 @@ sorted by tool) is read with HTTP range requests, only the kept tools' rows, and
 folder. `enterprise-rag-notes` searches 10,000 of the notes (every cited one, then per tool the documents whose titles
 share the most words with that tool's questions, the hard distractors, the same every run);
 `enterprise-rag-notes-full` searches all of them, which takes hours of embeddings. Scored like NanoBEIR, per question
-type. It is a measure, not part of the gate.
+type. It is a measure, not part of the gate. `enterprise-rag-notes-split` (owner, 2026-11-22: search "treats workspaces
+as equal" instead of ranking which one a query belongs to) is the same 10,000 notes across four workspaces the searcher
+reaches: their own (meetings) and three shared ones (engineering's issues, tickets and pull requests; the wiki and
+docs; sales' customer records). Each search names no workspace, so it measures ranking across workspaces, which every
+other benchmark here, one workspace each, cannot.
 
 **Every benchmark is a folder** (owner, 2026-11-21: "we are going to be creating a lot of custom bench marks
 internally ... define new bench marks in folders", "we love to reuse formats for all of our benchmarks").
