@@ -79,6 +79,14 @@ export async function prepareRun(bench, { today = null, ai = null, embedWaits = 
     d1.close();
   }
 
+  return preparedFrom({ dir, today, buckets, indexed, vectors: vectorize ? vectorize.snapshotAll() : null, embedded });
+}
+
+/**
+ * A warmed run from its parts: `dir` holds each workspace's warmed search database as `<name>.db`, and is removed on
+ * `close`. `prepareRun` builds the parts; `evals/worldCache.mjs` reads them back from a kept copy.
+ */
+export function preparedFrom({ dir, today = null, buckets, indexed, vectors, embedded }) {
   let copies = 0;
   return {
     today,
@@ -86,9 +94,11 @@ export async function prepareRun(bench, { today = null, ai = null, embedWaits = 
     /** Notes written to each workspace's search database. */
     indexed,
     /** Each workspace's meaning index, as `createVectorizeBackend` seeds one; null when the run has no embedder. */
-    vectors: vectorize ? vectorize.snapshotAll() : null,
+    vectors,
     /** Passages embedded per workspace. */
     embedded,
+    /** The file a workspace's warmed database is kept in (never opened: `openCopy` copies it). */
+    databaseFile: (name) => join(dir, `${name}.db`),
     /** A fresh copy of a workspace's warmed database, for one conversation. */
     openCopy(databaseId, into = []) {
       const name = [...buckets.keys()].find((workspace) => searchIndexFor(workspace, "ready").databaseId === databaseId);

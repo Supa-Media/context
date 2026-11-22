@@ -194,6 +194,16 @@ jobs:
           key: lab-evals-embeddings-${{ needs.prep.outputs.bench }}-${{ github.run_id }}
           restore-keys: lab-evals-embeddings-${{ needs.prep.outputs.bench }}-
 
+      # A search run's built worlds (`apps/mcp/bench/evals/worldCache.mjs`): the notes with both indexes built, kept
+      # so the next run of the same notes and code loads them in seconds instead of indexing again. Keyed by the
+      # code that builds them, so a change to it starts clean; the folder names each world by its notes too.
+      - name: Keep the built worlds between runs
+        if: needs.prep.outputs.search == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/evals-worlds
+          key: lab-evals-worlds-${{ needs.prep.outputs.bench }}-${{ hashFiles('apps/mcp/src/**', 'apps/mcp/bench/**', 'apps/mcp/test/**', 'packages/shared/src/**', 'packages/collaboration/src/**', 'packages/communications/src/**', 'packages/drawings/src/**', 'packages/tex/gateway/**', 'packages/bench/src/**') }}
+
       - name: Claude Code has its token
         if: needs.prep.outputs.models == 'cc' && needs.prep.outputs.search != 'true'
         env:
@@ -222,7 +232,7 @@ jobs:
           if [ "$SEARCH" = "true" ]; then
             # Embeddings only: no Claude Code, no socket answerer, no subscription read.
             mkdir -p "$RUNNER_TEMP/evals-embeddings"
-            BENCH_EMBED_CACHE="$RUNNER_TEMP/evals-embeddings/vectors.txt" node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --parallel 4 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
+            BENCH_EMBED_CACHE="$RUNNER_TEMP/evals-embeddings/vectors.txt" BENCH_WORLD_CACHE="$RUNNER_TEMP/evals-worlds" node apps/mcp/bench/evals/cli.mjs search --bench "$BENCH" --n "$N" --parallel 4 --fetch "$RUNNER_TEMP/evals-data" --out "$RUNNER_TEMP/out/result.json" 2> >(tee "$RUNNER_TEMP/eval.log" >&2)
             code=$?
             if [ "$code" != "0" ]; then
               tail -n 1 "$RUNNER_TEMP/eval.log" | head -c 280 > "$RUNNER_TEMP/why" || true
