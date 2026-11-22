@@ -9,6 +9,8 @@
  *   `benchEnvOf` keeps the deployment's WORKSPACE_STORE         -> "a world is loaded, cloned ..." fails (the trap throws)
  *   `cachedAi` asks the model on a cache hit                    -> "... embeds each text once" fails
  *   `admitted` lets any bearer token through                    -> "only the eval workflow or a Tex developer" fails
+ *   `shardOf` puts every key in one object                       -> "the vector cache is spread over its shards ..." fails
+ *   `cachedAi` skips the old cache                               -> "the vector cache is spread over its shards ..." fails
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,6 +19,8 @@ import worker from "../src/index.js";
 import { handleBench } from "../../../packages/lab/gateway/bench/route.js";
 import { benchWorkspaceId } from "../../../packages/lab/gateway/bench/world.js";
 import { noteIdOf } from "../../../packages/lab/gateway/bench/world.js";
+import { cachedAi, VECTORS_OBJECT, VECTORS_PATH, VECTOR_SHARDS } from "../../../packages/lab/gateway/bench/env.js";
+import { sha256Hex } from "../src/controlPlane/client.js";
 import { MEANING_MODEL } from "../src/search/meaning/embed.js";
 import { namespace, planOf } from "../bench/evals/objectWorld.mjs";
 import { fakeAi } from "../bench/models.mjs";
@@ -210,4 +214,39 @@ test("a world idle for a week is forgotten and named for dropping; a used one is
   assert.deepEqual(await ask({ touch: { world: OTHER, ids: ["c"] } }, 2_000 + WORLD_IDLE_MS), []);
   assert.deepEqual(await ask({ touch: { world: OTHER } }, 3_000 + WORLD_IDLE_MS), [{ world: WORLD, ids: ["a", "b"] }]);
   assert.deepEqual(await ask({}, 3_000 + WORLD_IDLE_MS), [], "forgotten once named");
+});
+
+test("the vector cache is spread over its shards, and a vector kept in the old one cache is read there, not embedded again", async () => {
+  await quiet(async () => {
+    const h = harness();
+    const ns = h.env.BENCH_STORE;
+    const ask = async (name, body) => await (await ns.get(ns.idFromName(name)).fetch(new Request(`https://bench.internal${VECTORS_PATH}`, { method: "POST", body: JSON.stringify(body) }))).json();
+    // One vector cached before the shards, in the old single cache.
+    const oldText = "a passage embedded last week";
+    const oldKey = await sha256Hex(`${MEANING_MODEL}\u0000${oldText}`);
+    await ask(VECTORS_OBJECT, { put: { [oldKey]: [0.25, 0.5, 0.75] } });
+
+    const texts = [oldText, ...Array.from({ length: 40 }, (_, i) => `passage number ${i}`)];
+    const ai = cachedAi(h.env.AI, ns);
+    const first = await ai.run(MEANING_MODEL, { text: texts });
+    assert.equal(first.data.length, texts.length);
+    assert.deepEqual(first.data[0], [0.25, 0.5, 0.75], "the old cache's vector is used");
+    assert.ok(!h.embeds.includes(oldText), "a vector in the old cache is never embedded again");
+    assert.equal(h.embeds.length, 40);
+
+    // Every key sits in its own shard, and the 40 new ones span several shards.
+    const keys = await Promise.all(texts.map((text) => sha256Hex(`${MEANING_MODEL}\u0000${text}`)));
+    const used = new Set();
+    for (const key of keys) {
+      const shard = `${VECTORS_OBJECT}-${parseInt(key[0], 16) % VECTOR_SHARDS}`;
+      assert.ok((await ask(shard, { get: [key] })).vectors[key], `${key.slice(0, 8)} is in ${shard}`);
+      used.add(shard);
+    }
+    assert.ok(used.size > 4, `the keys span ${used.size} shards`);
+
+    // Asked again, nothing is embedded.
+    const again = await ai.run(MEANING_MODEL, { text: texts });
+    assert.equal(h.embeds.length, 40);
+    assert.deepEqual(again.data, first.data);
+  });
 });
