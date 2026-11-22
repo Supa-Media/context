@@ -11,7 +11,7 @@ const firstText = (request) => {
 export default {
   id: "consent-judge-knows-here",
   incident: "2026-11-19 and 2026-11-22: in group chats, \"Tex, share my calendar here too\" and a new member's first asks to share their calendar were refused as not their own words; one went through only on a later try, and Tex guessed the calendar address was the problem.",
-  cause: "The consent judge was shown only the one text and a one-line action, so it never knew \"here\" was the group chat the text was sent in, and the turn was never told the judge's reason.",
+  cause: "The consent judge was shown only the one text and a one-line action, so it never knew \"here\" was the group chat the text was sent in, and the turn was never told the judge's reason; a bare yes to Tex's own offer never reached the judge, stopped by the code word check.",
   path: "group tag",
   async run() {
     const chat = await groupChat();
@@ -63,6 +63,23 @@ export default {
       assert.match(results.join("\n"), /The check's reason: It names the calendar but does not ask to share it\./, "a refusal hands the turn the judge's reason");
       const judgedAgain = refused.requests.find((request) => /<person_said>/.test(firstText(request)));
       assert.match(firstText(judgedAgain), /<assistant_said>Shared bo@example\.com here\.<\/assistant_said>/, "and the judge sees Tex's last text in the chat");
+
+      sent.length = 0;
+      const yes = await chat.tag(
+        "bo",
+        "Tex yeah go ahead",
+        [
+          { toolCalls: [{ name: "chat_share_calendar", args: {} }] },
+          { toolCalls: [{ name: "verdict", args: { allow: true, reason: "agrees to the assistant's offer to share their calendar here" } }] },
+          { text: "Shared bo@example.com here." },
+        ],
+        [],
+        { group: { people: ["ada", "bo"] } },
+      );
+      const judgedYes = yes.requests.find((request) => /<person_said>/.test(firstText(request)));
+      assert.ok(judgedYes, "a yes to Tex's own offer reaches the judge, though it names no calendar");
+      assert.match(firstText(judgedYes), /<assistant_said>Want me to share your calendar with this chat\? Say yes\.<\/assistant_said>/, "with the offer it answers");
+      assert.deepEqual(sent.at(-1), { kind: "share_calendar" }, "and the share goes through");
     } finally {
       globalThis.fetch = previous;
       chat.restore();

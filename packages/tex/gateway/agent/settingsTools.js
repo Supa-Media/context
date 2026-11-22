@@ -18,6 +18,7 @@
  */
 
 import { readAttentionSettings, TOLERANCES } from "./attention.js";
+import { namesOrAnswers } from "./consentContext.js";
 import { readQuietHours } from "./quietHours.js";
 import { DREAMS_SETTINGS_PATH, HOUSEKEEPING_SETTINGS_PATH } from "./texSwitches.js";
 import { frontSet, readCheckinSettings, readSwitches } from "../../../../apps/mcp/src/http/texPage/notes.js";
@@ -190,9 +191,9 @@ const VAULT_WORDS = /\b(shar\w*|give|let|access|use|everyone|everybody|workspace
  * `send setting` and `send vault_access` for a texted turn. `consent(kind)` is the turn's own-words check
  * (`consentFor`), asked only before a widening.
  */
-export function settingsTools({ session, controlPlane, group, dispatch, words = "", judge = null, onInvite = null }) {
+export function settingsTools({ session, controlPlane, group, dispatch, words = "", offered = "", judge = null, onInvite = null }) {
   const tools = [];
-  const invite = chatInviteTool({ group, words, judge, onInvite });
+  const invite = chatInviteTool({ group, words, offered, judge, onInvite });
   if (invite !== null) tools.push(invite);
   if (group === null && typeof dispatch === "function") {
     tools.push({
@@ -216,7 +217,7 @@ export function settingsTools({ session, controlPlane, group, dispatch, words = 
   if (typeof controlPlane?.vaultText === "function" && group?.guestTagger !== true) {
     const asked = async () => {
       const said = typeof words === "string" ? words : "";
-      if (!VAULT_WORDS.test(said)) return false;
+      if (!namesOrAnswers(VAULT_WORDS, said, offered, typeof judge === "function")) return false;
       if (typeof judge !== "function") return true;
       try {
         return (await judge({ words: said, action: "let more people (or a group chat) use one of the person's saved logins, keys or cards through their AIs" }))?.allow === true;
@@ -277,7 +278,7 @@ const INVITE_WORDS = /\b(add|invite|share|bring|let|give|everyone|everybody|all 
  * command as the person who asked, once the answer has gone (`packages/tex/worker/groupInvite.ts`): only an owner there
  * invites anyone, checked by the control plane against their own number. Their own words must ask for it.
  */
-function chatInviteTool({ group, words, judge, onInvite }) {
+function chatInviteTool({ group, words, offered = "", judge, onInvite }) {
   if (group === null || group?.guestTagger === true || typeof onInvite !== "function") return null;
   let asked = false;
   return {
@@ -295,7 +296,7 @@ function chatInviteTool({ group, words, judge, onInvite }) {
       if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(slug)) return text("Pass workspace, its @handle. Nothing was changed.", true);
       if (asked) return text("Only one workspace a turn. Nothing more was changed.", true);
       const said = typeof words === "string" ? words : "";
-      let allowed = INVITE_WORDS.test(said);
+      let allowed = namesOrAnswers(INVITE_WORDS, said, offered, typeof judge === "function");
       if (allowed && typeof judge === "function") {
         allowed = await judge({ words: said, action: `invite everyone in this group chat to the workspace @${slug}` }).then((answer) => answer?.allow === true, () => false);
       }
