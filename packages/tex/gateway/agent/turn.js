@@ -32,7 +32,7 @@
  * engine decides, rather than being handed something the clamp never saw.
  */
 
-import { sandboxedTool } from "../../../../apps/mcp/src/labSandbox/policy.js";
+import { sandboxPrecheck, sandboxedTool } from "../../../../apps/mcp/src/labSandbox/policy.js";
 import { datedTurns, stamped } from "./localNow.js";
 import { attachmentsLine } from "./attachments.js";
 import { awaitExamples } from "./turnExamples.js";
@@ -340,6 +340,8 @@ export async function runTurn(options) {
   ];
   // Tools answered here rather than by the MCP (`texEntryPoint.js`'s earlier texts).
   const localCalls = new Map(local.map((entry) => [entry.tool.name, entry.call]));
+  // A consent-gated tool's own check (`commandTools.js` `precheck`), run first in a Lab test chat, which answers the tool itself as done.
+  const localPrechecks = new Map(local.filter((entry) => typeof entry.precheck === "function").map((entry) => [entry.tool.name, entry.precheck]));
   /*
     THE SIX (`sixTools.js`): the model is shown orient, search, fetch, write,
     manage and send, each listing only what `tools` grants, and a call to one
@@ -796,7 +798,7 @@ export async function runTurn(options) {
       try {
         const viaMcp = !(progress && call.name === PROGRESS_TOOL) && !localCalls.has(call.name) && !webNames.has(call.name);
         // `sandboxedBelow`: the caller's own dispatcher answers a test chat itself, after its guards (the dream's budget).
-        result = (options.sandboxedBelow === true ? null : await sandboxedTool(env, call)) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
+        result = (options.sandboxedBelow === true ? null : await sandboxPrecheck(env, localPrechecks.get(call.name), call.args)) ?? (options.sandboxedBelow === true ? null : await sandboxedTool(env, call)) ?? (viaMcp && isPlainNoteWrite(call.name, call.args)
           // A slow save is waited on, read back and retried, never told as failed unseen (`noteWriteRetry.js`).
           ? await settleNoteWrite({ run: () => callTool(call.name, call.args), callTool, args: call.args, ms: timeoutFor(call.name), remaining: () => toolBudgetMs + 30_000 - (clock() - began) })
           : await withinTime(

@@ -11,6 +11,7 @@ import { CONSOLE_CLIENT_ID } from "./clients.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
 import { TRAINING, texCacheTtl, texConfigOf, texFreeze, texToolList } from "../texConfig.js";
+import { consentContext } from "../consentContext.js";
 import { frozenModules } from "../frozenModules.js";
 import { prefixKeeper, warmWired } from "../warmPrefix.js";
 import { aiGatewayConfig } from "../aiGateway.js";
@@ -180,7 +181,9 @@ export async function runTheModel(t, via) {
   t.threadsSort = threaded?.sort ? () => threadsSortAndWrite(threaded.sort, store, session) : null; // the Classifier node files the text after the reply (`../graph/nodes/classifier.js`), on Text them's background wire
   // What this turn runs the front door with, every setting that shapes it, logged as the Front door node's (Dev2, 2026-11-14: "every single block should have proper logging of what's going in and out and what parameters were set").
   t.settings = doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded });
-  const egressJudge = aiGatewayConfig(env) === null ? null : (input) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "egress", input, { env }); // interim: io.use.egress once tools is a node
+  // Every judge call in a texted chat says which chat "here" is and what Tex last offered (`consentContext.js`, Dev2 2026-11-22).
+  const judgeChat = consentContext({ group, history: logged?.history ?? shown, chatTurn: chatTurn && job === null && !routine, config: texConfigOf(env) });
+  const egressJudge = aiGatewayConfig(env) === null ? null : (input) => gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null }).fire("tools", "egress", { ...input, ...judgeChat }, { env }); // interim: io.use.egress once tools is a node
   if (typeof session.sharingJudge === "function" && egressJudge) session.sharingJudge = egressJudge; // interim: io.use.egress once tools is a node
   // The move judge, where the config wires tools -> moveJudge (`graph/nodes/moveJudge.js`); without the wire, the word list.
   const drawn = gatewayGraph({ env, writer: chatLog, turn: ledgerAt?.turn ?? null, config: texConfigOf(env) });
