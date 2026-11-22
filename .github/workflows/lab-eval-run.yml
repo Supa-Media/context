@@ -179,8 +179,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PR: ${{ needs.prep.outputs.pr }}
+          SHA: ${{ needs.prep.outputs.sha }}
         run: |
           set -uo pipefail
+          # The preview must run the commit this run reports: a run queued right after a push otherwise scores the
+          # previous commit's code (found on #4013, 2026-11-22). Its deploy message names the commit
+          # (`deploy-preview.yml`); wait up to 10 minutes for it, then run here, on the checked-out code.
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/context-mcp-pr$PR/deployments"
+          for i in $(seq 1 40); do
+            message=$(curl -fsS --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api" | jq -r '.result.deployments[0].annotations["workers/message"] // ""') || message=""
+            if [ -z "$message" ]; then echo "::warning::the preview's deploy could not be read: running here"; exit 0; fi
+            case "$message" in *"$SHA"*) break ;; esac
+            if [ "$i" = 40 ]; then echo "::warning::pull request #$PR's preview is not on ${SHA:0:7} after 10 minutes: running here"; exit 0; fi
+            [ "$i" = 1 ] && echo "Waiting for pull request #$PR's preview to deploy ${SHA:0:7}."
+            sleep 15
+          done
           sub=$(curl -fsS --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r '.result.subdomain // ""') || sub=""
           if [ -z "$sub" ]; then echo "::warning::the workers.dev name could not be read: running here"; exit 0; fi
           echo "::add-mask::$sub"
