@@ -609,7 +609,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "search") return await searchForPerson({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
   if (input.op === "ledger") return await sharedLedger(env, controlPlane, token, who, input);
   // Where the caller's own chats are answered, and moving one into the gateway before the rest (`intake.js`).
-  if (input.op === "intake") return await intake(env, who, input);
+  if (input.op === "intake") return await intake(env, who, input, { controlPlane, token });
   // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
   if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
 

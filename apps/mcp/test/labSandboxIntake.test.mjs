@@ -8,6 +8,7 @@
 //   intake.js `chatsOf` accepting any 64-hex chatId               "a group the caller is not in ..." fails
 //   intake.js `homeAt` always GET /home (move ignored)              "move: true copies the 1:1 in ..." fails
 //   intake.js log line carrying `name`                              "no phone or group id ..." fails
+//   intake.js `sweep` counting a refused move as moved              "a sweep moves every chat ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,6 +26,7 @@ function world() {
   // The gateway's chat objects, by name: each knows only whether it was moved in.
   const homes = new Map();
   const asked = [];
+  const state = { refuse: false };
   const TEX_CHAT = {
     idFromName: (name) => ({ name }),
     get: (id) => ({
@@ -35,6 +37,7 @@ function world() {
         if (path === "/move-in") {
           const body = await request.json();
           assert.equal(`chat:${body.inbox}`, id.name);
+          if (state.refuse) return Response.json({ home: "worker", refused: true });
           homes.set(id.name, { home: "gateway", movedAt: 5, keys: 12 });
         }
         return Response.json(homes.get(id.name) ?? { home: "worker" });
@@ -56,6 +59,7 @@ function world() {
     const answer = (value) => Response.json(value);
     if (!String(url).endsWith("/gateway/tex/lab-sandbox")) return answer({});
     if (body.accessToken !== DEV) return answer({ status: "refused" });
+    if (body.action === "intakeChats") return answer({ status: "ok", phones: [PHONE, "+15555550102", "not-a-phone"], groups: [MINE, NOT_MINE, "../x"] });
     if (body.action === "who") return answer({ status: "ok", userId: "u_dev", phone: PHONE, chats: [{ key: MINE, name: "Tex Devs", people: 4 }], timeZone: "America/New_York" });
     return answer({ status: "bad_request" });
   };
@@ -66,7 +70,7 @@ function world() {
     const response = await handleLabSandbox(new Request("https://gateway.example.invalid/tex-lab/sandbox", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }), env, null);
     return { status: response.status, body: await response.json() };
   };
-  return { call, asked, directory, homes, logs, restore: () => { globalThis.fetch = original; console.log = realLog; } };
+  return { call, asked, directory, homes, logs, set refuse(value) { state.refuse = value; }, restore: () => { globalThis.fetch = original; console.log = realLog; } };
 }
 
 test("intake lists the caller's own chats and where each is answered", async () => {
@@ -130,6 +134,44 @@ test("no phone or group id is answered or logged", async () => {
     assert.equal(said.includes(PHONE), false);
     assert.equal(said.includes(GROUP_ID), false);
     assert.ok(w.logs.some((line) => line.includes('"lab_intake"')), "each move is logged, by kind");
+  } finally {
+    w.restore();
+  }
+});
+
+test("a sweep counts every chat by home, moves the ones in the Worker with move, and answers counts only", async () => {
+  const w = world();
+  try {
+    const census = await w.call(DEV, { op: "intake", sweep: true });
+    // Two phones and two groups pass; NOT_MINE has no directory entry, so it is unknown. Nothing moved.
+    assert.deepEqual(census.body, { total: 4, people: 2, groups: 2, after: 0, looked: 4, gateway: 0, worker: 3, moved: 0, refused: 0, unknown: 1, next: null });
+    assert.equal(w.homes.size, 0);
+    const moved = await w.call(DEV, { op: "intake", sweep: true, move: true });
+    assert.equal(moved.body.moved, 3);
+    assert.equal(w.homes.size, 3);
+    const after = await w.call(DEV, { op: "intake", sweep: true });
+    assert.equal(after.body.gateway, 3);
+    assert.equal(after.body.worker, 0);
+    const said = JSON.stringify([census, moved, after]) + w.logs.join("\n");
+    assert.equal(said.includes(PHONE), false);
+    assert.equal(said.includes(GROUP_ID), false);
+    assert.equal(said.includes("+15555550102"), false);
+    assert.equal((await w.call(STRANGER, { op: "intake", sweep: true, move: true })).status, 403);
+  } finally {
+    w.restore();
+  }
+});
+
+test("a sweep pages from after, and a refused move is counted as refused, not moved", async () => {
+  const w = world();
+  try {
+    const page = await w.call(DEV, { op: "intake", sweep: true, after: 3 });
+    assert.equal(page.body.looked, 1);
+    assert.equal(page.body.next, null);
+    w.refuse = true;
+    const moved = await w.call(DEV, { op: "intake", sweep: true, move: true });
+    assert.equal(moved.body.moved, 0);
+    assert.equal(moved.body.refused, 3);
   } finally {
     w.restore();
   }

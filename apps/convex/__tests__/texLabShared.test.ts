@@ -23,7 +23,7 @@ import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import type { Id } from "../_generated/dataModel";
 import { addMember, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
 import { devShareOf, sharedChats } from "../functions/lib/texLabShared";
-import { sharedSessionFor } from "../functions/texLabSandbox";
+import { intakeChats, sharedSessionFor } from "../functions/texLabSandbox";
 
 const GROUP_A = "a".repeat(64);
 const GROUP_B = "b".repeat(64);
@@ -152,5 +152,24 @@ describe("a group turn is told its own sharing (Dev2, 2026-11-17: Tex said \"Dev
     expect(await told([people.sam, people.kai])).toEqual({ devShare: { shared: false, by: ["samperson"], waiting: ["kaiperson"] } });
     expect(await told([people.teammate])).toEqual({ devShare: { shared: false, by: [], waiting: [] } });
     expect(await told([])).toEqual({ devShare: { shared: false, by: [], waiting: [] } });
+  });
+});
+
+describe("every chat Tex can name, for the gateway's intake sweep (2026-11-21)", () => {
+  test("each linked phone once and each group's key; nothing else", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@example.invalid");
+    const bo = await createUser(t, "bo@example.invalid");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("phoneLinks", { userId: ada, phone: "+15555550100", linkedAt: 1 });
+      await ctx.db.insert("phoneLinks", { userId: bo, phone: "+15555550101", linkedAt: 2 });
+      // The same number linked twice (a sign-in row beside a texted one) is one chat.
+      await ctx.db.insert("phoneLinks", { userId: ada, phone: "+15555550100", linkedAt: 3 });
+      await ctx.db.insert("textGroups", { groupKey: GROUP_A, lastSeenAt: 1 } as never);
+      await ctx.db.insert("textGroups", { groupKey: GROUP_B, lastSeenAt: 2 } as never);
+    });
+    const chats = await t.run((ctx) => intakeChats(ctx));
+    expect(chats.phones.sort()).toEqual(["+15555550100", "+15555550101"]);
+    expect(chats.groups.sort()).toEqual([GROUP_A, GROUP_B]);
   });
 });
