@@ -15,7 +15,7 @@
  * Public data only: a row holds the dataset's own question, answer and the reader's reply, never anyone's notes.
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,6 +77,8 @@ const OPTIONS = {
   "keep-records": { type: "boolean" },
   // Search the bucket world only, without the workspace-object world beside it (`objectWorld.mjs`).
   "database-only": { type: "boolean" },
+  "world-cache": { type: "string" },
+  "warm-only": { type: "boolean" },
 };
 
 const MODEL = /^claude-(haiku|sonnet|opus)-[0-9-]{1,12}$/;
@@ -118,8 +120,13 @@ async function searchInParallel(options, argv) {
   const { run, source } = await benchmarkOf(options.bench ?? "search-hard");
   if (run.format === "beir" && (options.fetch || options.data)) await source.load({ run, dir: options.fetch ?? null, data: options.data ?? null, sets: options.sets ? String(options.sets).split(",") : null, n: null });
   const dir = mkdtempSync(join(tmpdir(), "search-shards-"));
+  // The worlds built once here and kept, so each child loads them rather than building its own: in the run's world
+  // cache when it has one (`worldCache.mjs`), else in a folder of this run's.
+  const cache = options["world-cache"] ?? process.env.BENCH_WORLD_CACHE ?? join(dir, "worlds");
+  const { runSearchSet } = await import("./searchCli.mjs");
+  await runSearchSet({ ...options, "world-cache": cache, "warm-only": true });
   const without = (args, names) => args.filter((arg, i) => !names.includes(arg) && !names.includes(args[i - 1]));
-  const base = without(argv, ["--parallel", "--out", "--keep-records"]);
+  const base = [...without(argv, ["--parallel", "--out", "--keep-records", "--world-cache"]), "--world-cache", cache];
   await Promise.all(
     Array.from({ length: k }, (_, s) =>
       new Promise((resolve, reject) => {
@@ -133,6 +140,7 @@ async function searchInParallel(options, argv) {
   // Dealt back round-robin: shard s held cases s, s + k, s + 2k, ..., so this is one process's order.
   const records = [];
   for (let i = 0; parts.some((p) => i < (p.records ?? []).length); i += 1) for (const p of parts) if (i < (p.records ?? []).length) records.push(p.records[i]);
+  rmSync(dir, { recursive: true, force: true });
   return resultOf(run, { total: parts[0]?.total ?? null, records, ms: Date.now() - started, keep: options["keep-records"] === true });
 }
 

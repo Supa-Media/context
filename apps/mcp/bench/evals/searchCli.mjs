@@ -26,6 +26,7 @@ import { irScores, mean, r3 } from "../../../../packages/bench/src/score.mjs";
 import { REPO_BENCH_FOLDER } from "../folder.mjs";
 import { expandWorkspaces, parseTest, readBenchFolder } from "../load.mjs";
 import { EVAL_PERSON, EVAL_WORKSPACE, evalBench } from "./memoryRun.mjs";
+import { warmWorlds } from "./worldCache.mjs";
 import { embedderFor, overlay, rowOf, runSearchCases, searchScores, splitAddress, TOP_K } from "./searchSuite.mjs";
 
 const say = (line) => process.stderr.write(`${line}\n`);
@@ -150,8 +151,12 @@ export async function runSearchSet(options) {
   const n = options.n === undefined ? null : Number(options.n);
   if (n !== null && (!Number.isSafeInteger(n) || n < 1)) throw new Error("--n is a whole number of cases");
   if (run.format === "beir" && !options.fetch && !options.data) throw new Error(`--fetch <dir> is required: ${run.title} is downloaded there`);
-  const ai = embedderFor({ fake: options.fake === true || !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN) });
+  const fake = options.fake === true || !(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_AI_TOKEN);
+  const ai = embedderFor({ fake });
+  const embedder = fake ? "fake" : "workers-ai";
   const objects = options["database-only"] !== true;
+  // Where built worlds are kept and loaded from (`worldCache.mjs`); none means every run builds its own.
+  const cache = options["world-cache"] ?? process.env.BENCH_WORLD_CACHE ?? null;
   const started = Date.now();
   // A world's gateway logs a JSON line per step; a run prints one line per world or case instead.
   const log = console.log;
@@ -164,13 +169,25 @@ export async function runSearchSet(options) {
     const repo = worlds.some((w) => w.base === "repo") ? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : null;
     const records = [];
     const many = worlds.length > 20;
+    if (options["warm-only"] === true) {
+      // Build and keep every world, ask nothing: a `--parallel` run's parent does this once so its shards load.
+      for (const w of all) {
+        const bench = overlay(w.base === "repo" ? repo ?? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : evalBench(), w.notes);
+        const at = Date.now();
+        const built = await warmWorlds(bench, { cache, ai, embedder, today: w.today ?? null, objects, keepOnly: true });
+        built.prepared?.close();
+        built.objectWorld?.close();
+        if (!many) say(`${w.id}: world ${built.loaded ? "already kept" : "built and kept"} in ${Math.round((Date.now() - at) / 1000)} s`);
+      }
+      return null;
+    }
     for (const w of worlds) {
       const bench = overlay(w.base === "repo" ? repo : evalBench(), w.notes);
       const missing = missingExpected(bench, w.cases);
       if (missing.length) throw new Error(`expected notes that exist nowhere: ${missing.join(", ")}`);
       if (!many) say(`${w.id}: ${Object.keys(w.notes).length} notes, ${w.cases.length} queries`);
       const at = Date.now();
-      const got = await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, objects, log: many ? () => {} : (line) => process.stderr.write(line) });
+      const got = await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, objects, cache, embedder, log: many ? () => {} : (line) => process.stderr.write(line) });
       got.forEach((record, i) => {
         const c = w.cases[i];
         const full = { ...record, ...(c.bm25 ? { bm25: c.bm25 } : {}), ...(c.ability ? { ability: c.ability } : {}), ...(c.missing?.length ? { missing: c.missing } : {}) };

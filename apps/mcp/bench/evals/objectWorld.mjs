@@ -9,6 +9,9 @@
  * The bucket world (`world.mjs`) answers from a search database; this one from the objects. Running a case in both is
  * how the two paths are compared per query (`searchSuite.mjs` `runSearchCases`, `paths`).
  */
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import worker from "../../src/index.js";
@@ -24,8 +27,10 @@ import { wireSearchSettings } from "../../src/search/settings.js";
 const SECRET = "bench-object-world-gateway-secret-0123456789";
 const BUILD_PASSES = 200;
 
-function durableSqlite() {
-  const db = new DatabaseSync(":memory:");
+/** An object's SQLite: in memory, or a kept copy's file (`file`, a copy of its own, written to freely). */
+function durableSqlite(file = null) {
+  const db = new DatabaseSync(file ?? ":memory:");
+  if (file) db.exec("PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF");
   // Each statement prepared once: building a 10,000-note world prepares the same few hundred thousand times.
   const statements = new Map();
   const sql = {
@@ -54,18 +59,18 @@ function durableSqlite() {
       throw error;
     }
   };
-  return { sql, transact, close: () => db.close() };
+  return { sql, transact, db, close: () => db.close() };
 }
 
 /** Workspace objects by name: each the real Durable Object class over its own in-memory SQLite. */
-function namespace(env) {
+function namespace(env, seeds = new Map()) {
   const objects = new Map();
   return {
     objects,
     idFromName: (name) => ({ name, toString: () => name }),
     get(id) {
       if (!objects.has(id.name)) {
-        const { sql, transact, close } = durableSqlite();
+        const { sql, transact, db, close } = durableSqlite(seeds.get(id.name) ?? null);
         const state = {
           id,
           storage: { sql, transactionSync: transact, sync: async () => {}, getAlarm: async () => null, setAlarm: async () => {}, deleteAlarm: async () => {} },
@@ -75,7 +80,7 @@ function namespace(env) {
           waitUntil() {},
         };
         const object = new WorkspaceStore(state, env);
-        objects.set(id.name, { fetch: (request) => object.fetch(request), object, close });
+        objects.set(id.name, { fetch: (request) => object.fetch(request), object, db, close });
       }
       return objects.get(id.name);
     },
@@ -124,7 +129,7 @@ const call = async (stub, op, fields) =>
  * Build the object world for `bench` (already overlaid): every workspace in its object with both indexes built, and a
  * connection for each person. `ai` embeds, as in the bucket world. Returns `{ search(person, query, context), close }`.
  */
-export async function createObjectWorld(bench, { ai = null, settings = null, log = () => {} } = {}) {
+export async function createObjectWorld(bench, { ai = null, settings = null, log = () => {}, from = null } = {}) {
   const env = {
     GATEWAY_SECRET: SECRET,
     CONTROL_PLANE_URL: "https://control.bench.invalid",
@@ -134,7 +139,18 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
     // A Lab draft's search settings, as the bucket world passes them (`world.mjs`).
     ...(settings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(settings)) } : {}),
   };
-  const ns = namespace(env);
+  // `from`: a folder `save` wrote. Each object opens a copy of its kept SQLite, so nothing is put or indexed again.
+  const copies = from ? mkdtempSync(join(tmpdir(), "bench-objects-")) : null;
+  const seeds = new Map();
+  if (from) {
+    const names = JSON.parse(readFileSync(join(from, "objects.json"), "utf8"));
+    names.forEach((name, i) => {
+      const file = join(copies, `${i}.db`);
+      copyFileSync(join(from, `${i}.db`), file);
+      seeds.set(name, file);
+    });
+  }
+  const ns = namespace(env, seeds);
   env.WORKSPACE_STORE = ns;
   const stubOf = (id) => ns.get(ns.idFromName(`workspace:${id}`));
 
@@ -142,7 +158,7 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
   const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, row.workspace]));
   const userOf = (person) => `user_bench_${person.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
 
-  for (const [name, workspace] of Object.entries(bench.workspaces)) {
+  for (const [name, workspace] of from ? [] : Object.entries(bench.workspaces)) {
     const id = objectWorkspaceId(name);
     const files = Object.keys(workspace.files).filter((path) => path.endsWith(".md"));
     const ids = new Map();
@@ -234,8 +250,15 @@ export async function createObjectWorld(bench, { ai = null, settings = null, log
         console.log = log;
       }
     },
+    /** Keep every object's SQLite in `dir` (which must be empty or new), for `from` to open next run. */
+    save(dir) {
+      const names = [...ns.objects.keys()];
+      names.forEach((name, i) => ns.objects.get(name).db.exec(`VACUUM INTO '${join(dir, `${i}.db`).replaceAll("'", "''")}'`));
+      writeFileSync(join(dir, "objects.json"), JSON.stringify(names));
+    },
     close() {
       for (const { close } of ns.objects.values()) close();
+      if (copies) rmSync(copies, { recursive: true, force: true });
     },
   };
 

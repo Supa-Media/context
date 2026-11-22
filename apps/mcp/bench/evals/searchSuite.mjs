@@ -20,9 +20,8 @@
 import { cachedEmbeddings, fakeAi, fakeGateway, workersAi } from "../models.mjs";
 import { realNow } from "../clock.mjs";
 import { hitsOf, rankOf } from "../search.mjs";
-import { prepareRun } from "../warm.mjs";
 import { createWorld } from "../world.mjs";
-import { createObjectWorld } from "./objectWorld.mjs";
+import { warmWorlds } from "./worldCache.mjs";
 import { forgetRerankScores } from "../../src/search/rerank.js";
 
 /** A world needs a texting setup note; no word of it reaches a search. */
@@ -163,10 +162,9 @@ async function catchingTraces(fn) {
  * (`objectWorld.mjs`), the bench's workspaces kept in workspace objects, and the record carries that answer as
  * `object: { hits, rank, ms, path, object }`, so the two ways production answers are compared per query.
  */
-export async function runSearchCases({ bench, cases, ai, today = null, settings = null, objects = true, onRecord = () => {}, log = () => {} }) {
+export async function runSearchCases({ bench, cases, ai, today = null, settings = null, objects = true, cache = null, embedder = "unnamed", onRecord = () => {}, log = () => {} }) {
   const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, `@${row.workspace}`]));
   const warmStarted = realNow();
-  const prepared = await prepareRun(bench, { today, ai });
   // Every model call the searches make, timed: the reranker's and the query embedding's, beside each case's line.
   const calls = [];
   const realAi = ai;
@@ -179,13 +177,12 @@ export async function runSearchCases({ bench, cases, ai, today = null, settings 
     }
   } } : realAi;
   const callsBetween = (from, to = calls.length) => calls.slice(from, to).map((c) => `${c.model} ${Math.round(c.ms)}ms n${c.n}${c.chars ? ` ${c.chars}ch` : ""}`).join(", ");
+  // Both worlds, built once and kept in `cache` (`worldCache.mjs`): a later run of the same notes and code loads them.
+  const { prepared, objectWorld, loaded } = await warmWorlds(bench, { cache, ai, embedder, today, settings, objects, log });
   const passages = [...prepared.embedded.values()].reduce((total, n) => total + n, 0);
-  log(`warmed ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes in ${Math.round((realNow() - warmStarted) / 1000)} s\n`);
+  log(`${loaded ? "loaded" : "built"} ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes${objectWorld ? ", and their workspace objects" : ""} in ${Math.round((realNow() - warmStarted) / 1000)} s\n`);
   const models = { gatewayFetch: fakeGateway(), ai, ...(settings ? { searchSettings: settings } : {}) };
   const records = [];
-  const objectStarted = realNow();
-  const objectWorld = objects ? await createObjectWorld(bench, { ai, settings }) : null;
-  if (objectWorld) log(`object world: ${Object.keys(bench.workspaces).length} workspace objects, both indexes built in ${Math.round((realNow() - objectStarted) / 1000)} s\n`);
   try {
     for (const [i, c] of cases.entries()) {
       const home = c.in ?? personal.get(c.as);
