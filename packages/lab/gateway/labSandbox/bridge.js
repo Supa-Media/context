@@ -34,7 +34,9 @@ const PREVIEW_ID = /^[0-9a-f]{16}$/;
  * went away is answered by its own timeout, and tried again).
  */
 export class BridgeMailbox {
-  constructor(state, { now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  // The timers are wrapped: the Workers runtime refuses `setTimeout` called as a method of another object ("Illegal
+  // invocation"), which is how `this.setTimer(...)` would call it (production, 2026-11-22).
+  constructor(state, { now = Date.now, setTimer = (f, ms) => setTimeout(f, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
     this.state = state;
     this.now = now;
     this.setTimer = setTimer;

@@ -70,8 +70,9 @@ async function previewGrantForReal({ deployment, deployKey }) {
  * The loop. Everything it reaches is passed in, so a test runs it against fakes: `prod(body)` is a call to the
  * mailbox, `preview(body)` one to the preview's `/tex-lab/sandbox` (each `{ status, answer }`).
  */
-export async function carry({ pr, prod, preview, now = Date.now, log = console.log, idleMs = IDLE_MS, lifetimeMs = LIFETIME_MS }) {
+export async function carry({ pr, prod, preview, now = Date.now, log = console.log, idleMs = IDLE_MS, lifetimeMs = LIFETIME_MS, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const started = now();
+  let failed = 0;
   let lastCall = now();
   let carried = 0;
   const inFlight = new Set();
@@ -84,7 +85,14 @@ export async function carry({ pr, prod, preview, now = Date.now, log = console.l
       log("This run's time is up: stopping (the next call starts another run).");
       break;
     }
-    const taken = await prod({ op: "take", waitMs: 20_000 });
+    const taken = await prod({ op: "take", waitMs: 20_000 }).catch(() => ({ status: 599 }));
+    // A deploy or a passing fault answers 5xx (or nothing) for a moment: tried again, three times in a row at most.
+    if (taken.status >= 500 && ++failed <= 3) {
+      log(`The mailbox answered ${taken.status}: trying again.`);
+      await sleep(failed * 2_000);
+      continue;
+    }
+    if (taken.status === 200) failed = 0;
     if (taken.status !== 200) {
       log(`The mailbox answered ${taken.status}: stopping.`);
       if (taken.status === 403 || taken.status === 400) process.exitCode = 1;
