@@ -446,3 +446,25 @@ works within the twelve hours. An ask armed before the stamp counts as the
 person's own texts' when their own Tex asked it, and as no chat's when a
 group's Tex did, so no yes reaches it. The matching stays in code; the model
 never judges which ask a yes answers. Test: `agentGroupAskChat.test.mjs`.
+
+## The judge knows which chat "here" is (decided by Dev2, 2026-11-22)
+
+The judge was shown the person's one text and a one-line action, nothing
+else. In a group chat, "Tex, share my calendar here too" was refused as
+"ambiguous whether 'here' means the same group chat" (2026-11-19), and a
+person's first asks to share their calendar in a new group were refused three
+times before a later try went through (2026-11-22). Every judged change by
+text was exposed: sharing mail or a calendar with a chat, sharing chats with
+the developers, how Tex talks, sharing a saved login, inviting everyone, a
+computer. So a texted turn now gives the judge two more facts, built in code
+from the turn and never from the model's arguments (`consentContext.js`):
+`where`, the chat the words were sent in and who is in it, by handle, name or
+guest label, never a number; and `offered`, Tex's last text there, so a yes to
+its own offer counts. Both are fenced as data like the words. They go only
+when the `egress` step's `inSchema` names them (`texConfig.json`). A call
+from an AI client has neither and is judged as before. The turn is also told
+the judge's reason with a refusal (`refusedWords`), so it says what was
+unclear instead of guessing, and a Lab test chat runs the same check before it
+answers a judged tool as done (`sandboxPrecheck`). What a "simplification"
+would cost: drop `where` and "here" stops meaning anything again. Tests:
+`consentContext.test.mjs`, replay case `consent-judge-knows-here`.

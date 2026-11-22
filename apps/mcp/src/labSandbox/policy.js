@@ -302,6 +302,18 @@ export async function toolAnswer(name, args, gate) {
   return { content: [{ type: "text", text: "Done." }] };
 }
 
+/**
+ * A consent-gated tool's own check (`commandTools.js` `precheck`) in a test chat: the tool itself is answered as done
+ * below without running, so its check runs here first and a refusal stands, as it would in a real chat (Dev2,
+ * 2026-11-22: the Lab never showed the judge refusing a share). Null on every real turn and when the check passes.
+ */
+export async function sandboxPrecheck(env, precheck, args) {
+  if (typeof precheck !== "function" || sandboxGateOf(env) === null) return null;
+  const refused = await precheck(args);
+  if (refused) sandboxGateOf(env).record({ kind: "Refused", summary: "consent check refused the change", tool: "consent" });
+  return refused ?? null;
+}
+
 /** `toolAnswer` for a turn's env: null on every real turn, whose env carries no gate (`agent/turn.js`). */
 export async function sandboxedTool(env, call) {
   const gate = sandboxGateOf(env);

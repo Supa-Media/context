@@ -1,0 +1,91 @@
+/**
+ * WHAT THE CONSENT JUDGE IS TOLD ABOUT THE CHAT (Dev2, 2026-11-22).
+ *
+ * The Egress judge (`apps/mcp/src/privacy/judge.js`, node `egress`) decides whether a person's own text asks for a
+ * step that widens who sees something or changes a setting in their name. It used to get the text and a one-line
+ * action and nothing else, so "Tex, share my calendar here too", sent in a group chat, was refused as "ambiguous
+ * whether 'here' means the same group chat" (Tex Devs, 2026-11-19), and Sayo's first asks in a new group were
+ * refused the same way (2026-11-22). A "yes" to Tex's own offer could not count either: the judge never saw the offer.
+ *
+ * So a texted turn's judge is given two facts, both built here from what the turn already holds, never from the
+ * model's arguments:
+ *
+ * - `where`: the chat the text was sent in, and who is in it, so "here", "this chat", "everyone here" and "us" have a
+ *   meaning. Handles, names and guest labels as the turn knows them; never a phone number.
+ * - `offered`: Tex's last text in that chat before this one, so "yes", "do it" or "go ahead" answering it counts.
+ *
+ * Each goes only when the config's `egress` step names it in its `inSchema` (`texConfig.json`): the graph runner
+ * refuses an input field the schema does not name, so the code ships first and the config turns it on.
+ */
+
+/** The most of Tex's last text the judge is shown, from its end: the offer is usually the last line. */
+export const MAX_OFFERED = 600;
+const MAX_PEOPLE_SHOWN = 12;
+
+/** Which of `where` and `offered` the config's egress step takes. */
+function namedFields(config) {
+  const node = Array.isArray(config?.nodes) ? config.nodes.find((n) => n?.id === "egress") : null;
+  const schema = Array.isArray(node?.inSchema) ? node.inSchema : [];
+  return new Set(schema.map((field) => field?.name).filter((name) => name === "where" || name === "offered"));
+}
+
+/** "@ada (Ada Lovelace)", or "@ada" without a name. */
+function person(handle, names) {
+  const name = names.find((entry) => entry.handle === handle)?.name;
+  return name ? `@${handle} (${name})` : `@${handle}`;
+}
+
+/** The chat as one plain line, or "" when the turn is not a texted chat. */
+export function whereLine(group, { chatTurn = true } = {}) {
+  if (!chatTurn) return "";
+  if (group === null || group === undefined) {
+    return "The words were texted to Tex in the person's own one-to-one chat with Tex. \"Here\" and \"this chat\" mean that chat, which only they and Tex are in.";
+  }
+  const names = Array.isArray(group.names) ? group.names : [];
+  const people = Array.isArray(group.people) ? group.people : [];
+  const from = typeof group.from === "string" ? group.from : "";
+  const others = people.filter((handle) => handle !== from).map((handle) => person(handle, names));
+  const guests = Array.isArray(group.guests) ? group.guests : [];
+  const everyone = [...others, ...guests];
+  const shown = everyone.slice(0, MAX_PEOPLE_SHOWN);
+  const more = everyone.length - shown.length;
+  const sender = from ? person(from, names) : group.asker ? String(group.asker) : "a person in the chat";
+  const rest = shown.length ? `, with ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}` : "";
+  return (
+    `The words were texted by ${sender} in a group text chat with Tex${rest}. ` +
+    "\"Here\", \"this chat\", \"this group\", \"everyone here\", \"y'all\" and \"us\" in the words mean this group chat and its people."
+  );
+}
+
+/** Tex's last text before the person's words, the end of it, or "". */
+export function offeredLine(history) {
+  if (!Array.isArray(history)) return "";
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const entry = history[i];
+    if (entry?.role !== "assistant") continue;
+    const text = typeof entry.text === "string" ? entry.text : typeof entry.content === "string" ? entry.content : "";
+    const plain = text.replace(/\s+/g, " ").trim();
+    if (plain === "") continue;
+    return plain.length > MAX_OFFERED ? plain.slice(plain.length - MAX_OFFERED) : plain;
+  }
+  return "";
+}
+
+/**
+ * The fields a texted turn adds to every Egress judge call, `{}` when the config's step names neither or the turn is
+ * not a texted chat.
+ */
+export function consentContext({ group = null, history = [], chatTurn = false, config = null }) {
+  if (!chatTurn) return {};
+  const fields = namedFields(config);
+  const out = {};
+  if (fields.has("where")) {
+    const where = whereLine(group);
+    if (where) out.where = where;
+  }
+  if (fields.has("offered")) {
+    const offered = offeredLine(history);
+    if (offered) out.offered = offered;
+  }
+  return out;
+}

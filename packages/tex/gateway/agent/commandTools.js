@@ -87,16 +87,29 @@ export const OWN_WORDS_REFUSAL = "They have to ask for that in their own words. 
  * judge when there is one. Anything but a clear yes is a no.
  */
 export function consentFor(words, judge = null) {
-  return async (kind) => {
+  // The judge's reason for each refusal, by kind (`refusedWords`): told to the turn, it says what was missing instead
+  // of guessing (Tex Devs, 2026-11-19: refused, Tex asked "which calendar address is yours?").
+  const why = new Map();
+  const check = async (kind) => {
     const said = typeof words === "string" ? words : "";
     if (!CONSENT_WORDS[kind]?.test(said)) return false;
     if (typeof judge !== "function") return true;
     try {
-      return (await judge({ words: said, action: CONSENT_ACTIONS[kind] }))?.allow === true;
+      const verdict = await judge({ words: said, action: CONSENT_ACTIONS[kind] });
+      if (verdict?.allow === true) return true;
+      if (typeof verdict?.reason === "string" && verdict.reason.trim() !== "") why.set(kind, verdict.reason.trim().slice(0, 200));
+      return false;
     } catch {
       return false;
     }
   };
+  return Object.assign(check, { why });
+}
+
+/** The refusal a consent-gated tool answers, with the judge's reason when it gave one. */
+export function refusedWords(consent, kind) {
+  const reason = consent?.why instanceof Map ? consent.why.get(kind) : undefined;
+  return reason ? `${OWN_WORDS_REFUSAL} The check's reason: ${reason} If they did ask, say what was unclear and how to say it plainly.` : OWN_WORDS_REFUSAL;
 }
 
 /** One tool's answer, as words the turn may repeat. Anything unexpected is a failure, never a success. */
@@ -134,6 +147,9 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       return false;
     }
   };
+  // A Lab test chat answers these tools as done without running them (`labSandbox/policy.js`), which skipped this
+  // check too: `precheck` is the consent alone, run there first so a test chat refuses what a real chat would.
+  const gated = (entry, kind) => ({ ...entry, precheck: async () => ((await asked(kind)) ? null : text(refusedWords(consent, kind), true)) });
   const call = (command, success) => async () => {
     try {
       return answered(await run(command), success);
@@ -187,7 +203,7 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       if (!["add", "remove", "replace", "clear", "undo"].includes(action)) return text("Say add, remove, replace, clear or undo. Nothing was changed.", true);
       const bare = action === "clear" || action === "undo";
       if (!bare && (typeof args?.text !== "string" || args.text.trim() === "")) return text("Pass the line as text. Nothing was changed.", true);
-      if (!(await asked("instructions"))) return text(OWN_WORDS_REFUSAL, true);
+      if (!(await asked("instructions"))) return text(refusedWords(consent, "instructions"), true);
       return await call({ kind: "instructions", action, ...(!bare ? { text: args.text } : {}) }, confirm)();
     },
   };
@@ -202,13 +218,13 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       },
       call: async (args) => {
         if (typeof args?.share !== "boolean") return text("Say whether to share (true) or stop (false). Nothing was changed.", true);
-        if (!(await asked("review_sharing"))) return text(OWN_WORDS_REFUSAL, true);
+        if (!(await asked("review_sharing"))) return text(refusedWords(consent, "review_sharing"), true);
         return await call({ kind: "review_sharing", share: args.share }, (result) =>
           result.sharing ? "Saved: their finished conversations will be shared with the Context team." : "Saved: their conversations are no longer shared.",
         )();
       },
     };
-    return [settingsGet, instructionsSet, reviewSharing];
+    return [settingsGet, gated(instructionsSet, "instructions"), gated(reviewSharing, "review_sharing")];
   }
   const mute = {
     tool: {
@@ -235,7 +251,7 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       result.guest ? `This chat is a guest chat of @${result.slug}: Tex sees only what is shared with it.` : `This chat uses @${result.slug}.`,
     ),
   };
-  if (group.guestTagger === true) return [settingsGet, instructionsSet, mute, status];
+  if (group.guestTagger === true) return [settingsGet, gated(instructionsSet, "instructions"), mute, status];
   const shareMail = {
     tool: {
       name: "chat_share_mail",
@@ -245,7 +261,7 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       inputSchema: { type: "object", properties: { address: { type: "string" }, query: { type: "string" } }, required: ["address"] },
     },
     call: async (args) =>
-      !(await asked("share_mail")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "share_mail", address: args?.address, ...(args?.query ? { query: args.query } : {}) }, (result) =>
+      !(await asked("share_mail")) ? text(refusedWords(consent, "share_mail"), true) : await call({ kind: "share_mail", address: args?.address, ...(args?.query ? { query: args.query } : {}) }, (result) =>
         `Shared ${result.address} with this chat${result.narrowed ? ", narrowed by its search" : ""}. Replies go from it only when they say yes.`,
       )(),
   };
@@ -256,7 +272,7 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       inputSchema: { type: "object", properties: { address: { type: "string" } } },
     },
     call: async (args) =>
-      !(await asked("unshare_mail")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "unshare_mail", ...(args?.address ? { address: args.address } : {}) }, (result) =>
+      !(await asked("unshare_mail")) ? text(refusedWords(consent, "unshare_mail"), true) : await call({ kind: "unshare_mail", ...(args?.address ? { address: args.address } : {}) }, (result) =>
         result.count > 0 ? `Stopped sharing ${result.count === 1 ? "that mailbox" : `${result.count} mailboxes`} with this chat.` : "None of their mail was shared here, so nothing changed.",
       )(),
   };
@@ -269,7 +285,7 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       inputSchema: { type: "object", properties: { address: { type: "string", description: "one of their connected calendar addresses; left out shares every calendar they connected" } } },
     },
     call: async (args) =>
-      !(await asked("share_calendar")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "share_calendar", ...(args?.address ? { address: args.address } : {}) }, (result) =>
+      !(await asked("share_calendar")) ? text(refusedWords(consent, "share_calendar"), true) : await call({ kind: "share_calendar", ...(args?.address ? { address: args.address } : {}) }, (result) =>
         `Shared ${result.addresses.join(", ")} with this chat: anyone here can ask what's on it, and the chat's check-ins compare it with what's said here.`,
       )(),
   };
@@ -280,11 +296,11 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       inputSchema: { type: "object", properties: { address: { type: "string" } } },
     },
     call: async (args) =>
-      !(await asked("unshare_calendar")) ? text(OWN_WORDS_REFUSAL, true) : await call({ kind: "unshare_calendar", ...(args?.address ? { address: args.address } : {}) }, (result) =>
+      !(await asked("unshare_calendar")) ? text(refusedWords(consent, "unshare_calendar"), true) : await call({ kind: "unshare_calendar", ...(args?.address ? { address: args.address } : {}) }, (result) =>
         result.count > 0 ? `Stopped sharing ${result.count === 1 ? "that calendar" : `${result.count} calendars`} with this chat.` : "None of their calendars was shared here, so nothing changed.",
       )(),
   };
-  return [settingsGet, instructionsSet, mute, status, shareMail, unshareMail, shareCalendar, unshareCalendar];
+  return [settingsGet, gated(instructionsSet, "instructions"), mute, status, gated(shareMail, "share_mail"), gated(unshareMail, "unshare_mail"), gated(shareCalendar, "share_calendar"), gated(unshareCalendar, "unshare_calendar")];
 }
 
 /** The `send` actions these tools are shown as (`sixTools.js`). */
