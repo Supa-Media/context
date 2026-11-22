@@ -256,6 +256,17 @@ new_sqlite_classes = ["CreditRest"]
 tag = "v10-lab-job"
 new_sqlite_classes = ["LabJob"]
 
+# The standing bench objects (packages/lab/gateway/bench/store.js): copies of public benchmark notes, each the
+# WorkspaceStore class in an environment of its own, searched all at once by `POST /tex-lab/bench`. Never a person's
+# notes. Self-hosting: leave it out, and the route answers 501.
+[[durable_objects.bindings]]
+name = "BENCH_STORE"
+class_name = "BenchStore"
+
+[[migrations]]
+tag = "v11-bench-store"
+new_sqlite_classes = ["BenchStore"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -495,6 +506,10 @@ name = "LAB_JOB"
 class_name = "LabJob"
 
 [[env.staging.durable_objects.bindings]]
+name = "BENCH_STORE"
+class_name = "BenchStore"
+
+[[env.staging.durable_objects.bindings]]
 name = "CREDIT_REST"
 class_name = "CreditRest"
 
@@ -614,6 +629,10 @@ class_name = "LabSandbox"
 [[env.preview.durable_objects.bindings]]
 name = "LAB_JOB"
 class_name = "LabJob"
+
+[[env.preview.durable_objects.bindings]]
+name = "BENCH_STORE"
+class_name = "BenchStore"
 
 [[env.preview.durable_objects.bindings]]
 name = "CREDIT_REST"

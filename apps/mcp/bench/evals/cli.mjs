@@ -79,6 +79,9 @@ const OPTIONS = {
   "database-only": { type: "boolean" },
   "world-cache": { type: "string" },
   "warm-only": { type: "boolean" },
+  // The standing bench objects on a deployed gateway (`remoteBench.mjs`): its origin, and how many copies to ask.
+  remote: { type: "string" },
+  copies: { type: "string" },
 };
 
 const MODEL = /^claude-(haiku|sonnet|opus)-[0-9-]{1,12}$/;
@@ -163,7 +166,8 @@ export async function main(argv = process.argv.slice(2)) {
     // building the same world and asking every k-th question: a search is CPU in this process, so one process asks
     // one at a time however many it is handed (2026-11-22: 343 questions over 10,000 notes, two seconds each).
     const { runSearchSet } = await import("./searchCli.mjs");
-    const result = Number(options.parallel ?? 1) > 1 && !options.shard ? await searchInParallel(options, rest) : await runSearchSet(options);
+    // A remote run asks every case at once already (`remoteBench.mjs`): `--parallel` is for local runs only.
+    const result = Number(options.parallel ?? 1) > 1 && !options.shard && !options.remote ? await searchInParallel(options, rest) : await runSearchSet(options);
     writeFileSync(options.out, JSON.stringify(result));
     const s = result.search;
     say(`${result.bench}: right note first ${s.first}/${s.n} (${s.firstPct ?? "-"}%), top 5 ${s.top5Pct ?? "-"}%, MRR ${s.mrr}, p50 ${s.p50Ms} ms${s.recallAny5Pct !== undefined ? `, recall@5 any ${s.recallAny5Pct}% all ${s.recallAll5Pct}%` : ""}${s.byPath ? `; answered by ${Object.entries(s.byPath).map(([p, n]) => `${p} ${n}`).join(", ")}` : ""}`);

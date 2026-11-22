@@ -116,6 +116,7 @@ import { moveForTexts, TEXTS_MOVE_PATH } from "../../../packages/tex/gateway/age
 import { texJobClass } from "../../../packages/tex/gateway/texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { BenchStore as BenchStoreObject } from "../../../packages/lab/gateway/bench/store.js";
 import { labJobFence } from "../../../packages/lab/gateway/labSandbox/jobBox.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
@@ -201,6 +202,8 @@ export const SearchQualityKey = SearchQualityKeyObject;
 export const CreditRest = CreditRestObject;
 /** Each workspace's notes, tree rows and access rules, one Durable Object per workspace (`workspaceStore.js`). */
 export const WorkspaceStore = WorkspaceStoreDurableObject;
+/** One copy of one bench workspace, public benchmark notes only (`packages/lab/gateway/bench/store.js`). */
+export const BenchStore = BenchStoreObject;
 /** One Lab test chat, one Durable Object per person's test chat (`labSandbox/object.js`). */
 export const LabSandbox = LabSandboxObject;
 /**

@@ -37,6 +37,7 @@ import { WORKSPACE_STORE_PATH } from "../src/workspaceStore/door.js";
 import { IMAGE_UPLOAD_PATH } from "../src/notes/imageUploads.js";
 import { TEX_EVAL_PREFIX } from "../src/http/texTestSet.js";
 import { LAB_SANDBOX_PATH } from "../../../packages/lab/gateway/labSandbox/route.js";
+import { BENCH_PATH } from "../../../packages/lab/gateway/bench/route.js";
 import { MESSAGES_BACKUP_LOG_ROUTE } from "../src/communications/messagesBackupRead.js";
 import { MESSAGES_BACKUP_ROUTE } from "../../../packages/communications/src/backup.js";
 import { NOTE_READ_PATH } from "../src/live/noteReadRoute.js";
@@ -66,6 +67,7 @@ const ROUTE_SETS = {
   // The Lab's test chats: missing here until 2026-11-16, so `/tex-lab/sandbox` read as a workspace called `tex-lab`
   // and every call from the Lab answered 404 while tex_dev, which calls the handler directly, worked.
   LAB_SANDBOX_PATH: [LAB_SANDBOX_PATH],
+  BENCH_PATH: [BENCH_PATH],
   MESSAGES_BACKUP_LOG_ROUTE: [MESSAGES_BACKUP_LOG_ROUTE],
   MESSAGES_BACKUP_ROUTE: [MESSAGES_BACKUP_ROUTE],
   NOTE_READ_PATH: [NOTE_READ_PATH],

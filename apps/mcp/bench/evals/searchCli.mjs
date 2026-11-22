@@ -27,6 +27,7 @@ import { REPO_BENCH_FOLDER } from "../folder.mjs";
 import { expandWorkspaces, parseTest, readBenchFolder } from "../load.mjs";
 import { EVAL_PERSON, EVAL_WORKSPACE, evalBench } from "./memoryRun.mjs";
 import { warmWorlds } from "./worldCache.mjs";
+import { benchClient, runRemoteSearchCases } from "./remoteBench.mjs";
 import { embedderFor, overlay, rowOf, runSearchCases, searchScores, splitAddress, TOP_K } from "./searchSuite.mjs";
 
 const say = (line) => process.stderr.write(`${line}\n`);
@@ -157,6 +158,7 @@ export async function runSearchSet(options) {
   const objects = options["database-only"] !== true;
   // Where built worlds are kept and loaded from (`worldCache.mjs`); none means every run builds its own.
   const cache = options["world-cache"] ?? process.env.BENCH_WORLD_CACHE ?? null;
+  const remote = options.remote ? benchClient(String(options.remote)) : null;
   const started = Date.now();
   // A world's gateway logs a JSON line per step; a run prints one line per world or case instead.
   const log = console.log;
@@ -187,7 +189,11 @@ export async function runSearchSet(options) {
       if (missing.length) throw new Error(`expected notes that exist nowhere: ${missing.join(", ")}`);
       if (!many) say(`${w.id}: ${Object.keys(w.notes).length} notes, ${w.cases.length} queries`);
       const at = Date.now();
-      const got = await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, objects, cache, embedder, log: many ? () => {} : (line) => process.stderr.write(line) });
+      const caseLog = many ? () => {} : (line) => process.stderr.write(line);
+      // `--remote <origin>`: the standing bench objects on that gateway (`remoteBench.mjs`), every case at once.
+      const got = remote
+        ? await runRemoteSearchCases(remote, { bench, cases: w.cases, copies: Number(options.copies ?? 16), log: caseLog })
+        : await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, objects, cache, embedder, log: caseLog });
       got.forEach((record, i) => {
         const c = w.cases[i];
         const full = { ...record, ...(c.bm25 ? { bm25: c.bm25 } : {}), ...(c.ability ? { ability: c.ability } : {}), ...(c.missing?.length ? { missing: c.missing } : {}) };
