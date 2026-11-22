@@ -95,7 +95,7 @@ test("main's settings are the constants search ranked by before it had a config"
   assert.deepEqual(DEFAULT_RANKING, { ...before, ...later });
   // The shared word scale and workspace weight (`sharedWords.js`) are the bench's to switch on, so take main's too.
   const across = { sharedWords: FUSE_RANKING.sharedWords, workspaceWeight: FUSE_RANKING.workspaceWeight };
-  assert.ok([0, 1].includes(across.sharedWords) && across.workspaceWeight >= 0 && across.workspaceWeight <= 1);
+  assert.ok([0, 1, 2].includes(across.sharedWords) && across.workspaceWeight >= 0 && across.workspaceWeight <= 1);
   assert.deepEqual(FUSE_RANKING, { ...before, ...later, ...across, hits: 12, loosePenalty: 10, boostFactor: 1.2, rerankWeight: 1 });
   assert.deepEqual({ ...DEFAULT_SEARCH_SETTINGS }, { everywhere: true, minScore: 0.4, extraNotes: 3, snippetChars: 200 });
   assert.equal(settingsOf("search").rrfK, undefined);

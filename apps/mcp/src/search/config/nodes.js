@@ -486,7 +486,7 @@ export async function runSearch({ store, scope, rules, overrides, query, prefix 
   const input = { query, prefix, ...(Array.isArray(only) ? { only } : {}), ...(typeof boost === "string" ? { boost } : {}) };
   // "Merge across workspaces" scoring every word hit on one scale needs each workspace's word statistics, which the
   // word search asks for only then (`../sharedWords.js`): a search that will not use them never pays for them.
-  const sharedWords = config.nodes?.find((node) => node.id === "fuse")?.settings?.sharedWords === 1;
+  const sharedWords = config.nodes?.find((node) => node.id === "fuse")?.settings?.sharedWords >= 1;
   const ctx = { store, scope, rules, overrides, draft, sharedWords };
   try {
     const { outputs } = await graphFor(config, log).run("search", input, ctx);
