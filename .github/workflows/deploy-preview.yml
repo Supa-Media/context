@@ -289,7 +289,7 @@ jobs:
       # is built to send its Google calls here (`--define` below) and the
       # Convex deployment is pointed here by convex-env.mjs (EMULATORS_ORIGIN).
       - name: Deploy the emulators
-        run: pnpm --dir packages/emulators exec wrangler deploy --name "context-emulators-pr$PR" --message "Preview pr$PR $HEAD_SHA"
+        run: pnpm --dir packages/emulators exec wrangler deploy --env preview --name "context-emulators-pr$PR" --message "Preview pr$PR $HEAD_SHA"
 
       # The gateway first: the texting assistant binds it, so it must exist.
       # Staging's screenshot and eval Workers are bound by name, as they are.
