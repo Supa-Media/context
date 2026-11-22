@@ -67,7 +67,7 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   artifacts sealed with a key made for that run, which travels only as a job
   output (a public repository's artifacts are anyone's to download). Every
   run records the commit that actually ran, and the Lab and `runs` show it.
-  Test chats (the sandbox) still run on production's gateway: a Worker with
+  Test chats still run on production's gateway: a Worker with
   Durable Objects gets no per-version preview, so a branch's gateway would be a
   deployment of its own.
 - **Caps:** 20 waiting or running per person, 300 a day (raised from 3 and 20,

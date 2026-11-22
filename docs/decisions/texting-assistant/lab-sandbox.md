@@ -6,8 +6,19 @@ test messages to see how the new architecture responds, I should be able to writ
 test messages and retry, and also have all the changes in the workspace / group chat object be sandboxed so it doesn't
 actually affect production"; then "go ahead and build everything" (piece 3 of the Lab runs plan).
 
+**They are called test chats, and "sandbox" means a pull request's preview** (Dev2, 2026-11-22: "it's a little
+confusing that there are two sort of ... uses of sandbox in the app ... I'm wondering if we should just call it a test
+message rather than a sandbox, just to disambiguate"; chose "Rename, and run on PR code" on the card). Everything a
+person or an AI reads says test chat: the Lab's dock (Test from here, test writes, the test line), `tex_dev`'s
+`test_chat` action and its `testChatId`, and a test chat's link `/lab?testchat=<id>`. The old `sandbox`, `sandboxId`
+and `?sandbox=` still answer, so links and agents from before keep working
+(`packages/lab/gateway/texDev/testChatNames.js`, which also turns every answer into the new names). Code names no person
+reads keep the old word, because renaming them buys nothing and a Durable Object class rename needs a migration: the
+route `/tex-lab/sandbox`, `LabSandbox`, `labSandbox/`, this file's name. Tests:
+`apps/mcp/test/texDevTestChatNames.test.mjs`, `packages/lab/__tests__/texLabTestChatUrl.test.ts`.
+
 **One route, the caller's own grant: `POST /tex-lab/sandbox` `{ op, ... }`** (`packages/lab/gateway/labSandbox/route.js`), and
-`tex_dev`'s `sandbox` action, which calls the same route in-process with the connection's own grant, so the Lab and
+`tex_dev`'s `test_chat` action (`sandbox` until 2026-11-22), which calls the same route in-process with the connection's own grant, so the Lab and
 an AI do the same things (the Lab-parity rule). Ops: `chats`, `sets`, `open`, `send`, `react`, `edit`, `retry`, `back`,
 `drop`, `reset`, `get`.
 The control plane decides who may, on every call (`apps/convex/functions/texLabSandbox.ts`, `/gateway/tex/lab-sandbox`,
@@ -75,7 +86,7 @@ entries with it, and the ledger is rebuilt from what is left. A real text is nev
   true`, or `kind: "unsend"`) is the person's change; the chat object takes it as a Photon edit or unsend
   ([edits-and-unsends](./edits-and-unsends.md)): `same` keeps nothing, `turn` queues the new words as a text, `withdraw`
   takes a waiting text back. Its `edit` step is on the row, and a quiet reply row says what the object did. Retry sends
-  an edit or unsend again as itself. tex_dev's `sandbox` has both ops.
+  an edit or unsend again as itself. tex_dev's `test_chat` has both ops.
 - `get` rows carry `pics`, `replyTo`, `reactions: [{ who, emoji }]` on a tapped row, and each tapback's own row
   (`kind: "reaction"`, `emoji`, `on`, its line as `text`). Retry sends a text again with its pictures and reply, and a
   tapback again as itself. The daily cap counts every text, tapback, edit and unsend.
@@ -145,8 +156,8 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   Photon's lags. A way with fewer than five logged gets a fixed default, **1.5 s in and 2 s out, which is not a
   measurement** (`PHOTON_DEFAULT`; the `line` says how many samples each way used, `measured`); no hold is over 30 s.
   Training and Dev conversations get the default. The holds are steps of their own, `lineIn` and `lineOut`, `kind:
-  "line"`: the simulated line is the sandbox's transport, not Tex, so they are no nodes of `texConfig.json`, and
-  `scripts/tex-diagram-check.mjs` (check 6) fails CI if the sandbox records a step that is neither a node nor that
+  "line"`: the simulated line is the test chat's transport, not Tex, so they are no nodes of `texConfig.json`, and
+  `scripts/tex-diagram-check.mjs` (check 6) fails CI if a test chat records a step that is neither a node nor that
   transport, if a transport name becomes a node, or if the code's list (`steps.js` `TRANSPORT_STEPS`) drifts from the
   check's (`LAB_TRANSPORT`). Rows carry `line: { name, inMs, outMs? }`, and `get` the line every new text uses.
 - *Background jobs run* (`labSandbox/jobs.js`). The job tools (`start_background_job`, `steer_background_job`,
@@ -157,7 +168,7 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   `TexJob`), so Job check, the Hand-back judge and the Advisor on job mail are reached over the job node's wires; the
   job's own turn is `/agent` on the same fences, and its report goes to the chat object, whose turn and line text the
   result: a Tex row `from: "job"` the moment its line delivers it. What differs is only who drives the passes: the
-  sandbox, one after another, not the Worker's workflow. Limits: 15 minutes and 14 passes a job, 6 jobs a text (one more
+  test chat, one after another, not the Worker's workflow. Limits: 15 minutes and 14 passes a job, 6 jobs a text (one more
   is refused as a step); a job for one of the person's computers is never run (its refusal is a `job` step with `ok:
   false`, listed, and the job ends through `/job-failed`, so the chat hears it failed as it would); a tool that needs a
   browser or a computer (`browse`, `fill_login`, `fill_card`, `delegate`, the computer tools) is refused in words the
@@ -280,7 +291,7 @@ pattern fails "a test row is counted ..."; and shaping a node's input for an uns
 ...".
 `apps/mcp/test/labSandbox.test.mjs` (sabotaged): a put lands in the test chat and is read back there while
 the real object holds nothing; a real key is read through until the test chat changes it; the test chat's ledger is
-the sandbox's and another chat's is never written; an alarm never arms and an unknown or writing op is refused; the
+the test chat's and another chat's is never written; an alarm never arms and an unknown or writing op is refused; the
 control-plane client sends nothing for a write; a non-read tool is stubbed; the env has none of the left-out bindings;
 retry/back/drop cut what they should; a stranger is refused; another person's test chat does not exist for them.
 `apps/mcp/test/labSandboxEvents.test.mjs` (sabotaged): a picture is logged as one and reaches the turn as the Worker
@@ -306,16 +317,16 @@ each got, gave and thought and how long it took, and tries a change against main
 session/draft an AI is updating / editing, we can co work, and when its playing something I can see it playing". Spec
 approved by Dev2: https://claude.ai/artifact/Uisi6KJQhizxCAos82TTKN.
 
-`tex_dev` `sandbox` (`packages/lab/gateway/texDev/sandbox.js`) is the same route on the connection's own grant, only shaped for
+`tex_dev` `test_chat` (`packages/lab/gateway/texDev/sandbox.js`) is the same route on the connection's own grant, only shaped for
 a model: `open` answers the last rows and a Lab link, never a whole chat; a send waits (at most 50 s) and answers a run
 card (Tex's texts, total and first-text time, every step that ran in order, the config's steps that did not run with
 the reason read from the wires and what their sources said, slowest, failures, writes); `step` reads one step whole
-with Replay's own reader over the test chat's history file (route op `read`, its own chat only), so prod and sandbox
+with Replay's own reader over the test chat's history file (route op `read`, its own chat only), so prod and test chat
 have one reader; `again`, `try` and `replay` set runs side by side with a diff. A production run's card never lists
 "did not run": its graph was its own version's, and guessing it from today's would show what did not happen.
 
 Co-working: the route's `list` names every test chat of the person's last day, who opened it and who used it last
-(the Lab, or `AI (<client>)` passed as `by`), and what runs now; the AI hands the person `/lab?sandbox=<id>` to follow
+(the Lab, or `AI (<client>)` passed as `by`), and what runs now; the AI hands the person `/lab?testchat=<id>` to follow
 it live. Both are the same person's grant, so nothing is shared beyond them.
 
 **Tests**: `apps/mcp/test/texDevSandbox.test.mjs` (sabotaged: the not-run reasons, the wait's deadline, open's last

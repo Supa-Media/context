@@ -81,7 +81,7 @@ export type SandboxState = {
   busy: boolean;
   problem: string | null;
   /**
-   * A test chat a link asked for (`/lab?sandbox=<id>`) that is not open yet: the dock names it and offers to try again
+   * A test chat a link asked for (`/lab?testchat=<id>`) that is not open yet: the dock names it and offers to try again
    * instead of showing whatever chat was open before, so a failed open never looks like the wrong chat.
    */
   linked: string | null;
@@ -94,7 +94,7 @@ export type SandboxState = {
   /** A text waiting in the composer: `tryFromHere` puts the text it tries from there. */
   draft: { as: string; text: string } | null;
   /**
-   * A test chat opened by its id (`/lab?sandbox=<id>`, or picked from Recent test chats), which an AI or another tab
+   * A test chat opened by its id (`/lab?testchat=<id>`, or picked from Recent test chats), which an AI or another tab
    * may be texting too (Dev2, 2026-11-16: AIs drive sandboxes and Dev2 co-works live): read again while idle, so a text
    * anyone sends shows and plays, and never swapped for a fresh one when the Lab opens another version.
    */
@@ -461,7 +461,7 @@ export async function readRecentSandboxes() {
 }
 
 /**
- * Open a test chat that already exists, by its id (`/lab?sandbox=<id>`, or Recent test chats): shown as it stands
+ * Open a test chat that already exists, by its id (`/lab?testchat=<id>`, or Recent test chats): shown as it stands
  * and followed live, whoever texts in it. `use` says who is in it where the gateway has it; `get` otherwise.
  */
 export async function attachSandbox(sandboxId: string, versionId: string, recent?: SandboxRecent) {
@@ -498,10 +498,14 @@ export async function attachSandbox(sandboxId: string, versionId: string, recent
   emit();
 }
 
-/** The test chat a link opens (`/lab?sandbox=<id>`), read once as the Lab loads, before it rewrites its address. */
+/**
+ * The test chat a link opens (`/lab?testchat=<id>`), read once as the Lab loads, before it rewrites its address. Links
+ * written before the rename (Dev2, 2026-11-22: "sandbox" means a pull request's preview) say `?sandbox=<id>`.
+ */
 const fromUrl: string | null = (() => {
   try {
-    const v = new URLSearchParams(window.location.search).get("sandbox");
+    const q = new URLSearchParams(window.location.search);
+    const v = q.get("testchat") ?? q.get("sandbox");
     return v && /^[\w.:-]{1,128}$/.test(v) ? v : null;
   } catch {
     return null;

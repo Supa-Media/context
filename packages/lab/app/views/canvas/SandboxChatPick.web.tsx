@@ -137,7 +137,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
                 </>
               ) : tab === "shared" ? (
                 <>
-                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). ▶ plays what ran; a test text runs as them, writes stay in the sandbox.</div>
+                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). ▶ plays what ran; a test text runs as them, writes stay in the test chat.</div>
                   {(["dm", "group"] as const).map((k) => {
                     const xs = shared.filter((c) => c.kind === k);
                     return xs.length ? (

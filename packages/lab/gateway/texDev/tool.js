@@ -19,6 +19,7 @@ import { chatsOf, entriesOf, openChat, turnsOf } from "./probe.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
+import { OLD_TEST_CHAT_ACTION, TEST_CHAT_ACTION, testChatAnswer, testChatArgs } from "./testChatNames.js";
 import { createSetActions, repoConversation, repoGoldRoute } from "./sets.js";
 import { searchText } from "./search.js";
 import { failureView } from "../../src/texFailures.cjs";
@@ -410,9 +411,12 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
       case "steps":
       case "marks":
         return labAction(action, args, plane);
-      case "sandbox": {
+      case TEST_CHAT_ACTION:
+      case OLD_TEST_CHAT_ACTION: {
         // The Lab's test chats (`labSandbox/route.js`), the same route the Lab calls, on this connection's own grant,
-        // shaped for an AI (`sandbox.js`): run cards, waits, a step whole, re-runs and drafts side by side.
+        // shaped for an AI (`sandbox.js`): run cards, waits, a step whole, re-runs and drafts side by side. Called
+        // `test_chat`, with `testChatId`; the old `sandbox` and `sandboxId` still answer (`testChatNames.js`).
+        args = testChatArgs(args);
         // `note_runs`: a note's Tex runs in full, for a note this connection can read (`agent/noteRunRoute.js`).
         if (args?.op === "note_runs") {
           const listed = noteRuns === null ? { error: "note_runs is not available here" } : await noteRuns(args);
@@ -430,7 +434,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
           const ran = await noteRun(args, draftNode);
           return ran.error ? toolError(ran.error) : json(ran);
         }
-        const answer = await sandbox(args ?? {});
+        const answer = testChatAnswer(await sandbox(args ?? {}));
         return answer?.error ? toolError(answer.error) : answer?.tool ? answer.tool : json(answer);
       }
       // The canvas's Put back on a changed step (`engine/changeMarks.ts`), landed as an edit with its conflict check.

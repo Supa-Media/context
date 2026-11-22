@@ -11,7 +11,7 @@ import { Pop } from "../bar/Pop.web";
 const EMAIL = new Set(["email", "draft"]);
 /** Whether a write has something to open: a page's address, an email, or a body. */
 export const opens = (w: SandboxWrite) => (w.kind === "page" ? !!pageIdOf(w) : EMAIL.has(w.kind) ? !!(w.to || w.subject || w.body) : !!w.body);
-const subOf = (w: SandboxWrite) => (w.kind === "page" ? "Working page, gone on Reset" : EMAIL.has(w.kind) ? "Simulated, never sent" : w.kind === "note" ? "In the sandbox copy of your notes" : w.kind);
+const subOf = (w: SandboxWrite) => (w.kind === "page" ? "Working page, gone on Reset" : EMAIL.has(w.kind) ? "Simulated, never sent" : w.kind === "note" ? "In the test copy of your notes" : w.kind);
 
 export function SandboxWrites() {
   const sb = useSandbox();
@@ -24,13 +24,13 @@ export function SandboxWrites() {
         className="ghost"
         button={
           <>
-            <span className="wcount">{n}</span> sandbox write{n === 1 ? "" : "s"} ▾
+            <span className="wcount">{n}</span> test write{n === 1 ? "" : "s"} ▾
           </>
         }
       >
         {(close) => (
           <div className="vmenu sbwrites">
-            <div className="mh">What Tex wrote in this sandbox</div>
+            <div className="mh">What Tex wrote in this test chat</div>
             {n ? (
               sb.writes.map((w, k) =>
                 opens(w) ? (
@@ -61,7 +61,7 @@ export function SandboxWrites() {
               <div className="mnote">Nothing yet. Notes, emails and pages Tex makes land here.</div>
             )}
             <div className="mnote">
-              Reset throws all of these away. <code>tex_dev sandbox writes</code>
+              Reset throws all of these away. <code>tex_dev test_chat get</code>
             </div>
           </div>
         )}
@@ -103,12 +103,12 @@ export function WriteViewer({ w, onClose }: { w: SandboxWrite; onClose: () => vo
     body = (
       <>
         <div className="mh">
-          <b>Sandbox page</b>
+          <b>Test page</b>
           {w.url ? <span className="url">{w.url}</span> : null}
           <span className="spacer" />
           <X onClose={onClose} />
         </div>
-        <div className="banner">Live while this sandbox lives. Reset, or 24 hours idle, and the link stops answering.</div>
+        <div className="banner">Live while this test chat lives. Reset, or 24 hours idle, and the link stops answering.</div>
         <div className="mb">
           {!page ? <div className="mnote">Opening the page…</div> : "error" in page ? <div className="mnote c-bad">{page.error}</div> : <pre className="pagev" id="sbwPage">{page.text}</pre>}
         </div>
@@ -141,7 +141,7 @@ export function WriteViewer({ w, onClose }: { w: SandboxWrite; onClose: () => vo
       <>
         <div className="mh">
           <b>{w.title || w.summary}</b>
-          <span className="bdg swr">Sandbox copy</span>
+          <span className="bdg swr">Test copy</span>
           <span className="spacer" />
           <X onClose={onClose} />
         </div>
