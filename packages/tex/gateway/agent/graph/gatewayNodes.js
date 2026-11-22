@@ -73,6 +73,8 @@ import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
 import { askGateNode } from "./nodes/askGate.js";
+import quietCheck from "./nodes/quietCheck.js";
+import checkinResearch from "./nodes/checkinResearch.js";
 import { rungKnowsNode } from "./nodes/rungKnows.js";
 import { computerNode } from "./nodes/computer.js";
 import { rungNotesNode } from "./nodes/rungNotes.js";
@@ -188,6 +190,10 @@ export const GATEWAY_NODES = {
   // The lookup ladder, on the shelf: before Tex asks them a fact it could find, its Before-asking step and its quick
   // rungs, each its own step (`nodes/askGate.js`, `../lookupLadder.js`); a Lab draft wires answerCheck -> askGate.
   get askGate() { return askGateNode; },
+  // A check-in's Quiet check: whether the look's silence stands (`nodes/quietCheck.js`); a Lab draft wires checkin -> quietCheck.
+  get quietCheck() { return quietCheck; },
+  // A check-in's Research: read-only digging whose brief the look reads (`nodes/checkinResearch.js`); a draft wires checkin -> checkinResearch.
+  get checkinResearch() { return checkinResearch; },
   get rungKnows() { return rungKnowsNode; },
   get rungNotes() { return rungNotesNode; },
   get rungTools() { return rungToolsNode; },

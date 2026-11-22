@@ -96,6 +96,26 @@ function attendeeLabel(attendee) {
   return singleLine(attendee?.name) || singleLine(attendee?.email) || "(unknown attendee)";
 }
 
+/** Google's `responseStatus`, in words. Anything else (absent, unknown) is said as not known. */
+export const RSVP_WORDS = Object.freeze({ accepted: "going", declined: "not going", tentative: "maybe", needsAction: "not answered" });
+
+/** An answer in words, or null when Google gave none. */
+function answerWord(attendee) {
+  return Object.hasOwn(RSVP_WORDS, attendee?.responseStatus ?? "") ? RSVP_WORDS[attendee.responseStatus] : null;
+}
+
+/** `Sarah Gonzalez (organizer, going)`: a guest, whether they organized it, and their answer. */
+function attendeeWithAnswer(attendee) {
+  const marks = [attendee?.organizer === true ? "organizer" : null, attendee?.self === true ? "you" : null, answerWord(attendee)].filter(Boolean);
+  return marks.length ? `${attendeeLabel(attendee)} (${marks.join(", ")})` : attendeeLabel(attendee);
+}
+
+/** The owner's own answer: `going`, `not answered`, ..., with `(you organized it)` when they did. */
+function ownAnswer(self) {
+  const word = answerWord(self) ?? "not known";
+  return self?.organizer === true ? `${word} (you organized it)` : word;
+}
+
 /** One event, rendered. */
 function renderEvent(event, timezone, nonce) {
   const anchor = eventAnchor(event);
@@ -116,9 +136,13 @@ function renderEvent(event, timezone, nonce) {
     lines.push(`**Organizer:** ${defangOutsideFence(attendeeLabel(organizer))}`, "");
   }
 
+  // Every guest with their answer, and the owner's own answer on a line of its own (Dev2, 2026-11-22: Tex offered to
+  // RSVP yes to an invite he had already accepted, because a read showed guests' names and never anyone's answer).
   const attendees = Array.isArray(event?.attendees) ? event.attendees : [];
+  const own = attendees.find((attendee) => attendee?.self === true);
+  if (own) lines.push(`**Your RSVP:** ${ownAnswer(own)}`, "");
   if (attendees.length) {
-    const names = attendees.map((attendee) => defangOutsideFence(attendeeLabel(attendee))).join(", ");
+    const names = attendees.map((attendee) => defangOutsideFence(attendeeWithAnswer(attendee))).join(", ");
     lines.push(`**Attendees:** ${names}`, "");
   }
 

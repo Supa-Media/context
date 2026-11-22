@@ -75,6 +75,28 @@ export function sayNothingOnce(notice) {
 }
 
 /**
+ * The first `say_nothing` asks `judge` (a check-in's Quiet check step, `graph/nodes/quietCheck.js`) with the call's
+ * `why`. A judge that answers `{ notice }` refuses this silence with it, so the model writes the text; one that answers
+ * null, or fails, lets the silence stand. The next call ends the turn whatever: one hold, then silence stands.
+ */
+export function sayNothingJudged(judge) {
+  let asked = false;
+  return {
+    tool: SAY_NOTHING_DEFINITION,
+    call: async (args) => {
+      if (!asked) {
+        asked = true;
+        const held = await Promise.resolve()
+          .then(() => judge(typeof args?.why === "string" ? args.why : ""))
+          .catch(() => null);
+        if (held && typeof held.notice === "string" && held.notice !== "") return { isError: true, content: [{ type: "text", text: held.notice }] };
+      }
+      return { content: [{ type: "text", text: "Nothing will be texted. Your turn ends here." }] };
+    },
+  };
+}
+
+/**
  * The answer a turn that called it hands on: the quiet word its readers already treat as nothing to send
  * (`QUIET_WORD` in `checkInGuards.js`, written out because that module reaches back to `turn.js`; a test holds them equal).
  */
