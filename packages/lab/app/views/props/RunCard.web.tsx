@@ -81,7 +81,7 @@ export function StatusRow({ n, card, run, draft }: { n: LabNode; card: "run" | "
   );
 }
 
-const BADGE: Record<StepCall["kind"], [string, string]> = { read: ["real", "Real read"], write: ["swr", "Sandbox write"], prod: ["line", "Ran in prod"] };
+const BADGE: Record<StepCall["kind"], [string, string]> = { read: ["real", "Real read"], write: ["swr", "Test write"], prod: ["line", "Ran in prod"] };
 
 function Calls({ calls }: { calls: StepCall[] }) {
   return (

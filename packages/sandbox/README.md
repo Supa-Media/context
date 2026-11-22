@@ -16,7 +16,7 @@ Nothing here is deployed. The GitHub workflows run these files directly with `no
 | `src/smoke.mjs` | Proves the deployed preview answers end to end | `deploy-preview.yml` |
 | `src/browser.mjs` | Opens the preview's `/login` in Chromium and fails on page errors or failed requests to its own hosts | `deploy-preview.yml` |
 | `src/sign-in-code.mjs` | Mails a persona's sign-in code to the team inbox | `preview-sign-in-code.yml` |
-| `src/agent-sign-in.mjs` | Lets an AI agent sign in to a preview: a throwaway key, a session sealed to it in CI, opened in the agent's own browser | `preview-agent-sign-in.yml` |
+| `src/agent-sign-in.mjs` | Lets an AI agent sign in to a preview: a throwaway key, a session (or a waiting "Check it's you" code) sealed to it in CI, opened in the agent's own browser | `preview-agent-sign-in.yml` |
 | `src/screenshots.mjs` | Signs a persona in and screenshots a preview at the desktop, medium and phone layouts | `preview-screenshots.yml` |
 | `src/cleanup.mjs` | Deletes a closed pull request's preview, and sweeps for any left behind | `preview-cleanup.yml`, `deploy-preview.yml` |
 | `src/teardown.mjs` | Empties buckets, revokes tokens, deletes the Convex preview, and verifies nothing is left | `cleanup.mjs` |

@@ -13,8 +13,18 @@
 import { MEANING_MODEL } from "../../../../apps/mcp/src/search/meaning/embed.js";
 import { sha256Hex } from "../../../../apps/mcp/src/controlPlane/client.js";
 
-/** The one object that keeps the vector cache, in `BENCH_STORE`. */
+/**
+ * The object that keeps the worlds list (`serveWorlds`) and, before 2026-11-22, the whole vector cache; its vectors
+ * are still read when a shard has none, and copied into the shard.
+ */
 export const VECTORS_OBJECT = "bench-vectors";
+/**
+ * The vector cache is kept in this many objects, by its key's first hex digit. One object answers one call at a time,
+ * so with every copy of a world building at once a single cache was the queue every build waited in (a 16-copy load
+ * took about 6 minutes cloning against a copy that built alone in under one).
+ */
+export const VECTOR_SHARDS = 16;
+const shardOf = (key) => `${VECTORS_OBJECT}-${parseInt(key[0], 16) % VECTOR_SHARDS}`;
 /** Its one call. */
 export const VECTORS_PATH = "/bench-vectors";
 /** The same object's list of worlds, by when each was last used (`serveWorlds`). */
@@ -56,22 +66,38 @@ const f32 = (vector) => Array.from(Float32Array.from(vector));
  * Every other model (the reranker) is asked as it is.
  */
 export function cachedAi(ai, namespace) {
-  const cache = () => namespace.get(namespace.idFromName(VECTORS_OBJECT));
-  const ask = async (body) => await (await cache().fetch(new Request(`https://bench.internal${VECTORS_PATH}`, { method: "POST", body: JSON.stringify(body) }))).json();
+  const ask = async (name, body) => await (await namespace.get(namespace.idFromName(name)).fetch(new Request(`https://bench.internal${VECTORS_PATH}`, { method: "POST", body: JSON.stringify(body) }))).json();
+  /** `ask` of every shard the keys fall in, at once; answers every vector found. */
+  const spread = async (keys, body) => {
+    const byShard = new Map();
+    for (const key of keys) byShard.set(shardOf(key), [...(byShard.get(shardOf(key)) ?? []), key]);
+    const answers = await Promise.all([...byShard].map(([name, list]) => ask(name, body(list))));
+    return Object.assign({}, ...answers.map((answer) => answer?.vectors ?? {}));
+  };
+  const putAll = async (put) => await spread(Object.keys(put), (list) => ({ put: Object.fromEntries(list.map((key) => [key, put[key]])) }));
   return {
     async run(model, input, ...rest) {
       if (model !== MEANING_MODEL || !Array.isArray(input?.text)) return await ai.run(model, input, ...rest);
       const texts = input.text.map(String);
       const keys = await Promise.all(texts.map((text) => sha256Hex(`${model}\u0000${text}`)));
-      const { vectors: known } = await ask({ get: keys });
-      const missing = texts.map((_, i) => i).filter((i) => !Array.isArray(known?.[keys[i]]));
+      const known = await spread(keys, (list) => ({ get: list }));
+      // Vectors cached before the shards are in the one old cache: read there once, and kept in their shard.
+      const unsharded = [...new Set(keys.filter((key) => !Array.isArray(known[key])))];
+      if (unsharded.length > 0) {
+        const { vectors: old = {} } = await ask(VECTORS_OBJECT, { get: unsharded });
+        if (Object.keys(old).length > 0) {
+          await putAll(old);
+          Object.assign(known, old);
+        }
+      }
+      const missing = texts.map((_, i) => i).filter((i) => !Array.isArray(known[keys[i]]));
       if (missing.length > 0) {
         const answer = await ai.run(model, { ...input, text: missing.map((i) => texts[i]) }, ...rest);
         const data = Array.isArray(answer?.data) ? answer.data : [];
         if (data.length !== missing.length) return answer;
         const put = {};
         missing.forEach((i, j) => (put[keys[i]] = f32(data[j])));
-        await ask({ put });
+        await putAll(put);
         Object.assign(known, put);
       }
       return { shape: [texts.length, known[keys[0]].length], data: keys.map((key) => f32(known[key])) };

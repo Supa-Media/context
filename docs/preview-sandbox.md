@@ -53,14 +53,23 @@ and the code. "Checked on every preview" means the deploy's smoke test
      `--shoot "/console"` to take the desktop, medium and phone pictures
      there and then (the signed-in app is under `/console`; set
      `CHROMIUM_PATH` to use a Chromium of your own).
+   - A big change (a username, an email) asks "Check it's you". Press Send in
+     the app, run the same workflow with `step: email-code`, and `open` the
+     new line: it prints the code that session is waiting for, which the agent
+     types in. Only a persona's code on an isolated preview, and only one a
+     session already asked for (`functions/emailProof:previewReissue`).
    It is a workflow, not a tool on the Context MCP, so production never holds
    the preview deploy key (`packages/sandbox/src/agent-sign-in.mjs`).
+
+Or try Tex there from production's Lab: in a test chat's picker, set **Code** to `#<pr>` and open Maya or a
+Training/Dev conversation (tex_dev: `test_chat open { code: "#<pr>", source: "maya" }`). The preview's own Tex,
+running the pull request's code, answers as `alpha`; the first open takes about a minute.
 
 ## Real, as in production
 
 | What | How it is known |
 | --- | --- |
-| Its own Convex deployment, Workers and Durable Objects (notes, Tex's chats, jobs, the Lab sandbox) | Named `pr<N>`; the guards refuse any production or staging identifier (`packages/sandbox/src/guards.mjs`) |
+| Its own Convex deployment, Workers and Durable Objects (notes, Tex's chats, jobs, the Lab's test chats) | Named `pr<N>`; the guards refuse any production or staging identifier (`packages/sandbox/src/guards.mjs`) |
 | Five personas, their workspaces, memberships and 41 fixture notes, in managed buckets of their own | The seed, every preview |
 | Tex answering a text through the simulator (1:1), and in the app's Tex chat | Checked on every preview |
 | Search by meaning (the workspace object's index, Workers AI embeddings) | Checked on every preview |

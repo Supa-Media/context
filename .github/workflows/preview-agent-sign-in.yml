@@ -9,6 +9,11 @@ name: Preview agent sign-in
 # This repository's Actions logs are public, and that line is unreadable without
 # the agent's private key. See packages/sandbox/src/agent-sign-in.mjs and
 # docs/preview-sandbox.md.
+#
+# `step: email-code` instead prints the "Check it's you" code the persona's
+# session is waiting for (the agent pressed Send in the app; a preview mails
+# nothing), sealed the same way, so an agent can finish a big change such as a
+# username end to end.
 on:
   workflow_dispatch:
     inputs:
@@ -25,6 +30,11 @@ on:
         description: "The 43-character public key `agent-sign-in.mjs keygen` printed."
         type: string
         required: true
+      step:
+        description: "sign-in: a session. email-code: the waiting \"Check it's you\" code."
+        type: choice
+        options: [sign-in, email-code]
+        default: sign-in
 
 permissions:
   contents: read
@@ -48,6 +58,7 @@ jobs:
 
       # The workers.dev subdomain names the account, so it is masked; it reaches the agent only inside the sealed line.
       - name: Read the preview's web app origin
+        if: ${{ inputs.step != 'email-code' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -61,9 +72,19 @@ jobs:
           echo "PREVIEW_ROUTER_ORIGIN=https://context-router-pr$PR.$sub.workers.dev" >> "$GITHUB_ENV"
 
       - name: Sign the persona in and seal the session to the agent's key
+        if: ${{ inputs.step != 'email-code' }}
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
           PR: ${{ inputs.pr }}
           PERSONA: ${{ inputs.persona }}
           PUBLIC_KEY: ${{ inputs.public_key }}
         run: node packages/sandbox/src/agent-sign-in.mjs mint
+
+      - name: Seal the persona's waiting email code to the agent's key
+        if: ${{ inputs.step == 'email-code' }}
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          PR: ${{ inputs.pr }}
+          PERSONA: ${{ inputs.persona }}
+          PUBLIC_KEY: ${{ inputs.public_key }}
+        run: node packages/sandbox/src/agent-sign-in.mjs proof

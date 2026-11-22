@@ -5,7 +5,7 @@
  * in the dock (`SandboxChat.web.tsx`).
  */
 import { useEffect, useState } from "react";
-import { attachSandbox, readRecentSandboxes, readSandboxChats, readSandboxSets, readSandboxShared, openSandbox, useSandbox, type SandboxSource } from "../../engine/sandbox";
+import { attachSandbox, readRecentSandboxes, readSandboxChats, readSandboxSets, readSandboxShared, openSandbox, setSandboxCode, useSandbox, type SandboxSource } from "../../engine/sandbox";
 import { Pop } from "../bar/Pop.web";
 
 type Tab = "mine" | "test" | "sets" | "shared";
@@ -24,6 +24,36 @@ function ReadRecent() {
   useEffect(() => void readRecentSandboxes(), []);
   return null;
 }
+
+/**
+ * Whose code answers the next test chat: main, or a pull request's own preview (its code, its fictional people), typed
+ * as "#4012" (Dev2, 2026-11-22: "run on PR #N's code").
+ */
+function CodePick() {
+  const sb = useSandbox();
+  const [text, setText] = useState(sb.code === "main" ? "" : sb.code);
+  const ok = setSandboxCodeCheck(text);
+  return (
+    <label className="mi" id="sbCodeRow" title="main, or a pull request's number: its own preview runs the test chat">
+      <span className="nm">Code</span>
+      <input
+        id="sbCodeIn"
+        className="vren"
+        placeholder="main or #PR"
+        aria-label="Code the test chat runs: main or a pull request"
+        aria-invalid={!ok}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSandboxCode(e.target.value);
+        }}
+      />
+      <span className="meta">{ok ? (sb.code === "main" ? "main" : "PR " + sb.code + "'s preview") : "main or #number"}</span>
+    </label>
+  );
+}
+
+const setSandboxCodeCheck = (t: string) => !t.trim() || t.trim() === "main" || /^(?:#|pr)?[1-9][0-9]{0,6}$/i.test(t.trim());
 
 /** The chat picker: your account's 1:1 and group chats, the test account, and the Training and Dev conversations. */
 export function ChatPick({ versionId }: { versionId: string }) {
@@ -115,9 +145,12 @@ export function ChatPick({ versionId }: { versionId: string }) {
                 ))}
               </div>
             ) : null}
+            <CodePick />
             <input type="search" id="sbChatQ" className="vren" placeholder="Find a chat" aria-label="Find a chat" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
             <div id="sbChatList">
-              {tab === "mine" ? (
+              {sb.code !== "main" && (tab === "mine" || tab === "shared") ? (
+                <div className="mnote">On a pull request&apos;s preview, open the Test account or a Training / Dev conversation: your own and shared chats stay in production.</div>
+              ) : tab === "mine" ? (
                 <>
                   {one.length ? <div className="mh">1:1</div> : null}
                   {one.map((c) => (
@@ -137,7 +170,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
                 </>
               ) : tab === "shared" ? (
                 <>
-                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). ▶ plays what ran; a test text runs as them, writes stay in the sandbox.</div>
+                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). ▶ plays what ran; a test text runs as them, writes stay in the test chat.</div>
                   {(["dm", "group"] as const).map((k) => {
                     const xs = shared.filter((c) => c.kind === k);
                     return xs.length ? (

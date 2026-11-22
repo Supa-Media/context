@@ -19,6 +19,10 @@
  *    holding the session where the web app keeps it, and prints the address.
  *    `open --shoot "/console"` also takes the desktop, medium and phone
  *    pictures itself (set CHROMIUM_PATH to use a Chromium of your own).
+ * 4. When the app asks "Check it's you" (a big change, such as a username),
+ *    press Send in it, then run the workflow again with `step: email-code`.
+ *    Its line holds that waiting code's digits (a preview mails nothing);
+ *    `open` prints them, and the agent types them into the app.
  *
  * Only the fixture personas, only a `pr<N>` preview deployment, never staging
  * or production: the runner holds only the preview deploy key. The sealing is
@@ -145,6 +149,30 @@ export async function mint(env = process.env, { signIn = signInForReal, find = f
   log(`Signed ${persona} in on preview pr${pr}. The line above is sealed to the key you passed; open it with agent-sign-in.mjs open.`);
 }
 
+/**
+ * CI: the "Check it's you" code a persona's session on pull request `PR`'s
+ * preview is waiting for, sealed to `PUBLIC_KEY` (the agent pressed Send in the app first).
+ */
+export async function proof(env = process.env, { issue = issueForReal, find = findConvexPreview, fetchImpl = fetch, log = console.log } = {}) {
+  const pr = String(env.PR ?? "");
+  if (!/^[1-9][0-9]{0,6}$/.test(pr)) throw new Error("PR must be a pull request number.");
+  const persona = String(env.PERSONA ?? "");
+  if (!PERSONAS.includes(persona)) throw new Error(`PERSONA must be one of ${PERSONAS.join(", ")}.`);
+  const recipient = parsePublicKey(env.PUBLIC_KEY);
+  const deployKey = env.CONVEX_DEPLOY_KEY;
+  if (typeof deployKey !== "string" || !deployKey.startsWith("preview:")) throw new Error("CONVEX_DEPLOY_KEY must be a preview deploy key.");
+  const deployment = await find(deployKey, `pr${pr}`, { fetchImpl });
+  if (deployment === null) throw new Error(`Pull request #${pr} has no preview deployment.`);
+  const code = await issue({ deployment, deployKey, email: `${persona}@supa.media` });
+  log(seal({ v: 1, kind: "email-code", pr: Number(pr), persona, code, issuedAt: new Date().toISOString() }, recipient));
+  log(`Issued ${persona}'s waiting "Check it's you" code on preview pr${pr}. The line above is sealed to the key you passed; open it with agent-sign-in.mjs open.`);
+}
+
+async function issueForReal({ deployment, deployKey, email }) {
+  const { issueEmailProofCode } = await import("./seed.mjs");
+  return issueEmailProofCode(email, { deployment, deployKey });
+}
+
 /** Agent: make a throwaway key pair, keep the private half in `file`, print the public half. */
 export function keygen(file = DEFAULT_KEY_FILE, { log = console.log } = {}) {
   const { privateKey, publicKey } = generateKeyPairSync("x25519");
@@ -157,7 +185,13 @@ export function keygen(file = DEFAULT_KEY_FILE, { log = console.log } = {}) {
 
 /** Agent: open the sealed line, write the storage state, optionally take the pictures. */
 export async function open(text, { keyFile = DEFAULT_KEY_FILE, stateFile = join(tmpdir(), "context-agent-sign-in-state.json"), shoot, outDir = "screenshots", log = console.log } = {}) {
-  const payload = checkPayload(unseal(text, createPrivateKey(readFileSync(keyFile))));
+  const opened = unseal(text, createPrivateKey(readFileSync(keyFile)));
+  if (opened?.kind === "email-code") {
+    if (!/^\d{6}$/.test(String(opened.code ?? ""))) throw new Error("The sealed email code is not six digits.");
+    log(`"Check it's you" code for ${opened.persona} on preview pr${opened.pr}: ${opened.code}`);
+    return opened;
+  }
+  const payload = checkPayload(opened);
   writeFileSync(stateFile, JSON.stringify(storageState(payload)), { mode: 0o600 });
   log(`Signed in as ${payload.persona} on preview pr${payload.pr}.`);
   log(`Origin: ${payload.origin}`);
@@ -205,6 +239,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const [command, ...args] = process.argv.slice(2);
   const run = async () => {
     if (command === "mint") return mint();
+    if (command === "proof") return proof();
     const keyFile = flag(args, "--key") ?? DEFAULT_KEY_FILE;
     if (command === "keygen") return keygen(keyFile);
     if (command === "open") {
@@ -214,7 +249,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       const text = args.length > 0 ? args.join(" ") : readFileSync(0, "utf8");
       return open(text, { keyFile, shoot, ...(stateFile ? { stateFile } : {}), ...(outDir ? { outDir } : {}) });
     }
-    throw new Error("Usage: agent-sign-in.mjs keygen | open [--shoot SHOTS] [--state FILE] [--out DIR] <line> | mint");
+    throw new Error("Usage: agent-sign-in.mjs keygen | open [--shoot SHOTS] [--state FILE] [--out DIR] <line> | mint | proof");
   };
   run().catch((error) => {
     console.error(error.message);

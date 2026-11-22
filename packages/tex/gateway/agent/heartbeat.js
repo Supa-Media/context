@@ -88,6 +88,7 @@ import { speakNotice } from "./graph/nodes/quietCheck.js";
 import { researchSection } from "./graph/nodes/checkinResearch.js";
 import { DAY_MS, heading, heartbeatPath } from "./checkInGather.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
+import { GATEWAY_NODES } from "./graph/gatewayNodes.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -338,6 +339,30 @@ async function recentLogs(dispatch, now, timeZone) {
 }
 
 /**
+ * The check-in's look as the Front door node (`checkin -> fd`, mode wait): the node runs the look's turn handed to it in
+ * `io.ctx.look` and gives out what the Front door gives for a finished turn. Its turn comes back through `io.ctx.kept`.
+ */
+export async function checkInLook(_input, io) {
+  const turn = await io.ctx.look();
+  io.ctx.kept.turn = turn;
+  return {
+    pending: false,
+    draftChars: String(turn?.answer ?? "").length,
+    ...(typeof turn?.model === "string" ? { answeredBy: turn.model } : {}),
+    steps: Array.isArray(turn?.steps) ? turn.steps.length : 0,
+    exhausted: turn?.exhausted === true,
+  };
+}
+
+/** Runs the look through the graph's `checkin -> fd` wire when the config has it, else directly; answers its turn. */
+export async function lookThroughGraph(graph, look) {
+  if (!graph.wired("checkin", "fd")) return await look();
+  const kept = { turn: null };
+  await graph.fire("checkin", "fd", {}, { look, kept });
+  return kept.turn;
+}
+
+/**
  * `/agent` for the check-in client (`http/route.js` sends it here by the
  * grant's client, never by the body): it checks in, and does nothing else.
  */
@@ -370,7 +395,10 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const ledgerTurn = `ck${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
   const chatLog = ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT);
   // The config this look runs on: main's, or a Lab draft's in a test (`texConfigOf`), so a draft's wires apply.
-  const graph = gatewayGraph({ writer: chatLog, turn: ledgerTurn, config: texConfigOf(env), env });
+  // The look is the config's `checkin -> fd` wire: its turn runs as the Front door node of this graph (`checkInLook`), so
+  // it logs as its own step like every other (Dev2, 2026-11-14: "every model call ... must be a config node"; found
+  // 2026-11-22 when a Lab test chat's check-in card said fd "logged no run").
+  const graph = gatewayGraph({ writer: chatLog, turn: ledgerTurn, config: texConfigOf(env), env, nodes: Object.create(GATEWAY_NODES, { fd: { value: checkInLook } }) });
   // A claim for the pings their agents asked for starts at Send through Tex (`graph/nodes/notify.js`): no look, no model.
   // The texting Worker sends its answer; once Text them is on the runner, the notify -> send wire does.
   if (given.attention === true) {
@@ -467,7 +495,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   let failure = "other";
   let failedBefore = [];
   try {
-    turn = await runTurn({
+    turn = await lookThroughGraph(graph, () => runTurn({
       question,
       answerCheck: judge?.check ?? null,
       silences: judge?.silences ?? null, // a last step is silent only for a send-back that says not for them (`turn.js`)
@@ -503,7 +531,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       localNow: { now: started, timeZone },
       observe,
       maxRounds: HEARTBEAT_ROUNDS,
-    });
+    }));
   } catch (error) {
     failedBefore = error?.timing?.failures ?? [];
     failure = error instanceof ProviderError ? providerFailure(error) : failure;

@@ -18,6 +18,7 @@ import {
   signOutSessions,
 } from "./lib/emailProof";
 import { hashOneTimeCode } from "./lib/oneTimeCodes";
+import { isIsolatedPreview } from "./lib/previewDeployment";
 
 /**
  * "Check it's you" (board k2): the session mails itself a code at one of the
@@ -289,5 +290,46 @@ export const requireProofToRebind = internalQuery({
       .unique();
     if (existing !== null) await requireEmailProof(ctx, userId);
     return null;
+  },
+});
+
+/** The preview seed's fictional personas (packages/sandbox/src/sign-in-code.mjs PERSONAS). */
+const PREVIEW_PERSONA_EMAIL = /^(alpha|beta|gamma|delta|epsilon)@supa\.media$/;
+
+/**
+ * Preview only: replace the code a persona's session just asked for with a
+ * fresh one and return it, so an agent testing a pull request's preview can
+ * pass "Check it's you" without a mailbox (a preview sends no mail). The app
+ * still has to press Send first, so the flow under test is the real one: the
+ * code row, its session, its expiry and its wrong-try limit are all the
+ * ordinary ones; only the digits come back here instead of by mail.
+ *
+ * Internal, and refused anywhere but an isolated preview and for anyone but a
+ * seeded persona: only the preview deploy key runs it (`convex run`), through
+ * `packages/sandbox/src/agent-sign-in.mjs proof`, which seals the code to the
+ * agent's key because Actions logs are public.
+ */
+export const previewReissue = internalMutation({
+  args: { email: v.string() },
+  returns: v.object({ code: v.string(), expiresAt: v.number() }),
+  handler: async (ctx, { email }) => {
+    if (!isIsolatedPreview()) throw new Error("emailProof:previewReissue runs only on a preview deployment.");
+    const address = email.trim().toLowerCase();
+    if (!PREVIEW_PERSONA_EMAIL.test(address)) throw new Error("emailProof:previewReissue is only for the preview personas.");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", address))
+      .first();
+    if (user === null) throw new Error("No such persona on this preview.");
+    const rows = await ctx.db
+      .query("emailProofCodes")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    const waiting = rows.filter((row) => row.expiresAt > Date.now()).sort((a, b) => b._creationTime - a._creationTime)[0];
+    if (waiting === undefined) throw new Error("No code is waiting: press Send in the app's \"Check it's you\" first.");
+    const code = newCode();
+    const expiresAt = Date.now() + CODE_TTL_MS;
+    await ctx.db.patch(waiting._id, { hashedCode: await hashOneTimeCode("email-proof", code), wrongTries: 0, expiresAt });
+    return { code, expiresAt };
   },
 });

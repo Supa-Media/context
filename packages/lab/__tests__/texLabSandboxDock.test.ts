@@ -76,7 +76,7 @@ jest.mock("@context/lab/app/views/canvas/sandboxCall", () => {
       };
     }
     if (op === "open") {
-      // Over your 1:1: two real texts first, up to the one a "Sandbox from here" names.
+      // Over your 1:1: two real texts first, up to the one a "Test from here" names.
       const real: Row[] = body.source === "chat" ? [{ id: "h1", who: "Maya", text: "call at 8?", at: 1_000 }, { id: "h2", who: "Tex", text: "Yes, 8 pm.", at: 2_000 }].map((r) => ({ ...r, prod: true })) : [];
       const until = real.findIndex((r) => r.id === body.base);
       mock.rows = until < 0 ? real : real.slice(0, until);
@@ -189,10 +189,10 @@ describe("the test chat dock", () => {
 
   test("Grid | Timeline in the head, the Timeline in the grid's space, T switching them", async () => {
     await mount();
-    // The sandbox writes chip is always there, its count first, as the mockup's.
-    expect(q("#sbChanges")?.textContent).toBe("0 sandbox writes ▾");
+    // The test writes chip is always there, its count first, as the mockup's.
+    expect(q("#sbChanges")?.textContent).toBe("0 test writes ▾");
     await click("#sbChanges");
-    expect(q(".sbwrites")?.textContent).toMatch(/^What Tex wrote in this sandboxNothing yet\..*Reset throws all of these away\./);
+    expect(q(".sbwrites")?.textContent).toMatch(/^What Tex wrote in this test chatNothing yet\..*Reset throws all of these away\./);
     await click("#sbChanges");
     expect(qa("#sbView button").map((b) => [b.textContent, b.getAttribute("aria-pressed")])).toEqual([
       ["Grid", "true"],
@@ -215,7 +215,7 @@ describe("the test chat dock", () => {
     expect(q('#sbView [data-v="timeline"]')?.getAttribute("aria-pressed")).toBe("true");
     expect(q<HTMLSelectElement>("#sbtlPick")?.value).toBe("t1");
     expect(qa("#sbtlPick option").map((o) => o.textContent)).toEqual(["Text 1 · add the gig", "Text 2 · Tex: Done."]);
-    expect(q("#sbtlKind")?.textContent).toBe(" · sandbox");
+    expect(q("#sbtlKind")?.textContent).toBe(" · test chat");
     expect(q("#sbtlTime")?.textContent).toBe("<1 ms / 3.5 s");
     await clockBy(500);
     expect(tracks()).toEqual(["triage", "decide", "fd"]);
@@ -362,7 +362,7 @@ describe("the test chat dock", () => {
     }
   });
 
-  test("▶ on a real text plays what ran in prod on the graph of its time, read only; Sandbox from here drafts it", async () => {
+  test("▶ on a real text plays what ran in prod on the graph of its time, read only; Test from here drafts it", async () => {
     await mount();
     await click("#sbChat");
     await click('#sbPickTabs [data-tab="mine"]');
@@ -435,7 +435,7 @@ describe("the test chat dock", () => {
       mockProd.value = null;
       h1.steps = had;
     }
-    // Sandbox from here: the real texts before it, and it waiting in the composer.
+    // Test from here: the real texts before it, and it waiting in the composer.
     await click('#sbView [data-v="grid"]');
     await click('#sbGrid [data-fork="h1"]');
     await tick();

@@ -154,7 +154,7 @@ function cardStep(step, n) {
     ...(Number.isFinite(step.tokIn) ? { tokIn: step.tokIn } : {}),
     ...(Number.isFinite(step.tokOut) ? { tokOut: step.tokOut } : {}),
     ...(Number.isFinite(step.cost) ? { cost: step.cost } : {}),
-    ...(Array.isArray(step.calls) && step.calls.length ? { calls: step.calls.map((c) => `${c.tool}${c.kind === "write" ? " (sandbox write)" : ""}${Number.isFinite(c.ms) ? ` ${c.ms} ms` : ""}`) } : {}),
+    ...(Array.isArray(step.calls) && step.calls.length ? { calls: step.calls.map((c) => `${c.tool}${c.kind === "write" ? " (test write)" : ""}${Number.isFinite(c.ms) ? ` ${c.ms} ms` : ""}`) } : {}),
     ...(typeof step.think === "string" && step.think ? { thinking: short(step.think, 160) } : {}),
     out: short(out),
   };
@@ -322,7 +322,13 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     if (!row) return fail(`There is no row ${msgId} in this test chat.`);
     const read = await call({ op: "read", sandboxId, options: { since: row.at, kinds: ["reply"], limit: 20 } });
     if (read.error) return read;
-    const reply = (read.entries ?? []).filter((e) => typeof e.turn === "string").sort((a, b) => a.at - b.at)[0];
+    let reply = (read.entries ?? []).filter((e) => typeof e.turn === "string").sort((a, b) => a.at - b.at)[0];
+    // A run that sends no reply of a text's (a check-in, the nightly) still logs its steps under a turn of its own: the
+    // first entry after the row that carries one (found 2026-11-22: a test chat's check-in card could not be opened).
+    if (!reply) {
+      const any = await call({ op: "read", sandboxId, options: { since: row.at, limit: 50 } });
+      reply = any.error ? undefined : (any.entries ?? []).filter((e) => typeof e.turn === "string").sort((a, b) => a.at - b.at)[0];
+    }
     return reply ? { turn: reply.turn, at: reply.at } : fail(view.running?.msgId === msgId ? "This text is still running: wait for it first." : "This text ran no turn (a quiet reply has no steps of the turn's own); its card lists the chat object's steps.");
   }
 
@@ -370,11 +376,25 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     const opened = await call({ ...body, op: "open", ...(typeof args.draft === "string" ? { versionId: args.draft } : {}) });
     if (opened.error) return opened;
     const shown = Number.isSafeInteger(last) && last >= 0 ? Math.min(last, MAX_ROWS_SHOWN) : ROWS_SHOWN;
-    const rows = opened.rows ?? [];
+    let rows = opened.rows ?? [];
+    let people = opened.people;
+    // On a pull request's preview (`code: "#N"`), the preview opens it once its GitHub run has started (about a
+    // minute): wait for that, as a send waits for its card, and say so if it is still starting.
+    let starting = opened.preview?.starting === true;
+    for (const until = now() + MAX_WAIT_S * 1000; starting && now() < until; ) {
+      await sleep(POLL_MS * 2);
+      const seen = await call({ op: "get", sandboxId: opened.sandboxId });
+      if (seen.error || seen.preview?.starting) continue;
+      rows = seen.rows ?? [];
+      people = (await about(opened.sandboxId)).people ?? people;
+      starting = false;
+    }
     return {
       sandboxId: opened.sandboxId,
+      ...(opened.code ? { code: opened.code } : {}),
+      ...(starting ? { preview: { starting: true, next: "its pull request's preview is still starting its GitHub run: rows { sandboxId } or about shows when it is open" } } : {}),
       draft: body.versionId ?? args.draft ?? "main",
-      people: opened.people,
+      people,
       total: rows.length,
       last: rows.slice(rows.length - shown).map(compactRow),
       ...(opened.fit?.asDrawn === false ? { fit: opened.fit } : {}),

@@ -31,8 +31,12 @@ const decode = (s) => JSON.parse(new TextDecoder().decode(b64url(s)));
 /** Whether `token` looks like a signed token at all (three parts, a JSON header), so the route knows which door. */
 export const looksSigned = (token) => /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token ?? "");
 
-/** The claims when GitHub signed `token` for the bench's workflow on main; otherwise the reason, as `{refused}`. */
-export async function verifyGithubToken(token, { keys = githubKeys, now = Date.now() } = {}) {
+/**
+ * The claims when GitHub signed `token` for the bench's workflow on main; otherwise the reason, as `{refused}`.
+ * `audience` and `workflow` name another door's (the Lab's preview test chats, `labSandbox/preview.js`): the same
+ * checks, its own audience and its own workflow on main.
+ */
+export async function verifyGithubToken(token, { keys = githubKeys, now = Date.now(), audience = AUDIENCE, workflow = WORKFLOW, use = "the bench" } = {}) {
   const parts = String(token ?? "").split(".");
   if (parts.length !== 3) return { refused: "not a signed token" };
   let header;
@@ -57,10 +61,10 @@ export async function verifyGithubToken(token, { keys = githubKeys, now = Date.n
   const s = Math.floor(now / 1000);
   if (claims.iss !== ISSUER) return { refused: "not issued by GitHub Actions" };
   const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!aud.includes(AUDIENCE)) return { refused: "not meant for the bench" };
+  if (!aud.includes(audience)) return { refused: `not meant for ${use}` };
   if (!(claims.exp > s)) return { refused: "expired" };
   if (typeof claims.nbf === "number" && claims.nbf > s + 60) return { refused: "not valid yet" };
   if (claims.repository !== REPOSITORY) return { refused: "not this repository" };
-  if (claims.job_workflow_ref !== WORKFLOW || claims.ref !== "refs/heads/main") return { refused: `only ${WORKFLOW} may use the bench` };
+  if (claims.job_workflow_ref !== workflow || claims.ref !== "refs/heads/main") return { refused: `only ${workflow} may use ${use}` };
   return { claims };
 }

@@ -1,0 +1,81 @@
+name: Lab preview test chat
+
+# Carries one Lab test chat's calls to a pull request's preview, so the pull request's code answers them (Dev2,
+# 2026-11-22: test chats gain "run on PR #N's code", run on that pull request's own preview with fictional people,
+# never production's data). Production's Lab starts this, on main, when someone opens a test chat with code "#N"
+# (`packages/lab/gateway/labSandbox/preview.js`); the run signs the fictional alpha persona in on the preview with
+# the preview deploy key, and reaches production only with GitHub's signed token for this workflow on main, which
+# production checks. Neither side is given the other's keys. See packages/sandbox/src/lab-bridge.mjs.
+#
+# This repository's Actions logs are public: the run prints counts and statuses only, never a test text or an answer.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "The pull request whose preview answers the test chat."
+        type: string
+        required: true
+      bridge:
+        description: "The test chat's mailbox id (production's Lab passes it)."
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-preview-chat-${{ inputs.bridge }}
+  cancel-in-progress: false
+
+jobs:
+  carry:
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 58
+    # `id-token: write`: GitHub's signed token for production's mailbox door, which admits this workflow on main only.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check the inputs
+        env:
+          PR: ${{ inputs.pr }}
+          BRIDGE: ${{ inputs.bridge }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr is a pull request number"; exit 1; }
+          [[ "$BRIDGE" =~ ^[0-9a-f]{32}$ ]] || { echo "::error::bridge is a mailbox id"; exit 1; }
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "::error::this runs on main only"; exit 1; }
+
+      # The workers.dev subdomain names the account, so it is masked.
+      - name: Find the preview's gateway
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PR: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          sub="$(curl -fsS --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r '.result.subdomain // ""')"
+          [ -n "$sub" ] || { echo "::error::no workers.dev subdomain"; exit 1; }
+          echo "::add-mask::$sub"
+          echo "PREVIEW_GATEWAY_ORIGIN=https://context-mcp-pr$PR.$sub.workers.dev" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Carry the test chat's calls
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+          PR: ${{ inputs.pr }}
+          BRIDGE: ${{ inputs.bridge }}
+        run: node packages/sandbox/src/lab-bridge.mjs

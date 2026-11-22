@@ -266,3 +266,11 @@ test('an absent preview account id sets no managed account id', () => {
   const { set } = previewEnvValues({ ...env, CLOUDFLARE_ACCOUNT_ID: undefined, MANAGED_R2_ACCOUNT_ID: 'b'.repeat(32) });
   assert.equal('MANAGED_R2_ACCOUNT_ID' in set, false);
 });
+
+test("a preview's staff gains the fictional alpha persona, keeping staging's list", () => {
+  // The Lab's test chats on a pull request's code run there as alpha (`packages/lab/gateway/labSandbox/preview.js`);
+  // staging's list stays, so a pinned context-lc an earlier deploy made stays vouched for (`lib/personaSeed.ts`).
+  assert.equal(previewEnvValues(env).set.ADMIN_EMAILS, 'fixture@example.com,alpha@supa.media');
+  assert.equal(previewEnvValues({ ...env, ADMIN_EMAILS: 'alpha@supa.media' }).set.ADMIN_EMAILS, 'alpha@supa.media');
+  assert.equal(previewEnvValues({ ...env, ADMIN_EMAILS: '' }).set.ADMIN_EMAILS, 'alpha@supa.media');
+});

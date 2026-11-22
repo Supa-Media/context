@@ -164,7 +164,7 @@ describe("the words of a step's output", () => {
 
   test("the tool calls' heading counts reads and writes, or says they ran in prod", () => {
     const c = (kind: "read" | "write" | "prod") => ({ tool: "t", kind, ms: 1, d: "" });
-    expect(callsHeading([c("read"), c("read"), c("write")])).toBe("Tool calls · 2 real reads, 1 sandbox write");
+    expect(callsHeading([c("read"), c("read"), c("write")])).toBe("Tool calls · 2 real reads, 1 test write");
     expect(callsHeading([c("prod"), c("prod")])).toBe("Tool calls · 2 in prod");
   });
 
@@ -209,9 +209,9 @@ describe("the step panel's cards", () => {
     expect(t).toContain("They asked for a table.");
     expect(t).toContain("Venue");
     expect(t).toContain("Name: Sample Cafe");
-    expect(t).toContain("Tool calls · 1 real read, 1 sandbox write");
+    expect(t).toContain("Tool calls · 1 real read, 1 test write");
     expect(t).toContain("Real read");
-    expect(t).toContain("Sandbox write");
+    expect(t).toContain("Test write");
     expect(q("#nLabel")).not.toBeNull();
     // The run card never shows change info or settings.
     expect(q("#nModel")).toBeNull();
@@ -219,7 +219,7 @@ describe("the step panel's cards", () => {
     expect(q("#nChanges")).toBeNull();
     // The card floats on the canvas, and its foot says where the step's log comes from.
     expect(q(".archcv #props.ins")).not.toBeNull();
-    expect(q("#insFoot")?.textContent).toMatch(/^Logged step · main@\w+ · tex_dev sandbox steps$/);
+    expect(q("#insFoot")?.textContent).toMatch(/^Logged step · main@\w+ · tex_dev test_chat step$/);
     click('[data-tab="calls"]');
     expect(qa(".call").length).toBe(2);
     click('[data-tab="think"]');

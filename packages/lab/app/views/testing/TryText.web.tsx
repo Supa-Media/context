@@ -209,7 +209,7 @@ export function TryPanel({ c }: { c: Conversation }) {
         </div>
         <div className="muted small">Only the steps the run's log shows ran.</div>
         <div className="cap">Same from any MCP session</div>
-        <div className="mcp">{`tex_dev { action: "sandbox", op: "open", source: "set", convId: "${c.id}", versionId: "${ui.ver}" }\ntex_dev { action: "sandbox", op: "send", as: "${t.person?.who ?? ""}", text: "…" }`}</div>
+        <div className="mcp">{`tex_dev { action: "test_chat", op: "open", source: "set", convId: "${c.id}", versionId: "${ui.ver}" }\ntex_dev { action: "test_chat", op: "send", as: "${t.person?.who ?? ""}", text: "…" }`}</div>
       </div>
     </div>
   );

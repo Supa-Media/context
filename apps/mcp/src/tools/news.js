@@ -40,6 +40,18 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-22",
+    text:
+      'tex_dev test_chat open takes code: "#<pr>": the test chat runs on that pull request\'s own preview (its code, fictional people, never ' +
+      "production's data); the first open takes about a minute while a GitHub run starts.",
+  },
+  {
+    date: "2026-11-22",
+    text:
+      "tex_dev action sandbox is now test_chat, and its sandboxId is testChatId; the old names still answer. A test chat's Lab link is " +
+      "/lab?testchat=<id>. \"Sandbox\" now means only a pull request's preview.",
+  },
+  {
     date: "2026-11-19",
     text:
       'search_notes takes boost: "@name": every workspace is still searched, and that one\'s notes rank first. A search over several ' +

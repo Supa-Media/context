@@ -199,6 +199,11 @@ pull request, but its records are not kept in the preview. That is a gap in the
 isolation described above, and it should be closed before a preview run is used
 as evidence for a merge.
 
+**A Lab test chat can run on a preview** (since 2026-11-22): `test_chat open { code: "#N" }` opens it on pull
+request N's own preview, carried there by `.github/workflows/lab-preview-chat.yml` on main, which signs `alpha` in
+with the preview deploy key and reaches production only with GitHub's signed token. The preview's data stays the
+preview's; see [lab-sandbox](../texting-assistant/lab-sandbox.md#a-test-chat-on-a-pull-requests-code).
+
 ## Cleanup
 
 `.github/workflows/preview-cleanup.yml` runs on a push to main, which is how a

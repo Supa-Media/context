@@ -23,7 +23,7 @@ they text it from the app, and be askable from inside a note's comments without 
 - Each answered run is logged per note in its own object, `noteruns:<workspaceId>:<key>`, keyed by the note's id from
   its placed etag (or a hash of its path), never by an id the client sends: a client-chosen key could write into the log
   of a note it cannot read. Newest 50, 90 days. `GET /tex/note-runs` lists them to whoever can read the note; another
-  person's run shows only the note itself as its source. tex_dev's sandbox op `note_runs` reads the full log.
+  person's run shows only the note itself as its source. tex_dev's test_chat op `note_runs` reads the full log.
 - Refused with 503 until a Lab draft wires `noteRun` (shelf first, Dev2 2026-11-16).
 - The run spends the built-in model on the app's own (console) grant: the control plane allows a console turn when the
   gateway's note-run route says it is a note run, metered on the same cap and kill switch as a text, against the grant's

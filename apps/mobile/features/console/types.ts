@@ -54,6 +54,8 @@ export interface ConsoleContext {
   id: string;
   /** The addressable name, rendered with its `@`. */
   slug: string;
+  /** Former handles that still open it: a link to one lands on `slug`. */
+  aliases?: string[];
   displayName: string;
   role: string;
   kind: string;

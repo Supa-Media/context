@@ -44,6 +44,13 @@ export const EMULATED_GOOGLE = {
 
 /** Names this script sets itself, so a staging value for them is never copied. */
 const OWN_NAMES = ['APP_ENV', 'APP_ORIGIN', 'SITE_URL', 'STORAGE_MOVER_ORIGIN', 'PREVIEW_NAME', 'MANAGED_R2_ACCOUNT_ID', ...Object.keys(EMULATED_GOOGLE), 'EMULATORS_ORIGIN'];
+/**
+ * A preview's staff gains the fictional alpha persona (staging's list is kept: the pinned `context-lc` a preview made
+ * before stays vouched for by whoever made it, `lib/personaSeed.ts`). Alpha already owns that pinned workspace there,
+ * so this makes alpha the preview's Tex developer and the Lab's test chats run there for a pull request's code
+ * (`packages/lab/gateway/labSandbox/preview.js`, Dev2 2026-11-22).
+ */
+export const PREVIEW_STAFF = 'alpha@supa.media';
 
 /** Staging values a preview never gets: custom domains, Google push and the Stripe price. */
 const NOT_COPIED = ['STAGING_CONVEX_DEPLOYMENT', 'CUSTOM_DOMAINS_ZONE_ID', 'CUSTOM_DOMAINS_TARGET', 'GOOGLE_PUSH', 'STRIPE_PRICE_ID'];
@@ -134,6 +141,7 @@ export function previewEnvValues(env) {
     STORAGE_MOVER_ORIGIN: `https://context-mcp-${name}.${workers}`,
     EMULATORS_ORIGIN: `https://context-emulators-${name}.${workers}`,
     ...EMULATED_GOOGLE,
+    ADMIN_EMAILS: [...new Set([...String(set.ADMIN_EMAILS ?? '').split(/[\s,]+/).filter(Boolean), PREVIEW_STAFF])].join(','),
   });
   for (const key of Object.keys(set)) {
     if (FORBIDDEN_PREVIEW_KEYS.includes(key) || key === 'STAGING_CONVEX_DEPLOYMENT') {
