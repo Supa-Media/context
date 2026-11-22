@@ -124,6 +124,17 @@ export function sharedWordRanks(lists, statsList, query, { floor = 0, top = 50 }
   const mean = (field) => all.reduce((total, { hit }) => total + ((field ? hit.words[field]?.len : hit.words.len) ?? 0), 0) / all.length;
   const avgLen = { body: mean(null), title: mean("title"), name: mean("name") };
   const scored = all.map((entry) => ({ ...entry, score: bm25Of(entry.hit.words, terms, pooled, avgLen) }));
+  // The scale places workspaces against each other; inside one workspace its own index already ranked its hits with
+  // every column it holds (headings, tags), so its order stands: a hit never scores above the one its workspace put
+  // before it. Without this, "who is hosting the book club in November" put the club's index page above the
+  // November host note its own workspace ranked first (search-hard, 2026-11-22).
+  for (let list = 0; list < lists.length; list += 1) {
+    let cap = Infinity;
+    for (const entry of scored.filter((e) => e.list === list).sort((a, b) => a.hit.wordRank - b.hit.wordRank)) {
+      entry.score = Math.min(entry.score, cap);
+      cap = entry.score;
+    }
+  }
   scored.sort((a, b) => b.score - a.score || a.list - b.list || a.hit.wordRank - b.hit.wordRank);
   const rank = new Map(scored.map(({ hit }, place) => [hit, place]));
   const score = new Map(scored.map(({ hit, score: s }) => [hit, s]));
