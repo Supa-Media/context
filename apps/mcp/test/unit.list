@@ -250,6 +250,7 @@ test/searchEverywhere.test.mjs
 test/searchEverywhereBoost.test.mjs
 test/searchEvidence.test.mjs
 test/searchPriors.test.mjs
+test/searchSharedWords.test.mjs
 test/searchSettings.test.mjs
 test/searchCodeLike.test.mjs
 test/tokens.test.mjs

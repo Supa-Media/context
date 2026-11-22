@@ -22,6 +22,7 @@ import { indexableText } from "../encryption/format.js";
 import { isIndexableNote } from "../search/indexable.js";
 import { deleteStatements, FTS_TABLE, projectNote, upsertStatements } from "../search/d1/project.js";
 import { rankedRows, rankedSearchParams, rankedSearchSql, searchParams, searchSql, withWholeLines } from "../search/d1/query.js";
+import { fieldWordCounts } from "../search/sharedWords.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../../../../packages/tex/gateway/texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
@@ -57,7 +58,9 @@ export const BUILD_BYTES = 64 * 1024;
 // 4: file names in the headings column and word forms asked at query time (2026-11-04).
 const LAYOUT = "4";
 /** Queries one search sends (a strict, a relaxed and a name expression, over at most both tables). */
-const MAX_ASKS = 6;
+const MAX_ASKS = 8;
+/** Most words one stats ask counts (`search/sharedWords.js` `MAX_TERMS`). */
+const MAX_STAT_TERMS = 24;
 /** Rows one query may ask for (the gateway's `CHUNK_FETCH_CAP` is well under it). */
 const MAX_LIMIT = 500;
 /** Longest match expression or prefix taken. */
@@ -264,6 +267,14 @@ export function workspaceSearch(sql, { rows, objects }) {
     return all(sql.exec(searchSql(table, options), ...searchParams(match, options)));
   };
 
+  /** A table's chunk count and, per word, the chunks holding it: `{ n, df: { word: count } }`. */
+  const statsOf = (table, terms) => {
+    const n = Number(all(sql.exec(`SELECT count(*) AS n FROM ${table}`))[0]?.n ?? 0);
+    const df = {};
+    for (const term of terms) df[term] = Number(all(sql.exec(`SELECT count(*) AS n FROM ${table} WHERE ${table} MATCH ?`, `"${term.replaceAll('"', '""')}"`))[0]?.n ?? 0);
+    return { n, df };
+  };
+
   return {
     /** Catch up behind a response: `BUILD_ROWS` rows and `BUILD_BYTES` of text at most. */
     catchUp(budget = { rows: BUILD_ROWS, bytes: BUILD_BYTES, whole: true }) {
@@ -280,6 +291,12 @@ export function workspaceSearch(sql, { rows, objects }) {
       if (!Array.isArray(asks) || asks.length === 0 || asks.length > MAX_ASKS) throw new SearchAskRefused(`a search sends 1 to ${MAX_ASKS} queries`);
       const checked = asks.map((ask, at) => {
         if (!ask || typeof ask !== "object" || !TABLES.has(ask.table)) throw new SearchAskRefused("a query names one of the search tables");
+        // A stats ask (`search/sharedWords.js`): how many chunks the table has, and how many hold each word. Words are
+        // asked as quoted FTS5 strings, never as expressions, so a word cannot be an operator.
+        if (Array.isArray(ask.stats)) {
+          if (ask.stats.length === 0 || ask.stats.length > MAX_STAT_TERMS || ask.stats.some((term) => typeof term !== "string" || term === "" || term.length > 64)) throw new SearchAskRefused(`a stats ask counts 1 to ${MAX_STAT_TERMS} words`);
+          return { table: ask.table, stats: ask.stats, unless: [] };
+        }
         if (typeof ask.match !== "string" || ask.match === "" || ask.match.length > MAX_TEXT) throw new SearchAskRefused("a query needs its match expression");
         const prefix = ask.prefix ?? "";
         if (typeof prefix !== "string" || prefix.length > MAX_TEXT) throw new SearchAskRefused("not a prefix");
@@ -297,9 +314,17 @@ export function workspaceSearch(sql, { rows, objects }) {
       const left = catchUp({ rows: QUERY_ROWS, bytes: QUERY_BYTES });
       if (left === null || left > 0) return { served: false, waiting: left };
       const answers = [];
-      for (const { table, match, unless, options } of checked) {
+      // With a stats ask, every row also carries how often each of its words is in the row's title and chunk, counted
+      // here where the chunk is, so the chunk itself never travels (`search/sharedWords.js`).
+      const counted = checked.find((ask) => ask.stats)?.stats ?? null;
+      const shaped = counted ? (row) => ({ ...withWholeLines(row), words: fieldWordCounts({ title: row.title ?? "", path: row.path ?? "", body: row.chunk ?? "" }, counted) }) : withWholeLines;
+      for (const { table, match, unless, options, stats } of checked) {
+        if (stats) {
+          answers.push(statsOf(table, stats));
+          continue;
+        }
         // `null`: not run, because an ask it waits on found rows. The gateway asks for it alone if it needs it after all.
-        answers.push(unless.some((earlier) => (answers[earlier]?.length ?? 0) > 0) ? null : rowsFor(table, match, options).map(withWholeLines));
+        answers.push(unless.some((earlier) => (answers[earlier]?.length ?? 0) > 0) ? null : rowsFor(table, match, options).map(shaped));
       }
       return { served: true, answers };
     },

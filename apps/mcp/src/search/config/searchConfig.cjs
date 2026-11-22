@@ -40,6 +40,8 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
   rerankChars: { min: 100, max: 2000, integer: true },
   readLate: { min: 0, max: 1, integer: true },
   waitAfterMeaning: { min: 0, max: 5000, integer: true },
+  sharedWords: { min: 0, max: 2, integer: true },
+  workspaceWeight: { min: 0, max: 1, integer: false },
 });
 
 /** Which settings each step reads: a setting on a step that does not read it would be a knob that does nothing. */
@@ -60,7 +62,7 @@ const SETTINGS_OF = Object.freeze({
   rerank: Object.freeze(["rerankTop", "rerankWeight", "rerankChars", "readLate"]),
   code: Object.freeze([]),
   answer: Object.freeze([]),
-  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior", "rerankWeight"]),
+  fuse: Object.freeze(["hits", "rrfK", "loosePenalty", "titleWeight", "phraseBonus", "snippetPhraseBonus", "meaningFloor", "looseReads", "boostFactor", "logPrior", "inboxPrior", "rerankWeight", "sharedWords", "workspaceWeight"]),
 });
 
 /** The steps every search needs, which a draft may not turn off: the others are passed over when off (`config/nodes.js`). */

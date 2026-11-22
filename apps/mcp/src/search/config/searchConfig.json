@@ -451,7 +451,9 @@
         "rrfK": 60,
         "snippetPhraseBonus": 0,
         "titleWeight": 0.003278688524590164,
-        "rerankWeight": 1
+        "rerankWeight": 1,
+        "sharedWords": 2,
+        "workspaceWeight": 0
       },
       "inSchema": [
         { "name": "query", "type": "text" },

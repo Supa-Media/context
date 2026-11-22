@@ -16,6 +16,7 @@ import { canSee } from "../privacy/engine.js";
 import { folderPrefix } from "./indexable.js";
 import { answerFromProjection } from "./d1/serve.js";
 import { phaseTook } from "../mcp/phase.js";
+import { queryTerms } from "./sharedWords.js";
 
 /** Catch-up calls one search sends behind its response: a bounded slice each (`BUILD_ROWS`, `BUILD_BYTES`), one after another. */
 export const BUILD_CALLS = 40;
@@ -45,14 +46,34 @@ class NotServed extends Error {
  * @param {{set: (key: string, value: unknown) => void}} trace
  * @returns {Promise<{hits: object[], matchCount: number, matchCountIsFloor: boolean}|null>}
  */
-export async function objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart = null } = {}) {
+export async function objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart = null, wordStats: askStats = false } = {}) {
   const object = store?.objectSearch ?? null;
   if (object === null || typeof object.search !== "function") return null;
+  // Asked for (`askStats`), the first call also asks each table it reads how many chunks it has and how many hold each
+  // query word (`sharedWords.js`), so a search across workspaces can score every hit on one scale. Summed over the
+  // tables the caller's tier reads, the same tables BM25 already scores against.
+  const terms = askStats ? queryTerms(query) : [];
+  let wordStats = null;
   const client = {
-    search: async (asks) => {
+    search: async (sent0) => {
+      const tables = wordStats === null && terms.length > 0 ? [...new Set(sent0.map((ask) => ask.table))] : [];
+      const asks = [...sent0, ...tables.map((table) => ({ table, stats: terms }))];
       const sent = Date.now();
-      const answer = await object.search(asks);
+      // An object still on code that has no stats ask (a deploy in flight) refuses it: the search goes on without the
+      // shared scale rather than failing the workspace.
+      const answer = tables.length > 0 ? await object.search(asks).catch(() => (tables.length = 0, object.search(sent0))) : await object.search(asks);
       if (answer?.served !== true || !Array.isArray(answer.answers)) throw new NotServed(answer?.waiting ?? null);
+      if (tables.length > 0) {
+        const counted = answer.answers.slice(sent0.length);
+        if (counted.every((c) => c && Number.isFinite(c.n))) {
+          wordStats = { n: 0, df: {} };
+          for (const c of counted) {
+            wordStats.n += c.n;
+            for (const term of terms) wordStats.df[term] = (wordStats.df[term] ?? 0) + (Number(c.df?.[term]) || 0);
+          }
+        }
+        answer.answers = answer.answers.slice(0, sent0.length);
+      }
       // The call's round trip by whether the object ran the any-word retry (`inside:word_retry_run`) or left it unrun
       // because the strict half found rows (`inside:word_retry_skipped`); a search with no retry to run is neither.
       if (asks.some((ask) => Array.isArray(ask.unlessRows))) phaseTook(store, answer.answers.some((rows) => rows === null) ? "word_retry_skipped" : "word_retry_run", Date.now() - sent);
@@ -77,9 +98,10 @@ export async function objectSearchAnswer(store, scope, rules, overrides, query, 
       // caller a second call would mean "a note you may not read holds every word you typed", and a second call
       // can be timed; theirs is always run beside the strict half, as before.
       lazyRetry: scope === "private",
+      countWords: terms.length > 0,
     });
     trace.set("objectSearch", answer === null ? "unanswered" : "served");
-    return answer;
+    return answer === null ? null : { ...answer, ...(wordStats ? { wordStats } : {}) };
   } catch (error) {
     if (error instanceof NotServed) {
       trace.set("objectSearch", "catching_up");

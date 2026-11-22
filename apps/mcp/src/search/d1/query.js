@@ -389,6 +389,8 @@ export function mergeHits(rows, limit = 10) {
         score,
         snippet: row.snippet ?? "",
         title: typeof row.title === "string" ? row.title : "",
+        // How often each query word is in the best chunk, when the object counted them (`../sharedWords.js`); never shown.
+        ...(read.words && typeof read.words === "object" ? { words: read.words } : {}),
       });
     }
   }

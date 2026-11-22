@@ -3,11 +3,10 @@
 Things argued through once and not to be silently reversed. Each names what a
 "simplification" of it would cost, and most name the test that fails if so.
 
-These lived in `CLAUDE.md` until the file passed 2,700 lines. They moved here
-verbatim; nothing was summarised away. `CLAUDE.md` stays short enough to be
-read every session and links here. **Read the file covering the area you are
-touching before you change behaviour in it**, and add to it when a durable
-decision lands.
+These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim.
+`CLAUDE.md` stays short enough to be read every session and links here. **Read
+the file covering the area you are touching before you change behaviour in it**,
+and add to it when a durable decision lands.
 
 Code comments and tests across the repo cite these by title — `see CLAUDE.md,
 "A guard nobody has checked is not a guard"`. The titles are unchanged, so
@@ -398,6 +397,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A workspace object keeps its own meaning index
 - Tex searches every workspace; a named one is a boost, never a fence
 - Search is measured on three sets, and a search change merges only if the right note stays first
+- Across workspaces, word hits are scored on one scale (and a workspace can be weighed by its evidence)
 
 ## [The mobile app and the console](./app-and-console.md)
 

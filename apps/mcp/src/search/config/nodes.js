@@ -203,7 +203,7 @@ async function wordsStep(input, io) {
       const { store, scope, rules, overrides } = handlesOf(io, ws.name);
       let found;
       try {
-        found = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, ws.here ? input.prefix : ""));
+        found = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, ws.here ? input.prefix : "", { wordStats: Boolean(io.ctx.sharedWords && input.several) }));
       } catch (error) {
         // Another workspace that cannot answer now is left out and named, as one that cannot be opened is; this one throws.
         if (ws.here) throw error;
@@ -386,7 +386,7 @@ function fuseStep(input, io) {
   const annotated = ({ found, name, here }) =>
     found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: here ? hit.key : `${name}/${hit.key}` }));
   const extraNotes = draft && typeof io.node?.settings?.extraNotes === "number" ? io.node.settings.extraNotes : searchSettingsOf(store).extraNotes;
-  const hits = fuseEverywhere(workspaces.map(annotated), ranking.hits, { extraNotes, query, boost: boosted, ranking });
+  const hits = fuseEverywhere(workspaces.map(annotated), ranking.hits, { extraNotes, query, boost: boosted, ranking, wordStats: workspaces.map(({ found }) => found.wordStats ?? null) });
   const hereOne = workspaces.find((w) => w.here);
   const elsewhere = workspaces.filter((w) => !w.here);
   const base = hereOne?.found ?? { hits: [], matchCount: 0, matchCountIsFloor: false };
@@ -484,7 +484,10 @@ export async function runSearch({ store, scope, rules, overrides, query, prefix 
   const draft = config !== SEARCH_CONFIG;
   if (draft) searchConfigOf(config);
   const input = { query, prefix, ...(Array.isArray(only) ? { only } : {}), ...(typeof boost === "string" ? { boost } : {}) };
-  const ctx = { store, scope, rules, overrides, draft };
+  // "Merge across workspaces" scoring every word hit on one scale needs each workspace's word statistics, which the
+  // word search asks for only then (`../sharedWords.js`): a search that will not use them never pays for them.
+  const sharedWords = config.nodes?.find((node) => node.id === "fuse")?.settings?.sharedWords >= 1;
+  const ctx = { store, scope, rules, overrides, draft, sharedWords };
   try {
     const { outputs } = await graphFor(config, log).run("search", input, ctx);
     return outputs.answer?.answer ?? { ...NOTHING };
