@@ -544,6 +544,7 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
       scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
       callTool: via === null ? callTool : via.tools(callTool),
       web: via === null ? web : via.web(web),
+      routeLocal: via === null ? null : via.local,
       env,
       builtinModelOverride: chosen,
       providerOptions,

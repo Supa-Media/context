@@ -268,6 +268,10 @@ export async function runTurn(options) {
     toolTimeouts = {},
     grants = null,
     local: localTools = [],
+    // `(entries) => entries`: how the tools this loop adds itself (say_nothing and its holds) are called, so a Front
+    // door node routes them over its `fd -> tools` wire like the rest (`graph/nodes/fd.js`, `checkInLook.js`; Dev2,
+    // 2026-11-14: every step logs). Absent, they are called here as before.
+    routeLocal = null,
     aboutMe = null, identity = null, // who they are by their account (`identity.js`), told beside it
     jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
     voice = null, calendar = null, // `tex/voice.md`'s text on a texted turn (`personVoice.js`); null says nothing about it.
@@ -330,9 +334,10 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
-  const silenceTool =
-    typeof sayNothingJudge === "function" ? sayNothingJudged(sayNothingJudge) : sayNothingLocal;
-  const [local, settles] = !sayNothing ? [localTools, endsTurn] : mustAnswer ? [[...localTools, sayNothingRefused], endsTurn] : [[...localTools, silenceTool], withSayNothing(endsTurn)]; // silence ends the turn like a started job; a turn that must answer is offered it the same (one tool list, cached) and refused (`sayNothing.js`)
+  const routed = (entry) => (typeof routeLocal === "function" ? routeLocal([entry])[0] ?? entry : entry);
+  const silenceTool = routed(
+    typeof sayNothingJudge === "function" ? sayNothingJudged(sayNothingJudge) : sayNothingLocal);
+  const [local, settles] = !sayNothing ? [localTools, endsTurn] : mustAnswer ? [[...localTools, routed(sayNothingRefused)], endsTurn] : [[...localTools, silenceTool], withSayNothing(endsTurn)]; // silence ends the turn like a started job; a turn that must answer is offered it the same (one tool list, cached) and refused (`sayNothing.js`)
   const tools = [
     ...(options.tools ?? []),
     ...(web?.tools ?? []),
