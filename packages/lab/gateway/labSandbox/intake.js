@@ -11,6 +11,10 @@
  *  - `{ op: "intake", chatId, move: true }` → copies that chat in now, the same copy a handed-over text starts
  *    (`packages/tex/gateway/texChat.js` `moveIn`), and answers its home after. A chat whose Worker object is busy
  *    (a turn running) is refused and stays where it is; asked again a couple of minutes later, it moves.
+ *  - `{ op: "intake", sweep: true, after?, move? }` → every chat Tex can name (each linked phone's 1:1 and each group,
+ *    as the control plane lists them for staff), `SWEEP_BATCH` at a time from `after`: counts of where they are
+ *    answered, and with `move: true` each one still in the Worker copied in. `next` names the following batch. Counts
+ *    only, never a chat: this is how the last chats move after `INTAKE` flips, and how "none left" is proven.
  *
  * Nothing here answers or logs an inbox's name: a 1:1's is the person's phone number, and a group's its line's id.
  */
@@ -60,9 +64,45 @@ async function homeAt(env, name, move) {
   };
 }
 
+/** How many chats one sweep call looks at: each is a call to its object, and a move a copy of it. */
+export const SWEEP_BATCH = 25;
+
+/** `intake { sweep }`: one batch of every chat, counted by home, the ones still in the Worker moved when `move`. */
+async function sweep(env, input, { controlPlane, token }) {
+  const listed = await controlPlane.labSandbox(token, "intakeChats", {}).catch(() => null);
+  if (listed === null) return refused(503, "the control plane did not answer");
+  if (listed.status !== "ok") return refused(403, "Only staff sweep every chat.");
+  const phones = (Array.isArray(listed.phones) ? listed.phones : []).filter((phone) => typeof phone === "string" && PHONE.test(phone));
+  const groups = (Array.isArray(listed.groups) ? listed.groups : []).filter((key) => typeof key === "string" && CHAT_KEY.test(key));
+  const all = [...phones.map((phone) => ({ kind: "1:1", phone })), ...groups.map((key) => ({ kind: "group", chatId: key }))];
+  const after = Number.isSafeInteger(input.after) && input.after > 0 ? input.after : 0;
+  const batch = all.slice(after, after + SWEEP_BATCH);
+  const counts = { gateway: 0, worker: 0, moved: 0, refused: 0, unknown: 0 };
+  for (const chat of batch) {
+    const name = await inboxNameOf(env, { phone: chat.phone }, chat);
+    if (name === null) {
+      counts.unknown += 1;
+      continue;
+    }
+    const before = await homeAt(env, name, false);
+    if (before.home === "gateway") counts.gateway += 1;
+    else if (before.home !== "worker") counts.unknown += 1;
+    else if (input.move !== true) counts.worker += 1;
+    else {
+      const moved = await homeAt(env, name, true);
+      if (moved.home === "gateway") counts.moved += 1;
+      else counts.refused += 1;
+    }
+  }
+  const next = after + batch.length < all.length ? after + batch.length : null;
+  console.log(JSON.stringify({ event: "lab_intake_sweep", move: input.move === true, after, ...counts }));
+  return json({ total: all.length, people: phones.length, groups: groups.length, after, looked: batch.length, ...counts, next });
+}
+
 /** `intake`: the caller's chats and where each is answered, or one moved in. */
-export async function intake(env, who, input) {
+export async function intake(env, who, input, plane = {}) {
   if (env?.TEX_CHAT === undefined) return refused(501, "this deployment has no chat objects");
+  if (input.sweep === true) return await sweep(env, input, plane);
   const chats = chatsOf(who);
   if (input.chatId === undefined) {
     const listed = [];

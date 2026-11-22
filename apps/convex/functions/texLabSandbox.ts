@@ -165,6 +165,16 @@ export async function sharedSessionFor(ctx: QueryCtx, callerId: Id<"users">, cha
   return { status: "not_found" as const, error: "Tex has not answered in this chat yet." };
 }
 
+/** The most phones, and the most groups, one sweep reads: far above Tex's chats today, and bounded. */
+const INTAKE_SCAN = 5_000;
+
+/** Each linked phone, once, and each group chat's key: every chat Tex can name (the gateway's intake sweep). */
+export async function intakeChats(ctx: QueryCtx): Promise<{ phones: string[]; groups: string[] }> {
+  const phones = [...new Set((await ctx.db.query("phoneLinks").take(INTAKE_SCAN)).map((row) => row.phone))];
+  const groups = (await ctx.db.query("textGroups").take(INTAKE_SCAN)).map((group) => group.groupKey);
+  return { phones, groups };
+}
+
 /** One `/gateway/tex/lab-sandbox` call. Reads only, always an answer with a `status`. */
 export const forGateway = internalQuery({
   args: { hashedAccessToken: v.string(), action: v.string(), args: v.any() },
@@ -175,6 +185,9 @@ export const forGateway = internalQuery({
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
     if (action === "who") return { ...(await pageForUser(ctx, userId)), userId };
     if (action === "shared") return { status: "ok", chats: await sharedChats(ctx, userId) };
+    // Every chat Tex can name, for the gateway's sweep that moves the last ones into the gateway (`intake.js`): each
+    // linked phone's 1:1 and each group's key. Read only, for staff only (`sandboxCaller`); the gateway never answers them.
+    if (action === "intakeChats") return { status: "ok", ...(await intakeChats(ctx)) };
     if (action === "session" && a.shared === true) return await sharedSessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "");
     if (action === "session") return await sessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "me");
     if (action === "draft") {
