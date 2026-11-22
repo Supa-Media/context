@@ -54,6 +54,7 @@ import { parseWhapiWebhook, whapiGroupChanges, whapiGroupNames } from "./whapiIn
 import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
 import { inboxByName, objectById } from "./objectPlace";
+import { chatInGateway } from "./gatewayChats";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 export { JobRunWorkflow } from "./jobWorkflow";
 
@@ -212,12 +213,12 @@ export default {
           return ((await response.json()) as { outcome: MoveOutcome }).outcome;
         },
         moveGroup: async (groupKey, body) => {
-          const found = await inboxByName(env.SENDER_INBOX, chatDirectoryName(groupKey)).fetch("https://inbox/chat-where", { method: "GET" });
+          const found = await chatInGateway(env, chatDirectoryName(groupKey)).fetch("https://inbox/chat-where", { method: "GET" });
           const where = found.ok ? chatWhereOf(await found.json()) : null;
           if (where === null) return "no_chat";
           if (isPhotonGroupId(where.groupId)) return "on_new_line";
           if (isWhapiGroup(where.groupId)) return "not_old_line";
-          const response = await inboxByName(env.SENDER_INBOX, groupInboxName(where.groupId)).fetch("https://inbox/move-group", { method: "POST", body: JSON.stringify({ ...body, ...where, groupKey }) });
+          const response = await chatInGateway(env, groupInboxName(where.groupId)).fetch("https://inbox/move-group", { method: "POST", body: JSON.stringify({ ...body, ...where, groupKey }) });
           if (!response.ok) return "unreachable";
           return ((await response.json()) as { outcome: MoveOutcome }).outcome;
         },
@@ -479,11 +480,11 @@ async function newLine(request: Request, env: Env): Promise<Response> {
 async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat" | "failed"> {
   const phone = run.phones[0];
   if (run.chat === undefined || phone === undefined) return "no_chat";
-  const directory = inboxByName(env.SENDER_INBOX, chatDirectoryName(run.chat));
+  const directory = chatInGateway(env, chatDirectoryName(run.chat));
   const found = await directory.fetch("https://inbox/chat-where", { method: "GET" });
   const where = found.ok ? chatWhereOf(await found.json()) : null;
   if (where === null) return "no_chat";
-  const stub = inboxByName(env.SENDER_INBOX, groupInboxName(where.groupId));
+  const stub = chatInGateway(env, groupInboxName(where.groupId));
   const body = { ...where, runId: run.runId, path: run.path, phone, timeZone: run.timeZone, ...(run.since !== undefined ? { since: run.since } : {}) };
   const response = await stub.fetch("https://inbox/group-routine", { method: "POST", body: JSON.stringify(body) });
   if (!response.ok) return "failed";

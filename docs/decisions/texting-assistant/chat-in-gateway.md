@@ -81,3 +81,16 @@ move, and no phone or group id is answered or logged),
 queued and answered on the Worker's line; a refused copy leaves the Worker
 answering), `packages/tex/worker/gatewayMove.test.ts`, `handOver.test.ts`,
 `scripts/deploy-plan.test.mjs` (the chat code deploys both Workers).
+
+**A chat in the gateway reaches the gateway's objects, never the Worker's**
+(2026-11-22, part C of the runtime simplification). Another chat, a job and a
+group's directory entry are each a gateway object, reached through the same
+`/chat-call` door the Worker uses; a chat still in the Worker is copied in on
+that call. A directory entry is not a chat and is never copied as one: it is
+its own `TEX_CHAT` object that reads the Worker's entry once when it holds
+none (`texChat/directory.js`). Going through the Worker would make every
+cross-chat ask, job report and directory write a round trip to an object that
+only passes it back, and would keep the Worker's SenderInbox load-bearing.
+Reverting it fails `apps/mcp/test/texChatAppReach.test.mjs` and
+`texChatDirectory.test.mjs`.
+

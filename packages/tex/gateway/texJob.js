@@ -11,7 +11,7 @@
  *     `{"here": false}`, so the Worker can tell a job it never started here from one it did;
  *   - the name header is taken off every call before the inner object sees it. The inner object's move gate would
  *     otherwise try to copy the object in from the Worker, which a job never was (`inboxMove.ts` `placeGate`);
- *   - the inner object reaches other jobs' objects here (`chatEnv`'s `jobsHere`).
+ *   - the inner object reaches other jobs' objects here, and chats' in `TEX_CHAT` (`chatEnv`'s `senderObjects`).
  *
  * A chat starts a job here only while `TEX_JOBS` is "gateway" (`packages/tex/worker/jobPlace.ts`, via `chatEnv`'s `JOBS`), and
  * the Worker hands calls to it through `jobCallForTexts`.
@@ -137,7 +137,7 @@ export function texJobClass({ gateway, texts, fence = null }) {
       const id = this.state.id.toString();
       const name = await this.state.storage.get(JOB_NAME_KEY);
       const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
-      const env = fence === null ? await chatEnv(this.env, this.state, name, id, { gateway, texts, jobsHere: true }) : await fence.env(this.state, this.env);
+      const env = fence === null ? await chatEnv(this.env, this.state, name, id, { gateway, texts }) : await fence.env(this.state, this.env);
       // Its alarm runs each pass through the job node (`passNext`), never a Worker workflow.
       this.inner = new SenderInbox(chatState(this.state, id), { ...env, JOB_STEP: (step) => this.passNext(step) });
       return this.inner;
