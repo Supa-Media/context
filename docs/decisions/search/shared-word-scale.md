@@ -36,12 +36,18 @@ small workspace held. Mode 1 then failed the sealed "Search test set" (right not
 outranked a note holding all of them. Mode 2 kept `search-hard` at 95% but still dropped the gate to 4 of 10: the
 scale counted title words like body words, so for "Juniper logo" (the Dev part's `search-real`) a note titled and
 named "Juniper" fell behind a longer one that says "Juniper" more often in its text, though FTS5 ranks it first in
-its own workspace. Scoring each field as FTS5 does restored it (`search-real` 5 of 10, as main). So main runs
+its own workspace. Scoring each field as FTS5 does restored it (`search-real` 5 of 10, as main). Live, with real
+embeddings, that version only moved the split bench to 36.2% and dropped `search-hard` to 90%: inside one workspace
+the scale reordered hits the workspace's own index had ranked with headings and tags it cannot see (the book club's
+index page above its November host note). So a hit's shared score is capped at the score of the hit its workspace
+put before it, and the scale only places workspaces against each other (#4023): split 63.3% right note first (top 5
+81.6%, nDCG@10 0.799, against 34.4% and 0.525 before any of this), `search-hard` 92.5%, the sealed gate 5 of 10 as
+main. So main runs
 `sharedWords` 2 and `workspaceWeight` 0; the weight stays a knob for a Lab draft. Every search ranking change is
 benched on `search-hard` and `search-real` as well as its target bench, and on the sealed gate.
 
 **What a simplification would cost:** scoring a hit's words as one bag drops the title's weight, which the
-gate caught. Ranking by each workspace's own rank ties every workspace's first hit, so a
+gate caught; letting the scale reorder hits inside one workspace undoes what that workspace's index knew. Ranking by each workspace's own rank ties every workspace's first hit, so a
 note that shares "the" and "for" with the question in a small workspace ties the one that holds the question's rare
 words in a large one. Weighing workspaces with a hard cut instead of a floor drops a workspace whose one note is the
 answer. **Tests:** `apps/mcp/test/searchSharedWords.test.mjs` (the scale, the fields, the floor, the fallback, fuse on
