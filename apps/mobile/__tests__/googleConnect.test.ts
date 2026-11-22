@@ -29,7 +29,7 @@ describe("Google connect helpers", () => {
     expect(isGoogleAuthorizeUrl("javascript:alert(1)")).toBe(false);
   });
 
-  it("on a preview, accepts only that preview's own Google emulator", () => {
+  test("on a preview, accepts only that preview's own Google emulator", () => {
     const preview = "https://context-router-pr42.fake-sub.workers.dev";
     expect(googleRedirectUri(preview)).toBe(`${preview}/connect/google`);
     expect(googleRedirectUri("https://context-router-pr42.fake-sub.workers.dev.evil.example")).toBeNull();
