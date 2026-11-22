@@ -504,7 +504,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      # Every conversation's ledger file (`bench/modelLog.mjs`), also written into Context beside the scores.
+      # Every conversation's ledger file (`bench/modelLog.mjs`); only the scores go to Context.
       # Named outside `benchmark-*`, so a judge_run_id run downloads only the result and key.
       - name: Upload the ledgers
         if: ${{ always() && steps.name.outputs.ledgers != '' }}

@@ -107,8 +107,8 @@ this folder: it is public, like the rest of the repository.
   gets a ledger file in `<result> ledgers/` (`bench/modelLog.mjs`): its texts,
   each turn's trace with the reply judge's verdict, the chat's own ledger,
   and every model request and answer, tool results included. The Action
-  uploads them as the `ledgers` artifact and writes them to
-  `@context-lc ai/results/<result> ledgers/` beside the scores.
+  uploads them as the `ledgers` artifact only: copies of every run in a
+  workspace crowded its search (2026-11-22).
 
 A case an AI drafted carries `- drafted: <who>` under its heading. `pnpm ai run` skips it, naming it on stderr, until a person has checked it and removed that line, so a drafted case never reaches a score. A scored result ends its `## Scored by` section with a `### Case by case` table (one row per question, one column per setup), placed after the setup table so a reader of the first table never takes a case for a setup.
 
