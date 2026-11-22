@@ -29,6 +29,7 @@
  * SQL injection is closed by the placeholder and not by anything here.
  */
 
+import { FILLER_WORDS } from "../text.js";
 import { wordForms } from "./wordForms.js";
 
 /**
@@ -211,7 +212,12 @@ export function toRelaxedMatchExpression(query) {
   if (strict === null) return null;
   // One word: any of the words is every word, so this is the typing expression, and the caller asks it once.
   if (tokensOf(query).length === 1) return toTypingMatchExpression(query) === strict ? null : toTypingMatchExpression(query);
-  const relaxed = withForms((forms) => tokensOf(query)
+  // Its content words only, where it has any: "what", "the" and "to" match nearly every passage of a large
+  // workspace, so an any-word match on them read and ranked all of them (0.5 to 1.3 s a query over 10,000 notes,
+  // 2026-11-22) and ranked nothing better, since BM25 gives such a word almost no weight.
+  const all = tokensOf(query);
+  const content = all.filter((token) => /\p{N}/u.test(token) || ([...token].length >= RELAXED_PREFIX_MIN && !FILLER_WORDS.has(token.toLowerCase())));
+  const relaxed = withForms((forms) => (content.length > 0 ? content : all)
     .flatMap((token) => [...formsOf(token, forms).map(quote), ...([...token].length >= RELAXED_PREFIX_MIN ? [`${quote(token)}*`] : [])])
     .filter((term, index, all) => all.indexOf(term) === index)
     .join(" OR "));
