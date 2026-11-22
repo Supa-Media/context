@@ -91,3 +91,13 @@ test("a pasted paragraph asks its words as written, inside what the object takes
   }
   assert.equal(toMatchExpression('NEAR(a b)').includes("NEAR("), false);
 });
+
+test("the any-word retry asks a question's content words, not the filler that matches every passage", () => {
+  const relaxed = toRelaxedMatchExpression("what changed to the march 9 rollout");
+  for (const filler of ['"what"', '"the"', '"to"', '"the"*']) assert.equal(relaxed.includes(filler), false, filler);
+  for (const word of ['"changed"', '"march"', '"9"', '"rollout"']) assert.ok(relaxed.includes(word), word);
+  // A question of nothing but filler still asks something.
+  assert.ok(toRelaxedMatchExpression("what was the") !== null);
+  // The every-word first try still holds every word.
+  assert.ok(toMatchExpression("what changed to the march 9 rollout").includes('"the"'));
+});
