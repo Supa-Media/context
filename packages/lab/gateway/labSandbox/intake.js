@@ -18,7 +18,9 @@
  *  - `{ op: "intake", workerIds: [<object id>, ...] }` → for staff, what each of the texting Worker's SenderInbox
  *    objects still holds (`packages/tex/worker/workerCensus.ts`, at most 50 ids a call, listed from Cloudflare's API):
  *    moved, purged, empty, or here by kind, with the ids of those here. How the Worker's class is proven empty
- *    before it is deleted (Dev2 chose "sweep, then delete", 2026-11-22).
+ *    before it is deleted (Dev2 chose "sweep, then delete", 2026-11-22). With `match: true`, each object still holding
+ *    data also says which kind of chat it was made from (`1:1`, `group`, `directory`, or null when no name Tex knows
+ *    hashes to it) and whether the gateway holds that chat, with its masked key names; never the name.
  *
  * Nothing here answers or logs an inbox's name: a 1:1's is the person's phone number, and a group's its line's id.
  */
@@ -116,7 +118,32 @@ async function workerCensus(env, input, { controlPlane, token }) {
   if (listed.status === "refused") return refused(403, "Only staff count the Worker's objects.");
   if (listed.status !== "ok") return refused(502, `the control plane answered ${listed.status} to the chat list`);
   if (input.workerIds.length > 50 || input.workerIds.some((id) => typeof id !== "string" || !CHAT_KEY.test(id))) return refused(400, "workerIds: at most 50 object ids, each 64 hex.");
-  return json(await env.TEXTING.census({ ids: input.workerIds }));
+  if (input.match !== true) return json(await env.TEXTING.census({ ids: input.workerIds }));
+  // Every name Tex can work out for a chat: each linked phone's 1:1, each group's directory entry and its group chat.
+  // The Worker hashes them and answers, for each object still holding data, which one it was made from by index; the
+  // names never leave the gateway, and the answer says only what kind of chat matched and whether the gateway holds it.
+  const phones = (Array.isArray(listed.phones) ? listed.phones : []).filter((phone) => typeof phone === "string" && PHONE.test(phone));
+  const groups = (Array.isArray(listed.groups) ? listed.groups : []).filter((key) => typeof key === "string" && CHAT_KEY.test(key));
+  const candidates = phones.map((phone) => ({ name: phone, match: "1:1" }));
+  for (const key of groups) {
+    // Reading the entry in the gateway copies the Worker's in when the gateway has none (`texChat/directory.js`).
+    const groupName = await inboxNameOf(env, {}, { kind: "group", chatId: key }).catch(() => null);
+    candidates.push({ name: `group-key:${key}`, match: "directory", held: groupName !== null });
+    if (groupName !== null) candidates.push({ name: groupName, match: "group" });
+  }
+  const counts = await env.TEXTING.census({ ids: input.workerIds, names: candidates.map((candidate) => candidate.name) });
+  const hereObjects = [];
+  for (const object of counts.hereObjects ?? []) {
+    const { named, ...rest } = object;
+    const candidate = Number.isSafeInteger(named) ? candidates[named] : undefined;
+    if (candidate === undefined) {
+      hereObjects.push({ ...rest, match: null });
+      continue;
+    }
+    const inGateway = candidate.match === "directory" ? candidate.held : (await homeAt(env, candidate.name, false)).home === "gateway";
+    hereObjects.push({ ...rest, match: candidate.match, inGateway });
+  }
+  return json({ ...counts, hereObjects, names: { people: phones.length, groups: groups.length } });
 }
 
 /** `intake`: the caller's chats and where each is answered, or one moved in. */

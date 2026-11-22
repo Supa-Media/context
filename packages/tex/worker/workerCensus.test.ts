@@ -6,8 +6,9 @@
 // Sabotage (temporary local edits, reverted, 2026-11-22):
 //   `censusOf` treating any PLACE_KEY as moved (ignoring movedTo)   "an object with data and no move is here" fails
 //   `census` counting a failed ask as empty                          "a malformed id or a failed ask" fails
+//   `census` dropping `nameAt` (no `named` index)                    "an object still here answers the index ..." fails
 import { describe, expect, it } from "vitest";
-import { census, censusOf, type ObjectCensus } from "./workerCensus";
+import { census, censusOf, maskKey, namesById, type ObjectCensus } from "./workerCensus";
 import { PLACE_KEY } from "./inboxMove";
 
 function storage(seed: Record<string, unknown>) {
@@ -23,10 +24,10 @@ describe("a Worker object's census", () => {
 
   it("an object with data and no move is here, by kind from key names alone", async () => {
     expect(await censusOf(storage({}))).toEqual({ state: "empty", keys: 0 });
-    expect(await censusOf(storage({ [PLACE_KEY]: { arrivedAt: 5, keys: 3 }, history: "x", about: "y" }))).toEqual({ state: "here", keys: 2, kind: "chat" });
-    expect(await censusOf(storage({ jobrun: {}, steps: [] }))).toEqual({ state: "here", keys: 2, kind: "job" });
-    expect(await censusOf(storage({ chatwhere: { secret: "+15555550100" } }))).toEqual({ state: "here", keys: 1, kind: "directory" });
-    expect(await censusOf(storage({ "gm:pending:x": 1, "gmove:told": 1 }))).toEqual({ state: "here", keys: 2, kind: "group-moves" });
+    expect(await censusOf(storage({ [PLACE_KEY]: { arrivedAt: 5, keys: 3 }, history: "x", about: "y" }))).toEqual({ state: "here", keys: 2, kind: "chat", shape: ["about", "history"] });
+    expect(await censusOf(storage({ jobrun: {}, steps: [] }))).toEqual({ state: "here", keys: 2, kind: "job", shape: ["jobrun", "steps"] });
+    expect(await censusOf(storage({ chatwhere: { secret: "+15555550100" } }))).toEqual({ state: "here", keys: 1, kind: "directory", shape: ["chatwhere"] });
+    expect(await censusOf(storage({ "gm:pending:x": 1, "gmove:told": 1 }))).toEqual({ state: "here", keys: 2, kind: "group-moves", shape: ["gm:pending:x", "gmove:told"] });
     expect(JSON.stringify(await censusOf(storage({ chatwhere: { secret: "+15555550100" } })))).not.toContain("5555");
   });
 
@@ -43,8 +44,33 @@ describe("a Worker object's census", () => {
       return answer ?? { state: "empty" as const, keys: 0 };
     };
     const counts = await census(ask, [...Object.keys(answers), "e".repeat(64), "../x", 7]);
-    expect(counts).toEqual({ looked: 4, moved: 1, purged: 1, empty: 1, here: { chat: 0, job: 1, directory: 0, "group-moves": 0 }, hereIds: ["b".repeat(64)], failed: 3 });
+    expect(counts).toEqual({ looked: 4, moved: 1, purged: 1, empty: 1, here: { chat: 0, job: 1, directory: 0, "group-moves": 0 }, hereIds: ["b".repeat(64)], hereObjects: [{ id: "b".repeat(64), kind: "job", keys: 4, shape: [] }], failed: 3 });
     await expect(census(ask, Array(51).fill("a".repeat(64)))).rejects.toThrow(TypeError);
     await expect(census(ask, "a")).rejects.toThrow(TypeError);
+  });
+});
+
+describe("telling which chat an object still here is, without a name crossing back", () => {
+  it("key names are masked: a phone, an id, an email and any long run", () => {
+    expect(maskKey("gm:alias:+15555550100")).toBe("gm:alias:#");
+    expect(maskKey("evfull:c0ffee00c0ffee00")).toBe("evfull:#");
+    expect(maskKey("mail:someone@example.invalid")).toBe("#@#");
+    expect(maskKey("group:AbCdEfGhIjKlMnOpQr")).toBe("group:#");
+    expect(maskKey("gstate")).toBe("gstate");
+    const shape = (maskKey("x".repeat(60)) + maskKey("pending:" + "5".repeat(10))).length;
+    expect(shape).toBeLessThan(60);
+  });
+
+  it("an object still here answers the index of the candidate name it was made from", async () => {
+    const idOf = (name: string) => (name === "+15555550100" ? "a".repeat(64) : name === "group-key:x" ? "b".repeat(64) : "f".repeat(64));
+    const byId = namesById(["+15555550199", "+15555550100", "group-key:x", 7, ""], idOf);
+    const ask = async () => ({ state: "here" as const, keys: 1, kind: "chat" as const, shape: ["history"] });
+    const counts = await census(ask, ["a".repeat(64), "c".repeat(64)], (id) => byId.get(id));
+    expect(counts.hereObjects).toEqual([
+      { id: "a".repeat(64), kind: "chat", keys: 1, shape: ["history"], named: 1 },
+      { id: "c".repeat(64), kind: "chat", keys: 1, shape: ["history"] },
+    ]);
+    expect(JSON.stringify(counts)).not.toContain("5555");
+    expect(() => namesById(Array(2001).fill("x"), idOf)).toThrow(TypeError);
   });
 });
