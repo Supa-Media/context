@@ -33,6 +33,21 @@ test("fields count as the word index weighs them: a short note named for the que
   assert.ok(bm25Of({ tf: { logo: 1 }, len: 5 }, terms, { n: 9, df: { logo: 3 } }, 5) > 0);
 });
 
+test("inside one workspace its own order stands: the scale only places workspaces against each other", () => {
+  // The workspace's index ranked the host note first with columns the scale cannot see; the index page, more words
+  // on the scale, must not jump it, while another workspace's hit is still placed by its shared score.
+  const query = "who is hosting the book club in November";
+  const terms = queryTerms(query);
+  const host = { key: "club/meetings/2026-11-host.md", wordRank: 0, words: wordCounts("hosting November", terms) };
+  const index = { key: "club/index.md", wordRank: 1, words: wordCounts("book club book club who is hosting in November the club", terms) };
+  const other = { key: "band/gigs/open-mic-nov.md", wordRank: 0, words: wordCounts("November", terms) };
+  const stats = [{ n: 20, df: { book: 5, club: 6, hosting: 2, november: 3 } }, { n: 20, df: { november: 4 } }];
+  const shared = sharedWordRanks([[host, index], [other]], stats, query);
+  assert.ok(shared.rank.get(host) < shared.rank.get(index));
+  assert.ok(shared.score.get(index) <= shared.score.get(host));
+  assert.ok(shared.rank.get(host) < shared.rank.get(other));
+});
+
 test("pooled statistics add chunks and per-word counts, skipping a workspace with none", () => {
   assert.deepEqual(pooledStats([{ n: 10, df: { a: 2 } }, null, { n: 5, df: { a: 1, b: 3 } }]), { n: 15, df: { a: 3, b: 3 } });
 });
