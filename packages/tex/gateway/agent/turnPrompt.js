@@ -26,7 +26,7 @@ import { aboutMePrompt } from "./aboutMe.js";
 import { FROZEN_MODULES, FROZEN_NAMES } from "./frozenModuleNames.js";
 import { jobsPrompt } from "./jobs.js";
 import { personVoicePrompt } from "./personVoice.js";
-import { calendarAge, calendarPrompt } from "./calendarCache.js";
+import { calendarAge, calendarPrompt, happeningNow } from "./calendarCache.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 import { keptWordsOf, manifestOf } from "./promptManifest.js";
@@ -132,6 +132,9 @@ export function turnPrompt(place, answering, o) {
     ["mailStates", mailAccountsFacts(o.mail)], // only a mailbox that is not fine right now
     ["volatile", parts.volatile],
     ["plan", o.plan === null ? "" : answering === o.plan.think ? PLANNER_PROMPT : DRIVER_PROMPT], // `modelPlan.js`
+    // What their calendar has on right now, beside their text (Dev2, 2026-11-22: a golf question sent from their own
+    // mini-golf birthday party was answered as a rules question), "" when nothing is on (`calendarCache.js`).
+    ["happeningNow", o.calendar == null ? "" : happeningNow(o.calendar, now, o.localNow?.timeZone ?? "UTC")],
     ["nudge", o.nudge], // said last, beside the question
   ];
   const preamble = turnFacts(facts.map(([, text]) => text));

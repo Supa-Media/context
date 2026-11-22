@@ -83,6 +83,9 @@ import { heartbeatMailSection, withMailboxes } from "./mailHealth.js";
 import { mutedCheckIn, saysQuiet, withoutPreamble } from "./checkInGuards.js";
 import { newMailSection } from "./newMail.js";
 import { CALENDAR_SHOWN, calendarSection, chatSection, slackSection } from "./checkInSources.js";
+import { CALENDAR_PATH, calendarPrompt } from "./calendarCache.js";
+import { speakNotice } from "./graph/nodes/quietCheck.js";
+import { researchSection } from "./graph/nodes/checkinResearch.js";
 import { DAY_MS, heading, heartbeatPath } from "./checkInGather.js";
 import { gatewayGraph } from "./graph/gatewayGraph.js";
 
@@ -115,6 +118,9 @@ const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "rea
 
 export { HEARTBEAT_READS };
 
+/** What the check-in's Research step may call (`graph/nodes/checkinResearch.js`): the look's reads and their texts. */
+export const RESEARCH_READS = new Set([...HEARTBEAT_READS, "search_texts", "read_texts"]);
+
 /** The `**Texted:**` lines of earlier logs: what a check-in already said, so it never says it twice. */
 export function textedLines(logs) {
   const found = [];
@@ -137,11 +143,11 @@ function refused(text) {
  * dispatcher is reached, so a look steered by something it read (an email in
  * their inbox, say) can still only read.
  */
-export function heartbeatCallTool(dispatch) {
+export function heartbeatCallTool(dispatch, reads = HEARTBEAT_READS) {
   return async (name, args) => {
     const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     if (given.context !== undefined) return refused("A check-in looks in their own workspace only. Leave context out.");
-    if (!HEARTBEAT_READS.has(name)) return refused(`A check-in only reads: it can't use ${name}.`);
+    if (!reads.has(name)) return refused(`A check-in only reads: it can't use ${name}.`);
     const result = await dispatch(name, given);
     // A note it read is kept with the text, so the reply to it can open the same note (`sources.js`).
     if (name !== "read_note" || result?.isError === true || typeof given.path !== "string") return result;
@@ -170,8 +176,8 @@ export function checkInWeb(env, ledger) {
 }
 
 /** The tools a check-in is offered: the session's own definitions of the reads it may call. */
-export function heartbeatTools(offered) {
-  return offered.filter((tool) => HEARTBEAT_READS.has(tool.name));
+export function heartbeatTools(offered, reads = HEARTBEAT_READS) {
+  return offered.filter((tool) => reads.has(tool.name));
 }
 
 function age(at, now) {
@@ -363,7 +369,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   // a text's do (Dev2, 2026-11-14: "we need to make sure we are logging everything so we can replay the results").
   const ledgerTurn = `ck${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
   const chatLog = ledgerWriter(typeof store?.texLedger === "function" ? store.texLedger() : null, ONE_TO_ONE_CHAT);
-  const graph = gatewayGraph({ writer: chatLog, turn: ledgerTurn });
+  // The config this look runs on: main's, or a Lab draft's in a test (`texConfigOf`), so a draft's wires apply.
+  const graph = gatewayGraph({ writer: chatLog, turn: ledgerTurn, config: texConfigOf(env), env });
   // A claim for the pings their agents asked for starts at Send through Tex (`graph/nodes/notify.js`): no look, no model.
   // The texting Worker sends its answer; once Text them is on the runner, the notify -> send wire does.
   if (given.attention === true) {
@@ -398,7 +405,10 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const meter = builtinMeter(controlPlane, session, model, started);
 
   const shownRecent = recentTexts(conversation, timeZone);
-  const question = heartbeatQuestion({
+  // Their next days with who answered each invite how (`calendarCache.js`; Dev2, 2026-11-22: a look offered to RSVP
+  // yes to an invite already accepted), as a 1:1 text is shown it. "" when there is no copy yet.
+  const calendarCopy = calendarPrompt((await readWithEtag(dispatch, CALENDAR_PATH).catch(() => null))?.body ?? "").trim();
+  const asked = heartbeatQuestion({
     changed,
     now: started,
     texted,
@@ -406,10 +416,46 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     instructions: setup?.prompt ?? null,
     theirs: settings.instructions,
     mail: [newMailSection(mail), heartbeatMailSection(mailboxes, started)].filter(Boolean).join("\n\n"),
-    sources: [calendarSection(calendar, started, timeZone), slackSection(slack), chatSection(chat)].filter(Boolean).join("\n\n"),
+    sources: [calendarSection(calendar, started, timeZone), calendarCopy, slackSection(slack), chatSection(chat)].filter(Boolean).join("\n\n"),
     muted: mutes,
     examples: trainingFor("checkIn"),
   });
+  const texNotes = await readTexNotes(dispatch, { controlPlane, session });
+  const providerOptions = {
+    ai: env.AI,
+    gateway: aiGatewayConfig(env),
+    metadata: {
+      feature: "assistant",
+      workspace: String(session.workspaceId),
+      client: "heartbeat",
+      ...(setup !== null ? { setup: setup.version } : {}),
+    },
+  };
+  // Research before the look decides (`checkin -> checkinResearch`, `graph/nodes/checkinResearch.js`; Dev2, 2026-11-22:
+  // "check-ins are not real time, so we can take our time"): read-only digging whose brief the look reads beside what
+  // changed. A config without that wire looks as before.
+  let question = asked;
+  if (graph.wired("checkin", "checkinResearch")) {
+    const found = await graph
+      .fire("checkin", "checkinResearch", { counts: out.counts ?? {} }, {
+        env,
+        research: {
+          question: asked,
+          tools: heartbeatTools(offered, RESEARCH_READS),
+          callTool: heartbeatCallTool(dispatch, RESEARCH_READS),
+          web: checkInWeb(env, session.egress.ledger),
+          env,
+          providerOptions: { ...providerOptions, metadata: { ...providerOptions.metadata, client: "heartbeat-research" } },
+          aboutMe: texNotes.aboutMe,
+          identity: texNotes.identity,
+          localNow: { now: started, timeZone },
+          observe,
+        },
+      })
+      .catch(() => null);
+    const said = researchSection(found?.brief ?? "");
+    if (said !== "") question = `${asked}\n\n${said}`;
+  }
   // The reply reviewer reads a check-in's text before it goes, as a text nobody asked for (Dev2, 2026-11-07:
   // "all of routines ... go through the reviewer agent before it gets to the user"). Its own setup's
   // `reply_judge:` when it has one, else the texting setup's: one switch for every text Tex sends (`replyJudge.js`).
@@ -434,25 +480,26 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       // look is a 1:1 turn, so it is shown every tool and refused, saying so, all but say_nothing.
       fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
       sayNothing: true,
-      // Worth-mail (not a newsletter, a receipt or marketing) cannot stay quiet on the first try (`checkInSpeak.js`).
-      sayNothingNotice: mailWorthAText(mail.map((entry) => entry.line)) ? CHECK_IN_SPEAK_NOTICE : null,
+      // Whether the look's silence stands: the Quiet check step decides, when the config wires it (`checkin -> quietCheck`,
+      // `graph/nodes/quietCheck.js`; Dev2, 2026-11-22: "let refusal become a real node that we can tune"). A config
+      // without that wire keeps the word list (`checkInSpeak.js`) until the wire is promoted and the list removed.
+      ...(graph.wired("checkin", "quietCheck")
+        ? {
+            sayNothingJudge: async (why) => {
+              const verdict = await graph.fire("checkin", "quietCheck", { why, mail: mail.length }, { env, quiet: { look: question, calendar: calendarCopy } });
+              return verdict?.to === "speak" ? { notice: speakNotice(verdict.why) } : null;
+            },
+          }
+        : { sayNothingNotice: mailWorthAText(mail.map((entry) => entry.line)) ? CHECK_IN_SPEAK_NOTICE : null }),
       scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
       callTool: heartbeatCallTool(dispatch),
       web: checkInWeb(env, session.egress.ledger), // search only (`checkInWeb`)
       env,
       builtinModelOverride: chosen,
-      providerOptions: {
-        ai: env.AI,
-        gateway: aiGatewayConfig(env),
-        metadata: {
-          feature: "assistant",
-          workspace: String(session.workspaceId),
-          client: "heartbeat",
-          ...(setup !== null ? { setup: setup.version } : {}),
-        },
-      },
+      providerOptions,
       // Who they are and what Tex keeps about them, so it judges what matters to them (`aboutMe.js`, `identity.js`).
-      ...(({ aboutMe, identity }) => ({ aboutMe, identity }))(await readTexNotes(dispatch, { controlPlane, session })),
+      aboutMe: texNotes.aboutMe,
+      identity: texNotes.identity,
       localNow: { now: started, timeZone },
       observe,
       maxRounds: HEARTBEAT_ROUNDS,
