@@ -109,19 +109,25 @@ export function namesById(names: unknown, idOf: (name: string) => string): Map<s
   return byId;
 }
 
+/** A name a 1:1 object may have: a phone or an email address, as the gateway's chat names allow. */
+const SELF_NAME = /^(?:\+[1-9]\d{6,14}|[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9.-]{1,120})$/;
+
 /** The path an object answers its own possible names on: only `TexRoutines.census`, inside this Worker, asks it. */
 export const SELF_NAMES_PATH = "/__census/self-names";
 
 /**
  * The names a 1:1 object may have been made from, read from the chat it last answered (`inbox.ts` `CHAT_KEY`): every
- * phone in that chat's id (Sendblue's `sendblue:<line>:<phone>`, a WhatsApp jid's digits). The caller keeps only the
+ * phone in that chat's id (Sendblue's `sendblue:<line>:<phone>`, a WhatsApp jid's digits) and every part of it (an
+ * iMessage sender's email address). The caller keeps only the
  * one whose object id is this object's, so a wrong guess never moves anything. A group's object keeps no name.
  */
 export async function selfNames(storage: { get<T = unknown>(key: string): Promise<T | undefined> }): Promise<string[]> {
   const chat = await storage.get<{ chatId?: unknown }>("chat");
   if (typeof chat?.chatId !== "string" || chat.chatId.length > 300) return [];
-  const phones = [...chat.chatId.matchAll(/\+?(\d{7,15})/g)].map((match) => `+${match[1]}`);
-  return [...new Set(phones)].filter((phone) => /^\+[1-9]\d{6,14}$/.test(phone));
+  const phones = [...chat.chatId.matchAll(/\+?(\d{7,15})/g)].map((match) => `+${match[1]}`).filter((phone) => /^\+[1-9]\d{6,14}$/.test(phone));
+  // An iMessage sender may be an email address rather than a phone: every part of the chat's id is tried too.
+  const parts = chat.chatId.split(":").filter((part) => SELF_NAME.test(part));
+  return [...new Set([...phones, ...parts])];
 }
 
 /** An object still here whose own name was worked out and checked against its id: handed to the gateway to move. */

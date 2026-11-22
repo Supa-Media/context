@@ -260,3 +260,20 @@ test("a census with match and move copies in each 1:1 object that worked out its
     w.restore();
   }
 });
+
+test("an iMessage sender's 1:1, named by an email address, is copied in too", async () => {
+  const w = world();
+  w.env.TEXTING.census = async () => ({
+    looked: 1, moved: 0, purged: 0, empty: 0, here: { chat: 1, job: 0, directory: 0, "group-moves": 0 }, failed: 0,
+    hereIds: ["1".repeat(64)], hereObjects: [{ id: "1".repeat(64), kind: "chat", keys: 8, shape: ["chat"] }],
+    adoptable: [{ id: "1".repeat(64), name: "someone@example.invalid" }],
+  });
+  try {
+    const answered = await w.call(DEV, { op: "intake", workerIds: ["1".repeat(64)], match: true, move: true });
+    assert.deepEqual(answered.body.adopted, { moved: 1, refused: 0 });
+    assert.ok(w.asked.includes("chat:someone@example.invalid POST /move-in"));
+    assert.ok(!JSON.stringify(answered.body).includes("example.invalid"));
+  } finally {
+    w.restore();
+  }
+});

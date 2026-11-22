@@ -32,6 +32,8 @@ import { objectByName } from "../fromGateway/objectPlace.js";
 
 const CHAT_KEY = /^[0-9a-f]{64}$/;
 const PHONE = /^\+[1-9][0-9]{6,14}$/;
+/** An iMessage sender's email address, which names their 1:1 as a phone would. */
+const HANDLE = /^[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9.-]{1,120}$/;
 const refused = (status, error) => json({ error }, status);
 
 /** The caller's chats, as `chats` lists them: the 1:1 first, then each group they are in. */
@@ -151,7 +153,7 @@ async function workerCensus(env, input, { controlPlane, token }) {
   const adopted = { moved: 0, refused: 0 };
   for (const found of adopt && Array.isArray(adoptable) ? adoptable : []) {
     const object = hereObjects.find((here) => here.id === found?.id);
-    if (object === undefined || typeof found.name !== "string" || !PHONE.test(found.name)) continue;
+    if (object === undefined || typeof found.name !== "string" || !(PHONE.test(found.name) || HANDLE.test(found.name))) continue;
     const moved = await homeAt(env, found.name, true);
     object.adopted = moved.home === "gateway";
     adopted[object.adopted ? "moved" : "refused"] += 1;
