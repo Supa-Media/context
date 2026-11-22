@@ -34,8 +34,8 @@ export function chatMailPrompt(group) {
   // Dev2, 2026-11-08: this line said "never offer" mail while `chat_share_mail` was on the turn's list, so Tex told a chat it could never see mail.
   if (shared.length === 0)
     return (
-      "Nobody's mail is shared with this chat yet. A mailbox's own person can share theirs here by typing \"Tex, share my mail from <address> here\", " +
-      "or by asking you (send action chat_share_mail with their address, when you have it); offer that when the chat wants mail it can't see. " +
+      "Nobody's mail is shared with this chat yet. A mailbox's own person can share theirs here by asking you in any words, or by saying yes when you offer " +
+      "(send action chat_share_mail with their address, when you have it); offer that when the chat wants mail it can't see. Their plain yes to your offer is enough: never tell them to type a set phrase. " +
       "Nobody's personal notes or saved logins can be read from here; say the person can text you on their own for that. "
     );
   const named = shared.map(({ handle, address }) => `@${handle}'s ${address}`).join(", ");
