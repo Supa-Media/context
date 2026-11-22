@@ -48,6 +48,7 @@ import { eventLines } from "./transcript.js";
 import { HISTORY_PATH } from "./historyFile.js";
 import { readTexNotes } from "./jobs.js";
 import { runTurn } from "./turn.js";
+import { checkInLook } from "./checkInLook.js";
 import { trainingFor } from "./texArchitecture.js";
 import { reportToolFailures } from "./toolFailures.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
@@ -338,30 +339,6 @@ async function recentLogs(dispatch, now, timeZone) {
 }
 
 /**
- * The check-in's look as the Front door node (`checkin -> fd`, mode wait): the node runs the look's turn handed to it in
- * `io.ctx.look` and gives out what the Front door gives for a finished turn. Its turn comes back through `io.ctx.kept`.
- */
-export async function checkInLook(_input, io) {
-  const turn = await io.ctx.look();
-  io.ctx.kept.turn = turn;
-  return {
-    pending: false,
-    draftChars: String(turn?.answer ?? "").length,
-    ...(typeof turn?.model === "string" ? { answeredBy: turn.model } : {}),
-    steps: Array.isArray(turn?.steps) ? turn.steps.length : 0,
-    exhausted: turn?.exhausted === true,
-  };
-}
-
-/** Runs the look through the graph's `checkin -> fd` wire when the config has it, else directly; answers its turn. */
-export async function lookThroughGraph(graph, look) {
-  if (!graph.wired("checkin", "fd")) return await look();
-  const kept = { turn: null };
-  await graph.fire("checkin", "fd", {}, { look, kept });
-  return kept.turn;
-}
-
-/**
  * `/agent` for the check-in client (`http/route.js` sends it here by the
  * grant's client, never by the body): it checks in, and does nothing else.
  */
@@ -410,14 +387,50 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       ...(ping.output.until === undefined ? {} : { until: ping.output.until }),
     });
   }
-  // Every other claim starts at Check-in (`graph/nodes/checkin.js`): `ctxObj.look` is what the rest of the look reads.
-  const ctxObj = { dispatch, store, session, env, controlPlane, look: null };
-  const out = (await graph.runNode("checkin", { timeZone, since, started }, { checkin: ctxObj }, "handleHeartbeat")).output;
-  if (out.to === "done") {
-    await chatLog?.flush();
-    return json(out.body, out.status);
+  // Every other claim runs the config's graph from Check-in (`graph/nodes/checkin.js`), as a text runs it from the door
+  // (Dev2, 2026-11-14: "it's not fine for the connections between node to be code"; 2026-11-22: a Lab test chat's
+  // check-in said its answer check "logged no run"): `checkin -> fd` the look, `fd -> answerCheck` each draft it would
+  // send, `answerCheck -> fd` a send-back, `answerCheck -> send` what goes back. `ctxObj.look` is what Check-in
+  // gathered; `prepare` is the rest of the gather, run inside the Check-in node so its Research runs on that node's own
+  // `uses` wire. `t` is the look's turn, shared by its nodes and never logged.
+  const ctxObj = { dispatch, store, session, env, controlPlane, look: null, prepare: null };
+  const t = { env, drafts: undefined, answerChecks: null, reviewedAs: null, look: null, judge: null, turn: undefined, response: undefined, finishCheckIn: null, looked: false };
+  ctxObj.prepare = (io) => prepareLook({ io, t, ctxObj, given: { timeZone, started }, dispatch, store, session, env, controlPlane, chatLog, ledgerTurn });
+  let ran;
+  try {
+    ran = await graph.run("checkin", { timeZone, since, started }, { checkin: ctxObj, turn: t });
+  } catch (error) {
+    // A look that failed on its provider still logs its outcome and answers the Worker a code; anything else throws.
+    if (!t.looked || typeof t.finishCheckIn !== "function") throw error;
+    await t.failed(error);
+    return await t.finishCheckIn(null);
   }
-  // A look: the rest of the check-in reads what the node gathered.
+  const out = ran.outputs.checkin;
+  if (out?.to !== "look") {
+    await chatLog?.flush();
+    return json(out?.body ?? { error: "check_in_failed" }, out?.status ?? 500);
+  }
+  if (t.response !== undefined) return t.response;
+  // A draft whose config draws no `checkin -> fd` (or no way out of it): the look runs as it did before the graph, its
+  // checks inside its model loop, so a draft that leaves a check-in step out still checks in. One that turned the
+  // Answer check off leaves the look stopped at its draft: each draft goes as it is, and the look is never run twice.
+  try {
+    if (t.turn === undefined) t.turn = t.drafts?.waiting ? await everyDraftGoes(t.drafts) : await t.look(t.judge?.check ?? null);
+  } catch (error) {
+    await t.failed(error);
+    return await t.finishCheckIn(null);
+  }
+  return await t.finishCheckIn(t.turn);
+}
+
+/**
+ * The rest of the check-in's gather, run by the Check-in node once it chose to look (`io`: that node's handles): the
+ * question the look answers, its Research brief over the node's `checkin -> checkinResearch` wire, the Answer check's
+ * two halves, and the look itself (`t.look`), which the Front door node (`checkInLook`) runs. `t.finishCheckIn` is the
+ * way out, run by the Text them node: what the look found, as the text the Worker sends and the day's log entry.
+ */
+async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env, controlPlane, chatLog, ledgerTurn }) {
+  const { timeZone, started } = given;
   const { changed, mail, mailboxes, owed, calendar, slack, chat, conversation, settings, mutes } = ctxObj.look;
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
@@ -458,46 +471,65 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       ...(setup !== null ? { setup: setup.version } : {}),
     },
   };
-  // Research before the look decides (`checkin -> checkinResearch`, `graph/nodes/checkinResearch.js`; Dev2, 2026-11-22:
-  // "check-ins are not real time, so we can take our time"): read-only digging whose brief the look reads beside what
-  // changed. A config without that wire looks as before.
+  // Research before the look decides, over Check-in's own `checkin -> checkinResearch` wire (`graph/nodes/checkinResearch.js`;
+  // Dev2, 2026-11-22: "check-ins are not real time, so we can take our time"): read-only digging whose brief the look
+  // reads beside what changed. A config without that wire looks as before.
   let question = asked;
-  if (graph.wired("checkin", "checkinResearch")) {
-    const found = await graph
-      .fire("checkin", "checkinResearch", { counts: out.counts ?? {} }, {
-        env,
-        research: {
-          question: asked,
-          tools: heartbeatTools(offered, RESEARCH_READS),
-          callTool: heartbeatCallTool(dispatch, RESEARCH_READS),
-          web: checkInWeb(env, session.egress.ledger),
-          env,
-          providerOptions: { ...providerOptions, metadata: { ...providerOptions.metadata, client: "heartbeat-research" } },
-          aboutMe: texNotes.aboutMe,
-          identity: texNotes.identity,
-          localNow: { now: started, timeZone },
-          observe,
-          fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
+  if ("checkinResearch" in io.use) {
+    const found = await io.use
+      .checkinResearch(
+        { counts: countsOf(ctxObj.look) },
+        {
+          research: {
+            question: asked,
+            tools: heartbeatTools(offered, RESEARCH_READS),
+            callTool: heartbeatCallTool(dispatch, RESEARCH_READS),
+            web: checkInWeb(env, session.egress.ledger),
+            env,
+            providerOptions: { ...providerOptions, metadata: { ...providerOptions.metadata, client: "heartbeat-research" } },
+            aboutMe: texNotes.aboutMe,
+            identity: texNotes.identity,
+            localNow: { now: started, timeZone },
+            observe,
+            fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
+          },
         },
-      })
+      )
       .catch(() => null);
     const said = researchSection(found?.brief ?? "");
     if (said !== "") question = `${asked}\n\n${said}`;
   }
-  // The reply reviewer reads a check-in's text before it goes, as a text nobody asked for (Dev2, 2026-11-07:
-  // "all of routines ... go through the reviewer agent before it gets to the user"). Its own setup's
-  // `reply_judge:` when it has one, else the texting setup's: one switch for every text Tex sends (`replyJudge.js`).
+  // The Answer check node reads a check-in's text before it goes, as a text nobody asked for (Dev2, 2026-11-07:
+  // "all of routines ... go through the reviewer agent before it gets to the user"): its code half, then its review.
+  // Its own setup's `reply_judge:` when it has one, else the texting setup's: one switch for every text Tex sends (`replyJudge.js`).
   const reviewing = setup?.replyJudge || (await readProductionSetup(store, session, { texting: true }).catch(() => null))?.replyJudge;
   const judge = reviewing && aiGatewayConfig(env) !== null
-    ? replyJudge({ setting: reviewing, scheduled: "check-in", timeZone, question, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" } })
+    ? replyJudge({ setting: reviewing, scheduled: "check-in", timeZone, question, config: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "reviewer" }, byRunner: true })
     : null;
-  let turn = null;
-  let failure = "other";
-  let failedBefore = [];
-  try {
-    turn = await lookThroughGraph(graph, () => runTurn({
+  t.judge = judge;
+  t.answerChecks = judge === null ? null : { code: judge.codeCheck, review: judge.review };
+  t.reviewedAs = judge === null ? null : "checkin"; // what lets the Answer check's review read it (`answerCheck.js`)
+  // Whether the look's silence stands: the Quiet check step decides, over Check-in's `checkin -> quietCheck` wire
+  // (`graph/nodes/quietCheck.js`; Dev2, 2026-11-22: "let refusal become a real node that we can tune"). A config
+  // without that wire lets the look's silence stand; the word list it replaced (`checkInSpeak.js`) is gone.
+  const quietCheck = "quietCheck" in io.use ? io.use.quietCheck : null;
+  const silence = quietCheck !== null
+    ? {
+        sayNothingJudge: async (why) => {
+          const verdict = await quietCheck({ why, mail: mail.length }, { env, quiet: { look: question, calendar: calendarCopy } });
+          return verdict?.to === "speak" ? { notice: speakNotice(verdict.why) } : null;
+        },
+      }
+    : {};
+  // The look, as the Front door node runs it (`checkInLook`): `answerCheck` is that node's stop at each draft, which
+  // the Answer check node answers over the config's wires.
+  t.look = (answerCheck, via = null) => {
+    t.looked = true;
+    const callTool = heartbeatCallTool(dispatch);
+    const web = checkInWeb(env, session.egress.ledger); // search only (`checkInWeb`)
+    return runTurn({
       question,
-      answerCheck: judge?.check ?? null,
+      answerCheck,
       silences: judge?.silences ?? null, // a last step is silent only for a send-back that says not for them (`turn.js`)
       tools: heartbeatTools(offered),
       // Reads only: no write or manage action, and of send only say_nothing, which ends the look with no words
@@ -508,20 +540,10 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       // look is a 1:1 turn, so it is shown every tool and refused, saying so, all but say_nothing.
       fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
       sayNothing: true,
-      // Whether the look's silence stands: the Quiet check step decides, when the config wires it (`checkin -> quietCheck`,
-      // `graph/nodes/quietCheck.js`; Dev2, 2026-11-22: "let refusal become a real node that we can tune"). A config
-      // without that wire lets the look's silence stand; the word list it replaced (`checkInSpeak.js`) is gone.
-      ...(graph.wired("checkin", "quietCheck")
-        ? {
-            sayNothingJudge: async (why) => {
-              const verdict = await graph.fire("checkin", "quietCheck", { why, mail: mail.length }, { env, quiet: { look: question, calendar: calendarCopy } });
-              return verdict?.to === "speak" ? { notice: speakNotice(verdict.why) } : null;
-            },
-          }
-        : {}),
+      ...silence,
       scheduled: true, // nobody waits on a look: its last steps end quiet (`lastRound.js`)
-      callTool: heartbeatCallTool(dispatch),
-      web: checkInWeb(env, session.egress.ledger), // search only (`checkInWeb`)
+      callTool: via === null ? callTool : via.tools(callTool),
+      web: via === null ? web : via.web(web),
       env,
       builtinModelOverride: chosen,
       providerOptions,
@@ -531,8 +553,13 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       localNow: { now: started, timeZone },
       observe,
       maxRounds: HEARTBEAT_ROUNDS,
-    }));
-  } catch (error) {
+    });
+  };
+
+  let failure = "other";
+  let failedBefore = [];
+  // A look that threw: its failed tool calls and the code the Worker logs; a provider's failure ends as `failed`, any other throws.
+  t.failed = async (error) => {
     failedBefore = error?.timing?.failures ?? [];
     failure = error instanceof ProviderError ? providerFailure(error) : failure;
     await meter(null, true, error instanceof ProviderError ? error.model : model);
@@ -546,84 +573,99 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       }),
     );
     if (!(error instanceof ProviderError)) throw error;
-  }
-  if (turn !== null) await meter(turn.usage, false, turn.model);
-  // Its failed tool calls, kept with the rest of Tex's (`toolFailures.js`): a thrown turn carries the ones before it.
-  await reportToolFailures(controlPlane, session, "check_in", turn?.timing?.failures ?? failedBefore);
+  };
 
-  const finished = turn !== null && !turn.exhausted;
-  // `[continues N]` comes off before anything reads the answer: never texted, logged or kept.
-  const marked = finished ? continuesFrom(turn.answer, shownRecent) : { answer: "", continues: null };
-  // A mailbox it owed a word is said, in its words or added to them, so one marked told was told.
-  const found = finished ? checkInText(marked.answer) : null;
-  const muted = found ? mutedCheckIn(found, mutes) : null;
-  const own = muted ? null : found;
-  const text = finished && owed.length > 0 ? withMailboxes(own, owed, started) : own;
-  const outcome = !finished ? "failed" : text ? "speak" : "quiet";
-  const now = Date.now();
-  const entry = heartbeatEntry({
-    now,
-    timeZone,
-    changed,
-    mail: mail.length,
-    calendar: calendar !== null,
-    slack: slack.length,
-    chat: chat.length,
-    model: turn?.model ?? null,
-    text,
-    events,
-    outcome,
-    muted,
-  });
-  const path = heartbeatPath(now, timeZone);
-  let why = await appendLogEntryWhy(dispatch, path, entry, heading(now, timeZone));
-  // The full entry didn't land: its outcome still does, in a few words, so the
-  // next look knows what was texted and the person can see why the rest is missing.
-  if (why !== null) why = await appendLogEntryWhy(dispatch, path, shortEntry({ now, timeZone, text, outcome, why }), heading(now, timeZone));
-  const logged = why === null;
-  if (text) {
-    // Counted as told by the control plane only once this text reached them.
-    if (owed.length > 0) await store.mailHealth.raise(owed).catch(() => {});
-    await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
-    // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
-    try {
-      // Tainted when it was shown mail, an invite, Slack or Chat, or opened one: a stranger's words (`HEARTBEAT_READS`).
-      await appendConversation(store, "texts", checkInAbout({ continues: marked.continues, reason: lastThinking(events), log: logged ? path : null }), text, {
-        tainted: mail.length > 0 || calendar !== null || slack.length > 0 || chat.length > 0 || session.egress.ledger.untrusted === true,
-        tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
-        sources: (turn?.steps ?? []).flatMap((step) => step.sources ?? []), // the notes and emails it read, by name only
-        // Sent as a reply under an earlier text: kept in that text's thread, so their reply there sees it (`threadView.js`).
-        thread: marked.continues === null ? null : threadOf(conversation, marked.continues),
-        // Its run, for replay: the turn its steps were written under, how long it took, the code and the prompt it ran on.
-        entry: { turn: ledgerTurn, ms: now - started, ...versionOf(env), timing: turnTiming({ trace: turn?.timing?.trace, replyMs: now - started }) },
-      });
-    } catch {
-      // A history that could not be written costs the next reply some context, never the check-in.
-    }
-  }
-  await chatLog?.flush();
-  console.log(
-    JSON.stringify({
-      event: "heartbeat",
-      workspace: session.workspaceId,
-      grant: session.grantId,
-      provider: BUILTIN_PROVIDER,
-      outcome,
-      changed: changed.length,
-      newMail: mail.length,
+  t.finishCheckIn = async (turn) => {
+    if (turn !== null) await meter(turn.usage, false, turn.model);
+    // Its failed tool calls, kept with the rest of Tex's (`toolFailures.js`): a thrown turn carries the ones before it.
+    await reportToolFailures(controlPlane, session, "check_in", turn?.timing?.failures ?? failedBefore);
+
+    const finished = turn !== null && !turn.exhausted;
+    // `[continues N]` comes off before anything reads the answer: never texted, logged or kept.
+    const marked = finished ? continuesFrom(turn.answer, shownRecent) : { answer: "", continues: null };
+    // A mailbox it owed a word is said, in its words or added to them, so one marked told was told.
+    const found = finished ? checkInText(marked.answer) : null;
+    const muted = found ? mutedCheckIn(found, mutes) : null;
+    const own = muted ? null : found;
+    const text = finished && owed.length > 0 ? withMailboxes(own, owed, started) : own;
+    const outcome = !finished ? "failed" : text ? "speak" : "quiet";
+    const now = Date.now();
+    const entry = heartbeatEntry({
+      now,
+      timeZone,
+      changed,
+      mail: mail.length,
       calendar: calendar !== null,
       slack: slack.length,
       chat: chat.length,
-      mailboxesOwed: owed.length,
-      logged,
-      ms: now - started,
-    }),
-  );
-  // Which failure, as a code the Worker logs (`heartbeats.ts` failedBecause): out of rounds is not the model failing.
-  if (outcome === "failed") return json({ error: "model_unavailable", reason: turn?.exhausted ? "rounds_exhausted" : failure, outcome }, 502);
-  if (!text) return json({ outcome });
-  // The turn and source link this check-in's text to its note, as a text sent on its own (`log.js`, `sentOnItsOwn.js`).
-  return json({ outcome, answer: text, turn: ledgerTurn, source: "checkin", ...(marked.continues !== null ? { continues: marked.continues } : {}) });
+      model: turn?.model ?? null,
+      text,
+      events,
+      outcome,
+      muted,
+    });
+    const path = heartbeatPath(now, timeZone);
+    let why = await appendLogEntryWhy(dispatch, path, entry, heading(now, timeZone));
+    // The full entry didn't land: its outcome still does, in a few words, so the
+    // next look knows what was texted and the person can see why the rest is missing.
+    if (why !== null) why = await appendLogEntryWhy(dispatch, path, shortEntry({ now, timeZone, text, outcome, why }), heading(now, timeZone));
+    const logged = why === null;
+    if (text) {
+      // Counted as told by the control plane only once this text reached them.
+      if (owed.length > 0) await store.mailHealth.raise(owed).catch(() => {});
+      await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
+      // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
+      try {
+        // Tainted when it was shown mail, an invite, Slack or Chat, or opened one: a stranger's words (`HEARTBEAT_READS`).
+        await appendConversation(store, "texts", checkInAbout({ continues: marked.continues, reason: lastThinking(events), log: logged ? path : null }), text, {
+          tainted: mail.length > 0 || calendar !== null || slack.length > 0 || chat.length > 0 || session.egress.ledger.untrusted === true,
+          tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
+          sources: (turn?.steps ?? []).flatMap((step) => step.sources ?? []), // the notes and emails it read, by name only
+          // Sent as a reply under an earlier text: kept in that text's thread, so their reply there sees it (`threadView.js`).
+          thread: marked.continues === null ? null : threadOf(conversation, marked.continues),
+          // Its run, for replay: the turn its steps were written under, how long it took, the code and the prompt it ran on.
+          entry: { turn: ledgerTurn, ms: now - started, ...versionOf(env), timing: turnTiming({ trace: turn?.timing?.trace, replyMs: now - started }) },
+        });
+      } catch {
+        // A history that could not be written costs the next reply some context, never the check-in.
+      }
+    }
+    await chatLog?.flush();
+    console.log(
+      JSON.stringify({
+        event: "heartbeat",
+        workspace: session.workspaceId,
+        grant: session.grantId,
+        provider: BUILTIN_PROVIDER,
+        outcome,
+        changed: changed.length,
+        newMail: mail.length,
+        calendar: calendar !== null,
+        slack: slack.length,
+        chat: chat.length,
+        mailboxesOwed: owed.length,
+        logged,
+        ms: now - started,
+      }),
+    );
+    // Which failure, as a code the Worker logs (`heartbeats.ts` failedBecause): out of rounds is not the model failing.
+    if (outcome === "failed") return json({ error: "model_unavailable", reason: turn?.exhausted ? "rounds_exhausted" : failure, outcome }, 502);
+    if (!text) return json({ outcome });
+    // The turn and source link this check-in's text to its note, as a text sent on its own (`log.js`, `sentOnItsOwn.js`).
+    return json({ outcome, answer: text, turn: ledgerTurn, source: "checkin", ...(marked.continues !== null ? { continues: marked.continues } : {}) });
+  };
+}
+
+/** A look stopped at a draft nothing checks: every draft goes as it is, and the look's turn comes back. */
+export async function everyDraftGoes(drafts) {
+  let stop = await drafts.resume(null);
+  while (stop.paused) stop = await drafts.resume(null);
+  return stop.value;
+}
+
+/** What Check-in found, as counts for Research's logged input: lengths only, never a word of it. */
+function countsOf(look) {
+  return { changed: look.changed.length, mail: look.mail.length, slack: look.slack.length, chat: look.chat.length, owed: look.owed.length };
 }
 
 /**

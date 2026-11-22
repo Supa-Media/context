@@ -51,7 +51,7 @@ flowchart LR
   n_connect["Connect notes<br/>Haiku 5.5 · effort low<br/>noteConnect.js · graph/nodes/connect.js"]:::model
   n_noteRun(["Tex in a note<br/>Haiku 5.5 · effort medium<br/>noteRun.js · graph/nodes/noteRun.js · noteRunRoute.js"]):::start
   subgraph n_group_checkInLook["Check-in"]
-    n_checkin(["Check-in<br/>code<br/>graph/nodes/checkin.js · heartbeat.js"]):::start
+    n_checkin(["Check-in<br/>code<br/>graph/nodes/checkin.js · heartbeat.js · checkInLook.js"]):::start
     n_quietCheck["Quiet check<br/>Haiku 5.5 · effort low<br/>graph/nodes/quietCheck.js"]:::model
     n_checkinResearch["Research<br/>Haiku 5.5 · effort high<br/>graph/nodes/checkinResearch.js"]:::model
   end
@@ -199,7 +199,7 @@ every wire, from the same config.
 <!-- tex-config: steps begin -->
 | Step | Id | Group | | Model | Effort | Time limit | Reads, in order | Where |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Check-in | checkin | checkInLook | on | code |  |  | train:checkin | graph/nodes/checkin.js · heartbeat.js |
+| Check-in | checkin | checkInLook | on | code |  |  | train:checkin | graph/nodes/checkin.js · heartbeat.js · checkInLook.js |
 | Routine runs | routine |  | on | code |  |  |  | graph/nodes/routine.js · routine.js · runARoutine.js · finishARoutine.js |
 | Send through Tex | notify |  | on | code |  |  |  | graph/nodes/notify.js · tools/attention.js · attention.js |
 | A text arrives | text | intake | on | code |  |  |  | apps/agent |
