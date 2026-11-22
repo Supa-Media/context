@@ -19,6 +19,12 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createEgressWorld, fakeModel, keepDeskKeys, PRIVACY_MANIFEST, request, TOKEN_CHECKIN, TOKEN_ROUTINE, TOKEN_TEXTS } from "../agentEgressFixtures.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "../agentModelFixture.mjs";
 import { texStoreNamespace } from "../texStoreFixture.mjs";
+import { TEX_CONFIG } from "../../../../packages/tex/gateway/agent/texConfig.js";
+
+/** Whether a check-in digs in before its look (`checkin -> checkinResearch`): its model answers first, then the look. */
+const RESEARCHES = TEX_CONFIG.edges.some((e) => e.from === "checkin" && e.to === "checkinResearch");
+/** What the research step finds when a case names nothing: nothing, so the look reads what changed as before. */
+const NOTHING_FOUND = [{ text: "- nothing" }];
 
 const LINE = "sendblue:line:+15555550100";
 const HOUR = 60 * 60_000;
@@ -168,16 +174,17 @@ export async function oneToOne() {
     },
     /**
      * A check-in looking over the last hour, with `mail` (the bench Gmail's shape) just arrived in their inbox: what it
-     * would text (empty when it stayed quiet) and what its model was shown.
+     * would text (empty when it stayed quiet) and what its model was shown. `research`: the research step's scripted
+     * answer, run first when the config wires it (nothing found unless a case says).
      */
-    async checkIn(reply, { mail = [] } = {}) {
+    async checkIn(reply, { mail = [], research = NOTHING_FOUND } = {}) {
       clock += 60_000;
       if (mail.length > 0) {
         world.controlPlane.flags.mailboxes = [{ address: mail[0].to, folder: "0-inbox/email" }];
         world.controlPlane.flags.mailResults = () => mail;
       }
       const before = world.model.requests.length;
-      world.model.install(script(reply));
+      world.model.install([...(RESEARCHES ? research : []), ...script(reply)]);
       const ran = await request(world.env, TOKEN_CHECKIN, "/agent", { heartbeat: { timeZone: "UTC", since: Date.now() - HOUR } });
       if (ran.status !== 200) throw new Error(`replay: the check-in answered ${ran.status}: ${JSON.stringify(ran.body)}`);
       return { answer: String(ran.body.answer ?? ""), turn: ran.body.turn ?? null, body: ran.body, shown: world.model.requests.slice(before).map(shownIn).join("\n"), requests: world.model.requests.slice(before) };

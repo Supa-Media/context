@@ -478,6 +478,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
           identity: texNotes.identity,
           localNow: { now: started, timeZone },
           observe,
+          fixedTools: texToolList("fd", texConfigOf(env)) === "fixed" ? "one" : null,
         },
       })
       .catch(() => null);

@@ -29,7 +29,8 @@ export default {
       // The check-in: the gateway writes its note and answers with its turn and source; the Worker texts it and records the text.
       chat.wait(11 * 60_000);
       chat.atNow();
-      const check = await chat.checkIn([quiet, { text: CHECK }], { mail: [PERMIT] });
+      // The first silence is held by the Quiet check (`checkin -> quietCheck`), whose verdict is the step between.
+      const check = await chat.checkIn([quiet, { toolCalls: [{ name: "verdict", args: { speak: true, why: "the permit leaves the dock out." } }] }, { text: CHECK }], { mail: [PERMIT] });
       assert.equal(check.answer, CHECK, "the check-in texts what the model wrote");
       assert.equal(check.body.source, "checkin", "the gateway names the check-in's source");
       assert.equal(typeof check.turn, "string", "and the run's turn, which links its note to its text");
