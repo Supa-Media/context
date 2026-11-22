@@ -60,7 +60,7 @@ and the code. "Checked on every preview" means the deploy's smoke test
 
 | What | How it is known |
 | --- | --- |
-| Its own Convex deployment, Workers and Durable Objects (notes, Tex's chats, jobs, the Lab sandbox) | Named `pr<N>`; the guards refuse any production or staging identifier (`packages/sandbox/src/guards.mjs`) |
+| Its own Convex deployment, Workers and Durable Objects (notes, Tex's chats, jobs, the Lab's test chats) | Named `pr<N>`; the guards refuse any production or staging identifier (`packages/sandbox/src/guards.mjs`) |
 | Five personas, their workspaces, memberships and 41 fixture notes, in managed buckets of their own | The seed, every preview |
 | Tex answering a text through the simulator (1:1), and in the app's Tex chat | Checked on every preview |
 | Search by meaning (the workspace object's index, Workers AI embeddings) | Checked on every preview |

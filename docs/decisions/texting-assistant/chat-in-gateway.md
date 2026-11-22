@@ -51,7 +51,7 @@ SenderInbox only when the hand-over fails or the binding is absent
 **Production moves one chat at a time first** (Dev2, 2026-11-21, approving the
 runtime simplification: "test on your chat first, then Tex Devs, then
 everyone"). A Tex developer moves a chat of their own with the Lab's `intake`
-op (`tex_dev` sandbox `{ op: "intake", chatId, move: true }`,
+op (`tex_dev` test_chat `{ op: "intake", chatId, move: true }`,
 `packages/lab/gateway/labSandbox/intake.js`): the same copy a handed-over text
 starts, with no text, after which the Worker's object passes that chat's every
 call on, whatever `INTAKE` says. `{ op: "intake" }` lists where each of the

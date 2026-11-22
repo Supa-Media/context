@@ -154,7 +154,7 @@ function cardStep(step, n) {
     ...(Number.isFinite(step.tokIn) ? { tokIn: step.tokIn } : {}),
     ...(Number.isFinite(step.tokOut) ? { tokOut: step.tokOut } : {}),
     ...(Number.isFinite(step.cost) ? { cost: step.cost } : {}),
-    ...(Array.isArray(step.calls) && step.calls.length ? { calls: step.calls.map((c) => `${c.tool}${c.kind === "write" ? " (sandbox write)" : ""}${Number.isFinite(c.ms) ? ` ${c.ms} ms` : ""}`) } : {}),
+    ...(Array.isArray(step.calls) && step.calls.length ? { calls: step.calls.map((c) => `${c.tool}${c.kind === "write" ? " (test write)" : ""}${Number.isFinite(c.ms) ? ` ${c.ms} ms` : ""}`) } : {}),
     ...(typeof step.think === "string" && step.think ? { thinking: short(step.think, 160) } : {}),
     out: short(out),
   };
