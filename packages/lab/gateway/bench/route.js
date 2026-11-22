@@ -31,8 +31,11 @@ import { workspaceStub } from "../../../../apps/mcp/src/workspaceStore/api.js";
 export const BENCH_PATH = "/tex-lab/bench";
 /** Most searches one call runs. */
 export const MAX_CASES = 50;
-/** Longest query, as the Lab's search try-out takes. */
-const MAX_QUERY = 300;
+/**
+ * Longest query. A benchmark asks its questions whole, as an AI client's search_notes would get them (EnterpriseRAG
+ * Notes has 35 over 300 characters, the longest 457), so the cap only bounds a call.
+ */
+export const MAX_QUERY = 2_000;
 /** Largest call body: a page of notes. */
 const MAX_BODY = 8_000_000;
 const NOTE_KEY = /^notes\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/;

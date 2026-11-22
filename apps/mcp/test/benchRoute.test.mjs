@@ -128,6 +128,12 @@ test("a world is loaded, cloned into a second copy on its alarm, and both copies
     assert.equal(hitsOf(a[0].text, "@sam")[0], "@sam/trips/kayak-trip.md");
     assert.equal(hitsOf(a[1].text, "@sam")[0], "@sam/home/boiler.md");
     assert.deepEqual(b.map((x) => hitsOf(x.text, "@sam")), a.map((x) => hitsOf(x.text, "@sam")));
+
+    // A benchmark's question is asked whole: EnterpriseRAG Notes has questions of 457 characters.
+    const long = `When is the kayak trip, and what does the tide table say about ${"the launch window and the weather ".repeat(12)}`;
+    assert.ok(long.length > 450);
+    const [whole] = (await h.call({ op: "search", world: WORLD, copy: 0, cases: [{ id: "q3", query: long, personal: benchWorkspaceId(WORLD, 0, "sam") }] })).body.answers;
+    assert.equal(whole.ok, true, JSON.stringify(whole));
   });
 });
 
