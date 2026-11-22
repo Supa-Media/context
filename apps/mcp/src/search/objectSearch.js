@@ -59,7 +59,9 @@ export async function objectSearchAnswer(store, scope, rules, overrides, query, 
       const tables = wordStats === null && terms.length > 0 ? [...new Set(sent0.map((ask) => ask.table))] : [];
       const asks = [...sent0, ...tables.map((table) => ({ table, stats: terms }))];
       const sent = Date.now();
-      const answer = await object.search(asks);
+      // An object still on code that has no stats ask (a deploy in flight) refuses it: the search goes on without the
+      // shared scale rather than failing the workspace.
+      const answer = tables.length > 0 ? await object.search(asks).catch(() => (tables.length = 0, object.search(sent0))) : await object.search(asks);
       if (answer?.served !== true || !Array.isArray(answer.answers)) throw new NotServed(answer?.waiting ?? null);
       if (tables.length > 0) {
         const counted = answer.answers.slice(sent0.length);

@@ -323,3 +323,15 @@ test("asked for word statistics, the gateway's object search sums them over its 
   assert.equal(plain.hits.some((hit) => "words" in hit), false);
   assert.equal(sent.flat().some((one) => Array.isArray(one.stats)), false, "a search that will not use statistics never asks for them");
 });
+
+test("an object that refuses the stats ask (older code mid-deploy) still answers the search, without the shared scale", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "plans/a.md", "# A\nwillow");
+  const env = { WORKSPACE_STORE: { idFromName: (name) => ({ name }), get: () => ({ fetch: (request) => serveWorkspaceStore(object.store, request) }) } };
+  const client = workspaceClient(env, "w1");
+  const store = { objectSearch: { ...client, search: (asks) => (asks.some((one) => one.stats) ? Promise.reject(new Error("refused")) : client.search(asks)) }, defer: () => {} };
+  const live = parsedRules(MEMBER(TEAM_PLANS));
+  const answer = await objectSearchAnswer(store, "team", live.rules, live.overrides, "willow", "", { set: () => {} }, { wordStats: true });
+  assert.deepEqual(answer.hits.map((hit) => hit.key), ["plans/a.md"]);
+  assert.equal(answer.wordStats, undefined);
+});

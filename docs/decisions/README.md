@@ -397,7 +397,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A workspace object keeps its own meaning index
 - Tex searches every workspace; a named one is a boost, never a fence
 - Search is measured on three sets, and a search change merges only if the right note stays first
-- Across workspaces, word hits can be scored on one scale, and each workspace weighed by its evidence
+- Across workspaces, word hits are scored on one scale (and a workspace can be weighed by its evidence)
 
 ## [The mobile app and the console](./app-and-console.md)
 

@@ -1,6 +1,6 @@
 # Search — one word scale across workspaces
 
-### Across workspaces, word hits can be scored on one scale, and each workspace weighed by its evidence
+### Across workspaces, word hits are scored on one scale (and a workspace can be weighed by its evidence)
 
 Asked for by the owner, 2026-11-22: search "treats workspaces as equal" instead of ranking which one a query belongs
 to, and filler words match everywhere. Each workspace object ranks its own notes by FTS5's BM25 over its own
@@ -25,7 +25,11 @@ there, the same tables FTS5's BM25 already scores against, and they reach no ans
 the hits leave `fuseEverywhere`. A search that will not use them (one workspace, or `sharedWords` 0) never asks.
 
 **Measured on** `enterprise-rag-notes-split` (`./search-suite.md`), the one benchmark that searches several
-workspaces; a setting is switched on in the config only when it raises that bench without lowering the gate.
+workspaces, all 343 questions (2026-11-22): main's per-workspace ranks put the right note first 34.4% of the time
+(nDCG@10 0.525), against 64.1% when the same notes sit in one workspace; `sharedWords` 1 puts it first 65.6% (top 5
+84.5%, nDCG@10 0.802), so splitting notes across workspaces no longer costs anything. `workspaceWeight` 0.15 on top
+of it lowered it to 60.3% (nDCG@10 0.757): weighing a workspace by its share of the evidence pushed down the one note a
+small workspace held. So main runs `sharedWords` 1 and `workspaceWeight` 0; the weight stays a knob for a Lab draft.
 
 **What a simplification would cost:** ranking by each workspace's own rank ties every workspace's first hit, so a
 note that shares "the" and "for" with the question in a small workspace ties the one that holds the question's rare
