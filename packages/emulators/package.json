@@ -1,0 +1,24 @@
+{
+  "name": "@context/emulators",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stand-ins for the outside APIs Context calls (Google, Resend, ...), in one place: emulators from Vercel Labs' emulate, our own, or from elsewhere, served by one Worker per pull request preview and usable in tests",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./hosts": "./src/hosts.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "bundle": "wrangler deploy --dry-run --outdir .bundle",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@emulators/core": "0.14.0",
+    "@emulators/google": "0.14.0",
+    "@emulators/resend": "0.14.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.124.0"
+  }
+}
