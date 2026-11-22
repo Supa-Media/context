@@ -67,12 +67,6 @@
   ],
   "vars": {
     "GATEWAY_ORIGIN": "https://mcp.context.lc",
-    // Where an incoming text's head runs (src/handOver.ts): "gateway" hands it to the gateway's TexChat (`/texts/arrive`),
-    // "worker" keeps the SenderInbox queue. The move is step 3 of Tex's config graph (docs/architecture/tex.md).
-    // Production moved on Dev2's go (2026-11-21), after Dev2's 1:1 and Tex Devs were moved first and checked
-    // (docs/decisions/texting-assistant/chat-in-gateway.md). A chat moves on its next text; a copy that fails or finds
-    // the chat busy leaves the SenderInbox answering, and the move is tried again.
-    "INTAKE": "gateway",
     // Where a background job's object runs (src/jobPlace.ts): "gateway" starts new jobs in the gateway's TexJob, "worker"
     // keeps them in the SenderInbox. A job the gateway holds is reached there whatever this says. Production moved on
     // Dev2's go (2026-11-14); a job that started in the SenderInbox finishes there.
@@ -130,9 +124,6 @@
       ],
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
-        // Where an incoming text's head runs (src/handOver.ts): "gateway" or "worker", as at the top level. Staging runs
-        // its chats in the gateway first (2026-11-14, step 3 of Tex's config graph); production follows once proven.
-        "INTAKE": "gateway",
         // Where a background job's object runs (src/jobPlace.ts), as at the top level.
         "JOBS": "gateway",
         "SIMULATOR": "on",
@@ -168,7 +159,6 @@
       ],
       "vars": {
         "GATEWAY_ORIGIN": "https://context-mcp-__PREVIEW__.__WORKERS_DEV__",
-        "INTAKE": "gateway",
         "JOBS": "gateway",
         "SIMULATOR": "on",
         "APP_CARDS": "off",

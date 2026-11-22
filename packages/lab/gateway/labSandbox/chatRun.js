@@ -337,7 +337,6 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
     TEX_LINE: line,
     IMAGES: images,
     LINQ_API_KEY: "",
-    INTAKE: "gateway",
     JOBS: "worker",
   };
 }

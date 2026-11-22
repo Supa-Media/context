@@ -48,8 +48,6 @@ export interface Env {
   GATEWAY_TEXTS?: TextsBinding; // the gateway's `TexTexts`: a text's session from the person object (`gatewaySession.ts`)
   /** The chat object's way out to the network, when it runs in the gateway (`packages/tex/gateway/texChat.js`); absent, the global fetch. */
   FETCH?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-  /** Where an incoming text's head runs: "gateway" hands it to the gateway's TexChat (`/texts/arrive`); anything else keeps the SenderInbox queue (`handOver.ts`). */
-  INTAKE?: string;
   /** Where a background job's object runs: "gateway" starts new jobs in the gateway's TexJob, anything else keeps them in the SenderInbox (`jobPlace.ts`). A job the gateway holds stays there either way. */
   JOBS?: string;
   /** The chat's line, when this chat object runs in the gateway: the Worker's, over its RPC (`remoteLine.ts`). Absent in the Worker. */

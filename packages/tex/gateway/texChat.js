@@ -20,7 +20,8 @@
  * on to this one (`/texts/chat-call`). A copy that fails leaves the Worker's object answering, and the call is refused
  * here so the Worker answers it.
  *
- * Which chats come here is the Worker's `INTAKE` var: only a text handed over by the Worker starts the copy.
+ * Every chat comes here: the Worker hands each text over (`packages/tex/worker/handOver.ts`), and a chat still in the
+ * Worker is copied in on its first one.
  */
 
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
@@ -265,7 +266,6 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, jobs
     // The Context app's chat: only this object runs as its user (`packages/tex/worker/reply.ts` `sessionOf`).
     ...(app ? { APP_CHAT: name } : {}),
     LINQ_API_KEY: "",
-    INTAKE: "gateway",
   };
 }
 
