@@ -40,7 +40,7 @@ export function lineDecorHtml(g: LabGraph, sel: Selection, lit: LineLit, times: 
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(--dim)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>
       <text class="ttl" x="62" y="28">${esc(n.label.length > 15 ? n.label.slice(0, 14) + "…" : n.label)}</text>
-      <circle cx="66" cy="43" r="3.5" fill="var(--dim)"/><text class="sub" x="74" y="47">sandbox line</text>
+      <circle cx="66" cy="43" r="3.5" fill="var(--dim)"/><text class="sub" x="74" y="47">test line</text>
       ${ms !== undefined ? `<text class="tm" x="${W - 4}" y="-7" text-anchor="end">${esc(msWords(ms))}</text>` : ""}
     </g>`;
   }

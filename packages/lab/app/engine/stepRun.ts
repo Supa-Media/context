@@ -107,5 +107,5 @@ export function callsHeading(calls: StepCall[]): string {
   if (calls.some((c) => c.kind === "prod")) return `Tool calls · ${calls.length} in prod`;
   const r = n("read");
   const w = n("write");
-  return `Tool calls · ${r} real read${r === 1 ? "" : "s"}, ${w} sandbox write${w === 1 ? "" : "s"}`;
+  return `Tool calls · ${r} real read${r === 1 ? "" : "s"}, ${w} test write${w === 1 ? "" : "s"}`;
 }

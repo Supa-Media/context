@@ -111,7 +111,7 @@ export const phoneWords = (n: string) => {
 
 /** The line between the real chat's texts and the test texts (the mockup's "Sandbox from here"). */
 export const sandboxFromHere = (copied: number) =>
-  copied ? `Sandbox from here · copied ${copied.toLocaleString("en-US")} text${copied === 1 ? "" : "s"} from your real chat · writes stay in the sandbox` : "Sandbox from here · writes stay in the sandbox";
+  copied ? `Test from here · copied ${copied.toLocaleString("en-US")} text${copied === 1 ? "" : "s"} from your real chat · writes stay in the test chat` : "Test from here · writes stay in the test chat";
 
 export function SandboxChat() {
   const sb = useSandbox();
@@ -142,7 +142,7 @@ export function SandboxChat() {
       if (sb.busy) return;
       started.current = true;
       if (!sb.chats.length) void readSandboxChats();
-      // A link to a test chat (`/lab?sandbox=<id>`) opens that one, followed live, whoever texts in it.
+      // A link to a test chat (`/lab?testchat=<id>`) opens that one, followed live, whoever texts in it.
       const linked = takeUrlSandbox();
       if (linked) {
         void attachSandbox(linked, versionId);
@@ -352,7 +352,7 @@ export function SandboxChat() {
               {r.prod && !r.tex && src && (sb.source.kind === "chat" || sb.source.kind === "shared") ? (
                 <button
                   data-fork={r.id}
-                  title="Sandbox from here: a test chat with the real texts before this one, and this text ready to send"
+                  title="Test from here: a test chat with the real texts before this one, and this text ready to send"
                   disabled={!!sb.running || sb.busy}
                   onClick={() => {
                     const c = sb.source;
@@ -384,7 +384,7 @@ export function SandboxChat() {
                   {playing(r.id) ? "⏸ " + msWords(play!.t) : "▶"}
                 </button>
               ) : null}
-              <button data-back={r.id} title="Go back to here: remove everything after this text, with the sandbox changes it made" disabled={!!sb.running || sb.busy} onClick={() => void backTo(r.id)}>
+              <button data-back={r.id} title="Go back to here: remove everything after this text, with the test changes it made" disabled={!!sb.running || sb.busy} onClick={() => void backTo(r.id)}>
                 ⤺
               </button>
               {r.test && !r.tex ? (

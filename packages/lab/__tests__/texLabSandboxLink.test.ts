@@ -3,7 +3,7 @@
  */
 
 /**
- * A link to a Lab test chat (`/lab?sandbox=<id>`, as `tex_dev sandbox open` prints it) that cannot be opened.
+ * A link to a Lab test chat (`/lab?testchat=<id>`, as `tex_dev test_chat open` prints it) that cannot be opened.
  * Dev2, 2026-11-20: "Whenever I open these links, it doesn't load the chat. It just loads the Maya one-on-one, and
  * then I get this convex error." The console grant's mint failed, so neither `use` nor `get` answered; the dock kept
  * the default source's name (Maya) and showed the raw error, and the link was spent. Now it names the link, says why,
