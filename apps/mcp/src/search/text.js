@@ -75,8 +75,7 @@ export function trigrams(term) {
 /**
  * Words of three letters or more that say how a question is asked, not what it is about: "how we position Context
  * against other AI memory tools" is about positioning, Context, memory and tools. Read only where a query's words are
- * held against a note's name (`evidence.js`, `named.js`), and left out of the word index's any-word second try
- * (`d1/query.js` `toRelaxedMatchExpression`); its every-word first try still asks them.
+ * held against a note's name (`evidence.js`, `named.js`); the word index itself asks every word.
  */
 // One string, split: the import check (`scripts`) reads a quoted word after "from" as an import path.
 export const FILLER_WORDS = new Set(
