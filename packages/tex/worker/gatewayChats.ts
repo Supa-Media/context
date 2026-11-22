@@ -60,3 +60,23 @@ export function chatNamespace(env: { SENDER_INBOX: DurableObjectNamespace; GATEW
     },
   } as unknown as DurableObjectNamespace;
 }
+
+/**
+ * A call to a chat by the id its addresses carry (`/media/<id>/<token>`, `/threads/<id>/<token>`): the gateway's index
+ * names the chat (`packages/tex/gateway/texChat/byId.js`), and the chat answers there. An id the gateway has not
+ * indexed, or a gateway that cannot be reached, is asked of the Worker's object of that id while it exists, which
+ * passes a moved chat's call on as before. Without the `GATEWAY_TEXTS` binding it is the Worker's object alone.
+ */
+export async function chatByIdInGateway(
+  env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding },
+  id: string,
+  path: string,
+  worker: () => Promise<Response>,
+): Promise<Response> {
+  const binding = env.GATEWAY_TEXTS;
+  if (binding === undefined) return await worker();
+  const there = await binding.fetch(`https://gateway/texts/chat-by-id/${id}${path}`, { method: "GET" }).catch(() => null);
+  if (there !== null && there.ok) return there;
+  console.log(JSON.stringify({ event: "chat_by_id", outcome: "worker", status: there?.status ?? 0 }));
+  return await worker();
+}

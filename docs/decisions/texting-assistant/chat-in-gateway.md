@@ -94,3 +94,14 @@ only passes it back, and would keep the Worker's SenderInbox load-bearing.
 Reverting it fails `apps/mcp/test/texChatAppReach.test.mjs` and
 `texChatDirectory.test.mjs`.
 
+
+**A picture's or a jobs page's address finds its chat in the gateway by id**
+(2026-11-22, part C). Those addresses name the chat by its object id in the
+texting Worker, so before that object can be deleted the gateway keeps an
+index, one `TEX_CHAT` object `byid:<id>` holding the chat's name, written when
+a chat here is opened or asked its home (the intake sweep asks every chat).
+The Worker's `/media` and `/threads` ask `TexTexts` `/texts/chat-by-id/` first
+and its own object only for an id not indexed yet. The id stays a locator:
+the chat still checks the address's token. Without the index, deleting the
+Worker's objects breaks every picture Tex sends and every jobs page link.
+Reverting it fails `apps/mcp/test/texChatById.test.mjs`.

@@ -31,6 +31,7 @@ import { NAME_KEY, PLACE_KEY, SENDER_ID_KEY, isAppChatName, placeAppChat, serveA
 import { NOTE_RUNS_PATH, serveNoteRuns } from "./texChat/noteRuns.js";
 import { serveAppSeenGet, serveAppSeenPost } from "./texChat/appSeen.js";
 import { isDirectoryName, serveDirectory } from "./texChat/directory.js";
+import { BY_ID_PATH, indexChat, isByIdName, serveById } from "./texChat/byId.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -56,6 +57,8 @@ export function texChatClass({ gateway, texts }) {
       const url = new URL(request.url);
       // A note's run log (`texChat/noteRuns.js`): its own object, named `noteruns:`, answered before any chat routing.
       if (url.pathname === NOTE_RUNS_PATH) return await serveNoteRuns(request, this.state.storage);
+      // A chat's index by the id its addresses carry (`texChat/byId.js`): its own object, named `byid:`.
+      if (url.pathname === BY_ID_PATH && isByIdName(request.headers.get(INBOX_NAME_HEADER))) return await serveById(request, this.state.storage);
       if (request.method === "POST" && url.pathname === "/arrive") return await this.arrive(request);
       // The app chat's calls (`texChat/appChat.js`): the gateway's `/tex/app-chat` route, and only for an app chat.
       if (request.method === "POST" && url.pathname === "/app/arrive") {
@@ -71,7 +74,12 @@ export function texChatClass({ gateway, texts }) {
       if (request.method === "GET" && url.pathname.startsWith("/app/file/")) return await serveAppFileById(this.state.storage, url.pathname.slice("/app/file/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
       // Staff moving one chat here before the rest (`packages/lab/gateway/labSandbox/intake.js`): its home, and the copy.
-      if (request.method === "GET" && url.pathname === "/home") return Response.json(await homeOf(this.state.storage));
+      if (request.method === "GET" && url.pathname === "/home") {
+        // The intake sweep asks every chat its home: a chat already here is indexed by its id then, opened or not.
+        const home = await homeOf(this.state.storage);
+        if (home.home === "gateway") await indexChat(this.env, this.state.storage, await this.state.storage.get(NAME_KEY), await this.state.storage.get(SENDER_ID_KEY));
+        return Response.json(home);
+      }
       if (request.method === "POST" && url.pathname === "/move-in") return await this.moveIn(request);
       return Response.json({ error: "unknown_route" }, { status: 404 });
     }
@@ -172,6 +180,7 @@ export function texChatClass({ gateway, texts }) {
         },
       };
       this.inner = new SenderInbox(chatState(this.state, senderId), await chatEnv(this.env, this.state, this.name, senderId, { gateway, texts, own }));
+      await indexChat(this.env, storage, this.name, senderId);
       return this.inner;
     }
   };
