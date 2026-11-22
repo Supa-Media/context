@@ -81,7 +81,9 @@ describe("a 1:1 object no known name matches", () => {
   it("works out its own name from the chat it last answered, and keeps it only when its id is the object's", async () => {
     const chat = (chatId: unknown) => ({ get: async <T,>(key: string) => (key === "chat" ? ({ chatId, at: 1 } as T) : undefined) });
     expect(await selfNames(chat("sendblue:+15555550199:+15555550100"))).toEqual(["+15555550199", "+15555550100"]);
-    expect(await selfNames(chat("whapi:15555550100@s.whatsapp.net"))).toEqual(["+15555550100"]);
+    expect(await selfNames(chat("whapi:15555550100@s.whatsapp.net"))).toEqual(["+15555550100", "15555550100@s.whatsapp.net"]);
+    expect(await selfNames(chat("sendblue:+15555550199:someone@example.invalid"))).toEqual(["+15555550199", "someone@example.invalid"]);
+    expect(await selfNames(chat("sendblue:../x:a b"))).toEqual([]);
     expect(await selfNames(chat(7))).toEqual([]);
     expect(await selfNames({ get: async () => undefined })).toEqual([]);
     const idOf = (name: string) => (name === "+15555550100" ? "a".repeat(64) : "f".repeat(64));
