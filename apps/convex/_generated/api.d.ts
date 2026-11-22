@@ -34,7 +34,6 @@ import type * as functions_texHistoryShape from "../functions/texHistoryShape.js
 import type * as functions_texLedgerExport from "../functions/texLedgerExport.js";
 import type * as functions_texGroupLogShape from "../functions/texGroupLogShape.js";
 import type * as functions_texReviewScoresRebuild from "../functions/texReviewScoresRebuild.js";
-import type * as functions_texTriageWatch from "../functions/texTriageWatch.js";
 import type * as functions_texTurnTiming from "../functions/texTurnTiming.js";
 import type * as functions_texToolFailures from "../functions/texToolFailures.js";
 import type * as functions_texLab from "../functions/texLab.js";
@@ -335,7 +334,6 @@ declare const fullApi: ApiFromModules<{
   "functions/texHistoryShape": typeof functions_texHistoryShape;
   "functions/texLedgerExport": typeof functions_texLedgerExport;
   "functions/texReviewScoresRebuild": typeof functions_texReviewScoresRebuild;
-  "functions/texTriageWatch": typeof functions_texTriageWatch;
   "functions/texTurnTiming": typeof functions_texTurnTiming;
   "functions/texToolFailures": typeof functions_texToolFailures;
   "functions/texLab": typeof functions_texLab;
