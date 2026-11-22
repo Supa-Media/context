@@ -40,6 +40,8 @@ name is refused exactly like a name nobody holds (`apps/mcp/test/usernameAliases
 - Deleting the old row on change releases the name: `apps/convex/__tests__/usernameChange.test.ts` fails four ways.
 - Dropping the limit: the same file's "twice in a lifetime" test fails.
 - Matching only the current handle in the gateway: `usernameAliases.test.mjs` fails.
+- Dropping the aliases from the app's workspace list, or the console's redirect from an old handle: the old-name
+  test in `usernameChange.test.ts` and "a link under a former handle" in `apps/mobile/__tests__/teamLink.test.ts` fail.
 
 Shared workspaces cannot be renamed yet; the same code would serve them, owner only, if that is ever wanted.
 Tex cannot change a username by text; its capability list names the app path.

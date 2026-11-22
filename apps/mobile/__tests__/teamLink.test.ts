@@ -36,6 +36,7 @@ import {
   routeForPath,
   splitNoteAnchor,
 } from "../features/console/nav";
+import { formerHandleRedirect } from "../features/console/formerHandles";
 
 const CONTEXTS = [{ id: "w1", slug: "seyi" }];
 
@@ -245,3 +246,32 @@ describe("somebody who was invited and has not accepted", () => {
   link" in `preview.test.ts`, beside the nine-variant byte-identity set that
   still governs every console URL without a linked note.
 */
+
+/**
+ * A username keeps its old names (docs/decisions/identity-and-access/username-changes.md):
+ * a link written under one lands on the same note under the new handle, never on the landing.
+ */
+describe("a link under a former handle", () => {
+  test("is sent to the same note under the current one", () => {
+    const redirect = formerHandleRedirect({
+      route: routeForPath(noteHref("old-name", "1-projects/plan.md")),
+      contexts: [{ slug: "new-name", aliases: ["old-name"] }],
+      query: { slug: "@old-name", note: "1-projects/plan.md" },
+    });
+    expect(redirect).toEqual({ action: "redirect", href: noteHref("new-name", "1-projects/plan.md") });
+  });
+
+  test("someone else's former handle is still a dead link", () => {
+    const route = routeForPath(noteHref("old-name", "a.md"));
+    expect(formerHandleRedirect({ route, contexts: [{ slug: "mine" }] })).toBeNull();
+    expect(resolveContextRoute({ route, contexts: [{ id: "w1", slug: "mine" }], selectedContextId: "w1", loading: false })).toEqual({
+      action: "redirect",
+      href: "/console",
+    });
+  });
+
+  test("a current handle is never redirected, even if it was someone's former one", () => {
+    const route = routeForPath(noteHref("shared", "a.md"));
+    expect(formerHandleRedirect({ route, contexts: [{ slug: "shared" }, { slug: "other", aliases: ["shared"] }] })).toBeNull();
+  });
+});

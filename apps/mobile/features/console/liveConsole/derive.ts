@@ -75,6 +75,7 @@ export function consoleContextsFrom(
   return (workspaces ?? []).map((workspace) => ({
     id: workspace.workspaceId,
     slug: workspace.slug,
+    ...(workspace.aliases === undefined ? {} : { aliases: workspace.aliases }),
     displayName: workspace.displayName,
     role: workspace.role,
     kind: workspace.kind,
