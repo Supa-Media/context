@@ -1,0 +1,15 @@
+// The emulators Worker. A preview deploys it as context-emulators-pr<N>
+// (`--name`); there is no staging or production copy, and there must never be.
+{
+  "name": "context-emulators",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  // See src/fs-shim.mjs.
+  "alias": { "fs": "./src/fs-shim.mjs" },
+  // emulate locates its fonts from import.meta.url, which a bundled Worker lacks.
+  "define": { "import.meta.url": "\"file:///emulators/index.js\"" },
+  "durable_objects": { "bindings": [{ "name": "EMULATORS", "class_name": "Emulators" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Emulators"] }]
+}

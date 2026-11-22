@@ -359,6 +359,33 @@ jobs:
   # same pull request that created the package. A relative import into a
   # sibling package passed the older "relative only" rule; three self-test cases
   # now say it does not.
+  emulators:
+    name: Test Emulators
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Only the emulators and what they install (packages/emulators/README.md).
+      - name: Install
+        run: pnpm install --filter "@context/emulators..." --frozen-lockfile
+
+      - name: Run test suite
+        working-directory: packages/emulators
+        run: pnpm test
+
+      # The preview Worker: emulate is written for Node, so prove it still bundles for Workers.
+      - name: The Worker bundles
+        working-directory: packages/emulators
+        run: pnpm bundle
+
   desktop-bridge:
     name: Test Desktop Bridge
     runs-on: ubuntu-latest
