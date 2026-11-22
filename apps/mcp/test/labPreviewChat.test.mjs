@@ -9,6 +9,8 @@
 //   route.js `open` ignoring `code`                                              "opens on the preview" fails
 //   preview.js forwardToPreview without asOurs                                     "the preview's id is put back" fails
 //   bridge.js call timeout keeping a call nobody took                              "dropped, never run twice" fails
+//   bridge.js calling setTimeout as its own method again                           "... never called as its methods" fails
+//   lab-bridge.mjs stopping at the first 5xx                                       "a passing 500 is tried again" fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -248,7 +250,7 @@ test("a bad code is refused before anything starts", async () => {
 test("the carry loop stops on a wrong pull request, a refusal, or a reset", async () => {
   const run = async (answers) => {
     const queue = [...answers];
-    return await carry({ pr: 12, prod: async () => queue.shift() ?? { status: 200, answer: { stop: true } }, preview: async () => ({ status: 200, answer: {} }), log: () => {} });
+    return await carry({ pr: 12, prod: async () => queue.shift() ?? { status: 200, answer: { stop: true } }, preview: async () => ({ status: 200, answer: {} }), log: () => {}, sleep: async () => {} });
   };
   const before = process.exitCode;
   assert.equal(await run([{ status: 200, answer: { pr: 13, calls: [] } }]), 0);
@@ -256,4 +258,25 @@ test("the carry loop stops on a wrong pull request, a refusal, or a reset", asyn
   process.exitCode = before;
   assert.equal(await run([{ status: 200, answer: { refused: "another run holds this test chat" } }]), 0);
   assert.equal(await run([{ status: 200, answer: { pr: 12, calls: [{ n: 1, body: { op: "get" } }] } }, { status: 200, answer: { stop: true } }]), 1);
+  // A passing 500 (production's first try, 2026-11-22) is tried again; three in a row stop the run.
+  assert.equal(await run([{ status: 500 }, { status: 200, answer: { pr: 12, calls: [{ n: 1, body: { op: "get" } }] } }]), 1, "a passing 500 is tried again");
+  assert.equal(await run([{ status: 500 }, { status: 500 }, { status: 500 }, { status: 500 }, { status: 200, answer: { pr: 12, calls: [{ n: 1, body: {} }] } }]), 0);
+});
+
+test("the mailbox's own timers are never called as its methods (Workers: Illegal invocation)", async () => {
+  const strict = { setTimeout: globalThis.setTimeout };
+  const original = globalThis.setTimeout;
+  // Stands in for the Workers runtime, which refuses a timer called with another object as `this`.
+  globalThis.setTimeout = function (f, ms) {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    return strict.setTimeout.call(globalThis, f, ms);
+  };
+  try {
+    const kv = new Map();
+    const box = new BridgeMailbox({ storage: { get: async (k) => kv.get(k), put: async (k, v) => void kv.set(k, v) } });
+    await box.serve("bridge.open", { pr: 12, userId: "u_alice", sandboxId: "s1" });
+    assert.equal((await box.serve("bridge.call", { body: { op: "get" }, waitMs: 0 })).timeout, true);
+  } finally {
+    globalThis.setTimeout = original;
+  }
 });
