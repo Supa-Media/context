@@ -196,7 +196,11 @@ test("the data center a request ran in rides on every point, and only a data cen
     const mcp = mcpEntry({ MCP_ENTRY });
     mcp.colo = given;
     mcp.done(new Response("{}"));
-    assert.deepEqual(MCP_ENTRY.points.map((p) => p.blobs[5]), [kept], String(given));
+    // A runner that stalls past UNCOVERED_FLOOR_MS between start and done adds an "uncovered" point (`mcpEntryPoint.js`):
+    // it carries the same data center, so only the request's own point is counted (CI, 2026-11-22: ['IAD', 'IAD']).
+    const own = MCP_ENTRY.points.filter((p) => p.blobs[2] !== "uncovered");
+    assert.deepEqual(own.map((p) => p.blobs[5]), [kept], String(given));
+    assert.ok(MCP_ENTRY.points.every((p) => p.blobs[5] === kept), String(given));
   }
 });
 
