@@ -41,9 +41,10 @@ breaking one, stop and say so rather than working around it.
    The control plane **never** holds a note's body. Leaving is **Download as folders**: a complete, decrypted copy with
    real names, free on every plan, still available after cancelling, never
    gated, degraded or behind a paywall — gate it and this is a different
-   product. Bring-your-own bucket is retired: nobody new connects one, and a
-   workspace on one gets its full export before it moves (decided by the
-   owner, 2026-11-01). Cancelling puts a context back on the free plan, still
+   product. Bring-your-own bucket is retired: nobody new connects one (decided by the
+   owner, 2026-11-01); a workspace already on one stays supported, on its
+   workspace object like any other, its bucket kept whole as the copy every
+   save is written behind to (decided by the owner, 2026-11-22). Cancelling puts a context back on the free plan, still
    writable and exportable; it never deletes (decided by the owner,
    2026-09-29). Credentials never live in Markdown, in an object or bucket, in
    logs, in URLs, or on a device: encrypted at rest, decrypted only in the

@@ -1,7 +1,8 @@
 /**
  * The one next step that moves a workspace onto its workspace object, from what its record says (decided by the
- * owner, 2026-11-20: "move everything to a durable object, unless they are bringing their own storage";
- * `docs/decisions/storage-and-credentials/workspace-objects.md`, "Every workspace is moved on its own").
+ * owner, 2026-11-20: "move everything to a durable object"; a bucket of the workspace's own too since 2026-11-22,
+ * kept as the copy every save is written behind to; `docs/decisions/storage-and-credentials/workspace-objects.md`,
+ * "Every workspace is moved on its own").
  *
  * Each switch goes the way the hand-run workflows took the first workspaces: armed (`dual`, every save mirrored),
  * copied whole, compared, and only a clean comparison flips it. Nothing here forces a switch, so a step that cannot
@@ -30,7 +31,7 @@ export interface MoveFacts {
 }
 
 export type MoveStep =
-  | { step: "skip"; why: "gone" | "no_storage" | "own_storage" }
+  | { step: "skip"; why: "gone" | "no_storage" }
   | { step: "notes_arm" }
   | { step: "notes_copy_check" }
   | { step: "access_arm" }
@@ -45,10 +46,10 @@ export function accessHomes(facts: MoveFacts): AccessHome[] {
 
 export function nextMoveStep(facts: MoveFacts): MoveStep {
   if (!facts.exists) return { step: "skip", why: "gone" };
-  // A workspace on a bucket of its own stays there (owner, 2026-11-20). One with no storage has nothing to move yet:
-  // it is moved once its bucket is made (`managedProvisioningFns/complete.ts`).
+  // One with no storage has nothing to move yet: it is moved once its bucket is made (`managedProvisioningFns/
+  // complete.ts`). A bucket of the workspace's own moves like a managed one (owner, 2026-11-22): the object answers
+  // reads and searches, and the owner's bucket stays whole as the copy every save is written behind to.
   if (facts.storage === "none") return { step: "skip", why: "no_storage" };
-  if (facts.storage === "own") return { step: "skip", why: "own_storage" };
   if (facts.notes === "bucket") return { step: "notes_arm" };
   if (facts.notes === "dual") return { step: "notes_copy_check" };
   const access = accessHomes(facts);
