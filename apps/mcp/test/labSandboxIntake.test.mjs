@@ -10,6 +10,7 @@
 //   intake.js log line carrying `name`                              "no phone or group id ..." fails
 //   intake.js `sweep` counting a refused move as moved              "a sweep moves every chat ..." fails
 //   intake.js `workerCensus` dropping the 50-id cap (2026-11-22)      "a census of the Worker's objects ..." fails
+//   intake.js `workerCensus` answering the matched name (2026-11-22)  "a census with match ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -193,6 +194,36 @@ test("a census of the Worker's objects by id is staff only, at most 50 well-form
     assert.deepEqual(asked, [2]);
     delete w.env.TEXTING.census;
     assert.equal((await w.call(DEV, { op: "intake", workerIds: [MINE] })).status, 501);
+  } finally {
+    w.restore();
+  }
+});
+
+test("a census with match says which kind of chat each object still here is and whether the gateway holds it, never its name", async () => {
+  const w = world();
+  w.homes.set(`chat:${PHONE}`, { home: "gateway" });
+  let names = [];
+  w.env.TEXTING.census = async (call) => {
+    names = call.names;
+    const at = (name) => call.names.indexOf(name);
+    return {
+      looked: 4, moved: 0, purged: 0, empty: 0, here: { chat: 3, job: 0, directory: 1, "group-moves": 0 }, failed: 0,
+      hereIds: ["1".repeat(64), "2".repeat(64), "3".repeat(64), "4".repeat(64)],
+      hereObjects: [
+        { id: "1".repeat(64), kind: "chat", keys: 9, shape: ["history"], named: at(PHONE) },
+        { id: "2".repeat(64), kind: "chat", keys: 4, shape: ["history"], named: at("+15555550102") },
+        { id: "3".repeat(64), kind: "directory", keys: 1, shape: ["chatwhere"], named: at(`group-key:${MINE}`) },
+        { id: "4".repeat(64), kind: "chat", keys: 2, shape: ["gstate"] },
+      ],
+    };
+  };
+  try {
+    const answered = await w.call(DEV, { op: "intake", workerIds: ["1".repeat(64)], match: true });
+    assert.equal(answered.status, 200);
+    assert.ok(names.includes(PHONE) && names.includes(`group-key:${MINE}`) && names.includes(`sendblue-group:${GROUP_ID}`), "the Worker is handed every name Tex can work out");
+    assert.deepEqual(answered.body.hereObjects.map(({ id, match, inGateway }) => [id[0], match, inGateway]), [["1", "1:1", true], ["2", "1:1", false], ["3", "directory", true], ["4", null, undefined]]);
+    const text = JSON.stringify(answered.body) + w.logs.join("\n");
+    for (const secret of [PHONE, "+15555550102", GROUP_ID, MINE]) assert.ok(!text.includes(secret), "no name in the answer or the logs");
   } finally {
     w.restore();
   }

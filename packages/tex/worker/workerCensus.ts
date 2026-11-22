@@ -18,7 +18,23 @@ const CENSUS_KEYS = 1000;
 
 export type CensusState = "moved" | "purged" | "empty" | "here";
 export type CensusKind = "chat" | "job" | "directory" | "group-moves";
-export type ObjectCensus = { state: CensusState; keys: number; kind?: CensusKind };
+export type ObjectCensus = { state: CensusState; keys: number; kind?: CensusKind; shape?: string[] };
+
+/**
+ * A key's name with anything that could name a person or a chat masked: a run of 3+ digits (a phone), a run of 8+ hex
+ * (an id), any run of 16+ word characters, and anything around an `@`, each `#`; cut at 40 characters.
+ */
+export function maskKey(key: string): string {
+  return key
+    .replace(/\S*@\S*/g, "#@#")
+    .replace(/\+?\d{3,}/g, "#")
+    .replace(/[0-9a-f-]{8,}/gi, "#")
+    .replace(/[A-Za-z0-9_]{16,}/g, "#")
+    .slice(0, 40);
+}
+
+/** The masked key names an object still here holds, at most this many distinct, sorted. */
+const SHAPE_NAMES = 30;
 
 type ListStorage = { get<T = unknown>(key: string): Promise<T | undefined>; list(options?: { limit?: number }): Promise<Map<string, unknown>> };
 
@@ -36,19 +52,28 @@ export async function censusOf(storage: ListStorage): Promise<ObjectCensus> {
   if (place?.movedTo !== undefined) return { state: place.purgedAt === undefined ? "moved" : "purged", keys: 0 };
   const keys = [...(await storage.list({ limit: CENSUS_KEYS })).keys()].filter((key) => key !== PLACE_KEY);
   if (keys.length === 0) return { state: "empty", keys: 0 };
-  return { state: "here", keys: keys.length, kind: kindOf(keys) };
+  const shape = [...new Set(keys.map(maskKey))].sort().slice(0, SHAPE_NAMES);
+  return { state: "here", keys: keys.length, kind: kindOf(keys), shape };
 }
 
-/** Every `here` object's id comes back, so it can be looked at; ids name no person. */
-export type CensusCounts = { looked: number; moved: number; purged: number; empty: number; here: Record<CensusKind, number>; hereIds: string[]; failed: number };
+/**
+ * Every `here` object comes back by id with its kind, key count and masked key names, and `named`: the index of the
+ * caller's candidate name it was made from, when one was (`census`'s `nameAt`), so the caller, who holds the names,
+ * can tell which chat it is without a name ever crossing back. Ids name no person.
+ */
+export type HereObject = { id: string; kind: CensusKind; keys: number; shape: string[]; named?: number };
+export type CensusCounts = { looked: number; moved: number; purged: number; empty: number; here: Record<CensusKind, number>; hereIds: string[]; hereObjects: HereObject[]; failed: number };
 
 const OBJECT_ID = /^[0-9a-f]{64}$/;
 export const CENSUS_BATCH = 50;
 
-/** Asks each object by its id (`objectById`), at most `CENSUS_BATCH`; a malformed id or one that fails is counted failed. */
-export async function census(ask: (id: string) => Promise<ObjectCensus | null>, ids: unknown): Promise<CensusCounts> {
+/**
+ * Asks each object by its id (`objectById`), at most `CENSUS_BATCH`; a malformed id or one that fails is counted failed.
+ * `nameAt` answers the index of the candidate name an id was made from, if any.
+ */
+export async function census(ask: (id: string) => Promise<ObjectCensus | null>, ids: unknown, nameAt: (id: string) => number | undefined = () => undefined): Promise<CensusCounts> {
   if (!Array.isArray(ids) || ids.length > CENSUS_BATCH) throw new TypeError(`a census names at most ${CENSUS_BATCH} object ids`);
-  const counts: CensusCounts = { looked: 0, moved: 0, purged: 0, empty: 0, here: { chat: 0, job: 0, directory: 0, "group-moves": 0 }, hereIds: [], failed: 0 };
+  const counts: CensusCounts = { looked: 0, moved: 0, purged: 0, empty: 0, here: { chat: 0, job: 0, directory: 0, "group-moves": 0 }, hereIds: [], hereObjects: [], failed: 0 };
   for (const id of ids) {
     const answer = typeof id === "string" && OBJECT_ID.test(id) ? await ask(id).catch(() => null) : null;
     if (answer === null) {
@@ -57,10 +82,28 @@ export async function census(ask: (id: string) => Promise<ObjectCensus | null>, 
     }
     counts.looked += 1;
     if (answer.state === "here") {
-      counts.here[answer.kind ?? "chat"] += 1;
+      const kind = answer.kind ?? "chat";
+      counts.here[kind] += 1;
       counts.hereIds.push(id as string);
+      const named = nameAt(id as string);
+      counts.hereObjects.push({ id: id as string, kind, keys: answer.keys, shape: answer.shape ?? [], ...(named === undefined ? {} : { named }) });
     } else counts[answer.state] += 1;
   }
   console.log(JSON.stringify({ event: "worker_census", looked: counts.looked, moved: counts.moved, purged: counts.purged, empty: counts.empty, ...counts.here, failed: counts.failed }));
   return counts;
+}
+
+/** At most this many candidate names a census call may bring, each at most `NAME_CHARS`. */
+export const CENSUS_NAMES = 2000;
+const NAME_CHARS = 300;
+
+/** The candidate names' object ids, by `idOf` (the namespace's `idFromName`): an id to its name's index. */
+export function namesById(names: unknown, idOf: (name: string) => string): Map<string, number> {
+  const byId = new Map<string, number>();
+  if (!Array.isArray(names)) return byId;
+  if (names.length > CENSUS_NAMES) throw new TypeError(`a census brings at most ${CENSUS_NAMES} names`);
+  names.forEach((name, index) => {
+    if (typeof name === "string" && name !== "" && name.length <= NAME_CHARS) byId.set(idOf(name), index);
+  });
+  return byId;
 }
