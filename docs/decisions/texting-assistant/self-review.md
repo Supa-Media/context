@@ -165,10 +165,10 @@ mattered, and the owner asked for each gap fixed ("can you fix the gaps"):
   conversation where the same ask worked); the dashboard shows "Not retested
   yet" on a shipped theme until it does, and the triage reader marks a theme
   `fixed` only once `retest:` is written.
-- **Nobody noticed a stopped reader.** The reader is an agent, and agents
-  stop. `functions/texTriageWatch.ts` counts, every hour, the reviews still
-  `new` filed between three hours and three days ago (reviews only: a bug
-  report stays `open` while it waits on a fix, so counting bugs mailed a
-  false stall for a 24 Oct bug the first hour it ran), and
-  mails the team inbox (`SIGNUP_ALERTS_EMAIL`) a count and a time, at most
-  every six hours while it stays stuck; no inbox, no mail.
+- **Nobody noticed a stopped reader.** From 2026-10-26 a Convex cron
+  (`functions/texTriageWatch.ts`) mailed the team inbox when reviews sat
+  `new` for three hours. The owner stopped the hourly reader on 2026-11-14
+  and retired the mail on 2026-11-22: it only repeated a known stop every few
+  hours, and Tex's check-ins began relaying it as news. Reviews still file
+  as `new`; nobody reads them on a schedule until the owner restarts
+  triage, and a restart brings back a watch with it.
