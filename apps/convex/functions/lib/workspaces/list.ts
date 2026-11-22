@@ -15,6 +15,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import { pinnedContextWorkspace } from "../pinnedContext";
 import { MAX_WORKSPACES_RETURNED } from "./constants";
 import { workspaceSummary } from "./validators";
+import { aliasesField } from "./aliases";
 
 type WorkspaceSummaryRow = Infer<typeof workspaceSummary>;
 
@@ -36,6 +37,7 @@ export async function listMyWorkspacesHandler(
     summaries.push({
       workspaceId: workspace._id,
       slug: workspace.slug,
+      ...aliasesField(workspace),
       displayName: workspace.displayName,
       kind: workspace.kind,
       structureTemplate: workspace.structureTemplate,

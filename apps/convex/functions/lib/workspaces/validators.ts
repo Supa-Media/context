@@ -27,6 +27,8 @@ export const workspaceIconValidator = v.union(
 export const workspaceSummary = v.object({
   workspaceId: v.id("workspaces"),
   slug: v.string(),
+  /** The workspace's former handles, which still open it (a username keeps its old names). */
+  aliases: v.optional(v.array(v.string())),
   displayName: v.string(),
   kind: v.string(),
   structureTemplate: v.string(),

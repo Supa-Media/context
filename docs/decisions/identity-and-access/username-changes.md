@@ -40,6 +40,15 @@ name is refused exactly like a name nobody holds (`apps/mcp/test/usernameAliases
 - Deleting the old row on change releases the name: `apps/convex/__tests__/usernameChange.test.ts` fails four ways.
 - Dropping the limit: the same file's "twice in a lifetime" test fails.
 - Matching only the current handle in the gateway: `usernameAliases.test.mjs` fails.
+- Dropping the aliases from the app's workspace list, or the console's redirect from an old handle: the old-name
+  test in `usernameChange.test.ts` and "a link under a former handle" in `apps/mobile/__tests__/teamLink.test.ts` fail.
 
 Shared workspaces cannot be renamed yet; the same code would serve them, owner only, if that is ever wanted.
 Tex cannot change a username by text; its capability list names the app path.
+
+## Proving it end to end on a preview
+
+An agent signs in to a pull request's preview as a persona (Actions → Preview agent sign-in), opens Settings →
+Profile → Username → Change, and presses Send on "Check it's you". The same workflow with `step: email-code` hands it
+the waiting code ([preview-sandbox](../../preview-sandbox.md)). After the change, the new handle opens the
+workspace and the old one still does: through the app and through MCP with `context: "@old"`.
