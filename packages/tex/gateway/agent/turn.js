@@ -66,7 +66,7 @@ import { toolsShownOf, traceNames, wroteOf } from "./turnLog.js";
 import { TAPBACK_TOOL } from "./tapbackEnding.js";
 import { START_JOB_TOOL } from "./backgroundTool.js";
 import { keptTools, resumedRounds, roundsKeeper } from "./turnResume.js";
-import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingJudged, sayNothingLocal, sayNothingOnce, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
+import { SAID_NOTHING, SAY_NOTHING_TOOL, sayNothingJudged, sayNothingLocal, sayNothingRefused, typedCallNotice, typedCallOf, withSayNothing } from "./sayNothing.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 export { toolResultImages, toolResultText } from "./toolResults.js";
@@ -277,7 +277,6 @@ export async function runTurn(options) {
     answerCheck = null, // reads a final answer and the turn's messages, and may send one more round (`claimCheck.js`, `replyJudge.js`)
     endsTurn = null, // `(name, result) => string|null`: a call that settles the turn, answered with its line at once (`background.js`)
     sayNothing = false, mustAnswer = false, // offers `say_nothing`: a call ends the turn with nothing texted, or with `mustAnswer` (a literal @Tex tag) is refused (`sayNothing.js`)
-    sayNothingNotice = null, // when set, the first say_nothing is refused with this notice and the next one stands (`checkInSpeak.js`)
     sayNothingJudge = null, // `(why) => Promise<{ notice } | null>`: the first say_nothing asks it (a check-in's Quiet check, `graph/nodes/quietCheck.js`)
     scheduled = false, // a routine's run or a check-in, nobody waiting on it: its last steps end quiet, and its last answer is still reviewed (`lastRound.js`)
     // `() => boolean`: whether the draft `answerCheck` last sent back said the text is not for them (`replyJudge.js` `silences`). Only then does a scheduled run's last step end quiet; null keeps silence for any send-back.
@@ -332,7 +331,7 @@ export async function runTurn(options) {
     only the person who asked, on the channel their answer goes to anyway.
   */
   const silenceTool =
-    typeof sayNothingJudge === "function" ? sayNothingJudged(sayNothingJudge) : typeof sayNothingNotice === "string" && sayNothingNotice !== "" ? sayNothingOnce(sayNothingNotice) : sayNothingLocal;
+    typeof sayNothingJudge === "function" ? sayNothingJudged(sayNothingJudge) : sayNothingLocal;
   const [local, settles] = !sayNothing ? [localTools, endsTurn] : mustAnswer ? [[...localTools, sayNothingRefused], endsTurn] : [[...localTools, silenceTool], withSayNothing(endsTurn)]; // silence ends the turn like a started job; a turn that must answer is offered it the same (one tool list, cached) and refused (`sayNothing.js`)
   const tools = [
     ...(options.tools ?? []),
