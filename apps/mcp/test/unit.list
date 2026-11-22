@@ -742,6 +742,7 @@ test/heldEdit.test.mjs
 test/appChatAnswer.test.mjs
 test/texChatAppReach.test.mjs
 test/texChatDirectory.test.mjs
+test/texChatById.test.mjs
 test/noteRunLab.test.mjs
 test/searchConfig.test.mjs
 test/searchRerank.test.mjs

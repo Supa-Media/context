@@ -54,7 +54,7 @@ import { parseWhapiWebhook, whapiGroupChanges, whapiGroupNames } from "./whapiIn
 import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
 import { inboxByName, objectById } from "./objectPlace";
-import { chatInGateway, chatNamespace } from "./gatewayChats";
+import { chatByIdInGateway, chatInGateway, chatNamespace } from "./gatewayChats";
 export { GroupTurnWorkflow } from "./groupTurnWorkflow";
 export { JobRunWorkflow } from "./jobWorkflow";
 
@@ -427,9 +427,11 @@ async function media(request: Request, env: Env, url: URL): Promise<Response> {
   if (request.method !== "GET") return new Response(null, { status: 405 });
   const match = /^\/media\/([0-9a-f]{64})\/([0-9a-f]{64})\.[a-z]{3,4}$/.exec(url.pathname);
   if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
-  const stub = objectById(env.SENDER_INBOX, match[1]);
-  if (stub === null) return new Response(null, { status: 404 });
-  return stub.fetch(`https://inbox/media/${match[2]}`);
+  return await chatByIdInGateway(env, match[1], `/media/${match[2]}`, async () => {
+    const stub = objectById(env.SENDER_INBOX, match[1]);
+    if (stub === null) return new Response(null, { status: 404 });
+    return stub.fetch(`https://inbox/media/${match[2]}`);
+  });
 }
 
 /**
@@ -441,9 +443,11 @@ async function threads(request: Request, env: Env, url: URL): Promise<Response> 
   if (request.method !== "GET") return new Response(null, { status: 405 });
   const match = /^\/threads\/([0-9a-f]{64})\/([0-9a-f]{64})$/.exec(url.pathname);
   if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
-  const stub = objectById(env.SENDER_INBOX, match[1]);
-  if (stub === null) return new Response(null, { status: 404 });
-  return stub.fetch(`https://inbox/threads/${match[2]}`);
+  return await chatByIdInGateway(env, match[1], `/threads/${match[2]}`, async () => {
+    const stub = objectById(env.SENDER_INBOX, match[1]);
+    if (stub === null) return new Response(null, { status: 404 });
+    return stub.fetch(`https://inbox/threads/${match[2]}`);
+  });
 }
 
 /**

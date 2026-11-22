@@ -5,7 +5,7 @@
  * binding is bound fails "never the Worker's object".
  */
 import { describe, expect, it } from "vitest";
-import { chatInGateway, chatNamespace } from "./gatewayChats";
+import { chatByIdInGateway, chatInGateway, chatNamespace } from "./gatewayChats";
 import { inboxByName, objectByName } from "./objectPlace";
 import { textPhone } from "./routines";
 import { arrivedAs, clearGroupMoveCache } from "./groupMoves";
@@ -96,5 +96,23 @@ describe("chatNamespace", () => {
     await arrivedAs(chatNamespace({ SENDER_INBOX: namespace(worker), GATEWAY_TEXTS }), { photonGroupId: "g", photonLine: "", from: "", participants: [] });
     expect(seen.map((call) => call.name)).toEqual(["+15555550101", "group-moves"]);
     expect(worker).toEqual([]);
+  });
+});
+
+describe("chatByIdInGateway", () => {
+  const ID = "c".repeat(64);
+  it("asks the gateway's index first, and the Worker's object only when the gateway has no answer", async () => {
+    const urls: string[] = [];
+    let status = 200;
+    const GATEWAY_TEXTS = { fetch: async (url: string) => (urls.push(url), new Response("from gateway", { status })) };
+    const worker = async () => new Response("from worker");
+    const env = { SENDER_INBOX: namespace([]), GATEWAY_TEXTS };
+    expect(await (await chatByIdInGateway(env, ID, "/media/tok", worker)).text()).toBe("from gateway");
+    expect(urls).toEqual([`https://gateway/texts/chat-by-id/${ID}/media/tok`]);
+    status = 404;
+    expect(await (await chatByIdInGateway(env, ID, "/threads/tok", worker)).text()).toBe("from worker");
+    const down = { SENDER_INBOX: namespace([]), GATEWAY_TEXTS: { fetch: async () => Promise.reject(new Error("down")) } };
+    expect(await (await chatByIdInGateway(down, ID, "/media/tok", worker)).text()).toBe("from worker");
+    expect(await (await chatByIdInGateway({ SENDER_INBOX: namespace([]) }, ID, "/media/tok", worker)).text()).toBe("from worker");
   });
 });
