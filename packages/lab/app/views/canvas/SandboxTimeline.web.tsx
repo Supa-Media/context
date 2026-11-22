@@ -59,7 +59,7 @@ function useRunTexts(): Array<{ value: string; label: string }> {
 function kindOf(r: PlayRun) {
   if (r.of) return <span className="k of"> · {stepsWord(stepCount(r))} that led to it{r.prod ? ", ran in prod" : ""}</span>;
   if (r.prod) return <span className="k prod"> · ran in prod, {ranWhen(r.prod.at)}</span>;
-  return <span className="k"> · sandbox</span>;
+  return <span className="k"> · test chat</span>;
 }
 
 export function SandboxTimeline() {

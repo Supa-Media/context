@@ -4,7 +4,7 @@
 
 /**
  * The Lab live sandbox's round-3 pieces against the approved mockup (https://claude.ai/artifact/XtEn67XPWMTFVUBYanYLG5):
- * the "N sandbox writes" menu and the viewer each write opens in (a page read back with op `page`, an email's
+ * the "N test writes" menu and the viewer each write opens in (a page read back with op `page`, an email's
  * to/subject/body, a note's body), the composer's line number, "1 step" said once, and a run's finished steps drawn
  * as done (the blue outline) while the step still running keeps its ring and the test cases' colours stay as they were.
  *
@@ -83,9 +83,9 @@ describe("the sandbox writes", () => {
 
   test("the menu lists each write; one with nothing to open keeps its line", async () => {
     mount();
-    expect(q("#sbChanges")?.textContent).toBe("4 sandbox writes ▾");
+    expect(q("#sbChanges")?.textContent).toBe("4 test writes ▾");
     await click("#sbChanges");
-    expect(qa(".sbwrites .wr.open").map((b) => b.querySelector(".wt")!.textContent)).toEqual(["Trip planWorking page, gone on Reset", "DinnerSimulated, never sent", "PreferencesIn the sandbox copy of your notes"]);
+    expect(qa(".sbwrites .wr.open").map((b) => b.querySelector(".wt")!.textContent)).toEqual(["Trip planWorking page, gone on Reset", "DinnerSimulated, never sent", "PreferencesIn the test copy of your notes"]);
     expect(q(".sbwrites .wr:not(.open)")?.textContent).toBe("calendarnew event, held in the sandbox");
   });
 

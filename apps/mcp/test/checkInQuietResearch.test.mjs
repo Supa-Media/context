@@ -25,7 +25,9 @@ import { SAID_NOTHING, sayNothingJudged } from "../../../packages/tex/gateway/ag
 import { QUIET_CHECK_SYSTEM, judgeQuiet, quietQuestion, speakNotice } from "../../../packages/tex/gateway/agent/graph/nodes/quietCheck.js";
 import { NOTHING_FOUND, briefOf, researchSection } from "../../../packages/tex/gateway/agent/graph/nodes/checkinResearch.js";
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
-import { SHELF_NODES } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { SHELF_NODES, TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
+import { checkInLook, lookThroughGraph } from "../../../packages/tex/gateway/agent/heartbeat.js";
 
 const INVITE = {
   id: "ev1",
@@ -136,4 +138,24 @@ test("both steps have code and wait on the shelf until a draft wires them", () =
     assert.equal(typeof GATEWAY_NODES[id], "function", id);
     assert.ok(SHELF_NODES.includes(id), id);
   }
+});
+
+test("the check-in's look runs as the Front door node on the checkin -> fd wire, and logs as its own step", async () => {
+  const runs = [];
+  const nodes = Object.create(GATEWAY_NODES, { fd: { value: checkInLook } });
+  const graph = gatewayGraph({ config: TEX_CONFIG, nodes, log: (run) => runs.push(run) });
+  assert.ok(graph.wired("checkin", "fd"), "main wires the look");
+  const turn = await lookThroughGraph(graph, async () => ({ answer: "Your hearing is tomorrow.", model: "anthropic/claude-haiku-5-5", steps: [{}, {}], exhausted: false }));
+  assert.equal(turn.answer, "Your hearing is tomorrow.", "the look's turn comes back");
+  const fd = runs.find((run) => run.node === "fd");
+  assert.ok(fd, "the look logged as the fd step");
+  assert.equal(fd.via, "checkin:wait");
+  assert.deepEqual(fd.output, { pending: false, draftChars: 25, answeredBy: "anthropic/claude-haiku-5-5", steps: 2, exhausted: false });
+
+  const failing = gatewayGraph({ config: TEX_CONFIG, nodes, log: (run) => runs.push(run) });
+  const boom = new Error("provider down");
+  await assert.rejects(() => lookThroughGraph(failing, async () => { throw boom; }), (error) => error === boom, "a failed look throws its own error, as before");
+
+  const unwired = { wired: () => false };
+  assert.equal((await lookThroughGraph(unwired, async () => ({ answer: "direct" }))).answer, "direct", "a config without the wire looks as before");
 });

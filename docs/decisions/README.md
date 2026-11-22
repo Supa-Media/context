@@ -812,7 +812,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex's config is its graph: the wires are predefined, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md); [Tex runs its config's graph: the wires are config, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md)
 - [Developers work on Tex from their own MCP session, live in the Lab (2026-11-15)](./texting-assistant/tex-dev-tool.md); [The Lab is one package, `packages/lab`, and it depends on Tex, never the reverse (2026-11-20)](./texting-assistant/lab-package.md)
 - [The Lab's test chats run the real turn on a copy that changes nothing, over a simulated Photon line (2026-11-16)](./texting-assistant/lab-sandbox.md)
-- [The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a sandbox (2026-11-16)](./texting-assistant/lab-shared-chats.md)
+- [The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a test chat (2026-11-16)](./texting-assistant/lab-shared-chats.md)
 - [The Context app's own chat with Tex: its own chat, the same history (2026-11-19, draft)](./texting-assistant/app-chat.md)
 - [What a turn is told about itself comes from state, never a stock sentence (2026-11-17)](./texting-assistant/turn-told-from-state.md)
 - [An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)](./texting-assistant/edits-and-unsends.md)

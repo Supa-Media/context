@@ -23,7 +23,7 @@ export function PanelFoot({ card, ran }: { card: "run" | "set"; ran: boolean }) 
         </>
       ) : ran ? (
         <>
-          Logged step · {loggedFrom()} · <code>tex_dev sandbox steps</code>
+          Logged step · {loggedFrom()} · <code>tex_dev test_chat step</code>
         </>
       ) : (
         "Nothing logged for this text"

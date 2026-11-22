@@ -154,7 +154,7 @@ function cardStep(step, n) {
     ...(Number.isFinite(step.tokIn) ? { tokIn: step.tokIn } : {}),
     ...(Number.isFinite(step.tokOut) ? { tokOut: step.tokOut } : {}),
     ...(Number.isFinite(step.cost) ? { cost: step.cost } : {}),
-    ...(Array.isArray(step.calls) && step.calls.length ? { calls: step.calls.map((c) => `${c.tool}${c.kind === "write" ? " (sandbox write)" : ""}${Number.isFinite(c.ms) ? ` ${c.ms} ms` : ""}`) } : {}),
+    ...(Array.isArray(step.calls) && step.calls.length ? { calls: step.calls.map((c) => `${c.tool}${c.kind === "write" ? " (test write)" : ""}${Number.isFinite(c.ms) ? ` ${c.ms} ms` : ""}`) } : {}),
     ...(typeof step.think === "string" && step.think ? { thinking: short(step.think, 160) } : {}),
     out: short(out),
   };
@@ -322,7 +322,13 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     if (!row) return fail(`There is no row ${msgId} in this test chat.`);
     const read = await call({ op: "read", sandboxId, options: { since: row.at, kinds: ["reply"], limit: 20 } });
     if (read.error) return read;
-    const reply = (read.entries ?? []).filter((e) => typeof e.turn === "string").sort((a, b) => a.at - b.at)[0];
+    let reply = (read.entries ?? []).filter((e) => typeof e.turn === "string").sort((a, b) => a.at - b.at)[0];
+    // A run that sends no reply of a text's (a check-in, the nightly) still logs its steps under a turn of its own: the
+    // first entry after the row that carries one (found 2026-11-22: a test chat's check-in card could not be opened).
+    if (!reply) {
+      const any = await call({ op: "read", sandboxId, options: { since: row.at, limit: 50 } });
+      reply = any.error ? undefined : (any.entries ?? []).filter((e) => typeof e.turn === "string").sort((a, b) => a.at - b.at)[0];
+    }
     return reply ? { turn: reply.turn, at: reply.at } : fail(view.running?.msgId === msgId ? "This text is still running: wait for it first." : "This text ran no turn (a quiet reply has no steps of the turn's own); its card lists the chat object's steps.");
   }
 

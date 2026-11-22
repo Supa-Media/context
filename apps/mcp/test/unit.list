@@ -632,6 +632,7 @@ test/texLabOps.test.mjs
 test/texDevSnapshot.test.mjs
 test/texGraphPages.test.mjs
 test/texDevSandbox.test.mjs
+test/texDevTestChatNames.test.mjs
 test/texDevDraftFit.test.mjs
 test/texDev.test.mjs
 test/texDevAppChat.test.mjs

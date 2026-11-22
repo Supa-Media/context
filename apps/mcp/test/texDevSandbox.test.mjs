@@ -200,6 +200,21 @@ test("a step is read whole through the test chat's own history, with Replay's re
   assert.ok(r.calls.filter((c) => c.op === "read").length > 0 && !realLedgerRead, "read only through the test chat's own route");
 });
 
+test("a run that sends no text's reply (a check-in) is read through the first entry after it that carries a turn", async () => {
+  const entries = [
+    { id: "a0", at: T0 - 60_000, kind: "text", eid: "e0", from: { kind: "person" }, text: "thanks" },
+    { id: "n1", at: T0 + 4_000, kind: "step", step: "node", name: "checkin", turn: "ck1", ok: true, ms: 4_000, input: {}, output: { to: "look" } },
+    { id: "n2", at: T0 + 94_000, kind: "step", step: "node", name: "checkinResearch", turn: "ck1", ok: true, ms: 90_000, input: { counts: {} }, output: { findings: 1, brief: "- [today] a hearing" } },
+  ];
+  const r = fakeRoute({ entries, rows: [] });
+  const { sandbox } = actions(r, { ledgerOf: () => ({ read: async () => ({ entries: [] }) }) });
+  await sandbox({ op: "send", sandboxId: SB, text: "Run a check-in now" });
+  const one = await sandbox({ op: "step", sandboxId: SB, msgId: "t1", node: "checkinResearch" });
+  assert.equal(one.error, undefined, JSON.stringify(one));
+  assert.equal(one.turn, "ck1");
+  assert.deepEqual(Object.keys(one.io), ["checkinResearch"]);
+});
+
 test("again re-runs a text on a draft and answers both cards and the diff; try runs one text on several drafts", async () => {
   const r = fakeRoute({ polls: 0 });
   const { sandbox } = actions(r);
