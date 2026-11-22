@@ -80,7 +80,7 @@ export function researchSection(brief) {
 
 /**
  * @param {{ counts?: object }} input what the check-in found changed, by kind (logged).
- * `io.ctx.research`: { question, tools, callTool, web?, aboutMe?, identity?, localNow, providerOptions, observe?, grants? }.
+ * `io.ctx.research`: { question, tools, callTool, web?, aboutMe?, identity?, localNow, providerOptions, observe?, grants?, fixedTools? }.
  */
 export default async function checkinResearch(input, io) {
   const r = io?.ctx?.research;
@@ -104,6 +104,9 @@ export default async function checkinResearch(input, io) {
       localNow: r.localNow ?? null,
       observe: r.observe ?? null,
       scheduled: true,
+      // The 1:1's one tool list when the front door's is fixed (`sixToolsFixed.js`): research is a turn of the same chat,
+      // so it is shown the same list as the look and every text, and refused all but its reads (tool rule 1).
+      fixedTools: r.fixedTools ?? null,
       maxRounds: setup.rounds,
       toolBudgetMs: setup.ms,
     });

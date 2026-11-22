@@ -40,6 +40,7 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { groupsOf } from "@context/lab/app/data/graph";
 import { TexLab } from "@context/lab/app/TexLab.web";
 import { clone, edit, G, lab, MAIN, set } from "@context/lab/app/engine/state";
 import { CASE_CAP, emptySteps, fieldsOf, nodeArea } from "@context/lab/app/engine/cases";
@@ -136,7 +137,7 @@ describe("a step's own test cases", () => {
 });
 
 describe("a draft's change marks", () => {
-  const first = () => MAIN.graph.nodes.find((n) => !n.group && MAIN.graph.edges.some((e) => e.from === n.id))!;
+  const first = () => MAIN.graph.nodes.find((n) => !n.group && !groupsOf(MAIN.graph)[n.id] && MAIN.graph.edges.some((e) => e.from === n.id))!;
 
   test("a changed step is marked with what changed, and main's value is the from", () => {
     const id = first().id;
@@ -169,7 +170,7 @@ describe("a draft's change marks", () => {
   test("a new wire is green, Ghost draws main's version dashed, Off draws no marks, and Put back restores main's", () => {
     mount();
     const a = first();
-    const b = MAIN.graph.nodes.find((n) => n.id !== a.id && !n.group && !MAIN.graph.edges.some((e) => e.from === a.id && e.to === n.id))!;
+    const b = MAIN.graph.nodes.find((n) => n.id !== a.id && !n.group && !groupsOf(MAIN.graph)[n.id] && !MAIN.graph.edges.some((e) => e.from === a.id && e.to === n.id))!;
     act(() =>
       edit(() => {
         const n = G().nodes.find((x) => x.id === a.id)!;

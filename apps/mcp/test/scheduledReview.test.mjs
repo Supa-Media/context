@@ -242,14 +242,15 @@ test("a routine that only writes a note is never reviewed", async () => {
 });
 
 test("the reviewer reads a check-in's text too, under the texting setup's switch, and silence is still a call", async () => {
-  script.push(says("I looked at your notes this run and nothing needs a text, but I can't skip formally here."), sayNothing());
+  // The check-in's Research step runs first (wired from the check-in since 2026-11-22) and finds nothing here.
+  script.push(says("- nothing"), says("I looked at your notes this run and nothing needs a text, but I can't skip formally here."), sayNothing());
   reviewScript.push('{"kind":"scheduled","verdict":"send_back","problems":["not_for_them"],"feedback":"This is about your own run. Call send with action say_nothing."}');
   const response = await look();
   assert.equal(response.status, 200, response.text);
   const [review] = reviews();
   assert.ok(review, "the check-in's text was reviewed");
   assert.match(JSON.stringify(review.body.messages), /Nobody texted\. This is a scheduled check-in/);
-  const send = (turnCalls()[0].body.tools ?? []).find((tool) => tool.name === "send");
+  const send = (turnCalls()[1].body.tools ?? []).find((tool) => tool.name === "send");
   assert.match(JSON.stringify(send ?? {}), /say_nothing/, "a check-in is offered the call its prompt names");
   // Per turn, a check-in is shown only that; on the fixed list it is shown every 1:1's send and the rest are refused
   // (`sixToolsFixed.test.mjs` "its check-in is shown the same six and refused what it doesn't hold").

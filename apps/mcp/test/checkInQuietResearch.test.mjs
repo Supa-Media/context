@@ -133,11 +133,15 @@ test("the Research brief keeps finding lines only, and the look is told them", (
   assert.ok(briefOf(Array.from({ length: 200 }, (_, i) => `- [later] finding ${i} ${"x".repeat(40)}`).join("\n")).length <= 4_000);
 });
 
-test("both steps have code and wait on the shelf until a draft wires them", () => {
+test("both steps have code, are off the shelf and wired from the check-in (promoted 2026-11-22)", () => {
   for (const id of ["quietCheck", "checkinResearch"]) {
     assert.equal(typeof GATEWAY_NODES[id], "function", id);
-    assert.ok(SHELF_NODES.includes(id), id);
+    assert.ok(!SHELF_NODES.includes(id), id);
   }
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "checkin" && e.to === "quietCheck" && e.mode === "uses"));
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "checkin" && e.to === "checkinResearch" && e.mode === "uses"));
+  const research = TEX_CONFIG.nodes.find((n) => n.id === "checkinResearch");
+  assert.equal(research.model, "haiku-5-5", "Haiku only for Tex steps (Dev2, 2026-11-22)");
 });
 
 test("the check-in's look runs as the Front door node on the checkin -> fd wire, and logs as its own step", async () => {

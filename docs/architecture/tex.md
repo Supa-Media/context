@@ -35,7 +35,6 @@ pages.
 
 ```mermaid
 flowchart LR
-  n_checkin(["Check-in<br/>code<br/>graph/nodes/checkin.js · heartbeat.js"]):::start
   n_routine(["Routine runs<br/>code<br/>graph/nodes/routine.js · routine.js · runARoutine.js · finishARoutine.js"]):::start
   n_notify(["Send through Tex<br/>code<br/>graph/nodes/notify.js · tools/attention.js · attention.js"]):::start
   n_oldLine(["Old number intake<br/>code<br/>graph/nodes/oldLine.js · apps/agent oldLineStep.ts · oldLine.ts"]):::start
@@ -51,6 +50,11 @@ flowchart LR
   n_warm["Warm the cache<br/>code<br/>graph/nodes/warm.js · warmPrefix.js · textsWarm.js"]:::code
   n_connect["Connect notes<br/>Haiku 5.5 · effort low<br/>noteConnect.js · graph/nodes/connect.js"]:::model
   n_noteRun(["Tex in a note<br/>Haiku 5.5 · effort medium<br/>noteRun.js · graph/nodes/noteRun.js · noteRunRoute.js"]):::start
+  subgraph n_group_checkInLook["Check-in"]
+    n_checkin(["Check-in<br/>code<br/>graph/nodes/checkin.js · heartbeat.js"]):::start
+    n_quietCheck["Quiet check<br/>Haiku 5.5 · effort low<br/>graph/nodes/quietCheck.js"]:::model
+    n_checkinResearch["Research<br/>Haiku 5.5 · effort high<br/>graph/nodes/checkinResearch.js"]:::model
+  end
   subgraph n_group_intake["Intake"]
     n_text(["A text arrives<br/>code<br/>apps/agent"]):::start
     n_edit(["A text is edited or unsent<br/>code<br/>graph/nodes/edit.js · textsEdit.js · apps/agent editStep.ts"]):::start
@@ -155,6 +159,8 @@ flowchart LR
   n_askGate -.->|uses: climbOn| n_handoff
   n_handoff -.->|uses: hand| n_jobStart
   n_send -.->|background: fired| n_connect
+  n_checkin -.->|uses: quiet| n_quietCheck
+  n_checkin -.->|uses: look| n_checkinResearch
   classDef start fill:#ffe3ee,stroke:#ff4f8b,color:#1d1838
   classDef code fill:#dcf7f3,stroke:#11b5a4,color:#1d1838
   classDef model fill:#ece5ff,stroke:#7b4dff,color:#1d1838
@@ -193,7 +199,7 @@ every wire, from the same config.
 <!-- tex-config: steps begin -->
 | Step | Id | Group | | Model | Effort | Time limit | Reads, in order | Where |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Check-in | checkin |  | on | code |  |  | train:checkin | graph/nodes/checkin.js · heartbeat.js |
+| Check-in | checkin | checkInLook | on | code |  |  | train:checkin | graph/nodes/checkin.js · heartbeat.js |
 | Routine runs | routine |  | on | code |  |  |  | graph/nodes/routine.js · routine.js · runARoutine.js · finishARoutine.js |
 | Send through Tex | notify |  | on | code |  |  |  | graph/nodes/notify.js · tools/attention.js · attention.js |
 | A text arrives | text | intake | on | code |  |  |  | apps/agent |
@@ -245,6 +251,8 @@ every wire, from the same config.
 | 5-7 Hand to a job | handoff | ladder | on | code |  |  |  | graph/nodes/handoff.js · handoff.js |
 | Connect notes | connect |  | on | Haiku 5.5 | low |  |  | noteConnect.js · graph/nodes/connect.js |
 | Tex in a note | noteRun |  | on | Haiku 5.5 | medium |  |  | noteRun.js · graph/nodes/noteRun.js · noteRunRoute.js |
+| Quiet check | quietCheck | checkInLook | on | Haiku 5.5 | low | 8 s | train:quietCheck | graph/nodes/quietCheck.js |
+| Research | checkinResearch | checkInLook | on | Haiku 5.5 | high | 180 s | train:checkinResearch | graph/nodes/checkinResearch.js |
 | Nightly | nightly |  | on | code |  |  |  | dream.js · housekeeping.js |
 | Dream | dream |  | on | Haiku 5.5 | low |  |  | dream.js |
 | Day summaries | daysum |  | on | Haiku 5.5 | low |  |  | daySummaries.js |
@@ -252,7 +260,7 @@ every wire, from the same config.
 | Recheck About me | aboutCheck |  | on | Sonnet 5.5 | medium |  |  | graph/nodes/aboutCheck.js |
 | Drop past-date lines | aboutExpire |  | on | code |  |  |  | graph/nodes/aboutExpire.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · tools → computer (uses, computer) · answerCheck → askGate (uses) · askGate → rungKnows (uses, climb) · askGate → rungNotes (uses, climb) · askGate → rungTools (uses, climb) · askGate → handoff (uses, climbOn) · handoff → jobStart (uses, hand) · send → connect (background, fired) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · dream → aboutExpire (wait, about) · aboutExpire → aboutCheck (wait, check)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · tools → computer (uses, computer) · answerCheck → askGate (uses) · askGate → rungKnows (uses, climb) · askGate → rungNotes (uses, climb) · askGate → rungTools (uses, climb) · askGate → handoff (uses, climbOn) · handoff → jobStart (uses, hand) · send → connect (background, fired) · checkin → quietCheck (uses, quiet) · checkin → checkinResearch (uses, look) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · dream → aboutExpire (wait, about) · aboutExpire → aboutCheck (wait, check)
 <!-- tex-config: steps end -->
 
 ## The rule

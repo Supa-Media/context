@@ -149,7 +149,8 @@ async function post(token, path, body) {
 
 /** One check-in whose model reads `paths` in one round, then texts. */
 async function look(paths) {
-  script = [...(paths.length ? [{ toolCalls: paths.map((path) => ({ name: "read_note", args: { path } })) }] : []), { text: "Mail 1 needs a reply by Friday." }];
+  // The check-in's Research step runs first (wired from the check-in since 2026-11-22) and finds nothing here.
+  script = [{ text: "- nothing" }, ...(paths.length ? [{ toolCalls: paths.map((path) => ({ name: "read_note", args: { path } })) }] : []), { text: "Mail 1 needs a reply by Friday." }];
   return post(TOKEN_BEAT, "/agent", { heartbeat: { timeZone: "UTC", since: Date.now() - 2 * 60 * 60 * 1000 } });
 }
 

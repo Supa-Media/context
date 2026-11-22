@@ -40,6 +40,7 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { groupsOf } from "@context/lab/app/data/graph";
 import { TexLab } from "@context/lab/app/TexLab.web";
 import { clone, edit, G, lab, MAIN, set } from "@context/lab/app/engine/state";
 import { computeMarks, currentMarks, markCounts } from "@context/lab/app/engine/changeMarks";
@@ -83,7 +84,7 @@ beforeEach(() => {
   });
 });
 
-const first = () => MAIN.graph.nodes.find((n) => !n.group && MAIN.graph.edges.some((e) => e.from === n.id))!;
+const first = () => MAIN.graph.nodes.find((n) => !n.group && !groupsOf(MAIN.graph)[n.id] && MAIN.graph.edges.some((e) => e.from === n.id))!;
 
 describe("a draft's change marks", () => {
   test("moving a step is never a change", () => {
