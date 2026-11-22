@@ -77,6 +77,9 @@ const OPTIONS = {
   "keep-records": { type: "boolean" },
   // Search the bucket world only, without the workspace-object world beside it (`objectWorld.mjs`).
   "database-only": { type: "boolean" },
+  // Search the bucket world and its search database beside the workspace objects (the four bring-your-own-storage
+  // workspaces still search that way); without it, only the objects answer.
+  "with-database": { type: "boolean" },
   "world-cache": { type: "string" },
   "warm-only": { type: "boolean" },
   // The standing bench objects on a deployed gateway (`remoteBench.mjs`): its origin, and how many copies to ask.
