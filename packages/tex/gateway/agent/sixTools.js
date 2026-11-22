@@ -628,14 +628,15 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
         if (home) return resolve(home, call);
         const list = [...allowedActions[name]].join(", ") || "none";
         if (shownActions?.[name]?.has(action)) return { error: unavailableAction(name, action, list), cause: "not_this_turn" };
-        return { error: `${name} has no action "${action.slice(0, 40)}" for you. Yours: ${list}. Use one of those, or tell them plainly you can't do this here.` };
+        return { error: `${name} has no action "${action.slice(0, 40)}" for you. Yours: ${list}. Use one of those, or tell them plainly you can't do this here.`, cause: "no_such_action" };
       }
       const assistant = name === "send" ? ASSISTANT_SEND_ACTIONS[action] : undefined;
       if (assistant) return { name: assistant.tool, args: assistant.take(call) };
     }
     // The gateway's own translation, as for any connected app; never ChatGPT's search shape.
     const translated = translateV2Params({ name, arguments: searched.call }, undefined, { app: { client: null } });
-    if (translated.error) return { error: translated.error };
+    // The gateway refused the call's shape (an arg the id doesn't take, no id): said as that, not "no such action".
+    if (translated.error) return { error: translated.error, cause: "bad_arguments" };
     if (searched.boost !== undefined && translated.params.name === "search_notes") {
       return { name: "search_notes", args: { ...translated.params.arguments, boost: searched.boost } };
     }

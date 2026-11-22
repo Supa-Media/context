@@ -168,6 +168,19 @@ test('fetch "calendar:" is read_calendar with its date and days', () => {
   assert.ok(translateFetch({ id: "calendar:", args: { limit: 3 } }).error);
 });
 
+test('fetch "calendar:2026-11-23" is that day, never a folder named it (2026-11-22)', () => {
+  assert.deepEqual(translateFetch({ id: "calendar:2026-11-23" }), { name: "read_calendar", arguments: { date: "2026-11-23" }, action: "calendar" });
+  assert.deepEqual(translateFetch({ id: " calendar: 2026-11-23 ", args: { days: 2 } }), {
+    name: "read_calendar",
+    arguments: { date: "2026-11-23", days: 2 },
+    action: "calendar",
+  });
+  // A date in args wins over the id's, and only a whole date counts as one.
+  assert.deepEqual(translateFetch({ id: "calendar:2026-11-23", args: { date: "2026-11-24" } }).arguments, { date: "2026-11-24" });
+  assert.equal(translateFetch({ id: "calendar:friday" }).name, "list_notes");
+  assert.ok(translateFetch({ id: "calendar:2026-11-23", args: { limit: 3 } }).error);
+});
+
 test("a chosen account is the only one asked for, trimmed and lowercased, and the answer says so", async () => {
   const store = liveStore({
     ok: true,

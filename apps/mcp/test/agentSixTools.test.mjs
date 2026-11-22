@@ -198,6 +198,13 @@ test("the turn's trace names the six a call was made as and its action, for the 
   assert.equal(tool.action, "save");
 });
 
+test("a call the gateway refuses for its shape says bad arguments, not no such action (2026-11-22)", () => {
+  const { resolve } = sixToolsOver(held("search_notes", "read_note", "list_notes", "read_calendar"));
+  const wrong = resolve("search", { query: "2026-11-23", args: { calendar: true } });
+  assert.equal(wrong.cause, "bad_arguments");
+  assert.match(wrong.error, /takes args/);
+});
+
 test("an older tool name called with an argument its schema does not take is refused, naming the ones it does (2026-11-14)", () => {
   const { resolve } = sixToolsOver(held("search_notes", "search_email", "read_email"));
   const wrong = resolve("search_email", { query: "AMC ticket", address: "me@example.com" });

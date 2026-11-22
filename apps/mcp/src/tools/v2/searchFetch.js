@@ -143,6 +143,9 @@ const KEYWORDS = {
   "texts:": { name: "list_texts", action: "texts", copy: ["limit"] },
 };
 
+/** `calendar:<YYYY-MM-DD>`: the `calendar:` keyword for that day. */
+const CALENDAR_DAY = /^calendar:\s*(\d{4}-\d{2}-\d{2})$/;
+
 /** `apps:<app>`: one connected app's tools, or with `tool`, one read through it. */
 const APP_PREFIX = "apps:";
 
@@ -158,7 +161,7 @@ const HISTORY_FILE_ID = /(?:^|\/)(?:history|conversations)\.ledger\.json$/i;
 /** Ids that name something other than a note, which only the table below can route. */
 function routedId(id) {
   if (HISTORY_FILE_ID.test(id)) return true;
-  return Object.hasOwn(KEYWORDS, id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX].some((prefix) => id.startsWith(prefix));
+  return Object.hasOwn(KEYWORDS, id) || CALENDAR_DAY.test(id) || [APP_PREFIX, TEXTS_ID_PREFIX, EMAIL_ID_PREFIX, GOOGLE_CHAT_ID_PREFIX].some((prefix) => id.startsWith(prefix));
 }
 
 /** `fetch` in the v2 shape. */
@@ -182,6 +185,13 @@ export function translateFetch(call, app = {}) {
   if (Object.hasOwn(KEYWORDS, id)) {
     const { name, action, copy } = KEYWORDS[id];
     return target(label, a, { name, action, copy });
+  }
+  // `calendar:2026-11-23` is the day it names: Tex wrote the date into the id on a preview (2026-11-22), and it was
+  // read as a folder named that, "no visible notes", so it said it couldn't see their calendar.
+  const day = CALENDAR_DAY.exec(id);
+  if (day) {
+    const { name, action, copy } = KEYWORDS["calendar:"];
+    return target(label, a, { name, action, fixed: a.date === undefined ? { date: day[1] } : {}, copy });
   }
   if (id.startsWith(APP_PREFIX)) {
     const app = id.slice(APP_PREFIX.length).trim();
