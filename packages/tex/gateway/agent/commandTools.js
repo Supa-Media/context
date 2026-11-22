@@ -39,6 +39,7 @@
  * holds, and a muted chat has no turn to call a tool from.
  */
 
+import { namesOrAnswers } from "./consentContext.js";
 
 const INSTRUCTIONS_SCHEMA = {
   type: "object",
@@ -86,13 +87,13 @@ export const OWN_WORDS_REFUSAL = "They have to ask for that in their own words. 
  * Worker, never the model's) asks for `kind`. A code check first, then the
  * judge when there is one. Anything but a clear yes is a no.
  */
-export function consentFor(words, judge = null) {
+export function consentFor(words, judge = null, { offered = "" } = {}) {
   // The judge's reason for each refusal, by kind (`refusedWords`): told to the turn, it says what was missing instead
   // of guessing (Tex Devs, 2026-11-19: refused, Tex asked "which calendar address is yours?").
   const why = new Map();
   const check = async (kind) => {
     const said = typeof words === "string" ? words : "";
-    if (!CONSENT_WORDS[kind]?.test(said)) return false;
+    if (!CONSENT_WORDS[kind] || !namesOrAnswers(CONSENT_WORDS[kind], said, offered, typeof judge === "function")) return false;
     if (typeof judge !== "function") return true;
     try {
       const verdict = await judge({ words: said, action: CONSENT_ACTIONS[kind] });

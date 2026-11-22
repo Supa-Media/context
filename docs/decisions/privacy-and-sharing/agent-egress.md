@@ -468,3 +468,12 @@ unclear instead of guessing, and a Lab test chat runs the same check before it
 answers a judged tool as done (`sandboxPrecheck`). What a "simplification"
 would cost: drop `where` and "here" stops meaning anything again. Tests:
 `consentContext.test.mjs`, replay case `consent-judge-knows-here`.
+
+A short reply to Tex's own offer counts too (decided by Dev2, 2026-11-22). The code word check before the judge used to
+need the thing named in the person's own words, so "ok yeah go ahead and share it", answering "Want me to share your
+calendar here?", was refused before the judge ever saw the offer, and Tex told people to type a fixed phrase. Now a
+reply of at most 160 characters passes the word check when Tex's last text in that chat names the thing
+(`namesOrAnswers` in `consentContext.js`), and only when there is a judge: the judge, shown that offer, still decides
+whether the reply agrees to it. The same holds for the vault, chat invitations and computers. Reversing it fails
+"a short yes to Tex's own offer reaches the judge…" in `apps/mcp/test/consentContext.test.mjs` and the replay case
+`consent-judge-knows-here`.

@@ -15,12 +15,13 @@
  *  2. `consentContext` ignoring the config's inSchema. → "only the fields the config's egress step names…" fails.
  *  3. `refusedWords` always answering the bare refusal. → "a refusal carries the judge's reason…" fails.
  *  4. `sandboxPrecheck` answering null whatever the check said. → "a Lab test chat refuses what a real chat would" fails.
+ *  5. `namesOrAnswers` ignoring `offered`. → "a short yes to Tex's own offer reaches the judge…" fails.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { judgeWords } from "../src/privacy/judge.js";
-import { consentContext, offeredLine, whereLine, MAX_OFFERED } from "../../../packages/tex/gateway/agent/consentContext.js";
+import { consentContext, namesOrAnswers, offeredLine, whereLine, MAX_OFFERED, MAX_YES } from "../../../packages/tex/gateway/agent/consentContext.js";
 import { OWN_WORDS_REFUSAL, commandTools, consentFor, refusedWords } from "../../../packages/tex/gateway/agent/commandTools.js";
 import { LAB_SANDBOX_KEY, sandboxPrecheck } from "../src/labSandbox/policy.js";
 
@@ -113,4 +114,19 @@ test("a Lab test chat refuses what a real chat would: the consent check runs bef
   const allowing = commandTools({ run: async () => ({ status: "done" }), group: { key: "k" }, consent: consentFor("Tex share my calendar here", async () => ({ allow: true })) });
   assert.equal(await sandboxPrecheck(env, allowing.find((entry) => entry.tool.name === "chat_share_calendar").precheck, {}), null, "allowed: the stub answers as before");
   assert.equal(await sandboxPrecheck({}, share.precheck, {}), null, "a real turn never runs it here: the tool's own call does");
+});
+
+test("a short yes to Tex's own offer reaches the judge, which is shown the offer; without an offer or a judge it never does", async () => {
+  const asked = [];
+  const judge = async (input) => (asked.push(input), { allow: true, reason: "agrees to the offer" });
+  const offer = "Want me to share your calendar with this chat?";
+  assert.equal(await consentFor("ok yeah go ahead and share it", judge, { offered: offer })("share_calendar"), true);
+  assert.equal(asked.length, 1, "the judge decides");
+  assert.equal(await consentFor("ok yeah go ahead and share it", judge)("share_calendar"), false, "no offer: the word check refuses, as before");
+  assert.equal(await consentFor("yes", judge, { offered: "Want me to check Friday?" })("share_calendar"), false, "an offer of something else: refused before the judge");
+  assert.equal(await consentFor("yes", null, { offered: offer })("share_calendar"), false, "no judge: a yes never counts by code alone");
+  assert.equal(await consentFor(`yes ${"x".repeat(MAX_YES)}`, judge, { offered: offer })("share_calendar"), false, "a long text must name the thing itself");
+  assert.equal(asked.length, 1);
+  assert.equal(namesOrAnswers(/\bcalendar\b/i, "do it", offer, true), true);
+  assert.equal(namesOrAnswers(/\bcalendar\b/i, "share my calendar", "", false), true, "naming it passes as before");
 });

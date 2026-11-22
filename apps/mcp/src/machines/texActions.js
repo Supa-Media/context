@@ -42,6 +42,7 @@ import { workspaceStub } from "../workspaceStore/api.js";
 import { callTexStore } from "../../../../packages/tex/gateway/texStore/wire.js";
 import { groupChatId, lentToChat, TEXTS_CLIENT_ID, TEXTS_GROUP_CLIENT_ID } from "./reach.js";
 import { setupPrompt, SETUP_SYSTEMS } from "./setupPrompt.js";
+import { namesOrAnswers } from "../../../../packages/tex/gateway/agent/consentContext.js";
 
 export const COMPUTER_TOOL = "tex_computers";
 const CHAT_KEY = /^[0-9a-f]{64}$/;
@@ -88,10 +89,10 @@ export function signInCodeInWords(code, words) {
  * Whether the turn's own message asks for `action` on a computer: a computer word first, then the judge when the
  * deployment has one. Anything but a clear yes is a no.
  */
-export function computerConsent(words, judge = null) {
+export function computerConsent(words, judge = null, offered = "") {
   return async (action) => {
     const said = typeof words === "string" ? words : "";
-    if (!COMPUTER_WORDS.test(said)) return false;
+    if (!namesOrAnswers(COMPUTER_WORDS, said, offered, typeof judge === "function")) return false;
     if (typeof judge !== "function") return true;
     try {
       return (await judge({ words: said, action: JUDGED[action] ?? "change the person's own computer" }))?.allow === true;
@@ -153,14 +154,14 @@ function describe({ machine }, here) {
  *
  * @param {{ env: object, session: object, controlPlane: object, group: object|null, words: string, judge?: Function|null }} options
  */
-export function computerTools({ env, session, controlPlane, group, words, judge = null }) {
+export function computerTools({ env, session, controlPlane, group, words, offered = "", judge = null }) {
   if (!env?.WORKSPACE_STORE || !controlPlane || typeof controlPlane.texMachinesOwned !== "function") return [];
   const own = session?.actorClientId === TEXTS_CLIENT_ID && group === null;
   const groupKey = session?.actorClientId === TEXTS_GROUP_CLIENT_ID && CHAT_KEY.test(session.texChatId ?? "") ? session.texChatId : null;
   if (!own && groupKey === null) return [];
   if (group?.guestTagger === true || typeof session.actorUserId !== "string" || session.actorUserId === "") return [];
   const here = groupKey === null ? null : groupChatId(groupKey);
-  const consent = computerConsent(words, judge);
+  const consent = computerConsent(words, judge, offered);
   const asked = async (action) => {
     try {
       return (await consent(action)) === true;
