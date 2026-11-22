@@ -64,6 +64,8 @@
  *  - https://support.google.com/cloud/answer/13464325 (restricted scopes list — confirms `chat.messages.readonly`)
  */
 
+// A preview sends these calls to its emulators (`emulators.ts`); a no-op anywhere else.
+import { outsideUrl } from "./emulators";
 import { createPkcePair, pkceChallengeFor, type PkcePair } from "./pkce";
 import { APP_ORIGIN_ENV_VAR, redirectUriIsAcceptable } from "./gatewayAuth";
 
@@ -288,7 +290,8 @@ export function googleAuthorizeUrl(options: {
     throw new Error("A Google authorize URL needs at least one scope");
   }
 
-  const url = new URL(GOOGLE_AUTHORIZE_ENDPOINT);
+  // A browser goes here, not a fetch, so the preview's emulator address is chosen here (`emulators.ts`).
+  const url = new URL(outsideUrl(GOOGLE_AUTHORIZE_ENDPOINT));
   url.searchParams.set("client_id", options.clientId);
   url.searchParams.set("redirect_uri", options.redirectUri);
   url.searchParams.set("response_type", "code");

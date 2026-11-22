@@ -98,6 +98,8 @@
  * tools/advertised.js; IMAGE_MIME_TYPES and MAX_INLINE_IMAGE_BYTES are scraped
  * from tools/readImage.js by the email worker's and control plane's tests.
  */
+// First: a preview build sends Google and Resend calls to its emulators (`emulators.js`); otherwise a no-op.
+import "./emulators.js";
 import { LiveTicketObject } from "./live/ticket.js";
 import { SearchQualityKeyObject } from "./search/qualityKeyObject.js";
 import { CreditRestObject } from "../../../packages/tex/gateway/agent/creditRest.js";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { emulatedUrl, emulatedHosts } from "../src/hosts.mjs";
+import { emulatedUrl, emulatedHosts } from "../src/hosts.js";
 import { SERVICES } from "../src/services.mjs";
 
 const ORIGIN = "https://context-emulators-pr42.fake-sub.workers.dev";
@@ -46,4 +46,36 @@ test("every emulator has a source, a loader and https hosts it alone answers for
     }
   }
   assert.ok(emulatedHosts().includes("www.googleapis.com"));
+});
+
+test("emulatingFetch sends covered hosts to the emulators, refuses uncovered paths, passes others through", async () => {
+  const { emulatingFetch } = await import("../src/hosts.js");
+  const seen = [];
+  const real = async (input) => (seen.push(input instanceof Request ? input.url : String(input)), new Response("ok"));
+  const f = emulatingFetch(real, ORIGIN);
+  await f("https://www.googleapis.com/calendar/v3/calendars/primary/events?x=1", { headers: { authorization: "Bearer t" } });
+  await f(new Request("https://oauth2.googleapis.com/token", { method: "POST", body: "a=b" }));
+  await f("https://api.anthropic.com/v1/messages");
+  const refused = await f("https://oauth2.googleapis.com/tokeninfo?access_token=t");
+  assert.equal(refused.status, 502);
+  assert.deepEqual(seen, [
+    `${ORIGIN}/google/calendar/v3/calendars/primary/events?x=1`,
+    `${ORIGIN}/google/oauth2/token`,
+    "https://api.anthropic.com/v1/messages",
+  ]);
+});
+
+test("only a preview's emulators Worker or localhost may stand in", async () => {
+  const { emulatingFetch, checkedOrigin } = await import("../src/hosts.js");
+  assert.equal(checkedOrigin("http://127.0.0.1:8787"), "http://127.0.0.1:8787");
+  for (const bad of [
+    "https://evil.example",
+    "https://context-emulators-pr42.fake-sub.workers.dev.evil.example",
+    "http://context-emulators-pr42.fake-sub.workers.dev",
+    "https://context-mcp-pr42.fake-sub.workers.dev",
+    "https://u:p@context-emulators-pr42.fake-sub.workers.dev",
+    "https://context-emulators-pr42.fake-sub.workers.dev/google",
+  ]) {
+    assert.throws(() => emulatingFetch(fetch, bad), /emulators origin/, bad);
+  }
 });

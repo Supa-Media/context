@@ -28,8 +28,19 @@ import { backendKeys } from '../../../scripts/staging-env.mjs';
 const CLI = fileURLToPath(new URL('../../../node_modules/convex/bin/main.js', import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
+/**
+ * Google on a preview is its own emulators Worker (packages/emulators), never real Google: a fake OAuth
+ * client, so staging's real client id and secret are never copied to a preview, and the connect flows on.
+ */
+export const EMULATED_GOOGLE = {
+  GOOGLE_OAUTH_CLIENT_ID: 'preview-emulated.apps.googleusercontent.com',
+  GOOGLE_OAUTH_CLIENT_SECRET: 'preview-emulated-not-a-secret',
+  MAIL_CONNECT_ENABLED: 'true',
+  CALENDAR_CONNECT_ENABLED: 'true',
+};
+
 /** Names this script sets itself, so a staging value for them is never copied. */
-const OWN_NAMES = ['APP_ENV', 'APP_ORIGIN', 'SITE_URL', 'STORAGE_MOVER_ORIGIN', 'PREVIEW_NAME', 'MANAGED_R2_ACCOUNT_ID'];
+const OWN_NAMES = ['APP_ENV', 'APP_ORIGIN', 'SITE_URL', 'STORAGE_MOVER_ORIGIN', 'PREVIEW_NAME', 'MANAGED_R2_ACCOUNT_ID', ...Object.keys(EMULATED_GOOGLE), 'EMULATORS_ORIGIN'];
 
 /** Staging values a preview never gets: custom domains, Google push and the Stripe price. */
 const NOT_COPIED = ['STAGING_CONVEX_DEPLOYMENT', 'CUSTOM_DOMAINS_ZONE_ID', 'CUSTOM_DOMAINS_TARGET', 'GOOGLE_PUSH', 'STRIPE_PRICE_ID'];
@@ -118,6 +129,8 @@ export function previewEnvValues(env) {
     APP_ORIGIN: app,
     SITE_URL: app,
     STORAGE_MOVER_ORIGIN: `https://context-mcp-${name}.${workers}`,
+    EMULATORS_ORIGIN: `https://context-emulators-${name}.${workers}`,
+    ...EMULATED_GOOGLE,
   });
   for (const key of Object.keys(set)) {
     if (FORBIDDEN_PREVIEW_KEYS.includes(key) || key === 'STAGING_CONVEX_DEPLOYMENT') {

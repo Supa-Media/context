@@ -83,6 +83,8 @@ test("deleting a preview removes its Workers in order, and tolerates one that is
     ["agent", "context-agent-pr7-preview"],
     ["mcp", "context-mcp-pr7"],
     ["mcp", "context-mcp-pr7-preview"],
+    ["emulators", "context-emulators-pr7"],
+    ["emulators", "context-emulators-pr7-preview"],
   ]);
   assert.ok(logs.some((line) => line.includes("context-agent-pr7 was already gone")));
   // Workflows, storage, the scoped tokens, then the check that nothing is left. No CONVEX_DEPLOY_KEY: Convex is skipped.

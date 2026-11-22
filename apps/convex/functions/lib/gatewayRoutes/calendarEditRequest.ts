@@ -9,6 +9,8 @@
  * whose own start is moved by as much as that one time's was.
  */
 
+// A preview sends these calls to its emulators (`emulators.ts`); a no-op anywhere else.
+import "../emulators";
 import type { CalendarChange, CalendarRefusal, CalendarTime, GoogleEvent } from "../calendarWrite";
 import { googleTime, guestNames, hasGuests, instant } from "../calendarWrite";
 import { answeredAttendees, editedAttendees, googleReminders, onlyOwnFields } from "../calendarEdit";

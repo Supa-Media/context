@@ -17,14 +17,14 @@
 export const OWNED = [
   {
     kind: "Worker",
-    createdBy: "deploy-preview.yml `wrangler deploy --name context-<mcp|agent|router>-pr<N>`",
+    createdBy: "deploy-preview.yml `wrangler deploy --name context-<mcp|agent|router|emulators>-pr<N>`",
     teardown: "cleanup.mjs deletePreview: `wrangler delete`",
     label: "Worker",
     fake: (n) => ({ path: "/workers/scripts", account: "gateway", row: { id: `context-agent-pr${n}` } }),
   },
   {
     kind: "Durable Object namespace",
-    createdBy: "a preview Worker's `durable_objects` bindings (mcp, agent)",
+    createdBy: "a preview Worker's `durable_objects` bindings (mcp, agent, emulators)",
     teardown: "deleted with the Worker that defines the class",
     label: "Durable Object namespace",
     fake: (n) => ({ path: "/workers/durable_objects/namespaces", account: "gateway", row: { script: `context-mcp-pr${n}`, class: "WorkspaceStore" } }),
