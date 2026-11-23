@@ -217,13 +217,14 @@ test("Tex choosing to say nothing is recorded as its choice, with the call it ma
   }
 });
 
-test("a model that answers with no words is never an empty text: the gateway says the answer got lost", async () => {
+test("a model that answers with no words is never an empty text: the gateway says it didn't manage an answer, never that it got lost", async () => {
   const empty = async () => json({ content: [{ type: "text", text: "" }], stop_reason: "end_turn", usage });
   const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: empty });
   try {
     const turn = await world.text("when is my dentist appointment?");
     assert.equal(turn.ok, true, turn.error);
-    assert.match(turn.answer, /got lost/i, turn.answer);
+    assert.match(turn.answer, /didn't manage an answer/i, turn.answer);
+    assert.doesNotMatch(turn.answer, /got lost/i);
   } finally {
     world.close();
   }

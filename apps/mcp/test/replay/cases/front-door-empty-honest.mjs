@@ -26,12 +26,14 @@ export default {
     // 2026-11-23, the same ask in a Lab test chat: Tex fetched the email with from: the sender and summary: true, was
     // refused on types, and ended empty. Those two are an attachment's; the refusal now says so and how to read the email.
     const id = "email:me@team.example/1a205a21935afbd5";
-    for (const args of [{ from: "sarah@team.example" }, { summary: true }]) {
-      const refused = translateFetch({ id, args });
-      assert.match(refused.error, /reads the whole email with no args/);
-      assert.match(refused.error, /from \(where to start in a long attachment/);
-      assert.match(refused.error, /Call it again with no args/);
-    }
+    // The offset is now `start`: `from` read as the sender. A `from` is refused saying the sender is in the id.
+    const sender = translateFetch({ id, args: { from: "sarah@team.example" } });
+    assert.match(sender.error, /takes no from: the sender is already in the id/);
+    assert.match(sender.error, /Call it again with no args to read the email/);
+    const summed = translateFetch({ id, args: { summary: true } });
+    assert.match(summed.error, /reads the whole email with no args/);
+    assert.match(summed.error, /start \(where to pick up in a long attachment/);
+    assert.equal(translateFetch({ id, args: { attachment: 1, start: 4000 } }).error, undefined);
     assert.equal(translateFetch({ id }).error, undefined);
     assert.match(translateFetch({ id, args: { mail: true } }).error, /go only with attachment/);
   },

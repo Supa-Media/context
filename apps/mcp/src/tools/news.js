@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-23",
+    text:
+      "read_email's offset into a long attachment is start, not from (from read as the sender): fetch an email: id with " +
+      "args { attachment, start } to read on from where a part's more: line says.",
+  },
+  {
     date: "2026-11-22",
     text:
       'tex_dev test_chat open takes code: "#<pr>": the test chat runs on that pull request\'s own preview (its code, fictional people, never ' +
@@ -462,7 +468,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "d7dc01ce";
+export const TOOL_SHAPE = "c73a8b72";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

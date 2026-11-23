@@ -38,7 +38,7 @@ import { stepOf } from "./standsCheck.js";
  * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
  * `question` is their ask, so a record ask with no read can be sent back (`recordRead.js`).
  */
-export function untriedWebCheck({ question = "" } = {}) {
+export function untriedWebCheck({ question = "", reaction = false } = {}) {
   let hadWeb = false;
   let triedWeb = false;
   let noticed = false;
@@ -70,7 +70,8 @@ export function untriedWebCheck({ question = "" } = {}) {
     check(answer, context = {}) {
       // An empty answer gets one more round on the front door too (Dev2, 2026-11-23: three refused sends ended in an empty
       // answer, and with no round to answer in, the fallback line went instead), as `claimCheck.js` gives every other turn.
-      if (!emptyNoticed && isEmptyAnswer(answer)) {
+      // Their own tapback may be answered with nothing at all: that quiet is never sent back.
+      if (!emptyNoticed && !reaction && isEmptyAnswer(answer)) {
         emptyNoticed = true;
         return EMPTY_NOTICE;
       }
@@ -99,7 +100,7 @@ export function untriedWebCheck({ question = "" } = {}) {
  * The one check a texted or group turn gets from its front-door side (`prepareTheAnswer.js`), or null. A console 1:1
  * gets none from here: the stands gate every chat turn runs is its check (`standsCheck.js` `standsGate`).
  */
-export function frontDoorChecks({ claims, runner, texted, group, question }) {
-  if (claims === null && !runner && (texted || group !== null)) return untriedWebCheck({ question });
+export function frontDoorChecks({ claims, runner, texted, group, question, reaction = false }) {
+  if (claims === null && !runner && (texted || group !== null)) return untriedWebCheck({ question, reaction });
   return null;
 }

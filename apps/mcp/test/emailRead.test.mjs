@@ -224,13 +224,13 @@ export async function runEmailReadChecks(check) {
     controlPlane.flags.mailAttachment = { filename: "transactions.csv", contentType: "text/csv", data: btoa(rows.join("\n")) };
     const convertedBefore = converted.length;
     const csv = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
-    const more = /more: fetch id "email:me@example\.com\/18c0ffee" with args \{ attachment: 1, from: (\d+) \}/.exec(textOf(csv));
+    const more = /more: fetch id "email:me@example\.com\/18c0ffee" with args \{ attachment: 1, start: (\d+) \}/.exec(textOf(csv));
     check(
       "an emailed CSV is read as its rows, with its facts counted over the whole file and where its next part starts",
       csv?.isError !== true && converted.length === convertedBefore && textOf(csv).includes("rows: 6002") &&
         textOf(csv).includes("duplicate rows: 1 rows repeat an earlier row") && more !== null,
     );
-    const rest = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1, from: Number(more?.[1] ?? 0) } });
+    const rest = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1, start: Number(more?.[1] ?? 0) } });
     check("...its next part reaches its last rows", rest?.isError !== true && textOf(rest).includes("2026-08-03,Rent,-3850.00"));
     const summed = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1, summary: { where: [{ column: "Name", contains: "rent" }] } } });
     check("...and its totals are counted by Context, repeats left out", textOf(summed).includes("1 rows, total -3,850.00; 1 repeated rows left out"));

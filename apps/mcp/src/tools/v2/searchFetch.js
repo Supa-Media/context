@@ -211,12 +211,15 @@ export function translateFetch(call, app = {}) {
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     // The email itself takes no args; its three are an attachment's (Dev2, 2026-11-23: a Lab run read `from` as the sender
-    // and `summary` as "summarize", was refused twice, and ended with no answer). Said once, with what each one is.
-    const ATTACHMENT_ONLY = "; from (where to start in a long attachment, a number its more: line gave) and summary (totals over a CSV, an object) go only with attachment";
-    if (a.attachment === undefined && (a.from !== undefined || a.summary !== undefined)) {
+    // and `summary` as "summarize", was refused twice, and ended with no answer). The offset is `start`, never `from`.
+    const ATTACHMENT_ONLY = "; start (where to pick up in a long attachment, the number its more: line gave) and summary (totals over a CSV, an object) go only with attachment";
+    if (a.from !== undefined) {
+      return { error: `${label} takes no from: the sender is already in the id. Call it again with no args to read the email${ATTACHMENT_ONLY}.` };
+    }
+    if (a.attachment === undefined && (a.start !== undefined || a.summary !== undefined)) {
       return { error: `${label} reads the whole email with no args${ATTACHMENT_ONLY}. Call it again with no args to read the email.` };
     }
-    return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"], others: ATTACHMENT_ONLY });
+    return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "start", "summary"], others: ATTACHMENT_ONLY });
   }
 
   // A chat's history file reads as the note it is, with that note's access.
