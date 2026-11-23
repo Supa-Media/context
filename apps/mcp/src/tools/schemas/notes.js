@@ -114,7 +114,7 @@ export function noteWriteToolDefinitions() {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Destination path ending in .md" },
+          path: { type: "string", description: "Destination path ending in .md, or .csv for a sheet" },
           content: { type: "string", description: "The whole note, or with section the section's new text. Required unless comment or edits is passed instead." },
           site: {
             type: "object",
@@ -192,6 +192,19 @@ export function noteWriteToolDefinitions() {
               text: { type: "string", description: "add and reply: what you are saying, up to 5000 characters." },
             },
             required: ["action"],
+            additionalProperties: false,
+          },
+          rows: {
+            type: "object",
+            description:
+              "Change a sheet's rows instead of rewriting it; pass this without content, with path a .csv. " +
+              "append: [{ column: value }] adds rows (missing columns stay empty); update: { match: { column: value }, set: { column: value } } changes every matching row; " +
+              "delete: { match } removes them. Values must fit each column's type (header cells like renews:date), or nothing is written.",
+            properties: {
+              append: { type: "array", items: { type: "object" } },
+              update: { type: "object", properties: { match: { type: "object" }, set: { type: "object" } }, required: ["match", "set"], additionalProperties: false },
+              delete: { type: "object", properties: { match: { type: "object" } }, required: ["match"], additionalProperties: false },
+            },
             additionalProperties: false,
           },
           expected_etag: { type: "string", description: "Etag from read_note; omit only when creating a new note." },

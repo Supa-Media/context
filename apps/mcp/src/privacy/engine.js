@@ -115,7 +115,7 @@ export function parsePrivacyManifest(text) {
     if (section === "folders") {
       rules.push({ prefix: path, vis: match[2] });
     } else {
-      if (!path.endsWith(".md") || foldPath(path) === PRIVACY_KEY) {
+      if (!(path.endsWith(".md") || path.endsWith(".csv")) || foldPath(path) === PRIVACY_KEY) {
         throw new Error(`invalid exact-note privacy path: ${path}`);
       }
       overrides.set(path, match[2]);

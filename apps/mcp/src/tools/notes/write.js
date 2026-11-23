@@ -26,6 +26,7 @@ import {
   readDocument as readCollaborationDocument,
 } from "@context/collaboration";
 import { replaceNoteText } from "./replaceInObject.js";
+import { isSheetPath, parseSheet } from "../../sheets/csv.js";
 import { datedForWrite } from "../../notes/dateStamp.js";
 import mail from "../../../../../packages/shared/src/mail.cjs";
 import {
@@ -91,8 +92,21 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   const path = normalizePath(args.path);
   let content = args.content;
   const expectedEtag = args.expected_etag;
-  if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md): pass the note's full path");
+  const sheet = isSheetPath(path);
+  if (!path || !(path.endsWith(".md") || sheet)) return toolError("invalid path (must end in .md, or .csv for a sheet): pass the note's full path");
   if (typeof content !== "string") return toolError("content must be a string: call it again with the note's Markdown as text.");
+  // A sheet is written whole only when it reads back as one: a broken row is told while the text is in hand
+  // (`sheets/csv.js`, `docs/decisions/sheets.md`). Its rows are changed one by one with write action rows.
+  if (sheet) {
+    if (Array.isArray(args.images) && args.images.length) return toolError("a sheet (.csv) holds no images: save it without images");
+    const parsed = parseSheet(content);
+    if (parsed.tooLarge || parsed.errors.length) {
+      return toolError(
+        `that is not a sheet that reads back whole: ${parsed.errors.slice(0, 5).map((e) => (e.line ? `line ${e.line}: ` : "") + e.message).join("; ")}. ` +
+          "Nothing was written; fix the CSV and save again.",
+      );
+    }
+  }
   if (isPlumbing(path)) return toolError("that path is reserved: pick another path outside Context's own files");
   // Tex's memory of the person has a hard size (owner, 2026-10-14), from every writer.
   const tooLong = aboutMeTooLong(path, content);
@@ -372,7 +386,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
    * writer is never told. Said in the result, so the client learns it too.
    */
   let restoredOpening = false;
-  if (storedBody !== null && !isEncryptedNote(storedBody) && frontMatterBlock(storedBody) !== "") {
+  if (!sheet && storedBody !== null && !isEncryptedNote(storedBody) && frontMatterBlock(storedBody) !== "") {
     const restored = restoreOpeningDelimiter(content);
     if (restored !== null) {
       const restoredDeclared = frontmatterVisibility(restored);
@@ -388,7 +402,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   }
   // A rewrite that left out the note's mail is given it back: agents share that record (`mail.cjs` `keepMailBlock`).
   let keptMail = false;
-  if (storedBody !== null && !isEncryptedNote(storedBody)) {
+  if (!sheet && storedBody !== null && !isEncryptedNote(storedBody)) {
     const kept = mail.keepMailBlock(storedBody, content);
     if (kept !== null) {
       content = kept;
@@ -403,7 +417,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   }
   // Date properties the note asked for (`date created:`, `date modified:`) are filled in this same save, so the etag
   // handed back covers them and the change log gets one entry (`notes/dateStamp.js`).
-  if (!(storedBody !== null && isEncryptedNote(storedBody))) {
+  if (!sheet && !(storedBody !== null && isEncryptedNote(storedBody))) {
     content = await phase(store, "write_dates", () => datedForWrite(store, path, content, storedBody));
   }
   // A link anyone can open is never minted over an encrypted note

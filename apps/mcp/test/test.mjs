@@ -14,6 +14,7 @@ import { runArchiveAndChatHistoryChecks } from "./archiveAndChatHistory.test.mjs
 import { runMovesAndBatchChecks } from "./movesAndBatch.test.mjs";
 import { runInboxCaptureChecks } from "./inboxCapture.test.mjs";
 import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
+import { runSheetGatewayChecks } from "./sheetsGateway.test.mjs";
 import { runAttachmentsEdgeChecks } from "./attachmentsEdge.test.mjs";
 import { runUploadedImageChecks } from "./uploadedImages.test.mjs";
 import { runImageUploadLinkChecks } from "./imageUploadLinks.test.mjs";
@@ -41,6 +42,7 @@ await runArchiveAndChatHistoryChecks();
 await runMovesAndBatchChecks();
 await runInboxCaptureChecks();
 await runAttachmentsCoreChecks();
+await runSheetGatewayChecks();
 await runAttachmentsEdgeChecks();
 await runUploadedImageChecks();
 await runImageUploadLinkChecks();

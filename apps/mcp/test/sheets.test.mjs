@@ -6,7 +6,7 @@
  *
  * Sabotage record (temporary local edits, reverted):
  * 1. `parseHeaderCell` splitting on the first colon: "a header colon that is
- *    not a type stays in the name" fails.
+ *    not a type stays in the name" fails (on "ends 10:30:date").
  * 2. `changeRows` allowing an empty `match`: "an update with no match is
  *    refused" and "a delete with no match is refused" fail.
  * 3. `setColumnType` coercing values: "changing a type keeps every value" fails.
@@ -52,6 +52,7 @@ test("a header colon that is not a type stays in the name", () => {
   assert.deepEqual(parseHeaderCell("starts: 10:30"), { name: "starts: 10:30", type: "text" });
   assert.deepEqual(parseHeaderCell("ratio:Number"), { name: "ratio", type: "number" });
   assert.deepEqual(parseHeaderCell(":date"), { name: ":date", type: "text" });
+  assert.deepEqual(parseHeaderCell("ends 10:30:date"), { name: "ends 10:30", type: "date" });
 });
 
 test("quoted cells keep commas, quotes and newlines, and round-trip", () => {
@@ -165,6 +166,7 @@ test("an update with no match is refused", () => {
 
 test("a delete with no match is refused", () => {
   assert.equal(changeRows(parseSheet(METRICS), { delete: {} }).ok, false);
+  assert.equal(changeRows(parseSheet(METRICS), { delete: { match: {} } }).ok, false);
 });
 
 test("columns can be added, renamed, moved and deleted, and the header follows", () => {
