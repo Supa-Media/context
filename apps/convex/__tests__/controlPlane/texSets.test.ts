@@ -169,9 +169,12 @@ describe("create and remove", () => {
 
 describe("promote", () => {
   test("set_promote marks the drafts asked, the Lab's list shows it, and an unknown id is refused", async () => {
-    const { door, lab } = await world();
+    const { door, lab, t } = await world();
     await door("set_edit", { id: "chat-a", rev: 0, ops: TITLE, base: BASE });
     expect(await door("set_promote", { ids: ["chat-a"] })).toMatchObject({ status: "ok", asked: ["chat-a"] });
+    // The promote workflow is started at once, never left to GitHub's schedule, which can lag by hours.
+    const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(scheduled.map((job) => job.name)).toContain("functions/texLabRuns:dispatchPromote");
     expect((await lab.query(api.functions.texSets.list, {})).drafts.find((d: { id: string }) => d.id === "chat-a")).toMatchObject({ promote: { state: "asked", pr: null } });
     expect(await door("set_promote", { ids: ["chat-zz"] })).toMatchObject({ status: "not_found", error: "no draft of chat-zz" });
   });

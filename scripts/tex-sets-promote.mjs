@@ -81,6 +81,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const result = promote(JSON.parse(readFileSync(file, "utf8")));
   if (result.written.length || result.removed.length) {
     execFileSync(process.execPath, [join(ROOT, "scripts/tex-sets-data.mjs")], { stdio: ["ignore", "ignore", "inherit"] });
+    // Each step's Training module is built from the Training conversations, and the Lab's data reads it.
+    execFileSync(process.execPath, [join(ROOT, "scripts/tex-training-module.mjs")], { stdio: ["ignore", "ignore", "inherit"] });
     execFileSync(process.execPath, [join(ROOT, "scripts/tex-lab-data.mjs")], { stdio: ["ignore", "ignore", "inherit"] });
   }
   process.stdout.write(JSON.stringify(result) + "\n");
