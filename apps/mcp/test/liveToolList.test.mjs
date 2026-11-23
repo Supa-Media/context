@@ -104,7 +104,9 @@ test("the full list stays compact", () => {
   // still defined: the list stood at 15,821 with 74.
   // Raised to 16,600 on 2026-11-15 for `tex_dev`, the Tex developer tool (offered only to people who edit
   // @context-lc's AI setup): the list stood at 16,357 with 76.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 16_600);
+  // Raised to 17,000 on 2026-11-23 for read_note's outline, section, lines and full and write_note's section,
+  // insert, edits and replace (part reads and writes): the list stood at 16,637 with 76.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 17_000);
 });
 
 /* -------------------------------------------------------------------------- */

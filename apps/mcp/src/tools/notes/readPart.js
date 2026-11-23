@@ -18,7 +18,7 @@
 import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { PART_CHARS, findSection, noteStructure, parseLines, renderOutline, sliceLines } from "../../notes/sections.js";
-import { PARTIAL_ETAG_SUFFIX } from "../partialEtag.js";
+import { partialEtag } from "../partialEtag.js";
 
 /** The `read_note` arguments that ask for part of a note. */
 export const PART_ARGS = ["outline", "section", "lines"];
@@ -40,7 +40,9 @@ export async function toolReadNotePart(store, scope, rules, overrides, args) {
   if (opened.encrypted) return toolError("an encrypted note is read whole: call it again without outline, section or lines.");
   const body = opened.text;
   if (!full.endsWith(body)) return toolError("this note could not be cut into parts right now: read it whole, without outline, section or lines.");
-  const header = full.slice(0, full.length - body.length).replace(/\n\n$/, "").replace(/^etag: (\S+)$/m, (_, etag) => `etag: ${etag}${PARTIAL_ETAG_SUFFIX}`);
+  const headerOfWhole = full.slice(0, full.length - body.length).replace(/\n\n$/, "");
+  const marked = (sectionText = null) => headerOfWhole.replace(/^etag: (\S+)$/m, (_, etag) => `etag: ${partialEtag(etag, sectionText)}`);
+  const header = marked();
   const structure = noteStructure(body);
   const total = structure.lines.length;
 
@@ -59,11 +61,14 @@ export async function toolReadNotePart(store, scope, rules, overrides, args) {
 
   let range;
   let label;
+  let partHeader = header;
   if (asked[0] === "section") {
     const found = findSection(structure, args.section);
     if (found.error) return toolError(found.error);
     range = { start: found.start, end: found.end };
     label = `section "${found.heading.text || found.heading.anchor}", `;
+    // The section's hash rides on its etag, so writing it back still lands after an edit elsewhere in the note.
+    partHeader = marked(structure.lines.slice(found.start - 1, found.end).join("\n"));
   } else {
     const parsed = parseLines(args.lines, total);
     if (parsed.error) return toolError(parsed.error);
@@ -75,7 +80,7 @@ export async function toolReadNotePart(store, scope, rules, overrides, args) {
     part.next === null
       ? ""
       : `\nmore: lines: "${part.next}-${range.end}" (in place of section or lines) reads on; those lines are not shown here`;
-  return answer(`${header}\npart: ${label}lines ${part.start}-${part.end} of ${total}${more}`, part.text, whole);
+  return answer(`${partHeader}\npart: ${label}lines ${part.start}-${part.end} of ${total}${more}`, part.text, whole);
 }
 
 function headerOf(text) {

@@ -38,6 +38,7 @@ import { failureText, logCallFailure } from "../mcp/publicError.js";
 import { bareEtagArguments } from "./etagPlace.js";
 import { takePartialEtags } from "./partialEtag.js";
 import { toolReadNotePart, wantsPart } from "./notes/readPart.js";
+import { toolWriteNotePart, writesPart } from "./notes/writePart.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolSetEncryption } from "./encryption/setEncryption.js";
 import { toolListChanges } from "../activity/changes.js";
@@ -203,6 +204,8 @@ async function runTool(name, args, store, scope, options = {}) {
       if (args.upload !== undefined) return toolImageUploadLinks(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       if (args.mail !== undefined) return toolMailNote(store, scope, rules, overrides, args);
+      // One section, or find-and-replace edits: the gateway builds the whole text and saves it as below (`writePart.js`).
+      if (writesPart(args)) return toolWriteNotePart(store, scope, rules, overrides, args, options.noteWrite);
       // From a tool call, so a save that would cut a long note by more than half is checked (`partialEtag.js`).
       return toolWriteNote(store, scope, rules, overrides, args, { ...options.noteWrite, guardShrink: true });
     case "remember":

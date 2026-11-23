@@ -29,7 +29,7 @@ export function v2ToolDefinitions() {
       title: "Write",
       description:
         "Add to or change the person's notes. With no action, saves path with content (pass the etag you " +
-        "read as expected_etag). Other actions: comment, mail, remember, answer, update_answer, " +
+        "read as expected_etag); args section or edits change one part. Other actions: comment, mail, remember, answer, update_answer, " +
         "retract_answer, vote, upload, save_session, report_problem. orient lists every action and its args.",
       inputSchema: {
         type: "object",
