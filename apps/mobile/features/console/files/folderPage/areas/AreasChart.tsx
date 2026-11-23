@@ -85,6 +85,7 @@ export function AreasChart(props: AreasChartProps) {
 
 function OrgChart({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string; ctx: Ctx }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const root = tree.seat;
   const columns = tree.areas.length + (ctx.onAdd === null ? 0 : 1);
   return (
@@ -123,7 +124,7 @@ function OrgChart({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string;
               {ctx.onAdd === null ? null : (
                 <Column at={columns - 1} of={columns}>
                   <Pressable onPress={() => ctx.onAdd?.(root)} role="button" accessibilityLabel="Add area" style={styles.ghost} testID="area-add">
-                    <Icon name="plus" size={14} color={useColors().muted} />
+                    <Icon name="plus" size={14} color={colors.muted} />
                     <Text variant="meta" style={styles.muted}>
                       Add area
                     </Text>
@@ -156,6 +157,7 @@ function Column({ at, of, children }: { at: number; of: number; children: React.
 
 function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string; ctx: Ctx }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (folder: string) =>
     setOpen((previous) => {
@@ -191,7 +193,7 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
       {tree.areas.length === 0 && ctx.onAdd !== null ? <AddLine label="Add a sub-area" onPress={() => ctx.onAdd?.(tree.seat)} /> : null}
       {tree.areas.length > 0 && ctx.onAdd !== null ? (
         <Pressable onPress={() => ctx.onAdd?.(tree.seat)} role="button" accessibilityLabel="Add area" style={[styles.ghost, styles.ghostPhone]} testID="area-add">
-          <Icon name="plus" size={14} color={useColors().muted} />
+          <Icon name="plus" size={14} color={colors.muted} />
           <Text variant="meta" style={styles.muted}>
             Add area
           </Text>
