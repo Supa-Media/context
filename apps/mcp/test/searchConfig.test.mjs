@@ -64,7 +64,7 @@ function setup() {
     {
       "inbox/todo.md": "# Todo\n\nCall the carrier about the renewal quote.\n",
       "projects/renewal.md": "# Renewal\n\nThe renewal plan.\n",
-      "archive/old-renewal.md": "# Old renewal\n\nLast year's renewal.\n",
+      "inbox/email/old-renewal.md": "# Old renewal\n\nLast year's renewal.\n",
     },
     {
       contexts: [{ name: "@me", current: true, role: "owner" }, { name: "@ops", role: "member" }],
@@ -153,11 +153,11 @@ test("a draft's hits setting is the most a search across workspaces shows", asyn
   assert.deepEqual(draft.hits.map((h) => h.key), main.hits.slice(0, 2).map((h) => h.key));
 });
 
-test("a draft's path prior changes the order: an archived note ranks as a live one at 1", async () => {
+test("a draft's path prior changes the order: a log ranks as a live note at 1 (the archive is left out, archive-apart.md)", async () => {
   const main = await findNotes(setup(), "private", [], new Map(), "renewal", "");
   const draft = await findNotes(setup(), "private", [], new Map(), "renewal", "", { config: draftWith("fuse", { logPrior: 1 }) });
-  const at = (found) => found.hits.findIndex((h) => h.key === "archive/old-renewal.md");
-  assert.ok(at(draft) < at(main), `archived note at ${at(draft)} on the draft, ${at(main)} on main`);
+  const at = (found) => found.hits.findIndex((h) => h.key === "inbox/email/old-renewal.md");
+  assert.ok(at(draft) < at(main), `logged note at ${at(draft)} on the draft, ${at(main)} on main`);
 });
 
 test("a draft out of bounds is refused, never half-used", async () => {

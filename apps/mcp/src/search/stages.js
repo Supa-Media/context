@@ -4,7 +4,7 @@
  * (`config/searchConfig.json`), in the order the graph runs them, and `withMeaning` (`meaning/serve.js`) composes the
  * same functions for every caller off the graph, so the two cannot rank differently.
  *
- *   filter  dropProbes        a benchmark's search probe never answers
+ *   filter  dropProbes        a benchmark's search probe never answers, nor an archived note outside the archive's search
  *   filter  closeMeaning      a note only meaning found must be close once the words found a note with every word
  *   merge   mergeLists        one row per note: its word rank's and its meaning rank's reciprocal-rank parts
  *   rank    addEvidence       the query's terms in the title or file name, the whole query as a phrase
@@ -19,7 +19,7 @@
  * (`rerank.js`, after the read), `prior` the path's multiplier, `used` the opens' multiplier) so the Lab shows why a note ranks; `scoreOf` adds them in the order the merge always has.
  */
 import { DEFAULT_RANKING, rankingOf } from "./ranking.js";
-import { isSearchProbe, notePrior } from "./priors.js";
+import { leftOutOfSearch, notePrior } from "./priors.js";
 import { evidenceBonus } from "./evidence.js";
 import { matchesOnlyInLinks } from "./linkMatch.js";
 import { looksLikeCode, queryLooksLikeCode } from "./codeLike.js";
@@ -33,10 +33,13 @@ export const scoreOf = (entry) => ((entry.w ?? 0) + (entry.title ?? 0) + (entry.
 const weakLast = (entry) => (entry.loose && entry.meaning === null ? 1 : 0);
 export const ranked = (entries) => [...entries].sort((a, b) => weakLast(a) - weakLast(b) || scoreOf(b) - scoreOf(a) || a.order - b.order);
 
-/** Filter: a search probe (a benchmark's tool note) dropped from the word hits, its count with it (`priors.js`). */
-export function dropProbes(found, keyField = "key") {
-  if (!found.hits.some((hit) => isSearchProbe(hit[keyField]))) return found;
-  const hits = found.hits.filter((hit) => !isSearchProbe(hit[keyField]));
+/**
+ * Filter: a search probe (a benchmark's tool note) dropped from the word hits, and an archived note unless the search
+ * is in the archive (`prefix`), their count with them (`priors.js` `leftOutOfSearch`).
+ */
+export function dropProbes(found, keyField = "key", prefix = "") {
+  if (!found.hits.some((hit) => leftOutOfSearch(hit[keyField], prefix))) return found;
+  const hits = found.hits.filter((hit) => !leftOutOfSearch(hit[keyField], prefix));
   return { ...found, hits, matchCount: Math.max(0, (found.matchCount ?? hits.length) - (found.hits.length - hits.length)) };
 }
 

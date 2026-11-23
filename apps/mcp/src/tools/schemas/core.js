@@ -65,7 +65,7 @@ export function coreToolDefinitions() {
           query: { type: "string" },
           args: {
             type: "object",
-            description: "Optional. prefix: a folder to search within. from, to: a range of days, YYYY-MM-DD. email: true searches their email. orient lists the rest.",
+            description: "Optional. prefix: a folder to search within; the archive is left out of every other search, so prefix archive/ searches it. from, to: a range of days, YYYY-MM-DD. email: true searches their email. orient lists the rest.",
           },
         },
         required: ["query"],
