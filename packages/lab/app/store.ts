@@ -57,7 +57,7 @@ export async function promoteVersion(picks?: ClashPick[]) {
   if (isMain() || lab.dirty || !promoter) return;
   try {
     await promoter(lab.cur.id, picks && picks.length > 0 ? picks : undefined);
-    toast("Promote asked: its pull request opens within 15 minutes");
+    toast("Promote asked: its pull request opens within a few minutes");
   } catch {
     toast("Couldn't ask to promote this version");
   }

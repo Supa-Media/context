@@ -18,6 +18,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalQuery, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import { applyOps, blank, conflicts, OpError, OPEN_SETS } from "@context/lab/src/texSetOps.cjs";
 import { requireAdmin } from "./lib/admin";
 import { handleForUser } from "./lib/identities";
@@ -258,7 +259,9 @@ async function askPromote(ctx: MutationCtx, who: Who, a: { ids?: unknown }, now:
   const picked = rows.filter((r) => !want || want.has(r.convoId));
   if (want && picked.length !== want.size) return { status: "not_found", error: `no draft of ${[...want].filter((id) => !rows.some((r) => r.convoId === id)).join(", ")}` };
   for (const r of picked) await ctx.db.patch(r._id, { promote: { state: "asked", by: who.userId, at: now, rev: r.rev } });
-  return { status: "ok", asked: picked.map((r) => r.convoId), then: "the pull request opens within 15 minutes; it merges through CI, and the drafts it carried are cleared" };
+  // Started at once, like a draft's Promote: GitHub's quarter-hour schedule can lag by hours.
+  await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatchPromote, {});
+  return { status: "ok", asked: picked.map((r) => r.convoId), then: "the pull request opens within a few minutes; it merges through CI, and the drafts it carried are cleared" };
 }
 
 /**

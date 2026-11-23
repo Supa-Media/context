@@ -157,7 +157,7 @@ jobs:
           if [ "$(echo "$refused" | jq length)" != "0" ]; then
             answer "$(jq -cn --argjson r "$refused" --argjson at "$ats" '{items: [$r[] | {id, at: $at[.id], why}]}')"
           fi
-          git add apps/mcp/bench/sets packages/lab/src/texSetsRepo.generated.json
+          git add apps/mcp/bench/sets packages/lab/src/texSetsRepo.generated.json packages/tex/src/texTraining.generated.json
           if git diff --cached --quiet; then
             done_ids=$(echo "$result" | jq -c '[.written[], .removed[]]')
             [ "$(echo "$done_ids" | jq length)" = "0" ] || answer "$(jq -cn --argjson d "$done_ids" --argjson at "$ats" '{items: [$d[] | {id: ., at: $at[.], why: "it is the same as main"}]}')"
