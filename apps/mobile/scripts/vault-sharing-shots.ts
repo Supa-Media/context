@@ -28,9 +28,9 @@ const OUT = resolve(process.env.VAULT_SHARING_SHOTS_DIR ?? "/tmp/vault-sharing-s
 
 const { StyleSheet } = require("react-native") as { StyleSheet: { getSheet(): { textContent: string } } };
 const { ThemeProvider } = require("../features/design/theme") as typeof import("../features/design/theme");
-const { VaultList } = require("../features/console/settings/panels/VaultPanel") as typeof import("../features/console/settings/panels/VaultPanel");
+const { VaultList } = require("../features/console/vault/VaultList") as typeof import("../features/console/vault/VaultList");
 type VaultEntry = import("../features/vault/vaultSettings").VaultEntry;
-type VaultActions = import("../features/console/settings/panels/VaultPanel").VaultActions;
+type VaultActions = import("../features/console/vault/VaultList").VaultActions;
 
 const NOW = new Date();
 const DAY = 24 * 60 * 60 * 1000;

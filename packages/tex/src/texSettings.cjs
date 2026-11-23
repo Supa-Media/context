@@ -99,7 +99,7 @@ const TEX_SETTINGS = Object.freeze([
     section: "Vault",
     where: ["1:1", "group"],
     byText: false,
-    appPath: "Context app → Settings → Vault",
+    appPath: "Context app → Vault, on the right rail (on a phone, in your account menu)",
   },
   {
     key: "computers",

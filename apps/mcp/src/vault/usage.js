@@ -1,5 +1,5 @@
 /**
- * What Settings › Vault says about each key's use (vault board 2): how many
+ * What the Vault says about each key's use (vault board 2): how many
  * times each AI used it and the last address it called, which AIs the person
  * said no to, and which are waiting for an answer now.
  *

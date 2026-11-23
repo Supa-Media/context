@@ -16,8 +16,9 @@ import { DEFAULT_ASIDE_TAB, type AsideTab } from "./tabs";
  * replay them: each takes the tab once, when it changes.
  */
 let chosen: AsideTab = DEFAULT_ASIDE_TAB;
-const seen: { started: number | null; mapOpen: boolean; noteKey: string | null } = {
+const seen: { started: number | null; vaultAt: number | null; mapOpen: boolean; noteKey: string | null } = {
   started: null,
+  vaultAt: null,
   mapOpen: false,
   noteKey: null,
 };
@@ -54,6 +55,7 @@ export function changedSinceSeen<K extends keyof typeof seen>(key: K, value: (ty
 export function forgetAsideChoice(): void {
   chosen = DEFAULT_ASIDE_TAB;
   seen.started = null;
+  seen.vaultAt = null;
   seen.mapOpen = false;
   seen.noteKey = null;
 }

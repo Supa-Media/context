@@ -3,10 +3,9 @@
 Things argued through once and not to be silently reversed. Each names what a
 "simplification" of it would cost, and most name the test that fails if so.
 
-These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim.
-`CLAUDE.md` stays short enough to be read every session and links here. **Read
-the file covering the area you are touching before you change behaviour in it**,
-and add to it when a durable decision lands.
+These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim. `CLAUDE.md`
+stays short enough to be read every session and links here. **Read the file covering the area
+you are touching before you change behaviour in it**, and add to it when a durable decision lands.
 
 Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a
 guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
@@ -401,6 +400,7 @@ guard"`. The titles are unchanged, so those citations still resolve; look for th
 
 ## [The mobile app and the console](./app-and-console.md)
 
+- [The vault is a tab on the right rail, and a phone's account sheet button, not a page of Settings](./app-and-console/vault-on-the-rail.md#the-vault-is-a-tab-on-the-right-rail-and-a-phones-account-sheet-button-not-a-page-of-settings-2026-11-23) (2026-11-23)
 - [Approvals are cards in the Tex chat, and there is no Approvals tab](./app-and-console/approvals-in-tex-chat.md#approvals-are-cards-in-the-tex-chat-and-there-is-no-approvals-tab-2026-11-19) (2026-11-19)
 - [Settings is one scrolling page, each row one line and one action](./app-and-console/settings-one-page.md#settings-is-one-scrolling-page-each-row-one-line-and-one-action-2026-11-12) (2026-11-12)
 - [Each unfinished feature has its own flag, and every flag expires](./app-and-console/feature-flags.md#each-unfinished-feature-has-its-own-flag-and-every-flag-expires-2026-11-08) (2026-11-08)

@@ -1,6 +1,6 @@
 /**
  * Where approvals live in the bucket. Apart from `approvals.js` so code that
- * only reads asks (Settings › Vault, through the control plane) does not load
+ * only reads asks (the Vault, through the control plane) does not load
  * everything that settles and replays them.
  */
 

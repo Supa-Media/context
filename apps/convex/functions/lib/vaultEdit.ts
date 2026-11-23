@@ -1,5 +1,5 @@
 /**
- * One key changed or deleted in place (Settings › Vault, the owner asked on
+ * One key changed or deleted in place (the Vault, the owner asked on
  * 2026-10-16: "I should also be able to edit it inline and save the edits
  * and have it log that I changed the password", and later "no way for me to
  * edit the url here, or even delete the key?"). Called only by the vault's

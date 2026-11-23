@@ -73,7 +73,7 @@ test("a 1:1 turn switches check-ins, quiet hours, pings, overnight and tidy in t
   assert.match(snapshot, /Texts from their other AIs: relaxed\./);
   assert.match(snapshot, /Overnight About me rewrite: off\. Daily tidy of their notes: off\./);
   assert.match(snapshot, /Workspaces they can reach: @ada \(personal, this chat's default\), @crew \(editor\)\./);
-  assert.match(snapshot, /Only in the app: .*Delete a saved login \(Context app → Settings → Vault\)/);
+  assert.match(snapshot, /Only in the app: .*Delete a saved login \(Context app → Vault, on the right rail \(on a phone, in your account menu\)\)/);
 });
 
 test("a group turn never gets the person's own switches", () => {

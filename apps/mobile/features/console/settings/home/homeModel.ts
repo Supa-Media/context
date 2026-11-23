@@ -111,7 +111,6 @@ const OPEN_ROWS: Record<SettingsSectionKey, { title: string; line: string; actio
   workspace: { title: "General", line: "", action: "Change", icon: "home" },
   sharing: { title: "People & sharing", line: "", action: "Manage", icon: "people" },
   integrations: { title: "Connected apps", line: "", action: "Manage", icon: "grid" },
-  vault: { title: "Vault", line: "", action: "Manage", icon: "key" },
   activity: { title: "Activity", line: "", action: "View", icon: "clock" },
   premium: { title: "Plan", line: "", action: "Change", icon: "card" },
   storage: { title: "Storage", line: "", action: "View", icon: "drive" },
@@ -185,7 +184,7 @@ export function settingsHome({ data, sections, texLine = null, live, canSignOut 
     const general = pick(["workspace"]).map((row) => ({ ...row, line: current.displayName || atName(current.slug) }));
     const rows = [
       ...general,
-      ...pick(["sharing", "vault", "website", "premium", "storage", "meetings", "folders", "emoji", "plugins", "activity"]),
+      ...pick(["sharing", "website", "premium", "storage", "meetings", "folders", "emoji", "plugins", "activity"]),
     ];
     /* Leaving is never more than one press (non-negotiable #1), and it is this workspace's. */
     rows.push({

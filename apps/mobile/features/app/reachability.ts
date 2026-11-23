@@ -435,7 +435,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", settings: undefined, trash: undefined })'],
+            contains: ['router.setParams({ map: "1", settings: undefined, trash: undefined, vault: undefined })'],
           },
         ],
         region: "screen",
@@ -456,7 +456,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/console/trash/TrashRouteContext.tsx",
-            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined })'],
+            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined, vault: undefined })'],
           },
         ],
         region: "switcher",
@@ -471,7 +471,29 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/console/trash/TrashRouteContext.tsx",
-            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined })'],
+            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined, vault: undefined })'],
+          },
+        ],
+        region: "account",
+        densities: PHONE,
+      },
+      /*
+        The Vault is `?vault=1` on this page (Dev, 2026-11-23,
+        `vault/route.ts`). A phone has no right rail, so its Vault is a
+        button on the account sheet and a page in the document slot; a
+        pointer layout opens the rail's Vault tab instead and takes the
+        parameter off.
+      */
+      {
+        surface: "the Vault page, from Vault in a phone's account sheet",
+        control: {
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['trigger === "phone"', 'testID: "switcher-vault"', 'else if (id === "vault") vault?.openVault();'],
+        },
+        navigation: [
+          {
+            file: "features/console/vault/route.ts",
+            contains: ['router.setParams({ vault: "1", map: undefined, trash: undefined, settings: undefined })'],
           },
         ],
         region: "account",

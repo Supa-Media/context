@@ -29,7 +29,7 @@ export type GiveSuggestion = { to: string; kind: VaultShareRow["kind"]; title: s
  * in for them, the value never shown) or "use and see" it. Worded about the
  * person, never "their AIs" first, so it reads as sharing with people.
  */
-export const LEVEL_QUESTION = "When you share it, they can:";
+export const LEVEL_QUESTION = "When you share it, they can";
 
 export const LEVEL_OPTIONS: ReadonlyArray<{ value: VaultLevel; label: string }> = [
   { value: "use", label: "Use it" },

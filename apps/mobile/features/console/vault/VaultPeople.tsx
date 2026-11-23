@@ -1,5 +1,5 @@
 /**
- * A key's People section on Settings › Vault (vault sharing boards 1 and 2):
+ * A key's People section in the Vault (vault sharing boards 1 and 2):
  * whoever has it, each with their own AIs nested under them, what they can
  * do ("Use only" or "Use and see"), and Remove, which says once in bold red
  * what it does. Under them, the Share field: type a name, pick a person, a
@@ -12,13 +12,13 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { Button } from "../../../design/components/Button";
-import { TextField } from "../../../design/components/Input";
-import { Text } from "../../../design/components/Text";
-import { radii } from "../../../design/tokens";
-import { useThemedStyles, type Colors } from "../../../design/theme";
-import { AgentFace } from "../../map/live/ui/ActorFace";
-import { Segmented } from "../../../vault/Segmented";
+import { Button } from "../../design/components/Button";
+import { TextField } from "../../design/components/Input";
+import { Text } from "../../design/components/Text";
+import { radii } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
+import { AgentFace } from "../map/live/ui/ActorFace";
+import { Segmented } from "../../vault/Segmented";
 import {
   LEVEL_OPTIONS,
   LEVEL_QUESTION,
@@ -32,8 +32,8 @@ import {
   takeBackLine,
   type VaultMoveTarget,
   type VaultShareChoices,
-} from "../../../vault/vaultPeople";
-import { vaultClientLine, type VaultClient, type VaultEntry, type VaultLevel, type VaultShareRow } from "../../../vault/vaultSettings";
+} from "../../vault/vaultPeople";
+import { vaultClientLine, type VaultClient, type VaultEntry, type VaultLevel, type VaultShareRow } from "../../vault/vaultSettings";
 
 export function VaultPeople({
   entry,
@@ -80,10 +80,10 @@ export function VaultPeople({
     clients.map((client) => (
       <View key={`${client.by ?? ""}-${client.id}`} style={styles.ai}>
         <AgentFace name={client.name ?? "AI"} size={20} />
-        <Text variant="rowSub" style={styles.flex} numberOfLines={2}>
-          <Text variant="rowTitle">{client.name ?? "An AI"}</Text>
-          {` · ${vaultClientLine(client, entry.proxy?.uses, now)}`}
-        </Text>
+        <View style={styles.flex}>
+          <Text variant="rowTitle" numberOfLines={1}>{client.name ?? "An AI"}</Text>
+          <Text variant="rowSub" style={styles.muted} numberOfLines={2}>{vaultClientLine(client, entry.proxy?.uses, now)}</Text>
+        </View>
         <CutButton label="Cut off" disabled={busy} testID={`vault-cut-${client.by ?? "you"}-${client.id}`} onPress={() => onCutOff(client.id, client.by)} />
       </View>
     ));
@@ -190,7 +190,7 @@ export function VaultPeople({
         </View>
       ) : (
         <View style={styles.give}>
-          <Text variant="rowTitle">{LEVEL_QUESTION}</Text>
+          <Text variant="eyebrow">{LEVEL_QUESTION}</Text>
           <Segmented label={LEVEL_QUESTION} options={LEVEL_OPTIONS} value={level} onChange={setLevel} disabled={busy} testID="vault-give-level" />
           <Text variant="rowSub" style={styles.levelHint} testID="vault-give-level-hint">
             {levelHint(level, entry.type)}
@@ -356,4 +356,5 @@ const makeStyles = (colors: Colors) =>
     cutDisabled: { opacity: 0.5 },
     cutText: { color: colors.critText, fontWeight: "600" },
     flex: { flex: 1, minWidth: 0 },
+    muted: { color: colors.muted },
   });

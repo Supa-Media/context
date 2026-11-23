@@ -119,9 +119,15 @@ export function consoleAsidePanel({
   joinMeeting = null,
   onSearch = null,
   texSeen = null,
+  vaultAt = null,
+  vaultIn = null,
 }: {
   data: ConsoleData;
   meetingsAt: number | null;
+  /** When `?vault=1` last asked for the Vault tab. */
+  vaultAt?: number | null;
+  /** The workspace whose vault the Vault tab shows; `null` hides the tab (the demo, a visitor, outside a workspace). */
+  vaultIn?: string | null;
   router: ConsoleRouter;
   approvals: ConsoleAside["approvals"];
   /** Join and take notes, for a meeting on the calendar; `null` where there is no calendar. */
@@ -167,6 +173,8 @@ export function consoleAsidePanel({
       <AsidePanel
         started={meetingsAt}
         tex={tex}
+        vault={vaultIn === null || data.demo ? null : { workspaceId: vaultIn }}
+        vaultAt={vaultAt}
         /*
           The homepage's visitor and the demo get the Meetings tab alone:
           their demo meeting runs here, and no AI client acts for them.

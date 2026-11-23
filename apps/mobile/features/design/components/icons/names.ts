@@ -266,7 +266,7 @@ export const ICON_NAMES = [
    */
   "lock",
   "lockOpen",
-  /** A key saved in the vault for AIs to use, beside the padlock a login is drawn with (Settings › Vault). */
+  /** A key saved in the vault for AIs to use, beside the padlock a login is drawn with (the Vault). */
   "key",
   /**
    * The third position of that same control: a link anybody who has it can

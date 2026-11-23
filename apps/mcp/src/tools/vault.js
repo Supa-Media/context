@@ -152,7 +152,7 @@ export async function toolVaultViewLink(store, args) {
   const meta = keys ? await readMeta(store, keys, store.actor?.workspaceId, args.entry) : null;
   if (meta === null || !actorMayUse(meta, store.actor)) return toolError("There is no such entry in vault_list. List the vault with vault_list and pass an id from it.");
   if (!actorMaySee(meta, store.actor)) {
-    return toolError("This key was given to the person for their AIs to use, not to see. Ask whoever saved it to let them see it in Settings › Vault.");
+    return toolError("This key was given to the person for their AIs to use, not to see. Ask whoever saved it to let them see it in the Vault.");
   }
   const minted = await calls.request({ kind: "view", entryId: args.entry, ...(env ? { env } : {}) });
   if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now. Try again in a minute; if it fails again, tell the person.");

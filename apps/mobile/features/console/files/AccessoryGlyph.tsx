@@ -66,6 +66,7 @@ const GLYPHS = {
   calendar: CALENDAR,
   people: ICONS.people!,
   page: ICONS.page!,
+  key: ICONS.key!,
   links: LINKS,
   panelLeft: panel(36),
   panelRight: panel(64),

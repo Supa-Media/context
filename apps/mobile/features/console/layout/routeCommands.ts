@@ -8,6 +8,7 @@ import {
 import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
 import { formerHandleRedirect } from "../formerHandles";
 import { trashFromQuery } from "../trash/TrashRouteContext";
+import { vaultFromQuery } from "../vault/route";
 import { mapFromQuery } from "../map/live/route";
 import { inboxFolder } from "../files/jobIcons/folderJobs";
 import { meetingsPanelFromQuery } from "../../meetings/route";
@@ -34,6 +35,7 @@ export function useConsoleParams() {
     map?: string | string[];
     trash?: string | string[];
     meetings?: string | string[];
+    vault?: string | string[];
   }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
   /*
@@ -54,7 +56,9 @@ export function useConsoleParams() {
   const trashOpen = trashFromQuery(settingsParams.trash);
   // The right panel on Meetings — where `/meetings` sends a pointer layout.
   const meetingsOpen = meetingsPanelFromQuery(settingsParams.meetings);
-  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen, meetingsOpen };
+  // The vault: the rail's tab, or a phone's page (`vault/route.ts`). An old `?settings=vault` lands here too.
+  const vaultOpen = vaultFromQuery(settingsParams.vault, settingsParams.settings);
+  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen, meetingsOpen, vaultOpen };
 }
 
 /**
