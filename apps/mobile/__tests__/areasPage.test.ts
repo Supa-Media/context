@@ -134,6 +134,12 @@ describe("the Areas folder", () => {
     expect(all("folder-view-chart")).toHaveLength(1);
     expect(all("areas-view")).toHaveLength(0);
     expect(document.body.textContent ?? "").not.toContain("engineering");
+    // Notes that never come do not leave a blank page: the plain listing takes over.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+    });
+    expect(all("areas-waiting")).toHaveLength(0);
+    expect(document.body.textContent ?? "").toContain("engineering");
   });
 
   // The owner, 2026-11-23, holding the prototype's menu beside the shipped one: the seat

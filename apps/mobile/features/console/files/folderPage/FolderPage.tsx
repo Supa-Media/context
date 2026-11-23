@@ -30,7 +30,7 @@
  * the listing exactly as before, with no switch to offer.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
@@ -70,7 +70,7 @@ import {
   type FolderItem,
   type FolderPageView,
 } from "./model";
-import { useFolderNotes, type FolderPageHost } from "./useFolderPage";
+import { SETTLE_AFTER, useFolderNotes, type FolderPageHost } from "./useFolderPage";
 import {
   folderStatuses,
   governingFolder,
@@ -144,6 +144,12 @@ export function FolderPage({
   // What the List itself just wrote, drawn before the device's copy and the listing catch up.
   const pending = usePendingNotes(folder, loaded.notes, rows);
   const notes = pending.notes;
+  // How long the Areas folder waits, empty, for its notes before it draws the plain listing instead.
+  const [gaveUp, setGaveUp] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setGaveUp(folder), SETTLE_AFTER);
+    return () => clearTimeout(timer);
+  }, [folder]);
   const [picked, setPicked] = useState<FolderPageView | null>(() =>
     host === undefined ? null : rememberedView(host.workspaceId, folder),
   );
@@ -282,11 +288,14 @@ export function FolderPage({
   // Only a projects folder and what is under it tracks progress; anywhere else a view once picked is ignored.
   const tracks = isProjectsFolder(folder);
   // The Areas folder and every area in it is drawn as seats: List or Chart (`areas/AreasView.tsx`).
-  // Decided by the folder alone, so the page never draws the plain listing first and swaps to the
-  // seats once the notes arrive (the owner saw that flicker in production): until then it waits, empty.
+  // Decided by the folder, so the page does not draw the plain listing first and swap to the seats
+  // once the notes arrive (the owner saw that flicker in production): until they land it waits,
+  // empty, under its switch. A device whose notes have not come by `SETTLE_AFTER` gets the plain
+  // listing rather than a blank page.
   const areasHere = !tracks && inAreasNow(folder);
   const seats = areasHere && notes !== null;
-  const view: FolderPageView = tracks ? (picked === "chart" ? "list" : (picked ?? "list")) : areasHere && picked === "chart" ? "chart" : "list";
+  const seatsWaiting = areasHere && notes === null && gaveUp !== folder;
+  const view: FolderPageView = tracks ? (picked === "chart" ? "list" : (picked ?? "list")) : (seats || seatsWaiting) && picked === "chart" ? "chart" : "list";
   // Until the notes can say which group each item is in, a Board holds its place, empty, rather
   // than drawing every card under No status first. The List is the listing, drawn at once.
   const waiting = view === "board" && !loaded.settled;
@@ -405,7 +414,7 @@ export function FolderPage({
         switcher={
           tracks ? (
             <ViewSwitch view={view} onChange={choose} compact={compact} />
-          ) : areasHere ? (
+          ) : seats || seatsWaiting ? (
             <ViewSwitch view={view} onChange={choose} compact={compact} views={AREA_VIEWS} />
           ) : null
         }
@@ -466,7 +475,7 @@ export function FolderPage({
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
       <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideChart !== null} mainWidth={wideBoard ?? wideChart} style={styles.contents}>
-        {areasHere && !seats ? (
+        {seatsWaiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="areas-waiting" />
         ) : seats ? (
           <View style={wideChart === null || beside !== null ? undefined : [styles.wide, { width: wideChart }]}>
