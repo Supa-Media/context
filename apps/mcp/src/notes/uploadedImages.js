@@ -57,6 +57,23 @@ export const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 export const UPLOAD_EXTENSIONS = ["png", "jpg", "gif", "webp", "heic", "heif"];
 
 /**
+ * The upload this note embeds under the same hash as `leaf` but another extension, or null.
+ *
+ * A picture is named for its bytes' hash before it is stored, and the store may then keep a compressed copy under the
+ * same hash with its own extension (`pictureCompression.js`, #2575): `upload-<hash>.jpg` is embedded as
+ * `upload-<hash>.webp`. A caller holding the first name (Tex's record of a texted picture, 2026-11-23: every texted
+ * picture since 2026-11-01 read back "not found") is answered from the second. Only a name this note itself embeds is
+ * answered, so this reaches nothing `noteReferencesImage` would not.
+ * @param {string} noteText the note's text
+ * @param {string} leaf the name asked for, `upload-<hex>.<ext>`
+ */
+export function embeddedUploadLeaf(noteText, leaf) {
+  const stem = /^(upload-[0-9a-f]{16,64})\.[a-z0-9]+$/i.exec(String(leaf ?? ""))?.[1];
+  if (!stem || typeof noteText !== "string") return null;
+  return new RegExp(`(?<![0-9a-f])${stem}\\.(?:${UPLOAD_EXTENSIONS.join("|")}|jpeg)(?![A-Za-z0-9])`, "i").exec(noteText)?.[0] ?? null;
+}
+
+/**
  * The leaf a picture attached in the call itself is stored at, named from its
  * own content: a repeat is one object. Sixteen hex characters, which is the
  * name notes already written point at, so it does not change.

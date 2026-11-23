@@ -22,9 +22,9 @@
  */
 
 import { IMAGE_TYPES } from "./attachments.js";
-import { appendLogEntry, clock, longDate } from "./jobLog.js";
+import { appendLogEntry, clock, longDate, readWithEtag } from "./jobLog.js";
 import { wallClock } from "../../../shared/src/routines.cjs";
-import { MAX_UPLOADED_BYTES_PER_WRITE, prepareNoteImages } from "../../../../apps/mcp/src/notes/uploadedImages.js";
+import { MAX_UPLOADED_BYTES_PER_WRITE, embeddedUploadLeaf, prepareNoteImages } from "../../../../apps/mcp/src/notes/uploadedImages.js";
 
 export const PICTURES_FOLDER = "tex/pictures";
 /** One write takes at most this many pictures (`write_note`'s `images`). */
@@ -70,5 +70,9 @@ export async function keepTextedPictures(dispatch, { now, timeZone, attachments,
     ? `# Pictures sent in this chat in ${month}\n\nKept so Tex can look at them again. The chat's to keep, move or delete.\n`
     : `# Pictures you texted Tex in ${month}\n\nKept so Tex can look at them again. Yours to keep, move or delete.\n`;
   const kept = await appendLogEntry(dispatch, note, entry, heading, { images }).catch(() => false);
-  return kept ? found.map(({ index, leaf }) => ({ index, leaf, note })) : [];
+  if (!kept) return [];
+  // The store keeps a compressed copy under its own name (`upload-<hash>.webp` for a `.jpg`, #2575), and the note
+  // embeds that one: the name read back from the note is the one every later look asks for (2026-11-23).
+  const written = await readWithEtag(dispatch, note);
+  return found.map(({ index, leaf }) => ({ index, leaf: (written?.body && embeddedUploadLeaf(written.body, leaf)) || leaf, note }));
 }

@@ -6,6 +6,7 @@
  */
 
 import { base64FromBytes, noteReferencesImage } from "../notes/embeds.js";
+import { embeddedUploadLeaf } from "../notes/uploadedImages.js";
 import { canSee } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { IMAGE_PREFIX, legacyStorageKey } from "../../../../packages/shared/src/storageLayout.cjs";
@@ -121,7 +122,7 @@ export function imageRefFor(value) {
 export async function toolReadImage(store, scope, rules, overrides, args) {
   const notFound = toolError("not found");
   const notePath = normalizePath(args.note);
-  const image = imageRefFor(args.image);
+  let image = imageRefFor(args.image);
   if (!notePath || !notePath.endsWith(".md") || !image) return notFound;
   /*
     **THE SECOND DOOR TO THE SAME FACT, AND IT COSTS WHAT THE FIRST DOES.**
@@ -145,7 +146,13 @@ export async function toolReadImage(store, scope, rules, overrides, args) {
   if (!seen || !present) return notFound;
   const note = await getWithLegacyFallback(store, notePath);
   if (!note) return notFound;
-  if (!noteReferencesImage(await note.text(), image)) return notFound;
+  const noteText = await note.text();
+  if (!noteReferencesImage(noteText, image)) {
+    // The same upload kept under its compressed name (`embeddedUploadLeaf`): answered only when this note embeds that one.
+    const stored = imageRefFor(embeddedUploadLeaf(noteText, image.leaf));
+    if (!stored || !noteReferencesImage(noteText, stored)) return notFound;
+    image = stored;
+  }
   const object = await getWithLegacyFallback(store, image.key);
   if (!object) return notFound;
   const bytes = new Uint8Array(await object.arrayBuffer());

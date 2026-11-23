@@ -13,9 +13,16 @@
  * `picture.bytes` in `prepareNoteImages`, name the upload link's leaf from the
  * sniffed type instead of the stored one, or drop the attach from
  * `attachImageUploads`.
+ *
+ * A picture texted to Tex (`textedPictures.js`) is named before it is stored, from the bytes that came in
+ * (`upload-<hash>.png`), and stored compressed (`upload-<hash>.webp`): from 2026-11-01 to 2026-11-23 every texted
+ * picture read back "not found" from Tex's history, which asked for the first name. Sabotage: drop the read-back in
+ * `keepTextedPictures` (its leaf says .png), or the `embeddedUploadLeaf` fallback in `toolReadImage` (the .png ask
+ * reads not found).
  */
 import { createHash } from "node:crypto";
 import { check, call, contextStore, env, worker } from "./harness.mjs";
+import { keepTextedPictures } from "../../../packages/tex/gateway/agent/textedPictures.js";
 
 const bytesOf = (head, length, fill = 0) => {
   const out = new Uint8Array(length).fill(fill);
@@ -141,6 +148,23 @@ export async function runPictureCompressionChecks() {
         manyBody.indexOf(sha(three[0]).slice(0, 16)) < manyBody.indexOf(sha(three[1]).slice(0, 16)) &&
         manyBody.indexOf(sha(three[1]).slice(0, 16)) < manyBody.indexOf(sha(three[2]).slice(0, 16)),
     );
+
+    // -- a picture texted to Tex, kept, then read back from its history by the name Tex holds
+    const TEXTED = bytesOf([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 3000, 11);
+    const textedHash = sha(TEXTED).slice(0, 16);
+    const dispatch = (name, args) => call("priv-token", name, args);
+    const kept = await keepTextedPictures(dispatch, { now: Date.parse("2026-11-23T07:37:00Z"), timeZone: "America/New_York", attachments: [{ name: "IMG_3335.png", mediaType: "image/png", data: Buffer.from(TEXTED).toString("base64") }], folder: "tex/pictures" });
+    check("a texted picture is kept under the name the store gave it, the compressed one", kept.length === 1 && kept[0].leaf === `upload-${textedHash}.webp`);
+    const pictures = kept[0]?.note ?? "tex/pictures/2026-11.md";
+    const byKept = await call("priv-token", "read_image", { note: pictures, image: kept[0]?.leaf });
+    check("Tex reads a kept texted picture back by the name it holds", byKept?.content?.find((part) => part.type === "image")?.mimeType === "image/webp");
+    // A history recorded before this fix holds the name the picture came in under.
+    const byOld = await call("priv-token", "read_image", { note: pictures, image: `upload-${textedHash}.png` });
+    check("a texted picture named by its incoming type (.png) still reads back: the note embeds the same hash as .webp", byOld?.content?.find((part) => part.type === "image")?.data === Buffer.from(WEBP).toString("base64"));
+    const otherHash = await call("priv-token", "read_image", { note: pictures, image: `upload-${"0".repeat(16)}.png` });
+    check("a hash the note does not embed is not found under any extension", otherHash?.isError === true && text(otherHash) === "not found");
+    const elsewhere = await call("priv-token", "read_image", { note: NOTE, image: `upload-${textedHash}.png` });
+    check("the same hash asked through a note that does not embed it is not found", elsewhere?.isError === true && text(elsewhere) === "not found");
   } finally {
     delete env.IMAGES;
   }
