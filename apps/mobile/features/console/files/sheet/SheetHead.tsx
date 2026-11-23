@@ -10,6 +10,7 @@ import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import { visibilityLabel, type Visibility } from "../types";
 
 export function SheetHead({ path, visibility, compact = false }: { path: string; visibility?: string; compact?: boolean }) {
   const styles = useThemedStyles(makeStyles);
@@ -28,7 +29,7 @@ export function SheetHead({ path, visibility, compact = false }: { path: string;
           </Text>
         )}
         <Text variant="meta" style={styles.sub} testID="sheet-subtitle">
-          {visibility === undefined ? "Sheet" : `Sheet · ${visibility}`}
+          {visibility === undefined ? "Sheet" : `Sheet · ${visibilityLabel(visibility as Visibility)}`}
         </Text>
       </View>
     </View>

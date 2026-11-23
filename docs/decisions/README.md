@@ -3,15 +3,11 @@
 Things argued through once and not to be silently reversed. Each names what a
 "simplification" of it would cost, and most name the test that fails if so.
 
-These moved here verbatim from `CLAUDE.md`, which links here. **Read the file
-covering the area you are touching before you change behaviour in it**, and add
-to it when a durable decision lands.
 These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim. `CLAUDE.md`
 stays short enough to be read every session and links here. **Read the file covering the area
 you are touching before you change behaviour in it**, and add to it when a durable decision lands.
 
-Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a
-guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
+Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [Storage, credentials, and the control plane](./storage-and-credentials.md)
 
