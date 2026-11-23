@@ -15,6 +15,12 @@
     {"id":"m7","text":"call them. ill do it after lunch","who":"Nia"},
     {"id":"m8","kind":"react","tex":true,"text":"👍","to":"m7","who":"Tex"},
     {"at":"Wed 11:30","id":"m9","labels":{"fd":{"must":["one number, no caveats"]}},"text":"how many chairs for 40 people","who":"Nia"},
-    {"id":"m10","tex":true,"text":"42: one each and two spares.","who":"Tex"}
+    {"id":"m10","tex":true,"text":"42: one each and two spares.","who":"Tex"},
+    {"at":"Thu 16:05","id":"m11","labels":{"fd":{"must":["what Harbour Hall said, from their email"]}},"text":"did harbour hall ever get back to us about the open day","who":"Nia"},
+    {"id":"m12","tex":true,"text":"Yes, they wrote back this morning: Saturday the 14th works, and they'll hold it for you until Friday.","who":"Tex"},
+    {"id":"m13","labels":{"fd":{"must":["read \"that\" as the hold until Friday in Tex's last message, and say what Nia needs to do before Friday to keep it"],"never":["say it isn't sure what \"that\" refers to","ask her what she means"],"star":true}},"text":"do i need to do anything about that","who":"Nia"},
+    {"id":"m14","tex":true,"text":"Yes, confirm by Friday or they'll release it. Their email says a reply to confirm is enough. Want me to draft it?","who":"Tex"},
+    {"id":"m15","labels":{"fd":{"must":["check the date against Harbour Hall's email and correct the earlier answer if it was wrong"],"never":["say the earlier answer stands without checking it","defend the earlier date because it already said it"],"star":true}},"text":"wait the 14th is a sunday","who":"Nia"},
+    {"id":"m16","tex":true,"text":"You're right, my mistake. Their email says Saturday the 13th, not the 14th. The hold until Friday is the same.","who":"Tex"}
   ]
 }
