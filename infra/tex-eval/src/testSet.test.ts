@@ -210,6 +210,12 @@ describe("the Search Test object", () => {
     expect(s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "s-2" }, now)).toMatchObject({ ok: false, why: expect.stringMatching(/commit/) });
     expect(s.startSearchRun({ pr: 7, sha: "not-a-commit", base: sha("f"), ghRun: "s-3" }, now)).toMatchObject({ ok: false });
     expect(s.searchRuns()).toHaveLength(1);
+    // A run that ended with no verdict (its job timed out or an outage stopped it) frees the commit for one more.
+    const later = now + 91 * 60 * 1000;
+    const again = s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "s-4" }, later);
+    expect(again).toMatchObject({ ok: true });
+    if (again.ok) s.finishSearchRun(again.run, "s-4", [], []);
+    expect(s.startSearchRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "s-5" }, later + 91 * 60 * 1000)).toMatchObject({ ok: false, why: expect.stringMatching(/commit/) });
   });
 
   it("caps a pull request at ten changes, and a day at a thousand runs, as the Test Set does", () => {

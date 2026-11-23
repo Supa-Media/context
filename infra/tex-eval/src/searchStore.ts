@@ -63,6 +63,9 @@ export function seedCases(sql: SqlStorage, cases: unknown[], ghRun: string, now:
   return { kept, skipped };
 }
 
+/** How long a search run with no verdict may still be running: past the gate job's 75-minute timeout, it has ended. */
+export const UNFINISHED_AFTER_MS = 90 * 60 * 1000;
+
 /** A search run starts: capped, then handed every search case. The same GitHub run asking again gets its own run back. */
 export function startSearch(sql: SqlStorage, s: RunStart, now: number) {
   if (!Number.isInteger(s.pr) || s.pr <= 0) return { ok: false as const, why: "name the pull request" };
@@ -75,7 +78,10 @@ export function startSearch(sql: SqlStorage, s: RunStart, now: number) {
   const change = s.change && SHA.test(s.change) ? s.change : null;
   const changes = sql.exec<{ n: number }>(`SELECT COUNT(DISTINCT COALESCE(change, id)) AS n FROM search_runs WHERE pr = ?`, s.pr).one().n;
   const sameChange = change !== null && sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM search_runs WHERE pr = ? AND change = ?`, s.pr, change).one().n > 0;
-  const may = mayRun({ commit: n("sha", s.sha), pr: changes, sameChange, day: n("day", dayOf(now)), allowed });
+  // A commit's run counts once it gave a verdict, or while it may still be running. One that ended with none (an
+  // outage before its answers came back) told nobody anything about the cases, so the commit may run again.
+  const commitRuns = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM search_runs WHERE sha = ? AND (verdict IS NOT NULL OR at > ?)`, s.sha, now - UNFINISHED_AFTER_MS).one().n;
+  const may = mayRun({ commit: commitRuns, pr: changes, sameChange, day: n("day", dayOf(now)), allowed });
   if (!may.ok) return { ok: false as const, why: may.why };
   if (may.spendsAllowance) sql.exec(`UPDATE allowances SET left = left - 1 WHERE pr = ?`, s.pr);
   const id = crypto.randomUUID();

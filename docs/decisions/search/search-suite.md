@@ -56,7 +56,7 @@ object world's scores beside the database's, and how many cases ranked the same,
 
 **The object path alone, since 2026-11-22** (Dev2: "why do we still have two different types of search?"). Every
 managed workspace searches in its object since 2026-11-20, so a run builds and searches the object world only, and
-its headline (`ndcg10`, right note first) and the gate (the sealed part's rank and NanoBEIR's `objectNdcg10`) read
+its headline (`ndcg10`, right note first) and the gate (the sealed part's rank) read
 the object path. `--with-database` adds the bucket world and its search database back, which is how the four
 bring-your-own-storage workspaces still search until they get objects of their own. Each search records which way it was answered
 (`pathOf`, from the gateway's own `event: "search"` trace: `object`, `database`, `index` or `scan`, and the object's
@@ -75,13 +75,15 @@ empty personal workspace, every document a note (`beir/<doc id>.md`), searched t
 The headline is nDCG@10 averaged over sets (NanoBEIR's own), beside Recall@10, MRR@10 and our right note first.
 In the Lab: `nanobeir` (all 13, 649 queries) and `nanobeir-gate` (MS MARCO, NQ, FiQA, SciFact: short searches, plain
 questions, forum-style answers and claims, the four nearest to what people and agents type into notes search; 200
-queries over about 17,600 notes). **It joins the gate, it does not replace it:** a public set cannot be sealed, so a
-change could be tuned to it, and it knows nothing of several workspaces, archives or notes that quote the question,
-which is where our searches fail. So "Search test set" passes only when the sealed part's right note first does not
-drop AND neither path's NanoBEIR nDCG@10 (database and workspace object) falls more than 0.005 below main's
-(`BEIR_TOLERANCE`: about two queries each moving one place). Main ranks first and keeps every embedding it asked for in
-a file (`BENCH_EMBED_CACHE`, saved to the Actions cache before the change runs); the change reads a copy, so its
-code never writes what main reads, and the corpus is embedded once rather than on every gate run.
+queries over about 17,600 notes). **It is no longer in the gate** (owner, 2026-11-23: "we aren't even using nanobeir
+anymore are we?"): it measures clean single-kind corpora, not the notes people keep, and a HuggingFace outage on main's
+side failed a change that ranked better. "Search test set" passes when the sealed part's right note first does not drop.
+NanoBEIR stays in the Lab as a benchmark to read.
+
+**A run that gave no verdict frees its commit.** The eval service counts a commit's search run once it gave a verdict
+or while it may still be running (`UNFINISHED_AFTER_MS`, 90 minutes, past the job's 75-minute timeout). A run that ended
+with none told nobody anything about the cases, so the commit may run again without a person allowing it
+(`infra/tex-eval/src/searchStore.ts`; test "caps search runs on search runs only").
 
 **Messy workplace data: HERB** (owner, 2026-11-21: "look for a new benchmark public that's better suited", then
 "ok, let's use herb then and see where we fall"; `packages/bench/benchmarks/herb/`). NanoBEIR's corpora are clean, one
