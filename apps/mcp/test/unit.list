@@ -766,3 +766,4 @@ test/emulators.test.mjs
 test/labPreviewChat.test.mjs
 test/sectionReads.test.mjs
 test/sectionWrites.test.mjs
+test/sectionCap.test.mjs

@@ -290,6 +290,8 @@ export async function callToolForSession(params, store, session, options = {}) {
   if (readsAcross(call?.name, call?.arguments)) {
     return inWordsOf(v2, await readNotesAcross(call.arguments, (args) => callToolForSession({ name: "read_notes", arguments: args }, store, session, { ...options, legacy: true })));
   }
+  // A model's fetch reads a long note in part unless it asks for full (`notes/readCapped.js`); the gateway's own reads are whole.
+  if (v2?.tool === "fetch") options = { ...options, fetchCap: true };
   const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed, options));
   // A real read in a Lab test chat, with what its turns wrote put in (`labSandbox/sandboxTools.js`).
   if (sandbox !== null && typeof sandbox.call === "function") return inWordsOf(v2, await afterRead(canonicalToolName(call?.name), call?.arguments, result, sandbox));

@@ -272,7 +272,7 @@ export function translateFetch(call, app = {}) {
     if (named !== null && a.section === undefined && a.lines === undefined && a.outline === undefined && a.mail === undefined) {
       return target(label, a, { name: "read_note", action: "note", fixed: { path: note, section: named }, copy: [], others: NOTE_READS });
     }
-    return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail", "outline", "section", "lines"], others: NOTE_READS });
+    return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail", "outline", "section", "lines", "full"], others: NOTE_READS });
   }
 
   // A stored file (a PDF an email carried, a spreadsheet): its words.

@@ -31,6 +31,16 @@ What counts as a heading is what a reader draws as one: never inside a code fenc
 captured message's untrusted fence. A note's machine blocks (the ```` ```comments ```` and ```` ```mail ```` fences)
 belong to no section, so a section can never take a thread or a mail record with it.
 
+## A model's fetch of a long note is capped
+
+A `fetch` with no part named reads a note up to 32,000 characters as before. A longer one returns its outline and the
+lines from its start that fit, marked as a part (`;part`), with a `more:` line naming the next lines; a day of
+messages returns its outline alone, its threads with how many messages each holds. `args { full: true }` reads it
+whole. Several notes in one `notes:` read share 64,000 characters; a note past that comes back as its outline.
+
+Only a model's v2 `fetch` is capped (`session.js` passes `fetchCap`; `tools/notes/readCapped.js`). Tex's own code, the
+gateway's writers and every legacy `read_note` call read whole, because they compare or save what they read.
+
 ## Changing a part
 
 `write_note` (and `write`'s `args`) changes one part, and the gateway builds the whole new text from the note as it
@@ -83,4 +93,4 @@ be dodged:
 - Leaving the mark on the etag for other tools makes every move or visibility change after a part read a false
   conflict.
 
-`apps/mcp/test/sectionReads.test.mjs` and `apps/mcp/test/sectionWrites.test.mjs` fail if any of these is reversed; their headers record the sabotage runs.
+`apps/mcp/test/sectionReads.test.mjs`, `sectionWrites.test.mjs` and `sectionCap.test.mjs` fail if any of these is reversed; their headers record the sabotage runs.
