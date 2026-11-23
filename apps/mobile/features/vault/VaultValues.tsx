@@ -61,7 +61,7 @@ function slots(field: RevealedField): [string, string][] {
   return order.flatMap((slot) => (typeof field.values[slot] === "string" ? [[slot, field.values[slot]] as [string, string]] : []));
 }
 
-const DOTS = "••••••••";
+const DOTS = "••••••••••••";
 
 function ValueRow({
   label,

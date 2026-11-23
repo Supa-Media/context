@@ -80,10 +80,10 @@ export function VaultPeople({
     clients.map((client) => (
       <View key={`${client.by ?? ""}-${client.id}`} style={styles.ai}>
         <AgentFace name={client.name ?? "AI"} size={20} />
-        <View style={styles.flex}>
-          <Text variant="rowTitle" numberOfLines={1}>{client.name ?? "An AI"}</Text>
-          <Text variant="rowSub" style={styles.muted} numberOfLines={2}>{vaultClientLine(client, entry.proxy?.uses, now)}</Text>
-        </View>
+        <Text variant="rowSub" style={styles.flex} numberOfLines={2}>
+          <Text variant="rowTitle">{client.name ?? "An AI"}</Text>
+          {` · ${vaultClientLine(client, entry.proxy?.uses, now)}`}
+        </Text>
         <CutButton label="Cut off" disabled={busy} testID={`vault-cut-${client.by ?? "you"}-${client.id}`} onPress={() => onCutOff(client.id, client.by)} />
       </View>
     ));
@@ -190,7 +190,7 @@ export function VaultPeople({
         </View>
       ) : (
         <View style={styles.give}>
-          <Text variant="eyebrow">{LEVEL_QUESTION}</Text>
+          <Text variant="rowTitle">{LEVEL_QUESTION}</Text>
           <Segmented label={LEVEL_QUESTION} options={LEVEL_OPTIONS} value={level} onChange={setLevel} disabled={busy} testID="vault-give-level" />
           <Text variant="rowSub" style={styles.levelHint} testID="vault-give-level-hint">
             {levelHint(level, entry.type)}
@@ -356,5 +356,4 @@ const makeStyles = (colors: Colors) =>
     cutDisabled: { opacity: 0.5 },
     cutText: { color: colors.critText, fontWeight: "600" },
     flex: { flex: 1, minWidth: 0 },
-    muted: { color: colors.muted },
   });

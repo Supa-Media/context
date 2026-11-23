@@ -191,6 +191,7 @@ export function AsidePanel({
       onUnfold={unfold}
       onFold={() => setFolded(true)}
       onSearch={onSearch}
+      vaultWaiting={vault !== null && (approvals?.items.some((item) => item.kind === "vault_use" || item.kind === "vault_pay") ?? false)}
     />
   );
 

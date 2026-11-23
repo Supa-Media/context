@@ -46,7 +46,10 @@ export function AsideStrip({
   onUnfold,
   onFold = () => {},
   onSearch = null,
+  vaultWaiting = false,
 }: {
+  /** An AI waits for a yes on one of the vault's keys (its first use, or a card at a checkout). */
+  vaultWaiting?: boolean;
   tabs: readonly AsideTab[];
   showing: AsideTab;
   recording: boolean;
@@ -134,6 +137,12 @@ export function AsideStrip({
               <Dot tone="crit" />
             </View>
           ) : null}
+          {/* A key's ask waits for a yes: the vault is marked as the approved prototype drew it, until it is the tab showing. */}
+          {tab.key === "vault" && vaultWaiting && !(open && showing === "vault") ? (
+            <View style={styles.dot} testID="aside-tab-vault-dot">
+              <Dot tone="warn" />
+            </View>
+          ) : null}
           {tab.key === "tex" && waiting !== "" ? (
             <Text variant="treeMeta" style={styles.count} testID="aside-tab-tex-count">
               {waiting}
@@ -151,7 +160,8 @@ const makeStyles = (colors: Colors) =>
     // Beside the open panel, a hairline between the rail and the panel, so the chat reads as its own column (Dev2, 2026-11-21 roast).
     stripBeside: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line },
     button: { width: 36, height: 36, borderRadius: radii.control, alignItems: "center", justifyContent: "center" },
-    current: { backgroundColor: colors.chrome },
+    // The tree's selected-row fill: `chrome` is the rail's own ground on paper, so a current tab drew nothing there.
+    current: { backgroundColor: colors.rowSelected },
     hover: { backgroundColor: colors.chrome },
     dot: { position: "absolute", top: 6, right: 6 },
     rule: { width: 22, height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginVertical: space.x1 },

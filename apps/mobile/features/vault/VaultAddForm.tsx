@@ -76,9 +76,8 @@ export function VaultAddForm({
   flush = false,
 }: {
   /**
-   * Drawn inside the Vault under its own back row (New key): no gap for a page
-   * title, and Save is the Edit form's left-aligned button rather than the
-   * page's full-width one, with its lines left-aligned to match.
+   * Drawn inside the Vault under its own back row (New key), so without the
+   * gap the vault link's page leaves under its title.
    */
   flush?: boolean;
   prefill: VaultPrefill;
@@ -276,21 +275,21 @@ export function VaultAddForm({
       {problem ? <FormError headline={problem.headline} next={problem.next} /> : null}
 
       {blocker !== null && !busy ? (
-        <Text variant="hint" style={[styles.why, flush && styles.left]} testID="vault-save-why">
+        <Text variant="hint" style={styles.why} testID="vault-save-why">
           {blocker}
         </Text>
       ) : null}
       <Button
         label={busy ? "Saving…" : "Save"}
-        variant={flush ? "dialogPrimary" : "accent"}
-        style={flush ? styles.saveFlush : styles.save}
+        variant="accent"
+        style={styles.save}
         disabled={!ready || busy}
         accessibilityLabel={isCard ? "Save card" : secret ? "Save secret" : "Save login"}
         onPress={submit}
         trailing={busy ? <ActivityIndicator color={colors.ink} size="small" /> : null}
         testID="vault-save"
       />
-      <Text variant="foot" style={[styles.foot, flush && styles.left]}>
+      <Text variant="foot" style={styles.foot}>
         {footLine(type)}
       </Text>
     </View>
@@ -345,8 +344,6 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     form: { marginTop: 26, gap: 16 },
     flush: { marginTop: 0 },
-    left: { textAlign: "left", marginBottom: 0 },
-    saveFlush: { alignSelf: "flex-start" },
     section: { gap: 10 },
     why: { textAlign: "center", marginBottom: -8 },
     save: { alignSelf: "stretch", justifyContent: "center", marginTop: 4 },

@@ -166,7 +166,7 @@ export function VaultInline({
   }
   return (
     <View style={styles.add} testID="vault-inline-add">
-      <VaultBackRow title="New key" sub="Sealed in this workspace, never shown to an AI" onBack={onClose} backLabel="Cancel the new key, back to all keys" testID="vault-inline-cancel" />
+      <VaultBackRow title="New key" onBack={onClose} backLabel="Cancel the new key, back to all keys" testID="vault-inline-cancel" />
       {body}
     </View>
   );

@@ -21,7 +21,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function rail(props: { open: boolean; showing?: AsideTab; waiting?: string; search?: boolean }) {
+function rail(props: { open: boolean; showing?: AsideTab; waiting?: string; search?: boolean; vaultWaiting?: boolean }) {
   const onUnfold = jest.fn<(tab: AsideTab | null) => void>();
   const onFold = jest.fn<() => void>();
   const onSearch = jest.fn<() => void>();
@@ -31,7 +31,7 @@ function rail(props: { open: boolean; showing?: AsideTab; waiting?: string; sear
   act(() =>
     root.render(
       createElement(AsideStrip, {
-        tabs: ["meetings", "tex"],
+        tabs: props.vaultWaiting === undefined ? ["meetings", "tex"] : ["meetings", "tex", "vault"],
         showing: props.showing ?? "tex",
         recording: false,
         open: props.open,
@@ -39,6 +39,7 @@ function rail(props: { open: boolean; showing?: AsideTab; waiting?: string; sear
         onUnfold,
         onFold,
         onSearch: props.search === false ? null : onSearch,
+        vaultWaiting: props.vaultWaiting ?? false,
       }),
     ),
   );
@@ -94,6 +95,19 @@ describe("the right rail", () => {
     expect(r.find("aside-tab-tex-count")?.textContent).toBe("2");
     expect(r.find("aside-strip-tex")?.getAttribute("aria-label")).toBe("Tex, 2 waiting");
     expect(rail({ open: false }).find("aside-tab-tex-count")).toBeNull();
+  });
+});
+
+/*
+  The approved vault prototype (Dev, 2026-11-23) marks the key when an AI
+  waits for a yes on one of its keys, until the Vault is the tab showing.
+  SABOTAGE: drop the dot from `AsideStrip` and the first line fails.
+*/
+describe("the vault's key on the rail", () => {
+  test("is dotted while a key's ask waits, except while the Vault is open", () => {
+    expect(rail({ open: false, vaultWaiting: true }).find("aside-tab-vault-dot")).not.toBeNull();
+    expect(rail({ open: true, showing: "vault", vaultWaiting: true }).find("aside-tab-vault-dot")).toBeNull();
+    expect(rail({ open: false, vaultWaiting: false }).find("aside-tab-vault-dot")).toBeNull();
   });
 });
 

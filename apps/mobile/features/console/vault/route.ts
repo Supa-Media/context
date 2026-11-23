@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { browseHref } from "../nav";
 import type { ConsoleRouter } from "../layout/types";
 
@@ -105,4 +105,30 @@ export function useConsoleVaultRoute(
     if (changed && open && selectedPath !== null) close?.();
   }, [selectedPath, open, close]);
   return route;
+}
+
+/*
+  Whether the phone's Vault page has a key (or New key) open. Then the key's
+  own back row is the page's only back, as the approved prototype drew it, so
+  the top bar's "‹ Notes" and the page's title stand aside. A store rather than
+  route state: the top bar and the page are in different slots of the frame.
+*/
+let vaultDeep = false;
+const deepListeners = new Set<() => void>();
+
+export function setVaultDeep(deep: boolean): void {
+  if (deep === vaultDeep) return;
+  vaultDeep = deep;
+  for (const listener of [...deepListeners]) listener();
+}
+
+export function useVaultDeep(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      deepListeners.add(listener);
+      return () => deepListeners.delete(listener);
+    },
+    () => vaultDeep,
+    () => vaultDeep,
+  );
 }
