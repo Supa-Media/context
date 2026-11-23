@@ -231,7 +231,11 @@ and a new capability removes or narrows the `cant` it replaces
 
 **Try changes in the Lab, not in pull requests**: a Tex or search change is a Lab
 draft tried in a test chat or benched with `tex_dev search_bench` in seconds; a
-pull request lands what won. How: [`docs/lab.md`](./docs/lab.md).
+pull request lands what won. How: [`docs/lab.md`](./docs/lab.md). A pull request that
+changes the Lab, its test chats, its bench or the previews updates `docs/lab.md`,
+`docs/preview-sandbox.md` or the `tex_dev` guide in the same pull request, or says
+"No Lab docs change: <why>"; `scripts/check-lab-docs-updated.mjs` fails it otherwise
+([lab-docs](./docs/decisions/testing/lab-docs.md)).
 
 **Tex changes merge through the replay gate**
 ([replay-gate](./docs/decisions/testing/replay-gate.md); decided by the owner,

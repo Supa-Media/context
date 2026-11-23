@@ -213,6 +213,7 @@ const REQUIRED = [
   "scripts/tex-diagram-check.mjs",
   "scripts/tex-wire-check.mjs",
   "scripts/check-tex-change-has-case.mjs",
+  "scripts/check-lab-docs-updated.mjs",
   "scripts/check-speed-budget.mjs",
   "scripts/public-privacy.test.mjs",
   "scripts/check-secrets-allowlist.mjs",
@@ -382,7 +383,7 @@ function assertShallowFetchStripped() {
       if (result !== `${indent}:`) throw new Error(`a bare fetch was not neutralized: ${source.trim()} -> ${JSON.stringify(result)}`);
     }
   }
-  if (fetches !== 3) throw new Error(`expected three BASE_SHA fetches in fast-guards.yml, found ${fetches}`);
+  if (fetches !== 4) throw new Error(`expected four BASE_SHA fetches in fast-guards.yml, found ${fetches}`);
   assertGuardPhaseLeavesHistory(executed.filter((step, index) => original[index].includes('"$BASE_SHA"')));
 }
 
