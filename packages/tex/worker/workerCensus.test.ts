@@ -8,6 +8,7 @@
 //   `census` counting a failed ask as empty                          "a malformed id or a failed ask" fails
 //   `census` dropping `nameAt` (no `named` index)                    "an object still here answers the index ..." fails
 //   `adoptable` keeping a name without checking its id                "a 1:1 object works out its own name ..." fails
+//   `archive` archiving an object that is not here                     "only an object still here is archived ..." fails
 import { describe, expect, it } from "vitest";
 import { adoptable, census, censusOf, maskKey, namesById, selfNames, type ObjectCensus } from "./workerCensus";
 import { PLACE_KEY } from "./inboxMove";
@@ -97,5 +98,40 @@ describe("a 1:1 object no known name matches", () => {
     const found = await adoptable(here, async (id) => (asked.push(id[0]), ["+15555550199", "+15555550100"]), idOf);
     expect(found).toEqual([{ id: "a".repeat(64), name: "+15555550100" }]);
     expect(asked).toEqual(["a", "b"]);
+  });
+});
+
+describe("the archive of what no name leads to", () => {
+  it("a stored value is made plain JSON, bytes included", async () => {
+    const { plainValue } = await import("./workerCensus");
+    expect(plainValue(new Uint8Array([104, 105]))).toEqual({ __bytes: "aGk=" });
+    expect(plainValue(new Map([["a", 1]]))).toEqual({ __map: [["a", 1]] });
+    expect(plainValue({ at: new Date(5), list: [new Set([1])] })).toEqual({ at: { __date: 5 }, list: [{ __set: [1] }] });
+  });
+
+  it("a box holding more than the archive takes is refused whole", async () => {
+    const { exportOf, EXPORT_KEYS } = await import("./workerCensus");
+    const many = new Map(Array.from({ length: EXPORT_KEYS + 1 }, (_, at) => [`k${at}`, at] as [string, unknown]));
+    expect(await exportOf({ list: async (options) => new Map([...many].slice(0, options?.limit)) })).toBeNull();
+    expect(await exportOf({ list: async () => new Map([["chat", { chatId: "x" }]]) })).toEqual([["chat", { chatId: "x" }]]);
+  });
+
+  it("only an object still here is archived; moved, purged and empty ones are left, and a failed keep is counted failed", async () => {
+    const { archive } = await import("./workerCensus");
+    const states: Record<string, ObjectCensus> = {
+      ["a".repeat(64)]: { state: "here", keys: 2, kind: "chat" },
+      ["b".repeat(64)]: { state: "moved", keys: 0 },
+      ["c".repeat(64)]: { state: "here", keys: 1, kind: "directory" },
+      ["d".repeat(64)]: { state: "here", keys: 3, kind: "chat" },
+      ["e".repeat(64)]: { state: "here", keys: 9000, kind: "chat" },
+    };
+    const kept: string[] = [];
+    const counts = await archive([...Object.keys(states), "../x"], {
+      census: async (id) => states[id] ?? null,
+      export: async (id) => (id[0] === "e" ? null : [["k", id[0]]]),
+      keep: async (id) => (id[0] === "d" ? "failed" : id[0] === "c" ? "already" : (kept.push(id[0]), "kept")),
+    });
+    expect(counts).toEqual({ asked: 6, archived: 1, already: 1, notHere: 1, tooBig: 1, failed: 2 });
+    expect(kept).toEqual(["a"]);
   });
 });

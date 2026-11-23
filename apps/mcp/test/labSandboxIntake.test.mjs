@@ -277,3 +277,21 @@ test("an iMessage sender's 1:1, named by an email address, is copied in too", as
     w.restore();
   }
 });
+
+test("an archive of the Worker's objects still holding data is staff only and passes the counts on", async () => {
+  const w = world();
+  const asked = [];
+  w.env.TEXTING.census = async () => assert.fail("an archive asks no census here");
+  w.env.TEXTING.archive = async (call) => (asked.push(call.ids.length), { asked: 1, archived: 1, already: 0, notHere: 0, tooBig: 0, failed: 0 });
+  try {
+    assert.equal((await w.call(STRANGER, { op: "intake", workerIds: [MINE], archive: true })).status, 403);
+    const answered = await w.call(DEV, { op: "intake", workerIds: [MINE], archive: true });
+    assert.equal(answered.status, 200);
+    assert.equal(answered.body.archived, 1);
+    assert.deepEqual(asked, [1]);
+    delete w.env.TEXTING.archive;
+    assert.equal((await w.call(DEV, { op: "intake", workerIds: [MINE], archive: true })).status, 501);
+  } finally {
+    w.restore();
+  }
+});

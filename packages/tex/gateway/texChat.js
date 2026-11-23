@@ -31,6 +31,7 @@ import { NOTE_RUNS_PATH, serveNoteRuns } from "./texChat/noteRuns.js";
 import { serveAppSeenGet, serveAppSeenPost } from "./texChat/appSeen.js";
 import { isDirectoryName, serveDirectory } from "./texChat/directory.js";
 import { BY_ID_PATH, indexChat, isByIdName, serveById } from "./texChat/byId.js";
+import { ARCHIVE_PATH, isArchiveName, serveArchive } from "./texChat/workerArchive.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
@@ -58,6 +59,8 @@ export function texChatClass({ gateway, texts }) {
       if (url.pathname === NOTE_RUNS_PATH) return await serveNoteRuns(request, this.state.storage);
       // A chat's index by the id its addresses carry (`texChat/byId.js`): its own object, named `byid:`.
       if (url.pathname === BY_ID_PATH && isByIdName(request.headers.get(INBOX_NAME_HEADER))) return await serveById(request, this.state.storage);
+      // A sealed copy of a Worker chat box no name leads to (`texChat/workerArchive.js`): its own object, named `archive:`.
+      if (isArchiveName(request.headers.get(INBOX_NAME_HEADER))) return url.pathname === ARCHIVE_PATH ? await serveArchive(request, this.state.storage) : new Response(null, { status: 404 });
       if (request.method === "POST" && url.pathname === "/arrive") return await this.arrive(request);
       // The app chat's calls (`texChat/appChat.js`): the gateway's `/tex/app-chat` route, and only for an app chat.
       if (request.method === "POST" && url.pathname === "/app/arrive") {
