@@ -29,6 +29,7 @@ import {
 
 export const ROW_HEIGHT = 34;
 export const COLUMN_WIDTH = 168;
+const NARROW_COLUMN_WIDTH = 128;
 const GUTTER_WIDTH = 44;
 const ADD_WIDTH = 44;
 const MAX_BODY_HEIGHT = 480;
@@ -100,7 +101,9 @@ export function SheetGrid({
   // Columns share the width the grid has, as a table does, and never go narrower than COLUMN_WIDTH: past that the grid scrolls.
   const [frameWidth, setFrameWidth] = useState(0);
   const chrome = GUTTER_WIDTH + (readOnly ? 0 : ADD_WIDTH) + 2;
-  const colWidth = columns.length === 0 ? COLUMN_WIDTH : Math.max(COLUMN_WIDTH, Math.floor((frameWidth - chrome) / columns.length));
+  // A phone's screen takes narrower columns, as the approved phone design draws them.
+  const minWidth = frameWidth > 0 && frameWidth < 600 ? NARROW_COLUMN_WIDTH : COLUMN_WIDTH;
+  const colWidth = columns.length === 0 ? minWidth : Math.max(minWidth, Math.floor((frameWidth - chrome) / columns.length));
   const width = { width: colWidth };
   const bodyWidth = GUTTER_WIDTH + columns.length * colWidth + (readOnly ? 0 : ADD_WIDTH);
   const bodyHeight = Math.min(MAX_BODY_HEIGHT, Math.max(1, order.length) * ROW_HEIGHT);
@@ -283,7 +286,8 @@ export function SheetGrid({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    scroll: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, backgroundColor: colors.ground },
+    // `width: 100%`: the frame is as wide as the page and the table scrolls inside it, never the frame growing to the table.
+    scroll: { width: "100%", borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, backgroundColor: colors.ground },
     table: {},
     header: { flexDirection: "row", height: 32, backgroundColor: colors.surface2, borderBottomWidth: 1, borderColor: colors.line },
     gutterHead: { width: GUTTER_WIDTH, borderRightWidth: 1, borderColor: colors.line, backgroundColor: colors.surface2 },

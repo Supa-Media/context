@@ -374,7 +374,7 @@ export function noteDocument(view: NoteView) {
             On a phone the page draws its own title and the grid gets the
             screen's 16pt gutter and room under it for the floating buttons.
           */
-          <View style={compact ? { paddingHorizontal: 16, paddingBottom: 96 } : undefined}>
+          <View style={[{ width: "100%", alignSelf: "stretch" }, compact ? { paddingHorizontal: 16, paddingBottom: 96 } : null]}>
           <SheetView
             path={state.path!}
             compact={compact}
