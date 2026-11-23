@@ -16,8 +16,8 @@ import { expandWorkspaces, parseTest, readBenchFolder } from "../load.mjs";
 const set = await loadHardSet({ parseTest });
 
 test("the hard set has forty-one questions, numbered and run as Priya", () => {
-  assert.equal(set.cases.length, 41);
-  assert.deepEqual(set.cases.map((c) => c.id), Array.from({ length: 41 }, (_, i) => `hard-${i + 1}`));
+  assert.equal(set.cases.length, 44);
+  assert.deepEqual(set.cases.map((c) => c.id), Array.from({ length: 44 }, (_, i) => `hard-${i + 1}`));
   assert.equal(set.runAs, "Priya");
   assert.equal(set.today, "2026-10-08");
 });

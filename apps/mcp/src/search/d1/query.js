@@ -30,6 +30,7 @@
  */
 
 import { wordForms } from "./wordForms.js";
+import { FILLER_WORDS } from "../text.js";
 
 /**
  * Field weights for `bm25()`.
@@ -128,11 +129,32 @@ function wordTerm(token, extra = [], forms = true) {
   return unique.length === 1 ? unique[0] : `(${unique.join(" OR ")})`;
 }
 
-function tokensOf(query) {
+function allTokensOf(query) {
   return query
     .split(/[^\p{L}\p{N}_]+/u)
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
+}
+
+/** Words of one or two letters that only say how a question is asked, beside `FILLER_WORDS` (three letters or more). */
+const SHORT_FILLER = new Set(["a", "an", "am", "as", "at", "be", "by", "do", "i", "if", "in", "is", "it", "me", "my", "of", "on", "or", "so", "to", "we"]);
+
+const isFiller = (token) => {
+  const lower = token.toLowerCase();
+  return SHORT_FILLER.has(lower) || FILLER_WORDS.has(lower);
+};
+
+/**
+ * The words a query asks the index for: its own words without the ones that only say how it is asked ("what did we
+ * decide about", "where do we keep"), or every word when it has nothing else. Every word has to be in a chunk for the
+ * strict expression to match it, and a note that states an answer rarely holds the question's "what", "did" and "we",
+ * while a long meeting transcript holds them all: production, 2026-11-23, "what did we decide about bring your own
+ * bucket" found only transcripts, never the decisions note, until the filler words were left out.
+ */
+function tokensOf(query) {
+  const tokens = allTokensOf(query);
+  const content = tokens.filter((token) => !isFiller(token));
+  return content.length > 0 ? content : tokens;
 }
 export const SNIPPET_OPEN = "";
 export const SNIPPET_CLOSE = "";
