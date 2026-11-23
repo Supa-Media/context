@@ -80,6 +80,13 @@ export const CAPABILITIES = Object.freeze([
     ],
   },
   {
+    name: "Sheets",
+    actions: ["write.rows"],
+    texts: "a sheet is a .csv note with each column's type after a colon in its header (date:date,value:number,by:person); make one by saving the header row (write save), read its rows filtered or sorted (fetch the .csv path with where, sort, last, limit), and add, change or delete rows (write rows): a row that doesn't fit the column types is refused whole and nothing is written; who sees a sheet is set like a note",
+    group: "the same, in the shared workspaces everyone here is a member of, for sheets their whole team sees",
+    guest: "only sheets in this chat's folder",
+  },
+  {
     name: "Who sees a note",
     actions: ["manage.visibility", "manage.folder_visibility", "manage.share_link", "manage.revoke_link"],
     texts: "make a note or folder private or team, name people who may open it, make or turn off a link to it, or read which links are on (fetch links:); anything that lets more people see runs only when their own words asked for it, except bringing a note back to its team folder's default, which just runs",

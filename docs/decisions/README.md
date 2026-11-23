@@ -279,6 +279,15 @@ guard"`. The titles are unchanged, so those citations still resolve; look for th
 - An owner is picked, never typed
 - Agents are a list the workspace writes, each optionally somebody's
 
+## [Sheets](./sheets.md)
+
+- One `.csv` file per sheet, types in the header
+- Nothing a reader does drops a cell
+- A sheet saves like a note
+- Who sees a sheet is set like a note
+- Reading through fetch
+- What is deliberately not built
+
 ## [The chaos score](./chaos-score.md)
 
 - It is one opinion, on purpose

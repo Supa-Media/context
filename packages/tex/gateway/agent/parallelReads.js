@@ -46,6 +46,7 @@ export const PARALLEL_READS = new Set([
   "read_notes",
   "list_notes",
   "read_file",
+  "read_sheet",
   "read_image",
   "read_email",
   "related_notes",

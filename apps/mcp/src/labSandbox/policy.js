@@ -212,7 +212,7 @@ export function controlPlaneAnswer(path, body, gate) {
  */
 export const READ_TOOLS = Object.freeze(
   new Set([
-    "orient", "scope_info", "list_notes", "read_note", "read_notes", "evaluate_lists", "search_notes", "related_notes", "read_file", "read_image",
+    "orient", "scope_info", "list_notes", "read_note", "read_notes", "evaluate_lists", "search_notes", "related_notes", "read_file", "read_sheet", "read_image",
     "list_meetings", "read_meeting", "read_calendar", "list_channel_days", "read_channel_day", "list_contacts", "read_contact", "read_activity",
     "list_changes", "search_email", "read_email", "search_texts", "list_texts", "read_texts", "read_google_chat", "app_read", "list_links", "list_plugins",
     "read_back", "read_thread", "read_day", "group_chats", "earlier_texts", "earlier_chat", "tex_settings_get", "chat_status", "job_status", "ask_advisor", "open_page",

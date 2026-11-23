@@ -66,6 +66,7 @@ import { toolOrient, toolScopeInfo } from "../orient/tool.js";
 import { toolReadActivity } from "../activity/readActivity.js";
 import { toolReadImage } from "./readImage.js";
 import { toolReadFile } from "./readFile.js";
+import { toolReadSheet } from "./readSheet.js";
 import { toolRotateEncryptionKeys } from "./encryption/rotate.js";
 import { toolSaveContext } from "./saveContext.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "./visibility.js";
@@ -202,6 +203,8 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolReadContact(store, scope, rules, overrides, args);
     case "read_file":
       return toolReadFile(store, scope, rules, overrides, args.path, args.from, args.summary ?? null);
+    case "read_sheet":
+      return toolReadSheet(store, scope, rules, overrides, args);
     case "read_image":
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
