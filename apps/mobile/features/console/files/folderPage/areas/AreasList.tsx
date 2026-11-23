@@ -263,7 +263,7 @@ function FileRow({ entry, depth, shared }: { entry: ItemEntry; depth: number; sh
   const styles = useThemedStyles(makeStyles);
   const kind = fileKind(entry);
   const folder = kind === "folder";
-  const name = displayName(entry.name);
+  const name = displayName(entry.name).replace(/\.page$/, "");
   const notes = folder ? shared.notesUnder(entry.path) : 0;
   return (
     <Pressable
