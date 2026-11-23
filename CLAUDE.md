@@ -229,6 +229,10 @@ and a new capability removes or narrows the `cant` it replaces
 [capabilities](./docs/decisions/texting-assistant/capabilities.md));
 `apps/mcp/test/capabilities.test.mjs` fails when a tool or command is missing.
 
+**Try changes in the Lab, not in pull requests**: a Tex or search change is a Lab
+draft tried in a test chat or benched with `tex_dev search_bench` in seconds; a
+pull request lands what won. How: [`docs/lab.md`](./docs/lab.md).
+
 **Tex changes merge through the replay gate**
 ([replay-gate](./docs/decisions/testing/replay-gate.md); decided by the owner,
 2026-11-13): a Tex change adds the case that proves it, and one that reaches a
