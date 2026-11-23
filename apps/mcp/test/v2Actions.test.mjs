@@ -81,6 +81,13 @@ test("write comment nests its args as comment, with the path beside it", () => {
   );
 });
 
+test("write rows nests its args as rows, with the path and etag beside it", () => {
+  assert.deepEqual(
+    translated("write", { action: "rows", path: "a.csv", args: { append: [{ value: "1" }], expected_etag: "e1" } }),
+    { name: "write_note", arguments: { path: "a.csv", expected_etag: "e1", rows: { append: [{ value: "1" }] } }, v2: { tool: "write", action: "rows" } },
+  );
+});
+
 test("write mail nests its args as mail, with the path beside it", () => {
   assert.deepEqual(translated("write", { action: "mail", path: "a.md", args: { body: "hi" } }).arguments, {
     mail: { body: "hi" },
@@ -415,7 +422,7 @@ test("every row of ACTIONS names a tool, and every row is covered above", () => 
   const rows = Object.entries(ACTIONS).flatMap(([verb, actions]) => Object.keys(actions).map((action) => `${verb}.${action}`));
   const covered = new Set([
     // `write.save_many` is covered through the worker in `bulkNotes.test.mjs`.
-    ...["write.save", "write.save_many", "write.comment", "write.mail", "write.upload", "write.remember", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
+    ...["write.save", "write.save_many", "write.comment", "write.mail", "write.upload", "write.remember", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem", "write.rows"],
     ...MANAGE.map(([action]) => `manage.${action}`),
     ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.forward_rule", "send.notify", "send.slack", "send.google_chat", "send.app"],
   ]);

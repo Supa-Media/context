@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, View, type ListRenderItemInfo } from "react-native";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { selectOptions } from "../../../../../mcp/src/sheets/csv.js";
 import { CellDisplay } from "./CellDisplay";
@@ -285,7 +285,7 @@ const makeStyles = (colors: Colors) =>
     },
     typeGlyph: { color: colors.muted, width: 14, textAlign: "center" },
     headName: { color: colors.text2, flexShrink: 1, fontWeight: "500" },
-    sortMark: { color: colors.accentText, fontSize: 10 },
+    sortMark: { color: colors.accentText, fontSize: pointerType.label },
     addHead: { width: ADD_WIDTH, alignItems: "center", justifyContent: "center" },
     plus: { color: colors.muted, lineHeight: 18 },
     row: { flexDirection: "row", height: ROW_HEIGHT },

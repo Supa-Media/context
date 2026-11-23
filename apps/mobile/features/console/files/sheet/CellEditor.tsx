@@ -8,10 +8,11 @@
 
 import { Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { DateField } from "./DateField";
 import type { ColumnType } from "./sheetModel";
+import { useFieldFont } from "../../../design/fieldFont";
 
 /** Choices a select or person editor offers for what has been typed. */
 export function suggestionsFor(choices: readonly string[], draft: string, limit = 6): string[] {
@@ -42,6 +43,7 @@ export function CellEditor({
   onSubmit: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.ui);
   const colors = useColors();
   const web = Platform.OS === "web";
 
@@ -66,7 +68,7 @@ export function CellEditor({
         keyboardType={type === "number" || type === "usd" ? "decimal-pad" : "default"}
         autoCapitalize="none"
         autoCorrect={false}
-        style={[styles.input, (type === "number" || type === "usd") && styles.right]}
+        style={[styles.input, (type === "number" || type === "usd") && styles.right, fieldFont]}
         testID="sheet-cell-editor"
       />
       {suggestions.length === 0 ? null : (
@@ -95,7 +97,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.sm,
       color: colors.text,
       backgroundColor: colors.ground,
-      fontSize: 13,
+      fontSize: pointerType.ui,
       outlineStyle: "none",
     } as object,
     right: { textAlign: "right", fontVariant: ["tabular-nums"] } as object,

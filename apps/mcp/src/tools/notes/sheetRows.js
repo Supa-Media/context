@@ -45,20 +45,21 @@ async function readSheet(store, scope, rules, overrides, path) {
 
 export async function toolWriteSheetRows(store, scope, rules, overrides, args, options = {}) {
   const path = normalizePath(args.path);
-  if (!path || !isSheetPath(path)) return toolError("rows changes a sheet: pass the path of a .csv file");
+  if (!path || !isSheetPath(path)) return toolError("rows changes a sheet: call it again with the path of a .csv file.");
   const problem = rowsProblem(args.rows);
   if (problem) return toolError(problem);
   const appendOnly = args.rows.update === undefined && args.rows.delete === undefined;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const current = await readSheet(store, scope, rules, overrides, path);
-    if (!current) return toolError("not found: write the sheet first with its header row, e.g. content \"date:date,value:number\\n\"");
+    if (!current) return toolError("not found: save the sheet first with its header row (content \"date:date,value:number\\n\"), then add rows.");
     const sheet = parseSheet(current.text);
     if (sheet.tooLarge || sheet.errors.length) {
-      return toolError(`this sheet does not read back whole (${sheet.errors.slice(0, 3).map((e) => `line ${e.line}: ${e.message}`).join("; ")}); fix it before changing rows`);
+      const lines = sheet.errors.slice(0, 3).map((e) => `line ${e.line}: ${e.message}`).join("; ");
+      return toolError(`fix the sheet with write save, then change rows again: it does not read back whole (${lines}).`);
     }
     const changed = changeRows(sheet, args.rows);
-    if (!changed.ok) return toolError(`nothing was written: ${changed.errors.slice(0, 8).join("; ")}`);
+    if (!changed.ok) return toolError(`nothing was written: ${changed.errors.slice(0, 8).join("; ")}. Call it again with values that fit each column.`);
     const expected = attempt === 0 && typeof args.expected_etag === "string" ? args.expected_etag : current.etag;
     const saved = await toolWriteNote(store, scope, rules, overrides, {
       path,
@@ -76,5 +77,5 @@ export async function toolWriteSheetRows(store, scope, rules, overrides, args, o
     ].filter(Boolean);
     return toolText(`path: ${path}\netag: ${etagLine(saved) ?? ""}\nrows: ${changed.sheet.rows.length}\n\n${parts.join(", ") || "no change"}.`);
   }
-  return toolError("conflict: the sheet kept changing while this was written; read it again and retry");
+  return toolError("conflict: the sheet kept changing while this was written; fetch it again, then try again.");
 }

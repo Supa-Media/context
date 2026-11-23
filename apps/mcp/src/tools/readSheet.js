@@ -33,30 +33,30 @@ const columnText = (column) => `${column.name}:${column.type}`;
 function queryArgs(args) {
   const { where = [], sort, last, limit = DEFAULT_LIMIT, columns } = args;
   if (!Array.isArray(where) || where.some((f) => !isObject(f) || typeof f.column !== "string")) {
-    return { error: 'where is a list of { column, op, value }, with the column\'s name in each' };
+    return { error: 'call it again with where as a list of { column, op, value }, naming the column in each' };
   }
   if (sort !== undefined && (!isObject(sort) || typeof sort.column !== "string" || (sort.direction !== undefined && sort.direction !== "asc" && sort.direction !== "desc"))) {
-    return { error: 'sort is { column, direction }, with the column\'s name and direction "asc" or "desc"' };
+    return { error: 'call it again with sort as { column, direction }, direction "asc" or "desc"' };
   }
-  if (last !== undefined && (!Number.isInteger(last) || last < 0)) return { error: "last is a whole number of rows: the final n rows" };
-  if (!Number.isInteger(limit) || limit < 0 || limit > MAX_LIMIT) return { error: `limit is a whole number of rows from 0 to ${MAX_LIMIT}` };
+  if (last !== undefined && (!Number.isInteger(last) || last < 0)) return { error: "call it again with last as a whole number of rows: the final n rows" };
+  if (!Number.isInteger(limit) || limit < 0 || limit > MAX_LIMIT) return { error: `call it again with limit as a whole number of rows from 0 to ${MAX_LIMIT}` };
   if (columns !== undefined && (!Array.isArray(columns) || columns.some((c) => typeof c !== "string"))) {
-    return { error: "columns is a list of column names" };
+    return { error: "call it again with columns as a list of column names" };
   }
   return { query: { where, sort, last, limit, columns } };
 }
 
 export async function toolReadSheet(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
-  if (!path) return toolError("invalid path");
-  if (!isSheetPath(path)) return toolError("read_sheet opens a .csv sheet; pass a note to read_note, or another file to read_file instead");
+  if (!path) return toolError("invalid path: call it again with the sheet's full path, ending in .csv.");
+  if (!isSheetPath(path)) return toolError("read_sheet opens a .csv sheet: call read_note for a note, or read_file for another file, instead.");
   const parsed = queryArgs(args);
   if (parsed.error) return toolError(parsed.error);
 
   const seen = canSee(path, scope, rules, overrides);
   const present = Boolean(await probeWithLegacyFallback(store, path));
   const obj = seen && present ? await getWithLegacyFallback(store, path) : null;
-  if (!seen || !present || !obj) return toolError("not found");
+  if (!seen || !present || !obj) return toolError("not found: check the path with search, then try again.");
 
   // Too big to be a sheet is still a CSV: read_file pages through it, as fetch did before sheets.
   const declared = Number.isFinite(obj.size) ? obj.size : 0;
@@ -66,7 +66,7 @@ export async function toolReadSheet(store, scope, rules, overrides, args = {}) {
 
   const problems = queryProblems(sheet, parsed.query);
   if (problems.length) {
-    return toolError(`read_sheet refused: ${problems.join("; ")}. The columns are ${sheet.columns.map(columnText).join(", ")}`);
+    return toolError(`read_sheet refused: ${problems.join("; ")}. Call it again with these columns: ${sheet.columns.map(columnText).join(", ")}`);
   }
   // A row is an object keyed by column name with its `line` added, so a column called `line` would be
   // overwritten: such a CSV is read as a file's words instead, never shown with the wrong numbers.

@@ -4,8 +4,9 @@
  */
 
 import { StyleSheet, TextInput } from "react-native";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import { useFieldFont } from "../../../design/fieldFont";
 
 export function DateField({
   value,
@@ -21,6 +22,7 @@ export function DateField({
   onSubmit: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.ui);
   const colors = useColors();
   return (
     <TextInput
@@ -34,7 +36,7 @@ export function DateField({
       onSubmitEditing={onSubmit}
       autoCapitalize="none"
       autoCorrect={false}
-      style={styles.input}
+      style={[styles.input, fieldFont]}
       testID="sheet-cell-editor"
     />
   );
@@ -51,6 +53,6 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.sm,
       color: colors.text,
       backgroundColor: colors.ground,
-      fontSize: 13,
+      fontSize: pointerType.ui,
     },
   });

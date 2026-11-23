@@ -98,13 +98,11 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   // A sheet is written whole only when it reads back as one: a broken row is told while the text is in hand
   // (`sheets/csv.js`, `docs/decisions/sheets.md`). Its rows are changed one by one with write action rows.
   if (sheet) {
-    if (Array.isArray(args.images) && args.images.length) return toolError("a sheet (.csv) holds no images: save it without images");
+    if (Array.isArray(args.images) && args.images.length) return toolError("a sheet (.csv) holds no images: save it again without images.");
     const parsed = parseSheet(content);
     if (parsed.tooLarge || parsed.errors.length) {
-      return toolError(
-        `that is not a sheet that reads back whole: ${parsed.errors.slice(0, 5).map((e) => (e.line ? `line ${e.line}: ` : "") + e.message).join("; ")}. ` +
-          "Nothing was written; fix the CSV and save again.",
-      );
+      const lines = parsed.errors.slice(0, 5).map((e) => (e.line ? `line ${e.line}: ` : "") + e.message).join("; ");
+      return toolError(`nothing was written: fix the CSV, then save it again. It does not read back whole as a sheet: ${lines}.`);
     }
   }
   if (isPlumbing(path)) return toolError("that path is reserved: pick another path outside Context's own files");

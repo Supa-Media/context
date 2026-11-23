@@ -5,6 +5,8 @@
  */
 
 import { useColors } from "../../../design/theme";
+import { pointerType } from "../../../design/tokens";
+import { useFieldFont } from "../../../design/fieldFont";
 
 export function DateField({
   value,
@@ -19,6 +21,8 @@ export function DateField({
   onSubmit?: () => void;
 }) {
   const colors = useColors();
+  // 16px on a phone, so the browser does not zoom into the field.
+  const fieldFont = useFieldFont(pointerType.ui);
   return (
     <input
       type="date"
@@ -38,7 +42,7 @@ export function DateField({
         background: colors.ground,
         color: colors.text,
         font: "inherit",
-        fontSize: 13,
+        fontSize: fieldFont?.fontSize ?? pointerType.ui,
       }}
     />
   );

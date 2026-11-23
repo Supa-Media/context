@@ -10,10 +10,11 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { Popover, type Anchor } from "./Popover";
 import { COLUMN_TYPE_ORDER, TYPE_GLYPH, TYPE_LABEL, type ColumnType, type SheetColumn } from "./sheetModel";
+import { useFieldFont } from "../../../design/fieldFont";
 
 export interface ColumnMenuActions {
   onRename: (to: string) => void;
@@ -38,6 +39,7 @@ export function ColumnMenu({
   onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.ui);
   const colors = useColors();
   const [name, setName] = useState(column.name);
   const [renamed, setRenamed] = useState(false);
@@ -71,7 +73,7 @@ export function ColumnMenu({
           editable={!readOnly}
           accessibilityLabel="Column name"
           autoFocus={!readOnly}
-          style={styles.field}
+          style={[styles.field, fieldFont]}
           testID="sheet-column-name"
         />
         {readOnly ? null : (
@@ -144,7 +146,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.sm,
       color: colors.text,
       backgroundColor: colors.ground,
-      fontSize: 13,
+      fontSize: pointerType.ui,
     } as object,
     types: { flexDirection: "row", flexWrap: "wrap" },
     type: {

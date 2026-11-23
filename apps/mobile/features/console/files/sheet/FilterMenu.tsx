@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { Popover, type Anchor } from "./Popover";
 import {
@@ -21,6 +21,7 @@ import {
   type SheetData,
   type SheetFilter,
 } from "./sheetModel";
+import { useFieldFont } from "../../../design/fieldFont";
 
 export function FilterMenu({
   sheet,
@@ -34,6 +35,7 @@ export function FilterMenu({
   onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.ui);
   const colors = useColors();
   const [column, setColumn] = useState<SheetColumn | null>(null);
   const [op, setOp] = useState<FilterOp | null>(null);
@@ -134,7 +136,7 @@ export function FilterMenu({
               placeholder={current.type === "date" ? "YYYY-MM-DD" : "Value, then Enter"}
               placeholderTextColor={colors.chromeMuted}
               accessibilityLabel="Filter value"
-              style={styles.field}
+              style={[styles.field, fieldFont]}
               testID="sheet-filter-value"
             />
             <Pressable
@@ -183,7 +185,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.sm,
       color: colors.text,
       backgroundColor: colors.ground,
-      fontSize: 13,
+      fontSize: pointerType.ui,
     } as object,
     add: { height: 28, justifyContent: "center", paddingHorizontal: space.x2 },
   });
