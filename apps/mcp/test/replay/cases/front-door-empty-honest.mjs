@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { EMPTY_FALLBACK, EMPTY_NOTICE, emptyFallback } from "../../../../../packages/tex/gateway/agent/replyChecks.js";
 import { frontDoorChecks } from "../../../../../packages/tex/gateway/agent/untriedWeb.js";
+import { translateFetch } from "../../../src/tools/v2/searchFetch.js";
 
 export default {
   id: "front-door-empty-honest",
@@ -21,5 +22,17 @@ export default {
     assert.match(line, /the email didn't go through/);
     assert.doesNotMatch(line, /lost/);
     assert.doesNotMatch(EMPTY_FALLBACK, /lost/);
+
+    // 2026-11-23, the same ask in a Lab test chat: Tex fetched the email with from: the sender and summary: true, was
+    // refused on types, and ended empty. Those two are an attachment's; the refusal now says so and how to read the email.
+    const id = "email:me@team.example/1a205a21935afbd5";
+    for (const args of [{ from: "sarah@team.example" }, { summary: true }]) {
+      const refused = translateFetch({ id, args });
+      assert.match(refused.error, /reads the whole email with no args/);
+      assert.match(refused.error, /from \(where to start in a long attachment/);
+      assert.match(refused.error, /Call it again with no args/);
+    }
+    assert.equal(translateFetch({ id }).error, undefined);
+    assert.match(translateFetch({ id, args: { mail: true } }).error, /go only with attachment/);
   },
 };

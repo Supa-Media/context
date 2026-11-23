@@ -210,7 +210,13 @@ export function translateFetch(call, app = {}) {
     return target(label, a, { name: "google_chat", action: "chat_spaces", fixed: { action: "spaces" }, copy: ["account"] });
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
-    return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"] });
+    // The email itself takes no args; its three are an attachment's (Dev2, 2026-11-23: a Lab run read `from` as the sender
+    // and `summary` as "summarize", was refused twice, and ended with no answer). Said once, with what each one is.
+    const ATTACHMENT_ONLY = "; from (where to start in a long attachment, a number its more: line gave) and summary (totals over a CSV, an object) go only with attachment";
+    if (a.attachment === undefined && (a.from !== undefined || a.summary !== undefined)) {
+      return { error: `${label} reads the whole email with no args${ATTACHMENT_ONLY}. Call it again with no args to read the email.` };
+    }
+    return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment", "from", "summary"], others: ATTACHMENT_ONLY });
   }
 
   // A chat's history file reads as the note it is, with that note's access.
