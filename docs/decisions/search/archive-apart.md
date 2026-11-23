@@ -8,6 +8,6 @@ Dev2, 2026-11-23: "archive is supposed to be out of search results I thought?" a
 - **The archive's search.** A search whose folder (`prefix`) is inside the archive keeps archived notes. The search tool's description says so (prefix archive/), so an AI client knows where to look.
 - Logs elsewhere (Inbox communications, Tex's logs, the activity log) are still lowered, not removed.
 
-**Bench.** No case expects an archived note. Embedder faked: search-real dev 5/10 and training 17/30 unchanged, NanoBEIR gate 0.506 unchanged, search-hard 36 → 35 of 41 (one long-note case 1 → 2, from the reciprocal ranks shifting once an archived meaning match is gone; the gate on real embeddings decides).
+**Bench.** No case expects an archived note. Embedder faked: search-real dev 5/10 and training 17/30 unchanged, NanoBEIR gate 0.506 unchanged, search-hard 36 → 35 of 41 alone, and 37 → 36 of 44 with the asked-question change (one long-note case 1 → 2, from the reciprocal ranks shifting once an archived meaning match is gone; fake-embedder runs have misled before, so the gate on real embeddings decides).
 
 **What a simplification would cost:** lowering instead of leaving out shows the archive again whenever its words match best. **Tests:** `apps/mcp/test/searchPriors.test.mjs` ("regular search leaves archive out", "a search inside the archive is the archive's own"; each sabotage-checked).
