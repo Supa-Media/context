@@ -117,6 +117,16 @@ describe("the sheet grid", () => {
     expect(cell(0, 0).textContent).toBe("Hulu");
   });
 
+  test("New row opens its first cell for typing, so the keys land in the sheet", () => {
+    const { changes } = mount();
+    press($('[data-testid="sheet-new-row"]') as HTMLElement);
+    const field = $('[data-testid="sheet-cell-editor"]') as HTMLElement;
+    expect(field).not.toBeNull();
+    typeInto(field, "Phone");
+    key(fieldIn(field), "Enter");
+    expect(changes.at(-1)).toBe("name,renews:date,amount:usd,paid:checkbox\nNetflix,2026-12-01,$15,true\nGym,2026-12-09,40,false\nPhone,,,\n");
+  });
+
   test("arrows move the selection, and a typed character starts an edit with that character", () => {
     const { changes } = mount();
     press(cell(0, 0));

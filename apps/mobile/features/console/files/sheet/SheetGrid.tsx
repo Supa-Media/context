@@ -173,7 +173,7 @@ export function SheetGrid({
                 style={styles.headCell}
                 testID="sheet-header"
               >
-                <Text variant="mono" style={styles.typeGlyph} accessibilityLabel={c.type}>
+                <Text variant="mono" numberOfLines={1} style={styles.typeGlyph} accessibilityLabel={c.type}>
                   {TYPE_GLYPH[c.type]}
                 </Text>
                 <Text variant="meta" numberOfLines={1} style={styles.headName}>
@@ -283,7 +283,7 @@ const makeStyles = (colors: Colors) =>
       borderRightWidth: 1,
       borderColor: colors.line,
     },
-    typeGlyph: { color: colors.muted, width: 14, textAlign: "center" },
+    typeGlyph: { color: colors.muted, minWidth: 18, textAlign: "center" },
     headName: { color: colors.text2, flexShrink: 1, fontWeight: "500" },
     sortMark: { color: colors.accentText, fontSize: pointerType.label },
     addHead: { width: ADD_WIDTH, alignItems: "center", justifyContent: "center" },

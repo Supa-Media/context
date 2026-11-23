@@ -235,7 +235,9 @@ export function SheetView({ path, text, readOnly, people = [], onChangeText }: S
     if (readOnly || columns.length === 0) return;
     const at = sheet.rows.length;
     commit((t) => appendRow(t));
+    // The new row's first cell opens for typing, so keys go into the sheet and not the app's own shortcuts.
     setSelection({ row: at, col: columns[0].name });
+    startEdit(at, columns[0].name, "");
   };
 
   const addColumnAt = (side: "end" | "left" | "right", name: string | null) => {
