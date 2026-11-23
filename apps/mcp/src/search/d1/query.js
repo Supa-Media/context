@@ -30,6 +30,7 @@
  */
 
 import { wordForms } from "./wordForms.js";
+import { FILLER_WORDS } from "../text.js";
 
 /**
  * Field weights for `bm25()`.
@@ -133,6 +134,33 @@ function tokensOf(query) {
     .split(/[^\p{L}\p{N}_]+/u)
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
+}
+
+/** Words of one or two letters that only say how a question is asked, beside `FILLER_WORDS` (three letters or more). */
+const SHORT_FILLER = new Set(["a", "an", "am", "as", "at", "be", "by", "do", "i", "if", "in", "is", "it", "me", "my", "of", "on", "or", "so", "to", "we"]);
+
+const isFiller = (token) => {
+  const lower = token.toLowerCase();
+  return SHORT_FILLER.has(lower) || FILLER_WORDS.has(lower);
+};
+
+/**
+ * The typing expression over a query's own words, without the ones that only say how it is asked ("what did we",
+ * "where do we"): `null` when that leaves nothing or asks what `toTypingMatchExpression` asks.
+ *
+ * Every word has to be in one chunk for the strict expression to match, and a note that states an answer rarely
+ * holds the question's "what", "did" and "we", while a long meeting transcript holds them all: production,
+ * 2026-11-23, "what did we decide about bring your own bucket" found only transcripts, never the decisions note.
+ * So where the strict expression found rows, the caller ranks these instead (`d1/serve.js`), a superset of them.
+ * Where it found none, the any-word retry over every word stands, as before: on natural questions (NanoBEIR's) it
+ * ranks better than every content word required.
+ */
+export function toContentMatchExpression(query) {
+  if (typeof query !== "string") return null;
+  const content = tokensOf(query).filter((token) => !isFiller(token));
+  if (content.length === 0) return null;
+  const expression = toTypingMatchExpression(content.join(" "));
+  return expression === toTypingMatchExpression(query) ? null : expression;
 }
 export const SNIPPET_OPEN = "";
 export const SNIPPET_CLOSE = "";

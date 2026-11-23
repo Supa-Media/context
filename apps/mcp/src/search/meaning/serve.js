@@ -32,7 +32,7 @@ import { snippetFromText } from "./snippet.js";
 import { rankMeaningMatches } from "./project.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
 import { DEFAULT_RANKING, rankingOf } from "../ranking.js";
-import { isSearchProbe } from "../priors.js";
+import { leftOutOfSearch } from "../priors.js";
 import { createD1Client } from "../d1/client.js";
 import { passageSnippets } from "../d1/passages.js";
 import { phase } from "../../mcp/phase.js";
@@ -172,7 +172,7 @@ export async function meaningMatches(
         match.path.endsWith(".md") &&
         match.path !== ACTIVITY_PATH &&
         !isPlumbing(match.path) &&
-        !isSearchProbe(match.path) &&
+        !leftOutOfSearch(match.path, prefix) &&
         (!prefix || match.path.startsWith(prefix)) &&
         isVisible(match.path),
     );
@@ -317,11 +317,11 @@ async function snippetsFor(store, reading, chars, given) {
  * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number, query?: string | null,
  *   projection?: {client: () => object, filling: boolean} }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection, query, ranking: given } = {}) {
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, projection, query, prefix = "", ranking: given } = {}) {
   const settings = searchSettingsOf(store);
   // The merge's knobs (`../ranking.js`): a search graph step hands its own; main's otherwise.
   const ranking = rankingOf(given);
-  const words = dropProbes(found, keyField);
+  const words = dropProbes(found, keyField, prefix);
   const kept = closeMeaning(words, matches, ranking, keyField);
   const merged = mergeLists(words.hits, kept, keyField, query, ranking, Array.isArray(matches) && matches.length > 0);
   const ranked = lowerByPath(addEvidence(merged, query, ranking, keyField), ranking);
@@ -348,6 +348,6 @@ export async function readMeaningOnly(store, entries, chars, projection = undefi
  */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
   const [found, matches] = await Promise.all([phase(store, "word_search", wordSearch), phase(store, "meaning", () => meaningMatches(store, options))]);
-  return await phase(store, "merge", () => withMeaning(store, found, matches, { query: options?.query, ...shape }));
+  return await phase(store, "merge", () => withMeaning(store, found, matches, { query: options?.query, prefix: options?.prefix ?? "", ...shape }));
 }
 

@@ -83,3 +83,28 @@ export function isSearchProbe(path) {
   if (typeof path !== "string") return false;
   return withoutWorkspace(path).split("/").slice(0, -1).includes(SEARCH_PROBE_FOLDER);
 }
+
+/**
+ * Is `path` archived: a note in the workspace's archive folder. Regular search leaves it out, and searching inside
+ * the archive folder (a `prefix` there) is the archive's own search (Dev2, 2026-11-23: "archive is supposed to be out
+ * of search results" and "search archive should be separate from regular search").
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+export function isArchived(path) {
+  if (typeof path !== "string") return false;
+  const segments = withoutWorkspace(path).split("/");
+  return segments.length > 1 && topLevelRole(segments[0]) === "archive";
+}
+
+/** Whether a search's folder (`prefix`) is inside the archive: then it is the archive's search. */
+export function searchesArchive(prefix) {
+  if (typeof prefix !== "string" || prefix === "") return false;
+  return topLevelRole(withoutWorkspace(prefix).replace(/^\/+/, "").split("/")[0]) === "archive";
+}
+
+/** Whether a search in `prefix` leaves the note at `path` out: a search probe always, an archived note unless the search is the archive's. */
+export function leftOutOfSearch(path, prefix = "") {
+  return isSearchProbe(path) || (isArchived(path) && !searchesArchive(prefix));
+}

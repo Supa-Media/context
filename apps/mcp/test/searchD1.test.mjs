@@ -37,6 +37,7 @@
  *   `upsertStatements` deleting only from the note's own table     1
  *   `chunkText` with no overlap                                    1
  *   `toMatchExpression` passing the query through unquoted         1
+ *   `toContentMatchExpression` keeping filler words                1
  *   `COLUMN_WEIGHTS` missing its two UNINDEXED zeroes              1
  *
  * For the `ftsTableFor` block at the end:
@@ -61,6 +62,7 @@ import {
   searchParams,
   searchSql,
   tablesForTier,
+  toContentMatchExpression,
   toMatchExpression,
 } from "../src/search/d1/query.js";
 
@@ -307,6 +309,13 @@ export async function runSearchD1Checks(check) {
     check("an empty query yields no expression", toMatchExpression("") === null);
     check("a non-string yields no expression", toMatchExpression(null) === null);
     db.close();
+  }
+
+  {
+    // A question's own words: its filler left out, every word kept when it has nothing else.
+    check("a query of only filler words asks no second expression", toContentMatchExpression("what is it") === null);
+    check("filler words are left out of the content expression", !/"where"|"we"/.test(toContentMatchExpression("where do we keep the spare key")));
+    check("a query with no filler asks no second expression", toContentMatchExpression("spare key") === null);
   }
 
   {

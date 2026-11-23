@@ -302,8 +302,8 @@ function visibleStep(input, io) {
   return carry({ ...input, unreached }, workspaces);
 }
 
-/** `probes` (filters): a benchmark's search probe dropped from the word hits (`dropProbes`). */
-const probesStep = perWorkspace((ws) => ({ ...ws, found: dropProbes(ws.found) }));
+/** `probes` (filters): a benchmark's search probe dropped from the word hits, and archived notes outside the archive's search (`dropProbes`). */
+const probesStep = perWorkspace((ws, input) => ({ ...ws, found: dropProbes(ws.found, "key", input.prefix ?? "") }));
 
 /** `floor` (filters): a note only meaning found must reach `meaningFloor` once the words found a note with every word. */
 const floorStep = perWorkspace((ws, _input, io) => ({ ...ws, matches: closeMeaning(ws.found, ws.matches, rankingFor(io.node?.settings)) }));

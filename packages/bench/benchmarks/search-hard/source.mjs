@@ -27,6 +27,7 @@ export const KINDS = Object.freeze([
   "link-only",
   "near-duplicate",
   "opened",
+  "asked",
 ]);
 
 /** Every .md file under `dir`, as forward-slash paths relative to it. */

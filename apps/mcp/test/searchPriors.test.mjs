@@ -16,11 +16,14 @@
  *   meetings demoted with the logs           → "meetings are not logs" fails
  *   meetings weighed as unfiled Inbox notes  → "meetings are not logs" fails
  *   `isSearchProbe` always false             → "a search-probe note is never an answer" fails
+ *   `searchesArchive` always true            → "regular search leaves archive out" fails
+ *   `searchesArchive` always false           → "a search inside the archive is the archive's own" fails
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LOG_PRIOR, isSearchProbe, notePrior } from "../src/search/priors.js";
+import { LOG_PRIOR, isArchived, isSearchProbe, leftOutOfSearch, notePrior, searchesArchive } from "../src/search/priors.js";
+import { dropProbes } from "../src/search/stages.js";
 import { mergeHits } from "../src/search/meaning/serve.js";
 import { DEFAULT_RANKING } from "../src/search/ranking.js";
 
@@ -111,4 +114,27 @@ test("the activity log is a log, in any workspace; a note named like it in a fol
   assert.equal(notePrior("activity.md"), LOG_PRIOR);
   assert.equal(notePrior("@supa/activity.md"), LOG_PRIOR);
   assert.equal(notePrior("projects/launch/activity.md"), 1);
+});
+
+test("regular search leaves archive out, in any workspace", () => {
+  assert.equal(isArchived("archive/chat-history/2026-10.md"), true);
+  assert.equal(isArchived("@seyi/4-archive/old-plan.md"), true);
+  assert.equal(isArchived("projects/archive-plan.md"), false);
+  assert.equal(leftOutOfSearch("@supa/archive/projects/tex/notes.md"), true);
+  assert.equal(leftOutOfSearch("products/tex/overview.md"), false);
+  const found = { hits: [{ key: "archive/old.md" }, { key: "projects/live.md" }], matchCount: 2 };
+  assert.deepEqual(dropProbes(found).hits.map((hit) => hit.key), ["projects/live.md"]);
+  assert.equal(dropProbes(found).matchCount, 1);
+});
+
+test("a search inside the archive is the archive's own", () => {
+  assert.equal(searchesArchive("archive"), true);
+  assert.equal(searchesArchive("archive/projects/"), true);
+  assert.equal(searchesArchive("4-archive/"), true);
+  assert.equal(searchesArchive("projects/"), false);
+  assert.equal(searchesArchive(""), false);
+  assert.equal(leftOutOfSearch("archive/old.md", "archive/"), false);
+  assert.equal(leftOutOfSearch("search-probes/x.md", "archive/"), true);
+  const found = { hits: [{ key: "archive/old.md" }], matchCount: 1 };
+  assert.deepEqual(dropProbes(found, "key", "archive").hits.map((hit) => hit.key), ["archive/old.md"]);
 });

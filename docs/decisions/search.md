@@ -168,3 +168,11 @@ Moved to [Across workspaces, word hits are scored on one scale (and a workspace 
 ### Every open of a note is logged in its workspace's object, and search ranks a note that holds every word by its opens
 
 Moved to [Every open of a note is logged in its workspace's object, and search ranks a note that holds every word by its opens](./search/note-opens.md#every-open-of-a-note-is-logged-in-its-workspaces-object-and-search-ranks-a-note-that-holds-every-word-by-its-opens).
+
+### The words that only say how a question is asked are left out of the word index's query
+
+Moved to [The words that only say how a question is asked are left out of the word index's query](./search/asked-questions.md#the-words-that-only-say-how-a-question-is-asked-are-left-out-of-the-word-indexs-query).
+
+### Regular search leaves the archive out; a search inside `archive/` is the archive's search
+
+Moved to [Regular search leaves the archive out; a search inside `archive/` is the archive's search](./search/archive-apart.md#regular-search-leaves-the-archive-out-a-search-inside-archive-is-the-archives-search).

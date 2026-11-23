@@ -184,7 +184,7 @@
       "benchmark": "search-hard",
       "title": "Search",
       "variant": "Made-up hard",
-      "total": 41,
+      "total": 44,
       "kind": "search",
       "search": true,
       "score": "first",

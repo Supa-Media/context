@@ -252,8 +252,8 @@ describe("the Search suite's rows and scores", () => {
     const w = await world();
     const hard = await w.door("eval_run", { bench: "search-hard", models: "cc" });
     expect(hard).toMatchObject({ status: "ok" });
-    expect(await w.t.query(internal.functions.labEvals.job, { runId: hard.id })).toMatchObject({ bench: "search-hard", n: 41, models: "gw" });
-    expect(await w.door("eval_run", { bench: "search-hard", n: 42 })).toMatchObject({ status: "bad_request" });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId: hard.id })).toMatchObject({ bench: "search-hard", n: 44, models: "gw" });
+    expect(await w.door("eval_run", { bench: "search-hard", n: 45 })).toMatchObject({ status: "bad_request" });
     const real = await w.door("eval_run", { bench: "search-real" });
     expect(real).toMatchObject({ status: "ok" });
     expect(await w.t.query(internal.functions.labEvals.job, { runId: real.id })).toMatchObject({ bench: "search-real", n: 10, models: "gw" });

@@ -6,7 +6,7 @@ today: 2026-10-08
 
 # Search, hard
 
-Forty-one made-up questions for the search suite, asked by Priya, who reaches seven workspaces: her own, fashion-brand, band, wedding-planning, book-club, day-job and the-flat. A question passes when an expected note is first in the answer. What makes these hard is that the easy match is often the wrong note. A saved assistant session that quotes the question word for word ranks as high as the note that answers it, because it shares every word. A note in another workspace that uses the same words about a different subject can outrank the one that is about the subject. A long note keeps its answer far down, past the part a search reads first. An archived copy repeats the live note's words in a folder no one reads. A paraphrase shares no words with the note's title, and a title-only, a person, a date, a link-only a near-duplicate or an opened question each takes a different shortcut that a word match alone does not solve. The distractors are written to win on words, so a search that only counts words fails them, and the expected note is still the one a person would open.
+Forty-four made-up questions for the search suite, asked by Priya, who reaches seven workspaces: her own, fashion-brand, band, wedding-planning, book-club, day-job and the-flat. A question passes when an expected note is first in the answer. What makes these hard is that the easy match is often the wrong note. A saved assistant session that quotes the question word for word ranks as high as the note that answers it, because it shares every word. A note in another workspace that uses the same words about a different subject can outrank the one that is about the subject. A long note keeps its answer far down, past the part a search reads first. An archived copy repeats the live note's words in a folder no one reads. A paraphrase shares no words with the note's title, and a title-only, a person, a date, a link-only, a near-duplicate, an opened or an asked question each takes a different shortcut that a word match alone does not solve. The distractors are written to win on words, so a search that only counts words fails them, and the expected note is still the one a person would open.
 
 ## 1. band leaders reading list
 
@@ -214,3 +214,18 @@ Forty-one made-up questions for the search suite, asked by Priya, who reaches se
 
 - expect: @priya/trips/lisbon-packing-list.md
 - kind: opened
+
+## 42. what is the price for the caterer
+
+- expect: @wedding-planning/decisions/2026-11-03-caterer.md
+- kind: asked
+
+## 43. where do we keep the spare key
+
+- expect: @the-flat/keys-and-fobs.md
+- kind: asked
+
+## 44. who books the room for the thursday session
+
+- expect: @day-job/meetings/thursday-session-notes.md
+- kind: asked
