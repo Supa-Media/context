@@ -333,13 +333,14 @@ async function selfTest() {
   expect(node(m5.config, "fd").ctx.includes("p-rules-extra-test") && !node(m5.config, "fd").ctx.includes("date"), "a context list merge lost a side");
   expect(m5.words["rules-extra-test"] === "Extra.", "a new module's words were lost in the merge");
 
-  // A wire main added is kept; a wire the draft added lands.
+  // A wire main added is kept; a wire the draft added lands. Wires neither config has yet (send → learn and send →
+  // afterReply are on main, and a wire there twice is a config that does not load).
   const main6 = copy(config);
-  main6.edges.push({ from: "send", to: "learn", mode: "background", when: ["merge-test"] });
+  main6.edges.push({ from: "send", to: "checkin", mode: "background", when: ["merge-test"] });
   const draft6 = graph(base);
-  draft6.edges.push({ from: "send", to: "afterReply", mode: "background", when: ["merge-test"] });
+  draft6.edges.push({ from: "send", to: "notify", mode: "background", when: ["merge-test"] });
   const m6 = run(draft6, side(base), side(main6));
-  expect(m6.config?.edges.some((e) => e.to === "learn" && e.when[0] === "merge-test") && m6.config?.edges.some((e) => e.to === "afterReply" && e.when[0] === "merge-test"), "a wire from one side was lost");
+  expect(m6.config?.edges.some((e) => e.to === "checkin" && e.when[0] === "merge-test") && m6.config?.edges.some((e) => e.to === "notify" && e.when[0] === "merge-test"), `a wire from one side was lost (${m6.refused ?? ""})`);
 
   // Words: main changed a module the draft did not touch, and the draft changed another: both kept. Both changed one: clash.
   const names = Object.keys(words);
