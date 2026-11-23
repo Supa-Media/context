@@ -741,7 +741,7 @@ export async function runTurn(options) {
           messages.push({ role: "tool", id: made.id, name: made.name, text, isError: true });
           escalate = true;
           tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " "), result: text }); // the words it was told, so a step shows why
-          failed({ tool: made.name, cause: resolved.cause ?? "no_such_action", text: resolved.error, round }); // or `unknown_argument` (`sixTools.js`)
+          failed({ tool: made.name, cause: resolved.cause ?? "no_such_action", text: resolved.error, round, action: made.args?.action }); // or `unknown_argument` (`sixTools.js`)
         });
         return { ran: false, effects };
       }

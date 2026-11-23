@@ -30,6 +30,8 @@ import { LATER_NOTICE, promisesLater } from "../../../packages/tex/gateway/agent
 import {
   ASK_NOTICE,
   EMPTY_FALLBACK,
+  emptyFallback,
+  isFallback,
   EMPTY_NOTICE,
   NOTES_NOTICE,
   SCRIPT_NOTICE,
@@ -94,6 +96,44 @@ test("an empty answer gets one more round, and the second answer is the one sent
   } finally {
     world.restore();
   }
+});
+
+test("on the front door too, an empty answer gets one more round, and the second answer is the one sent", async () => {
+  // Dev2, 2026-11-23: three refused sends ended in an empty answer, and the front door, which ran no reply checks, texted the fallback.
+  const world = await createEgressWorld();
+  try {
+    world.model.install([{ text: "" }, { text: "Sent it, she's copied." }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "can you reply looping her in?", conversation: "texts" });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.equal(asked.body.answer, "Sent it, she's copied.");
+    assert.ok(JSON.stringify(world.model.requests.at(-1).messages).includes("your answer is empty"));
+  } finally {
+    world.restore();
+  }
+});
+
+test("an answer still empty after refused sends says the email didn't go through, never that it got lost", async () => {
+  const world = await createEgressWorld();
+  try {
+    const flat = { action: "email", to: ["dana@example.com"], subject: "Re: plan", body: "Looping her in." };
+    world.model.install([{ toolCalls: [{ name: "send", args: flat }] }, { text: "" }, { text: "" }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "reply looping her in", conversation: "texts" });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.equal(asked.body.answer, emptyFallback([{ tool: "send", action: "email" }]));
+    assert.match(asked.body.answer, /the email didn't go through/);
+    assert.doesNotMatch(asked.body.answer, /got lost/);
+  } finally {
+    world.restore();
+  }
+});
+
+test("the fallback names only what failed, and says nothing failed when nothing did", () => {
+  assert.equal(emptyFallback([]), EMPTY_FALLBACK);
+  assert.doesNotMatch(EMPTY_FALLBACK, /lost|sent/);
+  assert.match(emptyFallback([{ tool: "send_email" }, { tool: "send", action: "email" }, { tool: "browse" }]), /: the email and the web lookup didn't go through\./);
+  assert.match(emptyFallback([{ tool: "read_widget" }]), /: a step didn't go through/);
+  assert.equal(isFallback(emptyFallback([{ tool: "calendar_event" }])), true);
+  assert.equal(isFallback("Sorry, I couldn't make it."), false);
 });
 
 test("an answer still empty is never sent as nothing", async () => {

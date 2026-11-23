@@ -301,9 +301,9 @@ export async function toolReadEmail(store, args) {
   const sources = [`${EMAIL_ID_PREFIX}${parsed.address}/${parsed.messageId}`];
   if (wanted !== undefined) {
     const words = await attachmentWords(store, message, answer.attachment, {
-      from: Number.isInteger(args?.from) && args.from > 0 ? args.from : 0,
+      from: Number.isInteger(args?.start) && args.start > 0 ? args.start : 0, // `start`, never `from`, which reads as the sender (Dev2, 2026-11-23)
       summary: args?.summary && typeof args.summary === "object" ? args.summary : null,
-      next: (at) => `fetch id "${EMAIL_ID_PREFIX}${parsed.address}/${parsed.messageId}" with args { attachment: ${wanted}, from: ${at} }`,
+      next: (at) => `fetch id "${EMAIL_ID_PREFIX}${parsed.address}/${parsed.messageId}" with args { attachment: ${wanted}, start: ${at} }`,
     });
     return words.isError === true ? words : { ...words, sources };
   }

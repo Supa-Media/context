@@ -129,7 +129,7 @@ export function emailToolDefinitions() {
             minimum: 1,
             description: "Optional. An attachment's number as the email lists it (1 for the first): returns the words in that PDF, Word, Excel or picture file instead of the email.",
           },
-          from: {
+          start: {
             type: "integer",
             minimum: 0,
             description: "Optional, with attachment. Where to start in a long attachment: the number its last part's more: line gave.",

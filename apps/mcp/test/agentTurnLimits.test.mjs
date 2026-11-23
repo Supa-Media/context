@@ -179,7 +179,8 @@ test("a turn with earlier turns is told their lookups happened", async () => {
   // The earlier-turns note is said in the person's turn, after the system prompt (`turn.js`): the request is read for it.
   const sent = JSON.stringify(ai.calls[0].input.messages);
   assert.match(sent, /you did use them/, "the words-only history is explained");
-  assert.match(sent, /Never take back or doubt an earlier answer/);
+  assert.match(sent, /an earlier answer is not wrong just because its lookups are missing here/);
+  assert.doesNotMatch(sent, /Never take back or doubt/, "Dev2, 2026-11-23: a blanket \"never doubt\" had Tex defend a line the person was pushing back on");
 
   const first = scripted([chat("Tuesday.")]);
   await turn(first, { notes: { prompt: "You are Context." } });
