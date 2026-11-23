@@ -36,6 +36,8 @@ Search runs from its own config, `apps/mcp/src/search/config/searchConfig.json`.
 4. **Keep what wins:** a draft wins only if it is no worse on every bench, not just the one you were aiming at (`search-hard` and `search-real` are what the gate looks like). Then `tex_dev promote { draft }`. The sealed **Search test set** gate scores it on main before merge.
 5. **Check it live:** after production, run a handful of real questions through `search_notes`. The bench is a proxy, and live queries are the final check.
 
+The real set (`search-real`) grows from Tex's own failed searches: `tex_dev failed_searches { chat, days }` lists, in one call, each note search Tex ran again or gave up on, with its top hits and the note Tex read in the end. Rewrite each into a case, never verbatim, with made-up notes of the same shape.
+
 `search_bench { list: true }` names the benches that have saved queries. A bench's queries are saved by its last Lab eval run on main (`tex_dev eval_run { bench, code: "main" }`, once). Re-run that after a change to the index code (`searchIndex.js`, `meaningIndex.js` and the bench object files), because those rebuild the bench worlds.
 
 ### A new behaviour (needs code)

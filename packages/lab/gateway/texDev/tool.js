@@ -16,6 +16,7 @@ import { draftProblems, draftVsMain } from "./check.js";
 import { ACTIONS, guideText } from "./guide.js";
 import { caseRoom, labAction, labWording, putBackOps, snapshotSim } from "./lab.js";
 import { chatsOf, entriesOf, openChat, turnsOf } from "./probe.js";
+import { failedSearchesOf } from "./failedSearches.js";
 import { jobsAnswer, linkAnswer, mineAnswer, momentsAnswer, promptAnswer, turnAnswer } from "./replay.js";
 import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
@@ -368,6 +369,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
       case "turns":
       case "turn":
       case "entries":
+      case "failed_searches":
       case "moments":
       case "prompt":
       case "jobs":
@@ -380,6 +382,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
           const answer =
             action === "turns" ? await turnsOf(env, p.page, args, ledgerOf ? { ledgerOf } : {})
             : action === "entries" ? await entriesOf(env, p.page, args)
+            : action === "failed_searches" ? await failedSearchesOf(env, p.page, args, ledgerOf ? { ledgerOf } : {})
             : action === "turn" ? await turnAnswer(env, p.page, args, deps)
             : action === "moments" ? await momentsAnswer(env, p.page, args, deps)
             : action === "prompt" ? await promptAnswer(env, p.page, args, deps)
