@@ -222,6 +222,19 @@ jobs:
           fi
           node scripts/check-tex-change-has-case.mjs
 
+      # A Lab or preview change updates the guide to them (docs/decisions/testing/lab-docs.md, Dev2 2026-11-23).
+      - name: A Lab change updates the Lab docs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TEX_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
+          node scripts/check-lab-docs-updated.mjs --self-test
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          node scripts/check-lab-docs-updated.mjs
+
       # Tex's speed budgets move up only with a stated reason (Dev2 2026-11-13: "the speed keeps regressing").
       - name: Tex speed budgets are not raised without a reason
         env:

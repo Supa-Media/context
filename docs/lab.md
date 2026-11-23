@@ -96,6 +96,10 @@ Where it is decided: [dreams](./decisions/texting-assistant/dreams.md), [day-sum
 - **A pull request's own copy:** every pull request gets a preview (Convex, gateway, Tex, web app) with fake people and fake Google. Use it with `tex_dev code { draft, code: "#<PR>" }` or `test_chat` on that code. See [preview-sandbox](./preview-sandbox.md).
 - **Why a real turn went the way it did:** `chats`, then `moments`, then `turn`, then `prompt` / `jobs`. Replay shows only what ran.
 
+## Keeping this guide current
+
+A pull request that changes the Lab, its test chats, its bench or the previews updates this guide, [preview-sandbox](./preview-sandbox.md) or the `tex_dev` guide (`packages/lab/gateway/texDev/guide.js`) in the same pull request, and the Context note `products/tex/how-it-works/making-changes-in-the-lab.md` with it. CI enforces it (`scripts/check-lab-docs-updated.mjs`); a change nobody uses differently says `No Lab docs change: <why>` in its description. See [lab-docs](./decisions/testing/lab-docs.md).
+
 ## Where this is decided
 
 - [search-config](./decisions/search/search-config.md)
@@ -103,3 +107,4 @@ Where it is decided: [dreams](./decisions/texting-assistant/dreams.md), [day-sum
 - [config-graph](./decisions/texting-assistant/config-graph.md)
 - [replay-gate](./decisions/testing/replay-gate.md)
 - [test-set-service](./decisions/testing/test-set-service.md)
+- [lab-docs](./decisions/testing/lab-docs.md)
