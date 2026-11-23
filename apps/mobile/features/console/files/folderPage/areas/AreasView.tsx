@@ -37,6 +37,7 @@ import {
   peopleFolder,
   reachLine,
   seatChanges,
+  type AreaNode,
   type Card,
   type Seat,
   type SeatEdit,
@@ -155,7 +156,8 @@ export function AreasView(props: AreasViewProps) {
             seat: menu.seat,
             title: menu.seat.folder === folder ? rootTitle : areaTitle(menu.seat.name),
             isRoot: menu.seat.folder === folder,
-            canGoUp: folder !== root,
+            hasAreas: (findNode(tree, menu.seat.folder)?.areas.length ?? 0) > 0,
+            upTo: folder === root ? null : parentOf(folder) === root ? "areas" : areaTitle(baseName(parentOf(folder))),
             canEdit,
             face: faceOf(menu.seat.owner),
             label,
@@ -193,6 +195,19 @@ export function AreasView(props: AreasViewProps) {
       ) : null}
     </View>
   );
+}
+
+function findNode(node: AreaNode, folder: string): AreaNode | undefined {
+  if (node.seat.folder === folder) return node;
+  for (const child of node.areas) {
+    const found = findNode(child, folder);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
 }
 
 /** "Add a sub-area": one name, written as the new folder's `about.md`. */

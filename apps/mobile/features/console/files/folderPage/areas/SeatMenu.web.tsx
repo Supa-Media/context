@@ -1,36 +1,32 @@
 /**
- * The seat menu on web: a popover beside the pointer in a roomy window, the
- * sheet (`Menu`'s own) in a narrow one, as every menu chooses.
+ * The seat menu on web, drawn to the approved prototype's measures
+ * (`.st-menu`): a white card under its trigger in a roomy window, the same
+ * card pinned to the bottom edge in a narrow one (`.st-menu.phone`).
  *
- * Not the shared `Menu` popover, because that one draws rows only and the
- * approved design opens with a head: the seat, who holds it, and how to reach
- * them. The rows are `Menu`'s own `ItemRow`, so they look and behave alike.
- * It dismisses as `Menu` does: a press outside, Escape, any scroll, the window
- * losing focus.
+ * Not the shared `Menu`, because that one draws rows only, on a grey panel,
+ * and the approved design opens with a head: the seat, who holds it, and how
+ * to reach them (the owner, 2026-11-23: "a white background and the exact
+ * layout"). It dismisses as `Menu` does: a press outside, Escape, any scroll,
+ * the window losing focus.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
-import { ItemRow, Separator } from "../../../../design/components/MenuRow";
 import { MARGIN, place } from "../../../../design/components/popoverPlacement";
 import { writeClipboard } from "../../../../design/clipboard";
 import { densityFor } from "../../../../app/frame";
 import { radii, space } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
-import { SeatMenu as SeatSheet, type SeatMenuProps } from "./SeatMenu";
-import { SeatMenuHead } from "./seatMenuParts";
+import type { SeatMenuProps } from "./SeatMenu";
+import { SeatMenuHead, SeatMenuRow, SeatMenuSeparator } from "./seatMenuParts";
 
 export type { SeatMenuProps } from "./SeatMenu";
 
-export function SeatMenu(props: SeatMenuProps) {
-  const { width } = useWindowDimensions();
-  return densityFor(width) === "compact" ? <SeatSheet {...props} /> : <SeatPopover {...props} />;
-}
-
-function SeatPopover({ model, anchor, onSelect, onDismiss }: SeatMenuProps) {
+export function SeatMenu({ model, anchor, onSelect, onDismiss }: SeatMenuProps) {
   const styles = useThemedStyles(makeStyles);
   const view = useWindowDimensions();
+  const phone = densityFor(view.width) === "compact";
   const node = useRef<HTMLElement | null>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [focus, setFocus] = useState(-1);
@@ -83,16 +79,19 @@ function SeatPopover({ model, anchor, onSelect, onDismiss }: SeatMenuProps) {
         const { width, height } = event.nativeEvent.layout;
         if (size === null || size.width !== width || size.height !== height) setSize({ width, height });
       }}
-      style={[styles.panel, { left: box.left, top: box.top, opacity: size === null ? 0 : 1 }]}
+      style={[
+        styles.panel,
+        phone ? styles.phone : { left: box.left, top: box.top, opacity: size === null ? 0 : 1 },
+      ]}
     >
-      <SeatMenuHead model={model} touch={false} onCopy={(text) => void writeClipboard(text)} />
-      <View style={styles.items}>
+      <SeatMenuHead model={model} touch={phone} onCopy={(text) => void writeClipboard(text)} />
+      <View>
         {model.items.map((item, index) => (
           <View key={item.id}>
-            {item.separatorBefore === true ? <Separator touch={false} /> : null}
-            <ItemRow
+            {item.separatorBefore === true ? <SeatMenuSeparator /> : null}
+            <SeatMenuRow
               item={item}
-              touch={false}
+              touch={phone}
               focused={focus === index}
               onActivate={() => {
                 onSelect(item.id);
@@ -110,17 +109,28 @@ function SeatPopover({ model, anchor, onSelect, onDismiss }: SeatMenuProps) {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    // `.st-menu`: min 232, max 320, padding 6, radius 10, the white card, a 1px line border.
     panel: {
       position: "fixed" as "absolute",
-      minWidth: 240,
-      maxWidth: 380,
-      paddingVertical: space.x1,
+      minWidth: 232,
+      maxWidth: 320,
+      padding: 6,
       borderWidth: 1,
-      borderColor: colors.lineStrong,
+      borderColor: colors.line,
       borderRadius: radii.xl,
-      backgroundColor: colors.surface3,
-      boxShadow: "0 24px 60px -18px rgba(0,0,0,.45)",
+      backgroundColor: colors.menuSurface,
+      boxShadow: "0 10px 30px -10px rgba(16,16,28,.32), 0 1px 3px rgba(16,16,28,.10)",
       zIndex: 10000,
     },
-    items: { paddingTop: space.x1 },
+    // `.st-menu.phone`: 8 from three edges, radius 18, padding 8 8 24.
+    phone: {
+      left: space.x2,
+      right: space.x2,
+      bottom: space.x2,
+      maxWidth: undefined,
+      borderRadius: 18,
+      paddingTop: space.x2,
+      paddingHorizontal: space.x2,
+      paddingBottom: space.x6,
+    },
   });

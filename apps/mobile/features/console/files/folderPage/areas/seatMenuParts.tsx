@@ -12,7 +12,7 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, type IconName } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { radii, space } from "../../../../design/tokens";
+import { radii, space, touchType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MenuItem } from "../../menu";
 import { OwnerFace, type Face } from "../Glyphs";
@@ -62,8 +62,10 @@ export interface SeatMenuInputs {
   readonly title: string;
   /** The open folder's own seat: the top of the list or chart. */
   readonly isRoot: boolean;
-  /** The open folder is an area under the Areas folder, so there is somewhere to go up to. */
-  readonly canGoUp: boolean;
+  /** The seat has sub-areas, so opening it draws a chart of its own. */
+  readonly hasAreas: boolean;
+  /** Where "Up to" goes from the open folder's own seat ("areas", or the area above), or null at the top. */
+  readonly upTo: string | null;
   readonly canEdit: boolean;
   readonly face: Face;
   readonly label: (owner: string) => string;
@@ -72,7 +74,7 @@ export interface SeatMenuInputs {
 }
 
 export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
-  const { seat, title, isRoot, canGoUp, canEdit, face, label, card, isAgent } = input;
+  const { seat, title, isRoot, hasAreas, upTo, canEdit, face, label, card, isAgent } = input;
   const owner = seat.owner;
   const ownerName = owner === null ? "No owner" : label(owner);
   const reach: ReachBlock[] = [];
@@ -85,8 +87,8 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
   }
   const items: MenuItem<SeatMenuId>[] = [];
   const glyph = (name: IconName) => <MenuGlyph name={name} />;
-  if (!isRoot) items.push({ id: "open", label: "Open", leading: glyph("grid") });
-  if (isRoot && canGoUp) items.push({ id: "up", label: "Up to the area above", leading: glyph("chevronLeft") });
+  if (!isRoot && hasAreas) items.push({ id: "open", label: "Open chart", leading: glyph("grid") });
+  if (isRoot && upTo !== null) items.push({ id: "up", label: `Up to ${upTo}`, leading: glyph("chevronLeft") });
   items.push({ id: "edit", label: canEdit ? "Edit seat…" : "View seat…", leading: glyph("more") });
   if (canEdit) {
     items.push({ id: "add", label: "Add a sub-area…", leading: glyph("plus") });
@@ -101,19 +103,22 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
 
 function MenuGlyph({ name }: { name: IconName }) {
   const colors = useColors();
-  return <Icon name={name} size={14} color={colors.muted} />;
+  return <Icon name={name} size={14} color={colors.chromeMuted} />;
 }
 
-/** The head and the reach blocks: drawn above the actions in both presentations. */
+/**
+ * The head and the reach blocks: drawn above the actions in both
+ * presentations, to the prototype's measures (`.st-menu .mh`, `.reachm`).
+ */
 export function SeatMenuHead({ model, onCopy, touch }: { model: SeatMenuModel; onCopy: (text: string) => void; touch: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   return (
     <View testID="seat-menu-head">
       <View style={styles.head}>
-        <OwnerFace face={model.face} size={touch ? 28 : 20} />
+        <OwnerFace face={model.face} size={20} />
         <View style={styles.headText}>
-          <Text variant="rowTitle" numberOfLines={1}>
+          <Text variant="rowTitle" numberOfLines={1} style={touch && styles.titleTouch}>
             {model.title}
           </Text>
           <Text variant="treeMeta" numberOfLines={1} testID="seat-menu-holder">
@@ -132,15 +137,17 @@ export function SeatMenuHead({ model, onCopy, touch }: { model: SeatMenuModel; o
               onPress={line.copy === undefined ? undefined : () => onCopy(line.copy as string)}
               disabled={line.copy === undefined}
               accessibilityLabel={line.copy === undefined ? line.text : `Copy ${line.text}`}
-              style={(state) => [styles.line, touch && styles.lineTouch, (state as { hovered?: boolean }).hovered === true && line.copy !== undefined && styles.lineHover]}
+              style={(state) => [styles.line, (state as { hovered?: boolean }).hovered === true && line.copy !== undefined && styles.lineHover]}
             >
-              {line.icon === "tex" ? (
-                <Text variant="rowTitle" style={[styles.texMark, { color: colors.accentText }]}>
-                  #
-                </Text>
-              ) : (
-                <Icon name={line.icon} size={13} color={colors.muted} />
-              )}
+              <View style={styles.lineIcon}>
+                {line.icon === "tex" ? (
+                  <Text variant="rowTitle" style={[styles.texMark, { color: colors.accentText }]}>
+                    #
+                  </Text>
+                ) : (
+                  <Icon name={line.icon} size={13} color={colors.chromeMuted} />
+                )}
+              </View>
               <Text variant="treeMeta" numberOfLines={2} style={styles.lineText}>
                 {line.text}
               </Text>
@@ -152,30 +159,83 @@ export function SeatMenuHead({ model, onCopy, touch }: { model: SeatMenuModel; o
   );
 }
 
+/** One action, as the prototype draws it (`.st-menu .mi`): a 16px icon slot, then the label in the text color. */
+export function SeatMenuRow({
+  item,
+  touch,
+  focused,
+  onActivate,
+  onHover,
+}: {
+  item: MenuItem<SeatMenuId>;
+  touch: boolean;
+  focused: boolean;
+  onActivate: () => void;
+  onHover: () => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <Pressable
+      role="menuitem"
+      accessibilityLabel={item.label}
+      testID={`menu-item-${item.id}`}
+      onPress={onActivate}
+      onHoverIn={onHover}
+      style={(state) => [styles.row, touch && styles.rowTouch, (focused || (state as { hovered?: boolean }).hovered === true) && styles.rowLit]}
+    >
+      <View style={styles.rowIcon}>{item.leading}</View>
+      <Text variant={touch ? "treeTouch" : "tree"} numberOfLines={1} testID={`menu-label-${item.id}`} style={[styles.rowLabel, touch && styles.rowLabelTouch]}>
+        {item.label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** `.st-menu .sep`. */
+export function SeatMenuSeparator() {
+  const styles = useThemedStyles(makeStyles);
+  return <View style={styles.sep} />;
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    // `.mh`: padding 6 8 8, gap 10, a 1px rule and 4 under it.
     head: {
       flexDirection: "row",
       alignItems: "center",
-      gap: space.x3,
-      paddingHorizontal: space.x3,
-      paddingTop: space.x2,
-      paddingBottom: space.x3,
-      borderBottomWidth: StyleSheet.hairlineWidth,
+      gap: 10,
+      paddingTop: 6,
+      paddingHorizontal: space.x2,
+      paddingBottom: space.x2,
+      marginBottom: space.x1,
+      borderBottomWidth: 1,
       borderBottomColor: colors.line,
     },
     headText: { flex: 1, minWidth: 0 },
+    titleTouch: { fontSize: touchType.ui, lineHeight: 22 },
+    // `.reachm`: gap 2, padding 2 4 8, a 1px rule and 4 under it.
     reach: {
+      gap: 2,
+      paddingTop: 2,
       paddingHorizontal: space.x1,
-      paddingTop: space.x2,
-      paddingBottom: space.x1,
-      borderBottomWidth: StyleSheet.hairlineWidth,
+      paddingBottom: space.x2,
+      marginBottom: space.x1,
+      borderBottomWidth: 1,
       borderBottomColor: colors.line,
     },
-    eyebrow: { paddingHorizontal: space.x2, paddingBottom: space.x1 },
-    line: { flexDirection: "row", alignItems: "center", gap: space.x3, minHeight: 30, paddingHorizontal: space.x2, borderRadius: radii.sm },
-    lineTouch: { minHeight: 40 },
-    lineHover: { backgroundColor: colors.chipFill },
-    lineText: { flex: 1, minWidth: 0 },
-    texMark: { width: 13, textAlign: "center" },
+    eyebrow: { paddingTop: 2, paddingHorizontal: space.x1, paddingBottom: space.x1 },
+    // `.rl`: top-aligned, gap 8, padding 5 4.
+    line: { flexDirection: "row", alignItems: "flex-start", gap: space.x2, paddingVertical: 5, paddingHorizontal: space.x1, borderRadius: radii.sm },
+    lineHover: { backgroundColor: "rgba(127,127,127,0.12)" },
+    lineIcon: { width: 18, height: 17, alignItems: "center", justifyContent: "center" },
+    lineText: { flex: 1, minWidth: 0, lineHeight: 17 },
+    texMark: { lineHeight: 17 },
+    // `.mi`: 32 high, padding 0 8, gap 10, radius 6; 48 and 16px on a phone.
+    row: { flexDirection: "row", alignItems: "center", gap: 10, height: 32, paddingHorizontal: space.x2, borderRadius: radii.sm },
+    rowTouch: { height: 48 },
+    rowLit: { backgroundColor: colors.chipFill },
+    rowIcon: { width: 16, alignItems: "center", justifyContent: "center" },
+    rowLabel: { flex: 1, minWidth: 0, color: colors.text },
+    rowLabelTouch: { fontSize: touchType.ui },
+    sep: { height: 1, backgroundColor: colors.line, marginVertical: space.x1 },
   });

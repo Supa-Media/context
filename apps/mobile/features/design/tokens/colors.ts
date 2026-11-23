@@ -243,6 +243,14 @@ export const darkColors = {
    */
   cardSurface: "#201E1B",
   /**
+   * A menu that opens over the page with a head of its own (the Areas seat
+   * menu): the approved prototype's `.st-menu`, a white card in light and the
+   * card shade in dark. Not `cardSurface`, which a phone turns gray.
+   */
+  menuSurface: "#201E1B",
+  /** The top seat of an Areas chart: the prototype's `--rootSurface`, a step off the page. */
+  rootSurface: "#2B2825",
+  /**
    * The desk a cast's chat scene sets its two apps on: the chat app and
    * Context, each its own window, so neither reads as a panel of the other.
    */
@@ -469,6 +477,8 @@ export const lightColors: Colors = {
   chromeSurface: "#F4F1EA",
   pageSurface: "#FFFDF9",
   cardSurface: "#FFFDF9",
+  menuSurface: "#FFFDF9",
+  rootSurface: "#F7F4ED",
   castDesk: "#DDD7CC",
   castSwitcher: "#2B2825",
 
