@@ -1,55 +1,73 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
-import { Icon } from "../../design/components/Icon";
+import { useEffect, useState } from "react";
+import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Text } from "../../design/components/Text";
-import { type Colors, useColors, useThemedStyles } from "../../design/theme";
-import { space } from "../../design/tokens";
-import { VaultList } from "./VaultList";
+import { type Colors, useThemedStyles } from "../../design/theme";
+import { fonts, leading, space, touchType, tracking } from "../../design/tokens";
 import { DocumentPage } from "../panes/browsePane/DocumentPage";
-import { useVaultRoute } from "./route";
+import { PhoneBack } from "../home/PhoneBack";
+import { VaultList } from "./VaultList";
+import { setVaultDeep, useVaultDeep, useVaultRoute } from "./route";
 import { useVaultActions } from "./useVaultActions";
 
 /**
- * The phone's Vault (`?vault=1`): a page where a note would be, headed the way
- * the Trash page is, with the list the right panel's Vault tab draws. The head
- * stays while a key is open, and the key's own back row sits under it.
+ * The phone's Vault (`?vault=1`), as the approved prototype drew it: "‹ Notes"
+ * in the top bar, the page's 34pt title as Notes has it, and the list the
+ * right panel's Vault tab draws. A picked key takes the page with its own back
+ * row, and the title and "‹ Notes" stand aside so there is one back.
  */
-export function VaultPage({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }) {
+export function VaultPage({ workspaceId }: { workspaceId: string }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
   const actions = useVaultActions(workspaceId);
+  const deep = useVaultDeep();
   const [width, setWidth] = useState(0);
+  useEffect(() => () => setVaultDeep(false), []);
   return (
     <View style={styles.page} testID="vault-page" onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}>
-      <View style={styles.head}>
-        <Text variant="paneTitle" role="heading" aria-level={1} style={styles.title}>
+      {deep ? null : (
+        <Text role="heading" aria-level={1} style={styles.title} testID="vault-page-title">
           Vault
         </Text>
-        <Pressable role="button" accessibilityLabel="Close the vault" onPress={onClose} style={styles.close} testID="vault-page-close">
-          <Icon name="close" size={16} color={colors.chromeMuted} />
-        </Pressable>
-      </View>
+      )}
       {actions === null ? null : (
-        <VaultList key={workspaceId} actions={actions} layoutWidth={width || 360} />
+        <VaultList key={workspaceId} actions={actions} layoutWidth={width || 360} onDepth={setVaultDeep} />
       )}
     </View>
   );
 }
-
-const makeStyles = (_colors: Colors) =>
-  StyleSheet.create({
-    page: { paddingTop: space.x8, paddingBottom: space.x8, gap: space.x3 },
-    head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.x4 },
-    title: { flex: 1, minWidth: 0 },
-    close: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 8 },
-  });
 
 /** The phone's Vault page in the document slot while `?vault=1` is open, else `null` (a panel has it on the rail). */
 export function useVaultPage() {
   const route = useVaultRoute();
   return route?.open ? (
     <DocumentPage>
-      <VaultPage workspaceId={route.workspaceId} onClose={route.closeVault} />
+      <VaultPage workspaceId={route.workspaceId} />
     </DocumentPage>
   ) : null;
 }
+
+/**
+ * The phone's top-left while the Vault page is open: "‹ Notes", which closes
+ * it, and nothing while a key is open (its own back row is the back). Every
+ * other page keeps what the console draws there.
+ */
+export function VaultTopLeft({ children }: { children: React.ReactNode }) {
+  const route = useVaultRoute();
+  const deep = useVaultDeep();
+  if (route?.open !== true) return <>{children}</>;
+  if (deep) return null;
+  return <PhoneBack levels={[{ folder: null, label: "Notes", view: "inbox" }]} onGo={route.closeVault} />;
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    page: { paddingTop: space.x2, paddingBottom: space.x8, gap: space.x3 },
+    // 34pt, as the Notes page's title (`home/PhoneHome.tsx`).
+    title: {
+      fontFamily: fonts.display,
+      fontSize: touchType.page,
+      lineHeight: leading(touchType.page, 1.12),
+      fontWeight: "700",
+      letterSpacing: tracking(34, -0.02),
+      color: colors.text,
+    },
+  });

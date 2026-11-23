@@ -15,6 +15,7 @@ import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
 import { PhoneBack } from "../home/PhoneBack";
+import { VaultTopLeft } from "../vault/VaultPage";
 import { goToLevel, phoneBackLevels } from "../home/phoneBack";
 import type { HomeView } from "../home/homeView";
 import type { MapRoute } from "../map/live/route";
@@ -97,7 +98,8 @@ export function consoleAccountSlot({
   const mapOpen = map?.open === true;
   const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen, view, data.visitor !== undefined, previous) : [];
   // Inbox and Folders: the mark with its @name and ⌄ (board 1).
-  if (levels.length === 0) return phone && browsing && (data.files.selectedPath ?? "") === "" ? named : account;
+  // The phone's Vault page puts "‹ Notes" here instead (`vault/VaultPage.tsx`).
+  if (levels.length === 0) return <VaultTopLeft>{phone && browsing && (data.files.selectedPath ?? "") === "" ? named : account}</VaultTopLeft>;
   return (
     <PhoneBack
       levels={levels}

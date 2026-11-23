@@ -241,10 +241,10 @@ describe("the People section", () => {
     const sayo = find("vault-person-user_sayo")!;
     expect(sayo.textContent).toContain("Sayo Adeyemi");
     expect(sayo.textContent).toContain("Use only ▾");
-    expect(sayo.textContent).toContain("Claude CodeSayo Adeyemi said yes 17 Oct · used 12 times");
+    expect(sayo.textContent).toContain("Claude Code · Sayo Adeyemi said yes 17 Oct · used 12 times");
     expect(find("vault-people")!.textContent).toContain("Has it through a group or everyone");
     expect(find("vault-person-user_me")!.textContent).not.toContain("Remove");
-    expect(find("vault-people")!.textContent).toContain("When you share it, they can");
+    expect(find("vault-people")!.textContent).toContain("When you share it, they can:");
     expect(find("vault-give-level-hint")!.textContent).toBe("Their AI tools sign in for them. They never see the key.");
     type("vault-give-input", "olu");
     press("vault-give-to-user_olu");

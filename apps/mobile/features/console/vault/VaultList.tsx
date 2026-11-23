@@ -81,8 +81,11 @@ export function VaultList({
   actions,
   now,
   layoutWidth,
+  onDepth,
 }: {
   actions: VaultActions;
+  /** Told whether a key or the New key form is open, so a page around the list can stand its own head aside. */
+  onDepth?: (deep: boolean) => void;
   now?: Date;
   /** Tests and previews: the width to lay out for, before (or without) a measure. */
   layoutWidth?: number;
@@ -293,6 +296,9 @@ export function VaultList({
     ) : null;
   const side = adding ?? detail;
   const deep = side !== null && !wide;
+  useEffect(() => {
+    onDepth?.(deep);
+  }, [deep, onDepth]);
 
   return (
       <View style={styles.frame} onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}>

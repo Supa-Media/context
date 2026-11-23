@@ -332,7 +332,7 @@ describe("on a narrow screen", () => {
       ["reveal", `tok-view-${login.entryId}`],
     ]);
     expect(find("vault-value-username-text")?.textContent).toBe("me@example.test");
-    expect(find("vault-value-password-text")?.textContent).toBe("••••••••");
+    expect(find("vault-value-password-text")?.textContent).toBe("••••••••••••");
     expect(container.innerHTML).not.toContain("fake-password-old");
     press("vault-value-password-reveal");
     expect(find("vault-value-password-text")?.textContent).toBe("fake-password-old");
