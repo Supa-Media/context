@@ -564,8 +564,11 @@ jobs:
           # A quick run's steps (`scope` above) go sixteen Front door tests at once on the AI gateway; any other, eight.
           quick=$(cat "$RUNNER_TEMP/lab/nodes" 2>/dev/null || true)
           [[ -z "$quick" || "$quick" =~ ^[a-z][A-Za-z0-9_-]{0,30}(,[a-z][A-Za-z0-9_-]{0,30})*$ ]] || { echo "::error::not a list of step ids"; exit 1; }
+          # A quick run, even one whose change reached every step, is marked so (`scope`): no regrade or gold self-check.
+          isquick=""
+          if [ -f "$RUNNER_TEMP/lab/quick" ]; then isquick=1; fi
           parallel=8
-          if [ -n "$quick" ] && [ "$MODELS" = "gw" ]; then parallel=16; fi
+          if [ -n "$isquick" ] && [ "$MODELS" = "gw" ]; then parallel=16; fi
           args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel "$parallel" --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
           if [ -n "$NODE_ID" ]; then args+=(--node "$NODE_ID"); elif [ -n "$quick" ]; then args+=(--node "$quick"); fi
           node apps/mcp/bench/run.mjs sets run "${scope[@]}" "${args[@]}"
@@ -582,7 +585,7 @@ jobs:
           # The grader's own noise (`apps/mcp/bench/regrade.mjs`; Dev2, 2026-11-19): on Claude Code ($0), a Training or Dev
           # run grades its kept Front door replies once more; a row whose grade flips is the grader, not Tex. Counts and
           # row ids only in the log; never on the sealed Test set; a regrade that fails never fails the run.
-          if [ -n "$answerer" ] && [ -z "$quick" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -d "$RUNNER_TEMP/lab/kept" ]; then
+          if [ -n "$answerer" ] && [ -z "$isquick" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -d "$RUNNER_TEMP/lab/kept" ]; then
             node apps/mcp/bench/run.mjs sets regrade --kept "$RUNNER_TEMP/lab/kept" --times 1 \
               || echo "::warning::the regrade did not finish; the run's grades stand"
           fi
@@ -591,7 +594,7 @@ jobs:
           # answerer. A Training label its own gold fails makes its row ambiguous; a Dev one's row could not run; a label
           # that needs an ability Tex lacks is impossible and could not run in both sets. Counts only here (a Dev report
           # prints no label or text); a failed check scores without it.
-          if [ -n "$answerer" ] && [ -z "$quick" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
+          if [ -n "$answerer" ] && [ -z "$isquick" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
             node apps/mcp/bench/setsGold.mjs --set "$SET" --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/gold.json" > /dev/null \
               && echo "Gold self-check: $(jq -c '{set, rows, goldFails: (.goldFails | length), impossible: (.impossible | length)}' "$RUNNER_TEMP/lab/gold.json")" \
               || { rm -f "$RUNNER_TEMP/lab/gold.json"; echo "::warning::the gold self-check did not finish; scored without it"; }

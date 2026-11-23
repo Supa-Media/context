@@ -13,7 +13,7 @@ import { createTexDev } from "../../../packages/lab/gateway/texDev/tool.js";
 import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { texDevToolDefinitions } from "../src/tools/schemas/texDev.js";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
@@ -587,6 +587,10 @@ test("the scope CLI writes an empty step list for a run that is not quick, so ev
   writeFileSync(join(dir, "job.json"), JSON.stringify({ kind: "dev", quick: false }));
   execFileSync(process.execPath, [LAB_RUN, "scope", join(dir, "job.json"), dir]);
   assert.equal(readFileSync(join(dir, "nodes"), "utf8"), "");
+  assert.equal(existsSync(join(dir, "quick")), false);
+  writeFileSync(join(dir, "job.json"), JSON.stringify({ kind: "dev", quick: true }));
+  execFileSync(process.execPath, [LAB_RUN, "scope", join(dir, "job.json"), dir]);
+  assert.deepEqual([readFileSync(join(dir, "nodes"), "utf8"), readFileSync(join(dir, "quick"), "utf8")], ["", "1"]);
 });
 
 test("run passes quick, and a quick run's answer names its base run when one started", async () => {

@@ -445,6 +445,8 @@ async function main() {
     // A quick run (`texLabRuns.ts` startRun quick): after the promote write, only the changed steps' tests run.
     const job = JSON.parse(readFileSync(a, "utf8"));
     const out = join(b, "nodes");
+    // The marker says the run is quick even when it runs every step: no Claude Code regrade or gold self-check.
+    if (job?.quick) writeFileSync(join(b, "quick"), "1");
     if (!job?.quick || !existsSync(join(b, "graph.json"))) {
       writeFileSync(out, "");
       console.log("Every step's tests (not a quick run)");

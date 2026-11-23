@@ -183,4 +183,6 @@ test("a quick run picks its steps after the draft is written, and the run step p
   assert.match(run, /quick=\$\(cat "\$RUNNER_TEMP\/lab\/nodes"/);
   assert.match(run, /args\+=\(--node "\$quick"\)/);
   assert.match(run, /--parallel "\$parallel"/);
+  // A quick run that reached every step (empty list) is still quick: no regrade, no gold self-check.
+  assert.equal((run.match(/\[ -n "\$answerer" \] && \[ -z "\$isquick" \]/g) ?? []).length, 2);
 });
