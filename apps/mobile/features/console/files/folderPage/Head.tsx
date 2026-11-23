@@ -64,6 +64,12 @@ const VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
   { view: "board", label: "Board" },
 ];
 
+/** The Areas folder's two views: its outline, and its accountability chart (`areas/`). */
+export const AREA_VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
+  { view: "list", label: "List" },
+  { view: "chart", label: "Chart" },
+];
+
 /** Shown after status and owner when set, as `priority high`. */
 const QUIET_KEYS = ["priority", "due"];
 
@@ -71,15 +77,17 @@ export function ViewSwitch({
   view,
   onChange,
   compact,
+  views = VIEWS,
 }: {
   view: FolderPageView;
   onChange: (view: FolderPageView) => void;
   compact: boolean;
+  views?: ReadonlyArray<{ view: FolderPageView; label: string }>;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.switch} role="tablist" accessibilityLabel="Show this folder as" testID="folder-view-switch">
-      {VIEWS.map(({ view: each, label }, index) => (
+      {views.map(({ view: each, label }, index) => (
         <View key={each} style={styles.switchItem}>
           {index > 0 ? (
             <Text variant={compact ? "rowValueTouch" : "tree"} style={styles.dot} aria-hidden>
@@ -193,9 +201,11 @@ export function FolderHead({
           )}
           </View>
         </View>
-        {switcher}
+        {large ? null : switcher}
         {actions}
       </View>
+      {/* On a phone the switch gets its own line: beside a large title it broke the name mid-word. */}
+      {large && switcher !== null && switcher !== undefined ? <View style={styles.switchRow}>{switcher}</View> : null}
       {jobLine === null ? null : (
         <Text variant="meta" style={styles.jobLine} testID="folder-head-built-in">
           {jobLine}
@@ -305,6 +315,7 @@ const makeStyles = (colors: Colors) =>
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     /* `PhoneHome`'s head clearance, so the title lands where Home's does. */
     headLarge: { paddingTop: space.x2 },
+    switchRow: { flexDirection: "row" },
     titleBox: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     titleRow: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     titleText: { flexShrink: 1, minWidth: 0 },

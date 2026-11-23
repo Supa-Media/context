@@ -24,7 +24,7 @@ import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
 import { knownNotePaths } from "./paths";
 import { shownIcon } from "./folderIcons";
-import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder, websiteFolder } from "./jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder, areasFolder, websiteFolder } from "./jobIcons/folderJobs";
 import { setJobFoldersNow } from "./jobIcons/jobFoldersNow";
 import { jobIconMarker, twinIconMarker } from "./jobIcons/marker";
 import type { OpenNote } from "./types";
@@ -132,6 +132,7 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
     setJobFoldersNow({
       inbox: inboxFolder(tree.listings),
       projects: projectsFolder(tree.listings),
+      areas: areasFolder(tree.listings),
       archive: archiveFolder(tree.listings),
       website: websiteFolder(tree.listings),
     });

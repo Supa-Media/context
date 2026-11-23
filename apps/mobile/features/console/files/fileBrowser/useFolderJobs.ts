@@ -39,7 +39,8 @@ import { setWorkspaceSort, workspaceSortNow } from "../listingOrder";
 import { drawnLevel, movedLevel, withFolderSort, withRowOrder } from "../levelOrder";
 import { baseName, folderLabel, parentPath } from "../paths";
 import { sortWords } from "../sortChoices";
-import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, texPartIconUnder, projectsFolder, websiteFolder } from "../jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, texPartIconUnder, projectsFolder,
+  areasFolder, websiteFolder } from "../jobIcons/folderJobs";
 import { setJobFoldersNow } from "../jobIcons/jobFoldersNow";
 import { jobIconMarker, twinIconMarker } from "../jobIcons/marker";
 import type { FileBrowserOptions, Listings } from "./types";
@@ -89,6 +90,7 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
     setJobFoldersNow({
       inbox: inboxFolder(listings),
       projects: projectsFolder(listings),
+      areas: areasFolder(listings),
       archive: archiveFolder(listings),
       website: websiteFolder(listings),
     });
