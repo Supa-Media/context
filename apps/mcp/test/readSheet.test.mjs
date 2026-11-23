@@ -175,7 +175,7 @@ test("a bad column or operator is refused, naming it and the columns there are",
   const bad = await toolReadSheet(store, "private", rules, overrides, { path: SHEET, where: [{ column: "Nope", value: "x" }] });
   assert.equal(bad.isError, true);
   assert.match(text(bad), /no column "Nope"/);
-  assert.match(text(bad), /The columns are name:text, amount:usd, renews:date, kind:text/);
+  assert.match(text(bad), /Call it again with these columns: name:text, amount:usd, renews:date, kind:text/);
 
   const sorted = await toolReadSheet(store, "private", rules, overrides, { path: SHEET, sort: { column: "Missing" } });
   assert.match(text(sorted), /no column "Missing" to sort by/);
@@ -190,7 +190,7 @@ test("a private sheet is not found for a team caller, with the same words as a m
   const missing = await toolReadSheet(store, "team", rules, overrides, { path: "1-projects/vault/nothing.csv" });
   assert.equal(hidden.isError, true);
   assert.equal(missing.isError, true);
-  assert.equal(text(hidden), "not found");
+  assert.equal(text(hidden), "not found: check the path with search, then try again.");
   assert.equal(text(hidden), text(missing));
   assert.equal(store.gets.includes(HIDDEN), false, "a hidden sheet's bytes are never fetched");
 
