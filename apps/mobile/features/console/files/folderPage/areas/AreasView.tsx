@@ -17,6 +17,7 @@ import { Menu } from "../../../../design/components/Menu";
 import { Text } from "../../../../design/components/Text";
 import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
+import { useFieldFont } from "../../../../design/fieldFont";
 import type { MenuItem } from "../../menu";
 import type { ListNote } from "../../listBlock/model";
 import type { Face } from "../Glyphs";
@@ -189,6 +190,7 @@ export function AreasView(props: AreasViewProps) {
 function AddArea({ parent, onAdd, onClose }: { parent: Seat; onAdd: (name: string) => Promise<string | null>; onClose: () => void }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const fieldFont = useFieldFont();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -209,7 +211,7 @@ function AddArea({ parent, onAdd, onClose }: { parent: Seat; onAdd: (name: strin
             onChangeText={setName}
             placeholder="Name, e.g. Marketing"
             placeholderTextColor={colors.muted}
-            style={styles.input}
+            style={[styles.input, fieldFont]}
             autoFocus
             onSubmitEditing={() => void submit()}
             testID="area-add-name"
