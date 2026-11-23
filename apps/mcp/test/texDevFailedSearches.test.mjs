@@ -67,3 +67,11 @@ test("a read is ranked at its own workspace's hit, not a same-named note in anot
   assert.equal(s.openedRank, 2);
 });
 
+test("a search whose answer was withheld (another workspace's) is counted as withheld, never as a miss", () => {
+  const [s] = searchOutcomes([
+    { kind: "tool", turn: "h", at: T0, name: "search_notes", ok: true, args: { query: "shared plan", context: "@other" }, withheld: "other_workspace" },
+    { kind: "tool", turn: "h", at: T0 + 1_000, name: "read_note", ok: true, args: { path: "@other/plan.md" } },
+  ]);
+  assert.equal(s.outcome, "withheld");
+});
+

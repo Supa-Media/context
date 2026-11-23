@@ -63,6 +63,8 @@ export function searchOutcomes(entries) {
       if (!isNoteSearch(e) || e.ok === false) return;
       const query = e.args?.query;
       if (typeof query !== "string" || query.trim() === "") return;
+      // Another workspace's answer is never kept (`ledger.js` toolEntry): its hits are unknown, not none.
+      if (e.withheld) return void out.push({ at: e.at, turn, query, outcome: "withheld" });
       const hits = hitsOf(e.result);
       const after = list.slice(i + 1);
       let opened = null;
@@ -124,7 +126,7 @@ export async function failedSearchesOf(env, page, { chat: key, days, outcome, li
   const counts = { searches: all.length };
   for (const s of all) counts[s.outcome] = (counts[s.outcome] ?? 0) + 1;
   const shown = Math.min(200, Math.max(1, Number.isInteger(limit) ? limit : 50));
-  const failed = all.filter((s) => (outcome ? s.outcome === outcome : s.outcome !== "opened_first"));
+  const failed = all.filter((s) => (outcome ? s.outcome === outcome : s.outcome !== "opened_first" && s.outcome !== "withheld"));
   return {
     chat: chat.key,
     days: window,
