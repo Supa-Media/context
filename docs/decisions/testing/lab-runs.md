@@ -74,14 +74,16 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   is the name of the game ... make a change and run loops to know that 1.
   their change fixes the issue, and 2. the change does not regress other
   things ... I want that loop closed to 10 minutes max"). `run { draft,
-  quick: true }` is a draft's Dev run on the AI gateway. After the draft is
+  quick: true }` is a draft's Dev run, on the AI gateway or on Claude Code
+  ($0 on the subscription, while the API key's limit is the constraint). After the draft is
   written into the config, `scripts/tex-lab-run.mjs` `scope` compares the
   config before and after: each changed step with unit tests of its own runs
   them, and the Front door's tests run whenever a changed step has none (they
   run a whole turn through every step after it). A change no single step owns
-  (models, groups, conversation settings) runs every step. Sixteen Front door
-  tests go at once instead of eight. When main has no Dev run on the AI
-  gateway for the set, done or under way, one starts beside it, so the quick
+  (models, groups, conversation settings) runs every step. On the AI gateway
+  sixteen Front door tests go at once instead of eight, and a quick run skips
+  the Claude Code regrade and gold self-check. When main has no Dev run on
+  the same models for the set, done or under way, one starts beside it, so the quick
   run's `vsMain` always has a base; the comparison pairs only the rows both
   runs scored.
 - **Caps:** 20 waiting or running per person, 300 a day (raised from 3 and 20,

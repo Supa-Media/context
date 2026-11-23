@@ -269,12 +269,11 @@ describe("a quick run (Dev2, 2026-11-23: \"close the loop to 10 minutes\")", () 
   const draftOf = async (door: (a: string, x?: Record<string, unknown>) => Promise<Record<string, any>>) =>
     (await door("create", { name: "Quick", graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) })).id as string;
 
-  test("is a draft's Dev run on the AI gateway: main, a chat run, Claude Code, a preview and a non-boolean are refused", async () => {
+  test("is a draft's Dev run: main, a chat run, a preview and a non-boolean are refused", async () => {
     const { door } = await world();
     const draft = await draftOf(door);
     expect(await door("run", { draft: "main", kind: "dev", quick: true })).toMatchObject({ status: "bad_request" });
     expect(await door("run", { draft, kind: "chat", conv: "maya-and-tex", quick: true })).toMatchObject({ status: "bad_request" });
-    expect(await door("run", { draft, kind: "dev", models: "cc", quick: true })).toMatchObject({ status: "bad_request", error: expect.stringContaining("gw") });
     expect(await door("run", { draft, kind: "dev", target: "pr42", quick: true })).toMatchObject({ status: "bad_request" });
     expect(await door("run", { draft, kind: "dev", quick: "yes" })).toMatchObject({ status: "bad_request" });
   });
@@ -293,6 +292,9 @@ describe("a quick run (Dev2, 2026-11-23: \"close the loop to 10 minutes\")", () 
     expect(second).toMatchObject({ status: "ok" });
     expect(second.baseRunId).toBeUndefined();
     expect((await runsOf(t)).filter((r) => r.versionId === "main")).toHaveLength(1);
+    // Claude Code ($0 on the subscription) reads against main on Claude Code: a run on the AI gateway is no base for it.
+    const cc = await door("run", { draft, kind: "dev", models: "cc", quick: true });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: cc.baseRunId })).toMatchObject({ models: "cc", versionId: "main" });
   });
 
   test("a run that is not quick starts no base and is not quick to the workflow", async () => {

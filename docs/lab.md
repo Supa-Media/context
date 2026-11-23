@@ -16,7 +16,7 @@ Everything here works in two places. Signed in at [context.lc/lab](https://conte
 | 2. Search bench on a draft | Does the draft win across a whole benchmark? | `tex_dev search_bench { draft, bench }` | 2 to 10 s |
 | 3. Test chat | What does Tex do with this text on a draft, on real models? | `tex_dev test_chat` (open, send, try, again) | seconds per text |
 | 4. A pull request's preview sandbox | My change is code. Does it work? | Push to the branch; its preview redeploys. Use the preview's app or texts simulator, or `tex_dev code { draft, code: "#<PR>" }` and `test_chat open { code: "#<PR>" }` for rungs 2 and 3 on it | 5 to 8 min per push |
-| 5. Quick Dev run | Does the draft fix its target and break nothing on the steps it changed? | `tex_dev run { draft, quick: true }` | about 5 min (GitHub, AI gateway) |
+| 5. Quick Dev run | Does the draft fix its target and break nothing on the steps it changed? | `tex_dev run { draft, quick: true }` | about 5 min on the AI gateway; longer on Claude Code, at $0 |
 | 6. GitHub runs | The whole Dev set, a full eval, the examiner | `tex_dev run`, `eval_run` | minutes; 25+ on Claude Code |
 | 7. Promote and merge | Land a change that won | `tex_dev promote { draft }` opens the PR, then CI, the gates, merge and production | about 30 min |
 
@@ -66,7 +66,7 @@ New behaviour lands as a setting, so it can be flipped and benched instead of ar
    - `edit` the draft, then `test_chat again` with it.
    - `test_chat try` runs one text on main and on the draft side by side.
    - Real models run, writes stay in the test chat, and the limit is 200 test texts a day per person.
-4. **Measure:** `run { draft, quick: true }` runs only the unit tests of the steps the draft changed (the Front door's too when a changed step has none of its own), on the AI gateway, and reads them against main's newest Dev run on the AI gateway (it starts one beside it when main has none), so `runs { draft }` ends in a `vsMain` verdict. `run { draft }` runs the whole Dev set. Training examples are edited through the Testing tab's conversations (`set_*`), not the prompts.
+4. **Measure:** `run { draft, quick: true }` runs only the unit tests of the steps the draft changed (the Front door's too when a changed step has none of its own), and reads them against main's newest Dev run on the same models (it starts one beside it when main has none; `models: "cc"` costs $0 on the subscription), so `runs { draft }` ends in a `vsMain` verdict. `run { draft }` runs the whole Dev set. Training examples are edited through the Testing tab's conversations (`set_*`), not the prompts.
 5. **Land it:** `promote` opens the pull request. The replay gate runs the sealed Test set, and production follows a green main.
 
 A prompt's words, a new step's code and a capability need a pull request: node code in `packages/tex/gateway/agent/graph/nodes/`, words in `packages/tex/src/texPrompt/`. Merge new node code to main first, unwired and on the shelf (`texNodeShelf.json`). Then wire it in a draft, test it on rung 3, and promote.

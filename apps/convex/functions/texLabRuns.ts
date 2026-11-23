@@ -330,7 +330,7 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   if (set === null) return { status: "bad_request", error: "set is dev (default) or training" };
   if (kind === "chat" && (typeof convId !== "string" || !CONVO_ID.test(convId))) return { status: "bad_request", error: "a chat run names the Dev conversation (convId)" };
   if (kind === "node" && (typeof nodeId !== "string" || !NODE_ID.test(nodeId))) return { status: "bad_request", error: "a node run names the step (nodeId)" };
-  if (quickRefusal(a, kind, versionId, models) !== null) return { status: "bad_request", error: String(quickRefusal(a, kind, versionId, models)) };
+  if (quickRefusal(a, kind, versionId) !== null) return { status: "bad_request", error: String(quickRefusal(a, kind, versionId)) };
   const target = targetOf(a.target);
   if (target === undefined) return { status: "bad_request", error: "target is pr<N> (a pull request's preview, its number) or unset" };
   if (target === "staging") return { status: "bad_request", error: "a run aims at a pull request's preview (pr<N>) or nothing: staging runs are not wired" };
@@ -376,7 +376,7 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     startedAt: now,
   });
   await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatch, { runId, ...(target ? { target } : {}) });
-  return { status: "ok", runId, ...(a.quick === true ? await quickBase(ctx, who, set, repeats, now) : {}) };
+  return { status: "ok", runId, ...(a.quick === true ? await quickBase(ctx, who, set, models, repeats, now) : {}) };
 }
 
 /** Point a draft at a pull request's or branch's code, or back at main (`setCode`; `tex_dev` `code`). */

@@ -579,7 +579,7 @@ jobs:
           # The grader's own noise (`apps/mcp/bench/regrade.mjs`; Dev2, 2026-11-19): on Claude Code ($0), a Training or Dev
           # run grades its kept Front door replies once more; a row whose grade flips is the grader, not Tex. Counts and
           # row ids only in the log; never on the sealed Test set; a regrade that fails never fails the run.
-          if [ -n "$answerer" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -d "$RUNNER_TEMP/lab/kept" ]; then
+          if [ -n "$answerer" ] && [ -z "$quick" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -d "$RUNNER_TEMP/lab/kept" ]; then
             node apps/mcp/bench/run.mjs sets regrade --kept "$RUNNER_TEMP/lab/kept" --times 1 \
               || echo "::warning::the regrade did not finish; the run's grades stand"
           fi
@@ -588,7 +588,7 @@ jobs:
           # answerer. A Training label its own gold fails makes its row ambiguous; a Dev one's row could not run; a label
           # that needs an ability Tex lacks is impossible and could not run in both sets. Counts only here (a Dev report
           # prints no label or text); a failed check scores without it.
-          if [ -n "$answerer" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
+          if [ -n "$answerer" ] && [ -z "$quick" ] && [ "$SET" = "training" -o "$SET" = "dev" ] && [ -z "$NODE_ID" -o "$NODE_ID" = "fd" ]; then
             node apps/mcp/bench/setsGold.mjs --set "$SET" --conversations "$RUNNER_TEMP/lab/convs.json" --out "$RUNNER_TEMP/lab/gold.json" > /dev/null \
               && echo "Gold self-check: $(jq -c '{set, rows, goldFails: (.goldFails | length), impossible: (.impossible | length)}' "$RUNNER_TEMP/lab/gold.json")" \
               || { rm -f "$RUNNER_TEMP/lab/gold.json"; echo "::warning::the gold self-check did not finish; scored without it"; }

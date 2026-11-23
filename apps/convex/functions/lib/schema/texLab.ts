@@ -146,9 +146,9 @@ export const texLabTables = {
      */
     repeats: v.optional(v.number()),
     /**
-     * A quick run (Dev2, 2026-11-23: "close the loop to 10 minutes"): a draft's Dev run on the AI gateway that tests only
-     * the steps the draft changed (`scripts/tex-lab-run.mjs` scope), read against main's newest Dev run on the rows both
-     * scored. Unset on every other run.
+     * A quick run (Dev2, 2026-11-23: "close the loop to 10 minutes"): a draft's Dev run that tests only the steps the
+     * draft changed (`scripts/tex-lab-run.mjs` scope), read against main's newest Dev run on the same models, on the rows
+     * both scored. Unset on every other run.
      */
     quick: v.optional(v.boolean()),
     stage: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("failed")),
