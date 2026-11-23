@@ -201,9 +201,11 @@ export function FolderHead({
           )}
           </View>
         </View>
-        {switcher}
+        {large ? null : switcher}
         {actions}
       </View>
+      {/* On a phone the switch gets its own line: beside a large title it broke the name mid-word. */}
+      {large && switcher !== null && switcher !== undefined ? <View style={styles.switchRow}>{switcher}</View> : null}
       {jobLine === null ? null : (
         <Text variant="meta" style={styles.jobLine} testID="folder-head-built-in">
           {jobLine}
@@ -313,6 +315,7 @@ const makeStyles = (colors: Colors) =>
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     /* `PhoneHome`'s head clearance, so the title lands where Home's does. */
     headLarge: { paddingTop: space.x2 },
+    switchRow: { flexDirection: "row" },
     titleBox: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     titleRow: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     titleText: { flexShrink: 1, minWidth: 0 },

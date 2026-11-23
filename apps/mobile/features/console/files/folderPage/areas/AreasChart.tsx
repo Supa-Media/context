@@ -73,7 +73,7 @@ export function AreasChart({ tree, compact, faceOf, label, reach, onOpen, onMenu
   return (
     <View style={styles.chart} testID="areas-chart">
       <View style={styles.rootWrap}>
-        <SeatBox node={tree} small={false} role="button" onPress={() => onMenu(root, null)} ctx={ctx} />
+        <SeatBox node={tree} small={false} role="button" onPress={(event) => onMenu(root, event === undefined ? null : { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })} ctx={ctx} />
       </View>
       {tree.areas.length === 0 ? (
         <View style={styles.empty}>
@@ -126,7 +126,7 @@ function SeatBox({
   node: AreaNode;
   small: boolean;
   role: "link" | "button";
-  onPress: () => void;
+  onPress: (event?: GestureResponderEvent) => void;
   ctx: Ctx;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -157,7 +157,7 @@ function SeatBox({
         <View style={styles.line} accessibilityHint={reachText === "" ? undefined : reachText} {...hoverTitle(reachText)}>
           <OwnerFace face={ctx.faceOf(seat.owner)} size={20} />
           {seat.owner === null ? (
-            <Text variant="tree" style={styles.muted}>
+            <Text variant="tree" style={styles.warn}>
               No owner
             </Text>
           ) : (
@@ -197,7 +197,7 @@ function SeatBox({
             {metric.target === null ? metric.name : `${metric.name} · ${metric.target}`}
           </Text>
         )}
-        {gap === null ? null : (
+        {gap === null || seat.owner === null ? null : (
           <Text variant="meta" style={styles.warn}>
             {gap}
           </Text>

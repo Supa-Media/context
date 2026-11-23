@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { Platform, Pressable, StyleSheet, View, type ViewProps } from "react-native";
+import { Platform, Pressable, StyleSheet, View, type GestureResponderEvent, type ViewProps } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { radii, space } from "../../../../design/tokens";
@@ -142,7 +142,7 @@ function AreaRow({ seat, depth, open, shared }: { seat: Seat; depth: number; ope
                 {target}
               </Text>
               <Pressable
-                onPress={() => shared.onMenu(seat, null)}
+                onPress={(event: GestureResponderEvent) => shared.onMenu(seat, { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })}
                 accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
                 hitSlop={6}
                 style={[styles.more, shared.compact || hovered ? styles.moreShown : styles.moreHidden]}
