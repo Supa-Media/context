@@ -370,8 +370,14 @@ export function noteDocument(view: NoteView) {
             the ordinary ones, and a read-only viewer gets the grid without a way
             to change it (`readOnly` is `wholeEdit === undefined`).
           */
+          /*
+            On a phone the page draws its own title and the grid gets the
+            screen's 16pt gutter and room under it for the floating buttons.
+          */
+          <View style={compact ? { paddingHorizontal: 16, paddingBottom: 96 } : undefined}>
           <SheetView
             path={state.path!}
+            compact={compact}
             text={presence?.collaboration?.text ?? state.draft}
             readOnly={wholeEdit === undefined}
             people={presence?.members.map((member) => member.name)}
@@ -381,6 +387,7 @@ export function noteDocument(view: NoteView) {
               wholeEdit?.(() => ({ text: next }));
             }}
           />
+          </View>
         ) : passphraseLocked ? (
           <LockedNoteView
             path={state.path!}

@@ -11,7 +11,7 @@ import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 
-export function SheetHead({ path, visibility }: { path: string; visibility?: string }) {
+export function SheetHead({ path, visibility, compact = false }: { path: string; visibility?: string; compact?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const name = path.split("/").pop() ?? path;
@@ -21,9 +21,12 @@ export function SheetHead({ path, visibility }: { path: string; visibility?: str
         <Icon name="table" size={18} color={colors.accentText} />
       </View>
       <View style={styles.words}>
-        <Text variant="paneTitle" numberOfLines={1} testID="sheet-title">
-          {name}
-        </Text>
+        {/* A phone's page already shows the name as its title, so here it would say it twice. */}
+        {compact ? null : (
+          <Text variant="paneTitle" numberOfLines={1} style={styles.title} testID="sheet-title">
+            {name}
+          </Text>
+        )}
         <Text variant="meta" style={styles.sub} testID="sheet-subtitle">
           {visibility === undefined ? "Sheet" : `Sheet · ${visibility}`}
         </Text>
@@ -44,6 +47,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       backgroundColor: colors.surface2,
     },
-    words: { flexShrink: 1, gap: 2 },
+    words: { flexShrink: 1, gap: 2, justifyContent: "center", minHeight: 32 },
+    title: { fontSize: 20, lineHeight: 28 },
     sub: { color: colors.muted },
   });

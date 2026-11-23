@@ -59,6 +59,7 @@ export type SheetViewProps = {
   people?: string[]; // names for person cells; default []
   visibility?: string; // who can see it, for the heading ("private", "team", ...)
   say?: (message: string) => void; // the console's toast; without it a notice shows above the grid
+  compact?: boolean; // a phone, whose page already shows the name as its title
   onChangeText: (next: string) => void; // called with the whole new file text after every committed change
 };
 
@@ -71,7 +72,7 @@ type Menu =
 const DOUBLE_PRESS_MS = 400;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
 
-export function SheetView({ path, text, readOnly, people = [], visibility, say, onChangeText }: SheetViewProps): JSX.Element {
+export function SheetView({ path, text, readOnly, people = [], visibility, say, compact = false, onChangeText }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
   const parsed = useMemo(() => parseSheet(text), [text]);
@@ -300,7 +301,7 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
 
   return (
     <View style={styles.root} testID="sheet-view">
-      <SheetHead path={path} visibility={visibility} />
+      <SheetHead path={path} visibility={visibility} compact={compact} />
       {problems.length === 0 ? null : (
         <View style={styles.problems} testID="sheet-problems">
           <Text variant="meta" style={styles.notice}>
