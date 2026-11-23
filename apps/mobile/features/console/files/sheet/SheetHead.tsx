@@ -8,14 +8,16 @@
 import { StyleSheet, View } from "react-native";
 import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { visibilityLabel, type Visibility } from "../types";
+import { baseName, displayName } from "../paths";
 
 export function SheetHead({ path, visibility, compact = false }: { path: string; visibility?: string; compact?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const name = path.split("/").pop() ?? path;
+  // Contained like every name the console draws (`displayName`); a sheet keeps its `.csv`.
+  const name = displayName(baseName(path));
   return (
     <View style={styles.head} testID="sheet-head">
       <View style={styles.tile}>
@@ -49,6 +51,6 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface2,
     },
     words: { flexShrink: 1, gap: 2, justifyContent: "center", minHeight: 32 },
-    title: { fontSize: 20, lineHeight: 28 },
+    title: { fontSize: pointerType.h3, lineHeight: 26 },
     sub: { color: colors.muted },
   });
