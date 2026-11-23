@@ -7,7 +7,9 @@ the router with the web app, all named `pr<N>`. It is seeded with five
 fictional personas and 41 notes, sends no texts or mail, and is deleted when
 the pull request closes. Why it is built this way is in
 [preview-environments](./decisions/testing/preview-environments.md); this page
-is the catalog of how it differs from production.
+is the catalog of how it differs from production. For which tool answers which
+question fastest (Lab drafts, test chats, the search bench, previews), see
+[lab](./lab.md).
 
 Last checked 2026-11-20 against the live account, the deploy and cleanup logs,
 and the code. "Checked on every preview" means the deploy's smoke test
