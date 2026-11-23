@@ -161,7 +161,7 @@ export async function meaningMatches(
     const tiers = scope === "private" || grantedGroups ? null : ["team"];
     // The workspace's object first, where it holds the notes and has built its index; Vectorize otherwise.
     // Vectorize only where it takes writes: an object-only store has no index there worth asking.
-    const raw = await phase(store, "meaning_query", async () => (await objectMeaningMatches(store, vector, { tiers })) ?? (vectorizeAnswers(store) ? await createMeaningClient(store.meaningIndex, { fetchImpl }).query(vector, { tiers }) : null));
+    const raw = await phase(store, "meaning_query", async () => (await objectMeaningMatches(store, vector, { tiers, prefix })) ?? (vectorizeAnswers(store) ? await createMeaningClient(store.meaningIndex, { fetchImpl }).query(vector, { tiers }) : null));
     if (raw === null) {
       logMeaningSkipped(store, "object_not_built");
       return null;

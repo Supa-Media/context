@@ -366,7 +366,7 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
       case "ws.meaning.query":
         // The gateway's search by meaning, over this object's own index (`meaningIndex.js`); its `canSee` filters it.
         if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
-        return Response.json(store.meaning.query(fields.vector, { tiers: fields.tiers ?? null, topK: fields.topK ?? undefined }));
+        return Response.json(store.meaning.query(fields.vector, { tiers: fields.tiers ?? null, topK: fields.topK ?? undefined, prefix: fields.prefix ?? "" }));
       case "ws.meaning.warm":
         // A search that has just started: the index read into memory ahead of its query (`meaningIndex.js` `warm`).
         if (!store.meaning || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
