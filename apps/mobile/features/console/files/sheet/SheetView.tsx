@@ -22,6 +22,7 @@ import { CalcMenu } from "./CalcMenu";
 import { ColumnMenu } from "./ColumnMenu";
 import { FilterBar } from "./FilterBar";
 import { FilterMenu } from "./FilterMenu";
+import { SheetHead } from "./SheetHead";
 import { measureNode, type Anchor } from "./Popover";
 import { SheetGrid, type GridEditing } from "./SheetGrid";
 import {
@@ -56,6 +57,7 @@ export type SheetViewProps = {
   text: string; // the file's current text
   readOnly: boolean;
   people?: string[]; // names for person cells; default []
+  visibility?: string; // who can see it, for the heading ("private", "team", ...)
   onChangeText: (next: string) => void; // called with the whole new file text after every committed change
 };
 
@@ -68,7 +70,7 @@ type Menu =
 const DOUBLE_PRESS_MS = 400;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
 
-export function SheetView({ path, text, readOnly, people = [], onChangeText }: SheetViewProps): JSX.Element {
+export function SheetView({ path, text, readOnly, people = [], visibility, onChangeText }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
   const parsed = useMemo(() => parseSheet(text), [text]);
@@ -296,6 +298,7 @@ export function SheetView({ path, text, readOnly, people = [], onChangeText }: S
 
   return (
     <View style={styles.root} testID="sheet-view">
+      <SheetHead path={path} visibility={visibility} />
       {problems.length === 0 ? null : (
         <View style={styles.problems} testID="sheet-problems">
           <Text variant="meta" style={styles.notice}>
@@ -322,6 +325,7 @@ export function SheetView({ path, text, readOnly, people = [], onChangeText }: S
           onOpenAdd={() => measureNode(addFilterRef.current, (anchor) => setMenu({ kind: "filter", anchor }))}
           onRemove={(index) => updateView((v) => ({ ...v, filters: v.filters.filter((_, i) => i !== index) }))}
           onClear={() => updateView((v) => ({ ...v, filters: [] }))}
+          hint={readOnly ? undefined : "Double-click to edit · click a column name to change its type"}
         />
       )}
       {hidden.length === 0 ? null : (

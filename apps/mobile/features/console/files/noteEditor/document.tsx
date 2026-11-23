@@ -63,6 +63,7 @@ export function noteDocument(view: NoteView) {
     canEdit,
     onChange,
     drawingCollaboration,
+    visibility,
     encryption,
     presence,
     bodyOnly,
@@ -373,6 +374,7 @@ export function noteDocument(view: NoteView) {
             text={presence?.collaboration?.text ?? state.draft}
             readOnly={wholeEdit === undefined}
             people={presence?.members.map((member) => member.name)}
+            visibility={visibility}
             onChangeText={(next) => {
               wholeEdit?.(() => ({ text: next }));
             }}

@@ -106,6 +106,13 @@ describe("the sheet grid", () => {
     expect(cell(1, 2).textContent).toBe("$40");
   });
 
+  test("the heading names the file and says it is a sheet, and the row gutter is headed #", () => {
+    mount();
+    expect($('[data-testid="sheet-title"]')?.textContent).toBe("subs.csv");
+    expect($('[data-testid="sheet-subtitle"]')?.textContent).toBe("Sheet");
+    expect($('[data-testid="sheet-grid"]')?.textContent?.startsWith("#")).toBe(true);
+  });
+
   test("editing a cell writes the whole new file through onChangeText", () => {
     const { changes } = mount();
     press(cell(0, 0));

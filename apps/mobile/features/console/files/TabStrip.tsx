@@ -21,6 +21,7 @@ import { isApplePlatform } from "../../design/applePlatform";
 import { joinGroups, type MenuItem } from "./menu";
 import { tabLabel, type Tab, type TabsState } from "./tabs";
 import { ACTIVE_TAB_MIN_WIDTH, edgeFade, LABEL_FADE, SHARE, TAB_MIN_WIDTH, tabsAreTight } from "./tabFit";
+import { isSheetPath } from "../../../../mcp/src/sheets/csv.js";
 
 export { tabsAreTight } from "./tabFit";
 
@@ -460,7 +461,7 @@ function TabItem({
         style={[styles.hit, closeGone && styles.hitTight]}
         testID={`tab-open-${tab.path}`}
       >
-        {tight ? null : <Icon name="file" size={13} color={active ? colors.text : colors.chromeMuted} style={styles.fileIcon} />}
+        {tight ? null : <Icon name={isSheetPath(tab.path) ? "table" : "file"} size={13} color={active ? colors.text : colors.chromeMuted} style={styles.fileIcon} />}
         <Text
           // Squeezed, a title fades out rather than ending in "…", which at
           // 44pt would be a third of the tab (Chrome does the same).

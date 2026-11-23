@@ -5,7 +5,7 @@
  */
 
 import type { RefObject } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -17,14 +17,18 @@ export function FilterBar({
   onRemove,
   onClear,
   addRef,
+  hint,
 }: {
   filters: SheetFilter[];
   onOpenAdd: () => void;
   onRemove: (index: number) => void;
   onClear: () => void;
   addRef: RefObject<View | null>;
+  /** How to edit, on the right; only where there is room for it. */
+  hint?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const wide = useWindowDimensions().width >= 900;
   return (
     <View style={styles.bar}>
       {filters.map((f, index) => {
@@ -64,6 +68,11 @@ export function FilterBar({
           </Text>
         </Pressable>
       )}
+      {hint === undefined || !wide ? null : (
+        <Text variant="meta" style={styles.hint} testID="sheet-hint">
+          {hint}
+        </Text>
+      )}
     </View>
   );
 }
@@ -94,5 +103,6 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.lineStrong,
     },
     addText: { color: colors.muted },
+    hint: { marginLeft: "auto", color: colors.muted },
     clear: { height: 26, justifyContent: "center", paddingHorizontal: space.x2 },
   });

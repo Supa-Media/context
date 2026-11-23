@@ -30,6 +30,8 @@ export interface NoteEditorProps {
   presence?: Presence;
   /** The live room behind an open canvas, when there is one. */
   drawingCollaboration?: DrawingCollaboration;
+  /** Who can see the open file, in the tree's word for it; a sheet's heading names it. */
+  visibility?: string;
   state: EditorState;
   canEdit: boolean;
   /**

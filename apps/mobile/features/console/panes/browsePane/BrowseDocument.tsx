@@ -12,6 +12,7 @@ import { trashedViewOf } from "../../files/noteEditor/trashed";
 import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
 import { entryAt, findEntry } from "../../files/tree";
+import { visibilityLabel } from "../../files/types";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
@@ -561,6 +562,7 @@ export function BrowseDocument({
         reading={reading}
         presence={presence}
         drawingCollaboration={drawingCollaboration}
+        visibility={selected?.kind === "file" ? visibilityLabel(selected.visibility) : undefined}
         /*
           `activity.md` is drawn as a list rather than as its own source — see
           `ActivityPage`. Passed from here because this is where the console's

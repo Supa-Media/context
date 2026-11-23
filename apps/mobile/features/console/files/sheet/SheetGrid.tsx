@@ -7,7 +7,7 @@
  * so the keyboard and the pointer both go through the same handlers.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, View, type ListRenderItemInfo } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { pointerType, radii, space } from "../../../design/tokens";
@@ -97,7 +97,12 @@ export function SheetGrid({
     }
   }, [selectedIndex]);
 
-  const bodyWidth = GUTTER_WIDTH + columns.length * COLUMN_WIDTH + (readOnly ? 0 : ADD_WIDTH);
+  // Columns share the width the grid has, as a table does, and never go narrower than COLUMN_WIDTH: past that the grid scrolls.
+  const [frameWidth, setFrameWidth] = useState(0);
+  const chrome = GUTTER_WIDTH + (readOnly ? 0 : ADD_WIDTH) + 2;
+  const colWidth = columns.length === 0 ? COLUMN_WIDTH : Math.max(COLUMN_WIDTH, Math.floor((frameWidth - chrome) / columns.length));
+  const width = { width: colWidth };
+  const bodyWidth = GUTTER_WIDTH + columns.length * colWidth + (readOnly ? 0 : ADD_WIDTH);
   const bodyHeight = Math.min(MAX_BODY_HEIGHT, Math.max(1, order.length) * ROW_HEIGHT);
   const shownCount = order.length;
 
@@ -117,6 +122,7 @@ export function SheetGrid({
           const optionIndex = c.type === "select" ? (options[c.name] ?? []).indexOf(text.trim()) : -1;
           const cellStyle = [
             styles.cell,
+            width,
             isNumeric(c.type) && styles.cellNumber,
             focused && { borderColor: colors.accent, borderWidth: 2, zIndex: 1 },
           ];
@@ -155,10 +161,14 @@ export function SheetGrid({
   };
 
   return (
-    <ScrollView horizontal style={styles.scroll} contentContainerStyle={{ minWidth: "100%" }}>
+    <ScrollView horizontal style={styles.scroll} onLayout={(event) => setFrameWidth(event.nativeEvent.layout.width)}>
       <View style={[styles.table, { width: bodyWidth }]} testID="sheet-grid">
         <View style={styles.header}>
-          <View style={styles.gutterHead} />
+          <View style={[styles.gutterHead, styles.gutterHeadMark]}>
+            <Text variant="mono" style={styles.gutterText}>
+              #
+            </Text>
+          </View>
           {columns.map((c) => {
             const sort = view.sort?.column === c.name ? view.sort.direction : null;
             return (
@@ -170,7 +180,7 @@ export function SheetGrid({
                 accessibilityRole="button"
                 accessibilityHint="Column menu"
                 onPress={() => measureNode(headerRefs.current[c.name], (anchor) => onOpenColumn(c.name, anchor))}
-                style={styles.headCell}
+                style={[styles.headCell, width]}
                 testID="sheet-header"
               >
                 <Text variant="mono" numberOfLines={1} style={styles.typeGlyph} accessibilityLabel={c.type}>
@@ -215,7 +225,7 @@ export function SheetGrid({
           {columns.map((c, index) => {
             if (index === 0) {
               return (
-                <View key={c.name} style={styles.footCell}>
+                <View key={c.name} style={[styles.footCell, width]}>
                   <Text variant="meta" style={styles.footCount} testID="sheet-row-count">
                     {rowCountLabel(shownCount, sheet.rows.length)}
                   </Text>
@@ -225,7 +235,7 @@ export function SheetGrid({
             if (c.type === "checkbox") {
               const checked = order.filter((r) => sheet.rows[r]?.[c.name]?.trim() === "true").length;
               return (
-                <View key={c.name} style={styles.footCell}>
+                <View key={c.name} style={[styles.footCell, width]}>
                   <Text variant="meta" style={styles.footCount}>
                     {checked} checked
                   </Text>
@@ -243,7 +253,7 @@ export function SheetGrid({
                 accessibilityRole="button"
                 accessibilityLabel={`Calculate ${c.name}`}
                 onPress={() => measureNode(calcRefs.current[c.name], (anchor) => onOpenCalc(c.name, anchor))}
-                style={[styles.footCell, isNumeric(c.type) && styles.cellNumber]}
+                style={[styles.footCell, width, isNumeric(c.type) && styles.cellNumber]}
                 testID="sheet-calc"
               >
                 {kind === "None" || figure === "" ? (
@@ -274,6 +284,7 @@ const makeStyles = (colors: Colors) =>
     table: {},
     header: { flexDirection: "row", height: 32, backgroundColor: colors.surface2, borderBottomWidth: 1, borderColor: colors.line },
     gutterHead: { width: GUTTER_WIDTH, borderRightWidth: 1, borderColor: colors.line, backgroundColor: colors.surface2 },
+    gutterHeadMark: { alignItems: "flex-end", justifyContent: "center", paddingHorizontal: space.x2 },
     headCell: {
       width: COLUMN_WIDTH,
       flexDirection: "row",
