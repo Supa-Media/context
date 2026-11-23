@@ -16,6 +16,9 @@ export default {
     const checks = frontDoorChecks({ claims: null, runner: false, texted: true, group: null, question: "can you reply looping her in?" });
     assert.equal(checks.check(""), EMPTY_NOTICE);
     assert.notEqual(checks.check(""), EMPTY_NOTICE, "once a turn");
+    // 2026-11-23, the Lab re-run after the retry shipped: the reply opened "Your reply was empty, so here is where it
+    // stands." The notice now says they never saw either, so the reply is the reply.
+    assert.match(EMPTY_NOTICE, /They never saw an empty answer or this note/);
 
     // Still empty after that: the line names what did not go through, and never says it was lost.
     const line = emptyFallback([{ tool: "send", action: "email" }, { tool: "send", action: "email" }, { tool: "send", action: "email" }]);

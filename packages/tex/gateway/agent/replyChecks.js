@@ -34,7 +34,8 @@ import { GOAL_NOTICE, NO_PROMPT_NOTICE, dropsTheGoal, repeatsUnarrivedPrompt } f
 
 export const EMPTY_NOTICE =
   "Before this goes: your answer is empty, and an empty answer sends them nothing at all. " +
-  "Reply now, in words, to their newest text: answer it if it's a question, and if you're still working on something, say in a line what's done and what's next.";
+  "Reply now, in words, to their newest text: answer it if it's a question, and if you're still working on something, say in a line what's done and what's next. " +
+  "They never saw an empty answer or this note, so write the reply itself, never about it.";
 
 /**
  * What is texted when the answer is still empty after the notice and no tool failed. It says only what is true: no
