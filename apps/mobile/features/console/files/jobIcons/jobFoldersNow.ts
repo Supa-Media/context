@@ -24,11 +24,12 @@
 
 import { DEFAULT_FOLDER, WEBSITE_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
-type JobFolders = { inbox: string; projects: string; archive: string; website: string };
+type JobFolders = { inbox: string; projects: string; areas: string; archive: string; website: string };
 
 let now: JobFolders = {
   inbox: DEFAULT_FOLDER.inbox,
   projects: DEFAULT_FOLDER.projects,
+  areas: DEFAULT_FOLDER.areas,
   archive: DEFAULT_FOLDER.archive,
   website: WEBSITE_FOLDER,
 };
@@ -49,6 +50,17 @@ export function inProjectsNow(folder: string): boolean {
   return folder === projects || folder.startsWith(`${projects}/`);
 }
 
+/** The folder doing the Areas folder's job now: where a folder page offers List and Chart (`folderPage/areas/`). */
+export function areasFolderNow(): string {
+  return now.areas;
+}
+
+/** Whether `folder` is the Areas folder or anywhere under it, by job. */
+export function inAreasNow(folder: string): boolean {
+  const areas = now.areas;
+  return folder === areas || folder.startsWith(`${areas}/`);
+}
+
 /** The folder doing the Archive's job now. */
 export function archiveFolderNow(): string {
   return now.archive;
@@ -63,9 +75,10 @@ export function websiteFolderNow(): string {
  * Told by the file browser as its listings change. Idempotent. A caller that
  * leaves `projects` or `website` out leaves it where it was.
  */
-export function setJobFoldersNow(next: { inbox: string; archive: string; projects?: string; website?: string }): void {
+export function setJobFoldersNow(next: { inbox: string; archive: string; projects?: string; areas?: string; website?: string }): void {
   const projects = next.projects ?? now.projects;
+  const areas = next.areas ?? now.areas;
   const website = next.website ?? now.website;
-  if (next.inbox === now.inbox && next.archive === now.archive && projects === now.projects && website === now.website) return;
-  now = { inbox: next.inbox, projects, archive: next.archive, website };
+  if (next.inbox === now.inbox && next.archive === now.archive && projects === now.projects && areas === now.areas && website === now.website) return;
+  now = { inbox: next.inbox, projects, areas, archive: next.archive, website };
 }

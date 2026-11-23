@@ -1,0 +1,310 @@
+/**
+ * Areas as seats: what an area's `about.md` says about who holds it, and the
+ * card that says how to reach whoever that is. Pure — no React, no storage.
+ *
+ * An area is a folder in the Areas folder (by job, `inAreasNow`). Its seat is
+ * a few top-level lines in its `about.md`, each one a property a list could
+ * read, so a person, Tex or any agent edits them as text:
+ *
+ *     owner: "@dev2"
+ *     helper: Claude Code
+ *     modes: [Manager, Doer]
+ *     metrics:
+ *       - PR time to ship, target 2 days
+ *     approvals:
+ *       - Spending over $20 needs the owner's approval.
+ *
+ * Which folders are areas: every folder directly in the Areas folder (in PARA
+ * each one is an area already), unless its `about.md` says `area: false`; and
+ * any deeper folder whose `about.md` declares a seat (one of `SEAT_KEYS`, or
+ * `area: true`). Anything else is a plain folder, listed under its area.
+ *
+ * How to reach a holder is kept once per workspace, not per seat (the owner,
+ * 2026-11-23: "per workspace, and everyone with access to the workspace should
+ * see details"): a note per holder in the Areas folder's `people/` folder,
+ * whose own `about.md` says `area: false`. A login is never written there; an
+ * agent's card names the vault item that holds it. See
+ * `docs/decisions/app-and-console/areas-as-seats.md`.
+ */
+
+import type { ListNote, PropertyValue } from "../../listBlock/model";
+import { ABOUT_NOTE, baseName } from "../../paths";
+import { entriesIn, type ItemEntry } from "../model";
+
+/** The three mode labels, in the order they are drawn. Labels, never rules. */
+export const MODES = ["Visionary", "Manager", "Doer"] as const;
+export type Mode = (typeof MODES)[number];
+
+/** What each mode means, for the hover that explains it. */
+export const MODE_TIPS: Readonly<Record<Mode, string>> = {
+  Visionary: "Sets direction and decides what good looks like here. Kept apart because deciding what to do pulls against getting it done.",
+  Manager: "Checks the work on a loop: reviews it, follows up, keeps the metric on target. Can be a person or a routine.",
+  Doer: "Does the hands-on work, often where an agent like Claude Code fits. Kept apart so doing the work doesn't crowd out checking it.",
+};
+
+/** The lines that make a deeper folder an area. */
+export const SEAT_KEYS = ["owner", "helper", "modes", "metrics", "approvals"] as const;
+/** Says outright whether a folder is an area: `area: false` keeps a folder in the Areas folder plain. */
+export const AREA_KEY = "area";
+/** The folder in the Areas folder that holds the how-to-reach cards. */
+export const PEOPLE_FOLDER = "people";
+
+export interface Metric {
+  readonly name: string;
+  /** What good looks like, as written: `2 days`, `under $600`. Null when none is set. */
+  readonly target: string | null;
+}
+
+export interface Seat {
+  /** The area's folder path. */
+  readonly folder: string;
+  /** The folder's name as drawn. */
+  readonly name: string;
+  /** The note the seat's lines are written to, and whether writing creates it. */
+  readonly about: { readonly target: string; readonly creates: boolean };
+  /** The owner this folder names itself; null when it names none. */
+  readonly ownOwner: string | null;
+  /** Who holds it: its own owner, else the nearest area above that names one. */
+  readonly owner: string | null;
+  /** The area the owner comes from when it is not this one; null when it is its own or nobody's. */
+  readonly ownerFrom: string | null;
+  readonly helper: string | null;
+  readonly modes: readonly Mode[];
+  readonly metrics: readonly Metric[];
+  readonly approvals: readonly string[];
+}
+
+export interface AreaNode {
+  readonly seat: Seat;
+  /** Its sub-areas, in name order. */
+  readonly areas: readonly AreaNode[];
+  /** Everything else directly in it: notes, pages, sheets and plain folders. `about.md` is the seat, never a row. */
+  readonly files: readonly ItemEntry[];
+}
+
+/** How to reach one holder, person or agent: one note in `people/`. */
+export interface Card {
+  /** The owner word it is for, as an owner line writes it: `@dev2`, `Claude Code`. */
+  readonly holder: string;
+  readonly kind: "person" | "agent";
+  readonly phone: string;
+  readonly email: string;
+  /** A person's delegation agent: `Tex`, another bot's name, or "" for none. */
+  readonly delegation: string;
+  /** How to reach that other bot, when it is not Tex. */
+  readonly delegationHow: string;
+  /** An agent's own access notes: where and how it is reached. */
+  readonly access: string;
+  /** The vault item holding an agent's login: a name only, never the login. */
+  readonly vault: string;
+}
+
+const inside = (folder: string) => (folder === "" ? "" : `${folder}/`);
+
+function text(value: PropertyValue | undefined): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return (value[0] ?? "").trim();
+  return "";
+}
+
+function list(value: PropertyValue | undefined): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === "string" && value.trim() !== "" ? value.split(",") : [];
+  return raw.map((item) => item.trim()).filter((item) => item !== "");
+}
+
+function aboutOf(folder: string, notes: readonly ListNote[]): ListNote | null {
+  const path = `${inside(folder)}${ABOUT_NOTE}`;
+  return notes.find((note) => note.path === path) ?? null;
+}
+
+/** Whether `folder` is an area of the Areas folder `root` (see the header). */
+export function isArea(folder: string, root: string, notes: readonly ListNote[]): boolean {
+  if (folder === root || !folder.startsWith(inside(root))) return false;
+  const about = aboutOf(folder, notes);
+  const said = text(about?.properties[AREA_KEY]).toLowerCase();
+  if (said === "false" || said === "no") return false;
+  if (said === "true" || said === "yes") return true;
+  if (about !== null && SEAT_KEYS.some((key) => about.properties[key] !== undefined)) return true;
+  return !folder.slice(inside(root).length).includes("/");
+}
+
+/** `Name, target 2 days` → name and target; a line with no target is all name. */
+export function parseMetric(line: string): Metric {
+  const at = line.search(/,\s*target\s+/i);
+  if (at === -1) return { name: line.trim(), target: null };
+  const target = line.slice(at).replace(/^,\s*target\s+/i, "").trim();
+  return { name: line.slice(0, at).trim(), target: target === "" ? null : target };
+}
+
+export function metricLine(metric: Metric): string {
+  const name = metric.name.trim();
+  const target = metric.target?.trim() ?? "";
+  return target === "" ? name : `${name}, target ${target}`;
+}
+
+function modesOf(value: PropertyValue | undefined): Mode[] {
+  const said = new Set(list(value).map((word) => word.toLowerCase()));
+  return MODES.filter((mode) => said.has(mode.toLowerCase()));
+}
+
+/** The seat `folder` holds, its owner inherited from the nearest area above that names one, below `root`. */
+export function seatOf(folder: string, root: string, notes: readonly ListNote[]): Seat {
+  const about = aboutOf(folder, notes);
+  const props = about?.properties ?? {};
+  const ownOwner = text(props.owner) || null;
+  let owner = ownOwner;
+  let ownerFrom: string | null = null;
+  if (owner === null) {
+    for (let at = parentOf(folder); at !== null && at.startsWith(inside(root)) && at !== root; at = parentOf(at)) {
+      const found = text(aboutOf(at, notes)?.properties.owner);
+      if (found !== "") {
+        owner = found;
+        ownerFrom = at;
+        break;
+      }
+    }
+  }
+  return {
+    folder,
+    name: baseName(folder),
+    about: { target: `${inside(folder)}${ABOUT_NOTE}`, creates: about === null },
+    ownOwner,
+    owner,
+    ownerFrom,
+    helper: text(props.helper) || null,
+    modes: modesOf(props.modes),
+    metrics: list(props.metrics).map(parseMetric),
+    approvals: list(props.approvals),
+  };
+}
+
+function parentOf(path: string): string | null {
+  const at = path.lastIndexOf("/");
+  return at === -1 ? null : path.slice(0, at);
+}
+
+/**
+ * `folder` and everything under it that the notes reach, as the List and the
+ * Chart draw it. `root` is the Areas folder. The `people/` cards and each
+ * `about.md` are not rows.
+ */
+export function areaTree(folder: string, root: string, notes: readonly ListNote[]): AreaNode {
+  const areas: AreaNode[] = [];
+  const files: ItemEntry[] = [];
+  for (const entry of entriesIn(folder, notes)) {
+    if (entry.kind === "folder" && isArea(entry.path, root, notes)) areas.push(areaTree(entry.path, root, notes));
+    else if (entry.kind === "file" && entry.name === ABOUT_NOTE) continue;
+    else if (entry.kind === "folder" && entry.path === `${inside(root)}${PEOPLE_FOLDER}`) continue;
+    else files.push(entry);
+  }
+  areas.sort((a, b) => a.seat.name.localeCompare(b.seat.name));
+  return { seat: seatOf(folder, root, notes), areas, files };
+}
+
+/** What a seat is missing, said quietly on its box and row; null for nothing. */
+export function gapOf(seat: Seat): string | null {
+  if (seat.owner === null) return "No owner";
+  if (seat.modes.length > 0 && !seat.modes.includes("Manager")) return "No manager loop";
+  return null;
+}
+
+/** The edits a seat pop-up saves. */
+export interface SeatEdit {
+  readonly owner: string | null;
+  readonly helper: string | null;
+  readonly modes: readonly Mode[];
+  readonly metrics: readonly Metric[];
+  readonly approvals: readonly string[];
+}
+
+type Change = readonly [string, string | readonly string[] | null];
+
+/** The lines of `about.md` a seat edit writes; an empty one is removed rather than left blank. */
+export function seatChanges(edit: SeatEdit): Change[] {
+  const lines = (values: readonly string[]) => {
+    const kept = values.map((value) => value.trim()).filter((value) => value !== "");
+    return kept.length === 0 ? null : kept;
+  };
+  return [
+    ["owner", edit.owner?.trim() || null],
+    ["helper", edit.helper?.trim() || null],
+    ["modes", edit.modes.length === 0 ? null : MODES.filter((mode) => edit.modes.includes(mode))],
+    ["metrics", lines(edit.metrics.filter((metric) => metric.name.trim() !== "").map(metricLine))],
+    ["approvals", lines(edit.approvals)],
+  ];
+}
+
+/* ------------------------------ cards ------------------------------ */
+
+/** The note name a holder's card is kept under: `@dev2` → `dev2`, `Claude Code` → `claude-code`. */
+export function cardSlug(holder: string): string {
+  const slug = holder
+    .trim()
+    .replace(/^@+/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug === "" ? "someone" : slug;
+}
+
+export function peopleFolder(root: string): string {
+  return `${inside(root)}${PEOPLE_FOLDER}`;
+}
+
+export function cardPath(root: string, holder: string): string {
+  return `${peopleFolder(root)}/${cardSlug(holder)}.md`;
+}
+
+/** `holder`'s card, or an empty one of `kind` when nobody has written it yet. */
+export function cardOf(holder: string, kind: Card["kind"], root: string, notes: readonly ListNote[]): Card & { readonly creates: boolean } {
+  const path = cardPath(root, holder);
+  const note = notes.find((each) => each.path === path) ?? null;
+  const props = note?.properties ?? {};
+  const said = text(props.kind);
+  return {
+    holder,
+    kind: said === "person" || said === "agent" ? said : kind,
+    phone: text(props.phone),
+    email: text(props.email),
+    delegation: text(props.delegation),
+    delegationHow: text(props.delegation_how),
+    access: text(props.access),
+    vault: text(props.vault),
+    creates: note === null,
+  };
+}
+
+/** The lines a card writes. A person's card has no access lines and an agent's no phone; empty lines are removed. */
+export function cardChanges(card: Card): Change[] {
+  const v = (value: string) => (value.trim() === "" ? null : value.trim());
+  const person = card.kind === "person";
+  const other = person && card.delegation.trim() !== "" && card.delegation.trim().toLowerCase() !== "tex";
+  return [
+    ["holder", card.holder.trim()],
+    ["kind", card.kind],
+    ["phone", person ? v(card.phone) : null],
+    ["email", person ? v(card.email) : null],
+    ["delegation", person ? v(card.delegation) : null],
+    ["delegation_how", other ? v(card.delegationHow) : null],
+    ["access", person ? null : v(card.access)],
+    ["vault", person ? null : v(card.vault)],
+  ];
+}
+
+/** The `people/about.md` lines that keep the cards' folder out of the areas. */
+export const PEOPLE_ABOUT: readonly Change[] = [[AREA_KEY, "false"]];
+
+/** One line saying how to reach a holder, for a hover or a menu; "" when the card is empty. */
+export function reachLine(card: Card): string {
+  const out: string[] = [];
+  if (card.kind === "person") {
+    if (card.phone !== "") out.push(card.phone);
+    if (card.email !== "") out.push(card.email);
+    const deleg = card.delegation.trim();
+    if (deleg !== "") out.push(`delegates to ${deleg}${deleg.toLowerCase() !== "tex" && card.delegationHow !== "" ? ` (${card.delegationHow})` : ""}`);
+  } else {
+    if (card.access !== "") out.push(card.access);
+    if (card.vault !== "") out.push(`login in the vault: ${card.vault}`);
+  }
+  return out.join(" · ");
+}

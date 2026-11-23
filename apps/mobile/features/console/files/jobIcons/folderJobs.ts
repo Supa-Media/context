@@ -153,6 +153,11 @@ export function projectsFolder(listings: JobListings): string {
   return jobFolder(listings, "projects", DEFAULT_FOLDER.projects);
 }
 
+/** Where the Areas folder is: the folder doing its job, else `areas`. */
+export function areasFolder(listings: JobListings): string {
+  return jobFolder(listings, "areas", DEFAULT_FOLDER.areas);
+}
+
 /** Where the Archive is: the folder doing its job, else `9-archive`. */
 export function archiveFolder(listings: JobListings): string {
   return jobFolder(listings, "archive", DEFAULT_FOLDER.archive);
