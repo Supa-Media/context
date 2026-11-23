@@ -227,7 +227,7 @@ describe("translateFetch: note paths", () => {
   it("treats a lists value other than true as an unknown key on a note", () => {
     assert.equal(
       translateFetch({ id: "a.md", args: { lists: false } }, CLAUDE).error,
-      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. Call it again with only those; orient lists what each id takes.',
+      'fetch "a.md" takes args: mail, outline, section, lines; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. Call it again with only those; orient lists what each id takes.',
     );
   });
 
@@ -242,7 +242,7 @@ describe("translateFetch: note paths", () => {
     );
     assert.equal(
       translateFetch({ id: "a.md", args: { limit: 3 } }, CLAUDE).error,
-      'fetch "a.md" takes args: mail; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. Call it again with only those; orient lists what each id takes.',
+      'fetch "a.md" takes args: mail, outline, section, lines; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. Call it again with only those; orient lists what each id takes.',
     );
   });
 
@@ -250,14 +250,15 @@ describe("translateFetch: note paths", () => {
   // Sabotage: drop `others: NOTE_READS` from the read_note target and this fails.
   it("a refused note read names every way a note reads, a picture by its file name included", () => {
     const error = translateFetch({ id: "tex/groups/x/fun.page.md", args: { images: true } }, CLAUDE).error;
-    assert.match(error, /takes args: mail; or, instead, one of: image: "<a picture's file name/);
+    assert.match(error, /takes args: mail, outline, section, lines; or, instead, one of: image: "<a picture's file name/);
     for (const way of ["related: true", "lists: true", "transcript", "messages", "activity"]) assert.ok(error.includes(way), way);
   });
 
-  it("drops a message anchor and reads the note it names", () => {
+  // A search hit names one message; reading the whole day for it cost up to 67,000 tokens (`docs/decisions/gateway-protocol/section-reads.md`).
+  it("reads just the message a message anchor names", () => {
     assert.deepEqual(translateFetch({ id: "0-inbox/email/d.md#msg-0123456789abcdef" }, CLAUDE), {
       name: "read_note",
-      arguments: { path: "0-inbox/email/d.md" },
+      arguments: { path: "0-inbox/email/d.md", section: "msg-0123456789abcdef" },
       action: "note",
     });
   });

@@ -90,6 +90,22 @@ const NOTE_READS =
   '; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), ' +
   "related: true (with limit), lists: true, transcript, messages, activity";
 
+/**
+ * `note.md#Plan#Risks` as `{ path: "note.md", section: "Plan > Risks" }`, or null. Only after a `.md`, so a folder
+ * or file whose own name holds a `#` is read as written.
+ */
+function headingFragment(id) {
+  const at = id.indexOf(".md#");
+  if (at === -1) return null;
+  const segments = id
+    .slice(at + 4)
+    .split("#")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== "");
+  if (!segments.length) return null;
+  return { path: id.slice(0, at + 3), section: segments.map((segment) => segment.replace(/>/g, "\\>")).join(" > ") };
+}
+
 /** `search` in the v2 shape. */
 export function translateSearch(call, app = {}) {
   const open = openArgs(call);
@@ -227,9 +243,12 @@ export function translateFetch(call, app = {}) {
     return target(label, a, { name: "read_note", action: "note", fixed: { path: id }, copy: ["before", "job"] });
   }
 
-  // A message anchor from search (`<note>.md#<anchor>`) is the note itself.
+  // A message anchor from search (`<note>.md#<anchor>`) reads that one message; `<note>.md#Plan#Risks` reads one
+  // section, the way Obsidian links name one (`notes/readPart.js`). Anything else with a `#` is the path as written.
   const split = splitMessageAnchor(id);
-  const note = split.anchor !== null && split.path.endsWith(".md") ? split.path : id;
+  const fragment = headingFragment(id);
+  const note = split.anchor !== null && split.path.endsWith(".md") ? split.path : fragment !== null ? fragment.path : id;
+  const named = split.anchor !== null && split.path.endsWith(".md") ? split.anchor : fragment?.section ?? null;
 
   if (note.endsWith(".md")) {
     if (a.image !== undefined) {
@@ -250,7 +269,10 @@ export function translateFetch(call, app = {}) {
     if (a.activity !== undefined) {
       return target(label, a, { name: "read_contact", action: "contact", fixed: { path: note }, copy: ["activity"] });
     }
-    return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail"], others: NOTE_READS });
+    if (named !== null && a.section === undefined && a.lines === undefined && a.outline === undefined && a.mail === undefined) {
+      return target(label, a, { name: "read_note", action: "note", fixed: { path: note, section: named }, copy: [], others: NOTE_READS });
+    }
+    return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail", "outline", "section", "lines"], others: NOTE_READS });
   }
 
   // A stored file (a PDF an email carried, a spreadsheet): its words.

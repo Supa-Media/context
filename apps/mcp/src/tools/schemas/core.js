@@ -77,7 +77,7 @@ export function coreToolDefinitions() {
       name: "fetch",
       title: "Fetch note",
       description:
-        "Fetch one note from the user's memory in full, by the id a search result returned.",
+        "Fetch one note from the user's memory, by the id a search result returned. Long note: args outline, then section or lines.",
       inputSchema: {
         type: "object",
         properties: {
@@ -142,11 +142,28 @@ export function coreToolDefinitions() {
         "search_notes. Returns its content and an etag; pass that etag back to write_note so a " +
         "concurrent edit is detected instead of silently overwritten. " +
         "Pass mail: true to read only the note's mail (what agents working on it sent each other) instead of the note: " +
-        "with your mailbox, just what is new for you; mail: \"all\" for all of it.",
+        "with your mailbox, just what is new for you; mail: \"all\" for all of it. " +
+        "For a long note, read only part of it: outline: true for its headings with line ranges and sizes, " +
+        "section: \"Heading\" (or \"Parent > Heading\", or a heading's line) for one heading and everything under it, " +
+        "lines: \"120-180\" for a range. A part's etag ends in ;part: save that part back with write_note's section or edits, never as the whole note.",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string", description: "e.g. 'projects/togather/status.md'" },
+          outline: {
+            type: ["boolean", "object"],
+            description: "Optional. true: the note's headings, each with its line range, size and how many headings sit under it. { depth: 3 } lists deeper headings too.",
+            properties: { depth: { type: "integer", minimum: 1, maximum: 6 } },
+            additionalProperties: false,
+          },
+          section: {
+            type: ["string", "integer"],
+            description: "Optional. One heading and everything under it: its text (\"Decisions\"), a path (\"Plan > Risks\", \\> for a literal >), or the line it starts on.",
+          },
+          lines: {
+            type: ["string", "integer"],
+            description: "Optional. A range of the note's lines, 1-based: \"120-180\", or \"412-\" to the end. The outline and a part's more: line give them.",
+          },
           mail: {
             type: ["boolean", "string"],
             // "true" too: an app whose copy of this tool predates mail sends
