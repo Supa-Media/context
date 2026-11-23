@@ -18,7 +18,7 @@
 import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { PART_CHARS, findSection, noteStructure, parseLines, renderOutline, sliceLines } from "../../notes/sections.js";
-import { PARTIAL_ETAG_SUFFIX } from "../partialEtag.js";
+import { partialEtag } from "../partialEtag.js";
 
 /** The `read_note` arguments that ask for part of a note. */
 export const PART_ARGS = ["outline", "section", "lines"];
@@ -32,17 +32,10 @@ export async function toolReadNotePart(store, scope, rules, overrides, args) {
   if (asked.length > 1) return toolError(`pass one of ${asked.join(", ")}, not ${asked.length}: call it again with only the one you need.`);
   const whole = await toolReadNote(store, scope, rules, overrides, args.path);
   if (whole.isError) return whole;
-  const opened = whole.opened;
-  const full = whole.content?.[0]?.text ?? "";
-  if (!opened || typeof opened.text !== "string" || /^kind: drawing$/m.test(headerOf(full))) {
-    return toolError("this note is a drawing, which has no sections: read it without outline, section or lines.");
-  }
-  if (opened.encrypted) return toolError("an encrypted note is read whole: call it again without outline, section or lines.");
-  const body = opened.text;
-  if (!full.endsWith(body)) return toolError("this note could not be cut into parts right now: read it whole, without outline, section or lines.");
-  const header = full.slice(0, full.length - body.length).replace(/\n\n$/, "").replace(/^etag: (\S+)$/m, (_, etag) => `etag: ${etag}${PARTIAL_ETAG_SUFFIX}`);
-  const structure = noteStructure(body);
-  const total = structure.lines.length;
+  const cut = cuttable(whole);
+  if (cut.error) return toolError(cut.error);
+  const { marked, structure, total } = cut;
+  const header = marked();
 
   if (asked[0] === "outline") {
     const depth = typeof args.outline === "object" ? args.outline.depth : undefined;
@@ -59,11 +52,14 @@ export async function toolReadNotePart(store, scope, rules, overrides, args) {
 
   let range;
   let label;
+  let partHeader = header;
   if (asked[0] === "section") {
     const found = findSection(structure, args.section);
     if (found.error) return toolError(found.error);
     range = { start: found.start, end: found.end };
     label = `section "${found.heading.text || found.heading.anchor}", `;
+    // The section's hash rides on its etag, so writing it back still lands after an edit elsewhere in the note.
+    partHeader = marked(structure.lines.slice(found.start - 1, found.end).join("\n"));
   } else {
     const parsed = parseLines(args.lines, total);
     if (parsed.error) return toolError(parsed.error);
@@ -75,7 +71,26 @@ export async function toolReadNotePart(store, scope, rules, overrides, args) {
     part.next === null
       ? ""
       : `\nmore: lines: "${part.next}-${range.end}" (in place of section or lines) reads on; those lines are not shown here`;
-  return answer(`${header}\npart: ${label}lines ${part.start}-${part.end} of ${total}${more}`, part.text, whole);
+  return answer(`${partHeader}\npart: ${label}lines ${part.start}-${part.end} of ${total}${more}`, part.text, whole);
+}
+
+/**
+ * A whole read's answer, ready to cut: its header with the etag marked as a part's, and the body's structure. Or the
+ * reason it cannot be cut (a drawing, an encrypted note, or an answer that is not header and body).
+ */
+export function cuttable(whole) {
+  const opened = whole.opened;
+  const full = whole.content?.[0]?.text ?? "";
+  if (!opened || typeof opened.text !== "string" || /^kind: drawing$/m.test(headerOf(full))) {
+    return { error: "this note is a drawing, which has no sections: read it without outline, section or lines." };
+  }
+  if (opened.encrypted) return { error: "an encrypted note is read whole: call it again without outline, section or lines." };
+  const body = opened.text;
+  if (!full.endsWith(body)) return { error: "this note could not be cut into parts right now: read it whole, without outline, section or lines." };
+  const headerOfWhole = full.slice(0, full.length - body.length).replace(/\n\n$/, "");
+  const marked = (sectionText = null) => headerOfWhole.replace(/^etag: (\S+)$/m, (_, etag) => `etag: ${partialEtag(etag, sectionText)}`);
+  const structure = noteStructure(body);
+  return { marked, structure, total: structure.lines.length, body, path: opened.path };
 }
 
 function headerOf(text) {
@@ -84,7 +99,7 @@ function headerOf(text) {
 }
 
 /** The answer, keeping the whole read's `opened` (its path and note id place the etag; `etagPlace.js`). */
-function answer(header, body, whole) {
+export function answer(header, body, whole) {
   const result = toolText(`${header}\n\n${body}`);
   return Object.defineProperty(result, "opened", { value: whole.opened, enumerable: false });
 }

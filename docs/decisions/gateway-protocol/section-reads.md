@@ -31,6 +31,34 @@ What counts as a heading is what a reader draws as one: never inside a code fenc
 captured message's untrusted fence. A note's machine blocks (the ```` ```comments ```` and ```` ```mail ```` fences)
 belong to no section, so a section can never take a thread or a mail record with it.
 
+## A model's fetch of a long note is capped
+
+A `fetch` with no part named reads a note up to 32,000 characters as before. A longer one returns its outline and the
+lines from its start that fit, marked as a part (`;part`), with a `more:` line naming the next lines; a day of
+messages returns its outline alone, its threads with how many messages each holds. `args { full: true }` reads it
+whole. Several notes in one `notes:` read share 64,000 characters; a note past that comes back as its outline.
+
+Only a model's v2 `fetch` is capped (`session.js` passes `fetchCap`; `tools/notes/readCapped.js`). Tex's own code, the
+gateway's writers and every legacy `read_note` call read whole, because they compare or save what they read.
+
+## Changing a part
+
+`write_note` (and `write`'s `args`) changes one part, and the gateway builds the whole new text from the note as it
+stands and saves it through the ordinary whole save (`tools/notes/writePart.js`):
+
+- **`section` with `content`** replaces that heading and everything under it. It overwrites lines, so it takes the
+  etag its section read gave, which carries the section's hash (`;part#<hash>`): if the note changed elsewhere since,
+  the write still lands when that section's own text is unchanged, and otherwise it is refused with only that section
+  as it stands now, never the whole note.
+- **`section` with `insert: "append"` or `"prepend"`** adds `content` at the section's end or start, with no etag.
+- **`edits: [{ old, new, replace_all? }]`** (up to 20, all or nothing) finds and replaces, like Claude Code's `Edit`,
+  with no content and **no etag** (decided by the owner, 2026-11-23, as a recorded exception to "writes pass back the
+  version they read"): each `old` must occur exactly once (within `section` when one is named), so an edit made stale
+  by somebody else's change finds nothing and changes nothing. A failure says "0 matches" or names every line a match
+  is on.
+- Edits never look inside the note's machine blocks, and a part write that would remove a comment's anchor
+  (`<!--c:…-->`) is refused.
+
 ## The guard
 
 A part saved as the whole note deletes everything the agent did not read. Two checks stop it, because one alone can
@@ -65,4 +93,4 @@ be dodged:
 - Leaving the mark on the etag for other tools makes every move or visibility change after a part read a false
   conflict.
 
-`apps/mcp/test/sectionReads.test.mjs` fails if any of these is reversed; its header records the sabotage runs.
+`apps/mcp/test/sectionReads.test.mjs`, `sectionWrites.test.mjs` and `sectionCap.test.mjs` fail if any of these is reversed; their headers record the sabotage runs.

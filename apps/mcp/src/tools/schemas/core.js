@@ -164,6 +164,10 @@ export function coreToolDefinitions() {
             type: ["string", "integer"],
             description: "Optional. A range of the note's lines, 1-based: \"120-180\", or \"412-\" to the end. The outline and a part's more: line give them.",
           },
+          full: {
+            type: "boolean",
+            description: "Optional. true: the whole note however long it is. A fetch of a long note otherwise gives its outline and first part.",
+          },
           mail: {
             type: ["boolean", "string"],
             // "true" too: an app whose copy of this tool predates mail sends

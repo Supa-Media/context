@@ -115,7 +115,7 @@ export function noteWriteToolDefinitions() {
         type: "object",
         properties: {
           path: { type: "string", description: "Destination path ending in .md" },
-          content: { type: "string", description: "The whole note. Required unless comment is passed instead." },
+          content: { type: "string", description: "The whole note, or with section the section's new text. Required unless comment or edits is passed instead." },
           site: {
             type: "object",
             additionalProperties: false,
@@ -195,6 +195,24 @@ export function noteWriteToolDefinitions() {
             additionalProperties: false,
           },
           expected_etag: { type: "string", description: "Etag from read_note; omit only when creating a new note." },
+          section: {
+            type: ["string", "integer"],
+            description:
+              "Optional. Change one part, not the whole note: the heading (\"Decisions\", \"Plan > Risks\", or its line). With content, replaces that " +
+              "heading and everything under it (pass the etag its section read gave); with insert, adds content at its end or start; with edits, looks only there.",
+          },
+          insert: { type: "string", enum: ["replace", "append", "prepend"], description: "Optional, with section: append or prepend content instead of replacing the section." },
+          edits: {
+            type: "array",
+            maxItems: 20,
+            description: "Optional. Find and replace instead of sending the note: each old must occur exactly once (or pass replace_all), or nothing changes. Needs no content and no etag.",
+            items: {
+              type: "object",
+              properties: { old: { type: "string" }, new: { type: "string" }, replace_all: { type: "boolean" } },
+              required: ["old", "new"],
+              additionalProperties: false,
+            },
+          },
           replace: {
             type: "string",
             enum: ["whole"],

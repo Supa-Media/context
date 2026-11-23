@@ -42,6 +42,19 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-23",
     text:
+      "fetch of a note longer than about 8,000 tokens returns its outline and first part, with a more: line naming the " +
+      "next lines; a day of email returns its outline of threads. args { full: true } reads the whole note.",
+  },
+  {
+    date: "2026-11-23",
+    text:
+      'write changes one part of a note: args { section: "<heading>" } with content replaces that section (pass the etag its ' +
+      'section read gave), with insert: "append" or "prepend" adds to it; args { edits: [{ old, new }] } finds and replaces, ' +
+      "each old matching exactly once, with no content and no etag needed.",
+  },
+  {
+    date: "2026-11-23",
+    text:
       "fetch reads part of a long note: args { outline: true } lists its headings with line ranges and sizes, then " +
       'args { section: "<heading>" } (or "Parent > Heading", or its line) or { lines: "120-180" } reads one part; an id like ' +
       "note.md#Heading does the same, and a search hit's message id reads that one message, not the whole day. A part's etag " +
@@ -476,7 +489,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "049805d8";
+export const TOOL_SHAPE = "af11fd84";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
