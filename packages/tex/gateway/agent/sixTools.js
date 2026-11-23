@@ -37,6 +37,7 @@ import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
 import { withNothingChanged } from "./noteLinks.js";
 import { actionArgumentsRefusal, checkActionArguments } from "./actionArgs.js";
 import { sendShapeRefusal } from "./sixCallShape.js";
+import { sixCallRepairer } from "./sixCallRepair.js";
 import { inSixNames } from "./promptNames.js";
 
 /**
@@ -544,7 +545,11 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
     return `\n\nThe manual for ${action}, so the next call gets it right:\n${manual}`;
   }
 
-  function resolve(name, args) {
+  const repair = sixCallRepairer({ held, shown, assistant: ASSISTANT_SEND_ACTIONS });
+
+  function resolve(given, raw) {
+    // A call that can only mean one thing runs as that (`sixCallRepair.js`; Dev, 2026-11-23: a 0% wrong-call rate).
+    const { name, args } = repair(given, raw);
     const out = checkedAction(name, args, resolveCall(name, args));
     const action = args && typeof args === "object" && !Array.isArray(args) ? args.action : undefined;
     if (out.error === undefined || name !== "manage" || !VISIBILITY_ACTIONS.includes(action)) return out;

@@ -23,21 +23,18 @@ export default {
     const shown = fixedCarriers("one");
     const six = sixToolsOver([...shown.values()], null, { shown });
 
-    // Try 1: the fields beside the action are refused with the call written out, inside args.
+    // Try 1: the fields beside the action can only mean the email's own, so they run inside args (Dev, 2026-11-23:
+    // a 0% wrong-call rate; `sixCallRepair.js`), where this case first proved a refusal with the call written out.
     const flat = six.resolve("send", { action: "email", from: "me@team.example", in_reply_to: "email:me@team.example/1a205a21935afbd5", ...KANSI });
-    assert.equal(flat.cause, "bad_arguments");
-    assert.match(flat.error, /from, in_reply_to, to, cc, subject, body go inside args/);
-    const written = JSON.parse(flat.error.slice(flat.error.indexOf("send {") + "send ".length));
-    assert.deepEqual(written, { action: "email", args: { from: "me@team.example", in_reply_to: "email:me@team.example/1a205a21935afbd5", ...KANSI } });
-    // ...and the copy it says to make goes through.
-    const copied = six.resolve("send", written);
-    assert.equal(copied.error, undefined, copied.error);
-    assert.equal(copied.name, "send_email");
+    assert.equal(flat.error, undefined, flat.error);
+    assert.equal(flat.name, "send_email");
+    assert.deepEqual(flat.args, { from: "me@team.example", in_reply_to: "email:me@team.example/1a205a21935afbd5", ...KANSI });
 
-    // Try 2: the sender in mailbox is moved to args.from in the call it writes.
+    // Try 2: the sender written as mailbox is the email's from.
     const boxed = six.resolve("send", { action: "email", args: KANSI, mailbox: "me@team.example" });
-    assert.match(boxed.error, /the mailbox it goes from is args\.from/);
-    assert.match(boxed.error, /"from":"me@team\.example"/);
+    assert.equal(boxed.error, undefined, boxed.error);
+    assert.equal(boxed.args.from, "me@team.example");
+    assert.equal(boxed.args.mailbox, undefined);
 
     // A bare thread id is refused with the whole id written out.
     const bare = readEmail({ ...KANSI, from: "me@team.example", in_reply_to: "1a205a21935afbd5" });

@@ -60,6 +60,14 @@ function oneReading(property, value) {
   return value;
 }
 
+/** A number past its schema's bounds brought inside them: `limit: 20` where 10 is the most is 10, never a refusal. */
+function inBounds(property, value) {
+  if (!property || typeof value !== "number" || !Number.isFinite(value)) return value;
+  if (typeof property.maximum === "number" && value > property.maximum) return property.maximum;
+  if (typeof property.minimum === "number" && value < property.minimum) return property.minimum;
+  return value;
+}
+
 /**
  * `{ args }` to run the action with, or `{ error }`: the action's arguments held to its carrier's schema. Keys whose
  * value is undefined are dropped first: the gateway's translation writes every field it may carry.
@@ -80,7 +88,7 @@ export function checkActionArguments(schema, args) {
       read[plural] = oneReading(properties[plural], value);
       continue;
     }
-    read[key] = oneReading(properties[key], value);
+    read[key] = inBounds(properties[key], oneReading(properties[key], value));
   }
   const refusal = validateArguments(closed(schema), read);
   return refusal === null ? { args: read } : { error: refusal };
