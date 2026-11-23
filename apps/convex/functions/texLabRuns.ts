@@ -29,6 +29,7 @@ import { compareRuns, runStats } from "@context/lab/src/texRunStats.cjs";
 import { FAILURE_TAGS } from "@context/lab/src/texFailures.cjs";
 import { handleForUser } from "./lib/identities";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
+import { quickBase, quickRefusal } from "./lib/texLabQuick";
 
 /**
  * At most this many of one person's runs waiting or running at once, and this many started in a day: guards against a
@@ -312,7 +313,7 @@ async function runOf(ctx: QueryCtx, id: string): Promise<Run | null> {
 // ── Starting ──────────────────────────────────────────────────────────────
 
 /** Start a run, or say why not. Shared by the Lab (`start`) and `tex_dev` (`runAction`). */
-export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unknown>, now: number): Promise<{ status: "ok"; runId: Id<"texLabRuns"> } | { status: "bad_request" | "not_found" | "refused"; error: string }> {
+export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unknown>, now: number): Promise<{ status: "ok"; runId: Id<"texLabRuns">; baseRunId?: Id<"texLabRuns"> } | { status: "bad_request" | "not_found" | "refused"; error: string }> {
   const versionId = typeof a.versionId === "string" ? a.versionId : "";
   const kind = a.kind as Kind;
   const models = a.models === undefined ? "gw" : a.models;
@@ -329,6 +330,7 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   if (set === null) return { status: "bad_request", error: "set is dev (default) or training" };
   if (kind === "chat" && (typeof convId !== "string" || !CONVO_ID.test(convId))) return { status: "bad_request", error: "a chat run names the Dev conversation (convId)" };
   if (kind === "node" && (typeof nodeId !== "string" || !NODE_ID.test(nodeId))) return { status: "bad_request", error: "a node run names the step (nodeId)" };
+  if (quickRefusal(a, kind, versionId, models) !== null) return { status: "bad_request", error: String(quickRefusal(a, kind, versionId, models)) };
   const target = targetOf(a.target);
   if (target === undefined) return { status: "bad_request", error: "target is pr<N> (a pull request's preview, its number) or unset" };
   if (target === "staging") return { status: "bad_request", error: "a run aims at a pull request's preview (pr<N>) or nothing: staging runs are not wired" };
@@ -367,13 +369,14 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     // the scheduled dispatch instead, so a preview run is aimed at its preview and recorded with its code.
     repeats: target ? PREVIEW_REPEATS : repeats,
     ...(code ? { code } : {}),
+    ...(a.quick === true ? { quick: true } : {}),
     stage: "queued",
     by: who.userId,
     via: who.via.slice(0, 60),
     startedAt: now,
   });
   await ctx.scheduler.runAfter(0, internal.functions.texLabRuns.dispatch, { runId, ...(target ? { target } : {}) });
-  return { status: "ok", runId };
+  return { status: "ok", runId, ...(a.quick === true ? await quickBase(ctx, who, set, repeats, now) : {}) };
 }
 
 /** Point a draft at a pull request's or branch's code, or back at main (`setCode`; `tex_dev` `code`). */
@@ -493,8 +496,8 @@ export const get = query({
 /** `tex_dev` `run` and `runs`; null for any other action. */
 export async function runAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
   if (action === "run") {
-    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set, target: a.target }, now);
-    return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
+    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set, target: a.target, quick: a.quick }, now);
+    return answer.status === "ok" ? { status: "ok", id: answer.runId, ...(answer.baseRunId ? { baseRunId: answer.baseRunId } : {}) } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
   if (action === "code") return await setDraftCode(ctx, a.draft, a.code, now);
   if (action === "run_remove") return typeof a.id === "string" ? await removeRun(ctx, a.id) : { status: "bad_request", error: "run_remove takes the run's id" };
@@ -542,7 +545,7 @@ export const job = internalQuery({
     // Every draft conversation: a Dev draft is run in place of its repo copy; a repo Dev conversation moved to
     // Training or removed in the Lab is left out. Training drafts carry only their id and set.
     const drafts = (await ctx.db.query("texSetConvos").collect()).map((d) => ({ id: d.convoId, set: d.set, removed: d.removed, ...(d.set === "dev" && !d.removed ? { conv: d.data } : {}) }));
-    return { id: r._id, versionId: r.versionId, kind: r.kind, set: r.set ?? "dev", convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, repeats: r.repeats ?? DEFAULT_REPEATS, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
+    return { id: r._id, versionId: r.versionId, kind: r.kind, set: r.set ?? "dev", convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, repeats: r.repeats ?? DEFAULT_REPEATS, code: r.code ?? null, quick: r.quick === true, graph: draft?.graph ?? null, drafts };
   },
 });
 

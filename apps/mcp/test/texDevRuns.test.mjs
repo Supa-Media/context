@@ -17,7 +17,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePeople } from "../bench/load.mjs";
-import { brokenRun, detailOf, devConversations, handoffOf, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun, worldOf } from "../../../scripts/tex-lab-run.mjs";
+import { brokenRun, changedSteps, detailOf, devConversations, handoffOf, quickNodes, resultsOf, roundsLine, routeLine, routeOf, trainingConversations, uncast, unrun, worldOf } from "../../../scripts/tex-lab-run.mjs";
 import { decideSaid, scoreByRepeat } from "../bench/setsRun.mjs";
 import { createRequire } from "node:module";
 const { CC_FIDELITY, CC_FIDELITY_WHY } = createRequire(import.meta.url)("../../../packages/lab/src/texRunBand.cjs");
@@ -527,4 +527,72 @@ test("run passes target pr<N> on to the control plane, so a Lab run can aim at a
   await call("run", {});
   assert.equal("target" in calls[1].args, false, "no target is no target, as before");
   assert.match(guideText(), /target\?: "pr<N>"/);
+});
+
+// A quick run (Dev2, 2026-11-23: "close the loop to 10 minutes"): only the steps a draft changed.
+const cfg = () => ({
+  texConfig: 1,
+  models: { haiku: {} },
+  nodes: [
+    { id: "decide", on: true, x: 0, y: 0, ctx: ["train:decide"] },
+    { id: "fd", on: true, x: 1, y: 0, ctx: ["p-rules"] },
+    { id: "send", on: true, x: 2, y: 0, ctx: [] },
+  ],
+  edges: [{ from: "decide", to: "fd", mode: "flow" }, { from: "fd", to: "send", mode: "flow" }],
+});
+
+test("changedSteps names a step whose fields changed, both ends of a changed wire and a rewritten module's readers; a move is no change", () => {
+  const a = cfg();
+  const moved = cfg();
+  moved.nodes[0].x = 9;
+  assert.deepEqual(changedSteps(a, moved), []);
+  const effort = cfg();
+  effort.nodes[0].effort = "high";
+  assert.deepEqual(changedSteps(a, effort), ["decide"]);
+  const wire = cfg();
+  wire.edges[1].when = ["reply"];
+  assert.deepEqual(changedSteps(a, wire), ["fd", "send"]);
+  const added = cfg();
+  added.nodes.push({ id: "extra", on: true, x: 3, y: 0 });
+  assert.deepEqual(changedSteps(a, added), ["extra"]);
+  assert.deepEqual(changedSteps(a, cfg(), { modules: { "p-rules": { text: "New words." } } }), ["fd"]);
+});
+
+test("changedSteps is null for a change no single step owns: the models, or the conversation settings", () => {
+  const models = cfg();
+  models.models.sonnet = {};
+  assert.equal(changedSteps(cfg(), models), null);
+  assert.equal(changedSteps(cfg(), cfg(), { convo: { tools: { mail: false } } }), null);
+});
+
+test("quickNodes runs each changed step with tests, the Front door for a changed step without, and everything when it can't narrow", () => {
+  const convs = [{ id: "c", msgs: [{ id: "m1", who: "Ann", text: "hi", labels: { decide: { act: "respond", star: true }, fd: { must: ["x"], star: true } } }] }];
+  assert.deepEqual(quickNodes(["decide"], convs), ["decide"]);
+  assert.deepEqual(quickNodes(["send"], convs), ["fd"]);
+  assert.deepEqual(quickNodes(["decide", "send"], convs), ["decide", "fd"]);
+  assert.deepEqual(quickNodes(["fd"], convs), ["fd"]);
+  assert.equal(quickNodes([], convs), null);
+  assert.equal(quickNodes(null, convs), null);
+});
+
+test("a quick run's step list reaches uncast: the Front door's cast is checked only when fd is among them", () => {
+  const c = { id: "x", msgs: [{ id: "m1", who: "Nobody Here", text: "hi", labels: { fd: { must: ["x"], star: true } } }] };
+  assert.deepEqual(uncast([c], [], "decide"), []);
+  assert.equal(uncast([c], [], "decide,fd").length, 1);
+});
+
+test("the scope CLI writes an empty step list for a run that is not quick, so every step runs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lab-scope-"));
+  writeFileSync(join(dir, "job.json"), JSON.stringify({ kind: "dev", quick: false }));
+  execFileSync(process.execPath, [LAB_RUN, "scope", join(dir, "job.json"), dir]);
+  assert.equal(readFileSync(join(dir, "nodes"), "utf8"), "");
+});
+
+test("run passes quick, and a quick run's answer names its base run when one started", async () => {
+  const { calls, call } = tool({ run: { status: "ok", id: "r1", baseRunId: "r0" } });
+  const got = jsonOf(await call("run", { draft: "vabc123", quick: true }));
+  assert.equal(calls[0].args.quick, true);
+  assert.deepEqual([got.run, got.quick, got.baseRun], ["r1", true, "r0"]);
+  assert.match(got.then, /only the steps this draft changed/);
+  assert.match(guideText(), /quick: true/);
 });

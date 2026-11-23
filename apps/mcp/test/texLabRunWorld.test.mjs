@@ -174,3 +174,13 @@ test("record workflow: the push job writes only tex-world/ or claude/ branches w
   assert.doesNotMatch(ready, /secrets\./);
   assert.doesNotMatch(jobOf(RECORD, "run"), /contents: write|GH_ADMIN_TOKEN/, "the job with the model secrets never writes");
 });
+
+test("a quick run picks its steps after the draft is written, and the run step passes them as --node with more Front door tests at once", () => {
+  const scope = stepOf(TEXT, "Pick the steps a quick run tests");
+  assert.match(scope, /tex-lab-run\.mjs scope "\$RUNNER_TEMP\/job\.json" "\$RUNNER_TEMP\/lab"/);
+  assert.ok(TEXT.indexOf("- name: Write the draft's graph into the config") < TEXT.indexOf("- name: Pick the steps a quick run tests"), "the scope must read the config after the draft's write");
+  const run = stepOf(TEXT, "Run the Dev set's unit tests");
+  assert.match(run, /quick=\$\(cat "\$RUNNER_TEMP\/lab\/nodes"/);
+  assert.match(run, /args\+=\(--node "\$quick"\)/);
+  assert.match(run, /--parallel "\$parallel"/);
+});

@@ -501,6 +501,11 @@ jobs:
           fi
           git diff --stat
 
+      # A quick run (Dev2, 2026-11-23: "close the loop to 10 minutes"): only the steps the draft changed, read from the
+      # config before and after the write above (`tex-lab-run.mjs` scope). Any other run writes an empty list: every step.
+      - name: Pick the steps a quick run tests
+        run: node scripts/tex-lab-run.mjs scope "$RUNNER_TEMP/job.json" "$RUNNER_TEMP/lab"
+
       - name: Claude Code has its token
         if: needs.prep.outputs.models == 'cc'
         env:
@@ -553,8 +558,13 @@ jobs:
           else
             scope=(--set "$SET" --world "$WORLD")
           fi
-          args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel 8 --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
-          if [ -n "$NODE_ID" ]; then args+=(--node "$NODE_ID"); fi
+          # A quick run's steps (`scope` above) go sixteen Front door tests at once on the AI gateway; any other, eight.
+          quick=$(cat "$RUNNER_TEMP/lab/nodes" 2>/dev/null || true)
+          [[ -z "$quick" || "$quick" =~ ^[a-z][A-Za-z0-9_-]{0,30}(,[a-z][A-Za-z0-9_-]{0,30})*$ ]] || { echo "::error::not a list of step ids"; exit 1; }
+          parallel=8
+          if [ -n "$quick" ] && [ "$MODELS" = "gw" ]; then parallel=16; fi
+          args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel "$parallel" --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
+          if [ -n "$NODE_ID" ]; then args+=(--node "$NODE_ID"); elif [ -n "$quick" ]; then args+=(--node "$quick"); fi
           node apps/mcp/bench/run.mjs sets run "${scope[@]}" "${args[@]}"
           code=$?
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"

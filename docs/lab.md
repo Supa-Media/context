@@ -12,8 +12,9 @@ Everything here works in two places. Signed in at [context.lc/lab](https://conte
 | 2. Search bench on a draft | Does the draft win across a whole benchmark? | `tex_dev search_bench { draft, bench }` | 2 to 10 s |
 | 3. Test chat | What does Tex do with this text on a draft, on real models? | `tex_dev test_chat` (open, send, try, again) | seconds per text |
 | 4. Draft on a pull request's code | My new step or setting is code. Does it work in a draft? | `tex_dev code { draft, code: "#<PR>" }`, then rungs 2 and 3 on the PR's preview | 5 to 8 min, once per push |
-| 5. GitHub runs | The Dev set, a full eval, the examiner | `tex_dev run`, `eval_run` | minutes |
-| 6. Promote | Land a draft that won | `tex_dev promote { draft }` opens the PR, then CI, the gates, merge and production | about 30 min |
+| 5. Quick Dev run | Does the draft fix its target and break nothing on the steps it changed? | `tex_dev run { draft, quick: true }` | about 5 min (GitHub, AI gateway) |
+| 6. GitHub runs | The whole Dev set, a full eval, the examiner | `tex_dev run`, `eval_run` | 10 min on the AI gateway; 25+ on Claude Code |
+| 7. Promote | Land a draft that won | `tex_dev promote { draft }` opens the PR, then CI, the gates, merge and production | about 30 min |
 
 Rungs 1 to 3 need no pull request, no GitHub job and no deploy. Stay on them while you are iterating, and climb only when the change needs code.
 
@@ -60,7 +61,7 @@ New behaviour lands as a setting, so it can be flipped and benched instead of ar
    - `edit` the draft, then `test_chat again` with it.
    - `test_chat try` runs one text on main and on the draft side by side.
    - Real models run, writes stay in the test chat, and the limit is 200 test texts a day per person.
-4. **Measure:** `run { draft }` runs the Dev set's unit tests on GitHub. Training examples are edited through the Testing tab's conversations (`set_*`), not the prompts.
+4. **Measure:** `run { draft, quick: true }` runs only the unit tests of the steps the draft changed (the Front door's too when a changed step has none of its own), on the AI gateway, and reads them against main's newest Dev run on the AI gateway (it starts one beside it when main has none), so `runs { draft }` ends in a `vsMain` verdict. `run { draft }` runs the whole Dev set. Training examples are edited through the Testing tab's conversations (`set_*`), not the prompts.
 5. **Land it:** `promote` opens the pull request. The replay gate runs the sealed Test set, and production follows a green main.
 
 A prompt's words, a new step's code and a capability need a pull request: node code in `packages/tex/gateway/agent/graph/nodes/`, words in `packages/tex/src/texPrompt/`. Merge new node code to main first, unwired and on the shelf (`texNodeShelf.json`). Then wire it in a draft, test it on rung 3, and promote.
@@ -75,7 +76,7 @@ A quality change fixes how Tex behaves: what it says, when it stays quiet, wheth
    - **What a step reads.** Edit its `ctx` (modules, history, `train:<nodeId>`), its model (Haiku for Tex's steps), effort, rounds, time limit or wires.
    - **A step on or off, or a new step.** New code goes to the shelf first, then gets wired in a draft (see Changing Tex above).
 3. **Try it on the turn that went wrong.** `test_chat replay { chat, text, draft }` re-runs a real text on the draft. `test_chat try` runs one text on main and the draft side by side. `test_chat open` with a Dev or Training conversation (`source: "set"`) runs inside that conversation's world.
-4. **Measure, not one example.** `run { draft, kind: "dev" }` replays the Dev set's unit tests, and `run { kind: "node", node }` runs one step's. Decide is exact, so one run is a result. The front door varies about three points between repeats, so judge it over repeats (`repeats` up to 5). A draft wins only if it is better on the cases it targets and no worse elsewhere.
+4. **Measure, not one example.** `run { draft, quick: true }` first: the changed steps' unit tests against main, in about five minutes. `run { draft, kind: "dev" }` replays the whole Dev set's unit tests, and `run { kind: "node", node }` runs one step's. Decide is exact, so one run is a result. The front door varies about three points between repeats, so judge it over repeats (`repeats` up to 5). A draft wins only if it is better on the cases it targets and no worse elsewhere.
 5. **Promote.** The replay gate runs the sealed Test set on main. Nobody tunes against the Test set; it is people-only and never shown to an agent. Production follows green CI. Afterwards, check the real chat it came from.
 
 Where it is decided: [test-sets](./decisions/testing/test-sets.md), [replay-gate](./decisions/testing/replay-gate.md), [tex-quality-architecture](./decisions/testing/tex-quality-architecture-2026-11-17.md).

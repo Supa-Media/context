@@ -265,6 +265,46 @@ describe("the workflow's reports", () => {
   });
 });
 
+describe("a quick run (Dev2, 2026-11-23: \"close the loop to 10 minutes\")", () => {
+  const draftOf = async (door: (a: string, x?: Record<string, unknown>) => Promise<Record<string, any>>) =>
+    (await door("create", { name: "Quick", graph: JSON.stringify({ nodes: [{ id: "text" }], edges: [] }) })).id as string;
+
+  test("is a draft's Dev run on the AI gateway: main, a chat run, Claude Code, a preview and a non-boolean are refused", async () => {
+    const { door } = await world();
+    const draft = await draftOf(door);
+    expect(await door("run", { draft: "main", kind: "dev", quick: true })).toMatchObject({ status: "bad_request" });
+    expect(await door("run", { draft, kind: "chat", conv: "maya-and-tex", quick: true })).toMatchObject({ status: "bad_request" });
+    expect(await door("run", { draft, kind: "dev", models: "cc", quick: true })).toMatchObject({ status: "bad_request", error: expect.stringContaining("gw") });
+    expect(await door("run", { draft, kind: "dev", target: "pr42", quick: true })).toMatchObject({ status: "bad_request" });
+    expect(await door("run", { draft, kind: "dev", quick: "yes" })).toMatchObject({ status: "bad_request" });
+  });
+
+  test("starts main's Dev run on the AI gateway beside it when main has none, and the workflow is told it is quick", async () => {
+    const { door, t } = await world();
+    const draft = await draftOf(door);
+    const first = await door("run", { draft, kind: "dev", quick: true });
+    expect(first).toMatchObject({ status: "ok", baseRunId: expect.any(String) });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: first.id })).toMatchObject({ quick: true, models: "gw", versionId: draft });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: first.baseRunId })).toMatchObject({ quick: false, models: "gw", versionId: "main", kind: "dev" });
+    await drainScheduled(t);
+    expect(calls.filter((c) => c.url.endsWith("/dispatches"))).toHaveLength(2);
+    // main's run is on its way, so the next quick run starts none.
+    const second = await door("run", { draft, kind: "dev", quick: true });
+    expect(second).toMatchObject({ status: "ok" });
+    expect(second.baseRunId).toBeUndefined();
+    expect((await runsOf(t)).filter((r) => r.versionId === "main")).toHaveLength(1);
+  });
+
+  test("a run that is not quick starts no base and is not quick to the workflow", async () => {
+    const { door, t } = await world();
+    const draft = await draftOf(door);
+    const plain = await door("run", { draft, kind: "dev" });
+    expect(plain.baseRunId).toBeUndefined();
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: plain.id })).toMatchObject({ quick: false });
+    expect((await runsOf(t)).filter((r) => r.versionId === "main")).toHaveLength(0);
+  });
+});
+
 describe("the code a run checks out (Dev2: \"it should run on the PRs code instead of main\")", () => {
   test("a draft names a pull request or branch; its runs carry it to the workflow; a run may name its own; main is none", async () => {
     const { door, t, lab } = await world();
