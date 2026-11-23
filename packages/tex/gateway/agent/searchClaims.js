@@ -54,16 +54,6 @@ function looksElsewhere(text) {
   return searchedLinesOf(text).some(({ line, named }) => named[1].includes(",") && !line.includes(NOT_REACHABLE));
 }
 
-/**
- * The line a search's result says it covered more than one workspace on, kept whole: the last one in its last paragraph
- * that names two or more, or that says a workspace was not reachable (its clause is part of the line). Null otherwise.
- * @param {string} text the result's text
- */
-export function searchedLineOf(text) {
-  const kept = searchedLinesOf(text).filter(({ line, named }) => named[1].includes(",") || line.includes(NOT_REACHABLE));
-  return kept.at(-1)?.line ?? null;
-}
-
 /** Whether a reply says it searched, looked or checked across all, every or each of the person's workspaces. Questions and offers do not count. */
 const PAST_SEARCH = /\b(?:searched|looked (?:through|across|in|over)|checked|went through|scanned|combed)\b|\ba search (?:across|through|over|in|of)\b/i;
 const EVERY_WORKSPACE = /\b(?:all|every|each)(?:\s+one)?(?:\s+of)?\s+(?:your|their|the|my|his|her)?\s*(?:[\w'’-]+\s+)?workspaces?\b|\beverywhere (?:you|they) (?:have|keep) notes\b/i;
@@ -89,61 +79,6 @@ export function searchedEverywhere(name, args, resultText = "") {
   // The gateway names a workspace it could not open: that search did not cover every one, however it was asked.
   if (typeof resultText === "string" && resultText.includes("Not reachable just now, so not searched:")) return false;
   return !narrowed(args) || looksElsewhere(resultText);
-}
-
-/**
- * Wraps a tool dispatcher so each search that covered more than one workspace has its `Searched: ` line pushed onto
- * `searched`, in the order the searches ran. The result passes through unchanged; a failed call records nothing.
- * @param {(name: string, args: object) => Promise<object>} callTool the dispatcher beneath
- * @param {string[] | undefined} searched the turn's record of Searched lines
- */
-export function withSearchRecord(callTool, searched) {
-  if (!Array.isArray(searched)) return callTool;
-  return async (name, args) => {
-    const result = await callTool(name, args);
-    if (SEARCH_TOOLS.has(name) && result?.isError !== true) {
-      const line = searchedLineOf(resultText(result));
-      if (line !== null) searched.push(line);
-    }
-    return result;
-  };
-}
-
-/**
- * An answer that says something isn't there: "Nothing on the reading list", "I couldn't find it", "it isn't in your
- * notes", "no record of". Only such an answer needs the workspaces a search covered beside it (2026-11-21, owner's
- * pick: a reply that used a search only to find a note, "Saved to Supa's meetings inbox…", got a stray Searched line).
- */
-const NOT_THERE = [
-  /\bnothing\b/i,
-  /\b(?:couldn't|could not|can't|cannot|didn't|did not|don't|do not|haven't|have not|wasn't able to|was unable to)\s+(?:\w+\s+){0,2}?(?:find|see|spot|locate|turn up|come across)\b/i,
-  /\b(?:isn't|is not|wasn't|was not|aren't|are not|weren't|were not)\s+(?:\w+\s+){0,3}?(?:in|on|anywhere|there|written|saved|listed|noted|recorded|mentioned)\b/i,
-  /\b(?:no|none of)\s+(?:\w+\s+){0,4}?(?:record|note|notes|mention|sign|trace|match|matches|results?|hits?|entry|entries|list|file|copy)\b/i,
-  /\b(?:not|never)\s+(?:found|written down|saved|recorded|mentioned|listed)\b/i,
-  /\bdidn't turn (?:one |anything |it )?up\b|\bturned up nothing\b|\bcame up empty\b/i,
-];
-
-/** Whether an answer says something wasn't found or isn't there. */
-export function saysNotThere(answer) {
-  const said = String(answer ?? "").replace(/[‘’]/g, "'");
-  return NOT_THERE.some((pattern) => pattern.test(said));
-}
-
-/**
- * The reply's floor for a multi-workspace search (2026-11-19: a live front-door reply to "whats on the public worship
- * reading list?" left out the Searched line, though the result carried it). The front door runs no reply checks, so the
- * last recorded line is appended here from the tool record, instead of trusting the model to copy it. Only a line the
- * tool result carried is ever added, and only to an answer that says something isn't there (`saysNotThere`): a reply
- * that found what it searched for has nothing for the line to qualify (owner's pick, 2026-11-21).
- * @param {string} answer the reply text
- * @param {string[] | undefined} searched the Searched lines this turn's searches returned
- */
-export function withSearchedLine(answer, searched) {
-  if (!Array.isArray(searched) || searched.length === 0 || typeof answer !== "string" || answer.trim() === "") return answer;
-  const line = searched.at(-1);
-  if (answer.includes(line)) return answer;
-  if (!saysNotThere(answer)) return answer;
-  return `${answer.replace(/\s+$/, "")}\n\n${line}`;
 }
 
 /** The notice sent back once, when a reply claims an every-workspace search no call of the turn made. */

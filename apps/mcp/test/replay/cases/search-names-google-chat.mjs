@@ -21,7 +21,7 @@ export default {
   cause: "search covers notes and mail but not Google Chat, which only fetch chat: reads, and nothing told Tex so; the reply check listed only notes, mail and earlier texts as the record to check a claim against, and never asked it to say what rests only on the person's memory; Tex's six-tool resolver passed a workspace written inside a search's args on to the gateway, which refuses it there, and nothing checked a claim of an every-workspace search against the calls that ran. Since the owner's 2026-11-19 decision a workspace a search names is a boost, never a fence: the 1:1 search covers every workspace the person reaches and says which ones it covered on its last line, and only \"only in @x\" keeps a search to one workspace.",
   path: "one-to-one text; a background job part that claims every workspace",
   // Sabotage (2026-11-19): drop the `chat` line in sixTools.js searchTool, or put rules.md item 8 back, and this fails.
-  // Sabotage (2026-11-19): drop `withSearchedLine` in sendTheReply.js, or `withSearchRecord` in runTheModel.js, and the 1:1 check below fails.
+  // Sabotage (2026-11-23): put a Searched line back after the model's words in sendTheReply.js, and the 1:1 checks below fail.
   async run() {
     const own = searchOf(["search_notes", "read_note", "read_google_chat"]);
     assert.match(own.description, /Google Chat is not in this search/, "a turn that reads their Chat is told search does not cover it");
@@ -39,8 +39,9 @@ export default {
         { toolCalls: [{ name: "search", args: { query: "reading list", args: { context: "@guild" } } }] },
         { text: "Nothing on the guild reading list." },
       ]);
-      // The model left the Searched line out; the gateway's floor adds the line the search returned, so what is texted ends with it.
-      assert.equal(turn.answer, "Nothing on the guild reading list.\n\nSearched: @egress, @egress-team.", "the texted reply carries the Searched line the search returned");
+      // 2026-11-23 (owner's pick): nothing is added after the model's words. The result carries the Searched line for the
+      // model to use; the reply goes out as the model wrote it.
+      assert.equal(turn.answer, "Nothing on the guild reading list.", "the texted reply is the model's, with no line added after it");
       const results = resultsOf(chat.world.model.requests);
       assert.equal(results.length, 1, "the search was answered");
       assert.ok(results.every((text) => !/goes beside args/.test(text)), "the nested workspace was not refused");
@@ -49,7 +50,7 @@ export default {
       assert.ok((reply?.timing?.tools ?? []).some((tool) => tool.name === "search_notes"), "the nested search ran as search_notes");
       // The ledger keeps the text as sent (`wordsEntry` puts it in `text`): the same reply, ending with the line the result carried.
       assert.ok(String(reply?.text ?? "").startsWith("Nothing on the guild reading list."), "the kept reply starts with what the model said");
-      assert.ok(String(reply?.text ?? "").endsWith("\n\nSearched: @egress, @egress-team."), "the kept reply ends with the Searched line");
+      assert.ok(!String(reply?.text ?? "").includes("Searched:"), "and nothing was added after it");
       // What the gateway ran, as the ledger kept it: no workspace fenced the search, and the named one only boosts it.
       const ran = entries.filter((entry) => entry.kind === "tool" && entry.name === "search_notes");
       assert.equal(ran.length, 1, "one search ran");
@@ -59,9 +60,14 @@ export default {
       const last = String(results[0] ?? "").trim().split(/\n\s*\n/).at(-1) ?? "";
       assert.match(last, /^Searched: @egress, @egress-team\.$/m, "the result's last line names every workspace it covered");
 
-      // 2026-11-21 (owner's pick): the floor adds the line only to an answer that says something isn't there. A reply that
-      // searched to find a note and then used it ("Saved to the team's meetings inbox…") texted a stray Searched line.
-      // Sabotage: drop the `saysNotThere` check in `withSearchedLine` and this fails.
+      // 2026-11-21: a reply that searched to find a note and then used it ("Saved to the team's meetings inbox…") texted a
+      // stray Searched line. 2026-11-23: so did "it isn't written yet" on a mood board Tex had saved without its link or
+      // picture, and it read as "couldn't find it". Neither gets one.
+      const unwritten = await chat.text("did the mood board get the link and the photo?", [
+        { toolCalls: [{ name: "search", args: { query: "mood board" } }] },
+        { text: "The mood board is saved, but the link and the photo in it aren't written yet. Adding them now." },
+      ]);
+      assert.equal(unwritten.answer, "The mood board is saved, but the link and the photo in it aren't written yet. Adding them now.", "an answer that says something isn't written yet goes as written");
       const found = await chat.text("put the weekly meeting in the team notes", [
         { toolCalls: [{ name: "search", args: { query: "weekly meeting" } }] },
         { text: "Saved to the team's meetings inbox. It's team-visible, so everyone there can see it." },

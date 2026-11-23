@@ -51,7 +51,6 @@ import { markRead, readBackTool, readsNote, readsOf } from "../readsIndex.js";
 import { carryKey } from "../stretch.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
-import { withSearchRecord } from "../searchClaims.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
 import { turnEfforts } from "../production.js";
 import { withLive } from "../liveSteps.js";
@@ -270,7 +269,7 @@ export async function runTheModel(t, via) {
     callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (stands?.wrap ?? ((call) => call))((claims?.wrap ?? tries?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
-        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(withNoteLinks(withSearchRecord(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking.searched), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
+        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       )), pictureRun),
     ))))))))))),
     pictures: texted || group !== null,

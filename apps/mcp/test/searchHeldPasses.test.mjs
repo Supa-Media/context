@@ -195,7 +195,7 @@ test("a Tex turn's searches start no index pass until the model has answered", a
     );
     const body = await response.json();
     assert.equal(response.status, 200);
-    // Both searches covered two workspaces, but the answer found what it looked for, so no Searched line goes on: the floor adds it only to an answer that says something isn't there (`searchClaims.js` withSearchedLine, owner's pick 2026-11-21).
+    // Both searches covered two workspaces, and the answer goes as the model wrote it: nothing is added after it (owner's pick, 2026-11-23).
     assert.equal(body.answer, "Five dollars.");
     assert.deepEqual(body.steps.map((step) => step.tool), ["search_notes", "search_notes"]);
     assert.equal(waited, false, "every workspace was searched at once, the person's own included");
