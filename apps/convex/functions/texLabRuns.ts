@@ -242,7 +242,7 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
 };
 
 /** The fields `vsBase` reads: a run as `shown` gives it (`id`, `set` defaulting to "dev"). */
-type RunLike = { id: string; versionId: string; kind: string; set?: string | null; models: string; stage: string; startedAt: number; results?: unknown };
+type RunLike = { id: string; versionId: string; kind: string; set?: string | null; code?: string | null; models: string; stage: string; startedAt: number; results?: unknown };
 
 /**
  * A draft's finished Dev run against main's newest finished Dev run on the same models and set. The verdict is the
@@ -256,7 +256,7 @@ export function vsBase(run: RunLike, baseRuns: RunLike[], full = false) {
   if (run.versionId === "main" || run.kind !== "dev" || run.stage !== "done") return null;
   const set = run.set ?? "dev";
   const base = baseRuns
-    .filter((b) => b.versionId === "main" && b.kind === "dev" && b.stage === "done" && b.models === run.models && (b.set ?? "dev") === set)
+    .filter((b) => b.versionId === "main" && !b.code && b.kind === "dev" && b.stage === "done" && b.models === run.models && (b.set ?? "dev") === set)
     .sort((a, b) => b.startedAt - a.startedAt)[0];
   if (!base) return { verdict: "no base", why: `main has no finished Dev run on ${run.models} for the ${set} set`, baseRunId: null };
   const cmp = compareRuns(run.results ?? null, base.results ?? null);
