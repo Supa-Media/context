@@ -136,7 +136,7 @@ export function headingKey(text) {
     .replace(/!?\[\[([^\]]*)\]\]/g, "$1")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/[*_~`]/g, "")
-    .replace(/\p{Extended_Pictographic}|️|‍/gu, "")
+    .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, "")
     .replace(/^\s*\d+[.)]\s+/, "")
     .replace(/\s+/g, " ")
     .trim()
