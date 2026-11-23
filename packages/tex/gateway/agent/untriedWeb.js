@@ -29,6 +29,7 @@
  */
 
 import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
+import { EMPTY_NOTICE, isEmptyAnswer } from "./replyChecks.js";
 import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
 import { stepOf } from "./standsCheck.js";
@@ -43,6 +44,7 @@ export function untriedWebCheck({ question = "" } = {}) {
   let noticed = false;
   let figuresChecked = false;
   let recordNoticed = false;
+  let emptyNoticed = false;
   const steps = [];
   return {
     /** The turn's own tools, so a read is visible to the record check. */
@@ -66,6 +68,12 @@ export function untriedWebCheck({ question = "" } = {}) {
     },
     /** `context` is the turn so far (`turn.js`): `messages`, and `system`, the prompt the model answered with. */
     check(answer, context = {}) {
+      // An empty answer gets one more round on the front door too (Dev2, 2026-11-23: three refused sends ended in an empty
+      // answer, and with no round to answer in, the fallback line went instead), as `claimCheck.js` gives every other turn.
+      if (!emptyNoticed && isEmptyAnswer(answer)) {
+        emptyNoticed = true;
+        return EMPTY_NOTICE;
+      }
       if (!noticed && hadWeb && !triedWeb && saysItCouldNot(answer)) {
         noticed = true;
         return TRY_NOTICE;

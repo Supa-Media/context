@@ -36,8 +36,44 @@ export const EMPTY_NOTICE =
   "Before this goes: your answer is empty, and an empty answer sends them nothing at all. " +
   "Reply now, in words, to their newest text: answer it if it's a question, and if you're still working on something, say in a line what's done and what's next.";
 
-/** What is texted when the answer is still empty after the notice. */
-export const EMPTY_FALLBACK = "Sorry, my answer to that one got lost. Text me again and I'll pick it up.";
+/**
+ * What is texted when the answer is still empty after the notice and no tool failed. It says only what is true: no
+ * answer came together (Dev2, 2026-11-23: "my answer got lost" was sent after three refused sends, and nothing was lost).
+ */
+export const EMPTY_FALLBACK = "Sorry, I didn't manage an answer to that one. Text me again and I'll pick it up.";
+
+/** A failed tool in plain words, for the fallback; anything not named here is "a step". */
+const FAILED_WORDS = [
+  [/^(send_email|save_email_draft|email_draft|email)$/, "the email"],
+  [/^(calendar_event|calendar)$/, "the calendar change"],
+  [/^(browse|open_page|search_web|fetch_page)$/, "the web lookup"],
+  [/^(write_note|save_many|write)$/, "saving the note"],
+  [/^(send_text|text_person|message_chat)$/, "the message"],
+];
+
+/**
+ * The line texted for an answer still empty after the notice: when a tool failed this turn, it names what did not go
+ * through (`turn.timing.failures`, `toolFailures.js`), so the person knows what to ask again; otherwise `EMPTY_FALLBACK`.
+ * Never claims anything was sent or lost.
+ */
+export function emptyFallback(failures = []) {
+  const named = [];
+  for (const failure of Array.isArray(failures) ? failures : []) {
+    // A six call refused before it ran names its action (`send` `email`); one that ran names the tool it ran as.
+    const tool = typeof failure?.action === "string" && /^(send|write|manage)$/.test(String(failure?.tool)) ? failure.action : String(failure?.tool ?? "");
+    const words = FAILED_WORDS.find(([pattern]) => pattern.test(tool))?.[1] ?? "a step";
+    if (!named.includes(words)) named.push(words);
+  }
+  if (named.length === 0) return EMPTY_FALLBACK;
+  const what = named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
+  return `Sorry, I couldn't finish that: ${what} didn't go through. Text me again and I'll try it again.`;
+}
+
+/** Whether a reply is one of the fallback lines, never the model's own words. */
+export function isFallback(text) {
+  const said = String(text ?? "");
+  return said === EMPTY_FALLBACK || (said.startsWith("Sorry, I couldn't finish that: ") && said.endsWith(" didn't go through. Text me again and I'll try it again."));
+}
 
 /** Whether an answer has no words to send. */
 export function isEmptyAnswer(answer) {

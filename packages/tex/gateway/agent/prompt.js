@@ -330,8 +330,8 @@ export function modelLine(model, models = null) {
  */
 const CONTINUED =
   "Earlier texts in this conversation are shown as words only: the notes you read and the tools you used to answer " +
-  "them are not shown here, but you did use them. Never take back or doubt an earlier answer because its lookups " +
-  "are not shown; if something needs checking, read the notes again.";
+  "them are not shown here, but you did use them, so an earlier answer is not wrong just because its lookups are " +
+  "missing here; if something needs checking, read the notes again.";
 
 /**
  * Which tools each earlier answer used, by name (`conversation.js`), so "I

@@ -79,7 +79,7 @@ function resultText(result) {
  * One failure as it is kept. `result` is what the model read; `error`, when the tool threw, is
  * the error itself, whose class and message say why where the model's "That call failed" does not.
  */
-export function toolFailure({ tool, cause, result = null, error = null, text = null, ms = 0, model = null, round = null }) {
+export function toolFailure({ tool, cause, result = null, error = null, text = null, ms = 0, model = null, round = null, action = null }) {
   const name = typeof tool === "string" && TOOL_NAME.test(tool) ? tool : "unknown_tool";
   const why = error !== null && error !== undefined
     ? failureShape(`${error?.name && error.name !== "Error" ? `${error.name}: ` : ""}${error?.message ?? String(error)}`)
@@ -91,6 +91,8 @@ export function toolFailure({ tool, cause, result = null, error = null, text = n
     ms: Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0,
     ...(typeof model === "string" && model ? { model } : {}),
     ...(Number.isInteger(round) ? { round } : {}),
+    // The action a six call named (`send` `email`), a name and never a value: for this turn's fallback line only (`replyChecks.js` `emptyFallback`); the wire leaves it out.
+    ...(typeof action === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(action) ? { action } : {}),
   };
 }
 
