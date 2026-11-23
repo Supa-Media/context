@@ -24,6 +24,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { resetBrowserbaseProbe } from "../../../packages/tex/gateway/agent/browserProviders.js";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { NORMAL_LEAD, PLAN_EXAMPLE, PLAN_ONLY_LEAD, PLAN_ONLY_NOTICE, claimsDone } from "../../../packages/tex/gateway/agent/progress.js";
 
 const S3_ENDPOINT = "https://s3.example-levels.test";
@@ -32,8 +33,9 @@ const PLAN = "Checking shop.example.com for your order, then your cart.";
 const SECOND = "Now reading your cart.";
 const ANSWER = "Your cart has socks for $5.";
 
+/** The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`). */
 function call(name, args) {
-  return { name, args };
+  return asSixCall({ name, args });
 }
 
 /** One streamed texted turn at `updates`; returns what the model was told and the chat's bubbles. */

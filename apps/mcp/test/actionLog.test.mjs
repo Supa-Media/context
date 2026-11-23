@@ -22,11 +22,13 @@ import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { checkedSnapshot, STARTED_UNSURE } from "../../../packages/tex/gateway/agent/savedRounds.js";
 import { keptTools, roundsKeeper, STARTED_WAIT_MS } from "../../../packages/tex/gateway/agent/turnResume.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const SEARCH = { name: "search_notes", description: "Search notes", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
 const WRITE = { name: "write_note", description: "Write a note", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } }, annotations: { readOnlyHint: false } };
 const USAGE = { prompt_tokens: 10, completion_tokens: 5 };
-const calls = (...list) => ({ choices: [{ message: { content: "", tool_calls: list.map(([id, name, args]) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } })) } }], usage: USAGE });
+// The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+const calls = (...list) => ({ choices: [{ message: { content: "", tool_calls: list.map(([id, name, args]) => ({ id, ...asSixCall({ name, args }) })).map(({ id, name, args }) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } })) } }], usage: USAGE });
 const words = (text) => ({ choices: [{ message: { content: text } }], usage: USAGE });
 const NOTE = { path: "health/dentist.md", content: "Dentist: Tuesday 3pm" };
 

@@ -7,6 +7,7 @@
  */
 
 import { shown } from "./sixToolsShown.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -54,10 +55,11 @@ function chat(text, toolCalls = []) {
       {
         message: {
           content: text,
-          tool_calls: toolCalls.map(([name, args], i) => ({
+          // The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+          tool_calls: toolCalls.map(([name, args]) => asSixCall({ name, args })).map((call, i) => ({
             id: `call_${i}`,
             type: "function",
-            function: { name, arguments: JSON.stringify(args) },
+            function: { name: call.name, arguments: JSON.stringify(call.args) },
           })),
         },
       },

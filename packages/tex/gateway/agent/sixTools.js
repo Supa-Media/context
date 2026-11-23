@@ -649,7 +649,29 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
     return { name: translated.params.name, args: translated.params.arguments };
   }
 
-  return { tools, resolve, manualOnFailure };
+  /*
+    AN OLDER TOOL'S NAME, REFUSED (Dev2, 2026-11-23: "we should only be using the send tool shape"). The model is shown
+    only the six; a name it was not shown (send_email, read_google_chat, browse) used to run as itself, so the old names
+    kept working and kept being taught back. Now it is refused, naming the six call that does it, written out from its
+    own arguments where one action carries that tool, with that action's manual.
+  */
+  function olderName(name, args) {
+    if (typeof name !== "string" || SIX.has(name) || tools.some((tool) => tool?.name === name)) return null;
+    const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+    for (const family of ["send", "write", "manage"]) {
+      const table = family === "send" ? { ...ACTIONS.send, ...ASSISTANT_SEND_ACTIONS } : ACTIONS[family] || {};
+      const action = Object.keys(table).find((each) => table[each].tool === name && allowedActions[family].has(each));
+      if (action === undefined) continue;
+      const call = JSON.stringify({ action, args: given });
+      const manual = manualOnFailure(family, { action }) ?? "";
+      return { error: `${name} is not one of your tools; you have ${SIX_TOOLS.join(", ")}. Call it as ${family} ${call.length <= 1_500 ? call : `{ "action": "${action}", "args": {...} }`}.${manual}`, cause: "older_name" };
+    }
+    const spoken = inSixNames(name);
+    if (spoken !== name) return { error: `${name} is not one of your tools; you have ${SIX_TOOLS.join(", ")}. Call ${spoken} instead.`, cause: "older_name" };
+    return { error: `${name} is not one of your tools; you have ${SIX_TOOLS.join(", ")}. Call one of the actions your tools list instead.`, cause: "older_name" };
+  }
+
+  return { tools, resolve, manualOnFailure, olderName };
 }
 
 /**

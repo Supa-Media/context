@@ -38,6 +38,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-readcost.test";
 const TOKEN_BEAT = `cat_readcost_beat_${"0".repeat(22)}`;
@@ -62,8 +63,9 @@ const modelRequests = [];
 function modelAnswer(step) {
   const content = [];
   if (step.text) content.push({ type: "text", text: step.text });
-  for (const [i, call] of (step.toolCalls ?? []).entries()) {
-    content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
+  for (const [i, scripted] of (step.toolCalls ?? []).entries()) {
+    const call = asSixCall({ ...scripted, args: scripted.args ?? {} }); // the six's shape, as a real model is shown them (`sixCallFixture.mjs`)
+    content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args });
   }
   return new Response(JSON.stringify({ content, stop_reason: step.toolCalls?.length ? "tool_use" : "end_turn" }), {
     status: 200,

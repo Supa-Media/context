@@ -33,6 +33,7 @@ import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAC
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { otherSitesNotice } from "../../../packages/tex/gateway/agent/otherSites.js";
 import { EVERYWHERE_NOTICE, claimsSearchedEverywhere, searchedEverywhere } from "../../../packages/tex/gateway/agent/searchClaims.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const MAIN = "@cf/acme/main-model";
 const WRITE = {
@@ -191,7 +192,7 @@ function scripted(replies) {
       calls.push(input.messages);
       const reply = replies.shift();
       if (!reply) throw new Error("script ran out");
-      const tool_calls = (reply.calls ?? []).map((call, i) => ({
+      const tool_calls = (reply.calls ?? []).map(asSixCall).map((call, i) => ({ // the six's shape, as a real model is shown them (`sixCallFixture.mjs`)
         id: `call_${calls.length}_${i}`,
         type: "function",
         function: { name: call.name, arguments: JSON.stringify(call.args) },

@@ -20,7 +20,7 @@ export const TOOL_FAILURE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 export const MAX_FAILURES_PER_REPORT = 20;
 export const MAX_WHY = 160;
 
-export const TOOL_FAILURE_CAUSES = ["refused", "threw", "timed_out", "out_of_time", "not_offered", "no_such_action", "unknown_argument", "repeated"] as const;
+export const TOOL_FAILURE_CAUSES = ["refused", "threw", "timed_out", "out_of_time", "not_offered", "no_such_action", "unknown_argument", "bad_arguments", "older_name", "repeated"] as const;
 export const TOOL_FAILURE_KINDS = ["one", "group", "job", "routine", "app", "check_in"] as const;
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;

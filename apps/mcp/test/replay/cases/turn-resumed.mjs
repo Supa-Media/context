@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { BUILTIN_PROVIDER } from "../../../../../packages/tex/gateway/agent/builtin.js";
 import { checkedSnapshot } from "../../../../../packages/tex/gateway/agent/savedRounds.js";
 import { runTurn } from "../../../../../packages/tex/gateway/agent/turn.js";
+import { asSixCall } from "../../sixCallFixture.mjs";
 
 const SEARCH = { name: "search_notes", description: "Search notes", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
 const USAGE = { prompt_tokens: 10, completion_tokens: 5 };
-const searched = (id) => ({ choices: [{ message: { content: "", tool_calls: [{ id, type: "function", function: { name: "search_notes", arguments: JSON.stringify({ query: "piano lesson" }) } }] } }], usage: USAGE });
+// The model calls `search`, one of the six it is shown; the turn runs it as `search_notes`.
+const SIX = asSixCall({ name: "search_notes", args: { query: "piano lesson" } });
+const searched = (id) => ({ choices: [{ message: { content: "", tool_calls: [{ id, type: "function", function: { name: SIX.name, arguments: JSON.stringify(SIX.args) } }] } }], usage: USAGE });
 
 /** A model that searches until it has a search's result in front of it, then answers from it. */
 function model() {

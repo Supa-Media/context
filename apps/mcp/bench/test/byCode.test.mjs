@@ -13,6 +13,7 @@ import { test } from "node:test";
 import { QUIET_MS, midConversation } from "../../../../packages/tex/gateway/agent/checkInGather.js";
 import { byCodeStart } from "../byCode.mjs";
 import { createWorld } from "../world.mjs";
+import { asSixCall } from "../../test/sixCallFixture.mjs";
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
 
@@ -30,7 +31,7 @@ const bench = {
   },
 };
 
-/** A model that answers `say`, or first calls `call` once; every request it gets is kept. */
+/** A model that answers `say`, or first calls `call` once (as one of the six tools); every request it gets is kept. */
 function scripted(say, call = null) {
   const asked = [];
   const fetch = async (_url, init) => {
@@ -38,7 +39,8 @@ function scripted(say, call = null) {
     asked.push(body);
     const last = body.messages.at(-1);
     const result = Array.isArray(last?.content) ? last.content.find((block) => block.type === "tool_result") : null;
-    const reply = call && !result ? { content: [{ type: "tool_use", id: "toolu_1", name: call.name, input: call.input }], stop_reason: "tool_use" } : { content: [{ type: "text", text: result ? `${say} ${JSON.stringify(result.content)}` : say }], stop_reason: "end_turn" };
+    const six = call ? asSixCall({ name: call.name, args: call.input }) : null;
+    const reply = six && !result ? { content: [{ type: "tool_use", id: "toolu_1", name: six.name, input: six.args }], stop_reason: "tool_use" } : { content: [{ type: "text", text: result ? `${say} ${JSON.stringify(result.content)}` : say }], stop_reason: "end_turn" };
     return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
   return { fetch, asked };

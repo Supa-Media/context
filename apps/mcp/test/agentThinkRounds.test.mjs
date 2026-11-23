@@ -44,6 +44,7 @@ import { meterParts, modelForRound, thinkRoundsFor, whyFailed } from "../../../p
 import { parseSetup } from "../../../packages/tex/gateway/agent/production.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { priceUsd, runPriceUsd } from "../bench/report.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const ENV = {
   AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
@@ -55,7 +56,11 @@ const OPUS = "anthropic/claude-opus-5-5";
 const WIRE = { "claude-haiku-5-5": HAIKU, "claude-opus-5-5": OPUS };
 
 const thought = (n) => ({ type: "thinking", thinking: "", signature: `sig-${n}` });
-const call = (n, name = "read_note") => ({ type: "tool_use", id: `t${n}`, name, input: { path: `${n}.md` } });
+// The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+const call = (n, name = "read_note") => {
+  const six = asSixCall({ name, args: { path: `${n}.md` } });
+  return { type: "tool_use", id: `t${n}`, name: six.name, input: six.args };
+};
 const reply = (blocks, stop, usage) => ({ id: "msg", type: "message", role: "assistant", content: blocks, stop_reason: stop, usage });
 
 /**
@@ -240,7 +245,7 @@ test("the fallback still takes over mid-plan, and the turn stays on it", async (
     async run(model, input) {
       calls.push(model);
       if (model === "@cf/acme/main") throw new Error("upstream said no");
-      const toolCall = calls.length < 5 ? [{ id: `c${calls.length}`, type: "function", function: { name: "read_note", arguments: "{}" } }] : [];
+      const toolCall = calls.length < 5 ? [{ id: `c${calls.length}`, type: "function", function: { name: "fetch", arguments: JSON.stringify({ id: `${calls.length}.md` }) } }] : [];
       return { choices: [{ message: { content: toolCall.length ? "" : "From the spare.", tool_calls: toolCall }, finish_reason: toolCall.length ? "tool_calls" : "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2 } };
     },
   };

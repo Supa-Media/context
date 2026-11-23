@@ -25,6 +25,7 @@ import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway
 import { toolDefinitions } from "../src/tools/registry.js";
 import { TEX_CONFIG, texModules } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { ask, createEgressWorld, toolReplies, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const mcp = new Map(toolDefinitions().map((tool) => [tool.name, tool]));
 const held = (...names) => names.map((name) => mcp.get(name) ?? { name, description: `${name} words.`, inputSchema: { type: "object", properties: { text: { type: "string" } } } });
@@ -35,7 +36,11 @@ const ENV = {
 };
 const HAIKU = "anthropic/claude-haiku-5-5";
 const reply = (blocks, stop = "end_turn") => ({ id: "m", type: "message", role: "assistant", content: blocks, stop_reason: stop, usage: { input_tokens: 1, output_tokens: 1 } });
-const use = (id, name, input) => ({ type: "tool_use", id, name, input });
+/** A scripted tool call, as one of the six tools a real model is shown (an older name is written as its six call). */
+const use = (id, name, input) => {
+  const six = asSixCall({ name, args: input });
+  return { type: "tool_use", id, name: six.name, input: six.args };
+};
 const text = (words) => reply([{ type: "text", text: words }]);
 
 /** A scripted model: each request takes the next reply, and every request body is kept. */

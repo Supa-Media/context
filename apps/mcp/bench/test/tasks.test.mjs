@@ -17,6 +17,7 @@ import { createWorld } from "../world.mjs";
 import { parseSite, LIVE_VIEW_ORIGIN } from "../sites.mjs";
 import { checkVerdicts } from "../checks.mjs";
 import { parseTest } from "../load.mjs";
+import { asSixCall } from "../../test/sixCallFixture.mjs";
 
 const AI = fileURLToPath(new URL("../ai", import.meta.url));
 const SETUP =
@@ -35,15 +36,16 @@ async function sites() {
   return out;
 }
 
-/** A model that answers each call with the next scripted step: a tool call, or text. */
+/** A model that answers each call with the next scripted step: a tool call, as one of the six tools, or text. */
 function scripted(steps) {
   let n = 0;
   return async () => {
     const step = steps.shift() ?? { text: "Done." };
     n += 1;
+    const six = step.text ? null : asSixCall({ name: step.name, args: step.input });
     const reply = step.text
       ? { content: [{ type: "text", text: step.text }], stop_reason: "end_turn" }
-      : { content: [{ type: "tool_use", id: `toolu_${n}`, name: step.name, input: step.input }], stop_reason: "tool_use" };
+      : { content: [{ type: "tool_use", id: `toolu_${n}`, name: six.name, input: six.args }], stop_reason: "tool_use" };
     return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } });
   };
 }

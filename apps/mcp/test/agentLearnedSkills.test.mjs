@@ -48,6 +48,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
 import { seedChat } from "./agentConversationFixture.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-learned.test";
 const TOKEN_TEXTS = `cat_lrnd_texts_${"0".repeat(25)}`;
@@ -369,7 +370,10 @@ const MANIFEST =
 function reply(step) {
   const content = [];
   if (step.text) content.push({ type: "text", text: step.text });
-  for (const [i, [name, input]] of (step.calls ?? []).entries()) content.push({ type: "tool_use", id: `toolu_l_${requests.length}_${i}`, name, input });
+  for (const [i, [older, given]] of (step.calls ?? []).entries()) {
+    const { name, args: input } = asSixCall({ name: older, args: given }); // the six's shape, as a real model is shown them (`sixCallFixture.mjs`)
+    content.push({ type: "tool_use", id: `toolu_l_${requests.length}_${i}`, name, input });
+  }
   return { content, stop_reason: (step.calls ?? []).length > 0 ? "tool_use" : "end_turn", usage: { input_tokens: 5, output_tokens: 2 } };
 }
 

@@ -136,7 +136,7 @@ test("a note shared to view is read, never changed; the chat's folder is written
         { name: "write_note", args: { path: "trip/new.md", content: "# New\n" } },
         { name: "write_note", args: { path: "trip/packing.md", content: "# Packing\n\nSunscreen, hats.\n" } },
         { name: "write_note", args: { path: `${FOLDER}/hotels.md`, content: "# Hotels\n\nAlfama.\n" } },
-        { name: "write_note", args: { path: `${FOLDER}/shared.md`, content: "# Shared\n", share: true } },
+        { name: "write_note", args: { path: `${FOLDER}/shared.md`, content: "# Shared\n", share: "anyone" } }, // a share the write schema takes, so the guest refusal is what answers
         { name: "move_note", args: { source: `${FOLDER}/plan.md`, destination: "notes/plan.md" } },
       ],
     },

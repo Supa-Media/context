@@ -11,6 +11,7 @@
 
 import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
   createControlPlaneStub,
@@ -73,7 +74,7 @@ function chat(text, toolCalls = []) {
       {
         message: {
           content: text,
-          tool_calls: toolCalls.map((call, i) => ({
+          tool_calls: toolCalls.map(asSixCall).map((call, i) => ({
             id: `call_${i}`,
             type: "function",
             function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) },

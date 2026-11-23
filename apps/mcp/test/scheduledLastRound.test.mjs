@@ -34,6 +34,7 @@ import {
 import { recentTextsSection, routineQuestion, runOutcome } from "../../../packages/tex/gateway/agent/routine.js";
 import { SAID_NOTHING, SAY_NOTHING_TOOL } from "../../../packages/tex/gateway/agent/sayNothing.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const SEARCH = {
@@ -59,9 +60,11 @@ function scripted(replies) {
   };
 }
 
+/** The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`). */
 function chat(text, toolCalls = []) {
+  const six = toolCalls.map(([name, args]) => asSixCall({ name, args }));
   return {
-    choices: [{ message: { content: text, tool_calls: toolCalls.map(([name, args], i) => ({ id: `call_${i}`, type: "function", function: { name, arguments: JSON.stringify(args) } })) } }],
+    choices: [{ message: { content: text, tool_calls: six.map(({ name, args }, i) => ({ id: `call_${i}`, type: "function", function: { name, arguments: JSON.stringify(args) } })) } }],
     usage: { prompt_tokens: 10, completion_tokens: 5 },
   };
 }

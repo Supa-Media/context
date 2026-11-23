@@ -64,6 +64,7 @@
  *     the damage: the note really is in the bucket.
  */
 
+import { asSixCall } from "./sixCallFixture.mjs";
 import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -127,7 +128,8 @@ function createFakeModel() {
     // Anthropic's Messages shape, which is what the AI gateway answers in.
     const content = [];
     if (next.text) content.push({ type: "text", text: next.text });
-    for (const call of next.toolCalls ?? []) {
+    for (const scripted of next.toolCalls ?? []) {
+      const call = asSixCall(scripted); // the six's shape, as a real model is shown them (`sixCallFixture.mjs`)
       content.push({
         type: "tool_use",
         id: call.id ?? `toolu_${content.length}`,

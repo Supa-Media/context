@@ -11,6 +11,7 @@
  * Nothing here asserts anything. The checks live in the two suites.
  */
 
+import { asSixCall } from "./sixCallFixture.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -62,7 +63,8 @@ export function fakeModel() {
       const next = typeof step === "function" ? step(requests.at(-1)) : step;
       if (next.status) return new Response("{}", { status: next.status });
       const content = [...(next.thinking ? [{ type: "thinking", thinking: next.thinking, signature: "sig" }] : []), ...(next.text ? [{ type: "text", text: next.text }] : [])];
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+      for (const [i, scripted] of (next.toolCalls ?? []).entries()) {
+        const call = asSixCall(scripted); // the six's shape, as a real model is shown them (`sixCallFixture.mjs`)
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(

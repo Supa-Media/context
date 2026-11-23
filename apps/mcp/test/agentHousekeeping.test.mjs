@@ -38,6 +38,7 @@
  */
 
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { SKIPPED_WORDS } from "../../../packages/tex/gateway/agent/jobLog.js";
 import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, healthOf, summaryLine } from "../../../packages/tex/gateway/agent/housekeeping.js";
 import { housekeepingCallTool, protectedReason, undoLine } from "../../../packages/tex/gateway/agent/housekeepingGuard.js";
@@ -73,7 +74,7 @@ function fakeModel() {
       const next = await (typeof step === "function" ? step(JSON.stringify(requests.at(-1))) : step);
       const content = [];
       if (next.text) content.push({ type: "text", text: next.text });
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+      for (const [i, call] of (next.toolCalls ?? []).map(asSixCall).entries()) {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(
@@ -376,7 +377,8 @@ export async function runAgentHousekeepingChecks(check) {
         written.includes("- Moved the folder `1-projects/garden` to `4-archive/1-projects/garden`. To undo: move `4-archive/1-projects/garden` back to `1-projects/garden`.") &&
         written.includes("- Moved `2-areas/health/only.md` to `2-areas/dentist.md`. To undo:") &&
         written.includes("Both were clear.") &&
-        written.includes("`set_visibility`") &&
+        // The refused step is logged too, as the six call the model made (manage visibility, which housekeeping is not given).
+        written.includes('`manage` `{"action":"visibility"') &&
         !written.includes("Moved `tex/about-me.md`"),
     );
     const prompt = JSON.stringify(model.requests[0]);

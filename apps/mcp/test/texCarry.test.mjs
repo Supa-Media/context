@@ -57,7 +57,7 @@ test("text 2 carries text 1's tool_use and tool_result; the prefix is byte-stabl
   const uses = blocks(second).filter((block) => block.type === "tool_use");
   const results = blocks(second).filter((block) => block.type === "tool_result");
   assert.equal(uses.length, 1, "text 1's call is carried");
-  assert.equal(uses[0].name, "search_notes");
+  assert.equal(uses[0].name, "search", "carried as the model called it: the six's search (`sixCallFixture.mjs`)");
   assert.deepEqual(uses[0].input, { query: "venue" });
   assert.equal(results[0].tool_use_id, uses[0].id, "its result answers the same call");
   assert.match(String(results[0].content), /venue/i);

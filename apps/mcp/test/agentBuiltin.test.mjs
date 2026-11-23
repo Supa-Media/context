@@ -16,6 +16,7 @@
  */
 
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
   createControlPlaneStub,
@@ -56,7 +57,7 @@ function chat(text, toolCalls = [], usage = { prompt_tokens: 100, completion_tok
       {
         message: {
           content: text,
-          tool_calls: toolCalls.map((call, i) => ({
+          tool_calls: toolCalls.map(asSixCall).map((call, i) => ({
             id: `call_${i}`,
             type: "function",
             function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) },
@@ -73,7 +74,10 @@ function chat(text, toolCalls = [], usage = { prompt_tokens: 100, completion_tok
 function answerShape(text, { toolUses = [], input, output, cacheRead = 0, cacheWrite = 0 }) {
   const content = [];
   if (text) content.push({ type: "text", text });
-  for (const tool of toolUses) content.push({ type: "tool_use", id: tool.id, name: tool.name, input: tool.input });
+  for (const tool of toolUses) {
+    const six = asSixCall({ name: tool.name, args: tool.input });
+    content.push({ type: "tool_use", id: tool.id, name: six.name, input: six.args });
+  }
   return {
     content,
     stop_reason: toolUses.length > 0 ? "tool_use" : "end_turn",

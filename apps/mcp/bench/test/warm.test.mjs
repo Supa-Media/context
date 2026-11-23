@@ -12,6 +12,7 @@ import { test } from "node:test";
 
 import { createWorld } from "../world.mjs";
 import { prepareRun } from "../warm.mjs";
+import { asSixCall } from "../../test/sixCallFixture.mjs";
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
 
@@ -32,7 +33,7 @@ const bench = {
   },
 };
 
-/** A model that runs the given calls in order, then says done. */
+/** A model that runs the given calls in order, as the six tools, then says done. */
 function scripted(calls) {
   let seen = 0;
   return async (_url, init) => {
@@ -41,13 +42,18 @@ function scripted(calls) {
     if (Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")) seen += 1;
     const reply =
       seen < calls.length
-        ? { content: [{ type: "tool_use", id: `toolu_${seen}`, name: calls[seen].name, input: calls[seen].input }], stop_reason: "tool_use" }
+        ? { content: [toolUse(`toolu_${seen}`, calls[seen])], stop_reason: "tool_use" }
         : { content: [{ type: "text", text: "done" }], stop_reason: "end_turn" };
     return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
   };
+}
+
+function toolUse(id, call) {
+  const six = asSixCall({ name: call.name, args: call.input });
+  return { type: "tool_use", id, name: six.name, input: six.args };
 }
 
 /** The gateway's search log lines written while `work` runs. */

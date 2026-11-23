@@ -7,6 +7,7 @@ import { oneToOne } from "../chats.mjs";
 import { sixToolsOver } from "../../../../../packages/tex/gateway/agent/sixTools.js";
 import { fixedCarriers } from "../../../../../packages/tex/gateway/agent/sixToolsFixed.js";
 import { TEX_CONFIG, texToolList } from "../../../../../packages/tex/gateway/agent/texConfig.js";
+import { asSixCall } from "../../sixCallFixture.mjs";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 const ENV = {
@@ -30,11 +31,14 @@ function paperScene() {
   assert.match(buried.error, /Leave the background out/);
 }
 
+const sixInput = (call) => ({ name: call.name, input: call.args });
+
 /** A designed send-back is not a failure in the turn log, and the model still reads it as an error. */
 async function sceneAsk() {
   resetCreditState();
   const rounds = [
-    { blocks: [{ type: "tool_use", id: "t0", name: "read_note", input: { path: "1-projects/picnic.page.md" } }], stop: "tool_use" },
+    // The model calls `fetch`, one of the six it is shown; the turn runs it as `read_note`.
+    { blocks: [{ type: "tool_use", id: "t0", ...sixInput(asSixCall({ name: "read_note", args: { path: "1-projects/picnic.page.md" } })) }], stop: "tool_use" },
     { blocks: [{ type: "text", text: "Drawing it." }], stop: "end_turn" },
   ];
   const fetchImpl = async () => {

@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 const SEARCH = {
@@ -43,10 +44,11 @@ function chat(text, toolCalls = []) {
       {
         message: {
           content: text,
-          tool_calls: toolCalls.map((name, i) => ({
+          // The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+          tool_calls: toolCalls.map((name) => asSixCall({ name, args: { query: "anything" } })).map((call, i) => ({
             id: `call_${i}`,
             type: "function",
-            function: { name, arguments: JSON.stringify({ query: "anything" }) },
+            function: { name: call.name, arguments: JSON.stringify(call.args) },
           })),
         },
       },

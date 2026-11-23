@@ -42,7 +42,8 @@ const HAIKU = "anthropic/claude-haiku-5-5";
 const OPUS = "anthropic/claude-opus-5-5";
 const WIRE = { "claude-haiku-5-5": HAIKU, "claude-opus-5-5": OPUS };
 
-const call = (n) => ({ type: "tool_use", id: `t${n}`, name: "read_note", input: { path: `${n}.md` } });
+// A note read, as the six's `fetch` (carried by read_note): Tex is shown only the six (`sixTools.js` `olderName`).
+const call = (n) => ({ type: "tool_use", id: `t${n}`, name: "fetch", input: { id: `${n}.md` } });
 const tools = (n) => ({ blocks: [call(n)], stop: "tool_use" });
 const answer = (text = "Done.") => ({ blocks: [{ type: "text", text }], stop: "end_turn" });
 

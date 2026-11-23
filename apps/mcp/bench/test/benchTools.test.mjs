@@ -17,6 +17,7 @@ import { benchRenderer, findBrowser } from "../benchRender.mjs";
 import { blankPng } from "../sites.mjs";
 import { createSimWorld, simMemo } from "../simWorld.mjs";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "../../test/controlPlaneStub.mjs";
+import { asSixCall } from "../../test/sixCallFixture.mjs";
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
 
@@ -38,7 +39,7 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), { status
 const usage = { input_tokens: 10, output_tokens: 5 };
 
 /**
- * A model that calls one tool once, then says what came back. `look` answers the card check's own call (the picture
+ * A model that calls one tool once, as one of the six, then says what came back. `look` answers the card check's own call (the picture
  * it is shown), and `seen` keeps every request it was sent.
  */
 function callsOnce(name, input, { look = null, seen = [] } = {}) {
@@ -50,7 +51,10 @@ function callsOnce(name, input, { look = null, seen = [] } = {}) {
     if ((body.tools ?? []).some((tool) => tool.name === "verdict")) return json({ content: [{ type: "tool_use", id: "toolu_v", name: "verdict", input: { allow: true, reason: "they asked" } }], stop_reason: "tool_use", usage });
     const last = body.messages.at(-1);
     const result = Array.isArray(last?.content) ? last.content.find((block) => block.type === "tool_result") : null;
-    if (!result) return json({ content: [{ type: "tool_use", id: "toolu_1", name, input }], stop_reason: "tool_use", usage });
+    if (!result) {
+      const six = asSixCall({ name, args: input });
+      return json({ content: [{ type: "tool_use", id: "toolu_1", name: six.name, input: six.args }], stop_reason: "tool_use", usage });
+    }
     const words = (Array.isArray(result.content) ? result.content : [{ type: "text", text: String(result.content) }]).filter((part) => part.type === "text").map((part) => part.text).join(" ");
     return json({ content: [{ type: "text", text: `${result.is_error ? "FAILED" : "WORKED"}: ${words}`.slice(0, 600) }], stop_reason: "end_turn", usage });
   };

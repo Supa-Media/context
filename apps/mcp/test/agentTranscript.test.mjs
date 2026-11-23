@@ -55,7 +55,7 @@ test("runTurn tells the observer its thinking, its words between tools and each 
       content: [
         { type: "thinking", thinking: "Need the todo list.", signature: "s" },
         { type: "text", text: "Checking." },
-        { type: "tool_use", id: "t1", name: "read_note", input: { path: "todo.md" } },
+        { type: "tool_use", id: "t1", name: "fetch", input: { id: "todo.md" } }, // the six's fetch, carried by read_note
       ],
       stop_reason: "tool_use",
     },

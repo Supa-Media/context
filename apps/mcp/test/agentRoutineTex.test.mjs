@@ -33,6 +33,7 @@
 import { onFixedList, manualOf } from "./sixToolsShown.mjs";
 import { ONE_TO_ONE_CHAT, ledgerFor } from "../../../packages/tex/gateway/agent/ledger.js";
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
   createControlPlaneStub,
@@ -66,7 +67,7 @@ function fakeModel() {
       const next = script.shift();
       if (!next) throw new Error("fake model: the script ran out");
       const content = next.text ? [{ type: "text", text: next.text }] : [];
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+      for (const [i, call] of (next.toolCalls ?? []).map(asSixCall).entries()) {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(

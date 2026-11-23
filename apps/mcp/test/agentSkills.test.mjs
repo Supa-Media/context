@@ -21,6 +21,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-skills.test";
 const TOKEN_TEXTS = `cat_skil_texts_${"0".repeat(25)}`;
@@ -100,8 +101,13 @@ const env = {
 };
 
 const textReply = (text) => ({ content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 5, output_tokens: 2 } });
+/** A scripted call in the six's shape, as a real model is shown them (`sixCallFixture.mjs`). */
+const toolUse = (id, older, given) => {
+  const { name, args: input } = asSixCall({ name: older, args: given });
+  return { type: "tool_use", id, name, input };
+};
 const toolReply = (name, input) => ({
-  content: [{ type: "tool_use", id: "toolu_skill_0", name, input }],
+  content: [toolUse("toolu_skill_0", name, input)],
   stop_reason: "tool_use",
   usage: { input_tokens: 5, output_tokens: 2 },
 });
@@ -335,7 +341,7 @@ test("a texted turn's read_skill lets the browser open the skill's address", asy
 
   const readThenGo = [
     toolReply(READ_SKILL_TOOL, { name: "connect-chatgpt" }),
-    { ...toolReply(BROWSE_TOOL, goto), content: [{ type: "tool_use", id: "toolu_skill_1", name: BROWSE_TOOL, input: goto }] },
+    { ...toolReply(BROWSE_TOOL, goto), content: [toolUse("toolu_skill_1", BROWSE_TOOL, goto)] },
     textReply("Done."),
   ];
   await run(readThenGo);

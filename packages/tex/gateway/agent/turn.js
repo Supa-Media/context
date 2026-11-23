@@ -733,11 +733,11 @@ export async function runTurn(options) {
     // `timing.toolMs` only when the round is serial.
     const runOne = async (made) => {
       const effects = [];
-      // One of the six, as the granted tool that carries it; an older name as itself.
-      const resolved = six.resolve(made.name, made.args);
+      // One of the six, as the granted tool that carries it; an older name the model was not shown is refused, naming its six call (`sixTools.js` `olderName`).
+      const resolved = six.olderName(made.name, made.args) ?? six.resolve(made.name, made.args);
       if (resolved.error) {
         effects.push(() => {
-          const text = inSixNames(resolved.error) + (six.manualOnFailure(made.name, made.args) ?? ""); // the action's manual on every failure (`sixTools.js`)
+          const text = resolved.cause === "older_name" ? resolved.error : inSixNames(resolved.error) + (six.manualOnFailure(made.name, made.args) ?? ""); // the action's manual on every failure (`sixTools.js`); an older name's carries its own
           messages.push({ role: "tool", id: made.id, name: made.name, text, isError: true });
           escalate = true;
           tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: (resolved.cause ?? "no_such_action").replaceAll("_", " "), result: text }); // the words it was told, so a step shows why

@@ -168,7 +168,7 @@ test("end to end: Haiku reads a note, asks through send with no input, the advis
   const bodies = [];
   const reply = (content, stop) => ({ id: "m", type: "message", role: "assistant", content, stop_reason: stop, usage: { input_tokens: 10, output_tokens: 5 } });
   const script = [
-    reply([{ type: "tool_use", id: "t0", name: "read_note", input: { path: "lisbon-fund.md" } }], "tool_use"),
+    reply([{ type: "tool_use", id: "t0", name: "fetch", input: { id: "lisbon-fund.md" } }], "tool_use"), // the six's fetch, carried by read_note
     reply([{ type: "tool_use", id: "t1", name: "send", input: { action: "advisor", args: {} } }], "tool_use"),
     reply([{ type: "text", text: "Wait for December." }], "end_turn"),
     reply([{ type: "text", text: "I'd wait for December's fares." }], "end_turn"),
@@ -194,7 +194,7 @@ test("end to end: Haiku reads a note, asks through send with no input, the advis
     builtinModelOverride: HAIKU,
   });
   assert.deepEqual(models, ["claude-haiku-5-5", "claude-haiku-5-5", "claude-opus-5-5", "claude-haiku-5-5"]);
-  assert.match(bodies[2], /result of read_note[^"]*Fund is \$1,240; flights \$640 now\./, "the advisor reads the tool results");
+  assert.match(bodies[2], /result of fetch[^"]*Fund is \$1,240; flights \$640 now\./, "the advisor reads the tool results");
   assert.doesNotMatch(bodies[2], /"tools"/, "and holds no tools");
   assert.equal(result.answer, "I'd wait for December's fares.");
   assert.deepEqual(result.steps.map((step) => [step.tool, step.ok]), [["read_note", true], [ADVISOR_TOOL, true]]);

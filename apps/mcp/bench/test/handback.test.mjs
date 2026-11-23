@@ -18,6 +18,7 @@ import { createWorld } from "../world.mjs";
 import { createWeb, parseSite } from "../sites.mjs";
 import { checkVerdicts } from "../checks.mjs";
 import { parseTest } from "../load.mjs";
+import { asSixCall } from "../../test/sixCallFixture.mjs";
 
 const AI = fileURLToPath(new URL("../ai", import.meta.url));
 // Production opens the web (`open_web: yes`), as the bench's pulled production setup does.
@@ -47,9 +48,10 @@ function scripted(steps) {
     }
     const step = steps.shift() ?? { text: "Done." };
     n += 1;
+    const call = step.text ? null : asSixCall({ name: step.name, args: step.input }); // the six's shape, as a real model is shown them
     const reply = step.text
       ? { content: [{ type: "text", text: step.text }], stop_reason: "end_turn" }
-      : { content: [{ type: "tool_use", id: `toolu_${n}`, name: step.name, input: step.input }], stop_reason: "tool_use" };
+      : { content: [{ type: "tool_use", id: `toolu_${n}`, name: call.name, input: call.args }], stop_reason: "tool_use" };
     return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } });
   };
   return { fetch, results };

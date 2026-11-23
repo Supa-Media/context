@@ -25,6 +25,7 @@ import { RECHECK_FROM, RECHECK_REPLACES } from "../../../packages/tex/gateway/ag
 import { replyJudge } from "../../../packages/tex/gateway/agent/replyJudge.js";
 import { ALREADY_DONE, LATE_FROM, repeatedWrite, turnLedger } from "../../../packages/tex/gateway/agent/sendBack.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const MAIN = "@cf/acme/main-model";
 const read = (name) => ({ name, description: name, inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } });
@@ -55,7 +56,8 @@ function scripted(replies, verdicts) {
       calls.push(structuredClone(input.messages));
       const reply = replies.shift();
       if (!reply) throw new Error("script ran out");
-      const tool_calls = (reply.calls ?? []).map((call, i) => ({ id: `call_${calls.length}_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } }));
+      // The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+      const tool_calls = (reply.calls ?? []).map((call) => asSixCall({ ...call, args: call.args ?? {} })).map((call, i) => ({ id: `call_${calls.length}_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }));
       return { choices: [{ message: { content: reply.text ?? "", tool_calls } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
     },
   };

@@ -3,6 +3,7 @@ import { BUILTIN_PROVIDER } from "../../../../../packages/tex/gateway/agent/buil
 import { jobOf } from "../../../../../packages/tex/gateway/agent/background.js";
 import { runTurn } from "../../../../../packages/tex/gateway/agent/turn.js";
 import { carriedRounds } from "../../../../../packages/tex/gateway/agent/turnResume.js";
+import { asSixCall } from "../../sixCallFixture.mjs";
 
 const SEARCH = { name: "search_email", description: "Search mail", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
 const USAGE = { prompt_tokens: 10, completion_tokens: 5 };
@@ -15,7 +16,7 @@ function model() {
     async run(_model, input) {
       asked.push(input);
       if (input.messages.some((m) => m.role === "tool")) return { choices: [{ message: { content: "Three timecards are missing for this week." } }], usage: USAGE };
-      return { choices: [{ message: { content: "", tool_calls: [{ id: `call_${asked.length}`, type: "function", function: { name: "search_email", arguments: JSON.stringify({ query: "timecards" }) } }] } }], usage: USAGE };
+      return call(`call_${asked.length}`, "search_email", { query: "timecards" });
     },
   };
 }
@@ -41,7 +42,11 @@ async function part(ai, attempt, extra, home) {
 
 const WRITE = { name: "write_note", description: "Save a note", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } }, annotations: { readOnlyHint: false } };
 const say = (content) => ({ choices: [{ message: { content } }], usage: USAGE });
-const call = (id, name, args) => ({ choices: [{ message: { content: "", tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }] } }], usage: USAGE });
+/** A tool call as the model makes it: one of the six it is shown (the turn runs the older tool it resolves to). */
+function call(id, name, args) {
+  const six = asSixCall({ name, args });
+  return { choices: [{ message: { content: "", tool_calls: [{ id, type: "function", function: { name: six.name, arguments: JSON.stringify(six.args) } }] } }], usage: USAGE };
+}
 const LIST = { path: "work/missing-timecards.md", content: "Missing this week: Ana, Bo, Cy" };
 const REPORT = "Three timecards are missing; the list is in work/missing-timecards.md.";
 
