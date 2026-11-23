@@ -1,6 +1,10 @@
 # Making changes quickly: the Lab, test chats, the bench and previews
 
-This is the guide for changing search, Tex, Tex's quality and the nightly fast. The rule (Dev2, 2026-11-23): **a change is a Lab draft and a run in the sandbox, in under a minute.** A pull request is how a finished change lands, never how you try an idea.
+This is the guide for changing search, Tex, Tex's quality and the nightly fast. The rule (Dev2, 2026-11-23): **try every change in a sandbox, the fastest one that answers the question, and merge only what won.**
+
+- A config change (a search setting, a Tex step's model or wires, a Training example) is a Lab draft run in a test chat or on the bench, in under a minute.
+- A code change goes on a branch with a pull request, which gets its own preview sandbox, redeployed on every push in minutes. Open the pull request as soon as there is something to try, and push and test there as often as you need.
+- Merging to main and production is never the test. That round costs about 30 minutes, and a change that loses reaches people before you know it lost.
 
 Everything here works in two places. Signed in at [context.lc/lab](https://context.lc/lab), or from any AI client through the `tex_dev` MCP tool. Whatever the Lab can do, `tex_dev` can do (the Lab parity rule). `tex_dev { action: "guide" }` lists every action and its arguments, and the gateway serves it from this repository's code, so it is always current.
 
@@ -11,11 +15,11 @@ Everything here works in two places. Signed in at [context.lc/lab](https://conte
 | 1. One search try-out | How does this one query rank on a draft, next to main? | `tex_dev search { draft, query }`, or the Lab's Search page | about 1 s |
 | 2. Search bench on a draft | Does the draft win across a whole benchmark? | `tex_dev search_bench { draft, bench }` | 2 to 10 s |
 | 3. Test chat | What does Tex do with this text on a draft, on real models? | `tex_dev test_chat` (open, send, try, again) | seconds per text |
-| 4. Draft on a pull request's code | My new step or setting is code. Does it work in a draft? | `tex_dev code { draft, code: "#<PR>" }`, then rungs 2 and 3 on the PR's preview | 5 to 8 min, once per push |
+| 4. A pull request's preview sandbox | My change is code. Does it work? | Push to the branch; its preview redeploys. Use the preview's app or texts simulator, or `tex_dev code { draft, code: "#<PR>" }` and `test_chat open { code: "#<PR>" }` for rungs 2 and 3 on it | 5 to 8 min per push |
 | 5. GitHub runs | The Dev set, a full eval, the examiner | `tex_dev run`, `eval_run` | minutes |
-| 6. Promote | Land a draft that won | `tex_dev promote { draft }` opens the PR, then CI, the gates, merge and production | about 30 min |
+| 6. Promote and merge | Land a change that won | `tex_dev promote { draft }` opens the PR, then CI, the gates, merge and production | about 30 min |
 
-Rungs 1 to 3 need no pull request, no GitHub job and no deploy. Stay on them while you are iterating, and climb only when the change needs code.
+Rungs 1 to 3 need no pull request, no GitHub job and no deploy, so a config change stays on them. A code change iterates on rung 4: its pull request's preview is the sandbox for code, and each push is a try. Rung 6 lands what already won; it is never how you try something.
 
 ## Changing search
 
@@ -46,7 +50,8 @@ New behaviour lands as a setting, so it can be flipped and benched instead of ar
 
 ### What not to do
 
-- Don't open a pull request per idea. Every try through CI and production is about 30 minutes, and the bench answers the same question in seconds.
+- Don't put a setting idea in a pull request: a draft's bench answers it in seconds, and a pull request needs a deploy per try.
+- Don't use merging and production as the test. A try that goes through CI, merge and production is about 30 minutes. Try code on its pull request's preview first.
 - Don't trust the fake-embedder local bench (`--fake`) for a ranking change. It has passed changes the real gate failed. `search_bench` uses real embeddings.
 - Don't tune to one bench. Read the cases that moved, and bench every set before promoting.
 
@@ -93,7 +98,7 @@ Where it is decided: [dreams](./decisions/texting-assistant/dreams.md), [day-sum
 
 ## Previews and debugging
 
-- **A pull request's own copy:** every pull request gets a preview (Convex, gateway, Tex, web app) with fake people and fake Google. Use it with `tex_dev code { draft, code: "#<PR>" }` or `test_chat` on that code. See [preview-sandbox](./preview-sandbox.md).
+- **A pull request's own copy:** every pull request gets a preview (Convex, gateway, Tex, web app) with fake people and fake Google. It is the sandbox for code changes: push as often as you need while you iterate. Use it with `tex_dev code { draft, code: "#<PR>" }` or `test_chat` on that code. See [preview-sandbox](./preview-sandbox.md).
 - **Why a real turn went the way it did:** `chats`, then `moments`, then `turn`, then `prompt` / `jobs`. Replay shows only what ran.
 
 ## Keeping this guide current
