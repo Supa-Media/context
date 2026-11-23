@@ -154,8 +154,10 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
   }
   const config = { ...current, nodes, edges, ...(groups ? { groups } : {}) };
   // The same schema every runtime loads it with (`texConfig.cjs`), so a draft that could not load is refused here, with
-  // why, and not by every test of a Lab run (Lab run 44696482041, 2026-11-20: steps in a group main had deleted).
-  const problems = SCHEMA.configProblems(config);
+  // why, and not by every test of a Lab run (Lab run 44696482041, 2026-11-20: steps in a group main had deleted). Only
+  // problems the draft brings: a merge reads it over its base first, which may be an older schema version.
+  const had = new Set(SCHEMA.configProblems(current));
+  const problems = SCHEMA.configProblems(config).filter((p) => !had.has(p));
   if (problems.length > 0) return refuse(`it would not load as Tex's config: ${problems.join("; ")}`);
   return { config, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)), retired };
 }
@@ -337,6 +339,8 @@ function selfTest() {
   const g11 = graph();
   g11.nodes.find((n) => n.id === "fd").group = "retired";
   expect(/would not load as Tex's config: step "fd" is in a group that is not there \(retired\)/.test(configFrom(g11, current, words).refused ?? ""), "a step in a group that is not there passed");
+  // A base on an older schema version is not the draft's problem (a merge reads the draft over its base first).
+  expect(!configFrom(graph(), { ...current, texConfig: current.texConfig - 1 }, words).refused, "a draft over a base on an older schema version was refused");
   // A draft refused against its own base is refused, not a crash (draft vmwmxtcxerrji, 2026-11-18).
   const emptied = { ...graph(), modules: { [`p-${Object.keys(words)[0]}`]: { text: "" } } };
   let refusedMerge;
