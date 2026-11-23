@@ -71,6 +71,8 @@ export function searchOutcomes(entries) {
       let next = null;
       for (const f of after) {
         if (isNoteSearch(f)) {
+          // Calls of one round share its time (`turn.js` runOne): a search beside this one is not a retry of it.
+          if (f.at === e.at) continue;
           if (f.at - e.at <= AGAIN_MS) next = f;
           break;
         }

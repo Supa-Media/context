@@ -75,3 +75,12 @@ test("a search whose answer was withheld (another workspace's) is counted as wit
   assert.equal(s.outcome, "withheld");
 });
 
+test("two searches in one round are not a retry: the first still opens its top hit after both", () => {
+  const [first] = searchOutcomes([
+    { kind: "tool", turn: "p", at: T0, name: "search_notes", ok: true, args: { query: "lease section 9" }, result: answer("@flat/lease.md") },
+    { kind: "tool", turn: "p", at: T0, name: "search_notes", ok: true, args: { query: "rent split" }, result: answer("@flat/bills.md") },
+    { kind: "tool", turn: "p", at: T0 + 2_000, name: "read_note", ok: true, args: { path: "@flat/lease.md" } },
+  ]).filter((s) => s.query === "lease section 9");
+  assert.equal(first.outcome, "opened_first");
+});
+
