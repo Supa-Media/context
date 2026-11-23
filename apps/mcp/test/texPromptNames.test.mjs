@@ -81,3 +81,39 @@ test("the production setup carries the retired names its body names, so the gate
   const clean = await parseSetup("---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nDraft it, then send action email.\n");
   assert.deepEqual(clean.staleNames, []);
 });
+
+/*
+  THE LINES ONLY A CONNECTED MAILBOX, A SHARED CALENDAR OR A LONG CHAT ADDS (Dev2, 2026-11-23: "remove all the mentions of
+  the old tools"). The three turns above have no Gmail, no shared calendar and a short history, so the mail module
+  ("search_email with no account searches every one"), the group's mail and calendar lines, a check-in's mail and
+  calendar sections, the long-history line and the email manual's words never reached them. Each is rendered here.
+  Sabotage record (local edits, reverted): "search_email with no account" back in `mailAccounts.js` fails this test.
+*/
+test("the lines a mailbox, a shared calendar, a check-in or a long chat adds name no retired tool", async () => {
+  const { mailAccountsPrompt } = await import("../../../packages/tex/gateway/agent/mailAccounts.js");
+  const { chatMailPrompt } = await import("../../../packages/tex/gateway/agent/groupMail.js");
+  const { chatCalendarPrompt } = await import("../../../packages/tex/gateway/agent/groupCalendar.js");
+  const { newMailSection } = await import("../../../packages/tex/gateway/agent/newMail.js");
+  const { calendarSection } = await import("../../../packages/tex/gateway/agent/checkInSources.js");
+  const { HANDBACK_NOTICE } = await import("../../../packages/tex/gateway/agent/claimCheck.js");
+  const { threadsPrompt } = await import("../../../packages/tex/gateway/agent/conversationThreads.js");
+  const { sixToolsOver } = await import("../../../packages/tex/gateway/agent/sixTools.js");
+  const { fixedCarriers } = await import("../../../packages/tex/gateway/agent/sixToolsFixed.js");
+  const { readEmail } = await import("../src/tools/email.js");
+  const said = {
+    mailboxes: mailAccountsPrompt([{ address: "me@example.com", state: "ok" }]),
+    groupMail: chatMailPrompt({ mail: [{ handle: "ada", address: "ada@example.com" }] }),
+    groupCalendar: chatCalendarPrompt({ calendar: [{ handle: "ada", address: "ada@example.com" }] }),
+    noCalendar: chatCalendarPrompt({}),
+    newMail: newMailSection([{ line: "- email:me@example.com/abc · from Jo · Hello" }]),
+    calendar: calendarSection({ text: "9:00 Standup" }, Date.parse("2026-11-23T12:00:00Z"), "UTC"),
+    handback: HANDBACK_NOTICE,
+    threads: threadsPrompt({ threads: [{ id: "t1", title: "Lisbon", status: "open", last: 0 }], when: () => "today" }),
+    replyId: readEmail({ to: ["jo@example.com"], subject: "Re: hi", body: "Yes", in_reply_to: "abc123" }).error,
+  };
+  const shown = fixedCarriers("one");
+  const six = sixToolsOver([...shown.values()], null, { shown });
+  for (const action of ["email", "email_draft", "calendar", "browse", "save"]) said[`manual ${action}`] = six.manualOnFailure(action === "save" ? "write" : "send", { action }) ?? "";
+  for (const [where, words] of Object.entries(said)) assert.deepEqual(staleToolNames(String(words ?? "")), [], `${where}: ${words}`);
+  assert.match(said["manual email"], /The manual for email/, "the manuals were rendered");
+});

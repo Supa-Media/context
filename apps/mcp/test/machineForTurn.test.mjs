@@ -40,7 +40,7 @@ test("a texted turn with a paired computer is told it by name, what goes there, 
   assert.match(line, /Never Tex's cloud, never delegate/);
   assert.match(line, /never ask which repo or which computer/);
   assert.doesNotMatch(line, /plan_big_ask/, "the planner is named only when the turn has it");
-  assert.match(computersLine([STUDIO], { planning: true }), /split there with plan_big_ask/);
+  assert.match(computersLine([STUDIO], { planning: true }), /split there with send action plan/);
   assert.match(computersLine([{ ...STUDIO, online: false, name: 'Old "box"' }]), /"Old 'box'" \(offline;/);
 });
 

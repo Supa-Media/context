@@ -329,7 +329,7 @@ test("a note a check-in read is kept as its path, named as read, and the reply i
   for (const bad of ["read:", "read:../secret.md", "read:/abs.md", "read:a\nb"]) assert.equal(sourceAddress(bad), null, bad);
   const used = [{ question: "(Not a text from them…", tools: ["read_note"], sources: ["read:tex/transcripts/2026-10-24.md"] }];
   const prompt = systemPrompt(null, { texting: true, continued: true, used });
-  assert.ok(prompt.includes("you used read_note. Notes you read for it: tex/transcripts/2026-10-24.md."), prompt);
+  assert.ok(prompt.includes("you used fetch. Notes you read for it: tex/transcripts/2026-10-24.md."), prompt);
   assert.match(prompt, /fetch that exact path/);
   assert.doesNotMatch(prompt, /Web pages you read|name the page's address|Notes you wrote or changed/);
   const turns = [{ role: "user", text: "(check-in)" }, { role: "assistant", text: "Your fitting moved.", sources: ["read:tex/transcripts/2026-10-24.md"] }];

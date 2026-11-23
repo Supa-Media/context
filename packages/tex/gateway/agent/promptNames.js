@@ -51,12 +51,40 @@ export const RETIRED_TOOL_NAMES = Object.freeze({
   start_background_job: "send action background",
   steer_background_job: "send action steer_job",
   notify_me: "send action notify",
+  // The readers the six reach by an id or an argument (Dev2, 2026-11-23: "remove all the mentions of the old tools"). The
+  // mail module, the email manual and the email errors still said search_email, so Haiku reasoned in the old names.
+  search_email: "search with args { email: true }",
+  read_email: 'fetch id "email:<address>/<id>"',
+  read_calendar: 'fetch id "calendar:"',
+  read_google_chat: 'fetch id "chat:"',
+  read_thread: 'fetch id "thread:"',
+  read_day: 'fetch id "day:<date>"',
+  read_back: 'fetch id "read:<ref>"',
+  group_chats: 'fetch id "groups:"',
+  plan_big_ask: "send action plan",
+  restart_background_job: "send action restart_job",
   "about-me.md": "about.md",
   "privacy.md": "(gone: access lives on folders and notes)",
 });
 
 const NAMES = Object.keys(RETIRED_TOOL_NAMES).sort((a, b) => b.length - a.length);
 const PATTERN = new RegExp(`(?<![A-Za-z0-9_-])(?:${NAMES.map((name) => name.replace(/[.]/g, "\\.")).join("|")})(?![A-Za-z0-9_])`, "g");
+
+/** Each retired tool's name with how the six say it, longest first; a file name or a gone tool is left as it was. */
+const SPOKEN = NAMES.filter((name) => !name.includes(".") && !RETIRED_TOOL_NAMES[name].startsWith("(")).map((name) => [
+  new RegExp(`(?<![A-Za-z0-9_:-])${name}(?![A-Za-z0-9_])`, "g"),
+  RETIRED_TOOL_NAMES[name],
+]);
+
+/**
+ * `text` (our own words: a refusal, a manual, a line code wrote) with each retired tool's name put as the six call that
+ * does it now: "the id search_email gave" -> "the id search with args { email: true } gave". Never for a person's or a
+ * note's own words. The model is shown only the six (Dev2, 2026-11-23), so it is never told a name it cannot call.
+ */
+export function inSixNames(text) {
+  if (typeof text !== "string" || text === "") return text;
+  return SPOKEN.reduce((out, [pattern, spoken]) => out.replace(pattern, spoken), text);
+}
 
 /** The retired names `text` mentions, each once, in the order first seen. */
 export function staleToolNames(text) {

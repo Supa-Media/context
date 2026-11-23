@@ -5,6 +5,7 @@
  * the pinned `@context-lc` workspace, which take their place when present.
  */
 
+import { inSixNames } from "./promptNames.js";
 import { DATA_CARDS_LINE, PICTURES_LINE } from "./outgoingPictures.js";
 import { VISUALS_LINE } from "./visuals/index.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
@@ -352,7 +353,7 @@ function usedLine(used) {
       const notes = kept.filter(isNoteSource).map((source) => source.slice(NOTE_SOURCE_PREFIX.length));
       const read = kept.filter(isReadSource).map((source) => source.slice(READ_SOURCE_PREFIX.length));
       return [
-        `- "${question}": you used ${tools.join(", ")}.`,
+        `- "${question}": you used ${[...new Set(tools.map((tool) => inSixNames(tool)))].join(", ")}.`, // in the six's names: the log keeps the older tool each call ran as (Dev2, 2026-11-23)
         ...(pages.length > 0 ? [`Web pages you read: ${pages.join(", ")}.`] : []),
         ...(emails.length > 0 ? [`Emails you found: ${emails.join(", ")}.`] : []),
         ...(notes.length > 0 ? [`Notes you wrote or changed: ${notes.join(", ")}.`] : []),

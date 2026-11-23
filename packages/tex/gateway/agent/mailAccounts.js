@@ -41,7 +41,7 @@ export function mailAccountsPrompt(mailboxes) {
   const names = list.map((mailbox) => `${mailbox.address}${mailbox.readOnly ? " (read only: you can't send from it)" : ""}`).join(", ");
   return (
     `\n\nTheir connected mailboxes: ${names}. ` +
-    "search_email with no account searches every one of them at once; to search one, pass account with its address exactly as written here. " +
+    "search with args { email: true } and no account searches every one of them at once; to search one, add account with its address exactly as written here. " +
     "If a search says one of them could not be read, name that one and why; never say your search reaches only some of their mailboxes."
   );
 }

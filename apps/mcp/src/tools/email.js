@@ -73,7 +73,7 @@ const FORWARD_SUBJECT = /^\s*(?:fwd?|fw)\s*:/i;
 
 export const PASSES_ON_ERROR =
   "the email says it passes something on (attached, forwarded, here's the receipt), but nothing goes with it. " +
-  "An email carries another only as a forward: find that email with search_email (by sender with from:, an amount, a date range, or fewer words) " +
+  "An email carries another only as a forward: find that email with an email search (by sender with from:, an amount, a date range, or fewer words) " +
   "and pass its id as forward, so it goes below your words with its attachments. A file on a website (an invoice, a statement) goes as attach: " +
   "download it with a browse download step and pass the download: id it gives. Don't ask the person to forward, find or download it. " +
   "Take the line out only if nothing is meant to go with this email.";
@@ -89,7 +89,21 @@ export function passesSomethingOn(subject, body) {
 const REPLY_SUBJECT = /^\s*re\s*:/i;
 export const REPLY_NEEDS_ID =
   "Not sent: the subject starts with Re:, so this answers an email, but in_reply_to is missing and it would start a new thread. " +
-  "Find the email it answers with search_email, then call again with in_reply_to set to that email's id. Don't ask the person for it.";
+  "Find the email it answers with an email search (search with args { email: true }), then call again with in_reply_to set to that email's id. Don't ask the person for it.";
+
+/**
+ * The refusal for an `in_reply_to` or `forward` that is not a whole `email:<address>/<id>` id, with the id it most
+ * likely meant written out when that is plain: the message id alone, and the mailbox named in `from` (the Kansi reply,
+ * 2026-11-22: Tex passed "1a205a21935afbd5" with the sender beside it, was told only "not an email id", and gave up).
+ * Never repaired here: the call is made again with the whole id, so what is sent is what was asked.
+ */
+function wholeIdRefusal(field, given, sender) {
+  const id = typeof given === "string" ? given.trim() : "";
+  const bare = /^[A-Za-z0-9_-]{6,64}$/.test(id);
+  const what = field === "forward" ? "the email to pass on" : "the email this answers";
+  const fix = bare && typeof sender === "string" ? ` Call again with ${field}: "email:${sender}/${id}".` : bare ? ` That is the message id alone: put the mailbox it is in before it, as email:<that mailbox>/${id}.` : "";
+  return `${field} is not a whole email id. Pass the email:<address>/<id> id an email search gave for ${what}, exactly as it gave it.${fix}`;
+}
 
 /**
  * The email a call asks for, `{ email }` with addresses lowercased, or
@@ -114,11 +128,11 @@ export function readEmail(args) {
   if (body.trim() === "" || body.length > MAX_BODY || BODY_CONTROL.test(body)) {
     return { error: `body is the email's plain text, 1 to ${MAX_BODY.toLocaleString("en-US")} characters. Write a body, or shorten it.` };
   }
-  // A reply names the email it answers, as search_email gave it, and goes from that email's mailbox.
+  // A reply names the email it answers, as an email search gave it, and goes from that email's mailbox.
   let reply = null;
   if (args?.in_reply_to !== undefined) {
     reply = parseEmailId(typeof args.in_reply_to === "string" ? args.in_reply_to.trim() : "");
-    if (reply === null) return { error: "in_reply_to is not an email id. Pass the email:<address>/<id> id search_email gave for the email this answers." };
+    if (reply === null) return { error: wholeIdRefusal("in_reply_to", args.in_reply_to, from.list[0]) };
     if (from.list.length === 1 && from.list[0] !== reply.address) {
       return { error: `A reply goes from the mailbox the email is in: leave from out, or make it ${reply.address}.` };
     }
@@ -127,7 +141,7 @@ export function readEmail(args) {
   let forward = null;
   if (args?.forward !== undefined) {
     forward = parseEmailId(typeof args.forward === "string" ? args.forward.trim() : "");
-    if (forward === null) return { error: "forward is the email:<address>/<id> id search_email gave for the email to pass on." };
+    if (forward === null) return { error: wholeIdRefusal("forward", args.forward, from.list[0]) };
     if (reply !== null) return { error: "An email either answers one (in_reply_to) or forwards one (forward), not both. Drop one of them." };
     if (from.list.length === 1 && from.list[0] !== forward.address) {
       return { error: `A forward goes from the mailbox the email is in: leave from out, or make it ${forward.address}.` };
@@ -138,7 +152,7 @@ export function readEmail(args) {
     "Re: Plan recommended, …" to Jo with no in_reply_to: the turn that sent it
     came from a 👍 and never held the email's id, so it went as a new email
     beside her thread instead of inside it. Refused in band, so Tex finds the
-    email with search_email and calls again with its id; nothing is guessed.
+    email with an email search and calls again with its id; nothing is guessed.
   */
   if (reply === null && forward === null && REPLY_SUBJECT.test(subject)) return { error: REPLY_NEEDS_ID };
   // Files downloaded in the browser, by id (`emailAttach.js`).

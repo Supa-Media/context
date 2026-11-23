@@ -34,7 +34,7 @@ test("a malformed calendar entry is dropped", () => {
 test("the turn is told whose calendar it can read, and to ask about a clash rather than guess", () => {
   const words = groupPrompt(groupOf({ group: { key: KEY, members: MEMBERS, from: "john", calendar: shared } }), "truck");
   assert.match(words, /calendars shared with it: @kofi's kofi@example\.com/);
-  assert.match(words, /read_calendar \(account: the address\)/);
+  assert.match(words, /fetch id "calendar:" \(args \{ account: the address \}\)/);
   assert.match(words, /ask the person it belongs to which is right/);
 });
 

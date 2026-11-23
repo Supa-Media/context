@@ -557,7 +557,7 @@ export async function runAgentChecks(check) {
     );
     check(
       "...and the next turn is told it used them",
-      /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body ?? "")),
+      /Where is the launch\?.{0,4}: you used search\./.test(JSON.stringify(model.requests.at(-1)?.body ?? "")),
     );
 
     // Every turn knows the time where the person is (owner, 2026-10-14: Tex

@@ -2,7 +2,7 @@
  * A "Re:" email names the email it answers (Dev2, 2026-11-05). Tex sent
  * "Re: Plan recommended, …" to Jo with no in_reply_to, so it went as a new
  * email beside her thread. `readEmail` refuses that in band, and Tex is told
- * to find the email with search_email first.
+ * to find the email with an email search first.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -11,11 +11,11 @@ import { emailGate } from "../src/tools/emailGate.js";
 
 const BASE = { to: ["jo@example.com"], body: "Hi Jo,\n\nWhere does the review stand?\n\nSeyi" };
 
-test("a Re: subject with no in_reply_to is refused, and says to search_email first", () => {
+test("a Re: subject with no in_reply_to is refused, and says to search the email first", () => {
   for (const subject of ["Re: Plan recommended", "RE: Plan", "  re : plan", "Re:plan"]) {
     const read = readEmail({ ...BASE, subject });
     assert.equal(read.error, REPLY_NEEDS_ID, subject);
-    assert.match(read.error, /search_email/);
+    assert.match(read.error, /an email search \(search with args \{ email: true \}\)/);
     assert.match(read.error, /in_reply_to/);
   }
 });

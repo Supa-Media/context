@@ -44,7 +44,7 @@ test("a texted turn is answered first and sorted into a thread after, and the ne
     const front = JSON.stringify(world.model.requests.at(-2));
     assert.ok(!isClassifier(world.model.requests.at(-2)));
     assert.match(front, /t1 · open · Lisbon hotel/, "the first verdict was kept and shown");
-    assert.match(front, /read_thread/);
+    assert.match(front, /fetch id \\?"thread:<id>\\?"/);
     const classifier = world.model.requests.at(-1);
     assert.ok(isClassifier(classifier));
     assert.match(JSON.stringify(classifier.messages), /t1 · open · Lisbon hotel/);

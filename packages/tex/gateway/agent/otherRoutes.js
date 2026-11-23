@@ -33,7 +33,7 @@
 
 /** The roads to an answer, by the calls that take them. */
 export const ROUTES = {
-  email: { tools: ["search_email", "read_email"], how: "search their email for what that app or service sends (search_email with from: its domain, e.g. from:planningcenteronline.com, plus a word or date from their question; then read the newest), since most apps email schedules, receipts and changes" },
+  email: { tools: ["search_email", "read_email"], how: "search their email for what that app or service sends (search with args { email: true } and from: its domain, e.g. from:planningcenteronline.com, plus a word or date from their question; then read the newest), since most apps email schedules, receipts and changes" },
   calendar: { tools: ["read_calendar"], how: "read their calendar for the day they asked about (fetch calendar:)" },
   notes: { tools: ["search", "search_notes", "read_note"], how: "search their notes" },
   browser: { tools: ["browse", "open_page", "search_web"], how: "open the app's own website in your browser (browse) and sign in with their saved login (fill_login)" },

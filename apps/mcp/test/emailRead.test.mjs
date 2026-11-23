@@ -224,7 +224,7 @@ export async function runEmailReadChecks(check) {
     controlPlane.flags.mailAttachment = { filename: "transactions.csv", contentType: "text/csv", data: btoa(rows.join("\n")) };
     const convertedBefore = converted.length;
     const csv = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
-    const more = /more: read_email with id "email:me@example\.com\/18c0ffee", attachment: 1 and from: (\d+)/.exec(textOf(csv));
+    const more = /more: fetch id "email:me@example\.com\/18c0ffee" with args \{ attachment: 1, from: (\d+) \}/.exec(textOf(csv));
     check(
       "an emailed CSV is read as its rows, with its facts counted over the whole file and where its next part starts",
       csv?.isError !== true && converted.length === convertedBefore && textOf(csv).includes("rows: 6002") &&
