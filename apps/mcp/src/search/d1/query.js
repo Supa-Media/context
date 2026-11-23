@@ -261,6 +261,16 @@ export function tablesForTier(tier) {
 }
 
 /**
+ * A row outside the workspace's archive folder: its first path segment is not `archive` or a numbered `<n>-archive`,
+ * in any case, as `folderRole` reads a name (`packages/shared/src/folderRoles.cjs`). In the SQL, so archived chunks
+ * never take the row cap from live notes: with archive only dropped after the cap, "how do I run the tex benchmarks"
+ * lost its answer to archived sessions that filled the cap and were then removed (production, 2026-11-23). No bound
+ * parameter, so `searchParams` is unchanged.
+ */
+const ARCHIVE_TOP = "lower(substr(path, 1, instr(path, '/') - 1))";
+export const NOT_ARCHIVED = `NOT (instr(path, '/') > 0 AND (${ARCHIVE_TOP} = 'archive' OR (ltrim(${ARCHIVE_TOP}, '0123456789') = '-archive' AND ${ARCHIVE_TOP} <> '-archive')))`;
+
+/**
  * One table's half of a search.
  *
  * A `UNION ALL` across tables would be tidier and is not possible: `bm25()` is
@@ -275,8 +285,9 @@ export function tablesForTier(tier) {
  * worst hits, which is the kind of bug that looks like bad ranking rather than
  * a reversed comparator.
  */
-export function searchSql(table, { limit = 25, prefix = null, firstChunk = false } = {}) {
+export function searchSql(table, { limit = 25, prefix = null, firstChunk = false, skipArchive = false } = {}) {
   const where = [`${table} MATCH ?`];
+  if (skipArchive === true) where.push(NOT_ARCHIVED);
   // One row per note: a note's title and headings repeat on every chunk, so a name search reads the first chunk alone
   // and a long transcript cannot fill the row cap with copies of its one heading (`search/named.js`).
   if (firstChunk === true) where.push("ord = 0");
@@ -352,8 +363,9 @@ export function searchParams(match, { limit = 25, prefix = null } = {}) {
  * The rows are the same rows in the same order, which `rankedRows` makes certain rather than likely: it is handed one
  * row more than the limit, and the row's `id` beside each.
  */
-export function rankedSearchSql(table, { firstChunk = false } = {}) {
+export function rankedSearchSql(table, { firstChunk = false, skipArchive = false } = {}) {
   const where = [`${table} MATCH ?`, `rank MATCH 'bm25(${COLUMN_WEIGHTS.join(", ")})'`];
+  if (skipArchive === true) where.push(NOT_ARCHIVED);
   if (firstChunk === true) where.push("ord = 0");
   return `SELECT rowid AS id,
                  path,

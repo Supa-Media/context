@@ -23,6 +23,7 @@ import { isIndexableNote } from "../search/indexable.js";
 import { deleteStatements, FTS_TABLE, projectNote, upsertStatements } from "../search/d1/project.js";
 import { rankedRows, rankedSearchParams, rankedSearchSql, searchParams, searchSql, withWholeLines } from "../search/d1/query.js";
 import { fieldWordCounts } from "../search/sharedWords.js";
+import { searchesArchive } from "../search/priors.js";
 import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../../../../packages/tex/gateway/texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
@@ -305,7 +306,7 @@ export function workspaceSearch(sql, { rows, objects }) {
         // An ask may name asks before it in the same search: it is run only when every one of them found no row.
         const unless = ask.unlessRows ?? [];
         if (!Array.isArray(unless) || unless.some((earlier) => !Number.isInteger(earlier) || earlier < 0 || earlier >= at)) throw new SearchAskRefused("an ask waits only on asks before it");
-        return { table: ask.table, match: ask.match, unless, options: { limit, prefix, firstChunk: ask.firstChunk === true } };
+        return { table: ask.table, match: ask.match, unless, options: { limit, prefix, firstChunk: ask.firstChunk === true, skipArchive: !searchesArchive(prefix) } };
       });
       schema();
       // Far behind (a first build, a change of rules): not served, and nothing spent here; the build catches up.

@@ -43,6 +43,7 @@
  */
 
 import { MAX_RESULTS } from "../query.js";
+import { searchesArchive } from "../priors.js";
 import { SEARCH_RESULT_LIMIT } from "../visible.js";
 import { liftNamed, nameMatchExpression } from "../named.js";
 import {
@@ -177,7 +178,8 @@ export async function searchProjectionEach(
     return matches.map(() => null);
   }
 
-  const options = { limit: chunkCap, prefix };
+  // Regular search leaves the archive out in the query itself, so archived chunks never take the row cap (`priors.js`).
+  const options = { limit: chunkCap, prefix, skipArchive: !searchesArchive(prefix) };
 
   /*
    * **Every op taken before any query starts, and then all of them at once.**

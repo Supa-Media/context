@@ -128,4 +128,25 @@ export async function runOneTripChecks(check) {
     none.hits.length > 0 && none.hits.every((hit) => hit.loose === true),
   );
   askedBackend.close();
+
+  // The archive is left out in the query itself, so archived chunks never take the row cap from live notes; a search
+  // inside the archive keeps them. `archive-2024/` is an ordinary folder.
+  const archNotes = {
+    "archive/old.md": "# Old\n\nThe zebra plan.\n",
+    "4-Archive/older.md": "# Older\n\nThe zebra plan again.\n",
+    "archive-2024/kept.md": "# Kept\n\nA zebra note.\n",
+    "projects/live.md": "# Live\n\nThe zebra plan now.\n",
+  };
+  const archBackend = createD1Backend();
+  const archClient = createD1Client(DESCRIPTOR, { fetchImpl: (url, init) => archBackend.handle(url, init) });
+  await projectPass(noteStore(archNotes), archClient, {
+    census: new Map(Object.keys(archNotes).map((path) => [path, "v1"])),
+    visibilityOf: () => "team",
+    budget: createSearchBudget(400),
+  });
+  const regular = (await answerFromProjection(archClient, { query: "zebra", tier: "private", isVisible: () => true, missIsAnswer: true })).hits.map((hit) => hit.key).sort();
+  check("regular search asks no archived chunk", JSON.stringify(regular) === JSON.stringify(["archive-2024/kept.md", "projects/live.md"]));
+  const inArchive = (await answerFromProjection(archClient, { query: "zebra", prefix: "archive/", tier: "private", isVisible: () => true, missIsAnswer: true })).hits.map((hit) => hit.key);
+  check("a search inside the archive finds it", JSON.stringify(inArchive) === JSON.stringify(["archive/old.md"]));
+  archBackend.close();
 }
