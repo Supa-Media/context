@@ -330,6 +330,7 @@ export async function answerFromProjection(
     missIsAnswer = false,
     lazyRetry = false,
     countWords = false,
+    contentWords = true,
   } = {}
 ) {
   const depth = pageDepth(limit);
@@ -346,7 +347,8 @@ export async function answerFromProjection(
   // share of a context) and is read only below, when no strict row is one this caller may see.
   // And the query's own words without its filler (`toContentMatchExpression`), read only where the strict half found
   // rows: then a note holding every word that matters, not "what did we" too, is one of the hits.
-  const contentMatch = toContentMatchExpression(query);
+  // Off (`contentWords: false`, the "Words" step's setting in a Lab draft): the strict half stands as it is.
+  const contentMatch = contentWords === false ? null : toContentMatchExpression(query);
   let [result, second, byName, byContent] = await searchProjectionEach(client, {
     matches: [strict, lazyRetry === true ? { match: relaxed, unless: [0] } : relaxed, { match: nameMatch, firstChunk: true }, contentMatch],
     prefix,

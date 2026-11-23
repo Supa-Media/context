@@ -122,6 +122,9 @@ export async function runOneTripChecks(check) {
     askedPaths.includes("home/keys.md") && askedPaths.includes("meetings/house.md") && !askedPaths.includes("home/bins.md") && asked.hits.every((hit) => hit.loose !== true),
   );
   check("and its own words ride in the same request", askedReads.length === 1);
+  // The "Words" step's contentWords 0 (a Lab draft's): every word, filler too, as before content words.
+  const strictOnly = await answerFromProjection(askedClient, { query: "where do we keep the spare key", tier: "private", isVisible: () => true, missIsAnswer: true, contentWords: false });
+  check("with contentWords off, only the note holding every word is a hit", strictOnly.hits.map((hit) => hit.key).join() === "meetings/house.md");
   const none = await answerFromProjection(askedClient, { query: "where do we keep the zebra", tier: "private", isVisible: () => true, missIsAnswer: true });
   check(
     "where no note holds every word, the any-word retry over every word stands, as before",

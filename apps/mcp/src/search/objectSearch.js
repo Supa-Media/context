@@ -46,7 +46,7 @@ class NotServed extends Error {
  * @param {{set: (key: string, value: unknown) => void}} trace
  * @returns {Promise<{hits: object[], matchCount: number, matchCountIsFloor: boolean}|null>}
  */
-export async function objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart = null, wordStats: askStats = false } = {}) {
+export async function objectSearchAnswer(store, scope, rules, overrides, query, prefix, trace, { apart = null, wordStats: askStats = false, contentWords = true } = {}) {
   const object = store?.objectSearch ?? null;
   if (object === null || typeof object.search !== "function") return null;
   // Asked for (`askStats`), the first call also asks each table it reads how many chunks it has and how many hold each
@@ -83,6 +83,7 @@ export async function objectSearchAnswer(store, scope, rules, overrides, query, 
   try {
     const answer = await answerFromProjection(client, {
       query,
+      contentWords,
       prefix: folderPrefix(prefix),
       tier: scope,
       // `apart` only narrows: a path the asker already holds, answered as if absent (`searchVisibleNotes`).
