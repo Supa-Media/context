@@ -100,6 +100,7 @@ export function NoteEditor({
   presence,
   drawingCollaboration,
   visibility,
+  say,
   canEdit,
   reading = false,
   notices,
@@ -464,7 +465,7 @@ export function NoteEditor({
     onSignInToComment,
     texInNote,
     // Props, as destructured above.
-    state, presence, drawingCollaboration, visibility, canEdit, reading, notices, pathBar,
+    state, presence, drawingCollaboration, visibility, say, canEdit, reading, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, onOpenTag, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,

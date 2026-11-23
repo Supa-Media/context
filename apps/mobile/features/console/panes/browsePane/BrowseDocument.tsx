@@ -563,6 +563,7 @@ export function BrowseDocument({
         presence={presence}
         drawingCollaboration={drawingCollaboration}
         visibility={selected?.kind === "file" ? visibilityLabel(selected.visibility) : undefined}
+        say={files.say}
         /*
           `activity.md` is drawn as a list rather than as its own source — see
           `ActivityPage`. Passed from here because this is where the console's

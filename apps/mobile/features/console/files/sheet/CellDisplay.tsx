@@ -7,7 +7,8 @@
 import { Linking, StyleSheet, View, type TextStyle } from "react-native";
 import { cellProblem } from "../../../../../mcp/src/sheets/csv.js";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
+import { useFieldFont } from "../../../design/fieldFont";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { displayText, type ColumnType } from "./sheetModel";
 
@@ -36,12 +37,15 @@ export function CellDisplay({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const problem = cellProblem(type, text);
+  // The grid's own size: the interface's on a pointer, the field size on a phone, as the approved design has it.
+  const size = useFieldFont(pointerType.ui)?.fontSize ?? pointerType.ui;
+  const font = { fontSize: size, lineHeight: Math.round(size * 1.4) };
 
   if (problem) {
     // A tooltip on the web; the same words as an accessibility hint everywhere.
     const tooltip = { title: problem };
     return (
-      <Text variant="body" numberOfLines={1} style={[styles.text, styles.misfit]} testID="sheet-misfit" accessibilityHint={problem} {...tooltip}>
+      <Text variant="body" numberOfLines={1} style={[styles.text, font, styles.misfit]} testID="sheet-misfit" accessibilityHint={problem} {...tooltip}>
         {text}
       </Text>
     );
@@ -66,21 +70,23 @@ export function CellDisplay({
     return (
       <View style={[styles.chip, { backgroundColor: tone.wash }]}>
         <View style={[styles.dot, { backgroundColor: tone.dot }]} />
-        <Text variant="body" numberOfLines={1} style={styles.text}>
+        <Text variant="body" numberOfLines={1} style={[styles.text, font, font]}>
           {text}
         </Text>
       </View>
     );
   }
   if (type === "person") {
+    // Each person keeps one tint, picked from their name, so the same face reads the same down a column.
+    const personTone = optionTone(colors, [...text.trim()].reduce((sum, ch) => sum + ch.charCodeAt(0), 0));
     return (
       <View style={styles.person}>
-        <View style={styles.avatar}>
-          <Text variant="meta" style={styles.initial}>
+        <View style={[styles.avatar, { backgroundColor: personTone.wash }]}>
+          <Text variant="meta" style={[styles.initial, { color: personTone.dot }]}>
             {text.trim().charAt(0).toUpperCase()}
           </Text>
         </View>
-        <Text variant="body" numberOfLines={1} style={styles.text}>
+        <Text variant="body" numberOfLines={1} style={[styles.text, font, font]}>
           {text}
         </Text>
       </View>
@@ -92,7 +98,7 @@ export function CellDisplay({
       <Text
         variant="body"
         numberOfLines={1}
-        style={styles.link}
+        style={[styles.link, font]}
         accessibilityRole="link"
         onPress={() => {
           void Linking.openURL(text.trim());
@@ -103,7 +109,7 @@ export function CellDisplay({
     );
   }
   return (
-    <Text variant="body" numberOfLines={1} style={[styles.text, type === "usd" || type === "number" ? styles.number : null]}>
+    <Text variant="body" numberOfLines={1} style={[styles.text, font, type === "usd" || type === "number" ? styles.number : null]}>
       {displayText(type, text)}
     </Text>
   );
@@ -150,5 +156,5 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       justifyContent: "center",
     },
-    initial: { color: colors.accentText, lineHeight: 14 },
+    initial: { color: colors.accentText, lineHeight: 14, fontWeight: "600" },
   });

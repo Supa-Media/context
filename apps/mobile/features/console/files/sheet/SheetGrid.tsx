@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, ScrollView, StyleSheet, View, type ListRenderItemInfo } from "react-native";
+import { FlatList, Platform, Pressable, ScrollView, StyleSheet, View, type ListRenderItemInfo } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
@@ -256,18 +256,21 @@ export function SheetGrid({
                 style={[styles.footCell, width, isNumeric(c.type) && styles.cellNumber]}
                 testID="sheet-calc"
               >
-                {kind === "None" || figure === "" ? (
-                  <Text variant="meta" style={styles.calcHint}>
-                    Calculate
-                  </Text>
-                ) : (
-                  <Text variant="meta" style={styles.footFigure}>
-                    <Text variant="meta" style={styles.footKind}>
-                      {kind}{" "}
+                {(state) =>
+                  kind === "None" || figure === "" ? (
+                    // As the approved design has it: an empty footer says nothing until a pointer is over it; a phone, with no hover, always says it.
+                    <Text variant="meta" style={[styles.calcHint, Platform.OS === "web" && !(state as { hovered?: boolean }).hovered && styles.calcHintIdle]}>
+                      Calculate
                     </Text>
-                    {figure}
-                  </Text>
-                )}
+                  ) : (
+                    <Text variant="meta" style={styles.footFigure}>
+                      <Text variant="meta" style={styles.footKind}>
+                        {kind}{" "}
+                      </Text>
+                      {figure}
+                    </Text>
+                  )
+                }
               </Pressable>
             );
           })}
@@ -345,4 +348,5 @@ const makeStyles = (colors: Colors) =>
     footFigure: { color: colors.text2, fontVariant: ["tabular-nums"] },
     footKind: { color: colors.chromeMuted },
     calcHint: { color: colors.chromeMuted, opacity: 0.7 },
+    calcHintIdle: { opacity: 0 },
   });

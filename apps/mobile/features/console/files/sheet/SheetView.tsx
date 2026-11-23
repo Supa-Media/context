@@ -58,6 +58,7 @@ export type SheetViewProps = {
   readOnly: boolean;
   people?: string[]; // names for person cells; default []
   visibility?: string; // who can see it, for the heading ("private", "team", ...)
+  say?: (message: string) => void; // the console's toast; without it a notice shows above the grid
   onChangeText: (next: string) => void; // called with the whole new file text after every committed change
 };
 
@@ -70,7 +71,7 @@ type Menu =
 const DOUBLE_PRESS_MS = 400;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
 
-export function SheetView({ path, text, readOnly, people = [], visibility, onChangeText }: SheetViewProps): JSX.Element {
+export function SheetView({ path, text, readOnly, people = [], visibility, say, onChangeText }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
   const parsed = useMemo(() => parseSheet(text), [text]);
@@ -268,7 +269,8 @@ export function SheetView({ path, text, readOnly, people = [], visibility, onCha
       misfits = result.misfits;
       return result.text;
     });
-    setNotice(
+    // A toast at the foot of the window, as the approved design has it; inline only where there is no toast.
+    (say ?? setNotice)(
       misfits > 0
         ? `${misfits} value${misfits === 1 ? "" : "s"} in ${name} ${misfits === 1 ? "doesn't" : "don't"} fit ${TYPE_LABEL[type]}. ${misfits === 1 ? "It is" : "They are"} kept as written and marked red.`
         : `${name} is now ${TYPE_LABEL[type]}.`,
