@@ -282,8 +282,11 @@ export function FolderPage({
   // Only a projects folder and what is under it tracks progress; anywhere else a view once picked is ignored.
   const tracks = isProjectsFolder(folder);
   // The Areas folder and every area in it is drawn as seats: List or Chart (`areas/AreasView.tsx`).
-  const seats = !tracks && inAreasNow(folder) && notes !== null;
-  const view: FolderPageView = tracks ? (picked === "chart" ? "list" : (picked ?? "list")) : seats && picked === "chart" ? "chart" : "list";
+  // Decided by the folder alone, so the page never draws the plain listing first and swaps to the
+  // seats once the notes arrive (the owner saw that flicker in production): until then it waits, empty.
+  const areasHere = !tracks && inAreasNow(folder);
+  const seats = areasHere && notes !== null;
+  const view: FolderPageView = tracks ? (picked === "chart" ? "list" : (picked ?? "list")) : areasHere && picked === "chart" ? "chart" : "list";
   // Until the notes can say which group each item is in, a Board holds its place, empty, rather
   // than drawing every card under No status first. The List is the listing, drawn at once.
   const waiting = view === "board" && !loaded.settled;
@@ -402,7 +405,7 @@ export function FolderPage({
         switcher={
           tracks ? (
             <ViewSwitch view={view} onChange={choose} compact={compact} />
-          ) : seats ? (
+          ) : areasHere ? (
             <ViewSwitch view={view} onChange={choose} compact={compact} views={AREA_VIEWS} />
           ) : null
         }
@@ -463,7 +466,9 @@ export function FolderPage({
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
       <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideChart !== null} mainWidth={wideBoard ?? wideChart} style={styles.contents}>
-        {seats ? (
+        {areasHere && !seats ? (
+          <View style={styles.waiting} accessibilityLabel="Loading" testID="areas-waiting" />
+        ) : seats ? (
           <View style={wideChart === null || beside !== null ? undefined : [styles.wide, { width: wideChart }]}>
           <AreasView
             folder={folder}

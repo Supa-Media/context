@@ -31,6 +31,8 @@ export interface SeatDialogProps {
   /** Resolves a problem sentence, or null when saved. */
   onSave: (edit: SeatEdit, cards: readonly Card[]) => Promise<string | null>;
   onClose: () => void;
+  /** "metric" opens with an empty metric row ready, as "Add a metric…" in the seat menu asks. */
+  start?: "metric";
 }
 
 interface MetricRow {
@@ -49,7 +51,7 @@ interface DocumentLike {
   removeEventListener(type: "keydown", listener: (event: { key: string }) => void): void;
 }
 
-export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit, onSave, onClose }: SeatDialogProps) {
+export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit, onSave, onClose, start }: SeatDialogProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const ids = useRef(0);
@@ -75,9 +77,10 @@ export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit
   const [helper, setHelper] = useState(seat.helper ?? "");
   const [helperCard, setHelperCard] = useState<Card | null>(() => helperCardFor(seat.helper ?? ""));
   const [modes, setModes] = useState<readonly Mode[]>(seat.modes);
-  const [metrics, setMetrics] = useState<readonly MetricRow[]>(() =>
-    seat.metrics.map((metric) => ({ id: nextId(), name: metric.name, target: metric.target ?? "" })),
-  );
+  const [metrics, setMetrics] = useState<readonly MetricRow[]>(() => [
+    ...seat.metrics.map((metric) => ({ id: nextId(), name: metric.name, target: metric.target ?? "" })),
+    ...(start === "metric" && canEdit ? [{ id: nextId(), name: "", target: "" }] : []),
+  ]);
   const [approvals, setApprovals] = useState<readonly ApprovalRow[]>(() =>
     seat.approvals.map((text) => ({ id: nextId(), text })),
   );
