@@ -171,6 +171,9 @@ export async function runSearchSet(options) {
     const worlds = shard ? all.map((w) => ({ ...w, cases: w.cases.filter((_, i) => i % shard.of === shard.index) })).filter((w) => w.cases.length > 0) : all;
     const repo = worlds.some((w) => w.base === "repo") ? expandWorkspaces(await readBenchFolder(REPO_BENCH_FOLDER)) : null;
     const records = [];
+    // What a remote run asked, kept on the bench objects by bench (`remoteBench.mjs` `onPlan`): never a part handed in
+    // from outside (the sealed Test part, `--cases`), nor one shard's share.
+    const planned = remote && !options.cases && shard === null ? [] : null;
     const many = worlds.length > 20;
     if (options["warm-only"] === true) {
       // Build and keep every world, ask nothing: a `--parallel` run's parent does this once so its shards load.
@@ -193,7 +196,7 @@ export async function runSearchSet(options) {
       const caseLog = many ? () => {} : (line) => process.stderr.write(line);
       // `--remote <origin>`: the standing bench objects on that gateway (`remoteBench.mjs`), every case at once.
       const got = remote
-        ? await runRemoteSearchCases(remote, { bench, cases: w.cases, copies: Number(options.copies ?? 16), log: caseLog })
+        ? await runRemoteSearchCases(remote, { bench, cases: w.cases, copies: Number(options.copies ?? 16), log: caseLog, ...(planned ? { onPlan: (plan) => planned.push(plan) } : {}) })
         : await runSearchCases({ bench, cases: w.cases, ai, today: w.today ?? null, paths, cache, embedder, log: caseLog });
       got.forEach((record, i) => {
         const c = w.cases[i];
@@ -205,6 +208,13 @@ export async function runSearchSet(options) {
         const s = beirScores(records.filter((r) => got.some((g) => g.id === r.id)));
         say(`${w.id}: nDCG@10 ${s.ndcg10}${s.objectNdcg10 !== undefined ? ` (objects ${s.objectNdcg10})` : ""}${s.bm25Ndcg10 !== null ? `, BM25 ${s.bm25Ndcg10}` : ""}, right note first ${s.firstPct}% in ${Math.round((Date.now() - at) / 1000)} s`);
       }
+    }
+    if (planned?.length) {
+      const key = options.part ? `${run.id}:${options.part}` : run.id;
+      await remote({ op: "plan", bench: key, plan: { worlds: planned }, commit: process.env.GITHUB_SHA ?? null }).then(
+        () => say(`kept ${key}'s cases on the bench objects: tex_dev search_bench runs a draft on them`),
+        (error) => say(`could not keep ${key}'s cases: ${error.message}`),
+      );
     }
     // A shard reports the whole run's total, not its share of it.
     return resultOf(run, { total: total ?? all.reduce((sum, w) => sum + w.cases.length, 0), records, ms: Date.now() - started, keep: options["keep-records"] === true || shard !== null });

@@ -91,7 +91,11 @@ import { CREDIT_REST_PATH, handleCreditRest } from "../../../../packages/tex/gat
 import { LAB_SANDBOX_PATH, handleLabSandbox } from "../../../../packages/lab/gateway/labSandbox/route.js";
 import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../../../../packages/lab/gateway/labSandbox/pages.js";
 import { BENCH_PATH, handleBench } from "../../../../packages/lab/gateway/bench/route.js";
+import { setBenchGateway } from "../../../../packages/lab/gateway/bench/plans.js";
 import { BRIDGE_PATH as LAB_BRIDGE_PATH, handleBridge } from "../../../../packages/lab/gateway/labSandbox/preview.js";
+
+// A bench runner object asks its searches through this handler (`packages/lab/gateway/bench/plans.js`).
+setBenchGateway((request, env, ctx) => route(request, env, ctx));
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);

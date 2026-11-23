@@ -160,6 +160,7 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     // index passes (`search/heldPasses.js`) after it may already have opened one.
     followParent(targetStore, store, "searchSettings");
     followParent(targetStore, store, "holdSearchPass");
+    followParent(targetStore, store, "searchConfig");
     // Who is sending mail (`tools/notes/mail.js`): a job's turn joins another context's note mail as the job too.
     followParent(targetStore, store, "mailTurn");
     attachLinkCalls(targetStore, target, controlPlane, env);

@@ -176,3 +176,7 @@ Moved to [The words that only say how a question is asked are left out of the wo
 ### Regular search leaves the archive out; a search inside `archive/` is the archive's search
 
 Moved to [Regular search leaves the archive out; a search inside `archive/` is the archive's search](./search/archive-apart.md#regular-search-leaves-the-archive-out-a-search-inside-archive-is-the-archives-search).
+
+### A Lab draft is benched on the standing bench objects by the gateway, with no GitHub job
+
+Moved to [A Lab draft is benched on the standing bench objects by the gateway, with no GitHub job](./search/draft-bench-runs.md#a-lab-draft-is-benched-on-the-standing-bench-objects-by-the-gateway-with-no-github-job).

@@ -12,6 +12,7 @@ import { deferredWork } from "../mcp/usage.js";
 import { textsCleared } from "../communications/messagesBackup.js";
 import { searchBudgetFor } from "../search/budget.js";
 import { searchSettingsFor } from "../search/settings.js";
+import { benchSearchConfigFor } from "../search/config/benchDraft.js";
 import { attachImageUploads } from "../notes/imageUploads.js";
 
 export function decorateRequestStore(store, { session, env, controlPlane, ctx, request, origin }) {
@@ -22,6 +23,9 @@ export function decorateRequestStore(store, { session, env, controlPlane, ctx, r
   // And the deployment's search settings (`search/settings.js`), on the
   // same terms; a texting setup may lay its own over them for one turn.
   store.searchSettings = searchSettingsFor(env);
+  // A bench run's draft search config (`search/config/benchDraft.js`): only ever set in a bench environment.
+  const benchConfig = benchSearchConfigFor(env);
+  if (benchConfig) store.searchConfig = benchConfig;
   attachLinkCalls(store, session, controlPlane, env);
   attachImageUploads(store, session, controlPlane, origin, env);
   // The person's texts (`tools/texts.js`), for their own personal workspace's owner only.

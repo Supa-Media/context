@@ -55,7 +55,9 @@ export async function findNotes(store, scope, rules, overrides, query, prefix = 
       if (row && typeof row.node === "string" && typeof row.ms === "number") steps.push(row);
       if (log) log(row);
     };
-    const answer = await runSearch({ store, scope, rules, overrides, query, prefix, only, boost, ...(config ? { config } : {}), log: keep });
+    // A bench run's draft (`search/config/benchDraft.js`) when no config is named.
+    const chosen = config ?? store.searchConfig
+    const answer = await runSearch({ store, scope, rules, overrides, query, prefix, only, boost, ...(chosen ? { config: chosen } : {}), log: keep });
     logStepTimes(steps);
     if (record) reportCountedSearch(store, answer.hits.map((hit) => hit.key));
     return answer;

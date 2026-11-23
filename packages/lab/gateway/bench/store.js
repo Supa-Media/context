@@ -18,6 +18,7 @@ import { MAX_ROWS_PER_PUT } from "../../../../apps/mcp/src/workspaceStore/api.js
 import { sealBinding } from "../../../../apps/mcp/src/workspaceStore/bindingSeal.js";
 import { benchEnvOf, serveVectors, serveWorlds, VECTORS_PATH, WORLDS_PATH } from "./env.js";
 import { benchBindingAnswer, noteIdOf, rowsOf } from "./world.js";
+import { PLANS_PATH, RUN_PATH, serveBenchPlans, serveRun } from "./plans.js";
 
 /** Notes one clone pass pulls from the first copy. */
 export const CLONE_PAGE = 200;
@@ -67,6 +68,9 @@ export class BenchStore extends WorkspaceStore {
     const path = new URL(request.url).pathname;
     if (path === VECTORS_PATH) return await serveVectors(this.state.storage.sql, request);
     if (path === WORLDS_PATH) return await serveWorlds(this.state.storage.sql, request);
+    if (path === PLANS_PATH) return await serveBenchPlans(this.state.storage.sql, request);
+    // A runner object: one copy's share of a kept plan's searches (`plans.js`, `run.js`). It holds nothing.
+    if (path === RUN_PATH) return await serveRun(this.env, request);
     if (!path.startsWith("/bench/")) return await super.fetch(request);
     const input = await request.json().catch(() => ({}));
     const store = this.ready();

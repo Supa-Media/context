@@ -18,6 +18,8 @@ import { attachLinkCalls } from "../fromGateway/http_routing.js";
 import { PINNED_CONTEXT_NAME } from "../fromGateway/orient_globalNote.js";
 import { sessionFromPayload, storeForSession } from "../fromGateway/session.js";
 import { json } from "../fromGateway/http_responses.js";
+import { planOp } from "../bench/route.js";
+import { benchEnvOf } from "../bench/env.js";
 
 /** Longest query a try-out takes; a longer one is refused, not cut. */
 export const MAX_SEARCH_QUERY = 300;
@@ -135,4 +137,24 @@ export async function searchForPerson({ env, controlPlane, token, who, origin, h
   if (privacy.error) return json({ error: "unavailable" }, 503);
 
   return json(await searchAnswer({ store, scope: session.scope, rules: privacy.rules, overrides: privacy.overrides, query: checked.query, only: checked.only, config: draft.config }));
+}
+
+/**
+ * `op: "search_bench"`: a kept bench's cases (`bench/plans.js`) asked on main's search config and on a draft's, on the
+ * standing bench objects, scored (`bench/run.js`). Seconds, no GitHub job: Dev2, 2026-11-23, "a change to search should
+ * be a lab change and a run of the benchmarks in the sandbox, less than a minute". Without a draft, main alone.
+ */
+export async function searchBenchForPerson({ env, ctx, controlPlane, token, helpers }, input) {
+  const { draftConfig, refused } = helpers;
+  if (!env?.BENCH_STORE) return refused(501, "this deployment has no bench objects");
+  if (input.bench !== undefined && typeof input.bench !== "string") return refused(400, "bench is a bench id, such as \"search-hard\"");
+  let config = null;
+  if (input.versionId !== undefined || input.graph !== undefined) {
+    const drafted = await draftConfig(controlPlane, token, input.versionId, input.graph);
+    if (drafted.error) return refused(...drafted.error);
+    const draft = draftSearchOf(drafted.config);
+    if (draft.error) return refused(400, draft.error);
+    config = draft.config;
+  }
+  return await planOp(benchEnvOf(env), ctx, { op: input.list === true ? "plans" : "run", bench: input.bench ?? "search-hard", config });
 }

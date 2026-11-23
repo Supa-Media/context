@@ -21,7 +21,7 @@ import { nodeStatsAnswer } from "./nodeStats.js";
 import { createSandboxActions } from "./sandbox.js";
 import { OLD_TEST_CHAT_ACTION, TEST_CHAT_ACTION, testChatAnswer, testChatArgs } from "./testChatNames.js";
 import { createSetActions, repoConversation, repoGoldRoute } from "./sets.js";
-import { searchText } from "./search.js";
+import { searchBenchText, searchText } from "./search.js";
 import { failureView } from "../../src/texFailures.cjs";
 import { routeSummary } from "../../../tex/src/texRouteSummary.cjs";
 import { snapshotGraph } from "./snapshot.js";
@@ -400,6 +400,15 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const answer = await sandboxRoute(body);
         if (!answer.ok) return toolError(answer.answer?.error ?? "The search could not run just now.");
         return { content: [{ type: "text", text: searchText(answer.answer, onDraft ? args.draft : null) }] };
+      }
+      // A whole search bench on a draft next to main, on the standing bench objects, in seconds (`labSandbox/search.js`).
+      case "search_bench": {
+        const onDraft = typeof args.draft === "string" && args.draft !== "" && args.draft !== "main";
+        if (onDraft && !DRAFT.test(args.draft)) return toolError('Name the draft: { draft: "v…" } (list shows them), or leave draft out for main.');
+        const body = { op: "search_bench", ...(args.bench !== undefined ? { bench: args.bench } : {}), ...(args.list === true ? { list: true } : {}), ...(onDraft ? { versionId: args.draft } : {}) };
+        const answer = await sandboxRoute(body);
+        if (!answer.ok) return toolError(answer.answer?.error ?? "The bench could not run just now.");
+        return { content: [{ type: "text", text: searchBenchText(answer.answer, onDraft ? args.draft : null) }] };
       }
       // What the Lab computes and shows in the browser, with its own functions (`lab.js`).
       case "sim":
