@@ -37,7 +37,7 @@
  *   `upsertStatements` deleting only from the note's own table     1
  *   `chunkText` with no overlap                                    1
  *   `toMatchExpression` passing the query through unquoted         1
- *   `tokensOf` keeping filler words ("where", "do", "we")          2
+ *   `toContentMatchExpression` keeping filler words                1
  *   `COLUMN_WEIGHTS` missing its two UNINDEXED zeroes              1
  *
  * For the `ftsTableFor` block at the end:
@@ -62,6 +62,7 @@ import {
   searchParams,
   searchSql,
   tablesForTier,
+  toContentMatchExpression,
   toMatchExpression,
 } from "../src/search/d1/query.js";
 
@@ -311,17 +312,10 @@ export async function runSearchD1Checks(check) {
   }
 
   {
-    // The words that only say how a question is asked are not asked of the index: a note that states the answer
-    // rarely holds "where do we", and a transcript that holds them all must not be the only note every word finds.
-    const db = freshDb();
-    indexNote(db, "keys.md", "# Keys\n\nKofi keeps the spare key in the kitchen tin.\n");
-    indexNote(db, "meeting.md", "# House meeting\n\nWhere do we keep the spare key? I forgot again.\n");
-    const paths = search(db, "team", "where do we keep the spare key").map((hit) => hit.path).sort();
-    check("an asked question finds the note that answers it", paths.includes("keys.md"));
-    check("and still the note that quotes it", paths.includes("meeting.md"));
-    check("a query of only filler words still asks its words", toMatchExpression("what is it") !== null);
-    check("filler words are left out of the expression", !/"where"|"we"/.test(toMatchExpression("where do we keep the spare key")));
-    db.close();
+    // A question's own words: its filler left out, every word kept when it has nothing else.
+    check("a query of only filler words asks no second expression", toContentMatchExpression("what is it") === null);
+    check("filler words are left out of the content expression", !/"where"|"we"/.test(toContentMatchExpression("where do we keep the spare key")));
+    check("a query with no filler asks no second expression", toContentMatchExpression("spare key") === null);
   }
 
   {

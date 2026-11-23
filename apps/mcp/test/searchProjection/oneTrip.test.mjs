@@ -98,4 +98,34 @@ export async function runOneTripChecks(check) {
     toTypingMatchExpression("") === null && toTypingMatchExpression("  !! ") === null,
   );
   backend.close();
+
+  // A question in a person's words: only the transcript holds "where do we", so the strict half finds it alone, and
+  // the question's own words (keep, spare, key), asked in the same request, find the note that answers it too.
+  const askedNotes = {
+    "home/keys.md": "# Keys\n\nKofi keeps the spare key in the kitchen tin.\n",
+    "meetings/house.md": "# House meeting\n\nWhere do we keep the spare key? I forgot again.\n",
+    "home/bins.md": "# Bins\n\nWhere do we put the recycling.\n",
+  };
+  const askedBackend = createD1Backend();
+  const askedClient = createD1Client(DESCRIPTOR, { fetchImpl: (url, init) => askedBackend.handle(url, init) });
+  await projectPass(noteStore(askedNotes), askedClient, {
+    census: new Map(Object.keys(askedNotes).map((path) => [path, "v1"])),
+    visibilityOf: () => "team",
+    budget: createSearchBudget(400),
+  });
+  const before = askedBackend.requests.length;
+  const asked = await answerFromProjection(askedClient, { query: "where do we keep the spare key", tier: "private", isVisible: () => true, missIsAnswer: true });
+  const askedReads = askedBackend.requests.slice(before).filter((request) => READ.test(request.sql));
+  const askedPaths = asked.hits.map((hit) => hit.key);
+  check(
+    "an asked question finds the note that answers it beside the transcript that quotes it, as strict hits",
+    askedPaths.includes("home/keys.md") && askedPaths.includes("meetings/house.md") && !askedPaths.includes("home/bins.md") && asked.hits.every((hit) => hit.loose !== true),
+  );
+  check("and its own words ride in the same request", askedReads.length === 1);
+  const none = await answerFromProjection(askedClient, { query: "where do we keep the zebra", tier: "private", isVisible: () => true, missIsAnswer: true });
+  check(
+    "where no note holds every word, the any-word retry over every word stands, as before",
+    none.hits.length > 0 && none.hits.every((hit) => hit.loose === true),
+  );
+  askedBackend.close();
 }

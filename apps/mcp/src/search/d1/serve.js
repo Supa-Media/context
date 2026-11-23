@@ -50,6 +50,7 @@ import {
   searchParams,
   searchSql,
   tablesForTier,
+  toContentMatchExpression,
   toMatchExpression,
   toRelaxedMatchExpression,
   toTypingMatchExpression,
@@ -341,8 +342,11 @@ export async function answerFromProjection(
   // With `lazyRetry`, the retry waits on the strict half: a client that holds the database (a workspace object)
   // leaves it unrun when the strict half found rows, since it is the dearest of the three (any word matches a large
   // share of a context) and is read only below, when no strict row is one this caller may see.
-  let [result, second, byName] = await searchProjectionEach(client, {
-    matches: [strict, lazyRetry === true ? { match: relaxed, unless: [0] } : relaxed, { match: nameMatch, firstChunk: true }],
+  // And the query's own words without its filler (`toContentMatchExpression`), read only where the strict half found
+  // rows: then a note holding every word that matters, not "what did we" too, is one of the hits.
+  const contentMatch = toContentMatchExpression(query);
+  let [result, second, byName, byContent] = await searchProjectionEach(client, {
+    matches: [strict, lazyRetry === true ? { match: relaxed, unless: [0] } : relaxed, { match: nameMatch, firstChunk: true }, contentMatch],
     prefix,
     tier,
     budget,
@@ -355,6 +359,10 @@ export async function answerFromProjection(
   // slicing or counting first would make the number a caller sees depend on
   // how many notes they cannot see.
   let visible = result.notes.filter((note) => isVisible(note.path));
+  if (visible.length > 0 && byContent && byContent !== SKIPPED) {
+    result = byContent;
+    visible = result.notes.filter((note) => isVisible(note.path));
+  }
   if (typeof onCounts === "function") onCounts(result.notes.length, visible.length);
 
   // Nothing had every word: the retry's rows, any of the words with prefixes

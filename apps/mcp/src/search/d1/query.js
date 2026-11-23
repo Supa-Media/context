@@ -129,7 +129,7 @@ function wordTerm(token, extra = [], forms = true) {
   return unique.length === 1 ? unique[0] : `(${unique.join(" OR ")})`;
 }
 
-function allTokensOf(query) {
+function tokensOf(query) {
   return query
     .split(/[^\p{L}\p{N}_]+/u)
     .map((token) => token.trim())
@@ -145,16 +145,22 @@ const isFiller = (token) => {
 };
 
 /**
- * The words a query asks the index for: its own words without the ones that only say how it is asked ("what did we
- * decide about", "where do we keep"), or every word when it has nothing else. Every word has to be in a chunk for the
- * strict expression to match it, and a note that states an answer rarely holds the question's "what", "did" and "we",
- * while a long meeting transcript holds them all: production, 2026-11-23, "what did we decide about bring your own
- * bucket" found only transcripts, never the decisions note, until the filler words were left out.
+ * The typing expression over a query's own words, without the ones that only say how it is asked ("what did we",
+ * "where do we"): `null` when that leaves nothing or asks what `toTypingMatchExpression` asks.
+ *
+ * Every word has to be in one chunk for the strict expression to match, and a note that states an answer rarely
+ * holds the question's "what", "did" and "we", while a long meeting transcript holds them all: production,
+ * 2026-11-23, "what did we decide about bring your own bucket" found only transcripts, never the decisions note.
+ * So where the strict expression found rows, the caller ranks these instead (`d1/serve.js`), a superset of them.
+ * Where it found none, the any-word retry over every word stands, as before: on natural questions (NanoBEIR's) it
+ * ranks better than every content word required.
  */
-function tokensOf(query) {
-  const tokens = allTokensOf(query);
-  const content = tokens.filter((token) => !isFiller(token));
-  return content.length > 0 ? content : tokens;
+export function toContentMatchExpression(query) {
+  if (typeof query !== "string") return null;
+  const content = tokensOf(query).filter((token) => !isFiller(token));
+  if (content.length === 0) return null;
+  const expression = toTypingMatchExpression(content.join(" "));
+  return expression === toTypingMatchExpression(query) ? null : expression;
 }
 export const SNIPPET_OPEN = "";
 export const SNIPPET_CLOSE = "";
