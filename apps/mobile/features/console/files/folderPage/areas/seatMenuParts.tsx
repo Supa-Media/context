@@ -87,7 +87,7 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
   }
   const items: MenuItem<SeatMenuId>[] = [];
   const glyph = (name: IconName) => <MenuGlyph name={name} />;
-  if (!isRoot && hasAreas) items.push({ id: "open", label: "Open chart", leading: glyph("grid") });
+  if (!isRoot && hasAreas) items.push({ id: "open", label: "Open chart", leading: <OrgGlyph /> });
   if (isRoot && upTo !== null) items.push({ id: "up", label: `Up to ${upTo}`, leading: glyph("chevronLeft") });
   items.push({ id: "edit", label: canEdit ? "Edit seat…" : "View seat…", leading: glyph("more") });
   if (canEdit) {
@@ -104,6 +104,22 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
 function MenuGlyph({ name }: { name: IconName }) {
   const colors = useColors();
   return <Icon name={name} size={14} color={colors.chromeMuted} />;
+}
+
+/** The prototype's chart mark beside "Open chart": a box over two, joined. */
+function OrgGlyph() {
+  const colors = useColors();
+  const box = { position: "absolute" as const, width: 5, height: 5, borderWidth: 1.25, borderColor: colors.chromeMuted, borderRadius: 1 };
+  const rule = { position: "absolute" as const, backgroundColor: colors.chromeMuted };
+  return (
+    <View style={{ width: 14, height: 14 }} aria-hidden>
+      <View style={[box, { left: 4.5, top: 0.5 }]} />
+      <View style={[rule, { left: 6.5, top: 5.5, width: 1.25, height: 2.5 }]} />
+      <View style={[rule, { left: 2.5, top: 7.5, width: 9.25, height: 1.25 }]} />
+      <View style={[box, { left: 0.5, top: 8.5 }]} />
+      <View style={[box, { left: 8.5, top: 8.5 }]} />
+    </View>
+  );
 }
 
 /**
@@ -141,9 +157,11 @@ export function SeatMenuHead({ model, onCopy, touch }: { model: SeatMenuModel; o
             >
               <View style={styles.lineIcon}>
                 {line.icon === "tex" ? (
-                  <Text variant="rowTitle" style={[styles.texMark, { color: colors.accentText }]}>
-                    #
-                  </Text>
+                  <View style={styles.texRing}>
+                    <Text variant="treeMeta" style={[styles.texMark, { color: colors.accentText }]}>
+                      #
+                    </Text>
+                  </View>
                 ) : (
                   <Icon name={line.icon} size={13} color={colors.chromeMuted} />
                 )}
@@ -229,7 +247,9 @@ const makeStyles = (colors: Colors) =>
     lineHover: { backgroundColor: "rgba(127,127,127,0.12)" },
     lineIcon: { width: 18, height: 17, alignItems: "center", justifyContent: "center" },
     lineText: { flex: 1, minWidth: 0, lineHeight: 17 },
-    texMark: { lineHeight: 17 },
+    // The Tex mark: a "#" in a 16px ring.
+    texRing: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.line, alignItems: "center", justifyContent: "center" },
+    texMark: { fontWeight: "700", lineHeight: 14 },
     // `.mi`: 32 high, padding 0 8, gap 10, radius 6; 48 and 16px on a phone.
     row: { flexDirection: "row", alignItems: "center", gap: 10, height: 32, paddingHorizontal: space.x2, borderRadius: radii.sm },
     rowTouch: { height: 48 },
