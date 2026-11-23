@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { HERE as REAL_DIR, PARTS as REAL_PARTS, realSetOf } from "../../../../packages/bench/benchmarks/search-real/source.mjs";
+import { HERE as REAL_DIR, PARTS as REAL_PARTS, readPart, realSetOf } from "../../../../packages/bench/benchmarks/search-real/source.mjs";
 import { overlay, pathOf, searchScores, splitAddress } from "../evals/searchSuite.mjs";
 import { REPO_BENCH_FOLDER } from "../folder.mjs";
 import { readBenchFolder } from "../load.mjs";
@@ -73,9 +73,8 @@ test("the repo's real parts are sound: unique ids, expected notes that exist, an
   const ids = new Set();
   assert.equal(existsSync(join(REAL_DIR, "test.json")), false, "the Test part lives only in the eval service");
   for (const part of REAL_PARTS) {
-    const file = join(REAL_DIR, `${part}.json`);
-    if (!existsSync(file)) continue;
-    const { notes, cases } = realSetOf(JSON.parse(readFileSync(file, "utf8")));
+    if (!existsSync(join(REAL_DIR, `${part}.json`))) continue;
+    const { notes, cases } = realSetOf(await readPart(part));
     const laid = overlay(bench, notes);
     for (const c of cases) {
       assert.ok(!ids.has(c.id), `${c.id} is used twice`);
@@ -87,4 +86,11 @@ test("the repo's real parts are sound: unique ids, expected notes that exist, an
       assert.ok(laid.people.some((row) => row.person === c.as && row.personal), `${c.id}: ${c.as} is a bench person`);
     }
   }
+});
+
+test("a real-set part is its file and every numbered file beside it, in order", async () => {
+  const first = JSON.parse(readFileSync(join(REAL_DIR, "training.json"), "utf8"));
+  const second = JSON.parse(readFileSync(join(REAL_DIR, "training-2.json"), "utf8"));
+  const part = await readPart("training");
+  assert.deepEqual(part.map((c) => c.id), [...first, ...second].map((c) => c.id));
 });

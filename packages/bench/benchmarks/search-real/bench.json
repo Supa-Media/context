@@ -7,6 +7,6 @@
   "source": { "name": "Context's own, from the search quality log, rewritten", "license": "MIT, this repository's" },
   "score": "first",
   "runs": [
-    { "id": "search-real", "variant": "Real queries (Dev)", "total": 10, "about": "Real searches that failed (retried, or never opened), rewritten never verbatim: the Dev part. Embeddings only." }
+    { "id": "search-real", "variant": "Real queries (Dev)", "total": 16, "about": "Real searches that failed (retried, or never opened), rewritten never verbatim: the Dev part. Embeddings only." }
   ]
 }
