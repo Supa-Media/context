@@ -17,6 +17,7 @@ import { translateFetch, translateSearch } from "../src/tools/v2/searchFetch.js"
 import { EMAIL_ID_PREFIX } from "../src/tools/emailRead.js";
 import { GOOGLE_CHAT_ID_PREFIX } from "../src/tools/googleChatRead.js";
 import { TEXTS_ID_PREFIX } from "../src/tools/texts.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 
@@ -82,10 +83,11 @@ function completion(text, calls = []) {
       {
         message: {
           content: text,
-          tool_calls: calls.map((call, i) => ({
+          // The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+          tool_calls: calls.map((call) => asSixCall({ ...call, args: call.args ?? {} })).map((call, i) => ({
             id: `call_${i}`,
             type: "function",
-            function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) },
+            function: { name: call.name, arguments: JSON.stringify(call.args) },
           })),
         },
       },
@@ -268,7 +270,7 @@ test("a vault fetch mixed into the round keeps it serial", async () => {
   const ai = scripted([
     completion("", [
       { name: "search_notes", args: { query: "dentist" } },
-      { name: "vault_list", args: { fetch: VAULT_FETCH } },
+      { name: "send", args: { action: "api", args: VAULT_FETCH } }, // a vault fetch, as the six call it
     ]),
     completion("Called it."),
   ]);
@@ -325,8 +327,8 @@ test("two vault fetches in one round stay serial", async () => {
   const spans = [];
   const ai = scripted([
     completion("", [
-      { name: "vault_list", args: { fetch: VAULT_FETCH } },
-      { name: "vault_list", args: { fetch: { ...VAULT_FETCH, method: "PATCH", url: "https://api.example.com/v1/items/1" } } },
+      { name: "send", args: { action: "api", args: VAULT_FETCH } },
+      { name: "send", args: { action: "api", args: { ...VAULT_FETCH, method: "PATCH", url: "https://api.example.com/v1/items/1" } } },
     ]),
     completion("Both calls landed."),
   ]);

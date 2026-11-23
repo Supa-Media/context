@@ -10,6 +10,13 @@ import { test } from "node:test";
 import { createWorld, manifest } from "../world.mjs";
 import { benchPicture } from "../earlierPictures.mjs";
 import { THREADS_SYSTEM } from "../../../../packages/tex/gateway/agent/conversationThreads.js";
+import { asSixCall } from "../../test/sixCallFixture.mjs";
+
+/** A scripted `tool_use` block, called as one of the six tools a real model is shown. */
+function toolUse(id, name, input) {
+  const six = asSixCall({ name, args: input });
+  return { type: "tool_use", id, name: six.name, input: six.args };
+}
 
 const SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
 
@@ -38,7 +45,7 @@ function readsOnce(args, name = "read_note") {
     const result = Array.isArray(last?.content) ? last.content.find((block) => block.type === "tool_result") : null;
     const reply = result
       ? { content: [{ type: "text", text: JSON.stringify(result.content) }], stop_reason: "end_turn" }
-      : { content: [{ type: "tool_use", id: "toolu_1", name, input: args }], stop_reason: "tool_use" };
+      : { content: [toolUse("toolu_1", name, args)], stop_reason: "tool_use" };
     return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -130,7 +137,7 @@ test("after a search, reads, listing and orient in the same turn still work", as
     if (Array.isArray(last?.content) && last.content.some((block) => block.type === "tool_result")) seen += 1;
     const reply =
       seen < calls.length
-        ? { content: [{ type: "tool_use", id: `toolu_${seen}`, name: calls[seen].name, input: calls[seen].input }], stop_reason: "tool_use" }
+        ? { content: [toolUse(`toolu_${seen}`, calls[seen].name, calls[seen].input)], stop_reason: "tool_use" }
         : { content: [{ type: "text", text: "done" }], stop_reason: "end_turn" };
     return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), {
       status: 200,
@@ -405,7 +412,7 @@ function neverDone(rounds, say = null) {
       content: [
         first
           ? { type: "tool_use", id: `toolu_${rounds.n}`, name: "send", input: { action: "progress", args: { text: say } } }
-          : { type: "tool_use", id: `toolu_${rounds.n}`, name: "read_note", input: { path: "health/dentist.md" } },
+          : toolUse(`toolu_${rounds.n}`, "read_note", { path: "health/dentist.md" }),
       ],
       stop_reason: "tool_use",
     };

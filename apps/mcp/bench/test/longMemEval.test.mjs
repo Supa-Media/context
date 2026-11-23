@@ -125,7 +125,7 @@ test("one question end to end: saved raw at each date, filed, found by a fresh r
   assert.equal(row.filings, 2);
   assert.equal(row.filingErrors, 0);
   // The reader searched the person's Context and found the session saved months before.
-  assert.ok(row.calls.some((call) => call.tool === "search_notes"));
+  assert.ok(row.calls.some((call) => call.tool === "search"), JSON.stringify(row.calls.map((call) => call.tool)));
   const found = sent.flatMap((body) => body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((b) => b.type === "tool_result");
   assert.ok(found.some((b) => /red bicycle/.test(String(b.content))), "the search result names the saved session");
   assert.equal(typeof row.correct, "boolean");

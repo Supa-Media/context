@@ -1,4 +1,5 @@
 import { RESEARCH_ASK } from "../../../packages/tex/gateway/agent/graph/nodes/checkinResearch.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const RESEARCH_MARK = RESEARCH_ASK.split("\n")[0];
 
@@ -29,7 +30,7 @@ export function fakeModel() {
       const content = [];
       if (next.thinking) content.push({ type: "thinking", thinking: next.thinking, signature: "sig" });
       if (next.text) content.push({ type: "text", text: next.text });
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+      for (const [i, call] of (next.toolCalls ?? []).map(asSixCall).entries()) {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(

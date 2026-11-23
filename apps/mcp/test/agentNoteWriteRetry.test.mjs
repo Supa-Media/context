@@ -87,9 +87,10 @@ test("with no time left to confirm, the model is told it's still saving, never t
 });
 
 test("in a turn, a slow save the model sees is the save's own answer, not 'took too long'", async () => {
-  const WRITE = { name: "write_note", description: "Write a note", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } } };
+  // write_note takes expected_etag, as the real one does; the model calls it as the six's `write` (`sixTools.js` `olderName`).
+  const WRITE = { name: "write_note", description: "Write a note", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" }, expected_etag: { type: "string" } } } };
   const replies = [
-    { choices: [{ message: { content: "", tool_calls: [{ id: "call_0", type: "function", function: { name: "write_note", arguments: JSON.stringify(ARGS) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    { choices: [{ message: { content: "", tool_calls: [{ id: "call_0", type: "function", function: { name: "write", arguments: JSON.stringify(ARGS) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
     { choices: [{ message: { content: "Saved the corrected numbers." } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
   ];
   const calls = [];

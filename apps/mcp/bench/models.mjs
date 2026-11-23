@@ -285,9 +285,10 @@ function keyword(question) {
 }
 
 /**
- * A scripted Claude: on a fresh question it calls `search_notes` with the
- * question's longest word; once it has a tool result, it answers with the first line
- * of it. Enough to drive every part of the harness.
+ * A scripted Claude: on a fresh question it calls `search` (a notes search,
+ * one of the six tools Tex is shown) with the question's longest word; once it
+ * has a tool result, it answers with the first line of it. Enough to drive
+ * every part of the harness.
  */
 export function fakeGateway() {
   return async (_url, init) => {
@@ -297,7 +298,7 @@ export function fakeGateway() {
     if (!result) {
       const question = typeof last?.content === "string" ? last.content : last?.content?.find((b) => b.type === "text")?.text ?? "";
       return json({
-        content: [{ type: "tool_use", id: "toolu_fake", name: "search_notes", input: { query: keyword(question) } }],
+        content: [{ type: "tool_use", id: "toolu_fake", name: "search", input: { query: keyword(question) } }],
         stop_reason: "tool_use",
         usage: { input_tokens: 1000, output_tokens: 20 },
       });
@@ -446,7 +447,7 @@ export function fakeAi() {
       const last = input.messages.at(-1);
       if (last?.role !== "tool") {
         const question = String(last?.content ?? "");
-        const call = { id: "call_fake", type: "function", function: { name: "search_notes", arguments: JSON.stringify({ query: keyword(question) }) } };
+        const call = { id: "call_fake", type: "function", function: { name: "search", arguments: JSON.stringify({ query: keyword(question) }) } };
         return { choices: [{ message: { content: "", tool_calls: [call] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 1000, completion_tokens: 20 } };
       }
       const line = String(last.content ?? "").split("\n").find((l) => l.trim()) ?? "Nothing found.";

@@ -66,6 +66,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { conversationText, conversationTurns, seedChat } from "./agentConversationFixture.mjs";
 import { texStoreNamespace, withAgentHome } from "./texStoreFixture.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { texBucket, texStoreStub } from "../../../packages/tex/gateway/texStore/wire.js";
 
 const S3_ENDPOINT = "https://s3.example-textingroutes.test";
@@ -109,7 +110,10 @@ const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, TEX_STORE
 function reply(step) {
   const content = [];
   if (step.text) content.push({ type: "text", text: step.text });
-  for (const [i, [name, input]] of (step.calls ?? []).entries()) content.push({ type: "tool_use", id: `toolu_r_${requests.length}_${i}`, name, input });
+  for (const [i, [older, given]] of (step.calls ?? []).entries()) {
+    const { name, args: input } = asSixCall({ name: older, args: given }); // the six's shape, as a real model is shown them (`sixCallFixture.mjs`)
+    content.push({ type: "tool_use", id: `toolu_r_${requests.length}_${i}`, name, input });
+  }
   return { content, stop_reason: (step.calls ?? []).length > 0 ? "tool_use" : "end_turn", usage: { input_tokens: 5, output_tokens: 2 } };
 }
 

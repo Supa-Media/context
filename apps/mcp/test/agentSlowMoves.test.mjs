@@ -24,9 +24,10 @@ const MOVED = { content: [{ type: "text", text: `moved note: ${ARGS.source} → 
 const never = () => new Promise(() => {});
 const after = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
+// The scripted model calls `manage move`, as a real one is shown the six tools; it reaches move_note.
 async function turnWith(callTool, options = {}) {
   const replies = [
-    { choices: [{ message: { content: "", tool_calls: [{ id: "call_0", type: "function", function: { name: "move_note", arguments: JSON.stringify(ARGS) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    { choices: [{ message: { content: "", tool_calls: [{ id: "call_0", type: "function", function: { name: "manage", arguments: JSON.stringify({ action: "move", args: ARGS }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
     { choices: [{ message: { content: "Moved it." } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
   ];
   const calls = [];

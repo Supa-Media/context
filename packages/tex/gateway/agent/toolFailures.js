@@ -33,6 +33,7 @@ export const CAUSES = Object.freeze([
   "no_such_action", // one of the six with an action it does not have
   "unknown_argument", // a tool called with an argument its schema does not take (`sixTools.js`)
   "bad_arguments", // one of the six called in a shape its action or id does not take (`sixTools.js`)
+  "older_name", // a tool name the model was not shown, called anyway (`sixTools.js` `olderName`)
   "repeated", // a write already made this turn, asked again
 ]);
 

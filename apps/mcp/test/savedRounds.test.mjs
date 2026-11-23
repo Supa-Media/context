@@ -27,12 +27,14 @@ import { ledgerFor, ledgerObserver, STEP_NAMES } from "../../../packages/tex/gat
 import { texRounds, ROUNDS_FRESH_MS } from "../../../packages/tex/gateway/texStore/rounds.js";
 import { TexObjectRefused } from "../../../packages/tex/gateway/texStore/objects.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const SEARCH = { name: "search_notes", description: "Search notes", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
 const EMAIL = { name: "send_email", description: "Send an email", inputSchema: { type: "object", properties: { to: { type: "string" } } }, annotations: { readOnlyHint: false } };
 const QUESTION = "When is the dentist?";
 const USAGE = { prompt_tokens: 10, completion_tokens: 5 };
-const calls = (...list) => ({ choices: [{ message: { content: "", tool_calls: list.map(([id, name, args]) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } })) } }], usage: USAGE });
+// The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+const calls = (...list) => ({ choices: [{ message: { content: "", tool_calls: list.map(([id, name, args]) => ({ id, ...asSixCall({ name, args }) })).map(({ id, name, args }) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } })) } }], usage: USAGE });
 const words = (text) => ({ choices: [{ message: { content: text } }], usage: USAGE });
 
 /** A model that searches until it has read a search's result, then answers from it: what a real one does. */
@@ -122,13 +124,15 @@ test("a picture made freezes the snapshot, though the picture tool is marked rea
 
 test("a read that returned a picture freezes the snapshot: its number held for that try alone", async () => {
   const { kept, keepRounds } = keeping();
+  const read = [];
   const IMAGE = { name: "read_image", description: "Read an image", inputSchema: { type: "object", properties: { path: { type: "string" } } }, annotations: { readOnlyHint: true } };
-  const first = turn(scripted([calls(["c1", "search_notes", { query: "a" }]), calls(["c2", "read_image", { path: "a.png" }]), words("Here it is.")]), {
+  const first = turn(scripted([calls(["c1", "search_notes", { query: "a" }]), calls(["c2", "read_image", { note: "photos.md", image: "a.png" }]), words("Here it is.")]), {
     keepRounds,
     tools: [SEARCH, EMAIL, IMAGE],
-    callTool: async (name) => (name === "read_image" ? { content: [{ type: "image", data: "AAAA", mimeType: "image/png" }, { type: "text", text: "This is picture 1" }] } : { content: [{ type: "text", text: "found" }] }),
+    callTool: async (name) => (read.push(name), name === "read_image" ? { content: [{ type: "image", data: "AAAA", mimeType: "image/png" }, { type: "text", text: "This is picture 1" }] } : { content: [{ type: "text", text: "found" }] }),
   });
   await first.done;
+  assert.deepEqual(read, ["search_notes", "read_image"]);
   assert.equal(kept.length, 1);
   assert.ok(!JSON.stringify(kept).includes("read_image"));
 });

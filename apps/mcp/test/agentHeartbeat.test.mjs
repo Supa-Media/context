@@ -401,7 +401,8 @@ export async function runAgentHeartbeatChecks(check) {
         written.includes(`\`${today}\``) &&
         written.includes("**Texted:** Found the Tex branding image you asked for, in your branding notes: https://example.invalid/tex-chaos-scale.png") &&
         written.includes("> 💭 They asked for the branding image and only got the board.") &&
-        written.includes("`write_note` `{\"path\":\"todo.md\""),
+        // A refused step is logged as the six call the model made (`write`, which a check-in is not given this turn).
+        written.includes("`write` `{\"path\":\"todo.md\""),
     );
     // Dev2, 2026-11-14: "we need to make sure we are logging everything so we can replay the results".
     const chatLedger = (await ledgerFor(env, { person: "ws_beat" }).read(ONE_TO_ONE_CHAT)).entries;

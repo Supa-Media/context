@@ -12,6 +12,7 @@
 
 import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { webSession } from "../../../packages/tex/gateway/agent/computer.js";
@@ -307,7 +308,7 @@ async function runEndToEnd(check) {
       async run(model, input) {
         if (model.includes("clef") || input?.questions) return { answers: {} };
         calls.push(input);
-        const next = script.shift();
+        const next = asSixCall(script.shift());
         return {
           choices: [{ message: { content: next ? "" : "Socks are $5.", tool_calls: next ? [{ id: "c0", type: "function", function: { name: next.name, arguments: JSON.stringify(next.args) } }] : [] } }],
           usage: { prompt_tokens: 10, completion_tokens: 2 },

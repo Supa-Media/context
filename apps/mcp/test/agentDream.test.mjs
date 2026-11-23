@@ -29,6 +29,7 @@
  */
 
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
 import { PRODUCTION_DREAM_PATH } from "../../../packages/tex/gateway/agent/production.js";
 import {
@@ -78,7 +79,7 @@ function fakeModel() {
       const content = [];
       if (next.thinking) content.push({ type: "thinking", thinking: next.thinking, signature: "sig" });
       if (next.text) content.push({ type: "text", text: next.text });
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+      for (const [i, call] of (next.toolCalls ?? []).map(asSixCall).entries()) {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(

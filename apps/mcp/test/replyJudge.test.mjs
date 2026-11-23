@@ -36,6 +36,7 @@ import { actionsOf, GOES_ON_A_LAST_STEP, ADVISOR_WINDOW_MS, ASK_ADVISOR_FIRST, j
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { wireTraceEntry } from "../../../packages/tex/gateway/agent/turnLog.js";
 import { STEP_NAMES } from "../../../packages/tex/gateway/agent/ledger.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const MAIN = "@cf/acme/main-model";
 const BROWSE = {
@@ -44,7 +45,7 @@ const BROWSE = {
   inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
 };
 
-/** A Workers AI binding for the main model, answering from a script. */
+/** A Workers AI binding for the main model, answering from a script; a call is made as one of the six tools. */
 function scripted(replies) {
   const calls = [];
   return {
@@ -53,7 +54,7 @@ function scripted(replies) {
       calls.push(input.messages);
       const reply = replies.shift();
       if (!reply) throw new Error("script ran out");
-      const tool_calls = (reply.calls ?? []).map((call, i) => ({ id: `call_${calls.length}_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }));
+      const tool_calls = (reply.calls ?? []).map(asSixCall).map((call, i) => ({ id: `call_${calls.length}_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }));
       return { choices: [{ message: { content: reply.text ?? "", tool_calls } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
     },
   };
@@ -148,7 +149,8 @@ test("an accepted reply goes in one round, and the reviewer reads the turn's cal
   assert.match(result.answer, /^Here it is/);
   assert.equal(ai.calls.length, 2);
   const state = review.asked[0].call.messages[0].text;
-  assert.ok(state.includes('- called browse {"url":"https://filebox.example/garden-club/resources/brand-assets"}'));
+  // The reviewer reads the call as the model made it, one of the six (`send` action `browse`).
+  assert.ok(state.includes('- called send {"action":"browse","args":{"url":"https://filebox.example/garden-club/resources/brand-assets"}}'), state);
   assert.ok(state.includes("returned: brand-assets: garden-club-logo.png"));
   assert.ok(state.includes("Person: where's the garden club logo?"), "earlier texts are there");
   assert.ok(state.indexOf("Their text now") < state.indexOf("What Tex did"), "the ask and the reply come first, so a cut never loses them");

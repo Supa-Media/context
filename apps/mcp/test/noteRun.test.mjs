@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { noteRunTools, noteRunCallTool, noteRunQuestion, parseNoteRun, lenientNoteRun, stepLabel, runNoteRun, withInsert } from "../../../packages/tex/gateway/agent/noteRun.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const J19 = "Study/Judges/Judges 19.md";
 const G19 = "Study/Genesis/Genesis 19.md";
@@ -151,7 +152,8 @@ function reply(text, toolCalls = []) {
       {
         message: {
           content: text,
-          tool_calls: toolCalls.map((call, i) => ({ id: `call_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } })),
+          // The six's shape, as a real model is shown them (`sixCallFixture.mjs`).
+          tool_calls: toolCalls.map(asSixCall).map((call, i) => ({ id: `call_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } })),
         },
         finish_reason: toolCalls.length > 0 ? "tool_calls" : "stop",
       },

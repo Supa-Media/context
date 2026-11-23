@@ -40,6 +40,7 @@
 
 import { shown, onFixedList, manualOf } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
   createControlPlaneStub,
@@ -90,7 +91,7 @@ function fakeModel() {
       if (!next) throw new Error("fake model: the script ran out");
       if (next.status) return new Response("{}", { status: next.status });
       const content = next.text ? [{ type: "text", text: next.text }] : [];
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+      for (const [i, call] of (next.toolCalls ?? []).map(asSixCall).entries()) {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(
@@ -540,7 +541,8 @@ export async function runAgentRoutineChecks(check) {
         bucket.get("routines/sneaky-six.md") === undefined &&
         bucket.get(".context/six.md") === undefined &&
         refusals.length === 13 &&
-        refusals.every((text) => /can't be used|can't be passed from a text|no such tool|Only a routine file|Routines are written/i.test(text)),
+        // export_encryption_keys has no six call and is never shown: it is refused as a name the model was not given (`sixTools.js` `olderName`).
+        refusals.every((text) => /can't be used|can't be passed from a text|no such tool|is not one of your tools|Only a routine file|Routines are written/i.test(text)),
     );
 
     model.install([

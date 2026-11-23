@@ -22,6 +22,7 @@ import { readBenchFolder, parseTest } from "../load.mjs";
 import { readMailbox, searchMailbox } from "../mailbox.mjs";
 import { createWorld } from "../world.mjs";
 import { checkVerdicts } from "../checks.mjs";
+import { asSixCall } from "../../test/sixCallFixture.mjs";
 
 const AI = fileURLToPath(new URL("../ai", import.meta.url));
 const RECEIPT = "19a2f0c4signal";
@@ -56,9 +57,10 @@ function scripted(steps, asked) {
     asked.push(JSON.parse(init.body));
     const step = steps.shift() ?? { text: "Done." };
     n += 1;
+    const call = step.text ? null : asSixCall({ name: step.name, args: step.input }); // the six's shape, as a real model is shown them
     const reply = step.text
       ? { content: [{ type: "text", text: step.text }], stop_reason: "end_turn" }
-      : { content: [{ type: "tool_use", id: `toolu_${n}`, name: step.name, input: step.input }], stop_reason: "tool_use" };
+      : { content: [{ type: "tool_use", id: `toolu_${n}`, name: call.name, input: call.args }], stop_reason: "tool_use" };
     return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } });
   };
 }

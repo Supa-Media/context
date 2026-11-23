@@ -23,6 +23,7 @@
  */
 
 import worker from "../src/index.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { transcriptPath } from "../../../packages/tex/gateway/agent/transcript.js";
 import { picturesPath } from "../../../packages/tex/gateway/agent/textedPictures.js";
 import { IMAGE_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
@@ -64,7 +65,7 @@ function fakeModel() {
       const content = [];
       if (next.thinking) content.push({ type: "thinking", thinking: next.thinking, signature: "sig" });
       if (next.text) content.push({ type: "text", text: next.text });
-      for (const [i, call] of (next.toolCalls ?? []).entries()) {
+      for (const [i, call] of (next.toolCalls ?? []).map(asSixCall).entries()) {
         content.push({ type: "tool_use", id: `toolu_${i}`, name: call.name, input: call.args ?? {} });
       }
       return new Response(

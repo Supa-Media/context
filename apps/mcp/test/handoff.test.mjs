@@ -216,12 +216,14 @@ function toolEveryRound(calls) {
   return {
     async run(_model, input) {
       calls.push(input.messages);
-      return { choices: [{ message: { content: "Checking another site.", tool_calls: [{ id: `c${calls.length}`, type: "function", function: { name: "look", arguments: "{}" } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
+      return { choices: [{ message: { content: "Checking another site.", tool_calls: [{ id: `c${calls.length}`, type: "function", function: LOOK_CALL }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
     },
   };
 }
 
-const LOOK = { name: "look", description: "look something up", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } };
+// A read-only lookup, called as the six's `search` (Tex is shown only the six; an older name is refused, `sixTools.js` `olderName`).
+const LOOK = { name: "search_notes", description: "look something up", inputSchema: { type: "object", properties: { query: { type: "string" } } }, annotations: { readOnlyHint: true } };
+const LOOK_CALL = { name: "search", arguments: JSON.stringify({ query: "reader prices" }) };
 
 async function turnOf(ai, extra = {}) {
   const MAIN = "@cf/acme/main-model";
@@ -292,16 +294,17 @@ test("on the real runner, the front door's wire fires the node with cause rounds
   assert.match(background.calls[0].brief, /ran out of rounds/);
 });
 
-/** A model that calls `name` every round. */
-function calling(calls, name) {
-  return { async run(_m, input) { calls.push(input.messages); return { choices: [{ message: { content: "", tool_calls: [{ id: `c${calls.length}`, type: "function", function: { name, arguments: "{}" } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
+/** A model that calls `name` with `args` every round. */
+function calling(calls, name, args = {}) {
+  return { async run(_m, input) { calls.push(input.messages); return { choices: [{ message: { content: "", tool_calls: [{ id: `c${calls.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
 }
 
 test("a turn that changed something is never handed on: a worker could do the write again", async () => {
-  const WRITE = { name: "write_it", description: "writes", inputSchema: { type: "object", properties: {} } };
+  // A tool that changes something, called as the six's `write` (it carries `write_note`).
+  const WRITE = { name: "write_note", description: "writes", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } } };
   const calls = [];
   let asked = 0;
-  const result = await turnOf(calling(calls, "write_it"), { tools: [WRITE], roundsOut: async () => ((asked += 1), QUIET_ACK) });
+  const result = await turnOf(calling(calls, "write", { path: "readers.md", content: "Reader A $40/mo" }), { tools: [WRITE], roundsOut: async () => ((asked += 1), QUIET_ACK) });
   assert.equal(asked, 0, "never asked after a write");
   assert.equal(calls.length, 4);
   assert.equal(result.exhausted, true);
@@ -312,7 +315,7 @@ test("a turn sent back into its last rounds is drafting, not gathering: never ha
   const ai = {
     async run(_m, input) {
       calls.push(input.messages);
-      if (calls.length === 1) return { choices: [{ message: { content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "look", arguments: "{}" } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+      if (calls.length === 1) return { choices: [{ message: { content: "", tool_calls: [{ id: "c1", type: "function", function: LOOK_CALL }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
       return { choices: [{ message: { content: `Draft ${calls.length}.`, tool_calls: [] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
     },
   };

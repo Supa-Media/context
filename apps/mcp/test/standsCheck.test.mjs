@@ -38,6 +38,7 @@ import {
   standsNotice,
   stepOf,
 } from "../../../packages/tex/gateway/agent/standsCheck.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 
 const INCIDENT = "I already did this at 1:31 PM. The reply is saved as a Gmail draft in your account. Nothing was sent.";
 const DRAFT_EARLIER = "I already saved the draft reply to Bo earlier, so I didn't make a second one.";
@@ -255,7 +256,7 @@ const DRAFT = { name: "save_email_draft", description: "Save a Gmail draft.", in
 const ASK = "Write Bo a short reply about the rota and save it as a Gmail draft, don't send it.";
 const CLAIM = "I already saved that draft reply to Bo earlier, so I didn't make a second one.";
 
-/** A Workers AI binding that answers from a script, one reply per call. */
+/** A Workers AI binding that answers from a script, one reply per call; a call is made as one of the six tools. */
 function scripted(replies) {
   const calls = [];
   return {
@@ -264,7 +265,7 @@ function scripted(replies) {
       calls.push(input.messages);
       const reply = replies.shift();
       if (!reply) throw new Error("script ran out");
-      const tool_calls = (reply.calls ?? []).map((call, i) => ({ id: `call_${calls.length}_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }));
+      const tool_calls = (reply.calls ?? []).map(asSixCall).map((call, i) => ({ id: `call_${calls.length}_${i}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }));
       return { choices: [{ message: { content: reply.text ?? "", tool_calls } }], usage: { prompt_tokens: 10, completion_tokens: 5 } };
     },
   };

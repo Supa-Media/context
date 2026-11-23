@@ -26,6 +26,7 @@ import { test } from "node:test";
 import { aiGatewayConfig, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
+import { asSixCall } from "./sixCallFixture.mjs";
 import { CAUSES, failureShape, reportToolFailures, toolFailure, wireFailures } from "../../../packages/tex/gateway/agent/toolFailures.js";
 
 const ENV = {
@@ -44,7 +45,8 @@ function scripted(rounds) {
     return new Response(JSON.stringify(reply(next.blocks, next.stop)), { status: 200, headers: { "content-type": "application/json" } });
   };
 }
-const calls = (...made) => ({ blocks: made.map(([name, input], n) => ({ type: "tool_use", id: `t${n}`, name, input })), stop: "tool_use" });
+// The scripted model calls the six tools, as a real one is shown them (`sixCallFixture.mjs`).
+const calls = (...made) => ({ blocks: made.map(([name, args]) => asSixCall({ name, args })).map(({ name, args }, n) => ({ type: "tool_use", id: `t${n}`, name, input: args })), stop: "tool_use" });
 const answer = { blocks: [{ type: "text", text: "Done." }], stop: "end_turn" };
 const tool = (name) => ({ name, description: `${name}.`, inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } });
 
@@ -94,9 +96,17 @@ test("a tool that throws is kept as threw with its class, which the model never 
   assert.ok(!seen.includes("StorageUnavailable"), "the model still reads only that the call failed");
 });
 
-test("a tool it was never given is kept as not_offered, under the name the model wrote", async () => {
+test("a tool it was never given is kept as not_offered, under the tool the six call reached", async () => {
+  // `fetch calendar:` is read_calendar, which this turn was never given.
+  const { result } = await turn([calls(["fetch", { id: "calendar:" }]), answer], async () => ({ content: [{ type: "text", text: "ok" }] }));
+  assert.deepEqual(result.timing.failures.map(({ tool, cause }) => ({ tool, cause })), [{ tool: "read_calendar", cause: "not_offered" }]);
+});
+
+test("a name that is not one of the six is refused under the name the model wrote", async () => {
+  // Refused by `sixTools.js` `olderName`, kept under its own cause so "Why tools fail" counts older names apart.
   const { result } = await turn([calls(["delete_everything", {}]), answer], async () => ({ content: [{ type: "text", text: "ok" }] }));
-  assert.deepEqual(result.timing.failures.map(({ tool, cause }) => ({ tool, cause })), [{ tool: "delete_everything", cause: "not_offered" }]);
+  assert.deepEqual(result.timing.failures.map(({ tool, cause }) => ({ tool, cause })), [{ tool: "delete_everything", cause: "older_name" }]);
+  assert.match(result.timing.failures[0].why, /^delete_everything is not one of your tools; you have orient, search, fetch, write, manage, send\./);
 });
 
 test("a designed send-back is not a failure: the model still reads it as an error, and the turn log counts the call as one that worked", async () => {

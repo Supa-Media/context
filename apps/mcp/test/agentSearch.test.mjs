@@ -15,6 +15,7 @@
  * tool error, never their answer.
  */
 
+import { asSixCall } from "./sixCallFixture.mjs";
 import { shown, onFixedList } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -54,7 +55,7 @@ function chat(text, toolCalls = []) {
       {
         message: {
           content: text,
-          tool_calls: toolCalls.map((call, i) => ({
+          tool_calls: toolCalls.map(asSixCall).map((call, i) => ({
             id: `call_${i}`,
             type: "function",
             function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) },
