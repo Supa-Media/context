@@ -93,6 +93,7 @@ import { densityFor } from "../../app/frame";
 import { documentMargin } from "../panes/browsePane/DocumentPage";
 import type { DragModifier } from "./dnd";
 import { FolderPage, type FolderPageHost } from "./folderPage/FolderPage";
+import { areaTitle } from "./folderPage/areas/seat";
 import { phoneSections, type PhoneRows } from "../home/folderRows";
 import { FolderRow } from "./FolderRow";
 import { NestedRows, useOpenRows, type RowNesting } from "./NestedRows";
@@ -409,6 +410,7 @@ export function FolderView({
           aboutPath={aboutNoteOf(listing?.entries ?? [])}
           host={page}
           fallbackTitle={folderLabel(baseName(entry.path)) || contextLabel}
+          workspaceName={areaTitle(contextLabel.replace(/^@/, ""))}
           icon={entry.path === "" ? null : (iconOf?.(entry.path) ?? null)}
           compact={compact}
           pageWidth={pageWidth}

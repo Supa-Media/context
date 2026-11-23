@@ -48,6 +48,7 @@ import { useTaskOwners } from "./useTaskOwners";
 import { estimateOf } from "./taskProps";
 import { AREA_VIEWS, FolderHead, PropertyLine, ViewSwitch } from "./Head";
 import { AreasView } from "./areas/AreasView";
+import { areaTree } from "./areas/seat";
 import { areasFolderNow, inAreasNow } from "../jobIcons/jobFoldersNow";
 import type { LedeEditing } from "./LedeEditor";
 import { AboutBlock } from "./AboutBlock";
@@ -102,6 +103,7 @@ export function FolderPage({
   aboutPath = null,
   host,
   fallbackTitle,
+  workspaceName = "Areas",
   icon = null,
   compact,
   pageWidth = 0,
@@ -118,6 +120,8 @@ export function FolderPage({
   host: FolderPageHost | undefined;
   /** The folder's own name, for a folder no note names. */
   fallbackTitle: string;
+  /** What the workspace is called ("Supa"): the top of the Areas folder's List and Chart. */
+  workspaceName?: string;
   /** The folder's own emoji, drawn before its title. */
   icon?: string | null;
   compact: boolean;
@@ -349,6 +353,9 @@ export function FolderPage({
   const peeking = panel.path;
   // The Board's width on a wide page, centred on the column; the panel keeps it when it lies over the Board.
   const wideBoard = compact || pageWidth <= 0 || view !== "board" ? null : boardWidth(columnCount, bands.length, pageWidth);
+  // The Areas chart spreads like the Board: one column per area, plus its "Add area".
+  const chartColumns = seats && view === "chart" && !compact && pageWidth > 0 ? areaTree(folder, areasFolderNow(), notes ?? NO_NOTES).areas.length + 1 : 0;
+  const wideChart = chartColumns === 0 ? null : Math.min(pageWidth - 96, Math.max(chartColumns * 232, boardWidth(1, 1, pageWidth)));
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     peeking !== null && peeking === about
@@ -455,11 +462,13 @@ export function FolderPage({
       {sheet !== null && sheet === about ? (
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
-      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} mainWidth={wideBoard} style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideChart !== null} mainWidth={wideBoard ?? wideChart} style={styles.contents}>
         {seats ? (
+          <View style={wideChart === null || beside !== null ? undefined : [styles.wide, { width: wideChart }]}>
           <AreasView
             folder={folder}
             root={areasFolderNow()}
+            rootName={workspaceName}
             notes={notes ?? NO_NOTES}
             view={view === "chart" ? "chart" : "list"}
             compact={compact}
@@ -471,6 +480,7 @@ export function FolderPage({
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
           />
+          </View>
         ) : view === "list" ? (
           tracks ? (
             <RowExtrasProvider extras={extras} edit={rowEdit}>
