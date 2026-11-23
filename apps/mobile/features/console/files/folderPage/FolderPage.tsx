@@ -46,7 +46,9 @@ import { rowExtras, RowExtrasProvider, type RowEdit } from "./rowExtras";
 import { faceFor } from "./taskFace";
 import { useTaskOwners } from "./useTaskOwners";
 import { estimateOf } from "./taskProps";
-import { FolderHead, PropertyLine, ViewSwitch } from "./Head";
+import { AREA_VIEWS, FolderHead, PropertyLine, ViewSwitch } from "./Head";
+import { AreasView } from "./areas/AreasView";
+import { areasFolderNow, inAreasNow } from "../jobIcons/jobFoldersNow";
 import type { LedeEditing } from "./LedeEditor";
 import { AboutBlock } from "./AboutBlock";
 import { AboutSheet } from "./AboutSheet";
@@ -275,7 +277,9 @@ export function FolderPage({
 
   // Only a projects folder and what is under it tracks progress; anywhere else a view once picked is ignored.
   const tracks = isProjectsFolder(folder);
-  const view: FolderPageView = tracks ? (picked ?? "list") : "list";
+  // The Areas folder and every area in it is drawn as seats: List or Chart (`areas/AreasView.tsx`).
+  const seats = !tracks && inAreasNow(folder) && notes !== null;
+  const view: FolderPageView = tracks ? (picked === "chart" ? "list" : (picked ?? "list")) : seats && picked === "chart" ? "chart" : "list";
   // Until the notes can say which group each item is in, a Board holds its place, empty, rather
   // than drawing every card under No status first. The List is the listing, drawn at once.
   const waiting = view === "board" && !loaded.settled;
@@ -388,7 +392,13 @@ export function FolderPage({
         title={summary?.title ?? fallbackTitle}
         icon={icon}
         onOpenTitle={summary !== null && !summary.creates && summary.title !== null ? () => onSelect(summary.target) : undefined}
-        switcher={tracks ? <ViewSwitch view={view} onChange={choose} compact={compact} /> : null}
+        switcher={
+          tracks ? (
+            <ViewSwitch view={view} onChange={choose} compact={compact} />
+          ) : seats ? (
+            <ViewSwitch view={view} onChange={choose} compact={compact} views={AREA_VIEWS} />
+          ) : null
+        }
         actions={
           <>
             {host !== undefined && isWebsiteFolder(folder) ? <PublishWebsite workspaceId={host.workspaceId} /> : null}
@@ -446,7 +456,22 @@ export function FolderPage({
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
       <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} mainWidth={wideBoard} style={styles.contents}>
-        {view === "list" ? (
+        {seats ? (
+          <AreasView
+            folder={folder}
+            root={areasFolderNow()}
+            notes={notes ?? NO_NOTES}
+            view={view === "chart" ? "chart" : "list"}
+            compact={compact}
+            canEdit={loaded.canEdit}
+            faceOf={(owner) => faceFor({ faceOf, owners }, owner ?? undefined)}
+            label={label}
+            isAgent={agents.isAgent}
+            suggestions={[...ownersInUse(notes ?? NO_NOTES), ...agentList]}
+            chooseMany={loaded.chooseMany}
+            onSelect={onSelect}
+          />
+        ) : view === "list" ? (
           tracks ? (
             <RowExtrasProvider extras={extras} edit={rowEdit}>
               {files}

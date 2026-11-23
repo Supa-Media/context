@@ -107,8 +107,9 @@ function text(value: PropertyValue | undefined): string {
   return "";
 }
 
-function list(value: PropertyValue | undefined): string[] {
-  const raw = Array.isArray(value) ? value : typeof value === "string" && value.trim() !== "" ? value.split(",") : [];
+/** A list line. A plain string is one item: a metric or a rule is a sentence, and its commas are its own. */
+function list(value: PropertyValue | undefined, commas = false): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === "string" && value.trim() !== "" ? (commas ? value.split(",") : [value]) : [];
   return raw.map((item) => item.trim()).filter((item) => item !== "");
 }
 
@@ -120,6 +121,8 @@ function aboutOf(folder: string, notes: readonly ListNote[]): ListNote | null {
 /** Whether `folder` is an area of the Areas folder `root` (see the header). */
 export function isArea(folder: string, root: string, notes: readonly ListNote[]): boolean {
   if (folder === root || !folder.startsWith(inside(root))) return false;
+  // The cards' folder is never a seat, whether or not its `about.md` has been written yet.
+  if (folder === peopleFolder(root)) return false;
   const about = aboutOf(folder, notes);
   const said = text(about?.properties[AREA_KEY]).toLowerCase();
   if (said === "false" || said === "no") return false;
@@ -143,7 +146,7 @@ export function metricLine(metric: Metric): string {
 }
 
 function modesOf(value: PropertyValue | undefined): Mode[] {
-  const said = new Set(list(value).map((word) => word.toLowerCase()));
+  const said = new Set(list(value, true).map((word) => word.toLowerCase()));
   return MODES.filter((mode) => said.has(mode.toLowerCase()));
 }
 

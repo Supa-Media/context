@@ -42,7 +42,7 @@ import { comparePriority, priorityOf, type Priority } from "./taskProps";
  * shows with no switch) and its tasks as columns (Board). Notes and List were
  * one view drawn twice until the owner merged them, 2026-10-14.
  */
-export type FolderPageView = "list" | "board";
+export type FolderPageView = "list" | "board" | "chart";
 
 /** Where a new front note is written, when a folder has none. */
 export const NEW_FRONT_NOTE: string = FRONT_NOTES[0]!;
