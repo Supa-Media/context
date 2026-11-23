@@ -40,7 +40,14 @@ export function hitsOf(result) {
 }
 
 const bare = (path) => String(path).replace(/^@[\w.-]+\//, "");
-const samePath = (hit, read) => hit === read || bare(hit) === bare(read);
+const named = (path) => /^@[\w.-]+\//.test(String(path));
+
+/** A read's place in the hits: its exact path first; a path with no workspace matches a hit by the rest of it. */
+function rankOf(hits, read) {
+  const exact = hits.indexOf(read);
+  if (exact >= 0) return exact;
+  return hits.findIndex((hit) => (named(read) && named(hit) ? false : bare(hit) === bare(read)));
+}
 
 /** Every note search in these entries (oldest first), with what happened after it. */
 export function searchOutcomes(entries) {
@@ -66,7 +73,7 @@ export function searchOutcomes(entries) {
           break;
         }
         for (const path of readsOf(f)) {
-          const rank = hits.findIndex((hit) => samePath(hit, path));
+          const rank = rankOf(hits, path);
           if (rank >= 0) {
             opened = { rank: rank + 1, path: hits[rank] };
             break;
@@ -85,7 +92,7 @@ export function searchOutcomes(entries) {
         ...(outcome === "again" ? { next: next.args?.query ?? null } : {}),
         hits: hits.slice(0, HITS_SHOWN),
         hitCount: hits.length,
-        read: read.slice(0, HITS_SHOWN).map((path) => ({ path, rank: hits.findIndex((hit) => samePath(hit, path)) + 1 || null })),
+        read: read.slice(0, HITS_SHOWN).map((path) => ({ path, rank: rankOf(hits, path) + 1 || null })),
       });
     });
   }

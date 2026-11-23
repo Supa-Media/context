@@ -57,3 +57,13 @@ test("failed_searches reads the chat's tool calls once and lists only the failur
   assert.deepEqual(again.searches.map((s) => s.query), ["YC founders video"]);
   assert.match((await failedSearchesOf({}, page, { outcome: "bad" }, { ledgerOf: () => ledger })).error, /outcome is/);
 });
+
+test("a read is ranked at its own workspace's hit, not a same-named note in another workspace", () => {
+  const [s] = searchOutcomes([
+    { kind: "tool", turn: "w", at: T0, name: "search_notes", ok: true, args: { query: "brand about" }, result: answer("@a/resources/brand/about.md", "@b/resources/brand/about.md") },
+    { kind: "tool", turn: "w", at: T0 + 1_000, name: "read_note", ok: true, args: { path: "@b/resources/brand/about.md" } },
+  ]);
+  assert.equal(s.outcome, "opened_low");
+  assert.equal(s.openedRank, 2);
+});
+
