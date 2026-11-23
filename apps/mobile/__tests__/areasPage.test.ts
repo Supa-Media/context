@@ -123,6 +123,51 @@ describe("the Areas folder", () => {
     expect(items).not.toContain("New note");
   });
 
+  // The owner, 2026-11-23: "why does it flicker from the old ui to the new ui". Until
+  // the notes arrive the Areas folder waits, empty, under its List · Chart switch: it
+  // never draws the plain listing first.
+  test("while its notes load, the Areas folder waits under its switch instead of drawing the plain listing", async () => {
+    const page = host([], { notes: AREAS });
+    const never = { ...page, source: { ...page.source, load: () => new Promise<never>(() => {}) } };
+    await mount(never, LISTING);
+    expect(all("areas-waiting")).toHaveLength(1);
+    expect(all("folder-view-chart")).toHaveLength(1);
+    expect(all("areas-view")).toHaveLength(0);
+    expect(document.body.textContent ?? "").not.toContain("engineering");
+    // Notes that never come do not leave a blank page: the plain listing takes over.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+    });
+    expect(all("areas-waiting")).toHaveLength(0);
+    expect(document.body.textContent ?? "").toContain("engineering");
+  });
+
+  // The owner, 2026-11-23, holding the prototype's menu beside the shipped one: the seat
+  // menu opens with the area and its holder, how to reach them, and an icon on every action.
+  test("the seat menu opens with the area, who holds it and how to reach them, then the prototype's actions", async () => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(document.querySelector<HTMLElement>('[aria-label="Options for engineering"]')!);
+    const menu = one("menu-root");
+    expect(strip(one("seat-menu-head", menu).textContent)).toContain("Engineering");
+    expect(strip(one("seat-menu-holder", menu).textContent)).toContain("Doer");
+    const reach = all("seat-menu-reach", menu).map((block) => strip(block.textContent));
+    expect(reach.join(" ")).toContain("+1 555 010 0177");
+    expect(reach.join(" ")).toContain("Helper");
+    const labels = Array.from(menu.querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')).map((node) => strip(node.textContent).trim());
+    expect(labels).toEqual(expect.arrayContaining(["Edit seat…", "Add a sub-area…", "Change owner…", "Add a metric…", "Open about.md"]));
+    expect(labels.some((label) => label.startsWith("Edit how to reach"))).toBe(true);
+  });
+
+  test("Add a metric… opens the seat with an empty metric row ready", async () => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(document.querySelector<HTMLElement>('[aria-label="Options for engineering"]')!);
+    await press(one("menu-item-metric"));
+    expect(all("seat-dialog")).toHaveLength(1);
+    const names = Array.from(document.querySelectorAll<HTMLInputElement>('[aria-label="Metric name"]'));
+    expect(names.length).toBeGreaterThan(0);
+    expect(names[names.length - 1]!.value).toBe("");
+  });
+
   test("Edit seat writes the seat to the area's about.md and the card to people/", async () => {
     const writes: Write[] = [];
     await mount(host(writes, { notes: AREAS }), LISTING);
