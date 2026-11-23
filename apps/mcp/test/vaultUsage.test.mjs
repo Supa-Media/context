@@ -6,7 +6,7 @@ import { handleApprovals } from "../src/http/approvals.js";
 import { keptPath, waitingAsks } from "../src/vault/usage.js";
 
 /*
-  What Settings › Vault says about a key's use (vault board 2): counts and the
+  What The Vault says about a key's use (vault board 2): counts and the
   last address per AI, the AIs the person said no to, and the asks waiting.
 
   Sabotage record (each broken by hand, the named check failed, then restored):

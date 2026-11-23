@@ -364,7 +364,9 @@ an ask.
 Decided by the owner, 2026-10-16, with the proxy above: "it should be plain
 markdown notes underlyingly, just in the hidden context folder, with all the
 extra details needed for settings". Settings › Vault stays the only place
-people see the vault; nothing changes on screen. Underneath:
+people see the vault; nothing changes on screen. (Since 2026-11-23 that place
+is the right rail's Vault tab, not Settings:
+[vault-on-the-rail](../app-and-console/vault-on-the-rail.md).) Underneath:
 
 - **One note per entry**, `.context/vault/<id>.md`, replacing the sealed
   `.json` pair. Its front matter is plain: name, type, the pinned host and

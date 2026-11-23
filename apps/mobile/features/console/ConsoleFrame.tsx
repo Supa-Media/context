@@ -49,6 +49,7 @@ import { TEX_ROUTE } from "../tex/texComputer";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { OpenAsideOn } from "./layout/frameBridges";
+import { VaultRouteProvider } from "./vault/route";
 import { useTexSeen } from "../tex/chat/appChatSeen";
 import { Shortcuts } from "./layout/Shortcuts";
 import { Status } from "./layout/chrome";
@@ -129,7 +130,7 @@ export function ConsoleFrame({
     mapOpen?: boolean;
     /** `?trash=1`: the Trash page is open over Browse. */
     trashOpen?: boolean;
-    meetingsOpen?: MeetingsPanelAsk; // `?meetings=`: the right panel on Meetings, once
+    meetingsOpen?: MeetingsPanelAsk; vaultOpen?: boolean; // `?meetings=`, `?vault=1`: the right panel's tab, once
   };
   /** The pane: the route's `<Slot/>`, or the homepage's `BrowsePane`. */
   children: ReactNode;
@@ -303,11 +304,10 @@ export function ConsoleFrame({
     available: !data.demo && visitor === undefined,
     selectedPath: data.files.selectedPath,
   });
-  // The Trash page (`?trash=1`), in the same slot; leaves the same way.
   // Inbox or Folders, for the ‹ on Folders (`home/homeView.ts`).
   const homeView = useHomeView();
   const previousPage = usePreviousPage();
-  const trashRoute = useConsoleTrashRoute(router, params.trashOpen === true, {
+  const trashRoute = useConsoleTrashRoute(router, params.trashOpen === true, { // `?trash=1`, in the same slot
     available: !data.demo && visitor === undefined,
     workspaceId: data.selectedContextId,
     selectedPath: data.files.selectedPath,
@@ -343,9 +343,9 @@ export function ConsoleFrame({
   }, [actionsEntry]);
 
   const {
-    meetingsAt, showMeetings, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting, joinMeeting,
-    canCreate, openAsideAt, approvals, resumeRow, voiceHost,
-  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, meetingsAsked: params.meetingsOpen ?? null });
+    meetingsAt, showMeetings, vaultAt, vaultIn, vaultRoute, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting,
+    joinMeeting, canCreate, openAsideAt, approvals, resumeRow, voiceHost,
+  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, meetingsAsked: params.meetingsOpen ?? null, vaultAsked: params.vaultOpen === true });
 
   /**
    * Where the control is and where a press takes it.
@@ -442,12 +442,12 @@ export function ConsoleFrame({
     shared: sharedShown ? { unseen: sharedEntry.unseen, here: sharedHere, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
-  const aside = consoleAsidePanel({ data, meetingsAt, router, approvals, joinMeeting, onSearch: insideContext ? () => setPaletteOpen(true) : null, texSeen });
+  const aside = consoleAsidePanel({ data, meetingsAt, vaultAt, vaultIn, router, approvals, joinMeeting, onSearch: insideContext ? () => setPaletteOpen(true) : null, texSeen });
   return (
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>
       <MapRouteAndSideProvider value={mapRoute}>
-      <TrashRouteProvider value={trashRoute}>
+      <TrashRouteProvider value={trashRoute}><VaultRouteProvider value={vaultRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {/*
@@ -676,7 +676,7 @@ export function ConsoleFrame({
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
-      </TrashRouteProvider>
+      </VaultRouteProvider></TrashRouteProvider>
       </MapRouteAndSideProvider>
       </ChaosProvider>
     </ConsoleDataProvider>

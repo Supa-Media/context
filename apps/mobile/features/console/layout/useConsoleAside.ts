@@ -14,6 +14,7 @@ import type { entryAt } from "../files/tree";
 import { useContextHref, useContextPlaces } from "../useLastPlace";
 import type { ConsoleContext, ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
+import { useConsoleVaultRoute } from "../vault/route";
 
 /**
  * The right panel, the + menu's meeting rows, and the microphone's host:
@@ -34,7 +35,10 @@ export function useConsoleAside({
   current,
   selectedEntry,
   meetingsAsked = null,
+  vaultAsked = false,
 }: {
+  /** `?vault=1` (or an old `?settings=vault`) is on the address. */
+  vaultAsked?: boolean;
   data: ConsoleData;
   router: ConsoleRouter;
   phone: boolean;
@@ -70,6 +74,26 @@ export function useConsoleAside({
     setOpenAsideAt(at);
     setMeetingsAt(at);
   }, []);
+  /** When something last asked for the Vault tab (`?vault=1`), and the ask: the panel open on it. */
+  const [vaultAt, setVaultAt] = useState<number | null>(null);
+  const showVault = useCallback(() => {
+    const at = Date.now();
+    setOpenAsideAt(at);
+    setVaultAt(at);
+  }, []);
+  /*
+    The vault (`?vault=1`): a phone's page in the document slot, else the
+    rail's tab, only inside a workspace and never on the demo or to a visitor
+    (`vault/route.ts`).
+  */
+  const vaultIn = !data.demo && data.visitor === undefined && insideContext ? data.selectedContextId : null;
+  const vaultRoute = useConsoleVaultRoute(router, vaultAsked, {
+    available: vaultIn !== null,
+    phone,
+    workspaceId: vaultIn,
+    selectedPath: data.files.selectedPath,
+    onPanel: showVault,
+  });
 
   /*
     This console is showing the running meeting, so the floating `RecordingBar`
@@ -264,6 +288,9 @@ export function useConsoleAside({
   return {
     meetingsAt,
     showMeetings,
+    vaultAt,
+    vaultIn,
+    vaultRoute,
     places,
     contextHrefFrom,
     startMeetingFlow,

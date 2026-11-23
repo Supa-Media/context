@@ -73,7 +73,13 @@ export function VaultAddForm({
   onSave,
   onType,
   whoCanUse,
+  flush = false,
 }: {
+  /**
+   * Drawn inside the Vault under its own back row (New key), so without the
+   * gap the vault link's page leaves under its title.
+   */
+  flush?: boolean;
   prefill: VaultPrefill;
   initialDraft?: Partial<VaultInitialDraft>;
   busy: boolean;
@@ -155,7 +161,7 @@ export function VaultAddForm({
   };
 
   return (
-    <View style={styles.form}>
+    <View style={[styles.form, flush && styles.flush]}>
       <Segmented
         label="What you're saving"
         options={[
@@ -337,6 +343,7 @@ export function saveBlocker(form: {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     form: { marginTop: 26, gap: 16 },
+    flush: { marginTop: 0 },
     section: { gap: 10 },
     why: { textAlign: "center", marginBottom: -8 },
     save: { alignSelf: "stretch", justifyContent: "center", marginTop: 4 },

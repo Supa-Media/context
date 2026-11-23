@@ -170,7 +170,7 @@ export const operationValidator = v.union(
     to: v.string(),
     still: v.record(v.string(), v.array(v.string())),
   }),
-  // A key's values changed in place in Settings › Vault. `anyKey`: an owner or
+  // A key's values changed in place in the Vault. `anyKey`: an owner or
   // editor, who may change any key given to them; anyone else only their own.
   v.object({
     kind: v.literal("edit"),

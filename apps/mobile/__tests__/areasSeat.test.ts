@@ -13,6 +13,10 @@ import {
   cardPath,
   cardSlug,
   gapOf,
+  healthOf,
+  areaTitle,
+  kindCounts,
+  needLook,
   isArea,
   metricLine,
   parseMetric,
@@ -216,8 +220,9 @@ describe("areaTree", () => {
 });
 
 describe("gapOf", () => {
-  test("a seat with no owner, owner or not inherited, says No owner", () => {
-    expect(gapOf(seatOf("areas/finance", ROOT, []))).toBe("No owner");
+  test("an empty seat is not a gap: it says No owner itself and offers Assign owner (prototype)", () => {
+    expect(gapOf(seatOf("areas/finance", ROOT, []))).toBeNull();
+    expect(healthOf(seatOf("areas/finance", ROOT, []))).toBe("ring");
   });
 
   test("a seat with modes set but no Manager says No manager loop", () => {
@@ -227,7 +232,36 @@ describe("gapOf", () => {
 
   test("no owner wins over a missing manager", () => {
     const notes = [note("areas/finance/about.md", { modes: ["Doer"] })];
-    expect(gapOf(seatOf("areas/finance", ROOT, notes))).toBe("No owner");
+    expect(gapOf(seatOf("areas/finance", ROOT, notes))).toBeNull();
+    expect(healthOf(seatOf("areas/finance", ROOT, notes))).toBe("ring");
+  });
+});
+
+describe("chart and list helpers", () => {
+  test("areaTitle draws a folder name as a title", () => {
+    expect(areaTitle("pipeline-watch")).toBe("Pipeline watch");
+    expect(areaTitle("2-areas")).toBe("Areas");
+    expect(areaTitle("finance")).toBe("Finance");
+  });
+
+  test("kindCounts counts an area's files by kind", () => {
+    const files = [
+      { kind: "file" as const, path: "a/m.csv", name: "m.csv" },
+      { kind: "file" as const, path: "a/v.csv", name: "v.csv" },
+      { kind: "file" as const, path: "a/b.md", name: "b.md" },
+      { kind: "folder" as const, path: "a/r", name: "r" },
+      { kind: "file" as const, path: "a/s.page.md", name: "s.page.md" },
+    ];
+    expect(kindCounts(files)).toBe("2 sheets · 1 note · 1 folder · 1 page");
+  });
+
+  test("needLook counts the sub-areas with no owner or a gap", () => {
+    const notes = [
+      note("areas/finance/about.md", { owner: "@seyi", modes: ["Manager"] }),
+      note("areas/tex/about.md", { owner: "Tex", modes: ["Doer"] }),
+      note("areas/design/brand.md", {}),
+    ];
+    expect(needLook(areaTree("areas", ROOT, notes))).toBe(2);
   });
 
   test("null otherwise: owner set, and either no modes or a Manager", () => {

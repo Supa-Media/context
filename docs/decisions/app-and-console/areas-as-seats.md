@@ -29,13 +29,22 @@ who to ask and what is not covered. No new concept: an area is the seat.
   viewer like a projects folder's List and Board. A right-click or ⋯ on a row
   or box opens the seat menu; Edit seat opens the pop-up that writes the
   lines; Add a sub-area writes a new folder's `about.md`.
-- **Gaps are said, never enforced**: "No owner", "No manager loop".
+- **Both views draw the approved prototype, not an approximation of it**
+  (the owner, 2026-11-23, after the first cut shipped as plain boxes). In
+  the Areas folder itself the top is the workspace ("Supa"), not "areas".
+  The Chart is an org chart: lines from the top box to one row of area
+  columns, sub-areas stacked under their parent; on a phone the same tree
+  stands up, with sub-areas folded under their parent. The List nests every
+  area under that top row with guide lines on the left and shows at most
+  three notes per area, the rest behind "Show N more".
+- **Gaps are said, never enforced**: "No manager loop". An empty seat is not
+  a gap: it says "No owner" itself, as a dashed box with Assign owner.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as
 folders. Enforcing modes would turn labels people try on into rules they fight.
 
-**Tests.** `apps/mobile/__tests__/areasSeat.test.ts`.
+**Tests.** `apps/mobile/__tests__/areasSeat.test.ts`, `areasPage.test.ts`, `areasList.test.ts`.
 
 ## How to reach a holder is a card per workspace that everyone in it sees
 

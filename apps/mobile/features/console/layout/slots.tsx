@@ -15,6 +15,7 @@ import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
 import { PhoneBack } from "../home/PhoneBack";
+import { VaultTopLeft } from "../vault/VaultPage";
 import { goToLevel, phoneBackLevels } from "../home/phoneBack";
 import type { HomeView } from "../home/homeView";
 import type { MapRoute } from "../map/live/route";
@@ -97,7 +98,8 @@ export function consoleAccountSlot({
   const mapOpen = map?.open === true;
   const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen, view, data.visitor !== undefined, previous) : [];
   // Inbox and Folders: the mark with its @name and ⌄ (board 1).
-  if (levels.length === 0) return phone && browsing && (data.files.selectedPath ?? "") === "" ? named : account;
+  // The phone's Vault page puts "‹ Notes" here instead (`vault/VaultPage.tsx`).
+  if (levels.length === 0) return <VaultTopLeft>{phone && browsing && (data.files.selectedPath ?? "") === "" ? named : account}</VaultTopLeft>;
   return (
     <PhoneBack
       levels={levels}
@@ -119,9 +121,15 @@ export function consoleAsidePanel({
   joinMeeting = null,
   onSearch = null,
   texSeen = null,
+  vaultAt = null,
+  vaultIn = null,
 }: {
   data: ConsoleData;
   meetingsAt: number | null;
+  /** When `?vault=1` last asked for the Vault tab. */
+  vaultAt?: number | null;
+  /** The workspace whose vault the Vault tab shows; `null` hides the tab (the demo, a visitor, outside a workspace). */
+  vaultIn?: string | null;
   router: ConsoleRouter;
   approvals: ConsoleAside["approvals"];
   /** Join and take notes, for a meeting on the calendar; `null` where there is no calendar. */
@@ -167,6 +175,8 @@ export function consoleAsidePanel({
       <AsidePanel
         started={meetingsAt}
         tex={tex}
+        vault={vaultIn === null || data.demo ? null : { workspaceId: vaultIn }}
+        vaultAt={vaultAt}
         /*
           The homepage's visitor and the demo get the Meetings tab alone:
           their demo meeting runs here, and no AI client acts for them.

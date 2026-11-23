@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { changeEntry, newEntryId, readMeta, readSecret, writeEntry, writeMeta } from "../src/vault/entries.js";
 
 /*
-  Editing a key in place (Settings › Vault): its meta and its secret change
+  Editing a key in place (the Vault): its meta and its secret change
   together, on condition of the version read, so an edit landing at the same
   moment as Cut off never writes the cut AI back.
 

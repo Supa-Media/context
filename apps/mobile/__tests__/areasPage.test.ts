@@ -85,6 +85,44 @@ describe("the Areas folder", () => {
     expect(strip(one("area-box-areas/engineering").textContent)).toContain("No manager loop");
   });
 
+  test("Chart is an org chart: the workspace on top, lines down to each area, sub-areas under their parent", async () => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(view("chart"));
+    const top = one("area-box-areas");
+    expect(strip(top.textContent)).toContain("3 areas");
+    expect(strip(top.textContent)).toContain("need a look");
+    expect(all("area-line").length).toBeGreaterThan(2);
+    // Payroll is drawn inside Finance's column, under its box.
+    expect(all("area-box-areas/finance/payroll")).toHaveLength(1);
+    // Files are counted by kind, the seat's about.md is not one of them.
+    expect(strip(one("area-box-areas/engineering").textContent)).toContain("1 note");
+  });
+
+  test("an empty seat is a dashed box that offers Assign owner, which opens the seat", async () => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(view("chart"));
+    expect(strip(one("area-box-areas/design").textContent)).toContain("No owner");
+    await press(one("area-assign-areas/design"));
+    expect(all("seat-dialog")).toHaveLength(1);
+  });
+
+  // The owner, 2026-11-23: "in prod this menu doesn't even pop up". A
+  // right-click on a row or a box opens that seat's menu, not the page's
+  // New note menu behind it: react-native-web forwards no onContextMenu, so
+  // the listener goes on the DOM node through useRightClick.
+  test.each(["list", "chart"] as const)("a right-click on an area in %s opens its seat menu, not the page's", async (mode) => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    if (mode === "chart") await press(view("chart"));
+    const target = one(mode === "chart" ? "area-box-areas/finance" : "area-row-areas/finance");
+    const holder = mode === "chart" ? target : (target.parentElement as HTMLElement);
+    await act(async () => {
+      holder.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }));
+    });
+    const items = all("menu-root").flatMap((menu) => Array.from(menu.querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')).map((node) => strip(node.textContent).trim()));
+    expect(items).toContain("Edit seat…");
+    expect(items).not.toContain("New note");
+  });
+
   test("Edit seat writes the seat to the area's about.md and the card to people/", async () => {
     const writes: Write[] = [];
     await mount(host(writes, { notes: AREAS }), LISTING);

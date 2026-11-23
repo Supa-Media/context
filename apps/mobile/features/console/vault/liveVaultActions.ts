@@ -1,5 +1,5 @@
 /**
- * Settings › Vault's calls to the control plane, for `VaultPanel`. A function
+ * The Vault's calls to the control plane, for `VaultPanel`. A function
  * of the Convex client so the panel itself takes fakes in tests.
  */
 
@@ -7,7 +7,7 @@ import type { ConvexReactClient } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 
-import type { VaultActions } from "./VaultPanel";
+import type { VaultActions } from "./VaultList";
 
 export function liveVaultActions(client: ConvexReactClient, workspaceId: string): VaultActions {
   const id = workspaceId as Id<"workspaces">;

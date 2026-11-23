@@ -5,7 +5,7 @@ import { memoryS3 } from "./storeStub.helpers";
 import { FAKE_STORAGE, addMember, asUser, captureError, createUser, createWorkspace, errorCode, setupTest } from "./fixtures.helpers";
 
 /**
- * Settings › Vault (vault board 2): a person sees the keys given to them in a
+ * The Vault (vault board 2): a person sees the keys given to them in a
  * workspace, with the one website each goes to and the AIs they said yes to,
  * and can cut an AI off. Never a value; never a key they were not given; never
  * a workspace they are not in.

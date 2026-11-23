@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 jest.mock("convex/react", () => ({ useConvex: () => undefined }));
 
-import { VaultList, type VaultActions } from "../features/console/settings/panels/VaultPanel";
+import { VaultList, type VaultActions } from "../features/console/vault/VaultList";
 import { aisByPerson, giveSuggestions, initialsOf, levelHint, levelLabel, moveLine, shareRowLine, takeBackLine, type VaultShareChoices } from "../features/vault/vaultPeople";
 import { inFilter, vaultClientLine, vaultLastUsedLine, vaultSavedLine, type VaultEntry, type VaultLevel } from "../features/vault/vaultSettings";
 
@@ -302,7 +302,7 @@ describe("the People section", () => {
     await flush();
     expect(calls).toContainEqual(["move", owned.entryId, "ws_team"]);
     expect(find(`vault-row-${owned.entryId}`)).toBeNull();
-    expect(find("vault-notice")!.textContent).toBe("Moved to @supa. Open @supa's Settings › Vault to give it to people.");
+    expect(find("vault-notice")!.textContent).toBe("Moved to @supa. Open @supa's Vault to give it to people.");
   });
 });
 

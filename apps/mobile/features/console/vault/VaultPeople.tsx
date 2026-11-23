@@ -1,5 +1,5 @@
 /**
- * A key's People section on Settings › Vault (vault sharing boards 1 and 2):
+ * A key's People section in the Vault (vault sharing boards 1 and 2):
  * whoever has it, each with their own AIs nested under them, what they can
  * do ("Use only" or "Use and see"), and Remove, which says once in bold red
  * what it does. Under them, the Share field: type a name, pick a person, a
@@ -12,13 +12,13 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
-import { Button } from "../../../design/components/Button";
-import { TextField } from "../../../design/components/Input";
-import { Text } from "../../../design/components/Text";
-import { radii } from "../../../design/tokens";
-import { useThemedStyles, type Colors } from "../../../design/theme";
-import { AgentFace } from "../../map/live/ui/ActorFace";
-import { Segmented } from "../../../vault/Segmented";
+import { Button } from "../../design/components/Button";
+import { TextField } from "../../design/components/Input";
+import { Text } from "../../design/components/Text";
+import { radii } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
+import { AgentFace } from "../map/live/ui/ActorFace";
+import { Segmented } from "../../vault/Segmented";
 import {
   LEVEL_OPTIONS,
   LEVEL_QUESTION,
@@ -32,8 +32,8 @@ import {
   takeBackLine,
   type VaultMoveTarget,
   type VaultShareChoices,
-} from "../../../vault/vaultPeople";
-import { vaultClientLine, type VaultClient, type VaultEntry, type VaultLevel, type VaultShareRow } from "../../../vault/vaultSettings";
+} from "../../vault/vaultPeople";
+import { vaultClientLine, type VaultClient, type VaultEntry, type VaultLevel, type VaultShareRow } from "../../vault/vaultSettings";
 
 export function VaultPeople({
   entry,

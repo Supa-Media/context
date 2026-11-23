@@ -46,6 +46,7 @@ import { useAnnounceOpenNote } from "../../map/live/announce";
 import { MapPage } from "../../map/live/ui/MapPage";
 import { TrashPage } from "../../trash/TrashPage";
 import { useTrashRoute } from "../../trash/TrashRouteContext";
+import { useVaultPage } from "../../vault/VaultPage";
 import { PhoneInbox } from "../../home/PhoneInbox";
 import { useDownloadRows, useSteadyDownloadRow } from "../../files/Downloads";
 import { requestSyncSheet } from "../../files/syncSheetRequest";
@@ -257,6 +258,7 @@ export function BrowseDocument({
   */
   const mapRoute = useMapRoute();
   const trashRoute = useTrashRoute();
+  const vaultPage = useVaultPage();
   // The phone's first page is Inbox, and All opens Folders (`home/homeView.ts`).
   const homeView = useHomeView();
   const ownSlug = ownPersonalContext(data.contexts)?.slug ?? null;
@@ -375,7 +377,7 @@ export function BrowseDocument({
     files.editor.path === selected?.path && files.editor.draft !== files.editor.baseline,
   );
   const openDocument =
-    trashRoute?.open ? (
+    vaultPage ?? (trashRoute?.open ? (
       /*
         The Trash page (`?trash=1`), where a note would be: the tree stays
         beside it, and opening a trashed note shows it read-only with Restore.
@@ -679,7 +681,7 @@ export function BrowseDocument({
         }
       />,
       )
-    );
+    ));
 
   return openDocument;
 

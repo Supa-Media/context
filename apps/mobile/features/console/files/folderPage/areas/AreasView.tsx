@@ -30,7 +30,9 @@ import {
   areaTree,
   cardChanges,
   cardOf,
+  areaTitle,
   cardSlug,
+  notesUnder,
   PEOPLE_ABOUT,
   peopleFolder,
   reachLine,
@@ -48,6 +50,8 @@ export interface AreasViewProps {
   folder: string;
   /** The Areas folder, by job. */
   root: string;
+  /** What the workspace is called, drawn as the top of the chart and the list in the Areas folder itself. */
+  rootName: string;
   notes: readonly ListNote[];
   view: AreasPageView;
   compact: boolean;
@@ -64,7 +68,7 @@ export interface AreasViewProps {
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, notes, view, compact, canEdit, faceOf, label, isAgent, suggestions, chooseMany, onSelect } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, suggestions, chooseMany, onSelect } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const [menu, setMenu] = useState<{ seat: Seat; at: { x: number; y: number } | undefined } | null>(null);
   const [editing, setEditing] = useState<Seat | null>(null);
@@ -136,7 +140,9 @@ export function AreasView(props: AreasViewProps) {
     else if (id === "about") onSelect(seat.about.target);
   };
 
-  const shared = { tree, compact, faceOf, label, reach, onMenu: openMenu };
+  const rootTitle = folder === root ? rootName : areaTitle(tree.seat.name);
+  const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
+  const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu };
   return (
     <View testID="areas-view">
       {problem !== null ? (
@@ -145,7 +151,12 @@ export function AreasView(props: AreasViewProps) {
         </Text>
       ) : null}
       {view === "chart" ? (
-        <AreasChart {...shared} onOpen={onSelect} onAdd={canEdit ? (parent) => setAdding(parent) : null} />
+        <AreasChart
+          {...shared}
+          onOpen={onSelect}
+          onAdd={canEdit ? (parent) => setAdding(parent) : null}
+          onAssign={canEdit ? (seat) => setEditing(seat) : null}
+        />
       ) : (
         <AreasList {...shared} onOpen={onSelect} />
       )}

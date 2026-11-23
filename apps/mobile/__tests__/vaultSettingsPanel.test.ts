@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 jest.mock("convex/react", () => ({ useConvex: () => undefined }));
 
-import { VaultList, VaultPanel, type VaultActions } from "../features/console/settings/panels/VaultPanel";
+import { VaultList, type VaultActions } from "../features/console/vault/VaultList";
 import {
   inFilter,
   vaultAgo,
@@ -27,7 +27,7 @@ import {
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * Settings › Vault, drawn as vault board 2: cards with the one website, the
+ * The Vault, drawn as vault board 2: cards with the one website, the
  * AIs on each key and when one last used it, and the picked key's detail with
  * Cut off, Allow and the last use in a sentence. The page is handed names,
  * yeses and uses only, so these prove the words and that each button asks the
@@ -229,7 +229,7 @@ describe("side by side, as the board draws it", () => {
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
     expect(find("vault-count")?.textContent).toBe("2 keys · 1 login");
-    expect(find(`vault-pill-${pinned.entryId}`)?.textContent).toBe("used 4 min ago");
+    expect(find(`vault-pill-${pinned.entryId}`)?.textContent).toBe("Used 4 min ago");
     expect(find(`vault-pill-${waiting.entryId}`)?.textContent).toBe("1 AI waiting for you");
     expect(find(`vault-detail-${pinned.entryId}`)).not.toBeNull();
     expect(find("vault-site")?.textContent).toBe("api.example.comas a sign-in header");
@@ -473,9 +473,4 @@ describe("on a narrow screen", () => {
     expect(container.textContent).toContain("Editors and owners add keys here.");
   });
 
-  test("with no workspace client it draws its heading and says so", () => {
-    act(() => root.render(createElement(VaultPanel, { sectioned: true, workspaceId: null })));
-    expect(container.textContent).toContain("Vault");
-    expect(container.textContent).toContain("No workspace is open.");
-  });
 });

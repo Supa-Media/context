@@ -26,7 +26,7 @@ export type VaultEdit = {
 };
 
 /**
- * Edit, on a picked key in Settings › Vault (board 2's Edit; the owner asked
+ * Edit, on a picked key in the Vault (board 2's Edit; the owner asked
  * on 2026-10-16 to change things in place, the website included, and to
  * delete a key). One form in the key's own pane: its name, where it goes and
  * how, and its values. Save sends only what changed, and the server logs it

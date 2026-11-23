@@ -92,8 +92,8 @@ describe("the catalogue", () => {
     chat from the sidebar entirely"). Visibility is decided by
     `visibleAsideTabs`, not by this list.
   */
-  test("the map's two tabs lead (only while it is open), then Meetings, then Tex, and no in-app agent", () => {
-    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "meetings", "tex"]);
+  test("the map's two tabs lead (only while it is open), then Meetings, Tex and the Vault, and no in-app agent", () => {
+    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "meetings", "tex", "vault"]);
     expect(ASIDE_TABS.map((tab) => tab.label)).not.toContain("Chat");
   });
 
@@ -101,6 +101,17 @@ describe("the catalogue", () => {
     expect(visibleAsideTabs({ note: true })).toEqual(["meetings"]);
     expect(visibleAsideTabs({ map: true })).toEqual(["activity", "meetings"]);
     expect(visibleAsideTabs({ map: true, note: true })).toEqual(["activity", "note", "meetings"]);
+  });
+
+  /*
+    The vault left Settings for the rail (Dev, 2026-11-23), and only a console
+    with a workspace open has one: never the demo, a visitor or the landing.
+    SABOTAGE: default `vault` to true in `visibleAsideTabs` and the first line fails.
+  */
+  test("the Vault is a tab only with a workspace open, after Tex", () => {
+    expect(visibleAsideTabs({})).toEqual(["meetings"]);
+    expect(visibleAsideTabs({ vault: true })).toEqual(["meetings", "vault"]);
+    expect(visibleAsideTabs({ tex: true, vault: true })).toEqual(["meetings", "tex", "vault"]);
   });
 
   test("every tab has a word on it", () => {

@@ -215,13 +215,13 @@ function SheetRow({ row, inline = false, onPress }: { row: AccountCardRow; inlin
   );
 }
 
-/** The places the phone's sheet draws as its four buttons, in this order. */
-const SHEET_PLACES = ["settings", "meetings", "tex", "trash"] as const;
+/** The places the phone's sheet draws as its buttons, in this order. */
+const SHEET_PLACES = ["settings", "meetings", "tex", "vault", "trash"] as const;
 
 /**
  * The card's sections, laid out for the phone's sheet (`AccountSheet`): the
- * appearance row becomes the sun beside your name, Settings, Meetings, Tex and
- * Trash the four buttons, the workspaces their own group, and everything else
+ * appearance row becomes the sun beside your name, Settings, Meetings, Tex, Vault and
+ * Trash the buttons, the workspaces their own group, and everything else
  * one line each with the exits last. Every row is the card's own
  * (`SwitcherMenu` builds them), so the conditions that decide whether a row
  * exists stay in one place.

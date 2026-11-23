@@ -1,5 +1,5 @@
 /**
- * New key, and a picked key's values, opened inside Settings › Vault instead
+ * New key, and a picked key's values, opened inside the Vault instead
  * of on a page of their own (the owner asked on 2026-10-16: "I don't like
  * that it opens a new page"). A key's values show read-only, quietly; Edit
  * turns the pane into one form for the whole key, and Delete is there too.
@@ -13,16 +13,17 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 
-import { Text } from "../../../design/components/Text";
-import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
-import { VaultAddForm } from "../../../vault/VaultAddForm";
-import { VaultKeyEditor, changedLine } from "../../../vault/VaultKeyEditor";
-import { VaultValues, type VaultValuesShape } from "../../../vault/VaultValues";
-import type { VaultEntry } from "../../../vault/vaultSettings";
-import { resolveVaultLinkView } from "../../../vault/vaultLink";
-import { useVaultLinkFlow, type VaultLinkCalls } from "../../../vault/useVaultLinkFlow";
+import { Text } from "../../design/components/Text";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { VaultAddForm } from "../../vault/VaultAddForm";
+import { VaultKeyEditor, changedLine } from "../../vault/VaultKeyEditor";
+import { VaultBackRow } from "./VaultBackRow";
+import { VaultValues, type VaultValuesShape } from "../../vault/VaultValues";
+import type { VaultEntry } from "../../vault/vaultSettings";
+import { resolveVaultLinkView } from "../../vault/vaultLink";
+import { useVaultLinkFlow, type VaultLinkCalls } from "../../vault/useVaultLinkFlow";
 
 export function VaultInline({
   mode,
@@ -105,7 +106,7 @@ export function VaultInline({
           </View>
         );
       case "add":
-        return <VaultAddForm prefill={view.prefill} busy={view.busy} problem={view.problem} onSave={onSave} onType={() => undefined} />;
+        return <VaultAddForm flush prefill={view.prefill} busy={view.busy} problem={view.problem} onSave={onSave} onType={() => undefined} />;
       case "view":
         if (view.revealed === null || values === null) {
           return view.problem ? (
@@ -165,14 +166,7 @@ export function VaultInline({
   }
   return (
     <View style={styles.add} testID="vault-inline-add">
-      <View style={styles.head}>
-        <Text variant="paneTitle" style={styles.flex}>
-          New key
-        </Text>
-        <Pressable accessibilityRole="button" onPress={onClose} testID="vault-inline-cancel">
-          <Text variant="rowSub">Cancel</Text>
-        </Pressable>
-      </View>
+      <VaultBackRow title="New key" onBack={onClose} backLabel="Cancel the new key, back to all keys" testID="vault-inline-cancel" />
       {body}
     </View>
   );
@@ -180,8 +174,7 @@ export function VaultInline({
 
 const makeStyles = (_colors: Colors) =>
   StyleSheet.create({
-    add: { gap: 14 },
-    head: { flexDirection: "row", alignItems: "center", gap: 12 },
+    add: { gap: 12 },
     flex: { flex: 1, minWidth: 0 },
     section: { gap: 10 },
     loading: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },

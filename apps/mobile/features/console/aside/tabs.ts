@@ -39,6 +39,11 @@ export const ASIDE_TABS = [
   { key: "meetings", label: "Meetings" },
   /* Right after Meetings, as the rail has it: under the calendar icon. */
   { key: "tex", label: "Tex" },
+  /*
+    The vault: the keys an AI client uses without seeing, its own place rather
+    than a page of Settings (Dev, 2026-11-23). Only with a workspace open.
+  */
+  { key: "vault", label: "Vault" },
 ] as const;
 
 export type AsideTab = (typeof ASIDE_TABS)[number]["key"];
@@ -59,6 +64,7 @@ export function visibleAsideTabs({
   map = false,
   note = false,
   tex = false,
+  vault = false,
 }: {
   /** This console has a Tex chat to show: the owner of the personal workspace it has open. */
   tex?: boolean;
@@ -66,11 +72,14 @@ export function visibleAsideTabs({
   map?: boolean;
   /** A note is clicked on the open map: its Note tab follows Activity. */
   note?: boolean;
+  /** A workspace is open, so its vault can be shown, after Tex. */
+  vault?: boolean;
 }): AsideTab[] {
   return ASIDE_TABS.map((tab) => tab.key).filter((key) => {
     if (key === "activity") return map;
     if (key === "note") return map && note;
     if (key === "tex") return tex;
+    if (key === "vault") return vault;
     return true;
   });
 }

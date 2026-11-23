@@ -206,9 +206,61 @@ export function areaTree(folder: string, root: string, notes: readonly ListNote[
 
 /** What a seat is missing, said quietly on its box and row; null for nothing. */
 export function gapOf(seat: Seat): string | null {
-  if (seat.owner === null) return "No owner";
+  // An empty seat says "No owner" itself and offers Assign owner; it is not also a gap.
+  if (seat.owner === null) return null;
   if (seat.modes.length > 0 && !seat.modes.includes("Manager")) return "No manager loop";
   return null;
+}
+
+/** A seat's dot: an empty ring with no owner, amber when something is missing, else quiet. */
+export type Health = "ring" | "warn" | "neutral";
+export function healthOf(seat: Seat): Health {
+  if (seat.owner === null) return "ring";
+  return gapOf(seat) === null ? "neutral" : "warn";
+}
+
+/** How many of an area's direct sub-areas need a look: no owner, or a gap. */
+export function needLook(node: AreaNode): number {
+  return node.areas.filter((child) => healthOf(child.seat) !== "neutral").length;
+}
+
+/** An area's folder name as a title: `pipeline-watch` is drawn "Pipeline watch". */
+export function areaTitle(name: string): string {
+  const words = name.replace(/^\d+[-_ ]+/, "").replace(/[-_]+/g, " ").trim();
+  return words === "" ? name : words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export type FileKind = "note" | "page" | "sheet" | "folder" | "file";
+
+/** What a row in an area is: a plain folder, a page, a CSV sheet, a note, or another file. */
+export function fileKind(entry: ItemEntry): FileKind {
+  if (entry.kind === "folder") return "folder";
+  const name = entry.name.toLowerCase();
+  if (name.endsWith(".page.md")) return "page";
+  if (name.endsWith(".csv")) return "sheet";
+  if (name.endsWith(".md")) return "note";
+  return "file";
+}
+
+const KIND_WORDS: Readonly<Record<FileKind, readonly [string, string]>> = {
+  sheet: ["sheet", "sheets"],
+  note: ["note", "notes"],
+  folder: ["folder", "folders"],
+  page: ["page", "pages"],
+  file: ["file", "files"],
+};
+
+/** "2 sheets · 1 note · 1 folder": an area's files counted by kind, in the order they first appear. */
+export function kindCounts(files: readonly ItemEntry[]): string {
+  const counts = new Map<FileKind, number>();
+  for (const entry of files) counts.set(fileKind(entry), (counts.get(fileKind(entry)) ?? 0) + 1);
+  return [...counts].map(([kind, n]) => `${n} ${KIND_WORDS[kind][n === 1 ? 0 : 1]}`).join(" · ");
+}
+
+/** "38 notes": how many notes a plain folder holds, at any depth. */
+export function notesUnder(folder: string, notes: readonly ListNote[]): number {
+  const prefix = `${folder}/`;
+  return notes.filter((note) => note.path.startsWith(prefix)).length;
 }
 
 /** The edits a seat pop-up saves. */

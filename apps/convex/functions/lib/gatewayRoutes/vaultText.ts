@@ -164,7 +164,7 @@ async function answer(ctx: ActionCtx, actor: Actor, op: Op, body: Record<string,
   const given = (await runVault(ctx, actor.workspaceId, { kind: "give", ...base, to: target.to, level: "use", ...(target.label ? { label: target.label } : {}) }, STORAGE)) as Shown | null;
   if (given === null) return { status: "not_yours" };
   await audit("vault.shared", "use, by text");
-  // A share made just now is told to whoever it newly reaches, as one given in Settings › Vault is.
+  // A share made just now is told to whoever it newly reaches, as one given in the Vault is.
   if (!target.to.startsWith(CHAT_SHARE_PREFIX) && (given.meta.shares ?? []).some((share) => share.to === target.to && share.at >= startedAt)) {
     const recipients = newlyReached(given.meta as never, target.to, await still(), [String(actor.userId), given.meta.createdBy]);
     if (recipients.length > 0) {

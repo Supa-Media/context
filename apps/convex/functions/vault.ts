@@ -650,7 +650,7 @@ export const revealVaultEntry = action({
 
 /**
  * Give one login to the member an AI's link names, for their AIs to use
- * (the default since the vault sharing boards; Settings › Vault changes it to
+ * (the default since the vault sharing boards; the Vault changes it to
  * "see"). The person's tap is the consent, and only somebody who may pass the
  * key on can give it.
  */
