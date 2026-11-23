@@ -129,6 +129,19 @@ test("a team-only query never answers a private note", { skip }, async () => {
   assert.equal((await query(object, "lantern")).body.matches.length, 2);
 });
 
+// Sabotage: drop `nominated`'s archive or prefix check in `query` and a passage the search would drop takes the one place.
+test("the archive and passages outside the prefix are left out before the closest are picked", { skip }, async () => {
+  const object = await seeded();
+  await note(object, 1, "archive/old.md", "# Old\nlantern harbor ferry");
+  await note(object, 2, "plans/new.md", "# New\nlantern harbor");
+  await note(object, 3, "notes/other.md", "# Other\nlantern harbor ferry");
+  await object.call("ws.meaning.build");
+  assert.equal(paths(await query(object, "lantern harbor ferry")).includes("archive/old.md"), false, "regular search never nominates the archive");
+  assert.deepEqual(paths(await query(object, "lantern harbor ferry", { prefix: "plans/", topK: 1 })), ["plans/new.md"]);
+  assert.deepEqual(paths(await query(object, "lantern harbor ferry", { prefix: "archive/", topK: 1 })), ["archive/old.md"]);
+  assert.equal((await query(object, "lantern", { prefix: 3 })).status >= 400, true, "a prefix is a path");
+});
+
 // Sabotage: drop the same-text branch in `catchUp` and the embed count rises.
 test("a moved note and a change of rules keep its fingerprints; only a changed text is embedded again", { skip }, async () => {
   const object = await seeded();

@@ -83,16 +83,16 @@ export function objectMeaningWarm(store) {
 /**
  * @param {object} store the request's store; `store.objectMeaning` is the object's client where it may answer
  * @param {number[]} vector the query's fingerprint
- * @param {{tiers: string[]|null}} options
+ * @param {{tiers: string[]|null, prefix?: string}} options: `prefix` narrows, and leaves the archive out, before the closest are picked
  * @returns {Promise<Array<{id: string, score: number, path: string, chunk: number, tier: string|null}>|null>}
  */
-export async function objectMeaningMatches(store, vector, { tiers = null } = {}) {
+export async function objectMeaningMatches(store, vector, { tiers = null, prefix = "" } = {}) {
   const object = store?.objectMeaning ?? null;
   if (object === null || typeof object.meaningQuery !== "function") return null;
   meaningBuildBehind(store);
   try {
     const sent = Date.now();
-    const answer = await object.meaningQuery(vector, { tiers });
+    const answer = await object.meaningQuery(vector, { tiers, prefix });
     const served = answer?.served === true && Array.isArray(answer.matches);
     // The query's round trip by whether the object had to read its index first (`inside:meaning_query_cold`) or held
     // it (`inside:meaning_query_held`): the object's own clock does not move while it computes, so the gateway times it.

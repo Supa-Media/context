@@ -32,6 +32,7 @@ import { parsedRules } from "./serve.js";
 import { TEX_TABLES, texObjects } from "../../../../packages/tex/gateway/texStore/objects.js";
 import { changeLog, PERSON_TEX_KEY } from "./changeLog.js";
 import { snippetFromText } from "../search/meaning/snippet.js";
+import { isArchived, searchesArchive } from "../search/priors.js";
 
 /** Passages one build call embeds (16 model calls of 32); the object answers other calls while it waits on them. */
 export const BUILD_PASSAGES = 512;
@@ -395,11 +396,15 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
      * The passages closest to `vector`: `{served: true, matches: [{id, score, path, chunk, tier}]}` best first, as the
      * search database's index answers (`client.js` `query`); `{served: false, waiting}` until the first build has
      * finished. `tiers` narrows to passages written at those tiers, a ranking aid and never the access check.
+     * `prefix` narrows to passages under that folder, and the archive is left out unless `prefix` is inside it: both
+     * before the closest are picked, so a passage the search would drop never takes one of their places
+     * (`docs/decisions/search/archive-apart.md`).
      */
-    query(vector, { tiers = null, topK = QUERY_TOP_K } = {}) {
+    query(vector, { tiers = null, topK = QUERY_TOP_K, prefix = "" } = {}) {
       const asked = unit(vector);
       if (asked === null) throw new MeaningAskRefused("a query is one whole fingerprint");
       if (tiers !== null && (!Array.isArray(tiers) || tiers.some((tier) => !TIERS.includes(tier)))) throw new MeaningAskRefused("tiers are private or team");
+      if (typeof prefix !== "string") throw new MeaningAskRefused("a prefix is a folder path");
       const limit = Number(topK);
       if (!Number.isInteger(limit) || limit < 1 || limit > QUERY_TOP_K) throw new MeaningAskRefused(`a query asks for 1 to ${QUERY_TOP_K} matches`);
       schema();
@@ -409,13 +414,19 @@ export function workspaceMeaning(sql, { rows, objects, embed }) {
       const cold = held === null;
       const index = pack();
       const allowed = tiers === null ? null : new Set(tiers.map((tier) => TIERS.indexOf(tier)));
+      const skipArchive = !searchesArchive(prefix);
+      const nominated = (i) => {
+        if (allowed !== null && !allowed.has(index.tiers[i])) return false;
+        const path = index.entries[i].path;
+        return (prefix === "" || path.startsWith(prefix)) && !(skipArchive && isArchived(path));
+      };
       const want = signBits(asked);
       const count = index.ids.length;
       // Hamming distance of each passage's bits from the query's, and the distance the closest `CANDIDATES` are within.
       const distance = new Uint16Array(count);
       const histogram = new Uint32Array(MEANING_DIMENSIONS + 2);
       for (let i = 0; i < count; i += 1) {
-        if (allowed !== null && !allowed.has(index.tiers[i])) {
+        if (!nominated(i)) {
           distance[i] = MEANING_DIMENSIONS + 1;
           continue;
         }
