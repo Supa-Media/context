@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 jest.mock("convex/react", () => ({ useConvex: () => undefined }));
 
-import { VaultList, type VaultActions } from "../features/console/settings/panels/VaultPanel";
+import { VaultList, type VaultActions } from "../features/console/vault/VaultList";
 import { aisByPerson, giveSuggestions, initialsOf, levelHint, levelLabel, moveLine, shareRowLine, takeBackLine, type VaultShareChoices } from "../features/vault/vaultPeople";
 import { inFilter, vaultClientLine, vaultLastUsedLine, vaultSavedLine, type VaultEntry, type VaultLevel } from "../features/vault/vaultSettings";
 
@@ -241,10 +241,10 @@ describe("the People section", () => {
     const sayo = find("vault-person-user_sayo")!;
     expect(sayo.textContent).toContain("Sayo Adeyemi");
     expect(sayo.textContent).toContain("Use only ▾");
-    expect(sayo.textContent).toContain("Claude Code · Sayo Adeyemi said yes 17 Oct · used 12 times");
+    expect(sayo.textContent).toContain("Claude CodeSayo Adeyemi said yes 17 Oct · used 12 times");
     expect(find("vault-people")!.textContent).toContain("Has it through a group or everyone");
     expect(find("vault-person-user_me")!.textContent).not.toContain("Remove");
-    expect(find("vault-people")!.textContent).toContain("When you share it, they can:");
+    expect(find("vault-people")!.textContent).toContain("When you share it, they can");
     expect(find("vault-give-level-hint")!.textContent).toBe("Their AI tools sign in for them. They never see the key.");
     type("vault-give-input", "olu");
     press("vault-give-to-user_olu");
@@ -302,7 +302,7 @@ describe("the People section", () => {
     await flush();
     expect(calls).toContainEqual(["move", owned.entryId, "ws_team"]);
     expect(find(`vault-row-${owned.entryId}`)).toBeNull();
-    expect(find("vault-notice")!.textContent).toBe("Moved to @supa. Open @supa's Settings › Vault to give it to people.");
+    expect(find("vault-notice")!.textContent).toBe("Moved to @supa. Open @supa's Vault to give it to people.");
   });
 });
 

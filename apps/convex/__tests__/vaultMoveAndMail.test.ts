@@ -164,7 +164,7 @@ describe("telling somebody they were given a key", () => {
     const mail = givenMail("Seyi", "supa", "use");
     expect(mail.subject).toBe("Seyi shared a key with you in @supa");
     expect(mail.text).toContain("you won't see its value");
-    expect(mail.text).toContain("/console/supa?settings=vault");
+    expect(mail.text).toContain("/console/supa?vault=1");
     expect(givenMail("Seyi", "supa", "see").text).toContain("you can open it in Context to see it");
   });
 

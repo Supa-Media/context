@@ -6,6 +6,7 @@ import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
+import { VaultTab } from "../vault/VaultTab";
 import type { PastWorkspace } from "../../meetings/usePastMeetings";
 import { TexChatTab } from "../../tex/chat/TexChatTab";
 import type { SeenBody } from "../../tex/chat/appChatSeen";
@@ -52,7 +53,17 @@ export function AsidePanel({
   pastFrom = null,
   onSearch = null,
   texSeen = null,
+  vault = null,
+  vaultAt = null,
 }: {
+  /**
+   * The open workspace's vault, for the Vault tab: its id. `null` with no
+   * workspace open (the demo, a visitor, the landing page), and then there is
+   * no Vault tab. The vault left Settings for the rail (Dev, 2026-11-23).
+   */
+  vault?: { workspaceId: string } | null;
+  /** When something last asked for the Vault tab (`?vault=1`), a counter as `started` is. */
+  vaultAt?: number | null;
   /** The workspaces whose meeting notes the Meetings tab lists under Past; `null` where there is no control plane. */
   pastFrom?: readonly PastWorkspace[] | null;
   /**
@@ -104,6 +115,7 @@ export function AsidePanel({
     map: map !== null,
     note: map?.noteKey != null,
     tex: tex !== null,
+    vault: vault !== null,
   });
   // A chosen tab that has gone (the note closed, the map left) falls back to the map's Activity, else Meetings.
   const showing: AsideTab = tabs.includes(wanted) ? wanted : tabs.includes("activity") ? "activity" : "meetings";
@@ -113,6 +125,9 @@ export function AsidePanel({
   useEffect(() => {
     if (changedSinceSeen("started", started) && started !== null) setChosen("meetings");
   }, [started, setChosen]);
+  useEffect(() => {
+    if (changedSinceSeen("vaultAt", vaultAt) && vaultAt !== null) setChosen("vault");
+  }, [vaultAt, setChosen]);
 
   /*
     The map opening brings its Activity forward, and a note clicked on it
@@ -197,6 +212,10 @@ export function AsidePanel({
         ) : showing === "note" && map !== null ? (
           <View style={styles.body} testID="aside-map-note">
             {map.note}
+          </View>
+        ) : showing === "vault" && vault !== null ? (
+          <View style={styles.body} testID="aside-vault">
+            <VaultTab workspaceId={vault.workspaceId} />
           </View>
         ) : texShowing ? null : (
           <MeetingsTab onOpenNote={onOpenNote} onJoin={onJoin} pastFrom={pastFrom} />

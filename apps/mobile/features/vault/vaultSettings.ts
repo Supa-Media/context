@@ -1,5 +1,5 @@
 /**
- * The words on Settings › Vault (vault board 2), kept apart from the panel so
+ * The words on the Vault (vault board 2), kept apart from the panel so
  * the rules are tested without drawing it. Every line here comes from a
  * key's names, websites, yeses and uses: the page never holds a value.
  */

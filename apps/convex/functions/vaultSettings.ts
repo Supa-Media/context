@@ -1,5 +1,5 @@
 /**
- * Settings › Vault (vault board 2): the keys a signed-in person may use in
+ * The Vault (vault board 2): the keys a signed-in person may use in
  * one workspace, the one website each goes to, the AIs they said yes to, and
  * Cut off; and who each key is given to (the vault sharing boards,
  * 2026-10-17): people, groups or the whole workspace, each for their AIs to

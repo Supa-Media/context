@@ -18,6 +18,7 @@ const ICONS: Record<Exclude<AsideTab, "tex">, AccessoryGlyphName> = {
   activity: "people",
   note: "page",
   meetings: "calendar",
+  vault: "key",
 };
 /** The drawn rail's icon size: the file tree's folder icons' own. */
 const GLYPH = 18;

@@ -76,9 +76,8 @@ describe("the order and the grouping", () => {
       are `folded`: a row on Profile, People & sharing, Connected apps or
       General opens each. `plugins` is deprecated behind `shown` and
       `invitations` appears only while an invitation is pending.
-      Vault is the eighth row, drawn in the sidebar on the board the owner
-      approved as drawn (2026-10-16): the keys an AI may use are looked for
-      by name, not behind another page. Plan is listed only where something
+      Vault was a row here (2026-10-16) until it left Settings for the right
+      rail and a phone's account sheet (Dev, 2026-11-23). Plan is listed only where something
       is sold (`pricedOnly`): Context is free (2026-10-20). Messages is the
       ninth (2026-10-26): the texts a Mac backs up, on the boards as a row.
       Tex is the tenth (Dev2, 2026-11-04): how Tex talks, and Let Tex use this Mac.
@@ -95,7 +94,6 @@ describe("the order and the grouping", () => {
       "workspace",
       "sharing",
       "integrations",
-      "vault",
       "storage",
       "website",
     ]);
@@ -111,7 +109,7 @@ describe("the order and the grouping", () => {
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(18);
+    ).toHaveLength(17);
   });
 
   test("every section sits under a heading somebody can answer", () => {

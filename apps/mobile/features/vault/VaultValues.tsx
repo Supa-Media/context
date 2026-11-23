@@ -12,7 +12,7 @@ import { ENVS, ENV_LABEL, SINGLE, isEnv, type RevealedField } from "./vaultField
 export type VaultValuesShape = { username: string; password: string; fields: RevealedField[] };
 
 /**
- * A picked key's values in Settings › Vault, read-only: one quiet row per
+ * A picked key's values in the Vault, read-only: one quiet row per
  * value, a secret as dots until Show, Copy on every row. A field's name is
  * said once above its environments rather than on each, so a long
  * `CONVEX_DEPLOY_KEY` never wraps or repeats. Changing them is Edit's job
@@ -61,7 +61,7 @@ function slots(field: RevealedField): [string, string][] {
   return order.flatMap((slot) => (typeof field.values[slot] === "string" ? [[slot, field.values[slot]] as [string, string]] : []));
 }
 
-const DOTS = "••••••••••••";
+const DOTS = "••••••••";
 
 function ValueRow({
   label,

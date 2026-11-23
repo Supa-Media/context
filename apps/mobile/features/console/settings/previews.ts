@@ -150,7 +150,6 @@ export function settingsPreview(
     */
     case "workspace":
     case "activity":
-    case "vault":
     case "feedback":
     case "premium":
     case "website":

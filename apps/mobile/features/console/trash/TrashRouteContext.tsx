@@ -30,7 +30,7 @@ export function routeTrash(router: Pick<ConsoleRouter, "setParams">, open: boole
   return {
     open,
     workspaceId,
-    openTrash: () => router.setParams({ trash: "1", map: undefined, settings: undefined }),
+    openTrash: () => router.setParams({ trash: "1", map: undefined, settings: undefined, vault: undefined }),
     closeTrash: () => router.setParams({ trash: undefined }),
   };
 }

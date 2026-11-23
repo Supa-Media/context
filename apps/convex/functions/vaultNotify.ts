@@ -2,7 +2,7 @@
  * Telling somebody a vault key was given to them (vault sharing board 4):
  * one email to each person who did not have the key and now does, saying who
  * gave it, in which workspace, and whether their AIs only use it or they may
- * see it too, with a link to Settings › Vault. Never the key's name, its
+ * see it too, with a link to the Vault. Never the key's name, its
  * website or a value: those stay in the workspace's bucket.
  *
  * Scheduled by `giveVaultKey`, never called, so the giver learns nothing
@@ -67,7 +67,7 @@ export function givenMail(giver: string, handle: string, level: "use" | "see"): 
     text:
       `${giver} shared a key with you in the @${handle} vault.\n\n` +
       `${what}\n\n` +
-      `See it in Settings › Vault:\n${appOrigin()}/console/${handle}?settings=vault\n\n` +
+      `See it in the Vault:\n${appOrigin()}/console/${handle}?vault=1\n\n` +
       `You're getting this because you're a member of @${handle}.\n`,
   };
 }

@@ -1,34 +1,33 @@
 /**
- * Settings › Vault, drawn as vault board 2: the keys this person may use in
- * the open workspace as a list of cards, each with its one website, the AIs
- * that use it and when one last did, and beside the list the picked key's
- * detail: the website in a box, every AI with Cut off (or Allow for one the
- * person said no to), and the last use in a sentence. On a narrow screen the
- * detail takes the list's place, with a way back.
+ * The Vault (the right rail's Vault tab, and a phone's Vault page; it left
+ * Settings on 2026-11-23): the keys this person may use in the open workspace
+ * as a list drawn like the tree's rows, each with its icon, its name and a
+ * coloured line saying who waits or when an AI last used it, and the AIs'
+ * faces. Picking one shows its detail: the website in a box, every AI with
+ * Cut off (or Allow for one the person said no to), and the last use in a
+ * sentence. Beside the list when there is room; at the panel's width the
+ * detail takes the list's place, headed by one back row (`VaultBackRow`).
  *
  * Values never reach the list. Picking a key, and New key, make a fresh vault
  * link and open it in place (`VaultInline`), through the same calls as the
  * vault's own page (`/vault/<token>`): the picked key's username shows, its
- * password and values are dots until Show. Edit, beside its name as on the
- * board, turns the pane into one form for the whole key (name, the website
- * and how it is sent, the values) and holds Delete. Each opening is a
- * recorded reveal, each save a logged change, and the values go when another
- * key is picked or the page closes.
+ * password and values are dots until Show. Edit, at the end of the back row,
+ * turns the pane into one form for the whole key (name, the website and how
+ * it is sent, the values) and holds Delete. Each opening is a recorded
+ * reveal, each save a logged change, and the values go when another key is
+ * picked or the page closes.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
-import { useConvex } from "convex/react";
 
-import { Button } from "../../../design/components/Button";
-import { Card } from "../../../design/components/Card";
-import { Icon } from "../../../design/components/Icon";
-import { Pill } from "../../../design/components/Pill";
-import { Text } from "../../../design/components/Text";
-import { radii } from "../../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
-import { AgentFace } from "../../map/live/ui/ActorFace";
-import { errorMessageOf } from "../../../vault/vaultLink";
+import { Button } from "../../design/components/Button";
+import { Icon } from "../../design/components/Icon";
+import { Text } from "../../design/components/Text";
+import { radii } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { AgentFace } from "../map/live/ui/ActorFace";
+import { errorMessageOf } from "../../vault/vaultLink";
 import {
   VAULT_FILTERS,
   inFilter,
@@ -46,14 +45,13 @@ import {
   type VaultEntry,
   type VaultFilter,
   type VaultLevel,
-} from "../../../vault/vaultSettings";
-import type { VaultMoveTarget, VaultShareChoices } from "../../../vault/vaultPeople";
-import type { VaultLinkCalls } from "../../../vault/useVaultLinkFlow";
-import { PanelHead } from "./PanelHead";
+} from "../../vault/vaultSettings";
+import type { VaultMoveTarget, VaultShareChoices } from "../../vault/vaultPeople";
+import type { VaultLinkCalls } from "../../vault/useVaultLinkFlow";
 import { VaultInline } from "./VaultInline";
-import { liveVaultActions } from "./liveVaultActions";
+import { VaultBackRow } from "./VaultBackRow";
 import { CutButton, VaultPeople } from "./VaultPeople";
-import { SketchBox } from "../../../design/components/sketch/SketchBox";
+import { SketchBox } from "../../design/components/sketch/SketchBox";
 
 export type VaultActions = {
   list: () => Promise<VaultEntry[]>;
@@ -77,32 +75,6 @@ type Opened = { mode: "add" } | { mode: "view"; entryId: string };
 
 /** Wide enough for the list and the detail side by side, as the board draws them. */
 const SIDE_BY_SIDE = 760;
-
-export function VaultPanel({ sectioned, workspaceId }: { sectioned: boolean; workspaceId: string | null }) {
-  // No provider in the landing page's demo or the render tests.
-  const client = useConvex();
-  return (
-    <>
-      <PanelHead section="vault" sectioned={sectioned}>
-        Keys your AIs can use without ever seeing them. Context adds the key on the way to the one website
-        it is for.
-      </PanelHead>
-      {client === undefined || workspaceId === null ? (
-        <Card>
-          <Text variant="hint">No workspace is open.</Text>
-        </Card>
-      ) : (
-        <LiveVault workspaceId={workspaceId} />
-      )}
-    </>
-  );
-}
-
-function LiveVault({ workspaceId }: { workspaceId: string }) {
-  const client = useConvex();
-  const actions = liveVaultActions(client, workspaceId);
-  return <VaultList key={workspaceId} actions={actions} />;
-}
 
 /** The list and the picked key, drawn from `actions` so a test can hand it fakes. */
 export function VaultList({
@@ -230,7 +202,7 @@ export function VaultList({
       const moved = await actions.move(entryId, target.workspaceId);
       setPicked(null);
       setEntries((now) => (now ?? []).filter((entry) => entry.entryId !== entryId));
-      setNotice(`Moved to @${moved.handle}. Open @${moved.handle}'s Settings › Vault to give it to people.`);
+      setNotice(`Moved to @${moved.handle}. Open @${moved.handle}'s Vault to give it to people.`);
     });
   const takeBack = (entryId: string, to: string) =>
     void run(async () => {
@@ -320,19 +292,18 @@ export function VaultList({
       <VaultInline key={opened.n} mode="add" token={opened.token} calls={actions.calls} onClose={() => setOpened(null)} onSaved={saved} />
     ) : null;
   const side = adding ?? detail;
+  const deep = side !== null && !wide;
 
   return (
-    <Card style={styles.card}>
       <View style={styles.frame} onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}>
-        <View style={styles.head}>
-          {entries !== null && entries.length > 0 ? (
-            <Pill testID="vault-count">{vaultCountLine(entries)}</Pill>
-          ) : (
-            <Text variant="rowSub">{entries === null && problem === null ? "Reading…" : ""}</Text>
-          )}
-          <View style={styles.flex} />
-          <Button label="+ New key" variant="dialogPrimary" disabled={busy} testID="vault-new" onPress={() => open({ mode: "add" })} />
-        </View>
+        {deep ? null : (
+          <View style={styles.head}>
+            <Text variant="hint" style={styles.flex} testID="vault-count">
+              {entries !== null && entries.length > 0 ? vaultCountLine(entries) : entries === null && problem === null ? "Reading…" : "Keys your AIs use, never see"}
+            </Text>
+            <Button label="+ New key" variant="mini" disabled={busy} testID="vault-new" onPress={() => open({ mode: "add" })} />
+          </View>
+        )}
         {entries !== null && entries.length === 0 && adding === null ? (
           <Text variant="hint">No keys yet. Save one with New key, or ask your AI to send you a link to add one.</Text>
         ) : null}
@@ -345,9 +316,9 @@ export function VaultList({
         {entries !== null && (entries.length > 0 || adding !== null) ? (
           <View style={wide ? styles.split : null}>
             {(wide || side === null) && entries.length > 0 ? (
-              <View style={wide ? styles.listSide : null}>
+              <View style={wide ? styles.listSide : styles.list}>
                 <View style={styles.filters} accessibilityRole="tablist">
-                  {VAULT_FILTERS.map((option) => (
+                  {VAULT_FILTERS.filter((option) => option.key !== "stale").map((option) => (
                     <Pressable
                       key={option.key}
                       accessibilityRole="tab"
@@ -379,7 +350,6 @@ export function VaultList({
           </View>
         ) : null}
       </View>
-    </Card>
   );
 }
 
@@ -393,33 +363,45 @@ function VaultRow({ entry, now, selected, onPress }: { entry: VaultEntry; now?: 
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={[styles.row, selected && styles.rowOn, entry.type === "secret" && entry.proxy === null && styles.rowQuiet]}
+      style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+        styles.row,
+        hovered && styles.rowHover,
+        selected && styles.rowOn,
+        entry.type === "secret" && entry.proxy === null && styles.rowQuiet,
+      ]}
       testID={`vault-row-${entry.entryId}`}
     >
       <View style={styles.tile}>
-        <Icon name={entry.type === "login" ? "lock" : entry.type === "card" ? "card" : "key"} size={18} color={colors.muted} />
+        <Icon name={entry.type === "login" ? "lock" : entry.type === "card" ? "card" : "key"} size={16} color={colors.muted} />
       </View>
       <View style={styles.flex}>
         <Text variant="rowTitle" numberOfLines={1}>
           {entry.name}
         </Text>
-        <Text variant="rowSub" numberOfLines={1}>
-          {vaultRowLine(entry)}
-        </Text>
+        {/* Who waits, or when an AI last used it, in the status's own colour; else where the key goes. */}
+        {pill !== null ? (
+          <Text
+            variant="rowSub"
+            numberOfLines={1}
+            style={pill.tone === "ok" ? styles.toneOk : pill.tone === "warn" ? styles.toneWarn : styles.mutedText}
+            testID={`vault-pill-${entry.entryId}`}
+          >
+            {pill.text.charAt(0).toUpperCase() + pill.text.slice(1)}
+          </Text>
+        ) : (
+          <Text variant="rowSub" style={styles.mutedText} numberOfLines={1}>
+            {vaultRowLine(entry)}
+          </Text>
+        )}
       </View>
       {faces.length > 0 ? (
         <View style={styles.stack}>
-          {faces.slice(0, 4).map((client, index) => (
+          {faces.slice(0, 3).map((client, index) => (
             <View key={client.id} style={[styles.face, index > 0 && styles.faceOverlap]}>
-              <AgentFace name={client.name ?? "AI"} size={22} />
+              <AgentFace name={client.name ?? "AI"} size={20} />
             </View>
           ))}
         </View>
-      ) : null}
-      {pill !== null ? (
-        <Pill tone={pill.tone} testID={`vault-pill-${entry.entryId}`}>
-          {pill.text}
-        </Pill>
       ) : null}
     </Pressable>
   );
@@ -452,7 +434,7 @@ function VaultDetail({
   people: ReactNode;
   /** Hand back a key given to the reader by name. */
   onHandBack?: () => void;
-  /** Narrow screens only: back to the list. */
+  /** Back to the list; absent side by side, where the list is beside it. */
   onBack?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -470,20 +452,15 @@ function VaultDetail({
   );
   return (
     <View style={styles.detail} testID={`vault-detail-${entry.entryId}`}>
-      {onBack ? (
-        <Pressable key="back" accessibilityRole="button" onPress={onBack} testID="vault-back" style={styles.back}>
-          <Text variant="rowSub">‹ All keys</Text>
-        </Pressable>
-      ) : null}
-      <View key="head" style={styles.titleRow}>
-        <View style={styles.flex}>
-          <Text variant="paneTitle" numberOfLines={2}>
-            {editing ? `Edit ${entry.name}` : entry.name}
-          </Text>
-          <Text variant="rowSub">{vaultSavedLine(entry, now)}</Text>
-        </View>
-        {editing || !manage ? null : <Button label="Edit" variant="dialog" disabled={busy} onPress={onEdit} testID="vault-edit" />}
-      </View>
+      <VaultBackRow
+        key="head"
+        title={editing ? `Editing ${entry.name}` : entry.name}
+        sub={vaultSavedLine(entry, now)}
+        onBack={onBack}
+        backLabel="Back to all keys"
+        testID="vault-back"
+        trailing={editing || !manage ? null : <Button label="Edit" variant="mini" disabled={busy} onPress={onEdit} testID="vault-edit" />}
+      />
       {editing ? null : proxy !== null ? (
         <View key="site" style={styles.section}>
           <Text variant="eyebrow">Only ever sent to</Text>
@@ -597,31 +574,28 @@ function VaultDetail({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: { padding: 0, overflow: "hidden" },
-    frame: { gap: 14, padding: 18 },
-    head: { flexDirection: "row", alignItems: "center", gap: 10 },
-    split: { flexDirection: "row", alignItems: "stretch", gap: 0, marginHorizontal: -18, marginBottom: -18, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
-    listSide: { flex: 1, gap: 10, padding: 18 },
-    detailSide: { flex: 1.15, padding: 20, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
-    filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+    frame: { gap: 12 },
+    head: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 32 },
+    // Side by side, when the panel is dragged wide: the list, a hairline, the key.
+    split: { flexDirection: "row", alignItems: "stretch", gap: 0, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+    listSide: { flex: 1, gap: 2, paddingTop: 10, paddingRight: 14 },
+    detailSide: { flex: 1.15, paddingTop: 10, paddingLeft: 18, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+    list: { gap: 2, marginHorizontal: -8 },
     // The filter in force is circled in pencil (owner, 2026-11-04, `sketch/`).
-    chip: { paddingVertical: 6, paddingHorizontal: 12 },
+    filters: { flexDirection: "row", flexWrap: "wrap", gap: 2, marginBottom: 2, paddingHorizontal: 2 },
+    chip: { paddingVertical: 5, paddingHorizontal: 10 },
     chipText: { color: colors.text2 },
     chipOnText: { color: colors.text, fontWeight: "600" },
-    row: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      padding: 12,
-      borderRadius: radii.card,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.lineStrong,
-    },
-    rowOn: { borderWidth: 2, borderColor: colors.accent, padding: 11, backgroundColor: colors.rowSelected },
+    // A row as the file tree draws one: no box, a wash on hover and when picked.
+    row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7, paddingHorizontal: 8, borderRadius: radii.md },
+    rowHover: { backgroundColor: colors.chipFill },
+    rowOn: { backgroundColor: colors.rowSelected },
+    toneOk: { color: colors.okText },
+    toneWarn: { color: colors.warnText, fontWeight: "600" },
     rowQuiet: { opacity: 0.75 },
     tile: {
-      width: 36,
-      height: 36,
+      width: 26,
+      height: 26,
       borderRadius: radii.md,
       backgroundColor: colors.chipFill,
       alignItems: "center",
@@ -630,9 +604,7 @@ const makeStyles = (colors: Colors) =>
     stack: { flexDirection: "row" },
     face: { borderRadius: 7, borderWidth: 2, borderColor: colors.surface },
     faceOverlap: { marginLeft: -6 },
-    detail: { gap: 18 },
-    titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-    back: { alignSelf: "flex-start", paddingVertical: 4 },
+    detail: { gap: 16 },
     section: { gap: 8 },
     site: {
       flexDirection: "row",

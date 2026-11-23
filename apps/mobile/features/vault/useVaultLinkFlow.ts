@@ -9,15 +9,15 @@ export interface VaultLinkCalls {
   save: (token: string, draft: VaultDraft) => Promise<{ name: string; site: string; sharedWith?: ShareChoice }>;
   share?: (token: string) => Promise<{ name: string; grantee: string | null }>;
   reveal: (token: string) => Promise<RevealedEntry>;
-  /** Settings › Vault only: save a key changed in place on a view link; resolves what changed, by name. */
+  /** The Vault only: save a key changed in place on a view link; resolves what changed, by name. */
   edit?: (token: string, edit: VaultEdit) => Promise<{ changed: string[] }>;
-  /** Settings › Vault only: delete the key a view link opened. */
+  /** The Vault only: delete the key a view link opened. */
   remove?: (token: string) => Promise<{ name: string }>;
 }
 
 /**
  * One vault link's states, shared by the page Tex texts (`/vault/<token>`)
- * and Settings › Vault, which opens the same link in place. The request is
+ * and the Vault, which opens the same link in place. The request is
  * described once, when `ready`; nothing is saved, shared or revealed until a
  * press. Revealed values live in this state while it is mounted, and nowhere
  * else.

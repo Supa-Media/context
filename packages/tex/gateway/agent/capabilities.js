@@ -139,8 +139,8 @@ export const CAPABILITIES = Object.freeze([
       },
       { where: "everywhere", what: "use a login on a site other than the one it was saved for", workaround: { kind: "vault_env", text: "send manage vault_add's link with that other site, so they save it there too" } },
       { where: "everywhere", what: "share a login saved in a personal workspace", workaround: { kind: "vault_env", text: "they save it in the shared workspace (manage vault_add with that context), then you give it with send vault_access" } },
-      { where: "everywhere", what: "change who has a login someone else saved", workaround: { kind: "words", text: "whoever saved it asks you, or changes it in Context app → Settings → Vault" } },
-      { where: "everywhere", what: "delete a saved key, or cut off one particular AI (send vault_access cuts off every AI)", workaround: { kind: "app_path", text: "Context app → Settings → Vault" } },
+      { where: "everywhere", what: "change who has a login someone else saved", workaround: { kind: "words", text: "whoever saved it asks you, or changes it in Context app → Vault, on the right rail (on a phone, in your account menu)" } },
+      { where: "everywhere", what: "delete a saved key, or cut off one particular AI (send vault_access cuts off every AI)", workaround: { kind: "app_path", text: "Context app → Vault, on the right rail (on a phone, in your account menu)" } },
       { where: "group", what: "use someone's own saved login or card", workaround: { kind: "words", text: "they text you on their own for it, or save it in the workspace's vault and give it to everyone there" } },
       { where: "guest", what: "pay with a card when whoever tagged you isn't on Context", workaround: { kind: "words", text: "someone here who is on Context tags you to pay, and their own plain yes allows it" } },
       {
