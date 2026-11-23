@@ -229,9 +229,10 @@ and a new capability removes or narrows the `cant` it replaces
 [capabilities](./docs/decisions/texting-assistant/capabilities.md));
 `apps/mcp/test/capabilities.test.mjs` fails when a tool or command is missing.
 
-**Try changes in the Lab, not in pull requests**: a Tex or search change is a Lab
-draft tried in a test chat or benched with `tex_dev search_bench` in seconds; a
-pull request lands what won. How: [`docs/lab.md`](./docs/lab.md). A pull request that
+**Try changes in a sandbox, merge what won**: a Tex or search config change is a Lab
+draft tried in a test chat or benched with `tex_dev search_bench` in seconds; a code
+change is tried on its pull request's preview sandbox, redeployed on every push;
+merging lands what won and is never the test. How: [`docs/lab.md`](./docs/lab.md). A pull request that
 changes the Lab, its test chats, its bench or the previews updates `docs/lab.md`,
 `docs/preview-sandbox.md` or the `tex_dev` guide in the same pull request, or says
 "No Lab docs change: <why>"; `scripts/check-lab-docs-updated.mjs` fails it otherwise
@@ -370,10 +371,12 @@ checked is not a guard.**
   typecheck, and the architecture check. Do not push a red precheck. It needs
   `pnpm install` and stays within a couple of minutes.
 - **Pull request flow.**
-  1. Open a pull request only when the work is finished. `pnpm precheck` passes,
-     and the branch was rebased on main once before opening. A follow-up is a
-     new pull request, not another push.
-  2. Right after opening, run `gh pr merge <n> --auto --squash` with your own
+  1. To iterate on code, open the pull request early as a draft, with auto-merge
+     off, and push as often as you need: each push redeploys its preview
+     sandbox. Mark it ready only when the work is finished: `pnpm precheck`
+     passes, and the branch was rebased on main once. After that, a follow-up
+     is a new pull request, not another push.
+  2. Right after it is ready (opened finished, or marked ready), run `gh pr merge <n> --auto --squash` with your own
      credentials. Auto-merge is approved for agent pull requests. Never merge
      with `GITHUB_TOKEN`; that merge does not start the deploy. Skip a pull
      request Seyi said to hold, and skip jewunetie's.

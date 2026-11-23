@@ -17,6 +17,8 @@ and the code. "Checked on every preview" means the deploy's smoke test
 
 ## How to use one
 
+A preview is the quick way to iterate on a code change: open the pull request as soon as there is something to try (a draft pull request is fine), push as often as you need, and test each push here. Keep auto-merge off until it works, because merging deletes the preview. Config changes need no preview: try them in a Lab draft ([lab](./lab.md)).
+
 1. Open a pull request and push. The **Preview** check deploys it, and a comment
    on the pull request names the Workers.
 2. Sign in to the web app: run **Actions → Preview sign-in code** with the pull
