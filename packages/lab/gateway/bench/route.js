@@ -17,6 +17,11 @@
  * - `status` each named workspace's notes and how many changes its indexes still wait on
  * - `search` up to `MAX_CASES` searches, all at once, each through the gateway's MCP endpoint as its person
  * - `drop`   the named workspaces' objects emptied
+ *
+ * And by bench, with no world named (`plans.js`, `run.js`):
+ * - `plan`   a run's cases kept for its bench, with the world and copies they were asked of (GitHub's run on main)
+ * - `run`    a kept plan asked again on main's search config and a draft's (`config`), scored; seconds, no GitHub
+ * - `plans`  the benches with a kept plan
  */
 
 import { createControlPlane } from "../../../../apps/mcp/src/controlPlane/index.js";
@@ -26,6 +31,11 @@ import { looksSigned, verifyGithubToken } from "./oidc.js";
 import { benchCall, benchToken, searchOnce, setUpPerson, setUpWorkspace } from "./setup.js";
 import { MAX_NOTES_PER_CALL } from "./store.js";
 import { benchIdPrefix, MAX_COPIES, WORLD_KEY } from "./world.js";
+import { MAX_DRAFT_CHARS, MAX_PLAN_CASES, PLAN_KEY, PLANS_PATH } from "./plans.js";
+import { planProblem, runPlan } from "./run.js";
+import searchConfig from "../../../../apps/mcp/src/search/config/searchConfig.cjs";
+
+const { searchConfigProblems } = searchConfig;
 import { workspaceStub } from "../../../../apps/mcp/src/workspaceStore/api.js";
 
 export const BENCH_PATH = "/tex-lab/bench";
@@ -84,6 +94,40 @@ async function touch(bench, ctx, world, ids = []) {
 /** Every id the call names belongs to this world's copy, or the call is refused. */
 const ownId = (world, copy, id) => typeof id === "string" && id.length <= 64 && id.startsWith(benchIdPrefix(world, copy)) && /^[A-Za-z0-9_-]+$/.test(id);
 
+/** The registry's kept plans (`plans.js` `serveBenchPlans`). */
+async function plans(bench, body) {
+  const registry = bench.BENCH_STORE.get(bench.BENCH_STORE.idFromName(VECTORS_OBJECT));
+  return await (await registry.fetch(new Request(`https://bench.internal${PLANS_PATH}`, { method: "POST", body: JSON.stringify(body) }))).json();
+}
+
+/**
+ * `plan`, `run` and `plans`: by bench, not by world. Also the Lab's own route's `search_bench` (`labSandbox/search.js`),
+ * which has checked its caller is a Tex developer and passes its draft's search config.
+ */
+export async function planOp(bench, ctx, input) {
+  if (input.op === "plans") return json(await plans(bench, { list: true }));
+  const key = String(input.bench ?? "");
+  if (!PLAN_KEY.test(key)) return refused(400, "name the bench: { bench } (plans lists them)");
+  if (input.op === "plan") {
+    const problem = planProblem(input.plan, { worldKey: WORLD_KEY, maxCopies: MAX_COPIES, maxCases: MAX_PLAN_CASES, maxQuery: MAX_QUERY });
+    if (problem) return refused(400, problem);
+    const plan = { worlds: input.plan.worlds.map((w) => ({ world: w.world, copies: w.copies, cases: w.cases.map((c) => ({ id: c.id, query: c.query, own: c.own, in: c.in ?? null, expect: c.expect, kind: typeof c.kind === "string" ? c.kind.slice(0, 40) : null })) })), commit: typeof input.commit === "string" ? input.commit.slice(0, 40) : null };
+    return json(await plans(bench, { put: { bench: key, plan } }));
+  }
+  const config = input.config ?? null;
+  if (config !== null) {
+    if (JSON.stringify(config).length > MAX_DRAFT_CHARS) return refused(413, "a draft's search config is at most 200 KB");
+    const problems = searchConfigProblems(config);
+    if (problems.length > 0) return refused(400, problems.join("; "));
+  }
+  const kept = await plans(bench, { get: key });
+  if (!kept.plan) return refused(404, `no kept cases for ${key}: a Lab eval run of it on main keeps them`);
+  // The worlds are in use: kept from the week's idle drop like a GitHub run's use keeps them.
+  await Promise.all(kept.plan.worlds.map((w) => touch(bench, ctx, w.world)));
+  const result = await runPlan(bench, kept.plan, { draft: config });
+  return json({ bench: key, keptAt: kept.at, commit: kept.plan.commit ?? null, ...result });
+}
+
 export async function handleBench(request, env, ctx, { gateway, verify = verifyGithubToken } = {}) {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   if (!env?.BENCH_STORE) return refused(501, "this deployment has no bench objects");
@@ -98,6 +142,7 @@ export async function handleBench(request, env, ctx, { gateway, verify = verifyG
     return refused(400, "a call is JSON");
   }
   const { op, world } = input ?? {};
+  if (op === "plan" || op === "run" || op === "plans") return await planOp(benchEnvOf(env), ctx, input);
   const copy = Number(input?.copy ?? 0);
   if (typeof op !== "string" || !WORLD_KEY.test(world ?? "") || !Number.isSafeInteger(copy) || copy < 0 || copy >= MAX_COPIES) return refused(400, "a call is { op, world, copy, ... }");
   const bench = benchEnvOf(env);

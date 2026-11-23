@@ -74,7 +74,7 @@ import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
 import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
 import { checkInTestChat } from "./checkin.js";
-import { searchForPerson } from "./search.js";
+import { searchBenchForPerson, searchForPerson } from "./search.js";
 import { forwardToPreview, openOnPreview } from "./preview.js";
 
 export { oneRowPerText };
@@ -611,6 +611,8 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "shared") return await sharedList(controlPlane, token);
   // A search try-out on the caller's own 1:1 (`search.js`): main's search config and a draft's, neither counted. No test chat.
   if (input.op === "search") return await searchForPerson({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
+  // A kept bench asked on main's search config and a draft's, on the standing bench objects (`search.js`, `bench/run.js`).
+  if (input.op === "search_bench") return await searchBenchForPerson({ env, ctx, controlPlane, token, helpers: routeHelpers() }, input);
   if (input.op === "ledger") return await sharedLedger(env, controlPlane, token, who, input);
   // Where the caller's own chats are answered, and moving one into the gateway before the rest (`intake.js`).
   if (input.op === "intake") return await intake(env, who, input, { controlPlane, token });

@@ -206,6 +206,61 @@ test("the CLI's remote run loads a world once, deals the cases across its copies
   });
 });
 
+// Sabotage: `benchSearchConfigFor` ignores SEARCH_CONFIG_DRAFT, or `findNotes` ignores `store.searchConfig`, and the
+// draft's rank equals main's; `searchCli`'s plan op dropped and `run` answers 404.
+test("a remote run keeps its cases, and a draft is benched on them next to main with no load and no GitHub", async () => {
+  await quiet(async () => {
+    const h = harness();
+    const { runRemoteSearchCases } = await import("../bench/evals/remoteBench.mjs");
+    const { SEARCH_CONFIG } = (await import("../src/search/config/searchConfig.cjs")).default;
+    const call = async (body) => {
+      if (body.op === "status") await h.alarms();
+      const { status, body: answer } = await h.call(body);
+      if (status !== 200) throw new Error(`${body.op}: ${status} ${JSON.stringify(answer)}`);
+      return answer;
+    };
+    const cases = [
+      { id: "q1", query: "kayak tide table", as: "Sam", expect: ["@sam/trips/kayak-trip.md"] },
+      { id: "q2", query: "boiler engineer", as: "Sam", expect: ["@sam/home/boiler.md"] },
+    ];
+    const planned = [];
+    await runRemoteSearchCases(call, { bench, cases, copies: 2, perCall: 1, log: () => {}, poll: 0, onPlan: (plan) => planned.push(plan) });
+    assert.equal(planned.length, 1);
+    assert.equal(planned[0].cases[0].own, "sam");
+
+    assert.equal((await h.call({ op: "run", bench: "toy" })).status, 404, "nothing kept yet");
+    // A second place for a query that finds several notes, from main's own answer.
+    const many = "kayak boiler quarterly plan";
+    const world = planned[0].world;
+    const asked = await call({ op: "search", world, copy: 0, cases: [{ id: "x", query: many, personal: benchWorkspaceId(world, 0, "sam") }] });
+    const second = hitsOf(asked.answers[0].text, "@sam")[1];
+    assert.ok(second, JSON.stringify(asked.answers[0]));
+    const worlds = [{ ...planned[0], cases: [...planned[0].cases, { id: "q3", query: many, own: "sam", in: null, expect: [second], kind: null }] }];
+    assert.equal((await h.call({ op: "plan", bench: "toy", plan: { worlds } })).status, 200);
+    assert.deepEqual((await h.call({ op: "plans" })).body.plans.map((p) => [p.bench, p.cases]), [["toy", 3]]);
+
+    const mainOnly = await h.call({ op: "run", bench: "toy" });
+    assert.equal(mainOnly.status, 200, JSON.stringify(mainOnly.body));
+    assert.deepEqual([mainOnly.body.main.first, mainOnly.body.main.found, mainOnly.body.draft], [2, 3, null]);
+
+    // A draft with the word search turned off: only meaning nominates, so ranks move on the draft and only there.
+    const draft = structuredClone(SEARCH_CONFIG);
+    draft.nodes.find((n) => n.id === "words").on = false;
+    const both = await h.call({ op: "run", bench: "toy", config: draft });
+    assert.equal(both.status, 200, JSON.stringify(both.body));
+    assert.deepEqual(both.body.main, { ...mainOnly.body.main, p50Ms: both.body.main.p50Ms }, "main is main's");
+    assert.ok(both.body.changed.length > 0, JSON.stringify(both.body));
+    assert.ok(both.body.changed.every((c) => c.main !== c.draft));
+
+    const bad = structuredClone(SEARCH_CONFIG);
+    bad.nodes.find((n) => n.id === "fuse").settings.hits = -5;
+    bad.nodes.find((n) => n.id === "open").on = false;
+    assert.equal((await h.call({ op: "run", bench: "toy", config: bad })).status, 400, "a draft that fails the schema is refused");
+    assert.equal((await h.call({ op: "run", bench: "toy" }, "not-a-developer")).status, 403);
+    assert.equal((await h.call({ op: "plan", bench: "toy", plan: { worlds: [{ ...worlds[0], world: "nope" }] } })).status, 400);
+  });
+});
+
 test("a world idle for a week is forgotten and named for dropping; a used one is kept", async () => {
   const { serveWorlds, WORLD_IDLE_MS } = await import("../../../packages/lab/gateway/bench/env.js");
   const sql = namespace({ BENCH_WORLD: true }).get({ name: "registry" }).object.state.storage.sql;
@@ -250,4 +305,16 @@ test("the vector cache is spread over its shards, and a vector kept in the old o
     assert.equal(h.embeds.length, 40);
     assert.deepEqual(again.data, first.data);
   });
+});
+
+// Sabotage: drop `BENCH_WORLD`'s check in `benchSearchConfigFor` and a real deployment's var changes people's searches.
+test("only a bench environment searches on a draft config, and only one the schema accepts", async () => {
+  const { benchSearchConfigFor } = await import("../src/search/config/benchDraft.js");
+  const { SEARCH_CONFIG } = (await import("../src/search/config/searchConfig.cjs")).default;
+  const raw = JSON.stringify(SEARCH_CONFIG);
+  assert.equal(benchSearchConfigFor({ SEARCH_CONFIG_DRAFT: raw }), undefined, "a real deployment ignores it");
+  assert.equal(benchSearchConfigFor({ BENCH_WORLD: "true", SEARCH_CONFIG_DRAFT: raw }), undefined, "a var's string is not a bench environment");
+  assert.deepEqual(benchSearchConfigFor({ BENCH_WORLD: true, SEARCH_CONFIG_DRAFT: raw }), SEARCH_CONFIG);
+  assert.equal(benchSearchConfigFor({ BENCH_WORLD: true, SEARCH_CONFIG_DRAFT: "{not json" }), undefined);
+  assert.equal(benchSearchConfigFor({ BENCH_WORLD: true, SEARCH_CONFIG_DRAFT: JSON.stringify({ nodes: [] }) }), undefined);
 });

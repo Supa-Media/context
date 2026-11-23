@@ -39,6 +39,7 @@ import { benchFolder } from "./folder.mjs";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { cachedEmbeddings, fakeAi, fakeGateway, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
+import { hitsOf, rankOf } from "../../../packages/lab/gateway/bench/run.js";
 import { createWorld } from "./world.mjs";
 
 /** A search setup's world needs a texting setup note too; this one is never a model's words. */
@@ -70,26 +71,8 @@ async function readSearchSetups(dir, only) {
   return setups;
 }
 
-/**
- * The note paths in a `search_notes` answer, in the order shown, each as
- * `@workspace/path`: a hit from another workspace already carries its name;
- * one from the workspace searched gets `home` in front.
- */
-export function hitsOf(text, home) {
-  const out = [];
-  for (const line of String(text ?? "").split("\n")) {
-    if (!/^\S.*\.md$/.test(line)) continue;
-    out.push(line.startsWith("@") ? line : `${home}/${line}`);
-  }
-  return out;
-}
-
-/** Where the first expected note placed (1-based), or null when none was shown. */
-export function rankOf(hits, expected) {
-  const wanted = new Set(expected);
-  const index = hits.findIndex((hit) => wanted.has(hit));
-  return index === -1 ? null : index + 1;
-}
+// One reading of an answer for every runner: here and the gateway's own bench runs (`packages/lab/gateway/bench/run.js`).
+export { hitsOf, rankOf } from "../../../packages/lab/gateway/bench/run.js";
 
 const pct = (n, of) => (of === 0 ? "n/a" : `${((100 * n) / of).toFixed(1)}%`);
 const median = (values) => {

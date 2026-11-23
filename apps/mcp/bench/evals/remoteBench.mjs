@@ -210,11 +210,13 @@ export async function ensureRemoteWorld(call, bench, { copies, log = () => {}, t
  * The cases of one world, asked of the bench objects at `call`: records as `runSearchCases` makes them, scored on the
  * object path (`path: "objects"`).
  */
-export async function runRemoteSearchCases(call, { bench, cases, copies = 16, settings = null, perCall = 4, log = () => {}, poll = 3_000 }) {
+export async function runRemoteSearchCases(call, { bench, cases, copies = 16, settings = null, perCall = 4, log = () => {}, poll = 3_000, onPlan = null }) {
   const n = Math.max(1, Math.min(copies, Math.ceil(cases.length / perCall)));
   const world = await ensureRemoteWorld(call, bench, { copies: n, log, poll });
   const personal = new Map(bench.people.filter((row) => row.personal).map((row) => [row.person, row.workspace]));
   const wired = settings ? JSON.stringify(wireSearchSettings(settings)) : null;
+  // The cases as the bench objects keep them (`packages/lab/gateway/bench/plans.js`), for a Lab draft's run in seconds.
+  if (onPlan) onPlan({ world, copies: n, cases: cases.map((c) => ({ id: c.id, query: c.query, own: personal.get(c.as), in: c.in ?? null, expect: c.expect ?? [], kind: c.kind ?? null })) });
   // Case i goes to copy i mod n; each call carries `perCall` cases of one copy, and every call is sent at once.
   const calls = [];
   cases.forEach((c, i) => {
