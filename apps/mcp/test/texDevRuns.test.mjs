@@ -565,12 +565,13 @@ test("changedSteps is null for a change no single step owns: the models, or the 
   assert.equal(changedSteps(cfg(), cfg(), { convo: { tools: { mail: false } } }), null);
 });
 
-test("quickNodes runs each changed step with tests, the Front door for a changed step without, and everything when it can't narrow", () => {
+test("quickNodes runs the changed steps when each has tests, and everything when one has none or it can't narrow", () => {
   const convs = [{ id: "c", msgs: [{ id: "m1", who: "Ann", text: "hi", labels: { decide: { act: "respond", star: true }, fd: { must: ["x"], star: true } } }] }];
   assert.deepEqual(quickNodes(["decide"], convs), ["decide"]);
-  assert.deepEqual(quickNodes(["send"], convs), ["fd"]);
-  assert.deepEqual(quickNodes(["decide", "send"], convs), ["decide", "fd"]);
-  assert.deepEqual(quickNodes(["fd"], convs), ["fd"]);
+  assert.deepEqual(quickNodes(["fd", "decide"], convs), ["decide", "fd"]);
+  // decideWhy has no tests, but Decide's tests read it, and a later step reaches the Front door's whole turn.
+  assert.equal(quickNodes(["decideWhy"], convs), null);
+  assert.equal(quickNodes(["decide", "send"], convs), null);
   assert.equal(quickNodes([], convs), null);
   assert.equal(quickNodes(null, convs), null);
 });

@@ -407,16 +407,15 @@ export function changedSteps(before, after, graph = null) {
 }
 
 /**
- * The steps a quick run tests, given the steps the draft changed (`changedSteps`) and the conversations: each changed
- * step with unit tests of its own, and the Front door whenever a changed step has none, since the Front door's tests
- * run a whole turn through every step after it. Null runs every step (nothing to narrow to, or nothing known).
+ * The steps a quick run tests, given the steps the draft changed (`changedSteps`) and the conversations: the changed
+ * steps, when every one has unit tests of its own. A changed step with none can reach any tested step's run (the
+ * Front door's whole turn, or a setting a step's test reads, as Decide's reads decideWhy), so it runs every step: null,
+ * as when there is nothing to narrow to.
  */
 export function quickNodes(changed, convs) {
   if (!Array.isArray(changed) || changed.length === 0) return null;
   const tested = new Set(convs.flatMap((c) => unitTests(c).map((t) => t.node)));
-  const out = new Set(changed.filter((id) => tested.has(id)));
-  if (changed.some((id) => !tested.has(id) || id === "fd") && tested.has("fd")) out.add("fd");
-  return out.size ? [...out].sort() : null;
+  return changed.every((id) => tested.has(id)) ? [...changed].sort() : null;
 }
 
 async function main() {
@@ -457,7 +456,7 @@ async function main() {
     const changed = changedSteps(before, after, graph);
     const nodes = quickNodes(changed, JSON.parse(readFileSync(join(b, "convs.json"), "utf8")));
     writeFileSync(out, nodes ? nodes.join(",") : "");
-    console.log(nodes ? `Quick: the draft changed ${changed.join(", ")}, so only ${nodes.join(", ")} run` : `Quick, but ${changed === null ? "the draft changed something no single step owns" : changed.length ? `no changed step (${changed.join(", ")}) has tests or reaches the Front door` : "the draft changed no step"}: every step's tests run`);
+    console.log(nodes ? `Quick: the draft changed ${changed.join(", ")}, so only ${nodes.join(", ")} run` : `Quick, but ${changed === null ? "the draft changed something no single step owns" : changed.length ? `a changed step (${changed.filter((id) => !nodes?.includes(id)).join(", ")}) has no tests of its own` : "the draft changed no step"}: every step's tests run`);
     return;
   }
   if (sub === "results") {
