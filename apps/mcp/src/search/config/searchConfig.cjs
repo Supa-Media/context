@@ -45,13 +45,14 @@ const SEARCH_SETTINGS_BOUNDS = Object.freeze({
   openMine: { min: 0, max: 5, integer: false },
   openPeople: { min: 0, max: 5, integer: false },
   openAi: { min: 0, max: 5, integer: false },
+  contentWords: { min: 0, max: 1, integer: true },
 });
 
 /** Which settings each step reads: a setting on a step that does not read it would be a knob that does nothing. */
 const SETTINGS_OF = Object.freeze({
   search: Object.freeze([]),
   open: Object.freeze([]),
-  words: Object.freeze([]),
+  words: Object.freeze(["contentWords"]),
   meaning: Object.freeze(["minScore"]),
   visible: Object.freeze([]),
   probes: Object.freeze([]),

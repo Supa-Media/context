@@ -199,12 +199,14 @@ async function openStep(input, io) {
 async function wordsStep(input, io) {
   const byWords = {};
   const rerank = io.use?.rerankWords && io.on("rerankWords") ? io.use.rerankWords : null;
+  // `contentWords` 0: a note holding every word, filler too, ranks as the strict match found it (`d1/serve.js`).
+  const contentWords = io.node?.settings?.contentWords !== 0;
   await Promise.all(
     input.workspaces.map(async (ws) => {
       const { store, scope, rules, overrides } = handlesOf(io, ws.name);
       let found;
       try {
-        found = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, ws.here ? input.prefix : "", { wordStats: Boolean(io.ctx.sharedWords && input.several) }));
+        found = await phase(store, "word_search", () => searchVisibleNotes(store, scope, rules, overrides, input.query, ws.here ? input.prefix : "", { wordStats: Boolean(io.ctx.sharedWords && input.several), contentWords }));
       } catch (error) {
         // Another workspace that cannot answer now is left out and named, as one that cannot be opened is; this one throws.
         if (ws.here) throw error;

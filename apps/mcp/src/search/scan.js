@@ -155,7 +155,7 @@ export async function scanVisibleNotes(store, scope, rules, overrides, query, pr
  * @returns {Promise<object|null>} an answer in `searchIndexedNotes`' shape, or
  *   `null` to mean "not answered — ask the index".
  */
-export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace, { filling = false, apart = null } = {}) {
+export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace, { filling = false, apart = null, contentWords = true } = {}) {
   const descriptor = store.searchIndex;
   // `filling`: the caller already has an empty, "still catching up" answer
   // and asks what the part copied so far holds (`searchVisibleNotes`).
@@ -167,6 +167,7 @@ export async function fastSearchAnswer(store, scope, rules, overrides, query, pr
     const client = createD1Client(descriptor);
     answer = await answerFromProjection(client, {
       query,
+      contentWords,
       prefix: folderPrefix(prefix),
       tier: scope,
       // The gateway's own privacy engine, bound to this caller. Injected for

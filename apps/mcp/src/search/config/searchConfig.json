@@ -60,14 +60,14 @@
     {
       "id": "words",
       "label": "Words",
-      "goal": "Nominates: notes holding the query's words in every workspace at once, ranked by the word index (BM25, titles and headings weighted), retried with any word when no note holds them all (those are marked loose). Only notes the person may see.",
+      "goal": "Nominates: notes holding the query's words in every workspace at once, ranked by the word index (BM25, titles and headings weighted), retried with any word when no note holds them all (those are marked loose). contentWords 1: where some note holds every word, the notes holding every word that is not filler (\"what did we\") are the hits instead. Only notes the person may see.",
       "on": true,
       "model": "code",
       "icon": "text",
       "file": "apps/mcp/src/search/visibleNotes.js · objectSearch.js",
       "x": 480,
       "y": -110,
-      "settings": {},
+      "settings": { "contentWords": 1 },
       "inSchema": [
         { "name": "query", "type": "text" },
         { "name": "prefix", "type": "text" },
