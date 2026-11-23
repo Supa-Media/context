@@ -18,6 +18,7 @@
     "read_contact",
     "read_image",
     "read_file",
+    "read_sheet",
     "list_plugins",
     "related_notes",
     "read_activity",
@@ -36,6 +37,7 @@
     "list_saved_credentials",
     "list_connected_apps",
     "create_note",
+    "change_sheet_rows",
     "update_note",
     "save_notes",
     "add_comment",
@@ -135,6 +137,12 @@
         "resolve_comment",
         "reopen_comment",
         "delete_comment"
+      ]
+    },
+    {
+      "capability": "write.rows",
+      "tools": [
+        "change_sheet_rows"
       ]
     },
     {

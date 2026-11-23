@@ -18,7 +18,7 @@ import { getWithLegacyFallback } from "../storageLayout.js";
 import { normalizePath } from "../notes/paths.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { toolError, toolText } from "./results.js";
-import { QUOTATION } from "./readFile.js";
+import { QUOTATION, toolReadFile } from "./readFile.js";
 import { MAX_SHEET_BYTES, isSheetPath, parseSheet, queryProblems, querySheet } from "../sheets/csv.js";
 
 const DEFAULT_LIMIT = 200;
@@ -58,19 +58,19 @@ export async function toolReadSheet(store, scope, rules, overrides, args = {}) {
   const obj = seen && present ? await getWithLegacyFallback(store, path) : null;
   if (!seen || !present || !obj) return toolError("not found");
 
+  // Too big to be a sheet is still a CSV: read_file pages through it, as fetch did before sheets.
   const declared = Number.isFinite(obj.size) ? obj.size : 0;
-  if (declared > MAX_SHEET_BYTES) return tooLarge(path, `this sheet is ${megabytes(declared)}, over the ${megabytes(MAX_SHEET_BYTES)} a sheet is read at`);
+  if (declared > MAX_SHEET_BYTES) return toolReadFile(store, scope, rules, overrides, path, undefined, null);
   const sheet = parseSheet(new TextDecoder().decode(new Uint8Array(await obj.arrayBuffer())));
-  if (sheet.tooLarge) return tooLarge(path, sheet.errors[0]?.message ?? "this sheet is too big");
+  if (sheet.tooLarge) return toolReadFile(store, scope, rules, overrides, path, undefined, null);
 
   const problems = queryProblems(sheet, parsed.query);
   if (problems.length) {
     return toolError(`read_sheet refused: ${problems.join("; ")}. The columns are ${sheet.columns.map(columnText).join(", ")}`);
   }
-  // A row is an object keyed by column name with its `line` added, so a column called `line` would be overwritten: refused, not shown wrong.
-  if (sheet.columns.some((c) => c.name.toLowerCase() === "line")) {
-    return toolError(`${path} has a column called line, which the line numbers read_sheet shows would overwrite. Tell the person to rename it`);
-  }
+  // A row is an object keyed by column name with its `line` added, so a column called `line` would be
+  // overwritten: such a CSV is read as a file's words instead, never shown with the wrong numbers.
+  if (sheet.columns.some((c) => c.name.toLowerCase() === "line")) return toolReadFile(store, scope, rules, overrides, path, undefined, null);
 
   const { columns, total, rows } = querySheet(sheet, parsed.query);
   const head = [
@@ -99,10 +99,4 @@ function table(columns, rows) {
   ];
   for (const row of rows) out.push(`| ${[row.line, ...columns.map((c) => row[c.name])].map(cell).join(" | ")} |`);
   return out.join("\n");
-}
-
-const megabytes = (n) => `${Math.round((n / (1024 * 1024)) * 10) / 10} MB`;
-
-function tooLarge(path, detail) {
-  return toolError(`${detail}: ${path}. Tell the person it is too big to read here`);
 }

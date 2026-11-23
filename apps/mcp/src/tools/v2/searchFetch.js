@@ -277,7 +277,8 @@ export function translateFetch(call, app = {}) {
   }
 
   // A sheet (a `.csv` with typed columns): its rows as a table, filtered and sorted by its args (`readSheet.js`).
-  if (isSheetPath(id)) {
+  // Paging (`from`) and totals (`summary`) are read_file's, for a long CSV such as an email's attachment.
+  if (isSheetPath(id) && a.from === undefined && a.summary === undefined) {
     return target(label, a, { name: "read_sheet", action: "sheet", fixed: { path: id }, copy: ["where", "sort", "last", "limit", "columns"] });
   }
 

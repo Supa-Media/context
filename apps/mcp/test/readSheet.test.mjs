@@ -119,12 +119,6 @@ test("a fetch of a .csv goes to read_sheet, with its query args copied", () => {
   assert.equal(translateFetch({ id: "1-projects/a.md" }, { client: "claude-code" }).name, "read_note");
 });
 
-test("a sheet takes only its query args: from and summary are refused with the ones it takes", () => {
-  const refused = translateFetch({ id: SHEET, args: { from: 3 } }, { client: "claude-code" });
-  assert.match(refused.error, /takes args: where, sort, last, limit, columns/);
-  assert.ok(translateFetch({ id: SHEET, args: { summary: { by: ["kind"] } } }, { client: "claude-code" }).error);
-});
-
 test("a sheet comes back as a typed table with each row's line in the file", async () => {
   const { store, rules, overrides } = await world();
   const out = text(await toolReadSheet(store, "private", rules, overrides, { path: SHEET }));
@@ -221,19 +215,25 @@ test("a cell's | and line breaks are escaped so the table stays a table", async 
   assert.match(out, /^\| 2 \| Gym \| a\\\|b<br>c \|$/m);
 });
 
-test("a sheet over the size ceiling is said to be too big, and gives no rows", async () => {
-  const { store, rules, overrides } = await world({ [SHEET]: new Uint8Array(MAX_SHEET_BYTES + 1) });
+test("a CSV over the sheet ceiling is read as a file instead, in parts, never cut into a table", async () => {
+  const big = `a,b\n${"x,1\n".repeat(Math.ceil(MAX_SHEET_BYTES / 4) + 10)}`;
+  const { store, rules, overrides } = await world({ [SHEET]: big });
   const result = await toolReadSheet(store, "private", rules, overrides, { path: SHEET });
-  assert.equal(result.isError, true);
-  assert.match(text(result), /over the 5 MB a sheet is read at/);
+  assert.doesNotMatch(text(result), /^kind: sheet$/m);
   assert.doesNotMatch(text(result), /^\| line \|/m);
 });
 
-test("a column named line is refused rather than shown with the wrong numbers", async () => {
+test("fetch with from or summary keeps read_file's paging and totals for a long CSV", () => {
+  const app = { client: "claude-code" };
+  assert.equal(translateFetch({ id: "inbox/a.csv", args: { summary: { by: ["month"] } } }, app).name, "read_file");
+  assert.equal(translateFetch({ id: "inbox/a.csv", args: { from: 3 } }, app).name, "read_file");
+  assert.equal(translateFetch({ id: "inbox/a.csv" }, app).name, "read_sheet");
+});
+
+test("a CSV with a column named line is read as a file, never shown with the wrong numbers", async () => {
   const { store, rules, overrides } = await world({ "areas/lines.csv": "line,amount\n7,40\n" });
   const result = await toolReadSheet(store, "private", rules, overrides, { path: "areas/lines.csv" });
-  assert.equal(result.isError, true);
-  assert.match(text(result), /has a column called line/);
+  assert.doesNotMatch(text(result), /^kind: sheet$/m);
 });
 
 test("only a .csv is a sheet; another path is refused by name", async () => {
