@@ -98,4 +98,31 @@ describe("notePathIndex", () => {
     expect(JSON.stringify(asTeam)).not.toContain("pay.md");
     expect(asTeam!.paths).toContain("1-projects/shared-plan.md");
   });
+
+  /**
+   * Sheets are on the export list and nowhere else: a `[[` completion, quick open
+   * and the map list Markdown notes only, exactly as before. The folder archive
+   * asks with `withSheets` and gets the `.csv` files it may see, and a private
+   * sheet is still absent for a team caller.
+   *
+   * Sabotage: `withSheets` ignored in `notePathIndex` fails the second assertion;
+   * `isSheetPath` dropped from the filter fails it the same way.
+   */
+  test("sheets are listed only for the export that asks, and only where they are visible", async () => {
+    const store = bucket();
+    // A sheet in a shared folder, and one in a private folder (`2-areas`): the
+    // exact-note rules address only `.md`, so the private one is held back by
+    // its folder, which is how a sheet is kept private.
+    store.seed("1-projects/budget.csv", "name,amount:usd\n");
+    store.seed("2-areas/salary.csv", "name,amount:usd\n");
+    await shareProjects(store);
+    const served_ = await served(store);
+    const plain = await notePathIndex(served_, clearanceOf("team"));
+    expect(plain!.paths.some((path) => path.endsWith(".csv"))).toBe(false);
+    const archived = await notePathIndex(served_, clearanceOf("team"), true);
+    expect(archived!.paths).toContain("1-projects/budget.csv");
+    expect(archived!.paths.some((path) => path.endsWith(".md"))).toBe(true);
+    expect(archived!.paths).not.toContain("2-areas/salary.csv");
+    expect(JSON.stringify(archived)).not.toContain("salary.csv");
+  });
 });

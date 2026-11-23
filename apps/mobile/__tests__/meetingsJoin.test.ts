@@ -250,6 +250,7 @@ describe("the next-up pill beside the +", () => {
         onNewMeeting: noop,
         onNewNote: noop,
         onNewDrawing: noop,
+        onNewSheet: noop,
         onNewFolder: noop,
         beside: createElement(NextUpPill, { onJoin: noop }),
       }),

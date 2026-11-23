@@ -3,6 +3,7 @@ import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
 import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
+import { SheetView } from "../sheet/SheetView";
 import { PageView } from "../pageView/PageView";
 import { ActivityPage } from "../../activity/ActivityPage";
 import { ACTIVITY_PATH } from "../../activity/activity";
@@ -56,6 +57,7 @@ export function noteDocument(view: NoteView) {
     activityEditable,
     onOpenNote,
     drawing,
+    sheet,
     pageView,
     padding,
     canEdit,
@@ -147,6 +149,7 @@ export function noteDocument(view: NoteView) {
     !passphraseLocked &&
     !state.encrypted &&
     !drawing &&
+    !sheet &&
     !activityList &&
     chipsFit(state.path);
   const adding = addAsked > 0 && wholeEdit !== undefined;
@@ -216,7 +219,7 @@ export function noteDocument(view: NoteView) {
           contact header, Properties or routine bar over it. "Edit as text" is
           a row in the ••• sheet (`pageView/pageText.ts`).
         */}
-        {passphraseLocked || drawing || activityList || pageView ? null : (
+        {passphraseLocked || drawing || sheet || activityList || pageView ? null : (
           <ContactHeader path={state.path} text={presence?.collaboration?.text ?? state.draft} gutter={gutter} />
         )}
         {/*
@@ -224,8 +227,8 @@ export function noteDocument(view: NoteView) {
           2026-10-30), and its front matter is the Excalidraw plugin's
           bookkeeping, not anything a person filed.
         */}
-        <Reveal open={!passphraseLocked && !pageView && !drawing && (frontmatter !== "" || adding)}>
-        {!passphraseLocked && !pageView && !drawing && (frontmatter !== "" || adding) ? (
+        <Reveal open={!passphraseLocked && !pageView && !drawing && !sheet && (frontmatter !== "" || adding)}>
+        {!passphraseLocked && !pageView && !drawing && !sheet && (frontmatter !== "" || adding) ? (
           <Properties
             frontmatter={frontmatter}
             addAsked={addAsked}
@@ -258,7 +261,7 @@ export function noteDocument(view: NoteView) {
           Pause writes `paused: yes` through `wholeEdit`, the Properties
           panel's own path, so the file stays the whole truth.
         */}
-        {passphraseLocked || drawing || activityList || pageView ? null : (
+        {passphraseLocked || drawing || sheet || activityList || pageView ? null : (
           <>
             <NoteRoutineBar text={presence?.collaboration?.text ?? state.draft} onEdit={wholeEdit} gutter={gutter} />
             <RecentRunsSection where="top" gutter={gutter} />
@@ -354,6 +357,25 @@ export function noteDocument(view: NoteView) {
             */
             collaboration={drawingCollaboration}
             fill={!compact}
+          />
+        ) : sheet ? (
+          /*
+            A sheet gets the grid, never the text editor: CSV is not Markdown, and
+            a stray keystroke in a cell is a cell, not a heading.
+
+            Its text goes through `wholeEdit` — the same path a page's edits take —
+            so a save, the merge with a collaborator's typing and the autosave are
+            the ordinary ones, and a read-only viewer gets the grid without a way
+            to change it (`readOnly` is `wholeEdit === undefined`).
+          */
+          <SheetView
+            path={state.path!}
+            text={presence?.collaboration?.text ?? state.draft}
+            readOnly={wholeEdit === undefined}
+            people={presence?.members.map((member) => member.name)}
+            onChangeText={(next) => {
+              wholeEdit?.(() => ({ text: next }));
+            }}
           />
         ) : passphraseLocked ? (
           <LockedNoteView

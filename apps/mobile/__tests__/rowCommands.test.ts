@@ -279,7 +279,7 @@ describe("carrying an intent out", () => {
       destroy: (p: string) => calls.push(`trash:${p}`),
       destroyMany: (ps: readonly string[]) => calls.push(`trashMany:${ps.join(",")}`),
       restoreMany: (ps: readonly string[]) => calls.push(`restoreMany:${ps.join(",")}`),
-      createUntitled: (f: string, kind: "note" | "drawing") =>
+      createUntitled: (f: string, kind: "note" | "drawing" | "sheet") =>
         calls.push(`createUntitled:${kind}:${f}`),
     };
     return { calls, dialogs, files, onDialog: (d: RowIntent) => dialogs.push(d) };

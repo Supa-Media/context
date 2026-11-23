@@ -27,6 +27,7 @@ export type CreateRow =
   | "new-meeting"
   | "new-note"
   | "new-drawing"
+  | "new-sheet"
   | "new-folder";
 
 export interface CreateOffer {
@@ -54,7 +55,7 @@ export function createRows(offer: CreateOffer): CreateRow[] {
   const rows: CreateRow[] = [];
   if (offer.meeting && offer.resume === true) rows.push("resume-meeting");
   if (offer.meeting) rows.push("new-meeting");
-  if (offer.canEdit) rows.push("new-note", "new-drawing", "new-folder");
+  if (offer.canEdit) rows.push("new-note", "new-drawing", "new-sheet", "new-folder");
   return rows;
 }
 

@@ -390,7 +390,7 @@ export const folderPaths = action({
 
 /** See `notePathsHandler` in `lib/filesFns/search.ts`. */
 export const notePaths = action({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: v.id("workspaces"), withSheets: v.optional(v.boolean()) },
   returns: notePathsValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "notePaths" }>> => await notePathsHandler(ctx, args),
 });

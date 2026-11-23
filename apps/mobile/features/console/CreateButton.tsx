@@ -49,6 +49,7 @@ export function CreateButton({
   onNewMeeting,
   onNewNote,
   onNewDrawing,
+  onNewSheet,
   onNewFolder,
   resume = null,
   bottomInset = 0,
@@ -59,6 +60,7 @@ export function CreateButton({
   onNewMeeting: () => void;
   onNewNote: () => void;
   onNewDrawing: () => void;
+  onNewSheet: () => void;
   onNewFolder: () => void;
   /**
    * Carry on recording a meeting that already has a note, or `null` when there
@@ -155,9 +157,10 @@ export function CreateButton({
       if (id === "new-meeting") onNewMeeting();
       if (id === "new-note") onNewNote();
       if (id === "new-drawing") onNewDrawing();
+      if (id === "new-sheet") onNewSheet();
       if (id === "new-folder") onNewFolder();
     },
-    [onNewDrawing, onNewFolder, onNewMeeting, onNewNote, resume],
+    [onNewDrawing, onNewFolder, onNewMeeting, onNewNote, onNewSheet, resume],
   );
 
   if (compact) return null;
@@ -212,6 +215,7 @@ export function CreateButton({
               separatorBefore: true,
             },
             { id: "new-drawing", label: "New drawing", detail: "An Excalidraw canvas." },
+            { id: "new-sheet", label: "New sheet", detail: "A table in a .csv file." },
             { id: "new-folder", label: "New folder" },
           ]}
           onSelect={choose}

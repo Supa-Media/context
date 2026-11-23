@@ -40,6 +40,7 @@ describe("which rows the + draws", () => {
       "new-meeting",
       "new-note",
       "new-drawing",
+      "new-sheet",
       "new-folder",
     ]);
   });
@@ -65,6 +66,7 @@ describe("which rows the + draws", () => {
     expect(createRows({ canEdit: true, meeting: false })).toEqual([
       "new-note",
       "new-drawing",
+      "new-sheet",
       "new-folder",
     ]);
   });

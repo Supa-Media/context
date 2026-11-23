@@ -152,6 +152,7 @@ export function ExplorerDialogs({
           */
           onCreateNote={() => files.createUntitled(dialog.folder, "note")}
           onCreateDrawing={() => files.createUntitled(dialog.folder, "drawing")}
+          onCreateSheet={() => files.createUntitled(dialog.folder, "sheet")}
           onCreateFolder={(name, place) => {
             onClose();
             files.createFolder(place, name, { open: compact });

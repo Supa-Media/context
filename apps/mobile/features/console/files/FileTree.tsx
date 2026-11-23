@@ -21,6 +21,7 @@ import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
 import type { DropZone } from "./treeDrop";
 import { visibilityLabel } from "./types";
+import { isSheetPath } from "../../../../mcp/src/sheets/csv.js";
 
 /**
  * The folder tree.
@@ -367,6 +368,7 @@ function FileRow({
               label={row.label}
               icon={folderIcon}
               note={row.kind !== "folder"}
+              sheet={row.kind === "file" && isSheetPath(row.path)}
               onPress={onIconPress === undefined ? undefined : (anchor) => onIconPress(row.path, anchor)}
               onIntent={onIconIntent === undefined ? undefined : () => onIconIntent(row.path)}
             />
@@ -417,9 +419,12 @@ function FileRow({
   );
 }
 
-/** A Markdown note's row: the only file that can have an icon (`iconGroup`). */
+/**
+ * A note's row, which can take an icon (`iconGroup`): a Markdown note, or a
+ * sheet (`.csv`), which opens like one and is drawn with the table glyph.
+ */
 function isNoteRow(row: TreeRow): boolean {
-  return row.kind === "file" && /\.md$/i.test(row.path);
+  return row.kind === "file" && (/\.md$/i.test(row.path) || isSheetPath(row.path));
 }
 
 /** The canvas's indent: 8pt of leading padding, 12pt more per level. */

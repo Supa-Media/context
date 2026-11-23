@@ -42,9 +42,12 @@ export function TreeFolderGlyph({
   onPress,
   onIntent,
   note = false,
+  sheet = false,
 }: {
   /** A note's glyph rather than a folder's: the plain note icon when it has no emoji. */
   note?: boolean;
+  /** A sheet (`.csv`): the table glyph in place of the plain note icon, when it has no emoji. */
+  sheet?: boolean;
   /** The folder's name, for the button's accessible name. */
   label: string;
   /** Its emoji, or `null` for the plain folder (or note) icon. */
@@ -65,7 +68,7 @@ export function TreeFolderGlyph({
   // Archive's copy of a built-in folder: drawn, like the folder it mirrors, so no picker either.
   const twin = twinJobOfIcon(icon);
   if (twin !== null) return <JobIcon job={twin} size={16} archived testID="tree-folder-twin" />;
-  const plain = <Icon name={note ? "file" : "folder"} size={14} color={colors.chromeMuted} />;
+  const plain = <Icon name={sheet ? "table" : note ? "file" : "folder"} size={14} color={colors.chromeMuted} />;
   const glyph =
     icon === null ? (
       plain

@@ -5,6 +5,7 @@ import { put, type Clipboard } from "../console/files/clipboard";
 import { editorReducer, emptyEditor } from "../console/files/editor";
 import { drawingFileName, ensureMarkdown, knownNotePaths } from "../console/files/paths";
 import { untitledName } from "../console/files/untitled";
+import { isSheetPath, newSheetText } from "../../../mcp/src/sheets/csv.js";
 import { demoNote, useStaticFileBrowser } from "../console/files/useDemoFileBrowser";
 import { NO_PUBLISHED_IMAGES, type PublishedImages } from "../share/publishedImages";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
@@ -208,7 +209,12 @@ export function useLocalFileBrowser(
     (folder: string, name: string) => {
       // Seeded as the console seeds it (`useCreateAndMove`), so a drawing's
       // name opens the drawing editor on a blank canvas, not a note.
-      const made = addNote(treeRef.current, folder, name, isDrawingPath(ensureMarkdown(name)) ? newDrawing() : "");
+      const made = addNote(
+        treeRef.current,
+        folder,
+        name,
+        isSheetPath(name) ? newSheetText() : isDrawingPath(ensureMarkdown(name)) ? newDrawing() : "",
+      );
       if (made === null) return;
       change(made.tree);
       reveal(made.path);
@@ -351,7 +357,7 @@ export function useLocalFileBrowser(
       createNote,
       createDrawing: (folder: string, name: string) => createNote(folder, drawingFileName(name)),
       createFolder,
-      createUntitled: (folder: string, kind: "note" | "drawing") =>
+      createUntitled: (folder: string, kind: "note" | "drawing" | "sheet") =>
         createNote(folder, untitledName(treeRef.current.listings, folder, kind, new Date())),
       rename: (path: string, name: string) => reshape(path, renamePath(treeRef.current, path, name)),
       move: (path: string, destination: string) => reshape(path, movePath(treeRef.current, path, destination)),

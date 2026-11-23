@@ -107,7 +107,7 @@ export type FileOperation =
       refreshOnMiss?: boolean;
       half?: "words" | "meaning";
     }
-  | { kind: "notePaths" }
+  | { kind: "notePaths"; withSheets?: boolean }
   | { kind: "workspaceGraph"; compact?: boolean }
   | { kind: "visiblePaths"; paths: string[] }
   | { kind: "maintainIndex"; passes?: number }

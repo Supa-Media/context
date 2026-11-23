@@ -487,7 +487,7 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * type in. `untitled-2026-09-19/` in somebody's bucket, renameable only from
    * a row menu, is a worse trade than one text field.
    */
-  createUntitled: (folder: string, kind: "note" | "drawing") => void;
+  createUntitled: (folder: string, kind: "note" | "drawing" | "sheet") => void;
   rename: (path: string, name: string) => void;
   move: (path: string, destinationFolder: string) => void;
   /**

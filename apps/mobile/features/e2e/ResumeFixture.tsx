@@ -328,6 +328,7 @@ function ConsoleBoard({ surface, noteOpen }: { surface: "menu" | "aside"; noteOp
           onCancel={() => {}}
           onCreateNote={() => {}}
           onCreateDrawing={() => {}}
+          onCreateSheet={() => {}}
           onCreateFolder={() => {}}
           onNewMeeting={() => {}}
           onResumeMeeting={resume}

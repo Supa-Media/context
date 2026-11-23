@@ -65,6 +65,7 @@ export function CreatePrompt({
   onCancel,
   onCreateNote,
   onCreateDrawing,
+  onCreateSheet,
   onCreateFolder,
   folders = [""],
   rootLabel = "Your workspace",
@@ -82,6 +83,7 @@ export function CreatePrompt({
   /** Both of these make the thing immediately. Nothing is named here. */
   onCreateNote: () => void;
   onCreateDrawing: () => void;
+  onCreateSheet: () => void;
   /** `place` is where the form put it: `folder` unless somebody picked another. */
   onCreateFolder: (name: string, place: string) => void;
   /** Every folder the New folder form's place picker offers. */
@@ -143,6 +145,7 @@ export function CreatePrompt({
               onCancel();
               if (row === "new-note") onCreateNote();
               if (row === "new-drawing") onCreateDrawing();
+              if (row === "new-sheet") onCreateSheet();
               if (row === "new-meeting") onNewMeeting?.();
               if (row === "resume-meeting") onResumeMeeting?.onResume();
             }}
@@ -176,6 +179,7 @@ const ROW_LABELS: Record<CreateRow, string> = {
   "new-meeting": "New meeting",
   "new-note": "New note",
   "new-drawing": "New drawing",
+  "new-sheet": "New sheet",
   "new-folder": "New folder",
 };
 
@@ -185,6 +189,7 @@ const ROW_TITLES: Record<CreateRow, string> = {
   "new-meeting": "Meeting",
   "new-note": "Note",
   "new-drawing": "Drawing",
+  "new-sheet": "Sheet",
   "new-folder": "Folder",
 };
 
@@ -194,6 +199,7 @@ const ROW_SUBS: Record<CreateRow, string> = {
   "new-meeting": "Records into your inbox. It asks before it listens.",
   "new-note": "A markdown file you can write in.",
   "new-drawing": "An Excalidraw canvas. Opens in Obsidian too.",
+  "new-sheet": "A table of rows and typed columns, in a .csv file.",
   "new-folder": "A place to file notes. Nest them as deep as you like.",
 };
 

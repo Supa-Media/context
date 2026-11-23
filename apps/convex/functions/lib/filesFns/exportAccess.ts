@@ -62,7 +62,7 @@ export async function exportAccessHandler(
   const within = (path: string) => folder === "" || path === folder || path.startsWith(`${folder}/`);
   const visible = (path: string) => canSee(path, clearance.scope, rules, overrides, clearance.names);
 
-  const answer = await notePathsHandler(ctx, { workspaceId: args.workspaceId });
+  const answer = await notePathsHandler(ctx, { workspaceId: args.workspaceId, withSheets: true });
   const listed = answer.paths ?? (answer.pathChunks === undefined ? null : answer.pathChunks.flat());
   if (listed === null) return { mode: "rows", chunks: null, access: "" };
 

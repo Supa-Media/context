@@ -14,6 +14,7 @@
  */
 
 import { isDrawingPath } from "@context/drawings";
+import { isSheetPath, SHEET_EXTENSION } from "../../../../mcp/src/sheets/csv.js";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
 import { restoreTarget } from "@context/shared/src/archiveMirror.cjs";
@@ -336,6 +337,15 @@ export function ensureMarkdown(name: string): string {
 export function drawingFileName(rawName: string): string {
   const trimmed = rawName.trim();
   return isDrawingPath(ensureMarkdown(trimmed)) ? trimmed : `${trimmed}.excalidraw`;
+}
+
+/**
+ * The name New sheet creates a file under: `<name>.csv`, unless the person
+ * already typed it. Like a drawing, a person names the sheet, not the format.
+ */
+export function sheetFileName(rawName: string): string {
+  const trimmed = rawName.trim();
+  return isSheetPath(trimmed) ? trimmed : `${trimmed}${SHEET_EXTENSION}`;
 }
 
 /**

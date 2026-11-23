@@ -54,11 +54,12 @@ export function untitledStem(now: Date): string {
 }
 
 /** What a new thing of this kind is called before anybody has named it. */
-export type UntitledKind = "note" | "drawing" | "folder";
+export type UntitledKind = "note" | "drawing" | "sheet" | "folder";
 
 function suffixFor(kind: UntitledKind): string {
   if (kind === "note") return ".md";
   if (kind === "drawing") return ".excalidraw.md";
+  if (kind === "sheet") return ".csv";
   return "";
 }
 
@@ -102,7 +103,7 @@ export function untitledName(
  * is their name for it and is never renamed out from under them — which is the
  * whole reason this matches a date rather than the word.
  */
-const GENERATED = /^untitled-\d{4}-\d{2}-\d{2}(-\d+)?(\.excalidraw)?(\.md)?$/i;
+const GENERATED = /^untitled-\d{4}-\d{2}-\d{2}(-\d+)?((\.excalidraw)?(\.md)?|\.csv)$/i;
 
 export function isUntitled(path: string): boolean {
   return GENERATED.test(baseName(path));

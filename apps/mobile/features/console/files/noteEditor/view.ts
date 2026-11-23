@@ -27,6 +27,8 @@ export type NoteView = Omit<NoteEditorProps, "activityShared" | "activityEditabl
   editable: boolean;
   passphraseLocked: boolean;
   drawing: boolean;
+  /** A `.csv` note drawn as a sheet (`SheetView`) rather than as text. */
+  sheet: boolean;
   activityList: boolean;
   /** A `.page.md` note drawn as the page (rather than its text) right now. */
   pageView: boolean;

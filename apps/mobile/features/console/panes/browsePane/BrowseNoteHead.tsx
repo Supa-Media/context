@@ -13,6 +13,7 @@ import type { MeetingSummary } from "../../../meetings/useMeetingSummary";
 import { RedoSummary } from "./RedoSummary";
 import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
+import { isSheetPath } from "../../../../../mcp/src/sheets/csv.js";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
 import { InTrashPill, RestoreButton, trashedViewOf } from "../../files/noteEditor/trashed";
@@ -234,7 +235,11 @@ export function BrowseNoteHead({
             presence?.members,
           )
         : null}
-      {selected.kind === "file" && trashed === undefined ? (
+      {/*
+        Not for a sheet: the grid is the page, with no Markdown to read apart
+        from it, so the eye would toggle nothing.
+      */}
+      {selected.kind === "file" && trashed === undefined && !isSheetPath(selected.path) ? (
         <FrameIconButton
           icon={reading ? "pencil" : "eye"}
           label={reading ? "Edit this note" : "Read this note"}

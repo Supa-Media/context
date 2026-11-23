@@ -18,7 +18,7 @@ import { toFileError } from "../browser";
 import { type ReadResult, archiveEntries, collectNotes, collectOldCopies, downloadNotice, pathsUnder } from "../download";
 import { collectMessages, messagesFolderFor } from "../messagesDownload";
 import { collectChatLedgers, isHistoryView } from "../ledgerDownload";
-import { buildZip, downloadName } from "../zip";
+import { buildZip, downloadName, fileDownload } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
 import {
@@ -307,11 +307,8 @@ export function useRowCommands(deps: RowCommandsDeps) {
         try {
           if (kind === "file") {
             const note = await readNote({ workspaceId, path });
-            const saved = saveFile(
-              downloadName(path, ".md"),
-              new TextEncoder().encode(note.text),
-              "text/markdown;charset=utf-8",
-            );
+            const { name, type } = fileDownload(path);
+            const saved = saveFile(name, new TextEncoder().encode(note.text), type);
             setNotice(
               saved
                 ? downloadNotice("file", 1, 0)
@@ -330,7 +327,9 @@ export function useRowCommands(deps: RowCommandsDeps) {
             listedPaths = plan.chunks === null ? null : plan.chunks.flat();
             access = plan.access;
           } else {
-            const answer = await notePathsAction({ workspaceId });
+            // With sheets: a folder's `.csv` files are part of its archive, and
+            // no other reader of this list asks for them (`notePathIndex`).
+            const answer = await notePathsAction({ workspaceId, withSheets: true });
             listedPaths = answer.pathChunks?.flat() ?? answer.paths;
           }
           if (listedPaths === null) {

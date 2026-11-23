@@ -41,6 +41,7 @@ import { drawingName, isDrawingPath } from "@context/drawings";
 import { MARKER_RE } from "@context/shared/src/comments.cjs";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { standardEmojiNamed } from "./emoji/standardEmoji";
+import { isSheetPath } from "../../../../mcp/src/sheets/csv.js";
 import { withoutSortPrefix } from "./paths";
 
 import { stripFrontmatter } from "../../share/markdown";
@@ -194,6 +195,16 @@ function statedTitle(frontmatter: string): string | null {
 }
 
 function headingText(source: string, path: string): string {
+  /*
+    A sheet is not a document and has no title of its own: its name is the
+    file's, with the `.csv` taken off, which is what the breadcrumb and the tab
+    show. Read before the body, because a sheet's text is CSV and a cell that
+    starts with `# ` is data, never a heading.
+  */
+  if (isSheetPath(path)) {
+    const name = withoutSortPrefix(path.slice(path.lastIndexOf("/") + 1)).replace(/\.csv$/i, "").trim();
+    return name !== "" ? name : path.slice(path.lastIndexOf("/") + 1);
+  }
   const { frontmatter, body } = splitNote(source);
 
   const stated = statedTitle(frontmatter);

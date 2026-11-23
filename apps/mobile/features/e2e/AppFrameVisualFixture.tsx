@@ -421,6 +421,7 @@ export function AppFrameVisualFixture({
           onNewMeeting={() => {}}
           onNewNote={() => {}}
           onNewDrawing={() => {}}
+          onNewSheet={() => {}}
           onNewFolder={() => {}}
           /*
             Offered on this board, because the question it is gated on in the

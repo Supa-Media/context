@@ -73,6 +73,11 @@ export const ICON_NAMES = [
   "pin",
   "file",
   /**
+   * A sheet (`.csv`) in the tree: a rounded rectangle with one rule across its
+   * top, the header, and one down the middle, the columns. See `files.tsx`.
+   */
+  "table",
+  /**
    * Copy, drawn as the two sheets every platform draws it as.
    *
    * Added for the Copy control on a meeting note — at the time, the only way

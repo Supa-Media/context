@@ -131,6 +131,7 @@ export function MeetingJoinFixture({ view }: { view?: string }) {
           onNewMeeting={() => {}}
           onNewNote={() => {}}
           onNewDrawing={() => {}}
+          onNewSheet={() => {}}
           onNewFolder={() => {}}
           beside={<NextUpPill onJoin={() => {}} />}
         />
