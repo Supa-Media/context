@@ -105,3 +105,14 @@ and its own object only for an id not indexed yet. The id stays a locator:
 the chat still checks the address's token. Without the index, deleting the
 Worker's objects breaks every picture Tex sends and every jobs page link.
 Reverting it fails `apps/mcp/test/texChatById.test.mjs`.
+
+## Archive before the Worker's boxes are deleted
+
+Decided by the owner, 2026-11-23. Before the texting Worker's `SenderInbox` class is deleted (a `deleted_classes`
+migration, which cannot be undone), every box that still holds data no name Tex knows leads to is copied whole into a
+sealed gateway archive: a `TexChat` object of its own, `archive:<worker object id>`, written once through `TexTexts`
+`/texts/worker-archive` (`packages/tex/gateway/texChat/workerArchive.js`). Nothing reads an archive back and nothing
+answers its values; it lives where the moved chats live, in the gateway's own objects. The class is deleted only after
+the archive and a census show nothing left that is neither moved nor archived. A simplification that deletes without
+the archive loses what the census could only see by key name. `apps/mcp/test/texChatWorkerArchive.test.mjs` fails if an
+archive can be replaced or read.

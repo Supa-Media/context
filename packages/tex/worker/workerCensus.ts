@@ -147,3 +147,76 @@ export async function adoptable(here: HereObject[], ask: (id: string) => Promise
   }
   return found;
 }
+
+/** The path an object answers its whole storage on, for the archive: only `TexRoutines.archive`, inside this Worker, asks it. */
+export const EXPORT_PATH = "/__census/export";
+/** The most keys one box exports; the gateway's archive refuses more whole (`texChat/workerArchive.js` `ARCHIVE_KEYS`). */
+export const EXPORT_KEYS = 2000;
+
+/** A stored value made plain JSON: bytes as base64 under `__bytes`, a Map or a Set as its entries, a Date as its time. */
+export function plainValue(value: unknown, depth = 0): unknown {
+  if (depth > 32) return null;
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return { __bytes: btoa(binary) };
+  }
+  if (value instanceof Map) return { __map: [...value.entries()].map(([key, item]) => [plainValue(key, depth + 1), plainValue(item, depth + 1)]) };
+  if (value instanceof Set) return { __set: [...value].map((item) => plainValue(item, depth + 1)) };
+  if (value instanceof Date) return { __date: value.getTime() };
+  if (Array.isArray(value)) return value.map((item) => plainValue(item, depth + 1));
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, plainValue(item, depth + 1)]));
+  return value;
+}
+
+/** Every key this object holds with its value, plain (`plainValue`), or null when it holds more than `EXPORT_KEYS`. */
+export async function exportOf(storage: { list(options?: { limit?: number }): Promise<Map<string, unknown>> }): Promise<[string, unknown][] | null> {
+  const all = await storage.list({ limit: EXPORT_KEYS + 1 });
+  if (all.size > EXPORT_KEYS) return null;
+  return [...all.entries()].map(([key, value]) => [key, plainValue(value)]);
+}
+
+export type ArchiveCounts = { asked: number; archived: number; already: number; notHere: number; tooBig: number; failed: number };
+
+/**
+ * Each object named by id that still holds data no name leads to (`here`), copied whole to the gateway's archive
+ * (`keep`), at most `CENSUS_BATCH`. Moved, purged and empty objects are left alone; nothing is deleted here.
+ */
+export async function archive(
+  ids: unknown,
+  deps: { census: (id: string) => Promise<ObjectCensus | null>; export: (id: string) => Promise<[string, unknown][] | null>; keep: (id: string, entries: [string, unknown][]) => Promise<"kept" | "already" | "failed"> },
+): Promise<ArchiveCounts> {
+  if (!Array.isArray(ids) || ids.length > CENSUS_BATCH) throw new TypeError(`an archive names at most ${CENSUS_BATCH} object ids`);
+  const counts: ArchiveCounts = { asked: ids.length, archived: 0, already: 0, notHere: 0, tooBig: 0, failed: 0 };
+  for (const id of ids) {
+    if (typeof id !== "string" || !OBJECT_ID.test(id)) {
+      counts.failed += 1;
+      continue;
+    }
+    const state = await deps.census(id).catch(() => null);
+    if (state === null) {
+      counts.failed += 1;
+      continue;
+    }
+    if (state.state !== "here") {
+      counts.notHere += 1;
+      continue;
+    }
+    const entries = await deps.export(id).catch(() => undefined);
+    if (entries === undefined) {
+      counts.failed += 1;
+      continue;
+    }
+    if (entries === null) {
+      counts.tooBig += 1;
+      continue;
+    }
+    const kept = await deps.keep(id, entries).catch(() => "failed" as const);
+    if (kept === "kept") counts.archived += 1;
+    else if (kept === "already") counts.already += 1;
+    else counts.failed += 1;
+  }
+  console.log(JSON.stringify({ event: "worker_archive", ...counts }));
+  return counts;
+}

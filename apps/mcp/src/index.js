@@ -110,6 +110,7 @@ import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { TexStore as TexStoreDurableObject } from "../../../packages/tex/gateway/texStore.js";
 import { texChatClass } from "../../../packages/tex/gateway/texChat.js";
 import { chatByIdForTexts, TEXTS_CHAT_BY_ID_PREFIX } from "../../../packages/tex/gateway/texChat/byId.js";
+import { archiveForTexts, TEXTS_ARCHIVE_PATH } from "../../../packages/tex/gateway/texChat/workerArchive.js";
 import { arriveForTexts, chatCallForTexts, jobCallForTexts, TEXTS_ARRIVE_PATH, TEXTS_CHAT_CALL_PREFIX, TEXTS_JOB_CALL_PREFIX } from "../../../packages/tex/gateway/agent/textsArrive.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../../../packages/tex/gateway/agent/textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../../../packages/tex/gateway/agent/textsEdit.js";
@@ -238,6 +239,7 @@ export const TexTexts = {
       if (path.startsWith(TEXTS_CHAT_CALL_PREFIX)) return await chatCallForTexts(request, env);
       if (path.startsWith(TEXTS_JOB_CALL_PREFIX)) return await jobCallForTexts(request, env);
       if (path.startsWith(TEXTS_CHAT_BY_ID_PREFIX)) return await chatByIdForTexts(request, env);
+      if (path === TEXTS_ARCHIVE_PATH) return await archiveForTexts(request, env);
       return await openTextsSession(request, env, ctx);
     } catch {
       // The Worker reads anything but a linked answer as "ask Convex".

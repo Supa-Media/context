@@ -746,6 +746,7 @@ test/appChatAnswer.test.mjs
 test/texChatAppReach.test.mjs
 test/texChatDirectory.test.mjs
 test/texChatById.test.mjs
+test/texChatWorkerArchive.test.mjs
 test/noteRunLab.test.mjs
 test/searchConfig.test.mjs
 test/searchOpens.test.mjs

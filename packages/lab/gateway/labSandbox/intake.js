@@ -22,7 +22,9 @@
  *    data also says which kind of chat it was made from (`1:1`, `group`, `directory`, or null when no name Tex knows
  *    hashes to it) and whether the gateway holds that chat, with its masked key names; never the name. With `move: true`
  *    too, a 1:1 object no known name matched works out its own from the chat it last answered (checked against its id
- *    in the Worker) and is copied into the gateway: `adopted` counts them.
+ *    in the Worker) and is copied into the gateway: `adopted` counts them. With `archive: true` instead, each object
+ *    still holding data is copied whole into a sealed gateway archive (`texChat/workerArchive.js`) that no request
+ *    reads back, before the class is deleted (Dev2, 2026-11-23); counts only.
  *
  * Nothing here answers or logs an inbox's name: a 1:1's is the person's phone number, and a group's its line's id.
  */
@@ -122,6 +124,10 @@ async function workerCensus(env, input, { controlPlane, token }) {
   if (listed.status === "refused") return refused(403, "Only staff count the Worker's objects.");
   if (listed.status !== "ok") return refused(502, `the control plane answered ${listed.status} to the chat list`);
   if (input.workerIds.length > 50 || input.workerIds.some((id) => typeof id !== "string" || !CHAT_KEY.test(id))) return refused(400, "workerIds: at most 50 object ids, each 64 hex.");
+  if (input.archive === true) {
+    if (typeof env.TEXTING.archive !== "function") return refused(501, "this deployment's texting Worker keeps no archive");
+    return json(await env.TEXTING.archive({ ids: input.workerIds }));
+  }
   if (input.match !== true) return json(await env.TEXTING.census({ ids: input.workerIds }));
   // Every name Tex can work out for a chat: each linked phone's 1:1, each group's directory entry and its group chat.
   // The Worker hashes them and answers, for each object still holding data, which one it was made from by index; the

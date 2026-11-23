@@ -21,7 +21,7 @@ import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./
 import { readMailDelivery } from "./jobMail";
 import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
 import { jobObject } from "./jobObject";
-import { adoptable, census, CENSUS_PATH, namesById, SELF_NAMES_PATH, type Adoptable, type CensusCounts, type ObjectCensus } from "./workerCensus";
+import { adoptable, archive, census, CENSUS_PATH, EXPORT_PATH, namesById, SELF_NAMES_PATH, type Adoptable, type ArchiveCounts, type CensusCounts, type ObjectCensus } from "./workerCensus";
 import { objectById, objectIdText } from "./objectPlace";
 import type { TextsBinding } from "./gatewaySession";
 import { chatMove as moveChat } from "./gatewayMove";
@@ -93,6 +93,36 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     return { ...counts, adoptable: found };
   }
 
+
+  /**
+   * Each object named by id that still holds data no name leads to, copied whole into the gateway's archive
+   * (`/texts/worker-archive`, `texChat/workerArchive.js`) before the SenderInbox class is deleted; nothing is deleted
+   * here. The Lab's staff `intake` op asks it (Dev2, 2026-11-23).
+   */
+  async archive(call: { ids?: unknown } | null): Promise<ArchiveCounts> {
+    const ask = async (id: string, path: string): Promise<Response | null> => {
+      const stub = objectById(this.env.SENDER_INBOX, id);
+      return stub === null ? null : await stub.fetch(`https://inbox${path}`);
+    };
+    return await archive(call?.ids, {
+      census: async (id) => {
+        const answer = await ask(id, CENSUS_PATH);
+        return answer?.ok ? ((await answer.json()) as ObjectCensus) : null;
+      },
+      export: async (id) => {
+        const answer = await ask(id, EXPORT_PATH);
+        if (!answer?.ok) throw new Error("export failed");
+        return (await answer.json()) as [string, unknown][] | null;
+      },
+      keep: async (id, entries) => {
+        if (this.env.GATEWAY_TEXTS === undefined) return "failed";
+        const answer = await this.env.GATEWAY_TEXTS.fetch("https://gateway/texts/worker-archive", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, entries }) });
+        if (!answer.ok) return "failed";
+        const body = (await answer.json().catch(() => ({}))) as { kept?: unknown; already?: unknown };
+        return body.already === true ? "already" : body.kept === true ? "kept" : "failed";
+      },
+    });
+  }
 
   /** The id a chat had here, for the addresses its pictures and pages are served at (`chatCalls.ts`). */
   async inboxId(call: { name?: unknown } | null): Promise<string> {
