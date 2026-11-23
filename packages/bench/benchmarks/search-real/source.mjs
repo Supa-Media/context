@@ -5,7 +5,7 @@
  * `cases` (a file path), never kept in the repository.
  */
 
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,10 +33,16 @@ export function realSetOf(cases) {
   return { notes, cases: cases.map(({ notes: _notes, ...c }) => ({ ...c, in: c.in ?? null, forbid: c.forbid ?? [] })) };
 }
 
-/** A visible part, or the file the gate hands in. */
+/**
+ * A visible part, or the file the gate hands in. A part is `<part>.json` and any `<part>-<n>.json` beside it, so a
+ * growing part stays in files under the line limit.
+ */
 export async function readPart(part, file = null) {
-  if (!file && !PARTS.includes(part)) throw new Error(`--part is one of ${PARTS.join(", ")}`);
-  return JSON.parse(await readFile(file ?? join(HERE, `${part}.json`), "utf8"));
+  if (file) return JSON.parse(await readFile(file, "utf8"));
+  if (!PARTS.includes(part)) throw new Error(`--part is one of ${PARTS.join(", ")}`);
+  const more = (await readdir(HERE)).filter((name) => new RegExp(`^${part}-\\d+\\.json$`).test(name)).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
+  const files = [`${part}.json`, ...more];
+  return (await Promise.all(files.map(async (name) => JSON.parse(await readFile(join(HERE, name), "utf8"))))).flat();
 }
 
 /** The run's one world: a part (Dev by default) over the bench's own workspaces. */

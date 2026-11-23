@@ -162,5 +162,97 @@
    "@woodshop/inbox/cinderlake-photographer-email.md": "# Cinderlake photographer email\n\nFrom the photographer about the Cinderlake shoot.\n\nHi John, I can do Nov 8 for the Cinderlake shelves, but I need the piece list by the Wednesday before. If the weather turns, I can move to the following Monday, but please tell me by the Friday.\n\nNote from John: Nov 8 is still the plan for Cinderlake. Sent the list.\n",
    "@john/notes/brackenfield-shoot-dates.md": "# Brackenfield shoot dates\n\nDates for the Brackenfield commission photographs, a different job.\n\n- Nov 8: photographs of the finished dining table, in the client's house. Not the workshop.\n- Nov 22: the client's second table, if the first one passes.\n- Dec 3: install photographs, with the client present.\n\nThese are for the client, not the catalogue. Keep them separate from the Cinderlake catalogue work.\n"
   }
+ },
+ {
+  "id": "real-s32-a",
+  "source": "s32",
+  "kind": "title-only",
+  "query": "VAT",
+  "as": "Priya",
+  "expect": [
+   "@priya/projects/bakery-company-setup/task-vat-and-bank.md"
+  ],
+  "notes": {
+   "@priya/projects/bakery-company-setup/task-vat-and-bank.md": "# Task: VAT and bank account\n\nStatus: in progress. Owner: Priya.\n\n- [x] Apply for the VAT (value added tax number) online\n- [ ] Wait for the letter, about two weeks\n- [ ] Open the business account at Northern Bank once the number arrives\n- [ ] Add the number to the invoice template\n",
+   "@priya/projects/bakery-company-setup/overview.md": "# Crumb & Co setup\n\nRegistering Crumb & Co: name check, registration, tax number, bank, insurance. Each step is a task note in this folder. Target: trading by January.\n",
+   "@priya/tex/dreams/2026-10-29.md": "# Dream, 29 October\n\nPriya is setting up Crumb & Co. The VAT has not come yet; VAT first, then the bank. Ask about the VAT letter next week. The VAT also goes on invoices.\n",
+   "@priya/tex/routines/once/ask-about-vat.md": "---\nat: 2026-11-05 9:00 am\n---\n\nAsk Priya whether the VAT letter has arrived, and if the VAT is in, remind them about the bank.\n"
+  }
+ },
+ {
+  "id": "real-s32-b",
+  "source": "s32",
+  "kind": "title-only",
+  "query": "UTR",
+  "as": "Kofi",
+  "expect": [
+   "@studio/projects/company-setup/task-utr-and-bank.md"
+  ],
+  "notes": {
+   "@studio/projects/company-setup/task-utr-and-bank.md": "# Task: UTR and bank account\n\nStatus: in progress. Owner: Kofi.\n\n- [x] Apply for the UTR (unique taxpayer reference) online\n- [ ] Wait for the letter, about two weeks\n- [ ] Open the business account at Tide once the number arrives\n- [ ] Add the number to the invoice template\n",
+   "@studio/projects/company-setup/overview.md": "# Northside Studio Ltd setup\n\nRegistering Northside Studio Ltd: name check, registration, tax number, bank, insurance. Each step is a task note in this folder. Target: trading by January.\n",
+   "@studio/tex/dreams/2026-10-29.md": "# Dream, 29 October\n\nKofi is setting up Northside Studio Ltd. The UTR has not come yet; UTR first, then the bank. Ask about the UTR letter next week. The UTR also goes on invoices.\n",
+   "@studio/tex/routines/once/ask-about-utr.md": "---\nat: 2026-11-05 9:00 am\n---\n\nAsk Kofi whether the UTR letter has arrived, and if the UTR is in, remind them about the bank.\n"
+  }
+ },
+ {
+  "id": "real-s41-a",
+  "source": "s41",
+  "kind": "paraphrase",
+  "query": "Brightdesk unbilled hours freelancers",
+  "as": "Kofi",
+  "expect": [
+   "@studio/projects/brightdesk-timesheets/unbilled-hours.page.md"
+  ],
+  "notes": {
+   "@studio/projects/brightdesk-timesheets/unbilled-hours.page.md": "---\nskill: pages-e47b7461\n---\n\n# Brightdesk: hours not billed yet\n\n| Who | Hours | Week |\n|---|---|---|\n| Ada | 6 | 3 Nov |\n| Lena | 4.5 | 10 Nov |\n\nTotal 10.5 hours, about $630. Send with the month-end invoice.\n",
+   "@studio/inbox/email/2026-11-12-brightdesk.md": "# Brightdesk: timesheets\n\nHi, our system shows timesheets not yet approved for November. Please log in to Brightdesk to approve hours. Unbilled shifts will roll into next month.\n",
+   "@studio/areas/finance/invoices.md": "# Invoices\n\nMonth-end invoices go out on the last working day. Timesheets from Brightdesk and the rota feed in. Unpaid or unbilled items carry over.\n"
+  }
+ },
+ {
+  "id": "real-s41-b",
+  "source": "s41",
+  "kind": "paraphrase",
+  "query": "Harbourline timecard unbilled shifts",
+  "as": "Priya",
+  "expect": [
+   "@day-job/projects/harbourline-rota/unbilled-hours.page.md"
+  ],
+  "notes": {
+   "@day-job/projects/harbourline-rota/unbilled-hours.page.md": "---\nskill: pages-e47b7461\n---\n\n# Harbourline: hours not billed yet\n\n| Who | Hours | Week |\n|---|---|---|\n| Owen | 6 | 3 Nov |\n| Ines | 4.5 | 10 Nov |\n\nTotal 10.5 hours, about $480. Send with the month-end invoice.\n",
+   "@day-job/inbox/email/2026-11-12-harbourline.md": "# Harbourline: timesheets\n\nHi, our system shows timesheets not yet approved for November. Please log in to Harbourline to approve hours. Unbilled shifts will roll into next month.\n",
+   "@day-job/areas/finance/invoices.md": "# Invoices\n\nMonth-end invoices go out on the last working day. Timesheets from Harbourline and the rota feed in. Unpaid or unbilled items carry over.\n"
+  }
+ },
+ {
+  "id": "real-s48-a",
+  "source": "s48",
+  "kind": "near-duplicate",
+  "query": "Ondine shoot walking clips todo",
+  "as": "Priya",
+  "expect": [
+   "@fashion-brand/projects/ondine-video-shoot/task-website-videos.md"
+  ],
+  "notes": {
+   "@fashion-brand/projects/ondine-video-shoot/task-website-videos.md": "# Task: Walking clips for the website\n\nStatus: to do.\n\n- [ ] Pick four walking clips from day one\n- [ ] Trim each to six seconds\n- [ ] Send the picks to John\n",
+   "@fashion-brand/projects/ondine-video-shoot/task-video-direction.md": "# Task: Video direction\n\nStatus: in progress.\n\n- [x] Moodboard\n- [ ] Shot list for the Ondine shoot\n",
+   "@fashion-brand/projects/ondine-video-shoot/overview.md": "# Ondine video shoot\n\nThe Ondine shoot: walking clips for the website, video direction, editing. Each is a task note here.\n"
+  }
+ },
+ {
+  "id": "real-s48-b",
+  "source": "s48",
+  "kind": "near-duplicate",
+  "query": "Birchgrove catalogue close-ups todo",
+  "as": "John",
+  "expect": [
+   "@woodshop/projects/birchgrove-catalogue/task-detail-shots.md"
+  ],
+  "notes": {
+   "@woodshop/projects/birchgrove-catalogue/task-detail-shots.md": "# Task: Close-up detail shots\n\nStatus: to do.\n\n- [ ] Grain close-ups of the three tables\n- [ ] Joint close-ups, dovetails first\n- [ ] Send the picks to Maya\n",
+   "@woodshop/projects/birchgrove-catalogue/task-lighting.md": "# Task: Lighting plan\n\nStatus: in progress.\n\n- [x] Moodboard\n- [ ] Shot list for the Birchgrove shoot\n",
+   "@woodshop/projects/birchgrove-catalogue/overview.md": "# Birchgrove catalogue\n\nThe Birchgrove shoot: close-up detail shots, lighting plan, editing. Each is a task note here.\n"
+  }
  }
 ]

@@ -1,0 +1,366 @@
+[
+ {
+  "id": "real-s30-a",
+  "source": "s30",
+  "kind": "title-only",
+  "query": "packing list",
+  "as": "Priya",
+  "expect": [
+   "@priya/inbox/Packing List.md"
+  ],
+  "notes": {
+   "@priya/inbox/Packing List.md": "# Packing List\n\n- oat milk\n- sun cream\n- plug adapter\n- batteries (AA)\n- bin bags\n- swim goggles\n\nAdd to it whenever something runs out. Cross off once it is in the bag.\n",
+   "@priya/tex/reviews/2026-11-02 1710 goal 3 37aacf.md": "# Review: goal 3, 2 November\n\nAsked: \"add sun cream to my packing list\". Tex searched for the packing list, did not open the packing list note, and wrote a new packing list instead. The packing list already existed. Score 2/5. The fix: open the packing list before writing a second packing list.\n",
+   "@priya/inbox/sessions/2026-11-03-assistant.md": "# Assistant session, 3 November\n\nThe person asked for the packing list twice. First the packing list search returned this session log, then a review quoting the packing list. The packing list is kept in the inbox. Next time read the packing list straight away.\n"
+  }
+ },
+ {
+  "id": "real-s30-b",
+  "source": "s30",
+  "kind": "title-only",
+  "query": "shopping list",
+  "as": "Kofi",
+  "expect": [
+   "@kofi/inbox/Shopping List.md"
+  ],
+  "notes": {
+   "@kofi/inbox/Shopping List.md": "# Shopping List\n\n- oat milk\n- coffee beans\n- dish soap\n- batteries (AA)\n- bin bags\n- masking tape\n\nAdd to it whenever something runs out. Cross off once it is in the bag.\n",
+   "@kofi/tex/reviews/2026-11-02 1710 goal 3 37aacf.md": "# Review: goal 3, 2 November\n\nAsked: \"add coffee beans to my shopping list\". Tex searched for the shopping list, did not open the shopping list note, and wrote a new shopping list instead. The shopping list already existed. Score 2/5. The fix: open the shopping list before writing a second shopping list.\n",
+   "@kofi/inbox/sessions/2026-11-03-assistant.md": "# Assistant session, 3 November\n\nThe person asked for the shopping list twice. First the shopping list search returned this session log, then a review quoting the shopping list. The shopping list is kept in the inbox. Next time read the shopping list straight away.\n"
+  }
+ },
+ {
+  "id": "real-s31-a",
+  "source": "s31",
+  "kind": "title-only",
+  "query": "dumplings",
+  "as": "Priya",
+  "expect": [
+   "@the-flat/resources/Priya likes dumplings.md"
+  ],
+  "notes": {
+   "@the-flat/resources/Priya likes dumplings.md": "# Priya likes dumplings\n\nFavourite spots: Dumpling House on Clark and the stall at the Sunday market. Orders: pork and chive, chilli oil. Not a fan of anything too sweet. Good for a birthday treat or a thank-you.\n",
+   "@the-flat/tex/reviews/2026-10-27 1504 goal 4 77c1aa.md": "# Review: goal 4, 27 October\n\nThe chat asked where to get dumplings for Priya. Tex suggested a chain place rather than the dumplings spots Priya likes. Dumplings came up three times; Tex never read the note about dumplings. Score 3/5.\n",
+   "@the-flat/projects/house-party/food.md": "# House party food\n\nPizza from the corner place, salad, and maybe dumplings if someone picks it up. Drinks: everyone brings one. Budget about $80 split three ways.\n"
+  }
+ },
+ {
+  "id": "real-s31-b",
+  "source": "s31",
+  "kind": "title-only",
+  "query": "tacos",
+  "as": "Kofi",
+  "expect": [
+   "@the-flat/resources/John likes tacos.md"
+  ],
+  "notes": {
+   "@the-flat/resources/John likes tacos.md": "# John likes tacos\n\nFavourite spots: Taqueria Ruiz and the truck by the hardware store. Orders: al pastor, extra lime. Not a fan of anything too sweet. Good for a birthday treat or a thank-you.\n",
+   "@the-flat/tex/reviews/2026-10-27 1504 goal 4 77c1aa s31b.md": "# Review: goal 4, 27 October\n\nThe chat asked where to get tacos for John. Tex suggested a chain place rather than the tacos spots John likes. Tacos came up three times; Tex never read the note about tacos. Score 3/5.\n",
+   "@the-flat/projects/house-party/food s31b.md": "# House party food\n\nPizza from the corner place, salad, and maybe tacos if someone picks it up. Drinks: everyone brings one. Budget about $80 split three ways.\n"
+  }
+ },
+ {
+  "id": "real-s34-a",
+  "source": "s34",
+  "kind": "quotes-question",
+  "query": "setlist app download link",
+  "as": "Priya",
+  "expect": [
+   "@band/projects/setlist-app/downloads.md"
+  ],
+  "notes": {
+   "@band/projects/setlist-app/downloads.md": "# Downloads\n\nThe setlist app build for phones is at https://setlists.example/get. The desktop build is at https://setlists.example/desktop. Both links stay the same between versions; the page redirects to the newest build.\n",
+   "@band/website/index.md": "# The Copper Finches\n\nDownload the setlist app. Download it on your phone, download it on your laptop. One download, everything in one place. Download now.\n",
+   "@band/projects/premium/messaging.md": "# Premium messaging\n\nHeadline options: \"Download the setlist app\", \"Get the setlist app\". The download link should be big on the pricing page. Ask design about the download button.\n"
+  }
+ },
+ {
+  "id": "real-s34-b",
+  "source": "s34",
+  "kind": "quotes-question",
+  "query": "booking app download link",
+  "as": "Kofi",
+  "expect": [
+   "@studio/projects/booking-app/downloads.md"
+  ],
+  "notes": {
+   "@studio/projects/booking-app/downloads.md": "# Downloads\n\nThe booking app build for phones is at https://book.northside.example/get. The desktop build is at https://book.northside.example/desktop. Both links stay the same between versions; the page redirects to the newest build.\n",
+   "@studio/website/index.md": "# Northside Studio\n\nDownload the booking app. Download it on your phone, download it on your laptop. One download, everything in one place. Download now.\n",
+   "@studio/projects/premium/messaging.md": "# Premium messaging\n\nHeadline options: \"Download the booking app\", \"Get the booking app\". The download link should be big on the pricing page. Ask design about the download button.\n"
+  }
+ },
+ {
+  "id": "real-s36-a",
+  "source": "s36",
+  "kind": "near-duplicate",
+  "query": "Middlemarch chapter 3 study",
+  "as": "Priya",
+  "expect": [
+   "@book-club/books/Middlemarch/Chapter 3.md"
+  ],
+  "notes": {
+   "@book-club/books/Middlemarch/Chapter 3.md": "# Middlemarch Chapter 3\n\nPrevious: [[Chapter 2]]\n\n## Summary\nDorothea meets Casaubon properly and mistakes his dryness for depth.\n\n## What stood out\nCelia sees him more clearly than Dorothea does.\n\n## Questions\n- Is Dorothea choosing a husband or a teacher?\n",
+   "@book-club/books/Middlemarch/Chapter 2.md": "# Middlemarch Chapter 2\n\nNext: [[Chapter 3]]\n\n## Summary\nThe setting is laid out and the main people are introduced. A study of Middlemarch starts here.\n\n## Questions\n- How does this set up chapter 3?\n",
+   "@book-club/books/Middlemarch/Middlemarch.md": "# Middlemarch\n\nStudy notes for Middlemarch, one note per chapter. Chapter 2 and Chapter 3 are done; chapter 4 next. Use the study template.\n",
+   "@book-club/books/study-template.md": "# Chapter study template\n\nPrevious / Next links, Summary, What stood out, Questions. One note per chapter.\n"
+  }
+ },
+ {
+  "id": "real-s36-b",
+  "source": "s36",
+  "kind": "near-duplicate",
+  "query": "Psalms psalm 23 study",
+  "as": "Kofi",
+  "expect": [
+   "@kofi/areas/reading/psalms/Psalms/Psalm 23.md"
+  ],
+  "notes": {
+   "@kofi/areas/reading/psalms/Psalms/Psalm 23.md": "# Psalms Psalm 23\n\nPrevious: [[Psalm 22]]\n\n## Summary\nThe shepherd psalm: provision, guidance, protection, and a table set in front of enemies.\n\n## What stood out\nThe move from 'he' to 'you' halfway through.\n\n## Questions\n- What does the table mean in a shepherd's world?\n",
+   "@kofi/areas/reading/psalms/Psalms/Psalm 22.md": "# Psalms Psalm 22\n\nNext: [[Psalm 23]]\n\n## Summary\nThe setting is laid out and the main people are introduced. A study of Psalms starts here.\n\n## Questions\n- How does this set up psalm 23?\n",
+   "@kofi/areas/reading/psalms/Psalms/Psalms.md": "# Psalms\n\nStudy notes for Psalms, one note per psalm. Psalm 22 and Psalm 23 are done; psalm 24 next. Use the study template.\n",
+   "@kofi/areas/reading/psalms/study-template.md": "# Psalm study template\n\nPrevious / Next links, Summary, What stood out, Questions. One note per psalm.\n"
+  }
+ },
+ {
+  "id": "real-s38-a",
+  "source": "s38",
+  "kind": "paraphrase",
+  "query": "wedding venue 120 guests garden own catering",
+  "as": "Priya",
+  "expect": [
+   "@wedding-planning/projects/venues/venues-120-guests.page.md"
+  ],
+  "notes": {
+   "@wedding-planning/projects/venues/venues-120-guests.page.md": "---\nskill: pages-e47b7461\n---\n\n# Venues that fit 120 guests\n\n| Place | Fits | Notes |\n|---|---|---|\n| Orchard Barn | 140 seated | garden, in-house kitchen |\n| Millhouse | 120 seated | river terrace, bring your own caterer |\n| St Agnes Hall | 140 seated | lawn, kitchen on site |\n\nShortlist made 3 November. Visits next.\n",
+   "@wedding-planning/inbox/venues-call-notes.md": "# Call notes\n\nTalked through what we need: wedding venue 120 guests garden own catering. They said to ask around, and the community centre might know. No names yet.\n",
+   "@wedding-planning/projects/venues/quotes.md": "# Quotes\n\nOrchard Barn: deposit 20%, balance a month before. Millhouse: flat fee. Still waiting on St Agnes Hall.\n"
+  }
+ },
+ {
+  "id": "real-s38-b",
+  "source": "s38",
+  "kind": "paraphrase",
+  "query": "workshop space 40 people own kitchen",
+  "as": "Kofi",
+  "expect": [
+   "@studio/projects/workshop-venues/spaces-40-people.page.md"
+  ],
+  "notes": {
+   "@studio/projects/workshop-venues/spaces-40-people.page.md": "---\nskill: pages-e47b7461\n---\n\n# Spaces for a 40 person workshop\n\n| Place | Fits | Notes |\n|---|---|---|\n| Foundry Rooms | 50 | kitchen, projector |\n| Canal Loft | 40 | no kitchen, lift |\n| Elm Street Hall | 50 | kitchen, garden |\n\nShortlist made 4 November. Visits next.\n",
+   "@studio/inbox/workshop-venues-call-notes.md": "# Call notes\n\nTalked through what we need: workshop space 40 people own kitchen. They said to ask around, and the community centre might know. No names yet.\n",
+   "@studio/projects/workshop-venues/quotes.md": "# Quotes\n\nFoundry Rooms: deposit 20%, balance a month before. Canal Loft: flat fee. Still waiting on Elm Street Hall.\n"
+  }
+ },
+ {
+  "id": "real-s40-a",
+  "source": "s40",
+  "kind": "quotes-question",
+  "query": "KLM check-in Amsterdam Schiphol desks",
+  "as": "Priya",
+  "expect": [
+   "@priya/projects/amsterdam-trip/amsterdam-trip.page.md"
+  ],
+  "notes": {
+   "@priya/projects/amsterdam-trip/amsterdam-trip.page.md": "---\nskill: pages-e47b7461\n---\n\n# Amsterdam trip\n\n## Flights\nOut Fri 12 Dec KL602, back Mon 15 Dec KL611. Booking ref QX7M2P.\n\n## At the airport\nCheck-in desks for KLM at Schiphol are in Departure Hall 2; bag drop closes 60 minutes before. Online check-in opens 30 hours before.\n\n## Stay\nCanal house in the Jordaan, check-in from 3 pm.\n",
+   "@priya/tex/klm-checkin-x1q7.md": "# KLM check-in\n\nScratch: Priya asked about KLM check-in at Schiphol. KLM check-in online, KLM check-in desks, Amsterdam Schiphol. Look in the trip page.\n",
+   "@priya/projects/amsterdam-trip/packing.md": "# Packing for Amsterdam\n\nPassport, adapter, light jacket, the gift. Check-in bag or not? Probably carry-on only.\n"
+  }
+ },
+ {
+  "id": "real-s40-b",
+  "source": "s40",
+  "kind": "quotes-question",
+  "query": "TAP check-in Porto Francisco Sa Carneiro desks",
+  "as": "John",
+  "expect": [
+   "@john/projects/porto-trip/porto-trip.page.md"
+  ],
+  "notes": {
+   "@john/projects/porto-trip/porto-trip.page.md": "---\nskill: pages-e47b7461\n---\n\n# Porto trip\n\n## Flights\nOut Thu 4 Dec TP1336, back Sun 7 Dec TP1339. Booking ref LK2Z9W.\n\n## At the airport\nCheck-in desks for TAP at Francisco Sa Carneiro are in Hall 1, desks 20 to 34; bag drop closes 60 minutes before. Online check-in opens 30 hours before.\n\n## Stay\nFlat near Ribeira, keys from the cafe downstairs.\n",
+   "@john/tex/tap-checkin-x1q7.md": "# TAP check-in\n\nScratch: John asked about TAP check-in at Francisco Sa Carneiro. TAP check-in online, TAP check-in desks, Porto Francisco Sa Carneiro. Look in the trip page.\n",
+   "@john/projects/porto-trip/packing.md": "# Packing for Porto\n\nPassport, adapter, light jacket, the gift. Check-in bag or not? Probably carry-on only.\n"
+  }
+ },
+ {
+  "id": "real-s42-a",
+  "source": "s42",
+  "kind": "date",
+  "query": "bakery bank account second signer",
+  "as": "Priya",
+  "expect": [
+   "@priya/inbox/2026-11-16-bakery-sync.md"
+  ],
+  "notes": {
+   "@priya/inbox/2026-11-16-bakery-sync.md": "# Bakery sync, 16 November\n\n- Bank: Dayo becomes the second signer on the Northern Bank account; the form is signed and goes in Friday.\n- Insurance quote back next week.\n- Next sync 30 November.\n",
+   "@priya/inbox/2026-11-02-bakery-sync.md": "# Bakery sync, 2 November\n\n- Bank account opened at Northern Bank. One signer for now.\n- Logo shortlist.\n",
+   "@priya/projects/bakery-company-setup/overview s42a.md": "# Bakery setup\n\nAccounts: the Northern Bank business bank account, card, accounting app. Signers and limits to decide.\n"
+  }
+ },
+ {
+  "id": "real-s42-b",
+  "source": "s42",
+  "kind": "date",
+  "query": "studio bank account signer Ada",
+  "as": "Kofi",
+  "expect": [
+   "@studio/meetings/2026-11-16-studio-sync.md"
+  ],
+  "notes": {
+   "@studio/meetings/2026-11-16-studio-sync.md": "# Studio sync, 16 November\n\n- Bank: Ada becomes the second signer on the Tide account; the form is signed and goes in Friday.\n- Insurance quote back next week.\n- Next sync 30 November.\n",
+   "@studio/meetings/2026-11-02-studio-sync.md": "# Studio sync, 2 November\n\n- Bank account opened at Tide. One signer for now.\n- Logo shortlist.\n",
+   "@studio/projects/company-setup/overview s42b.md": "# Studio setup\n\nAccounts: the Tide business bank account, card, accounting app. Signers and limits to decide.\n"
+  }
+ },
+ {
+  "id": "real-s43-a",
+  "source": "s43",
+  "kind": "date",
+  "query": "Band weekly practice notes latest",
+  "as": "Priya",
+  "expect": [
+   "@band/inbox/meetings/2026-11-20-band-weekly-practice.md"
+  ],
+  "notes": {
+   "@band/inbox/meetings/2026-11-20-band-weekly-practice.md": "# Band weekly practice, 20 November\n\nRan the new set twice; the bridge in Lantern still drags. New capo song is ready.\n\nActions: Priya books the room, John restrings.\n",
+   "@band/inbox/meetings/2026-11-13-band-weekly-practice.md": "# Band weekly practice, 13 November\n\nWorked on harmonies for two songs.\n",
+   "@band/inbox/meetings/2026-10-30-band-weekly-practice.md": "# Band weekly practice, 30 October\n\nFirst band weekly practice. We agreed to meet weekly and keep notes here.\n",
+   "@band/resources/templates/band-weekly-practice-template.md": "# Band weekly practice notes template\n\nDate, who came, what we did, actions. Latest notes go in inbox/meetings.\n"
+  }
+ },
+ {
+  "id": "real-s43-b",
+  "source": "s43",
+  "kind": "date",
+  "query": "Studio weekly steering notes latest",
+  "as": "Kofi",
+  "expect": [
+   "@studio/inbox/meetings/2026-11-20-studio-weekly-steering.md"
+  ],
+  "notes": {
+   "@studio/inbox/meetings/2026-11-20-studio-weekly-steering.md": "# Studio weekly steering, 20 November\n\nAgreed the January price change and the workshop dates.\n\nActions: Kofi drafts the price email, Ada books the venue.\n",
+   "@studio/inbox/meetings/2026-11-13-studio-weekly-steering.md": "# Studio weekly steering, 13 November\n\nReviewed November bookings.\n",
+   "@studio/inbox/meetings/2026-10-30-studio-weekly-steering.md": "# Studio weekly steering, 30 October\n\nFirst studio weekly steering. We agreed to meet weekly and keep notes here.\n",
+   "@studio/resources/templates/studio-weekly-steering-template.md": "# Studio weekly steering notes template\n\nDate, who came, what we did, actions. Latest notes go in inbox/meetings.\n"
+  }
+ },
+ {
+  "id": "real-s44-a",
+  "source": "s44",
+  "kind": "title-only",
+  "query": "LNF location",
+  "as": "Priya",
+  "expect": [
+   "@band/areas/calendar-2026.md"
+  ],
+  "notes": {
+   "@band/areas/calendar-2026.md": "# Calendar 2026\n\n- 14 Mar: spring open day\n- 9 May: pub quiz gig\n- 20 Jun: LNF (Lantern Night Fest), Hackney Wick canal yard. Doors 6 pm.\n- 12 Sep: autumn fair\n- 5 Dec: year-end party\n",
+   "@band/gigs/lnf-plan.md": "# LNF plan\n\nWhat we bring to LNF: the small PA and two mics. LNF is the big one this year; rehearse two weeks before LNF.\n",
+   "@band/areas/meetings/2026-06-02-sync.md": "# Sync, 2 June\n\nLNF is close. Who drives to LNF? Ask about parking at LNF.\n"
+  }
+ },
+ {
+  "id": "real-s44-b",
+  "source": "s44",
+  "kind": "title-only",
+  "query": "WWC location",
+  "as": "John",
+  "expect": [
+   "@woodshop/areas/calendar-2026.md"
+  ],
+  "notes": {
+   "@woodshop/areas/calendar-2026.md": "# Calendar 2026\n\n- 14 Mar: spring open day\n- 9 May: makers market\n- 20 Jun: WWC (Woodworking Weekend Chicago), the Pilsen arts hall, stall 14. Doors 6 pm.\n- 12 Sep: autumn fair\n- 5 Dec: year-end party\n",
+   "@woodshop/markets/wwc-plan.md": "# WWC plan\n\nWhat we bring to WWC: six stools and the oak boards. WWC is the big one this year; rehearse two weeks before WWC.\n",
+   "@woodshop/areas/meetings/2026-06-02-sync.md": "# Sync, 2 June\n\nWWC is close. Who drives to WWC? Ask about parking at WWC.\n"
+  }
+ },
+ {
+  "id": "real-s47-a",
+  "source": "s47",
+  "kind": "paraphrase",
+  "query": "taste decisions voice defer to founder judgement",
+  "as": "Priya",
+  "expect": [
+   "@fashion-brand/inbox/meetings/2026-11-13-brand-roadmap-call.md"
+  ],
+  "notes": {
+   "@fashion-brand/inbox/meetings/2026-11-13-brand-roadmap-call.md": "# Brand roadmap call, 13 November\n\n**[04:10] John**: on the stuff that's really taste, the voice, what we post, I don't want that automated. Maya decides.\n**[04:31] Maya**: fine, anything that's a judgement call comes to me, the rest can be drafted.\n**[05:02] John**: so drafts yes, final say on taste stays with a person.\n",
+   "@fashion-brand/strategy/positioning s47a.md": "# Positioning\n\nVoice: warm, plain, a bit dry. Decisions about the voice sit with the founders. Taste is the brand.\n",
+   "@fashion-brand/projects/website-relaunch/site-notes s47a.md": "# Site notes\n\nThe voice on the new site should match the posts. Decide the hero image and the voice of the about page.\n"
+  }
+ },
+ {
+  "id": "real-s47-b",
+  "source": "s47",
+  "kind": "paraphrase",
+  "query": "taste decisions voice leave to Ada judgement",
+  "as": "Kofi",
+  "expect": [
+   "@studio/inbox/meetings/2026-11-13-studio-roadmap-call.md"
+  ],
+  "notes": {
+   "@studio/inbox/meetings/2026-11-13-studio-roadmap-call.md": "# Studio roadmap call, 13 November\n\n**[04:10] Kofi**: on the stuff that's really taste, the voice, what we post, I don't want that automated. Ada decides.\n**[04:31] Ada**: fine, anything that's a judgement call comes to me, the rest can be drafted.\n**[05:02] Kofi**: so drafts yes, final say on taste stays with a person.\n",
+   "@studio/strategy/positioning.md": "# Positioning\n\nVoice: warm, plain, a bit dry. Decisions about the voice sit with the founders. Taste is the brand.\n",
+   "@studio/projects/website-relaunch/site-notes.md": "# Site notes\n\nThe voice on the new site should match the posts. Decide the hero image and the voice of the about page.\n"
+  }
+ },
+ {
+  "id": "real-s50-a",
+  "source": "s50",
+  "kind": "quotes-question",
+  "query": "flat running list to buy hardware store",
+  "as": "Priya",
+  "expect": [
+   "@the-flat/inbox/flat/hardware-list.md"
+  ],
+  "notes": {
+   "@the-flat/inbox/flat/hardware-list.md": "# Hardware store list\n\nRunning list, buy when passing:\n- picture hooks\n- WD-40\n- a spare shower head\n",
+   "@the-flat/house-rules.md": "# House rules\n\nWhen something needs buying for the place, add it to the list and whoever passes the shop buys it. Keep receipts.\n",
+   "@the-flat/tex/reviews/2026-11-05 2118 goal 2 c1d9e0.md": "# Review: goal 2, 5 November\n\nAsked to add WD-40 to the running list. Tex searched the list, opened the house rules, and said there was no list to buy from. Score 1/5.\n"
+  }
+ },
+ {
+  "id": "real-s50-b",
+  "source": "s50",
+  "kind": "quotes-question",
+  "query": "studio running list to buy art supplies",
+  "as": "Kofi",
+  "expect": [
+   "@studio/inbox/supplies/art-supplies-list.md"
+  ],
+  "notes": {
+   "@studio/inbox/supplies/art-supplies-list.md": "# Art supplies list\n\nRunning list, buy when passing:\n- masking tape\n- A2 cartridge paper\n- fixative spray\n",
+   "@studio/areas/studio-rules.md": "# Studio rules\n\nWhen something needs buying for the place, add it to the list and whoever passes the shop buys it. Keep receipts.\n",
+   "@studio/tex/reviews/2026-11-05 2118 goal 2 c1d9e0.md": "# Review: goal 2, 5 November\n\nAsked to add A2 cartridge paper to the running list. Tex searched the list, opened the house rules, and said there was no list to buy from. Score 1/5.\n"
+  }
+ },
+ {
+  "id": "real-s51-a",
+  "source": "s51",
+  "kind": "person",
+  "query": "Amara mum birthday party plan",
+  "as": "Priya",
+  "expect": [
+   "@priya/areas/meetings/2026-07-16-dayo-birthday-brief.md"
+  ],
+  "notes": {
+   "@priya/areas/meetings/2026-07-16-dayo-birthday-brief.md": "# Dayo birthday brief, 2026-07-16\n\nFor Dayo's birthday. Amara (Dayo's mum) is hosting and wants: a garden lunch, live music for an hour, no speeches. Budget $1,200. Date Sat 22 Aug.\n",
+   "@priya/people/amara.md": "# Amara\n\nDayo's mum. Phone in contacts. Met at the summer barbecue.\n",
+   "@priya/inbox/2026-10-05-sync.md": "# Sync, 5 October\n\nAmara called about the birthday; send her the brief when it's done.\n"
+  }
+ },
+ {
+  "id": "real-s51-b",
+  "source": "s51",
+  "kind": "person",
+  "query": "Efua aunt graduation party plan",
+  "as": "Kofi",
+  "expect": [
+   "@kofi/areas/meetings/2026-07-20-kwame-graduation-brief.md"
+  ],
+  "notes": {
+   "@kofi/areas/meetings/2026-07-20-kwame-graduation-brief.md": "# Kwame graduation brief, 2026-07-20\n\nFor Kwame's graduation. Efua (Kwame's aunt) is hosting and wants: a hall, jollof for 60, a photographer. Budget $2,000. Date Sun 30 Aug.\n",
+   "@kofi/people/efua.md": "# Efua\n\nKwame's aunt. Phone in contacts. Met at the summer barbecue.\n",
+   "@kofi/inbox/2026-10-05-sync.md": "# Sync, 5 October\n\nEfua called about the graduation; send her the brief when it's done.\n"
+  }
+ }
+]

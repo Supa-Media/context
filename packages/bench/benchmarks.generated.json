@@ -195,7 +195,7 @@
       "benchmark": "search-real",
       "title": "Search",
       "variant": "Real queries (Dev)",
-      "total": 10,
+      "total": 16,
       "kind": "search",
       "search": true,
       "score": "first",
