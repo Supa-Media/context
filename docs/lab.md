@@ -57,7 +57,7 @@ New behaviour lands as a setting, so it can be flipped and benched instead of ar
 
 ## Changing Tex
 
-1. **Draft:** `tex_dev create`, then `edit` a step's model, effort, rounds, `ctx` (the modules it reads), wires or on/off. Open `link` to watch it in the Lab while you edit.
+1. **Draft:** `tex_dev create`, then `edit` a step's model, effort, rounds, `ctx` (the modules it reads), wires, on/off, or a prompt's words (`{ op: "module", key: "p-<name>", value: { text } }`; `modules { draft, key }` shows the word diff against main). Open `link` to watch it in the Lab while you edit.
 2. **Look:** `snapshot` (with a `test` for timings), `sim` for speed and cost, `compare` against main, and `check`.
 3. **Try it:**
    - `test_chat open` (Maya, a Training or Dev conversation, or your own chat from just before a text), then `send` and read the run card.
@@ -68,7 +68,7 @@ New behaviour lands as a setting, so it can be flipped and benched instead of ar
 4. **Measure:** `run { draft }` runs the Dev set's unit tests on GitHub. Training examples are edited through the Testing tab's conversations (`set_*`), not the prompts.
 5. **Land it:** `promote` opens the pull request. The replay gate runs the sealed Test set, and production follows a green main.
 
-A prompt's words, a new step's code and a capability need a pull request: node code in `packages/tex/gateway/agent/graph/nodes/`, words in `packages/tex/src/texPrompt/`. Merge new node code to main first, unwired and on the shelf (`texNodeShelf.json`). Then wire it in a draft, test it on rung 3, and promote.
+A prompt's words are a draft edit, not a pull request: the draft's words run in `test_chat send`, `try`, `replay` and `again` and in `run { draft }` (`kind: "dev"` and `"node"`), and `promote` writes them into `packages/tex/src/texPrompt/` and rebuilds `texPrompt.generated.json`. If main changed the same prompt since the draft was made, promote stops on a clash; pick `"main"` or `"draft"` for it. A new step's code and a capability need a pull request: node code in `packages/tex/gateway/agent/graph/nodes/`. Merge new node code to main first, unwired and on the shelf (`texNodeShelf.json`). Then wire it in a draft, test it on rung 3, and promote.
 
 ## Changing Tex's quality (how well it texts)
 
@@ -77,6 +77,7 @@ A quality change fixes how Tex behaves: what it says, when it stays quiet, wheth
 1. **Find the cause before changing anything.** Trace the turn: `chats`, then `moments`, then `turn`, then `prompt`. Name the step that went wrong and why: architecture, harness, capability, bug or model. Ask the person who saw it what was wrong and why before writing any rule. Never fit a fix to one or two examples, and never write a "this kind of message: stay quiet" rule.
 2. **Pick the lever, cheapest first.** All of these are config or examples, so all are a draft:
    - **Training examples.** Judgment is taught by example conversations, not by rules in prompts. Add or edit a Training conversation and its labels (one message × one step) with `set_get`, `set_edit` and `set_create`, or turn a real chat into one with `set_import`. A real chat is never copied verbatim: the import refuses a line that shares six words in a row with the real text. `set_promote { ids }` starts the promote workflow at once; its pull request writes the conversations and rebuilds each step's Training module (`texTraining.generated.json`) and the Lab's data from them.
+   - **A prompt's words.** Edit the `p-<name>` module in the draft (`edit` op `module`). Prefer an example to a rule; a rule fitted to one bad turn is the thing step 1 warns against.
    - **What a step reads.** Edit its `ctx` (modules, history, `train:<nodeId>`), its model (Haiku for Tex's steps), effort, rounds, time limit or wires.
    - **A step on or off, or a new step.** New code goes to the shelf first, then gets wired in a draft (see Changing Tex above).
 3. **Try it on the turn that went wrong.** `test_chat replay { chat, text, draft }` re-runs a real text on the draft. `test_chat try` runs one text on main and the draft side by side. `test_chat open` with a Dev or Training conversation (`source: "set"`) runs inside that conversation's world.
