@@ -19,12 +19,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent } from "react-native";
-import { useConvex } from "convex/react";
+import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 
 import { Button } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
-import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
