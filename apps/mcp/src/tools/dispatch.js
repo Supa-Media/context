@@ -36,6 +36,8 @@ import { toolError, toolText } from "./results.js";
 import { ControlPlaneError } from "../controlPlane/client.js";
 import { failureText, logCallFailure } from "../mcp/publicError.js";
 import { bareEtagArguments } from "./etagPlace.js";
+import { takePartialEtags } from "./partialEtag.js";
+import { toolReadNotePart, wantsPart } from "./notes/readPart.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolSetEncryption } from "./encryption/setEncryption.js";
 import { toolListChanges } from "../activity/changes.js";
@@ -108,6 +110,12 @@ function pathsNamed(value, found = []) {
 }
 
 export async function callTool(name, args, store, scope, options = {}) {
+  // A part's etag (`;part`, `notes/readPart.js`) is made plain here for every tool, and a whole-note save made from one is refused.
+  {
+    const partial = takePartialEtags(name, args);
+    if (partial.refusal) return toolError(partial.refusal);
+    args = partial.args;
+  }
   // A placed etag (`@name/id:version`) made bare: a routed call was checked in `session.js`; the gateway's own calls are in one store.
   args = bareEtagArguments(args);
   // A chat's history file is a view of its log, read only (`agent/historyFile.js`): nothing changes it, whoever asks.
@@ -161,6 +169,7 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
       if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
+      if (wantsPart(args)) return toolReadNotePart(store, scope, rules, overrides, args);
       return toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job });
     case "read_notes":
       return toolReadNotes(store, scope, rules, overrides, args.paths);
@@ -194,7 +203,8 @@ async function runTool(name, args, store, scope, options = {}) {
       if (args.upload !== undefined) return toolImageUploadLinks(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       if (args.mail !== undefined) return toolMailNote(store, scope, rules, overrides, args);
-      return toolWriteNote(store, scope, rules, overrides, args, options.noteWrite);
+      // From a tool call, so a save that would cut a long note by more than half is checked (`partialEtag.js`).
+      return toolWriteNote(store, scope, rules, overrides, args, { ...options.noteWrite, guardShrink: true });
     case "remember":
       return toolRemember(store, scope, rules, overrides, args);
     case "set_visibility":

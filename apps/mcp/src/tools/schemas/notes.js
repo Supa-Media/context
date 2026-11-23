@@ -195,6 +195,11 @@ export function noteWriteToolDefinitions() {
             additionalProperties: false,
           },
           expected_etag: { type: "string", description: "Etag from read_note; omit only when creating a new note." },
+          replace: {
+            type: "string",
+            enum: ["whole"],
+            description: "Only to really replace all of a long note (16,000 characters or more) with less than half as much: a save that would cut it that far is refused without it.",
+          },
           visibility: {
             type: "string",
             enum: ["private", "team"],

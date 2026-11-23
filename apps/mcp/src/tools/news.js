@@ -42,6 +42,14 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-23",
     text:
+      "fetch reads part of a long note: args { outline: true } lists its headings with line ranges and sizes, then " +
+      'args { section: "<heading>" } (or "Parent > Heading", or its line) or { lines: "120-180" } reads one part; an id like ' +
+      "note.md#Heading does the same, and a search hit's message id reads that one message, not the whole day. A part's etag " +
+      'ends in ;part and cannot save the whole note; write { replace: "whole" } is needed to cut a long note by more than half.',
+  },
+  {
+    date: "2026-11-23",
+    text:
       "read_email's offset into a long attachment is start, not from (from read as the sender): fetch an email: id with " +
       "args { attachment, start } to read on from where a part's more: line says.",
   },
@@ -468,7 +476,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "c73a8b72";
+export const TOOL_SHAPE = "049805d8";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

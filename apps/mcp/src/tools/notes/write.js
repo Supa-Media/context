@@ -4,6 +4,7 @@
  * recorded afterwards.
  */
 
+import { shrinkRefusal } from "../partialEtag.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import {
   announceCommittedToPresence,
@@ -357,6 +358,11 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
     const opened = await openNoteBeingWritten(store, path, found);
     return { existing: opened, storedBody: opened ? await opened.text() : null };
   });
+  // A tool's whole-note save that would cut a long note by more than half, as a save made from a part would (`partialEtag.js`).
+  if (options.guardShrink === true && storedBody !== null && !isEncryptedNote(storedBody)) {
+    const shrunk = shrinkRefusal(path, storedBody, content, args);
+    if (shrunk) return toolError(shrunk);
+  }
   /*
    * A REWRITE THAT DROPPED THE NOTE'S FIRST `---` IS GIVEN IT BACK.
    *

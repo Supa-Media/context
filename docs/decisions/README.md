@@ -8,9 +8,8 @@ These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim.
 the file covering the area you are touching before you change behaviour in it**,
 and add to it when a durable decision lands.
 
-Code comments and tests across the repo cite these by title — `see CLAUDE.md,
-"A guard nobody has checked is not a guard"`. The titles are unchanged, so
-those citations still resolve; look for them here rather than in `CLAUDE.md`.
+Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a
+guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [Storage, credentials, and the control plane](./storage-and-credentials.md)
 
@@ -234,6 +233,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [An agent with a picture as a file sends it with a one-use upload link](./gateway-protocol/image-upload-links.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
 - [What an AI client reads is kept, in the customer's bucket](./gateway-protocol/stored-reads.md)
+- [An agent reads part of a long note, and never saves that part as the whole note](./gateway-protocol/section-reads.md)
 
 ## [Markdown forms](./forms.md)
 
