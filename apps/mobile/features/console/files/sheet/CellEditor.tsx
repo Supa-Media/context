@@ -68,6 +68,8 @@ export function CellEditor({
         keyboardType={type === "number" || type === "usd" ? "decimal-pad" : "default"}
         autoCapitalize="none"
         autoCorrect={false}
+        // The browser's squiggle would read as the grid's own misfit mark.
+        spellCheck={false}
         style={[styles.input, (type === "number" || type === "usd") && styles.right, fieldFont]}
         testID="sheet-cell-editor"
       />

@@ -156,6 +156,17 @@ describe("the sheet grid", () => {
     expect($$('[data-testid="sheet-misfit"]')).toHaveLength(2);
   });
 
+  test("deleting a column takes a second press, and only then drops its values", async () => {
+    const { changes } = mount();
+    press($$('[data-testid="sheet-header"]')[1]);
+    await settle();
+    const menu = $('[data-testid="sheet-column-menu"]') as HTMLElement;
+    press(buttonWithText(menu, "Delete column") as HTMLElement);
+    expect(changes).toHaveLength(0);
+    press(buttonWithText(menu, "and its values") as HTMLElement);
+    expect(changes).toEqual(["name,amount:usd,paid:checkbox\nNetflix,$15,true\nGym,40,false\n"]);
+  });
+
   test("a filter narrows the rows and the footer says how many of how many", async () => {
     mount();
     expect($('[data-testid="sheet-row-count"]')?.textContent).toBe("2 rows");

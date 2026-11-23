@@ -180,10 +180,13 @@ export function calcValue(kind: CalcKind, sheet: SheetData, column: SheetColumn,
   if (!isNumeric(column.type)) return "";
   const nums = values.map((v) => typedValue(column.type, v)).filter((n): n is number => typeof n === "number");
   if (nums.length === 0) return "";
-  if (kind === "Sum") return formatNumber(column.type, nums.reduce((a, b) => a + b, 0));
-  if (kind === "Average") return formatNumber(column.type, nums.reduce((a, b) => a + b, 0) / nums.length);
-  if (kind === "Min") return formatNumber(column.type, Math.min(...nums));
-  return formatNumber(column.type, Math.max(...nums));
+  // A value that is not a number is left out, and the footer says how many, so the figure never hides it.
+  const skipped = values.length - nums.length;
+  const note = skipped > 0 ? ` (${skipped} skipped)` : "";
+  if (kind === "Sum") return formatNumber(column.type, nums.reduce((a, b) => a + b, 0)) + note;
+  if (kind === "Average") return formatNumber(column.type, nums.reduce((a, b) => a + b, 0) / nums.length) + note;
+  if (kind === "Min") return formatNumber(column.type, Math.min(...nums)) + note;
+  return formatNumber(column.type, Math.max(...nums)) + note;
 }
 
 /** What a column's footer shows before anybody picks: Sum for money, nothing otherwise. */

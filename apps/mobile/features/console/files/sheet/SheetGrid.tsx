@@ -246,7 +246,7 @@ export function SheetGrid({
                 style={[styles.footCell, isNumeric(c.type) && styles.cellNumber]}
                 testID="sheet-calc"
               >
-                {kind === "None" ? (
+                {kind === "None" || figure === "" ? (
                   <Text variant="meta" style={styles.calcHint}>
                     Calculate
                   </Text>

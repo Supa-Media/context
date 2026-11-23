@@ -42,6 +42,7 @@ export function ColumnMenu({
   const fieldFont = useFieldFont(pointerType.ui);
   const colors = useColors();
   const [name, setName] = useState(column.name);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [renamed, setRenamed] = useState(false);
 
   // Rename is kept to the field: it applies on Enter or when focus leaves, and never twice for the same name.
@@ -116,7 +117,14 @@ export function ColumnMenu({
           </>
         )}
         <Item label="Hide column" onPress={() => run(actions.onHide)} />
-        {readOnly ? null : <Item label="Delete column" danger onPress={() => run(actions.onDelete)} />}
+        {readOnly ? null : (
+          // Deleting drops every value in the column, so it takes a second press.
+          <Item
+            label={confirmDelete ? `Delete “${column.name}” and its values` : "Delete column"}
+            danger
+            onPress={() => (confirmDelete ? run(actions.onDelete) : setConfirmDelete(true))}
+          />
+        )}
       </View>
     </Popover>
   );

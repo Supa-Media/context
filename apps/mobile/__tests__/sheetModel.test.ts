@@ -114,9 +114,10 @@ describe("footer calculations", () => {
     expect(calcValue("Sum", sheet, name, all)).toBe("");
   });
 
-  test("a value that is not a number is left out of Sum", () => {
+  test("a value that is not a number is left out of Sum, and the footer says so", () => {
     const bad = sheetOf("n:number\n1\nx\n2\n");
-    expect(calcValue("Sum", bad, bad.columns[0], [0, 1, 2])).toBe("3");
+    expect(calcValue("Sum", bad, bad.columns[0], [0, 1, 2])).toBe("3 (1 skipped)");
+    expect(calcValue("Sum", bad, bad.columns[0], [0, 2])).toBe("3");
   });
 
   test("display: money with dollars, dates in words, a misfit left exactly as written", () => {
