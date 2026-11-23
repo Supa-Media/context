@@ -190,6 +190,7 @@ jobs:
           - 'apps/mcp/src/forms/**'
           - 'apps/mcp/src/lists.js'
           - 'apps/mcp/src/lists/**'
+          - 'apps/mcp/src/sheets/**'
           - 'apps/mcp/src/machines/setupPrompt.js'
           - 'apps/mcp/src/oauth/registration.js'
           - 'apps/mcp/src/peopleActive.js'
@@ -272,6 +273,7 @@ jobs:
           - 'apps/mcp/src/links.js'
           - 'apps/mcp/src/lists.js'
           - 'apps/mcp/src/lists/**'
+          - 'apps/mcp/src/sheets/**'
           - 'apps/mcp/src/live/**'
           - 'apps/mcp/src/mcp/**'
           - 'apps/mcp/src/moves/**'
@@ -869,6 +871,7 @@ jobs:
             apps/mcp/src/links.js
             apps/mcp/src/lists.js
             apps/mcp/src/lists/**
+            apps/mcp/src/sheets/**
             apps/mcp/src/live/**
             apps/mcp/src/mcp/**
             apps/mcp/src/moves/**

@@ -65,7 +65,7 @@ test("quoted cells keep commas, quotes and newlines, and round-trip", () => {
 });
 
 test("CRLF files and a byte-order mark read the same as LF", () => {
-  const sheet = parseSheet("﻿a,b:number\r\nx,1\r\n");
+  const sheet = parseSheet("\uFEFFa,b:number\r\nx,1\r\n");
   assert.deepEqual(sheet.columns.map((c) => c.name), ["a", "b"]);
   assert.equal(sheet.rows[0].b, "1");
 });

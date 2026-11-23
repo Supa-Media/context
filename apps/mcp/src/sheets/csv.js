@@ -50,7 +50,7 @@ export function parseCsvRecords(text) {
   let line = 1;
   let recordLine = 1;
   let unterminated = false;
-  const src = String(text ?? "").replace(/^﻿/, "");
+  const src = String(text ?? "").replace(/^\uFEFF/, "");
   for (let i = 0; i < src.length; i += 1) {
     const ch = src[i];
     if (quoted) {

@@ -175,7 +175,7 @@ describe("selection and the parser's problems", () => {
 
   test("compareCells: numbers by value, text naturally", () => {
     expect(compareCells("usd", "9", "10")).toBeLessThan(0);
-    expect(compareCells("text", "item 2", "item 10")).toBeLessThan(0);
+    expect(compareCells("text", "a2", "a10")).toBeLessThan(0);
   });
 });
 

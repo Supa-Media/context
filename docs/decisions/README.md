@@ -3,10 +3,9 @@
 Things argued through once and not to be silently reversed. Each names what a
 "simplification" of it would cost, and most name the test that fails if so.
 
-These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim.
-`CLAUDE.md` stays short enough to be read every session and links here. **Read
-the file covering the area you are touching before you change behaviour in it**,
-and add to it when a durable decision lands.
+These moved here verbatim from `CLAUDE.md`, which links here. **Read the file
+covering the area you are touching before you change behaviour in it**, and add
+to it when a durable decision lands.
 
 Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a
 guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
@@ -255,6 +254,7 @@ guard"`. The titles are unchanged, so those citations still resolve; look for th
 
 ## [Folder lists](./folder-lists.md)
 
+- [Sheets: one `.csv` per sheet, types in its header, saved and shared like a note](./sheets.md) (2026-11-23)
 - Nothing about it is website-specific
 - Selection only ever narrows
 - A block that does not parse draws its error
@@ -278,15 +278,6 @@ guard"`. The titles are unchanged, so those citations still resolve; look for th
 - Status groups
 - An owner is picked, never typed
 - Agents are a list the workspace writes, each optionally somebody's
-
-## [Sheets](./sheets.md)
-
-- One `.csv` file per sheet, types in the header
-- Nothing a reader does drops a cell
-- A sheet saves like a note
-- Who sees a sheet is set like a note
-- Reading through fetch
-- What is deliberately not built
 
 ## [The chaos score](./chaos-score.md)
 
