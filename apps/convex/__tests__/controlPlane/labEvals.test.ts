@@ -248,7 +248,7 @@ describe("the Search suite's rows and scores", () => {
     expect(cleanSearch({ n: 40, first: 27 })).not.toHaveProperty("ndcg10");
   });
 
-  test("the Lab starts a search set on gateway embeddings only: its models choice is dropped, its default slice is the whole set, and search-real runs its 10 Dev cases", async () => {
+  test("the Lab starts a search set on gateway embeddings only: its models choice is dropped, its default slice is the whole set, and search-real runs its 16 Dev cases", async () => {
     const w = await world();
     const hard = await w.door("eval_run", { bench: "search-hard", models: "cc" });
     expect(hard).toMatchObject({ status: "ok" });
@@ -256,8 +256,8 @@ describe("the Search suite's rows and scores", () => {
     expect(await w.door("eval_run", { bench: "search-hard", n: 45 })).toMatchObject({ status: "bad_request" });
     const real = await w.door("eval_run", { bench: "search-real" });
     expect(real).toMatchObject({ status: "ok" });
-    expect(await w.t.query(internal.functions.labEvals.job, { runId: real.id })).toMatchObject({ bench: "search-real", n: 10, models: "gw" });
-    expect(await w.door("eval_run", { bench: "search-real", n: 11 })).toMatchObject({ status: "bad_request" });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId: real.id })).toMatchObject({ bench: "search-real", n: 16, models: "gw" });
+    expect(await w.door("eval_run", { bench: "search-real", n: 17 })).toMatchObject({ status: "bad_request" });
     expect(await w.door("eval_run", { bench: "longmemeval-retrieval", n: 470 })).toMatchObject({ status: "ok" });
   });
 
