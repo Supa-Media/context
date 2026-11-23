@@ -56,7 +56,7 @@ export function computersLine(machines, { planning = false, own = false } = {}) 
     "finding something in a repo; any change to code, a pull request included; and " +
     (own ? "builds or scripts in their repos or on their files. " : "running scripts, builds or crunching many files. ") +
     "Never Tex's cloud, never delegate, and never open_page on the repo for those, and never ask which repo or which computer: the job finds it. " +
-    (planning ? "A big code change with parts that can be built at once is split there with plan_big_ask. " : "") +
+    (planning ? "A big code change with parts that can be built at once is split there with send action plan. " : "") +
     "Everything else stays off it." +
     ownLine
   );

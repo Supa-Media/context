@@ -41,7 +41,7 @@ test("the Planning Center answer is sent back to try email, calendar, notes and 
   const read = claims.wrap(async () => ({ isError: true, content: [{ type: "text", text: "Planning Center's server failed." }] }));
   await read("app_read", { app: "planning-center", tool: "services_plans" });
   const notice = claims.check(GAVE_UP);
-  for (const road of ["search_email", "from:planningcenteronline.com", "calendar", "notes", "browse"]) assert.ok(notice.includes(road), road);
+  for (const road of ["search with args { email: true }", "from:planningcenteronline.com", "calendar", "notes", "browse"]) assert.ok(notice.includes(road), road);
   assert.ok(notice.includes("where you read it") && notice.includes("Never tell them to check it themselves"));
   // Handing back and the promise go back in the same notice, not one round each (`checkFindings.js`).
   assert.ok(carries(notice, HANDBACK_NOTICE) && carries(notice, LATER_NOTICE), notice);

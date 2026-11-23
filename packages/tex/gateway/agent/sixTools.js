@@ -36,6 +36,8 @@ import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
 import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
 import { withNothingChanged } from "./noteLinks.js";
 import { actionArgumentsRefusal, checkActionArguments } from "./actionArgs.js";
+import { sendShapeRefusal } from "./sixCallShape.js";
+import { inSixNames } from "./promptNames.js";
 
 /**
  * The first top-level argument a closed schema does not take, as the refusal to send back, or null. Only unknown names:
@@ -305,7 +307,7 @@ const SHORT_LINES = {
   advisor: "Ask your advisor, a stronger model, for judgment, before a task is done, or when stuck.",
   fill_card: "Fill the checkout's card boxes with a saved card you never see.",
   delegate: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.",
-  email: "Send one email as the person through their Gmail, once they say yes to it. A reply passes in_reply_to (its id from search_email); to is a list.",
+  email: "Send one email as the person through their Gmail, once they say yes to it. A reply passes in_reply_to, its whole email: id; to is a list.",
   app: "Make one change through an app they connected, once they say yes to it.",
 };
 
@@ -329,7 +331,8 @@ function manualFor(action, carriers) {
     const carrier = carriers.get(entry.tool);
     if (!carrier) continue;
     const words = typeof carrier.description === "string" && carrier.description.trim() !== "" ? carrier.description.trim() : entry.summary;
-    return `${family} action ${action}: ${entry.summary}\nCall: ${family} { action: "${action}", args: ${actionArguments(entry, carrier)} }\n\n${words}`;
+    // In the six's words: a carrier's description can still name the older tools (Dev2, 2026-11-23, `promptNames.js`).
+    return inSixNames(`${family} action ${action}: ${entry.summary}\nCall: ${family} { action: "${action}", args: ${actionArguments(entry, carrier)} }\n\n${words}`);
   }
   return null;
 }
@@ -527,18 +530,17 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
   /*
     MANUAL ON FAILURE (Dev2, 2026-11-20: "whenever something fails, do we send the manual back? ... so things don't fail
     more than once"). On the fixed list an action's args live in its manual; a failed call to an action this turn holds
-    gets that manual with its error, once per action per turn, so the next try needs no extra round to read it.
+    gets that manual with its error, so the next try needs no extra round to read it. On every failure, not only the
+    first (Dev2, 2026-11-23): the Kansi reply's third refusal came back without it, and Tex gave up.
   */
-  const manualsRead = new Set();
   function manualOnFailure(name, args) {
     if (!(shown instanceof Map) || !(name === "write" || name === "manage" || name === "send")) return null;
     const call = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     const action = name === "write" && (call.action === undefined || call.action === "") ? "save" : call.action;
-    if (typeof action !== "string" || manualsRead.has(action)) return null;
+    if (typeof action !== "string") return null;
     if (!["write", "manage", "send"].some((family) => allowedActions[family].has(action))) return null;
     const manual = manualFor(action, new Map([...shown, ...held]));
     if (manual === null) return null;
-    manualsRead.add(action);
     return `\n\nThe manual for ${action}, so the next call gets it right:\n${manual}`;
   }
 
@@ -600,10 +602,7 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
       const action = call.id.trim().slice(MANUAL_PREFIX.length).trim();
       const carriers = shown instanceof Map ? new Map([...shown, ...held]) : held;
       const manual = manualFor(action, carriers);
-      if (manual !== null) {
-        manualsRead.add(action);
-        return { text: manual };
-      }
+      if (manual !== null) return { text: manual };
       const listed = ["write", "manage", "send"].flatMap((family) => grantedActions(family, carriers, null).map(([entry]) => entry));
       return { error: `There is no action "${action.slice(0, 40)}" to read a manual for. Read one of these instead: ${listed.map((entry) => `manual:${entry}`).join(", ")}.`, cause: "no_such_action" };
     }
@@ -632,6 +631,13 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
       }
       const assistant = name === "send" ? ASSISTANT_SEND_ACTIONS[action] : undefined;
       if (assistant) return { name: assistant.tool, args: assistant.take(call) };
+      // A Context action's arguments go inside args, and its sender in args.from: refused with the call written out (`sixCallShape.js`).
+      if (name === "send" && Object.hasOwn(ACTIONS.send, action)) {
+        const carrier = held.get(ACTIONS.send[action].tool) ?? (shown instanceof Map ? shown.get(ACTIONS.send[action].tool) : undefined);
+        const takes = carrier?.inputSchema?.properties ?? carrier?.input_schema?.properties;
+        const refused = sendShapeRefusal(call, ACTIONS.send, takes ? new Set(Object.keys(takes)) : null);
+        if (refused) return refused;
+      }
     }
     // The gateway's own translation, as for any connected app; never ChatGPT's search shape.
     const translated = translateV2Params({ name, arguments: searched.call }, undefined, { app: { client: null } });

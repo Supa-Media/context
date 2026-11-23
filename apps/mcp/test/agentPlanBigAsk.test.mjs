@@ -277,7 +277,7 @@ test("with the planner on, a lone job is offered the planner once, then starts",
   const lisbon = { title: "Lisbon week", brief: "Dinners, a day trip and packing." };
   const first = await call("start_background_job", lisbon);
   assert.equal(first.isError, true);
-  assert.match(words(first), /call plan_big_ask once/);
+  assert.match(words(first), /call send action plan once/);
   assert.equal(background.started.length, 0, "nothing started yet");
   assert.equal(background.endsTurn("start_background_job"), null, "the turn goes on");
   const again = await call("start_background_job", lisbon);

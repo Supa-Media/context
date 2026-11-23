@@ -89,7 +89,7 @@ test("an answer that hands the work back gets one more round, once, and an offer
   const first = "No receipt in it. Forward it to me from Google Payments and I'll make the draft. Want me to forward it to Kansi then?";
   // The email offered with nothing held goes back in the same notice (`checkFindings.js`).
   assert.ok(carries(claims.check(first), HANDBACK_NOTICE));
-  assert.ok(HANDBACK_NOTICE.includes("search_email") && HANDBACK_NOTICE.includes("from:"), "the notice names the other ways to search");
+  assert.ok(HANDBACK_NOTICE.includes("search with args { email: true }") && HANDBACK_NOTICE.includes("from:"), "the notice names the other ways to search");
   // The same words again are not sent back a second time: the check never loops.
   const again = claims.check(first);
   assert.ok(again === null || !again.includes("find, forward, check"), "handing back is noticed once a turn");
@@ -110,7 +110,7 @@ test("an email that says it passes a receipt on, with nothing forwarded, is refu
     body: "Hi Kansi,\n\nThe Google Voice payment on October 14 was $25.26. Google sent that receipt only to my inbox, so I’m passing it on to you.\n\nThanks,\nSeyi",
   };
   assert.equal(readEmail(draft).error, PASSES_ON_ERROR);
-  assert.ok(PASSES_ON_ERROR.includes("forward") && PASSES_ON_ERROR.includes("search_email"));
+  assert.ok(PASSES_ON_ERROR.includes("forward") && PASSES_ON_ERROR.includes("an email search"));
   // The same words with Google's email forwarded below them go.
   assert.ok(readEmail({ ...draft, forward: "email:me@example.com/18c0ffee" }).email?.forward === "18c0ffee");
   for (const words of ["Receipt attached.", "Please find attached the invoice.", "Here's the receipt from Google.", "I've attached the PDF."]) {

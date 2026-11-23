@@ -24,7 +24,9 @@ test("a turn is told every connected mailbox, and how to search one or all", () 
   const said = mailAccountsPrompt(BOXES);
   assert.match(said, /Their connected mailboxes: me@example\.com, work@example\.com, old@example\.com \(read only/);
   assert.match(said, /no account searches every one of them at once/);
-  assert.match(said, /pass account with its address/);
+  assert.match(said, /add account with its address/);
+  assert.match(said, /search with args \{ email: true \}/, "said in the six's words (Dev2, 2026-11-23)");
+  assert.doesNotMatch(said, /search_email/);
   assert.match(said, /never say your search reaches only some/);
   assert.ok(!said.includes("not an address"));
   assert.equal(mailAccountsPrompt([]), "");

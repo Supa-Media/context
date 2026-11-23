@@ -251,7 +251,7 @@ export function weekView({ entries, chat, start, summaries = [], extra = [], ski
   });
   const tagged = typeof tags === "function" ? tags(marked) : tags; // each text's conversation (`conversationThreads.js`)
   const transcript = renderEvents(marked, { timeZone, answeredBy: [...read.events, ...extra], tools: read.tools, facts: read.facts, tags: tagged, lulls: true });
-  const told = [summaryPart(summaries, days), cut > 0 ? `(The ${cut} oldest texts of ${spanName(days)} are left out here for room; read_day opens any day whole.)` : "", transcript].filter((part) => part !== "").join("\n\n");
+  const told = [summaryPart(summaries, days), cut > 0 ? `(The ${cut} oldest texts of ${spanName(days)} are left out here for room; fetch id "day:<date>" opens any day whole.)` : "", transcript].filter((part) => part !== "").join("\n\n");
   return { text: preface ? `${preface}\n\n${told}` : told, pictures, shown: marked, summaries, chars, cut };
 }
 

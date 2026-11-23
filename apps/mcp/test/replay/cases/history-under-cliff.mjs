@@ -53,7 +53,7 @@ export default {
       preface: "",
     });
     assert.match(view.text, /the newest text/);
-    assert.match(view.text, /oldest texts of the last 7 days are left out here for room; read_day opens any day whole/);
+    assert.match(view.text, /oldest texts of the last 7 days are left out here for room; fetch id "day:<date>" opens any day whole/);
     assert.equal(view.text.includes("older text 0 "), false, "the cap drops the oldest texts, not the newest");
   },
 };

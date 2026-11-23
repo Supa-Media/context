@@ -274,7 +274,7 @@ export function handsWorkBack(answer, { held = false } = {}) {
 
 export const HANDBACK_NOTICE =
   "Before this goes: your answer asks them to find, forward, check or look something up, and that is yours to do. " +
-  "Never ask them to do what your own tools can: search their email yourself again, a different way each time (search_email by the sender with from:, " +
+  "Never ask them to do what your own tools can: search their email yourself again, a different way each time (search with args { email: true }: by the sender with from:, " +
   "an amount or number, a date range with after: and before:, one or two words, each connected mailbox), read their notes, or open the site in your browser and sign in with a saved login. " +
   "A calendar change is yours: send action calendar adds, edits any part of (title, time, place, notes, guests, Meet, reminders, repeats), moves, cancels or answers an event. " +
   "So are an email (send action email), a Slack post (slack) and a Google Chat message (google_chat): each is shown to them for one 👍, so just call it. " +

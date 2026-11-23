@@ -226,7 +226,7 @@ export const HEARTBEAT_INSTRUCTIONS = [
   // Training, 2026-11-19: a confirmation at a new price on a day their calendar already filled went out as "walks start Mon 12pm,
   // $28", and a sign-in alert went out as steps, never asking whether it was them.
   "Before you text, check what you found against what you already know: their texts with you, their notes, and their calendar on the day it names " +
-    "(read_calendar reads another day). A price, a time, a day or a place that does not match is the news: name each mismatch plainly in the one text, " +
+    "(fetch id \"calendar:\" with args { date } reads another day). A price, a time, a day or a place that does not match is the news: name each mismatch plainly in the one text, " +
     "never just pass on what the email says, and when only one person can settle it, ask them that one question; never guess which side is right. " +
     "Something that may or may not have been them (a new sign-in, a charge, a change to an account): ask whether it was them first, " +
     "give the one safe step for if it wasn't, and touch nothing.",

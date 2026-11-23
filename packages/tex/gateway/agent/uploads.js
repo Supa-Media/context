@@ -84,7 +84,7 @@ export function printedEmail(message) {
 
 async function fromEmail(source, attachment, store) {
   const parsed = parseEmailId(source);
-  if (parsed === null) return { error: "an email is named by its email:<address>/<id> id, as search_email gave it; search first and pass the id it gives" };
+  if (parsed === null) return { error: "an email is named by its email:<address>/<id> id, as an email search gave it; search first and pass the id it gives" };
   if (typeof store?.email?.read !== "function") return { error: REFUSED.not_allowed };
   let answer;
   try {

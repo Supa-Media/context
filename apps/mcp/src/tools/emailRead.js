@@ -280,7 +280,7 @@ export function parseEmailId(id) {
 
 export async function toolReadEmail(store, args) {
   const parsed = parseEmailId(typeof args?.id === "string" ? args.id.trim() : "");
-  if (parsed === null) return toolError(`id is ${EMAIL_ID_PREFIX}<address>/<id>, as search_email gave it; search first and pass the id it gives. Search first and pass the id it gives.`);
+  if (parsed === null) return toolError(`id is ${EMAIL_ID_PREFIX}<address>/<id>, as an email search gave it; search first and pass the id it gives. Search first and pass the id it gives.`);
   const wanted = args?.attachment;
   if (wanted !== undefined && (!Number.isInteger(wanted) || wanted < 1 || wanted > 100)) {
     return toolError("attachment is the attachment's number as the email lists it: 1 for the first. Read the email first to see its numbers.");
@@ -303,7 +303,7 @@ export async function toolReadEmail(store, args) {
     const words = await attachmentWords(store, message, answer.attachment, {
       from: Number.isInteger(args?.from) && args.from > 0 ? args.from : 0,
       summary: args?.summary && typeof args.summary === "object" ? args.summary : null,
-      next: (at) => `read_email with id "${EMAIL_ID_PREFIX}${parsed.address}/${parsed.messageId}", attachment: ${wanted} and from: ${at}`,
+      next: (at) => `fetch id "${EMAIL_ID_PREFIX}${parsed.address}/${parsed.messageId}" with args { attachment: ${wanted}, from: ${at} }`,
     });
     return words.isError === true ? words : { ...words, sources };
   }

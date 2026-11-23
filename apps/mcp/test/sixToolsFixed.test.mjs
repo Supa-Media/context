@@ -163,18 +163,18 @@ test("fetch manual:<action> gives the action's args and its full guide; an unkno
   assert.equal(rateError(unknown.error), "actionable");
 });
 
-test("a failed call to an action this turn holds gets its manual back, once per action per turn", () => {
+test("a failed call to an action this turn holds gets its manual back, on every failure (Dev2, 2026-11-23)", () => {
   const shown = fixedCarriers("one");
   const six = sixToolsOver([...shown.values()], { send: ["search_web", "say_nothing"] }, { shown });
   const first = six.manualOnFailure("send", { action: "search_web", args: {} });
   assert.match(first, /The manual for search_web/);
   assert.match(first, /Call: send \{ action: "search_web", args: /);
-  assert.equal(six.manualOnFailure("send", { action: "search_web", args: {} }), null, "once per turn");
+  assert.equal(six.manualOnFailure("send", { action: "search_web", args: {} }), first, "again on the next failure: the Kansi reply's third refusal came back bare, and Tex gave up");
   assert.equal(six.manualOnFailure("send", { action: "email", args: {} }), null, "not one this turn holds");
   assert.equal(six.manualOnFailure("fetch", { id: "x" }), null, "only the three families with actions");
   const read = sixToolsOver([...shown.values()], null, { shown });
   read.resolve("fetch", { id: "manual:save" });
-  assert.equal(read.manualOnFailure("write", { path: "a.md" }), null, "a manual it already read is not sent again");
+  assert.match(read.manualOnFailure("write", { path: "a.md" }), /The manual for save/, "a manual it read is still sent with a failure");
   assert.equal(sixToolsOver([...shown.values()], null).manualOnFailure("write", { path: "a.md" }), null, "without the fixed list the words are already inline");
 });
 

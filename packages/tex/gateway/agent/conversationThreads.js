@@ -216,7 +216,7 @@ export function threadsPrompt({ threads, suggested = null, fresh = false, older 
   const listed = listedThreads(threads);
   const hidden = threads.length - listed.length;
   const lines = [
-    `Conversations in this chat, open ones first (the texts below are ${window}; read_thread opens any conversation in full${hidden > 0 ? `, including ${hidden} older ones not listed` : ""}):`,
+    `Conversations in this chat, open ones first (the texts below are ${window}; fetch id "thread:<id>" opens any conversation in full${hidden > 0 ? `, including ${hidden} older ones not listed` : ""}):`,
     ...listed.map((thread) => threadLine(thread, when)),
   ];
   if (fresh) lines.push("", "The newest text most likely starts a new conversation.");
@@ -245,7 +245,7 @@ export function readThreadTool({ threads, render }) {
         return { content: [{ type: "text", text: all.map((thread) => `- ${thread.id} · ${thread.status} · ${thread.title}: ${thread.description}`).join("\n") }] };
       }
       const thread = threads.find((each) => each.id === id);
-      if (!thread) return { content: [{ type: "text", text: `No conversation ${id} in this chat. Call read_thread with no thread to list them.` }], isError: true };
+      if (!thread) return { content: [{ type: "text", text: `No conversation ${id} in this chat. fetch id "thread:" lists them.` }], isError: true };
       const text = render(thread.id);
       return { content: [{ type: "text", text: `${thread.id} · ${thread.status} · ${thread.title}: ${thread.description}\n\n${text || "(None of its texts are in the part of the chat read for this turn: tex/history.ledger.json holds the whole chat.)"}` }] };
     },
