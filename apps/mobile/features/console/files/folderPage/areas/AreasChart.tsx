@@ -24,6 +24,8 @@ import { Text } from "../../../../design/components/Text";
 import { radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { OwnerFace, type Face } from "../Glyphs";
+import { useRightClick } from "../../rightClick";
+import { pressPoint } from "./pressPoint";
 import { MODE_TIPS, areaTitle, gapOf, healthOf, kindCounts, needLook, type AreaNode, type Health, type Seat } from "./seat";
 
 export interface AreasChartProps {
@@ -51,19 +53,7 @@ export interface AreasChartProps {
 type Point = { readonly x: number; readonly y: number };
 type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact">;
 
-const pointOf = (event: GestureResponderEvent | undefined): Point | null =>
-  event === undefined ? null : { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY };
-
-/** Right-click on web, through the native event as `TabStrip` reads it; nothing on a phone. */
-function rightClick(open: (at: Point) => void): { readonly onContextMenu?: (event: { preventDefault?: () => void; pageX?: number; pageY?: number }) => void } {
-  if (Platform.OS !== "web") return {};
-  return {
-    onContextMenu: (event) => {
-      event.preventDefault?.();
-      open({ x: event.pageX ?? 0, y: event.pageY ?? 0 });
-    },
-  };
-}
+const pointOf = (event: GestureResponderEvent | undefined): Point | null => (event === undefined ? null : pressPoint(event));
 
 /** A web hover title; none on a phone, where accessibilityHint carries the same words. */
 function hoverTitle(text: string): { readonly title?: string } {
@@ -251,11 +241,15 @@ function SeatBox({
   const reachText = empty ? "" : ctx.reach(seat.owner as string);
   const look = top ? needLook(node) : 0;
   const open = (event?: GestureResponderEvent) => (top ? ctx.onMenu(seat, pointOf(event)) : ctx.onOpen(seat.folder));
+  const menuClick = useRightClick((at) => {
+    ctx.onMenu(seat, at);
+    return true;
+  });
   return (
     <View
       style={[styles.box, ctx.compact && styles.boxPhone, top && styles.boxRoot, empty && !top && styles.boxEmpty, hovered && styles.boxHover]}
       testID={`area-box-${seat.folder}`}
-      {...rightClick((at) => ctx.onMenu(seat, at))}
+      ref={menuClick.ref as never}
     >
       <Pressable
         onPress={open}

@@ -106,6 +106,23 @@ describe("the Areas folder", () => {
     expect(all("seat-dialog")).toHaveLength(1);
   });
 
+  // The owner, 2026-11-23: "in prod this menu doesn't even pop up". A
+  // right-click on a row or a box opens that seat's menu, not the page's
+  // New note menu behind it: react-native-web forwards no onContextMenu, so
+  // the listener goes on the DOM node through useRightClick.
+  test.each(["list", "chart"] as const)("a right-click on an area in %s opens its seat menu, not the page's", async (mode) => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    if (mode === "chart") await press(view("chart"));
+    const target = one(mode === "chart" ? "area-box-areas/finance" : "area-row-areas/finance");
+    const holder = mode === "chart" ? target : (target.parentElement as HTMLElement);
+    await act(async () => {
+      holder.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 50 }));
+    });
+    const items = all("menu-root").flatMap((menu) => Array.from(menu.querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')).map((node) => strip(node.textContent).trim()));
+    expect(items).toContain("Edit seat…");
+    expect(items).not.toContain("New note");
+  });
+
   test("Edit seat writes the seat to the area's about.md and the card to people/", async () => {
     const writes: Write[] = [];
     await mount(host(writes, { notes: AREAS }), LISTING);

@@ -20,6 +20,8 @@ import { useColors, useThemedStyles, type Colors } from "../../../../design/them
 import { displayName, folderLabel } from "../../paths";
 import type { ItemEntry } from "../model";
 import { OwnerFace, type Face } from "../Glyphs";
+import { useRightClick } from "../../rightClick";
+import { pressPoint } from "./pressPoint";
 import { areaTitle, fileKind, gapOf, healthOf, type AreaNode, type Seat } from "./seat";
 
 /** How far each level sits in from its parent. */
@@ -50,24 +52,6 @@ export interface AreasListProps {
 interface HoverState {
   readonly hovered?: boolean;
   readonly pressed: boolean;
-}
-
-/** The shape of the DOM event a web context menu hands its handler. */
-interface WebMouseEvent {
-  pageX?: number;
-  pageY?: number;
-  preventDefault?: () => void;
-}
-
-/** Right-click on web, the way `TabStrip` wires it; nothing on native, which has no second button. */
-function contextMenuProps(onMenu: (at: { x: number; y: number }) => void): ViewProps {
-  if (Platform.OS !== "web") return {};
-  return {
-    onContextMenu: (event: WebMouseEvent) => {
-      event.preventDefault?.();
-      onMenu({ x: event.pageX ?? 0, y: event.pageY ?? 0 });
-    },
-  } as unknown as ViewProps;
 }
 
 /** The row's depth as a data attribute on web (react-native-web's `dataSet`), so a test and a page reader can see the level. */
@@ -157,8 +141,12 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
   const unowned = seat.owner === null;
   const name = root ? (title ?? areaTitle(seat.name)) : areaTitle(seat.name);
   const openMenu = (at: { x: number; y: number } | null) => shared.onMenu(seat, at);
+  const menuClick = useRightClick((at) => {
+    openMenu(at);
+    return true;
+  });
   return (
-    <View {...contextMenuProps((at) => openMenu(at))}>
+    <View ref={menuClick.ref as never}>
       <Pressable
         onPress={() => (root ? openMenu(null) : shared.onOpen(seat.folder))}
         accessibilityLabel={root ? `${folderLabel(seat.name)}, seat` : `${folderLabel(seat.name)}, area`}
@@ -196,7 +184,7 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
               </Text>
               {warm ? <View testID="area-gap-dot" style={[styles.dot, { backgroundColor: colors.warn }]} /> : null}
               <Pressable
-                onPress={(event: GestureResponderEvent) => openMenu({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY })}
+                onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
                 accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
                 hitSlop={6}
                 style={[styles.more, shared.compact || hovered ? styles.moreShown : styles.moreHidden]}
