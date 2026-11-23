@@ -85,6 +85,27 @@ describe("the Areas folder", () => {
     expect(strip(one("area-box-areas/engineering").textContent)).toContain("No manager loop");
   });
 
+  test("Chart is an org chart: the workspace on top, lines down to each area, sub-areas under their parent", async () => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(view("chart"));
+    const top = one("area-box-areas");
+    expect(strip(top.textContent)).toContain("3 areas");
+    expect(strip(top.textContent)).toContain("need a look");
+    expect(all("area-line").length).toBeGreaterThan(2);
+    // Payroll is drawn inside Finance's column, under its box.
+    expect(all("area-box-areas/finance/payroll")).toHaveLength(1);
+    // Files are counted by kind, the seat's about.md is not one of them.
+    expect(strip(one("area-box-areas/engineering").textContent)).toContain("1 note");
+  });
+
+  test("an empty seat is a dashed box that offers Assign owner, which opens the seat", async () => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(view("chart"));
+    expect(strip(one("area-box-areas/design").textContent)).toContain("No owner");
+    await press(one("area-assign-areas/design"));
+    expect(all("seat-dialog")).toHaveLength(1);
+  });
+
   test("Edit seat writes the seat to the area's about.md and the card to people/", async () => {
     const writes: Write[] = [];
     await mount(host(writes, { notes: AREAS }), LISTING);
