@@ -818,7 +818,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)](./texting-assistant/edits-and-unsends.md)
 - [A Provisional run starts a step before the steps that decide whether it should run (2026-11-17)](./texting-assistant/provisional-run.md)
 - [A retried turn goes on from what its last try did (2026-11-17)](./texting-assistant/turn-resume.md)
-- [Tex asks Tex across chats, and a "Starts a new run" wire (2026-11-17)](./texting-assistant/cross-chat-asks.md)
+- [Tex asks Tex across chats, and a "Starts a new run" wire (2026-11-17)](./texting-assistant/cross-chat-asks.md); [A group chat's Tex uses what each person's own Tex lets it, and never says why (2026-11-24)](./texting-assistant/member-cards.md)
 - [One list of what Tex can do, and where (2026-11-08)](./texting-assistant/capabilities.md)
 - [Four rules for Tex's tools, held in CI and watched in the Lab (2026-11-20)](./texting-assistant/tool-rules.md)
 - [Checks read a draft together and send it back once (2026-11-17)](./texting-assistant/one-notice.md)
