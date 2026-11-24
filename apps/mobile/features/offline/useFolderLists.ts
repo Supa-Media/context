@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useAction, useConvex } from "convex/react";
 import { useWriteNote } from "../console/files/useWriteNote";
+import { useConsoleGrant } from "../agent/useConsoleGrant";
+import { MCP_ENDPOINT } from "../console/placeholderData";
+import { folderNotesThroughGateway, folderNotesUrl } from "./gatewayFolderNotes";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { announceBucketWrite } from "../console/files/bucketWrites";
@@ -55,6 +58,10 @@ export function useFolderLists(
     offline.current = reachability === "offline";
   }, [reachability]);
   const writeNote = useWriteNote();
+  // Read through a ref, so the source keeps one identity when the grant minter is rebuilt.
+  const grant = useConsoleGrant();
+  const mintGrant = useRef(grant);
+  mintGrant.current = grant;
   const canEdit = capabilitiesForRole(role).canEdit;
   const convex = useConvex();
   return useMemo(() => {
@@ -70,11 +77,28 @@ export function useFolderLists(
       deviceFirst: deviceFirst(),
       io: {
         readNote: (path) => readNote({ workspaceId: id, path }),
-        folderNotes: (folder, subfolders, cursor) =>
-          withTimeout(
-            folderNotes({ workspaceId: id, folder, subfolders, ...(cursor === undefined ? {} : { cursor }) }),
-            READ_TIMEOUT_MS,
-          ),
+        // The gateway first, read in the workspace's object (`gatewayFolderNotes.ts`); the control plane for what it
+        // hands back, a workspace whose notes are not in its object yet.
+        folderNotes: async (folder, subfolders, cursor) => {
+          const url = folderNotesUrl(MCP_ENDPOINT);
+          const page =
+            url === null
+              ? null
+              : await folderNotesThroughGateway({
+                  url,
+                  token: async (refresh) => (await mintGrant.current({ workspaceId: id }, refresh)).accessToken,
+                  folder,
+                  subfolders,
+                  cursor,
+                });
+          return (
+            page ??
+            (await withTimeout(
+              folderNotes({ workspaceId: id, folder, subfolders, ...(cursor === undefined ? {} : { cursor }) }),
+              READ_TIMEOUT_MS,
+            ))
+          );
+        },
         readNotes: async (paths) =>
           (await withTimeout(readNotes({ workspaceId: id, paths, plain: true }), READ_TIMEOUT_MS)).results,
         writeNote: async (path, text, expectedEtag) => {
