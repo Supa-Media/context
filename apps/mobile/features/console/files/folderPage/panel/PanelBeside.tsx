@@ -30,6 +30,7 @@ export function PanelBeside({
   pageWidth,
   wide,
   mainWidth = null,
+  panelWidth = null,
   style,
   children,
 }: {
@@ -41,12 +42,14 @@ export function PanelBeside({
   wide: boolean;
   /** The Board's own width while the panel is closed, kept when the panel lies over it; null for none. */
   mainWidth?: number | null;
+  /** A panel of a fixed width (the Areas panel's) rather than about half the page; null for that half. */
+  panelWidth?: number | null;
   style: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   const screen = useWindowDimensions();
-  const peek = panel === null ? null : peekLayout(pageWidth > 0 ? pageWidth : screen.width, noteColumnWidth, wide, mainWidth);
+  const peek = panel === null ? null : peekLayout(pageWidth > 0 ? pageWidth : screen.width, noteColumnWidth, wide, mainWidth, panelWidth);
   if (panel === null || peek === null) {
     return (
       <View style={style}>

@@ -91,7 +91,7 @@ export function guestStyles(): string {
     reaches the real document through themeVars; this copy is the
     broken-bridge fallback, like the colours above.
   */
-  --lp-measure: 40;
+  --lp-measure: 50;
 
   /* How much of the editor something else is covering. See the inset message. */
   --lp-inset-bottom: 0px;

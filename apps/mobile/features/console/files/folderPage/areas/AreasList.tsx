@@ -194,15 +194,19 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
             <View style={styles.notesCell}>
               <NotesButton node={node} shared={shared} />
             </View>
-            <Pressable
-              onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
-              accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
-              hitSlop={6}
-              style={[styles.more, { opacity: root || hovered ? 1 : 0 }]}
-              testID={`area-more-${seat.folder}`}
-            >
-              <Icon name="more" size={14} color={colors.muted} />
-            </Pressable>
+            {/* In the margin past the row's right edge, on hover only, so it takes no room from the
+                row (the owner, 2026-11-24: "remove the deadspace"). The top row's own press opens the menu. */}
+            {root ? null : (
+              <Pressable
+                onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
+                accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
+                hitSlop={6}
+                style={[styles.more, { opacity: hovered ? 1 : 0 }]}
+                testID={`area-more-${seat.folder}`}
+              >
+                <Icon name="more" size={14} color={colors.muted} />
+              </Pressable>
+            )}
           </>
         )}
       </Pressable>
@@ -460,7 +464,7 @@ const makeStyles = (colors: Colors) =>
     // The area shown in the side panel.
     selected: { backgroundColor: colors.accentDim },
 
-    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric, 52 of count and 24 of ⋯, 16 apart.
+    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric and 52 of count, 16 apart; the ⋯ floats past the right edge.
     areaRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -479,7 +483,7 @@ const makeStyles = (colors: Colors) =>
     unownedName: { color: colors.muted },
     metricCell: { width: 220, flexShrink: 0, minWidth: 0 },
     notesCell: { width: 52, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
-    more: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
+    more: { position: "absolute", right: -28, top: "50%", marginTop: -12, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6 },
 
     metric: { minWidth: 0 },
     metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },

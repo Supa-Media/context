@@ -86,6 +86,7 @@ import { useStatusEdits } from "./useStatusEdits";
 import { rememberView, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 import { PanelBeside } from "./panel/PanelBeside";
+import { AREA_PANEL_WIDTH } from "./panel/panelModel";
 import { TaskPanel } from "./panel/TaskPanel";
 import { useTaskPanel } from "./panel/useTaskPanel";
 import { usePendingNotes } from "./tasks/usePendingNotes";
@@ -486,7 +487,7 @@ export function FolderPage({
       {sheet !== null && sheet === about ? (
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
-      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideAreas !== null} mainWidth={wideBoard ?? wideAreas} style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideAreas !== null} mainWidth={wideBoard ?? wideAreas} panelWidth={seats ? AREA_PANEL_WIDTH : null} style={styles.contents}>
         {seatsWaiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="areas-waiting" />
         ) : seats ? (

@@ -140,13 +140,14 @@ describe("the palette", () => {
     /*
       The band the number has to stay inside, which is the design decision
       rather than the value. Prose in a system sans averages 0.45-0.55em a
-      character, so 40em is roughly 73-89 characters and the comfortable range
-      is 60-75. Anything outside this changes how the note reads and should
-      have to edit a test that says so.
+      character, so 50em is roughly 91-111 characters: wider than the 60-75
+      band, chosen by the owner on 2026-11-24 so a note shares the Areas
+      prototype's 800 column. Anything outside this changes how the note reads
+      and should have to edit a test that says so.
       `e2e/webkit/readingMeasure.spec.ts` checks the rendered result.
     */
     expect(layout.readingMeasureEm).toBeGreaterThanOrEqual(30);
-    expect(layout.readingMeasureEm).toBeLessThanOrEqual(40);
+    expect(layout.readingMeasureEm).toBeLessThanOrEqual(50);
   });
 
   test("the phone's own width is what governs there — the measure cannot bind", () => {

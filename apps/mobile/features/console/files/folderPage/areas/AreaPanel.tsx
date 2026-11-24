@@ -276,7 +276,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     panel: { gap: space.x5 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    title: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+    title: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600" },
     openButton: { paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.sm, backgroundColor: colors.text },
     openWord: { color: colors.surface, fontWeight: "600" },
     close: { padding: space.x1, borderRadius: radii.sm },

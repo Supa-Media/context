@@ -107,15 +107,18 @@ describe("the Areas List", () => {
     expect(all("area-row-areas")).toHaveLength(0);
   });
 
-  test("the top row's ⋯ opens the seat menu for the open folder, not navigation", async () => {
+  test("the top row opens the seat menu for the open folder, not navigation, and draws no ⋯", async () => {
     const menus: string[] = [];
     const opened: string[] = [];
     await render({ onMenu: (seat) => menus.push(seat.folder), onOpen: (path) => opened.push(path) });
-    await press(one("area-more-areas"));
-    expect(menus).toEqual([ROOT]);
+    // The prototype's top row has no ⋯ (the owner, 2026-11-24); its own press is the menu.
+    expect(all("area-more-areas")).toHaveLength(0);
     await press(one("area-row-root"));
-    expect(menus).toEqual([ROOT, ROOT]);
+    expect(menus).toEqual([ROOT]);
     expect(opened).toEqual([]);
+    // A sub-area's ⋯ still opens its menu.
+    await press(one("area-more-areas/finance"));
+    expect(menus).toEqual([ROOT, "areas/finance"]);
   });
 
   test("a sub-area sits one level deeper than the top row, and a sub-area of it deeper still", async () => {

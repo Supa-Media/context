@@ -21,6 +21,13 @@ import { groupOfStatus, type StatusList } from "../statuses";
 import type { Due } from "../taskProps";
 import type { TaskRef } from "../tasks/taskWrites";
 
+/**
+ * The Areas panel's own width, the prototype's narrow column (the owner,
+ * 2026-11-24: "does not open up in the side panel?" of a half-page card that
+ * lay over the list): narrow enough that it sits beside the list, which
+ * gives up the room, wherever a pointer has the page for both.
+ */
+export const AREA_PANEL_WIDTH = 360;
 /** The narrowest the panel is drawn (the approved artboard's width). */
 export const PANEL_MIN = 430;
 /** The widest: past this a line of the note is longer than anybody reads. */
@@ -77,12 +84,12 @@ export interface PeekLayout {
  * it while the panel is closed) keeps that width and place too, so opening
  * the panel never moves it. Null before the page has been measured.
  */
-export function peekLayout(pageWidth: number, columnWidth: number, wide: boolean, mainWidth: number | null = null): PeekLayout | null {
+export function peekLayout(pageWidth: number, columnWidth: number, wide: boolean, mainWidth: number | null = null, panelWidth: number | null = null): PeekLayout | null {
   if (pageWidth <= 0) return null;
   const avail = room(pageWidth);
   const column = Math.min(columnWidth, avail);
   const side = Math.max(0, (pageWidth - column) / 2 - PAGE_MARGIN);
-  const panel = panelWidthFor(pageWidth);
+  const panel = panelWidth === null ? panelWidthFor(pageWidth) : Math.min(avail, panelWidth);
   const need = panel + PANEL_GAP;
   if (avail >= LIST_MIN + need) {
     const right = Math.min(side, need);
