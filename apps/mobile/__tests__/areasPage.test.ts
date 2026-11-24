@@ -259,6 +259,14 @@ describe("the Areas folder", () => {
     expect(all("seat-save")).toHaveLength(0);
   });
 
+  test("a personal workspace's Areas folder is the plain listing: no seats, no List · Chart switch", async () => {
+    await mount({ ...host([], { notes: AREAS }), personal: true }, LISTING);
+    expect(all("folder-view-chart")).toHaveLength(0);
+    expect(all("areas-view")).toHaveLength(0);
+    expect(all("areas-list")).toHaveLength(0);
+    expect(all("areas-waiting")).toHaveLength(0);
+  });
+
   test("a folder outside the Areas folder has no List · Chart switch", async () => {
     await mount(host([], { notes: [{ path: "resources/a.md", properties: {} }] }), {
       path: "resources",

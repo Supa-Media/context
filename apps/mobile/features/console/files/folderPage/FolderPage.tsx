@@ -292,7 +292,8 @@ export function FolderPage({
   // once the notes arrive (the owner saw that flicker in production): until they land it waits,
   // empty, under its switch. A device whose notes have not come by `SETTLE_AFTER` gets the plain
   // listing rather than a blank page.
-  const areasHere = !tracks && inAreasNow(folder);
+  // A personal workspace has one owner for every area, so its Areas folder is the plain listing.
+  const areasHere = !tracks && host.personal !== true && inAreasNow(folder);
   const seats = areasHere && notes !== null;
   const seatsWaiting = areasHere && notes === null && gaveUp !== folder;
   const view: FolderPageView = tracks ? (picked === "chart" ? "list" : (picked ?? "list")) : (seats || seatsWaiting) && picked === "chart" ? "chart" : "list";

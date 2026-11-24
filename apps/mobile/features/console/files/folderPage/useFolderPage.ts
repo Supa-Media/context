@@ -56,6 +56,11 @@ export interface FolderPageHost {
    * the landing page's demo — and the peek reads the note, read-only.
    */
   readonly editing?: PeekEditing;
+  /**
+   * A personal workspace: its Areas folder is the plain listing, not seats
+   * with owners, since one person owns every area there (owner, 2026-11-24).
+   */
+  readonly personal?: boolean;
 }
 
 export interface FolderNotes {
