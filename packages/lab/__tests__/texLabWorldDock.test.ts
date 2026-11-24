@@ -37,7 +37,7 @@ jest.mock("../../../apps/mobile/features/site/host", () => ({ isTexHost: () => t
 type Person = { handle: string; name: string; account: string };
 type Row = Record<string, unknown> & { id: string; who: string; text: string };
 const mockCalls: Array<{ op: string; body: Record<string, unknown> }> = [];
-const mock = { rows: [] as Row[], people: [] as Person[], seq: 0 };
+const mock = { rows: [] as Row[], people: [] as Person[], seq: 0, starting: false };
 jest.mock("@context/lab/app/views/canvas/sandboxCall", () => {
   const { setSandboxCall } = jest.requireActual<typeof import("@context/lab/app/engine/sandbox")>("@context/lab/app/engine/sandbox");
   setSandboxCall(async (op: string, body: Record<string, unknown>) => {
@@ -48,8 +48,10 @@ jest.mock("@context/lab/app/views/canvas/sandboxCall", () => {
       const w = body.world as { people: Array<{ name: string; account: string }> };
       mock.people = w.people.map((p) => ({ handle: p.account === "on" ? p.name.split(" ")[0].toLowerCase() + "-x1" : p.name, name: p.name, account: p.account }));
       mock.rows = [];
+      if (mock.starting) return { sandboxId: "sb1", code: "#12", people: [], rows: [], preview: { pr: 12, starting: true } };
       return { sandboxId: "sb1", code: "#12", people: mock.people, rows: [] };
     }
+    if (op === "about" && mock.starting) return { source: "world", kind: "group", people: [], code: "#12", preview: { pr: 12, starting: true } };
     if (op === "about") return { source: "world", kind: "group", people: mock.people, rows: mock.rows.length };
     if (op === "send") {
       const id = "t" + ++mock.seq;
@@ -94,6 +96,7 @@ afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockCalls.length = 0;
+  mock.starting = false;
   resetSandboxState();
   resetPlay();
   resetWorld();
@@ -160,6 +163,14 @@ test("a scenario opens on the preview, in the Chat view, with the people strip a
   expect(q("#sbPeople .bill")?.textContent).toBe("Billed to Alpha");
   // Texting as: everyone here but Tex, by name; read back from the preview.
   expect(qa("#sbCompose .asc").map((b) => b.getAttribute("data-as"))).toEqual(["Alpha Morgan", "Beta Chen", "Gamma Ellis"]);
+});
+
+test("while the preview starts, everyone it opened with can already be picked under Texting as", async () => {
+  mock.starting = true;
+  await openEveryone();
+  expect(qa("#sbCompose .asc").map((b) => b.getAttribute("data-as"))).toEqual(["Alpha Morgan", "Beta Chen", "Gamma Ellis"]);
+  await click('#sbCompose [data-as="Gamma Ellis"]');
+  expect(q('#sbCompose [data-as="Gamma Ellis"]')?.getAttribute("aria-pressed")).toBe("true");
 });
 
 test("texting as someone sends their handle; Tex's answer and the why line show, and the preview's answer wins", async () => {

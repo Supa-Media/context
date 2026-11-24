@@ -18,6 +18,7 @@ export const OP_PATHS = [
   "chat/resolve",
   "group/members",
   "group/remove",
+  "poll/create",
 ] as const;
 
 const OPS = new Set<string>(OP_PATHS);
