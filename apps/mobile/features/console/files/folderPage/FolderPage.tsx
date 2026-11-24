@@ -491,7 +491,8 @@ export function FolderPage({
             faceOf={(owner) => faceFor({ faceOf, owners }, owner ?? undefined)}
             label={label}
             isAgent={agents.isAgent}
-            suggestions={[...ownersInUse(notes ?? NO_NOTES), ...agentList]}
+            people={searchOwners}
+            agents={agentList}
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
             {...(host?.source.readBody === undefined ? {} : { readBody: host.source.readBody })}

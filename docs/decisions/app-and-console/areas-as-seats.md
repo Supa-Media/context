@@ -78,6 +78,12 @@ workspace one person owns every area, so its Areas folder is the plain file
 listing, with no seats and no List · Chart switch. `areasPage.test.ts` fails if
 a personal workspace draws seats.
 
+**Who holds a seat** (decided by the owner, 2026-11-24): a person from the
+workspace, optionally with their agent (the seat's `helper`), or an agent on
+its own, chosen from the workspace's `agents:` list. The pop-up offers only
+those: owner words merely found in other notes are never offered.
+`areasPage.test.ts` fails if they are.
+
 **Readings** come from each area's `metrics.csv`: the latest value and a
 sparkline, on the List and the Chart.
 

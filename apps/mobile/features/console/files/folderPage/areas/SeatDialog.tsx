@@ -14,7 +14,9 @@ import { TextField } from "../../../../design/components/Input";
 import { Text } from "../../../../design/components/Text";
 import { radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
+import type { OwnerSearch } from "../../owners";
 import { Chip, ReachFields } from "./ReachFields";
+import { SeatAgentPicker, SeatKindPicker, SeatPersonPicker, ownerKindOf, type OwnerKind } from "./SeatOwnerPicker";
 import { MODES, MODE_TIPS, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
 export interface SeatDialogProps {
@@ -23,8 +25,10 @@ export interface SeatDialogProps {
   cardFor: (holder: string, kind: Card["kind"]) => Card;
   /** Whether an owner word is an agent (decides which card fields to show). */
   isAgent: (owner: string) => boolean;
-  /** Owners to offer as quick chips (people and agents in use in the workspace); a text field also allows typing one. */
-  suggestions: readonly string[];
+  /** The workspace's people, searched as typed (`SeatOwnerPicker.tsx`). */
+  people: OwnerSearch;
+  /** The workspace's agents (`agents:`): an agent owner, or a person's agent. */
+  agents: readonly string[];
   label: (owner: string) => string;
   /** false: everything read-only, no Save. */
   canEdit: boolean;
@@ -51,7 +55,7 @@ interface DocumentLike {
   removeEventListener(type: "keydown", listener: (event: { key: string }) => void): void;
 }
 
-export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit, onSave, onClose, start }: SeatDialogProps) {
+export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canEdit, onSave, onClose, start }: SeatDialogProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const ids = useRef(0);
@@ -76,6 +80,7 @@ export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit
   const [ownerCard, setOwnerCard] = useState<Card | null>(() => ownerCardFor(seat.ownOwner ?? ""));
   const [helper, setHelper] = useState(seat.helper ?? "");
   const [helperCard, setHelperCard] = useState<Card | null>(() => helperCardFor(seat.helper ?? ""));
+  const [kind, setKind] = useState<OwnerKind>(() => ownerKindOf(seat.ownOwner ?? "", isAgent));
   const [modes, setModes] = useState<readonly Mode[]>(seat.modes);
   const [metrics, setMetrics] = useState<readonly MetricRow[]>(() => [
     ...seat.metrics.map((metric) => ({ id: nextId(), name: metric.name, target: metric.target ?? "" })),
@@ -99,11 +104,17 @@ export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit
 
   const ownerWord = owner.trim();
   const helperWord = helper.trim();
-  const agentSuggestions = suggestions.filter((word) => isAgent(word));
 
   const changeOwner = (word: string) => {
     setOwner(word);
     setOwnerCard(ownerCardFor(word));
+  };
+  // Switching between a person and an agent starts the choice over: an agent owner has no agent of its own.
+  const changeKind = (next: OwnerKind) => {
+    if (next === kind) return;
+    setKind(next);
+    changeOwner("");
+    changeHelper("");
   };
   const changeHelper = (word: string) => {
     setHelper(word);
@@ -122,10 +133,11 @@ export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit
     if (busy) return;
     const cards: Card[] = [];
     if (ownerCard !== null && ownerWord !== "") cards.push({ ...ownerCard, kind: kindOf(ownerWord) });
-    if (helperCard !== null && helperWord !== "") cards.push({ ...helperCard, kind: "agent" });
+    const helperKept = kind === "person" ? helperWord : "";
+    if (helperCard !== null && helperKept !== "") cards.push({ ...helperCard, kind: "agent" });
     const edit: SeatEdit = {
       owner: ownerWord === "" ? null : ownerWord,
-      helper: helperWord === "" ? null : helperWord,
+      helper: helperKept === "" ? null : helperKept,
       modes,
       metrics: metrics.map((row) => ({ name: row.name.trim(), target: row.target.trim() === "" ? null : row.target.trim() })),
       approvals: approvals.map((row) => row.text.trim()).filter((text) => text !== ""),
@@ -152,28 +164,12 @@ export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit
           </View>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
             <Block title="Owner" hint={seat.ownerFrom === null ? undefined : `Follows ${lastSegment(seat.ownerFrom)}`}>
-              <View style={styles.chips} role="radiogroup" aria-label="Owner">
-                <Chip label="No owner" on={ownerWord === ""} disabled={!canEdit} onPress={() => changeOwner("")} />
-                {suggestions.map((word) => (
-                  <Chip
-                    key={word}
-                    label={label(word)}
-                    on={ownerWord === word}
-                    disabled={!canEdit}
-                    onPress={() => changeOwner(word)}
-                  />
-                ))}
-              </View>
-              <TextField
-                label="Another owner"
-                value={owner}
-                onChangeText={changeOwner}
-                placeholder="@handle or an agent name"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={canEdit}
-                testID="seat-owner-input"
-              />
+              <SeatKindPicker kind={kind} canEdit={canEdit} onKind={changeKind} />
+              {kind === "person" ? (
+                <SeatPersonPicker owner={owner} search={people} label={label} canEdit={canEdit} onOwner={changeOwner} />
+              ) : kind === "agent" ? (
+                <SeatAgentPicker value={owner} agents={agents} label={label} canEdit={canEdit} fieldLabel="Agent" onAgent={changeOwner} testID="seat-agent-input" />
+              ) : null}
             </Block>
 
             {ownerCard === null ? null : (
@@ -190,43 +186,24 @@ export function SeatDialog({ seat, cardFor, isAgent, suggestions, label, canEdit
               </Block>
             )}
 
-            <Block title="Helper">
-              <View style={styles.chips} role="radiogroup" aria-label="Helper">
-                <Chip label="None" on={helperWord === ""} disabled={!canEdit} onPress={() => changeHelper("")} />
-                {agentSuggestions.map((word) => (
-                  <Chip
-                    key={word}
-                    label={label(word)}
-                    on={helperWord === word}
-                    disabled={!canEdit}
-                    onPress={() => changeHelper(word)}
-                  />
-                ))}
-              </View>
-              <TextField
-                label="Another helper"
-                value={helper}
-                onChangeText={changeHelper}
-                placeholder="An agent's name"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={canEdit}
-                testID="seat-helper-input"
-              />
-              {helperCard === null ? null : (
-                <Block title={`How to reach ${label(helperWord)}`}>
-                  <ReachFields
-                    key={`helper:${helperCard.holder}`}
-                    card={helperCard}
-                    kind="agent"
-                    holderName={label(helperWord)}
-                    idPrefix="seat-helper"
-                    canEdit={canEdit}
-                    onChange={patchHelper}
-                  />
-                </Block>
-              )}
-            </Block>
+            {kind === "person" && ownerWord !== "" ? (
+              <Block title="Their agent" hint="Optional: an agent that works this seat for them.">
+                <SeatAgentPicker value={helper} agents={agents} label={label} canEdit={canEdit} noneLabel="None" fieldLabel="Agent" onAgent={changeHelper} testID="seat-helper-input" />
+                {helperCard === null ? null : (
+                  <Block title={`How to reach ${label(helperWord)}`}>
+                    <ReachFields
+                      key={`helper:${helperCard.holder}`}
+                      card={helperCard}
+                      kind="agent"
+                      holderName={label(helperWord)}
+                      idPrefix="seat-helper"
+                      canEdit={canEdit}
+                      onChange={patchHelper}
+                    />
+                  </Block>
+                )}
+              </Block>
+            ) : null}
 
             <Block title="Modes" hint="Labels, not rules. With no Manager the chart flags a gap.">
               <View style={styles.chips}>
