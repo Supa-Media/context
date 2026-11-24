@@ -132,6 +132,12 @@ export function selectRows(
  * The editor adds the note it has open and where a row goes.
  */
 export interface FolderListSource {
+  /**
+   * Names this source's workspace and clearance (`<scope>:<workspaceId>`), so a
+   * folder page's reads can be kept for the tab across a reload
+   * (`folderPage/pageCacheTab.ts`). Absent where nothing should be kept.
+   */
+  readonly tabKey?: string;
   load(folder: string, subfolders: boolean): Promise<ListSource | null>;
   /**
    * Only the front notes (`about.md`, `overview.md`, …) of each of `folders`,

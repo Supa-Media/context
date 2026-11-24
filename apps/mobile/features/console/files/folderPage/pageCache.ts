@@ -34,6 +34,7 @@ import type { FolderListSource, ListNote } from "../listBlock/model";
 import { ABOUT_NOTE } from "../paths";
 import { FRONT_NOTES } from "../../../../../mcp/src/lists/grammar.js";
 import type { PanelBody } from "./panel/usePanelBody";
+import { forgetTabPages, keepSection, keptSection } from "./pageCacheTab";
 
 export interface FolderRead {
   readonly notes: readonly ListNote[];
@@ -57,13 +58,57 @@ let generation = 0;
 const listeners = new Set<() => void>();
 let version = 0;
 
+/** Folders and front notes kept for the tab across a reload (`pageCacheTab.ts`): a few pages, not every one. */
+const TAB_FOLDERS = 12;
+const TAB_FRONTS = 200;
+
 function cacheOf(source: FolderListSource): SourceCache {
   let cache = caches.get(source);
   if (cache === undefined) {
     cache = { front: new Map(), folders: new Map(), bodies: new Map(), reading: new Map() };
     caches.set(source, cache);
+    if (source.readBody !== undefined && source.tabKey !== undefined) tabKeys.set(source.readBody, source.tabKey);
+    // A reload draws what this tab last read, and reads again behind it.
+    if (source.tabKey !== undefined) {
+      for (const [folder, read] of keptSection<[string, FolderRead][]>(source.tabKey, "folders") ?? []) cache.folders.set(folder, read);
+      for (const [folder, notes] of keptSection<[string, ListNote[]][]>(source.tabKey, "fronts") ?? []) cache.front.set(folder, notes);
+    }
   }
   return cache;
+}
+
+/** Which kept tab copy a source's `readBody` belongs to: the Areas page keeps its readings there (`areas/useReadings.ts`). */
+const tabKeys = new WeakMap<NonNullable<FolderListSource["readBody"]>, string>();
+
+export function tabKeyOfBody(readBody: FolderListSource["readBody"]): string | undefined {
+  return readBody === undefined ? undefined : tabKeys.get(readBody);
+}
+
+/** The cache for `source`, made only where there is something kept to draw. */
+function peek(source: FolderListSource): SourceCache | undefined {
+  return caches.get(source) ?? (source.tabKey === undefined ? undefined : cacheOf(source));
+}
+
+/** A note's whole text is never kept for the tab: only what a page draws. */
+const withoutText = (notes: readonly ListNote[]): ListNote[] =>
+  notes.map((note) => {
+    if (note.text === undefined) return note;
+    const { text: _text, ...rest } = note;
+    return rest;
+  });
+
+function keepForTab(source: FolderListSource, cache: SourceCache): void {
+  if (source.tabKey === undefined) return;
+  keepSection(
+    source.tabKey,
+    "folders",
+    [...cache.folders].slice(-TAB_FOLDERS).map(([folder, read]) => [folder, { ...read, notes: withoutText(read.notes) }]),
+  );
+  keepSection(
+    source.tabKey,
+    "fronts",
+    [...cache.front].slice(-TAB_FRONTS).map(([folder, notes]) => [folder, withoutText(notes)]),
+  );
 }
 
 function changed(): void {
@@ -83,6 +128,7 @@ function keep<V>(map: Map<string, V>, key: string, value: V): void {
  */
 export function forgetPageCache(): void {
   caches = new WeakMap();
+  forgetTabPages();
   generation += 1;
   changed();
 }
@@ -106,7 +152,7 @@ export function pageCacheGeneration(): number {
 
 export function cachedFront(source: FolderListSource | undefined, folder: string): readonly ListNote[] | undefined {
   if (source === undefined) return undefined;
-  const cache = caches.get(source);
+  const cache = peek(source);
   const own = cache?.front.get(folder);
   if (own !== undefined || cache === undefined || folder === "") return own;
   // A folder read above this one already holds its front notes.
@@ -123,7 +169,7 @@ export function cachedFront(source: FolderListSource | undefined, folder: string
  */
 export function cachedFolder(source: FolderListSource | undefined, folder: string): FolderRead | undefined {
   if (source === undefined) return undefined;
-  const cache = caches.get(source);
+  const cache = peek(source);
   if (cache === undefined) return undefined;
   const own = cache.folders.get(folder);
   if (own !== undefined || folder === "") return own;
@@ -172,16 +218,20 @@ function within(read: FolderRead, folder: string): FolderRead {
 }
 
 export function cachedBody(source: FolderListSource | undefined, path: string): PanelBody | undefined {
-  return source === undefined ? undefined : caches.get(source)?.bodies.get(path);
+  return source === undefined ? undefined : peek(source)?.bodies.get(path);
 }
 
 export function rememberFolder(source: FolderListSource, folder: string, read: FolderRead): void {
-  keep(cacheOf(source).folders, folder, read);
+  const cache = cacheOf(source);
+  keep(cache.folders, folder, read);
+  keepForTab(source, cache);
   changed();
 }
 
 export function rememberFront(source: FolderListSource, folder: string, notes: readonly ListNote[]): void {
-  keep(cacheOf(source).front, folder, notes);
+  const cache = cacheOf(source);
+  keep(cache.front, folder, notes);
+  keepForTab(source, cache);
   changed();
 }
 
@@ -266,6 +316,7 @@ export function readFronts(source: FolderListSource, folders: readonly string[],
     for (const note of notes) byFolder.get(parentOf(note.path))?.push(note);
     const cache = cacheOf(source);
     for (const [folder, front] of byFolder) keep(cache.front, folder, front);
+    keepForTab(source, cache);
     changed();
     await Promise.all(
       [...byFolder].map(([folder, front]) => {
