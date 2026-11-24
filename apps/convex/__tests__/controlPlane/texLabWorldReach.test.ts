@@ -70,7 +70,8 @@ describe("made-up group chats on main", () => {
     // Alice is an editor of Lumio: two made-up owners don't lift her.
     expect(lumio.role).toBe("editor");
     expect(r.session.workspaces.find((x) => x.slug === "solenne-test")!.role).toBe("member");
-    expect(r.session.defaultWorkspaceId).toBe(w.lumio);
+    // The default is the pin read as the chat, at a home's editor hand, so a group turn's texts can be posted.
+    expect(r.session.defaultWorkspaceId).toBe(w.pinned);
   });
 
   test("never personal, never someone else's, and the pin only as Tex's setup", async () => {
@@ -80,7 +81,7 @@ describe("made-up group chats on main", () => {
     ] })) as Reach;
     expect(r.reach).toEqual(["lumio-test"]);
     expect(slugs(r).sort()).toEqual([PINNED_CONTEXT_SLUG, "lumio-test"].sort());
-    expect(r.session.workspaces.find((x) => x.slug === PINNED_CONTEXT_SLUG)).toMatchObject({ setupOnly: true });
+    expect(r.session.workspaces[0]).toEqual({ workspaceId: w.pinned, slug: PINNED_CONTEXT_SLUG, role: "editor", kind: "shared", homeOnly: true, grantedNames: ["#reads-as-chat", "#lab-world-no-home"] });
     const ids = r.session.workspaces.map((x) => x.workspaceId);
     expect(ids).not.toContain(w.aliceWs);
     expect(ids).not.toContain(w.bobs);
@@ -96,7 +97,7 @@ describe("made-up group chats on main", () => {
     expect(guest.blocked).toContainEqual({ slug: "lumio-test", who: "Eve", why: "no_account" });
     expect(guest.blocked).toContainEqual({ slug: "solenne-test", who: "Dan", why: "not_member" });
     // Nothing reached: the pin read as the chat with no home, as a home-only grant's is, so every row there is private.
-    expect(guest.session.workspaces).toEqual([{ workspaceId: w.pinned, slug: PINNED_CONTEXT_SLUG, role: "member", kind: "shared", homeOnly: true, grantedNames: ["#reads-as-chat", "#lab-world-no-home"] }]);
+    expect(guest.session.workspaces).toEqual([{ workspaceId: w.pinned, slug: PINNED_CONTEXT_SLUG, role: "editor", kind: "shared", homeOnly: true, grantedNames: ["#reads-as-chat", "#lab-world-no-home"] }]);
     expect(guest.session.defaultWorkspaceId).toBe(w.pinned);
     const invited = (await w.lab("worldReach", { chat: CHAT, people: [
       { name: "Dan", account: "on", roles: { "lumio-test": "editor" } },
@@ -153,7 +154,7 @@ describe("made-up group chats on main", () => {
     }
     const real = await w.t.run(async (ctx) => (await reachOf(ctx, null as never, [...users, w.alice])).map((r) => [r.workspace.slug, r.role]));
     const made = (await w.lab("worldReach", { chat: CHAT, people: Object.entries(roles).map(([name, held]) => ({ name, account: "on", roles: held })) })) as Reach;
-    expect(made.session.workspaces.filter((x) => !x.setupOnly).map((x) => [x.slug, x.role])).toEqual(real);
+    expect(made.session.workspaces.filter((x) => !x.homeOnly).map((x) => [x.slug, x.role])).toEqual(real);
     expect(real.length).toBe(2);
   });
 });

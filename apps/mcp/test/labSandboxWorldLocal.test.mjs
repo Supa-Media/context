@@ -18,6 +18,8 @@ import { MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSan
 import { changePeople, speakerKey, worldInput } from "../../../packages/lab/gateway/labSandbox/world.js";
 import { hereNow, localControl, localGroupKey, localPeople, localSession, worldPlace } from "../../../packages/lab/gateway/labSandbox/worldLocal.js";
 import { normalizeSession } from "../src/sessionPayload.js";
+import { sessionFromPayload } from "../src/session.js";
+import { handleChat } from "../../../packages/tex/gateway/agent/textingRoutes.js";
 import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
@@ -149,15 +151,24 @@ test("a made-up chat's turn on main reaches no control plane, runs on the test t
   assert.equal(reply.group.intro, true);
 });
 
+// The pin's row as a home-only chat's home is, at its editor hand: a group turn posts its texts and reads its day through
+// the texting routes on the default row's scopes, and a member's role clamps them to read (found on production,
+// 2026-11-24: every reply was drafted, then refused 403 and never sent).
+const PIN_HOME = { workspaceId: "pin", slug: "context", role: "editor", kind: "shared", homeOnly: true, grantedNames: ["#reads-as-chat", "#lab-world-no-home"] };
+const worldPayload = (workspaces) => ({ grantId: "g", clientId: "context_texts_group", actorUserId: "u", scopes: ["context:read", "context:write"], defaultWorkspaceId: "pin", texChatId: "b".repeat(64), workspaces });
+
 test("a chat that reaches nothing holds only the pin, read as a chat with no home", () => {
-  const session = normalizeSession({
-    grantId: "g",
-    clientId: "context_texts_group",
-    actorUserId: "u",
-    scopes: ["context:read", "context:write"],
-    defaultWorkspaceId: "pin",
-    workspaces: [{ workspaceId: "pin", slug: "context", role: "member", kind: "shared", homeOnly: true, grantedNames: ["#reads-as-chat", "#lab-world-no-home"] }],
-  });
-  assert.deepEqual(session.workspaces, [{ workspaceId: "pin", slug: "context", role: "member", kind: "shared", grantedNames: ["#reads-as-chat", "#lab-world-no-home"], homeOnly: true }]);
-  assert.equal(session.texChatId, undefined);
+  const session = normalizeSession(worldPayload([PIN_HOME]));
+  assert.deepEqual(session.workspaces, [{ workspaceId: "pin", slug: "context", role: "editor", kind: "shared", grantedNames: ["#reads-as-chat", "#lab-world-no-home"], homeOnly: true }]);
+  assert.equal(session.setupReach.workspaceId, "pin");
+});
+
+test("a made-up chat's session may post its texts and read its day, reached or not", async () => {
+  const chat = (payload) => handleChat(new Request("https://gateway.example/agent/chat", { method: "POST", body: JSON.stringify({ conversation: { group: "b".repeat(64) } }) }), {}, sessionFromPayload(payload, null, "caller-token"));
+  for (const workspaces of [[PIN_HOME], [PIN_HOME, { workspaceId: "ws", slug: "acme-team", role: "member", kind: "shared" }]]) {
+    const answer = await chat(worldPayload(workspaces));
+    assert.equal(answer.status, 200, `${workspaces.length} rows: ${await answer.text()}`);
+  }
+  // A member's hand on the default row, as before: read only, so the texting routes refuse it.
+  assert.equal((await chat(worldPayload([{ ...PIN_HOME, role: "member" }]))).status, 403);
 });
