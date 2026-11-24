@@ -17,6 +17,8 @@
  *    workspaces on main's search config and on a draft's (`search.js`), each unrecorded, so a try-out is never a real search.
  *  - `shared` and `ledger { chatId, ... }`: the chats people shared with the developers and their history files, read
  *    only (`shared.js`); `open { source: "shared", chatId }` opens a test chat over one, run as its person.
+ *  - `worlds` → `{ preview, slugs, workspaces }`: the workspaces a made-up chat's people can have roles in here
+ *    (`worldLocal.js`): the preview's made-up ones, or on main the caller's own shared ones.
  *  - `open { source: "chat" | "set" | "maya" | "shared", chatId?, convId?, versionId?, base? }` → `{ sandboxId, people, rows }`:
  *    a real chat's texts so far (up to `base`, which is left out), or a Training or Dev conversation's (never the Test
  *    Set's), as the test chat's start; `maya` is the bench's Maya conversation.
@@ -80,6 +82,7 @@ import { searchBenchForPerson, searchForPerson } from "./search.js";
 import { forwardToPreview, openOnPreview } from "./preview.js";
 import { conversationOf, conversationStart, handleOf, setsList } from "./conversations.js";
 import { changePeople, makeWorld, startRows, WORLD_SOURCE, worldAbout, worldInput, worldSpeaker } from "./world.js";
+import { localGroupKey, localPeople, localSession, worldPlace } from "./worldLocal.js";
 
 export { oneRowPerText };
 
@@ -217,16 +220,22 @@ export async function open(env, controlPlane, token, who, input, origin) {
   return await startChat(env, who, input, drafted, about, rows, history);
 }
 
-/** A made-up group chat (`world.js`): its people made on the preview first, then opened like any test chat. */
+/**
+ * A made-up group chat (`world.js`): on a preview its people are made there first; anywhere else they live only in the
+ * test chat, with roles in the caller's own shared workspaces (`worldLocal.js`). Then it opens like any test chat.
+ */
 async function openWorld(env, controlPlane, token, who, input, origin, drafted) {
-  const asked = worldInput(input.world);
+  const place = await worldPlace(controlPlane, token);
+  if (place.error) return refused(...place.error);
+  const asked = place.preview ? worldInput(input.world) : worldInput(input.world, place.slugs);
   if (asked.error) return refused(400, asked.error);
   const sandboxId = randomId();
   const line = measuredLine([]);
   const groupId = `lab-world-${sandboxId}`;
-  const made = await makeWorld(controlPlane, token, { sandboxId, line: line.number, groupId, world: asked.world });
+  const made = place.preview ? await makeWorld(controlPlane, token, { sandboxId, line: line.number, groupId, world: asked.world }) : { ...(await localPeople(asked.world.people)), groupKey: await localGroupKey(groupId) };
   if (made.error) return refused(...made.error);
-  const about = { sandboxId, origin, line, source: WORLD_SOURCE, ...worldAbout({ sandboxId, made, world: asked.world, groupId }) };
+  const world = place.preview ? asked.world : { ...asked.world, local: { slugs: place.slugs } };
+  const about = { sandboxId, origin, line, source: WORLD_SOURCE, ...worldAbout({ sandboxId, made, world, groupId }) };
   const rows = startRows(asked.world, made.people, Date.now(), (at) => newIds(at));
   return await startChat(env, who, input, drafted, about, rows, []);
 }
@@ -319,7 +328,8 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
   // A shared chat's session is asked again on every text, so one no longer shared stops at once.
   // A made-up chat's session is the grant its own turn mints on the preview (`world.js`), never the caller's.
-  const answer = about.source === WORLD_SOURCE ? { status: "ok", session: null, chat: null } : await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
+  // On main its session is the caller's own, narrowed to what its people's chat reaches (`worldLocal.js`).
+  const answer = about.source === WORLD_SOURCE ? (about.world?.local ? await localSession(controlPlane, token, about) : { status: "ok", session: null, chat: null }) : await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
   // The test chat is this text's, taken in the object in one step: two sends at once never both get past here, whatever
   // the reads above saw. Until its turn starts, anything that fails gives the chat back.
@@ -582,6 +592,11 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "open") return (await openOnPreview({ env, controlPlane, token, who, input, origin, helpers: routeHelpers() })) ?? (await open(env, controlPlane, token, who, input, origin));
   if (input.op === "list") return json(await listOf(env, who.userId));
   if (input.op === "shared") return await sharedList(controlPlane, token);
+  // The workspaces a made-up chat's people can have roles in here (`worldLocal.js`), for the Lab's setup.
+  if (input.op === "worlds") {
+    const place = await worldPlace(controlPlane, token);
+    return place.error ? refused(...place.error) : json(place);
+  }
   // A search try-out on the caller's own 1:1 (`search.js`): main's search config and a draft's, neither counted. No test chat.
   if (input.op === "search") return await searchForPerson({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
   // A kept bench asked on main's search config and a draft's, on the standing bench objects (`search.js`, `bench/run.js`).

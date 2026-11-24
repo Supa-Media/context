@@ -7,7 +7,7 @@ import { useState } from "react";
 import { sandbox, sendAs, useSandbox } from "../../../engine/sandbox";
 import { Pop } from "../../bar/Pop.web";
 import { Av, WsChip } from "./parts.web";
-import { ACCOUNT_WORDS, changeWords, firstName, MAX_PEOPLE, OTHER_PEOPLE, roleIn, speaksUpWord, standInNumber, WORKSPACES, type Account, type Role, type Slug, type WorldPerson } from "./worldModel";
+import { ACCOUNT_WORDS, changeWords, firstName, MAX_PEOPLE, otherPeople, roleIn, speaksUpWord, standInNumber, workspaces, type Account, type Role, type Slug, type WorldPerson } from "./worldModel";
 import { currentDraft, joinPerson, leavePerson, openSetup, useWorld } from "./worldStore";
 import { worldNow } from "./worldView";
 
@@ -26,7 +26,7 @@ function PersonMenu({ p, close, guest }: { p: WorldPerson; close: () => void; gu
       </div>
       {guest ? <div className="mnote">Tex sees {guest}</div> : null}
       <div className="mh">Workspaces</div>
-      {WORKSPACES.map((w) => {
+      {workspaces().map((w) => {
         const r = roleIn(p, w.slug);
         return (
           <div className="mi" key={w.slug}>
@@ -67,14 +67,14 @@ const ROLES: Array<Role | ""> = ["owner", "editor", "member", ""];
 /** + Add someone: who joins, their account and roles, who adds them, and what it changes before it does. */
 function AddSomeone({ here, close, preset }: { here: WorldPerson[]; close: () => void; preset?: WorldPerson }) {
   const sb = useSandbox();
-  const others = OTHER_PEOPLE.filter((o) => !here.some((h) => h.name === o.name));
+  const others = otherPeople().filter((o) => !here.some((h) => h.name === o.name));
   const [p, setP] = useState<WorldPerson>(() => preset ?? others[0] ?? { name: "", account: "off" });
   const [by, setBy] = useState(() => (here.find((h) => h.name === sandbox.as) ?? here[0])?.name ?? "");
   const nm = p.name.trim();
   const words = nm ? changeWords(here, [...here, p], p, "added") : null;
   const full = here.length >= MAX_PEOPLE;
   const taken = here.some((h) => h.name.toLowerCase() === nm.toLowerCase());
-  const setAccount = (a: Account) => setP({ name: p.name, account: a, ...(a === "on" ? { roles: {} } : a === "invited" ? { invited: { slug: "lumio", role: "member" } } : {}) });
+  const setAccount = (a: Account) => setP({ name: p.name, account: a, ...(a === "on" ? { roles: {} } : a === "invited" ? { invited: { slug: workspaces()[0]?.slug ?? "", role: "member" } } : {}) });
   return (
     <div className="vmenu" id="sbAddMenu">
       <div className="mh">Add someone to the chat</div>
@@ -93,7 +93,7 @@ function AddSomeone({ here, close, preset }: { here: WorldPerson[]; close: () =>
           <>
             <label>Workspaces</label>
             <span className="ws3">
-              {WORKSPACES.map((w) => (
+              {workspaces().map((w) => (
                 <select key={w.slug} aria-label={w.name} title={w.name} value={p.roles?.[w.slug] ?? ""} onChange={(e) => setP({ ...p, roles: { ...p.roles, [w.slug]: (e.target.value || undefined) as Role | undefined } })}>
                   {ROLES.map((r) => (
                     <option key={r} value={r}>
@@ -107,8 +107,8 @@ function AddSomeone({ here, close, preset }: { here: WorldPerson[]; close: () =>
         ) : p.account === "invited" ? (
           <>
             <label htmlFor="sbAddInv">Invited to</label>
-            <select id="sbAddInv" value={p.invited?.slug ?? "lumio"} onChange={(e) => setP({ ...p, invited: { slug: e.target.value as Slug, role: p.invited?.role ?? "member" } })}>
-              {WORKSPACES.map((w) => (
+            <select id="sbAddInv" value={p.invited?.slug ?? workspaces()[0]?.slug ?? ""} onChange={(e) => setP({ ...p, invited: { slug: e.target.value as Slug, role: p.invited?.role ?? "member" } })}>
+              {workspaces().map((w) => (
                 <option key={w.slug} value={w.slug}>
                   {w.name}, as a member
                 </option>

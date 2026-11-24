@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from "react";
 import { callSandboxRoute, changePeople, openSandbox, sandbox, sandboxChanged, type SandboxSource } from "../../../engine/sandbox";
 import { setDockView } from "../../../engine/sandboxPlay";
-import { personInput, worldPayload, type SpeaksUp, type WorldDraft, type WorldPerson } from "./worldModel";
+import { personInput, setWorkspaces, worldPayload, type SpeaksUp, type WorldDraft, type WorldPerson } from "./worldModel";
 
 export type WorldState = {
   /** The chat open now: who it opened with, everyone ever known by lowercased name, and its settings. */
@@ -23,9 +23,11 @@ export type WorldState = {
   /** The test chat whose people were read back last. */
   synced: string | null;
   problem: string | null;
+  /** Whose workspaces the setup offers: the preview's seeded three, or main's (the Lab user's own), once read. */
+  workspacesFor: "preview" | "main" | null;
 };
 
-export const world: WorldState = { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null };
+export const world: WorldState = { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null, workspacesFor: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -44,6 +46,30 @@ export function useWorld(): WorldState {
 
 const keyOf = (name: string) => name.trim().toLowerCase();
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+
+/**
+ * The workspaces made-up people can have roles in for the Code chosen: on a pull request the preview's three, on main
+ * the Lab user's own shared ones (the gateway's `worlds`), read once. A failed read leaves the preview's and says why.
+ */
+export async function loadWorkspaces(main: boolean) {
+  if (!main) {
+    setWorkspaces(null);
+    world.workspacesFor = "preview";
+    emit();
+    return;
+  }
+  if (world.workspacesFor === "main") return;
+  try {
+    const b = await callSandboxRoute("worlds", {});
+    const list = Array.isArray(b.workspaces) ? (b.workspaces as Array<Record<string, unknown>>).map((x) => ({ slug: String(x.slug ?? ""), name: String(x.name ?? x.slug ?? "") })).filter((x) => x.slug) : [];
+    setWorkspaces(list);
+    world.workspacesFor = "main";
+    world.problem = null;
+  } catch (e) {
+    world.problem = e instanceof Error ? e.message : "Couldn't read your workspaces";
+  }
+  emit();
+}
 
 /** The setup, filled in from a scenario, a blank chat, or the chat open now ("Set up"). */
 export function openSetup(d: WorldDraft) {
@@ -159,6 +185,7 @@ export async function leavePerson(name: string) {
 
 /** For tests. */
 export function resetWorld() {
-  Object.assign(world, { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null });
+  Object.assign(world, { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null, workspacesFor: null });
+  setWorkspaces(null);
   emit();
 }

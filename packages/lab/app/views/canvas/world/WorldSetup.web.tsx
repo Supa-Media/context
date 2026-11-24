@@ -8,11 +8,11 @@ import { useState } from "react";
 import { useSandbox } from "../../../engine/sandbox";
 import { useLab } from "../../../store";
 import { Av, WsChip } from "./parts.web";
-import { draftProblem, MAX_PEOPLE, seeChips, SPEAKS_UP, standInNumber, WORKSPACES, type Account, type Role, type StartLine, type WorldDraft, type WorldPerson } from "./worldModel";
+import { draftProblem, MAX_PEOPLE, seeChips, SPEAKS_UP, standInNumber, workspaces, type Account, type Role, type Slug, type StartLine, type WorldDraft, type WorldPerson } from "./worldModel";
 import { closeSetup, editSetup, openWorld, undoSetup, useWorld } from "./worldStore";
 
 /** One workspace's cell for one person: their role, their invitation, or nothing. */
-function RoleCell({ p, i, slug }: { p: WorldPerson; i: number; slug: (typeof WORKSPACES)[number]["slug"] }) {
+function RoleCell({ p, i, slug }: { p: WorldPerson; i: number; slug: Slug }) {
   const set = (f: (q: WorldPerson) => void) => editSetup((d) => f(d.people[i]));
   if (p.account === "off")
     return (
@@ -65,7 +65,7 @@ function People({ d }: { d: WorldDraft }) {
   const setAccount = (i: number, a: Account) =>
     editSetup((x) => {
       const q = x.people[i];
-      x.people[i] = { name: q.name, account: a, ...(a === "on" ? { roles: {} } : a === "invited" ? { invited: { slug: "lumio", role: "member" } } : {}) };
+      x.people[i] = { name: q.name, account: a, ...(a === "on" ? { roles: {} } : a === "invited" ? { invited: { slug: workspaces()[0]?.slug ?? "", role: "member" } } : {}) };
       if (a !== "on" && x.sponsor === q.name) x.sponsor = x.people.find((p) => p.account === "on")?.name ?? "";
     });
   return (
@@ -77,7 +77,7 @@ function People({ d }: { d: WorldDraft }) {
         <colgroup>
           <col />
           <col style={{ width: 146 }} />
-          {WORKSPACES.map((w) => (
+          {workspaces().map((w) => (
             <col key={w.slug} style={{ width: 136 }} />
           ))}
           <col style={{ width: 30 }} />
@@ -86,7 +86,7 @@ function People({ d }: { d: WorldDraft }) {
           <tr>
             <th>Person</th>
             <th>Account</th>
-            {WORKSPACES.map((w) => (
+            {workspaces().map((w) => (
               <th key={w.slug}>{w.name}</th>
             ))}
             <th />
@@ -108,7 +108,7 @@ function People({ d }: { d: WorldDraft }) {
                   }
                 />
                 {p.account !== "on" ? (
-                  <span className="ph2" title="A stand-in: the preview gives each made-up person a number of their own">
+                  <span className="ph2" title="A stand-in: each made-up person gets a number of their own">
                     {standInNumber(i)}
                   </span>
                 ) : null}
@@ -120,7 +120,7 @@ function People({ d }: { d: WorldDraft }) {
                   <option value="invited">Invited by number</option>
                 </select>
               </td>
-              {WORKSPACES.map((w) => (
+              {workspaces().map((w) => (
                 <td key={w.slug}>
                   <RoleCell p={p} i={i} slug={w.slug} />
                 </td>
@@ -266,11 +266,11 @@ export function WorldSetup() {
           </span>
         ) : null}
         <span className="sp" />
-        {problem || main ? <span className="bad">{main ? "Made-up chats run on a pull request's preview: set Code to #<PR> in the chat picker" : problem}</span> : <span className="fnote">Made-up people; nothing reaches real chats.</span>}
+        {problem ? <span className="bad">{problem}</span> : <span className="fnote">{main ? "Made-up people in your own workspaces; nothing Tex writes leaves this chat." : "Made-up people; nothing reaches real chats."}</span>}
         <button className="ghost" onClick={closeSetup}>
           Cancel
         </button>
-        <button className="primary" id="sbWorldOpen" disabled={!!problem || main || sb.busy} onClick={() => void openWorld(d, s.cur.id)}>
+        <button className="primary" id="sbWorldOpen" disabled={!!problem || sb.busy} onClick={() => void openWorld(d, s.cur.id)}>
           {again ? "Start again with these" : "Open the group chat"}
         </button>
       </div>

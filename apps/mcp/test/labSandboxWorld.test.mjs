@@ -52,7 +52,7 @@ test("what open asks for is checked whole", () => {
   assert.match(worldInput({ people: [] }).error, /1 to 8/);
   assert.match(worldInput({ people: [{ name: "Tex" }] }).error, /Tex's/);
   assert.match(worldInput({ people: [{ name: "Sam", account: "off", roles: { lumio: "member" } }] }).error, /isn't on Context/);
-  assert.match(worldInput({ people: [{ name: "Ana", roles: { acme: "owner" } }] }).error, /no made-up workspace/);
+  assert.match(worldInput({ people: [{ name: "Ana", roles: { acme: "owner" } }] }).error, /no workspace here is called acme/);
   assert.match(worldInput({ people: [{ name: "Priya", account: "invited" }] }).error, /name the workspace/);
   assert.match(worldInput({ people: [{ name: "Sam", account: "off" }], sponsor: "Sam" }).error, /on Context/);
   const ok = worldInput({ people: [{ name: "Ana", roles: { lumio: "owner", "common-ground": "none" } }, { name: "Sam", account: "off" }], sponsor: "ana", speaksUp: "quiet", start: [{ as: "sam", text: "hey all" }] });

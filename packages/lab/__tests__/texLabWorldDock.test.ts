@@ -44,6 +44,7 @@ jest.mock("@context/lab/app/views/canvas/sandboxCall", () => {
     mockCalls.push({ op, body });
     const view = () => ({ sandboxId: "sb1", code: "#12", rows: mock.rows, writes: [], running: null });
     if (op === "chats") return { chats: [{ chatId: "me", name: "me" }] };
+    if (op === "worlds") return { preview: false, slugs: ["acme-team", "garden-club"], workspaces: [{ slug: "acme-team", name: "Acme" }, { slug: "garden-club", name: "Garden Club" }] };
     if (op === "open") {
       const w = body.world as { people: Array<{ name: string; account: string }> };
       mock.people = w.people.map((p) => ({ handle: p.account === "on" ? p.name.split(" ")[0].toLowerCase() + "-x1" : p.name, name: p.name, account: p.account }));
@@ -163,6 +164,23 @@ test("a scenario opens on the preview, in the Chat view, with the people strip a
   expect(q("#sbPeople .bill")?.textContent).toBe("Billed to Alpha");
   // Texting as: everyone here but Tex, by name; read back from the preview.
   expect(qa("#sbCompose .asc").map((b) => b.getAttribute("data-as"))).toEqual(["Alpha Morgan", "Beta Chen", "Gamma Ellis"]);
+});
+
+// Made-up chats on main (Dev, 2026-11-24: "test main"): no pull request, the people kept in the chat, their roles in the
+// Lab user's own shared workspaces. Sabotage: WorldPick without `loadWorkspaces` -> the open still names lumio, and this fails.
+test("on main, a scenario opens with no pull request, on your own shared workspaces", async () => {
+  await mount();
+  await click("#sbChat");
+  await click('#sbPickTabs [data-tab="test"]');
+  expect(q("#sbWorldMain")).toBeNull();
+  expect(q('#sbChatList [data-world="everyone"] .ds')?.textContent).toBe("Three teammates, all members of Acme");
+  await click('#sbChatList [data-world="everyone"]');
+  await tick();
+  const open = mockCalls.filter((c) => c.op === "open").at(-1)!.body;
+  expect(open.code).toBeUndefined();
+  expect(open.world).toMatchObject({ name: "Acme launch", people: [{ name: "Alpha Morgan", roles: { "acme-team": "owner", "garden-club": "editor" } }, { name: "Beta Chen", roles: { "acme-team": "editor", "garden-club": "member" } }, { name: "Gamma Ellis", roles: { "acme-team": "member" } }] });
+  expect(JSON.stringify(open.world)).not.toMatch(/lumio|maison|common-ground/);
+  expect(chips()).toEqual(["Acme· read-only: Gamma is a member", "Garden Club· kept out by Gamma", "This chat's notes"]);
 });
 
 test("while the preview starts, everyone it opened with can already be picked under Texting as", async () => {

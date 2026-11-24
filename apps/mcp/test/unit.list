@@ -773,4 +773,5 @@ test/sectionCap.test.mjs
 test/sheets.test.mjs
 test/readSheet.test.mjs
 test/labSandboxWorld.test.mjs
+test/labSandboxWorldLocal.test.mjs
 test/labSandboxRich.test.mjs
