@@ -114,7 +114,7 @@ export function ExplorerToolbar({
     },
     { id: "new-folder", label: "New folder", testID: "explorer-new-folder" },
     { id: "new-drawing", label: "New drawing", testID: "explorer-new-drawing" },
-    { id: "new-sheet", label: "New sheet", testID: "explorer-new-sheet" },
+    { id: "new-sheet", label: "New table", testID: "explorer-new-sheet" },
   ];
   /*
     The top level's Sort setting, saved for everybody in the workspace and drawn

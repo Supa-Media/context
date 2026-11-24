@@ -157,7 +157,7 @@ describe("the phone's +", () => {
   test("it says where the thing is going", () => {
     mount("1-projects");
     // By the name the rest of the app shows it under, not the bucket's.
-    expect(document.body.textContent).toContain("In projects.");
+    expect(document.body.textContent).toContain("Goes in projects");
   });
 
   test("and names the root when that is the destination", () => {
@@ -196,9 +196,9 @@ describe("the phone's +", () => {
   });
 
   /** A sheet is made on the press like a drawing, through its own handler, never `onCreateNote`. */
-  test("Sheet makes the sheet on the press, and nothing else", () => {
+  test("Table makes the sheet on the press, and nothing else", () => {
     const made = mount("1-projects");
-    press("New sheet");
+    press("New table");
     expect(made).toEqual({ notes: 0, drawings: 0, sheets: 1, folders: [], meetings: 0 });
     expect(document.body.querySelector("input, textarea")).toBeNull();
   });
