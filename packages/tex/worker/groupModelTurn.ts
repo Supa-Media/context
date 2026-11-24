@@ -35,6 +35,7 @@ import { turnCause } from "./groupCause";
 import { watchForSave } from "./vaultWatch";
 import { watchForHandback } from "./handbackWatch";
 import { inviteEveryone } from "./groupInvite";
+import { runTheGroup } from "./groupRunTurn";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 import { answerCrossAsk, crossCounts, crossFields, crossWired, sendCrossAsks } from "./crossChat";
@@ -305,7 +306,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const bubbles = bubblesUnder(answer.text, routine ? [] : (answer.under ?? []), messages, answer.verbatim, checkIn);
   const toSend = bubbles.map((bubble) => bubble.text);
   const threaded = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
-  const texts = withIntro(threaded, !routine && asked.intro === true ? GROUP_LINES.intro(asked.reach ?? []) : null, answer.verbatim);
+  let texts = withIntro(threaded, !routine && asked.intro === true ? GROUP_LINES.intro(asked.reach ?? []) : null, answer.verbatim);
   // A line added after the answer (the view, the intro) goes where the answer's last bubble went.
   const underOf = (index: number): string | undefined => bubbles[Math.min(index, bubbles.length - 1)]?.messageId;
   const eventOf = (messageId: string): string | undefined => Object.entries(messages).find(([, id]) => id === messageId)?.[0];
@@ -317,6 +318,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     for (const text of texts) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
     return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
   }
+  // "(name the chat) …", "(set the chat photo)", "(add to the chat) …": done before the words, checked on this message (`groupRun.ts`).
+  const ran = routine ? null : await runTheGroup(texts, message, groupLineFor(groupLineSeam(deps), message.groupId), { line: message.line, groupId: message.groupId });
+  if (ran !== null) texts = ran.texts;
   await chatEvent(storage, "send", routine ? "routine" : "turn", { now: deps.now() });
   // Plain in the chat when the classifier says the answer reads as one to this text anyway; a text typed under another is answered under it (`respond.js`).
   if (!routine && answer.place === "plain" && message.replyTo === undefined) meta.plain = true;
@@ -328,6 +332,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   let went = 0;
   try {
     for (const [index, text] of texts.entries()) {
+      if (text === "") continue; // only "running the group" lines, done above
       const messageId = meta.plain ? undefined : underOf(index);
       const under = messageId === undefined ? message : { ...message, messageId };
       // Logged as a reply to the text it went under, so Replay shows where each bubble went.
@@ -337,6 +342,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       went += 1;
     }
     for (const picture of checkIn ? [] : answer.pictures) (await sendPicture(storage, deps, message, picture, meta), (went += 1)); // After the words, as in a 1:1.
+    if (ran?.told) await say(storage, deps, message, ran.told, { system: true });
   } catch (error) {
     if (meta.turn) await logStep(storage, message.groupId, deliveryStep(parts, went, Date.now() - delivering, error instanceof Error ? error.name : "error"), deps.now(), meta.turn);
     throw error;

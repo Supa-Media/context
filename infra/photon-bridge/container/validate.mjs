@@ -302,6 +302,26 @@ export const OPS = Object.freeze({
       return parseLineAndChat(body);
     },
   },
+  // Running the group (Dev, 2026-11-23): name the chat, set its photo from a picture someone sent in it, add someone.
+  "group/name": {
+    method: "POST",
+    parse(body) {
+      return { ...parseLineAndChat(body), name: str(body, "name", { max: 100 }) };
+    },
+  },
+  // The photo is an attachment already on the line (its guid), so no picture's bytes come through the Worker.
+  "group/photo": {
+    method: "POST",
+    parse(body) {
+      return { ...parseLineAndChat(body), attachment: parseGuid(body.attachment, "attachment") };
+    },
+  },
+  "group/add": {
+    method: "POST",
+    parse(body) {
+      return { ...parseLineAndChat(body), address: parseAddress(body.address) };
+    },
+  },
   // Take one address out of a group chat: Tex's old Sendblue number, once Tex's new line is in it (staff moving a chat).
   "group/remove": {
     method: "POST",

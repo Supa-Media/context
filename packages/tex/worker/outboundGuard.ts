@@ -23,6 +23,7 @@
  */
 
 import { isControlWord } from "./controlWords";
+import { withoutGroupRun } from "./groupRun";
 
 /** What a turn decided to do with its answer: only `send` reaches a chat. */
 export type SendDecision = "send" | "skip" | "quiet" | "say_nothing";
@@ -76,6 +77,15 @@ export function guardedLine<L extends { sendText(where: never, text: string, ...
   const sendText = line.sendText.bind(line) as (...args: unknown[]) => Promise<string | undefined>;
   return {
     ...line,
-    sendText: async (...args: unknown[]) => (maySend(String(args[1] ?? ""), lane) ? await sendText(...args) : undefined),
+    sendText: async (...args: unknown[]) => {
+      const text = String(args[1] ?? "");
+      if (!maySend(text, lane)) return undefined;
+      // A group's "(name the chat)" line runs only through `runGroup`, from the turn that checked it (`groupRun.ts`):
+      // one that reaches a send any other way is taken out, and the words' tags, counted on the whole text, with it.
+      const rest = lane === "group" ? withoutGroupRun(text) : text;
+      if (rest === text) return await sendText(...args);
+      if (rest === "") return undefined;
+      return await sendText(args[0], rest, args[2]);
+    },
   } as L;
 }
