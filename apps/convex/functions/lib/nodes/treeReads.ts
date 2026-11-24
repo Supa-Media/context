@@ -42,7 +42,7 @@ import type { FileOperation, OperationResult } from "../filesFns/operationTypes"
 import { folderNotesFromNodes } from "../filesFns/folderNotes";
 import { liveChaosScoreOf, NO_CHAOS, type ChaosSource } from "../filesFns/chaosOps";
 import { factChaosSource, factPropSource } from "./factSources";
-import { objectChaosSource, objectFactRows, objectLinkTable, objectPropSource } from "./objectFacts";
+import { objectChaosSource, objectFactRows, objectLinkTable, objectPropSource, type FactRows } from "./objectFacts";
 import { objectFolderListing } from "./objectTreeStore";
 import { scheduleFactFill } from "./factFill";
 import { attachLinkTable, convexLinkTable } from "./linkTable";
@@ -70,8 +70,10 @@ export async function treeReadAnswer(ctx: ActionCtx, args: ReadArgs): Promise<Op
   if (operation.kind === "list") return await oneFolder(ctx, args);
   if (operation.kind === "manifest") return await manifestPage(ctx, args, clearance);
   // A pin reader is judged by a guest's rules (`lib/pinnedReaders.ts`).
+  // A folder List's facts are asked for while its tree is read, not after: two round trips, not four in a row.
+  const facts = operation.kind === "folderNotes" ? objectFactRows(ctx, args.workspaceId).catch(() => null) : null;
   const served = await servedStoreOrNotServed(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
-  if (operation.kind === "folderNotes") return await folderNotes(ctx, args.workspaceId, served, operation, clearance);
+  if (operation.kind === "folderNotes") return await folderNotes(ctx, args.workspaceId, served, operation, clearance, facts);
   if (operation.kind === "chaosScore") return await chaosScore(ctx, args.workspaceId, served, operation, clearance);
   const store = operation.kind === "workspaceGraph" ? await withLinks(ctx, args.workspaceId, served) : served;
   return await run(store, clearance, operation, args.workspaceId);
@@ -159,10 +161,11 @@ async function folderNotes(
   served: FileStore,
   operation: ReadArgs["operation"],
   clearance: Clearance,
+  facts: Promise<FactRows | null> | null,
 ): Promise<OperationResult> {
   const answer = await folderNotesFromNodes(
     served,
-    objectPropSource(await objectFactRows(ctx, workspaceId), factPropSource(ctx, workspaceId)),
+    objectPropSource(await (facts ?? objectFactRows(ctx, workspaceId)), factPropSource(ctx, workspaceId)),
     operation as unknown as { folder: string; subfolders: boolean; cursor?: string },
     clearance,
   ).catch((error) => {

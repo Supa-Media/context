@@ -145,6 +145,7 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
     }
   };
   return {
+    tabKey: `${scope}:${workspaceId}`,
     load: async (folder, subfolders) => {
       if (online() && deviceFirst) return loadDeviceFirst(folder, subfolders);
       if (online()) {

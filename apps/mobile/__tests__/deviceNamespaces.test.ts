@@ -94,13 +94,8 @@ const KEPT: Record<string, string> = {
  * test seeds, each with the check that seeds it where it does live, signs out
  * through the real `forgetLocalCopies()`, and answers whether it is gone.
  */
-const CLEARED_ELSEWHERE: Record<string, () => Promise<boolean>> = {
-  /*
-    A browser tab's sidebar tree (`serverTree.ts`): note names, in this tab's
-    `sessionStorage` rather than the store, so a reload draws the tree at once
-    without spending the quota the queue of unsent edits needs.
-  */
-  tree: async () => {
+function sessionCleared(seedKey: string): () => Promise<boolean> {
+  return async () => {
     const held = new Map<string, string>();
     const session = {
       get length() {
@@ -115,14 +110,29 @@ const CLEARED_ELSEWHERE: Record<string, () => Promise<boolean>> = {
     const before = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     (globalThis as { sessionStorage?: Storage }).sessionStorage = session;
     try {
-      session.setItem("context.lc.tree.v1:private:w1", "seeded");
+      session.setItem(seedKey, "seeded");
       mockOpened = store({});
       await forgetLocalCopies();
       return held.size === 0;
     } finally {
       (globalThis as { sessionStorage?: Storage }).sessionStorage = before;
     }
-  },
+  };
+}
+
+const CLEARED_ELSEWHERE: Record<string, () => Promise<boolean>> = {
+  /*
+    A browser tab's sidebar tree (`serverTree.ts`): note names, in this tab's
+    `sessionStorage` rather than the store, so a reload draws the tree at once
+    without spending the quota the queue of unsent edits needs.
+  */
+  tree: sessionCleared("context.lc.tree.v1:private:w1"),
+  /*
+    A browser tab's folder pages (`folderPage/pageCacheTab.ts`): what a page
+    draws (front matter, first heading and paragraph, a metric's latest
+    readings), in this tab's `sessionStorage`, so a reload draws the page at once.
+  */
+  pages: sessionCleared("context.lc.pages.v1:team:w1"),
 };
 
 /** Every `context.lc.<namespace>` this app's source writes, wherever it writes it. */

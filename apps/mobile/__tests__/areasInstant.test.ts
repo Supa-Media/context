@@ -9,7 +9,7 @@
  * read above it (`cachedFolder`), and readings are kept (`useReadings`).
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { describe, expect, jest, test } from "@jest/globals";
 import { cachedFolder, cachedFront, folderPageReady, forgetPageCache, readFolder } from "../features/console/files/folderPage/pageCache";
 import { preloadAreas } from "../features/console/files/folderPage/areas/preloadAreas";
 import { keptReadings, readReadings } from "../features/console/files/folderPage/areas/useReadings";
@@ -145,5 +145,56 @@ describe("the Areas folder is read ahead, sheets and all", () => {
     const { source, asked } = fakeSource();
     preloadAreas(source, "");
     expect(asked.load).toHaveLength(0);
+  });
+});
+
+describe("a reload draws what this tab last read", () => {
+  function fakeSessionStorage() {
+    const data = new Map<string, string>();
+    const storage = {
+      get length() {
+        return data.size;
+      },
+      key: (i: number) => [...data.keys()][i] ?? null,
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => void data.set(k, v),
+      removeItem: (k: string) => void data.delete(k),
+      clear: () => data.clear(),
+    };
+    (globalThis as { sessionStorage?: unknown }).sessionStorage = storage;
+    return data;
+  }
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test("the Areas page, its sub-areas and their readings, with no note's whole text", async () => {
+    const data = fakeSessionStorage();
+    forgetPageCache();
+    const { source } = fakeSource();
+    const before: FolderListSource = { ...source, tabKey: "team:w1" };
+    preloadAreas(before, "areas");
+    await flush();
+    await wait(500);
+    expect([...data.keys()]).toEqual(["context.lc.pages.v1:team:w1"]);
+    expect(data.get("context.lc.pages.v1:team:w1")).not.toContain("\"text\"");
+
+    // The reload: a new source for the same workspace and clearance, nothing in memory.
+    let fresh!: typeof import("../features/console/files/folderPage/pageCache");
+    let readings!: typeof import("../features/console/files/folderPage/areas/useReadings");
+    jest.isolateModules(() => {
+      fresh = require("../features/console/files/folderPage/pageCache");
+      readings = require("../features/console/files/folderPage/areas/useReadings");
+    });
+    const { source: again, asked } = fakeSource();
+    const after: FolderListSource = { ...again, tabKey: "team:w1" };
+    expect(fresh.cachedFolder(after, "areas")?.notes.length).toBeGreaterThan(0);
+    expect(fresh.cachedFolder(after, "areas/eng/infra")).toBeDefined();
+    expect(readings.keptReadings(after.readBody, ["areas/eng/infra"]).get("areas/eng/infra")?.size).toBe(1);
+    expect(asked.load).toHaveLength(0);
+
+    // Another workspace or clearance draws none of it, and signing out forgets it.
+    expect(fresh.cachedFolder({ ...again, tabKey: "private:w1" }, "areas")).toBeUndefined();
+    fresh.forgetPageCache();
+    expect(data.size).toBe(0);
+    delete (globalThis as { sessionStorage?: unknown }).sessionStorage;
   });
 });

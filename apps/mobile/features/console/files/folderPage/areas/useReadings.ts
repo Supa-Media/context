@@ -19,8 +19,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ListNote } from "../../listBlock/model";
-import { pageCacheGeneration } from "../pageCache";
-import { METRICS_SHEET, readingsOf, type Readings } from "./readings";
+import { pageCacheGeneration, tabKeyOfBody } from "../pageCache";
+import { keepSection, keptSection } from "../pageCacheTab";
+import { METRICS_SHEET, readingsOf, type Reading, type Readings } from "./readings";
 import type { AreaNode } from "./seat";
 
 export type ReadBody = (path: string) => Promise<{ text: string; encrypted: boolean } | null>;
@@ -48,8 +49,19 @@ function keptFor(readBody: ReadBody): Kept {
   if (found === undefined) {
     found = { generation, read: new Map(), reading: new Map() };
     kept.set(readBody, found);
+    // What this tab read before a reload, drawn at once and read again (`at` 0 is never fresh).
+    const tab = tabKeyOfBody(readBody);
+    for (const [folder, rows] of tab === undefined ? [] : (keptSection<[string, [string, Reading][]][]>(tab, "readings") ?? [])) {
+      found.read.set(folder, { readings: new Map(rows), at: 0 });
+    }
   }
   return found;
+}
+
+function keepForTab(readBody: ReadBody, cache: Kept): void {
+  const tab = tabKeyOfBody(readBody);
+  if (tab === undefined) return;
+  keepSection(tab, "readings", [...cache.read].map(([folder, each]) => [folder, [...each.readings]]));
 }
 
 export function metricFolders(node: AreaNode, out: string[] = []): string[] {
@@ -91,7 +103,10 @@ export function readReadings(readBody: ReadBody, folders: readonly string[]): Pr
         .catch(() => null)
         .then((body): Readings => (body === null || body.encrypted ? new Map() : readingsOf(body.text)))
         .then((readings) => {
-          if (keptFor(readBody) === cache) cache.read.set(folder, { readings, at: Date.now() });
+          if (keptFor(readBody) === cache) {
+            cache.read.set(folder, { readings, at: Date.now() });
+            keepForTab(readBody, cache);
+          }
           return readings;
         })
         .finally(() => {
