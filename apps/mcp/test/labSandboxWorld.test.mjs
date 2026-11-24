@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { changePeople, speakerKey, worldAddress, worldControl, worldInput, worldSpeaker } from "../../../packages/lab/gateway/labSandbox/world.js";
+import { changePeople, speakerKey, worldAddress, worldControl, worldInput, worldSession, worldSpeaker } from "../../../packages/lab/gateway/labSandbox/world.js";
 import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { createSandboxActions } from "../../../packages/lab/gateway/texDev/sandbox.js";
@@ -169,4 +169,10 @@ test("a made-up chat on a preview is checked before a GitHub run is started for 
   assert.equal(answer.status, 400);
   assert.match((await answer.json()).error, /1 to 8/);
   assert.equal(started, false);
+});
+
+test("a made-up chat whose turn has no session says why on its reply row", async () => {
+  const grant = { token: null, payload: null, last: { path: "/agent-texts/group", status: "ready" } };
+  await assert.rejects(worldSession({}, grant));
+  assert.match(grant.last.failed, /minted no grant/);
 });

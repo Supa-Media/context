@@ -28,7 +28,7 @@ import { JOB_PART_END_PATH, handleJobPartEnd } from "../fromGateway/agent_jobPar
 import { handleAgent } from "../fromGateway/agent_route.js";
 import { TEXTING_ROUTES } from "../fromGateway/agent_textingRoutes.js";
 import { streamTurn, wantsProgress } from "../fromGateway/agent_progress.js";
-import { WORLD_SOURCE, worldAddress, worldControl, worldPayload } from "./world.js";
+import { WORLD_SOURCE, worldAddress, worldControl, worldSession } from "./world.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../fromGateway/agent_textsDecide.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../fromGateway/agent_textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../fromGateway/agent_textsEdit.js";
@@ -501,7 +501,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     let opened = null;
     const storeOf = () =>
       (opened ??= (async () => {
-        const session = isWorld ? sessionFromPayload(await worldPayload(env, grant), null, grant.token) : sessionFromPayload(payload, null, token);
+        const session = isWorld ? await worldSession(env, grant) : sessionFromPayload(payload, null, token);
         Object.defineProperty(session, "labSandbox", { value: gate, enumerable: false });
         const store = await storeForSession(session, sandboxEnv, controlPlane);
         const request = new Request(`${origin}/agent`, { method: "POST" });

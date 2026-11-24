@@ -18,6 +18,7 @@
  */
 
 import { createControlPlane } from "../fromGateway/controlPlane.js";
+import { sessionFromPayload } from "../fromGateway/session.js";
 
 export const WORLD_SOURCE = "world";
 /** The seeded shared workspaces made-up people can be in (`texLabWorld.ts` `WORLD_WORKSPACES`). */
@@ -171,6 +172,22 @@ export async function worldPayload(env, grant) {
   if (grant.payload) return grant.payload;
   grant.payload = await createControlPlane(env).resolveSession(grant.token);
   return grant.payload;
+}
+
+/**
+ * The turn's session on the grant the preview minted, or the reason it could not be had, kept on the reply row's
+ * `group.failed` (an error's name, status and message: never the token) so a made-up chat that goes quiet says why.
+ */
+export async function worldSession(env, grant) {
+  try {
+    if (typeof grant.token !== "string") throw new Error("the preview's control plane minted no grant for this turn");
+    return sessionFromPayload(await worldPayload(env, grant), null, grant.token);
+  } catch (error) {
+    const failed = [error?.name, error?.status ?? error?.code, String(error?.message ?? error).slice(0, 160)].filter((part) => part !== undefined && part !== null && part !== "").join(": ");
+    grant.failed = failed;
+    if (grant.last) grant.last = { ...grant.last, failed };
+    throw error;
+  }
 }
 
 /**
