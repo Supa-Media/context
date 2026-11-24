@@ -42,6 +42,7 @@ import {
 } from "./whapi";
 
 import type { SendTag } from "./groupTags";
+import type { GroupAction } from "./groupRun";
 
 /** Where in a group a message goes: Tex's line in it and the group's id. */
 export type GroupPlace = { line: string; groupId: string };
@@ -55,6 +56,11 @@ export interface GroupLine {
   sendText(place: GroupPlace, text: string, replyTo?: string, tags?: readonly SendTag[]): Promise<string | undefined>;
   /** One file by an https address the app fetches. */
   sendMedia(place: GroupPlace, url: string, replyTo?: string): Promise<void>;
+  /**
+   * Names the group, sets its photo or adds someone (`groupRun.ts`): Photon's line only, and absent on any other, which
+   * cannot. Throws when the app refused or failed.
+   */
+  runGroup?(place: GroupPlace, action: GroupAction): Promise<void>;
   /** A reaction on a message in the group. Never throws. */
   react(place: GroupPlace, messageId: string, emoji: string): Promise<void>;
   /** Everyone in the group, as phones (or entries that count as someone unknown); null when it could not be read. */
@@ -150,6 +156,12 @@ function movableGroupLine(deps: GroupLineDeps, old: GroupLine): GroupLine {
       } catch {
         return await now.sendText(moved, text, undefined, tags);
       }
+    },
+    // Only once the group is on Tex's new line: the old Sendblue number cannot run a group.
+    runGroup: async (place, action) => {
+      const moved = await where(place);
+      if (moved === null || now.runGroup === undefined) throw new Error("this group's line cannot run the group");
+      await now.runGroup(moved, action);
     },
     sendMedia: async (place, url, replyTo) => {
       const moved = await where(place);

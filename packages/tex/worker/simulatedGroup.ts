@@ -71,6 +71,10 @@ export function simulatedGroupLine(storage: InboxStorage | undefined): GroupLine
     react: async (_place, _messageId, emoji) => {
       await say(`Tex reacted ${emoji}`).catch(() => {});
     },
+    // Logged as the event line Messages shows (`groupRun.ts`); the simulated chat's people do not change.
+    runGroup: async (_place, action) => {
+      await say(action.kind === "name" ? `Tex named the conversation “${action.name}”.` : action.kind === "photo" ? "Tex changed the group photo." : `Tex added ${action.address} to the conversation.`);
+    },
     readMembers: async () => (await storage.get<string[]>(SIM_MEMBERS_KEY)) ?? null,
     readOwnMessage: async (_place, messageId) => {
       for (const entry of (await storage.list<SimEntry>({ prefix: "sim:log:" })).values()) {
