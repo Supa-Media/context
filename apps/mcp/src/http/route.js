@@ -62,6 +62,7 @@ import { handleTexPageLive, TEX_PAGE_SOCKET_PATH } from "./texPage/live.js";
 import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, handleTree, TREE_SOCKET_PATH } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleNoteRead, NOTE_READ_PATH } from "../live/noteReadRoute.js";
+import { handleNoteWrite, NOTE_WRITE_PATH } from "../live/noteWriteRoute.js";
 import { handleLiveTicket, LIVE_TICKET_PATH } from "../live/ticket.js";
 import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
@@ -274,6 +275,8 @@ export async function route(request, env, ctx) {
     const fileOpRoute = FILE_OP_PATHS.has(path);
     // The app opening a note, read in the workspace's object (`live/noteReadRoute.js`).
     const noteReadRoute = path === NOTE_READ_PATH;
+    // The app saving a whole note, written into the workspace's object (`live/noteWriteRoute.js`).
+    const noteWriteRoute = path === NOTE_WRITE_PATH;
     if (
       summaryRoute ||
       path === "/inbox" ||
@@ -287,6 +290,7 @@ export async function route(request, env, ctx) {
       path === "/collaboration" ||
       fileOpRoute ||
       noteReadRoute ||
+      noteWriteRoute ||
       appRoute ||
       texPageRoute ||
       messagesBackupRoute ||
@@ -336,7 +340,7 @@ export async function route(request, env, ctx) {
       // connection's default workspace may clamp the person to `member` where
       // they are an `editor` in the one they asked to write into. Clamping
       // the route here would 403 them there, and they could never approve it.
-      const needed = summaryRoute || messagesBackupRoute || fileOpRoute
+      const needed = summaryRoute || messagesBackupRoute || fileOpRoute || noteWriteRoute
         ? SCOPE_WRITE
         : appRoute
         ? SCOPE_READ
@@ -406,6 +410,11 @@ export async function route(request, env, ctx) {
       }
       if (fileOpRoute) return handleFileOp(request, path, store, session);
       if (noteReadRoute) return handleNoteRead(request, store, session);
+      if (noteWriteRoute) {
+        // The save's change is recorded as this person's, from the app (`activity/record.js`).
+        store.actor = actorFor(session);
+        return handleNoteWrite(request, store, session);
+      }
 
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one

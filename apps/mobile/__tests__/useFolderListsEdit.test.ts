@@ -36,6 +36,10 @@ jest.mock("@context/convex/_generated/api", () => ({
         writeNote: { name: "writeNote" },
       },
       folderNotes: { folderNotes: { name: "folderNotes" } },
+      // The save's gateway-first route asks these only when a save is made (`files/useWriteNote.ts`).
+      agentGrant: { mintConsoleGrant: { name: "mintConsoleGrant" } },
+      featureFlags: { myFlags: { name: "myFlags" } },
+      workspaces: { listMyWorkspaces: { name: "listMyWorkspaces" } },
   } },
 }));
 

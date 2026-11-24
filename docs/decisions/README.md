@@ -3,8 +3,7 @@
 Things argued through once and not to be silently reversed. Each names what a
 "simplification" of it would cost, and most name the test that fails if so.
 
-These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim. `CLAUDE.md` stays short enough to be read every session and links here.
-**Read the file covering the area you are touching before you change behaviour in it**, and add to it when a durable decision lands.
+These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim. `CLAUDE.md` stays short enough to be read every session and links here. **Read the file covering the area you are touching before you change behaviour in it**, and add to it when a durable decision lands.
 
 Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
@@ -51,6 +50,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [The control plane's tree reads come from the workspace object](./storage-and-credentials/object-tree-reads.md) (2026-11-03)
 - [A busy workspace object says busy; nothing about a note falls back to Convex](./storage-and-credentials/no-convex-for-notes.md) (2026-11-06)
 - [The forwarding ledger is read from the workspace object](./storage-and-credentials/forwarding-in-objects.md) (2026-11-06)
+- [The app saves a note through the gateway, as an AI client does](./storage-and-credentials/app-saves-through-gateway.md) (2026-11-24)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id

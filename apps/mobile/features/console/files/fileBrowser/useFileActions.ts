@@ -10,6 +10,7 @@
  */
 import { useCallback, useRef } from "react";
 import { useAction, useConvex, useMutation } from "convex/react";
+import { useWriteNote } from "../useWriteNote";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowserOptions } from "./types";
@@ -116,7 +117,7 @@ export function useFileActions(deps: FileActionsDeps) {
   const readMessagesLogAction = useAction(api.functions.messagesExport.readLogForExport);
   const readChatLedgerAction = useAction(api.functions.texLedgerExport.readChatLedgerForExport);
   const listChatLedgersAction = useAction(api.functions.texLedgerExport.listChatLedgersForExport);
-  const writeNote = useAction(api.functions.files.writeNote);
+  const writeNote = useWriteNote();
   const submitFormAction = useAction(api.functions.forms.submitForm);
   const storeNoteImageAction = useAction(api.functions.files.storeNoteImage);
   const readNoteImageAction = useAction(api.functions.files.readNoteImage);
