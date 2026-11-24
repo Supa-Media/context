@@ -127,7 +127,7 @@ const makeStyles = (colors: Colors) =>
       left: space.x2,
       right: space.x2,
       bottom: space.x2,
-      maxWidth: undefined,
+      maxWidth: "100%",
       borderRadius: 18,
       paddingTop: space.x2,
       paddingHorizontal: space.x2,
