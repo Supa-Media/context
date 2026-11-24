@@ -368,12 +368,11 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Polls",
     actions: [],
-    texts: "on your iMessage line, a poll they start, an option they add and a vote reach you in words (the poll's title, its options, which one they picked), judged like any text; you start a real poll with a text whose first line is \"(poll) <the question>\" and whose other lines are its 2 to 12 choices, one per line, each starting \"- \"",
-    group: "the same for anyone's poll or vote in the chat; start one when the chat is choosing between options",
+    texts: "on your iMessage line, a poll they start, an option they add and a vote reach you in words (the poll's title, its options, which one they picked), judged like any text; you start a real poll with a text whose first line is \"(poll) <the question>\" and whose other lines are its choices, each starting \"- \"",
+    group: "the same for anyone's poll or vote in the chat",
     cant: [
-      { where: "everywhere", what: "vote in a poll or add an option to one yourself", workaround: { kind: "words", text: "say which option you'd pick, or ask them to add it" } },
-      { where: "everywhere", what: "start a real poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "the same text goes as the question and its list, for everyone to answer" } },
-      { where: "everywhere", what: "see a poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say which option they picked" } },
+      { where: "everywhere", what: "vote in a poll yourself", workaround: { kind: "words", text: "say which option you would pick" } },
+      { where: "everywhere", what: "see or start a real poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say which option they picked; a poll you start goes as its question and list" } },
     ],
   },
   {
