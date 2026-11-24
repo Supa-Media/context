@@ -22,9 +22,17 @@ import { dataFolderFound, type JobListings } from "./jobIcons/folderJobs";
 /** The menu's second line while there is no data folder yet, as the board draws it. */
 export const DATA_SOURCE_DETAIL = "Makes a data folder the first time";
 
-/** Whether the New menu offers "Data source…": a shared workspace, by its kind. */
-export function dataSourceOffered(kind: string | null | undefined): boolean {
-  return kind === "shared";
+/**
+ * Whether the Data page has shipped. The menu item stays hidden until it has,
+ * so nobody makes a data folder that opens as a bare folder (owner,
+ * 2026-11-24: "make sure the UI matches what you are showing me"). The stage
+ * that adds the Data page sets this true.
+ */
+export const DATA_PAGE_SHIPPED = false;
+
+/** Whether the New menu offers "Data source…": a shared workspace, by its kind, once the Data page has shipped. */
+export function dataSourceOffered(kind: string | null | undefined, shipped: boolean = DATA_PAGE_SHIPPED): boolean {
+  return shipped && kind === "shared";
 }
 
 /** The item's second line: the board's while no data folder is loaded, none once one is. */

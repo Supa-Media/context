@@ -120,8 +120,8 @@ export function ExplorerToolbar({
     id: "data-source",
     label: "Data source…",
     ...(dataSourceLine === undefined ? {} : { detail: dataSourceLine }),
-    // The data folder's own drawn mark, so the row reads as the folder it makes.
-    leading: <JobIcon job="data" size={14} nested />,
+    // The data folder's own drawn mark, in the menu's quiet glyph colour like the rows above (board 13).
+    leading: <JobIcon job="data" size={14} ink={colors.chromeMuted} />,
     separatorBefore: true,
     testID: "explorer-data-source",
   };

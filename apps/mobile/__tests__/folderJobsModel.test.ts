@@ -154,9 +154,11 @@ describe("the data folder (made when used)", () => {
   });
 
   test("offered in a shared workspace only", () => {
-    expect(dataSourceOffered("shared")).toBe(true);
-    expect(dataSourceOffered("personal")).toBe(false);
-    expect(dataSourceOffered(undefined)).toBe(false);
+    expect(dataSourceOffered("shared", true)).toBe(true);
+    expect(dataSourceOffered("personal", true)).toBe(false);
+    expect(dataSourceOffered(undefined, true)).toBe(false);
+    // Hidden until the Data page ships, so the item never makes a bare folder.
+    expect(dataSourceOffered("shared", false)).toBe(false);
   });
 
   test("choosing it opens a data folder there is, adding metrics/ when its listing has none", () => {
