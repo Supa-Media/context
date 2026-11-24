@@ -87,6 +87,11 @@ export async function sendPhotonText(
   return guidOf(await photonCall(photon, "send/text", { ...place, text, ...options }));
 }
 
+/** `poll/create`: a real iMessage poll, its title and choices. Resolves to the poll message's guid. */
+export async function sendPhotonPoll(photon: Fetcher, place: PhotonPlace, poll: { title: string; choices: string[] }): Promise<string | undefined> {
+  return guidOf(await photonCall(photon, "poll/create", { ...place, title: poll.title, choices: poll.choices }));
+}
+
 /** `send/attachment`: one file, as a real attachment. */
 export async function sendPhotonAttachment(photon: Fetcher, place: PhotonPlace, attachment: PhotonAttachment, replyTo?: string): Promise<string | undefined> {
   return guidOf(await photonCall(photon, "send/attachment", { ...place, ...attachment, ...(replyTo === undefined ? {} : { replyTo }) }));

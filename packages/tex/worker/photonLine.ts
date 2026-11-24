@@ -26,6 +26,7 @@ import { linksIn } from "./linkPreviews";
 import type { GroupLine, GroupLineDeps, GroupPlace } from "./groupLine";
 import type { Media } from "./outgoing";
 import { effectOf } from "./sendEffect";
+import { pollOf, withoutPollMark } from "./sendPoll";
 import { tagParts } from "./groupTags";
 import {
   contactPhoton,
@@ -35,6 +36,7 @@ import {
   sendPhotonApp,
   sendPhotonAttachment,
   sendPhotonMultipart,
+  sendPhotonPoll,
   sendPhotonText,
   typingPhoton,
   type PhotonAttachment,
@@ -232,7 +234,18 @@ export async function threadedOrPlain<T>(replyTo: string | undefined, send: (rep
 export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text: string, replyTo?: string, notes?: LinkNotes): Promise<string | undefined> {
   // A text Tex starts "(sent with Slam)" goes with that effect, without the mark (`sendEffect.ts`).
   const marked = effectOf(text);
-  const words = marked.text.slice(0, MAX_REPLY_TEXT);
+  // A text Tex starts "(poll)" with its choices one per line goes as a real poll (`sendPoll.ts`); a poll threads under nothing.
+  const poll = pollOf(marked.text);
+  if (poll !== null) {
+    try {
+      return await sendPhotonPoll(photon, place, poll);
+    } catch (error) {
+      // A line that refuses the poll gets its question and choices as words: the poll is never the only way to answer.
+      if (!isRefusal(error)) throw error;
+      console.log(JSON.stringify({ event: "photon_poll", outcome: "refused" }));
+    }
+  }
+  const words = withoutPollMark(marked.text).slice(0, MAX_REPLY_TEXT);
   const effect = marked.effect !== undefined ? { effect: marked.effect } : {};
   if (ONE_LINK.test(words.trim())) return await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words.trim(), { ...(under ? { replyTo: under } : {}), linkPreview: true, ...effect }));
   const guid = await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words, { ...(under ? { replyTo: under } : {}), ...effect }));
@@ -372,7 +385,7 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
     sendText: async (place, text, replyTo, tags) => {
       // Native tags go as one multipart send, each tag its own part naming its number (`groupTags.ts`).
       // A multipart send carries no effect, so tagged words go without the mark and without its effect.
-      if (tags !== undefined && tags.length > 0) {
+      if (tags !== undefined && tags.length > 0 && pollOf(effectOf(text).text) === null) {
         const where = placeOf(place);
         const marked = effectOf(text);
         const shifted = tags.filter((tag) => tag.start >= marked.mark).map((tag) => ({ ...tag, start: tag.start - marked.mark }));

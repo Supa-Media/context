@@ -18,6 +18,8 @@ export const EFFECT_NAMES = Object.freeze([
   "slam", "loud", "gentle", "invisible", "confetti", "fireworks", "balloons",
   "heart", "lasers", "celebration", "sparkles", "spotlight", "echo",
 ]);
+/** The most choices a poll Tex starts may have. */
+export const MAX_POLL_CHOICES = 12;
 export const REACTION_KINDS = Object.freeze(["love", "like", "dislike", "laugh", "emphasize", "question", "emoji"]);
 
 function fail(code) {
@@ -275,6 +277,23 @@ export const OPS = Object.freeze({
     parse(body) {
       requireObject(body);
       return { line: parseLine(body.line), address: parseAddress(body.address) };
+    },
+  },
+  // A real iMessage poll: its title and two to twelve choices (the SDK's `polls.create`).
+  "poll/create": {
+    method: "POST",
+    parse(body) {
+      requireObject(body);
+      const choices = body.choices;
+      if (!Array.isArray(choices) || choices.length < 2 || choices.length > MAX_POLL_CHOICES) fail("invalid_choices");
+      return {
+        ...parseLineAndChat(body),
+        title: str(body, "title", { max: 200 }),
+        choices: choices.map((choice) => {
+          if (typeof choice !== "string" || choice.trim() === "" || choice.length > 100) fail("invalid_choices");
+          return choice;
+        }),
+      };
     },
   },
   "group/members": {

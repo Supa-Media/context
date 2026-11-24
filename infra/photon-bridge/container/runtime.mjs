@@ -291,6 +291,10 @@ export function createRuntime({
           const chat = await clientFor(args.line).chats.get(args.chat);
           return { ok: true, participants: chat.participants.map((p) => p.address) };
         }
+        case "poll/create": {
+          const poll = await clientFor(args.line).polls.create(args.chat, args.title, args.choices);
+          return { ok: true, guid: poll.pollMessageGuid };
+        }
         case "group/remove": {
           const chat = await clientFor(args.line).groups.removeParticipants(args.chat, [args.address]);
           return { ok: true, participants: chat.participants.map((p) => p.address) };

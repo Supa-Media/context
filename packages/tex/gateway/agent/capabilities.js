@@ -368,11 +368,11 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Polls",
     actions: [],
-    texts: "on your iMessage line, a poll they start, an option they add and a vote reach you in words (the poll's title, its options, which one they picked), judged like any text",
+    texts: "on your iMessage line, a poll they start, an option they add and a vote reach you in words (the poll's title, its options, which one they picked), judged like any text; you start a real poll with a text whose first line is \"(poll) <the question>\" and whose other lines are its choices, each starting \"- \"",
     group: "the same for anyone's poll or vote in the chat",
     cant: [
-      { where: "everywhere", what: "start a poll or vote in one yourself", workaround: { kind: "words", text: "list the options in a text and ask everyone to answer, or ask them to start the poll" } },
-      { where: "everywhere", what: "see a poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say which option they picked" } },
+      { where: "everywhere", what: "vote in a poll yourself", workaround: { kind: "words", text: "say which option you would pick" } },
+      { where: "everywhere", what: "see or start a real poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say which option they picked; a poll you start goes as its question and list" } },
     ],
   },
   {
