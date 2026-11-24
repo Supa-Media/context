@@ -107,6 +107,8 @@ export function FolderRow({
   const extra = useRowExtra(row.path);
   const done = extra?.tone === "done";
   const task = isItem(extra);
+  // A projects List on a pointer is drawn at the Areas list's measure: 40 high, its 13 semibold name (the owner, 2026-11-24).
+  const roomy = extra !== undefined && !card;
   const extraShown = useRowTrailShows(extra);
   /*
     THE SAME HOOK THE TREE'S ROWS USE, AND FOR THE SAME REASON.
@@ -158,7 +160,7 @@ export function FolderRow({
     <PressRow
       onPress={() => onSelect(row.path)}
       onIntent={intent !== undefined && row.kind === "file" && picked === undefined ? () => intent(row.path) : undefined}
-      style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome, depth > 0 && { paddingLeft: depth * NEST_INDENT }, opening && styles.rowHover]}
+      style={[styles.row, roomy && styles.rowRoomy, card && styles.rowCard, home !== null && styles.rowHome, depth > 0 && { paddingLeft: depth * NEST_INDENT }, opening && styles.rowHover]}
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
@@ -254,7 +256,7 @@ export function FolderRow({
         </View>
       )}
       {home === null ? (
-        <Text variant="treeTouch" style={[styles.rowName, done && styles.rowNameDone]} numberOfLines={1}>
+        <Text variant={roomy ? "tree" : "treeTouch"} style={[styles.rowName, roomy && styles.rowNameRoomy, done && styles.rowNameDone]} numberOfLines={1}>
           {label}
         </Text>
       ) : (
@@ -425,6 +427,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.md,
   },
   rowHover: { backgroundColor: colors.surface3 },
+  /** A projects List row on a pointer: the Areas list's 40-high row (`AreasList.areaRow`), 8 between its marks. */
+  rowRoomy: { height: 40, gap: 8 },
   /**
    * Under a drag that would land here. `FileTree`'s own wash, to the pixel.
    *
@@ -481,6 +485,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   cardEmojiPointer: { fontSize: pointerType.lede, lineHeight: 18 },
   cardEmojiPhone: { fontSize: touchType.h3, lineHeight: 22 },
   rowName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },
+  /** The Areas list's name: 13 semibold. */
+  rowNameRoomy: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600" },
   /** A finished task, in the List: still there, quieter. */
   rowNameDone: { color: colors.chromeMuted },
 
