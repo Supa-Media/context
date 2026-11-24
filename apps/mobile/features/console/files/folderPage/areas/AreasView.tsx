@@ -73,7 +73,7 @@ const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.last
 export function AreasView(props: AreasViewProps) {
   const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, suggestions, chooseMany, onSelect, readBody } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
-  const readings = useReadings(notes, readBody);
+  const readings = useReadings(tree, notes, readBody);
   const readingOf = useCallback(
     (seat: Seat) => (seat.metrics[0] === undefined ? undefined : readingFor(readings.get(seat.folder), seat.metrics[0])),
     [readings],
