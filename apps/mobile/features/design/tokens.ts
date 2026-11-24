@@ -33,6 +33,7 @@ export {
   siteType,
   texPageType,
   texChatType,
+  areasType,
   settingsHomeType,
   castKeyboardType,
   type TypeScale,

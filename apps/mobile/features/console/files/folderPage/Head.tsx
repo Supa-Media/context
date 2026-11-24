@@ -51,7 +51,7 @@ import { JobIcon } from "../jobIcons/JobIcon";
 import { TEX_HOME_LINE, builtInLine } from "../jobIcons/folderJobs";
 import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "../jobIcons/marker";
 import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
-import { leading, space, touchType, tracking } from "../../../design/tokens";
+import { areasType, leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
 import { NEW_FRONT_NOTE, type FolderPageView, type FolderSummary } from "./model";
@@ -330,7 +330,7 @@ const makeStyles = (colors: Colors) =>
     segment: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 6 },
     segmentCompact: { paddingHorizontal: 10 },
     segmentOn: { backgroundColor: colors.pageSurface, boxShadow: "0 1px 2px rgba(0,0,0,0.08)" },
-    word: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+    word: { color: colors.muted, fontSize: areasType.value, lineHeight: 20 },
     wordHover: { color: colors.text2 },
     wordOn: { color: colors.text, fontWeight: "600" },
     dot: { color: colors.chromeMuted, paddingHorizontal: 6 },

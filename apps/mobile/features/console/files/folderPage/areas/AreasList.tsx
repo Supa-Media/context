@@ -24,6 +24,7 @@ import { Path, Svg } from "react-native-svg";
 import { Icon, type IconName } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
+import { areasType, pointerType } from "../../../../design/tokens";
 import { displayName, folderLabel } from "../../paths";
 import type { ItemEntry } from "../model";
 import { OwnerFace, type Face } from "../Glyphs";
@@ -462,33 +463,33 @@ const makeStyles = (colors: Colors) =>
     nameCell: { flexDirection: "row", alignItems: "center", gap: 10, flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
     chevron: { alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
     chevronPhone: { marginTop: -8, marginBottom: -8, marginLeft: -6, marginRight: -4 },
-    areaName: { flexShrink: 1, minWidth: 0, fontSize: 14, lineHeight: 20, fontWeight: "600", color: colors.text },
-    rootName: { fontSize: 15 },
+    areaName: { flexShrink: 1, minWidth: 0, fontSize: areasType.value, lineHeight: 20, fontWeight: "600", color: colors.text },
+    rootName: { fontSize: pointerType.lede },
     unownedName: { color: colors.muted },
     metricCell: { width: 280, flexShrink: 0, minWidth: 0 },
     notesCell: { width: 60, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
     more: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
 
     metric: { gap: 2, minWidth: 0 },
-    metricLabel: { fontSize: 12, lineHeight: 16, minHeight: 16, color: colors.muted },
+    metricLabel: { fontSize: pointerType.meta, lineHeight: 16, minHeight: 16, color: colors.muted },
     valueLine: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
     value: { fontWeight: "600", flexShrink: 0 },
-    target: { fontSize: 12, lineHeight: 20, color: colors.muted, flexShrink: 1, minWidth: 0 },
-    noData: { fontSize: 14, lineHeight: 20, color: colors.muted },
-    noDataTarget: { fontSize: 13, color: colors.muted },
+    target: { fontSize: pointerType.meta, lineHeight: 20, color: colors.muted, flexShrink: 1, minWidth: 0 },
+    noData: { fontSize: areasType.value, lineHeight: 20, color: colors.muted },
+    noDataTarget: { fontSize: pointerType.ui, color: colors.muted },
 
     notes: { flexDirection: "row", alignItems: "center", gap: 5, height: 26, paddingHorizontal: 8, borderRadius: 6 },
     notesHover: { backgroundColor: colors.lineStrong },
-    notesCount: { fontSize: 12, lineHeight: 16, fontWeight: "500", color: colors.muted },
+    notesCount: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "500", color: colors.muted },
     notesPhone: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, height: 28, minWidth: 44, paddingHorizontal: 10, borderRadius: 999, flexShrink: 0 },
-    notesCountPhone: { fontSize: 13, lineHeight: 18, fontWeight: "500", color: colors.muted },
+    notesCountPhone: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "500", color: colors.muted },
 
     fileRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 34, paddingRight: 12, borderRadius: 8 },
     fileRowPhone: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 },
     fileIcon: { width: 16, alignItems: "center", flexShrink: 0 },
-    fileName: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: 13, lineHeight: 18, color: colors.text2 },
-    fileNamePhone: { fontSize: 15, lineHeight: 20 },
-    fileMeta: { fontSize: 12, lineHeight: 16, color: colors.muted, flexShrink: 0 },
+    fileName: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text2 },
+    fileNamePhone: { fontSize: pointerType.lede, lineHeight: 20 },
+    fileMeta: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 0 },
 
     phoneHead: {
       flexDirection: "row",
@@ -500,11 +501,11 @@ const makeStyles = (colors: Colors) =>
       borderBottomWidth: 1,
       borderBottomColor: colors.line,
     },
-    phoneHeadName: { fontSize: 13, lineHeight: 18, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase", color: colors.muted },
+    phoneHeadName: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase", color: colors.muted },
     block: { paddingVertical: 10, gap: 6 },
     blockName: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
-    blockTitle: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: 16, lineHeight: 22, fontWeight: "600", color: colors.text },
+    blockTitle: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.body, lineHeight: 22, fontWeight: "600", color: colors.text },
     blockMetric: { paddingLeft: 26, gap: 1, minWidth: 0 },
     valueLinePhone: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
-    noDataPhone: { fontSize: 14, lineHeight: 22, color: colors.muted },
+    noDataPhone: { fontSize: areasType.value, lineHeight: 22, color: colors.muted },
   });

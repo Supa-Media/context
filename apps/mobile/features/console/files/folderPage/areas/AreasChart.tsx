@@ -27,6 +27,7 @@ import { Circle, Path, Svg } from "react-native-svg";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
+import { areasType, pointerType } from "../../../../design/tokens";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
@@ -531,8 +532,8 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     chart: { width: "100%" },
     muted: { color: colors.muted },
-    small: { fontSize: 12, lineHeight: 16, color: colors.muted },
-    look: { fontSize: 12, lineHeight: 16, color: colors.warnText, fontWeight: "600" },
+    small: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
+    look: { fontSize: pointerType.meta, lineHeight: 16, color: colors.warnText, fontWeight: "600" },
 
     org: { alignItems: "center", width: "100%" },
     orgRoot: { width: 280 },
@@ -561,8 +562,8 @@ const makeStyles = (colors: Colors) =>
     rootBox: { borderRadius: 12, backgroundColor: colors.rootSurface, paddingVertical: 14, paddingHorizontal: 16, gap: 8 },
     rootBoxPhone: { borderRadius: 18, padding: 16 },
     rootTop: { flexDirection: "row", alignItems: "center", gap: 8 },
-    rootName: { flexGrow: 1, flexShrink: 1, fontSize: 16, lineHeight: 22, color: colors.text },
-    rootOwner: { flexShrink: 1, fontSize: 13, lineHeight: 18, color: colors.text2 },
+    rootName: { flexGrow: 1, flexShrink: 1, fontSize: pointerType.body, lineHeight: 22, color: colors.text },
+    rootOwner: { flexShrink: 1, fontSize: pointerType.ui, lineHeight: 18, color: colors.text2 },
     ownerRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
 
     box: { position: "relative", backgroundColor: colors.cardSurface, borderWidth: 1, borderColor: colors.line, borderRadius: 12, minWidth: 0 },
@@ -572,15 +573,15 @@ const makeStyles = (colors: Colors) =>
     bodyPhone: { padding: 16 },
     nameBlock: { gap: 4, paddingRight: 20 },
     nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
-    name: { flexShrink: 1, minWidth: 0, fontSize: 15, lineHeight: 20, color: colors.text },
-    ownerText: { fontSize: 12, lineHeight: 16, color: colors.muted, paddingLeft: 28 },
+    name: { flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, color: colors.text },
+    ownerText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, paddingLeft: 28 },
     boxMetric: { gap: 6, minWidth: 0 },
     valueLine: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
-    value: { fontSize: 14, lineHeight: 20, fontWeight: "600", flexShrink: 0 },
-    target: { fontSize: 12, lineHeight: 20, color: colors.muted, flexShrink: 1, minWidth: 0 },
+    value: { fontSize: areasType.value, lineHeight: 20, fontWeight: "600", flexShrink: 0 },
+    target: { fontSize: pointerType.meta, lineHeight: 20, color: colors.muted, flexShrink: 1, minWidth: 0 },
     stateLine: { flexDirection: "row", alignItems: "center", gap: 6 },
-    stateWord: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
-    noReadings: { fontSize: 13, lineHeight: 18, color: colors.muted },
+    stateWord: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "500" },
+    noReadings: { fontSize: pointerType.ui, lineHeight: 18, color: colors.muted },
     foot: { flexDirection: "row", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.line },
     fold: {
       flexDirection: "row",
@@ -598,7 +599,7 @@ const makeStyles = (colors: Colors) =>
 
     subBody: { paddingVertical: 10, paddingHorizontal: 12, gap: 6 },
     subNameRow: { paddingRight: 18 },
-    subName: { flexShrink: 1, minWidth: 0, fontSize: 14, lineHeight: 20, color: colors.text },
+    subName: { flexShrink: 1, minWidth: 0, fontSize: areasType.value, lineHeight: 20, color: colors.text },
     subLine: { paddingLeft: 28 },
     subValueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
     subMore: { position: "absolute", top: 9, right: 8 },
@@ -608,7 +609,7 @@ const makeStyles = (colors: Colors) =>
     ring: { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong },
     emptyTitle: { color: colors.muted },
     assign: { alignSelf: "flex-start", marginLeft: 28, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 6, backgroundColor: colors.chipFill },
-    assignText: { fontSize: 13, lineHeight: 18, color: colors.text, fontWeight: "600" },
+    assignText: { fontSize: pointerType.ui, lineHeight: 18, color: colors.text, fontWeight: "600" },
 
     ghost: {
       height: 56,
@@ -622,6 +623,6 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 12,
     },
     ghostPhone: { marginTop: 12, borderRadius: 18 },
-    ghostText: { fontSize: 13, lineHeight: 18, color: colors.muted },
+    ghostText: { fontSize: pointerType.ui, lineHeight: 18, color: colors.muted },
     addLine: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
   });
