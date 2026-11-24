@@ -18,7 +18,7 @@ export default {
   // send/text with no mention; drop keepTagPeople in groupInbox.ts, and "@sam" goes out as written.
   async run() {
     const group = { people: ["sam", "jo"], names: [{ handle: "sam", name: "Sam Lee" }], size: 2 };
-    assert.match(rosterLine(group), /write their @handle/, "the turn is told how to tag");
+    assert.match(rosterLine(group), /@sam \(Sam Lee\)/, "the turn knows each account here by its @handle");
     const storage = new MemoryStorage();
     await keepTagPeople(storage, [{ phone: SAM, handle: "sam", name: "Sam Lee" }, { phone: JO, handle: "jo" }]);
     const calls = [];

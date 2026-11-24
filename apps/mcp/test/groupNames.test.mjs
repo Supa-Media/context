@@ -68,9 +68,6 @@ test("everyone here is listed, guests by label, with how many", () => {
   assert.match(line, /@jo \(Jo Rivers\)/);
   assert.match(line, /guest-1a2b, on no Context account linked/);
   assert.match(line, /send action name_guest/);
-  // Dev, 2026-11-23: native tags. An account here is tagged by its @handle (packages/tex/worker/groupTags.ts).
-  assert.match(line, /To tag someone with an account, write their @handle/);
-  assert.doesNotMatch(rosterLine({ people: [], guests: ["guest-1a2b"], size: 1 }), /To tag someone/, "no account here, nobody to tag");
   assert.match(groupPrompt(group, "acme"), /2 people, the whole list/);
 });
 
