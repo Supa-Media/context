@@ -40,12 +40,18 @@ import {
   type WhapiKeys,
 } from "./whapi";
 
+import type { SendTag } from "./groupTags";
+
 /** Where in a group a message goes: Tex's line in it and the group's id. */
 export type GroupPlace = { line: string; groupId: string };
+export type { SendTag } from "./groupTags";
 
 export interface GroupLine {
-  /** One text, under `replyTo` where the app threads; the sent message's handle when it names one. */
-  sendText(place: GroupPlace, text: string, replyTo?: string): Promise<string | undefined>;
+  /**
+   * One text, under `replyTo` where the app threads; the sent message's handle when it names one. `tags` are native
+   * tags in the words (`groupTags.ts`): Photon's line sends each as an iMessage tag, any other line the words alone.
+   */
+  sendText(place: GroupPlace, text: string, replyTo?: string, tags?: readonly SendTag[]): Promise<string | undefined>;
   /** One file by an https address the app fetches. */
   sendMedia(place: GroupPlace, url: string, replyTo?: string): Promise<void>;
   /** A reaction on a message in the group. Never throws. */
@@ -104,7 +110,7 @@ export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
   // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
   return guardedLine<GroupLine>({
     ...line,
-    sendText: (place, text, replyTo) => counted(dataset, "group", "text", () => line.sendText(place, text, replyTo)),
+    sendText: (place, text, replyTo, tags) => counted(dataset, "group", "text", () => line.sendText(place, text, replyTo, tags)),
     sendMedia: (place, url, replyTo) => counted(dataset, "group", "media", () => line.sendMedia(place, url, replyTo)),
   }, "group");
 }
@@ -133,14 +139,14 @@ function movableGroupLine(deps: GroupLineDeps, old: GroupLine): GroupLine {
   const now = photonGroupLine(deps);
   const where = async (place: GroupPlace) => await movedTo(place.groupId);
   return {
-    sendText: async (place, text, replyTo) => {
+    sendText: async (place, text, replyTo, tags) => {
       const moved = await where(place);
       if (moved === null) return await old.sendText(place, text, replyTo);
-      if (replyTo === undefined) return await now.sendText(moved, text);
+      if (replyTo === undefined) return await now.sendText(moved, text, undefined, tags);
       try {
-        return await now.sendText(moved, text, replyTo);
+        return await now.sendText(moved, text, replyTo, tags);
       } catch {
-        return await now.sendText(moved, text);
+        return await now.sendText(moved, text, undefined, tags);
       }
     },
     sendMedia: async (place, url, replyTo) => {

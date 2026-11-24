@@ -224,7 +224,7 @@ export function createRuntime({
           const parts = [];
           for (const part of args.parts) {
             if (part.text !== undefined) {
-              parts.push({ text: part.text });
+              parts.push(compact({ text: part.text, mentionedAddress: part.mention }));
             } else {
               const guid = await uploadFile(client, part.attachment);
               parts.push({ attachmentGuid: guid, attachmentName: part.attachment.name });

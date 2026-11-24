@@ -16,7 +16,8 @@ export type PhotonKind = "love" | "like" | "dislike" | "laugh" | "emphasize" | "
 
 /** A file for `send/attachment` or a part of `send/multipart`: its bytes (base64) or an address the bridge fetches. */
 export type PhotonAttachment = { name: string; mimeType: string; data?: string; url?: string };
-export type PhotonPart = { text: string } | { attachment: PhotonAttachment };
+/** A text part may be a native tag: its words, and the number it tags (`mention`, the bridge's `mentionedAddress`). */
+export type PhotonPart = { text: string; mention?: string } | { attachment: PhotonAttachment };
 
 /** iMessage's CustomizedMiniApp for our Messages extension (`photonLine.ts` `photonCard` builds it from an AppCard). */
 export type PhotonCard = {

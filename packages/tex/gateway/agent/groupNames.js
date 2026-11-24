@@ -142,6 +142,9 @@ export function rosterLine(group) {
   return (
     `Everyone in this chat besides you, ${size} ${size === 1 ? "person" : "people"}, the whole list, read from the chat itself this turn: ${parts.join("; ")}. ` +
     "When asked who is here, answer from this list; you can see it. " +
+    (accounts.length > 0
+      ? "To tag someone with an account, write their @handle as listed: it shows as their name and notifies them even in a chat they muted, so tag only when a text is for that person (their task, a reminder, a question only they can answer). "
+      : "") +
     (numbered
       ? "Everyone here already sees each other's numbers in the chat, so say a number here whenever a person here would, as in \"the +1 (555) 123-4567 number\". "
       : "") +

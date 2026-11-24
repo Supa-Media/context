@@ -74,6 +74,7 @@ import { isBound, isMuted, keepChatLine, markMutedTold, mutedTold, peopleOf, set
 import type { GroupMessage } from "./sendblueGroups";
 import { watchFailed } from "./reviewWatch";
 import { callsTex, groupCommand, type Command } from "./groupWords";
+import { keepTagPeople } from "./groupTags";
 import type { JobRun, JobSteer } from "./jobs";
 import { armBy, flushChat, pruneEvents, type Conversation } from "./events";
 import { rememberChatReader } from "./chatRead";
@@ -640,6 +641,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
     await setChatBound(storage, message);
   }
   await keepNames(storage, asked.names ?? [], asked.guests ?? []);
+  await keepTagPeople(storage, asked.names ?? []); // who "@handle" tags when Tex sends (`groupTags.ts`)
   if (command?.kind === "status") return clock?.path("status"), void (await fixed(GROUP_LINES.status(asked.reach ?? [asked.slug])));
   // "Tex, share my chats with the devs" (`groupSettings.ts`).
   if (command?.kind === "review_sharing") return clock?.path(command.kind), await groupReviewSharing(storage, deps, message, command.sharing);

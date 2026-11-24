@@ -19,6 +19,7 @@ import { sha256Hex } from "./groupChat";
 import { writeTextTiming, type TimingDataset } from "./textTiming";
 import { maySend } from "./outboundGuard";
 import { keepThreaded } from "./threadedResend";
+import { tagWords } from "./groupTags";
 
 /** The handles of Tex's last thirty texts in this group, so an inline reply to one wakes it. */
 export const SENT_KEY = "gsent";
@@ -189,9 +190,12 @@ function groupPartLine(storage: InboxStorage, deps: GroupSayDeps, message: Pick<
   const under = meta.plain ? undefined : threadUnder(message);
   return {
     sendText: async (text) => {
-      const handle = await groupLineFor(groupLineSeam(deps), message.groupId).sendText(place, text, under);
+      const line = groupLineFor(groupLineSeam(deps), message.groupId);
+      // "@handle" of someone here goes as their name, tagged on a line that tags (`groupTags.ts`).
+      const tagged = text.includes("@") ? await tagWords(storage, text, () => line.readMembers(place)) : { text, tags: [] };
+      const handle = await line.sendText(place, tagged.text, under, tagged.tags.length > 0 ? tagged.tags : undefined);
       // A threaded send Sendblue fails after taking it goes again plain, once (`sendblueStatus.ts`).
-      if (under !== undefined) await keepThreaded(storage, handle, { text, place: { kind: "group", ...place }, at: deps.now() });
+      if (under !== undefined) await keepThreaded(storage, handle, { text: tagged.text, place: { kind: "group", ...place }, at: deps.now() });
       return handle;
     },
     sendPicture: async (picture) => {
