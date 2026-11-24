@@ -75,7 +75,9 @@ export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Dat
     }
   };
   const later = (work) => void pending.push(Promise.resolve(work).catch(() => {}));
-  const ours = (obj) => typeof obj === "string" && typeof about?.owner === "string" && obj.endsWith(`#${about.owner}`);
+  // A made-up chat opened before its owner was its key's (`world.js` `worldAbout`) stands in for its key's object too.
+  const owner = about?.world && typeof about?.chatKey === "string" ? `chat:${about.chatKey}` : about?.owner;
+  const ours = (obj) => typeof obj === "string" && typeof owner === "string" && obj.endsWith(`#${owner}`);
   const ops = new Set();
   // The running row as it stands: every step so far (`steps.js`), the running ones with no `ms` yet. One post at a
   // time; a change while one is out is posted after it, so the Lab never reads an older view last.

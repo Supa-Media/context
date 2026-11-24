@@ -15,7 +15,8 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { changePeople, speakerKey, worldInput } from "../../../packages/lab/gateway/labSandbox/world.js";
+import { changePeople, speakerKey, worldAbout, worldInput } from "../../../packages/lab/gateway/labSandbox/world.js";
+import { sandboxGate } from "../../../packages/lab/gateway/labSandbox/harness.js";
 import { hereNow, localControl, localGroupKey, localPeople, localSession, worldPlace } from "../../../packages/lab/gateway/labSandbox/worldLocal.js";
 import { normalizeSession } from "../src/sessionPayload.js";
 import { sessionFromPayload } from "../src/session.js";
@@ -35,7 +36,7 @@ async function localAbout(asked, extra = {}) {
     source: "world",
     kind: "group",
     chat: "world:0123456789abcdef",
-    owner: "world:0123456789abcdef",
+    owner: `chat:${key}`,
     ledgerChat: key,
     chatKey: key,
     people: people.map((p) => ({ handle: speakerKey(p), name: p.name, account: p.account })),
@@ -171,4 +172,17 @@ test("a made-up chat's session may post its texts and read its day, reached or n
   }
   // A member's hand on the default row, as before: read only, so the texting routes refuse it.
   assert.equal((await chat(worldPayload([{ ...PIN_HOME, role: "member" }]))).status, 403);
+});
+
+// The turn's ledger is the test chat's only when the chat names the Tex object a group's ledger lives in (`chat:<key>`):
+// under any other owner its history and steps went unwritten (found on production, 2026-11-24: `step` found no turn).
+test("a made-up chat's ledger is the test chat's, under the chat's own key", async () => {
+  const key = await localGroupKey(GROUP);
+  const { people } = await localPeople([{ name: "Ana", account: "on", roles: { "acme-team": "editor" } }]);
+  const about = worldAbout({ sandboxId: "0123456789abcdef", made: { people, groupKey: key }, world: { name: "Launch", local: { slugs: SLUGS } }, groupId: GROUP });
+  const gate = sandboxGate({ fetch: async () => Response.json({}) }, about, "t1");
+  assert.notEqual(gate.ledger(`tex#chat:${key}`, key), null, "the chat's own ledger is the test chat's");
+  assert.equal(gate.ledger(`tex#chat:${"f".repeat(64)}`, key), null, "another chat's is not");
+  // One opened before, under its old owner, too.
+  assert.notEqual(sandboxGate({ fetch: async () => Response.json({}) }, { ...about, owner: "world:0123456789abcdef" }, "t1").ledger(`tex#chat:${key}`, key), null);
 });

@@ -108,7 +108,10 @@ export function worldAbout({ sandboxId, made, world, groupId }) {
   return {
     chat: `world:${sandboxId}`,
     kind: "group",
-    owner: `world:${sandboxId}`,
+    // The chat's Tex object is named by its key, as every group's is (`ledger.js`): the test chat's ledger stands in for
+    // that one, so the turn's history, steps and memory land in the test chat (found 2026-11-24: under any other owner
+    // they went unwritten, so `step` found no turn and Tex remembered nothing between texts).
+    owner: `chat:${made.groupKey}`,
     ledgerChat: made.groupKey,
     chatKey: made.groupKey,
     people: made.people.map((p) => ({ handle: speakerKey(p), name: p.name, account: p.account })),
