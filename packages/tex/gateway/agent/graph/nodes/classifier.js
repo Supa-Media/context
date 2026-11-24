@@ -3,7 +3,9 @@
  * reply, on Text them's `background` wire, so nobody waits for it (Dev2, 2026-11-12: "Never wait for it"). Its code is
  * `conversationThreads.js` `threadsSortAndWrite`, on the sort `threadedTurn.js` read for this turn.
  */
+import { answerSent } from "../../conversationThreads.js";
+
 export async function classifierNode(_input, io) {
-  const sorted = await io.ctx.turn.threadsSort();
+  const sorted = await io.ctx.turn.threadsSort(answerSent(io.ctx.turn));
   return { filed: Array.isArray(sorted) ? sorted.length : 0 };
 }

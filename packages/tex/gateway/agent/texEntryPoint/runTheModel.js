@@ -183,7 +183,7 @@ export async function runTheModel(t, via) {
   // The chat by conversation: the thread list as it stood after the text before, then the last 24 hours (`threadedTurn.js`), in 1:1 and in groups.
   // The new text is sorted only after the answer has gone, and its verdict kept for the next turn (Dev2, 2026-11-12: "Never wait for it").
   const threaded = threadsRun ? await tex.wait("threads", threadsRun) : null;
-  t.threadsSort = threaded?.sort ? () => threadsSortAndWrite(threaded.sort, store, session) : null; // the Classifier node files the text after the reply (`../graph/nodes/classifier.js`), on Text them's background wire
+  t.threadsSort = threaded?.sort ? (answer = "") => threadsSortAndWrite(threaded.sort, store, session, answer) : null; // the Classifier node files the text after the reply (`../graph/nodes/classifier.js`), on Text them's background wire
   // What this turn runs the front door with, every setting that shapes it, logged as the Front door node's (Dev2, 2026-11-14: "every single block should have proper logging of what's going in and out and what parameters were set").
   t.settings = doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded });
   // Every judge call in a texted chat says which chat "here" is and what Tex last offered (`consentContext.js`, Dev2 2026-11-22).

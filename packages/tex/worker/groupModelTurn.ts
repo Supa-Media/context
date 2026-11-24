@@ -57,7 +57,10 @@ export type TurnInput = {
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken, messages = {} }: TurnInput): Promise<"cancelled" | void> {
+export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo: handedUpTo, arrivedAt, covers, people, asked, accessToken, messages: given = {} }: TurnInput): Promise<"cancelled" | void> {
+  // Grown by what the turn takes in as it runs (`dropSteered`): those texts are answered here, and a part can go under each.
+  const messages: Record<string, string> = { ...given };
+  let upTo = handedUpTo;
   const app = groupLineFor(groupLineSeam(deps), message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
@@ -113,7 +116,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // The chat's next events are filed under the people this turn named the gateway (`eventPeople`).
   await notePeople(storage, message, group.members);
   // Named, so a message that lands while it runs can be folded into it (`steer.ts`), and those it took in are not answered again.
-  const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
+  const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers, messages).then((at) => void (upTo = Math.max(upTo, at))));
   await steer.onSession(accessToken);
   // A provisional run (`provisional.ts`): its go or stop goes to this turn, and nothing below reaches the chat before the go.
   const gate = deps.provisional;
@@ -216,7 +219,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
-  if (answer.steered) await dropSteered(storage, answer.steered, covers);
+  if (answer.steered) upTo = Math.max(upTo, await dropSteered(storage, answer.steered, covers, messages));
   // The turn muted this chat (`chat_mute`): it is told so in the fixed words "Tex, stop" gets, by code, whatever the turn
   // texted or held back, and nothing else of the turn is sent (Dev2, 2026-11-20: a reviewer sent the turn's own line
   // back and the chat was muted for a week without anyone hearing).
@@ -392,13 +395,21 @@ function named(names: { handle: string; name?: string }[] | undefined): { handle
   return (names ?? []).filter((entry) => entry.handle !== "" && typeof entry.name === "string" && entry.name !== "").map(({ handle, name }) => ({ handle, name: name as string }));
 }
 
-/** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */
-async function dropSteered(storage: InboxStorage, ids: string[], covers: string[]): Promise<void> {
+/**
+ * Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them, and a part of it can
+ * go under each (`messages`). Named by the line's event id (steered in, `steer.ts`) or by the chat's own (the asker's
+ * texts that landed behind the turn, `packages/tex/gateway/agent/takenBehind.js`). Answers when the newest of them came in, or 0.
+ */
+export async function dropSteered(storage: InboxStorage, ids: string[], covers: string[], messages: Record<string, string> = {}): Promise<number> {
+  let newest = 0;
   for (const [key, item] of await storage.list<GroupPending>({ prefix: "gpending:" })) {
-    if (!ids.includes(item.message.eventId)) continue;
+    if (!ids.includes(item.message.eventId) && (item.ev === undefined || !ids.includes(item.ev))) continue;
     if (item.ev !== undefined && !covers.includes(item.ev)) covers.push(item.ev);
+    if (item.ev !== undefined && typeof item.message.messageId === "string" && item.message.messageId !== "") messages[item.ev] = item.message.messageId;
+    newest = Math.max(newest, item.at ?? 0);
     await storage.delete(key);
   }
+  return newest;
 }
 
 /** The events the gateway has not taken yet, for it to add to the chat's day from the ledger (`packages/tex/gateway/agent/warmCopy.js` `mergeEvents`). */

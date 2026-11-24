@@ -34,6 +34,7 @@ import { deskLedger } from "./history.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 import { carryKey, MAX_CARRIED_CALLS, stretchLeft, stretchSince, stretchTurns } from "./stretch.js";
 import { groupQuestion } from "./groupLedgerHistory.js";
+import { takenBehind } from "./takenBehind.js";
 
 const MAX_COVERS = 32;
 /** Before this, a Worker logged a text cut at 3,000 with no mark and no `left` (`log.js`). */
@@ -149,11 +150,15 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   };
   const [events, read] = await Promise.all([warm === null ? day() : warm.events(body.chat, day), ledger]);
   const wanted = new Set(covers);
-  const covered = events.filter((event) => wanted.has(event.id));
-  if (covered.length !== wanted.size) {
+  const handed = events.filter((event) => wanted.has(event.id));
+  if (handed.length !== wanted.size) {
     console.log(JSON.stringify({ event: "tex_turn_day_missed" })); // counted, never a word: the turn is today's, from the question it was sent
     return null;
   }
+  // The asker's texts to Tex that landed after the Worker handed the turn: answered here, never by a turn of their own (`takenBehind.js`).
+  const took = takenBehind(events, handed, { group: group !== null });
+  for (const event of took) wanted.add(event.id);
+  const covered = took.length === 0 ? handed : events.filter((event) => wanted.has(event.id));
   // The text as the Worker sent it (`body.question`) when the log kept less of it (2026-11-11: a pasted brief cut at 3,000 read
   // as missing). Only when the event provably is that text cut: the Worker's own `left` (never words a person can type), and the
   // kept words exactly the question's start with the Worker's mark; or, logged before `OLD_CAP_UNTIL`, exactly its first 3,000.
@@ -201,7 +206,7 @@ export async function loggedTurn(store, body, { group = null, timeZone = "UTC", 
   // stretch begins) nor the carried turns (each a question and its answer), so shown here, before the text it answers.
   const leftEvents = carried.left ? shown.filter((event) => carried.left.has(event.id)) : [];
   const left = leftEvents.length === 0 ? "" : `${LEFT_PREFACE}\n${renderEvents(leftEvents, { timeZone, answeredBy: [...earlier.events, ...events], facts: earlier.facts })}`;
-  return { covered, history: [...(told === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${told}` }]), ...carried.turns], carried: carried.turns, question, left, replying, parts };
+  return { covered, took: took.map((event) => event.id), history: [...(told === "" ? [] : [{ role: "user", text: `${LOG_PREFACE}\n\n${told}` }]), ...carried.turns], carried: carried.turns, question, left, replying, parts };
 }
 
 /**

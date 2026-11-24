@@ -45,7 +45,7 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
   // path ... Never wait for it"): the turn sees the threads as they stood after the text before, and `sort` keeps
   // this text's verdict for the next turn. Before, the turn waited about 3.4 s for it, and 35% of calls ran past the
   // 4 s cap and came back with nothing.
-  const sort = async () => {
+  const sort = async (answer = "") => {
     const began = Date.now();
     const before = threadOfEvents(read.threads, parts.shown);
     // What the classifier reads: each thread's last lines, and the chat's.
@@ -55,7 +55,7 @@ export async function threadedTurn({ logged, ledger, chat, group = false, config
       if (id) byThread.set(id, [...(byThread.get(id) ?? []), lineOf(event, format)]);
     }
     const recent = parts.shown.slice(-12).map((event) => lineOf(event, format));
-    const verdict = await classifyText({ threads: read.threads, lines: { byThread, recent }, question: logged.question, replying: logged.replying ?? [], group, config, metadata, timeZone: parts.timeZone, request });
+    const verdict = await classifyText({ threads: read.threads, lines: { byThread, recent }, question: logged.question, replying: logged.replying ?? [], group, answer: typeof answer === "string" ? answer : "", config, metadata, timeZone: parts.timeZone, request });
     const covered = (logged.covered ?? []).map((event) => event.id).filter((id) => typeof id === "string");
     const written = verdict === null || covered.length === 0 ? null : verdictEntries(verdict, read.threads, covered, now);
     const entries = written?.entries ?? [];
