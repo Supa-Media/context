@@ -13,18 +13,18 @@
 import { useCallback, useMemo, useState } from "react";
 import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../../../design/components/Button";
-import { Menu } from "../../../../design/components/Menu";
 import { Text } from "../../../../design/components/Text";
 import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { useFieldFont } from "../../../../design/fieldFont";
-import type { MenuItem } from "../../menu";
 import type { ListNote } from "../../listBlock/model";
 import type { Face } from "../Glyphs";
 import type { PropertyChanges } from "../useFolderPage";
 import { AreasChart } from "./AreasChart";
 import { AreasList } from "./AreasList";
 import { SeatDialog } from "./SeatDialog";
+import { SeatMenu } from "./SeatMenu";
+import { seatMenuModel, type SeatMenuId } from "./seatMenuParts";
 import {
   AREA_KEY,
   areaTree,
@@ -43,8 +43,6 @@ import {
 } from "./seat";
 
 export type AreasPageView = "list" | "chart";
-
-type SeatMenuId = "open" | "up" | "edit" | "add" | "owner" | "about";
 
 export interface AreasViewProps {
   folder: string;
@@ -71,7 +69,7 @@ export function AreasView(props: AreasViewProps) {
   const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, suggestions, chooseMany, onSelect } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const [menu, setMenu] = useState<{ seat: Seat; at: { x: number; y: number } | undefined } | null>(null);
-  const [editing, setEditing] = useState<Seat | null>(null);
+  const [editing, setEditing] = useState<{ seat: Seat; start?: "metric" } | null>(null);
   const [adding, setAdding] = useState<Seat | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -118,28 +116,19 @@ export function AreasView(props: AreasViewProps) {
     [chooseMany, notes],
   );
 
-  const items = (seat: Seat): MenuItem<SeatMenuId>[] => {
-    const isRoot = seat.folder === folder;
-    const out: MenuItem<SeatMenuId>[] = [];
-    if (!isRoot) out.push({ id: "open", label: "Open" });
-    if (isRoot && folder !== root) out.push({ id: "up", label: "Up to the area above" });
-    out.push({ id: "edit", label: canEdit ? "Edit seat…" : "View seat…" });
-    if (canEdit) out.push({ id: "add", label: "Add a sub-area…" });
-    if (canEdit) out.push({ id: "owner", label: seat.owner === null ? "Assign owner…" : "Change owner…" });
-    out.push({ id: "about", label: "Open about.md" });
-    return out;
-  };
   const onMenu = (id: SeatMenuId) => {
     const seat = menu?.seat;
     setMenu(null);
     if (seat === undefined) return;
     if (id === "open") onSelect(seat.folder);
     else if (id === "up") onSelect(parentOf(folder));
-    else if (id === "edit" || id === "owner") setEditing(seat);
+    else if (id === "edit" || id === "owner" || id === "reach") setEditing({ seat });
+    else if (id === "metric") setEditing({ seat, start: "metric" });
     else if (id === "add") setAdding(seat);
     else if (id === "about") onSelect(seat.about.target);
   };
 
+  const dismissMenu = useCallback(() => setMenu(null), []);
   const rootTitle = folder === root ? rootName : areaTitle(tree.seat.name);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
   const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu };
@@ -155,30 +144,39 @@ export function AreasView(props: AreasViewProps) {
           {...shared}
           onOpen={onSelect}
           onAdd={canEdit ? (parent) => setAdding(parent) : null}
-          onAssign={canEdit ? (seat) => setEditing(seat) : null}
+          onAssign={canEdit ? (seat) => setEditing({ seat }) : null}
         />
       ) : (
         <AreasList {...shared} onOpen={onSelect} />
       )}
       {menu !== null ? (
-        <Menu<SeatMenuId>
-          items={items(menu.seat)}
+        <SeatMenu
+          model={seatMenuModel({
+            seat: menu.seat,
+            title: menu.seat.folder === folder ? rootTitle : areaTitle(menu.seat.name),
+            isRoot: menu.seat.folder === folder,
+            canGoUp: folder !== root,
+            canEdit,
+            face: faceOf(menu.seat.owner),
+            label,
+            card: cardFor,
+            isAgent,
+          })}
           {...(menu.at === undefined ? {} : { anchor: menu.at })}
-          title={menu.seat.name}
-          {...(menu.seat.owner === null ? {} : { titleDetail: `${label(menu.seat.owner)}${reach(menu.seat.owner) === "" ? "" : ` · ${reach(menu.seat.owner)}`}` })}
           onSelect={onMenu}
-          onDismiss={() => setMenu(null)}
+          onDismiss={dismissMenu}
         />
       ) : null}
       {editing !== null ? (
         <SeatDialog
-          seat={editing}
+          seat={editing.seat}
+          {...(editing.start === undefined ? {} : { start: editing.start })}
           cardFor={cardFor}
           isAgent={isAgent}
           suggestions={suggestions}
           label={label}
           canEdit={canEdit}
-          onSave={(edit, cards) => save(editing, edit, cards)}
+          onSave={(edit, cards) => save(editing.seat, edit, cards)}
           onClose={() => setEditing(null)}
         />
       ) : null}

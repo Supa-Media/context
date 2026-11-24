@@ -32,8 +32,8 @@ const RUNNING = new Set(["queued", "in_progress", "waiting", "pending", "request
  * Whether this mode should dispatch. `statuses` are newest first, as the
  * statuses API returns them. `printed` is the fingerprint areas.
  */
-export function dispatchPlan({ files, printed = [], statuses = [], body, now = new Date(), mode }) {
-  if (ownerSkip(body, now)) return { start: false, why: "the owner's skip is in effect" };
+export function dispatchPlan({ files, printed = [], statuses = [], body, mode }) {
+  if (ownerSkip(body)) return { start: false, why: "the owner's skip is in effect" };
   const byFiles = areasFor(files);
   const areas = reachedAreas(files, printed);
   if (mode === "early") {
@@ -55,19 +55,18 @@ function selfTest() {
   const map = ["packages/tex/gateway/agent/texArchitecture.generated.js"];
   const pending = [{ context: STATUS, state: "pending", description: "running" }];
   const ok = [{ context: STATUS, state: "success" }];
-  const now = new Date("2026-11-15T00:00:00Z");
   const skip = "Replay skipped on the owner's call: config graph lands first";
   const cases = [
-    ["files that reach an area start early", dispatchPlan({ files, mode: "early", now }).start === true],
-    ["files that reach nothing do not start early", dispatchPlan({ files: quiet, mode: "early", now }).start === false],
-    ["a prompt-only reach does not start early", dispatchPlan({ files: map, printed: ["core"], mode: "early", now }).start === false],
-    ["a prompt-only reach starts after the fingerprints", dispatchPlan({ files: map, printed: ["core"], mode: "prompts", now }).start === true],
-    ["file areas are not started again after the fingerprints", dispatchPlan({ files, printed: ["core"], mode: "prompts", now }).start === false],
-    ["an existing status is not started again", dispatchPlan({ files, statuses: pending, mode: "early", now }).start === false],
-    ["a pass is not started again", dispatchPlan({ files, statuses: ok, mode: "early", now }).start === false],
-    ["the owner's skip does not start a run", dispatchPlan({ files, body: skip, mode: "early", now }).start === false],
-    ["no area at all does not start", dispatchPlan({ files: quiet, printed: [], mode: "prompts", now }).start === false],
-    ["a newer failure hides an older pass", dispatchPlan({ files, statuses: [{ context: STATUS, state: "failure" }, ok[0]], mode: "early", now }).start === false],
+    ["files that reach an area start early", dispatchPlan({ files, mode: "early" }).start === true],
+    ["files that reach nothing do not start early", dispatchPlan({ files: quiet, mode: "early" }).start === false],
+    ["a prompt-only reach does not start early", dispatchPlan({ files: map, printed: ["core"], mode: "early" }).start === false],
+    ["a prompt-only reach starts after the fingerprints", dispatchPlan({ files: map, printed: ["core"], mode: "prompts" }).start === true],
+    ["file areas are not started again after the fingerprints", dispatchPlan({ files, printed: ["core"], mode: "prompts" }).start === false],
+    ["an existing status is not started again", dispatchPlan({ files, statuses: pending, mode: "early" }).start === false],
+    ["a pass is not started again", dispatchPlan({ files, statuses: ok, mode: "early" }).start === false],
+    ["the owner's skip does not start a run", dispatchPlan({ files, body: skip, mode: "early" }).start === false],
+    ["no area at all does not start", dispatchPlan({ files: quiet, printed: [], mode: "prompts" }).start === false],
+    ["a newer failure hides an older pass", dispatchPlan({ files, statuses: [{ context: STATUS, state: "failure" }, ok[0]], mode: "early" }).start === false],
   ];
   let failed = 0;
   for (const [name, good] of cases) {

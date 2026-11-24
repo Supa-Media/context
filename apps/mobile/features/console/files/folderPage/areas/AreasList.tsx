@@ -148,7 +148,7 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
   return (
     <View ref={menuClick.ref as never}>
       <Pressable
-        onPress={() => (root ? openMenu(null) : shared.onOpen(seat.folder))}
+        onPress={(event: GestureResponderEvent) => (root ? openMenu(pressPoint(event)) : shared.onOpen(seat.folder))}
         accessibilityLabel={root ? `${folderLabel(seat.name)}, seat` : `${folderLabel(seat.name)}, area`}
         testID={root ? "area-row-root" : `area-row-${seat.folder}`}
         {...depthProps(depth)}

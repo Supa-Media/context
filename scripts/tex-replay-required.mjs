@@ -28,19 +28,18 @@ import { areasFor } from "../apps/mcp/bench/replayAreas.mjs";
 export const STATUS = "Tex test set";
 
 /**
- * The owner's temporary skip (Dev2, 2026-11-14: "it's fine to bypass the replay
- * checks just for now because the config changes are so monumental ... the
- * replay should kind of wait for the config change first"). A pull request whose
- * body has a line starting `Replay skipped on the owner's call:` and a reason
- * passes without a run, until SKIP_ENDS; after that the line does nothing and
- * the gate is whole again. Each use is printed in the check's log.
+ * The owner's skip, standing since 2026-11-24 (Dev, asked to relax the gate or
+ * add a bypass: "either make a thread to relax the ci, or put some bypasscode
+ * whatever is best"). It began on 2026-11-14 for the config-graph migration with
+ * an end date. A pull request whose body has a line starting
+ * `Replay skipped on the owner's call:` and a reason passes without a run. The
+ * line is put there only when the owner asked for that pull request; each use is
+ * printed in the check's log as a warning and lands in the squash commit.
  */
 export const SKIP_LINE = "Replay skipped on the owner's call:";
-export const SKIP_ENDS = "2026-11-22T00:00:00Z";
 
-/** The skip's reason when the body carries one and the skip has not ended, else null. */
-export function ownerSkip(body, now = new Date()) {
-  if (now >= new Date(SKIP_ENDS)) return null;
+/** The skip's reason when the body carries one, else null. */
+export function ownerSkip(body) {
   const line = String(body ?? "").split(/\r?\n/).find((text) => text.trim().startsWith(SKIP_LINE));
   const reason = line?.trim().slice(SKIP_LINE.length).trim();
   return reason ? reason : null;
@@ -80,13 +79,11 @@ function selfTest() {
     ["unchanged prompts and no area file pass with no run", ["packages/tex/gateway/agent/texArchitecture.generated.js"], [], true, []],
   ];
   let failed = 0;
-  const before = new Date("2026-11-15T00:00:00Z");
-  const after = new Date(SKIP_ENDS);
   const skips = [
-    ["the owner's skip with a reason holds before it ends", ownerSkip(`Intro\n${SKIP_LINE} config graph lands first`, before) === "config graph lands first"],
-    ["the skip line with no reason is not a skip", ownerSkip(`${SKIP_LINE}   `, before) === null],
-    ["a body with no skip line is not a skip", ownerSkip("No replay case: docs only", before) === null],
-    ["the skip ends on its date", ownerSkip(`${SKIP_LINE} config graph`, after) === null],
+    ["the owner's skip with a reason holds", ownerSkip(`Intro\n${SKIP_LINE} config graph lands first`) === "config graph lands first"],
+    ["the skip line with no reason is not a skip", ownerSkip(`${SKIP_LINE}   `) === null],
+    ["a body with no skip line is not a skip", ownerSkip("No replay case: docs only") === null],
+    ["the skip line quoted mid-line is not a skip", ownerSkip(`See \`${SKIP_LINE} why\``) === null],
   ];
   for (const [name, good] of skips) {
     if (!good) failed += 1;
@@ -119,7 +116,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const problem = verdict(files, statuses, printed);
     const skipped = problem ? ownerSkip(process.env.PR_BODY) : null;
     if (skipped) {
-      console.log(`::warning::tex-replay-required: ${reached.join(", ")} not replayed, skipped on the owner's call until ${SKIP_ENDS}: ${skipped}`);
+      console.log(`::warning::tex-replay-required: ${reached.join(", ")} not replayed, skipped on the owner's call: ${skipped}`);
       process.exit(0);
     }
     if (problem) {
