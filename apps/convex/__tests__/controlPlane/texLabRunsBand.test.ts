@@ -108,6 +108,12 @@ describe("vsBase: a draft's run against main's newest Dev run", () => {
     expect(vsBase(run("r200", { passes: [8, 9, 10] }), main)).toMatchObject({ verdict: "loses", baseRunId: "r100" });
   });
 
+  test("main's run on a branch or pull request's code is no base: the newest one on main's own code is", () => {
+    const onBranch = { ...run("r300", { versionId: "main", passes: [1, 1, 1] }), code: "claude/some-branch" };
+    expect(vsBase(run("r400", { passes: [16, 17, 18] }), [...main, onBranch])).toMatchObject({ baseRunId: "r100" });
+    expect(vsBase(run("r400", { passes: [16, 17, 18] }), [onBranch])).toMatchObject({ verdict: "no base" });
+  });
+
   test("a single repeat has no band; a run with no main run to read is no base", () => {
     expect(vsBase(run("r200", { passes: [20] }), main)).toMatchObject({ verdict: "no band" });
     expect(vsBase(run("r200", { passes: [20, 21, 22] }), [])).toEqual({ verdict: "no base", why: expect.any(String), baseRunId: null });

@@ -70,6 +70,24 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
   Test chats still run on production's gateway: a Worker with
   Durable Objects gets no per-version preview, so a branch's gateway would be a
   deployment of its own.
+- **A quick run tests only what the draft changed** (Seyi, 2026-11-23: "speed
+  is the name of the game ... make a change and run loops to know that 1.
+  their change fixes the issue, and 2. the change does not regress other
+  things ... I want that loop closed to 10 minutes max"). `run { draft,
+  quick: true }` is a draft's Dev run, on the AI gateway or on Claude Code
+  ($0 on the subscription, while the API key's limit is the constraint). After the draft is
+  written into the config, `scripts/tex-lab-run.mjs` `scope` compares the
+  config before and after, and when every changed step has unit tests of its
+  own, only those run. A changed step with none can reach any tested step's
+  run (the Front door's whole turn, or a setting a test reads, as Decide's
+  tests read decideWhy), so it runs every step, as does a change no single
+  step owns (models, groups, conversation settings). Code from before `scope`
+  existed runs every step too. On the AI gateway
+  sixteen Front door tests go at once instead of eight, and a quick run skips
+  the Claude Code regrade and gold self-check. When main has no Dev run on
+  the same models for the set, done or under way, one starts beside it, so the quick
+  run's `vsMain` always has a base; the comparison pairs only the rows both
+  runs scored.
 - **Caps:** 20 waiting or running per person, 300 a day (raised from 3 and 20,
   then 6 and 60, by Dev2, 2026-11-17: every thread of a person runs as them,
   and the caps only guard against a runaway loop; GitHub queues jobs past the
@@ -134,7 +152,7 @@ over a GitHub listener), with a Models pick of the AI gateway or Claude Code on
 
 ## What a simplification would cost
 
-Running Lab tests in the gateway on the subscription token would put a plan
+A quick run that narrowed past a changed step with no tests of its own would pass a draft whose change breaks a whole turn, or Decide's reasons, unseen, and one with no base would end in "no base" instead of a verdict; `apps/mcp/test/texDevRuns.test.mjs` (`quickNodes`, `changedSteps`) and `texLabRuns.test.ts` ("a quick run") fail if either is dropped. Running Lab tests in the gateway on the subscription token would put a plan
 credential on a server; running Training or the Test set here would score a
 draft on what it was taught or leak the sealed set. `apps/convex/__tests__/controlPlane/texLabRuns.test.ts`
 fails if the caps, the finished-stays-finished report, the Dev-only hand-off

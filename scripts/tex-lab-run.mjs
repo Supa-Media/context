@@ -5,6 +5,8 @@
  * (`node apps/mcp/bench/run.mjs sets run`):
  *
  *   node scripts/tex-lab-run.mjs prepare <job.json> <dir>     the conversations to run, and the draft's graph
+ *   node scripts/tex-lab-run.mjs scope <job.json> <dir>       after the promote write: a quick run's steps to test,
+ *                                                             comma-separated in <dir>/nodes (empty: every step)
  *   node scripts/tex-lab-run.mjs results <rows.json> <ms> [gold.json]
  *                                                             the results the run reports back, as JSON; with the gold
  *                                                             report (`setsGold.mjs`), its ambiguous rows are out of the score.
@@ -24,6 +26,7 @@
  * (`castProblems`), and `ran` refuses rows where a whole step did not run. Each says why to the file `TEX_LAB_WHY`
  * names, which the workflow reports to the Lab as the run's error; standard error keeps to ids and counts.
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -32,6 +35,7 @@ import { fallbackVerdict } from "../apps/mcp/bench/fallbacks.mjs";
 import { parsePeople } from "../apps/mcp/bench/load.mjs";
 import { loadSets } from "../apps/mcp/bench/sets.mjs";
 import { castProblems } from "../apps/mcp/bench/setsFd.mjs";
+import { CONFIG_PATH, texConfigText } from "./lib/texConfigFile.mjs";
 import { scoreByRepeat, testKeyOf, worldMisses } from "../apps/mcp/bench/setsRun.mjs";
 
 const requireHere = createRequire(import.meta.url);
@@ -61,7 +65,7 @@ function ownShared(c, people) {
  * Only those with a Front door test, and only when the run covers the Front door (`node` null or "fd").
  */
 export function uncast(convs, people, node = null) {
-  if (node && node !== "fd") return [];
+  if (node && !String(node).split(",").includes("fd")) return [];
   return convs
     .filter((c) => unitTests(c).some((t) => t.node === "fd"))
     .map((c) => ({ id: c.id, problems: castProblems(c, people, { ownWorkspace: ownShared(c, people) }) }))
@@ -373,6 +377,47 @@ export function detailOf(r) {
 /** At most this much of a row's detail is kept (`apps/convex/functions/texLabRuns.ts` keeps the same). */
 const DETAIL_CHARS = 1_500;
 
+/**
+ * The steps a draft changed, read from the config before and after the promote write (`tex-lab-promote.mjs`), plus the
+ * steps that read a prompt module the draft rewrote: a step whose fields differ (its place on the drawing aside), one
+ * added or removed, and both ends of a wire that changed. Null when the draft changed something no single step owns
+ * (the models, the groups, the conversation settings): then every step's tests run.
+ */
+export function changedSteps(before, after, graph = null) {
+  const rest = (g) => Object.fromEntries(Object.entries(g ?? {}).filter(([k]) => k !== "nodes" && k !== "edges").sort(([a], [b]) => (a < b ? -1 : 1)));
+  if (JSON.stringify(rest(before)) !== JSON.stringify(rest(after))) return null;
+  if (graph?.convo && Object.keys(graph.convo).length > 0) return null;
+  const bare = (n) => JSON.stringify(Object.fromEntries(Object.entries(n).filter(([k]) => k !== "x" && k !== "y").sort(([a], [b]) => (a < b ? -1 : 1))));
+  const was = new Map((before.nodes ?? []).map((n) => [n.id, bare(n)]));
+  const now = new Map((after.nodes ?? []).map((n) => [n.id, bare(n)]));
+  const changed = new Set();
+  for (const id of new Set([...was.keys(), ...now.keys()])) if (was.get(id) !== now.get(id)) changed.add(id);
+  const key = (e) => `${e.from}>${e.to}>${e.mode}`;
+  const wa = new Map((before.edges ?? []).map((e) => [key(e), JSON.stringify(e)]));
+  const wb = new Map((after.edges ?? []).map((e) => [key(e), JSON.stringify(e)]));
+  for (const k of new Set([...wa.keys(), ...wb.keys()])) {
+    if (wa.get(k) === wb.get(k)) continue;
+    const [from, to] = k.split(">");
+    changed.add(from);
+    changed.add(to);
+  }
+  const words = Object.keys(graph?.modules ?? {});
+  for (const n of after.nodes ?? []) if (Array.isArray(n.ctx) && n.ctx.some((c) => words.includes(c))) changed.add(n.id);
+  return [...changed].sort();
+}
+
+/**
+ * The steps a quick run tests, given the steps the draft changed (`changedSteps`) and the conversations: the changed
+ * steps, when every one has unit tests of its own. A changed step with none can reach any tested step's run (the
+ * Front door's whole turn, or a setting a step's test reads, as Decide's reads decideWhy), so it runs every step: null,
+ * as when there is nothing to narrow to.
+ */
+export function quickNodes(changed, convs) {
+  if (!Array.isArray(changed) || changed.length === 0) return null;
+  const tested = new Set(convs.flatMap((c) => unitTests(c).map((t) => t.node)));
+  return changed.every((id) => tested.has(id)) ? [...changed].sort() : null;
+}
+
 async function main() {
   const [sub, a, b] = process.argv.slice(2);
   if (sub === "prepare") {
@@ -394,6 +439,26 @@ async function main() {
     writeFileSync(join(b, "convs.json"), JSON.stringify(convs));
     if (job.graph) writeFileSync(join(b, "graph.json"), job.graph);
     console.log(`${name} conversations: ${convs.length} (${convs.map((c) => c.id).join(", ")}); ${job.graph ? "draft graph" : "main"}`);
+    return;
+  }
+  if (sub === "scope") {
+    // A quick run (`texLabRuns.ts` startRun quick): after the promote write, only the changed steps' tests run.
+    const job = JSON.parse(readFileSync(a, "utf8"));
+    const out = join(b, "nodes");
+    // The marker says the run is quick even when it runs every step: no Claude Code regrade or gold self-check.
+    if (job?.quick) writeFileSync(join(b, "quick"), "1");
+    if (!job?.quick || !existsSync(join(b, "graph.json"))) {
+      writeFileSync(out, "");
+      console.log("Every step's tests (not a quick run)");
+      return;
+    }
+    const before = JSON.parse(execFileSync("git", ["show", `HEAD:${CONFIG_PATH}`], { encoding: "utf8", maxBuffer: 64 << 20 }));
+    const after = JSON.parse(texConfigText());
+    const graph = JSON.parse(readFileSync(join(b, "graph.json"), "utf8"));
+    const changed = changedSteps(before, after, graph);
+    const nodes = quickNodes(changed, JSON.parse(readFileSync(join(b, "convs.json"), "utf8")));
+    writeFileSync(out, nodes ? nodes.join(",") : "");
+    console.log(nodes ? `Quick: the draft changed ${changed.join(", ")}, so only ${nodes.join(", ")} run` : `Quick, but ${changed === null ? "the draft changed something no single step owns" : changed.length ? `a changed step (${changed.filter((id) => !nodes?.includes(id)).join(", ")}) has no tests of its own` : "the draft changed no step"}: every step's tests run`);
     return;
   }
   if (sub === "results") {
@@ -428,7 +493,7 @@ async function main() {
     console.log("Every step with tests ran some");
     return;
   }
-  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | results <rows.json> <ms> [gold.json] | ran <rows.json>");
+  throw new Error("usage: tex-lab-run.mjs prepare <job.json> <dir> | scope <job.json> <dir> | results <rows.json> <ms> [gold.json] | ran <rows.json>");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

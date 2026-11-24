@@ -287,7 +287,7 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
 }
 
 /**
- * Every unit test of the conversations (one node when `node` is named), each run alone. The nodes that run in this
+ * Every unit test of the conversations (only those steps when `node` names one or a comma-separated few), each run alone. The nodes that run in this
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
@@ -296,9 +296,11 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
   const ready = {};
   const singles = [];
   const batches = {};
+  // One step, or a comma-separated few (a quick Lab run tests only the steps its draft changed: `tex-lab-run.mjs` scope).
+  const only = node ? new Set(String(node).split(",").filter(Boolean)) : null;
   for (const c of convs) {
     for (const t of unitTests(c)) {
-      if (node && t.node !== node) continue;
+      if (only && !only.has(t.node)) continue;
       const label = c.msgs[t.at].labels[t.node];
       const row = { chat: c.id, msg: t.msg, at: t.at, node: t.node };
       if (table[t.node]?.batch) {
@@ -481,7 +483,7 @@ export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? 
 /** `sets run` and `sets regrade`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
   if (sub === "regrade") return regradeCommand(options, { write });
-  const usage = "usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--repeat n] [--keep <dir>] [--world replay|record|refresh] [--world-strict off|warn|fail] [--fake]\n       sets regrade --kept <dir> [--times n] [--votes n] [--out <file.json>] [--fake]";
+  const usage = "usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>[,<id>...]] [--out <file.json>] [--parallel n] [--hold-out on] [--repeat n] [--keep <dir>] [--world replay|record|refresh] [--world-strict off|warn|fail] [--fake]\n       sets regrade --kept <dir> [--times n] [--votes n] [--out <file.json>] [--fake]";
   if (sub !== "run") throw new Error(usage);
   // Each Front door test's repeats (Dev2, 2026-11-19): --repeat, else TEX_SETS_REPEAT, else 3; a whole number 1..5. A bare
   // `--repeat` (no value) is refused, not read as 1 or as the default.

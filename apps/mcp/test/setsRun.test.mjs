@@ -160,6 +160,12 @@ test("runSets runs only starred labels, each through its node's adapter, and say
   assert.equal(rows.length, unitTests(fixture()).length);
 });
 
+test("runSets takes a comma-separated few steps, as a quick Lab run names them", async () => {
+  const adapters = { decide: async () => () => ({ right: true, ran: true, usd: 0 }), reviewer: async () => () => ({ right: true, ran: true, usd: 0 }) };
+  assert.deepEqual((await runSets([fixture()], { adapters, node: "reviewer", tree: "/nowhere" })).map((r) => r.node), ["reviewer"]);
+  assert.deepEqual((await runSets([fixture()], { adapters, node: "decide,reviewer", tree: "/nowhere" })).map((r) => r.node), ["decide", "reviewer", "decide"]);
+});
+
 test("runSets honours node, and reports a node with no adapter as ran: false rather than passing it", async () => {
   const adapters = { decide: async () => () => ({ right: true, ran: true, usd: 0 }) };
   const only = await runSets([fixture()], { adapters, node: "decide", tree: "/nowhere" });
