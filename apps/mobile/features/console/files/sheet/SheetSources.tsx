@@ -234,7 +234,7 @@ const makeStyles = (colors: Colors) =>
     body: { gap: space.x4 },
     block: { gap: space.x2 },
     made: { gap: space.x2, padding: space.x3, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
-    code: { padding: space.x2, borderRadius: radii.sm, backgroundColor: colors.surface, fontSize: 12 },
+    code: { padding: space.x2, borderRadius: radii.sm, backgroundColor: colors.surface },
     row: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     grow: { flex: 1, minWidth: 0 },
     actions: { flexDirection: "row", justifyContent: "flex-end" },
