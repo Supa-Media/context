@@ -15,7 +15,7 @@ import { useState } from "react";
 import { Platform, Pressable, StyleSheet, View, type GestureResponderEvent, type ViewProps } from "react-native";
 import { Icon, type IconName } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { radii, space } from "../../../../design/tokens";
+import { pointerType, radii, space, touchType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { displayName, folderLabel } from "../../paths";
 import type { ItemEntry } from "../model";
@@ -174,7 +174,7 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
               <Icon name={open ? "chevronDown" : "chevronRight"} size={15} color={colors.muted} />
             </Pressable>
             <HealthDot health={health} />
-            <Text variant="tree" style={[styles.areaName, unowned && styles.unownedName]} numberOfLines={1}>
+            <Text variant="tree" style={[styles.areaName, shared.compact && styles.areaNameTouch, unowned && styles.unownedName]} numberOfLines={1}>
               {name}
             </Text>
             <View style={styles.trail}>
@@ -321,6 +321,9 @@ function MoreFiles({
   );
 }
 
+/** The prototype's area name (`.alist .lrow .t-tree`): 14px, a step over the tree's 13. */
+const AREA_NAME = pointerType.ui + 1;
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     list: { paddingVertical: space.x1 },
@@ -328,33 +331,38 @@ const makeStyles = (colors: Colors) =>
     row: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 6,
-      minHeight: 36,
-      paddingRight: space.x3,
+      gap: space.x2,
+      minHeight: 34,
+      paddingRight: space.x2,
       borderRadius: radii.md,
     },
     areaRow: { minHeight: 40 },
     rowCompact: { minHeight: 44 },
-    hover: { backgroundColor: colors.surface3 },
+    hover: { backgroundColor: colors.chipFill },
     guide: { position: "absolute", top: 0, bottom: 0, width: 1, backgroundColor: colors.line, pointerEvents: "none" },
     gutter: { width: GUTTER, height: 22, alignItems: "center", justifyContent: "center" },
     dot: { width: 6, height: 6, borderRadius: radii.pill, flexShrink: 0 },
     ring: { backgroundColor: "transparent", borderWidth: 1, borderStyle: "dashed" },
-    areaName: { flexShrink: 1, flexGrow: 1, minWidth: 0, fontWeight: "600", color: colors.text },
+    areaName: { flexShrink: 1, flexGrow: 1, minWidth: 0, fontSize: AREA_NAME, fontWeight: "600", color: colors.text },
+    // `.st.phone .t-tree`: 16 on 22.
+    areaNameTouch: { fontSize: touchType.ui, lineHeight: 22 },
     unownedName: { color: colors.muted },
     trail: { flexDirection: "row", alignItems: "center", gap: space.x2, flexShrink: 0, marginLeft: "auto" as never },
     value: { width: 64, textAlign: "right", color: colors.muted },
     more: { width: 22, height: 22, alignItems: "center", justifyContent: "center", borderRadius: radii.sm },
     moreShown: { opacity: 1 },
     moreHidden: { opacity: 0 },
-    fileName: { flexShrink: 1, flexGrow: 1, minWidth: 0, color: colors.muted },
+    fileName: { flexShrink: 1, flexGrow: 1, minWidth: 0, color: colors.text2 },
     meta: { color: colors.muted, flexShrink: 0 },
+    // `.ktag`: 600, tracked .3, muted, a 1px line border, radius 4, padding 0 4, on 15.
     tag: {
-      color: colors.chromeMuted,
+      color: colors.muted,
+      fontWeight: "600",
+      letterSpacing: 0.3,
+      lineHeight: 15,
       borderWidth: 1,
       borderColor: colors.line,
-      borderRadius: radii.sm,
+      borderRadius: 4,
       paddingHorizontal: space.x1,
-      paddingVertical: 2,
     },
   });

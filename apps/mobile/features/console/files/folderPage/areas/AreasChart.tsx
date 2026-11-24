@@ -21,7 +21,7 @@ import { useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { radii, space } from "../../../../design/tokens";
+import { pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
@@ -261,7 +261,7 @@ function SeatBox({
       >
         <View style={styles.titleRow}>
           <HealthDot health={healthOf(seat)} />
-          <Text variant={top ? "paneTitle" : "rowTitle"} numberOfLines={1} style={styles.name}>
+          <Text variant="rowTitle" numberOfLines={1} style={[styles.name, top && styles.rootName]}>
             {title}
           </Text>
         </View>
@@ -386,13 +386,13 @@ const makeStyles = (colors: Colors) =>
     warn: { color: colors.warnText },
 
     org: { alignItems: "center", width: "100%" },
-    orgRoot: { width: "100%", maxWidth: 320 },
+    orgRoot: { width: "100%", maxWidth: 300 },
     orgEmpty: { alignItems: "center", gap: space.x2, paddingTop: space.x4 },
     stem: { width: LINE, height: DROP, backgroundColor: colors.lineStrong },
     orgScroll: { width: "100%" },
     orgScrollInner: { flexGrow: 1, justifyContent: "center" },
     orgRow: { flexDirection: "row", alignItems: "flex-start", gap: COLUMN_GAP, flexGrow: 1 },
-    column: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 150, maxWidth: 220, paddingTop: DROP, position: "relative" },
+    column: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 124, maxWidth: 220, paddingTop: DROP, position: "relative" },
     bus: { position: "absolute", top: 0, left: -COLUMN_GAP / 2, right: -COLUMN_GAP / 2, height: LINE, backgroundColor: colors.lineStrong },
     busFirst: { left: "50%" },
     busLast: { right: "50%" },
@@ -415,7 +415,9 @@ const makeStyles = (colors: Colors) =>
       minWidth: 0,
     },
     boxPhone: { borderRadius: 18 },
-    boxRoot: { backgroundColor: colors.surface2 },
+    boxRoot: { backgroundColor: colors.rootSurface, borderColor: "transparent" },
+    // `.t-rootname`: 16 on 24, 600, -0.32.
+    rootName: { fontSize: pointerType.body, lineHeight: 24, letterSpacing: -0.32 },
     boxEmpty: { backgroundColor: "transparent", borderStyle: "dashed", borderColor: colors.lineStrong },
     boxHover: { borderColor: colors.lineStrong },
     body: { padding: 12, paddingRight: 34, gap: 6 },

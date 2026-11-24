@@ -158,6 +158,18 @@ describe("the Areas folder", () => {
     expect(labels.some((label) => label.startsWith("Edit how to reach"))).toBe(true);
   });
 
+  // The prototype's labels: "Open chart" only where the seat has sub-areas to chart.
+  test.each<[string, boolean]>([
+    ["finance", true],
+    ["engineering", false],
+  ])("the %s seat menu offers Open chart: %s", async (name, offered) => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(document.querySelector<HTMLElement>(`[aria-label="Options for ${name}"]`)!);
+    const labels = Array.from(one("menu-root").querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')).map((node) => strip(node.textContent).trim());
+    expect(labels.includes("Open chart")).toBe(offered);
+    expect(labels).not.toContain("Open");
+  });
+
   test("Add a metric… opens the seat with an empty metric row ready", async () => {
     await mount(host([], { notes: AREAS }), LISTING);
     await press(document.querySelector<HTMLElement>('[aria-label="Options for engineering"]')!);
