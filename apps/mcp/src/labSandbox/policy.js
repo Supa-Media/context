@@ -323,7 +323,7 @@ export async function sandboxedTool(env, call) {
 /** Bindings a test turn is given as they are: the model, pictures, the deploy's version. */
 const PASSED_BINDINGS = new Set(["AI", "IMAGES", "CF_VERSION_METADATA"]);
 /** Analytics datasets: given as writers that keep nothing, so a test turn never counts in production's numbers. */
-const ANALYTICS = new Set(["TEX_TIMING", "TEX_CALLS", "TEX_ENTRY", "MCP_ENTRY", "CALL_COUNTS", "TEX_TEXTS", "TEX_COUNTS"]);
+const ANALYTICS = new Set(["TEX_TIMING", "TEX_CALLS", "TEX_ENTRY", "MCP_ENTRY", "CALL_COUNTS", "TEX_TEXTS", "TEX_COUNTS", "TEX_NUDGES"]);
 /** Secrets for other Workers, never needed to answer a text. */
 const WITHHELD_STRINGS = new Set(["TRANSCRIBE_WORKER_SECRET", "AGENT_WORKER_SECRET", "TRANSCRIBE_WORKER_URL"]);
 

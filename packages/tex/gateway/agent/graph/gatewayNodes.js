@@ -47,6 +47,7 @@ import { readTheTextNode } from "./nodes/readTheText.js";
 import { reviewerNode } from "./nodes/reviewer.js";
 import { claimChecksNode } from "./nodes/claimChecks.js";
 import { finishNode } from "./nodes/finish.js";
+import nudgeOffer from "./nodes/nudgeOffer.js";
 import { recheckNode } from "./nodes/recheck.js";
 import { toolRulesNode } from "./nodes/toolRules.js";
 import { runARoutineNode } from "./nodes/runARoutine.js";
@@ -213,6 +214,8 @@ export const GATEWAY_NODES = {
   get quietCheck() { return quietCheck; },
   // A check-in's Research: read-only digging whose brief the look reads (`nodes/checkinResearch.js`); a draft wires checkin -> checkinResearch.
   get checkinResearch() { return checkinResearch; },
+  // The Nudge: one offer line after a finished 1:1 answer, each capability offered once (`nodes/nudgeOffer.js`, `../nudges.js`); finish -> nudgeOffer, off on main.
+  get nudgeOffer() { return nudgeOffer; },
   get rungKnows() { return rungKnowsNode; },
   get rungNotes() { return rungNotesNode; },
   get rungTools() { return rungToolsNode; },

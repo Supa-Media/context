@@ -64,6 +64,30 @@ const STEP_SETTINGS = Object.freeze({
       tip: "The most words next to a page or picture Tex made (wordy.js).",
     }),
   }),
+  // The Nudge (`graph/nodes/nudgeOffer.js`, `nudges.js`): when one offer line may go after a finished 1:1 answer.
+  nudgeOffer: Object.freeze({
+    addLine: on("Add the line", "Add the offer line after the answer. Off: a shadow run that decides, keeps and counts the offer the same way but texts nothing."),
+    minTexts: Object.freeze({
+      type: "number",
+      default: 5,
+      min: 0,
+      max: 100,
+      integer: true,
+      unit: "texts",
+      label: "First texts left alone",
+      tip: "No offer until the person has sent this many texts that reached the step: first just be fast and right.",
+    }),
+    cooldownHours: Object.freeze({
+      type: "number",
+      default: 24,
+      min: 1,
+      max: 720,
+      integer: true,
+      unit: "hours",
+      label: "Between offers",
+      tip: "The least time between two offers to the same person.",
+    }),
+  }),
   // Tool rules (`texEntryPoint/runTheModel.js`): what every tool call passes through. The security rules (vault, mail
   // agent, the chat's write lock, their notes kept) are always on and are not settings.
   toolRules: Object.freeze({
