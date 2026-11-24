@@ -45,6 +45,10 @@ import { readTheHistoryNode } from "./nodes/readTheHistory.js";
 import { readTheSetupNode } from "./nodes/readTheSetup.js";
 import { readTheTextNode } from "./nodes/readTheText.js";
 import { reviewerNode } from "./nodes/reviewer.js";
+import { claimChecksNode } from "./nodes/claimChecks.js";
+import { finishNode } from "./nodes/finish.js";
+import { recheckNode } from "./nodes/recheck.js";
+import { toolRulesNode } from "./nodes/toolRules.js";
 import { runARoutineNode } from "./nodes/runARoutine.js";
 import { selfreviewNode } from "./nodes/selfreview.js";
 import { sendNode } from "./nodes/send.js";
@@ -111,6 +115,12 @@ export const GATEWAY_NODES = {
   get planner() { return plannerNode; },
   get checks() { return checksNode; },
   get reviewer() { return reviewerNode; },
+  // The Answer check's own steps (Dev2, 2026-11-23, the no-shadow steps): the code rules, and the reply's last words before Text them.
+  get claimChecks() { return claimChecksNode; },
+  get finish() { return finishNode; },
+  // Still answers them? (`/texts/recheck`, asked by the Worker) and Tool rules (around every tool call): no-shadow steps.
+  get recheck() { return recheckNode; },
+  get toolRules() { return toolRulesNode; },
   // The way out, and what runs behind it.
   get send() { return sendNode; },
   get classifier() { return classifierNode; },

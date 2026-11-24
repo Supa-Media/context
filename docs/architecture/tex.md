@@ -42,7 +42,11 @@ flowchart LR
   n_send["Text them<br/>code<br/>sendTheReply · sendOne.ts · recoverFromFailure.js"]:::code
   n_learn["Learn<br/>Haiku 5.5 · effort low<br/>reflect.js · memoryNudge.js"]:::model
   n_afterReply["After the reply<br/>Haiku 5.5 · effort off<br/>conversationThreads.js · selfReview.js"]:::model
-  n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js"]:::model
+  n_answerCheck["Answer check<br/>Haiku 5.5 · effort low<br/>graph/nodes/answerCheck.js · sendBack.js"]:::model
+  n_claimChecks["Claim checks<br/>code<br/>graph/nodes/claimChecks.js · claimCheck.js · replyChecks.js · wordy.js · workPage.js · standsCheck.js · untriedWeb.js · doItChecks.js · linkCheck.js · sourcedFigures.js · browserWalls.js · bugCheck.js · checkoutChecks.js · confession.js · finishedOffer.js · keptClaims.js · otherRoutes.js · otherSites.js · pageNotice.js · stopsShort.js · stuckAsks.js · visuals/notice.js"]:::code
+  n_reviewer["Reply reviewer<br/>Haiku 5.5 · effort low<br/>graph/nodes/reviewer.js · replyJudge.js"]:::model
+  n_finish["Finish the text<br/>code<br/>graph/nodes/finish.js · texEntryPoint/finishTheText.js · textedApprovals.js · pushback.js · noteLinks.js · sayNothing.js · scheduledQuiet.js"]:::code
+  n_recheck["Still answers them?<br/>Clef<br/>graph/nodes/recheck.js · textsDecide.js · apps/agent lookAgain.ts · groupRecheck.ts"]:::model
   n_bypass["Confirmations & refusals<br/>code<br/>graph/nodes/bypass.js"]:::code
   n_chatDays["Chat day summaries<br/>Haiku 5.5 · effort low<br/>graph/nodes/chatDays.js · daySummaries.js"]:::model
   n_chatAsk(["Another chat asks<br/>code<br/>graph/nodes/chatAsk.js"]):::start
@@ -81,6 +85,7 @@ flowchart LR
     n_egress["Egress judge<br/>Haiku 5.5 · effort low<br/>privacy/judge.js"]:::model
     n_picture["Picture maker<br/>google/gemini-2.5-flash-image · effort off<br/>pictureMaker.js"]:::model
     n_shapeGate["Shape gate<br/>Clef · off<br/>graph/nodes/shapeGate.js · shapeGate.js · doItChecks.js"]:::off
+    n_toolRules["Tool rules<br/>code<br/>graph/nodes/toolRules.js · sameAsk.js · folderFit.js · noteLinks.js · theirNotes.js · keptFiles.js · supervise.js · vaultSaved.js"]:::code
     n_moveJudge["Move judge<br/>Haiku 5.5 · effort low<br/>graph/nodes/moveJudge.js · theirNotes.js"]:::model
     n_crossChatGate["Cross-chat gate<br/>code<br/>graph/nodes/crossChatGate.js · crossChat.js"]:::code
     n_tapback["Tapback<br/>code<br/>graph/nodes/tapback.js · tapbackEnding.js"]:::code
@@ -129,7 +134,12 @@ flowchart LR
   n_send -.->|background: fired| n_learn
   n_send -.->|background: sent, threads| n_afterReply
   n_fd --> n_answerCheck
-  n_answerCheck --> n_send
+  n_answerCheck --> n_finish
+  n_finish --> n_send
+  n_answerCheck -.->|uses| n_claimChecks
+  n_answerCheck -.->|uses| n_reviewer
+  n_send -.->|uses| n_recheck
+  n_tools -.->|uses| n_toolRules
   n_answerCheck ==>|loop| n_fd
   n_doorStep -->|answered| n_bypass
   n_bypass --> n_send
@@ -231,7 +241,12 @@ every wire, from the same config.
 | Job advisor | jobadv | jobs | on | Sonnet 5.5 | high |  | own, train:jobadv, brief, ask, ledger, out:job, tools | graph/nodes/jobcheck.js · jobCheck.js · advisorRoles/jobMail.js |
 | Learn | learn |  | on | Haiku 5.5 | low |  |  | reflect.js · memoryNudge.js |
 | After the reply | afterReply |  | on | Haiku 5.5 | off | 4 s | own, threads, recent, hist | conversationThreads.js · selfReview.js |
-| Answer check | answerCheck |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/checks.js · graph/nodes/reviewer.js · replyJudge.js · sendBack.js |
+| Answer check | answerCheck |  | on | Haiku 5.5 | low | 8 s | own, ledger, ask, draft, hist, date | graph/nodes/answerCheck.js · sendBack.js |
+| Claim checks | claimChecks |  | on | code |  |  |  | graph/nodes/claimChecks.js · claimCheck.js · replyChecks.js · wordy.js · workPage.js · standsCheck.js · untriedWeb.js · doItChecks.js · linkCheck.js · sourcedFigures.js · browserWalls.js · bugCheck.js · checkoutChecks.js · confession.js · finishedOffer.js · keptClaims.js · otherRoutes.js · otherSites.js · pageNotice.js · stopsShort.js · stuckAsks.js · visuals/notice.js |
+| Reply reviewer | reviewer |  | on | Haiku 5.5 | low | 8 s | own, train:reviewer, ledger, ask, draft, hist, date | graph/nodes/reviewer.js · replyJudge.js |
+| Finish the text | finish |  | on | code |  |  |  | graph/nodes/finish.js · texEntryPoint/finishTheText.js · textedApprovals.js · pushback.js · noteLinks.js · sayNothing.js · scheduledQuiet.js |
+| Still answers them? | recheck |  | on | Clef |  |  |  | graph/nodes/recheck.js · textsDecide.js · apps/agent lookAgain.ts · groupRecheck.ts |
+| Tool rules | toolRules | tools-subagents | on | code |  |  |  | graph/nodes/toolRules.js · sameAsk.js · folderFit.js · noteLinks.js · theirNotes.js · keptFiles.js · supervise.js · vaultSaved.js |
 | Confirmations & refusals | bypass |  | on | code |  |  |  | graph/nodes/bypass.js |
 | Chat day summaries | chatDays |  | on | Haiku 5.5 | low |  |  | graph/nodes/chatDays.js · daySummaries.js |
 | Move judge | moveJudge | tools-subagents | on | Haiku 5.5 | low | 8 s |  | graph/nodes/moveJudge.js · theirNotes.js |
@@ -260,7 +275,7 @@ every wire, from the same config.
 | Recheck About me | aboutCheck |  | on | Sonnet 5.5 | medium |  |  | graph/nodes/aboutCheck.js |
 | Drop past-date lines | aboutExpire |  | on | code |  |  |  | graph/nodes/aboutExpire.js |
 
-Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → send (wait) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · tools → computer (uses, computer) · answerCheck → askGate (uses) · askGate → rungKnows (uses, climb) · askGate → rungNotes (uses, climb) · askGate → rungTools (uses, climb) · askGate → handoff (uses, climbOn) · handoff → jobStart (uses, hand) · send → connect (background, fired) · checkin → quietCheck (uses, quiet) · checkin → checkinResearch (uses, look) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · dream → aboutExpire (wait, about) · aboutExpire → aboutCheck (wait, check)
+Wires: checkin → fd (wait, look) · notify → send (wait, send) · oldLine → send (wait, redirect) · edit → triage (wait, turn) · moveChat → send (wait, person, group) · triage → decide (wait, judge, running) · triage → lanes (wait, tex) · decide → react (wait) · decide → lanes (wait) · fd → tools (uses, action) · tools → mail (uses, email) · tools → card (uses, card) · fd → job (job, job) · job → handback (job, job) · tools → egress (uses, share) · tools → picture (uses, picture) · picture → card (uses) · tools → advisor (uses, ask_advisor) · job → jobadv (uses, job) · job → tools (uses, job) · triage → doorStep (provisional, stop:running, unless firstLook, sms, unpaired) · decide → doorStep (provisional, stop:quiet, restart:wait, unless firstLook, sms, unpaired) · lanes → doorStep (provisional, unless firstLook, sms, unpaired) · text → triage (wait) · doorStep → fd (wait, next) · send → learn (background, fired) · send → afterReply (background, sent, threads) · fd → answerCheck (wait) · answerCheck → finish (wait) · finish → send (wait) · answerCheck → claimChecks (uses) · answerCheck → reviewer (uses) · send → recheck (uses) · tools → toolRules (uses) · answerCheck → fd (loop) · doorStep → bypass (wait, answered) · bypass → send (wait) · staff → moveChat (wait, move) · routine → fd (wait, run) · routine → bypass (wait, stopped) · send → chatDays (background, sent, ended, answered) · tools → moveJudge (uses, move) · tools → crossChatGate (uses, ask_chat) · chatAsk → lanes (wait, ask, answer) · answerCheck → chatAnswer (wait, ask) · crossChatGate → chatAsk (generator, ask) · chatAnswer → chatAsk (generator, back) · tools → tapback (uses, tapback) · job → partEnd (uses, job) · job → jobReport (generator) · jobReport → lanes (wait, report) · fd → jobStart (uses, job) · decide → decideWhy (uses, contradiction) · doorStep → shapeGate (uses) · doorStep → router (uses) · tools → computer (uses, computer) · answerCheck → askGate (uses) · askGate → rungKnows (uses, climb) · askGate → rungNotes (uses, climb) · askGate → rungTools (uses, climb) · askGate → handoff (uses, climbOn) · handoff → jobStart (uses, hand) · send → connect (background, fired) · checkin → quietCheck (uses, quiet) · checkin → checkinResearch (uses, look) · nightly → dream (wait, dream) · dream → daysum (wait, summarize) · nightly → housekeep (wait, housekeeping) · dream → aboutExpire (wait, about) · aboutExpire → aboutCheck (wait, check)
 <!-- tex-config: steps end -->
 
 ## The rule

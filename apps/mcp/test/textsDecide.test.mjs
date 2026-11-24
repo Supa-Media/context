@@ -17,6 +17,8 @@ import { chatForTexts, decideForTexts, eventsForTexts, nowFacts, TEXTS_CHAT_PATH
 import { decideRequest, recheckRequest } from "../../../packages/tex/src/textDecide.cjs";
 import { MAX_DECISION_STATE_CHARS } from "../../../packages/tex/gateway/agent/decide.js";
 import { TexTexts } from "../src/index.js";
+import { LAB_SANDBOX_KEY } from "../src/labSandbox/policy.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 
 const id = (n) => `${String(1_700_000_000_000 + n).padStart(13, "0")}-${String(n).padStart(6, "0")}`;
 const SECRET = "the launch codes are pineapple";
@@ -142,7 +144,7 @@ test("the judge's verdict is kept in the group's ledger: what, why and the event
   assert.equal(appended.length, 2);
   const [step] = appended[1].entries;
   assert.equal(step.kind, "step");
-  assert.equal(step.step, "decide");
+  assert.equal(step.step, "node", "a run of the Still answers them? step (node recheck), as the graph runner writes one");
   assert.equal(step.name, "recheck");
   assert.equal(step.ok, true);
   assert.ok(!JSON.stringify(step).includes("Hi."), "the draft is not copied into the step");
@@ -331,4 +333,19 @@ test("a settle asks quiet or respond only, with no wait to choose (Dev2, 2026-11
   assert.deepEqual(Object.keys(seen.act.criteria), ["quiet", "respond"]);
   assert.equal(seen.wait_seconds, undefined);
   assert.equal((await response.json()).act, "silent");
+});
+
+test("Still answers them? turned off in a draft: every group reply goes as it is, and no model is asked", async () => {
+  const draft = JSON.parse(JSON.stringify(TEX_CONFIG));
+  draft.nodes.find((n) => n.id === "recheck").on = false;
+  const env = { [LAB_SANDBOX_KEY]: { record: () => {}, config: draft } };
+  let asked = 0;
+  const engine = async () => ((asked += 1), { draft_fits: { noul: 0.1 } });
+  const off = await (await decideForTexts(ask(TEXTS_RECHECK_PATH, { ...groupBody(), draft: "Hi.", draftFor: id(1) }), env, { engine })).json();
+  assert.equal(off.ok, true);
+  assert.equal(off.fits, true);
+  assert.equal(asked, 0);
+  const on = await (await decideForTexts(ask(TEXTS_RECHECK_PATH, { ...groupBody(), draft: "Hi.", draftFor: id(1) }), {}, { engine })).json();
+  assert.equal(on.fits, false, "on main it is asked, and a reply that no longer fits is held");
+  assert.equal(asked, 1);
 });

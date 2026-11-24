@@ -27,24 +27,22 @@ const TYPES = Object.freeze(["number", "boolean", "choice"]);
  *   { type: "choice", default, options: [{ value, label }], label, tip }
  * `label` is the Lab's row name and `tip` the line under it, both in plain words.
  */
+const on = (label, tip) => Object.freeze({ type: "boolean", default: true, label, tip });
 const STEP_SETTINGS = Object.freeze({
-  // Text them (`texEntryPoint/sendTheReply.js`): the code that changed the model's words after every check.
-  send: Object.freeze({
-    trimFlattery: Object.freeze({
-      type: "boolean",
-      default: true,
-      label: "Trim flattery",
-      tip: "Take an opening \"Absolutely,\" \"Great idea.\" or \"Sorry,\" off the reply before it goes (pushback.js).",
-    }),
-    linkSavedNote: Object.freeze({
-      type: "boolean",
-      default: true,
-      label: "Link the saved note",
-      tip: "Add the link to a note this turn saved when the reply doesn't link it (noteLinks.js).",
-    }),
+  // Finish the text (`texEntryPoint/finishTheText.js`): what the gateway does to the model's words after every check.
+  finish: Object.freeze({
+    trimFlattery: on("Trim flattery", "Take an opening \"Absolutely,\" \"Great idea.\" or \"Sorry,\" off the reply before it goes (pushback.js)."),
+    linkSavedNote: on("Link the saved note", "Add the link to a note this turn saved when the reply doesn't link it (noteLinks.js)."),
+    dropStaleAnswer: on("Drop a stale answer", "When their text set aside a held step and the reply asks nothing, send only the ask line, not the model's words."),
   }),
-  // Answer check's length rules (`wordy.js`), read by the claim check.
-  answerCheck: Object.freeze({
+  // Claim checks (`claimCheck.js` and the checks it runs): the code rules that send a draft back.
+  claimChecks: Object.freeze({
+    onTexts: Object.freeze({
+      type: "boolean",
+      default: false,
+      label: "On every text",
+      tip: "Run the full claim checks on a front-door text too. Off: a text gets only the stands, untried-web and do-it checks; jobs and reports get them all.",
+    }),
     proseWords: Object.freeze({
       type: "number",
       default: 70,
@@ -53,7 +51,7 @@ const STEP_SETTINGS = Object.freeze({
       integer: true,
       unit: "words",
       label: "Prose limit",
-      tip: "A reply with more words of sentences than this goes back to be shorter.",
+      tip: "A reply with more words of sentences than this goes back to be shorter (wordy.js).",
     }),
     besideResultWords: Object.freeze({
       type: "number",
@@ -63,8 +61,15 @@ const STEP_SETTINGS = Object.freeze({
       integer: true,
       unit: "words",
       label: "Beside a page",
-      tip: "The most words next to a page or picture Tex made.",
+      tip: "The most words next to a page or picture Tex made (wordy.js).",
     }),
+  }),
+  // Tool rules (`texEntryPoint/runTheModel.js`): what every tool call passes through. The security rules (vault, mail
+  // agent, the chat's write lock, their notes kept) are always on and are not settings.
+  toolRules: Object.freeze({
+    sameAsk: on("Same ask twice", "Withdraw a held ask that repeats one already waiting, and tell the model to change it (sameAsk.js)."),
+    folderFit: on("Where a new note goes", "Move a new note to the folder that fits it (folderFit.js)."),
+    noteLinks: on("Links in results", "Add each note's link to what a tool answers (noteLinks.js)."),
   }),
 });
 

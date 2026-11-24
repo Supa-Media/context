@@ -1,35 +1,30 @@
 /** Builds the reply that gets texted, writes it to the chat's ledger, and saves the exchange. One step of Tex's turn (`../texEntryPoint.js`). */
 
-import { splitUnder, underOf } from "../replyUnder.js";
 import { openAskBefore } from "../openAsk.js";
 import { roundsField } from "../lastRound.js";
 import { json } from "../../../../../apps/mcp/src/http/responses.js";
-import { offerLine } from "../../../../../apps/mcp/src/tools/offerFor.js";
 import { advisorRequest } from "../advisor.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { attachmentsLine } from "../attachments.js";
 import { crossBackInput } from "../crossChat.js";
-import { QUIET_ACK, QUIET_ACK_LINE, QUIET_REPORT_LINE, reportReply, startedJobs } from "../background.js";
+import { QUIET_ACK_LINE, QUIET_REPORT_LINE, startedJobs } from "../background.js";
 import { canRunBuiltin } from "../builtin.js";
 import { chatHubUrl } from "../hubLinks.js";
 import { keepGroupExchange } from "../groupTurn.js";
 import { jobFields, jobTurnFields } from "../jobCheck.js";
 import { gatewayGraph } from "../graph/gatewayGraph.js";
-import { settingsOf, texConfigOf } from "../texConfig.js";
+import { texConfigOf } from "../texConfig.js";
+import { finishTheText } from "./finishTheText.js";
 import { jobCheckFor } from "../graph/bridges.js";
 import { wordsEntry } from "../ledger.js";
 import { briefEntry } from "../judgeBrief.js";
 import { readInstructions } from "../customInstructions.js";
 import { exchangeEntries } from "../ledgerConversation.js";
 import { sentPicturesLine } from "../outgoingPictures.js";
-import { withoutFlattery } from "../pushback.js";
 import { reactedLine, tapbackLine } from "../quoted.js";
-import { EMPTY_FALLBACK, emptyFallback, isEmptyAnswer, isFallback } from "../replyChecks.js";
-import { withSavedLink } from "../noteLinks.js";
 import { steeredLine } from "../steer.js";
 import { deskEligible, learnDeskKeys } from "../texDesk.js";
 import { changedCalendar, refreshCalendarCache } from "../calendarCache.js";
-import { answerWithAsk, textedAsk } from "../textedApprovals.js";
 import { TEXTS_CLIENT_ID } from "./clients.js";
 import { groupTimingLine, waitBefore } from "../turnLog.js";
 import { turnTiming } from "../turnTiming.js";
@@ -37,9 +32,7 @@ import { heardWords, sentLine } from "../heardWords.js";
 import { jobChecked, startedJobEntries } from "../workEntries.js";
 import { VAULT_SAVED_QUESTION } from "../vaultSaved.js";
 import { HANDED_BACK_QUESTION, handbackField } from "../handback.js";
-import { tapbackOf, tapbackSaidLine } from "../tapbackEnding.js"; // a tapback as the whole answer: nothing texted, the Worker reacts
-import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
-import { scheduledSkip } from "../scheduledQuiet.js"; // a check-in's or routine's skip is a decision, never its words
+import { tapbackSaidLine } from "../tapbackEnding.js"; // a tapback as the whole answer: nothing texted, the Worker reacts
 import { factsEntry } from "../toldFacts.js";
 import { connectInput } from "../connectInput.js"; // what the Connect step is handed
 import { texVersion } from "../texVersion.js"; // which Tex answered, for the Lab's replays
@@ -57,36 +50,10 @@ const versionField = (env, production) => {
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function sendTheReply(t) {
-  const { answered, askChat, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, outgoing, production, replyPlace, question, quoted, reacted, received, report, router, runner, session, setAside, steer, store, tex, textingWriting, timeZone, turn } = t;
-  // The ask goes out in the gateway's own words, after whatever the model
-  // said: a person can allow only what they were told about, and the model
-  // relaying it is a courtesy rather than the mechanism.
-  // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
-  // A flattering opener ("You're so right!") comes off first while Text them's Trim flattery is on (`pushback.js`, `texNodeSettings.cjs`).
-  const crossAskRun = t.crossChat?.kind === "ask"; // its answer goes back to the chat that asked, never texted here (`crossChat.js`)
-  const sendSet = settingsOf(env, "send"); // Text them's own settings, shown and changed in the Lab (`texNodeSettings.cjs`)
-  const tapped = tapbackOf(turn); // the front door answered with only a tapback (`tapbackEnding.js`)
-  const hushed = turn.answer === QUIET_ACK || tapped !== null; // a job's start or restart texts nothing; their text gets a tapback instead (`background.js`)
-  const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null || (report === null && scheduledSkip(group, replied))), { answer: toldMarked, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : silent ? (group?.tagged === true ? EMPTY_FALLBACK : "") : !runner && isEmptyAnswer(replied) ? emptyFallback(turn.timing?.failures) : sendSet.trimFlattery === true ? withoutFlattery(replied) : replied); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct); a scheduled group turn's skip is silence however it was worded, its reasoning never a text (2026-11-17, `scheduledQuiet.js`); a literal "@Tex" is never silent: its silence is the fallback (Dev2, 2026-11-12)
-  // A saved deliverable's link goes on its own line when the reply does not already link it (`noteLinks.js`, `withSavedLink`).
-  const linkedMarked = sendSet.linkSavedNote !== true || quiet || silent || crossAskRun || isFallback(toldMarked) || isEmptyAnswer(toldMarked) ? toldMarked : withSavedLink(toldMarked, t.noteLinking?.saved, t.noteLinking?.origin ?? null); // the floor: 2026-11-19
-  // No Searched line is added after the model's words: the reply says what its search found (owner's pick, 2026-11-23: "isn't written yet" got a stray one).
-  // A group turn answering several texts: the front door's "[2] " numbers come out, and say which text each paragraph goes under (`replyUnder.js`).
-  const { answer: told, parts: underParts } = group !== null && job === null ? splitUnder(linkedMarked, t.logged?.covered) : { answer: linkedMarked, parts: null };
-  // An email's ask is texted exactly as written (`packages/tex/worker/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
-  const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
-  const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
-  const answer = [answerWithAsk(claims?.stale() === true && ledger.asked.length === 0 && ask !== null && !/\?/.test(told) ? "" : told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n"); // a drop's line replaces the model's unless it asked something
-  /*
-    A browser handed to the person goes out as a link the gateway adds, so
-    the model never holds it. The link is their own `/tex/<handle>` page,
-    which only they can open, signed in; it still stays out of the saved
-    conversation below, because the line is the gateway's and not an answer
-    the model gave.
-  */
-  const handoff = opened?.browser?.handoffLine() ?? null;
-  const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
-  const under = underOf(underParts, told, sent); // each part of what is sent, with the text it goes under (`replyUnder.js`)
+  const { answered, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, production, replyPlace, question, quoted, reacted, received, report, router, runner, session, steer, store, tex, textingWriting, timeZone, turn } = t;
+  // The words are Finish the text's (node "finish", `finishTheText.js`), made before this step when the config wires it;
+  // a turn that did not run it (a draft without the step) finishes them here, the same way.
+  const { crossAskRun, tapped, hushed, quiet, silent, pictures, captions, choices, offers, verbatim, offerText, answer, sent, under } = t.finished ?? (await tex.step("finish_text", () => finishTheText(t)));
   // A turn no text of theirs asked (a job's report, a vault save) keeps the gateway's line it was asked, so the chat rebuilt from the ledger shows what Tex answered.
   const eventAsked = report !== null || t.crossChat || question === VAULT_SAVED_QUESTION || question === HANDED_BACK_QUESTION ? String(question).slice(0, 2_000) : null;
   // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.

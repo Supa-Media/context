@@ -309,7 +309,7 @@ describe("the step panel's cards", () => {
 describe("a code step's own settings", () => {
   test("Settings draws what the step's code declares; a change is outlined with main's value, and a number out of bounds is not saved", () => {
     mount();
-    act(() => set({ sel: { t: "node", id: "send" }, pin: true }));
+    act(() => set({ sel: { t: "node", id: "finish" }, pin: true }));
     click("#cardSet");
     expect(q(".stepsec")?.textContent).toBe("Settingsfrom the code");
     const sw = q("#step-set-trimFlattery")!;
@@ -318,11 +318,11 @@ describe("a code step's own settings", () => {
     expect(q('[data-setting="trimFlattery"].chgf')).toBeNull();
     click("#step-set-trimFlattery");
     expect(q("#step-set-trimFlattery")!.getAttribute("aria-checked")).toBe("false");
-    expect(G().nodes.find((n) => n.id === "send")!.settings).toEqual({ trimFlattery: false, linkSavedNote: true });
+    expect(G().nodes.find((n) => n.id === "finish")!.settings).toEqual({ trimFlattery: false, linkSavedNote: true, dropStaleAnswer: true });
     expect(q('[data-setting="trimFlattery"].chgf .was')?.textContent).toBe("was on, on main");
     expect(q('[data-setting="linkSavedNote"].chgf')).toBeNull();
 
-    act(() => set({ sel: { t: "node", id: "answerCheck" }, pin: true }));
+    act(() => set({ sel: { t: "node", id: "claimChecks" }, pin: true }));
     const box = q("#step-set-proseWords") as HTMLInputElement;
     expect(box.value).toBe("70");
     act(() => {
@@ -330,13 +330,13 @@ describe("a code step's own settings", () => {
       box.dispatchEvent(new Event("change"));
     });
     expect(q('[data-setting="proseWords"] [role="alert"]')?.textContent).toBe("Prose limit must be a whole number from 20 to 400. Not saved.");
-    expect(G().nodes.find((n) => n.id === "answerCheck")!.settings?.proseWords).toBe(70);
+    expect(G().nodes.find((n) => n.id === "claimChecks")!.settings?.proseWords).toBe(70);
     const box2 = q("#step-set-proseWords") as HTMLInputElement;
     act(() => {
       box2.value = "120";
       box2.dispatchEvent(new Event("change"));
     });
-    expect(G().nodes.find((n) => n.id === "answerCheck")!.settings?.proseWords).toBe(120);
+    expect(G().nodes.find((n) => n.id === "claimChecks")!.settings?.proseWords).toBe(120);
     expect(q('[data-setting="proseWords"] [role="alert"]')).toBeNull();
     expect(q('[data-setting="proseWords"].chgf .was')?.textContent).toBe("was 70 on main");
   });

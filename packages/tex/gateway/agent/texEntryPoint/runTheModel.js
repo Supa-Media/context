@@ -10,7 +10,7 @@ import { screenForTurn, screenNote, screenOn } from "../screen.js";
 import { CONSOLE_CLIENT_ID } from "./clients.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
-import { TRAINING, texCacheTtl, texConfigOf, texFreeze, texToolList } from "../texConfig.js";
+import { TRAINING, settingsOf, texCacheTtl, texConfigOf, texFreeze, texToolList } from "../texConfig.js";
 import { consentContext } from "../consentContext.js";
 import { frozenModules } from "../frozenModules.js";
 import { prefixKeeper, warmWired } from "../warmPrefix.js";
@@ -45,7 +45,7 @@ const personalTex = (tool) => (tool === null ? [] : [tool]);
 import { withKeptFiles } from "../keptFiles.js";
 import { learnedSkillsLine, withLearnedSkills } from "../learnedSkills.js";
 import { setupPromptFor, turnKind } from "../promptModules.js";
-import { ledgerObserver, loggedCheck, stepLog } from "../ledger.js";
+import { ledgerObserver, loggedCheck, stepEntry, stepLog } from "../ledger.js";
 import { collectReads } from "../toldFacts.js";
 import { markRead, readBackTool, readsNote, readsOf } from "../readsIndex.js";
 import { carryKey } from "../stretch.js";
@@ -82,6 +82,7 @@ import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 import { carriedLine, carriedRounds, rereadCarried } from "../turnResume.js";
 import { loggedRoute, routeActs, routeIfBack, runWithDoors } from "../doorTurn.js";
+import { toolRulesNode } from "../graph/nodes/toolRules.js";
 
 /** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
@@ -104,6 +105,9 @@ function doorOut({ production, productionModel, fallback, router, gated, advisin
 const setupWithMap = (prompt, kind) => (typeof prompt === "string" && prompt !== "" ? withArchitecture(prompt, kind) : prompt);
 
 /** The reviewer's two halves, or the code checks alone with no reviewer (`replyJudge.js`); null when a turn has neither. */
+/** A Tool rules switch (`texNodeSettings.cjs` `toolRules`): the rule's wrapper when it is on, the call as it is when off. */
+const ruled = (on, wrap) => (callTool, ...options) => (on === true ? wrap(callTool, ...options) : callTool);
+
 function answerChecksFor({ judge, doIt, claims, tries, chatLog, ledgerAt, stands = null }) {
   return withStands(stands, checksOf({ judge, doIt, claims, tries, chatLog, ledgerAt }));
 }
@@ -144,6 +148,7 @@ export async function runTheModel(t, via) {
   // Only a job's report and a scheduled text are reviewed (Dev2, 2026-11-15): on every other chat turn the code checks run alone, the figure check over what the model saw among them (`untriedWeb.js`).
   const gated = ((chatTurn && job === null && !runner && (texted || group !== null) && report !== null) || scheduled !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
   const tries = t.tries;
+  const toolRules = settingsOf(env, "toolRules"); // Tool rules' switches, shown and changed in the Lab (`texNodeSettings.cjs`)
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).
@@ -266,10 +271,10 @@ export async function runTheModel(t, via) {
     // Each draft is checked by the nodes the config wires after the front door (`../graph/draftBridge.js`): Answer checks, then the Reply reviewer.
     // A job's turn streams each draft first, so a part that dies in its checks hands it on (`jobSaved.js`).
     // A group turn's changing calls take the chat's write lock, one at a time across its turns side by side (`chatWriteLock.js`).
-    callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (stands?.wrap ?? ((call) => call))((claims?.wrap ?? tries?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
+    callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withVaultWatch(ledger, withGroupVault(group, (stands?.wrap ?? ((call) => call))((claims?.wrap ?? tries?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null && toolRules.sameAsk === true, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
-        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(withNoteLinks(withFolderFit(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
+        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(ruled(toolRules.noteLinks, withNoteLinks)(ruled(toolRules.folderFit, withFolderFit)(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       )), pictureRun),
     ))))))))))),
     pictures: texted || group !== null,
@@ -342,6 +347,11 @@ export async function runTheModel(t, via) {
   if (opened !== null) await tex.after("browser_close", () => opened.close(turn.exhausted ? {} : { answer: turn.answer, vaultLink: ledger.vaultLink }));
   await tex.after("usage", () => meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
   await tex.after("turn_row", logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage, meterParts(turn)));
+  // Tool rules (node "toolRules"): a row of its own when the turn called tools, naming the calls and which switchable rules they passed.
+  if (turn.steps?.length > 0) {
+    const rules = toolRulesNode({ steps: turn.steps, settings: toolRules });
+    chatLog?.write([stepEntry({ step: "node", name: "toolRules", ms: 0, input: { calls: rules.calls, tools: rules.tools }, output: { on: rules.on, off: rules.off } }, { turn: t.ledgerTurn ?? null })].filter(Boolean));
+  }
   outcome.clean = ledger.untrusted !== true;
   // Cancelled by the Worker (`steer.js`), in a round or after the last: its asks are withdrawn, nothing is kept as said, and nothing is texted.
   // A provisional run (the config's "Provisional run" wire) answers only once the Worker's checks said go; stopped, or never told, it is cancelled.
