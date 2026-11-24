@@ -62,6 +62,13 @@ async function typeInto(input: HTMLElement, value: string) {
   });
 }
 
+/** Lets a menu placed from a measurement, and a people search, arrive. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+}
+
 describe("the Areas side panel", () => {
   test("one press shows the area beside the list and opens nothing", async () => {
     windowOf(1440);
@@ -110,6 +117,39 @@ describe("the Areas side panel", () => {
     await press(one("area-panel-mode-Doer"));
     const modes = writes.filter(([path, key]) => path === "areas/finance/about.md" && key === "modes").map(([, , value]) => value);
     expect(modes.at(-1)).toEqual(["Manager", "Doer"]);
+  });
+
+  test("owner, helper, phone, email, Tex and the rules are all edited in the panel, with no pop-up", async () => {
+    // The owner, 2026-11-24: "why cant I make changes inline? wth is the point of a side panel if its just going to link to this ugly pop up".
+    windowOf(1440);
+    const writes: Write[] = [];
+    const notes = AREAS.map((note) => (note.path === "areas/about.md" ? { ...note, properties: { agents: ["Claude"] } } : note));
+    await mount(host(writes, { notes }), LISTING);
+    await press(one("area-row-areas/finance"));
+    const panel = strip(one("area-panel").textContent);
+    for (const word of ["Owner", "Helper", "Modes", "Phone", "Email", "Tex", "Answers for", "Needs approval"]) expect(panel).toContain(word);
+    const card = (key: string) => writes.filter(([path, k]) => path === "areas/people/seyi.md" && k === key).map(([, , value]) => value);
+    await typeInto(one("area-panel-phone"), "+1 555 0100");
+    await blur(one("area-panel-phone"));
+    expect(card("phone")).toEqual(["+1 555 0100"]);
+    await press(one("area-panel-tex"));
+    expect(card("delegation").at(-1)).toBe("Tex");
+    // The helper drops a menu of the workspace's agents, and a choice is written at once.
+    await press(one("area-panel-helper"));
+    await settle();
+    await press(one("menu-item-Claude"));
+    const seat = (key: string) => writes.filter(([path, k]) => path === "areas/finance/about.md" && k === key).map(([, , value]) => value);
+    expect(seat("helper").at(-1)).toBe("Claude");
+    // The owner drops the workspace's people.
+    await press(one("area-panel-owner"));
+    await settle();
+    await press(one("menu-item-@sayo"));
+    expect(seat("owner").at(-1)).toBe("@sayo");
+    await press(one("area-panel-add-rule"));
+    await typeInto(one("area-panel-rule-new"), "Spending over $20 needs approval.");
+    await blur(one("area-panel-rule-new"));
+    expect(seat("approvals").at(-1)).toEqual(["Spending over $20 needs approval."]);
+    expect(all("seat-dialog")).toHaveLength(0);
   });
 
   test("in a console the area goes in the right panel, where Meetings is, not in the page", async () => {

@@ -6,26 +6,28 @@
  * headline metric with its latest reading, trend and goal, the owner and their
  * agent with how to reach them, the modes, and the sub-areas.
  *
- * The metric's name and goal and the modes are edited in place: each change is
- * the seat's own lines in its `about.md`, written through the same save the
- * seat pop-up uses, so it is drawn at once and taken back if refused. Who
- * holds the seat and how to reach them stay in the pop-up ("Change…"), which
- * owns the owner picker and the cards.
+ * Everything is edited in place, with no pop-up (the owner, 2026-11-24: "why
+ * cant I make changes inline?"): the metric's name and goal, then Owner and
+ * Helper as dropdowns, the modes, and the holder's phone, email and whether
+ * Tex answers for them (`PanelSeatFields.tsx`), the approval rules, the
+ * sub-areas and the area's notes. Each change is the seat's own lines in its
+ * `about.md`, or a holder's card, written through the same save the seat
+ * pop-up uses, so it is drawn at once and taken back if refused.
  */
 
 import { useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, TextInput, View, type TextStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { Circle, Line, Polyline, Svg } from "react-native-svg";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { useFieldFont } from "../../../../design/fieldFont";
-import { areasType, fonts, pointerType, radii, space, touchType } from "../../../../design/tokens";
+import { fonts, pointerType, radii, space, touchType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { folderLabel } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import { headlineOf } from "./headline";
+import { InlineField, PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
 import type { Reading } from "./readings";
-import { MODES, areaTitle, type AreaNode, type Mode, type Seat, type SeatEdit } from "./seat";
+import { areaTitle, type AreaNode, type Card, type Seat, type SeatEdit } from "./seat";
 import type { TrendGeometry } from "./Trend";
 
 export interface AreaPanelProps {
@@ -36,14 +38,11 @@ export interface AreaPanelProps {
   width: number;
   canEdit: boolean;
   faceOf: (owner: string | null) => Face;
-  label: (owner: string) => string;
-  /** One line saying how to reach a holder, "" if unknown. */
-  reach: (owner: string) => string;
   readingOf: (seat: Seat) => Reading | undefined;
-  /** Writes the seat's lines; resolves a problem sentence, or null when saved. */
-  onSave: (seat: Seat, edit: SeatEdit) => Promise<string | null>;
-  /** Opens the seat pop-up, for the owner, the agent and how to reach them. */
-  onEditSeat: (seat: Seat) => void;
+  /** Writes the seat's lines and any changed cards; resolves a problem sentence, or null when saved. */
+  onSave: (seat: Seat, edit: SeatEdit, cards: readonly Card[]) => Promise<string | null>;
+  /** The owner pickers' people, agents and cards. */
+  tools: PanelSeatTools;
   /** Shows another area here. */
   onPeek: (folder: string) => void;
   /** Opens an area's own page. */
@@ -56,7 +55,7 @@ function editOf(seat: Seat, patch: Partial<SeatEdit>): SeatEdit {
   return { owner: seat.ownOwner, helper: seat.helper, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
 }
 
-export function AreaPanel({ node, top, width, canEdit, faceOf, label, reach, readingOf, onSave, onEditSeat, onPeek, onOpen, onClose }: AreaPanelProps) {
+export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave, tools, onPeek, onOpen, onClose }: AreaPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
@@ -64,14 +63,12 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, label, reach, rea
   const headline = headlineOf(seat, reading);
   const metric = seat.metrics[0];
   const [problem, setProblem] = useState<string | null>(null);
-  const write = async (patch: Partial<SeatEdit>) => setProblem(await onSave(seat, editOf(seat, patch)));
+  const write = async (patch: Partial<SeatEdit>, cards: readonly Card[] = []) => setProblem(await onSave(seat, editOf(seat, patch), cards));
   const setMetric = (name: string, target: string) => {
     const was = metric ?? { name: "", target: null };
     if (name.trim() === was.name && (target.trim() || null) === was.target) return;
     void write({ metrics: name.trim() === "" ? [] : [{ name: name.trim(), target: target.trim() === "" ? null : target.trim() }, ...seat.metrics.slice(1)] });
   };
-  const toggleMode = (mode: Mode) =>
-    void write({ modes: seat.modes.includes(mode) ? seat.modes.filter((each) => each !== mode) : [...seat.modes, mode] });
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -85,7 +82,7 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, label, reach, rea
 
   const ink = headline?.state === "met" ? colors.okText : headline?.state === "missed" ? colors.warnText : colors.text;
   const owner = seat.owner;
-  const reachLine = owner === null ? "" : reach(owner);
+  const trail = seat.folder.split("/").slice(0, -1).map(folderLabel).join(" / ");
   return (
     <View style={styles.panel} testID="area-panel">
       <View style={styles.headBlock}>
@@ -98,6 +95,9 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, label, reach, rea
             <Icon name="close" size={13} color={colors.chromeMuted} />
           </Pressable>
         </View>
+        {top !== undefined || trail === "" ? null : (
+          <Text variant="treeMeta" style={[styles.muted, styles.trail]} numberOfLines={1}>{`${trail} / ${areaTitle(seat.name)}`}</Text>
+        )}
         {top !== undefined ? null : (
           <Pressable onPress={() => onOpen(seat.folder)} role="button" accessibilityLabel={`Open ${areaTitle(seat.name)}`} style={styles.openButton} testID="area-panel-open">
             <Text variant="treeMeta" style={styles.openWord}>Open area</Text>
@@ -120,90 +120,79 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, label, reach, rea
           style={styles.metricName}
           testID="area-panel-metric"
         />
-        {headline?.value != null ? (
+        {metric === undefined ? null : (
           <View style={styles.valueLine}>
-            <Text style={[styles.value, { color: ink }]} testID="area-panel-value">
-              {headline.value}
-            </Text>
-            {headline.state === "unknown" ? null : (
+            {headline?.value != null ? (
+              <Text style={[styles.value, { color: ink }]} testID="area-panel-value">
+                {headline.value}
+              </Text>
+            ) : (
+              <Text variant="tree" style={styles.noData}>No data yet</Text>
+            )}
+            <View style={styles.goal}>
+              <Text variant="treeMeta" style={styles.muted}>Goal</Text>
+              <InlineField
+                value={metric.target ?? ""}
+                label="Goal"
+                placeholder={canEdit ? "Set one" : "None"}
+                editable={canEdit}
+                onCommit={(target) => setMetric(metric.name, target)}
+                style={styles.goalField}
+                testID="area-panel-goal"
+              />
+            </View>
+            {headline?.state == null || headline.state === "unknown" || headline.value == null ? null : (
               <View style={[styles.state, headline.state === "met" ? styles.stateMet : styles.stateMissed]}>
                 <Text variant="treeMeta" style={{ color: ink }}>{headline.state === "met" ? "On target" : "Off target"}</Text>
               </View>
             )}
           </View>
-        ) : metric === undefined ? null : (
-          <Text variant="treeMeta" style={styles.muted}>No readings yet. They come from this area's metrics.csv.</Text>
         )}
         {headline?.trend == null ? null : (
           <PanelTrend geometry={headline.trend} ink={headline.state === "met" ? colors.ok : headline.state === "missed" ? colors.warn : colors.muted} width={Math.max(160, width)} height={64} />
         )}
         {metric === undefined ? null : (
-          <View style={styles.goal}>
-            <Text variant="treeMeta" style={styles.muted}>Goal</Text>
-            <InlineField
-              value={metric.target ?? ""}
-              label="Goal"
-              placeholder={canEdit ? "Set one" : "None"}
-              editable={canEdit}
-              onCommit={(target) => setMetric(metric.name, target)}
-              style={styles.goalField}
-              testID="area-panel-goal"
-            />
-            {headline?.date ? <Text variant="treeMeta" style={styles.date}>{`Latest ${headline.date}`}</Text> : null}
-          </View>
+          <Text variant="treeMeta" style={styles.muted}>
+            {headline?.date ? `Latest ${headline.date}. ` : ""}Readings come from this area's metrics.csv.
+          </Text>
         )}
       </Section>
 
       <Section title="Owner">
-        <View style={styles.ownerLine}>
-          <OwnerFace face={faceOf(owner)} size={18} />
-          <Text variant="tree" style={styles.ownerName} numberOfLines={1}>
-            {owner === null ? "Nobody yet" : label(owner)}
-            {seat.helper === null ? "" : ` + ${label(seat.helper)}`}
-          </Text>
-          {canEdit ? (
-            <Pressable onPress={() => onEditSeat(seat)} role="button" style={styles.change} testID="area-panel-change">
-              <Text variant="treeMeta" style={styles.link}>Change…</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        {seat.ownerFrom === null ? null : (
-          <Text variant="treeMeta" style={styles.muted}>{`Held through ${folderLabel(seat.ownerFrom)}`}</Text>
-        )}
-        {reachLine === "" ? null : <Text variant="treeMeta" style={styles.muted}>{reachLine}</Text>}
-        <View style={styles.modes} role="group" aria-label="Modes">
-          {MODES.map((mode) => {
-            const on = seat.modes.includes(mode);
-            return (
-              <Pressable
-                key={mode}
-                onPress={canEdit ? () => toggleMode(mode) : undefined}
-                disabled={!canEdit}
-                aria-pressed={on}
-                role="button"
-                accessibilityLabel={`${mode} mode`}
-                style={[styles.mode, on && styles.modeOn]}
-                testID={`area-panel-mode-${mode}`}
-              >
-                <Text variant="treeMeta" style={on ? styles.modeWordOn : styles.modeWord}>{mode}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <PanelOwnerRows
+          seat={seat}
+          tools={tools}
+          canEdit={canEdit}
+          faceOf={faceOf}
+          inherited={seat.ownerFrom === null ? null : `Held through ${folderLabel(seat.ownerFrom)}`}
+          write={(patch, cards) => void write(patch, cards)}
+        />
       </Section>
 
+      {seat.approvals.length === 0 && !canEdit ? null : (
+        <Section title="Needs approval">
+          <PanelRules seat={seat} canEdit={canEdit} write={(patch) => void write(patch)} />
+        </Section>
+      )}
+
       {node.areas.length === 0 ? null : (
-        <Section title={`${node.areas.length} ${node.areas.length === 1 ? "area" : "areas"} inside`}>
+        <Section title="Sub-areas">
           {node.areas.map((sub) => {
             const subLine = headlineOf(sub.seat, readingOf(sub.seat));
             return (
               <Pressable key={sub.seat.folder} onPress={() => onPeek(sub.seat.folder)} role="button" accessibilityLabel={`Show ${areaTitle(sub.seat.name)}`} style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.sub, hovered && styles.subHover]} testID={`area-panel-sub-${sub.seat.folder}`}>
                 <OwnerFace face={faceOf(sub.seat.owner)} size={16} />
                 <Text variant="tree" style={styles.subName} numberOfLines={1}>{areaTitle(sub.seat.name)}</Text>
-                <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>{subLine === null ? "" : (subLine.value ?? "No data")}</Text>
+                <Text variant="treeMeta" style={subLine?.state === "met" ? styles.subMet : subLine?.state === "missed" ? styles.subMissed : styles.muted} numberOfLines={1}>{subLine === null ? "" : (subLine.value ?? "")}</Text>
               </Pressable>
             );
           })}
+        </Section>
+      )}
+
+      {node.files.length === 0 ? null : (
+        <Section title="Notes">
+          <PanelNotes files={node.files} onOpen={onOpen} />
         </Section>
       )}
     </View>
@@ -247,37 +236,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/** Text that is edited where it is drawn, written when it loses focus or on Enter. */
-function InlineField({ value, label, placeholder, editable, onCommit, style, testID }: { value: string; label: string; placeholder: string; editable: boolean; onCommit: (text: string) => void; style: TextStyle; testID: string }) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const [text, setText] = useState(value);
-  const [focused, setFocused] = useState(false);
-  useEffect(() => setText(value), [value]);
-  const fieldFont = useFieldFont(style.fontSize);
-  const commit = () => {
-    if (text !== value) onCommit(text);
-  };
-  return (
-    <TextInput
-      value={text}
-      onChangeText={setText}
-      onFocus={() => setFocused(true)}
-      onBlur={() => {
-        setFocused(false);
-        commit();
-      }}
-      onSubmitEditing={commit}
-      editable={editable}
-      accessibilityLabel={label}
-      placeholder={placeholder}
-      placeholderTextColor={colors.muted}
-      style={[styles.field, editable && styles.fieldEditable, focused && styles.fieldFocused, style, fieldFont]}
-      testID={testID}
-    />
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     panel: { gap: 18 },
@@ -293,37 +251,18 @@ const makeStyles = (colors: Colors) =>
     section: { gap: space.x2, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: colors.line },
     sectionTitle: { color: colors.muted },
     muted: { color: colors.muted },
-    field: {
-      fontFamily: fonts.body,
-      color: colors.text,
-      paddingVertical: 3,
-      paddingHorizontal: 6,
-      marginLeft: -6,
-      borderWidth: 1,
-      borderColor: "transparent",
-      borderRadius: radii.sm,
-    },
-    // Says it can be typed in without a box around every value.
-    fieldEditable: { borderBottomColor: colors.line, borderStyle: "dashed" },
-    fieldFocused: { borderColor: colors.accent, borderStyle: "solid", backgroundColor: colors.surface },
-    metricName: { fontSize: pointerType.ui, fontWeight: "500" },
+    trail: { marginLeft: 30, marginTop: -space.x2 },
+    metricName: { fontSize: pointerType.ui, fontWeight: "600" },
+    noData: { color: colors.muted },
     valueLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     value: { fontFamily: fonts.body, fontSize: touchType.h3, lineHeight: 26, fontWeight: "600" },
     state: { paddingHorizontal: space.x2, paddingVertical: 1, borderRadius: radii.pill },
     stateMet: { backgroundColor: colors.okWash },
     stateMissed: { backgroundColor: colors.warnWash },
-    goal: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    goalField: { fontSize: pointerType.meta, minWidth: 96 },
-    date: { color: colors.muted, marginLeft: "auto" as never },
-    ownerLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    ownerName: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: areasType.value },
-    change: { paddingVertical: 2, paddingHorizontal: space.x1, borderRadius: radii.sm },
-    link: { color: colors.accent },
-    modes: { flexDirection: "row", flexWrap: "wrap", gap: space.x1 },
-    mode: { paddingVertical: 2, paddingHorizontal: space.x3, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.muted },
-    modeOn: { backgroundColor: colors.text, borderColor: colors.text },
-    modeWord: { color: colors.text2 },
-    modeWordOn: { color: colors.surface },
+    goal: { flexDirection: "row", alignItems: "center", gap: space.x1, paddingLeft: space.x2, paddingRight: space.x1, borderRadius: radii.pill, backgroundColor: colors.chipFill },
+    goalField: { fontSize: pointerType.meta, minWidth: 80, marginLeft: 0 },
+    subMet: { color: colors.okText },
+    subMissed: { color: colors.warnText },
     sub: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 30, paddingHorizontal: space.x1, marginHorizontal: -space.x1, borderRadius: radii.sm },
     subHover: { backgroundColor: colors.chipFill },
     subName: { flexGrow: 1, flexShrink: 1, minWidth: 0 },

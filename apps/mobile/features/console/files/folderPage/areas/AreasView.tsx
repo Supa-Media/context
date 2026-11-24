@@ -189,11 +189,9 @@ export function AreasView(props: AreasViewProps) {
           ...(peekNode === tree ? { top: rootTitle } : {}),
           canEdit,
           faceOf,
-          label,
-          reach,
           readingOf,
-          onSave: (seat, edit) => save(seat, edit, []),
-          onEditSeat: (seat) => setEditing({ seat }),
+          onSave: save,
+          tools: { people, agents, isAgent, cardFor, label },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);
