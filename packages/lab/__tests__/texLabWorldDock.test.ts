@@ -216,7 +216,9 @@ test("texting as someone sends their handle; Tex's answer and the why line show,
   await click("#sbSend");
   expect(mockCalls.find((c) => c.op === "send")?.body).toMatchObject({ as: "beta-x1", text: "@Tex what's left before Thursday?" });
   const view = q("#sbChatView")!;
-  expect(view.querySelector(".r.out .mn.tx")?.textContent).toBe("@Tex");
+  // A typed "@Tex" is plain words, as iMessage sends it (Dev, 2026-11-24: "do it like imessage"); only a real tag is drawn.
+  expect(view.querySelector(".r.out .mn, .r.out .mtg")).toBeNull();
+  expect(view.querySelector(".r.out .bt")?.textContent).toBe("@Tex what's left before Thursday?");
   expect(view.querySelector(".r.in .b")?.textContent).toBe("I can only read this chat's notes here.");
   expect(view.querySelector(".wy")?.textContent).toMatch(/^Tex answers· asked by name/);
   await click(".wy");
