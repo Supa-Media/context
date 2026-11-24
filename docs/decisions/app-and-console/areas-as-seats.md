@@ -69,7 +69,11 @@ who to ask and what is not covered. No new concept: an area is the seat.
   on hover only. Check a redraw inside the app beside its neighbours, not
   only against the board.
 
-  One press on an area shows it in a side panel beside the list, and a
+  One press on an area shows it in the console's right panel, as its Area
+  tab beside Meetings, opening the panel if it was shut (the owner,
+  2026-11-24: "just put it in the left panel like this", of that panel; a
+  card inside the page read as "not a side panel"). Where no console hosts
+  the page, it is drawn beside the list. One press on an area shows it, and a
   second press at once (or the panel's Open area) opens its page (the owner,
   2026-11-24, after trying the prototype: "one click open up the right panel,
   double click to get into more details"). The panel edits the metric's name,

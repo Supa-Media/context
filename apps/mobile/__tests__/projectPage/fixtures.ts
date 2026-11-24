@@ -3,7 +3,7 @@
  * Board and the task side panel's tests share it. Fake names and paths only.
  */
 
-import { PageDockHost } from "../../features/console/files/folderPage/panel/PageDock";
+import { PageSideProvider, usePageSide } from "../../features/console/aside/pageSide";
 import { act, createElement, useState, type ReactNode } from "react";
 import { FrameContext, useFrame } from "../../features/app/appFrame/context";
 import { createRoot } from "react-dom/client";
@@ -179,9 +179,15 @@ export async function mount(page: FolderPageHost, listing: FolderListing = LISTI
   return { container, selected };
 }
 
-/** Inside the pointer layout's page surface, which hosts a docked side panel (`PageDock`). */
+/** Inside a console, whose right panel shows what the page offers it (`aside/pageSide.tsx`). */
 function dockedIf(docked: boolean, child: ReturnType<typeof createElement>) {
-  return docked ? createElement(PageDockHost, { children: child }) : child;
+  return docked ? createElement(PageSideProvider, null, child, createElement(OfferedSide)) : child;
+}
+
+/** The right panel's Area tab, as `AsidePanel` draws it. */
+function OfferedSide() {
+  const side = usePageSide();
+  return side === null ? null : createElement("div", { "data-testid": "aside-area" }, side);
 }
 
 function wrap(nav: ConsoleNav | undefined, tree: Tree | undefined, child: ReturnType<typeof createElement>) {

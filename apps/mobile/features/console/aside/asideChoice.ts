@@ -16,11 +16,12 @@ import { DEFAULT_ASIDE_TAB, type AsideTab } from "./tabs";
  * replay them: each takes the tab once, when it changes.
  */
 let chosen: AsideTab = DEFAULT_ASIDE_TAB;
-const seen: { started: number | null; vaultAt: number | null; mapOpen: boolean; noteKey: string | null } = {
+const seen: { started: number | null; vaultAt: number | null; mapOpen: boolean; noteKey: string | null; areaShown: boolean } = {
   started: null,
   vaultAt: null,
   mapOpen: false,
   noteKey: null,
+  areaShown: false,
 };
 const listeners = new Set<() => void>();
 
@@ -58,4 +59,5 @@ export function forgetAsideChoice(): void {
   seen.vaultAt = null;
   seen.mapOpen = false;
   seen.noteKey = null;
+  seen.areaShown = false;
 }

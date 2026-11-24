@@ -17,6 +17,7 @@ import { useMapRoute } from "../map/live/MapRouteContext";
 const ICONS: Record<Exclude<AsideTab, "tex">, AccessoryGlyphName> = {
   activity: "people",
   note: "page",
+  area: "page",
   meetings: "calendar",
   vault: "key",
 };

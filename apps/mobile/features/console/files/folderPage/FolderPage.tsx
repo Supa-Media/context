@@ -87,7 +87,8 @@ import { rememberView, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 import { PanelBeside } from "./panel/PanelBeside";
 import { AREA_PANEL_WIDTH } from "./panel/panelModel";
-import { PAGE_DOCK_PAD, PAGE_DOCK_WIDTH, useDockedPanel, usePageDock } from "./panel/PageDock";
+import { useOfferPageSide } from "../../aside/pageSide";
+
 import { TaskPanel } from "./panel/TaskPanel";
 import { useTaskPanel } from "./panel/useTaskPanel";
 import { usePendingNotes } from "./tasks/usePendingNotes";
@@ -96,6 +97,9 @@ import { parkedOnBoard } from "./boardLayout";
 import { useFolderTasks } from "./tasks/useFolderTasks";
 
 export type { FolderPageHost } from "./useFolderPage";
+
+/** What the area's trend is drawn across in the right panel: its default 340 less its padding. */
+const AREA_SIDE_WIDTH = 300;
 
 const NO_WORDS: readonly string[] = [];
 const NO_NOTES: readonly ListNote[] = [];
@@ -257,10 +261,10 @@ export function FolderPage({
   // What the Areas page draws in the side panel: an area's details (`areas/AreaPanel.tsx`), or null.
   const [areaPanel, setAreaPanelState] = useState<((width: number) => ReactNode) | null>(null);
   const setAreaPanel = useCallback((next: ((width: number) => ReactNode) | null) => setAreaPanelState(() => next), []);
-  // Only an Areas page sets one (`AreasView`'s onPanel), so no Areas check is needed here.
-  const dock = usePageDock();
-  const docked = useMemo(() => (dock !== null && areaPanel !== null ? areaPanel(PAGE_DOCK_WIDTH - 2 * PAGE_DOCK_PAD) : null), [dock, areaPanel]);
-  useDockedPanel(docked);
+  // The area goes in the console's right panel, where Meetings is (`aside/pageSide.tsx`); with no
+  // console around the page, beside the list (`beside` below). Only an Areas page sets one.
+  const offered = useMemo(() => (areaPanel === null ? null : areaPanel(AREA_SIDE_WIDTH)), [areaPanel]);
+  const inAside = useOfferPageSide(offered);
   const openItem = (item: FolderItem) => (panel.fits ? panel.show(item.path) : onSelect(item.path));
   const makeTaskLabel = rowsAreProjects(folder) ? "Make it a project" : "Make it a task";
   const tasks = useFolderTasks({
@@ -389,7 +393,7 @@ export function FolderPage({
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     seats && areaPanel !== null
-      ? dock !== null
+      ? inAside
         ? null
         : areaPanel
       : peeking !== null && peeking === about

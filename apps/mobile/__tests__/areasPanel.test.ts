@@ -112,18 +112,18 @@ describe("the Areas side panel", () => {
     expect(modes.at(-1)).toEqual(["Manager", "Doer"]);
   });
 
-  test("in the app's page surface the panel is docked at the region's right edge, not drawn in the page", async () => {
+  test("in a console the area goes in the right panel, where Meetings is, not in the page", async () => {
     windowOf(1440);
     const { selected } = await mount(host([], { notes: AREAS }), LISTING, undefined, undefined, true);
-    expect(all("page-dock")).toHaveLength(0);
+    expect(all("aside-area")).toHaveLength(0);
     await press(one("area-row-areas/finance"));
     expect(selected).toEqual([]);
-    // The prototype's side panel (the owner, 2026-11-24: "this is not a side panel" of a card in the page).
-    expect(all("page-dock")).toHaveLength(1);
-    expect(one("page-dock").querySelector('[data-testid="area-panel"]')).not.toBeNull();
+    // The owner, 2026-11-24: "just put it in the left panel like this", of the right panel.
+    expect(all("aside-area")).toHaveLength(1);
+    expect(one("aside-area").querySelector('[data-testid="area-panel"]')).not.toBeNull();
     expect(all("task-panel-peek")).toHaveLength(0);
     await press(one("area-panel-close"));
-    expect(all("page-dock")).toHaveLength(0);
+    expect(all("aside-area")).toHaveLength(0);
   });
 
   test("a phone has no panel: a press opens the area", async () => {
