@@ -644,6 +644,7 @@ test/texDevSets.test.mjs
 test/texDevRuns.test.mjs
 test/texDevEvals.test.mjs
 test/texDevSearchCheck.test.mjs
+test/texNodeSettings.test.mjs
 test/texDevFailedSearches.test.mjs
 test/texDevFailures.test.mjs
 test/texRunBand.test.mjs

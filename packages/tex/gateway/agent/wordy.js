@@ -26,9 +26,9 @@
 /** The tools whose picture is the answer, as `visuals/notice.js` counts them. */
 const DRAWN = new Set(["draw_visual", "draw_picture", "make_picture"]);
 
-/** Words beside a page or a card: one line, as `PAGES_LINE` and "Answer with a picture" say. */
+/** Words beside a page or a card: one line, as `PAGES_LINE` and "Answer with a picture" say. Answer check's `besideResultWords` setting, by default (`texNodeSettings.cjs`). */
 export const BESIDE_A_RESULT_WORDS = 30;
-/** Words of sentences in any other answer: two or three short texts. */
+/** Words of sentences in any other answer: two or three short texts. Answer check's `proseWords` setting, by default. */
 export const MAX_PROSE_WORDS = 70;
 /** A line of at most this many words is a list item, not a sentence. */
 const ITEM_WORDS = 8;
@@ -64,13 +64,13 @@ function longAsked(question, answer, detailed) {
 }
 
 /** Words beside a drawn picture or a written page that go past one line. */
-export function restatesTheResult(answer, { question = "", steps = [], detailed = false } = {}) {
-  return madeAResult(steps) && !longAsked(question, answer, detailed) && proseWords(answer) > BESIDE_A_RESULT_WORDS;
+export function restatesTheResult(answer, { question = "", steps = [], detailed = false, beside = BESIDE_A_RESULT_WORDS } = {}) {
+  return madeAResult(steps) && !longAsked(question, answer, detailed) && proseWords(answer) > beside;
 }
 
 /** An answer whose sentences run past a few short texts. */
-export function tooWordy(answer, { question = "", steps = [], detailed = false } = {}) {
-  return !madeAResult(steps) && !longAsked(question, answer, detailed) && proseWords(answer) > MAX_PROSE_WORDS;
+export function tooWordy(answer, { question = "", steps = [], detailed = false, prose = MAX_PROSE_WORDS } = {}) {
+  return !madeAResult(steps) && !longAsked(question, answer, detailed) && proseWords(answer) > prose;
 }
 
 export const RESULT_NOTICE =

@@ -196,7 +196,9 @@ import { CHECK_IN_ANSWER_NOTICE, IMPOSSIBLE_NIGHT_NOTICE, THEIR_FIGURE_NOTICE, d
  * (a bare page's cover stays a fact: "A page always has a picture", docs/decisions/app-and-console/pages.md). Advice
  * that was found but not sent is handed back with `release(kind)`, so it can still ride along with a later fact.
  */
-export function replyFindings({ question, waiting = false, pictures = false, history = [], detailed = false }) {
+export function replyFindings({ question, waiting = false, pictures = false, history = [], detailed = false, words = {} }) {
+  // Answer check's word limits (`texNodeSettings.cjs`): absent, `wordy.js`'s defaults.
+  const limits = { prose: words.proseWords, beside: words.besideResultWords };
   const given = new Set();
   const checks = [
     ["empty", (answer) => isEmptyAnswer(answer), EMPTY_NOTICE],
@@ -216,8 +218,8 @@ export function replyFindings({ question, waiting = false, pictures = false, his
     // Work looked up on the web and texted as a wall of findings is a page (`workPage.js`).
     ["work", (answer, steps) => workForAPage(answer, { question, steps }), WORK_PAGE_NOTICE, true],
     // Words beside a page or picture, or an essay with none (`wordy.js`): at most one of these shapes a turn (`checkFindings.js` `oneShape`).
-    ["result", (answer, steps) => restatesTheResult(answer, { question, steps, detailed }), RESULT_NOTICE, true],
-    ["wordy", (answer, steps) => tooWordy(answer, { question, steps, detailed }), WORDY_NOTICE, true],
+    ["result", (answer, steps) => restatesTheResult(answer, { question, steps, detailed, ...definedOf(limits, "beside") }), RESULT_NOTICE, true],
+    ["wordy", (answer, steps) => tooWordy(answer, { question, steps, detailed, ...definedOf(limits, "prose") }), WORDY_NOTICE, true],
   ];
   const run = (answer, steps = []) => {
     const found = [];
@@ -249,4 +251,9 @@ export function replyChecks(turn) {
     if (notice !== null && found.some((entry) => entry.advice && SHAPE.includes(entry.kind))) shapeGiven = true;
     return notice;
   };
+}
+
+/** `{ [key]: value }` when `limits[key]` is a number, else `{}`, so an absent setting leaves `wordy.js`'s default. */
+function definedOf(limits, key) {
+  return typeof limits[key] === "number" ? { [key]: limits[key] } : {};
 }

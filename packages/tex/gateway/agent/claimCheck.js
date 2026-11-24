@@ -412,9 +412,9 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH, H
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false, origin = null, reported = false }) {
-  // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`).
-  const shape = replyFindings({ question, waiting, pictures, history, detailed });
+export function claimCheck({ question, judge = null, waiting = false, corrects = false, pictures = false, job = null, visuals = () => false, kept = [], keptShown = false, history = [], detailed = false, origin = null, reported = false, words = {} }) {
+  // An empty answer, a stray script, "your notes are down", a pointer back at the waiting ask (`replyChecks.js`); `words`: Answer check's word limits.
+  const shape = replyFindings({ question, waiting, pictures, history, detailed, words });
   // Whether advice on the answer's shape was given this turn, and whether a form-or-length one was (`checkFindings.js`).
   let adviceGiven = false;
   let shapeGiven = false;

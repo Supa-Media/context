@@ -14,6 +14,7 @@ import { SETTING_TEXT, checkSetting, settingLabel } from "../../data/searchSetti
 import { onCommit } from "./change";
 import { pickModel, setNode } from "./nodeEdit";
 import { EFFORTS } from "@context/tex/src/texConfigSchema.cjs";
+import { StepSettings } from "./StepSettings.web";
 
 /**
  * One of a search step's numbers: a number box bounded by the schema, outlined yellow with "was X on main" when this
@@ -23,7 +24,7 @@ import { EFFORTS } from "@context/tex/src/texConfigSchema.cjs";
 function SearchSetting({ n, name }: { n: LabNode; name: string }) {
   const [why, setWhy] = useState<string | null>(null);
   const bound = SEARCH_SETTINGS_BOUNDS[name];
-  const value = n.settings?.[name] ?? 0;
+  const value = typeof n.settings?.[name] === "number" ? (n.settings[name] as number) : 0;
   const ch = stepChange(n.id);
   // A new step has no main to compare with, so nothing is outlined; a changed one shows main's number under it.
   const base = ch?.x.base ? ch.x.base.settings?.[name] : undefined;
@@ -160,6 +161,7 @@ export function SettingsCard({ n }: { n: LabNode }) {
           ))}
         </>
       ) : null}
+      <StepSettings n={n} />
     </div>
   );
 }
