@@ -41,6 +41,9 @@ import { ABOUT_NOTE } from "../paths";
 import type { ListNote } from "../listBlock/model";
 import { FolderBoard } from "./Board";
 import { boardWidth } from "./pageMeasures";
+
+/** The Areas list's width where the page has room: the owner's board, 2026-11-24. */
+const AREAS_LIST_WIDTH = 940;
 import { makeItTaskStatus, tasksWithSubtasks } from "./taskBasics";
 import { rowExtras, RowExtrasProvider, type RowEdit } from "./rowExtras";
 import { faceFor } from "./taskFace";
@@ -368,7 +371,10 @@ export function FolderPage({
   const wideBoard = compact || pageWidth <= 0 || view !== "board" ? null : boardWidth(columnCount, bands.length, pageWidth);
   // The Areas chart spreads like the Board: one column per area, plus its "Add area".
   const chartColumns = seats && view === "chart" && !compact && pageWidth > 0 ? areaTree(folder, areasFolderNow(), notes ?? NO_NOTES).areas.length + 1 : 0;
-  const wideChart = chartColumns === 0 ? null : Math.min(pageWidth - 96, Math.max(chartColumns * 232, boardWidth(1, 1, pageWidth)));
+  // Each column is 256 wide with 24 between (the owner's board, 2026-11-24).
+  const wideChart = chartColumns === 0 ? null : Math.min(pageWidth - 96, Math.max(chartColumns * 280, boardWidth(1, 1, pageWidth)));
+  // The Areas list takes the board's 940 where the page has it: its metric, count and ⋯ columns leave the names room.
+  const wideAreas = wideChart ?? (seats && view !== "chart" && !compact && pageWidth > 0 ? Math.min(pageWidth - 96, Math.max(AREAS_LIST_WIDTH, boardWidth(1, 1, pageWidth))) : null);
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     peeking !== null && peeking === about
@@ -475,11 +481,11 @@ export function FolderPage({
       {sheet !== null && sheet === about ? (
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
-      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideChart !== null} mainWidth={wideBoard ?? wideChart} style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideAreas !== null} mainWidth={wideBoard ?? wideAreas} style={styles.contents}>
         {seatsWaiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="areas-waiting" />
         ) : seats ? (
-          <View style={wideChart === null || beside !== null ? undefined : [styles.wide, { width: wideChart }]}>
+          <View style={wideAreas === null || beside !== null ? undefined : [styles.wide, { width: wideAreas }]}>
           <AreasView
             folder={folder}
             root={areasFolderNow()}

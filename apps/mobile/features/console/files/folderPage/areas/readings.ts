@@ -121,3 +121,21 @@ export function targetState(reading: Reading | undefined, target: string | null)
   const met = meetsTarget(reading, target);
   return met === null ? "unknown" : met ? "met" : "missed";
 }
+
+/**
+ * A target's limit as a number on the readings' own scale, for the dashed
+ * line a trend draws: `under 800 ms` is 800 against readings in ms, and
+ * `under 2 s` is 2000 against them too. Null when the target names no number.
+ */
+export function targetNumber(reading: Reading, target: string | null): number | null {
+  if (target === null) return null;
+  const want = /^\s*(?:under|below|less than|at most|<=?|over|above|more than|at least|>=?)?\s*(.*)$/i.exec(target);
+  const limitText = want?.[1] ?? target;
+  const limit = leadingNumber(limitText);
+  if (limit === null) return null;
+  const limitTime = timeOf(limitText);
+  const haveTime = timeOf(reading.value);
+  const have = leadingNumber(reading.value);
+  if (limitTime === null || haveTime === null || have === null || have === 0) return limit;
+  return limitTime / (haveTime / have);
+}

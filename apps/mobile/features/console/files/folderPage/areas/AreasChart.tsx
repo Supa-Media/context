@@ -1,34 +1,39 @@
 /**
- * The Chart view of an open area folder: its accountability chart.
+ * The Chart view of an open area folder: its accountability chart, as the
+ * owner approved it on 2026-11-24 (the Areas redesign board, "Chart view, one
+ * metric with trend").
  *
- * On a wide screen it is an org chart, as the owner approved it in the
- * prototype (2026-11-23): the open folder's seat is one box on top (in the
- * Areas folder itself, named for the workspace), a line runs down from it to a
- * bus across one row of columns, one column per area, and each area's own
- * sub-areas stack under its box along a spine. On a phone it is the same tree
- * standing up: the top box, then each area under it on a spine, with an
- * area's sub-areas folded under a "2 sub-areas · Subscriptions, Payroll" foot.
+ * On a wide screen it is an org chart: the open folder's seat is one box on
+ * top (in the Areas folder itself, named for the workspace), a line runs down
+ * from it to a bus across one row of columns, one column per area, and each
+ * area's own sub-areas stack under its box along a spine, as compact boxes.
+ * On a phone it is the same tree standing up: the top box, then each area
+ * under it on a spine, with an area's sub-areas folded under a
+ * "2 sub-areas · Subscriptions, Payroll" foot.
  *
- * A box says, top to bottom: its dot and name, who holds it (and the helper),
- * its first metric, how it is run (each mode with what it means on hover),
- * what is missing, and what else is in the folder by kind. An empty seat is a
- * dashed box with Assign owner. A box opens its area; the top box, its ⋯ and a
- * right-click open the seat options. The page keeps the data; this file only
- * draws it, so it takes every lookup and action as a prop.
+ * An area's box says: its owner's face and name, who holds it (and the
+ * helper), its one headline metric (label, trend, value, target, and whether
+ * it is on target, in words and a shape as well as colour), and a foot with
+ * how it is run and what else is in the folder. A sub-area's compact box
+ * says its face, name and the metric's line. An empty seat is a dashed box
+ * with Assign owner. A box opens its area; the top box, a ⋯ and a right-click
+ * open the seat options. The page keeps the data; this file only draws it,
+ * so it takes every lookup and action as a prop.
  */
 
 import { useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { Circle, Path, Svg } from "react-native-svg";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
-import { Polyline, Svg } from "react-native-svg";
 import { pressPoint } from "./pressPoint";
-import { targetState, type Reading } from "./readings";
-import { MODE_TIPS, areaTitle, healthOf, kindCounts, needLook, type AreaNode, type Health, type Seat } from "./seat";
+import type { Reading, TargetState } from "./readings";
+import { headlineOf, type Headline } from "./headline";
+import { Trend } from "./Trend";
+import { MODE_TIPS, areaTitle, kindCounts, needLook, type AreaNode, type Seat } from "./seat";
 
 export interface AreasChartProps {
   /** Rooted at the open folder. */
@@ -64,6 +69,17 @@ function hoverTitle(text: string): { readonly title?: string } {
   return Platform.OS === "web" && text !== "" ? { title: text } : {};
 }
 
+const LINE = 1;
+/** The stem under the top box, and each column's drop from the bus. */
+const DROP = 24;
+const COLUMN = 256;
+const COLUMN_GAP = 24;
+/** A sub-area's box sits this far in from its area's, its spine 12 left of it, under the area's face. */
+const SUB_INSET = 36;
+const SUB_GAP = 10;
+/** Where a compact box's elbow meets it: the middle of its name line. */
+const SUB_ELBOW = 22;
+
 export function AreasChart(props: AreasChartProps) {
   const { tree, rootTitle, compact } = props;
   const styles = useThemedStyles(makeStyles);
@@ -85,7 +101,7 @@ function OrgChart({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string;
   return (
     <View style={styles.org}>
       <View style={styles.orgRoot}>
-        <SeatBox node={tree} level={0} title={rootTitle} ctx={ctx} />
+        <RootBox node={tree} title={rootTitle} ctx={ctx} />
       </View>
       {tree.areas.length === 0 ? (
         <View style={styles.orgEmpty}>
@@ -101,25 +117,23 @@ function OrgChart({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string;
             <View style={styles.orgRow}>
               {tree.areas.map((child, at) => (
                 <Column key={child.seat.folder} at={at} of={columns}>
-                  <SeatBox node={child} level={1} title={areaTitle(child.seat.name)} ctx={ctx} />
-                  {child.areas.length === 0 ? null : (
-                    <View style={styles.orgSub}>
-                      <View style={styles.orgSpine} testID="area-line" />
-                      {child.areas.map((grand) => (
-                        <View key={grand.seat.folder}>
-                          <View style={styles.orgElbow} />
-                          <SeatBox node={grand} level={2} title={areaTitle(grand.seat.name)} ctx={ctx} />
-                        </View>
-                      ))}
+                  <AreaBox node={child} level={1} ctx={ctx} />
+                  {child.areas.map((grand, index) => (
+                    <View key={grand.seat.folder} style={styles.sub}>
+                      <View style={[styles.subSpine, index === child.areas.length - 1 ? styles.subSpineLast : styles.subSpineOn]} testID="area-line" />
+                      <View style={styles.subElbow} />
+                      <SubBox node={grand} ctx={ctx} />
                     </View>
-                  )}
+                  ))}
                 </Column>
               ))}
               {ctx.onAdd === null ? null : (
                 <Column at={columns - 1} of={columns}>
                   <Pressable onPress={() => ctx.onAdd?.(root)} role="button" accessibilityLabel="Add area" style={styles.ghost} testID="area-add">
-                    <Icon name="plus" size={14} color={colors.muted} />
-                    <Text variant="meta" style={styles.muted}>
+                    <Svg width={12} height={12} viewBox="0 0 12 12" aria-hidden>
+                      <Path d="M6 1.5v9M1.5 6h9" stroke={colors.muted} strokeWidth={1.5} strokeLinecap="round" />
+                    </Svg>
+                    <Text variant="tree" style={styles.ghostText}>
                       Add area
                     </Text>
                   </Pressable>
@@ -160,22 +174,21 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
       else next.add(folder);
       return next;
     });
-  const branch = (node: AreaNode, level: number, title: string): React.ReactNode => {
-    const shown = level === 0 || open.has(node.seat.folder);
+  const branch = (node: AreaNode, level: number): React.ReactNode => {
+    const shown = open.has(node.seat.folder);
     return (
       <View key={node.seat.folder}>
-        {level === 0 ? null : <View style={styles.elbow} />}
-        <SeatBox
+        <View style={styles.elbow} />
+        <AreaBox
           node={node}
           level={level}
-          title={title}
           ctx={ctx}
-          fold={level > 0 && node.areas.length > 0 ? { open: open.has(node.seat.folder), toggle: () => toggle(node.seat.folder) } : undefined}
+          fold={node.areas.length > 0 ? { open: shown, toggle: () => toggle(node.seat.folder) } : undefined}
         />
         {shown && node.areas.length > 0 ? (
-          <View style={[styles.kids, level > 0 && styles.kidsDeep]}>
+          <View style={[styles.kids, styles.kidsDeep]}>
             <View style={styles.spine} testID="area-line" />
-            {node.areas.map((child) => branch(child, level + 1, areaTitle(child.seat.name)))}
+            {node.areas.map((child) => branch(child, level + 1))}
           </View>
         ) : null}
       </View>
@@ -183,12 +196,20 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
   };
   return (
     <View>
-      {branch(tree, 0, rootTitle)}
+      <RootBox node={tree} title={rootTitle} ctx={ctx} />
+      {tree.areas.length > 0 ? (
+        <View style={styles.kids}>
+          <View style={styles.spine} testID="area-line" />
+          {tree.areas.map((child) => branch(child, 1))}
+        </View>
+      ) : null}
       {tree.areas.length === 0 && ctx.onAdd !== null ? <AddLine label="Add a sub-area" onPress={() => ctx.onAdd?.(tree.seat)} /> : null}
       {tree.areas.length > 0 && ctx.onAdd !== null ? (
         <Pressable onPress={() => ctx.onAdd?.(tree.seat)} role="button" accessibilityLabel="Add area" style={[styles.ghost, styles.ghostPhone]} testID="area-add">
-          <Icon name="plus" size={14} color={colors.muted} />
-          <Text variant="meta" style={styles.muted}>
+          <Svg width={12} height={12} viewBox="0 0 12 12" aria-hidden>
+            <Path d="M6 1.5v9M1.5 6h9" stroke={colors.muted} strokeWidth={1.5} strokeLinecap="round" />
+          </Svg>
+          <Text variant="tree" style={styles.ghostText}>
             Add area
           </Text>
         </Pressable>
@@ -197,173 +218,295 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
   );
 }
 
-/* ------------------------------ one box ------------------------------ */
+/* ------------------------------ the boxes ------------------------------ */
 
-function HealthDot({ health, size = 7 }: { health: Health; size?: number }) {
+/** The ⋯ in a box's corner: faint until the box is hovered, always shown on a phone. */
+function More({ seat, ctx, shown, onHover, style }: { seat: Seat; ctx: Ctx; shown: boolean; onHover: () => void; style: object }) {
   const colors = useColors();
-  const ring = health === "ring";
   return (
-    <View
-      aria-hidden
-      testID={`area-dot-${health}`}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: ring ? "transparent" : health === "warn" ? colors.warn : colors.muted,
-        borderWidth: ring ? 1 : 0,
-        borderStyle: "dashed",
-        borderColor: colors.lineStrong,
-      }}
-    />
+    <Pressable
+      onPress={(event: GestureResponderEvent) => ctx.onMenu(seat, pointOf(event))}
+      onHoverIn={onHover}
+      accessibilityLabel={`Options for ${seat.name}`}
+      hitSlop={8}
+      style={[style, { opacity: shown || ctx.compact ? 1 : 0.45 }]}
+    >
+      <Icon name="more" size={14} color={colors.muted} />
+    </Pressable>
   );
 }
 
-function SeatBox({
-  node,
-  level,
-  title,
-  ctx,
-  fold,
-}: {
-  node: AreaNode;
-  level: 0 | 1 | 2 | number;
-  title: string;
-  ctx: Ctx;
-  fold?: { open: boolean; toggle: () => void };
-}) {
+function ownerLine(seat: Seat, ctx: Ctx): string {
+  if (seat.owner === null) return "No owner";
+  return `${ctx.label(seat.owner)}${seat.helper === null ? "" : ` + ${seat.helper}`}`;
+}
+
+/** The open folder's box: its name, who holds it, and how many of its areas need a look. Pressing it opens the seat options. */
+function RootBox({ node, title, ctx }: { node: AreaNode; title: string; ctx: Ctx }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const [hovered, setHovered] = useState(false);
   const { seat } = node;
-  const top = level === 0;
-  const empty = seat.owner === null;
-  const metric = seat.metrics[0];
-  const reading = metric === undefined ? undefined : ctx.readingOf(seat);
-  const state = metric === undefined ? "unknown" : targetState(reading, metric.target);
-  const files = top ? "" : kindCounts(node.files);
-  const ownerText = empty ? "No owner" : `${ctx.label(seat.owner as string)}${seat.helper === null ? "" : ` + ${seat.helper}`}`;
-  const reachText = empty ? "" : ctx.reach(seat.owner as string);
-  const look = top ? needLook(node) : 0;
-  const open = (event?: GestureResponderEvent) => (top ? ctx.onMenu(seat, pointOf(event)) : ctx.onOpen(seat.folder));
+  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.state === "missed");
+  const reachText = seat.owner === null ? "" : ctx.reach(seat.owner);
   const menuClick = useRightClick((at) => {
     ctx.onMenu(seat, at);
     return true;
   });
   return (
-    <View
-      style={[styles.box, ctx.compact && styles.boxPhone, top && styles.boxRoot, empty && !top && styles.boxEmpty, hovered && styles.boxHover]}
-      testID={`area-box-${seat.folder}`}
-      ref={menuClick.ref as never}
-    >
+    <View ref={menuClick.ref as never}>
       <Pressable
-        onPress={open}
-        onHoverIn={() => setHovered(true)}
-        onHoverOut={() => setHovered(false)}
-        role={top ? "button" : "link"}
+        onPress={(event: GestureResponderEvent) => ctx.onMenu(seat, pointOf(event))}
+        role="button"
         accessibilityLabel={title}
-        style={[styles.body, ctx.compact && styles.bodyPhone]}
+        style={[styles.rootBox, ctx.compact && styles.rootBoxPhone]}
+        testID={`area-box-${seat.folder}`}
       >
-        <View style={styles.titleRow}>
-          <HealthDot health={healthOf(seat, state === "missed")} />
-          <Text variant="rowTitle" numberOfLines={1} style={[styles.name, top && styles.rootName]}>
+        <View style={styles.rootTop}>
+          <Text variant="rowTitle" numberOfLines={1} style={styles.rootName}>
             {title}
           </Text>
+          <Icon name="more" size={14} color={colors.muted} />
         </View>
-        <View style={styles.line} accessibilityHint={reachText === "" ? undefined : reachText} {...hoverTitle(reachText)}>
-          <OwnerFace face={ctx.faceOf(seat.owner)} size={ctx.compact ? 24 : 20} />
-          <Text variant="tree" numberOfLines={1} style={[styles.owner, empty && styles.muted]}>
-            {ownerText}
+        <View style={styles.ownerRow} accessibilityHint={reachText === "" ? undefined : reachText} {...hoverTitle(reachText)}>
+          <OwnerFace face={ctx.faceOf(seat.owner)} size={20} />
+          <Text variant="tree" numberOfLines={1} style={styles.rootOwner}>
+            {ownerLine(seat, ctx)}
           </Text>
         </View>
-        {top ? (
-          node.areas.length === 0 ? null : (
-            <Text variant="meta" style={styles.muted}>
-              {`${node.areas.length} ${node.areas.length === 1 ? "area" : "areas"}`}
-              {look === 0 ? null : (
-                <Text variant="meta" style={styles.warn}>
-                  {` · ${look} need${look === 1 ? "s" : ""} a look`}
-                </Text>
-              )}
+        {node.areas.length === 0 ? null : (
+          <Text variant="treeMeta" style={styles.small}>
+            {`${node.areas.length} ${node.areas.length === 1 ? "area" : "areas"}`}
+            {look === 0 ? null : <Text variant="treeMeta" style={styles.look}>{` · ${look} need${look === 1 ? "s" : ""} a look`}</Text>}
+          </Text>
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
+/** A check in a green disc on target, a warning in an amber triangle off it: the state as a shape, not colour alone. */
+function StateMark({ state, size }: { state: TargetState; size: number }) {
+  const colors = useColors();
+  if (state === "met") {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="On target">
+        <Circle cx={7} cy={7} r={7} fill={colors.ok} />
+        <Path d="M4 7.2l2 2 4-4.4" fill="none" stroke={colors.cardSurface} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    );
+  }
+  if (state === "missed") {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="Off target">
+        <Path d="M7 0.8L13.6 12.6H0.4Z" fill={colors.warn} stroke={colors.warn} strokeWidth={0.8} strokeLinejoin="round" />
+        <Path d="M7 5v3.4" stroke={colors.cardSurface} strokeWidth={1.7} strokeLinecap="round" />
+        <Circle cx={7} cy={10.5} r={0.95} fill={colors.cardSurface} />
+      </Svg>
+    );
+  }
+  return null;
+}
+
+function valueInk(colors: Colors, state: TargetState): string {
+  return state === "met" ? colors.okText : state === "missed" ? colors.warnText : colors.text;
+}
+
+/** An area's box: name and holder, its metric, and a foot. Unowned, a dashed box offering Assign owner. */
+function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ctx: Ctx; fold?: { open: boolean; toggle: () => void } }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [hovered, setHovered] = useState(false);
+  const { seat } = node;
+  const title = areaTitle(seat.name);
+  const headline = headlineOf(seat, ctx.readingOf(seat));
+  const files = kindCounts(node.files);
+  const reachText = seat.owner === null ? "" : ctx.reach(seat.owner);
+  const menuClick = useRightClick((at) => {
+    ctx.onMenu(seat, at);
+    return true;
+  });
+  if (seat.owner === null) return <EmptyBox seat={seat} ctx={ctx} big />;
+  return (
+    <View style={[styles.box, ctx.compact && styles.boxPhone, hovered && styles.boxHover]} testID={`area-box-${seat.folder}`} ref={menuClick.ref as never}>
+      <Pressable
+        onPress={() => ctx.onOpen(seat.folder)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        role="link"
+        accessibilityLabel={title}
+        style={[styles.body, ctx.compact && styles.bodyPhone]}
+        {...{ dataSet: { level: String(level) } }}
+      >
+        <View style={styles.nameBlock}>
+          <View style={styles.nameRow} accessibilityHint={reachText === "" ? undefined : reachText} {...hoverTitle(reachText)}>
+            <OwnerFace face={ctx.faceOf(seat.owner)} size={20} />
+            <Text variant="rowTitle" numberOfLines={1} style={styles.name}>
+              {title}
             </Text>
-          )
-        ) : metric !== undefined ? (
-          <View testID="area-metric">
-            <View style={styles.metric}>
-              <Text variant="meta" numberOfLines={1} style={[styles.muted, styles.metricName]}>
-                {metric.name}
-              </Text>
-              <Text
-                variant="rowTitle"
-                style={[styles.metricValue, state === "met" && { color: colors.ok }, state === "missed" && { color: colors.warn }]}
-                testID="area-metric-value"
-                {...hoverTitle(reading?.date ?? "")}
-              >
-                {reading?.value ?? "—"}
-              </Text>
-            </View>
-            <Text variant="meta" numberOfLines={1} style={styles.muted} testID="area-metric-target">
-              {metric.target === null ? "No target yet" : `Target ${metric.target}${state === "met" ? " · on target" : state === "missed" ? " · off target" : ""}`}
-            </Text>
-            {reading !== undefined && reading.series.length > 1 ? <Spark series={reading.series} /> : null}
           </View>
-        ) : empty ? null : (
-          <Text variant="meta" style={styles.muted}>
+          <Text variant="treeMeta" numberOfLines={1} style={styles.ownerText}>
+            {ownerLine(seat, ctx)}
+          </Text>
+        </View>
+        {headline === null ? (
+          <Text variant="treeMeta" style={styles.small}>
             No metric yet
           </Text>
+        ) : (
+          <BoxMetric headline={headline} />
         )}
-        {top || seat.modes.length === 0 ? null : (
-          <View style={styles.modes}>
-            {seat.modes.map((mode, at) => (
-              <Text key={mode} variant="meta" style={styles.muted}>
-                {at === 0 ? "" : " · "}
-                <Text variant="meta" style={styles.mode} accessibilityHint={MODE_TIPS[mode]} {...hoverTitle(MODE_TIPS[mode])}>
-                  {mode}
+        {seat.modes.length === 0 && files === "" ? null : (
+          <View style={styles.foot}>
+            <Text variant="treeMeta" style={styles.small} numberOfLines={1}>
+              {seat.modes.map((mode, at) => (
+                <Text key={mode} variant="treeMeta" style={styles.small} accessibilityHint={MODE_TIPS[mode]} {...hoverTitle(MODE_TIPS[mode])}>
+                  {at === 0 ? mode : ` · ${mode}`}
                 </Text>
-              </Text>
-            ))}
+              ))}
+            </Text>
+            <Text variant="treeMeta" style={styles.small} numberOfLines={1} testID="area-files">
+              {files}
+            </Text>
           </View>
         )}
-        {files === "" ? null : (
-          <Text variant="treeMeta" style={styles.muted} testID="area-files">
-            {files}
-          </Text>
-        )}
-        {empty && !top && ctx.onAssign !== null ? (
-          <Pressable onPress={() => ctx.onAssign?.(seat)} role="button" style={styles.assign} testID={`area-assign-${seat.folder}`}>
-            <Text variant="tree" style={styles.assignText}>
-              Assign owner
-            </Text>
-          </Pressable>
-        ) : null}
       </Pressable>
       {fold === undefined ? null : (
-        <Pressable onPress={fold.toggle} role="button" aria-expanded={fold.open} style={styles.foot} testID={`area-fold-${seat.folder}`}>
-          <Text variant="treeMeta" numberOfLines={1} style={[styles.muted, styles.footText]}>
+        <Pressable onPress={fold.toggle} role="button" aria-expanded={fold.open} style={styles.fold} testID={`area-fold-${seat.folder}`}>
+          <Text variant="treeMeta" numberOfLines={1} style={[styles.small, styles.foldText]}>
             {fold.open ? "Hide sub-areas" : `${node.areas.length} sub-area${node.areas.length === 1 ? "" : "s"} · ${node.areas.map((a) => areaTitle(a.seat.name)).join(", ")}`}
           </Text>
           <Icon name={fold.open ? "chevronUp" : "chevronDown"} size={12} color={colors.muted} />
         </Pressable>
       )}
-      <Pressable
-        onPress={(event: GestureResponderEvent) => ctx.onMenu(seat, pointOf(event))}
-        onHoverIn={() => setHovered(true)}
-        accessibilityLabel={`Options for ${seat.name}`}
-        hitSlop={space.x2}
-        style={[styles.more, hovered || ctx.compact ? styles.shown : styles.faint]}
-      >
-        <Icon name="more" size={16} color={colors.muted} />
-      </Pressable>
-      {top || ctx.onAdd === null || ctx.compact ? null : (
+      <More seat={seat} ctx={ctx} shown={hovered} onHover={() => setHovered(true)} style={styles.more} />
+      {ctx.onAdd === null || ctx.compact ? null : (
         <Pressable
           onPress={() => ctx.onAdd?.(seat)}
           onHoverIn={() => setHovered(true)}
           accessibilityLabel={`Add a sub-area under ${title}`}
-          hitSlop={space.x1}
-          style={[styles.addSub, hovered ? styles.shown : styles.hidden]}
+          hitSlop={4}
+          style={[styles.addSub, { opacity: hovered ? 1 : 0 }]}
           testID={`area-add-sub-${seat.folder}`}
         >
           <Icon name="plus" size={12} color={colors.muted} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/** An area box's metric: its label, the trend with the value and target, then on target or off it in words. */
+function BoxMetric({ headline }: { headline: Headline }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const ink = valueInk(colors, headline.state);
+  return (
+    <View style={styles.boxMetric} testID="area-metric" {...hoverTitle(headline.date)}>
+      <Text variant="treeMeta" style={styles.small} numberOfLines={1}>
+        {headline.label}
+      </Text>
+      {headline.value === null ? (
+        <Text variant="tree" style={styles.noReadings} testID="area-metric-value">
+          {headline.target === "" ? "No readings yet" : `No readings yet · target ${headline.target}`}
+        </Text>
+      ) : (
+        <>
+          <View style={styles.valueLine}>
+            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={80} height={24} />}
+            <Text variant="tree" style={[styles.value, { color: ink }]} numberOfLines={1} testID="area-metric-value">
+              {headline.value}
+            </Text>
+            <Text variant="treeMeta" style={styles.target} numberOfLines={1} testID="area-metric-target">
+              {headline.target}
+            </Text>
+          </View>
+          {headline.state === "unknown" ? null : (
+            <View style={styles.stateLine}>
+              <StateMark state={headline.state} size={12} />
+              <Text variant="treeMeta" style={[styles.stateWord, { color: ink }]}>
+                {headline.state === "met" ? "On target" : "Off target"}
+              </Text>
+            </View>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
+/** A sub-area's compact box: face and name, then the metric's one line. */
+function SubBox({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [hovered, setHovered] = useState(false);
+  const { seat } = node;
+  const title = areaTitle(seat.name);
+  const headline = headlineOf(seat, ctx.readingOf(seat));
+  const reachText = seat.owner === null ? "" : `${ctx.label(seat.owner)}${ctx.reach(seat.owner) === "" ? "" : ` · ${ctx.reach(seat.owner)}`}`;
+  const menuClick = useRightClick((at) => {
+    ctx.onMenu(seat, at);
+    return true;
+  });
+  if (seat.owner === null) return <EmptyBox seat={seat} ctx={ctx} />;
+  return (
+    <View style={[styles.box, hovered && styles.boxHover]} testID={`area-box-${seat.folder}`} ref={menuClick.ref as never}>
+      <Pressable
+        onPress={() => ctx.onOpen(seat.folder)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        role="link"
+        accessibilityLabel={title}
+        style={styles.subBody}
+        {...{ dataSet: { level: "2" } }}
+      >
+        <View style={[styles.nameRow, styles.subNameRow]} {...hoverTitle(reachText)}>
+          <OwnerFace face={ctx.faceOf(seat.owner)} size={20} />
+          <Text variant="rowTitle" numberOfLines={1} style={styles.subName}>
+            {title}
+          </Text>
+        </View>
+        {headline === null ? null : headline.value === null ? (
+          <Text variant="treeMeta" style={[styles.small, styles.subLine]} numberOfLines={1} testID="area-metric">
+            {`${headline.label} · no readings yet`}
+          </Text>
+        ) : (
+          <View style={[styles.subValueLine, styles.subLine]} testID="area-metric" {...hoverTitle(`${headline.label}${headline.date === "" ? "" : `, ${headline.date}`}`)}>
+            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={48} height={20} stroke={1.8} dot={3} />}
+            <StateMark state={headline.state} size={12} />
+            <Text variant="tree" style={[styles.value, { color: valueInk(colors, headline.state) }]} numberOfLines={1} testID="area-metric-value">
+              {headline.value}
+            </Text>
+            <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
+              {headline.target}
+            </Text>
+          </View>
+        )}
+      </Pressable>
+      <More seat={seat} ctx={ctx} shown={hovered} onHover={() => setHovered(true)} style={styles.subMore} />
+    </View>
+  );
+}
+
+/** An empty seat: a dashed ring for a face, the name, and Assign owner. */
+function EmptyBox({ seat, ctx, big = false }: { seat: Seat; ctx: Ctx; big?: boolean }) {
+  const styles = useThemedStyles(makeStyles);
+  const menuClick = useRightClick((at) => {
+    ctx.onMenu(seat, at);
+    return true;
+  });
+  return (
+    <View style={[styles.empty, ctx.compact && styles.boxPhone]} testID={`area-box-${seat.folder}`} ref={menuClick.ref as never}>
+      <Pressable onPress={() => ctx.onOpen(seat.folder)} role="link" accessibilityLabel={`${areaTitle(seat.name)}, no owner`} style={styles.emptyName}>
+        <View style={styles.ring} />
+        <Text variant="rowTitle" numberOfLines={1} style={[styles.subName, styles.emptyTitle, big && styles.name]}>
+          {areaTitle(seat.name)}
+        </Text>
+      </Pressable>
+      {ctx.onAssign === null ? null : (
+        <Pressable onPress={() => ctx.onAssign?.(seat)} role="button" style={styles.assign} testID={`area-assign-${seat.folder}`}>
+          <Text variant="tree" style={styles.assignText}>
+            Assign owner
+          </Text>
         </Pressable>
       )}
     </View>
@@ -383,109 +526,90 @@ function AddLine({ label, onPress }: { label: string; onPress: () => void }) {
   );
 }
 
-const LINE = 1;
-const DROP = 20;
-const COLUMN_GAP = 12;
-
-/** `.spark`: the readings, oldest first, as one line across the box. */
-function Spark({ series }: { series: readonly number[] }) {
-  const colors = useColors();
-  const W = 120;
-  const H = 22;
-  const low = Math.min(...series);
-  const span = Math.max(...series) - low || 1;
-  const points = series.map((n, i) => `${((i / (series.length - 1)) * W).toFixed(1)},${(H - 2 - ((n - low) / span) * (H - 4)).toFixed(1)}`).join(" ");
-  return (
-    <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" testID="area-spark" aria-hidden>
-      <Polyline points={points} fill="none" stroke={colors.chromeMuted} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-    </Svg>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     chart: { width: "100%" },
     muted: { color: colors.muted },
-    warn: { color: colors.warnText },
+    small: { fontSize: 12, lineHeight: 16, color: colors.muted },
+    look: { fontSize: 12, lineHeight: 16, color: colors.warnText, fontWeight: "600" },
 
     org: { alignItems: "center", width: "100%" },
-    orgRoot: { width: "100%", maxWidth: 300 },
-    orgEmpty: { alignItems: "center", gap: space.x2, paddingTop: space.x4 },
+    orgRoot: { width: 280 },
+    orgEmpty: { alignItems: "center", gap: 8, paddingTop: 16 },
     stem: { width: LINE, height: DROP, backgroundColor: colors.lineStrong },
     orgScroll: { width: "100%" },
     orgScrollInner: { flexGrow: 1, justifyContent: "center" },
-    orgRow: { flexDirection: "row", alignItems: "flex-start", gap: COLUMN_GAP, flexGrow: 1 },
-    column: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 124, maxWidth: 220, paddingTop: DROP, position: "relative" },
+    orgRow: { flexDirection: "row", alignItems: "flex-start", gap: COLUMN_GAP },
+    column: { width: COLUMN, flexShrink: 0, paddingTop: DROP, position: "relative" },
     bus: { position: "absolute", top: 0, left: -COLUMN_GAP / 2, right: -COLUMN_GAP / 2, height: LINE, backgroundColor: colors.lineStrong },
     busFirst: { left: "50%" },
     busLast: { right: "50%" },
     drop: { position: "absolute", top: 0, left: "50%", width: LINE, height: DROP, backgroundColor: colors.lineStrong },
-    orgSub: { position: "relative", marginLeft: 14, paddingTop: space.x2, gap: space.x2 },
-    orgSpine: { position: "absolute", left: -8, top: 0, bottom: 22, width: LINE, backgroundColor: colors.lineStrong },
-    orgElbow: { position: "absolute", left: -8, top: 22, width: 8, height: LINE, backgroundColor: colors.lineStrong },
+    sub: { position: "relative", marginTop: SUB_GAP, marginLeft: SUB_INSET },
+    subSpine: { position: "absolute", left: -12, top: -SUB_GAP - 1, width: LINE, backgroundColor: colors.lineStrong },
+    subSpineOn: { bottom: 0 },
+    subSpineLast: { height: SUB_GAP + 1 + SUB_ELBOW + 1 },
+    subElbow: { position: "absolute", left: -12, top: SUB_ELBOW, width: 12, height: LINE, backgroundColor: colors.lineStrong },
 
-    kids: { position: "relative", paddingLeft: 20, marginTop: 16, gap: space.x2 },
-    kidsDeep: { marginTop: space.x2 },
+    kids: { position: "relative", paddingLeft: 20, marginTop: 16, gap: 8 },
+    kidsDeep: { marginTop: 8 },
     spine: { position: "absolute", left: 10, top: -16, bottom: 28, width: LINE, backgroundColor: colors.lineStrong },
     elbow: { position: "absolute", left: -10, top: 28, width: 10, height: LINE, backgroundColor: colors.lineStrong },
 
-    box: {
-      position: "relative",
-      backgroundColor: colors.cardSurface,
-      borderWidth: 1,
-      borderColor: colors.line,
-      borderRadius: 10,
-      minWidth: 0,
-    },
+    rootBox: { borderRadius: 12, backgroundColor: colors.rootSurface, paddingVertical: 14, paddingHorizontal: 16, gap: 8 },
+    rootBoxPhone: { borderRadius: 18, padding: 16 },
+    rootTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+    rootName: { flexGrow: 1, flexShrink: 1, fontSize: 16, lineHeight: 22, color: colors.text },
+    rootOwner: { flexShrink: 1, fontSize: 13, lineHeight: 18, color: colors.text2 },
+    ownerRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+
+    box: { position: "relative", backgroundColor: colors.cardSurface, borderWidth: 1, borderColor: colors.line, borderRadius: 12, minWidth: 0 },
     boxPhone: { borderRadius: 18 },
-    boxRoot: { backgroundColor: colors.rootSurface, borderColor: "transparent" },
-    // `.t-rootname`: 16 on 24, 600, -0.32.
-    rootName: { fontSize: pointerType.body, lineHeight: 24, letterSpacing: -0.32 },
-    boxEmpty: { backgroundColor: "transparent", borderStyle: "dashed", borderColor: colors.lineStrong },
     boxHover: { borderColor: colors.lineStrong },
-    body: { padding: 12, paddingRight: 34, gap: 6 },
-    bodyPhone: { padding: 16, paddingRight: 40, gap: 10 },
-    titleRow: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-    name: { color: colors.text, flexShrink: 1 },
-    line: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
-    owner: { flexShrink: 1, color: colors.text2 },
-    metric: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 6, minWidth: 0, flexWrap: "wrap" },
-    metricName: { flexShrink: 1 },
-    metricValue: { color: colors.text, fontVariant: ["tabular-nums"] },
-    modes: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
-    mode: {
-      color: colors.text2,
-      textDecorationLine: "underline",
-      textDecorationStyle: "dotted",
-      textDecorationColor: colors.lineStrong,
-    },
-    assign: {
-      alignSelf: "flex-start",
-      marginTop: 2,
-      paddingVertical: 5,
-      paddingHorizontal: 12,
-      borderRadius: radii.sm,
-      backgroundColor: colors.chipFill,
-    },
-    assignText: { color: colors.text, fontWeight: "600" },
-    foot: {
+    body: { paddingVertical: 12, paddingHorizontal: 14, gap: 10 },
+    bodyPhone: { padding: 16 },
+    nameBlock: { gap: 4, paddingRight: 20 },
+    nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    name: { flexShrink: 1, minWidth: 0, fontSize: 15, lineHeight: 20, color: colors.text },
+    ownerText: { fontSize: 12, lineHeight: 16, color: colors.muted, paddingLeft: 28 },
+    boxMetric: { gap: 6, minWidth: 0 },
+    valueLine: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    value: { fontSize: 14, lineHeight: 20, fontWeight: "600", flexShrink: 0 },
+    target: { fontSize: 12, lineHeight: 20, color: colors.muted, flexShrink: 1, minWidth: 0 },
+    stateLine: { flexDirection: "row", alignItems: "center", gap: 6 },
+    stateWord: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
+    noReadings: { fontSize: 13, lineHeight: 18, color: colors.muted },
+    foot: { flexDirection: "row", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.line },
+    fold: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      gap: space.x2,
+      gap: 8,
       borderTopWidth: 1,
       borderTopColor: colors.line,
       paddingVertical: 10,
       paddingHorizontal: 16,
     },
-    footText: { flexShrink: 1 },
-    more: { position: "absolute", top: 8, right: 8, padding: 3, borderRadius: radii.sm },
-    addSub: { position: "absolute", bottom: 8, right: 8, padding: 4, borderRadius: radii.sm, backgroundColor: colors.chipFill },
-    shown: { opacity: 1 },
-    faint: { opacity: 0.45 },
-    hidden: { opacity: 0 },
+    foldText: { flexShrink: 1 },
+    more: { position: "absolute", top: 10, right: 10, padding: 0 },
+    addSub: { position: "absolute", bottom: 8, right: 8, padding: 4, borderRadius: 6, backgroundColor: colors.chipFill },
+
+    subBody: { paddingVertical: 10, paddingHorizontal: 12, gap: 6 },
+    subNameRow: { paddingRight: 18 },
+    subName: { flexShrink: 1, minWidth: 0, fontSize: 14, lineHeight: 20, color: colors.text },
+    subLine: { paddingLeft: 28 },
+    subValueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+    subMore: { position: "absolute", top: 9, right: 8 },
+
+    empty: { borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, gap: 8 },
+    emptyName: { flexDirection: "row", alignItems: "center", gap: 8 },
+    ring: { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong },
+    emptyTitle: { color: colors.muted },
+    assign: { alignSelf: "flex-start", marginLeft: 28, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 6, backgroundColor: colors.chipFill },
+    assignText: { fontSize: 13, lineHeight: 18, color: colors.text, fontWeight: "600" },
+
     ghost: {
-      minHeight: 72,
+      height: 56,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
@@ -493,8 +617,9 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderStyle: "dashed",
       borderColor: colors.lineStrong,
-      borderRadius: 10,
+      borderRadius: 12,
     },
-    ghostPhone: { marginTop: space.x3, minHeight: 56, borderRadius: 18 },
+    ghostPhone: { marginTop: 12, borderRadius: 18 },
+    ghostText: { fontSize: 13, lineHeight: 18, color: colors.muted },
     addLine: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
   });

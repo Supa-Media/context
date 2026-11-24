@@ -84,7 +84,8 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
   const [modes, setModes] = useState<readonly Mode[]>(seat.modes);
   const [metrics, setMetrics] = useState<readonly MetricRow[]>(() => [
     ...seat.metrics.map((metric) => ({ id: nextId(), name: metric.name, target: metric.target ?? "" })),
-    ...(start === "metric" && canEdit ? [{ id: nextId(), name: "", target: "" }] : []),
+    // One metric per area (the owner, 2026-11-24): "Add a metric…" opens an empty row only when there is none.
+    ...(start === "metric" && canEdit && seat.metrics.length === 0 ? [{ id: nextId(), name: "", target: "" }] : []),
   ]);
   const [approvals, setApprovals] = useState<readonly ApprovalRow[]>(() =>
     seat.approvals.map((text) => ({ id: nextId(), text })),
@@ -221,7 +222,7 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
               </View>
             </Block>
 
-            <Block title="Metrics" hint="Readings go in this area's metrics.csv.">
+            <Block title="Metric" hint="One per area; for another, add a sub-area. Readings go in this area's metrics.csv.">
               {metrics.map((row) => (
                 <View key={row.id} style={styles.row}>
                   <TextField
@@ -247,7 +248,7 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
                   ) : null}
                 </View>
               ))}
-              {canEdit ? (
+              {canEdit && metrics.length === 0 ? (
                 <Button
                   label="+ Add metric"
                   variant="dialog"

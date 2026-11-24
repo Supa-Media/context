@@ -224,9 +224,9 @@ export function healthOf(seat: Seat, missed = false): Health {
   return missed ? "warn" : "neutral";
 }
 
-/** How many of an area's direct sub-areas need a look: no owner, or a gap. */
-export function needLook(node: AreaNode): number {
-  return node.areas.filter((child) => healthOf(child.seat) !== "neutral").length;
+/** How many of an area's direct sub-areas need a look: no owner, or a metric off its target. */
+export function needLook(node: AreaNode, missed: (seat: Seat) => boolean = () => false): number {
+  return node.areas.filter((child) => healthOf(child.seat, missed(child.seat)) !== "neutral").length;
 }
 
 /** An area's folder name as a title: `pipeline-watch` is drawn "Pipeline watch". */
