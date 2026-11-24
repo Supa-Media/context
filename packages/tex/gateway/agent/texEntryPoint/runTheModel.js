@@ -82,7 +82,7 @@ import { withArchitecture } from "../texArchitecture.js";
 import { withChatWriteLock } from "../chatWriteLock.js";
 import { carriedLine, carriedRounds, rereadCarried } from "../turnResume.js";
 import { loggedRoute, routeActs, routeIfBack, runWithDoors } from "../doorTurn.js";
-import { toolRulesNode } from "../graph/nodes/toolRules.js";
+import { toolRulesNode, toolRulesOn } from "../graph/nodes/toolRules.js";
 
 /** The settings this turn runs the front door with, as the Front door node logs them (`../graph/nodes/fd.js`). */
 function doorOut({ production, productionModel, fallback, router, gated, advising, planning, computers, skills, delegation, threaded }) {
@@ -148,7 +148,8 @@ export async function runTheModel(t, via) {
   // Only a job's report and a scheduled text are reviewed (Dev2, 2026-11-15): on every other chat turn the code checks run alone, the figure check over what the model saw among them (`untriedWeb.js`).
   const gated = ((chatTurn && job === null && !runner && (texted || group !== null) && report !== null) || scheduled !== null) && Boolean(production?.replyJudge) && aiGatewayConfig(env) !== null; // no AI Gateway, no reviewer: the word checks stay
   const tries = t.tries;
-  const toolRules = settingsOf(env, "toolRules"); // Tool rules' switches, shown and changed in the Lab (`texNodeSettings.cjs`)
+  // Tool rules' switches, shown and changed in the Lab (`texNodeSettings.cjs`); the step turned off or unwired turns them all off.
+  const toolRules = toolRulesOn(texConfigOf(env)) ? settingsOf(env, "toolRules") : Object.fromEntries(Object.keys(settingsOf(env, "toolRules")).map((rule) => [rule, false]));
   if (!tex.lean) await tex.wait("steer_begin", begun);
   const knows = knowsRead === null ? null : await tex.wait("tex_notes", knowsRead);
   // A big ask the advisor plans and the gateway splits into jobs, when the setup says so (`planBigAsk.js`).

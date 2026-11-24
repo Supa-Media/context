@@ -8,6 +8,15 @@
  * Its row names the turn's calls and which switchable rules they passed, never a call's arguments or result.
  */
 
+/**
+ * Whether the config runs this step: a config without it runs it, as before it had a node; one that draws it runs it
+ * only when it is on and tools -> toolRules is wired to it (`scripts/tex-wire-check.mjs` OUTSIDE_CALLS).
+ */
+export const toolRulesOn = (config) => {
+  const node = (config?.nodes ?? []).find((n) => n?.id === "toolRules");
+  return node === undefined || (node.on !== false && (config?.edges ?? []).some((e) => e.from === "tools" && e.to === "toolRules"));
+};
+
 /** Which of the step's switches are on and off, from its settings (`settingsOf(env, "toolRules")`). */
 export function toolRulesState(settings = {}) {
   const names = Object.keys(settings);

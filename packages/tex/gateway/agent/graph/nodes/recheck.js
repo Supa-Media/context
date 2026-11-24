@@ -10,6 +10,15 @@
 import { readRecheckAnswers, recheckRequest } from "../../../../src/textDecide.cjs";
 
 /**
+ * Whether the config runs this step: a config without it runs it, as before it had a node; one that draws it runs it
+ * only when it is on and send -> recheck is wired to it (`scripts/tex-wire-check.mjs` OUTSIDE_CALLS).
+ */
+export const recheckOn = (config) => {
+  const node = (config?.nodes ?? []).find((n) => n?.id === "recheck");
+  return node === undefined || (node.on !== false && (config?.edges ?? []).some((e) => e.from === "send" && e.to === "recheck"));
+};
+
+/**
  * @param {object} body The Worker's recheck body (`readRecheckBody`).
  * @param {{ engine: (state: string, questions: object) => Promise<object|null> }} deps Clef, as Decide asks it.
  * @returns {Promise<{ result: object, answered: boolean, questions: number, chars: number, ms: number }>}

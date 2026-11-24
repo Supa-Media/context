@@ -16,7 +16,7 @@
 
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
 import { decideWhyNode, decideWhyOn } from "./graph/nodes/decideWhy.js";
-import { recheckNode } from "./graph/nodes/recheck.js";
+import { recheckNode, recheckOn } from "./graph/nodes/recheck.js";
 import { texConfigOf } from "./texConfig.js";
 import { eventEntry, ledgerFor, ledgerWriter, stepEntry } from "./ledger.js";
 import { checkEvents, EventRefusal } from "./log.js";
@@ -63,7 +63,7 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   const body = raw === null ? null : recheck ? readRecheckBody(raw) : readDecideBody(raw);
   if (body === null) return new Response(null, { status: 400 });
   // Still answers them? (node "recheck", `texConfig.json`): turned off, every group reply goes as it is, with no model asked.
-  if (recheck && !nodeOn(texConfigOf(env), "recheck")) return Response.json({ ok: true, fits: true, off: true, meter: { questions: 0, chars: 0, ms: 0, answered: false } });
+  if (recheck && !recheckOn(texConfigOf(env))) return Response.json({ ok: true, fits: true, off: true, meter: { questions: 0, chars: 0, ms: 0, answered: false } });
   // No model here (a gateway with no AI binding): 503, so the Worker asks the control plane as it did before.
   if (engine === null) return new Response(null, { status: 503 });
   // What Tex is doing in this chat right now, from its ledger: facts the judge reads beside the chat (Dev2, 2026-11-12).
@@ -105,12 +105,6 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
     if (typeof waitUntil === "function") waitUntil(written);
   }
   return Response.json({ ...result, meter: { ...meter, answered: rechecked ? rechecked.answered : answers !== null } });
-}
-
-/** Whether the config runs step `id`: a step it draws and leaves on. A config without the step runs it, as before the step had a node. */
-function nodeOn(config, id) {
-  const node = config?.nodes?.find((n) => n.id === id);
-  return node === undefined || node.on !== false;
 }
 
 /** The verdict words the design names (`one-judge-one-record.md`) for the contract's acts. */
