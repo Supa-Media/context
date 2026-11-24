@@ -132,6 +132,16 @@ describe("isolated staging fixtures", () => {
     await t.run(ctx => ctx.db.insert("workspaceMembers", { workspaceId: lumio.workspaceId, userId: owner, role: "member", joinedAt: Date.now() }));
     await expect(t.mutation(internal.functions.stagingPersonas.prepare, { reset: true })).rejects.toThrow(/Non-fixture member/);
   });
+  test("a made-up Lab person in a fixture is the preview's own: a reset removes them instead of refusing", async () => {
+    const t = setupTest();
+    const { workspaces } = await t.mutation(internal.functions.stagingPersonas.prepare, {});
+    const madeUp = await createUser(t, "lab-0123456789ab-1f@lab-world.invalid");
+    const lumio = workspaces.find(workspace => workspace.slug === "lumio")!;
+    await t.run(ctx => ctx.db.insert("workspaceMembers", { workspaceId: lumio.workspaceId, userId: madeUp, role: "member", joinedAt: Date.now() }));
+    await t.mutation(internal.functions.stagingPersonas.prepare, { reset: true });
+    const members = await t.run(ctx => ctx.db.query("workspaceMembers").withIndex("by_workspace", q => q.eq("workspaceId", lumio.workspaceId)).collect());
+    expect(members.some(m => m.userId === madeUp)).toBe(false);
+  });
   test("preserves additional real members in the official pinned workspace", async () => {
     const t = setupTest();
     const { workspaces } = await t.mutation(internal.functions.stagingPersonas.prepare, {});

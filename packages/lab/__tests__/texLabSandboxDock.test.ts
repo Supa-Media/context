@@ -187,7 +187,7 @@ describe("the test chat dock", () => {
     expect(mockCalls.find((c) => c.op === "open")).toBeUndefined();
   });
 
-  test("Grid | Timeline in the head, the Timeline in the grid's space, T switching them", async () => {
+  test("Chat | Grid | Timeline in the head, the Timeline in the grid's space, T switching them", async () => {
     await mount();
     // The test writes chip is always there, its count first, as the mockup's.
     expect(q("#sbChanges")?.textContent).toBe("0 test writes ▾");
@@ -195,6 +195,7 @@ describe("the test chat dock", () => {
     expect(q(".sbwrites")?.textContent).toMatch(/^What Tex wrote in this test chatNothing yet\..*Reset throws all of these away\./);
     await click("#sbChanges");
     expect(qa("#sbView button").map((b) => [b.textContent, b.getAttribute("aria-pressed")])).toEqual([
+      ["Chat", "false"],
       ["Grid", "true"],
       ["Timeline", "false"],
     ]);

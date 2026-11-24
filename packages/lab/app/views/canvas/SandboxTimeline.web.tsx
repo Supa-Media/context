@@ -23,10 +23,15 @@ const fmt = (ms: number) => msWords(Math.max(0, ms));
 const labelOf = (id: string) => (isLineStep(id) ? lineLabel(id) : (node(id)?.label ?? id));
 
 /** Grid | Timeline, in the dock's head. */
-export function DockSwitch({ view, onView }: { view: DockView; onView: (v: DockView) => void }) {
+export function DockSwitch({ view, onView, chat = false }: { view: DockView; onView: (v: DockView) => void; chat?: boolean }) {
   return (
     <div className="dockseg" role="group" aria-label="Show as" id="sbView">
-      <button type="button" data-v="grid" aria-pressed={view === "grid"} onClick={() => onView("grid")}>
+      {chat ? (
+        <button type="button" data-v="chat" aria-pressed={view === "chat"} onClick={() => onView("chat")}>
+          Chat
+        </button>
+      ) : null}
+      <button type="button" data-v="grid" aria-pressed={view === "grid" || (!chat && view === "chat")} onClick={() => onView("grid")}>
         Grid
       </button>
       <button type="button" data-v="timeline" aria-pressed={view === "timeline"} title="Timeline (T)" onClick={() => onView("timeline")}>

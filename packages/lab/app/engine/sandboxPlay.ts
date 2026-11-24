@@ -58,7 +58,8 @@ export const isStale = (msgId: string) => {
 type Play = { id: string; msgId: string; t: number; playing: boolean } | null;
 const msgOf = (id: string) => id.split("#")[0];
 type Pick = { msgId: string; upto: string | null } | null;
-export type DockView = "grid" | "timeline";
+/** "chat": a group chat as Messages shows it (`views/canvas/world/ChatView.web.tsx`), the default for made-up chats. */
+export type DockView = "chat" | "grid" | "timeline";
 let play: Play = null;
 let pick: Pick = null;
 let view: DockView = "grid";
@@ -216,7 +217,8 @@ export function setDockView(v: DockView) {
 
 /** A text just sent: the timeline, playing it from its first step at the Lab's speed, trailing the live run. */
 export function followText(msgId: string) {
-  view = "timeline";
+  // The Chat view stays put: the canvas still lights the run.
+  if (view !== "chat") view = "timeline";
   if (!playRun(msgId, 0)) emit();
 }
 

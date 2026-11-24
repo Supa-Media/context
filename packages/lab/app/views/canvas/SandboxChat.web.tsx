@@ -14,7 +14,7 @@
  * edge makes the dock taller or shorter.
  */
 import { useEffect, useRef, useState } from "react";
-import { attachSandbox, takeUrlSandbox, tryFromHere, backTo, dropText, editText, reactTo, unsendText, readSandboxChats, sandboxProblem, takeDraft, openSandbox, resetSandbox, sendAs, sendText, TAPBACKS, useSandbox, type SandboxRow } from "../../engine/sandbox";
+import { attachSandbox, takeUrlSandbox, tryFromHere, backTo, dropText, readSandboxChats, sandboxProblem, openSandbox, resetSandbox, sendAs, useSandbox, type SandboxRow } from "../../engine/sandbox";
 import { isStale, noteRan, pickStep, playExternal, playLit, playTexText, playText, setDockView, usePlay } from "../../engine/sandboxPlay";
 import { chatKeyOf, playProd } from "../mine/playProd";
 import { texCauseRun } from "../../engine/sandboxRun";
@@ -22,86 +22,24 @@ import { stepsWord } from "../../engine/playRun";
 import { sinceOf } from "../../engine/stepRunNow";
 import { DockSwitch, SandboxTimeline } from "./SandboxTimeline.web";
 import { useDockHeight } from "./useDockHeight.web";
-import { usePicUpload } from "./usePicUpload";
+import { MAX_PICS, useComposer } from "./useComposer";
+import { MsgOptions } from "./MsgOptions.web";
+import { ChatView } from "./world/ChatView.web";
+import { ChatComposer } from "./world/Composer.web";
+import { PeopleStrip } from "./world/PeopleStrip.web";
+import { WorldSetup } from "./world/WorldSetup.web";
+import { setFill, syncPeople, useWorld } from "./world/worldStore";
+import { worldNow } from "./world/worldView";
+import { GridWhy } from "./world/GridWhy.web";
 import { useLab } from "../../store";
 import { useSandboxCall } from "./sandboxCall";
-import { TextGrid, msWords, type TextRow } from "../grid/TextGrid.web";
-import { Pop } from "../bar/Pop.web";
+import { TextGrid, msWords, type StepCell, type TextRow } from "../grid/TextGrid.web";
+import { whyOf } from "./world/chatModel";
+import { Av } from "./world/parts.web";
+import { firstName } from "./world/worldModel";
 import { SandboxWrites } from "./SandboxWrites.web";
 import { ChatPick } from "./SandboxChatPick.web";
 import type { Lit } from "./usePlayback";
-
-const MAX_PICS = 6;
-/** A message's ⋯: the tapbacks and Reply, and on a test text Edit and Delete (Undo Send), each run as production runs it. */
-function MsgOptions({ r, onReply, onEdit }: { r: SandboxRow; onReply: () => void; onEdit: () => void }) {
-  const sb = useSandbox();
-  const own = !r.prod && !r.tex && !r.kind && !r.unsent;
-  const idle = !sb.running && !sb.busy;
-  return (
-    <Pop id={"sbOpt-" + r.id} label="Message options" title="React, reply, edit or delete" className="mopt" button="⋯">
-      {(close) => (
-        <div className="vmenu">
-          <div className="taps">
-            {TAPBACKS.map((e) => (
-              <button
-                key={e}
-                data-tap={e}
-                title={"React as " + sb.as}
-                disabled={!!sb.running || sb.busy}
-                onClick={() => {
-                  close();
-                  void reactTo(r.id, e);
-                }}
-              >
-                {e}
-              </button>
-            ))}
-          </div>
-          <hr />
-          <button
-            className="mi"
-            data-reply={r.id}
-            onClick={() => {
-              close();
-              onReply();
-            }}
-          >
-            ↩ Reply
-          </button>
-          {own ? (
-            <>
-              <button
-                className="mi"
-                data-edit-open={r.id}
-                disabled={!idle}
-                title={"Edit as " + r.who + ": Tex gets it as a real iMessage edit"}
-                onClick={() => {
-                  close();
-                  onEdit();
-                }}
-              >
-                ✎ Edit
-              </button>
-              <button
-                className="mi"
-                data-unsend={r.id}
-                disabled={!idle}
-                title={"Undo Send as " + r.who + ": Tex gets it as taken back and answers nothing"}
-                onClick={() => {
-                  close();
-                  void unsendText(r.id);
-                }}
-              >
-                ⌫ Delete <span className="meta">Undo Send</span>
-              </button>
-            </>
-          ) : null}
-          <div className="mnote">As {sb.as || "you"}; Tex runs on each.</div>
-        </div>
-      )}
-    </Pop>
-  );
-}
 
 /** A US number as a phone shows it: "+14157918922" as "+1 (415) 791-8922"; any other as given. */
 export const phoneWords = (n: string) => {
@@ -119,17 +57,12 @@ export function SandboxChat() {
   const { play, pick, view } = usePlay();
   const dock = useDockHeight();
   const ready = useSandboxCall();
-  const upload = usePicUpload();
-  const [text, setText] = useState(() => takeDraft()?.text ?? "");
+  const c = useComposer();
+  const { text, setText, replyTo, setReplyTo, editing, setEditing, pics, setPics, uploading, addFiles, canSend, send, fileIn, txt } = c;
+  const w = useWorld();
   const [folded, setFolded] = useState(false);
-  const [replyTo, setReplyTo] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [pics, setPics] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(0);
   // A real text's run being read from production's log.
   const [reading, setReading] = useState<string | null>(null);
-  const fileIn = useRef<HTMLInputElement>(null);
-  const txt = useRef<HTMLInputElement>(null);
   const versionId = s.cur.id;
   noteRan(sb.rows);
   // A test chat once the gateway can be reached, and a fresh one when the Lab opens a different version. A switch
@@ -155,41 +88,55 @@ export function SandboxChat() {
     if (!sb.busy && !sb.shared && sb.versionId !== versionId) void openSandbox(sb.source, versionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, versionId, sb.busy]);
-  // "Sandbox from here" on a real text puts it in the composer, as whoever sent it.
+  // A made-up group chat (`world/`): its people read back from the preview once it is open, and the Chat view its
+  // default; the Chat view's Fill and the setup belong to it.
+  const isWorld = sb.source.kind === "world";
+  const setup = !!w.draft;
   useEffect(() => {
-    if (!sb.draft) return;
-    const d = takeDraft();
-    if (d) setText(d.text);
-  }, [sb.draft]);
-  // A reply to, or an edit of, a text that's gone (back, delete, another chat) is dropped.
-  useEffect(() => {
-    if (replyTo && !sb.rows.some((r) => r.id === replyTo)) setReplyTo(null);
-    if (editing && !sb.rows.some((r) => r.id === editing)) setEditing(null);
-  }, [sb.rows, replyTo, editing]);
+    if (isWorld && sb.id && !sb.busy && !sb.preview?.starting && w.synced !== sb.id) void syncPeople();
+  }, [isWorld, sb.id, sb.busy, sb.preview?.starting, w.synced]);
+  const chat = view === "chat" && !setup;
+  const fill = chat && w.fill && !folded;
+  const now = isWorld ? worldNow(sb, w) : null;
 
   const byId = new Map(sb.rows.map((r) => [r.id, r]));
   const quoteOf = (id?: string) => {
     const q = id ? byId.get(id) : undefined;
-    return q ? `${q.tex ? "Tex" : q.who}: ${q.text}` : undefined;
+    return q ? `${q.tex ? "Tex" : isWorld ? firstName(q.who) : q.who}: ${q.text}` : undefined;
+  };
+  // A made-up chat's Triage and Decide in words ("to Decide", "answer"), the answer in accent and nothing in gray.
+  const worldSteps = (r: SandboxRow): Array<NonNullable<SandboxRow["steps"]>[number] & Pick<StepCell, "tone">> | undefined => {
+    if (!isWorld || !r.steps) return r.steps;
+    const w = whyOf(r, [], false)?.steps ?? [];
+    return r.steps.map((x) => {
+      const said = w.find((s) => s.step.toLowerCase() === x.node);
+      if (!said) return x;
+      return { ...x, out: said.out, tone: x.node === "decide" ? (said.out === "answer" ? "an" : said.out === "nothing" ? "qu" : undefined) : undefined };
+    });
   };
   const rows: TextRow[] = [];
   let sep = false;
   const copied = sb.rows.filter((r) => r.prod && !r.kind).length;
   for (const r of sb.rows) {
+    // In a group chat, Tex's quiet turn shows as its text's why line, never a row of its own.
+    if (isWorld && r.tex && r.quiet) continue;
     if (!r.prod && !sep) {
       rows.push({ id: "sep", who: "", text: "", sep: sandboxFromHere(copied) });
       sep = true;
     }
+    // A made-up chat's speaker reads as in its Chat view: the avatar, the first name, a guest's label under it.
+    const person = isWorld && !r.tex && r.kind !== "people" && now;
     rows.push({
       id: r.id,
-      who: r.tex ? "Tex" : r.who,
+      who: r.tex ? "Tex" : person ? firstName(r.who) : r.who,
+      ...(person ? { whoIcon: <Av name={r.who} account={now.account(r.who)} size={18} />, whoSub: now.guest(r.who) } : {}),
       text: r.kind === "unsend" ? "took back a text" : r.unsent ? r.text + " (unsent)" : r.text,
       tex: r.tex,
       quiet: r.quiet,
       prod: r.prod,
       test: !r.prod,
       // A step still running shows only that it runs and for how long: its output once it is logged.
-      steps: sb.running === r.id ? r.steps?.map((x) => (x.ms === null ? { ...x, runningFor: typeof x.at === "number" && typeof r.at === "number" ? Math.max(0, Date.now() - r.at - x.at) : sinceOf(`${r.id}:${x.node}`) } : x)) : r.steps,
+      steps: sb.running === r.id ? worldSteps(r)?.map((x) => (x.ms === null ? { ...x, runningFor: typeof x.at === "number" && typeof r.at === "number" ? Math.max(0, Date.now() - r.at - x.at) : sinceOf(`${r.id}:${x.node}`) } : x)) : worldSteps(r),
       running: sb.running === r.id,
       hot: sb.running === r.id ? sb.hot : null,
       quote: quoteOf(r.replyTo ?? (r.kind === "edit" || r.kind === "unsend" ? r.on : undefined)),
@@ -200,39 +147,6 @@ export function SandboxChat() {
     });
   }
 
-  const addFiles = async (files: File[]) => {
-    const imgs = files.filter((f) => f.type.startsWith("image/")).slice(0, Math.max(0, MAX_PICS - pics.length));
-    if (!imgs.length) return;
-    setUploading((n) => n + imgs.length);
-    const got = await Promise.all(
-      imgs.map((f) =>
-        upload(f).catch((e: unknown) => {
-          sandboxProblem(e instanceof Error ? e.message : "Couldn't upload that picture");
-          return null;
-        }),
-      ),
-    );
-    setUploading((n) => n - imgs.length);
-    const urls = got.map((p) => p?.url).filter((u): u is string => !!u && u.startsWith("https://"));
-    if (urls.length) setPics((ps) => [...ps, ...urls].slice(0, MAX_PICS));
-  };
-  const canSend = !sb.running && !sb.busy && !uploading && (editing ? !!text.trim() : !!sb.as && (!!text.trim() || pics.length > 0));
-  const send = () => {
-    if (!canSend) return;
-    const t = text.trim();
-    if (editing) {
-      setText("");
-      setEditing(null);
-      void editText(editing, t);
-      return;
-    }
-    const extra = { pics, ...(replyTo ? { replyTo } : {}) };
-    setText("");
-    setPics([]);
-    setReplyTo(null);
-    // Once it shows, the Timeline plays it from its first step, trailing the live run (`onSandboxText`).
-    void sendText(t, extra);
-  };
   const reply = replyTo ? byId.get(replyTo) : undefined;
   const edited = editing ? byId.get(editing) : undefined;
   const playing = (id: string) => play?.id === id && play.playing;
@@ -262,18 +176,31 @@ export function SandboxChat() {
       if (e.metaKey || e.ctrlKey || e.altKey || (e.key !== "t" && e.key !== "T")) return;
       const el = e.target as HTMLElement | null;
       if (el?.closest?.("input, select, textarea, [contenteditable=true]")) return;
-      setDockView(view === "timeline" ? "grid" : "timeline");
+      setDockView(view === "timeline" ? (isWorld ? "chat" : "grid") : "timeline");
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [view]);
+  }, [view, isWorld]);
 
+  const emptyWords = (
+    <>
+      {sb.busy ? "Opening the test chat…" : sb.problem || (sb.preview?.starting ? `Starting pull request #${sb.preview.pr}'s preview: its GitHub run takes about a minute` : `Text Tex below to try ${s.cur.name} in this chat`)}
+      {!sb.busy && sb.problem && sb.linked ? (
+        <>
+          {" "}
+          <button className="ghost" id="sbLinkRetry" onClick={() => void attachSandbox(sb.linked as string, versionId)}>
+            Try again
+          </button>
+        </>
+      ) : null}
+    </>
+  );
   return (
     <section
-      className={"sbx" + (folded ? " min" : "") + (dock.drag ? " drag" : "")}
+      className={"sbx" + (folded ? " min" : "") + (dock.drag ? " drag" : "") + (fill ? " fill" : "") + (setup && !folded ? " setup" : "")}
       id="sandbox"
       aria-label="Test chat"
-      style={folded || dock.h === null ? undefined : { height: dock.h }}
+      style={folded || fill || dock.h === null ? undefined : { height: dock.h }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
@@ -287,26 +214,15 @@ export function SandboxChat() {
         rows={rows}
         folded={folded}
         bottomKey={`${sb.id}|${folded}|${view}|${rows.length}|${rows[rows.length - 1]?.id ?? ""}`}
-        alt={view === "timeline" ? <SandboxTimeline /> : undefined}
+        sub={isWorld && !setup && !folded ? <PeopleStrip /> : null}
+        alt={setup ? <WorldSetup /> : view === "timeline" ? <SandboxTimeline /> : chat ? <ChatView empty={emptyWords} onReply={c.reply} /> : undefined}
         sel={pick?.msgId ?? null}
         selCol={pick?.upto ?? null}
         onRow={(r, col) => {
           if (!r.steps?.length) return;
           pickStep(r.id, col && col !== "who" && col !== "text" ? col : null);
         }}
-        empty={
-          <div className="scne">
-            {sb.busy ? "Opening the test chat…" : sb.problem || (sb.preview?.starting ? `Starting pull request #${sb.preview.pr}'s preview: its GitHub run takes about a minute` : `Text Tex below to try ${s.cur.name} in this chat`)}
-            {!sb.busy && sb.problem && sb.linked ? (
-              <>
-                {" "}
-                <button className="ghost" id="sbLinkRetry" onClick={() => void attachSandbox(sb.linked as string, versionId)}>
-                  Try again
-                </button>
-              </>
-            ) : null}
-          </div>
-        }
+        empty={<div className="scne">{emptyWords}</div>}
         head={
           <>
             <button className="ib" id="sbFold" aria-label={folded ? "Open the test chat" : "Fold the test chat"} title={folded ? "Open the test chat" : "Fold the test chat"} aria-expanded={!folded} onClick={() => setFolded(!folded)}>
@@ -323,8 +239,16 @@ export function SandboxChat() {
               </span>
             )}
             <ChatPick versionId={versionId} />
-            <DockSwitch view={view} onView={setDockView} />
-            <SandboxWrites />
+            {setup ? (
+              <span className="small muted" id="sbSettingUp" style={{ fontSize: 12 }}>
+                Setting up · nothing runs until you open it
+              </span>
+            ) : (
+              <>
+                <DockSwitch view={view} onView={setDockView} chat />
+                <SandboxWrites />
+              </>
+            )}
             {sb.problem && sb.rows.length ? <span className="small c-bad">{sb.problem}</span> : null}
             {sb.fit && !sb.fit.asDrawn ? (
               <span className="small c-bad" id="sbNotAsDrawn" title={sb.fit.says}>
@@ -334,9 +258,23 @@ export function SandboxChat() {
           </>
         }
         headEnd={
-          <button className="ghost" id="sbReset" title="Throw away the test texts and start again from the real chat" disabled={sb.busy} onClick={() => void resetSandbox()}>
-            Reset
-          </button>
+          setup ? (
+            <span style={{ marginLeft: "auto" }} />
+          ) : (
+            <>
+              {chat ? (
+                <>
+                  <span style={{ marginLeft: "auto" }} />
+                  <button className="ib" id="sbFill" aria-pressed={w.fill} title={w.fill ? "Show the canvas again" : "Fill the page: hide the canvas while you chat"} onClick={() => setFill(!w.fill)}>
+                    ⤢
+                  </button>
+                </>
+              ) : null}
+              <button className="ghost" id="sbReset" title="Throw away the test texts and start again from the real chat" disabled={sb.busy} onClick={() => void resetSandbox()}>
+                Reset
+              </button>
+            </>
+          )
         }
         actions={(r) => {
           const src = byId.get(r.id);
@@ -361,8 +299,8 @@ export function SandboxChat() {
                   title="Test from here: a test chat with the real texts before this one, and this text ready to send"
                   disabled={!!sb.running || sb.busy}
                   onClick={() => {
-                    const c = sb.source;
-                    if (c.kind === "chat" || c.kind === "shared") void tryFromHere(c.chatId, c.name, src.id, sb.handles[src.who] ?? src.who, src.text, c.kind);
+                    const o = sb.source;
+                    if (o.kind === "chat" || o.kind === "shared") void tryFromHere(o.chatId, o.name, src.id, sb.handles[src.who] ?? src.who, src.text, o.kind);
                   }}
                 >
                   ⑂
@@ -384,7 +322,10 @@ export function SandboxChat() {
                   className={"play" + (stale ? " stale" : "")}
                   data-play={r.id}
                   disabled={(!!sb.running && !playing(r.id)) || sb.busy}
-                  title={(stale ? "The version changed since this ran: ▶ runs it again on live models for a fresh answer" : "Nothing changed since this ran: ▶ plays back what it did, no new model calls") + ` (${msWords(sum)} · ${stepsWord(r.steps.length)})`}
+                  title={
+                    (stale ? "The version changed since this ran: ▶ runs it again on live models for a fresh answer" : "Nothing changed since this ran: ▶ plays back what it did, no new model calls") +
+                    ` (${msWords(sum)} · ${stepsWord(r.steps.length)})`
+                  }
                   onClick={() => void playText(r.id)}
                 >
                   {playing(r.id) ? "⏸ " + msWords(play!.t) : "▶"}
@@ -405,27 +346,31 @@ export function SandboxChat() {
           const src = byId.get(r.id);
           if (!src) return null;
           // A row with no words (pictures only, a quiet or noted reply) can't be tapped or replied to.
-          return r.evt || !src.text || src.quiet ? null : (
-            <MsgOptions
-              r={src}
-              onReply={() => {
-                setEditing(null);
-                setReplyTo(src.id);
-                txt.current?.focus();
-              }}
-              onEdit={() => {
-                setReplyTo(null);
-                setPics([]);
-                setEditing(src.id);
-                // The words it says now: its latest edit's, else its own.
-                setText([...sb.rows].reverse().find((x) => x.kind === "edit" && x.on === src.id)?.text ?? src.text);
-                txt.current?.focus();
-              }}
-            />
+          const why = isWorld && !src.tex && !src.kind ? <GridWhy r={src} rows={sb.rows} running={sb.running === src.id} /> : null;
+          return r.evt || !src.text || src.quiet ? (
+            why
+          ) : (
+            <>
+              <MsgOptions
+                r={src}
+                onReply={() => c.reply(src.id)}
+                onEdit={() => {
+                  setReplyTo(null);
+                  setPics([]);
+                  setEditing(src.id);
+                  // The words it says now: its latest edit's, else its own.
+                  setText([...sb.rows].reverse().find((x) => x.kind === "edit" && x.on === src.id)?.text ?? src.text);
+                  txt.current?.focus();
+                }}
+              />
+              {why}
+            </>
           );
         }}
       />
-      {folded ? null : (
+      {folded || setup ? null : chat ? (
+        <ChatComposer c={c} account={(n) => (now ? now.account(n) : "on")} hint={now && now.account(sb.as) !== "on" ? `${sb.as.split(" ")[0]} isn't on Context${now.guest(sb.as) ? ": Tex sees " + now.guest(sb.as) : ""}` : undefined} />
+      ) : (
         <>
           {reply || edited || pics.length || uploading ? (
             <div className="pend" id="sbPend">

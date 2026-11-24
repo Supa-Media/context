@@ -18,6 +18,7 @@
  */
 
 import { createControlPlane } from "../fromGateway/controlPlane.js";
+import { sessionFromPayload } from "../fromGateway/session.js";
 
 export const WORLD_SOURCE = "world";
 /** The seeded shared workspaces made-up people can be in (`texLabWorld.ts` `WORLD_WORKSPACES`). */
@@ -28,8 +29,6 @@ export const MAX_WORLD_PEOPLE = 8;
 export const MAX_START = 40;
 const ROLES = new Set(["owner", "editor", "member"]);
 const NAME = /^[\p{L}\p{N}][\p{L}\p{N} .'\-]{0,39}$/u;
-/** Control-plane routes a made-up chat keeps answered by the Lab: the judge's meter and the old-number setting. */
-const LAB_ANSWERED = new Set(["/agent-texts/decide/gate", "/agent-texts/decide/usage", "/agent-texts/old-line"]);
 
 /** One person as the Lab asks for them, checked, or `{ error }`. */
 function personOf(raw) {
@@ -151,25 +150,74 @@ export function worldControl(env, grant, labToken, fetchImpl = (input, init) => 
   const base = typeof env?.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL.replace(/\/+$/, "") : "";
   const secret = typeof env?.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "";
   return async (path, body) => {
-    if (!path.startsWith("/agent-texts/") || LAB_ANSWERED.has(path)) return undefined;
+    // Only who the group is (and its own settings) is the preview's to answer; the rest stays the Lab's, as for any test chat.
+    if (path !== "/agent-texts/group" && !path.startsWith("/agent-texts/group/")) return undefined;
     if (base === "" || secret === "") return { status: "refused" };
     const response = await fetchImpl(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${secret}` }, body: JSON.stringify(body ?? {}) });
     const answer = await response.json().catch(() => null);
     if (answer === null || typeof answer !== "object") return { status: "refused" };
-    grant.last = { path, status: answer.status ?? null, reach: answer.reach ?? [], blocked: answer.blocked ?? [], intro: answer.intro === true, guests: (answer.guests ?? []).map((g) => g.label) };
+    grant.asked = [...(grant.asked ?? []), { path, status: answer.status ?? null, ...(answer.intro === true ? { intro: true } : {}) }].slice(-8);
+    if (path !== "/agent-texts/group") return answer;
+    grant.last = { ...(grant.failures ? { failed: grant.failures } : {}), path, status: answer.status ?? null, reach: answer.reach ?? [], blocked: answer.blocked ?? [], intro: answer.intro === true || grant.last?.intro === true, guests: (answer.guests ?? []).map((g) => g.label), asked: grant.asked };
     if (typeof answer.accessToken !== "string") return answer;
     grant.token = answer.accessToken;
     grant.payload = null;
+    // Kept in the chat object's storage: a later tag reuses its kept answer (`groupKept.ts`) and asks nothing.
+    await grant.storage?.put(WORLD_GRANT_KEY, answer.accessToken);
     return { ...answer, accessToken: labToken };
   };
 }
 
 /** The session a made-up chat's turn runs on: the one its grant's token resolves to on the preview. */
+/** Where a made-up chat keeps the grant its last group answer minted, in its chat object's storage (preview only). */
+export const WORLD_GRANT_KEY = "lab:worldGrant";
+
+/** A turn's grant: the one its chat object kept, until the preview mints another. */
+export async function worldGrant(storage) {
+  const kept = await storage.get(WORLD_GRANT_KEY);
+  return { token: typeof kept === "string" ? kept : null, payload: null, last: null, storage };
+}
+
 export async function worldPayload(env, grant) {
   if (typeof grant.token !== "string") return null;
   if (grant.payload) return grant.payload;
   grant.payload = await createControlPlane(env).resolveSession(grant.token);
   return grant.payload;
+}
+
+/**
+ * The turn's session on the grant the preview minted, or the reason it could not be had, kept on the reply row's
+ * `group.failed` (an error's name, status and message: never the token) so a made-up chat that goes quiet says why.
+ */
+export async function worldSession(env, grant) {
+  try {
+    if (typeof grant.token !== "string") throw new Error("the preview's control plane minted no grant for this turn");
+    return sessionFromPayload(await worldPayload(env, grant), null, grant.token);
+  } catch (error) {
+    worldFailed(grant, "session", error);
+    throw error;
+  }
+}
+
+/** A failure on a made-up chat's turn, kept on its reply row (`group.failed`, the last few): never a token or a body. */
+export function worldFailed(grant, where, error) {
+  const said = [error?.name, error?.status ?? error?.code, String(error?.message ?? error).slice(0, 160)].filter((part) => part !== undefined && part !== null && part !== "").join(": ");
+  grant.failures = [...(grant.failures ?? []), `${where}: ${said}`].slice(-4);
+  grant.last = { ...(grant.last ?? {}), failed: grant.failures };
+}
+
+/** The gateway routes a made-up chat's object calls, each failure (a throw or an error status) kept by `worldFailed`. */
+export function worldRoutes(grant, route) {
+  return async (request, path) => {
+    try {
+      const response = await route(request, path);
+      if (response.status >= 400) worldFailed(grant, path, { status: response.status, message: (await response.clone().text().catch(() => "")).slice(0, 160) });
+      return response;
+    } catch (error) {
+      worldFailed(grant, path, error);
+      throw error;
+    }
+  };
 }
 
 /**

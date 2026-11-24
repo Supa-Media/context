@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cliFailureReason, issuePersonaCode, probeCloudflare, runConvexSeed, storeStorageToken } from "./seed.mjs";
+import { cliFailureReason, issuePersonaCode, probeCloudflare, runConvexSeed, seedPlan, storeStorageToken } from "./seed.mjs";
 
 test("a failed CLI run names its cause from stderr", () => {
   const reason = cliFailureReason(
@@ -160,4 +160,11 @@ test("the Cloudflare probe asks the five paths with the bearer token and returns
   assert.doesNotMatch(serialized, /secret account detail|fetch failed|not json/);
   assert.doesNotMatch(serialized, new RegExp(token));
   assert.doesNotMatch(serialized, new RegExp(accountId));
+});
+
+test("the production mirror gets storage on a preview, so group chat homes open there, and never its notes", () => {
+  // Every group chat's home lives in @context-lc (tex/groups/): with no binding, every group turn on a preview
+  // failed opening its store (binding_null), Lab test chats included.
+  assert.deepEqual(seedPlan("context-lc"), { storage: true, notes: false });
+  assert.deepEqual(seedPlan("lumio"), { storage: true, notes: true });
 });

@@ -69,6 +69,8 @@ export function compactRow(row) {
     ...(row.kind ? { kind: row.kind, on: row.on } : {}),
     ...(row.emoji ? { emoji: row.emoji } : {}),
     ...(row.quiet ? { quiet: true } : {}),
+    // A made-up group chat's reply (`labSandbox/world.js`): what the preview's real group rules let the chat reach.
+    ...(row.group ? { group: { reach: row.group.reach, blocked: row.group.blocked, intro: row.group.intro } } : {}),
     ...(row.reactions ? { reactions: row.reactions.map((r) => `${r.who} ${r.emoji}`) } : {}),
     ...(row.unsent ? { unsent: true } : {}),
     ...(row.edited ? { edited: true } : {}),
