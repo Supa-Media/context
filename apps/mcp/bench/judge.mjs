@@ -48,9 +48,10 @@ export const jobStartedLine = (job) => {
 /** The judge when neither --judge nor the test's judge: line names one. */
 export const DEFAULT_JUDGE = "claude-haiku-5-5";
 /**
- * Independent judge calls per question, decided by majority. One temperature-0 call still varies from run to run on a
- * borderline line (replay records, 2026-11-18: a Lab line flipped between two identical judgings); three votes with a
- * majority do not, and each vote is a separate call so the bodies differ (see `vote` in buildJudgeRequest).
+ * Independent judge calls per question, decided by majority. One call varies from run to run on a borderline line
+ * (replay records, 2026-11-18: a Lab line flipped between two identical judgings); three votes with a majority do
+ * not, and each vote is a separate call so the bodies differ (see `vote` in buildJudgeRequest). No temperature is
+ * sent: the judge model refuses one.
  */
 export const DEFAULT_VOTES = 3;
 /** The most votes a judging may be asked for: a flag above this is refused, not run. */
@@ -263,8 +264,8 @@ export function buildJudgeRequest({ model, question, answers, every = [], now = 
   const body = JSON.stringify({
     model,
     max_tokens: maxTokens,
-    // Temperature 0 asks for the same verdict every time; the votes (above) cover what it still varies on.
-    temperature: 0,
+    // No temperature: the judge model refuses one with a 400 (Dev set run, 2026-11-24: every fd test failed to run).
+    // The votes (above) are what steady the verdict.
     system: SYSTEM,
     messages: [{ role: "user", content }],
     output_config: { format: { type: "json_schema", schema: JUDGE_SCHEMA } },
