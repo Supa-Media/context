@@ -94,7 +94,7 @@ import { parkedOnBoard } from "./boardLayout";
 import { useFolderTasks } from "./tasks/useFolderTasks";
 
 /** The Areas list's width where the page has room: the owner's board, 2026-11-24. */
-const AREAS_LIST_WIDTH = 940;
+const AREAS_LIST_WIDTH = 820;
 
 export type { FolderPageHost } from "./useFolderPage";
 
@@ -372,9 +372,9 @@ export function FolderPage({
   const wideBoard = compact || pageWidth <= 0 || view !== "board" ? null : boardWidth(columnCount, bands.length, pageWidth);
   // The Areas chart spreads like the Board: one column per area, plus its "Add area".
   const chartColumns = seats && view === "chart" && !compact && pageWidth > 0 ? areaTree(folder, areasFolderNow(), notes ?? NO_NOTES).areas.length + 1 : 0;
-  // Each column is 256 wide with 24 between (the owner's board, 2026-11-24).
-  const wideChart = chartColumns === 0 ? null : Math.min(pageWidth - 96, Math.max(chartColumns * 280, boardWidth(1, 1, pageWidth)));
-  // The Areas list takes the board's 940 where the page has it: its metric, count and ⋯ columns leave the names room.
+  // Each column is 232 wide with 20 between (the owner's board, 2026-11-24).
+  const wideChart = chartColumns === 0 ? null : Math.min(pageWidth - 96, Math.max(chartColumns * 252, boardWidth(1, 1, pageWidth)));
+  // The Areas list takes 820 where the page has it: its metric, count and ⋯ columns leave the names room.
   const wideAreas = wideChart ?? (seats && view !== "chart" && !compact && pageWidth > 0 ? Math.min(pageWidth - 96, Math.max(AREAS_LIST_WIDTH, boardWidth(1, 1, pageWidth))) : null);
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =

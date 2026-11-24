@@ -54,8 +54,12 @@ who to ask and what is not covered. No new concept: an area is the seat.
   "+ Add metric" only while there is none, and the menu says "Edit metric…"
   once there is one; older `about.md` files with several `metrics:` lines
   keep them, and the first is the one shown. A list row's notes and folders
-  stay hidden until its count is pressed, with no cap once open. The List is
-  940 wide on a desktop, as the board drew it.
+  stay hidden until its count is pressed, with no cap once open. Both views
+  keep the board's layout but the app's own type scale (names and values at
+  13, labels at 12, 40-high rows, 232-wide chart columns): drawn at the
+  board's 14-16 with 60-high rows, it read "way too big" beside the sidebar
+  (the owner, 2026-11-24). Check a redraw inside the app, not only against
+  the board.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as
