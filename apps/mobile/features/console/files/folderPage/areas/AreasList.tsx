@@ -62,6 +62,10 @@ export interface AreasListProps {
   notesUnder: (folder: string) => number;
   /** A file row opens the note; an area row opens that area's own page; a plain folder row opens the folder. */
   onOpen: (path: string) => void;
+  /** An area row pressed: the side panel on a desktop (a second press opens it), else its page. Defaults to `onOpen`. */
+  onArea?: (folder: string) => void;
+  /** The area shown in the side panel, drawn selected; null when none. */
+  selected?: string | null;
   /** Right-click on an area row, or its ⋯ button (`at` null). */
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
   /** The latest reading of a seat's headline metric, from its `metrics.csv`; undefined when there is none. */
@@ -80,7 +84,9 @@ function depthProps(depth: number): ViewProps {
 }
 
 /** Everything a row needs from the list, passed down once. */
-interface Shared extends Omit<AreasListProps, "tree" | "rootTitle"> {
+interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected"> {
+  readonly onArea: (folder: string) => void;
+  readonly selected: string | null;
   /** Areas whose sub-areas are folded away. */
   readonly closed: ReadonlySet<string>;
   readonly toggle: (folder: string) => void;
@@ -96,7 +102,7 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onMenu, readingOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, onMenu, readingOf }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
@@ -107,6 +113,8 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
     reach,
     notesUnder,
     onOpen,
+    onArea: onArea ?? onOpen,
+    selected,
     onMenu,
     readingOf,
     closed,
@@ -164,11 +172,12 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
   return (
     <View ref={menuClick.ref as never}>
       <Pressable
-        onPress={(event: GestureResponderEvent) => (root ? openMenu(pressPoint(event)) : shared.onOpen(seat.folder))}
+        onPress={(event: GestureResponderEvent) => (root ? openMenu(pressPoint(event)) : shared.onArea(seat.folder))}
         accessibilityLabel={root ? `${folderLabel(seat.name)}, seat` : `${folderLabel(seat.name)}, area`}
         testID={root ? "area-row-root" : `area-row-${seat.folder}`}
         {...depthProps(depth)}
-        style={({ hovered }: HoverState) => [styles.areaRow, { paddingLeft: depth * INDENT + 4 }, divided && styles.divided, hovered && styles.hover]}
+        aria-selected={shared.selected === seat.folder}
+        style={({ hovered }: HoverState) => [styles.areaRow, { paddingLeft: depth * INDENT + 4 }, divided && styles.divided, hovered && styles.hover, shared.selected === seat.folder && styles.selected]}
       >
         {({ hovered }: HoverState) => (
           <>
@@ -448,6 +457,8 @@ const makeStyles = (colors: Colors) =>
     listPhone: { paddingBottom: 8 },
     empty: { color: colors.muted, paddingHorizontal: 16, paddingVertical: 12 },
     hover: { backgroundColor: colors.chipFill },
+    // The area shown in the side panel.
+    selected: { backgroundColor: colors.accentDim },
 
     // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric, 52 of count and 24 of ⋯, 16 apart.
     areaRow: {

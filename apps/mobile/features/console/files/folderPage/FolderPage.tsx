@@ -255,6 +255,9 @@ export function FolderPage({
   const toneOf = useCallback((status: string) => groupOfStatus(status, list) ?? ("unplaced" as const), [list]);
   // Any row pressed on a desktop page opens beside the list (`panel/`); on a phone, on its own page.
   const panel = useTaskPanel(folder, compact, pageWidth);
+  // What the Areas page draws in the side panel: an area's details (`areas/AreaPanel.tsx`), or null.
+  const [areaPanel, setAreaPanelState] = useState<((width: number) => ReactNode) | null>(null);
+  const setAreaPanel = useCallback((next: ((width: number) => ReactNode) | null) => setAreaPanelState(() => next), []);
   const openItem = (item: FolderItem) => (panel.fits ? panel.show(item.path) : onSelect(item.path));
   const makeTaskLabel = rowsAreProjects(folder) ? "Make it a project" : "Make it a task";
   const tasks = useFolderTasks({
@@ -380,7 +383,9 @@ export function FolderPage({
   const wideList = !seats && tracks && view === "list" && !compact && pageWidth > 0 ? Math.min(pageWidth - 96, Math.max(AREAS_LIST_WIDTH, boardWidth(1, 1, pageWidth))) : null;
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
-    peeking !== null && peeking === about
+    seats && areaPanel !== null
+      ? areaPanel
+      : peeking !== null && peeking === about
       ? (width: number) => (
           <AboutPanel
             path={peeking}
@@ -505,6 +510,7 @@ export function FolderPage({
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
             {...(host?.source.readBody === undefined ? {} : { readBody: host.source.readBody })}
+            {...(panel.fits ? { onPanel: setAreaPanel } : {})}
           />
           </View>
         ) : view === "list" ? (

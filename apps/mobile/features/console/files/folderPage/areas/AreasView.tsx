@@ -11,7 +11,7 @@
  */
 
 import type { OwnerSearch } from "../../owners";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../../../design/components/Button";
 import { Text } from "../../../../design/components/Text";
@@ -21,6 +21,7 @@ import { useFieldFont } from "../../../../design/fieldFont";
 import type { ListNote } from "../../listBlock/model";
 import type { Face } from "../Glyphs";
 import type { PropertyChanges } from "../useFolderPage";
+import { AreaPanel, type AreaPanelProps } from "./AreaPanel";
 import { AreasChart } from "./AreasChart";
 import { AreasList } from "./AreasList";
 import { SeatDialog } from "./SeatDialog";
@@ -69,12 +70,21 @@ export interface AreasViewProps {
   onSelect: (path: string) => void;
   /** Reads a note's text at the reader's clearance: each area's `metrics.csv`. Absent where nothing can be read. */
   readBody?: ReadBody;
+  /**
+   * Where the page has room for the side panel: hands the page what to draw
+   * there (`PanelBeside`), or null to close it. Absent on a phone, where a
+   * press opens the area as it always has.
+   */
+  onPanel?: (panel: ((width: number) => ReactNode) | null) => void;
 }
+
+/** Two presses on one area this close together are a double click: they open it. */
+export const DOUBLE_PRESS_MS = 400;
 
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, chooseMany, onSelect, readBody } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, chooseMany, onSelect, readBody, onPanel } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
   const readingOf = useCallback(
@@ -142,6 +152,57 @@ export function AreasView(props: AreasViewProps) {
   };
 
   const dismissMenu = useCallback(() => setMenu(null), []);
+
+  // One press shows the area in the side panel; a second on the same area opens it (the owner, 2026-11-24).
+  const [peek, setPeek] = useState<string | null>(null);
+  const lastPress = useRef<{ folder: string; at: number } | null>(null);
+  const onArea = useCallback(
+    (area: string) => {
+      const now = Date.now();
+      const last = lastPress.current;
+      lastPress.current = { folder: area, at: now };
+      if (onPanel === undefined || (last !== null && last.folder === area && now - last.at < DOUBLE_PRESS_MS)) {
+        lastPress.current = null;
+        setPeek(null);
+        onSelect(area);
+        return;
+      }
+      setPeek(area);
+    },
+    [onPanel, onSelect],
+  );
+  const closePeek = useCallback(() => setPeek(null), []);
+  // A folder change (opening an area) closes the panel.
+  useEffect(() => setPeek(null), [folder]);
+  const peekNode = peek === null ? undefined : findNode(tree, peek);
+  // The panel's contents follow this view's every render through a slot of
+  // their own, so the page only hears when the panel opens or closes.
+  const slot = useRef(panelSlot()).current;
+  const panelProps: Omit<AreaPanelProps, "width"> | null =
+    peekNode === undefined
+      ? null
+      : {
+          node: peekNode,
+          canEdit,
+          faceOf,
+          label,
+          reach,
+          readingOf,
+          onSave: (seat, edit) => save(seat, edit, []),
+          onEditSeat: (seat) => setEditing({ seat }),
+          onPeek: setPeek,
+          onOpen: (area) => {
+            setPeek(null);
+            onSelect(area);
+          },
+          onClose: closePeek,
+        };
+  useEffect(() => slot.set(panelProps));
+  const peekOpen = peekNode !== undefined;
+  useEffect(() => {
+    onPanel?.(peekOpen ? (width: number) => <PanelSlot slot={slot} width={width} /> : null);
+  }, [onPanel, peekOpen, slot]);
+  useEffect(() => () => onPanel?.(null), [onPanel]);
   const rootTitle = folder === root ? rootName : areaTitle(tree.seat.name);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
   const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf };
@@ -156,11 +217,12 @@ export function AreasView(props: AreasViewProps) {
         <AreasChart
           {...shared}
           onOpen={onSelect}
+          onArea={onArea}
           onAdd={canEdit ? (parent) => setAdding(parent) : null}
           onAssign={canEdit ? (seat) => setEditing({ seat }) : null}
         />
       ) : (
-        <AreasList {...shared} onOpen={onSelect} />
+        <AreasList {...shared} onOpen={onSelect} onArea={onArea} selected={peek} />
       )}
       {menu !== null ? (
         <SeatMenu
@@ -208,6 +270,30 @@ export function AreasView(props: AreasViewProps) {
       ) : null}
     </View>
   );
+}
+
+type PanelProps = Omit<AreaPanelProps, "width"> | null;
+
+/** The side panel's latest contents, which the panel reads as they change. */
+function panelSlot() {
+  let current: PanelProps = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => current,
+    set: (next: PanelProps) => {
+      current = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+function PanelSlot({ slot, width }: { slot: ReturnType<typeof panelSlot>; width: number }) {
+  const props = useSyncExternalStore(slot.subscribe, slot.get, slot.get);
+  return props === null ? null : <AreaPanel {...props} width={width} />;
 }
 
 function findNode(node: AreaNode, folder: string): AreaNode | undefined {
