@@ -260,24 +260,33 @@ Test: `apps/mcp/bench/test/jobsSocket.test.mjs`, which fails when a socketed
 jobs run with no answers says ok.
 
 
-## A skip for the config-graph migration, until 2026-11-22 (decided by the owner, 2026-11-14)
+## The owner's skip line (decided by the owner, 2026-11-14; standing since 2026-11-24)
 
 Dev2, 2026-11-14: "I think it's fine to bypass the replay checks just for now
 because the config changes are so monumental that it doesn't matter. I feel
-like the replay should kind of wait for the config change first." Moving Tex
-onto its config graph regenerates the map every agent is told, so each of
-those pull requests reaches every area, and examining all seven for each one
-would hold the migration for hours.
+like the replay should kind of wait for the config change first." That skip
+had an end date, 2026-11-22. On 2026-11-24 a CSV sheets pull request scored
+9 of 12 on the sealed Test Set against main's 10, one reviewer case, after the
+same Tex changes had passed on an earlier commit; the owner said to merge it
+without testing and then: "either make a thread to relax the ci, or put some
+bypasscode whatever is best". A bypass the owner calls per pull request was
+chosen over lowering the bar for every change.
 
-So until 2026-11-22, a pull request whose body has a line starting
+So a pull request whose body has a line starting
 `Replay skipped on the owner's call:` followed by a reason passes **Tex replay
-required** without a run, and the check's log names the areas it did not
-replay (`SKIP_LINE`, `SKIP_ENDS` and `ownerSkip` in
-`scripts/tex-replay-required.mjs`). After that date the line does nothing and
-the gate is whole again; delete the skip then. Once the graph has landed,
-replays are tied to the config they ran on. Test:
-`node scripts/tex-replay-required.mjs --self-test` ("the skip ends on its
-date").
+required** without a run, starts no Test Set run, and the check's log names the
+areas it did not replay as a warning (`SKIP_LINE` and `ownerSkip` in
+`scripts/tex-replay-required.mjs`). The line goes in only when the owner asked
+for that pull request, and the reason says so; an agent never adds it on its
+own judgment. Editing the description re-runs the check
+(`scripts/pr-description.mjs`). The squash commit carries the body, so every
+use is in main's history.
+
+**What a simplification would cost:** taking the line away again means a
+noisy Test Set result holds a change the owner already decided to ship, and
+the only way past it is weakening the gate itself. Test:
+`node scripts/tex-replay-required.mjs --self-test` ("the owner's skip with a
+reason holds", "the skip line with no reason is not a skip").
 
 ## A change's replay runs a sample, and the map alone reaches nothing (decided by the owner, 2026-11-15)
 
