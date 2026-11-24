@@ -15,3 +15,5 @@ export function filesFor(message: { attachments?: InboundAttachment[] }, lines: 
 export const MAX_GROUP_FILES: number;
 export const PICTURE_LINE: string;
 export const MAX_QUOTED_TEXT: number;
+export const EFFECT_NAMES: Readonly<Record<string, string>>;
+export function richWords(message: Record<string, unknown>, card: boolean): string;

@@ -376,6 +376,16 @@ export const CAPABILITIES = Object.freeze([
     ],
   },
   {
+    name: "Tags, effects and other apps' cards",
+    actions: [],
+    texts: "on your iMessage line, a native tag reaches you as @name (so a tag on you reads as @Tex), a text sent with an effect says which (\"(sent with Slam)\", Invisible Ink included, whose words you read), and another app's card (Apple Cash, Check In, Find My, a game) reaches you as the words on it (\"(Apple Cash card: $40 · Sent)\"), never its link",
+    group: "the same; a native tag on you is answered as a literal @Tex is",
+    cant: [
+      { where: "everywhere", what: "send a native tag, an effect or a card of another app yourself", workaround: { kind: "words", text: "write the person's name, or say it in words" } },
+      { where: "everywhere", what: "see tags, effects or other apps' cards on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say it in words" } },
+    ],
+  },
+  {
     name: "Edited and unsent texts",
     actions: [],
     texts: "on your iMessage line, an edited text reaches you marked as the edit of the one it changed, and is judged like any text (a fixed typo needs no answer, a changed ask does); an unsent text is marked as taken back, and if you hadn't started on it you don't answer it",

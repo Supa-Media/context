@@ -280,3 +280,35 @@ test("an event Apple gave no time is stamped with the observation time and marke
   assert.equal(dated.at, WHEN.toISOString());
   assert.equal("atGuessed" in dated, false);
 });
+
+test("a text's native tags, effect and another app's card reach the agent, and nothing else of the card", () => {
+  const mapped = mapEvent(
+    received({}, {
+      content: {
+        text: "Tex can you split this",
+        attachments: [],
+        formatting: [],
+        mentions: [{ address: "+15555550199", start: 0, length: 3 }, { address: "", start: 4, length: 3 }, { address: "x", start: -1, length: 2 }],
+        expressiveSendStyleId: "com.apple.MobileSMS.expressivesend.impact",
+        balloonBundleId: "com.apple.messages.MSMessageExtensionBalloonPlugin:TEAM:com.apple.PassbookUIService.PeerPaymentMessagesExtension",
+        miniApp: { teamId: "TEAM", extensionBundleId: "com.apple.PassbookUIService.PeerPaymentMessagesExtension", appName: "Apple Cash", url: "https://example.test/pay", live: false, sessionId: "s-1", layout: { caption: "$40", subcaption: "  ", summary: "Sent $40 with Apple Cash" } },
+      },
+    }),
+    LINE,
+  );
+  assert.deepEqual(mapped.message.mentions, [{ address: "+15555550199", start: 0, length: 3 }]);
+  assert.equal(mapped.message.effect, "com.apple.MobileSMS.expressivesend.impact");
+  assert.deepEqual(mapped.message.app, { name: "Apple Cash", bundle: "com.apple.PassbookUIService.PeerPaymentMessagesExtension", caption: "$40", summary: "Sent $40 with Apple Cash" });
+});
+
+test("a plain text carries no tags, effect or card", () => {
+  const mapped = mapEvent(received(), LINE);
+  assert.equal("mentions" in mapped.message, false);
+  assert.equal("effect" in mapped.message, false);
+  assert.equal("app" in mapped.message, false);
+});
+
+test("an edit keeps the native tags of its new words", () => {
+  const mapped = mapEvent({ type: "message.edited", sequence: 5, chatGuid: DM, isFromMe: false, messageGuid: "m-1", editedAt: WHEN, content: { text: "Sam, Tex", attachments: [], formatting: [], mentions: [{ address: "+15555550101", start: 0, length: 3 }] } }, LINE);
+  assert.deepEqual(mapped.message.mentions, [{ address: "+15555550101", start: 0, length: 3 }]);
+});

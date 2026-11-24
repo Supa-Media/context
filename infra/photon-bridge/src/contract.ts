@@ -39,6 +39,12 @@ export type PhotonEvent = {
     attachments?: { guid: string; name: string; mimeType: string; size: number | null }[];
     balloonBundleId?: string;
     appUrl?: string;
+    /** Another app's card, as its words (`map.mjs` `appOf`). */
+    app?: { name?: string; bundle?: string; caption?: string; subcaption?: string; trailingCaption?: string; trailingSubcaption?: string; imageTitle?: string; imageSubtitle?: string; summary?: string };
+    /** Native tags: the tagged address and its UTF-16 range in `text`. */
+    mentions?: { address: string; start: number; length: number }[];
+    /** Apple's id of the bubble or screen effect it was sent with. */
+    effect?: string;
     /** A poll started, changed or voted in, told in words (`map.mjs` `pollWords`). */
     poll?: true;
   };

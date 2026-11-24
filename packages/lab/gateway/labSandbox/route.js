@@ -23,6 +23,8 @@
  *  - `send { sandboxId, as?, text, pics?, replyTo? }` → `{ msgId }`: the text, as `as`, with up to 6 pictures
  *    (`[{ url, type?, name? }]`, https; `text` may then be empty) and as a reply to a row of this test chat, and its turn
  *    run in the background; `get` shows it.
+ *    `tags`, `effect` and `app` add native tags, an effect, or another app's card, read into the words as a real
+ *    text's are (`rich.js`); the row keeps them as `rich`.
  *  - `react { sandboxId, msgId, emoji, as? }` → `{ msgId }`: a tapback (❤️ 👍 👎 😂 ‼️ ❓) on any row with words.
  *  - `edit { sandboxId, msgId, text, as? }` → `{ msgId }`: one of the test texts edited, a kind "edit" row `on` it.
  *  - `unsend { sandboxId, msgId, as? }` → `{ msgId }`: one of the test texts taken back, a kind "unsend" row `on` it.
@@ -68,6 +70,7 @@ import { carryFrom, carryInObject, objectCarry, objectRun, runInObject } from ".
 import { draftFit, TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
 import { intake } from "./intake.js";
+import { richText } from "./rich.js";
 import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { sandboxAsset } from "./pages.js";
@@ -380,8 +383,12 @@ function alsoRows(about, also, first) {
 }
 
 /** `send`, and `retry`'s second half: a text, with its pictures and the row it replies to, and its turn. */
-async function send(deps, state, { as, text = "", pics: given, replyTo, also }, cut = null) {
-  if (typeof text !== "string" || text.length > MAX_TEXT) return refused(400, `text is at most ${MAX_TEXT} characters`);
+async function send(deps, state, { as, text: typed = "", pics: given, replyTo, also, tags, effect, app }, cut = null) {
+  if (typeof typed !== "string" || typed.length > MAX_TEXT) return refused(400, `text is at most ${MAX_TEXT} characters`);
+  // Native tags, an effect, another app's card: read into the words by the Worker's own code (`rich.js`).
+  const read = await richText({ text: typed, tags, effect, app });
+  if (read.error) return refused(400, read.error);
+  const { text, rich } = read;
   const { pics, error } = picsOf(given);
   if (error) return refused(400, error);
   if (text.trim() === "" && pics.length === 0) return refused(400, `text is 1 to ${MAX_TEXT} characters, or empty with pictures`);
@@ -394,7 +401,7 @@ async function send(deps, state, { as, text = "", pics: given, replyTo, also }, 
   const speaker = speakerOf(about, as);
   if (speaker.error) return refused(...speaker.error);
   const { at, eid, id } = newIds();
-  const row = { id, eid, who: speaker.speaker, text, at, prod: false, line: rowLine(lineOf(about)), ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}) };
+  const row = { id, eid, who: speaker.speaker, text, at, prod: false, line: rowLine(lineOf(about)), ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}), ...(rich ? { rich } : {}) };
   const burst = alsoRows(about, also, row);
   if (burst.error) return refused(...burst.error);
   return await addRow({ ...deps, state, row: burst.rows.length > 0 ? { ...row, also: burst.rows.map((r) => r.id) } : row, cut, also: burst.rows });
