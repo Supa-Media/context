@@ -83,7 +83,22 @@ export async function worldWorkspaces(ctx: QueryCtx, userId: Id<"users">) {
  * What a made-up chat reaches on main, and the session its turn runs on: the Lab user's 1:1 session (`base`) with its
  * workspaces put back to the pin's setup row and the reached workspaces only, at team tier.
  */
-export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { scopes: string[]; texChatId?: string; [k: string]: unknown }, people: WorldPersonIn[]) {
+/** A made-up chat's group id, as the gateway names it (`labSandbox/route.js` `openWorld`). */
+export const WORLD_GROUP_ID = /^lab-world-[0-9a-f]{16}$/;
+
+/**
+ * The made-up chat's key, worked out here from its group id and never taken from the caller, so a caller can't name a
+ * real chat's key and read its Tex notes: a hash no real chat's key is (`textGroups.groupKey` hashes the line and the
+ * chat's own id), checked against them all the same. Null when a real chat has it.
+ */
+export async function worldChatKey(ctx: QueryCtx, groupId: string): Promise<string | null> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`lab-world:${groupId}`)));
+  const key = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const real = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", key)).first();
+  return real === null ? key : null;
+}
+
+export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { scopes: string[]; texChatId?: string; [k: string]: unknown }, people: WorldPersonIn[], chatKey: string) {
   const mine = await worldWorkspaces(ctx, userId);
   const reached: SessionRow[] = [];
   const blocked: Blocked[] = [];
@@ -106,12 +121,14 @@ export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { sco
   // member's role, so nothing there can be changed either. A made-up chat has no home of its own.
   const workspaces: SessionRow[] =
     reached.length > 0 ? [{ ...setup, setupOnly: true as const }, ...reached] : [{ ...setup, role: "member", homeOnly: true as const, grantedNames: [READS_AS_CHAT_NAME, NO_HOME] }];
-  // A group chat's client, so the turn runs under a group's rules (no vault, no 1:1 approvals), and no 1:1 chat's Tex
-  // notes: the made-up chat has no home of its own.
+  // A group chat's client, so the turn runs under a group's rules (no vault, no 1:1 approvals), and the made-up chat's
+  // own key as its chat, never the 1:1's: its Tex notes are an empty chat's, and a group turn needs a chat to keep its
+  // record in (found on production, 2026-11-24: with none, every turn failed at the Door).
   const { texChatId: _oneToOne, ...rest } = base;
   const session = {
     ...rest,
     clientId: "context_texts_group",
+    texChatId: chatKey,
     // Team tier: a group never reads `context:private`, whoever tagged Tex.
     scopes: base.scopes.filter((s) => s !== "context:private"),
     defaultWorkspaceId: (reached[0] ?? workspaces[0]).workspaceId,

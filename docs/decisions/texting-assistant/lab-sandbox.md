@@ -430,7 +430,8 @@ complaint. On main nobody is made: the people live only in the test chat, each w
 shared workspaces, and every text asks the control plane's `worldReach` (`functions/lib/texLabWorldReach.ts`) what a
 real chat of these people would reach, by the rule `lib/textGroupReach.ts` keeps: every shared workspace all of them
 are in or invited to by number, at the lowest role, never personal, never the pin, at team tier. The session it answers
-is the Lab user's own 1:1 session narrowed to that, under the group client and with no 1:1 chat's notes, so a made-up
+is the Lab user's own 1:1 session narrowed to that, under the group client and on the made-up chat's own key (worked
+out by the control plane from its id, never taken from the caller, and refused if a real chat has it), so a made-up
 role can never add a workspace the Lab user isn't in or lift their role; a chat that reaches nothing holds only the pin
 read as a chat with no home (`READS_AS_CHAT` and a token no row holds), as a home-only grant's is. No token is minted
 and nothing is written: the turn runs on the Lab user's own `lab_` token, its writes stay in the test chat, and the
