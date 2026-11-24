@@ -33,9 +33,11 @@ holds its value.**
   `{ op: "set", node, field: "settings", value }`. A test chat on the draft
   runs its value (`withDraft` / `draftStep`).
 
-The first settings: Text them's `trimFlattery` and `linkSavedNote`, Answer
-check's `proseWords` (70) and `besideResultWords` (30), all on the old
-constants' values.
+The first settings were Text them's `trimFlattery` and `linkSavedNote` and Answer check's `proseWords` (70) and
+`besideResultWords` (30), all on the old constants' values. Since the no-shadow steps (2026-11-24,
+[no-shadow-steps](./no-shadow-steps.md)) they live on the steps whose code reads them: Finish the text
+(`trimFlattery`, `linkSavedNote`, `dropStaleAnswer`), Claim checks (`onTexts`, `proseWords`, `besideResultWords`) and
+Tool rules (`sameAsk`, `folderFit`, `noteLinks`).
 
 Search's settings stay its own (`searchConfig.cjs` bounds,
 `SEARCH_SETTINGS_BOUNDS`): that architecture has its own config and schema.

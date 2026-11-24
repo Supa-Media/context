@@ -89,7 +89,8 @@ test("the Reply reviewer reads only a job's report and a routine's text (Dev2, 2
   assert.deepEqual(wired("fd", "answerCheck").map((w) => w.mode), ["wait"], "every draft is checked before it goes");
   assert.deepEqual(wired("answerCheck", "fd").map((w) => w.mode), ["loop"], "a draft sent back goes to the Front door");
   assert.ok(config.nodes.find((n) => n.id === "answerCheck").on, "the Answer check is on");
-  assert.equal(config.edges.filter((w) => w.from === "reviewer" || w.to === "reviewer").length, 0, "the old Reply reviewer is unwired");
+  // Dev2, 2026-11-23 (the no-shadow steps): the reviewer is its own step again, reached only over the Answer check's uses wire.
+  assert.deepEqual(config.edges.filter((w) => w.from === "reviewer" || w.to === "reviewer").map((w) => [w.from, w.to, w.mode]), [["answerCheck", "reviewer", "uses"]], "the Reply reviewer runs only inside the Answer check");
   const { answerCheckNode } = await import("../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js");
   const run = async (reviewedAs) => {
     let reviewed = 0;

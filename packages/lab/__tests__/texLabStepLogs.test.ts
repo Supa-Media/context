@@ -92,6 +92,9 @@ const entries: LedgerEntry[] = [
   e({ kind: "tool", turn: T, name: "read_note", ms: 300, args: { path: "about.md" }, result: "# About" }),
   e({ kind: "tool", turn: T, name: "ask_advisor", ms: 9_000, args: { question: "which first?" }, result: "Flights first." }),
   step("checks", { input: "Started.", output: null }),
+  run("toolRules", { calls: 3, tools: ["plan_big_ask", "read_note", "ask_advisor"] }, { on: ["sameAsk", "folderFit", "noteLinks"], off: [] }),
+  run("finish", {}, { chars: 8, asked: 0, silent: false }),
+  run("recheck", { candidates: ["1000-000001"], transcriptChars: 40 }, { fits: true }),
   e({ kind: "mail_check", turn: T, to: "a@example.com", subject: "Trip", verdict: "send", why: "fine" }),
   step("card", { input: { tool: "draw_visual" }, output: { ok: true } }),
   e({ kind: "judge", turn: T, by: "review", model: "anthropic/claude-haiku-5-5", round: 1, went: true, ms: 1_500, draft: "Started." }),
@@ -134,12 +137,13 @@ describe("every canvas step logs what went in and what came out", () => {
 
   test("a step logged under another name lands on its canvas step; timing is Door steps' gathering", () => {
     expect(nodeOfStep("lane")).toBe("lanes");
-    expect(nodeOfStep("recheck")).toBe("decide");
+    expect(nodeOfStep("recheck")).toBe("recheck"); // Still answers them? is a step of its own (2026-11-24)
     expect(nodeOfStep("timing")).toBeNull();
     // A turn logged before the Door was one step lands on it.
     expect(nodeOfStep("door")).toBe("doorStep");
     // A step retired from the config (2026-11-20) lands on the step it was folded into.
-    expect(nodeOfStep("checks")).toBe("answerCheck");
+    expect(nodeOfStep("checks")).toBe("claimChecks"); // the code checks are a step of their own again (2026-11-24)
+    expect(nodeOfStep("reviewer")).toBe("reviewer");
     expect(nodeOfStep("reflect")).toBe("learn");
   });
 

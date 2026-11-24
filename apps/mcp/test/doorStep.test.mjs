@@ -88,7 +88,7 @@ test("Confirmations & refusals names the part that settled the text and hands it
   assert.deepEqual(await bypassNode({ answeredBy: "readTheText" }), { answeredBy: "readTheText" });
 });
 
-test("on the runner, a settled text goes Door -> Confirmations & refusals -> Text them, and a text goes Door -> Front door -> Answer check -> Text them", async () => {
+test("on the runner, a settled text goes Door -> Confirmations & refusals -> Text them, and a text goes Door -> Front door -> Answer check -> Finish the text -> Text them", async () => {
   const ran = [];
   const stub = (id, output) => async (input) => (ran.push(id), typeof output === "function" ? output(input) : output);
   const config = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((n) => ({ ...n, inSchema: undefined, outSchema: undefined })) };
@@ -96,16 +96,16 @@ test("on the runner, a settled text goes Door -> Confirmations & refusals -> Tex
   await createGraph(config, { ...settled, bypass: async (i) => (ran.push("bypass"), bypassNode(i)) }).run("doorStep", {}, {});
   assert.deepEqual(ran, ["doorStep", "bypass", "send"]);
   ran.length = 0;
-  const texted = { doorStep: stub("doorStep", { when: ["next"], parts: [] }), fd: stub("fd", { when: [] }), answerCheck: stub("answerCheck", { when: [] }), bypass: stub("bypass", {}), send: stub("send", { when: [] }) };
+  const texted = { doorStep: stub("doorStep", { when: ["next"], parts: [] }), fd: stub("fd", { when: [] }), answerCheck: stub("answerCheck", { when: [] }), finish: stub("finish", { when: [] }), bypass: stub("bypass", {}), send: stub("send", { when: [] }) };
   await createGraph(config, texted).run("doorStep", {}, {});
-  assert.deepEqual(ran, ["doorStep", "fd", "answerCheck", "send"]);
+  assert.deepEqual(ran, ["doorStep", "fd", "answerCheck", "finish", "send"]);
 });
 
 test("the Door's parts stay in its row: the Front door, its real input shape checked, is handed only what the last part found", async () => {
   const t = { question: "hi", session: {}, texted: true, forwarding: [1, 2] };
   const door = await runDoor(t, {}, () => 0, standIns());
   const got = [];
-  const impls = { doorStep: async () => doorOutput(door), fd: async (input) => (got.push(input), { when: [] }), answerCheck: async () => ({ when: [] }), send: async () => ({ when: [] }) };
+  const impls = { doorStep: async () => doorOutput(door), fd: async (input) => (got.push(input), { when: [] }), answerCheck: async () => ({ when: [] }), finish: async () => ({ when: [] }), send: async () => ({ when: [] }) };
   // The Front door's real input shape; the stand-ins' outputs are not what is checked here.
   const config = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((n) => ({ ...n, outSchema: undefined, ...(n.id === "fd" ? {} : { inSchema: undefined }) })) };
   await createGraph(config, impls).run("doorStep", {}, {});

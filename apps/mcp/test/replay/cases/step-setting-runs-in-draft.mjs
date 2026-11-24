@@ -5,10 +5,10 @@ import { stepSettings } from "../../../../../packages/tex/src/texNodeSettings.cj
 
 /** A chatty answer of 96 words of sentences, over main's prose limit of 70. */
 const ANSWER = Array.from({ length: 12 }, () => "This sentence has exactly eight words in it.").join(" ");
-const wordy = (config) => replyFindings({ question: "how was the trip?", words: stepSettings(config, "answerCheck") })(ANSWER, []).some((f) => f.kind === "wordy");
+const wordy = (config) => replyFindings({ question: "how was the trip?", words: stepSettings(config, "claimChecks") })(ANSWER, []).some((f) => f.kind === "wordy");
 const draftWith = (settings) => {
   const draft = JSON.parse(JSON.stringify(TEX_CONFIG));
-  draft.nodes.find((n) => n.id === "answerCheck").settings = settings;
+  draft.nodes.find((n) => n.id === "claimChecks").settings = settings;
   return withDraft(TEX_CONFIG, draft);
 };
 

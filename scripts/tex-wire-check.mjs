@@ -36,8 +36,17 @@ const SCANNED = ["packages/tex", "packages/lab/gateway", "apps/mcp/src", "apps/a
  */
 export const OUTSIDE_CALLS = {
   // Decide's route asks Clef for its reason again in the gateway's own Decide path, not on a runner turn.
-  [`${AGENT}/textsDecide.js`]: { node: "decideWhy", wire: ["decide", "decideWhy"], gateFrom: `${AGENT}/graph/nodes/decideWhy.js`, gate: "decideWhyOn" },
+  // Still answers them? is the Worker's question to the gateway's recheck route (`/texts/recheck`), asked after Text them.
+  [`${AGENT}/textsDecide.js`]: [
+    { node: "decideWhy", wire: ["decide", "decideWhy"], gateFrom: `${AGENT}/graph/nodes/decideWhy.js`, gate: "decideWhyOn" },
+    { node: "recheck", wire: ["send", "recheck"], gateFrom: `${AGENT}/graph/nodes/recheck.js`, gate: "recheckOn" },
+  ],
+  // Tool rules wrap the dispatcher once per turn, before any tool call; the step's row names the switches the calls passed.
+  [`${AGENT}/texEntryPoint/runTheModel.js`]: { node: "toolRules", wire: ["tools", "toolRules"], gateFrom: `${AGENT}/graph/nodes/toolRules.js`, gate: "toolRulesOn" },
 };
+
+/** A file's listed outside calls, one or several (`OUTSIDE_CALLS`), each `{ path, ...entry }`. */
+const listedCalls = (outside) => Object.entries(outside).flatMap(([path, entries]) => [entries].flat().map((entry) => ({ path, ...entry })));
 
 /** Files that start a job, the node each starts it for, and the code that checks its wire into Job start. */
 export const STARTERS = {
@@ -117,26 +126,26 @@ export function outsideProblems(files, fns, resolveFrom, outside = OUTSIDE_CALLS
         if (file !== target) continue;
         if (path === file) continue;
         if (!(names.includes(name) || names.includes("*"))) continue;
-        const listed = outside[path];
-        if (listed && listed.node === node) {
-          seen.add(path);
+        if ([outside[path] ?? []].flat().some((listed) => listed.node === node)) {
+          seen.add(`${path}#${node}`);
           continue;
         }
         problems.push(`${path} calls the ${node} node's function (${name}) outside the runner: run it over a wire (io.use / drawn.fire), or list it in OUTSIDE_CALLS (scripts/tex-wire-check.mjs) with the wire it rides and its gate`);
       }
     }
   }
-  for (const path of Object.keys(outside)) if (!seen.has(path)) problems.push(`OUTSIDE_CALLS lists ${path}, which no longer calls ${outside[path].node}'s function: take it off`);
+  for (const { path, node } of listedCalls(outside)) if (!seen.has(`${path}#${node}`)) problems.push(`OUTSIDE_CALLS lists ${path}, which no longer calls ${node}'s function: take it off`);
   return problems;
 }
 
 /** Problems with a listed outside call's wire and gate, given each gate function. */
 export function gateProblems(config, outside, gates) {
   const problems = [];
-  for (const [path, entry] of Object.entries(outside)) {
+  for (const entry of listedCalls(outside)) {
+    const { path } = entry;
     const [from, to] = entry.wire;
     const has = config.edges.some((e) => e.from === from && e.to === to);
-    const gate = gates[path];
+    const gate = gates[`${path}#${entry.node}`] ?? gates[path];
     if (typeof gate !== "function") {
       problems.push(`${path}: its gate ${entry.gate} in ${entry.gateFrom} is gone`);
       continue;
@@ -182,7 +191,7 @@ async function check() {
   if (fns.length < 20) problems.push(`read only ${fns.length} node functions from ${REGISTRY}: the registry's shape changed, so this check reads it no more`);
   problems.push(...outsideProblems(files, fns, resolveFrom));
   const gates = {};
-  for (const [path, entry] of Object.entries(OUTSIDE_CALLS)) gates[path] = (await import(pathToFileURL(join(ROOT, entry.gateFrom)).href))[entry.gate];
+  for (const entry of listedCalls(OUTSIDE_CALLS)) gates[`${entry.path}#${entry.node}`] = (await import(pathToFileURL(join(ROOT, entry.gateFrom)).href))[entry.gate];
   problems.push(...gateProblems(config, OUTSIDE_CALLS, gates));
   problems.push(...startProblems(files, config, STARTERS, (path) => {
     try {
@@ -209,6 +218,7 @@ function selfTest() {
   expect(outsideProblems([file(at, 'const m = await import("./graph/nodes/fd.js");')], fns, resolveFrom, {}).length === 1, "a dynamic import of a node file passed");
   expect(outsideProblems([file(at, 'import { fdNode } from "./graph/nodes/fd.js";')], fns, resolveFrom, { [at]: { node: "fd" } }).length === 0, "a listed outside call refused");
   expect(outsideProblems([], fns, resolveFrom, { [at]: { node: "fd" } }).length === 1, "a stale outside call stayed listed");
+  expect(outsideProblems([file(at, 'import { fdNode } from "./graph/nodes/fd.js";')], fns, resolveFrom, { [at]: [{ node: "fd" }, { node: "dream" }] }).length === 1, "one stale call of a file's several stayed listed");
   const config = { nodes: [{ id: "decide", on: true }, { id: "w", on: true }, { id: "fd", on: true }, { id: "jobStart", on: true }], edges: [{ from: "decide", to: "w" }, { from: "fd", to: "jobStart" }] };
   const listed = { [at]: { node: "w", wire: ["decide", "w"], gate: "on", gateFrom: "x" } };
   const reads = (c) => c.nodes.some((n) => n.id === "w" && n.on) && c.edges.some((e) => e.from === "decide" && e.to === "w");

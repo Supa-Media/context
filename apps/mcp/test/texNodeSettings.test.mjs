@@ -7,7 +7,7 @@
  *   stepSettingsProblems call removed from configProblems     "a setting nothing declares is refused" fails
  *   draftStep no longer copying settings                      "a Lab draft's setting is the one a test chat runs on" fails
  *   tooWordy back to MAX_PROSE_WORDS                          "the prose limit is Answer check's setting" fails
- *   sendTheReply calling withoutFlattery unconditionally      "Text them reads its own two settings" fails
+ *   sendTheReply calling withoutFlattery unconditionally      "Text them reads its own two settings" fails (now Finish the text)
  *   draftProblems no longer calling stepSettingsProblems      "tex_dev check names a step setting" fails
  */
 import { test } from "node:test";
@@ -44,26 +44,26 @@ test("main's config gives each declared setting a value, and only declared ones"
 });
 
 test("a setting nothing declares is refused, and so is a value outside its declaration", () => {
-  assert.match(configProblems(withSettings("send", { trimFlattery: true, linkSavedNote: true, made_up: 1 })).join("; "), /setting nothing reads: made_up/);
-  assert.match(configProblems(withSettings("send", { trimFlattery: "yes" })).join("; "), /trimFlattery must be true or false/);
-  assert.match(configProblems(withSettings("answerCheck", { proseWords: 5 })).join("; "), /proseWords must be from 20 to 400/);
-  assert.match(configProblems(withSettings("answerCheck", { proseWords: 70.5 })).join("; "), /proseWords must be a whole number/);
+  assert.match(configProblems(withSettings("finish", { trimFlattery: true, linkSavedNote: true, made_up: 1 })).join("; "), /setting nothing reads: made_up/);
+  assert.match(configProblems(withSettings("finish", { trimFlattery: "yes" })).join("; "), /trimFlattery must be true or false/);
+  assert.match(configProblems(withSettings("claimChecks", { proseWords: 5 })).join("; "), /proseWords must be from 20 to 400/);
+  assert.match(configProblems(withSettings("claimChecks", { proseWords: 70.5 })).join("; "), /proseWords must be a whole number/);
   assert.match(configProblems(withSettings("fd", { anything: true })).join("; "), /step "fd" has a setting nothing reads/);
-  assert.equal(stepSettingProblem("answerCheck", "proseWords", 120), null);
+  assert.equal(stepSettingProblem("claimChecks", "proseWords", 120), null);
 });
 
 test("a step's settings fill in each default, and a bad value reads as its default", () => {
-  assert.deepEqual(stepSettings(withSettings("send", {}), "send"), { trimFlattery: true, linkSavedNote: true });
-  assert.deepEqual(stepSettings(withSettings("send", { trimFlattery: false }), "send"), { trimFlattery: false, linkSavedNote: true });
-  assert.equal(stepSettings(withSettings("answerCheck", { proseWords: 9999 }), "answerCheck").proseWords, 70);
+  assert.deepEqual(stepSettings(withSettings("finish", {}), "finish"), { trimFlattery: true, linkSavedNote: true, dropStaleAnswer: true });
+  assert.deepEqual(stepSettings(withSettings("finish", { trimFlattery: false }), "finish"), { trimFlattery: false, linkSavedNote: true, dropStaleAnswer: true });
+  assert.equal(stepSettings(withSettings("claimChecks", { proseWords: 9999 }), "claimChecks").proseWords, 70);
   assert.deepEqual(stepSettings(TEX_CONFIG, "fd"), {}, "a step that declares none has none");
 });
 
 test("a Lab draft's setting is the one a test chat runs on; a value its declaration refuses is dropped", () => {
   const draft = copy(TEX_CONFIG);
-  draft.nodes.find((n) => n.id === "send").settings = { trimFlattery: false, linkSavedNote: "nope" };
+  draft.nodes.find((n) => n.id === "finish").settings = { trimFlattery: false, linkSavedNote: "nope", dropStaleAnswer: true };
   const ran = withDraft(TEX_CONFIG, draft);
-  assert.deepEqual(stepSettings(ran, "send"), { trimFlattery: false, linkSavedNote: true });
+  assert.deepEqual(stepSettings(ran, "finish"), { trimFlattery: false, linkSavedNote: true, dropStaleAnswer: true });
 });
 
 test("the prose limit and the words beside a page are Answer check's settings", () => {
@@ -74,19 +74,24 @@ test("the prose limit and the words beside a page are Answer check's settings", 
   assert.equal(fails({ proseWords: 40 }), true);
 });
 
-test("Text them reads its own two settings before it trims or links (no constant does it unasked)", () => {
-  const send = src("texEntryPoint/sendTheReply.js");
-  assert.match(send, /settingsOf\(env, "send"\)/);
-  assert.match(send, /sendSet\.trimFlattery === true \? withoutFlattery\(replied\) : replied/);
-  assert.match(send, /sendSet\.linkSavedNote !== true \|\|/);
-  assert.match(src("texEntryPoint/prepareTheAnswer.js"), /words: settingsOf\(env, "answerCheck"\)/);
+test("Finish the text reads its own settings before it trims, links or drops (no constant does it unasked)", () => {
+  const finish = src("texEntryPoint/finishTheText.js");
+  assert.match(finish, /settingsOf\(env, "finish"\)/);
+  assert.match(finish, /finishSet\.trimFlattery === true \? withoutFlattery\(replied\) : replied/);
+  assert.match(finish, /finishSet\.linkSavedNote !== true \|\|/);
+  assert.match(finish, /finishSet\.dropStaleAnswer === true && claims\?\.stale\(\) === true/);
+  assert.doesNotMatch(src("texEntryPoint/sendTheReply.js"), /withoutFlattery|withSavedLink/, "Text them only delivers");
+  const prepare = src("texEntryPoint/prepareTheAnswer.js");
+  assert.match(prepare, /settingsOf\(env, "claimChecks"\)/);
+  assert.match(prepare, /words: claimSet/);
+  assert.match(prepare, /claimSet\.onTexts === true/);
 });
 
 test("tex_dev check names a step setting its code refuses, and passes one it declares", () => {
   const ok = copy(TEX_CONFIG);
-  ok.nodes.find((n) => n.id === "answerCheck").settings = { proseWords: 120, besideResultWords: 30 };
+  ok.nodes.find((n) => n.id === "claimChecks").settings = { proseWords: 120, besideResultWords: 30 };
   assert.deepEqual(draftProblems(ok), []);
   const bad = copy(TEX_CONFIG);
-  bad.nodes.find((n) => n.id === "answerCheck").settings = { proseWords: 1000, besideResultWords: 30 };
-  assert.match(draftProblems(bad).join("; "), /promote: step "answerCheck" setting proseWords must be from 20 to 400/);
+  bad.nodes.find((n) => n.id === "claimChecks").settings = { proseWords: 1000, besideResultWords: 30 };
+  assert.match(draftProblems(bad).join("; "), /promote: step "claimChecks" setting proseWords must be from 20 to 400/);
 });

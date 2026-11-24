@@ -1,9 +1,10 @@
 /**
- * Answer check node "answerCheck" (`texConfig.json`; Dev2, 2026-11-16: Answer checks and the Reply reviewer, merged):
- * every draft the Front door would send is checked here before it goes. Code first (`doItChecks.js`, `claimCheck.js`,
- * `replyJudge.js` `codeCheck`) catches what it can prove wrong; a draft it lets through that is a job's report or a
- * routine's text (the turn's kind, `runTheModel.js` `reviewedAs`, set only when the setup turns the reviewer on) is then
- * read once by the model (`replyJudge.js` `review`). Either sends it back with its notice through the `loop` wire to
+ * Answer check node "answerCheck" (`texConfig.json`; Dev2, 2026-11-16: Answer checks and the Reply reviewer, merged;
+ * 2026-11-23: each a step of its own again, over `uses` wires): every draft the Front door would send is checked here
+ * before it goes. The Claim checks first (`claimChecks.js`: `doItChecks.js`, `claimCheck.js`, `replyJudge.js`
+ * `codeCheck`) catch what code can prove wrong; a draft they let through that is a job's report or a routine's text (the
+ * turn's kind, `runTheModel.js` `reviewedAs`, set only when the setup turns the reviewer on) is then read once by the
+ * Reply reviewer (`reviewer.js`, `replyJudge.js` `review`). Either sends it back with its notice through the `loop` wire to
  * the Front door (`io.back.fd`), which comes back with the rewrite; `null` lets it go, and the Front door goes on.
  *
  * The wire's rounds are the send-back budget. Letting a draft go is a release and spends none. Once the budget is
@@ -38,7 +39,7 @@ export async function answerCheckNode(input, io) {
   };
   while (stop.pending) {
     const waiting = t.drafts.waiting;
-    const { notice, review } = await t.answerChecks.code(waiting.draft, waiting.info);
+    const { notice, review } = await claimChecksOf(io, t, waiting);
     if (notice !== null && notice !== undefined) {
       if (back.left() === 0) {
         stop = await spentOn(waiting, String(notice));
@@ -68,7 +69,7 @@ export async function answerCheckNode(input, io) {
     }
     if (review && t.reviewedAs) {
       reviews += 1;
-      const said = await t.answerChecks.review(waiting.draft, waiting.info);
+      const said = await reviewOf(io, t, waiting);
       if (said !== null && said !== undefined && back.left() > 0) {
         sentBack += 1;
         stop = await back({ notice: String(said) });
@@ -80,6 +81,23 @@ export async function answerCheckNode(input, io) {
     stop = await letGo(); // let go: the front door may still write it again with a text that came in
   }
   return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack, reviews, ...(spent ? { spent: true } : {}), ...(handedOff || ladders > 0 ? { log: { ...(handedOff ? { handedOff: true } : {}), ...(ladders > 0 ? { ladders } : {}) } } : {}) };
+}
+
+/**
+ * The Claim checks' verdict on the draft (`claimChecks.js`, over the `answerCheck -> claimChecks` wire, so the checks
+ * are a step of their own in the chat's record); a draft that does not wire it runs the turn's checks here, as before.
+ */
+async function claimChecksOf(io, t, waiting) {
+  if (!("claimChecks" in (io.use ?? {}))) return t.answerChecks.code(waiting.draft, waiting.info);
+  const out = await io.use.claimChecks({ draftChars: String(waiting.draft ?? "").length });
+  return { notice: out?.back === true ? t.claimNotice : null, review: out?.review === true };
+}
+
+/** The Reply reviewer's notice (`reviewer.js`, over `answerCheck -> reviewer`), or the turn's review run here when unwired. */
+async function reviewOf(io, t, waiting) {
+  if (!("reviewer" in (io.use ?? {}))) return t.answerChecks.review(waiting.draft, waiting.info);
+  const out = await io.use.reviewer({ draftChars: String(waiting.draft ?? "").length });
+  return out?.back === true ? t.reviewNotice : null;
 }
 
 /**

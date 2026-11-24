@@ -74,34 +74,16 @@ const HOLDS = /export\s+(?:const\s+[A-Z0-9_]*NOTICE\b|(?:async\s+)?function\s+\w
  * it; the list only shrinks.
  */
 export const CODE_CHECKS_NOT_NODED_YET = Object.freeze([
-  "browserWalls.js",
-  "bugCheck.js",
-  "checkoutChecks.js",
-  "confession.js",
-  "finishedOffer.js",
-  "keptClaims.js",
   "lastRound.js",
   "ledger.js",
-  "linkCheck.js",
   "lookFirst.js",
-  "otherRoutes.js",
-  "otherSites.js",
   "pageCoverFloor.js",
-  "pageNotice.js",
   "progress.js",
   "readClaims.js",
   "recordRead.js",
-  "replyChecks.js",
   "saveAccount.js",
-  "sayNothing.js",
   "searchClaims.js",
-  "standsCheck.js",
-  "stopsShort.js",
-  "stuckAsks.js",
   "timeLog.js",
-  "visuals/notice.js",
-  "wordy.js",
-  "workPage.js",
 ]);
 /** Where a Tex agent's prompt is written: each file here that gives a model a system prompt puts the map ahead of it (`texArchitecture.js`). */
 const AGENT_FOLDER = "packages/tex/gateway/agent";

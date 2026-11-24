@@ -42,6 +42,11 @@ export const STEP_LOGS: Record<string, StepLog> = {
   mail: { got: "mail_check: the email (to, subject)", gave: "mail_check: its verdict and why", settings: "its model" , time: "mail_check: its call" },
   card: { got: "step card: the tool, template and pins", gave: "step card: its verdict", settings: "its model" , time: "step card: its call" },
   answerCheck: { got: "node run answerCheck: the draft, and whether it is a report or routine (reviewedAs)", gave: "node run answerCheck: passed, or sent back with why (code's catch, then the model's review: judge (review) for a report or routine)", settings: "its model, for reports and routines only" , time: "node run: its own time, less the front door's rewrites it sent back for"},
+  claimChecks: { got: "node run claimChecks: how long the draft is", gave: "node run claimChecks: whether a rule sent the draft back, and whether the reviewer reads it next (the notice itself is never kept)", settings: "code; its switches (On every text) and word limits", time: "node run: its own time, inside the Answer check" },
+  reviewer: { got: "node run reviewer: how long the draft is", gave: "node run reviewer: whether it sent the draft back (the notice itself is never kept)", settings: "its model, for reports and routines only", time: "node run: its own time, inside the Answer check" },
+  finish: { got: "node run finish: the reply the checks let go", gave: "node run finish: its length, how many asks it carries, and whether it is silent", settings: "code; its switches (Trim flattery, Link the saved note, Drop a stale answer)", time: "node run: its own time" },
+  recheck: { got: "node run recheck: the group's texts and the unsent reply, as counts", gave: "node run recheck: whether the reply still fits", settings: "its model (Clef)", time: "node run: Clef's look, asked by the texting Worker before a group reply goes" },
+  toolRules: { got: "each tool call", gave: "the call as each rule left it", settings: "code; its switches (Same ask twice, Where a new note goes, Links in results)", time: "inside each tool call" },
   send: { got: "the answer as it left the checks", gave: "text: each text sent, delivered or not", settings: "the chat's service" , time: "node run (building the reply in the gateway) plus step send (delivery): the texting Worker handing it to the service" },
   afterReply: { got: "node run afterReply: the texts and the chat", gave: "node run afterReply: the threads filed into and the chat's score, with a review filed when something went wrong", settings: "its model" , time: "node run: its own time, in the background" },
   job: { got: "job: the job and its brief", gave: "job: its state and advice", settings: "the job's model" , time: "job: its run" },
@@ -99,9 +104,9 @@ export const STEP_LOGS: Record<string, StepLog> = {
 };
 
 /** Step names the gateway and Worker log under another canvas step's name. */
-export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", recheck: "decide", provisional: "fd", resumed: "fd", failed: "send",
+export const STEP_ALIAS: Record<string, string> = { door: "doorStep", lane: "lanes", model: "fd", steer: "fd", provisional: "fd", resumed: "fd", failed: "send",
   // Steps retired from the config on 2026-11-20 (their code kept, on the shelf): what they log lands on the step they were folded into.
-  fallback: "fd", planner: "fd", checks: "answerCheck", reviewer: "answerCheck", classifier: "afterReply", selfreview: "afterReply", jobcheck: "jobadv", mailadv: "jobadv", nudge: "learn", reflect: "learn" };
+  fallback: "fd", planner: "fd", checks: "claimChecks", classifier: "afterReply", selfreview: "afterReply", jobcheck: "jobadv", mailadv: "jobadv", nudge: "learn", reflect: "learn" };
 
 /** The canvas step a `step` entry belongs to, or null (`timing` entries are Door steps' gathering, read from the reply). */
 export const nodeOfStep = (step: unknown): string | null => (typeof step !== "string" || step === "timing" ? null : (STEP_ALIAS[step] ?? (step in STEP_LOGS ? step : null)));

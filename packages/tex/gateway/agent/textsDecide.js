@@ -16,6 +16,7 @@
 
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
 import { decideWhyNode, decideWhyOn } from "./graph/nodes/decideWhy.js";
+import { recheckNode, recheckOn } from "./graph/nodes/recheck.js";
 import { texConfigOf } from "./texConfig.js";
 import { eventEntry, ledgerFor, ledgerWriter, stepEntry } from "./ledger.js";
 import { checkEvents, EventRefusal } from "./log.js";
@@ -23,7 +24,7 @@ import { dayFromLedger } from "./ledgerHistory.js";
 import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
 import { guestNameFacts, guestNamesFrom } from "./groupGuestNames.js";
 import { ABOUT_FACT, briefFacts } from "./judgeBrief.js";
-import { decideRequest, readDecideAnswers, readDecideBody, readRecheckAnswers, readRecheckBody, recheckRequest } from "../../src/textDecide.cjs";
+import { decideRequest, readDecideAnswers, readDecideBody, readRecheckBody } from "../../src/textDecide.cjs";
 
 /** The paths the Worker posts to on the `TexTexts` binding. */
 export const TEXTS_DECIDE_PATH = "/texts/decide";
@@ -61,21 +62,20 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   const raw = await readJson(request);
   const body = raw === null ? null : recheck ? readRecheckBody(raw) : readDecideBody(raw);
   if (body === null) return new Response(null, { status: 400 });
+  // Still answers them? (node "recheck", `texConfig.json`): turned off, every group reply goes as it is, with no model asked.
+  if (recheck && !recheckOn(texConfigOf(env))) return Response.json({ ok: true, fits: true, off: true, meter: { questions: 0, chars: 0, ms: 0, answered: false } });
   // No model here (a gateway with no AI binding): 503, so the Worker asks the control plane as it did before.
   if (engine === null) return new Response(null, { status: 503 });
   // What Tex is doing in this chat right now, from its ledger: facts the judge reads beside the chat (Dev2, 2026-11-12).
   const facts = recheck || !body.ledger ? [] : await nowFacts(ledger(body.ledger), body.ledger);
-  const asked = recheck ? recheckRequest(body) : decideRequest(body, { facts });
-  const meter = { questions: Object.keys(asked.questions).length, chars: asked.state.length + JSON.stringify(asked.questions).length, ms: 0 };
+  // Still answers them? is a node of its own (`graph/nodes/recheck.js`); Decide's question is asked here.
+  const rechecked = recheck ? await recheckNode(body, { engine }) : null;
+  const asked = recheck ? null : decideRequest(body, { facts });
+  const meter = rechecked ? { questions: rechecked.questions, chars: rechecked.chars, ms: rechecked.ms } : { questions: Object.keys(asked.questions).length, chars: asked.state.length + JSON.stringify(asked.questions).length, ms: 0 };
   const started = Date.now();
-  const answers = await engine(asked.state, asked.questions);
-  meter.ms = Date.now() - started;
-  const first =
-    answers === null
-      ? { ok: false, reason: "unavailable", cause: "model_failed" }
-      : recheck
-        ? readRecheckAnswers(answers)
-        : readDecideAnswers(body, answers);
+  const answers = rechecked ? rechecked.answered : await engine(asked.state, asked.questions);
+  if (!rechecked) meter.ms = Date.now() - started;
+  const first = rechecked ? rechecked.result : answers === null ? { ok: false, reason: "unavailable", cause: "model_failed" } : readDecideAnswers(body, answers);
   // A quiet verdict whose reason says the message is for Tex is asked for its reason once more, told the act
   // (`graph/nodes/decideWhy.js`): only when the config runs that step, and never changing the act.
   const again = !recheck && first.ok === true && decideWhyOn(texConfigOf(env)) ? await decideWhyNode({ verdict: first, state: asked.state }, { engine }) : null;
@@ -94,7 +94,7 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
   // The verdict in the group's ledger, behind the answer: never on the text's path.
   // A look again, or a judging that failed, is a step there instead, so every judging of the chat is in its record (Dev2, 2026-11-13).
   if (body.ledger) {
-    const entry = !recheck && result.ok ? judgeVerdictEntry(body, result, meter.ms, facts.length) : stepEntry({ step: "decide", name: recheck ? "recheck" : "decide", ok: result.ok === true, ms: meter.ms, input: judgedInput(body, facts.length), output: result.ok ? (recheck ? { fits: result.fits } : null) : { cause: result.cause ?? null }, model: DECISION_MODEL });
+    const entry = !recheck && result.ok ? judgeVerdictEntry(body, result, meter.ms, facts.length) : stepEntry({ step: recheck ? "node" : "decide", name: recheck ? "recheck" : "decide", ok: result.ok === true, ms: meter.ms, input: judgedInput(body, facts.length), output: result.ok ? (recheck ? { fits: result.fits } : null) : { cause: result.cause ?? null }, model: DECISION_MODEL });
     const writer = ledgerWriter(ledger(body.ledger), body.ledger);
     const written = (async () => {
       await (writer?.write(entry) ?? Promise.resolve());
@@ -104,7 +104,7 @@ export async function decideForTexts(request, env, { engine = decisionEngine(env
     })();
     if (typeof waitUntil === "function") waitUntil(written);
   }
-  return Response.json({ ...result, meter: { ...meter, answered: answers !== null } });
+  return Response.json({ ...result, meter: { ...meter, answered: rechecked ? rechecked.answered : answers !== null } });
 }
 
 /** The verdict words the design names (`one-judge-one-record.md`) for the contract's acts. */

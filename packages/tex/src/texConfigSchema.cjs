@@ -23,7 +23,7 @@
 "use strict";
 
 const { stepSettingsProblems } = require("./texNodeSettings.cjs");
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const MODES = Object.freeze(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
 const EFFORTS = Object.freeze(["off", "low", "medium", "high", "xhigh", "max"]);
@@ -251,7 +251,26 @@ const MIGRATIONS = Object.freeze([
   // 4 → 5 (2026-11-23): a Tex code step may carry `settings` its code declares (`texNodeSettings.cjs`): numbers, true or
   // false, or a choice. A step drawn before has none and runs on each default, so nothing is rewritten.
   (g) => g,
+  // 5 → 6 (2026-11-24, the no-shadow steps): Text them's switches moved to Finish the text, and Answer check's word
+  // limits to Claim checks, the steps whose code reads them. A draft without those steps runs on their defaults.
+  (g) => movedSettings(g, { send: "finish", answerCheck: "claimChecks" }),
 ]);
+
+/** A graph whose `from` steps' settings now belong to the `to` steps: moved onto them when drawn, dropped otherwise. */
+function movedSettings(g, moves) {
+  if (!Array.isArray(g?.nodes)) return g;
+  const moved = {};
+  for (const n of g.nodes) if (n && moves[n.id] && n.settings && typeof n.settings === "object") moved[moves[n.id]] = { ...(moved[moves[n.id]] ?? {}), ...n.settings };
+  const nodes = g.nodes.map((n) => {
+    if (!n || typeof n !== "object") return n;
+    if (moves[n.id] && "settings" in n) {
+      const { settings: _gone, ...rest } = n;
+      return rest;
+    }
+    return moved[n.id] ? { ...n, settings: { ...moved[n.id], ...(n.settings ?? {}) } } : n;
+  });
+  return { ...g, nodes };
+}
 
 /**
  * A graph brought to the current schema. A config names its version (`texConfig`) and runs only the migrations after it;

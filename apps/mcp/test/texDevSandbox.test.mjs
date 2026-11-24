@@ -51,7 +51,8 @@ test("the card says which steps did not run and why, from the config and the log
   // The Router may be on (a logged signal, 2026-11-20) or off: either way its why is the config's or its caller's.
   assert.ok(["off in this config", "doorStep may call it and did not"].includes(why.router), why.router);
   assert.equal(why.shapeGate, "off in this config", "a step Promote turned off");
-  assert.equal(why.reviewer, undefined, "a step retired off the config (2026-11-20) is no step of it");
+  // Retired 2026-11-20, back on 2026-11-23 as a step the Answer check uses (the no-shadow steps).
+  assert.equal(why.reviewer, "answerCheck may call it and did not", "a uses step the run did not reach names its caller");
   assert.match(why.bypass, /doorStep said \[next\], the wait wire wants \[answered\]/);
   assert.match(why.advisor, /tools may call it \(when ask_advisor\) and did not/);
   assert.equal(why.checkin, undefined, "a trigger of its own is never 'did not run' for a text");
