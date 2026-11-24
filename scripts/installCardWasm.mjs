@@ -6,6 +6,9 @@
  *   node scripts/installCardWasm.mjs                 # the dev deployment
  *   node scripts/installCardWasm.mjs --prod
  *
+ * or from Actions: "Card renderer" (`card-renderer.yml`), which installs it
+ * where it is missing.
+ *
  * ## Why this exists at all
  *
  * Convex bundles JavaScript and does not ship a package's `.wasm`, so
@@ -29,11 +32,9 @@ const wasmPath = require.resolve("@resvg/resvg-wasm/index_bg.wasm");
 const wasm = readFileSync(wasmPath);
 
 const prod = process.argv.includes("--prod");
-console.log(
-  `installing ${(wasm.length / 1024 / 1024).toFixed(2)} MB of wasm into the ${
-    prod ? "production" : "dev"
-  } deployment…`,
-);
+// With CONVEX_DEPLOY_KEY set (the "Card renderer" workflow), the key names the deployment.
+const target = process.env.CONVEX_DEPLOY_KEY ? "the deployment CONVEX_DEPLOY_KEY names" : prod ? "the production deployment" : "the dev deployment";
+console.log(`installing ${(wasm.length / 1024 / 1024).toFixed(2)} MB of wasm into ${target}…`);
 
 // The bytes travel as base64, in pieces.
 //

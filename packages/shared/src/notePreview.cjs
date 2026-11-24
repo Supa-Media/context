@@ -186,6 +186,11 @@ function withPreviewLinks(text, signed) {
     for (;;) {
       const at = out.indexOf(plain, from);
       if (at === -1) break;
+      // Already signed (a job's report finished twice): left as it is, never signed again.
+      if (out.startsWith(withKey, at)) {
+        from = at + withKey.length;
+        continue;
+      }
       const next = out[at + plain.length];
       if (next !== undefined && !/[\s)\]>.,;:!?'"]/.test(next)) {
         from = at + plain.length;
