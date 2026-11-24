@@ -521,7 +521,8 @@ export function FolderPage({
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
             {...(host?.source.readBody === undefined ? {} : { readBody: host.source.readBody })}
-            {...(panel.fits ? { onPanel: setAreaPanel } : {})}
+            // In the right panel an area shows at any pointer width; drawn beside the list, only where it fits.
+            {...((inAside ? !compact : panel.fits) ? { onPanel: setAreaPanel } : {})}
           />
           </View>
         ) : view === "list" ? (
