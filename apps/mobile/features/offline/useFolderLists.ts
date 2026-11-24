@@ -3,7 +3,8 @@ import { useAction, useConvex } from "convex/react";
 import { useWriteNote } from "../console/files/useWriteNote";
 import { useConsoleGrant } from "../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../console/placeholderData";
-import { folderNotesThroughGateway, folderNotesUrl } from "./gatewayFolderNotes";
+import { folderNotesThroughGateway, folderNotesUrl, frontNotesThroughGateway, peekNoteThroughGateway } from "./gatewayFolderNotes";
+import { noteReadUrl } from "../console/files/gatewayNoteRead";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { announceBucketWrite } from "../console/files/bucketWrites";
@@ -67,6 +68,7 @@ export function useFolderLists(
   return useMemo(() => {
     if (workspaceId == null || tier === "unknown") return undefined;
     const id = workspaceId as Id<"workspaces">;
+    const gatewayToken = async (refresh: false | { rejected: string }) => (await mintGrant.current({ workspaceId: id }, refresh)).accessToken;
     const source = folderListSource({
       workspaceId,
       scope: tier,
@@ -77,6 +79,15 @@ export function useFolderLists(
       deviceFirst: deviceFirst(),
       io: {
         readNote: (path) => readNote({ workspaceId: id, path }),
+        // A page's description and its front notes, the gateway first too; the control plane for what it hands back.
+        peekNote: async (path) => {
+          const url = noteReadUrl(MCP_ENDPOINT, null);
+          return url === null ? null : await peekNoteThroughGateway({ url, token: gatewayToken, path });
+        },
+        frontNotes: async (folders) => {
+          const url = folderNotesUrl(MCP_ENDPOINT);
+          return url === null ? null : await frontNotesThroughGateway({ url, token: gatewayToken, folders });
+        },
         // The gateway first, read in the workspace's object (`gatewayFolderNotes.ts`); the control plane for what it
         // hands back, a workspace whose notes are not in its object yet.
         folderNotes: async (folder, subfolders, cursor) => {
@@ -86,7 +97,7 @@ export function useFolderLists(
               ? null
               : await folderNotesThroughGateway({
                   url,
-                  token: async (refresh) => (await mintGrant.current({ workspaceId: id }, refresh)).accessToken,
+                  token: gatewayToken,
                   folder,
                   subfolders,
                   cursor,

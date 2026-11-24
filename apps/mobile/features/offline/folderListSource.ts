@@ -1,6 +1,6 @@
 import { rewriteNote, writeNoteProperties } from "../console/files/listBlock/writeProperty";
 import { setNoteLede } from "../console/files/folderPage/lede";
-import type { FolderListSource } from "../console/files/listBlock/model";
+import type { FolderListSource, ListNote } from "../console/files/listBlock/model";
 import type { OpenNote } from "../console/files/types";
 import { currentEpoch } from "./epoch";
 import type { CacheScope } from "./keys";
@@ -44,6 +44,13 @@ import { serverFrontNotes, tableListNotes, type ServerListIO } from "./serverLis
 
 export interface FolderListIO extends ServerListIO {
   readNote(path: string): Promise<OpenNote & { updatedAt?: number }>;
+  /**
+   * A note's words for a page to draw (a description), read the quick way where there is one; `null` where it could
+   * not answer, and `readNote` is asked. Never used for a read a write follows: its version is not the editor's.
+   */
+  peekNote?(path: string): Promise<{ text: string; encrypted: boolean } | null>;
+  /** The front notes of `folders` (no text), read the quick way; `null` where it could not answer, and `readNotes` is asked. */
+  frontNotes?(folders: readonly string[]): Promise<ListNote[] | null>;
   /** `expectedEtag` undefined is a create, refused if the note exists. */
   writeNote(path: string, text: string, expectedEtag: string | undefined): Promise<{ path: string }>;
 }
@@ -179,7 +186,8 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
       };
       if (online()) {
         try {
-          return await serverFrontNotes(io, folders);
+          const quick = io.frontNotes === undefined ? null : await io.frontNotes(folders).catch(() => null);
+          return quick ?? (await serverFrontNotes(io, folders));
         } catch {
           return await offlineFront();
         }
@@ -194,6 +202,8 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
         a team reader is never handed a body filed under private.
       */
       const fromServer = async () => {
+        const quick = io.peekNote === undefined ? null : await io.peekNote(path).catch(() => null);
+        if (quick !== null) return { text: quick.encrypted ? "" : quick.text, encrypted: quick.encrypted };
         const note = await io.readNote(path);
         return { text: note.encrypted === true ? "" : note.text, encrypted: note.encrypted === true };
       };

@@ -56,7 +56,11 @@ export async function handleNoteRead(request, store, session) {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!hasScope(session, SCOPE_READ)) return json({ error: "forbidden" }, 403);
   const body = await readBody(request);
-  if (body === null || Object.keys(body).some((key) => key !== "path")) return json({ error: "invalid_request" }, 400);
+  if (body === null || Object.keys(body).some((key) => key !== "path" && key !== "peek")) return json({ error: "invalid_request" }, 400);
+  if (body.peek !== undefined && body.peek !== true) return json({ error: "invalid_request" }, 400);
+  // A look at the words for a folder page's description (`peek`): no editing history is started for it, and it is
+  // not counted as an open, since nobody opened the note.
+  const peek = body.peek === true;
   const path = typeof body.path === "string" && body.path.length <= MAX_PATH && !body.path.includes("\0") ? normalizePath(body.path) : null;
   if (!path || isPlumbing(path)) return json({ error: "invalid_path" }, 400);
   // Pictures, PDFs and the rest, and the old access file, stay with the control plane's read.
@@ -77,7 +81,7 @@ export async function handleNoteRead(request, store, session) {
 
   let answer;
   try {
-    answer = await view.readInObject(path, { start: true });
+    answer = await view.readInObject(path, { start: !peek });
   } catch {
     return json({ error: "unavailable" }, 503);
   }
@@ -94,7 +98,7 @@ export async function handleNoteRead(request, store, session) {
   const visibility = effectiveVisibility(path, rules, overrides);
   const inherited = visibilityOf(path, rules);
   // One open by this person, for search to rank by (`search/opens.js`).
-  countPersonOpen(store, path);
+  if (!peek) countPersonOpen(store, path);
   return json({
     kind: "file",
     path,

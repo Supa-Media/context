@@ -86,6 +86,8 @@ export async function readNoteThroughGateway(options: {
   url: string;
   token: (refresh: false | { rejected: string }) => Promise<string>;
   path: string;
+  /** A look at the words only (a folder page's description): no editing history started, no open counted. */
+  peek?: boolean;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): Promise<GatewayNoteRead | null> {
@@ -98,7 +100,7 @@ export async function readNoteThroughGateway(options: {
       const response = await doFetch(options.url, {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ path: options.path }),
+        body: JSON.stringify(options.peek === true ? { path: options.path, peek: true } : { path: options.path }),
         ...(abort === null ? {} : { signal: abort.signal }),
       });
       const body = await response.json().catch(() => null);
