@@ -424,7 +424,24 @@ turn itself is still handed the test text's own `lab_` token, never the minted g
 what the chat could reach, who kept a workspace out and whether this was Tex's first answer. `join` and `leave`
 change who is here, as in a real chat: a row the chat shows, and the next text's people.
 
+**On main, a copy of the reach rule, by Dev's choice (2026-11-24: "and cant i just test reg? why does it have to be a
+pr", then "test main", picking "Main, people kept in the chat").** A pull request just to try a group chat was the
+complaint. On main nobody is made: the people live only in the test chat, each with a role in some of the Lab user's own
+shared workspaces, and every text asks the control plane's `worldReach` (`functions/lib/texLabWorldReach.ts`) what a
+real chat of these people would reach, by the rule `lib/textGroupReach.ts` keeps: every shared workspace all of them
+are in or invited to by number, at the lowest role, never personal, never the pin, at team tier. The session it answers
+is the Lab user's own 1:1 session narrowed to that, under the group client and with no 1:1 chat's notes, so a made-up
+role can never add a workspace the Lab user isn't in or lift their role; a chat that reaches nothing holds only the pin
+read as a chat with no home (`READS_AS_CHAT` and a token no row holds), as a home-only grant's is. No token is minted
+and nothing is written: the turn runs on the Lab user's own `lab_` token, its writes stay in the test chat, and the
+chat object's group question is answered by the Lab (`labSandbox/worldLocal.js` `localControl`), with the reach on the
+reply row. What this gives up is the rest of `applyGroupTurn` (the sponsor's billing, the real introduction and the
+home); a preview still runs all of it. A copy can drift from the rule, so a test gives the same people as real
+accounts to `reachOf` and asserts the same answer.
+
 Its tests: `apps/convex/__tests__/texLabWorld.test.ts` (dropping the preview check fails "refuses on production",
 keeping an old role fails "running again puts each person's roles as asked", skipping the invitation fails "a guest
 invited by number") and `apps/mcp/test/labSandboxWorld.test.mjs` (ignoring `world` in the switch, passing the minted
-token to the turn, or keeping people who left each fail a named test).
+token to the turn, or keeping people who left each fail a named test). On main: `apps/convex/__tests__/controlPlane/texLabWorldReach.test.ts`
+(reaching a personal workspace, starting from an owner's role, counting a guest or keeping `context:private` each fail
+a named test, and "reaches what the real rule gives" fails on drift) and `apps/mcp/test/labSandboxWorldLocal.test.mjs`.

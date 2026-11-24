@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from "react";
 import { callSandboxRoute, changePeople, openSandbox, sandbox, sandboxChanged, type SandboxSource } from "../../../engine/sandbox";
 import { setDockView } from "../../../engine/sandboxPlay";
-import { personInput, worldPayload, type SpeaksUp, type WorldDraft, type WorldPerson } from "./worldModel";
+import { personInput, setWorkspaces, workspaces, worldPayload, type SpeaksUp, type WorldDraft, type WorldPerson } from "./worldModel";
 
 export type WorldState = {
   /** The chat open now: who it opened with, everyone ever known by lowercased name, and its settings. */
@@ -23,9 +23,14 @@ export type WorldState = {
   /** The test chat whose people were read back last. */
   synced: string | null;
   problem: string | null;
+  /** Whose workspaces the setup offers: the preview's seeded three, or main's (the Lab user's own), once read. */
+  workspacesFor: "preview" | "main" | null;
+  /** Why the Lab user's workspaces couldn't be read, and how many they have (the setup shows at most four). */
+  workspacesProblem: string | null;
+  workspacesTotal: number | null;
 };
 
-export const world: WorldState = { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null };
+export const world: WorldState = { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null, workspacesFor: null, workspacesProblem: null, workspacesTotal: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -45,6 +50,47 @@ export function useWorld(): WorldState {
 const keyOf = (name: string) => name.trim().toLowerCase();
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
+/**
+ * The workspaces made-up people can have roles in for the Code chosen: on a pull request the preview's three, on main
+ * the Lab user's own shared ones (the gateway's `worlds`), read once and shared by every caller while it is read. A
+ * read answered after Code changed is dropped. A failed read offers none and says why (`workspacesProblem`); the
+ * answer is whether made-up chats can be opened now.
+ */
+let reading: Promise<boolean> | null = null;
+export async function loadWorkspaces(main: boolean): Promise<boolean> {
+  if (!main) {
+    setWorkspaces(null);
+    world.workspacesFor = "preview";
+    world.workspacesProblem = null;
+    world.workspacesTotal = null;
+    emit();
+    return true;
+  }
+  if (world.workspacesFor === "main") return true;
+  reading ??= (async () => {
+    try {
+      const b = await callSandboxRoute("worlds", {});
+      if (sandbox.code !== "main") return false;
+      const list = Array.isArray(b.workspaces) ? (b.workspaces as Array<Record<string, unknown>>).map((x) => ({ slug: String(x.slug ?? ""), name: String(x.name ?? x.slug ?? "") })).filter((x) => x.slug) : [];
+      setWorkspaces(list);
+      world.workspacesFor = "main";
+      world.workspacesTotal = list.length;
+      world.workspacesProblem = null;
+      return true;
+    } catch (e) {
+      if (sandbox.code !== "main") return false;
+      setWorkspaces([]);
+      world.workspacesFor = null;
+      world.workspacesProblem = e instanceof Error ? e.message : "Couldn't read your workspaces";
+      return false;
+    } finally {
+      reading = null;
+      emit();
+    }
+  })();
+  return await reading;
+}
+
 /** The setup, filled in from a scenario, a blank chat, or the chat open now ("Set up"). */
 export function openSetup(d: WorldDraft) {
   world.draft = clone(d);
@@ -56,6 +102,20 @@ export function editSetup(f: (d: WorldDraft) => void) {
   if (!world.draft) return;
   f(world.draft);
   world.draft = { ...world.draft };
+  emit();
+}
+/** The setup's roles and invitations kept only where there is such a workspace here (after Code changed). */
+export function fitDraft() {
+  if (!world.draft) return;
+  const here = new Set(workspaces().map((w) => w.slug));
+  const fit = (p: WorldPerson): WorldPerson => {
+    const roles = Object.fromEntries(Object.entries(p.roles ?? {}).filter(([slug]) => here.has(slug)));
+    if (p.account === "invited" && !(p.invited && here.has(p.invited.slug))) return { name: p.name, account: "off" };
+    return { ...p, ...(p.account === "on" ? { roles } : {}) };
+  };
+  const people = world.draft.people.map(fit);
+  if (JSON.stringify(people) === JSON.stringify(world.draft.people)) return;
+  world.draft = { ...world.draft, people };
   emit();
 }
 export function undoSetup() {
@@ -159,6 +219,7 @@ export async function leavePerson(name: string) {
 
 /** For tests. */
 export function resetWorld() {
-  Object.assign(world, { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null });
+  Object.assign(world, { opened: null, known: {}, rolesKnown: false, settings: null, draft: null, base: null, fill: false, synced: null, problem: null, workspacesFor: null, workspacesProblem: null, workspacesTotal: null });
+  setWorkspaces(null);
   emit();
 }

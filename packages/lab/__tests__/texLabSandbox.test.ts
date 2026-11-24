@@ -216,8 +216,9 @@ describe("the Architecture test chat", () => {
     expect(qa("#sbPickTabs button").map((b) => b.textContent)).toEqual(["Your account", "Made-up chats", "Training / Dev", "Shared with devs"]);
     expect(q('#sbPickTabs [data-tab="test"]')?.getAttribute("aria-selected")).toBe("true");
     expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Maya", "Everyone on Context", "Mixed: one person not on Context", "Only you on Context", "Guest invited by number", "Different owners", "Tex dropped into a chat already going", "Someone joins who isn't a member", "New group chat…"]);
-    // Made-up group chats run only on a pull request's preview: on main the tab says so and opens none.
-    expect(q("#sbWorldMain")?.textContent).toMatch(/set Code to #<PR>/);
+    // On main made-up chats use your own shared workspaces; with none, the tab says so, and a scenario that needs one
+    // (everyone in one workspace) is offered disabled.
+    expect(q("#sbWorldMain")?.textContent).toMatch(/no shared workspace.*Set Code to #<PR>/);
     expect((q('#sbChatList [data-world="everyone"]') as HTMLButtonElement | null)?.disabled).toBe(true);
     await click('#sbPickTabs [data-tab="mine"]');
     expect(qa("#sbChatList .mh").map((o) => o.textContent)).toEqual(["1:1", "Group chats"]);

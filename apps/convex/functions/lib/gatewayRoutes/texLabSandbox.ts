@@ -16,7 +16,7 @@ import { json, stringField } from "../gatewayAuth";
 import { dispatchWorkflow } from "../../texLabRuns";
 import { previewPullRequest } from "../labPreviewPullRequest";
 
-const ACTIONS = new Set(["who", "session", "draft", "set", "sets", "shared", "intakeChats", "previewChat", "world"]);
+const ACTIONS = new Set(["who", "session", "draft", "set", "sets", "shared", "intakeChats", "previewChat", "world", "worldWorkspaces", "worldReach"]);
 /** The workflow that carries a test chat's calls to a pull request's preview (`packages/lab/gateway/labSandbox/preview.js`). */
 export const PREVIEW_CHAT_WORKFLOW = "lab-preview-chat.yml";
 

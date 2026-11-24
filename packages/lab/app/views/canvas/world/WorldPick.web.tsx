@@ -2,11 +2,13 @@
  * The chat picker's Made-up chats tab (artboard 01 of `group-chat-sim-artboards/`): Maya's 1:1 first, then the
  * ready-made group chats in two columns (a line on each, its size, a dot per person by account), then
  * "+ New group chat…" with the dots' legend. A scenario opens at once; its setup is one click further (Set up).
- * Made-up group chats run only on a pull request's preview, so on main the tab says so and opens none.
+ * On a pull request's preview the people are made there, in its three seeded workspaces; on main they live only in the
+ * test chat, with roles in the Lab user's own shared workspaces (`labSandbox/worldLocal.js`), and the scenarios use those.
  */
 import type { SandboxSource } from "../../../engine/sandbox";
-import { blankDraft, SCENARIOS, scenarioDraft, type Account } from "./worldModel";
-import { openSetup, openWorld } from "./worldStore";
+import { useEffect } from "react";
+import { blankDraft, placedWords, SCENARIOS, scenarioDraft, scenarioNeeds, workspaces, type Account } from "./worldModel";
+import { loadWorkspaces, openSetup, openWorld, useWorld } from "./worldStore";
 
 const DT: Record<Account, string> = { on: "on", off: "off", invited: "inv" };
 
@@ -21,15 +23,32 @@ function Dots({ accounts }: { accounts: Account[] }) {
 }
 
 export function WorldPick({ hit, cur, main, versionId, open, close }: { hit: (s: string) => boolean; cur: string; main: boolean; versionId: string; open: (s: SandboxSource) => void; close: () => void }) {
-  const shown = SCENARIOS.filter((s) => hit(s.title + " " + s.says));
+  const w = useWorld();
+  useEffect(() => void loadWorkspaces(main), [main]);
+  const shown = SCENARIOS.filter((s) => hit(s.title + " " + placedWords(s.says)));
+  const none = main && w.workspacesFor === "main" && workspaces().length === 0;
+  const have = workspaces().length;
+  const lacks = (id: string) => main && w.workspacesFor === "main" && scenarioNeeds(id) > have;
+  const cut = main && (w.workspacesTotal ?? 0) > have ? w.workspacesTotal : null;
   return (
     <>
       <div className="mh hx">
-        Made-up chats <span>Made-up people and workspaces. Nothing touches real ones.</span>
+        Made-up chats <span>{main ? "Made-up people in your own shared workspaces: Tex reads your real notes there, and nothing it writes leaves the test chat." : "Made-up people and workspaces. Nothing touches real ones."}</span>
       </div>
-      {main ? (
+      {none ? (
         <div className="mnote code" id="sbWorldMain">
-          Made-up group chats run on a pull request&apos;s preview: set Code to #&lt;PR&gt;.
+          You&apos;re in no shared workspace, so made-up people here have no roles and nobody can be invited by number. Set Code to #&lt;PR&gt; for made-up workspaces.
+        </div>
+      ) : null}
+      {main && w.workspacesProblem ? (
+        <div className="mnote bad" id="sbWorldProblem">
+          Couldn&apos;t read your workspaces: {w.workspacesProblem} ·{" "}
+          <a onClick={() => void loadWorkspaces(true)}>Try again</a>
+        </div>
+      ) : null}
+      {cut ? (
+        <div className="mnote" id="sbWorldCut">
+          Showing your first {have} of {cut} shared workspaces.
         </div>
       ) : null}
       <div className="pgrid" id="sbWorlds">
@@ -50,17 +69,22 @@ export function WorldPick({ hit, cur, main, versionId, open, close }: { hit: (s:
             key={s.id}
             className="mi two"
             data-world={s.id}
-            disabled={main}
-            title={main ? "Set Code to a pull request first" : s.says}
+            disabled={lacks(s.id)}
+            title={lacks(s.id) ? `Needs ${scenarioNeeds(s.id)} shared workspaces; you have ${have}` : placedWords(s.says)}
             onClick={() => {
-              close();
-              const d = scenarioDraft(s.id);
-              if (d) void openWorld(d, versionId);
+              // On the workspaces here: read first, so a scenario opened at once is placed on them; a failed read
+              // keeps the picker open with its reason.
+              void loadWorkspaces(main).then((ok) => {
+                const d = ok ? scenarioDraft(s.id) : null;
+                if (!d) return;
+                close();
+                void openWorld(d, versionId);
+              });
             }}
           >
             <span className="tx">
               <span className="nm">{s.title}</span>
-              <span className="ds">{s.says}</span>
+              <span className="ds">{placedWords(s.says)}</span>
             </span>
             <span className="side2">
               <span className="meta">{s.size}</span>
@@ -74,8 +98,11 @@ export function WorldPick({ hit, cur, main, versionId, open, close }: { hit: (s:
         className="mi newg"
         id="sbNewGroup"
         onClick={() => {
-          close();
-          openSetup(blankDraft());
+          void loadWorkspaces(main).then((ok) => {
+            if (!ok) return;
+            close();
+            openSetup(blankDraft());
+          });
         }}
       >
         <span className="plus">+</span>
