@@ -8,6 +8,7 @@ import { createEnricher, createLru } from "./enrich.mjs";
 import { RequestError } from "./errors.mjs";
 import { fetchFile, nameFor } from "./files.mjs";
 import { runLine } from "./listener.mjs";
+import { MAX_PHOTO_BYTES, readWhole } from "./photo.mjs";
 import { createLedger } from "./ledger.mjs";
 import { last4 } from "./log.mjs";
 import { POLL_INTERVAL_MS, readHealth } from "./readHealth.mjs";
@@ -294,6 +295,19 @@ export function createRuntime({
         case "poll/create": {
           const poll = await clientFor(args.line).polls.create(args.chat, args.title, args.choices);
           return { ok: true, guid: poll.pollMessageGuid };
+        }
+        case "group/name": {
+          await clientFor(args.line).groups.setDisplayName(args.chat, args.name);
+          return { ok: true };
+        }
+        case "group/photo": {
+          const client = clientFor(args.line);
+          await client.groups.setIcon(args.chat, await readWhole(client.attachments.downloadStream(args.attachment), MAX_PHOTO_BYTES));
+          return { ok: true };
+        }
+        case "group/add": {
+          const chat = await clientFor(args.line).groups.addParticipants(args.chat, [args.address]);
+          return { ok: true, participants: chat.participants.map((p) => p.address) };
         }
         case "group/remove": {
           const chat = await clientFor(args.line).groups.removeParticipants(args.chat, [args.address]);

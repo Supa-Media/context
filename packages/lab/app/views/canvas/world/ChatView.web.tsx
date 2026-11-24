@@ -189,6 +189,7 @@ export function ChatView({ empty, onReply }: { empty: ReactNode; onReply: (id: s
             return (
               <div key={e.key}>
                 <div className={"ev" + (e.id ? "" : " mut")}>
+                  {e.photo ? <img className="evth" src={e.photo} alt="The new group photo" /> : null}
                   {e.text}
                   {e.id && !e.row.prod ? (
                     <button className="evx" data-drop={e.id} title="Undo: delete this and everything after it" disabled={!idle} onClick={() => void dropText(e.id)}>

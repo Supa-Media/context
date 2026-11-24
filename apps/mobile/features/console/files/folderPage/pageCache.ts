@@ -32,6 +32,7 @@
 import { isEncryptedNote } from "../../encryption/envelope";
 import type { FolderListSource, ListNote } from "../listBlock/model";
 import { ABOUT_NOTE } from "../paths";
+import { FRONT_NOTES } from "../../../../../mcp/src/lists/grammar.js";
 import type { PanelBody } from "./panel/usePanelBody";
 
 export interface FolderRead {
@@ -98,12 +99,76 @@ export function pageCacheVersion(): number {
   return version;
 }
 
-export function cachedFront(source: FolderListSource | undefined, folder: string): readonly ListNote[] | undefined {
-  return source === undefined ? undefined : caches.get(source)?.front.get(folder);
+/** Which page's cache is live: bumped by `forgetPageCache`, so a cache kept beside this one (`areas/useReadings`) forgets with it. */
+export function pageCacheGeneration(): number {
+  return generation;
 }
 
+export function cachedFront(source: FolderListSource | undefined, folder: string): readonly ListNote[] | undefined {
+  if (source === undefined) return undefined;
+  const cache = caches.get(source);
+  const own = cache?.front.get(folder);
+  if (own !== undefined || cache === undefined || folder === "") return own;
+  // A folder read above this one already holds its front notes.
+  const above = readAbove(cache, folder);
+  return above === undefined ? undefined : above.read.notes.filter((note) => parentOf(note.path) === folder && isFrontNote(note.path));
+}
+
+/**
+ * A folder's notes as last read, or else as a read of a folder above it
+ * already holds them. Every folder read is with subfolders, so the Areas
+ * folder's read holds each sub-area's notes and the front notes above it:
+ * opening a sub-area draws at once and reads again behind it, as a page
+ * opened before does (owner, 2026-11-24: "even to sub areas").
+ */
 export function cachedFolder(source: FolderListSource | undefined, folder: string): FolderRead | undefined {
-  return source === undefined ? undefined : caches.get(source)?.folders.get(folder);
+  if (source === undefined) return undefined;
+  const cache = caches.get(source);
+  if (cache === undefined) return undefined;
+  const own = cache.folders.get(folder);
+  if (own !== undefined || folder === "") return own;
+  const above = readAbove(cache, folder);
+  return above === undefined ? undefined : within(above.read, folder);
+}
+
+function readAbove(cache: SourceCache, folder: string): { folder: string; read: FolderRead } | undefined {
+  for (const at of ancestorsOf(folder)) {
+    const read = cache.folders.get(at);
+    if (read !== undefined) return { folder: at, read };
+  }
+  return undefined;
+}
+
+function isFrontNote(path: string): boolean {
+  return FRONT_NOTES.includes(path.slice(path.lastIndexOf("/") + 1));
+}
+
+/** Kept per read, so a page drawing from it is handed the same notes every render. */
+const narrowed = new WeakMap<FolderRead, Map<string, FolderRead>>();
+
+/** What `readFolder(folder)` would answer, from a read of a folder above it: its notes, and the front notes above. */
+function within(read: FolderRead, folder: string): FolderRead {
+  let kept = narrowed.get(read);
+  if (kept === undefined) {
+    kept = new Map();
+    narrowed.set(read, kept);
+  }
+  const done = kept.get(folder);
+  if (done !== undefined) return done;
+  const under = `${folder}/`;
+  const holds = (path: string) => {
+    if (path.startsWith(under)) return true;
+    const parent = parentOf(path);
+    return (parent === "" || folder.startsWith(`${parent}/`)) && isFrontNote(path);
+  };
+  const missing = read.missing?.filter(holds);
+  const result: FolderRead = {
+    notes: read.notes.filter((note) => holds(note.path)),
+    complete: read.complete || (missing !== undefined && missing.length === 0),
+    ...(missing === undefined ? {} : { missing }),
+  };
+  kept.set(folder, result);
+  return result;
 }
 
 export function cachedBody(source: FolderListSource | undefined, path: string): PanelBody | undefined {

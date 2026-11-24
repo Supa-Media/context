@@ -47,6 +47,19 @@ test("questions are the sentences that end in a question mark", () => {
   assert.deepEqual(questionsIn("Sent the card to Ana."), [], "a done thing asks nothing");
 });
 
+test("a poll Tex starts is the chat's to answer, never a question to look up", () => {
+  // 2026-11-24, a Lab group chat: "make us a poll" drafted a poll, its title climbed the ladder as a fact to find, and
+  // the ask went to a background job that never sent it. Sabotage: dropping the poll strip in questionsIn fails this.
+  assert.deepEqual(questionsIn("(poll) Which night for the launch dinner?\n- Thursday\n- Friday\n- Saturday"), []);
+  assert.deepEqual(questionsIn("Here you go:\n\n(poll) Which night?\n1. Thu\n2. Fri\n\nWhat time works?"), ["What time works?"], "a question beside the poll still counts");
+  assert.deepEqual(questionsIn("Is the (poll) thing working?"), ["Is the (poll) thing working?"], "only a poll's own first line is one");
+});
+
+test("the gate lets a poll go with no model", async () => {
+  const out = await askGateNode({ ask: "make us a poll", draft: "(poll) Which night?\n- Thu\n- Fri" }, { ctx: { turn: { env: {} } }, use: {} });
+  assert.equal(out.to, "pass");
+});
+
 test("the model's read is a known kind with its confidence, or nothing", () => {
   assert.deepEqual(readAsk({ kind: { choice: "fact", confidence: 0.8 } }), { kind: "fact", sure: 0.8 });
   assert.equal(readAsk({ kind: { choice: "maybe" } }), null);

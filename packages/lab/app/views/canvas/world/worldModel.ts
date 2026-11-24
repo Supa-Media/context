@@ -5,12 +5,14 @@
  *
  * "Tex can see" here is only the setup's and the strip's estimate, worked out in the browser so it changes as you
  * edit: a workspace counts only if everyone here is in it or invited to it by number, and Tex gets the lowest role
- * among them (a member means read-only). Personal workspaces never count. Once a text has run, the preview's own
- * control plane says what the chat reached and who kept a workspace out (a reply row's `group`), and that answer wins
+ * among them (a member means read-only). Personal workspaces never count. On main the workspaces are the Lab user's own
+ * shared ones and the scenarios are placed on them in order (`setWorkspaces`). Once a text has run, the control plane
+ * says what the chat reached and who kept a workspace out (a reply row's `group`), and that answer wins
  * (`seeChips`). Pure: no React, no gateway.
  */
 
-export type Slug = "lumio" | "maison-solenne" | "common-ground";
+/** A workspace's slug: on a preview one of its seeded three, on main one of the Lab user's own shared workspaces. */
+export type Slug = string;
 export type Role = "owner" | "editor" | "member";
 export type Account = "on" | "off" | "invited";
 export type SpeaksUp = "off" | "quiet" | "attentive" | "followAlong" | "helpful";
@@ -20,13 +22,34 @@ export type StartLine = { as: string; text: string };
 export type WorldDraft = { name: string; people: WorldPerson[]; sponsor: string; speaksUp: SpeaksUp; introduced: boolean; start: StartLine[]; preset?: string; then?: WorldPerson };
 
 /** The preview's seeded shared workspaces (`apps/convex/functions/texLabWorld.ts` `WORLD_WORKSPACES`), in order. */
-export const WORKSPACES: ReadonlyArray<{ slug: Slug; name: string }> = [
+export const PREVIEW_WORKSPACES: ReadonlyArray<{ slug: Slug; name: string }> = [
   { slug: "lumio", name: "Lumio" },
   { slug: "maison-solenne", name: "Maison Solenne" },
   { slug: "common-ground", name: "Common Ground" },
 ];
+/** Most workspace columns the setup shows. */
+export const MAX_WORKSPACES = 4;
+let current: ReadonlyArray<{ slug: Slug; name: string }> = PREVIEW_WORKSPACES;
+/**
+ * The workspaces made-up people can have roles in: the preview's three, or on main the Lab user's own shared ones
+ * (`worldStore.ts` `loadWorkspaces`; the pin and personal workspaces are never offered). Null puts the preview's back.
+ */
+export function setWorkspaces(list: ReadonlyArray<{ slug: Slug; name: string }> | null) {
+  current = list === null ? PREVIEW_WORKSPACES : list.slice(0, MAX_WORKSPACES);
+}
+export const workspaces = () => current;
 export const MAX_PEOPLE = 8;
-export const wsName = (slug: string) => WORKSPACES.find((w) => w.slug === slug)?.name ?? slug;
+export const wsName = (slug: string) => current.find((w) => w.slug === slug)?.name ?? PREVIEW_WORKSPACES.find((w) => w.slug === slug)?.name ?? slug;
+/** A scenario's workspace (written with the preview's slugs) as the one in its place here, or null when there's none. */
+const placed = (slug: Slug): Slug | null => {
+  const i = PREVIEW_WORKSPACES.findIndex((w) => w.slug === slug);
+  return i < 0 ? slug : (current[i]?.slug ?? null);
+};
+/** A scenario's words with its first workspace named as the one in its place here. */
+export const placedWords = (text: string) => {
+  const name = current[0]?.name;
+  return name ? text.replace(/Lumio/g, () => name) : text;
+};
 
 export const SPEAKS_UP: ReadonlyArray<{ v: SpeaksUp; w: string; tip: string }> = [
   { v: "off", w: "Off", tip: 'Off: Tex says nothing here until someone says "Tex, start". The same as "Tex, stop".' },
@@ -56,7 +79,7 @@ const list = (xs: string[]) => xs.join(", ");
 
 /** Each workspace with these people: who keeps it out, else the lowest role among them. */
 export function seeEstimate(people: WorldPerson[]): Array<Exclude<SeeChip, { kind: "home" }>> {
-  return WORKSPACES.map(({ slug, name }) => {
+  return current.map(({ slug, name }) => {
     const roles = people.map((p) => ({ p, r: roleIn(p, slug) }));
     const out = roles.filter((x) => x.r === null).map((x) => firstName(x.p.name));
     if (!people.length || out.length) return { kind: "out" as const, slug, name, by: out };
@@ -193,9 +216,10 @@ const DINNER: StartLine[] = [
 ].map(([as, text]) => ({ as, text }));
 
 /** The ready-made scenarios of the picker's Made-up chats tab (artboard 01), each a whole setup. */
-export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string; size: string; draft: WorldDraft }> = [
+export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string; size: string; needs: number; draft: WorldDraft }> = [
   {
     id: "everyone",
+    needs: 1,
     title: "Everyone on Context",
     says: "Three teammates, all members of Lumio",
     size: "3 people",
@@ -203,6 +227,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "mixed",
+    needs: 0,
     title: "Mixed: one person not on Context",
     says: "Sam has no account; Tex sees a guest",
     size: "3 people",
@@ -210,6 +235,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "only-you",
+    needs: 0,
     title: "Only you on Context",
     says: "Alpha and two friends without accounts",
     size: "3 people",
@@ -217,6 +243,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "invited",
+    needs: 1,
     title: "Guest invited by number",
     says: "Priya has no account but an invite to Lumio",
     size: "3 people",
@@ -224,6 +251,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "owners",
+    needs: 3,
     title: "Different owners",
     says: "Each person owns or edits a different workspace",
     size: "4 people",
@@ -238,6 +266,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "going",
+    needs: 0,
     title: "Tex dropped into a chat already going",
     says: "Starts after 12 texts about Saturday's dinner",
     size: "3 people",
@@ -245,6 +274,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "joins",
+    needs: 0,
     title: "Someone joins who isn't a member",
     says: "Sam is added after Tex has answered once",
     size: "3, then 4",
@@ -252,17 +282,30 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
 ];
 
-/** A scenario's setup, copied so the setup can change it. */
+/** A person's roles and invitation moved onto the workspaces here, by place; one with no workspace in its place has none. */
+function placedPerson(p: WorldPerson): WorldPerson {
+  const roles = Object.fromEntries(Object.entries(p.roles ?? {}).flatMap(([slug, role]) => (placed(slug) ? [[placed(slug), role]] : [])));
+  const inv = p.invited && placed(p.invited.slug) ? { slug: placed(p.invited.slug) as Slug, role: p.invited.role } : null;
+  if (p.account === "invited" && !inv) return { name: p.name, account: "off" };
+  return { name: p.name, account: p.account, ...(p.account === "on" ? { roles } : {}), ...(inv ? { invited: inv } : {}) };
+}
+
+/** How many workspaces a scenario needs to be what it says: fewer here and the picker offers it disabled. */
+export const scenarioNeeds = (id: string): number => SCENARIOS.find((x) => x.id === id)?.needs ?? 0;
+
+/** A scenario's setup, copied so the setup can change it, on the workspaces here. */
 export const scenarioDraft = (id: string): WorldDraft | null => {
   const s = SCENARIOS.find((x) => x.id === id);
-  return s ? { ...JSON.parse(JSON.stringify(s.draft)), preset: s.title } : null;
+  if (!s) return null;
+  const d = JSON.parse(JSON.stringify(s.draft)) as WorldDraft;
+  return { ...d, name: placedWords(d.name), people: d.people.map(placedPerson), ...(d.then ? { then: placedPerson(d.then) } : {}), preset: s.title };
 };
 
 /** A blank setup: "+ New group chat…". */
 export const blankDraft = (): WorldDraft => ({ name: "", people: [P.alpha({}), P.beta({})], sponsor: "Alpha Morgan", speaksUp: "attentive", introduced: false, start: [] });
 
-/** Made-up people the Add someone popover offers, besides the ones here. */
-export const OTHER_PEOPLE: WorldPerson[] = [P.alpha(), P.beta(), P.gamma(), P.delta(), P.sam(), P.priya()];
+/** Made-up people the Add someone popover offers, besides the ones here, on the workspaces here. */
+export const otherPeople = (): WorldPerson[] => [P.alpha(), P.beta(), P.gamma(), P.delta(), P.sam(), P.priya()].map(placedPerson);
 
-/** A stand-in number for the setup's name cell (555-01XX: the preview gives each person their own). */
+/** A stand-in number for the setup's name cell (555-01XX: the chat gives each person their own). */
 export const standInNumber = (i: number) => `555-01${String(40 + ((i * 7) % 60)).padStart(2, "0")}`;

@@ -535,6 +535,7 @@ test/voiceJobs.test.mjs
 test/searchDates.test.mjs
 test/agentJobHaiku.test.mjs
 test/agentReplyQuote.test.mjs
+test/takenBehind.test.mjs
 test/sendBackLedger.test.mjs
 test/agentHourCache.test.mjs
 test/emailReplyNeedsId.test.mjs
@@ -673,6 +674,7 @@ test/labSandboxCross.test.mjs
 test/editNode.test.mjs
 test/labSandboxEvents.test.mjs
 test/labSandboxLive.test.mjs
+test/labSandboxReads.test.mjs
 test/routineEngagement.test.mjs
 test/doorStep.test.mjs
 test/learnNode.test.mjs
@@ -773,4 +775,5 @@ test/sectionCap.test.mjs
 test/sheets.test.mjs
 test/readSheet.test.mjs
 test/labSandboxWorld.test.mjs
+test/labSandboxWorldLocal.test.mjs
 test/labSandboxRich.test.mjs

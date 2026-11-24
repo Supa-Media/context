@@ -8,6 +8,7 @@
  */
 
 import { ServiceError } from "./clients";
+import type { GroupAction } from "./groupRun";
 
 const TIMEOUT_MS = 30_000;
 
@@ -149,6 +150,13 @@ export async function photonGroupMembers(photon: Fetcher, place: PhotonPlace): P
   const answer = await photonCall(photon, "group/members", { ...place });
   if (!Array.isArray(answer.participants)) throw new ServiceError("photon", null);
   return answer.participants.filter((entry): entry is string => typeof entry === "string");
+}
+
+/** `group/name`, `group/photo` and `group/add`: running the group (`groupRun.ts`). */
+export async function runPhotonGroup(photon: Fetcher, place: PhotonPlace, action: GroupAction): Promise<void> {
+  if (action.kind === "name") await photonCall(photon, "group/name", { ...place, name: action.name });
+  else if (action.kind === "photo") await photonCall(photon, "group/photo", { ...place, attachment: action.attachment });
+  else await photonCall(photon, "group/add", { ...place, address: action.address });
 }
 
 /** `health` (GET): the bridge's lines, last sequence and stream state. For the staff page; nothing sends with it. */

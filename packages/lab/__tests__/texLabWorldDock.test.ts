@@ -37,13 +37,15 @@ jest.mock("../../../apps/mobile/features/site/host", () => ({ isTexHost: () => t
 type Person = { handle: string; name: string; account: string };
 type Row = Record<string, unknown> & { id: string; who: string; text: string };
 const mockCalls: Array<{ op: string; body: Record<string, unknown> }> = [];
-const mock = { rows: [] as Row[], people: [] as Person[], seq: 0, starting: false };
+const mock = { rows: [] as Row[], people: [] as Person[], seq: 0, starting: false, worldsFail: false };
 jest.mock("@context/lab/app/views/canvas/sandboxCall", () => {
   const { setSandboxCall } = jest.requireActual<typeof import("@context/lab/app/engine/sandbox")>("@context/lab/app/engine/sandbox");
   setSandboxCall(async (op: string, body: Record<string, unknown>) => {
     mockCalls.push({ op, body });
     const view = () => ({ sandboxId: "sb1", code: "#12", rows: mock.rows, writes: [], running: null });
     if (op === "chats") return { chats: [{ chatId: "me", name: "me" }] };
+    if (op === "worlds" && mock.worldsFail) throw new Error("the control plane did not answer");
+    if (op === "worlds") return { preview: false, slugs: ["acme-team", "garden-club"], workspaces: [{ slug: "acme-team", name: "Acme" }, { slug: "garden-club", name: "Garden Club" }] };
     if (op === "open") {
       const w = body.world as { people: Array<{ name: string; account: string }> };
       mock.people = w.people.map((p) => ({ handle: p.account === "on" ? p.name.split(" ")[0].toLowerCase() + "-x1" : p.name, name: p.name, account: p.account }));
@@ -97,6 +99,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   mockCalls.length = 0;
   mock.starting = false;
+  mock.worldsFail = false;
   resetSandboxState();
   resetPlay();
   resetWorld();
@@ -165,6 +168,39 @@ test("a scenario opens on the preview, in the Chat view, with the people strip a
   expect(qa("#sbCompose .asc").map((b) => b.getAttribute("data-as"))).toEqual(["Alpha Morgan", "Beta Chen", "Gamma Ellis"]);
 });
 
+// Made-up chats on main (Dev, 2026-11-24: "test main"): no pull request, the people kept in the chat, their roles in the
+// Lab user's own shared workspaces. Sabotage: WorldPick without `loadWorkspaces` -> the open still names lumio, and this fails.
+test("on main, a scenario opens with no pull request, on your own shared workspaces", async () => {
+  await mount();
+  await click("#sbChat");
+  await click('#sbPickTabs [data-tab="test"]');
+  expect(q("#sbWorldMain")).toBeNull();
+  expect(q('#sbChatList [data-world="everyone"] .ds')?.textContent).toBe("Three teammates, all members of Acme");
+  await click('#sbChatList [data-world="everyone"]');
+  await tick();
+  const open = mockCalls.filter((c) => c.op === "open").at(-1)!.body;
+  expect(open.code).toBeUndefined();
+  expect(open.world).toMatchObject({ name: "Acme launch", people: [{ name: "Alpha Morgan", roles: { "acme-team": "owner", "garden-club": "editor" } }, { name: "Beta Chen", roles: { "acme-team": "editor", "garden-club": "member" } }, { name: "Gamma Ellis", roles: { "acme-team": "member" } }] });
+  expect(JSON.stringify(open.world)).not.toMatch(/lumio|maison|common-ground/);
+  expect(chips()).toEqual(["Acme· read-only: Gamma is a member", "Garden Club· kept out by Gamma", "This chat's notes"]);
+});
+
+test("on main, a scenario that needs more workspaces than you have is offered disabled, and a failed read opens nothing", async () => {
+  await mount();
+  await click("#sbChat");
+  await click('#sbPickTabs [data-tab="test"]');
+  expect(q<HTMLButtonElement>('#sbChatList [data-world="owners"]')?.disabled).toBe(true);
+  expect(q('#sbChatList [data-world="owners"]')?.getAttribute("title")).toBe("Needs 3 shared workspaces; you have 2");
+  expect(q<HTMLButtonElement>('#sbChatList [data-world="everyone"]')?.disabled).toBe(false);
+  act(() => resetWorld());
+  mock.worldsFail = true;
+  mockCalls.length = 0;
+  await click('#sbChatList [data-world="everyone"]');
+  await tick();
+  expect(mockCalls.some((c) => c.op === "open")).toBe(false);
+  expect(q("#sbWorldProblem")?.textContent).toMatch(/Couldn't read your workspaces: the control plane did not answer/);
+});
+
 test("while the preview starts, everyone it opened with can already be picked under Texting as", async () => {
   mock.starting = true;
   await openEveryone();
@@ -180,7 +216,9 @@ test("texting as someone sends their handle; Tex's answer and the why line show,
   await click("#sbSend");
   expect(mockCalls.find((c) => c.op === "send")?.body).toMatchObject({ as: "beta-x1", text: "@Tex what's left before Thursday?" });
   const view = q("#sbChatView")!;
-  expect(view.querySelector(".r.out .mn.tx")?.textContent).toBe("@Tex");
+  // A typed "@Tex" is plain words, as iMessage sends it (Dev, 2026-11-24: "do it like imessage"); only a real tag is drawn.
+  expect(view.querySelector(".r.out .mn, .r.out .mtg")).toBeNull();
+  expect(view.querySelector(".r.out .bt")?.textContent).toBe("@Tex what's left before Thursday?");
   expect(view.querySelector(".r.in .b")?.textContent).toBe("I can only read this chat's notes here.");
   expect(view.querySelector(".wy")?.textContent).toMatch(/^Tex answers· asked by name/);
   await click(".wy");

@@ -34,6 +34,8 @@ import { engagementOf, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { oldLineSetting } from "./texOldLine";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { groupsOfUser } from "./lib/texIdentity/groups";
+import { isIsolatedPreview } from "./lib/previewDeployment";
+import { WORLD_GROUP_ID, worldChatKey, worldPeopleOf, worldReach, worldWorkspaces } from "./lib/texLabWorldReach";
 
 const CONSOLE_CLIENT_ID = "context_console";
 const CHAT_KEY = /^[0-9a-f]{64}$/;
@@ -197,6 +199,19 @@ export const forGateway = internalQuery({
     if (action === "intakeChats") return { status: "ok", ...(await intakeChats(ctx)) };
     if (action === "session" && a.shared === true) return await sharedSessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "");
     if (action === "session") return await sessionFor(ctx, userId, typeof a.chat === "string" ? a.chat : "me");
+    // A made-up group chat on main (`lib/texLabWorldReach.ts`): the Lab user's own session, narrowed to what a chat of
+    // these people would reach; and the workspaces its people can be given roles in (on a preview, the made-up ones are).
+    if (action === "worldWorkspaces") return { status: "ok", preview: isIsolatedPreview(), workspaces: (await worldWorkspaces(ctx, userId)).map(({ slug, name }) => ({ slug, name })) };
+    if (action === "worldReach") {
+      const people = worldPeopleOf(a.people);
+      if (people === null) return { status: "bad_request", error: "people are [{ name, account, roles?, invited? }], at most 8" };
+      if (typeof a.chat !== "string" || !WORLD_GROUP_ID.test(a.chat)) return { status: "bad_request", error: "chat is the made-up chat's group id (lab-world-<16 hex>)" };
+      const chatKey = await worldChatKey(ctx, a.chat);
+      if (chatKey === null) return { status: "refused", error: "That made-up chat can't be used." };
+      const base = await sessionFor(ctx, userId, "me");
+      if (base.status !== "ok") return base;
+      return await worldReach(ctx, userId, base.session, people, chatKey);
+    }
     if (action === "draft") {
       if (a.draft === "main" || a.draft === undefined || a.draft === null) return { status: "ok", graph: null };
       if (typeof a.draft !== "string") return { status: "bad_request" };

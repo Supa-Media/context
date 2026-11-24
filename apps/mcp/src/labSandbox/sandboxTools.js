@@ -34,6 +34,37 @@ const text = (value, most = 2_000) => (typeof value === "string" ? value.slice(0
 const list = (value) => (Array.isArray(value) ? value : typeof value === "string" && value !== "" ? [value] : []).filter((v) => typeof v === "string").map((v) => v.slice(0, 200)).slice(0, 50);
 const ctxOf = (args) => (typeof args?.context === "string" && CTX.test(args.context) ? args.context : "");
 const isPage = (path) => /\.page\.md$/i.test(path);
+/** The caller's own workspace as `@name`, lower case, once `tools/session.js` has said it (`gate.ownWorkspace`), else "". */
+const ownOf = (gate) => (typeof gate?.ownWorkspace === "string" && CTX.test(gate.ownWorkspace.toLowerCase()) ? gate.ownWorkspace.toLowerCase() : "");
+/**
+ * Where a call's note lives in the test chat: "" for the caller's own workspace, whether the call named it or not, else
+ * the `@name` it named. A plain path and `context: "@own"` are one place, as they are for real (Lab test chat,
+ * 2026-11-23: notes written with the own context read as "not found" by plain path, and a job rewrote all six).
+ */
+function placeOf(args, gate) {
+  const ctx = ctxOf(args).toLowerCase();
+  return ctx !== "" && ctx === ownOf(gate) ? "" : ctx;
+}
+/** The places to look for a call's note: its own, then, for the own workspace, a row kept under its name before it was known. */
+function placesOf(args, gate) {
+  const place = placeOf(args, gate);
+  const own = ownOf(gate);
+  return place === "" && own !== "" ? ["", own] : [place];
+}
+/** The test chat's note at `path`, from the first of `places` that holds one, or null. */
+async function noteIn(gate, places, path) {
+  for (const ctx of places) {
+    const found = (await gate.call("note.get", { ctx, path })).found;
+    if (found) return found;
+  }
+  return null;
+}
+/** Every note the test chat holds in `places`, the first place's copy of a path winning. */
+async function notesIn(gate, places) {
+  const byPath = new Map();
+  for (const ctx of places) for (const note of (await gate.call("note.list", { ctx })).notes ?? []) if (!byPath.has(note.path)) byPath.set(note.path, note);
+  return [...byPath.values()];
+}
 
 /** The address a test chat's page or picture is served at, or null for a test chat opened before pages were kept. */
 export function assetUrl(about, id) {
@@ -54,7 +85,7 @@ export async function sandboxWrite(name, args, gate) {
   const where = ctx ? ` in ${ctx}` : "";
   if (name === "write_note" && a.site === undefined && typeof a.path === "string" && typeof a.content === "string") {
     const path = a.path.trim().replace(/^\/+/, "");
-    await gate.call("note.put", { ctx, path, body: a.content, by: gate.rowId });
+    await gate.call("note.put", { ctx: placeOf(a, gate), path, body: a.content, by: gate.rowId });
     let url = null;
     if (isPage(path)) {
       const id = assetId();
@@ -101,7 +132,7 @@ const textOf = (result) => (Array.isArray(result?.content) ? result.content.filt
 export async function overlayRead(name, args, gate) {
   const path = name === "read_note" ? args?.path : name === "fetch" && typeof args?.id === "string" && !/^[a-z]+:/i.test(args.id) ? args.id : null;
   if (typeof path !== "string" || path === "") return null;
-  const note = (await gate.call("note.get", { ctx: ctxOf(args), path: path.replace(/^\/+/, "") })).found;
+  const note = await noteIn(gate, placesOf(args, gate), path.replace(/^\/+/, ""));
   if (!note) return null;
   if (note.gone) return { content: [{ type: "text", text: `There is no note at ${path}.` }], isError: true };
   if (note.body === null) return null;
@@ -109,7 +140,31 @@ export async function overlayRead(name, args, gate) {
   // `read_note` answers as the real one does, its etag and path first, so code that reads a note's header (the nightly's
   // `readAboutMe`, `readWithEtag`) finds it: without them a note the test chat wrote read as missing (Lab, 2026-11-20).
   if (name !== "read_note") return said(body);
-  return said(`etag: ${labEtag(body)}\npath: ${path.replace(/^\/+/, "")}\n\n${body}`);
+  return said(headed(path, body));
+}
+
+/** A test chat's note as `read_note` answers one: its etag and path, then its words. */
+const headed = (path, body) => `etag: ${labEtag(body)}\npath: ${path.replace(/^\/+/, "")}\n\n${body}`;
+
+/**
+ * A real `read_notes` answer (one part per path, `path: X\nerror: ...` for a miss) with each note the test chat wrote
+ * whole put in place of its miss. Null when it held none of them.
+ */
+function readNotesWithOverlay(args, result, notes) {
+  const asked = [...new Set(Array.isArray(args?.paths) ? args.paths.filter((p) => typeof p === "string") : [])];
+  const parts = Array.isArray(result?.content) ? result.content : [];
+  if (asked.length === 0 || parts.length !== asked.length) return null;
+  let changed = false;
+  const content = parts.map((part, index) => {
+    const path = asked[index].replace(/^\/+/, "");
+    const note = notes.find((n) => n.path === path);
+    if (!note || note.gone || note.body === null || !/^path: [^\n]*\nerror: /.test(part?.text ?? "")) return part;
+    changed = true;
+    return { type: "text", text: headed(path, [note.body, ...note.adds].join("\n")) };
+  });
+  if (!changed) return null;
+  const missing = content.filter((part) => /^path: [^\n]*\nerror: /.test(part?.text ?? "")).length;
+  return missing === content.length ? { content, isError: true } : { content };
 }
 
 /** A test chat's own note version: its words' FNV-1a hash, plain so no workspace is named in it (`etagPlace.js`). */
@@ -124,16 +179,24 @@ function labEtag(body) {
  * the notes written here named after a listing or a search whose words they hold. The real answer is never dropped.
  */
 export async function afterRead(name, args, result, gate) {
-  if (result?.isError === true) return result;
   if (!["read_note", "read_notes", "list_notes", "search_notes", "search"].includes(name)) return result;
-  const notes = (await gate.call("note.list", { ctx: ctxOf(args) })).notes ?? [];
+  // A real read that missed may be of a note this test chat wrote; only `read_notes` reaches here with one (`overlayRead`
+  // answers `read_note` and `fetch` before the real read).
+  if (result?.isError === true && name !== "read_notes") return result;
+  const notes = await notesIn(gate, placesOf(args, gate));
   if (notes.length === 0) return result;
+  if (name === "read_notes") {
+    const patched = readNotesWithOverlay(args, result, notes);
+    if (patched) result = patched;
+    if (result?.isError === true) return result;
+  }
   const extra = [];
   if (name === "read_note" || name === "read_notes") {
     const asked = name === "read_note" ? [args?.path] : Array.isArray(args?.paths) ? args.paths : [];
     for (const note of notes) if (note.body === null && note.adds.length > 0 && asked.some((p) => typeof p === "string" && p.replace(/^\/+/, "") === note.path)) extra.push(`Added to ${note.path} in this chat:\n${note.adds.join("\n")}`);
   } else {
-    const folder = typeof args?.folder === "string" ? args.folder.replace(/^\/+|\/+$/g, "") : typeof args?.path === "string" ? args.path.replace(/^\/+|\/+$/g, "") : "";
+    const named = [args?.folder, args?.path, args?.prefix].find((v) => typeof v === "string");
+    const folder = typeof named === "string" ? named.replace(/^\/+|\/+$/g, "") : "";
     const words = String(args?.query ?? "").toLowerCase().split(/\s+/).filter((w) => w.length > 2);
     const hit = (note) =>
       name === "list_notes" ? folder === "" || note.path.startsWith(`${folder}/`) : words.length > 0 && words.some((w) => `${note.path}\n${note.body ?? ""}\n${note.adds.join("\n")}`.toLowerCase().includes(w));

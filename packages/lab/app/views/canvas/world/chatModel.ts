@@ -10,6 +10,7 @@
  * (polls, renames, app cards) slot in as new entries. Pure: no React, no gateway.
  */
 import type { SandboxRow, SandboxStep } from "../../../engine/sandbox";
+import { texEventOf, texSendOf } from "./texSends";
 import { changeWords, firstName, groupOf, type GroupAnswer, type Seg, type WorldPerson } from "./worldModel";
 
 export type WhyStep = { step: "Triage" | "Decide"; out: string; ms: number | null; why: string };
@@ -75,10 +76,13 @@ export type Bubble = {
   why?: Why;
   status?: string;
   note?: string;
+  /** Tex's send on its iMessage line (`texSends.ts`): the effect it went with, or the poll it started. */
+  effect?: string;
+  poll?: { title: string; choices: string[] };
 };
 export type ChatEntry =
   | { t: "time"; key: string; day: string | null; time: string }
-  | { t: "event"; key: string; id: string; text: string; change?: Seg[] | null; row: SandboxRow }
+  | { t: "event"; key: string; id: string; text: string; change?: Seg[] | null; row: SandboxRow; photo?: string }
   | { t: "run"; key: string; who: string; tex: boolean; side: "in" | "out"; items: Bubble[] };
 
 /** A time line's words: the day when it changes ("Today", "Yesterday", "Mon, Nov 23"), and the time. */
@@ -188,6 +192,14 @@ export function chatEntries(rows: SandboxRow[], o: ChatOpts): ChatEntry[] {
       continue;
     }
     const tex = !!r.tex;
+    // Tex running the group: the event line Messages shows, never a bubble (`texSends.ts`).
+    const ran = tex ? texEventOf(r.text) : null;
+    if (ran) {
+      // The new photo is the last picture someone sent before it, as the photo Tex was handed.
+      const photo = ran.photo ? [...seen].reverse().find((x) => !x.tex && x.pics?.length)?.pics?.[0] : undefined;
+      out.push({ t: "event", key: "e" + r.id, id: r.id, text: ran.text, row: r, ...(photo ? { photo } : {}) });
+      continue;
+    }
     const q = r.replyTo ? byId.get(r.replyTo) : undefined;
     const quote = q ? { who: q.tex ? "Tex" : q.who, text: edits.get(q.id) ?? q.text } : undefined;
     const why = tex ? null : whyOf(r, replies.get(r.id) ?? [], o.running === r.id);
@@ -195,7 +207,11 @@ export function chatEntries(rows: SandboxRow[], o: ChatOpts): ChatEntry[] {
     const items: Bubble[] = [];
     const text = edits.get(r.id) ?? r.text;
     const parts = tex ? text.split(/\n{2,}/).filter((x) => x.trim()) : text ? [text] : [];
-    parts.forEach((x, i) => items.push({ ...base, id: i ? `${r.id}~${i}` : r.id, kind: "text", text: x }));
+    parts.forEach((x, i) => {
+      // Tex's marks read back as what they send: an effect under the bubble, a poll as its card.
+      const sent = tex ? texSendOf(x) : { text: x };
+      items.push({ ...base, id: i ? `${r.id}~${i}` : r.id, kind: "text", text: sent.text, ...("effect" in sent && sent.effect ? { effect: sent.effect } : {}), ...("poll" in sent && sent.poll ? { poll: sent.poll } : {}) });
+    });
     // A person's photo or card comes before their caption; Tex's after its words.
     const att: Bubble[] = [];
     if (r.pics?.length) att.push({ ...base, id: r.id + "~p", kind: "pics", text: "", pics: r.pics });

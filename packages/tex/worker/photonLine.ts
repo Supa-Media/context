@@ -36,6 +36,7 @@ import {
   sendPhotonApp,
   sendPhotonAttachment,
   sendPhotonMultipart,
+  runPhotonGroup,
   sendPhotonPoll,
   sendPhotonText,
   typingPhoton,
@@ -412,5 +413,6 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
       }
     },
     readOwnMessage: async () => null,
+    runGroup: async (place, action) => await runPhotonGroup(photon(), placeOf(place), action),
   };
 }

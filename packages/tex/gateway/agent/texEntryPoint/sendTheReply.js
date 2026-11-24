@@ -49,6 +49,12 @@ const versionField = (env, production) => {
 };
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
+/** The texts this turn took in that the Worker drops from its queue: steered in while it ran, or taken behind it. */
+const steeredField = (ids) => {
+  const unique = [...new Set(ids.filter((id) => typeof id === "string"))];
+  return unique.length > 0 ? { steered: unique } : {};
+};
+
 export async function sendTheReply(t) {
   const { answered, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, production, replyPlace, question, quoted, reacted, received, report, router, runner, session, steer, store, tex, textingWriting, timeZone, turn } = t;
   // The words are Finish the text's (node "finish", `finishTheText.js`), made before this step when the config wires it;
@@ -105,7 +111,7 @@ export async function sendTheReply(t) {
     // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
     asked: ledger.asked.length,
     askIds: ledger.asked.map((asked) => asked.id), // the records its asks armed, for the Worker's ask events and `/agent/stale`
-    ...(steer !== null && steer.taken.length > 0 ? { steered: steer.taken } : {}), // the Worker drops these from its queue
+    ...steeredField([...(steer?.taken ?? []), ...(Array.isArray(t.logged?.took) ? t.logged.took : [])]), // the Worker drops these from its queue; `took`: the asker's texts that landed behind the turn (`takenBehind.js`)
     ...(verbatim.length > 0 || offerText ? { verbatim: [...verbatim, ...(offerText ? [offerText] : [])] } : {}),
     ...(offerText ? { askFor: ledger.offered.who } : {}), // the Worker takes only their 👍 or yes
     ...startedJobs(background, ledger.untrusted === true, { heard: heardWords(attachments), sent: sentLine(attachments, attached), asked: openAskBefore(history, question, { now: Date.now() }) }), // the Worker runs these (`background.js`), asked their words, voice and files included (`heardWords.js`)

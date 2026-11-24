@@ -67,6 +67,9 @@ test("every op parses a well-formed body into its arguments", () => {
     "group/members": { line: LINE, chat: CHAT },
     "group/remove": { line: LINE, chat: CHAT, address: "+15550100999" },
     "poll/create": { line: LINE, chat: CHAT, title: "Dinner Friday?", choices: ["Thai", "Pizza"] },
+    "group/name": { line: LINE, chat: CHAT, name: "Lisbon trip" },
+    "group/photo": { line: LINE, chat: CHAT, attachment: "att-1" },
+    "group/add": { line: LINE, chat: CHAT, address: "+15550100999" },
   };
   assert.deepEqual(Object.keys(cases).sort(), Object.keys(OPS).sort());
   for (const [name, body] of Object.entries(cases)) {
@@ -87,6 +90,16 @@ test("group/remove takes one phone or email to take out, nothing else", () => {
   assert.deepEqual(OPS["group/remove"].parse({ line: LINE, chat: CHAT, address: "+15550100999" }), { line: LINE, chat: CHAT, address: "+15550100999" });
   assert.throws(() => OPS["group/remove"].parse({ line: LINE, chat: CHAT }), { code: "invalid_address" });
   assert.throws(() => OPS["group/remove"].parse({ line: LINE, chat: CHAT, address: ["+15550100999"] }), { code: "invalid_address" });
+});
+
+test("running the group: a bounded name, an attachment's guid for the photo, one address to add", () => {
+  assert.deepEqual(OPS["group/name"].parse({ line: LINE, chat: CHAT, name: "Lisbon trip" }), { line: LINE, chat: CHAT, name: "Lisbon trip" });
+  assert.throws(() => OPS["group/name"].parse({ line: LINE, chat: CHAT, name: "" }), { code: "invalid_name" });
+  assert.throws(() => OPS["group/name"].parse({ line: LINE, chat: CHAT, name: "x".repeat(101) }), { code: "invalid_name" });
+  assert.deepEqual(OPS["group/photo"].parse({ line: LINE, chat: CHAT, attachment: "att-1" }), { line: LINE, chat: CHAT, attachment: "att-1" });
+  assert.throws(() => OPS["group/photo"].parse({ line: LINE, chat: CHAT, attachment: "https://example.com/x.png" }), { code: "invalid_attachment" });
+  assert.deepEqual(OPS["group/add"].parse({ line: LINE, chat: CHAT, address: "+15550100999" }), { line: LINE, chat: CHAT, address: "+15550100999" });
+  assert.throws(() => OPS["group/add"].parse({ line: LINE, chat: CHAT, address: ["+15550100999", "+15550100998"] }), { code: "invalid_address" });
 });
 
 test("a body that is not an object is refused before any call", () => {

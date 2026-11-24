@@ -5,13 +5,14 @@
  * reply went, "fix this" or frustration scores the conversation and files a review (`selfReview.js`). Text them says
  * which of the two this turn calls for (`t.sentAs`); one that fails never stops the other.
  */
+import { answerSent } from "../../conversationThreads.js";
 import { reviewAfterTurn } from "../../selfReview.js";
 
 export async function afterReplyNode(_input, io) {
   const t = io.ctx.turn;
   const out = {};
   const [filed, reviewed] = await Promise.allSettled([
-    typeof t.threadsSort === "function" ? t.threadsSort() : Promise.resolve(null),
+    typeof t.threadsSort === "function" ? t.threadsSort(answerSent(t)) : Promise.resolve(null),
     t.sentAs === "sent" ? reviewAfterTurn({ env: t.env, store: t.store, session: t.session, controlPlane: t.controlPlane, question: t.question, group: t.group, saved: t.group !== null || t.conversation !== null }) : Promise.resolve(undefined),
   ]);
   if (filed.status === "fulfilled" && filed.value !== null) out.filed = Array.isArray(filed.value) ? filed.value.length : 0;

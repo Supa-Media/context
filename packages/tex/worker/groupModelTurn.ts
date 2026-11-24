@@ -13,7 +13,7 @@ import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import { maySend } from "./outboundGuard";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
-import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, threadUnder, type SayMeta } from "./groupSay";
+import { fixedTimings, log, logOut, logTiming, say, sayProgress, sendPicture, threadUnder, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
 import { E164 } from "./sendblue";
 import { bubblesUnder } from "./bubblesUnder";
@@ -35,6 +35,7 @@ import { turnCause } from "./groupCause";
 import { watchForSave } from "./vaultWatch";
 import { watchForHandback } from "./handbackWatch";
 import { inviteEveryone } from "./groupInvite";
+import { groupRunDoneWords, runTheGroup } from "./groupRunTurn";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 import { answerCrossAsk, crossCounts, crossFields, crossWired, sendCrossAsks } from "./crossChat";
@@ -56,7 +57,10 @@ export type TurnInput = {
 };
 
 /** The model's turn on a group message, its answer sent only to the people it was written for. */
-export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo, arrivedAt, covers, people, asked, accessToken, messages = {} }: TurnInput): Promise<"cancelled" | void> {
+export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { message, covered, acceptedAt, upTo: handedUpTo, arrivedAt, covers, people, asked, accessToken, messages: given = {} }: TurnInput): Promise<"cancelled" | void> {
+  // Grown by what the turn takes in as it runs (`dropSteered`): those texts are answered here, and a part can go under each.
+  const messages: Record<string, string> = { ...given };
+  let upTo = handedUpTo;
   const app = groupLineFor(groupLineSeam(deps), message.groupId);
   const chat = { line: message.line, groupId: message.groupId };
   const routine = message.routine !== undefined;
@@ -112,7 +116,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // The chat's next events are filed under the people this turn named the gateway (`eventPeople`).
   await notePeople(storage, message, group.members);
   // Named, so a message that lands while it runs can be folded into it (`steer.ts`), and those it took in are not answered again.
-  const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers));
+  const { steer, end, live } = startTurn(storage, message.groupId, message.from, deps, covers, (ids) => dropSteered(storage, ids, covers, messages).then((at) => void (upTo = Math.max(upTo, at))));
   await steer.onSession(accessToken);
   // A provisional run (`provisional.ts`): its go or stop goes to this turn, and nothing below reaches the chat before the go.
   const gate = deps.provisional;
@@ -215,7 +219,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
   if (answer.kind !== "answer") throw new ServiceError("gateway", answer.kind === "no_storage" ? 503 : answer.kind === "unavailable" && answer.timedOut ? 504 : null); // 503: the chat's workspace can't be opened (`failedLine`)
-  if (answer.steered) await dropSteered(storage, answer.steered, covers);
+  if (answer.steered) upTo = Math.max(upTo, await dropSteered(storage, answer.steered, covers, messages));
   // The turn muted this chat (`chat_mute`): it is told so in the fixed words "Tex, stop" gets, by code, whatever the turn
   // texted or held back, and nothing else of the turn is sent (Dev2, 2026-11-20: a reviewer sent the turn's own line
   // back and the chat was muted for a week without anyone hearing).
@@ -305,7 +309,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const bubbles = bubblesUnder(answer.text, routine ? [] : (answer.under ?? []), messages, answer.verbatim, checkIn);
   const toSend = bubbles.map((bubble) => bubble.text);
   const threaded = checkIn ? toSend : await withThreadsLine(toSend, answer.offers, viewLink(answer.hub, deps.threadsLink), answer.verbatim); // the live view rides in the first text (`jobs.ts`)
-  const texts = withIntro(threaded, !routine && asked.intro === true ? GROUP_LINES.intro(asked.reach ?? []) : null, answer.verbatim);
+  let texts = withIntro(threaded, !routine && asked.intro === true ? GROUP_LINES.intro(asked.reach ?? []) : null, answer.verbatim);
   // A line added after the answer (the view, the intro) goes where the answer's last bubble went.
   const underOf = (index: number): string | undefined => bubbles[Math.min(index, bubbles.length - 1)]?.messageId;
   const eventOf = (messageId: string): string | undefined => Object.entries(messages).find(([, id]) => id === messageId)?.[0];
@@ -317,6 +321,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     for (const text of texts) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
     return void (await say(storage, deps, message, now === null ? GROUP_LINES.failed : GROUP_LINES.joined, { system: true, ...(now === null ? { reason: "failed" as const } : {}) }));
   }
+  // "(name the chat) …", "(set the chat photo)", "(add to the chat) …": done before the words, checked on this message (`groupRun.ts`).
+  const ran = routine ? null : await runTheGroup(texts, message, groupLineFor(groupLineSeam(deps), message.groupId), { line: message.line, groupId: message.groupId });
+  if (ran !== null) texts = ran.texts;
   await chatEvent(storage, "send", routine ? "routine" : "turn", { now: deps.now() });
   // Plain in the chat when the classifier says the answer reads as one to this text anyway; a text typed under another is answered under it (`respond.js`).
   if (!routine && answer.place === "plain" && message.replyTo === undefined) meta.plain = true;
@@ -328,6 +335,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   let went = 0;
   try {
     for (const [index, text] of texts.entries()) {
+      if (text === "") continue; // only "running the group" lines, done above
       const messageId = meta.plain ? undefined : underOf(index);
       const under = messageId === undefined ? message : { ...message, messageId };
       // Logged as a reply to the text it went under, so Replay shows where each bubble went.
@@ -337,6 +345,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       went += 1;
     }
     for (const picture of checkIn ? [] : answer.pictures) (await sendPicture(storage, deps, message, picture, meta), (went += 1)); // After the words, as in a 1:1.
+    if (ran?.told) await say(storage, deps, message, ran.told, { system: true });
+    for (const action of ran?.done ?? []) await logOut(storage, deps, message.groupId, { kind: "text", text: groupRunDoneWords(action), delivered: true }, meta); // kept, so the next turn knows it was done
   } catch (error) {
     if (meta.turn) await logStep(storage, message.groupId, deliveryStep(parts, went, Date.now() - delivering, error instanceof Error ? error.name : "error"), deps.now(), meta.turn);
     throw error;
@@ -385,13 +395,21 @@ function named(names: { handle: string; name?: string }[] | undefined): { handle
   return (names ?? []).filter((entry) => entry.handle !== "" && typeof entry.name === "string" && entry.name !== "").map(({ handle, name }) => ({ handle, name: name as string }));
 }
 
-/** Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them. */
-async function dropSteered(storage: InboxStorage, ids: string[], covers: string[]): Promise<void> {
+/**
+ * Drop the waiting messages a turn took in as it ran; it answered them, so its answer covers them, and a part of it can
+ * go under each (`messages`). Named by the line's event id (steered in, `steer.ts`) or by the chat's own (the asker's
+ * texts that landed behind the turn, `packages/tex/gateway/agent/takenBehind.js`). Answers when the newest of them came in, or 0.
+ */
+export async function dropSteered(storage: InboxStorage, ids: string[], covers: string[], messages: Record<string, string> = {}): Promise<number> {
+  let newest = 0;
   for (const [key, item] of await storage.list<GroupPending>({ prefix: "gpending:" })) {
-    if (!ids.includes(item.message.eventId)) continue;
+    if (!ids.includes(item.message.eventId) && (item.ev === undefined || !ids.includes(item.ev))) continue;
     if (item.ev !== undefined && !covers.includes(item.ev)) covers.push(item.ev);
+    if (item.ev !== undefined && typeof item.message.messageId === "string" && item.message.messageId !== "") messages[item.ev] = item.message.messageId;
+    newest = Math.max(newest, item.at ?? 0);
     await storage.delete(key);
   }
+  return newest;
 }
 
 /** The events the gateway has not taken yet, for it to add to the chat's day from the ledger (`packages/tex/gateway/agent/warmCopy.js` `mergeEvents`). */
