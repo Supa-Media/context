@@ -77,7 +77,11 @@ export type FileErrorCode =
   | "FORM_INVALID"
   | "FORM_FORBIDDEN"
   | "FORM_NOT_COLLECTING"
-  | "FORM_STORAGE_UNSUITABLE";
+  | "FORM_STORAGE_UNSUITABLE"
+  /** A sheet source wrote to something that is not a `.csv` sheet, or one that does not read back whole. */
+  | "NOT_A_SHEET"
+  /** Rows a sheet source sent that do not fit the sheet's columns; nothing was written. */
+  | "SHEET_ROWS_REFUSED";
 
 /**
  * A failure with a code the console can branch on and a message a person can

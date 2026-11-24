@@ -74,6 +74,19 @@ describe("route: the auth flow's HTTP routes go to Convex", () => {
     });
   });
 
+  it("sends a sheet source's rows to Convex, and nothing wider", () => {
+    expect(at("https://context.lc/api/sheets/rows")).toEqual({
+      kind: "proxy",
+      upstream: "convex",
+      path: "/api/sheets/rows",
+    });
+    expect(at("https://context.lc/api/sheetsy")).toEqual({
+      kind: "proxy",
+      upstream: "expo",
+      path: "/api/sheetsy",
+    });
+  });
+
   it("leaves the rest of /api/ with the web app", () => {
     // Expo Router serves its own API routes at /api/<name>. A broad "/api/"
     // rule would steal them the day someone adds one, so the Convex prefix is

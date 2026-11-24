@@ -38,6 +38,7 @@ import { mapLookTables } from "./functions/lib/schema/mapLook";
 import { phoneCheckSkipTables } from "./functions/lib/schema/phoneCheckSkips";
 import { texStyleTables } from "./functions/lib/schema/texStyle";
 import { meetingJoinTables } from "./functions/lib/schema/meetingJoin";
+import { sheetSourceTables } from "./functions/lib/schema/sheetSources";
 import { transcriptionConsentTables } from "./functions/lib/schema/transcriptionConsent";
 import { spellingTables } from "./functions/lib/schema/spelling";
 import { browserProfileTables } from "./functions/lib/schema/browserProfiles";
@@ -147,6 +148,7 @@ const schema = defineSchema({
   ...phoneCheckSkipTables,
   ...texStyleTables,
   ...meetingJoinTables,
+  ...sheetSourceTables,
   ...transcriptionConsentTables,
   ...spellingTables,
   ...browserProfileTables,

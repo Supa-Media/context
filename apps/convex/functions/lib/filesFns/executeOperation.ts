@@ -49,6 +49,7 @@ import {
 } from "../fileOps";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
+import { appendSheetRows } from "../fileOps/sheetAppend";
 import { addBuiltInFolder } from "../fileOps/builtInFolders";
 import { tidyArchive } from "../fileOps/archiving";
 import {
@@ -470,6 +471,11 @@ export async function executeOperation(
       case "folderPaths": {
         const found = await listFolderPaths(store, { clearance });
         return { kind: "folderPaths", ...found };
+      }
+      case "sheetAppend": {
+        const appended = await appendSheetRows(store, { path: operation.path, rows: operation.rows, clearance, now });
+        await noteActivity("file.write", [appended.path], { rows_added: appended.appended });
+        return appended;
       }
       case "routineRuns":
         return { kind: "routineRuns", runs: await readRoutineRuns(store, { path: operation.path, clearance }) };

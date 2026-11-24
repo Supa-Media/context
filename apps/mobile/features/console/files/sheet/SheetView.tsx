@@ -23,6 +23,7 @@ import { ColumnMenu } from "./ColumnMenu";
 import { FilterBar } from "./FilterBar";
 import { FilterMenu } from "./FilterMenu";
 import { SheetHead } from "./SheetHead";
+import { SheetSourcesButton } from "./SheetSources";
 import { measureNode, type Anchor } from "./Popover";
 import { SheetGrid, type GridEditing } from "./SheetGrid";
 import {
@@ -301,7 +302,10 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
 
   return (
     <View style={styles.root} testID="sheet-view">
-      <SheetHead path={path} visibility={visibility} compact={compact} />
+      <View style={styles.headRow}>
+        <SheetHead path={path} visibility={visibility} compact={compact} />
+        {readOnly ? null : <SheetSourcesButton path={path} columns={sheet.columns.map((column) => column.name)} />}
+      </View>
       {problems.length === 0 ? null : (
         <View style={styles.problems} testID="sheet-problems">
           <Text variant="meta" style={styles.notice}>
@@ -413,6 +417,7 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: { gap: space.x1 },
+    headRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: space.x2 },
     problems: { padding: space.x2, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line, gap: 2 },
     problemLine: { color: colors.chromeMuted },
     notice: { color: colors.text2, paddingVertical: space.x1 },

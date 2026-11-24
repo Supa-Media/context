@@ -78,6 +78,8 @@ export type FileOperation =
   | { kind: "readActivity" }
   /** A routine's recent runs, for a caller who can see the routine note. See `fileOps/routineRuns.ts`. */
   | { kind: "routineRuns"; path: string }
+  /** Rows a sheet source adds to one sheet; append only. See `fileOps/sheetAppend.ts`. */
+  | { kind: "sheetAppend"; path: string; rows: Array<Record<string, string>> }
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
   | { kind: "manifest"; cursor?: string; folder?: string; source?: "tree" }
@@ -259,6 +261,7 @@ export type FileOperation =
 export type OperationResult =
   | { kind: "activity"; entries: ActivityEntry[] }
   | { kind: "routineRuns"; runs: Array<{ at: number; outcome: string; text: string }> }
+  | { kind: "sheetAppended"; path: string; etag: string; appended: number }
   | { kind: "websiteReleaseWritten"; pages: number }
   | { kind: "websiteReleaseDesign"; text: string | null }
   | {

@@ -59,6 +59,7 @@ function touches(
     case "removeEncryption":
     case "delete":
     case "pluginDelete":
+    case "sheetAppend":
       return isWebsitePath(operation.path);
     case "move":
     case "copy":
