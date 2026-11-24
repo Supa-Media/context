@@ -82,7 +82,7 @@ test("the diff names Tex's words, the times, steps only in one and each changed 
 });
 
 /** A fake of the Lab's route: one test chat, its rows, a run that finishes after `polls` looks, and its history file. */
-function fakeRoute({ polls = 2, entries = [], rows = chatRows(300) } = {}) {
+function fakeRoute({ polls = 2, entries = [], rows = chatRows(300), about = null } = {}) {
   const calls = [];
   let looks = 0;
   let state = { rows: [...rows], running: null, versionId: "main" };
@@ -94,7 +94,7 @@ function fakeRoute({ polls = 2, entries = [], rows = chatRows(300) } = {}) {
         state.versionId = body.versionId ?? "main";
         return ok({ sandboxId: SB, people: [{ handle: "", name: "You" }], rows: state.rows });
       case "about":
-        return ok({ source: "maya", kind: "1:1", chat: "me", versionId: state.versionId, people: [], rows: state.rows.length, testRows: 0 });
+        return ok({ source: "maya", kind: "1:1", chat: "me", versionId: state.versionId, people: [], rows: state.rows.length, testRows: 0, ...(about ?? {}) });
       case "use":
         state.versionId = body.versionId;
         return ok({ versionId: body.versionId });
@@ -199,6 +199,23 @@ test("a step is read whole through the test chat's own history, with Replay's re
   const whole = await sandbox({ op: "step", sandboxId: SB, msgId: "t1" });
   assert.ok(whole.order.some((e) => e.kind === "reply"), "without node, the whole turn in order");
   assert.ok(r.calls.filter((c) => c.op === "read").length > 0 && !realLedgerRead, "read only through the test chat's own route");
+});
+
+// A made-up group chat is none of the person's own chats (found 2026-11-24: `step` failed with INTERNAL on every turn).
+test("a made-up group chat's step is read through its own history too", async () => {
+  const entries = [
+    { id: "a1", at: T0, kind: "text", eid: "e1", from: { kind: "person" }, text: "@tex rename us" },
+    { id: "n1", at: T0 + 3_000, kind: "step", step: "node", name: "fd", turn: "wt1", ok: true, ms: 2_000, input: {}, output: { when: ["drafted"] } },
+    { id: "r1", at: T0 + 3_100, kind: "reply", turn: "wt1", ms: 3_100, text: "Done." },
+  ];
+  const r = fakeRoute({ entries, rows: [], about: { source: "world", kind: "group", chat: "world:0123456789abcdef" } });
+  const { sandbox } = actions(r, { ledgerOf: () => ({ read: async () => ({ entries: [] }) }) });
+  await sandbox({ op: "send", sandboxId: SB, text: "@tex rename us" });
+  const one = await sandbox({ op: "step", sandboxId: SB, msgId: "t1", node: "fd" });
+  assert.equal(one.error, undefined, JSON.stringify(one));
+  assert.equal(one.turn, "wt1");
+  const prompt = await sandbox({ op: "step", sandboxId: SB, msgId: "t1", node: "fd", part: "prompt" });
+  assert.equal(prompt.error, undefined, JSON.stringify(prompt));
 });
 
 test("a run that sends no text's reply (a check-in) is read through the first entry after it that carries a turn", async () => {
