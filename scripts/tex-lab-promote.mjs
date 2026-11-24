@@ -382,14 +382,14 @@ function selfTest() {
   });
   expect(/nonsense/.test(searchFrom(unknownSetting, searchNow).refused ?? ""), "a search setting search does not have passed");
   // A Tex step's own settings (`texNodeSettings.cjs`): a value its code declares promotes; one it refuses does not.
-  const sendSet = (settings) => {
+  const finishSet = (settings) => {
     const g = graph();
-    g.nodes.find((n) => n.id === "send").settings = settings;
+    g.nodes.find((n) => n.id === "finish").settings = settings;
     return configFrom(g, current, words);
   };
-  expect(sendSet({ trimFlattery: false, linkSavedNote: true }).config?.nodes.find((n) => n.id === "send").settings.trimFlattery === false, "a declared step setting was not promoted");
-  expect(/trimFlattery must be true or false/.test(sendSet({ trimFlattery: "no" }).refused ?? ""), "a step setting its declaration refuses passed");
-  expect(/setting nothing reads: made_up/.test(sendSet({ made_up: 1 }).refused ?? ""), "a step setting nothing declares passed");
+  expect(finishSet({ trimFlattery: false, linkSavedNote: true }).config?.nodes.find((n) => n.id === "finish").settings.trimFlattery === false, "a declared step setting was not promoted");
+  expect(/trimFlattery must be true or false/.test(finishSet({ trimFlattery: "no" }).refused ?? ""), "a step setting its declaration refuses passed");
+  expect(/setting nothing reads: made_up/.test(finishSet({ made_up: 1 }).refused ?? ""), "a step setting nothing declares passed");
   console.log("tex-lab-promote self-test: ok");
 }
 
