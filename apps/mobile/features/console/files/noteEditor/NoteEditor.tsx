@@ -130,6 +130,7 @@ export function NoteEditor({
   texInNote = null,
   local = false,
   folderLists,
+  people,
   onTitleCaret,
   titleNote,
   titleFocus,
@@ -469,7 +470,7 @@ export function NoteEditor({
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, onOpenTag, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
-    folderLists, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote, trashed,
+    folderLists, people, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote, trashed,
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, sheet, activityList, pageView, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,

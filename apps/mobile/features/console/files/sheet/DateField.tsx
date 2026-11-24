@@ -4,7 +4,7 @@
  */
 
 import { StyleSheet, TextInput } from "react-native";
-import { pointerType, radii, space } from "../../../design/tokens";
+import { pointerType } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { useFieldFont } from "../../../design/fieldFont";
 
@@ -47,12 +47,11 @@ const makeStyles = (colors: Colors) =>
     input: {
       height: 26,
       width: "100%",
-      paddingHorizontal: space.x1,
-      borderWidth: 1,
-      borderColor: colors.accent,
-      borderRadius: radii.sm,
+      // No frame: the cell's selection ring is the one outline.
+      padding: 0,
+      borderWidth: 0,
       color: colors.text,
-      backgroundColor: colors.ground,
+      backgroundColor: "transparent",
       fontSize: pointerType.ui,
     },
   });

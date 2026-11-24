@@ -76,10 +76,14 @@ test("a ragged row is kept and reported, never dropped", () => {
   assert.equal(sheet.rows[0].b, "");
   assert.equal(sheet.errors.length, 2);
   assert.equal(sheet.errors[0].line, 2);
+  // Padding a short row loses nothing; a long row's extra cell would be dropped by any rewrite.
+  assert.equal(sheet.errors[0].lossy, undefined);
+  assert.equal(sheet.errors[1].lossy, true);
 });
 
 test("duplicate column names and an unclosed quote are errors", () => {
   assert.match(parseSheet("a,A\n1,2\n").errors[0].message, /two columns/);
+  assert.equal(parseSheet("a,A\n1,2\n").errors[0].lossy, true);
   assert.ok(parseCsvRecords('a\n"open').unterminated);
   assert.match(parseSheet('a\n"open').errors[0].message, /never closed/);
 });

@@ -9,7 +9,14 @@
  *
  * Keyboard (web): arrows and Tab move the selection; Enter, F2 or a typed
  * character edits; Enter or Tab commits and moves; Escape cancels. A checkbox
- * toggles on Enter or Space. A read-only sheet keeps the moves and the view.
+ * toggles on Enter or Space. Delete or Backspace clears a cell, Cmd/Ctrl+Z and
+ * Shift+Cmd/Ctrl+Z undo and redo this session's changes, and a paste fills a
+ * block from the selected cell. Focus comes back to the grid after an edit, so
+ * the keys keep working. A read-only sheet keeps the moves and the view.
+ *
+ * A file whose text the grid cannot hold without losing some of it (a row with
+ * more cells than the header, two columns of one name) opens read-only and
+ * says why: any edit rewrites the whole file, and would drop what did not fit.
  */
 
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
@@ -26,10 +33,14 @@ import { SheetHead } from "./SheetHead";
 import { SheetSourcesButton } from "./SheetSources";
 import { measureNode, type Anchor } from "./Popover";
 import { SheetGrid, type GridEditing } from "./SheetGrid";
+import type { EditorKeys } from "./CellEditor";
 import {
   appendRow,
+  cleanColumnName,
+  clipboardBlock,
   columnIndex,
   editCell,
+  editCells,
   insertColumn,
   removeColumn,
   renameColumnText,
@@ -57,7 +68,7 @@ export type SheetViewProps = {
   path: string;
   text: string; // the file's current text
   readOnly: boolean;
-  people?: string[]; // names for person cells; default []
+  people?: readonly string[]; // names for person cells; default []
   visibility?: string; // who can see it, for the heading ("private", "team", ...)
   say?: (message: string) => void; // the console's toast; without it a notice shows above the grid
   compact?: boolean; // a phone, whose page already shows the name as its title
@@ -73,10 +84,16 @@ type Menu =
 const DOUBLE_PRESS_MS = 400;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
 
-export function SheetView({ path, text, readOnly, people = [], visibility, say, compact = false, onChangeText }: SheetViewProps): JSX.Element {
+/** How many of this session's changes Cmd/Ctrl+Z can take back. */
+const UNDO_DEPTH = 100;
+
+export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
   const parsed = useMemo(() => parseSheet(text), [text]);
+  // Text the grid would lose cells of on its next rewrite: shown, never changed here.
+  const lossy = useMemo(() => (parsed.errors as { lossy?: boolean }[]).some((e) => e.lossy === true), [parsed]);
+  const readOnly = canNotEdit || lossy;
   const sheet: SheetData = useMemo(
     () => ({ columns: parsed.columns as SheetColumn[], rows: parsed.rows as Record<string, string>[] }),
     [parsed],
@@ -95,11 +112,15 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
   const addFilterRef = useRef<View | null>(null);
   const gridRef = useRef<View | null>(null);
   const lastPress = useRef<{ row: number; col: string; at: number } | null>(null);
+  const editorKeys = useRef<EditorKeys | null>(null);
+  // This session's changes, newest last, for Cmd/Ctrl+Z; a different file starts with none.
+  const history = useRef<{ undo: string[]; redo: string[] }>({ undo: [], redo: [] });
   useEffect(() => {
     setSelection(null);
     setEditingState(null);
     setNotice(null);
     setMenu(null);
+    history.current = { undo: [], redo: [] };
   }, [path]);
 
   // The editor's state, read synchronously: a blur that follows an Enter must find it already closed.
@@ -113,13 +134,44 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
   const liveText = useRef(text);
   liveText.current = text;
   const sent = useRef<{ from: string; to: string } | null>(null);
-  const commit = (edit: (current: string) => string): void => {
+  const send = (edit: (current: string) => string, record: "undo" | "redo" | "none"): void => {
     const sentNow = sent.current;
     const base = sentNow && sentNow.from === liveText.current ? sentNow.to : liveText.current;
     const next = edit(base);
     if (next === base) return;
+    const h = history.current;
+    if (record === "undo") {
+      h.undo = [...h.undo, base].slice(-UNDO_DEPTH);
+      h.redo = [];
+    } else if (record === "redo") {
+      h.redo = [...h.redo, base].slice(-UNDO_DEPTH);
+    }
     sent.current = { from: liveText.current, to: next };
     onChangeText(next);
+  };
+  const commit = (edit: (current: string) => string): void => send(edit, "undo");
+  const undo = (again: boolean) => {
+    const h = history.current;
+    const from = again ? h.redo : h.undo;
+    const back = from[from.length - 1];
+    if (back === undefined) return;
+    if (again) h.redo = from.slice(0, -1);
+    else h.undo = from.slice(0, -1);
+    if (again) {
+      // Redo is a change like any other, so it can be undone again.
+      const sentNow = sent.current;
+      const base = sentNow && sentNow.from === liveText.current ? sentNow.to : liveText.current;
+      h.undo = [...h.undo, base].slice(-UNDO_DEPTH);
+      send(() => back, "none");
+    } else {
+      send(() => back, "redo");
+    }
+  };
+
+  /** Put the keyboard back on the grid once an editor closes, so arrows and Enter keep working. */
+  const focusGrid = () => {
+    const node = gridRef.current as unknown as { focus?: (options?: { preventScroll?: boolean }) => void } | null;
+    node?.focus?.({ preventScroll: true });
   };
 
   const columns = sheet.columns.filter((c) => !view.hidden.includes(c.name));
@@ -154,7 +206,10 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
     if (!open) return;
     setEditing(null);
     commit((t) => editCell(t, open.row, open.col, open.draft));
-    if (move) moveFrom({ row: open.row, col: open.col }, move[0], move[1]);
+    if (move) {
+      moveFrom({ row: open.row, col: open.col }, move[0], move[1]);
+      focusGrid();
+    }
   };
 
   const onCellPress = (row: number, col: string) => {
@@ -176,6 +231,11 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
   const onKey = (e: KeyboardEvent) => {
     const open = editRef.current;
     if (open) {
+      // A suggestion list takes its arrows, and Enter on a highlighted choice, first.
+      if (editorKeys.current?.(e)) {
+        e.preventDefault();
+        return;
+      }
       if (e.key === "Enter") {
         e.preventDefault();
         finishEdit([1, 0]);
@@ -185,13 +245,23 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
       } else if (e.key === "Escape") {
         e.preventDefault();
         setEditing(null);
+        focusGrid();
       }
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "z") {
+      if (readOnly) return;
+      e.preventDefault();
+      undo(e.shiftKey);
       return;
     }
     const step = e.key === "Tab" ? ([0, e.shiftKey ? -1 : 1] as [number, number]) : ARROWS[e.key];
     if (step) {
+      const next = moveSelection(order, columnNames, selection, step[0], step[1]);
+      // Tab at the first or last column leaves the grid, as it would leave any other control.
+      if (e.key === "Tab" && selection !== null && next !== null && next.row === selection.row && next.col === selection.col) return;
       e.preventDefault();
-      moveFrom(selection, step[0], step[1]);
+      if (next) setSelection(next);
       return;
     }
     if (!selection) return;
@@ -206,12 +276,53 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
     if (e.key === "Enter" || e.key === "F2") {
       e.preventDefault();
       startEdit(selection.row, selection.col, valueAt(selection.row, selection.col));
-    } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && column.type !== "date") {
-      // The typed character is the editor's first text, so it is not also typed into the field.
+    } else if ((e.key === "Delete" || e.key === "Backspace") && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
-      startEdit(selection.row, selection.col, e.key);
+      const { row, col } = selection;
+      if (column.type === "checkbox") return;
+      commit((t) => editCell(t, row, col, ""));
+    } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      // A date opens its picker on what is there: a typed character is not a date. Anything else starts with the
+      // typed character as its first text, so it is not also typed into the field.
+      startEdit(selection.row, selection.col, column.type === "date" ? valueAt(selection.row, selection.col) : e.key);
     }
   };
+
+  /** A paste onto the selected cell: a block of tab-separated lines fills the cells from there, right and down. */
+  const onPaste = (clipboard: string) => {
+    if (readOnly || !selection || editRef.current) return false;
+    const block = clipboardBlock(clipboard);
+    const top = order.indexOf(selection.row);
+    const left = columnNames.indexOf(selection.col);
+    if (top < 0 || left < 0) return false;
+    const cells: { row: number; column: string; value: string }[] = [];
+    block.forEach((line, r) => {
+      const row = order[top + r];
+      if (row === undefined) return;
+      line.forEach((value, c) => {
+        const name = columnNames[left + c];
+        const column = name === undefined ? undefined : columnNamed(name);
+        if (!column || column.type === "checkbox") return;
+        cells.push({ row, column: column.name, value });
+      });
+    });
+    commit((t) => editCells(t, cells));
+    return true;
+  };
+  const pasteRef = useRef(onPaste);
+  pasteRef.current = onPaste;
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const listener = (e: ClipboardEvent) => {
+      const root = gridRef.current as unknown as HTMLElement | null;
+      if (!root || !(e.target instanceof Node) || !root.contains(e.target)) return;
+      const clipboard = e.clipboardData?.getData("text/plain") ?? "";
+      if (clipboard !== "" && pasteRef.current(clipboard)) e.preventDefault();
+    };
+    document.addEventListener("paste", listener, true);
+    return () => document.removeEventListener("paste", listener, true);
+  }, []);
   // Read at each key, so the listener always sees this render's selection and sheet.
   const keyRef = useRef(onKey);
   keyRef.current = onKey;
@@ -238,6 +349,8 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
 
   const addRow = () => {
     if (readOnly || columns.length === 0) return;
+    // Whatever is being typed is kept first: the new row's editor would replace it.
+    finishEdit(null);
     const at = sheet.rows.length;
     commit((t) => appendRow(t));
     // The new row's first cell opens for typing, so keys go into the sheet and not the app's own shortcuts.
@@ -259,9 +372,22 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
   };
 
   const renameColumn = (from: string, to: string) => {
-    commit((t) => renameColumnText(t, from, to));
-    updateView((v) => renameInView(v, from, to));
-    setMenu((m) => (m && m.kind === "column" ? { ...m, column: to } : m));
+    // The name the file ends up with, which csv.js cleans: the view and the open menu follow that, not what was typed.
+    let stored: string | null = null;
+    commit((t) => {
+      const at = columnIndex(t, from);
+      const next = renameColumnText(t, from, to);
+      if (next !== t && at >= 0) stored = (parseSheet(next).columns[at]?.name as string | undefined) ?? null;
+      return next;
+    });
+    const named = stored as string | null;
+    if (named === null) {
+      const wanted = cleanColumnName(to);
+      if (wanted !== "" && wanted.toLowerCase() !== from.toLowerCase()) (say ?? setNotice)(`There is already a column called ${wanted}.`);
+      return;
+    }
+    updateView((v) => renameInView(v, from, named));
+    setMenu((m) => (m && m.kind === "column" ? { ...m, column: named } : m));
   };
 
   const retype = (name: string, type: ColumnType) => {
@@ -309,7 +435,9 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
       {problems.length === 0 ? null : (
         <View style={styles.problems} testID="sheet-problems">
           <Text variant="meta" style={styles.notice}>
-            {`${parsed.errors.length === 1 ? "A line" : `${parsed.errors.length} problems`} in this file. Rows are shown as they are.`}
+            {lossy
+              ? `${parsed.errors.length === 1 ? "A line" : `${parsed.errors.length} problems`} in this file would lose cells if the grid saved it, so it is read-only here until ${parsed.errors.length === 1 ? "it is" : "they are"} fixed.`
+              : `${parsed.errors.length === 1 ? "A line" : `${parsed.errors.length} problems`} in this file. Rows are shown as they are.`}
           </Text>
           {problems.map((line) => (
             <Text key={line} variant="meta" style={styles.problemLine}>
@@ -347,7 +475,7 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
           </Pressable>
         </View>
       )}
-      <View ref={gridRef} style={styles.gridBox}>
+      <View ref={gridRef} style={styles.gridBox} focusable={Platform.OS === "web"} testID="sheet-grid-box">
         <SheetGrid
           sheet={sheet}
           columns={columns}
@@ -367,6 +495,7 @@ export function SheetView({ path, text, readOnly, people = [], visibility, say, 
           }}
           onPick={pick}
           onFinishEdit={(how) => finishEdit(how === "enter" ? [1, 0] : null)}
+          editorKeys={editorKeys}
         />
       </View>
       {readOnly ? null : (
@@ -424,6 +553,7 @@ const makeStyles = (colors: Colors) =>
     muted: { color: colors.chromeMuted },
     accent: { color: colors.accentText },
     hiddenBar: { flexDirection: "row", alignItems: "center", gap: space.x2, marginBottom: space.x2 },
-    gridBox: {},
+    // Focused after an edit so the keys keep working; the selected cell's ring already says where focus is.
+    gridBox: { outlineStyle: "none" } as object,
     newRow: { height: 32, justifyContent: "center", paddingHorizontal: space.x2, marginTop: space.x1, borderRadius: radii.sm },
   });

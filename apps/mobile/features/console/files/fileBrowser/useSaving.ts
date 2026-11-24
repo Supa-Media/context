@@ -66,6 +66,25 @@ export function useSaving(deps: SavingDeps) {
     rather than retried for ever. Cleared by any save that lands.
   */
   const drawingMerges = useRef(new Map<string, number>());
+  /*
+    ONE WRITE PER NOTE AT A TIME.
+
+    A save in flight was made against the etag the editor held when it left,
+    and that etag is still the editor's until the answer comes back. A second
+    save sent meanwhile (the autosave of the next keystroke, a Save press,
+    leaving the note) carried that same etag, so whichever of the two landed
+    second was refused as "changed in your bucket" by the first: the person's
+    own earlier save, offered back to them as somebody else's version. A
+    sheet hit it on almost every quick edit (Dev, 2026-11-24): a new row and
+    a typed cell are two commits a second apart.
+
+    So a save asked for while one is out for the same note is held here, as
+    the newest text asked for, and sent when the one in flight lands, against
+    the etag it landed with. A refusal or a timeout drops it: the editor is
+    then waiting on the person, and the draft is still on the device.
+  */
+  const inFlight = useRef(new Set<string>());
+  const owed = useRef(new Map<string, string>());
 
   /**
    * One conditional write, whatever asked for it.
@@ -143,6 +162,12 @@ export function useSaving(deps: SavingDeps) {
         return;
       }
 
+      if (inFlight.current.has(path)) {
+        owed.current.set(path, text);
+        return;
+      }
+      inFlight.current.add(path);
+
       const mine = (saveRuns.current.get(path) ?? 0) + 1;
       saveRuns.current.set(path, mine);
       const running = saveTimers.current.get(path);
@@ -157,13 +182,16 @@ export function useSaving(deps: SavingDeps) {
         *later*, when that is no longer true.
       */
       trackEvent("note_save_started");
-      dispatch({ type: "saveStarted" });
+      // A held save sent after its note was left has no editor to mark as saving.
+      if (editorRef.current.path === path) dispatch({ type: "saveStarted" });
 
       saveTimers.current.set(
         path,
         setTimeout(() => {
           saveTimers.current.delete(path);
           if (saveRuns.current.get(path) !== mine) return;
+          inFlight.current.delete(path);
+          owed.current.delete(path);
           // Bump past `mine` so the write, if it ever lands, cannot come back
           // and settle an attempt the editor has already given up on.
           saveRuns.current.set(path, mine + 1);
@@ -182,6 +210,7 @@ export function useSaving(deps: SavingDeps) {
       );
 
       const settle = () => {
+        inFlight.current.delete(path);
         const timer = saveTimers.current.get(path);
         if (timer !== undefined) {
           clearTimeout(timer);
@@ -208,7 +237,8 @@ export function useSaving(deps: SavingDeps) {
             opened.
           */
           drawingMerges.current.delete(path);
-          offlineRef.current.forgetDraft(path);
+          // Unless newer text is held to go next: that is still a draft until it lands.
+          if (!owed.current.has(path)) offlineRef.current.forgetDraft(path);
           offlineRef.current.rememberBody({ path, text, etag: result.etag });
           // A new note's first save was its create: it is an ordinary note now.
           const created = expectedEtag === null ? unsentCreates.current.get(path) : undefined;
@@ -251,10 +281,15 @@ export function useSaving(deps: SavingDeps) {
             });
           }
           void refresh([parentPath(path)]).catch(reportRefreshFailure);
+          // A save held while this one was out goes now, on top of the version this one made.
+          const next = owed.current.get(path);
+          owed.current.delete(path);
+          if (next !== undefined && next !== text) performSaveRef.current(path, next, result.etag);
         })
         .catch((error: unknown) => {
           if (saveRuns.current.get(path) !== mine) return;
           settle();
+          owed.current.delete(path);
           trackEvent("note_save_result", { result: "failed" });
           let failure = toFileError(error);
           const unsent = expectedEtag === null ? unsentCreates.current.get(path) : undefined;
