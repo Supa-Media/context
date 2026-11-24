@@ -66,6 +66,8 @@ export interface AreasListProps {
   onArea?: (folder: string) => void;
   /** The area shown in the side panel, drawn selected; null when none. */
   selected?: string | null;
+  /** A press on the top row shows it in the side panel too, rather than opening its menu (the owner, 2026-11-24). */
+  rootPeeks?: boolean;
   /** Right-click on an area row, or its ⋯ button (`at` null). */
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
   /** The latest reading of a seat's headline metric, from its `metrics.csv`; undefined when there is none. */
@@ -84,7 +86,8 @@ function depthProps(depth: number): ViewProps {
 }
 
 /** Everything a row needs from the list, passed down once. */
-interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected"> {
+interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected" | "rootPeeks"> {
+  readonly rootPeeks: boolean;
   readonly onArea: (folder: string) => void;
   readonly selected: string | null;
   /** Areas whose sub-areas are folded away. */
@@ -102,7 +105,7 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, onMenu, readingOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
@@ -115,6 +118,7 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
     onOpen,
     onArea: onArea ?? onOpen,
     selected,
+    rootPeeks,
     onMenu,
     readingOf,
     closed,
@@ -172,7 +176,7 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
   return (
     <View ref={menuClick.ref as never}>
       <Pressable
-        onPress={(event: GestureResponderEvent) => (root ? openMenu(pressPoint(event)) : shared.onArea(seat.folder))}
+        onPress={(event: GestureResponderEvent) => (root && !shared.rootPeeks ? openMenu(pressPoint(event)) : shared.onArea(seat.folder))}
         accessibilityLabel={root ? `${folderLabel(seat.name)}, seat` : `${folderLabel(seat.name)}, area`}
         testID={root ? "area-row-root" : `area-row-${seat.folder}`}
         {...depthProps(depth)}

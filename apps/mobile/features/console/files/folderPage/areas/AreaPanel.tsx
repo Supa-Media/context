@@ -30,6 +30,8 @@ import type { TrendGeometry } from "./Trend";
 
 export interface AreaPanelProps {
   node: AreaNode;
+  /** The top of the page, named as its row is (the workspace's name); open already, so no Open area. */
+  top?: string;
   /** The panel's inner width, from `PanelBeside`. */
   width: number;
   canEdit: boolean;
@@ -54,7 +56,7 @@ function editOf(seat: Seat, patch: Partial<SeatEdit>): SeatEdit {
   return { owner: seat.ownOwner, helper: seat.helper, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
 }
 
-export function AreaPanel({ node, width, canEdit, faceOf, label, reach, readingOf, onSave, onEditSeat, onPeek, onOpen, onClose }: AreaPanelProps) {
+export function AreaPanel({ node, top, width, canEdit, faceOf, label, reach, readingOf, onSave, onEditSeat, onPeek, onOpen, onClose }: AreaPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
@@ -90,15 +92,17 @@ export function AreaPanel({ node, width, canEdit, faceOf, label, reach, readingO
         <View style={styles.head}>
           <OwnerFace face={faceOf(owner)} size={22} />
           <Text variant="paneTitle" style={styles.title} numberOfLines={1} role="heading" aria-level={2}>
-            {areaTitle(seat.name)}
+            {top ?? areaTitle(seat.name)}
           </Text>
           <Pressable onPress={onClose} role="button" accessibilityLabel="Close" hitSlop={6} style={styles.close} testID="area-panel-close">
             <Icon name="close" size={13} color={colors.chromeMuted} />
           </Pressable>
         </View>
-        <Pressable onPress={() => onOpen(seat.folder)} role="button" accessibilityLabel={`Open ${areaTitle(seat.name)}`} style={styles.openButton} testID="area-panel-open">
-          <Text variant="treeMeta" style={styles.openWord}>Open area</Text>
-        </Pressable>
+        {top !== undefined ? null : (
+          <Pressable onPress={() => onOpen(seat.folder)} role="button" accessibilityLabel={`Open ${areaTitle(seat.name)}`} style={styles.openButton} testID="area-panel-open">
+            <Text variant="treeMeta" style={styles.openWord}>Open area</Text>
+          </Pressable>
+        )}
       </View>
       {problem === null ? null : (
         <Text variant="treeMeta" role="alert" style={styles.problem}>

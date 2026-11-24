@@ -126,6 +126,18 @@ describe("the Areas side panel", () => {
     expect(all("aside-area")).toHaveLength(0);
   });
 
+  test("the top row shows in the panel too, named for the workspace, and a second press does not leave the page", async () => {
+    windowOf(1440);
+    const { selected } = await mount(host([], { notes: AREAS }), LISTING);
+    // The owner, 2026-11-24: "it doesnt open up for the top level?"
+    await press(one("area-row-root"));
+    await press(one("area-row-root"));
+    expect(selected).toEqual([]);
+    expect(all("area-panel")).toHaveLength(1);
+    expect(strip(one("area-panel").textContent)).toContain("Seyi");
+    expect(all("area-panel-open")).toHaveLength(0);
+  });
+
   test("a phone has no panel: a press opens the area", async () => {
     windowOf(390);
     const { selected } = await mount(host([], { notes: AREAS }), LISTING);
