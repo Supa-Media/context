@@ -129,7 +129,7 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
           <FileRows node={tree} depth={0} shared={shared} />
         </>
       ) : (
-        <AreaBranch node={tree} depth={0} rootTitle={rootTitle} firstTop shared={shared} />
+        <AreaBranch node={tree} depth={0} rootTitle={rootTitle} shared={shared} />
       )}
     </View>
   );
@@ -138,14 +138,14 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
 /* ------------------------------ pointer: rows ------------------------------ */
 
 /** An area row, then its notes and folders when they are showing, then its sub-areas unless folded. Depth 0 is the open folder. */
-function AreaBranch({ node, depth, rootTitle, firstTop, shared }: { node: AreaNode; depth: number; rootTitle?: string; firstTop: boolean; shared: Shared }) {
+function AreaBranch({ node, depth, rootTitle, shared }: { node: AreaNode; depth: number; rootTitle?: string; shared: Shared }) {
   const open = !shared.closed.has(node.seat.folder);
   return (
     <>
       <AreaRow node={node} depth={depth} title={rootTitle} open={open} shared={shared} />
       <FileRows node={node} depth={depth} shared={shared} />
       {open
-        ? node.areas.map((sub, at) => <AreaBranch key={sub.seat.folder} node={sub} depth={depth + 1} firstTop={at === 0} shared={shared} />)
+        ? node.areas.map((sub) => <AreaBranch key={sub.seat.folder} node={sub} depth={depth + 1} shared={shared} />)
         : null}
     </>
   );
