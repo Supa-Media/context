@@ -7,6 +7,8 @@
 import { LAB_CSS_6 } from "./labCss6";
 import { LAB_CSS_DOCK } from "./labCssDock";
 import { LAB_CSS_CARD } from "./labCssCard";
+import { LAB_CSS_WORLD } from "./labCssWorld";
+import { LAB_CSS_CHAT } from "./labCssChat";
 
 export const LAB_CSS_5 = String.raw`
 .tl .popw{position:relative;display:inline-flex}
@@ -129,4 +131,4 @@ export const LAB_CSS_5 = String.raw`
   .tl .score small{display:none}
 }
 @media (max-width:420px){.tl .hide-xs{display:none}.tl .bar .modes button{padding:3px 6px}}
-` + LAB_CSS_6 + LAB_CSS_DOCK + LAB_CSS_CARD;
+` + LAB_CSS_6 + LAB_CSS_DOCK + LAB_CSS_CARD + LAB_CSS_WORLD + LAB_CSS_CHAT;

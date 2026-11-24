@@ -7,10 +7,12 @@
 import { useEffect, useState } from "react";
 import { attachSandbox, readRecentSandboxes, readSandboxChats, readSandboxSets, readSandboxShared, openSandbox, setSandboxCode, useSandbox, type SandboxSource } from "../../engine/sandbox";
 import { Pop } from "../bar/Pop.web";
+import { WorldPick } from "./world/WorldPick.web";
+import { useWorld } from "./world/worldStore";
 
 type Tab = "mine" | "test" | "sets" | "shared";
 
-const srcKey = (s: SandboxSource) => (s.kind === "maya" ? "maya" : s.kind === "chat" ? "chat:" + s.chatId : s.kind === "shared" ? "shared:" + s.chatId : "set:" + s.convId);
+const srcKey = (s: SandboxSource) => (s.kind === "maya" ? "maya" : s.kind === "world" ? "world:" + s.name : s.kind === "chat" ? "chat:" + s.chatId : s.kind === "shared" ? "shared:" + s.chatId : "set:" + s.convId);
 
 /** When a shared chat last had a text, in a few words. */
 function ago(at: number | null): string {
@@ -58,11 +60,23 @@ const setSandboxCodeCheck = (t: string) => !t.trim() || t.trim() === "main" || /
 /** The chat picker: your account's 1:1 and group chats, the test account, and the Training and Dev conversations. */
 export function ChatPick({ versionId }: { versionId: string }) {
   const sb = useSandbox();
-  const [tab, setTab] = useState<Tab>(sb.source.kind === "maya" ? "test" : sb.source.kind === "set" ? "sets" : sb.source.kind === "shared" ? "shared" : "mine");
+  const w = useWorld();
+  const [tab, setTab] = useState<Tab>(sb.source.kind === "maya" || sb.source.kind === "world" ? "test" : sb.source.kind === "set" ? "sets" : sb.source.kind === "shared" ? "shared" : "mine");
   const [q, setQ] = useState("");
   // A linked test chat not open yet is named as the link, never as the chat the dock showed before it.
-  const name = sb.linked ? "Linked test chat" : sb.source.kind === "maya" ? "Maya (test account)" : sb.source.kind === "chat" && sb.source.chatId === "me" ? "Your 1:1 with Tex" : sb.source.name;
-  const who = sb.linked ? "" : sb.source.kind === "shared" ? "shared" : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me") ? "1:1" : sb.people.length ? sb.people.length + " people" : "";
+  // The setup in the dock names the chat it is making (artboard 02).
+  const name = w.draft ? w.draft.name.trim() || "New group chat" : sb.linked ? "Linked test chat" : sb.source.kind === "maya" ? "Maya (test account)" : sb.source.kind === "chat" && sb.source.chatId === "me" ? "Your 1:1 with Tex" : sb.source.name;
+  const who = w.draft
+    ? w.draft.people.length + " people"
+    : sb.linked
+      ? ""
+      : sb.source.kind === "shared"
+        ? "shared"
+        : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me")
+          ? "1:1"
+          : sb.people.length
+            ? sb.people.length + " people"
+            : "";
   const qq = q.trim().toLowerCase();
   const hit = (s: string) => !qq || s.toLowerCase().includes(qq);
   const cur = srcKey(sb.source);
@@ -93,15 +107,37 @@ export function ChatPick({ versionId }: { versionId: string }) {
         const one = sb.chats.filter((c) => (c.chatId === "me" || c.kind === "dm") && hit(c.chatId === "me" ? "Your 1:1 with Tex" : c.name));
         const groups = sb.chats.filter((c) => c.chatId !== "me" && c.kind !== "dm" && hit(c.name));
         const convs = sb.sets.filter((c) => hit(c.title));
+        const recentList = recent.length ? (
+          <div id="sbRecent">
+            <div className="mh">Recent test chats</div>
+            {recent.map((c) => (
+              <button
+                key={c.sandboxId}
+                className="mi"
+                data-sandbox={c.sandboxId}
+                aria-current={sb.id === c.sandboxId}
+                title={`Opened by ${c.openedBy}${c.lastBy !== c.openedBy ? `, last text by ${c.lastBy}` : ""}`}
+                onClick={() => {
+                  close();
+                  void attachSandbox(c.sandboxId, versionId, c);
+                }}
+              >
+                <span className="nm">{c.name}</span>
+                {c.ai ? <span className="aib">AI</span> : null}
+                <span className="meta">{c.running ? "running" : c.texts + " test text" + (c.texts === 1 ? "" : "s")}</span>
+              </button>
+            ))}
+          </div>
+        ) : null;
         const shared = sb.sharedChats.filter((c) => hit(c.name + " " + c.sharedBy.join(" ")));
         return (
-          <div className="vmenu chatpick">
+          <div className={"vmenu chatpick" + (tab === "test" ? " wide" : "")}>
             <ReadRecent />
             <div className="seg" role="tablist" id="sbPickTabs">
               {(
                 [
                   ["mine", "Your account"],
-                  ["test", "Test account"],
+                  ["test", "Made-up chats"],
                   ["sets", "Training / Dev"],
                   ["shared", "Shared with devs"],
                 ] as const
@@ -123,33 +159,15 @@ export function ChatPick({ versionId }: { versionId: string }) {
                 </button>
               ))}
             </div>
-            {recent.length ? (
-              <div id="sbRecent">
-                <div className="mh">Recent test chats</div>
-                {recent.map((c) => (
-                  <button
-                    key={c.sandboxId}
-                    className="mi"
-                    data-sandbox={c.sandboxId}
-                    aria-current={sb.id === c.sandboxId}
-                    title={`Opened by ${c.openedBy}${c.lastBy !== c.openedBy ? `, last text by ${c.lastBy}` : ""}`}
-                    onClick={() => {
-                      close();
-                      void attachSandbox(c.sandboxId, versionId, c);
-                    }}
-                  >
-                    <span className="nm">{c.name}</span>
-                    {c.ai ? <span className="aib">AI</span> : null}
-                    <span className="meta">{c.running ? "running" : c.texts + " test text" + (c.texts === 1 ? "" : "s")}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <CodePick />
-            <input type="search" id="sbChatQ" className="vren" placeholder="Find a chat" aria-label="Find a chat" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            {tab === "test" ? null : recentList}
+            <div className="ptop">
+              <CodePick />
+              <input type="search" id="sbChatQ" className="vren" placeholder="Find a chat" aria-label="Find a chat" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            </div>
+            {tab === "test" ? recentList : null}
             <div id="sbChatList">
               {sb.code !== "main" && (tab === "mine" || tab === "shared") ? (
-                <div className="mnote">On a pull request&apos;s preview, open the Test account or a Training / Dev conversation: your own and shared chats stay in production.</div>
+                <div className="mnote">On a pull request&apos;s preview, open a Made-up chat or a Training / Dev conversation: your own and shared chats stay in production.</div>
               ) : tab === "mine" ? (
                 <>
                   {one.length ? <div className="mh">1:1</div> : null}
@@ -170,14 +188,23 @@ export function ChatPick({ versionId }: { versionId: string }) {
                 </>
               ) : tab === "shared" ? (
                 <>
-                  <div className="mnote">People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). ▶ plays what ran; a test text runs as them, writes stay in the test chat.</div>
+                  <div className="mnote">
+                    People who said yes to sharing their Tex chats with the developers (Settings → Feedback, or texting "share my chats with the devs"). ▶ plays what ran; a test text runs as them, writes stay in the test chat.
+                  </div>
                   {(["dm", "group"] as const).map((k) => {
                     const xs = shared.filter((c) => c.kind === k);
                     return xs.length ? (
                       <div key={k}>
                         <div className="mh">{k === "dm" ? "1:1" : "Group chats"}</div>
                         {xs.map((c) => (
-                          <button key={c.chatId} className="mi" data-shared={c.chatId} aria-current={cur === "shared:" + c.chatId} title={"Shared by " + c.sharedBy.map((h) => "@" + h).join(", ")} onClick={() => open({ kind: "shared", chatId: c.chatId, name: c.name })}>
+                          <button
+                            key={c.chatId}
+                            className="mi"
+                            data-shared={c.chatId}
+                            aria-current={cur === "shared:" + c.chatId}
+                            title={"Shared by " + c.sharedBy.map((h) => "@" + h).join(", ")}
+                            onClick={() => open({ kind: "shared", chatId: c.chatId, name: c.name })}
+                          >
                             <span className="nm">{c.name}</span>
                             <span className="meta">{[k === "group" ? c.people + " people" : "1:1", ago(c.lastAt)].filter(Boolean).join(" · ")}</span>
                           </button>
@@ -188,15 +215,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
                   {!shared.length ? <div className="mnote">{sb.sharedChats.length ? "No chat matches." : "Nobody has shared their chats with the developers yet."}</div> : null}
                 </>
               ) : tab === "test" ? (
-                <>
-                  <div className="mnote">A made-up person with her own workspace and chats, so nothing touches yours.</div>
-                  {hit("Maya (test account)") ? (
-                    <button className="mi" data-chat="maya" aria-current={cur === "maya"} onClick={() => open({ kind: "maya" })}>
-                      <span className="nm">Maya (test account)</span>
-                      <span className="meta">1:1</span>
-                    </button>
-                  ) : null}
-                </>
+                <WorldPick hit={hit} cur={cur} main={sb.code === "main"} versionId={versionId} open={open} close={close} />
               ) : (
                 <>
                   {(["dev", "training"] as const).map((k) => {

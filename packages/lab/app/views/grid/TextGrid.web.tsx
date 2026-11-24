@@ -109,6 +109,8 @@ export function TextGrid(p: {
   id?: string;
   /** Shown in the grid's place, its head kept (the test chat's Timeline): the grid stays mounted, hidden. */
   alt?: ReactNode;
+  /** Under the head, over the grid and `alt` alike (a made-up group chat's people strip). */
+  sub?: ReactNode;
   /** When this changes, the grid scrolls to its last row (the test chat opens at its newest texts, Dev2 2026-11-16: "bottom panel should also start scrolled to the bottom"). */
   bottomKey?: string;
 }) {
@@ -135,6 +137,7 @@ export function TextGrid(p: {
         {p.slim || p.alt ? null : <ColButton cols={cols} all={all} save={save} reset={reset} id={p.id ? p.id + "ColBtn" : undefined} />}
         {p.headEnd}
       </div>
+      {p.folded ? null : p.sub}
       <div className="scroll" ref={scroller} hidden={p.folded || !!p.alt}>
         <table className="chatgrid" ref={table} style={{ width: tw === null ? "100%" : tw }}>
           <colgroup>

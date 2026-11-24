@@ -25,7 +25,9 @@ export type SandboxSource =
   | { kind: "chat"; chatId: string; name: string }
   | { kind: "set"; convId: string; name: string; chatId?: string }
   /** A chat someone shared with the developers (`readSandboxShared`): its real texts play what ran, and a test text runs as its person. */
-  | { kind: "shared"; chatId: string; name: string };
+  | { kind: "shared"; chatId: string; name: string }
+  /** A made-up group chat on a pull request's preview (`views/canvas/world/`): `world` is `open`'s, null when attached. */
+  | { kind: "world"; name: string; world: Record<string, unknown> | null };
 /** A chat shared with the developers, as the gateway lists it (`labSandbox/shared.js`). */
 export type SharedChat = { chatId: string; name: string; kind: "dm" | "group"; people: number; sharedBy: string[]; lastAt: number | null };
 export type SandboxRow = {
@@ -52,8 +54,13 @@ export type SandboxRow = {
   on?: string;
   /** Tapbacks on this text, each run as a Tex turn of its own. */
   reactions?: Array<{ who: string; emoji: string }>;
-  /** A row that is a tapback, an edit or an unsend on another text, not a text of its own. */
-  kind?: "reaction" | "edit" | "unsend";
+  /** A row that is a tapback, an edit or an unsend on another text, or who is in a made-up chat changing ("people"). */
+  kind?: "reaction" | "edit" | "unsend" | "people";
+  /** A made-up chat: a reply's `group` (what the preview's control plane said), a people row's change and name, and a card a row carries. */
+  group?: unknown;
+  change?: "added" | "left";
+  name?: string;
+  media?: Record<string, unknown>;
 };
 /** The tapbacks iMessage has, in its order. */
 export const TAPBACKS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
@@ -121,7 +128,7 @@ export type SandboxState = {
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
 export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSource; versionId: string; openedBy: string; lastBy: string; at: number; ai: boolean; texts: number; running: boolean };
 
-export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page" | "nightly";
+export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page" | "nightly" | "join" | "leave";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null };
@@ -193,7 +200,10 @@ export function rowOf(r: Record<string, unknown>): SandboxRow {
     ...(r.unsent === true ? { unsent: true } : {}),
     ...(typeof r.on === "string" && r.on ? { on: r.on } : {}),
     ...(Array.isArray(r.reactions) ? { reactions: arr<Record<string, unknown>>(r.reactions).map((x) => ({ who: str(x.who), emoji: str(x.emoji) })).filter((x) => x.emoji) } : {}),
-    ...(r.kind === "reaction" || r.kind === "edit" || r.kind === "unsend" ? { kind: r.kind } : {}),
+    ...(r.kind === "reaction" || r.kind === "edit" || r.kind === "unsend" || r.kind === "people" ? { kind: r.kind } : {}),
+    ...(r.group && typeof r.group === "object" ? { group: r.group } : {}),
+    ...(r.change === "added" || r.change === "left" ? { change: r.change, name: str(r.name) } : {}),
+    ...(r.media && typeof r.media === "object" && !Array.isArray(r.media) ? { media: r.media as Record<string, unknown> } : {}),
   };
 }
 
@@ -206,7 +216,6 @@ export function writeOf(w: Record<string, unknown>): SandboxWrite {
   return out;
 }
 
-/** A test chat page's id: the last part of its address, else the write's own id. */
 /** A page's id in the sandbox: the last segment of its address (an id, never a name shown), else the write's own id. */
 const lastSegment = (url: string) => {
   const path = url.split(/[?#]/)[0];
@@ -439,7 +448,7 @@ export function openSandbox(source: SandboxSource, versionId: string, base?: str
   sandbox.fit = null;
   sandbox.preview = null;
   const code = sandbox.code !== "main" ? { code: sandbox.code } : {};
-  return run("open", { ...code, source: source.kind, ...(source.kind === "chat" || source.kind === "shared" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : {}), versionId, ...(base ? { base } : {}) });
+  return run("open", { ...code, source: source.kind, ...(source.kind === "chat" || source.kind === "shared" ? { chatId: source.chatId } : source.kind === "set" ? { convId: source.convId, ...(source.chatId ? { chatId: source.chatId } : {}) } : source.kind === "world" ? { world: source.world } : {}), versionId, ...(base ? { base } : {}) });
 }
 /** What a `list` entry's source says, as a source the picker and Reset can open again. */
 function sourceOf(c: Record<string, unknown>): SandboxSource {
@@ -447,6 +456,7 @@ function sourceOf(c: Record<string, unknown>): SandboxSource {
   const name = str(chat.name) || str(chat.title) || (typeof c.chat === "string" ? c.chat : "") || "Test chat";
   const kind = str(c.source) || str(c.kind);
   if (kind === "maya") return { kind: "maya" };
+  if (kind === "world") return { kind: "world", name, world: null };
   const convId = str(chat.convId) || str(c.convId);
   const chatId = str(chat.chatId) || str(c.chatId);
   if (kind === "set" && convId) return { kind: "set", convId, name, ...(chatId ? { chatId } : {}) };
@@ -633,6 +643,9 @@ export function backTo(msgId: string) {
   return reopen(next?.id);
 }
 export const dropText = (msgId: string) => run("drop", { msgId });
+/** Someone joins or leaves a made-up chat (`world.js` `changePeople`); the answer is the chat's rows. Changed people say so (`sandboxChanged`). */
+export const changePeople = (op: "join" | "leave", body: Record<string, unknown>) => run(op, body);
+export const sandboxChanged = () => emit();
 function reopen(base?: string) {
   const { source, versionId } = sandbox;
   return (sandbox.id ? run("reset", {}) : Promise.resolve()).then(() => openSandbox(source, versionId, base));
