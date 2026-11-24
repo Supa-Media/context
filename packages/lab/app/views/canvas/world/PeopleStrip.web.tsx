@@ -87,7 +87,9 @@ function AddSomeone({ here, close, preset }: { here: WorldPerson[]; close: () =>
         <select id="sbAddAcct" value={p.account} onChange={(e) => setAccount(e.target.value as Account)}>
           <option value="off">Not on Context</option>
           <option value="on">On Context</option>
-          <option value="invited">Invited by number</option>
+          <option value="invited" disabled={workspaces().length === 0}>
+            Invited by number
+          </option>
         </select>
         {p.account === "on" ? (
           <>
@@ -223,7 +225,7 @@ export function PeopleStrip() {
       </div>
       <div className="gr see">
         <span className="lbl">Tex can see</span>
-        {now.chips ? now.chips.map((c, i) => <WsChip key={c.kind === "home" ? "home" : c.slug + i} c={c} />) : <span className="wait">Shows after the first text, from the preview&apos;s answer</span>}
+        {now.chips ? now.chips.map((c, i) => <WsChip key={c.kind === "home" ? "home" : c.slug + i} c={c} />) : <span className="wait">Shows after the first text, from the control plane&apos;s answer</span>}
       </div>
     </div>
   );

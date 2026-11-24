@@ -7,7 +7,7 @@
  */
 import type { SandboxSource } from "../../../engine/sandbox";
 import { useEffect } from "react";
-import { blankDraft, placedWords, SCENARIOS, scenarioDraft, workspaces, type Account } from "./worldModel";
+import { blankDraft, placedWords, SCENARIOS, scenarioDraft, scenarioNeeds, workspaces, type Account } from "./worldModel";
 import { loadWorkspaces, openSetup, openWorld, useWorld } from "./worldStore";
 
 const DT: Record<Account, string> = { on: "on", off: "off", invited: "inv" };
@@ -27,14 +27,28 @@ export function WorldPick({ hit, cur, main, versionId, open, close }: { hit: (s:
   useEffect(() => void loadWorkspaces(main), [main]);
   const shown = SCENARIOS.filter((s) => hit(s.title + " " + placedWords(s.says)));
   const none = main && w.workspacesFor === "main" && workspaces().length === 0;
+  const have = workspaces().length;
+  const lacks = (id: string) => main && w.workspacesFor === "main" && scenarioNeeds(id) > have;
+  const cut = main && (w.workspacesTotal ?? 0) > have ? w.workspacesTotal : null;
   return (
     <>
       <div className="mh hx">
-        Made-up chats <span>{main ? "Made-up people, in your own shared workspaces. Nothing Tex writes leaves the test chat." : "Made-up people and workspaces. Nothing touches real ones."}</span>
+        Made-up chats <span>{main ? "Made-up people in your own shared workspaces: Tex reads your real notes there, and nothing it writes leaves the test chat." : "Made-up people and workspaces. Nothing touches real ones."}</span>
       </div>
       {none ? (
         <div className="mnote code" id="sbWorldMain">
-          You&apos;re in no shared workspace, so made-up people can only be guests here. Set Code to #&lt;PR&gt; for made-up workspaces.
+          You&apos;re in no shared workspace, so made-up people here have no roles and nobody can be invited by number. Set Code to #&lt;PR&gt; for made-up workspaces.
+        </div>
+      ) : null}
+      {main && w.workspacesProblem ? (
+        <div className="mnote bad" id="sbWorldProblem">
+          Couldn&apos;t read your workspaces: {w.workspacesProblem} ·{" "}
+          <a onClick={() => void loadWorkspaces(true)}>Try again</a>
+        </div>
+      ) : null}
+      {cut ? (
+        <div className="mnote" id="sbWorldCut">
+          Showing your first {have} of {cut} shared workspaces.
         </div>
       ) : null}
       <div className="pgrid" id="sbWorlds">
@@ -55,13 +69,16 @@ export function WorldPick({ hit, cur, main, versionId, open, close }: { hit: (s:
             key={s.id}
             className="mi two"
             data-world={s.id}
-            title={placedWords(s.says)}
+            disabled={lacks(s.id)}
+            title={lacks(s.id) ? `Needs ${scenarioNeeds(s.id)} shared workspaces; you have ${have}` : placedWords(s.says)}
             onClick={() => {
-              close();
-              // On the workspaces here: read first, so a scenario opened at once is placed on them.
-              void loadWorkspaces(main).then(() => {
-                const d = scenarioDraft(s.id);
-                if (d) void openWorld(d, versionId);
+              // On the workspaces here: read first, so a scenario opened at once is placed on them; a failed read
+              // keeps the picker open with its reason.
+              void loadWorkspaces(main).then((ok) => {
+                const d = ok ? scenarioDraft(s.id) : null;
+                if (!d) return;
+                close();
+                void openWorld(d, versionId);
               });
             }}
           >
@@ -81,8 +98,11 @@ export function WorldPick({ hit, cur, main, versionId, open, close }: { hit: (s:
         className="mi newg"
         id="sbNewGroup"
         onClick={() => {
-          close();
-          void loadWorkspaces(main).then(() => openSetup(blankDraft()));
+          void loadWorkspaces(main).then((ok) => {
+            if (!ok) return;
+            close();
+            openSetup(blankDraft());
+          });
         }}
       >
         <span className="plus">+</span>

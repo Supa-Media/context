@@ -46,7 +46,10 @@ const placed = (slug: Slug): Slug | null => {
   return i < 0 ? slug : (current[i]?.slug ?? null);
 };
 /** A scenario's words with its first workspace named as the one in its place here. */
-export const placedWords = (text: string) => text.replace(/Lumio/g, current[0]?.name ?? "Lumio");
+export const placedWords = (text: string) => {
+  const name = current[0]?.name;
+  return name ? text.replace(/Lumio/g, () => name) : text;
+};
 
 export const SPEAKS_UP: ReadonlyArray<{ v: SpeaksUp; w: string; tip: string }> = [
   { v: "off", w: "Off", tip: 'Off: Tex says nothing here until someone says "Tex, start". The same as "Tex, stop".' },
@@ -213,9 +216,10 @@ const DINNER: StartLine[] = [
 ].map(([as, text]) => ({ as, text }));
 
 /** The ready-made scenarios of the picker's Made-up chats tab (artboard 01), each a whole setup. */
-export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string; size: string; draft: WorldDraft }> = [
+export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string; size: string; needs: number; draft: WorldDraft }> = [
   {
     id: "everyone",
+    needs: 1,
     title: "Everyone on Context",
     says: "Three teammates, all members of Lumio",
     size: "3 people",
@@ -223,6 +227,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "mixed",
+    needs: 0,
     title: "Mixed: one person not on Context",
     says: "Sam has no account; Tex sees a guest",
     size: "3 people",
@@ -230,6 +235,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "only-you",
+    needs: 0,
     title: "Only you on Context",
     says: "Alpha and two friends without accounts",
     size: "3 people",
@@ -237,6 +243,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "invited",
+    needs: 1,
     title: "Guest invited by number",
     says: "Priya has no account but an invite to Lumio",
     size: "3 people",
@@ -244,6 +251,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "owners",
+    needs: 3,
     title: "Different owners",
     says: "Each person owns or edits a different workspace",
     size: "4 people",
@@ -258,6 +266,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "going",
+    needs: 0,
     title: "Tex dropped into a chat already going",
     says: "Starts after 12 texts about Saturday's dinner",
     size: "3 people",
@@ -265,6 +274,7 @@ export const SCENARIOS: ReadonlyArray<{ id: string; title: string; says: string;
   },
   {
     id: "joins",
+    needs: 0,
     title: "Someone joins who isn't a member",
     says: "Sam is added after Tex has answered once",
     size: "3, then 4",
@@ -279,6 +289,9 @@ function placedPerson(p: WorldPerson): WorldPerson {
   if (p.account === "invited" && !inv) return { name: p.name, account: "off" };
   return { name: p.name, account: p.account, ...(p.account === "on" ? { roles } : {}), ...(inv ? { invited: inv } : {}) };
 }
+
+/** How many workspaces a scenario needs to be what it says: fewer here and the picker offers it disabled. */
+export const scenarioNeeds = (id: string): number => SCENARIOS.find((x) => x.id === id)?.needs ?? 0;
 
 /** A scenario's setup, copied so the setup can change it, on the workspaces here. */
 export const scenarioDraft = (id: string): WorldDraft | null => {

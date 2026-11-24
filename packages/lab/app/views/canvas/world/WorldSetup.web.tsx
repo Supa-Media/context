@@ -4,12 +4,12 @@
  * settings (name, who brings Tex in, how much Tex joins in, whether it has introduced itself, what it starts from).
  * Nothing runs until "Open the group chat".
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSandbox } from "../../../engine/sandbox";
 import { useLab } from "../../../store";
 import { Av, WsChip } from "./parts.web";
 import { draftProblem, MAX_PEOPLE, seeChips, SPEAKS_UP, standInNumber, workspaces, type Account, type Role, type Slug, type StartLine, type WorldDraft, type WorldPerson } from "./worldModel";
-import { closeSetup, editSetup, openWorld, undoSetup, useWorld } from "./worldStore";
+import { closeSetup, editSetup, fitDraft, loadWorkspaces, openWorld, undoSetup, useWorld } from "./worldStore";
 
 /** One workspace's cell for one person: their role, their invitation, or nothing. */
 function RoleCell({ p, i, slug }: { p: WorldPerson; i: number; slug: Slug }) {
@@ -117,7 +117,9 @@ function People({ d }: { d: WorldDraft }) {
                 <select aria-label="Account" value={p.account} onChange={(e) => setAccount(i, e.target.value as Account)}>
                   <option value="on">On Context</option>
                   <option value="off">Not on Context</option>
-                  <option value="invited">Invited by number</option>
+                  <option value="invited" disabled={workspaces().length === 0}>
+                    Invited by number
+                  </option>
                 </select>
               </td>
               {workspaces().map((w) => (
@@ -244,11 +246,13 @@ export function WorldSetup() {
   const w = useWorld();
   const sb = useSandbox();
   const s = useLab();
+  const main = sb.code === "main";
+  // Code changed while the setup is open: its columns are the workspaces there, and roles in others are dropped.
+  useEffect(() => void loadWorkspaces(main).then((ok) => ok && fitDraft()), [main]);
   const d = w.draft;
   if (!d) return null;
   const problem = draftProblem(d);
   const changed = !!w.base && JSON.stringify(w.base) !== JSON.stringify(d);
-  const main = sb.code === "main";
   const again = sb.source.kind === "world" && sb.rows.some((r) => !r.prod);
   return (
     <>
