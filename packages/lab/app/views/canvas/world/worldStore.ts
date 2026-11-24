@@ -104,7 +104,18 @@ export async function openWorld(d: WorldDraft, versionId: string) {
  * the first answer.
  */
 export async function syncPeople() {
-  if (sandbox.source.kind !== "world" || !sandbox.id || sandbox.preview?.starting) return;
+  if (sandbox.source.kind !== "world" || !sandbox.id) return;
+  // While the preview starts, the people it opened with stand in, so "Texting as" can be picked before the first text
+  // (found 2026-11-24: the row stayed empty until the preview answered). Their handles come when it does.
+  if (sandbox.preview?.starting) {
+    if (!sandbox.people.length && world.opened?.length) {
+      sandbox.people = world.opened.map((p) => p.name);
+      if (!sandbox.people.includes(sandbox.as)) sandbox.as = sandbox.people[0] ?? "";
+      sandboxChanged();
+      emit();
+    }
+    return;
+  }
   const id = sandbox.id;
   try {
     const b = await callSandboxRoute("about", { sandboxId: id });
