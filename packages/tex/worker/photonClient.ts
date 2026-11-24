@@ -82,7 +82,7 @@ export async function sendPhotonText(
   photon: Fetcher,
   place: PhotonPlace,
   text: string,
-  options: { replyTo?: string; linkPreview?: boolean } = {},
+  options: { replyTo?: string; linkPreview?: boolean; effect?: string } = {},
 ): Promise<string | undefined> {
   return guidOf(await photonCall(photon, "send/text", { ...place, text, ...options }));
 }

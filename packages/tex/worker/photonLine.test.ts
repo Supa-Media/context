@@ -300,6 +300,23 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
     ]);
   });
 
+  it("a text Tex starts \"(sent with Invisible Ink)\" goes with that effect and without the mark", async () => {
+    const b = bridge();
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    await app.sendText({ line: "+15550000001", groupId: GROUP }, "(sent with Invisible Ink) the surprise is Friday", "r9");
+    expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: "iMessage;+;chat123", text: "the surprise is Friday", replyTo: "r9", effect: "invisible" } }]);
+  });
+
+  it("tagged words after an effect's mark go as the tags, the mark taken off and the tags moved with it", async () => {
+    const b = bridge();
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    const text = "(sent with Slam) Sam we got it";
+    await app.sendText({ line: "+15550000001", groupId: GROUP }, text, undefined, [{ start: text.indexOf("Sam"), length: 3, address: "+15550000003" }]);
+    expect(b.calls).toEqual([
+      { op: "send/multipart", body: { line: "+15550000001", chat: "iMessage;+;chat123", parts: [{ text: "Sam", mention: "+15550000003" }, { text: " we got it" }] } },
+    ]);
+  });
+
   it("members are read as phones, null when the read fails, and the own-message read is null", async () => {
     const b = bridge();
     const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
