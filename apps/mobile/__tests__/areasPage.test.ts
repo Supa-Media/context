@@ -82,7 +82,7 @@ describe("the Areas folder", () => {
     expect(all("areas-chart")).toHaveLength(1);
     expect(all("area-box-areas/finance")).toHaveLength(1);
     expect(all("area-box-areas/people")).toHaveLength(0);
-    expect(strip(one("area-box-areas/engineering").textContent)).toContain("No manager loop");
+    expect(strip(one("area-box-areas/engineering").textContent)).not.toContain("No manager loop");
   });
 
   test("Chart is an org chart: the workspace on top, lines down to each area, sub-areas under their parent", async () => {
@@ -90,7 +90,7 @@ describe("the Areas folder", () => {
     await press(view("chart"));
     const top = one("area-box-areas");
     expect(strip(top.textContent)).toContain("3 areas");
-    expect(strip(top.textContent)).toContain("need a look");
+    expect(strip(top.textContent)).toContain("1 needs a look");
     expect(all("area-line").length).toBeGreaterThan(2);
     // Payroll is drawn inside Finance's column, under its box.
     expect(all("area-box-areas/finance/payroll")).toHaveLength(1);
@@ -195,6 +195,8 @@ describe("the Areas folder", () => {
     expect(asked.filter((path) => path.endsWith(".csv")).sort()).toEqual([sheet, "areas/finance/payroll/metrics.csv"]);
     const where = one(mode === "chart" ? "area-box-areas/finance" : "area-row-areas/finance");
     expect(strip(where.textContent)).toContain("$512");
+    // Against its target, so a number says whether it is good (the owner, 2026-11-24).
+    expect(strip(where.textContent)).toContain(mode === "chart" ? "Target under $600 · on target" : "$512 / < $600");
     if (mode === "chart") expect(all("area-spark", where)).toHaveLength(1);
   });
 

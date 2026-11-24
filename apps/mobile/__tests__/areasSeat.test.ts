@@ -13,7 +13,6 @@ import {
   cardOf,
   cardPath,
   cardSlug,
-  gapOf,
   healthOf,
   areaTitle,
   kindCounts,
@@ -240,21 +239,20 @@ describe("areaTree", () => {
   });
 });
 
-describe("gapOf", () => {
-  test("an empty seat is not a gap: it says No owner itself and offers Assign owner (prototype)", () => {
-    expect(gapOf(seatOf("areas/finance", ROOT, []))).toBeNull();
+describe("healthOf", () => {
+  test("an empty seat is a ring: it says No owner itself and offers Assign owner (prototype)", () => {
     expect(healthOf(seatOf("areas/finance", ROOT, []))).toBe("ring");
   });
 
-  test("a seat with modes set but no Manager says No manager loop", () => {
+  test("modes are labels: a seat with no Manager is not flagged (owner, 2026-11-24)", () => {
     const notes = [note("areas/finance/about.md", { owner: "@dev2", modes: ["Visionary", "Doer"] })];
-    expect(gapOf(seatOf("areas/finance", ROOT, notes))).toBe("No manager loop");
+    expect(healthOf(seatOf("areas/finance", ROOT, notes))).toBe("neutral");
   });
 
-  test("no owner wins over a missing manager", () => {
-    const notes = [note("areas/finance/about.md", { modes: ["Doer"] })];
-    expect(gapOf(seatOf("areas/finance", ROOT, notes))).toBeNull();
-    expect(healthOf(seatOf("areas/finance", ROOT, notes))).toBe("ring");
+  test("amber when the first metric misses its target; no owner still wins", () => {
+    const owned = seatOf("areas/finance", ROOT, [note("areas/finance/about.md", { owner: "@dev2" })]);
+    expect(healthOf(owned, true)).toBe("warn");
+    expect(healthOf(seatOf("areas/finance", ROOT, [note("areas/finance/about.md", { modes: ["Doer"] })]), true)).toBe("ring");
   });
 });
 
@@ -276,19 +274,15 @@ describe("chart and list helpers", () => {
     expect(kindCounts(files)).toBe("2 sheets · 1 note · 1 folder · 1 page");
   });
 
-  test("needLook counts the sub-areas with no owner or a gap", () => {
+  test("needLook counts the sub-areas with no owner", () => {
     const notes = [
       note("areas/finance/about.md", { owner: "@seyi", modes: ["Manager"] }),
       note("areas/tex/about.md", { owner: "Tex", modes: ["Doer"] }),
       note("areas/design/brand.md", {}),
     ];
-    expect(needLook(areaTree("areas", ROOT, notes))).toBe(2);
+    expect(needLook(areaTree("areas", ROOT, notes))).toBe(1);
   });
 
-  test("null otherwise: owner set, and either no modes or a Manager", () => {
-    expect(gapOf(seatOf("areas/finance", ROOT, [note("areas/finance/about.md", { owner: "@dev2" })]))).toBeNull();
-    expect(gapOf(seatOf("areas/finance", ROOT, [note("areas/finance/about.md", { owner: "@dev2", modes: ["Manager"] })]))).toBeNull();
-  });
 });
 
 describe("seatChanges", () => {
