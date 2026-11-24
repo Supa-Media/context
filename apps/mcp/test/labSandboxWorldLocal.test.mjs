@@ -17,7 +17,7 @@ import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/objec
 import { MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
 import { changePeople, speakerKey, worldAbout, worldInput } from "../../../packages/lab/gateway/labSandbox/world.js";
 import { sandboxGate } from "../../../packages/lab/gateway/labSandbox/harness.js";
-import { hereNow, localControl, localGroupKey, localPeople, localSession, worldPlace } from "../../../packages/lab/gateway/labSandbox/worldLocal.js";
+import { controlPlaneFor, hereNow, localControl, localGroupKey, localPeople, localSession, worldPlace } from "../../../packages/lab/gateway/labSandbox/worldLocal.js";
 import { normalizeSession } from "../src/sessionPayload.js";
 import { sessionFromPayload } from "../src/session.js";
 import { handleChat } from "../../../packages/tex/gateway/agent/textingRoutes.js";
@@ -185,4 +185,22 @@ test("a made-up chat's ledger is the test chat's, under the chat's own key", asy
   assert.equal(gate.ledger(`tex#chat:${"f".repeat(64)}`, key), null, "another chat's is not");
   // One opened before, under its old owner, too.
   assert.notEqual(sandboxGate({ fetch: async () => Response.json({}) }, { ...about, owner: "world:0123456789abcdef" }, "t1").ledger(`tex#chat:${key}`, key), null);
+});
+
+// The attack: the store's rules come with a binding resolved from the Lab user's own token, so the pin came back with a
+// member's rules and a guest's chat searched its team notes (found on production, 2026-11-24). Read as the chat, every
+// row there is private; a reached workspace and Tex's setup door keep the rules they were given.
+test("a made-up chat reads the pin as the chat: none of its team notes, whatever the token's own rules say", () => {
+  const member = { etag: "e.1", accessVersion: 1, folders: [{ prefix: "areas", visibility: "team" }, { prefix: "website", visibility: "team" }], notes: [{ path: "index.md", visibility: "team" }, { path: "areas/held.md", visibility: "@#abc" }] };
+  const real = { labSandbox: async () => null, privacyAuthority: (_proof, _ws, rules) => ({ rules, setAccess: async () => ({ ok: false }) }) };
+  const session = sessionFromPayload(worldPayload([PIN_HOME, { workspaceId: "ws", slug: "acme-team", role: "member", kind: "shared" }]), null, "caller-token");
+  const cp = controlPlaneFor(session, real);
+  const pin = cp.privacyAuthority({ accessToken: "t" }, "pin", member).rules;
+  assert.deepEqual([...pin.folders, ...pin.notes].map((rule) => rule.visibility), ["private", "private", "private", "private"]);
+  assert.equal(pin.etag, "e.1");
+  assert.equal(typeof cp.labSandbox, "function", "the rest of the control plane is the real one");
+  // A reached workspace keeps the rules it was given.
+  assert.deepEqual(cp.privacyAuthority({ accessToken: "t" }, "ws", member).rules, member);
+  // Tex's setup door (no chat names) is opened with the real control plane.
+  assert.equal(controlPlaneFor({ ...session, chatNames: null }, real), real);
 });

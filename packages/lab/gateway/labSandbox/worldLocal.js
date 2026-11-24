@@ -11,6 +11,8 @@
  * in the chat now, with Tex's one introduction kept in the chat object's storage.
  */
 
+import { chatRulesFrom, chatTokens } from "../../../../apps/mcp/src/workspaceStore/chatRules.js";
+
 /** Whether made-up people are made on this deployment (a preview), and the workspaces they can be given roles in. */
 export async function worldPlace(controlPlane, token) {
   const answer = await controlPlane.labSandbox(token, "worldWorkspaces", {});
@@ -95,4 +97,26 @@ export function localControl({ about, chat, grant, storage }) {
     grant.last = { ...(grant.failures ? { failed: grant.failures } : {}), path, status: out.status, reach, blocked: chat?.world?.blocked ?? [], intro: out.intro || grant.last?.intro === true, guests: (out.guests ?? []).map((g) => g.label), asked: grant.asked };
     return out;
   };
+}
+
+/**
+ * The control plane a made-up chat's store on main is opened with. A store's access rules come with its binding, and
+ * the binding is resolved from the token, which here is the Lab user's own: the rules come back as theirs, a member's.
+ * A real chat's grant gets its rules rendered as the chat (`chatRules.js`). So a session read as a chat
+ * (`READS_AS_CHAT`, the pin as a home-only chat's home) has those rules rendered here the same way: a row is `team`
+ * only where its visibility is a token the chat holds, which a made-up chat never does, so nothing in the pin can be
+ * read. Found on production, 2026-11-24: a guest's chat searched the pin's team notes (its Tex reviews) while `orient`,
+ * judged in the object as the chat, showed none. Every other session (a reached workspace, Tex's setup door) is opened
+ * as before.
+ */
+export function controlPlaneFor(session, controlPlane) {
+  const tokens = chatTokens(session?.chatNames ?? null);
+  if (tokens === null) return controlPlane;
+  const asChat = Object.create(controlPlane);
+  asChat.privacyAuthority = (proof, workspaceId, rules) => {
+    const authority = controlPlane.privacyAuthority(proof, workspaceId, rules);
+    if (!authority?.rules || workspaceId !== session.workspaceId) return authority;
+    return { ...authority, rules: { ...authority.rules, ...chatRulesFrom(authority.rules, tokens) } };
+  };
+  return asChat;
 }

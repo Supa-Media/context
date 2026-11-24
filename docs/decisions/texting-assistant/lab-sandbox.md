@@ -436,7 +436,10 @@ role can never add a workspace the Lab user isn't in or lift their role. Its fir
 a home-only grant's home row is: read as a chat with no home (`READS_AS_CHAT` and a token no row holds), so nothing
 there can be read or changed, at the editor's hand a real home has, because a group turn posts its texts through the
 texting routes on the default row's scopes and a member's hand clamps them to read (found on production, 2026-11-24:
-every reply was drafted and refused 403; `labSandboxWorldLocal.test.mjs` "may post its texts"). No token is minted
+every reply was drafted and refused 403; `labSandboxWorldLocal.test.mjs` "may post its texts"). A store's rules come
+with its binding, resolved from the token, which here is the Lab user's own, so the pin's would be a member's: the Lab
+renders them as the chat's (`worldLocal.js` `controlPlaneFor`), every row private, as a real chat's grant gets them
+(found on production, 2026-11-24: a guest's chat searched the pin's team notes; "reads the pin as the chat"). No token is minted
 and nothing is written: the turn runs on the Lab user's own `lab_` token, its writes stay in the test chat, and the
 chat object's group question is answered by the Lab (`labSandbox/worldLocal.js` `localControl`), with the reach on the
 reply row. What this gives up is the rest of `applyGroupTurn` (the sponsor's billing, the real introduction and the
