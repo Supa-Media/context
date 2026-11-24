@@ -4,7 +4,8 @@
  * `rootTitle`, its ⋯ opens the seat menu, its chevron folds everything).
  * Everything else nests under it: sub-areas first, then up to three files per
  * area with a "Show N more" row for the rest. Each area row carries its owner,
- * a value, and a dot that is warm when its seat is missing something (`gapOf`).
+ * its first metric's latest value against its target (green on target, amber
+ * off it), and a title dot that turns amber when the target is missed.
  * Guide lines run down the left so the levels read as one tree.
  *
  * Presentational only: the tree comes from `seat.ts` and every press goes out
@@ -22,8 +23,13 @@ import type { ItemEntry } from "../model";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
-import type { Reading } from "./readings";
-import { areaTitle, fileKind, gapOf, healthOf, type AreaNode, type Seat } from "./seat";
+import { targetState, type Reading } from "./readings";
+import { areaTitle, fileKind, healthOf, type AreaNode, type Seat } from "./seat";
+
+/** A web hover title; none on a phone. */
+function hoverTitle(text: string): { readonly title?: string } {
+  return Platform.OS === "web" && text !== "" ? { title: text } : {};
+}
 
 /** How far each level sits in from its parent. */
 const INDENT = 16;
@@ -139,8 +145,12 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const root = depth === 0;
-  const health = healthOf(seat);
-  const warm = gapOf(seat) !== null;
+  const metric = seat.metrics[0];
+  const reading = metric === undefined ? undefined : shared.readingOf(seat);
+  const state = metric === undefined ? "unknown" : targetState(reading, metric.target);
+  const health = healthOf(seat, state === "missed");
+  const goal = metric?.target == null ? "" : shortTarget(metric.target);
+  const valueTip = metric === undefined ? "" : `${metric.name}${metric.target === null ? "" : `, target ${metric.target}`}${reading?.date ? `, ${reading.date}` : ""}`;
   const unowned = seat.owner === null;
   const name = root ? (title ?? areaTitle(seat.name)) : areaTitle(seat.name);
   const openMenu = (at: { x: number; y: number } | null) => shared.onMenu(seat, at);
@@ -182,10 +192,18 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
             </Text>
             <View style={styles.trail}>
               <OwnerMark owner={seat.owner} faceOf={shared.faceOf} label={shared.label} reach={shared.reach} />
-              <Text variant="treeMeta" style={styles.value} numberOfLines={1}>
-                {unowned ? "No owner" : (shared.readingOf(seat)?.value.replace(/ days?$/, " d") ?? "—")}
+              <Text variant="treeMeta" style={styles.value} numberOfLines={1} testID="area-row-value" {...hoverTitle(valueTip)}>
+                {unowned ? (
+                  "No owner"
+                ) : (
+                  <>
+                    <Text variant="treeMeta" style={state === "met" ? { color: colors.ok } : state === "missed" ? { color: colors.warn } : undefined}>
+                      {reading?.value.replace(/ days?$/, " d") ?? "—"}
+                    </Text>
+                    {goal === "" ? null : <Text variant="treeMeta" style={styles.goal}>{` / ${goal}`}</Text>}
+                  </>
+                )}
               </Text>
-              {warm ? <View testID="area-gap-dot" style={[styles.dot, { backgroundColor: colors.warn }]} /> : null}
               <Pressable
                 onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
                 accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
@@ -203,7 +221,19 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
   );
 }
 
-/** The status dot: an empty dashed ring with no owner, amber when something is missing, else quiet. */
+/** A target as the narrow value column writes it: `under 800 ms` → `< 800 ms`, `at least 7` → `≥ 7`. */
+export function shortTarget(target: string): string {
+  const signs: ReadonlyArray<[RegExp, string]> = [
+    [/^\s*(under|below|less than)\s+/i, "< "],
+    [/^\s*at most\s+/i, "≤ "],
+    [/^\s*(over|above|more than)\s+/i, "> "],
+    [/^\s*at least\s+/i, "≥ "],
+  ];
+  for (const [word, sign] of signs) if (word.test(target)) return target.replace(word, sign).trim();
+  return target.trim();
+}
+
+/** The status dot: an empty dashed ring with no owner, amber when its first metric misses its target, else quiet. */
 function HealthDot({ health }: { health: "ring" | "warn" | "neutral" }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -351,7 +381,8 @@ const makeStyles = (colors: Colors) =>
     areaNameTouch: { fontSize: touchType.ui, lineHeight: 22 },
     unownedName: { color: colors.muted },
     trail: { flexDirection: "row", alignItems: "center", gap: space.x2, flexShrink: 0, marginLeft: "auto" as never },
-    value: { width: 64, textAlign: "right", color: colors.muted },
+    value: { width: 150, textAlign: "right", color: colors.muted },
+    goal: { color: colors.muted, opacity: 0.7 },
     more: { width: 22, height: 22, alignItems: "center", justifyContent: "center", borderRadius: radii.sm },
     moreShown: { opacity: 1 },
     moreHidden: { opacity: 0 },

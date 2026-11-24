@@ -72,21 +72,52 @@ export function readingFor(readings: Readings | undefined, metric: Metric): Read
   return readings?.get(metric.name.trim().toLowerCase());
 }
 
+/** Milliseconds in one of a time unit, by the words a value is written with. */
+const TIME_UNITS: ReadonlyArray<[RegExp, number]> = [
+  [/^(ms|msec|millisecond)s?\b/, 1],
+  [/^(s|sec|secs|second|seconds)\b/, 1_000],
+  [/^(m|min|mins|minute|minutes)\b/, 60_000],
+  [/^(h|hr|hrs|hour|hours)\b/, 3_600_000],
+  [/^(d|day|days)\b/, 86_400_000],
+  [/^(w|wk|wks|week|weeks)\b/, 604_800_000],
+];
+
+/** A value's number in milliseconds when it is written with a time unit (`1436 ms`, `2 s`, `2.4 days`), else null. */
+export function timeOf(value: string): number | null {
+  const n = leadingNumber(value);
+  if (n === null) return null;
+  const rest = value.replace(/^[^\d.-]*-?\d[\d,]*(?:\.\d+)?|^[^\d.-]*-?\.\d+/, "").trim().toLowerCase();
+  for (const [unit, ms] of TIME_UNITS) if (unit.test(rest)) return n * ms;
+  return null;
+}
+
 /**
  * Whether a reading meets its target, where the target says which way is
- * good: `under $600`, `below 2 days`, `over 100`, `at least 7`. Null when the
- * target says neither or either side has no number.
+ * good: `under $600`, `below 2 days`, `over 100`, `at least 7`. Times compare
+ * across units, so `1436 ms` misses `under 800 ms` and meets `under 2 s`.
+ * Null when the target says neither or either side has no number.
  */
 export function meetsTarget(reading: Reading, target: string | null): boolean | null {
   if (target === null) return null;
   const want = /^\s*(under|below|less than|at most|<=?|over|above|more than|at least|>=?)\s*(.*)$/i.exec(target);
   if (want === null) return null;
-  const limit = leadingNumber(want[2]!);
-  const have = leadingNumber(reading.value);
+  const limitTime = timeOf(want[2]!);
+  const haveTime = timeOf(reading.value);
+  const both = limitTime !== null && haveTime !== null;
+  const limit = both ? limitTime : leadingNumber(want[2]!);
+  const have = both ? haveTime : leadingNumber(reading.value);
   if (limit === null || have === null) return null;
   const word = want[1]!.toLowerCase();
   if (word === "under" || word === "below" || word === "less than" || word === "<") return have < limit;
   if (word === "at most" || word === "<=") return have <= limit;
   if (word === "at least" || word === ">=") return have >= limit;
   return have > limit;
+}
+
+/** How a seat's first metric stands: on target, off it, or nothing to say (no reading, no target, or one that says no direction). */
+export type TargetState = "met" | "missed" | "unknown";
+export function targetState(reading: Reading | undefined, target: string | null): TargetState {
+  if (reading === undefined) return "unknown";
+  const met = meetsTarget(reading, target);
+  return met === null ? "unknown" : met ? "met" : "missed";
 }

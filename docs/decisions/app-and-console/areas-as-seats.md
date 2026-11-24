@@ -37,8 +37,14 @@ who to ask and what is not covered. No new concept: an area is the seat.
   stands up, with sub-areas folded under their parent. The List nests every
   area under that top row with guide lines on the left and shows at most
   three notes per area, the rest behind "Show N more".
-- **Gaps are said, never enforced**: "No manager loop". An empty seat is not
-  a gap: it says "No owner" itself, as a dashed box with Assign owner.
+- **A number is shown against its target** (the owner, 2026-11-24: "it's
+  hard to know whether we're doing good or bad"). A box shows its first
+  metric's latest value, green on target and amber off it, with "Target
+  under 800 ms" beneath; a list row shows `1436 ms / < 800 ms`. Times compare
+  across units (`readings.ts`), and a missed target turns the title dot amber.
+  An empty seat says "No owner" itself, as a dashed box with Assign owner.
+  "No manager loop", flagged for modes without Manager, was removed the same
+  day: modes are labels, never rules.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as

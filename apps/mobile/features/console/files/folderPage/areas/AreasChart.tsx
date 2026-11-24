@@ -27,8 +27,8 @@ import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { Polyline, Svg } from "react-native-svg";
 import { pressPoint } from "./pressPoint";
-import type { Reading } from "./readings";
-import { MODE_TIPS, areaTitle, gapOf, healthOf, kindCounts, needLook, type AreaNode, type Health, type Seat } from "./seat";
+import { targetState, type Reading } from "./readings";
+import { MODE_TIPS, areaTitle, healthOf, kindCounts, needLook, type AreaNode, type Health, type Seat } from "./seat";
 
 export interface AreasChartProps {
   /** Rooted at the open folder. */
@@ -238,9 +238,9 @@ function SeatBox({
   const { seat } = node;
   const top = level === 0;
   const empty = seat.owner === null;
-  const gap = gapOf(seat);
   const metric = seat.metrics[0];
   const reading = metric === undefined ? undefined : ctx.readingOf(seat);
+  const state = metric === undefined ? "unknown" : targetState(reading, metric.target);
   const files = top ? "" : kindCounts(node.files);
   const ownerText = empty ? "No owner" : `${ctx.label(seat.owner as string)}${seat.helper === null ? "" : ` + ${seat.helper}`}`;
   const reachText = empty ? "" : ctx.reach(seat.owner as string);
@@ -265,7 +265,7 @@ function SeatBox({
         style={[styles.body, ctx.compact && styles.bodyPhone]}
       >
         <View style={styles.titleRow}>
-          <HealthDot health={healthOf(seat)} />
+          <HealthDot health={healthOf(seat, state === "missed")} />
           <Text variant="rowTitle" numberOfLines={1} style={[styles.name, top && styles.rootName]}>
             {title}
           </Text>
@@ -293,10 +293,18 @@ function SeatBox({
               <Text variant="meta" numberOfLines={1} style={[styles.muted, styles.metricName]}>
                 {metric.name}
               </Text>
-              <Text variant="rowTitle" style={styles.metricValue} testID="area-metric-value" {...hoverTitle(reading?.date ?? "")}>
+              <Text
+                variant="rowTitle"
+                style={[styles.metricValue, state === "met" && { color: colors.ok }, state === "missed" && { color: colors.warn }]}
+                testID="area-metric-value"
+                {...hoverTitle(reading?.date ?? "")}
+              >
                 {reading?.value ?? "—"}
               </Text>
             </View>
+            <Text variant="meta" numberOfLines={1} style={styles.muted} testID="area-metric-target">
+              {metric.target === null ? "No target yet" : `Target ${metric.target}${state === "met" ? " · on target" : state === "missed" ? " · off target" : ""}`}
+            </Text>
             {reading !== undefined && reading.series.length > 1 ? <Spark series={reading.series} /> : null}
           </View>
         ) : empty ? null : (
@@ -314,14 +322,6 @@ function SeatBox({
                 </Text>
               </Text>
             ))}
-          </View>
-        )}
-        {gap === null ? null : (
-          <View style={styles.line}>
-            <View style={[styles.gapDot, { backgroundColor: colors.warn }]} />
-            <Text variant="meta" style={styles.warn}>
-              {gap}
-            </Text>
           </View>
         )}
         {files === "" ? null : (
@@ -459,7 +459,6 @@ const makeStyles = (colors: Colors) =>
       textDecorationStyle: "dotted",
       textDecorationColor: colors.lineStrong,
     },
-    gapDot: { width: 6, height: 6, borderRadius: 3 },
     assign: {
       alignSelf: "flex-start",
       marginTop: 2,

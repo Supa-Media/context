@@ -213,19 +213,15 @@ export function areaTree(folder: string, root: string, notes: readonly ListNote[
   return { seat: seatOf(folder, root, notes), areas, files };
 }
 
-/** What a seat is missing, said quietly on its box and row; null for nothing. */
-export function gapOf(seat: Seat): string | null {
-  // An empty seat says "No owner" itself and offers Assign owner; it is not also a gap.
-  if (seat.owner === null) return null;
-  if (seat.modes.length > 0 && !seat.modes.includes("Manager")) return "No manager loop";
-  return null;
-}
-
-/** A seat's dot: an empty ring with no owner, amber when something is missing, else quiet. */
+/**
+ * A seat's dot: an empty ring with no owner, amber when its first metric
+ * misses its target, else quiet. ("No manager loop", amber for modes without
+ * Manager, was removed by the owner on 2026-11-24: modes are labels, never rules.)
+ */
 export type Health = "ring" | "warn" | "neutral";
-export function healthOf(seat: Seat): Health {
+export function healthOf(seat: Seat, missed = false): Health {
   if (seat.owner === null) return "ring";
-  return gapOf(seat) === null ? "neutral" : "warn";
+  return missed ? "warn" : "neutral";
 }
 
 /** How many of an area's direct sub-areas need a look: no owner, or a gap. */

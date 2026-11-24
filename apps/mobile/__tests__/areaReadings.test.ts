@@ -4,7 +4,7 @@
  * box's sparkline.
  */
 import { describe, expect, test } from "@jest/globals";
-import { leadingNumber, meetsTarget, readingFor, readingsOf } from "../features/console/files/folderPage/areas/readings";
+import { leadingNumber, meetsTarget, readingFor, readingsOf, targetState, timeOf } from "../features/console/files/folderPage/areas/readings";
 
 const SHEET = [
   "date:date,metric,value,source,by",
@@ -14,6 +14,8 @@ const SHEET = [
   "2026-11-23,PR time to ship,2.4 days,webhook,github",
   "2026-11-23,,ignored,csv,@seyi",
 ].join("\n");
+
+const at = (value: string) => ({ value, date: "", series: [] as number[] });
 
 describe("metric readings from metrics.csv", () => {
   test("the latest row per metric wins, matched by name in any case, with its series in date order", () => {
@@ -47,5 +49,23 @@ describe("metric readings from metrics.csv", () => {
     expect(meetsTarget(at("$640"), "under $600")).toBe(false);
     expect(meetsTarget(at("8/10"), "at least 7")).toBe(true);
     expect(meetsTarget(at("2.4 days"), "2 days")).toBeNull();
+  });
+
+  test("times compare across units, so a reading in ms meets a target in seconds", () => {
+    expect(timeOf("1436 ms")).toBe(1436);
+    expect(timeOf("2 s")).toBe(2000);
+    expect(timeOf("30 min")).toBe(1_800_000);
+    expect(timeOf("2.2%")).toBeNull();
+    expect(meetsTarget(at("1436 ms"), "under 2 s")).toBe(true);
+    expect(meetsTarget(at("1436 ms"), "under 800 ms")).toBe(false);
+    expect(meetsTarget(at("8.1 s"), "under 2 s")).toBe(false);
+    expect(meetsTarget(at("2.2%"), "under 1%")).toBe(false);
+  });
+
+  test("targetState says met, missed, or nothing to say", () => {
+    expect(targetState(at("181 ms"), "under 150 ms")).toBe("missed");
+    expect(targetState(at("120 ms"), "under 150 ms")).toBe("met");
+    expect(targetState(at("passing"), "passing")).toBe("unknown");
+    expect(targetState(undefined, "under 1 s")).toBe("unknown");
   });
 });
