@@ -8,6 +8,8 @@
  * Pure: no fetch, no storage.
  */
 
+import { withoutPollMark } from "./sendPoll";
+
 /** The effects Tex may send, by the name Messages shows, to the bridge's name for each (`validate.mjs` `EFFECT_NAMES`). */
 const SENDABLE: Readonly<Record<string, string>> = Object.freeze({
   slam: "slam",
@@ -41,14 +43,14 @@ export function effectOf(text: string): { text: string; effect?: string; mark: n
   return { text: rest, mark: match[0].length, ...(effect !== undefined ? { effect } : {}) };
 }
 
-/** A line that has no effects: each text goes without its "(sent with X)" mark. */
+/** A line that has no effects or polls: each text goes without its "(sent with X)" or "(poll)" mark (`sendPoll.ts`). */
 export function withoutEffects<L extends { sendText(where: never, text: string, ...rest: never[]): Promise<string | undefined> }>(line: L): L {
   const sendText = line.sendText.bind(line) as (...args: unknown[]) => Promise<string | undefined>;
   return {
     ...line,
     sendText: async (...args: unknown[]) => {
       const words = effectOf(String(args[1] ?? ""));
-      return await sendText(args[0], words.text, ...args.slice(2));
+      return await sendText(args[0], withoutPollMark(words.text), ...args.slice(2));
     },
   } as L;
 }

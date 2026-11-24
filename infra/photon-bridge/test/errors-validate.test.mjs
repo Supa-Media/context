@@ -66,12 +66,21 @@ test("every op parses a well-formed body into its arguments", () => {
     "chat/resolve": { line: LINE, address: "+15550100999" },
     "group/members": { line: LINE, chat: CHAT },
     "group/remove": { line: LINE, chat: CHAT, address: "+15550100999" },
+    "poll/create": { line: LINE, chat: CHAT, title: "Dinner Friday?", choices: ["Thai", "Pizza"] },
   };
   assert.deepEqual(Object.keys(cases).sort(), Object.keys(OPS).sort());
   for (const [name, body] of Object.entries(cases)) {
     const parsed = OPS[name].parse(body);
     assert.equal(parsed.line, LINE, name);
   }
+});
+
+test("poll/create takes a title and two to twelve choices of words", () => {
+  assert.deepEqual(OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai", "Pizza"] }), { line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai", "Pizza"] });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai"] }), { code: "invalid_choices" });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai", 2] }), { code: "invalid_choices" });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: Array.from({ length: 13 }, (_, i) => `o${i}`) }), { code: "invalid_choices" });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, choices: ["a", "b"] }), { code: "missing_title" });
 });
 
 test("group/remove takes one phone or email to take out, nothing else", () => {

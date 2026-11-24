@@ -317,6 +317,21 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
     ]);
   });
 
+  it("a text Tex starts \"(poll)\" with its choices goes as a real poll", async () => {
+    const b = bridge();
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    await app.sendText({ line: "+15550000001", groupId: GROUP }, "(poll) Dinner Friday?\n- Thai\n- Pizza", "r9");
+    expect(b.calls).toEqual([{ op: "poll/create", body: { line: "+15550000001", chat: "iMessage;+;chat123", title: "Dinner Friday?", choices: ["Thai", "Pizza"] } }]);
+  });
+
+  it("a poll the line refuses goes as its question and choices in words", async () => {
+    const b = bridge((op) => (op === "poll/create" ? refuse(400) : undefined));
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    await app.sendText({ line: "+15550000001", groupId: GROUP }, "(poll) Dinner?\n- Thai\n- Pizza");
+    expect(b.calls.map((call) => call.op)).toEqual(["poll/create", "send/text"]);
+    expect(b.calls[1]!.body.text).toBe("Dinner?\n- Thai\n- Pizza");
+  });
+
   it("members are read as phones, null when the read fails, and the own-message read is null", async () => {
     const b = bridge();
     const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
