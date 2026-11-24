@@ -74,5 +74,6 @@ export function remoteGroupLine(rpc: GroupLineRpc, inbox: string, groupId: strin
     react: (place: GroupPlace, messageId, emoji) => call("react", place, messageId, emoji).then(() => undefined),
     readMembers: (place: GroupPlace) => call("readMembers", place) as Promise<string[] | null>,
     readOwnMessage: (place: GroupPlace, messageId) => call("readOwnMessage", place, messageId) as Promise<string | null>,
+    runGroup: (place: GroupPlace, action) => call("runGroup", place, action).then(() => undefined),
   };
 }

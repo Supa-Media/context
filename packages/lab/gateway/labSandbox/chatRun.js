@@ -29,6 +29,7 @@ import { handleAgent } from "../fromGateway/agent_route.js";
 import { TEXTING_ROUTES } from "../fromGateway/agent_textingRoutes.js";
 import { streamTurn, wantsProgress } from "../fromGateway/agent_progress.js";
 import { WORLD_SOURCE, worldAddress, worldControl, worldGrant, worldRoutes, worldSession } from "./world.js";
+import { controlPlaneFor, localControl } from "./worldLocal.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../fromGateway/agent_textsDecide.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../fromGateway/agent_textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../fromGateway/agent_textsEdit.js";
@@ -51,6 +52,7 @@ import { boxNode, JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
 import { boxStub, openRun } from "./jobBox.js";
 import { assetId, assetUrl } from "../fromGateway/labSandbox_sandboxTools.js";
 import { fitSteps } from "./steps.js";
+import { controlPlaneSwitch } from "./controlSwitch.js";
 
 /** The made-up addresses the chat object calls; no request to either leaves this file. */
 export const LAB_GATEWAY = "https://lab-gateway.invalid";
@@ -190,6 +192,14 @@ export function chatStepsOf(entries, { own = null, since = 0 } = {}) {
   return [...worker, ...queued, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
 }
 
+/** What Messages shows for Tex running the group, or null for an action it does not know. */
+export function groupRunWords(action) {
+  if (action?.kind === "name" && typeof action.name === "string") return `Tex named the conversation “${action.name}”.`;
+  if (action?.kind === "photo") return "Tex changed the group photo.";
+  if (action?.kind === "add" && typeof action.address === "string") return `Tex added ${action.address} to the conversation.`;
+  return null;
+}
+
 /**
  * A line that keeps what Tex sends and texts nobody: `sent` holds each text, `calls` every method asked. `onText(text)`
  * is told each text as Text them hands it over (the test chat's line holds it, `line.js`); `onPicture(picture)` keeps a
@@ -212,6 +222,13 @@ export function keepingLine(phones, prefix = "lab", { onText = null, onPicture =
       sent.push({ text: "", media: true, at: Date.now() });
       return null;
     }
+    // Running the group (`groupRun.ts`): the chat shows it as Messages does, in the words a simulated group logs
+    // (`simulatedGroup.ts`), which the Lab draws as an event line (`texSends.ts` `texEventOf`).
+    if (method === "runGroup") {
+      const words = groupRunWords(args[0]);
+      if (words !== null && onText !== null) onText(words);
+      return null;
+    }
     if (method === "readMembers") return [...phones.values()];
     if (method === "readOwnMessage") return null;
     if (method === "shareContactCard") return false;
@@ -226,67 +243,6 @@ export function keepingLine(phones, prefix = "lab", { onText = null, onPicture =
     groupLineCall: async ({ method, args }) => ({ ok: true, value: await answer(method, (args ?? []).slice(1)) }),
   };
   return { rpc, sent, calls };
-}
-
-/**
- * The control plane as the chat object asks it, answered from what the Lab already read for this chat (`chat`, from
- * `texLabSandbox.ts` `session`). Reads answer; a change is refused and listed (`gate.record`).
- */
-export function controlPlaneSwitch({ about, chat, phones, gate, token, storage = null, world = null }) {
-  // Muted in this test chat (a turn's `chat_mute`, or "Tex, stop"): the chat object's own mark (`groupChat.ts` `gmuted`),
-  // so the control plane answers as it would for a muted chat, and "Tex, start" starts it again.
-  const muted = async () => storage !== null && (await storage.get("gmuted")) === true;
-  const names = (about.people ?? []).flatMap((p) => (typeof p.handle === "string" && /^[a-z0-9][a-z0-9-]{0,64}$/.test(p.handle) && phones.has(p.handle) ? [{ phone: phones.get(p.handle), handle: p.handle, ...(p.name && p.name !== "You" ? { name: p.name } : {}) }] : []));
-  const guests = [...phones.entries()].filter(([who]) => !names.some((n) => n.handle === who)).map(([, phone], i) => ({ phone, label: `guest-${(4096 + i).toString(16).slice(-4)}` }));
-  return async (path, body) => {
-    // A made-up group chat (`world.js`): its group questions are the preview's real control plane's to answer.
-    const real = world === null ? undefined : await world(path, body);
-    if (real !== undefined) return real;
-    switch (path) {
-      case "/agent-texts/session":
-        return { status: "linked", accessToken: token, ...(about.timeZone ? { timeZone: about.timeZone } : {}) };
-      case "/agent-texts/group": {
-        if (body?.command?.kind === "stop" || body?.command?.kind === "start") {
-          gate.record({ kind: "Setting", summary: body.command.kind === "stop" ? "muted Tex in this test chat" : "started Tex again in this test chat" });
-          return { status: body.command.kind === "stop" ? "stopped" : "started" };
-        }
-        if (body?.command !== undefined) {
-          gate.record({ kind: "Settings", summary: `asked the control plane to ${String(body.command?.kind ?? "change the chat")}` });
-          return { status: "refused" };
-        }
-        if (about.kind === "group" && (await muted())) return { status: "muted" };
-        const handle = names.find((n) => n.phone === body?.sender)?.handle;
-        return {
-          status: "ready",
-          slug: chat?.slug ?? "lab",
-          intro: false,
-          ...(about.timeZone ? { timeZone: about.timeZone } : {}),
-          ...(handle ? { handle } : {}),
-          accessToken: token,
-          names,
-          guests,
-          // How Tex acts in this chat, as the control plane's row says (`textGroups.ts` `engagementOf`).
-          ...(chat?.engagement ? { engagement: chat.engagement } : {}),
-          ...(chat?.engagementChosen === true ? { engagementChosen: true } : {}),
-          ...(chat?.instructions ? { instructions: chat.instructions } : {}),
-          ...(chat?.updates ? { updates: chat.updates } : {}),
-          // Whether the chat is shared with the developers, as the control plane reads it (`lib/texLabShared.ts` `devShareOf`).
-          ...(chat?.devShare ? { devShare: chat.devShare } : {}),
-        };
-      }
-      case "/agent-texts/decide/gate":
-        return { ok: true, remaining: 1000 };
-      case "/agent-texts/decide/usage":
-        return { ok: true };
-      case "/agent-texts/old-line":
-        return chat?.oldLine ?? { mode: "off" };
-      case "/agent-texts/phones":
-        return { phones: [] };
-      default:
-        gate.record({ kind: "Other", summary: `asked the control plane ${path}` });
-        return null;
-    }
-  };
 }
 
 /**
@@ -501,14 +457,16 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     let opened = null;
     const storeOf = () =>
       (opened ??= (async () => {
-        const session = isWorld ? await worldSession(env, grant) : sessionFromPayload(payload, null, token);
+        const session = isWorld && !about.world?.local ? await worldSession(env, grant) : sessionFromPayload(payload, null, token);
         Object.defineProperty(session, "labSandbox", { value: gate, enumerable: false });
-        const store = await storeForSession(session, sandboxEnv, controlPlane);
+        // A made-up chat on main reads its pin as the chat (`worldLocal.js` `controlPlaneFor`); every other store as before.
+        const cpFor = (target) => (isWorld && about.world?.local ? controlPlaneFor(target, controlPlane) : controlPlane);
+        const store = await storeForSession(session, sandboxEnv, cpFor(session));
         const request = new Request(`${origin}/agent`, { method: "POST" });
         decorateRequestStore(store, { session, env: sandboxEnv, controlPlane, ctx, request, origin });
-        const openOnce = onceEach((target) => storeForSession(target, sandboxEnv, controlPlane));
+        const openOnce = onceEach((target) => storeForSession(target, sandboxEnv, cpFor(target)));
         attachContextOpener(store, session, { env: sandboxEnv, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
-        attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, controlPlane), (o, sibling) => attachLinkCalls(o, sibling, controlPlane, sandboxEnv));
+        attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, cpFor(sibling)), (o, sibling) => attachLinkCalls(o, sibling, controlPlane, sandboxEnv));
         return { store, session };
       })());
     const agent = (isWorld ? (route) => worldRoutes(grant, route) : (route) => route)(agentRoute ?? gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate }));
@@ -539,7 +497,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       parentOfJob: () => book.last("fd") ?? book.tail,
       makeBox: live === null ? null : (name) => boxStub(env.LAB_JOB, { sandbox, rowId: row.id, jobName: name, run: live.key }),
     });
-    envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace, world: isWorld ? worldControl(env, grant, labToken) : null });
+    envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace, world: !isWorld ? null : about.world?.local ? localControl({ about, chat, grant, storage }) : worldControl(env, grant, labToken) });
     if (live !== null) {
       Object.assign(live.entry, {
         setup: { config: config ?? null, gateway: LAB_GATEWAY, controlPlane: LAB_CONTROL_PLANE, secret: LAB_WORKER_SECRET },

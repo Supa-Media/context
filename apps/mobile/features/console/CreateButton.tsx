@@ -3,9 +3,8 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome";
 import { registerCornerControl } from "../app/cornerControl";
-import { Icon } from "../design/components/Icon";
-import { CreateChoices } from "./CreateChoices";
-import type { CreateRow } from "./files/createSheet";
+import { Icon, type IconName } from "../design/components/Icon";
+import { Menu } from "../design/components/Menu";
 import { radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import type { UsageButton } from "@context/shared";
@@ -29,16 +28,14 @@ import { trackButton } from "../observability/client";
  * that is the whole of the second fix: the layout is on screen for every route
  * inside `/console`, and the editor is not. Nothing here asks what is open.
  *
- * ## A recording and four files
+ * ## A meeting and four files
  *
- * A meeting, a note, a table, a drawing, a folder: the things somebody starts
- * from a console that is otherwise all *opening* things that already exist.
- * The card draws them as one wide Record a meeting button and four one-word
- * tiles (`CreateChoices`, shared with the phone's sheet), because the five
- * rows of a label and a sentence each read as wordy (Dev, 2026-11-24).
- * Dictation is not on it: it needs a caret to type into, so it lives where the
- * caret is (the note's own menu). `VoiceButton` still owns it, and still owns
- * the live capsule and the failure card, which are the only way to stop a run.
+ * A meeting, a note, a chat — the three things somebody starts from a console
+ * that is otherwise all *opening* things that already exist. Dictation is not a
+ * fourth: it needs a caret to type into, so it lives where the caret is (the
+ * note's own menu) rather than in a corner that is drawn over folders and maps.
+ * `VoiceButton` still owns it, and still owns the live capsule and the failure
+ * card, which are the only way to stop a run.
  *
  * ## Not on a phone
  *
@@ -54,7 +51,6 @@ export function CreateButton({
   onNewDrawing,
   onNewSheet,
   onNewFolder,
-  folder,
   resume = null,
   bottomInset = 0,
   beside = null,
@@ -66,8 +62,6 @@ export function CreateButton({
   onNewDrawing: () => void;
   onNewSheet: () => void;
   onNewFolder: () => void;
-  /** Where a note, table, drawing or folder made from here lands; `""` is the top. */
-  folder?: string;
   /**
    * Carry on recording a meeting that already has a note, or `null` when there
    * is none to carry on.
@@ -100,42 +94,47 @@ export function CreateButton({
   */
   const bottom = floatingStackBottom(bottomInset, useBottomChromeHeight());
   const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
   const buttonRef = useRef<View>(null);
-  const panelRef = useRef<View>(null);
 
   /**
-   * The panel is drawn in this dock, directly above the button, rather than
-   * portalled to an anchor the way `Menu` is: the dock is already pinned to
-   * the corner, so the panel's right edge is the button's and its bottom is
-   * the dock's gap above it with nothing measured. That is what the anchor measuring
-   * this replaced was for, and it could not land wrong under jsdom either.
+   * The button's own top-right corner, not the point the pointer landed on.
+   *
+   * **This was `event.nativeEvent.pageX/pageY`, and the browser showed what
+   * that costs.** `place()` puts a popover's top-left at the anchor and flips
+   * rather than clips — so anchored at a press inside a 56pt button sitting
+   * against the bottom-right of the window, the menu flipped to *end* at the
+   * pointer: its lower half lay across the top half of the `+`, with the
+   * button drawn over it. Nothing measured that; a screenshot of the running
+   * board did.
+   *
+   * Anchoring on the trigger instead makes both flips land where the design
+   * draws them: the right edge flush with the button's, and the bottom edge
+   * `GAP` above it. `measureInWindow` at press time rather than a value kept
+   * from layout, exactly as `AccountBlock`'s menu trigger does it — anything
+   * that scrolls under a control makes a remembered position a stale one.
+   *
+   * Touch never reads it: `Menu` draws a sheet from the bottom edge there.
+   *
+   * **The menu opens outside the measurement, not inside its callback.**
+   * `measureInWindow` is the host's, it answers asynchronously, and under
+   * jsdom it never answers at all — so a version that opened the menu in the
+   * callback was a button that did nothing wherever the measurement did not
+   * land. `AccountBlock`'s trigger is written this way for the same reason:
+   * the anchor is a *hint*, and `Menu` falls back to its own margin without
+   * one.
    */
-  const press = useCallback(() => setOpen((was) => !was), []);
-  const dismiss = useCallback(() => setOpen(false), []);
+  const press = useCallback(() => {
+    buttonRef.current?.measureInWindow((x, y, width) => {
+      setAnchor({ x: x + width, y: y - GAP });
+    });
+    setOpen(true);
+  }, []);
 
-  /*
-    A popover's two exits: Escape, and a press anywhere outside it. The `+`
-    itself is outside the panel and toggles, so its press is left to it.
-  */
-  useEffect(() => {
-    if (!open || typeof document === "undefined") return undefined;
-    const contains = (ref: { current: unknown }, target: Node) =>
-      (ref.current as { contains?: (node: Node) => boolean } | null)?.contains?.(target) === true;
-    const onDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (target === null || contains(panelRef, target) || contains(buttonRef, target)) return;
-      dismiss();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") dismiss();
-    };
-    document.addEventListener("mousedown", onDown, true);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("mousedown", onDown, true);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [dismiss, open]);
+  const dismiss = useCallback(() => {
+    setOpen(false);
+    setAnchor(undefined);
+  }, []);
 
   // So a card floating beside this corner can line up with it. See `cornerControl.ts`.
   useEffect(
@@ -151,6 +150,7 @@ export function CreateButton({
   const choose = useCallback(
     (id: string) => {
       setOpen(false);
+      setAnchor(undefined);
       const button = CREATE_BUTTONS[id];
       if (button !== undefined) trackButton(button);
       if (id === "resume-meeting") resume?.onResume();
@@ -167,23 +167,6 @@ export function CreateButton({
 
   return (
     <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
-      {!open ? null : (
-        <View
-          ref={panelRef}
-          role="menu"
-          aria-label="Create"
-          testID="console-create-menu"
-          style={styles.panel}
-        >
-          <CreateChoices
-            rows={[...(resume === null ? [] : ["resume-meeting" as const]), ...ROWS]}
-            {...(folder === undefined ? {} : { folder })}
-            {...(resume === null ? {} : { resumeDetail: resume.detail })}
-            touch={false}
-            onChoose={choose}
-          />
-        </View>
-      )}
       <View style={styles.line}>
         {beside}
         <Pressable
@@ -200,8 +183,39 @@ export function CreateButton({
         </Pressable>
       </View>
 
+      {!open ? null : (
+        <Menu<string>
+          {...(anchor === undefined ? {} : { anchor })}
+          title="Create"
+          items={[
+            ...(resume === null
+              ? []
+              : [{ id: "resume-meeting", label: "Resume meeting", detail: resume.detail, leading: <Glyph name="play" /> }]),
+            /*
+              One short row each, with the mark the file tree draws for it
+              (Dev, 2026-11-24: the rows with a sentence under each read as
+              wordy). The meeting is above the rule because it starts a
+              recording rather than a file; the four below share a
+              destination, the folder you have selected.
+            */
+            { id: "new-meeting", label: "New meeting", leading: <Glyph name="mic" /> },
+            { id: "new-note", label: "New note", leading: <Glyph name="file" />, separatorBefore: true },
+            { id: "new-drawing", label: "New drawing", leading: <Glyph name="pencil" /> },
+            { id: "new-sheet", label: "New table", leading: <Glyph name="table" /> },
+            { id: "new-folder", label: "New folder", leading: <Glyph name="folder" /> },
+          ]}
+          onSelect={choose}
+          onDismiss={dismiss}
+        />
+      )}
     </View>
   );
+}
+
+/** A row's mark, as the other menus draw theirs (`seatMenuParts`'s `MenuGlyph`). */
+function Glyph({ name }: { name: IconName }) {
+  const colors = useColors();
+  return <Icon name={name} size={14} color={colors.chromeMuted} />;
 }
 
 /** The menu's rows the Usage tab counts, by its fixed names. */
@@ -212,8 +226,8 @@ const CREATE_BUTTONS: Partial<Record<string, UsageButton>> = {
   "new-folder": "new_folder",
 };
 
-/** The rows the corner always offers; Resume joins them when there is a meeting to carry on. */
-const ROWS: CreateRow[] = ["new-meeting", "new-note", "new-sheet", "new-drawing", "new-folder"];
+/** Air between the button and the menu it opens. `layout.floatingInset`'s. */
+const GAP = 12;
 
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
@@ -243,14 +257,4 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       cursor: "pointer",
     },
     fabActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-    // The dock's gap is the air between this and the button. `Menu.web.tsx`'s panel, so it reads as the app's menu.
-    panel: {
-      width: 260,
-      padding: 6,
-      borderWidth: 1,
-      borderColor: colors.lineStrong,
-      borderRadius: radii.xl,
-      backgroundColor: colors.surface3,
-      boxShadow: "0 24px 60px -18px rgba(0,0,0,.9)",
-    },
   });

@@ -25,6 +25,9 @@ import type { Line, LineDeps, Picture } from "./line";
 import { linksIn } from "./linkPreviews";
 import type { GroupLine, GroupLineDeps, GroupPlace } from "./groupLine";
 import type { Media } from "./outgoing";
+import { effectOf } from "./sendEffect";
+import { pollOf, withoutPollMark } from "./sendPoll";
+import { tagParts } from "./groupTags";
 import {
   contactPhoton,
   photonGroupMembers,
@@ -33,6 +36,8 @@ import {
   sendPhotonApp,
   sendPhotonAttachment,
   sendPhotonMultipart,
+  runPhotonGroup,
+  sendPhotonPoll,
   sendPhotonText,
   typingPhoton,
   type PhotonAttachment,
@@ -228,9 +233,23 @@ export async function threadedOrPlain<T>(replyTo: string | undefined, send: (rep
  * best effort: the words have gone, so its failure is logged and never fails the send.
  */
 export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text: string, replyTo?: string, notes?: LinkNotes): Promise<string | undefined> {
-  const words = text.slice(0, MAX_REPLY_TEXT);
-  if (ONE_LINK.test(words.trim())) return await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words.trim(), { ...(under ? { replyTo: under } : {}), linkPreview: true }));
-  const guid = await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words, under ? { replyTo: under } : {}));
+  // A text Tex starts "(sent with Slam)" goes with that effect, without the mark (`sendEffect.ts`).
+  const marked = effectOf(text);
+  // A text Tex starts "(poll)" with its choices one per line goes as a real poll (`sendPoll.ts`); a poll threads under nothing.
+  const poll = pollOf(marked.text);
+  if (poll !== null) {
+    try {
+      return await sendPhotonPoll(photon, place, poll);
+    } catch (error) {
+      // A line that refuses the poll gets its question and choices as words: the poll is never the only way to answer.
+      if (!isRefusal(error)) throw error;
+      console.log(JSON.stringify({ event: "photon_poll", outcome: "refused" }));
+    }
+  }
+  const words = withoutPollMark(marked.text).slice(0, MAX_REPLY_TEXT);
+  const effect = marked.effect !== undefined ? { effect: marked.effect } : {};
+  if (ONE_LINK.test(words.trim())) return await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words.trim(), { ...(under ? { replyTo: under } : {}), linkPreview: true, ...effect }));
+  const guid = await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words, { ...(under ? { replyTo: under } : {}), ...effect }));
   const link = linksIn(words).find((found) => ONE_LINK.test(found));
   if (link !== undefined) {
     let bubble: string | undefined;
@@ -266,7 +285,7 @@ export function photonLine(deps: LineDeps): Line {
     sendText: async (chatId, text, _key, replyTo) => {
       const p = photon();
       const place = await dmPlace(p, chatId);
-      const card = cardsOn(deps.appCard) ? noteCard(text, deps.appCard) : null;
+      const card = cardsOn(deps.appCard) ? noteCard(effectOf(text).text, deps.appCard) : null;
       if (card) {
         try {
           return await threadedOrPlain(replyTo, (under) => sendPhotonApp(p, place, photonCard(card), under));
@@ -364,7 +383,17 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
   };
   const placeOf = (place: GroupPlace): PhotonPlace => ({ line: placeLine(place), chat: photonGroupChat(place.groupId) });
   return {
-    sendText: async (place, text, replyTo) => await sendPhotonWords(photon(), placeOf(place), text, replyTo, deps.linkNotes),
+    sendText: async (place, text, replyTo, tags) => {
+      // Native tags go as one multipart send, each tag its own part naming its number (`groupTags.ts`).
+      // A multipart send carries no effect, so tagged words go without the mark and without its effect.
+      if (tags !== undefined && tags.length > 0 && pollOf(effectOf(text).text) === null) {
+        const where = placeOf(place);
+        const marked = effectOf(text);
+        const shifted = tags.filter((tag) => tag.start >= marked.mark).map((tag) => ({ ...tag, start: tag.start - marked.mark }));
+        if (shifted.length > 0) return await threadedOrPlain(replyTo, (under) => sendPhotonMultipart(photon(), where, tagParts(marked.text, shifted), under));
+      }
+      return await sendPhotonWords(photon(), placeOf(place), text, replyTo, deps.linkNotes);
+    },
     sendMedia: async (place, url, replyTo) => {
       const where = placeOf(place);
       await threadedOrPlain(replyTo, (under) => sendPhotonAttachment(photon(), where, attachmentOf({ url }), under));
@@ -384,5 +413,6 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
       }
     },
     readOwnMessage: async () => null,
+    runGroup: async (place, action) => await runPhotonGroup(photon(), placeOf(place), action),
   };
 }

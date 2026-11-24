@@ -233,6 +233,59 @@ describe("the Areas folder", () => {
     expect(card.map(([key]) => key).some((key) => /password|secret|token|login/i.test(String(key)))).toBe(false);
   });
 
+  test("the owner is a person from the workspace, optionally with their agent, or an agent alone", async () => {
+    const writes: Write[] = [];
+    // An owner word found in some note is not offered: only the workspace's people and its agents are.
+    const notes = [
+      ...AREAS.map((note) => (note.path === "areas/about.md" ? { ...note, properties: { agents: "Claude, Codex" } } : note)),
+      { path: "areas/finance/costs.md", properties: { owner: "Finance coworker (Grok Bot) for Seyi" } },
+    ];
+    await mount(host(writes, { notes }), LISTING);
+    await press(document.querySelector<HTMLElement>('[aria-label="Options for finance"]')!);
+    const edit = all("menu-root")
+      .flatMap((menu) => Array.from(menu.querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')))
+      .find((node) => strip(node.textContent).trim() === "Edit seat…");
+    await press(edit!);
+    await act(async () => {});
+    expect(one("seat-owner-person").getAttribute("aria-checked")).toBe("true");
+    const people = all("seat-person").map((node) => strip(node.textContent).trim());
+    expect(people).toEqual(["Sayo · @sayo", "Seyi · @seyi"]);
+    expect(strip(one("seat-dialog").textContent)).not.toContain("Grok Bot");
+
+    const sayo = all("seat-person").find((node) => strip(node.textContent).includes("@sayo"))!;
+    await press(sayo);
+    const claude = all("seat-helper-input-chip").find((node) => strip(node.textContent).trim() === "Claude");
+    expect(claude).toBeDefined();
+    await press(claude!);
+    await press(one("seat-save"));
+    await act(async () => {});
+    const lines = writes.filter(([path]) => path === "areas/finance/about.md").map(([, key, value]) => [key, value]);
+    expect(lines).toContainEqual(["owner", "@sayo"]);
+    expect(lines).toContainEqual(["helper", "Claude"]);
+  });
+
+  test("an agent can hold a seat alone, picked from the workspace's agents", async () => {
+    const writes: Write[] = [];
+    const notes = AREAS.map((note) => (note.path === "areas/about.md" ? { ...note, properties: { agents: "Claude, Codex" } } : note));
+    await mount(host(writes, { notes }), LISTING);
+    await press(document.querySelector<HTMLElement>('[aria-label="Options for engineering"]')!);
+    const edit = all("menu-root")
+      .flatMap((menu) => Array.from(menu.querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')))
+      .find((node) => strip(node.textContent).trim() === "Edit seat…");
+    await press(edit!);
+    await press(one("seat-owner-agent"));
+    expect(all("seat-person")).toHaveLength(0);
+    const agents = all("seat-agent-input-chip").map((node) => strip(node.textContent).trim());
+    expect(agents).toEqual(["Claude", "Codex"]);
+    await press(all("seat-agent-input-chip")[1]!);
+    await press(one("seat-save"));
+    await act(async () => {});
+    const lines = writes.filter(([path]) => path === "areas/engineering/about.md").map(([, key, value]) => [key, value]);
+    expect(lines).toContainEqual(["owner", "Codex"]);
+    // An agent owner has no agent of its own: engineering's helper is cleared.
+    expect(lines.some(([key, value]) => key === "helper" && value !== null)).toBe(false);
+  });
+
   test("saving a seat without touching a card writes no card", async () => {
     const writes: Write[] = [];
     await mount(host(writes, { notes: AREAS }), LISTING);

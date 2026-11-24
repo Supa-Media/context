@@ -14,8 +14,9 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import { dispatchWorkflow } from "../../texLabRuns";
+import { previewPullRequest } from "../labPreviewPullRequest";
 
-const ACTIONS = new Set(["who", "session", "draft", "set", "sets", "shared", "intakeChats", "previewChat", "world"]);
+const ACTIONS = new Set(["who", "session", "draft", "set", "sets", "shared", "intakeChats", "previewChat", "world", "worldWorkspaces", "worldReach"]);
 /** The workflow that carries a test chat's calls to a pull request's preview (`packages/lab/gateway/labSandbox/preview.js`). */
 export const PREVIEW_CHAT_WORKFLOW = "lab-preview-chat.yml";
 
@@ -33,6 +34,9 @@ export async function gatewayTexLabSandboxHandler(ctx: ActionCtx, body: Record<s
     const a = args as Record<string, unknown>;
     if (!(await ctx.runQuery(internal.functions.texLabSandbox.mayUseTestChats, { hashedAccessToken }))) return json({ status: "refused" });
     if (!Number.isSafeInteger(a.pr) || (a.pr as number) < 1 || (a.pr as number) > 9_999_999 || typeof a.bridge !== "string" || !/^[0-9a-f]{32}$/.test(a.bridge)) return json({ status: "bad_request" });
+    // A closed pull request's preview is gone: refused with its reason rather than a run that can never connect.
+    const state = await previewPullRequest(a.pr as number, process.env.GH_ADMIN_TOKEN);
+    if (state && !state.open) return json({ status: "refused", error: state.why });
     const out = await dispatchWorkflow(PREVIEW_CHAT_WORKFLOW, { pr: String(a.pr), bridge: a.bridge });
     return json(out.ok ? { status: "ok" } : { status: "refused", error: out.error });
   }

@@ -1,0 +1,62 @@
+# Put the card renderer's wasm into production's file storage when it is not
+# there (`scripts/installCardWasm.mjs`). Every picture the control plane draws
+# needs it: share cards, website cards, and the note link cards Tex texts. A
+# deployment without it answers every card with a 404, which an unfurler shows
+# as the site's small icon. Manual only, and it prints only whether the wasm is
+# there: this repository is public, and so is this job's log.
+name: Card renderer
+
+on:
+  workflow_dispatch:
+    inputs:
+      reinstall:
+        description: "Install again even when a copy is there (after bumping @resvg/resvg-wasm)"
+        type: boolean
+        default: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Is it installed?
+        id: check
+        run: |
+          answer=$(npx convex run functions/cardAssets:wasmAsset '{}' 2>/dev/null)
+          if [ "$answer" = "null" ] || [ -z "$answer" ]; then echo "missing=true" >> "$GITHUB_OUTPUT"; echo "The card renderer's wasm is missing."; else echo "missing=false" >> "$GITHUB_OUTPUT"; echo "The card renderer's wasm is installed."; fi
+
+      - name: Install
+        if: steps.check.outputs.missing == 'true' || inputs.reinstall
+        run: node scripts/installCardWasm.mjs > /dev/null
+
+      - name: Is it installed now?
+        run: |
+          answer=$(npx convex run functions/cardAssets:wasmAsset '{}' 2>/dev/null)
+          if [ "$answer" = "null" ] || [ -z "$answer" ]; then echo "Still missing."; exit 1; fi
+          echo "Installed."
+
+      # A render of a fixed, made-up name, so a deployment whose wasm is there
+      # but whose renders still fail says why. It prints the error's first line
+      # only, never a stack, and the name drawn is this file's own.
+      - name: Does a card draw?
+        run: |
+          if out=$(npx convex run functions/cardRender:renderNoteCard '{"title":"Card renderer check","folder":"","board":"ink","pose":null}' 2>&1 >/dev/null); then
+            echo "A card draws."
+          else
+            echo "A card does not draw:"; echo "$out" | grep -iE "error|uncaught" | head -3 | cut -c1-300; exit 1
+          fi

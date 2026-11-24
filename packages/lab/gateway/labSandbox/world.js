@@ -5,7 +5,8 @@
  * `group-chat-sim-artboards/`).
  *
  * `open { source: "world", world: { people, sponsor?, speaksUp?, introduced?, name?, start? } }` opens a test chat with
- * made-up people. It runs only on a pull request's preview: the control plane makes the people there
+ * made-up people. On main nobody is made and the people live only in the test chat (`worldLocal.js`). On a pull
+ * request's preview, which the rest of this file is for, the control plane makes the people there
  * (`apps/convex/functions/texLabWorld.ts`, which refuses anywhere else), and every group question the chat object asks
  * the control plane (`/agent-texts/group`: who is here, what the chat reaches, who keeps a workspace out, who brought
  * Tex in, the one introduction) goes to the preview's real control plane, so Tex's real group rules decide. A turn then
@@ -19,6 +20,7 @@
 
 import { createControlPlane } from "../fromGateway/controlPlane.js";
 import { sessionFromPayload } from "../fromGateway/session.js";
+import { localPeople } from "./worldLocal.js";
 
 export const WORLD_SOURCE = "world";
 /** The seeded shared workspaces made-up people can be in (`texLabWorld.ts` `WORLD_WORKSPACES`). */
@@ -31,14 +33,14 @@ const ROLES = new Set(["owner", "editor", "member"]);
 const NAME = /^[\p{L}\p{N}][\p{L}\p{N} .'\-]{0,39}$/u;
 
 /** One person as the Lab asks for them, checked, or `{ error }`. */
-function personOf(raw) {
+function personOf(raw, slugs = WORLD_WORKSPACES) {
   const name = typeof raw?.name === "string" ? raw.name.replace(/\s+/g, " ").trim() : "";
   if (!NAME.test(name)) return { error: "each person needs a name: letters, numbers, spaces, . ' - (at most 40)" };
   const account = raw?.account ?? "on";
   if (!["on", "off", "invited"].includes(account)) return { error: `${name}'s account is "on", "off" or "invited"` };
   const roles = {};
   for (const [slug, role] of Object.entries(raw?.roles ?? {})) {
-    if (!WORLD_WORKSPACES.includes(slug)) return { error: `no made-up workspace is called ${slug}: ${WORLD_WORKSPACES.join(", ")}` };
+    if (!slugs.includes(slug)) return { error: `no workspace here is called ${slug}: ${slugs.join(", ") || "none"}` };
     if (role === null || role === undefined || role === "" || role === "none") continue;
     if (!ROLES.has(role)) return { error: `${name}'s role in ${slug} is owner, editor or member` };
     roles[slug] = role;
@@ -47,20 +49,20 @@ function personOf(raw) {
   if (account === "invited") {
     const slug = raw?.invited?.slug;
     const role = raw?.invited?.role ?? "member";
-    if (!WORLD_WORKSPACES.includes(slug) || !["editor", "member"].includes(role)) return { error: `${name} is invited by number: name the workspace (invited: { slug, role })` };
+    if (!slugs.includes(slug) || !["editor", "member"].includes(role)) return { error: `${name} is invited by number: name the workspace (invited: { slug, role })` };
     return { person: { name, account, invited: { slug, role } } };
   }
   return { person: { name, account, ...(account === "on" ? { roles } : {}) } };
 }
 
 /** What `open` asks for a made-up chat, checked whole: `{ world }` or `{ error }`. */
-export function worldInput(raw) {
+export function worldInput(raw, slugs = WORLD_WORKSPACES) {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return { error: "world is { people: [{ name, account, roles?, invited? }], sponsor?, speaksUp?, introduced?, name?, start? }" };
   if (!Array.isArray(raw.people) || raw.people.length < 1 || raw.people.length > MAX_WORLD_PEOPLE) return { error: `a made-up chat has 1 to ${MAX_WORLD_PEOPLE} people besides Tex` };
   const people = [];
   const names = new Set();
   for (const given of raw.people) {
-    const read = personOf(given);
+    const read = personOf(given, slugs);
     if (read.error) return read;
     const key = read.person.name.toLowerCase();
     if (["tex", "context", "you"].includes(key)) return { error: `"${read.person.name}" is Tex's or the Lab's name` };
@@ -106,11 +108,14 @@ export function worldAbout({ sandboxId, made, world, groupId }) {
   return {
     chat: `world:${sandboxId}`,
     kind: "group",
-    owner: `world:${sandboxId}`,
+    // The chat's Tex object is named by its key, as every group's is (`ledger.js`): the test chat's ledger stands in for
+    // that one, so the turn's history, steps and memory land in the test chat (found 2026-11-24: under any other owner
+    // they went unwritten, so `step` found no turn and Tex remembered nothing between texts).
+    owner: `chat:${made.groupKey}`,
     ledgerChat: made.groupKey,
     chatKey: made.groupKey,
     people: made.people.map((p) => ({ handle: speakerKey(p), name: p.name, account: p.account })),
-    world: { name: world.name, groupId, groupKey: made.groupKey, introduced: world.introduced === true, ...(world.sponsor !== undefined ? { sponsor: world.sponsor } : {}), ...(world.speaksUp ? { speaksUp: world.speaksUp } : {}), people: made.people, left: [] },
+    world: { name: world.name, groupId, groupKey: made.groupKey, introduced: world.introduced === true, ...(world.sponsor !== undefined ? { sponsor: world.sponsor } : {}), ...(world.speaksUp ? { speaksUp: world.speaksUp } : {}), ...(world.local ? { local: world.local } : {}), people: made.people, left: [] },
   };
 }
 
@@ -238,13 +243,13 @@ export async function changePeople({ controlPlane, token, about, input, newRow }
     const chat = { ...about, world: { ...world, left: [...left, person.name] } };
     return { chat, row: { ...newRow(), who: "Lab", kind: "people", text: `${person.name} left the conversation`, change: "left", name: person.name } };
   }
-  const read = personOf({ ...input, name: input.name });
+  const read = personOf({ ...input, name: input.name }, world.local?.slugs ?? WORLD_WORKSPACES);
   if (read.error) return { error: [400, read.error] };
   const back = world.people.find((p) => p.name.toLowerCase() === read.person.name.toLowerCase());
   if (back !== undefined && !left.has(back.name)) return { error: [400, `${back.name} is already here`] };
   if (world.people.length >= MAX_WORLD_PEOPLE && back === undefined) return { error: [400, `a made-up chat has at most ${MAX_WORLD_PEOPLE} people`] };
   const asked = back === undefined ? [...world.people.map(({ phone: _p, handle: _h, ...p }) => p), read.person] : world.people.map(({ phone: _p, handle: _h, ...p }) => (p.name === back.name ? read.person : p));
-  const made = await makeWorld(controlPlane, token, { sandboxId: about.sandboxId, line: lineNumberOf(about), groupId: world.groupId, world: { ...world, people: asked } });
+  const made = world.local ? await localPeople(asked, world.people) : await makeWorld(controlPlane, token, { sandboxId: about.sandboxId, line: lineNumberOf(about), groupId: world.groupId, world: { ...world, people: asked } });
   if (made.error) return made;
   const chat = { ...about, people: made.people.map((p) => ({ handle: speakerKey(p), name: p.name, account: p.account })), world: { ...world, people: made.people, left: [...left].filter((n) => n !== read.person.name) } };
   const adder = by.speaker ? (made.people.find((p) => speakerKey(p) === by.speaker)?.name ?? "Someone") : "Someone";

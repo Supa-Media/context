@@ -72,7 +72,8 @@ running the pull request's code, answers as `alpha`; the first open takes about 
 Made-up group chats: from the Lab or `tex_dev test_chat open { source: "world", code: "#<pr>", world }`, the
 preview makes the people a group chat asks for (accounts, handles, roles in Lumio, Maison Solenne and Common Ground,
 guests and phone invitations, all on 555-01XX numbers) and runs Tex's real group rules on them
-([lab-sandbox](./decisions/texting-assistant/lab-sandbox.md)). Production refuses to make them.
+([lab-sandbox](./decisions/texting-assistant/lab-sandbox.md)). Production refuses to make them; on main, a made-up
+chat keeps its people in the test chat instead, with roles in the Lab user's own shared workspaces ([lab](./lab.md)).
 
 ## Real, as in production
 

@@ -10,6 +10,7 @@
  * for why.
  */
 
+import type { OwnerSearch } from "../../owners";
 import { useCallback, useMemo, useState } from "react";
 import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../../../design/components/Button";
@@ -60,8 +61,10 @@ export interface AreasViewProps {
   faceOf: (owner: string | null) => Face;
   label: (owner: string) => string;
   isAgent: (owner: string) => boolean;
-  /** Owners in use and the workspace's agents, offered as chips in the pop-up. */
-  suggestions: readonly string[];
+  /** The workspace's people, searched in the pop-up's owner picker. */
+  people: OwnerSearch;
+  /** The workspace's agents (`agents:`), offered as an owner or a person's agent. */
+  agents: readonly string[];
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   onSelect: (path: string) => void;
   /** Reads a note's text at the reader's clearance: each area's `metrics.csv`. Absent where nothing can be read. */
@@ -71,7 +74,7 @@ export interface AreasViewProps {
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, suggestions, chooseMany, onSelect, readBody } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, chooseMany, onSelect, readBody } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
   const readingOf = useCallback(
@@ -184,7 +187,8 @@ export function AreasView(props: AreasViewProps) {
           {...(editing.start === undefined ? {} : { start: editing.start })}
           cardFor={cardFor}
           isAgent={isAgent}
-          suggestions={suggestions}
+          people={people}
+          agents={agents}
           label={label}
           canEdit={canEdit}
           onSave={(edit, cards) => save(editing.seat, edit, cards)}

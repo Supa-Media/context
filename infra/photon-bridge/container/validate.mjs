@@ -18,6 +18,8 @@ export const EFFECT_NAMES = Object.freeze([
   "slam", "loud", "gentle", "invisible", "confetti", "fireworks", "balloons",
   "heart", "lasers", "celebration", "sparkles", "spotlight", "echo",
 ]);
+/** The most choices a poll Tex starts may have. */
+export const MAX_POLL_CHOICES = 12;
 export const REACTION_KINDS = Object.freeze(["love", "like", "dislike", "laugh", "emphasize", "question", "emoji"]);
 
 function fail(code) {
@@ -174,6 +176,8 @@ function parseParts(body) {
     if (part.attachment !== undefined) {
       return { attachment: parseFile(part.attachment, `part_${index}`) };
     }
+    // A native tag: its words, and the number or email it tags (the SDK's `mentionedAddress`).
+    if (part.mention !== undefined) return { text: str(part, "text", { max: MAX_TEXT }), mention: parseAddress(part.mention) };
     return { text: str(part, "text", { max: MAX_TEXT }) };
   });
 }
@@ -275,10 +279,47 @@ export const OPS = Object.freeze({
       return { line: parseLine(body.line), address: parseAddress(body.address) };
     },
   },
+  // A real iMessage poll: its title and two to twelve choices (the SDK's `polls.create`).
+  "poll/create": {
+    method: "POST",
+    parse(body) {
+      requireObject(body);
+      const choices = body.choices;
+      if (!Array.isArray(choices) || choices.length < 2 || choices.length > MAX_POLL_CHOICES) fail("invalid_choices");
+      return {
+        ...parseLineAndChat(body),
+        title: str(body, "title", { max: 200 }),
+        choices: choices.map((choice) => {
+          if (typeof choice !== "string" || choice.trim() === "" || choice.length > 100) fail("invalid_choices");
+          return choice;
+        }),
+      };
+    },
+  },
   "group/members": {
     method: "POST",
     parse(body) {
       return parseLineAndChat(body);
+    },
+  },
+  // Running the group (Dev, 2026-11-23): name the chat, set its photo from a picture someone sent in it, add someone.
+  "group/name": {
+    method: "POST",
+    parse(body) {
+      return { ...parseLineAndChat(body), name: str(body, "name", { max: 100 }) };
+    },
+  },
+  // The photo is an attachment already on the line (its guid), so no picture's bytes come through the Worker.
+  "group/photo": {
+    method: "POST",
+    parse(body) {
+      return { ...parseLineAndChat(body), attachment: parseGuid(body.attachment, "attachment") };
+    },
+  },
+  "group/add": {
+    method: "POST",
+    parse(body) {
+      return { ...parseLineAndChat(body), address: parseAddress(body.address) };
     },
   },
   // Take one address out of a group chat: Tex's old Sendblue number, once Tex's new line is in it (staff moving a chat).

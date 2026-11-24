@@ -139,6 +139,19 @@ test("nothing leaves: an unknown host, a control-plane change and another object
   assert.deepEqual(line.sent, []);
 });
 
+test("running the group shows in a made-up chat as Messages says it, and texts nobody", async () => {
+  // 2026-11-24: a Lab eval asked Tex to rename a made-up chat; the keeping line answered runGroup with nothing, so the
+  // chat could never show it. Sabotage: dropping the runGroup branch in keepingLine fails this.
+  const shown = [];
+  const line = keepingLine(new Map([["ana", "+15555550101"]]), "lab", { onText: (t) => shown.push(t) });
+  const place = { line: "+15555550100", groupId: "lab:x" };
+  for (const action of [{ kind: "name", name: "Launch Dinner Crew" }, { kind: "photo", attachment: "a" }, { kind: "add", address: "+15555550199" }, { kind: "kick" }]) {
+    assert.deepEqual(await line.rpc.groupLineCall({ method: "runGroup", args: [place, action] }), { ok: true, value: null });
+  }
+  assert.deepEqual(shown, ["Tex named the conversation “Launch Dinner Crew”.", "Tex changed the group photo.", "Tex added +15555550199 to the conversation."]);
+  assert.deepEqual(line.sent, [], "none of it is a text");
+});
+
 test("a turn's node lights its row even when the runner calls the watch on its own", async () => {
   const { stub, call, ready } = sandbox(ONE, []);
   await ready;

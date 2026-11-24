@@ -348,9 +348,12 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     } };
     const deps = { ledgerOf: () => sandboxLedger, origin, fetch: (...a) => globalThis.fetch(...a) };
     const chat = facts.kind === "group" ? facts.chat : "me";
+    // A made-up group chat is none of the person's chats, so Replay's reader is handed it as one shared with them: its
+    // name only, as every read goes to the test chat's own history above (found 2026-11-24: `step` failed with INTERNAL).
+    const pageOf = facts.source === "world" ? { ...p.page, shared: [...(Array.isArray(p.page?.shared) ? p.page.shared : []), { key: chat, kind: "group", name: "Made-up chat", owner: { chat } }] } : p.page;
     const given = { chat, turn: found.turn, at: found.at, ...(typeof args.node === "string" ? { node: args.node } : {}), ...(args.full === true ? { full: true } : {}), ...(typeof args.detail === "string" ? { detail: args.detail } : {}) };
-    if (args.part === "prompt") return await promptAnswer(env, p.page, { ...given, ...(args.round ? { round: args.round } : {}), ...(args.module ? { module: args.module } : {}) }, deps);
-    const answer = await turnAnswer(env, p.page, given, deps);
+    if (args.part === "prompt") return await promptAnswer(env, pageOf, { ...given, ...(args.round ? { round: args.round } : {}), ...(args.module ? { module: args.module } : {}) }, deps);
+    const answer = await turnAnswer(env, pageOf, given, deps);
     if (answer.error) return answer;
     // The test chat has no Lab Replay link of its own; its run is read here and in the Lab's sandbox dock.
     const { link: _link, ...rest } = answer;

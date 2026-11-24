@@ -18,6 +18,7 @@ import { appLine, namesAppChat } from "./appChat";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
 import { guardedLine } from "./outboundGuard";
+import { withoutEffects } from "./sendEffect";
 import type { LinkNotes } from "./photonLinkBubbles";
 import { isPhotonChatId, photonLine } from "./photonLine";
 import {
@@ -106,7 +107,8 @@ export function lineFor(deps: LineDeps, chatId: string): Line {
   if (deps.remote) return guardedLine(deps.remote(chatId), "one");
   // An app chat (`appChat.ts`) is never a phone's, so it never falls through to Linq: its line texts nobody.
   if (namesAppChat(chatId)) return guardedLine(appLine(null), "one");
-  const line = isPhotonChatId(chatId) ? photonLine(deps) : isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps);
+  // Only Photon sends an effect; any other line sends Tex's words without its "(sent with X)" mark (`sendEffect.ts`).
+  const line = isPhotonChatId(chatId) ? photonLine(deps) : withoutEffects(isWhapiChat(chatId) ? whapiLine(deps) : isSendblueChat(chatId) ? sendblueLine(deps) : linqLine(deps));
   return guardedLine(countedLine(line, deps.textCounts), "one");
 }
 

@@ -154,3 +154,20 @@ test("every computer app route is something Tex can do, or a can't with its way 
   assert.deepEqual(missing, [], `give Tex these, or add a can't with the way around it, in packages/tex/gateway/agent/capabilities.js: ${missing.join(", ")}`);
   for (const route of covered.keys()) assert.ok(MACHINE_APP_PATHS.has(route), `${covered.get(route)}: ${route} is not an app route any more`);
 });
+
+test("running the group is always written when asked: Tex can't see which number a chat is on", () => {
+  // 2026-11-24, a Lab eval: "rename this chat" got "I can't rename this chat from here", because the line said "on your
+  // iMessage line" and a can't named the old number, and a turn is never told which number it is on. The chat object
+  // tells the chat when its number can't (`groupRunTurn.ts`), so the list says to write it every time.
+  const entry = CAPABILITIES.find((e) => e.name === "Running the group");
+  assert.match(entry.group, /write it whenever they ask, and if this chat's number can't, they are told so/);
+  assert.doesNotMatch(entry.group, /iMessage line/);
+  assert.ok(entry.cant.every((c) => !/Sendblue|WhatsApp/.test(c.what)), "no can't hangs on a number the turn can't see");
+  // The same eval: "send a hype message with confetti" went without the effect. A poll or an effect on a number that has
+  // none goes as plain words (`sendPoll.ts`, `sendEffect.ts`), so neither waits on knowing the number either.
+  const polls = CAPABILITIES.find((e) => e.name === "Polls");
+  const marks = CAPABILITIES.find((e) => e.name === "Tags, effects and other apps' cards");
+  assert.match(polls.texts, /whenever they ask for a poll, start one/);
+  assert.match(marks.texts, /whenever they ask for one/);
+  for (const e of [polls, marks]) assert.ok(e.cant.every((c) => !/start a real poll|an effect on/.test(c.what)), `${e.name}: sending one never hangs on the number`);
+});

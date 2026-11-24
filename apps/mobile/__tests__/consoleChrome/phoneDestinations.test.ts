@@ -118,10 +118,9 @@ describe("the phone reaches a destination with nothing opened first", () => {
     const app = mountConsole(1280);
     app.press(app.find("console-create"));
 
-    // Each tile shows one word; its accessible name is the whole verb.
-    const named = [...document.body.querySelectorAll("[aria-label]")].map((node) => node.getAttribute("aria-label"));
-    for (const label of ["New meeting", "New note", "New table", "New drawing", "New folder"]) {
-      expect([label, named.includes(label)]).toEqual([label, true]);
+    // The menu is a `Menu`, which react-native-web portals out of the tree.
+    for (const label of ["New meeting", "New note", "New drawing", "New folder"]) {
+      expect([label, document.body.textContent?.includes(label)]).toEqual([label, true]);
     }
     app.unmount();
   });
@@ -134,9 +133,8 @@ describe("the phone reaches a destination with nothing opened first", () => {
     const app = mountConsole(1280);
     app.press(app.find("console-create"));
 
-    expect(document.body.querySelector('[aria-label="New chat"]')).toBeNull();
     expect(document.body.textContent).not.toContain("New chat");
-    expect(document.body.querySelector('[aria-label="New note"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("New note");
     app.unmount();
   });
 

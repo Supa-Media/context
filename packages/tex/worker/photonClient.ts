@@ -8,6 +8,7 @@
  */
 
 import { ServiceError } from "./clients";
+import type { GroupAction } from "./groupRun";
 
 const TIMEOUT_MS = 30_000;
 
@@ -16,7 +17,8 @@ export type PhotonKind = "love" | "like" | "dislike" | "laugh" | "emphasize" | "
 
 /** A file for `send/attachment` or a part of `send/multipart`: its bytes (base64) or an address the bridge fetches. */
 export type PhotonAttachment = { name: string; mimeType: string; data?: string; url?: string };
-export type PhotonPart = { text: string } | { attachment: PhotonAttachment };
+/** A text part may be a native tag: its words, and the number it tags (`mention`, the bridge's `mentionedAddress`). */
+export type PhotonPart = { text: string; mention?: string } | { attachment: PhotonAttachment };
 
 /** iMessage's CustomizedMiniApp for our Messages extension (`photonLine.ts` `photonCard` builds it from an AppCard). */
 export type PhotonCard = {
@@ -81,9 +83,14 @@ export async function sendPhotonText(
   photon: Fetcher,
   place: PhotonPlace,
   text: string,
-  options: { replyTo?: string; linkPreview?: boolean } = {},
+  options: { replyTo?: string; linkPreview?: boolean; effect?: string } = {},
 ): Promise<string | undefined> {
   return guidOf(await photonCall(photon, "send/text", { ...place, text, ...options }));
+}
+
+/** `poll/create`: a real iMessage poll, its title and choices. Resolves to the poll message's guid. */
+export async function sendPhotonPoll(photon: Fetcher, place: PhotonPlace, poll: { title: string; choices: string[] }): Promise<string | undefined> {
+  return guidOf(await photonCall(photon, "poll/create", { ...place, title: poll.title, choices: poll.choices }));
 }
 
 /** `send/attachment`: one file, as a real attachment. */
@@ -143,6 +150,13 @@ export async function photonGroupMembers(photon: Fetcher, place: PhotonPlace): P
   const answer = await photonCall(photon, "group/members", { ...place });
   if (!Array.isArray(answer.participants)) throw new ServiceError("photon", null);
   return answer.participants.filter((entry): entry is string => typeof entry === "string");
+}
+
+/** `group/name`, `group/photo` and `group/add`: running the group (`groupRun.ts`). */
+export async function runPhotonGroup(photon: Fetcher, place: PhotonPlace, action: GroupAction): Promise<void> {
+  if (action.kind === "name") await photonCall(photon, "group/name", { ...place, name: action.name });
+  else if (action.kind === "photo") await photonCall(photon, "group/photo", { ...place, attachment: action.attachment });
+  else await photonCall(photon, "group/add", { ...place, address: action.address });
 }
 
 /** `health` (GET): the bridge's lines, last sequence and stream state. For the staff page; nothing sends with it. */

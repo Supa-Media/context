@@ -20,6 +20,7 @@ import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
 import { guardedLine } from "./outboundGuard";
+import { withoutEffects } from "./sendEffect";
 import type { Picture } from "./line";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
@@ -40,14 +41,26 @@ import {
   type WhapiKeys,
 } from "./whapi";
 
+import type { SendTag } from "./groupTags";
+import type { GroupAction } from "./groupRun";
+
 /** Where in a group a message goes: Tex's line in it and the group's id. */
 export type GroupPlace = { line: string; groupId: string };
+export type { SendTag } from "./groupTags";
 
 export interface GroupLine {
-  /** One text, under `replyTo` where the app threads; the sent message's handle when it names one. */
-  sendText(place: GroupPlace, text: string, replyTo?: string): Promise<string | undefined>;
+  /**
+   * One text, under `replyTo` where the app threads; the sent message's handle when it names one. `tags` are native
+   * tags in the words (`groupTags.ts`): Photon's line sends each as an iMessage tag, any other line the words alone.
+   */
+  sendText(place: GroupPlace, text: string, replyTo?: string, tags?: readonly SendTag[]): Promise<string | undefined>;
   /** One file by an https address the app fetches. */
   sendMedia(place: GroupPlace, url: string, replyTo?: string): Promise<void>;
+  /**
+   * Names the group, sets its photo or adds someone (`groupRun.ts`): Photon's line only, and absent on any other, which
+   * cannot. Throws when the app refused or failed.
+   */
+  runGroup?(place: GroupPlace, action: GroupAction): Promise<void>;
   /** A reaction on a message in the group. Never throws. */
   react(place: GroupPlace, messageId: string, emoji: string): Promise<void>;
   /** Everyone in the group, as phones (or entries that count as someone unknown); null when it could not be read. */
@@ -98,13 +111,14 @@ export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
   if (isSimulatedGroup(groupId)) return guardedLine(simulatedGroupLine(deps.simulatorStorage), "group");
   // Every group line, whichever app and wherever it is served from, behind the last guard: a skip is never a text (`outboundGuard.ts`).
   if (deps.remote) return guardedLine(deps.remote(groupId), "group");
-  const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : movableGroupLine(deps, sendblueGroupLine(deps));
+  // Only Photon sends an effect; any other line sends Tex's words without its "(sent with X)" mark (`sendEffect.ts`).
+  const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? withoutEffects(whapiGroupLine(deps, groupId)) : movableGroupLine(deps, withoutEffects(sendblueGroupLine(deps)));
   const dataset = deps.textCounts;
   if (dataset === undefined) return guardedLine(line, "group");
   // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
   return guardedLine<GroupLine>({
     ...line,
-    sendText: (place, text, replyTo) => counted(dataset, "group", "text", () => line.sendText(place, text, replyTo)),
+    sendText: (place, text, replyTo, tags) => counted(dataset, "group", "text", () => line.sendText(place, text, replyTo, tags)),
     sendMedia: (place, url, replyTo) => counted(dataset, "group", "media", () => line.sendMedia(place, url, replyTo)),
   }, "group");
 }
@@ -133,15 +147,21 @@ function movableGroupLine(deps: GroupLineDeps, old: GroupLine): GroupLine {
   const now = photonGroupLine(deps);
   const where = async (place: GroupPlace) => await movedTo(place.groupId);
   return {
-    sendText: async (place, text, replyTo) => {
+    sendText: async (place, text, replyTo, tags) => {
       const moved = await where(place);
       if (moved === null) return await old.sendText(place, text, replyTo);
-      if (replyTo === undefined) return await now.sendText(moved, text);
+      if (replyTo === undefined) return await now.sendText(moved, text, undefined, tags);
       try {
-        return await now.sendText(moved, text, replyTo);
+        return await now.sendText(moved, text, replyTo, tags);
       } catch {
-        return await now.sendText(moved, text);
+        return await now.sendText(moved, text, undefined, tags);
       }
+    },
+    // Only once the group is on Tex's new line: the old Sendblue number cannot run a group.
+    runGroup: async (place, action) => {
+      const moved = await where(place);
+      if (moved === null || now.runGroup === undefined) throw new Error("this group's line cannot run the group");
+      await now.runGroup(moved, action);
     },
     sendMedia: async (place, url, replyTo) => {
       const moved = await where(place);

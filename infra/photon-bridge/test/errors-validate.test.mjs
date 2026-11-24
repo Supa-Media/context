@@ -66,6 +66,10 @@ test("every op parses a well-formed body into its arguments", () => {
     "chat/resolve": { line: LINE, address: "+15550100999" },
     "group/members": { line: LINE, chat: CHAT },
     "group/remove": { line: LINE, chat: CHAT, address: "+15550100999" },
+    "poll/create": { line: LINE, chat: CHAT, title: "Dinner Friday?", choices: ["Thai", "Pizza"] },
+    "group/name": { line: LINE, chat: CHAT, name: "Lisbon trip" },
+    "group/photo": { line: LINE, chat: CHAT, attachment: "att-1" },
+    "group/add": { line: LINE, chat: CHAT, address: "+15550100999" },
   };
   assert.deepEqual(Object.keys(cases).sort(), Object.keys(OPS).sort());
   for (const [name, body] of Object.entries(cases)) {
@@ -74,10 +78,28 @@ test("every op parses a well-formed body into its arguments", () => {
   }
 });
 
+test("poll/create takes a title and two to twelve choices of words", () => {
+  assert.deepEqual(OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai", "Pizza"] }), { line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai", "Pizza"] });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai"] }), { code: "invalid_choices" });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: ["Thai", 2] }), { code: "invalid_choices" });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, title: "Dinner?", choices: Array.from({ length: 13 }, (_, i) => `o${i}`) }), { code: "invalid_choices" });
+  assert.throws(() => OPS["poll/create"].parse({ line: LINE, chat: CHAT, choices: ["a", "b"] }), { code: "missing_title" });
+});
+
 test("group/remove takes one phone or email to take out, nothing else", () => {
   assert.deepEqual(OPS["group/remove"].parse({ line: LINE, chat: CHAT, address: "+15550100999" }), { line: LINE, chat: CHAT, address: "+15550100999" });
   assert.throws(() => OPS["group/remove"].parse({ line: LINE, chat: CHAT }), { code: "invalid_address" });
   assert.throws(() => OPS["group/remove"].parse({ line: LINE, chat: CHAT, address: ["+15550100999"] }), { code: "invalid_address" });
+});
+
+test("running the group: a bounded name, an attachment's guid for the photo, one address to add", () => {
+  assert.deepEqual(OPS["group/name"].parse({ line: LINE, chat: CHAT, name: "Lisbon trip" }), { line: LINE, chat: CHAT, name: "Lisbon trip" });
+  assert.throws(() => OPS["group/name"].parse({ line: LINE, chat: CHAT, name: "" }), { code: "invalid_name" });
+  assert.throws(() => OPS["group/name"].parse({ line: LINE, chat: CHAT, name: "x".repeat(101) }), { code: "invalid_name" });
+  assert.deepEqual(OPS["group/photo"].parse({ line: LINE, chat: CHAT, attachment: "att-1" }), { line: LINE, chat: CHAT, attachment: "att-1" });
+  assert.throws(() => OPS["group/photo"].parse({ line: LINE, chat: CHAT, attachment: "https://example.com/x.png" }), { code: "invalid_attachment" });
+  assert.deepEqual(OPS["group/add"].parse({ line: LINE, chat: CHAT, address: "+15550100999" }), { line: LINE, chat: CHAT, address: "+15550100999" });
+  assert.throws(() => OPS["group/add"].parse({ line: LINE, chat: CHAT, address: ["+15550100999", "+15550100998"] }), { code: "invalid_address" });
 });
 
 test("a body that is not an object is refused before any call", () => {
@@ -192,4 +214,10 @@ test("errorClass names the class of a thrown value, never its message", async ()
   assert.equal(errorClass(Object.assign(new Error("m"), { name: "AbortError" })), "AbortError");
   assert.equal(errorClass("a string reason"), "unknown");
   assert.equal(errorClass(null), "unknown");
+});
+
+test("a multipart text part may be a native tag naming a number or an email, and nothing else", () => {
+  const parsed = OPS["send/multipart"].parse({ line: LINE, chat: CHAT, parts: [{ text: "ask " }, { text: "Sam", mention: "+15550100777" }] });
+  assert.deepEqual(parsed.parts, [{ text: "ask " }, { text: "Sam", mention: "+15550100777" }]);
+  assert.throws(() => OPS["send/multipart"].parse({ line: LINE, chat: CHAT, parts: [{ text: "Sam", mention: "Sam" }] }), { code: "invalid_address" });
 });
