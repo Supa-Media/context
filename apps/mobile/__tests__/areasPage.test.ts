@@ -73,6 +73,9 @@ describe("the Areas folder", () => {
     expect(all("area-row-areas/people")).toHaveLength(0);
     // A sub-area that declares a seat is an area; a note is a file row.
     expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
+    // Notes and folders wait behind the area's count (the owner, 2026-11-24).
+    expect(all("area-file-areas/finance/budget.md")).toHaveLength(0);
+    await press(one("area-notes-areas/finance"));
     expect(all("area-file-areas/finance/budget.md")).toHaveLength(1);
   });
 
@@ -101,7 +104,7 @@ describe("the Areas folder", () => {
   test("an empty seat is a dashed box that offers Assign owner, which opens the seat", async () => {
     await mount(host([], { notes: AREAS }), LISTING);
     await press(view("chart"));
-    expect(strip(one("area-box-areas/design").textContent)).toContain("No owner");
+    expect(one("area-box-areas/design").querySelector('[aria-label="Design, no owner"]')).not.toBeNull();
     await press(one("area-assign-areas/design"));
     expect(all("seat-dialog")).toHaveLength(1);
   });
@@ -196,8 +199,9 @@ describe("the Areas folder", () => {
     const where = one(mode === "chart" ? "area-box-areas/finance" : "area-row-areas/finance");
     expect(strip(where.textContent)).toContain("$512");
     // Against its target, so a number says whether it is good (the owner, 2026-11-24).
-    expect(strip(where.textContent)).toContain(mode === "chart" ? "Target under $600 · on target" : "$512 / < $600");
-    if (mode === "chart") expect(all("area-spark", where)).toHaveLength(1);
+    expect(strip(where.textContent)).toContain("< $600");
+    if (mode === "chart") expect(strip(where.textContent)).toContain("On target");
+    expect(all("area-trend", where)).toHaveLength(1);
   });
 
   test("Add a metric… opens the seat with an empty metric row ready", async () => {
@@ -208,6 +212,16 @@ describe("the Areas folder", () => {
     const names = Array.from(document.querySelectorAll<HTMLInputElement>('[aria-label="Metric name"]'));
     expect(names.length).toBeGreaterThan(0);
     expect(names[names.length - 1]!.value).toBe("");
+  });
+
+  // The owner, 2026-11-24: one metric per area; another metric is a sub-area of its own.
+  test("an area with a metric is offered Edit metric…, and its seat offers no second metric", async () => {
+    await mount(host([], { notes: AREAS }), LISTING);
+    await press(document.querySelector<HTMLElement>('[aria-label="Options for finance"]')!);
+    expect(all("menu-item-metric").map((node) => strip(node.textContent).trim())).toEqual(["Edit metric…"]);
+    await press(one("menu-item-metric"));
+    expect(document.querySelectorAll('[aria-label="Metric name"]')).toHaveLength(1);
+    expect(all("seat-add-metric")).toHaveLength(0);
   });
 
   test("Edit seat writes the seat to the area's about.md and the card to people/", async () => {

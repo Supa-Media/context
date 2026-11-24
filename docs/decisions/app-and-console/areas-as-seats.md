@@ -35,16 +35,27 @@ who to ask and what is not covered. No new concept: an area is the seat.
   The Chart is an org chart: lines from the top box to one row of area
   columns, sub-areas stacked under their parent; on a phone the same tree
   stands up, with sub-areas folded under their parent. The List nests every
-  area under that top row with guide lines on the left and shows at most
-  three notes per area, the rest behind "Show N more".
+  area under that top row; a chevron shows only where an area has
+  sub-areas.
 - **A number is shown against its target** (the owner, 2026-11-24: "it's
   hard to know whether we're doing good or bad"). A box shows its first
-  metric's latest value, green on target and amber off it, with "Target
-  under 800 ms" beneath; a list row shows `1436 ms / < 800 ms`. Times compare
+  metric's latest value, green on target and amber off it, beside its short
+  target and over "On target" or "Off target". Times compare
   across units (`readings.ts`), and a missed target turns the title dot amber.
   An empty seat says "No owner" itself, as a dashed box with Assign owner.
   "No manager loop", flagged for modes without Manager, was removed the same
   day: modes are labels, never rules.
+- **One metric per area, drawn as a trend; notes hidden behind a count**
+  (the owner, 2026-11-24, choosing board "E Trend": "if an area needs
+  another metric it should create new sub areas"). Each area shows one
+  metric: its label, a sparkline of its readings with the target as a
+  dashed line on the same scale, then the latest value (green on target,
+  amber off it) and the short target (`< 800 ms`). The seat pop-up offers
+  "+ Add metric" only while there is none, and the menu says "Edit metric…"
+  once there is one; older `about.md` files with several `metrics:` lines
+  keep them, and the first is the one shown. A list row's notes and folders
+  stay hidden until its count is pressed, with no cap once open. The List is
+  940 wide on a desktop, as the board drew it.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as
@@ -91,7 +102,9 @@ those: owner words merely found in other notes are never offered.
 `areasPage.test.ts` fails if they are.
 
 **Readings** come from each area's `metrics.csv`: the latest value and a
-sparkline, on the List and the Chart.
+sparkline against the target, on the List and the Chart (`Trend.tsx`,
+`headline.ts`; `areaReadings.test.ts` fails if the target line leaves the
+series' scale).
 
 **Not built yet.** Webhook and
 routine sources for a metric, and Tex previewing a change on the Chart as it

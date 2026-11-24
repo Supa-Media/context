@@ -56,11 +56,11 @@ const notesWith = (name: string, properties: Record<string, string>) =>
 const dotOf = (node: Element) => node.querySelector('[data-testid^="status-dot-"]')?.getAttribute("data-testid") ?? null;
 
 describe("the List", () => {
-  test("is the listing's rows, and nothing else, under a List · Board switch", async () => {
+  test("is the listing's rows, and nothing else, under a List | Board pill", async () => {
     await mount(host([]));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
     expect(all("folder-view-files")).toHaveLength(0);
-    expect(strip(one("folder-view-switch").textContent)).toBe("List·Board");
+    expect(strip(one("folder-view-switch").textContent)).toBe("ListBoard");
     expect(names().length).toBeGreaterThan(0);
     // None of the old List's furniture.
     for (const gone of ["folder-groups", "folder-show-bar", "folder-search", "folder-band-backlog", "folder-add-task", "folder-item", "folder-note"]) {

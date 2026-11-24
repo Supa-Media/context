@@ -51,7 +51,7 @@ import { JobIcon } from "../jobIcons/JobIcon";
 import { TEX_HOME_LINE, builtInLine } from "../jobIcons/folderJobs";
 import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "../jobIcons/marker";
 import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
-import { leading, space, touchType, tracking } from "../../../design/tokens";
+import { areasType, leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
 import { NEW_FRONT_NOTE, type FolderPageView, type FolderSummary } from "./model";
@@ -86,16 +86,9 @@ export function ViewSwitch({
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.switch} role="tablist" accessibilityLabel="Show this folder as" testID="folder-view-switch">
-      {views.map(({ view: each, label }, index) => (
-        <View key={each} style={styles.switchItem}>
-          {index > 0 ? (
-            <Text variant={compact ? "rowValueTouch" : "tree"} style={styles.dot} aria-hidden>
-              {"·"}
-            </Text>
-          ) : null}
-          <SwitchWord label={label} on={view === each} compact={compact} onPress={() => onChange(each)} testID={`folder-view-${each}`} />
-        </View>
+    <View style={[styles.switch, compact && styles.switchCompact]} role="tablist" accessibilityLabel="Show this folder as" testID="folder-view-switch">
+      {views.map(({ view: each, label }) => (
+        <SwitchWord key={each} label={label} on={view === each} compact={compact} onPress={() => onChange(each)} testID={`folder-view-${each}`} />
       ))}
     </View>
   );
@@ -112,10 +105,11 @@ function SwitchWord({ label, on, compact, onPress, testID }: { label: string; on
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
-      hitSlop={compact ? 10 : 4}
+      hitSlop={compact ? 6 : 2}
       testID={testID}
+      style={[styles.segment, compact && styles.segmentCompact, on && styles.segmentOn]}
     >
-      <Text variant={compact ? "rowValueTouch" : "tree"} style={[styles.word, hovered && styles.wordHover, on && styles.wordOn]}>
+      <Text variant="tree" style={[styles.word, hovered && styles.wordHover, on && styles.wordOn]}>
         {label}
       </Text>
     </Pressable>
@@ -330,9 +324,13 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: tracking(touchType.title, -0.02),
     },
     titleHover: { textDecorationLine: "underline" },
-    switch: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
-    switchItem: { flexDirection: "row", alignItems: "center" },
-    word: { color: colors.chromeMuted },
+    // The pill toggle from the Areas board (the owner, 2026-11-24): a tinted track, the chosen view raised on the page's own ground.
+    switch: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 4, padding: 3, borderRadius: 8, backgroundColor: colors.chipFill },
+    switchCompact: { gap: 2 },
+    segment: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 6 },
+    segmentCompact: { paddingHorizontal: 10 },
+    segmentOn: { backgroundColor: colors.pageSurface, boxShadow: "0 1px 2px rgba(0,0,0,0.08)" },
+    word: { color: colors.muted, fontSize: areasType.value, lineHeight: 20 },
     wordHover: { color: colors.text2 },
     wordOn: { color: colors.text, fontWeight: "600" },
     dot: { color: colors.chromeMuted, paddingHorizontal: 6 },

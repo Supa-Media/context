@@ -136,6 +136,17 @@ export const texChatType = {
 } as const;
 
 /**
+ * The Areas board's one size off the console scale (`folderPage/areas`): the
+ * mock Dev approved on 2026-11-24 ("E Trend") as "EXACTLY like the mock" sets
+ * an area's name, its metric's value and the folder view switch at 14, between
+ * `ui` and `lede`. Its other sizes are the console's own roles.
+ */
+export const areasType = {
+  /** A row's area name and metric value, a sub-area's name, the view switch's words. */
+  value: 14,
+} as const;
+
+/**
  * The Tex page's scale (`features/tex/page`): the sizes of the mock Dev2
  * approved on 2026-11-02 as "it must look exactly like this mock", in the
  * page's own voice, as `siteType` is the website's. Its prose sizes are the

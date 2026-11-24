@@ -4,7 +4,8 @@
  * box's sparkline.
  */
 import { describe, expect, test } from "@jest/globals";
-import { leadingNumber, meetsTarget, readingFor, readingsOf, targetState, timeOf } from "../features/console/files/folderPage/areas/readings";
+import { leadingNumber, meetsTarget, readingFor, readingsOf, targetNumber, targetState, timeOf } from "../features/console/files/folderPage/areas/readings";
+import { trendGeometry } from "../features/console/files/folderPage/areas/Trend";
 
 const SHEET = [
   "date:date,metric,value,source,by",
@@ -67,5 +68,26 @@ describe("metric readings from metrics.csv", () => {
     expect(targetState(at("120 ms"), "under 150 ms")).toBe("met");
     expect(targetState(at("passing"), "passing")).toBe("unknown");
     expect(targetState(undefined, "under 1 s")).toBe("unknown");
+  });
+});
+
+describe("the trend's target line", () => {
+  test("a target's number is put on the readings' own scale, across time units", () => {
+    expect(targetNumber({ value: "1436 ms", date: "", series: [] }, "under 800 ms")).toBe(800);
+    expect(targetNumber({ value: "1436 ms", date: "", series: [] }, "under 2 s")).toBe(2000);
+    expect(targetNumber({ value: "$512", date: "", series: [] }, "under $600")).toBe(600);
+    expect(targetNumber({ value: "$512", date: "", series: [] }, null)).toBeNull();
+    expect(targetNumber({ value: "7", date: "", series: [] }, "every week")).toBeNull();
+  });
+
+  test("one reading draws no trend; two or more share one scale with the target", () => {
+    expect(trendGeometry([5], 10)).toBeNull();
+    const trend = trendGeometry([920, 1436], 800)!;
+    expect(trend.points.split(" ")).toHaveLength(2);
+    // SVG y grows downward: the target (800) is under both readings, so its y is the largest, and the newer, higher reading the smallest.
+    const ys = trend.points.split(" ").map((point) => Number(point.split(",")[1]));
+    expect(trend.targetY!).toBeGreaterThan(ys[0]!);
+    expect(ys[0]!).toBeGreaterThan(ys[1]!);
+    expect(trendGeometry([1, 2], null)!.targetY).toBeNull();
   });
 });

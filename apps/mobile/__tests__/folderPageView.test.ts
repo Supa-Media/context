@@ -222,7 +222,7 @@ describe("the switch", () => {
     expect(all("folder-view-switch")).toHaveLength(1);
     // Notes was a third word until the owner merged it into List (2026-10-14).
     expect(all("folder-view-files")).toHaveLength(0);
-    expect(strip(one("folder-view-switch").textContent)).toBe("List·Board");
+    expect(strip(one("folder-view-switch").textContent)).toBe("ListBoard");
     await press(one("folder-view-board"));
     // Every status in the folder's list is somewhere to drop, empty or not — Backlog as its box — and notes are not cards.
     expect(one("folder-board-backlog-box").getAttribute("aria-label")).toBe("Backlog, 0");
