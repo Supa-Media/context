@@ -34,6 +34,8 @@ import {
   preloadFronts,
   subscribePageCache,
 } from "../files/folderPage/pageCache";
+import { preloadAreas } from "../files/folderPage/areas/preloadAreas";
+import { areasFolderNow } from "../files/jobIcons/jobFoldersNow";
 import { NoteIntentContext } from "../files/noteIntent";
 import { FOLDERS_PAGE, useHomeView } from "../home/homeView";
 import { usePhoneHistory } from "../home/phoneHistory";
@@ -249,6 +251,18 @@ export function BrowsePane({
     editorPath: files.editor.path,
     waiting: folderPending,
   });
+  /*
+    The Areas folder's page waits on its notes and each area's metrics.csv,
+    where the Projects List is drawn from the listing at hand: so they are read
+    as soon as the workspace is listed (`preloadAreas`). A personal workspace's
+    Areas folder is the plain listing and reads none of it.
+  */
+  const rootListing = files.listings[""];
+  const areasRoot = rootListing?.entries.some((each) => each.kind === "folder" && each.path === areasFolderNow()) ? areasFolderNow() : null;
+  const sharedWorkspace = current !== null && current.kind !== "personal";
+  useEffect(() => {
+    if (sharedWorkspace && areasRoot !== null) preloadAreas(folderLists, areasRoot);
+  }, [sharedWorkspace, areasRoot, folderLists]);
   // Whatever the listing on screen names, its folders' front notes are read ahead (`preloadFronts`).
   const shownListing = files.listings[selected?.kind === "folder" ? selected.path : ""];
   useEffect(() => {
