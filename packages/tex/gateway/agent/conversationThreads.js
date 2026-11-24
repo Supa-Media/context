@@ -44,6 +44,9 @@ import { DESCRIPTION_CHARS, foldThreads, listedThreads, MAX_LISTED, THREADS_SUFF
 export { foldThreads, listedThreads, MAX_LISTED, THREADS_SUFFIX };
 
 /** Tex's config's classifier step (`texConfig.js`): its model, how hard it thinks (off) and its time limit. */
+/** The words that went back, as Text them kept them (`send.js`), for the classifier to file with the text they answered; "" when none did. */
+export const answerSent = (t) => (typeof t?.answerSent === "string" ? t.answerSent : "");
+
 export const THREADS_MODEL = texModel("classifier");
 export const THREADS_TIMEOUT_MS = texTimeoutMs("classifier");
 /** The answer's cap, with thinking off: a JSON line, title and description included. */

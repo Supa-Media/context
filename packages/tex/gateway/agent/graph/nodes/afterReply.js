@@ -5,10 +5,8 @@
  * reply went, "fix this" or frustration scores the conversation and files a review (`selfReview.js`). Text them says
  * which of the two this turn calls for (`t.sentAs`); one that fails never stops the other.
  */
+import { answerSent } from "../../conversationThreads.js";
 import { reviewAfterTurn } from "../../selfReview.js";
-
-/** The words that went back, as Text them kept them (`send.js`), for the Classifier to file with the text they answered; "" when none did. */
-export const answerSent = (t) => (typeof t?.answerSent === "string" ? t.answerSent : "");
 
 export async function afterReplyNode(_input, io) {
   const t = io.ctx.turn;
