@@ -37,7 +37,10 @@ const MAX_ASK = 2_000;
 
 /** Sentences of a draft that end in a question mark, in order. Code's only part of reading an ask: a pre-filter. */
 export function questionsIn(draft) {
-  const text = String(draft ?? "");
+  // A poll Tex starts ("(poll) Which night?" and its "- " choices, `sendPoll.ts`) asks everyone in the chat for what only
+  // they can answer, so it is never a question to look up (2026-11-24: a Lab poll eval climbed the ladder on its title
+  // and handed "make us a poll" to a background job that never sent one).
+  const text = String(draft ?? "").replace(POLL, "");
   const tidy = (list) => list.map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => /[a-z0-9]/i.test(s));
   const marked = text.includes("?") ? tidy(text.match(/[^.!?\n]*\?+/g) ?? []) : [];
   // An ask need not end in a question mark: "Send me her address." asks them as surely as "What's her address?"
@@ -46,6 +49,9 @@ export function questionsIn(draft) {
   const told = tidy((text.match(/[^.!?\n]+[.!]?/g) ?? []).filter((s) => !s.includes("?") && ASKS_THEM.test(s)));
   return [...marked, ...told];
 }
+
+/** A poll in a draft: its "(poll)" line and the list lines under it. */
+const POLL = /^[ \t]*\(poll\)[^\n]*(?:\n[ \t]*(?:[-•*]|\d{1,2}[.)])[ \t]+[^\n]*)*/gim;
 
 /** Words that ask the person for something without a question mark. */
 const ASKS_THEM = /\b(?:send|tell|give|text|share|forward|drop|remind) me\b|\blet me know\b|\bi(?:'ll| will)? need (?:you|your|the|her|his|their)\b|\bconfirm (?:the|your|which|her|his|their)\b/i;
