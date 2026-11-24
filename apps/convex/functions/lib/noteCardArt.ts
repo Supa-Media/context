@@ -46,8 +46,8 @@ const H = NOTE_CARD_HEIGHT;
 /** Ruled lines, a grid, or a grain: what each backdrop draws over its ground. */
 function backdropMarks(board: NoteBoard): string {
   const grid = (color: string, strong: number, faint: number) =>
-    `<defs><pattern id="f" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="${color}" stroke-opacity="${faint}" stroke-width="1"/></pattern>` +
-    `<pattern id="s" width="240" height="240" patternUnits="userSpaceOnUse"><path d="M240 0H0V240" fill="none" stroke="${color}" stroke-opacity="${strong}" stroke-width="2"/></pattern></defs>` +
+    `<defs><pattern id="f" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M46.5 0V48M0 46.5H48" fill="none" stroke="${color}" stroke-opacity="${faint}" stroke-width="1"/></pattern>` +
+    `<pattern id="s" width="240" height="240" patternUnits="userSpaceOnUse"><path d="M239 0V240M0 239H240" fill="none" stroke="${color}" stroke-opacity="${strong}" stroke-width="2"/></pattern></defs>` +
     `<rect width="${W}" height="${H}" fill="url(#f)"/><rect width="${W}" height="${H}" fill="url(#s)"/>`;
   const grain = (frequency: number, alpha: number, light: boolean) =>
     `<filter id="g"><feTurbulence type="fractalNoise" baseFrequency="${frequency}" numOctaves="2" seed="7"/>` +
@@ -64,11 +64,12 @@ function backdropMarks(board: NoteBoard): string {
     case "blueprint":
       return grid("#9DBDF0", 0.38, 0.18);
     case "paper":
-      return grain(0.9, 0.05, false);
+      return grain(0.9, 0.015, false);
     case "kraft":
-      return grain(0.8, 0.14, false);
+      return grain(0.8, 0.05, false);
     case "chalk":
-      return grain(0.55, 0.07, true);
+      // A soft lighter centre, as a chalkboard wiped down.
+      return `<defs><radialGradient id="c" cx="0.5" cy="0.48" r="0.6"><stop offset="0" stop-color="#fff" stop-opacity="0.05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><rect width="${W}" height="${H}" fill="url(#c)"/>${grain(0.55, 0.07, true)}`;
     case "ink":
       return "";
   }
@@ -123,12 +124,14 @@ export function noteCardElement(facts: NoteCardFacts) {
               display: "block",
               position: "absolute",
               left,
-              top: ruled ? 70 : 66,
+              top: ruled ? 70 : 62,
               width: W - left - 280,
               fontFamily: "Libron",
               fontSize: ruled ? 84 : 104,
               lineHeight: ruled ? "96px" : 1.02,
-              letterSpacing: "-0.02em",
+              letterSpacing: "-0.025em",
+              // Room under the last line, so overflow never crops a descender.
+              paddingBottom: 24,
               color: colors.text,
               lineClamp: 3,
               wordBreak: "break-word",
@@ -143,7 +146,7 @@ export function noteCardElement(facts: NoteCardFacts) {
               {
                 type: "div",
                 props: {
-                  style: { display: "flex", position: "absolute", left, bottom: 64, fontFamily: "Instrument Sans", fontSize: 36, color: colors.text2 },
+                  style: { display: "block", position: "absolute", left, bottom: 64, maxWidth: W - left - 72, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontFamily: "Instrument Sans", fontSize: 36, color: colors.text2 },
                   children: facts.folder,
                 },
               },
