@@ -176,9 +176,9 @@ export function BrowseDocument({
               .flatMap((member) => [member.name ?? "", member.email ?? ""])
               .filter((word) => word !== ""),
             ...(tasks === undefined ? {} : { tasks }),
-            ...(editing === undefined ? {} : { editing }),
+            ...(editing === undefined ? {} : { editing }), personal: current.kind === "personal",
           },
-    [folderLists, current?.id, people, tasks, editing],
+    [folderLists, current?.id, current?.kind, people, tasks, editing],
   );
   /**
    * Where a phone starts, when nothing has been opened yet.

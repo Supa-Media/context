@@ -73,6 +73,14 @@ the seat and how to reach them, including when the holder is an agent.
 person's number would differ between areas. A card on the account would leak
 across workspaces the person did not choose to share it with.
 
-**Not built yet.** Readings from each area's `metrics.csv`, webhook and
+**Shared workspaces only** (decided by the owner, 2026-11-24). In a personal
+workspace one person owns every area, so its Areas folder is the plain file
+listing, with no seats and no List · Chart switch. `areasPage.test.ts` fails if
+a personal workspace draws seats.
+
+**Readings** come from each area's `metrics.csv`: the latest value and a
+sparkline, on the List and the Chart.
+
+**Not built yet.** Webhook and
 routine sources for a metric, and Tex previewing a change on the Chart as it
 is typed. Tex already sets a seat or a card by writing the note.
