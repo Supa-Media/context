@@ -34,7 +34,12 @@ export function gatewayFirstWriter(deps: {
 }): WriteNoteAction {
   return (async (args: Parameters<WriteNoteAction>[0]) => {
     // Asked for this save's own workspace, so two saves at once can never be addressed by each other's slug.
-    const route = typeof globalThis.fetch === "function" || deps.fetchImpl !== undefined ? await deps.route(args.workspaceId) : null;
+    /*
+      The gateway saves Markdown only (`noteWriteRoute.js` hands anything else back as `not_object`), so a sheet or
+      any other file goes straight to the control plane: asking first only added a round trip to every save of one.
+    */
+    const askGateway = args.path.toLowerCase().endsWith(".md") && (typeof globalThis.fetch === "function" || deps.fetchImpl !== undefined);
+    const route = askGateway ? await deps.route(args.workspaceId) : null;
     const url = route?.on === true ? noteWriteUrl(deps.endpoint ?? MCP_ENDPOINT, route.slug) : null;
     if (url !== null) {
       const written = await writeNoteThroughGateway({

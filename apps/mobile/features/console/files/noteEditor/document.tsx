@@ -103,6 +103,7 @@ export function noteDocument(view: NoteView) {
     texInNote,
     onImageProblem,
     folderLists,
+    people,
     onTitleCaret,
     titleNote,
     chipHost,
@@ -380,7 +381,8 @@ export function noteDocument(view: NoteView) {
             compact={compact}
             text={presence?.collaboration?.text ?? state.draft}
             readOnly={wholeEdit === undefined}
-            people={presence?.members.map((member) => member.name)}
+            // The workspace's members, so Owner offers everybody, not only who has the note open now.
+            people={people ?? presence?.members.map((member) => member.name)}
             visibility={visibility}
             say={say}
             onChangeText={(next) => {

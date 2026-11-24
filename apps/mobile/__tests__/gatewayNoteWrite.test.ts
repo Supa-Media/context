@@ -132,6 +132,12 @@ describe("the app's save, gateway first", () => {
     expect([convex.length, sent[0].url]).toEqual([0, URL_]);
   });
 
+  test("a sheet goes straight to the control plane, which is the only one that saves it", async () => {
+    const { write, convex, sent } = writer({ enabled: true, slug: "alice", answers: [{ status: 409, body: { error: "not_object" } }] });
+    await write({ workspaceId: "ws1", path: "areas/plan.csv", text: "name\n", expectedEtag: "e1" } as never);
+    expect([convex.length, sent.length]).toEqual([1, 0]);
+  });
+
   test("a workspace whose slug is not known yet is saved by the control plane", async () => {
     const { write, convex, sent } = writer({ enabled: true, slug: null, answers: [] });
     await write(args);

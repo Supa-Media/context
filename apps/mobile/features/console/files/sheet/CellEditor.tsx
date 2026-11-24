@@ -91,14 +91,13 @@ export function CellEditor({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     wrap: { width: "100%", height: 26 },
+    // No frame of its own: the cell's selection ring is the one outline, as the approved grid draws it.
     input: {
       height: 26,
-      paddingHorizontal: space.x1,
-      borderWidth: 1,
-      borderColor: colors.accent,
-      borderRadius: radii.sm,
+      padding: 0,
+      borderWidth: 0,
       color: colors.text,
-      backgroundColor: colors.ground,
+      backgroundColor: "transparent",
       fontSize: pointerType.ui,
       outlineStyle: "none",
     } as object,

@@ -57,7 +57,7 @@ export type SheetViewProps = {
   path: string;
   text: string; // the file's current text
   readOnly: boolean;
-  people?: string[]; // names for person cells; default []
+  people?: readonly string[]; // names for person cells; default []
   visibility?: string; // who can see it, for the heading ("private", "team", ...)
   say?: (message: string) => void; // the console's toast; without it a notice shows above the grid
   compact?: boolean; // a phone, whose page already shows the name as its title

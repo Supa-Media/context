@@ -149,6 +149,8 @@ export function BrowseDocument({
     in a note does. The workspace's people are what an owner menu offers.
   */
   const people = data.members?.members;
+  // By name, as a folder page's owner menu offers them: a sheet's person cells offer the same people.
+  const memberNames = useMemo(() => (people ?? []).map((member) => member.name ?? "").filter((name) => name !== ""), [people]);
   // Tex in this note: the person's own Tex and the open note's log (`comments/tex/useTexInNote.ts`).
   const texInNote = useTexInNote({ tex: texChatTarget(data), note: noteRefOf(current?.id, files.editor), people: mentionablesOf(people) });
   // Adding, nesting and moving a project's tasks, through the console's own writes (undefined for who may not write).
@@ -610,6 +612,7 @@ export function BrowseDocument({
         onUpdateFormResponse={files.updateFormResponse}
         onRetractFormResponse={files.retractFormResponse}
         folderLists={folderLists}
+        people={memberNames}
         /*
           Images in the note: where the bytes come from, where a pasted one
           goes, and where a refusal is said. All three from `files`, because the

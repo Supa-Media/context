@@ -106,6 +106,8 @@ export interface NoteEditorProps {
   local?: boolean;
   /** Where a folder list block reads its notes. Absent: lists stay as source. */
   folderLists?: FolderListSource;
+  /** The workspace's people, by name: what a sheet's person cells offer. Absent: whoever is in the note now. */
+  people?: readonly string[];
   /**
    * The title renaming the file — see `fileBrowser/useLinkedTitle.ts`. Where
    * the caret is reported to, the line drawn under the title, and a request
