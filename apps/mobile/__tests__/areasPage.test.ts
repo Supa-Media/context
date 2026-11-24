@@ -170,6 +170,34 @@ describe("the Areas folder", () => {
     expect(labels).not.toContain("Open");
   });
 
+  // Readings are rows in the area's own metrics.csv (the owner, 2026-11-23): the box and
+  // the row show the headline metric's latest value, read at the reader's clearance.
+  test.each(["list", "chart"] as const)("the %s shows Finance's latest reading from its metrics.csv", async (mode) => {
+    const sheet = "areas/finance/metrics.csv";
+    // The page's notes hold no sheet (a folder listing is Markdown only): the sheet is read by name.
+    const page = host([], { notes: AREAS });
+    const asked: string[] = [];
+    const reading = {
+      ...page,
+      source: {
+        ...page.source,
+        readBody: async (path: string) => {
+          asked.push(path);
+          if (path !== sheet) return null;
+          return { text: "date:date,metric,value\n2026-11-02,Monthly cost,$540\n2026-11-23,Monthly cost,$512", encrypted: false };
+        },
+      },
+    };
+    await mount(reading, LISTING);
+    if (mode === "chart") await press(view("chart"));
+    await act(async () => {});
+    // Every area that names a metric is asked for its sheet; Payroll has none.
+    expect(asked.filter((path) => path.endsWith(".csv")).sort()).toEqual([sheet, "areas/finance/payroll/metrics.csv"]);
+    const where = one(mode === "chart" ? "area-box-areas/finance" : "area-row-areas/finance");
+    expect(strip(where.textContent)).toContain("$512");
+    if (mode === "chart") expect(all("area-spark", where)).toHaveLength(1);
+  });
+
   test("Add a metric… opens the seat with an empty metric row ready", async () => {
     await mount(host([], { notes: AREAS }), LISTING);
     await press(document.querySelector<HTMLElement>('[aria-label="Options for engineering"]')!);

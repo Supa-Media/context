@@ -25,7 +25,9 @@ import { pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
+import { Polyline, Svg } from "react-native-svg";
 import { pressPoint } from "./pressPoint";
+import type { Reading } from "./readings";
 import { MODE_TIPS, areaTitle, gapOf, healthOf, kindCounts, needLook, type AreaNode, type Health, type Seat } from "./seat";
 
 export interface AreasChartProps {
@@ -42,6 +44,8 @@ export interface AreasChartProps {
   reach: (owner: string) => string;
   /** Opens an area's own page. */
   onOpen: (folder: string) => void;
+  /** The latest reading of a seat's headline metric, from its `metrics.csv`; undefined when there is none. */
+  readingOf: (seat: Seat) => Reading | undefined;
   /** Seat options: from a right-click, the top box, or a ⋯ button (its page coordinates). */
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
   /** Adds a sub-area under a seat; every add button is hidden when null. */
@@ -51,7 +55,7 @@ export interface AreasChartProps {
 }
 
 type Point = { readonly x: number; readonly y: number };
-type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact">;
+type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact" | "readingOf">;
 
 const pointOf = (event: GestureResponderEvent | undefined): Point | null => (event === undefined ? null : pressPoint(event));
 
@@ -236,6 +240,7 @@ function SeatBox({
   const empty = seat.owner === null;
   const gap = gapOf(seat);
   const metric = seat.metrics[0];
+  const reading = metric === undefined ? undefined : ctx.readingOf(seat);
   const files = top ? "" : kindCounts(node.files);
   const ownerText = empty ? "No owner" : `${ctx.label(seat.owner as string)}${seat.helper === null ? "" : ` + ${seat.helper}`}`;
   const reachText = empty ? "" : ctx.reach(seat.owner as string);
@@ -283,13 +288,16 @@ function SeatBox({
             </Text>
           )
         ) : metric !== undefined ? (
-          <View style={styles.metric} testID="area-metric">
-            <Text variant="meta" numberOfLines={1} style={[styles.muted, styles.metricName]}>
-              {metric.name}
-            </Text>
-            <Text variant="rowTitle" style={styles.metricValue}>
-              —
-            </Text>
+          <View testID="area-metric">
+            <View style={styles.metric}>
+              <Text variant="meta" numberOfLines={1} style={[styles.muted, styles.metricName]}>
+                {metric.name}
+              </Text>
+              <Text variant="rowTitle" style={styles.metricValue} testID="area-metric-value" {...hoverTitle(reading?.date ?? "")}>
+                {reading?.value ?? "—"}
+              </Text>
+            </View>
+            {reading !== undefined && reading.series.length > 1 ? <Spark series={reading.series} /> : null}
           </View>
         ) : empty ? null : (
           <Text variant="meta" style={styles.muted}>
@@ -378,6 +386,21 @@ function AddLine({ label, onPress }: { label: string; onPress: () => void }) {
 const LINE = 1;
 const DROP = 20;
 const COLUMN_GAP = 12;
+
+/** `.spark`: the readings, oldest first, as one line across the box. */
+function Spark({ series }: { series: readonly number[] }) {
+  const colors = useColors();
+  const W = 120;
+  const H = 22;
+  const low = Math.min(...series);
+  const span = Math.max(...series) - low || 1;
+  const points = series.map((n, i) => `${((i / (series.length - 1)) * W).toFixed(1)},${(H - 2 - ((n - low) / span) * (H - 4)).toFixed(1)}`).join(" ");
+  return (
+    <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" testID="area-spark" aria-hidden>
+      <Polyline points={points} fill="none" stroke={colors.chromeMuted} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+    </Svg>
+  );
+}
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({

@@ -493,6 +493,7 @@ export function FolderPage({
             suggestions={[...ownersInUse(notes ?? NO_NOTES), ...agentList]}
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
+            {...(host?.source.readBody === undefined ? {} : { readBody: host.source.readBody })}
           />
           </View>
         ) : view === "list" ? (

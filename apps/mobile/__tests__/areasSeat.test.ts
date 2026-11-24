@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
+import { setNoteProperty } from "../../mcp/src/lists/setProperty.js";
 import {
   MODES,
   PEOPLE_ABOUT,
@@ -147,9 +148,29 @@ describe("seatOf", () => {
 
 describe("parseMetric and metricLine", () => {
   test("a name and a target round-trip through the line", () => {
-    const metric = parseMetric("PR time to ship, target 2 days");
+    const metric = parseMetric("PR time to ship · target 2 days");
     expect(metric).toEqual({ name: "PR time to ship", target: "2 days" });
-    expect(metricLine(metric)).toBe("PR time to ship, target 2 days");
+    expect(metricLine(metric)).toBe("PR time to ship · target 2 days");
+  });
+
+  test("a line written by hand with a comma still reads", () => {
+    expect(parseMetric("PR time to ship, target 2 days")).toEqual({ name: "PR time to ship", target: "2 days" });
+  });
+
+  // The seat pop-up's save failed on every metric with a target: "Monthly cost, target
+  // under $600 cannot hold a comma". What metricLine writes must pass the real writer.
+  test("every line it writes is one the seat's metrics list can hold", () => {
+    for (const metric of [
+      { name: "Monthly cost", target: "under $600" },
+      { name: "Revenue", target: "over $1,000,000" },
+      { name: "Burn, per user", target: "under $3" },
+    ]) {
+      const line = metricLine(metric);
+      const written = setNoteProperty("# Finance\n", "metrics", [line]);
+      expect(written).not.toHaveProperty("error");
+      expect(parseMetric(line).name).toBe(metric.name.replace(/,/g, ""));
+    }
+    expect(metricLine({ name: "Revenue", target: "over $1,000,000" })).toBe("Revenue · target over $1000000");
   });
 
   test("a line with no target is all name, and round-trips too", () => {
@@ -300,7 +321,7 @@ describe("seatChanges", () => {
       ],
       approvals: [],
     });
-    expect(metrics).toEqual(["metrics", ["PR time to ship, target 2 days", "Open bugs"]]);
+    expect(metrics).toEqual(["metrics", ["PR time to ship · target 2 days", "Open bugs"]]);
   });
 
   test("owner and helper are trimmed, and approvals keep their order", () => {

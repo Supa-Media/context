@@ -22,6 +22,7 @@ import type { ItemEntry } from "../model";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
+import type { Reading } from "./readings";
 import { areaTitle, fileKind, gapOf, healthOf, type AreaNode, type Seat } from "./seat";
 
 /** How far each level sits in from its parent. */
@@ -46,6 +47,8 @@ export interface AreasListProps {
   onOpen: (path: string) => void;
   /** Right-click on an area row, or its ⋯ button (`at` null). */
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
+  /** The latest reading of a seat's headline metric, from its `metrics.csv`; undefined when there is none. */
+  readingOf: (seat: Seat) => Reading | undefined;
 }
 
 /** The pointer state a web Pressable reports, which react-native-web adds to RN's. */
@@ -65,7 +68,7 @@ interface Shared extends Omit<AreasListProps, "tree" | "rootTitle"> {
   readonly toggle: (folder: string) => void;
 }
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onMenu }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onMenu, readingOf }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (folder: string) =>
@@ -75,7 +78,7 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
       else next.add(folder);
       return next;
     });
-  const shared: Shared = { compact, faceOf, label, reach, notesUnder, onOpen, onMenu, closed, toggle };
+  const shared: Shared = { compact, faceOf, label, reach, notesUnder, onOpen, onMenu, readingOf, closed, toggle };
   const empty = tree.areas.length === 0 && tree.files.length === 0;
   return (
     <View style={styles.list} testID="areas-list">
@@ -180,7 +183,7 @@ function AreaRow({ seat, depth, title, open, shared }: { seat: Seat; depth: numb
             <View style={styles.trail}>
               <OwnerMark owner={seat.owner} faceOf={shared.faceOf} label={shared.label} reach={shared.reach} />
               <Text variant="treeMeta" style={styles.value} numberOfLines={1}>
-                {unowned ? "No owner" : "—"}
+                {unowned ? "No owner" : (shared.readingOf(seat)?.value.replace(/ days?$/, " d") ?? "—")}
               </Text>
               {warm ? <View testID="area-gap-dot" style={[styles.dot, { backgroundColor: colors.warn }]} /> : null}
               <Pressable

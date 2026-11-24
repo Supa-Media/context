@@ -131,18 +131,27 @@ export function isArea(folder: string, root: string, notes: readonly ListNote[])
   return !folder.slice(inside(root).length).includes("/");
 }
 
-/** `Name, target 2 days` → name and target; a line with no target is all name. */
+/**
+ * `Name · target 2 days` → name and target; a line with no target is all name.
+ * Also reads `Name, target 2 days`, the form written by hand in a block list.
+ */
 export function parseMetric(line: string): Metric {
-  const at = line.search(/,\s*target\s+/i);
+  const at = line.search(/\s*[,·]\s*target\s+/i);
   if (at === -1) return { name: line.trim(), target: null };
-  const target = line.slice(at).replace(/^,\s*target\s+/i, "").trim();
+  const target = line.slice(at).replace(/^\s*[,·]\s*target\s+/i, "").trim();
   return { name: line.slice(0, at).trim(), target: target === "" ? null : target };
 }
 
+/**
+ * The line a metric is written as, in the seat's `metrics: [...]`. An inline
+ * list item cannot hold a comma (`setProperty.js` refuses it, and the save
+ * failed with "cannot hold a comma"), so the target follows a middle dot and
+ * a thousands comma is dropped: `under $1,000` is written `under $1000`.
+ */
 export function metricLine(metric: Metric): string {
-  const name = metric.name.trim();
-  const target = metric.target?.trim() ?? "";
-  return target === "" ? name : `${name}, target ${target}`;
+  const name = metric.name.trim().replace(/,/g, "");
+  const target = (metric.target?.trim() ?? "").replace(/(\d),(?=\d{3}\b)/g, "$1").replace(/,/g, "");
+  return target === "" ? name : `${name} · target ${target}`;
 }
 
 function modesOf(value: PropertyValue | undefined): Mode[] {
