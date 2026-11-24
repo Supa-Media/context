@@ -69,6 +69,7 @@ import {
   type PreviewMeta,
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
+import { noteCardLinkFrom, signedNoteLinkFrom, type SignedNoteLink } from "./noteLinkCards";
 import { agentDocFor, type AgentDocName } from "./agentDocs";
 import { downloadFor } from "./download";
 import { PAGE_VIEWER_PREFIX } from "./pageViewer";
@@ -108,6 +109,10 @@ export type RouteDecision =
   // `link` marks the `/note/@slug/<path>` address, whose untitled card is
   // NOTE_LINK_PREVIEW rather than the product card.
   | { kind: "note-preview"; slug: string; path: string; link?: true }
+  // A note link Tex texted with its name and key, and the card its tags point
+  // at. Only shape-checked here; the control plane checks the key.
+  | { kind: "signed-note-preview"; link: SignedNoteLink }
+  | { kind: "note-card"; link: SignedNoteLink }
   // A crawler asking for an address a website may own: the page's own tags
   // when it is a live public page, else the legacy short link at the same
   // address when there is one, else the product card. See `preview/sites.ts`.
@@ -308,6 +313,10 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     };
   }
 
+  // A signed note link's card, for the same reason and at the same point.
+  const noteCard = noteCardLinkFrom(url);
+  if (noteCard !== null) return { kind: "note-card", link: noteCard };
+
   // A website page's card, addressed by the handle and path the crawler used.
   const siteCard = siteCardFrom(url, false);
   if (siteCard !== null && siteCard.handle !== null) {
@@ -341,6 +350,10 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     if (note !== null) {
       return { kind: "note-preview", slug: note.slug, path: note.path };
     }
+    // A note link Tex texted with its name and a key: its own card when the
+    // control plane says the key is Tex's (`noteLinkCards.ts`).
+    const signedNote = signedNoteLinkFrom(url);
+    if (signedNote !== null) return { kind: "signed-note-preview", link: signedNote };
     // The note link Tex texts. The same answer as the console link, and the
     // same constant card for every address it refuses.
     const noteLink = noteLinkFrom(url);

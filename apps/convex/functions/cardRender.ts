@@ -57,6 +57,8 @@ import { cardElement, CARD_HEIGHT, CARD_WIDTH } from "./lib/cardArt";
 import { cardFont } from "./lib/cardFont/instrumentSans";
 import { siteSerifFont } from "./lib/cardFont/instrumentSerif";
 import { siteCardElement, SITE_CARD_HEIGHT, SITE_CARD_WIDTH } from "./lib/siteCardArt";
+import { libronFont } from "./lib/cardFont/libron";
+import { noteCardElement, NOTE_CARD_HEIGHT, NOTE_CARD_WIDTH } from "./lib/noteCardArt";
 
 /**
  * Render a title into a 1200×630 PNG.
@@ -203,6 +205,49 @@ export const renderSiteCard = internalAction({
       loadAdditionalAsset: async () => "",
     });
     const png = new Resvg(svg, { fitTo: { mode: "width", value: SITE_CARD_WIDTH } }).render().asPng();
+    return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
+  },
+});
+
+const POSES = ["waving", "reading", "checklist", "coffee", "idea", "trip", "painting", "calendar", "money", "cooking"] as const;
+const BOARDS = ["notebook", "ink", "paper", "graph", "kraft", "chalk", "blueprint"] as const;
+
+/**
+ * Render a note link's card into a 1200x630 PNG (`lib/noteCardArt.ts`).
+ *
+ * INTERNAL, like the two above: its callers draw only a name they checked,
+ * either a key Tex signed (`publicRoutes/noteLinkCards.ts`) or a link the
+ * texting Worker is about to send (`gatewayRoutes/noteCard.ts`).
+ */
+export const renderNoteCard = internalAction({
+  args: {
+    title: v.string(),
+    folder: v.string(),
+    board: v.union(...BOARDS.map((board) => v.literal(board))),
+    pose: v.union(v.null(), ...POSES.map((pose) => v.literal(pose))),
+  },
+  returns: v.bytes(),
+  handler: async (ctx, args): Promise<ArrayBuffer> => {
+    const satori = (await import("satori")).default;
+    const { initWasm, Resvg } = await import("@resvg/resvg-wasm");
+    const storageId = await ctx.runQuery(internal.functions.cardAssets.wasmAsset, {});
+    if (storageId === null) {
+      throw new Error(
+        "the card renderer's wasm is not installed — run internal.functions.cardRender.installWasm",
+      );
+    }
+    await ensureWasm(ctx, initWasm, storageId);
+    const svg = await satori(noteCardElement(args) as never, {
+      width: NOTE_CARD_WIDTH,
+      height: NOTE_CARD_HEIGHT,
+      fonts: [
+        { name: "Libron", data: libronFont() as unknown as ArrayBuffer, weight: 400, style: "normal" },
+        { name: "Instrument Sans", data: cardFont() as unknown as ArrayBuffer, weight: 600, style: "normal" },
+      ],
+      // No network on a glyph miss; see `renderCard`.
+      loadAdditionalAsset: async () => "",
+    });
+    const png = new Resvg(svg, { fitTo: { mode: "width", value: NOTE_CARD_WIDTH } }).render().asPng();
     return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
   },
 });

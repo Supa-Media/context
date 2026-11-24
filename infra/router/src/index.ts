@@ -14,6 +14,7 @@ import { downloadResponse, route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
+import { noteCardResponse, signedNotePreviewResponse } from "./noteLinkCards";
 import { isHomeDocument, retiredHomePageRedirect, withHomeSite } from "./homeSite";
 import { textsSimulatorResponse } from "./textsSimulator";
 import { messagesCardResponse } from "./messagesCards";
@@ -224,6 +225,12 @@ async function respond(
 
       case "site-card":
         return await siteCardResponse(decision, readOrigin(env.CONVEX_ORIGIN), ctx);
+
+      case "signed-note-preview":
+        return await signedNotePreviewResponse(decision.link, readOrigin(env.CONVEX_ORIGIN), ctx);
+
+      case "note-card":
+        return await noteCardResponse(decision.link, readOrigin(env.CONVEX_ORIGIN), ctx);
 
       case "og-card":
         // A day, not a year: the path is not content-hashed, so a longer TTL

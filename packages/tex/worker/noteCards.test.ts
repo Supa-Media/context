@@ -39,7 +39,7 @@ describe("a note link texted with its picture", () => {
       chatId,
     );
     expect(await line.sendText(chatId, LINK, "k", "mh_0")).toBe("mh_1");
-    expect(drawn).toEqual([{ url: LINK, slug: "dev2", folder: "1-projects/tex", caption: "Launch plan" }]);
+    expect(drawn).toEqual([{ url: LINK, slug: "dev2", folder: "1-projects/tex", path: "1-projects/tex/launch-plan.md", caption: "Launch plan" }]);
     expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual([
       "https://agent.example/media/abc.png",
       `Open it in Context: ${LINK}.`,
@@ -47,8 +47,21 @@ describe("a note link texted with its picture", () => {
     expect(calls.every((call) => (call.body.reply_to as { message_handle?: string })?.message_handle === "mh_0")).toBe(true);
   });
 
+  it("draws a link signed for its card under the name it carries, and texts the link whole, key and all", async () => {
+    const calls: Call[] = [];
+    const drawn: NoteLink[] = [];
+    const signed = `${LINK}?t=Launch%20Plan%20v2&k=AbCdEfGhIjKlMnOpQrSt_-`;
+    const line = lineFor(
+      { fetch: sendblue(calls), linqApiKey: "", sendblue: KEYS, hostPicture: async () => "https://agent.example/media/abc.png", noteCardPicture: async (link) => (drawn.push(link), PNG) },
+      chatId,
+    );
+    await line.sendText(chatId, signed, "k");
+    expect(drawn).toEqual([{ url: signed, slug: "dev2", folder: "1-projects/tex", path: "1-projects/tex/launch-plan.md", caption: "Launch Plan v2" }]);
+    expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual(["https://agent.example/media/abc.png", `Open it in Context: ${signed}.`]);
+  });
+
   it("keeps the link off either end of its text, where Messages would draw a box to load", () => {
-    const text = linkAfterCard({ url: LINK, slug: "dev2", folder: "", caption: "Plan" });
+    const text = linkAfterCard({ url: LINK, slug: "dev2", folder: "", path: "launch-plan.md", caption: "Plan" });
     expect(text.startsWith(LINK)).toBe(false);
     expect(text.trimEnd().endsWith(LINK)).toBe(false);
     expect(text).toContain(` ${LINK}.`);
@@ -90,16 +103,16 @@ describe("a note link texted with its picture", () => {
 });
 
 describe("drawing the card", () => {
-  const link: NoteLink = { url: LINK, slug: "dev2", folder: "1-projects/tex", caption: "Launch plan" };
+  const link: NoteLink = { url: LINK, slug: "dev2", folder: "1-projects/tex", path: "1-projects/tex/launch-plan.md", caption: "Launch plan" };
 
-  it("asks the control plane with the texting Worker's secret, for the name and workspace only", async () => {
+  it("asks the control plane with the texting Worker's secret, for the name, workspace and path only", async () => {
     const fetcher = vi.fn(async () => Response.json({ png: "iVBOR" }));
     const picture = await noteCardDrawer(fetcher as unknown as Fetch, "https://cp.example", "secret")(link);
     expect(picture).toEqual({ name: "note.png", mediaType: "image/png", data: "iVBOR" });
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://cp.example/agent-texts/note-card");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer secret");
-    expect(JSON.parse(String(init.body))).toEqual({ title: "Launch plan", slug: "dev2" });
+    expect(JSON.parse(String(init.body))).toEqual({ title: "Launch plan", slug: "dev2", path: "1-projects/tex/launch-plan.md" });
   });
 
   it("is null, never a throw, on a refusal, a bad body or a dead network", async () => {
@@ -125,7 +138,7 @@ describe("a note link texted into a group", () => {
     const deps = { fetch: sendblue(calls), sendblue: KEYS, hostPicture: async () => "https://agent.example/media/abc.png", noteCardPicture: async () => PNG };
     expect(await groupLineFor(deps, "group-1").sendText(place, LINK, "mh_0")).toBe("mh_1");
     expect(calls.map((call) => call.path)).toEqual(["/api/send-group-message", "/api/send-group-message"]);
-    expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual(["https://agent.example/media/abc.png", linkAfterCard({ url: LINK, slug: "dev2", folder: "", caption: "" })]);
+    expect(calls.map((call) => call.body.media_url ?? call.body.content)).toEqual(["https://agent.example/media/abc.png", linkAfterCard({ url: LINK, slug: "dev2", folder: "", path: "", caption: "" })]);
     expect(calls.every((call) => call.body.group_id === "group-1")).toBe(true);
   });
 

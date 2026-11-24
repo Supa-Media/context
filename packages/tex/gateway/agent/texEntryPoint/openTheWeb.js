@@ -3,7 +3,7 @@
 import { markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
 import { readUpdates } from "../customInstructions.js";
 import { chatLines, groupWriteTools } from "../groupTurn.js";
-import { appOriginOf } from "../noteLinks.js";
+import { appOriginOf, notePreviewSigner } from "../noteLinks.js";
 import { progressChannel } from "../progress.js";
 import { textingWriteTools } from "../textingWrites.js";
 import { CONSOLE_CLIENT_ID, TEXTS_CLIENT_ID } from "./clients.js";
@@ -23,7 +23,7 @@ export async function openTheWeb(t) {
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
   // A texted write answers with the note's link, so Tex can text it (`noteLinks.js`).
   // A group's too (2026-10-21): everyone in it is a member of the one workspace it reads, so the app link opens for each of them.
-  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts, saved: [] }; // `saved`: the deliverable notes this turn saved, for the reply's floor (`withSavedLink`)
+  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts, saved: [], previews: { signer: notePreviewSigner(env), signed: new Map() } }; // `saved`: the deliverable notes this turn saved, for the reply's floor (`withSavedLink`); `previews`: each link's signed twin, for its preview card (`noteLinks.js`)
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08), and so does the app's own assistant since proposals were
   // removed (the owner, 2026-11-03, "Edit directly, like texting"); a

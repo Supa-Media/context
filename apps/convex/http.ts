@@ -143,6 +143,7 @@ import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as sharePreviews from "./functions/lib/publicRoutes/sharePreviews";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
+import * as noteLinkCards from "./functions/lib/publicRoutes/noteLinkCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
 import { calendarChannelRoute, calendarPushHandler, pubsubPushHandler, pubsubPushRoute } from "./functions/lib/googlePush/routes";
@@ -577,6 +578,23 @@ http.route({ path: "/site/preview", method: "POST", handler: sitePreview });
 
 export const siteCard = httpAction(siteCards.siteCardHandler);
 http.route({ path: "/site/card", method: "POST", handler: siteCard });
+
+/* -------------------------------------------------------------------------- */
+/* POST /note/preview, /note/card — a note link Tex texted, and its picture    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A note link Tex texts carries the note's name and a key the gateway signed
+ * over the workspace, path and name. Both answer only for a key this
+ * deployment would have made, with only what the link itself says, and read
+ * nothing else: no note, no row, no bucket. See `publicRoutes/noteLinkCards.ts`
+ * and `docs/decisions/privacy-and-sharing/note-link-previews.md`.
+ */
+export const noteLinkPreview = httpAction(noteLinkCards.notePreviewHandler);
+http.route({ path: "/note/preview", method: "POST", handler: noteLinkPreview });
+
+export const noteLinkCard = httpAction(noteLinkCards.noteCardHandler);
+http.route({ path: "/note/card", method: "POST", handler: noteLinkCard });
 
 /** The homepage's whole site, for the router to put in its HTML. `siteHome.ts`. */
 export const siteHome = httpAction(siteHomeRoute.siteHomeHandler);

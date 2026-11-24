@@ -61,7 +61,8 @@ export type ChatBlock =
 export function noteLinkOf(href: string): { href: string; path: string } | null {
   const match = /^(?:https:\/\/[^/?#]*)?\/(note|p)\/([\s\S]*)$/i.exec(href);
   if (match === null) return null;
-  const address = noteAddressFromLink(`/note/${match[2]}`);
+  // A link Tex texted can carry its name and preview key (`?t=…&k=…`, `packages/shared/src/notePreview.cjs`): not part of the path.
+  const address = noteAddressFromLink(`/note/${match[2]!.replace(/[?#][\s\S]*$/, "")}`);
   if (address === null) return null;
   return { href: canonicalHrefFor(address), path: address.path };
 }

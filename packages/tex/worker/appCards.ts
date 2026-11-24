@@ -40,8 +40,12 @@ export type AppCard = {
 
 const BUNDLE_ID = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const TEAM_ID = /^[A-Z0-9]{10}$/;
-/** `https://<host>/note/@<slug>/<path>.md`, or `/p/@<slug>/<path>.page.md` for a page, as the gateway builds them (`packages/tex/gateway/agent/noteLinks.js`), and nothing else. */
-const NOTE_LINK = /^https:\/\/(?:[a-z0-9-]+\.)*context\.lc\/(?:note|p)\/@([^/\s]+)\/(\S+)$/;
+/**
+ * `https://<host>/note/@<slug>/<path>.md`, or `/p/@<slug>/<path>.page.md` for a page, as the gateway builds them
+ * (`packages/tex/gateway/agent/noteLinks.js`), and nothing else; with the note's name and preview key after it
+ * (`?t=<name>&k=<key>`) when the gateway signed it for its card (`packages/shared/src/notePreview.cjs`).
+ */
+const NOTE_LINK = /^https:\/\/(?:[a-z0-9-]+\.)*context\.lc\/(?:note|p)\/@([^/\s?]+)\/([^\s?]+)(?:\?t=([^&\s]+)&k=[\w-]{22})?$/;
 const MAX_CAPTION = 100;
 
 /** The card settings from the Worker's environment, or null while cards are off. */
@@ -75,7 +79,7 @@ function titleOf(file: string): string {
 }
 
 /** A text that is nothing but a link to a note, read apart: its name, folder and workspace. */
-export type NoteLink = { url: string; slug: string; folder: string; caption: string };
+export type NoteLink = { url: string; slug: string; folder: string; path: string; caption: string };
 
 /** The note a text links to, or null for any other text: words, a web page, a link with anything around it. */
 export function noteLinkOf(text: string): NoteLink | null {
@@ -87,7 +91,10 @@ export function noteLinkOf(text: string): NoteLink | null {
   const parts = segments as string[];
   const file = parts[parts.length - 1];
   if (!/\.md$/i.test(file)) return null;
-  return { url: text.trim(), slug, folder: parts.slice(0, -1).join("/"), caption: titleOf(file) };
+  // The name the gateway signed into the link is the note's own (its heading); the file name is the fallback.
+  const named = match[3] === undefined ? null : decoded(match[3].replace(/\+/g, " "));
+  const caption = named !== null && named.trim() !== "" ? named.trim().slice(0, MAX_CAPTION) : titleOf(file);
+  return { url: text.trim(), slug, folder: parts.slice(0, -1).join("/"), path: parts.join("/"), caption };
 }
 
 /**
