@@ -27,6 +27,11 @@ describe("metric readings from metrics.csv", () => {
     expect(readings.size).toBe(2);
   });
 
+  test("readings order by time, so a later instant of the same minute wins", () => {
+    const sheet = "date:date,metric,value:number\n2026-11-24T09:00:30Z,Speed,2\n2026-11-24T09:00Z,Speed,1\n";
+    expect(readingFor(readingsOf(sheet), { name: "Speed", target: null })?.value).toBe("2");
+  });
+
   test("a sheet without metric and value columns has no readings", () => {
     expect(readingsOf("name,notes\nx,y").size).toBe(0);
     expect(readingsOf("").size).toBe(0);
