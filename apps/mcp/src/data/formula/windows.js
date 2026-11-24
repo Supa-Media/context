@@ -29,7 +29,8 @@ export function parseEvery(every) {
 export function toMs(now) {
   if (typeof now === "number") return now;
   if (now instanceof Date) return now.getTime();
-  if (typeof now === "string") return Date.parse(now);
+  // UTC throughout: a time written without an offset is read as UTC, never as the host's local time.
+  if (typeof now === "string") return Date.parse(/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(now) ? `${now}Z` : now);
   return Number.NaN;
 }
 

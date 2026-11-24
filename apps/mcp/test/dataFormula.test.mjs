@@ -394,7 +394,10 @@ test("dividing by 0 is an error that says so, between aggregates and inside one"
 });
 
 test("a number too large to show is an error, never Infinity", () => {
-  const r = value(`${"9".repeat(300)} * ${"9".repeat(300)}`, "month");
+  // A literal that large is refused at parse; data can still overflow.
+  assert.equal(parseFormula(`${"9".repeat(300)} * 2`).ok, false);
+  const huge = { columns: [{ name: "date", type: "date" }, { name: "x", type: "number" }], rows: [{ date: "2026-11-20", x: "9".repeat(300) }, { date: "2026-11-21", x: "9".repeat(300) }] };
+  const r = evaluate(ok("sum(big/data.x) * sum(big/data.x)"), { ...ctx("month"), rowsOf: () => huge });
   assert.equal(r.status, "error");
   assert.equal(r.value, null);
 });
@@ -515,4 +518,22 @@ test("the index re-exports the engine", () => {
   for (const name of ["parseFormula", "toText", "plainReading", "evaluate", "series", "formatValue", "formulaRefs", "formulaInputs", "windowFor", "previousWindows", "parseEvery", "columnKey"]) {
     assert.equal(typeof barrel[name], "function", name);
   }
+});
+
+test("bug sweep: numbers, percents, UTC strings and the canonical size stay sound", async () => {
+  const { parseFormula, toText } = await import("../src/data/formula/index.js");
+  const { formatValue } = await import("../src/data/formula/format.js");
+  const { toMs } = await import("../src/data/formula/windows.js");
+  assert.equal(parseFormula("sum(s/d.x) * 0.000000000000000000000001").ok, false);
+  assert.equal(parseFormula(`sum(s/d.x) * 1${"0".repeat(400)}`).ok, false);
+  const fine = parseFormula("sum(s/d.x) * 0.25");
+  assert.equal(fine.ok, true);
+  assert.deepEqual(parseFormula(toText(fine.ast)).ast.type, fine.ast.type);
+  assert.equal(formatValue(0.285, "0%"), "29%");
+  assert.equal(formatValue(0.145, "0%"), "15%");
+  assert.equal(toMs("2026-03-15T10:00:00"), Date.UTC(2026, 2, 15, 10));
+  const n = 164;
+  const big = Array.from({ length: 4 }, (_, i) => `sum(s/d${i}.${"a".repeat(n)}*${"b".repeat(n)}/${"c".repeat(n)})`).join("+");
+  const parsed = parseFormula(big);
+  if (parsed.ok) assert.ok(new TextEncoder().encode(toText(parsed.ast)).byteLength <= 2048);
 });

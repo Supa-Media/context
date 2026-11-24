@@ -31,14 +31,19 @@ function money(n, digits) {
   return Number(n.toFixed(digits)) < 0 ? `-$${text}` : `$${text}`;
 }
 
+/** A share as a percent, without the float error of `* 100` (0.285 → 28.5, not 28.4999…). */
+function percent(value) {
+  return Number((value * 100).toPrecision(12));
+}
+
 /** `value` (a number, or null for no value) in `format`; an unknown format shows up to two decimals. */
 export function formatValue(value, format) {
   if (typeof value !== "number" || !Number.isFinite(value)) return NO_VALUE;
   switch (format) {
     case "0": return fixed(value, 0);
     case "0.0": return fixed(value, 1);
-    case "0%": return `${fixed(value * 100, 0)}%`;
-    case "0.0%": return `${fixed(value * 100, 1)}%`;
+    case "0%": return `${fixed(percent(value), 0)}%`;
+    case "0.0%": return `${fixed(percent(value), 1)}%`;
     case "$0": return money(value, 0);
     case "$0.00": return money(value, 2);
     case "duration": return duration(value);

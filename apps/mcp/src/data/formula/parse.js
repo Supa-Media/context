@@ -28,6 +28,7 @@
  */
 
 import { lex } from "./lex.js";
+import { toText } from "./render.js";
 
 export const FUNCTIONS = Object.freeze(["sum", "count", "average", "median", "p95", "min", "max"]);
 export const MAX_FORMULA_BYTES = 2048;
@@ -69,7 +70,12 @@ export function parseFormula(text) {
   const lexed = lex(text);
   if (!lexed.ok) return lexed;
   try {
-    return { ok: true, ast: new Parser(lexed.tokens, text).run() };
+    const ast = new Parser(lexed.tokens, text).run();
+    // The canonical text is what gets saved, so it has to fit under the same cap and read back.
+    if (new TextEncoder().encode(toText(ast)).byteLength > MAX_FORMULA_BYTES) {
+      return { ok: false, error: { message: "The formula is over 2 KB; make it shorter.", at: 0 } };
+    }
+    return { ok: true, ast };
   } catch (err) {
     if (err instanceof Refusal) return { ok: false, error: { message: err.message, at: err.at } };
     return { ok: false, error: { message: "The formula could not be read.", at: 0 } };
@@ -130,6 +136,10 @@ class Parser {
     const lead = after ? `After "${shown(after)}", expected` : "expected";
     if (!token) throw new Refusal(`${lead} a number, ${row ? "a column" : "an aggregate like sum(…)"} or "(".`, this.length);
     if (token.type === "num") {
+      const size = Math.abs(token.value);
+      if (!Number.isFinite(token.value) || (size !== 0 && (size < 1e-9 || size >= 1e15))) {
+        throw new Refusal(`"${token.raw}" is too large or too small a number.`, token.at);
+      }
       this.next();
       return this.node({ type: "number", value: token.value }, token.at);
     }
