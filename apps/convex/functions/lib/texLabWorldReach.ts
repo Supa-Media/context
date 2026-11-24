@@ -7,8 +7,8 @@
  *
  *  - every SHARED workspace that ALL the people on Context are in, and every person with no account is invited to by
  *    number, at the LOWEST role among them;
- *  - never a personal workspace, never the pin (its row comes back `setupOnly`, as a real group grant's does: Tex's
- *    own setup, nothing else; or, when nothing is reached, read as the chat with no home, as a home-only grant's is);
+ *  - never a personal workspace, and the pin only as a home-only grant's home row is, read as the chat with no home:
+ *    Tex's own setup and nothing else;
  *  - read at team tier: no `context:private`, no granted names.
  *
  * It only ever narrows the Lab user's own access. A made-up role can't add a workspace the Lab user isn't in, nor
@@ -116,11 +116,13 @@ export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { sco
   }
   const setup = await pinnedContextRow(ctx, new Set());
   if (setup === null) return { status: "not_found" as const, error: "This deployment has no pinned workspace for a made-up chat's setup." };
-  // A chat that reaches nothing reads its home and nothing else, as a real one does (`textGroupHomeOnly.ts`): the pin's
-  // row read as the chat (`READS_AS_CHAT`), holding only a token no row has, so every row there reads as private. A
-  // member's role, so nothing there can be changed either. A made-up chat has no home of its own.
-  const workspaces: SessionRow[] =
-    reached.length > 0 ? [{ ...setup, setupOnly: true as const }, ...reached] : [{ ...setup, role: "member", homeOnly: true as const, grantedNames: [READS_AS_CHAT_NAME, NO_HOME] }];
+  // The pin as a home-only chat's home row (`textGroupHomeOnly.ts` `homeOnlyRows`), first and the default, reached or
+  // not: read as the chat (`READS_AS_CHAT`), holding only a token no row has, so every row there reads as private and no
+  // write lands there, at the editor's hand a real home has. The hand is what the texting routes need: a group turn
+  // posts its texts and reads its day through `/agent/events` and `/agent/chat` on the default row's scopes, which a
+  // member's role clamps to read (found on production, 2026-11-24: every reply was drafted and never sent, 403). A
+  // made-up chat has no home of its own. Then each reached workspace, at the lowest role among its people.
+  const workspaces: SessionRow[] = [{ ...setup, role: "editor", homeOnly: true as const, grantedNames: [READS_AS_CHAT_NAME, NO_HOME] }, ...reached];
   // A group chat's client, so the turn runs under a group's rules (no vault, no 1:1 approvals), and the made-up chat's
   // own key as its chat, never the 1:1's: its Tex notes are an empty chat's, and a group turn needs a chat to keep its
   // record in (found on production, 2026-11-24: with none, every turn failed at the Door).
@@ -131,7 +133,7 @@ export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { sco
     texChatId: chatKey,
     // Team tier: a group never reads `context:private`, whoever tagged Tex.
     scopes: base.scopes.filter((s) => s !== "context:private"),
-    defaultWorkspaceId: (reached[0] ?? workspaces[0]).workspaceId,
+    defaultWorkspaceId: setup.workspaceId,
     workspaces,
   };
   return { status: "ok" as const, session, reach: reached.map((r) => r.slug), blocked, workspaces: mine.map(({ slug, name }) => ({ slug, name })) };

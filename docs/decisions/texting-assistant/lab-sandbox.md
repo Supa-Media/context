@@ -432,8 +432,11 @@ real chat of these people would reach, by the rule `lib/textGroupReach.ts` keeps
 are in or invited to by number, at the lowest role, never personal, never the pin, at team tier. The session it answers
 is the Lab user's own 1:1 session narrowed to that, under the group client and on the made-up chat's own key (worked
 out by the control plane from its id, never taken from the caller, and refused if a real chat has it), so a made-up
-role can never add a workspace the Lab user isn't in or lift their role; a chat that reaches nothing holds only the pin
-read as a chat with no home (`READS_AS_CHAT` and a token no row holds), as a home-only grant's is. No token is minted
+role can never add a workspace the Lab user isn't in or lift their role. Its first row, and its default, is the pin as
+a home-only grant's home row is: read as a chat with no home (`READS_AS_CHAT` and a token no row holds), so nothing
+there can be read or changed, at the editor's hand a real home has, because a group turn posts its texts through the
+texting routes on the default row's scopes and a member's hand clamps them to read (found on production, 2026-11-24:
+every reply was drafted and refused 403; `labSandboxWorldLocal.test.mjs` "may post its texts"). No token is minted
 and nothing is written: the turn runs on the Lab user's own `lab_` token, its writes stay in the test chat, and the
 chat object's group question is answered by the Lab (`labSandbox/worldLocal.js` `localControl`), with the reach on the
 reply row. What this gives up is the rest of `applyGroupTurn` (the sponsor's billing, the real introduction and the
