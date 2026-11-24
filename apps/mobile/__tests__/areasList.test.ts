@@ -180,7 +180,7 @@ describe("the Areas List", () => {
 
   test("a metric with no reading yet says so, with its target", async () => {
     await render();
-    expect(strip(one("area-row-areas/finance").textContent)).toContain("No data · target < $600");
+    expect(strip(one("area-row-areas/finance").textContent)).toContain("No data yet · target < $600");
     expect(all("area-trend", one("area-row-areas/finance"))).toHaveLength(0);
   });
 
