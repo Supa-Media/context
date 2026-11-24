@@ -158,4 +158,25 @@ export const LAB_CSS_WORLD = String.raw`
 .tl .vmenu .mnote .pick{border:none;background:none;color:var(--accent);padding:0;font:inherit;cursor:pointer}
 .tl .vmenu .mi.two{height:auto}
 .tl .vmenu.chatpick .mnote.code{color:var(--warn)}
+/* the setup takes the dock's height it was drawn at */
+.tl .sbx.setup{min-height:min(510px,calc(100% - 120px))}
+/* the Grid's Speaker cell for a made-up chat: the avatar, the first name, a guest's label */
+.tl .tst.tgrid td[data-c=who] .wav{display:inline-flex;align-items:flex-start;gap:6px}
+.tl .tst.tgrid td[data-c=who] .wav .av{margin:0}
+/* phone width */
+@media (max-width:700px){
+.tl .gstrip .gr{flex-wrap:wrap;row-gap:4px}
+.tl .gstrip .end{margin-left:0}
+.tl .gset{grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;overflow:auto}
+.tl .gset .gl,.tl .gset .gr2{overflow:visible;border-right:none}
+.tl .gset .gl{overflow-x:auto}
+.tl .ptab{min-width:640px}
+.tl .tst .fset .seg{flex-wrap:wrap}
+.tl .gfoot{flex-wrap:wrap}
+.tl .gfoot .sp{display:none}
+}
+/* the setup's name field as wide as the name, the number beside it */
+.tl .ptab td.nm input{field-sizing:content;width:auto;min-width:6ch;max-width:100%}
+.tl .vmenu .addf input.num{font-family:var(--mono);color:var(--text2)}
+.tl .tst.tgrid td[data-c=who] .gl{white-space:nowrap}
 `;

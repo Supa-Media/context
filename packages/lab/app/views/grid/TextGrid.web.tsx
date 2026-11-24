@@ -16,6 +16,8 @@ export type StepCell = {
   ok?: boolean;
   /** Still running (no `ms` yet, its text running): for how long, in ms. Its output shows only once it is logged. */
   runningFor?: number;
+  /** How the output reads: an answer (accent) or nothing to do (gray), as a made-up chat's Decide shows it. */
+  tone?: "an" | "qu";
 };
 export type TextRow = {
   id: string;
@@ -41,6 +43,9 @@ export type TextRow = {
   attrs?: Record<string, string>;
   /** A class on the speaker's name (Replay's start steps: "cds"). */
   whoCls?: string;
+  /** Before the speaker's name (a made-up chat's avatar), and under it (a guest's label, in mono). */
+  whoIcon?: ReactNode;
+  whoSub?: string;
   /** A quoted reply: who and what it answers. */
   quote?: string;
   /** Pictures sent with it (https URLs). */
@@ -174,7 +179,24 @@ export function TextGrid(p: {
                     {p.slim ? null : <td className="num mono muted">{n}</td>}
                     {act ? <td className="ac">{p.actions!(r)}</td> : null}
                     {vc.map((c) => {
-                      if (c.id === "who") return <td key="who" data-c="who"><b className={[r.tex ? "texwho" : "", r.whoCls || ""].join(" ").trim() || undefined}>{r.who}</b></td>;
+                      if (c.id === "who") {
+                        const name = <b className={[r.tex ? "texwho" : "", r.whoCls || ""].join(" ").trim() || undefined}>{r.who}</b>;
+                        return (
+                          <td key="who" data-c="who">
+                            {r.whoIcon ? (
+                              <span className="wav">
+                                {r.whoIcon}
+                                <span>
+                                  {name}
+                                  {r.whoSub ? <span className="gl">{r.whoSub}</span> : null}
+                                </span>
+                              </span>
+                            ) : (
+                              name
+                            )}
+                          </td>
+                        );
+                      }
                       if (c.id === "text") return <td key="text" data-c="text" className={"txt" + (r.evt ? " evt" : "")}>{msgCell(r, p.msgExtra)}</td>;
                       return null;
                     })}
@@ -185,7 +207,7 @@ export function TextGrid(p: {
                           const hot = r.running && r.hot === c.id;
                           const on = p.sel === r.id && p.selCol === c.id;
                           return (
-                            <td key={c.id} data-c={c.id} className={"o" + (hot ? " hot" : "") + (on ? " on" : "") + (st && st.ok === false ? " bad" : "")} title={st ? (st.ms === null && st.runningFor !== undefined ? `${c.name}: running` : `${c.name}: ${st.out} · ${msWords(st.ms)}`) : undefined}>
+                            <td key={c.id} data-c={c.id} className={"o" + (hot ? " hot" : "") + (on ? " on" : "") + (st && st.ok === false ? " bad" : "") + (st?.tone ? " " + st.tone : "")} title={st ? (st.ms === null && st.runningFor !== undefined ? `${c.name}: running` : `${c.name}: ${st.out} · ${msWords(st.ms)}`) : undefined}>
                               {st && st.ms === null && st.runningFor !== undefined ? (
                                 <>
                                   <span className="muted">running</span>

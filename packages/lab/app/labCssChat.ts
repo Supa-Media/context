@@ -223,4 +223,10 @@ export const LAB_CSS_CHAT = String.raw`
 .tl .imc .stg .th2 img{width:100%;height:100%;object-fit:cover;display:block}
 .tl .pmenu .mi:disabled .meta{opacity:1}
 .tl .mmenu .mi .meta{margin-left:auto;font-size:12px;color:var(--dim)}
+.tl .imsg .tpk .anyin{width:34px;height:34px;border:none;border-radius:17px;background:var(--s3);color:var(--muted);transition:width .15s}
+.tl .imsg .tpk .anyin:focus{width:64px;background:var(--page);box-shadow:0 0 0 1px var(--line2) inset;color:var(--text)}
+.tl .imsg .tpk .anyin::placeholder{color:var(--muted)}
+.tl .imsg .r.out .ednote{text-align:right}
+/* phone width: the hint gives its room to the people */
+@media (max-width:700px){.tl .asrow{flex-wrap:wrap;row-gap:4px}.tl .asrow .note2{display:none}.tl .imw{padding:10px 10px 8px}}
 `;

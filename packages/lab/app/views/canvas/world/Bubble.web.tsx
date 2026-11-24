@@ -183,7 +183,7 @@ export function BubbleView({ b, tail, names, onReply }: { b: Bubble; tail: boole
   const tbs = b.reactions?.length ? (
     <span className="tbs">
       {b.reactions.map((t, k) => (
-        <span key={k} className={"tbk" + (t.who === sb.as ? " me" : "") + (t.who === "Tex" ? " tex" : "")} title={t.who}>
+        <span key={k} className={"tbk" + (t.who === sb.as || t.who === sb.handles[sb.as] ? " me" : "") + (t.who === "Tex" ? " tex" : "")} title={t.who}>
           {t.emoji}
         </span>
       ))}
@@ -218,6 +218,7 @@ export function BubbleView({ b, tail, names, onReply }: { b: Bubble; tail: boole
             ✕
           </button>
         </div>
+        <div className="ednote">Editing as {who} · Tex gets it as an iMessage edit, and the judge runs again</div>
       </div>
     );
   return (
@@ -248,7 +249,7 @@ export function BubbleView({ b, tail, names, onReply }: { b: Bubble; tail: boole
               {e}
             </button>
           ))}
-          <input className="anyin" aria-label="Any emoji" placeholder="☺︎" value={any} onChange={(e) => setAny(e.target.value)} onKeyDown={(e) => e.key === "Enter" && any.trim() && (react(any.trim()), setAny(""))} />
+          <input className="anyin" aria-label="Any emoji" title="Any emoji" placeholder="☺︎" value={any} onChange={(e) => setAny(e.target.value)} onKeyDown={(e) => e.key === "Enter" && any.trim() && (react(any.trim()), setAny(""))} />
           <span className="asw">as {as}</span>
         </div>
       ) : null}

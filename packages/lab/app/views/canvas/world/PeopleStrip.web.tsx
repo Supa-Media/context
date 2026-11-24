@@ -7,7 +7,7 @@ import { useState } from "react";
 import { sandbox, sendAs, useSandbox } from "../../../engine/sandbox";
 import { Pop } from "../../bar/Pop.web";
 import { Av, WsChip } from "./parts.web";
-import { ACCOUNT_WORDS, changeWords, firstName, MAX_PEOPLE, OTHER_PEOPLE, roleIn, speaksUpWord, WORKSPACES, type Account, type Role, type Slug, type WorldPerson } from "./worldModel";
+import { ACCOUNT_WORDS, changeWords, firstName, MAX_PEOPLE, OTHER_PEOPLE, roleIn, speaksUpWord, standInNumber, WORKSPACES, type Account, type Role, type Slug, type WorldPerson } from "./worldModel";
 import { currentDraft, joinPerson, leavePerson, openSetup, useWorld } from "./worldStore";
 import { worldNow } from "./worldView";
 
@@ -81,6 +81,8 @@ function AddSomeone({ here, close, preset }: { here: WorldPerson[]; close: () =>
       <div className="addf">
         <label htmlFor="sbAddName">Name</label>
         <input id="sbAddName" value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} autoFocus />
+        <label htmlFor="sbAddNum">Number</label>
+        <input id="sbAddNum" className="num" value={standInNumber(here.length)} readOnly title="A stand-in: the preview gives each person their own number" />
         <label htmlFor="sbAddAcct">Account</label>
         <select id="sbAddAcct" value={p.account} onChange={(e) => setAccount(e.target.value as Account)}>
           <option value="off">Not on Context</option>

@@ -19,7 +19,7 @@ import { worldNow } from "./worldView";
 
 const STEP_NODE = { Triage: "triage", Decide: "decide" } as const;
 
-function WhyLine({ why, b, open, onToggle, guest }: { why: Why; b: Bubble; open: boolean; onToggle: () => void; guest?: string }) {
+function WhyLine({ why, b, no, open, onToggle, guest }: { why: Why; b: Bubble; no?: number; open: boolean; onToggle: () => void; guest?: string }) {
   const r = b.row;
   const verdict = why.yes === null ? "Tex is deciding" : why.yes ? "Tex answers" : "Tex stays quiet";
   return (
@@ -31,7 +31,8 @@ function WhyLine({ why, b, open, onToggle, guest }: { why: Why; b: Bubble; open:
       {open ? (
         <div className="whyx" id={"sbWhy-" + r.id}>
           <div className="wxh">
-            <b>{why.yes === null ? "Tex is deciding" : why.yes ? "Why Tex answered" : "Why Tex stayed quiet"}</b> · {firstName(r.who)}
+            <b>{why.yes === null ? "Tex is deciding" : why.yes ? "Why Tex answered" : "Why Tex stayed quiet"}</b> · {no ? `text ${no} · ` : ""}
+            {firstName(r.who)}
             {guest ? ` (${guest})` : ""}
           </div>
           {why.steps.map((s) => (
@@ -87,6 +88,7 @@ function Run({
   onReply,
   openWhy,
   toggle,
+  nos,
 }: {
   e: Extract<ChatEntry, { t: "run" }>;
   account: (n: string) => Account;
@@ -95,6 +97,8 @@ function Run({
   onReply: (id: string) => void;
   openWhy: Set<string>;
   toggle: (id: string) => void;
+  /** Each row's number in the Grid, so the why detail names the same text. */
+  nos: Map<string, number>;
 }) {
   const acct: Account | "tex" = e.tex ? "tex" : account(e.who);
   const out: ReactNode[] = [];
@@ -133,7 +137,7 @@ function Run({
           {b.edited ? <span className="edl">Edited</span> : null}
           {b.status ? <span className="st2">{b.status}</span> : null}
           {b.note ? <span className="typenote">{b.note}</span> : null}
-          {b.why ? <WhyLine why={b.why} b={b} open={openWhy.has(b.row.id)} onToggle={() => toggle(b.row.id)} guest={guest(e.who)} /> : null}
+          {b.why ? <WhyLine why={b.why} b={b} no={nos.get(b.row.id)} open={openWhy.has(b.row.id)} onToggle={() => toggle(b.row.id)} guest={guest(e.who)} /> : null}
         </div>,
       );
   });
@@ -168,6 +172,8 @@ export function ChatView({ empty, onReply }: { empty: ReactNode; onReply: (id: s
   const account = (n: string): Account => (now ? now.account(n) : "on");
   const guest = (n: string) => now?.guest(n);
   const idle = !sb.running && !sb.busy;
+  // The Grid's # for each row: every row but Tex's quiet turns, which it folds into the why line.
+  const nos = new Map(sb.rows.filter((r) => !(isWorld && r.tex && r.quiet)).map((r, i) => [r.id, i + 1]));
   return (
     <div className="imsg" id="sbChatView" ref={scroller}>
       <div className="imw">
@@ -193,7 +199,7 @@ export function ChatView({ empty, onReply }: { empty: ReactNode; onReply: (id: s
                 {e.change ? <div className="evchg">{e.change.map((s, i) => (s.b ? <b key={i}>{s.t}</b> : <span key={i}>{s.t}</span>))}</div> : null}
               </div>
             );
-          return <Run key={e.key} e={e} account={account} guest={guest} names={sb.people} onReply={onReply} openWhy={openWhy} toggle={toggle} />;
+          return <Run key={e.key} e={e} account={account} guest={guest} names={sb.people} onReply={onReply} openWhy={openWhy} toggle={toggle} nos={nos} />;
         })}
       </div>
     </div>

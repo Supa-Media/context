@@ -10,7 +10,7 @@
  * (polls, renames, app cards) slot in as new entries. Pure: no React, no gateway.
  */
 import type { SandboxRow, SandboxStep } from "../../../engine/sandbox";
-import { changeWords, groupOf, type GroupAnswer, type Seg, type WorldPerson } from "./worldModel";
+import { changeWords, firstName, groupOf, type GroupAnswer, type Seg, type WorldPerson } from "./worldModel";
 
 export type WhyStep = { step: "Triage" | "Decide"; out: string; ms: number | null; why: string };
 /** Tex's decision on one text: answers (`yes`), stays quiet, or still deciding (`yes: null`). */
@@ -91,7 +91,8 @@ export function timeWords(at: number, now: number, lastDay: string | null): { da
   return { day: dayKey === lastDay ? null : day, time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), dayKey };
 }
 
-const GAP = 15 * 60_000;
+/** A time line goes in when five minutes or more pass between texts (the artboards: 9:46, then a line at 9:52). */
+const GAP = 5 * 60_000;
 const lower = (s: string) => s.toLowerCase();
 
 /** Who is in a made-up chat after its people rows, from who it opened with and everyone who joined since. */
@@ -115,9 +116,16 @@ export function lastGroup(rows: SandboxRow[]): GroupAnswer | null {
   return null;
 }
 
+/** Full names in an event line said as Messages says them, by first name ("Delta Brooks added Sam" → "Delta added Sam"). */
+export const shortNames = (text: string, names: string[]) =>
+  [...new Set(names)]
+    .filter((n) => /\s/.test(n.trim()))
+    .sort((a, b) => b.length - a.length)
+    .reduce((t, n) => t.split(n).join(firstName(n)), text);
+
 /** The line a people row shows: "Delta added Sam to the conversation." */
-export const eventWords = (r: SandboxRow) => {
-  const t = r.text.trim().replace(/\.$/, "");
+export const eventWords = (r: SandboxRow, names: string[] = []) => {
+  const t = shortNames(r.text.trim().replace(/\.$/, ""), names).replace(/^(.+?)(?= (?:added|removed|left|named) )/u, (who) => firstName(who));
   return r.change === "added" && !/conversation$/.test(t) ? `${t} to the conversation.` : `${t}.`;
 };
 
@@ -142,6 +150,7 @@ export function chatEntries(rows: SandboxRow[], o: ChatOpts): ChatEntry[] {
     if (r.kind === "edit" && r.on) edits.set(r.on, r.text);
   }
   const out: ChatEntry[] = [];
+  const names = o.world ? [...o.world.opened.map((p) => p.name), ...Object.values(o.world.known).map((p) => p.name)] : [];
   let lastAt: number | null = null;
   let lastDay: string | null = null;
   let crossed = false;
@@ -167,7 +176,7 @@ export function chatEntries(rows: SandboxRow[], o: ChatOpts): ChatEntry[] {
     if (!r.prod) crossed = true;
     if (r.kind === "unsend") {
       const who = byId.get(r.on ?? "")?.who ?? r.who;
-      out.push({ t: "event", key: "e" + r.id, id: r.id, text: `${who} unsent a message.`, row: r });
+      out.push({ t: "event", key: "e" + r.id, id: r.id, text: `${firstName(who)} unsent a message.`, row: r });
       continue;
     }
     if (r.kind === "people") {
@@ -175,7 +184,7 @@ export function chatEntries(rows: SandboxRow[], o: ChatOpts): ChatEntry[] {
       const before = w ? peopleAfter(w.opened, w.known, seen.slice(0, -1)) : [];
       const after = w ? peopleAfter(w.opened, w.known, seen) : [];
       const who = w ? (w.known[lower(r.name ?? "")] ?? null) : null;
-      out.push({ t: "event", key: "e" + r.id, id: r.id, text: eventWords(r), change: w && r.change ? changeWords(before, after, who, r.change, w.guest?.(r.name ?? "")) : null, row: r });
+      out.push({ t: "event", key: "e" + r.id, id: r.id, text: eventWords(r, names), change: w && r.change ? changeWords(before, after, who, r.change, w.guest?.(r.name ?? "")) : null, row: r });
       continue;
     }
     const tex = !!r.tex;
@@ -204,8 +213,8 @@ export function chatEntries(rows: SandboxRow[], o: ChatOpts): ChatEntry[] {
       push("Tex", true, { id: r.id + "~typing", row: r, kind: "typing", text: "", note: o.hotWords ?? undefined }, true);
     }
   }
-  // "Delivered" under the newest bubble of yours, when it is the newest text of all.
-  const last = out[out.length - 1];
-  if (last?.t === "run" && last.side === "out") last.items[last.items.length - 1].status = "Delivered";
+  // "Delivered" under the newest bubble of yours, as Messages keeps it there while others text after it.
+  const mine = [...out].reverse().find((e): e is Extract<ChatEntry, { t: "run" }> => e.t === "run" && e.side === "out");
+  if (mine) mine.items[mine.items.length - 1].status = "Delivered";
   return out;
 }

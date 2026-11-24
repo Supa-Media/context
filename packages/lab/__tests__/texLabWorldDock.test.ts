@@ -187,14 +187,14 @@ test("Add someone joins, a leave leaves, each an event line with what it changes
   expect(q("#sbAddMenu .prev")?.textContent).toMatch(/Tex can't see Lumio/);
   await click("#sbAddGo");
   expect(mockCalls.find((c) => c.op === "join")?.body).toMatchObject({ sandboxId: "sb1", name: "Sam", account: "off", as: "alpha-x1" });
-  expect(q("#sbChatView .ev")?.textContent).toMatch(/^Alpha Morgan added Sam to the conversation\./);
+  expect(q("#sbChatView .ev")?.textContent).toMatch(/^Alpha added Sam to the conversation\./);
   expect(q("#sbChatView .evchg")?.textContent).toMatch(/Sam isn't on Context and isn't in Lumio or invited to it, so Tex can't see Lumio from the next text on\./);
   expect(q("#sbPeople .pchip.new")?.textContent).toBe("SSamjoined · not on Context");
   expect(chips()).toContain("Lumio· kept out by Samwas read-only");
   await click("#sbP-GammaEllis");
   await click('[data-leave="Gamma Ellis"]');
   expect(mockCalls.find((c) => c.op === "leave")?.body).toMatchObject({ name: "Gamma Ellis" });
-  expect(qa("#sbChatView .ev").map((e) => e.textContent?.replace("⤺ Undo", ""))).toEqual(["Alpha Morgan added Sam to the conversation.", "Gamma Ellis left the conversation."]);
+  expect(qa("#sbChatView .ev").map((e) => e.textContent?.replace("⤺ Undo", ""))).toEqual(["Alpha added Sam to the conversation.", "Gamma left the conversation."]);
   expect(qa("#sbPeople .pchip > span:nth-of-type(2)").map((p) => p.textContent)).toEqual(["Alpha", "Beta", "Sam"]);
   expect(qa("#sbPeople .pchip").length).toBe(3);
 });

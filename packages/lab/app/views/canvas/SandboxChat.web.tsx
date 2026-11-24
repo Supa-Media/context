@@ -33,7 +33,10 @@ import { worldNow } from "./world/worldView";
 import { GridWhy } from "./world/GridWhy.web";
 import { useLab } from "../../store";
 import { useSandboxCall } from "./sandboxCall";
-import { TextGrid, msWords, type TextRow } from "../grid/TextGrid.web";
+import { TextGrid, msWords, type StepCell, type TextRow } from "../grid/TextGrid.web";
+import { whyOf } from "./world/chatModel";
+import { Av } from "./world/parts.web";
+import { firstName } from "./world/worldModel";
 import { SandboxWrites } from "./SandboxWrites.web";
 import { ChatPick } from "./SandboxChatPick.web";
 import type { Lit } from "./usePlayback";
@@ -99,7 +102,17 @@ export function SandboxChat() {
   const byId = new Map(sb.rows.map((r) => [r.id, r]));
   const quoteOf = (id?: string) => {
     const q = id ? byId.get(id) : undefined;
-    return q ? `${q.tex ? "Tex" : q.who}: ${q.text}` : undefined;
+    return q ? `${q.tex ? "Tex" : isWorld ? firstName(q.who) : q.who}: ${q.text}` : undefined;
+  };
+  // A made-up chat's Triage and Decide in words ("to Decide", "answer"), the answer in accent and nothing in gray.
+  const worldSteps = (r: SandboxRow): Array<NonNullable<SandboxRow["steps"]>[number] & Pick<StepCell, "tone">> | undefined => {
+    if (!isWorld || !r.steps) return r.steps;
+    const w = whyOf(r, [], false)?.steps ?? [];
+    return r.steps.map((x) => {
+      const said = w.find((s) => s.step.toLowerCase() === x.node);
+      if (!said) return x;
+      return { ...x, out: said.out, tone: x.node === "decide" ? (said.out === "answer" ? "an" : said.out === "nothing" ? "qu" : undefined) : undefined };
+    });
   };
   const rows: TextRow[] = [];
   let sep = false;
@@ -111,16 +124,19 @@ export function SandboxChat() {
       rows.push({ id: "sep", who: "", text: "", sep: sandboxFromHere(copied) });
       sep = true;
     }
+    // A made-up chat's speaker reads as in its Chat view: the avatar, the first name, a guest's label under it.
+    const person = isWorld && !r.tex && r.kind !== "people" && now;
     rows.push({
       id: r.id,
-      who: r.tex ? "Tex" : r.who,
+      who: r.tex ? "Tex" : person ? firstName(r.who) : r.who,
+      ...(person ? { whoIcon: <Av name={r.who} account={now.account(r.who)} size={18} />, whoSub: now.guest(r.who) } : {}),
       text: r.kind === "unsend" ? "took back a text" : r.unsent ? r.text + " (unsent)" : r.text,
       tex: r.tex,
       quiet: r.quiet,
       prod: r.prod,
       test: !r.prod,
       // A step still running shows only that it runs and for how long: its output once it is logged.
-      steps: sb.running === r.id ? r.steps?.map((x) => (x.ms === null ? { ...x, runningFor: typeof x.at === "number" && typeof r.at === "number" ? Math.max(0, Date.now() - r.at - x.at) : sinceOf(`${r.id}:${x.node}`) } : x)) : r.steps,
+      steps: sb.running === r.id ? worldSteps(r)?.map((x) => (x.ms === null ? { ...x, runningFor: typeof x.at === "number" && typeof r.at === "number" ? Math.max(0, Date.now() - r.at - x.at) : sinceOf(`${r.id}:${x.node}`) } : x)) : worldSteps(r),
       running: sb.running === r.id,
       hot: sb.running === r.id ? sb.hot : null,
       quote: quoteOf(r.replyTo ?? (r.kind === "edit" || r.kind === "unsend" ? r.on : undefined)),
@@ -181,7 +197,7 @@ export function SandboxChat() {
   );
   return (
     <section
-      className={"sbx" + (folded ? " min" : "") + (dock.drag ? " drag" : "") + (fill ? " fill" : "")}
+      className={"sbx" + (folded ? " min" : "") + (dock.drag ? " drag" : "") + (fill ? " fill" : "") + (setup && !folded ? " setup" : "")}
       id="sandbox"
       aria-label="Test chat"
       style={folded || fill || dock.h === null ? undefined : { height: dock.h }}

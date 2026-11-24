@@ -163,7 +163,7 @@ describe("the Chat view", () => {
 
   test("joins and Undo Send are centered event lines, a join with what it changes", () => {
     const ev = entries.filter((e) => e.t === "event").map((e) => (e.t === "event" ? e.text : ""));
-    expect(ev).toEqual(["Delta Brooks added Sam to the conversation.", "Beta Chen unsent a message."]);
+    expect(ev).toEqual(["Delta added Sam to the conversation.", "Beta unsent a message."]);
     const join = entries.find((e) => e.t === "event" && e.id === "4");
     expect(join && join.t === "event" ? join.change?.some((s) => s.b && /Tex can't see Lumio/.test(s.t)) : false).toBe(true);
     expect(JSON.stringify(entries)).not.toContain("wrong chat");
@@ -178,6 +178,20 @@ describe("the Chat view", () => {
     expect(last).toMatchObject({ t: "run", who: "Tex" });
     if (last.t !== "run") throw new Error("run");
     expect(last.items[0]).toMatchObject({ kind: "typing", note: "Front door" });
+  });
+
+  test("Delivered stays under your newest text while others text after it", () => {
+    const mine = entries.filter((e) => e.t === "run" && e.side === "out");
+    const last = mine[mine.length - 1];
+    if (!last || last.t !== "run") throw new Error("run");
+    expect(last.items[last.items.length - 1].status).toBe("Delivered");
+    expect(entries.flatMap((e) => (e.t === "run" ? e.items : [])).filter((b) => b.status).length).toBe(1);
+  });
+
+  test("a time line after five quiet minutes, none between texts closer than that", () => {
+    const t0 = at - 60 * 60_000;
+    const r = [row({ id: "a", who: "Gamma Ellis", text: "one", at: t0 }), row({ id: "b", who: "Gamma Ellis", text: "two", at: t0 + 4 * 60_000 }), row({ id: "c", who: "Gamma Ellis", text: "three", at: t0 + 10 * 60_000 })];
+    expect(chatEntries(r, { as: "Beta Chen", running: null, now: at }).filter((e) => e.t === "time").length).toBe(2);
   });
 
   test("who is here follows the people rows, and a text that never ran has no why line", () => {
