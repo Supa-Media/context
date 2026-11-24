@@ -86,7 +86,9 @@ export async function noteCardHandler(ctx: ActionCtx, request: Request): Promise
   let bytes: ArrayBuffer;
   try {
     bytes = await ctx.runAction(internal.functions.cardRender.renderNoteCard, facts);
-  } catch {
+  } catch (error) {
+    // The error's kind only: never the note's name, which a message could carry.
+    console.error(JSON.stringify({ event: "note_card_render_failed", error: error instanceof Error ? error.name : "unknown", wasm: /wasm/i.test(String(error)) }));
     return new Response(null, { status: 404 });
   }
   return new Response(bytes, {

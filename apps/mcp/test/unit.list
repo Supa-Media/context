@@ -234,6 +234,7 @@ test/agentCreditRest.test.mjs
 test/agentGatewayRetry.test.mjs
 test/agentGroupTurn.test.mjs
 test/agentNoteLinks.test.mjs
+test/notePreviewLinks.test.mjs
 test/agentOutgoingPictures.test.mjs
 test/agentTryIt.test.mjs
 test/archiveMirror.test.mjs
