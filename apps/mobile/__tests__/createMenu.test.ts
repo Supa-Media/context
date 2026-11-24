@@ -70,7 +70,7 @@ describe("the + menu", () => {
     const labels = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((el) => el.textContent)
       // jsdom has no hover, so `Menu` draws its touch sheet, whose last row is Cancel.
       .filter((label) => label !== "Cancel");
-    expect(labels).toEqual(["New meeting", "New note", "New table", "New drawing", "New folder"]);
+    expect(labels).toEqual(["New meeting", "New note", "New drawing", "New table", "New folder"]);
   });
 
   test.each([

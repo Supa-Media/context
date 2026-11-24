@@ -200,8 +200,8 @@ export function CreateButton({
             */
             { id: "new-meeting", label: "New meeting", leading: <Glyph name="mic" /> },
             { id: "new-note", label: "New note", leading: <Glyph name="file" />, separatorBefore: true },
-            { id: "new-sheet", label: "New table", leading: <Glyph name="table" /> },
             { id: "new-drawing", label: "New drawing", leading: <Glyph name="pencil" /> },
+            { id: "new-sheet", label: "New table", leading: <Glyph name="table" /> },
             { id: "new-folder", label: "New folder", leading: <Glyph name="folder" /> },
           ]}
           onSelect={choose}
