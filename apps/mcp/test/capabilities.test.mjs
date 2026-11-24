@@ -163,4 +163,11 @@ test("running the group is always written when asked: Tex can't see which number
   assert.match(entry.group, /write it whenever they ask, and if this chat's number can't, they are told so/);
   assert.doesNotMatch(entry.group, /iMessage line/);
   assert.ok(entry.cant.every((c) => !/Sendblue|WhatsApp/.test(c.what)), "no can't hangs on a number the turn can't see");
+  // The same eval: "send a hype message with confetti" went without the effect. A poll or an effect on a number that has
+  // none goes as plain words (`sendPoll.ts`, `sendEffect.ts`), so neither waits on knowing the number either.
+  const polls = CAPABILITIES.find((e) => e.name === "Polls");
+  const marks = CAPABILITIES.find((e) => e.name === "Tags, effects and other apps' cards");
+  assert.match(polls.texts, /whenever they ask for a poll, start one/);
+  assert.match(marks.texts, /whenever they ask for one/);
+  for (const e of [polls, marks]) assert.ok(e.cant.every((c) => !/start a real poll|an effect on/.test(c.what)), `${e.name}: sending one never hangs on the number`);
 });
