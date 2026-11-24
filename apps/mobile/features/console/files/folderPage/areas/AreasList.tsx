@@ -43,10 +43,10 @@ function hoverTitle(text: string): { readonly title?: string } {
 }
 
 /** How far each level sits in from its parent: 20 on a pointer, 16 on a phone. */
-const INDENT = 20;
+const INDENT = 16;
 const INDENT_PHONE = 16;
 /** A file row sits under its area's name: the chevron and face columns past the area's own inset. */
-const FILE_INSET = 64;
+const FILE_INSET = 52;
 const FILE_INSET_PHONE = 26;
 
 export interface AreasListProps {
@@ -173,8 +173,8 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
         {({ hovered }: HoverState) => (
           <>
             <View style={styles.nameCell}>
-              <Chevron node={node} open={open} size={22} shared={shared} />
-              <OwnerMark owner={seat.owner} size={22} shared={shared} />
+              <Chevron node={node} open={open} size={18} shared={shared} />
+              <OwnerMark owner={seat.owner} size={18} shared={shared} />
               <Text variant="tree" style={[styles.areaName, root && styles.rootName, seat.owner === null && styles.unownedName]} numberOfLines={1}>
                 {name}
               </Text>
@@ -240,8 +240,8 @@ function MetricCell({ headline }: { headline: Headline }) {
         </Text>
       ) : (
         <View style={styles.valueLine}>
-          {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={80} height={24} />}
-          <Value headline={headline} size={14} />
+          {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={56} height={16} stroke={1.4} dot={2.2} />}
+          <Value headline={headline} size={pointerType.ui} />
           <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
             {headline.target}
           </Text>
@@ -257,7 +257,7 @@ function Value({ headline, size }: { headline: Headline; size: number }) {
   const styles = useThemedStyles(makeStyles);
   const ink = headline.state === "met" ? colors.okText : headline.state === "missed" ? colors.warnText : colors.text;
   return (
-    <Text variant="tree" style={[styles.value, { fontSize: size, lineHeight: 20, color: ink }]} numberOfLines={1} testID="area-row-value">
+    <Text variant="tree" style={[styles.value, { fontSize: size, lineHeight: size + 5, color: ink }]} numberOfLines={1} testID="area-row-value">
       {headline.value}
     </Text>
   );
@@ -425,9 +425,9 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
             ) : (
               <View style={styles.valueLinePhone}>
                 {headline.trend === null ? null : (
-                  <Trend geometry={headline.trend} state={headline.state} width={72} height={22} stroke={2.2} dash="3 3" dashWidth={1.4} dot={3.4} />
+                  <Trend geometry={headline.trend} state={headline.state} width={56} height={18} stroke={1.8} dash="3 3" dashWidth={1.2} dot={2.8} />
                 )}
-                <Value headline={headline} size={15} />
+                <Value headline={headline} size={areasType.value} />
                 <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
                   {headline.target}
                 </Text>
@@ -449,46 +449,46 @@ const makeStyles = (colors: Colors) =>
     empty: { color: colors.muted, paddingHorizontal: 16, paddingVertical: 12 },
     hover: { backgroundColor: colors.chipFill },
 
-    // The board's row: a grid of name, 280 of metric, 60 of count and 24 of ⋯, 20 apart; 48 inside 6 above and below.
+    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric, 52 of count and 24 of ⋯, 16 apart.
     areaRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 20,
-      minHeight: 60,
-      paddingVertical: 6,
+      gap: 16,
+      minHeight: 40,
+      paddingVertical: 4,
       paddingRight: 12,
       borderRadius: 8,
     },
     divided: { borderTopWidth: 1, borderTopColor: colors.line, borderRadius: 0 },
-    nameCell: { flexDirection: "row", alignItems: "center", gap: 10, flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
+    nameCell: { flexDirection: "row", alignItems: "center", gap: 8, flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
     chevron: { alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
     chevronPhone: { marginTop: -8, marginBottom: -8, marginLeft: -6, marginRight: -4 },
-    areaName: { flexShrink: 1, minWidth: 0, fontSize: areasType.value, lineHeight: 20, fontWeight: "600", color: colors.text },
-    rootName: { fontSize: pointerType.lede },
+    areaName: { flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", color: colors.text },
+    rootName: { fontSize: areasType.value },
     unownedName: { color: colors.muted },
-    metricCell: { width: 280, flexShrink: 0, minWidth: 0 },
-    notesCell: { width: 60, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
+    metricCell: { width: 220, flexShrink: 0, minWidth: 0 },
+    notesCell: { width: 52, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
     more: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
 
-    metric: { gap: 2, minWidth: 0 },
-    metricLabel: { fontSize: pointerType.meta, lineHeight: 16, minHeight: 16, color: colors.muted },
-    valueLine: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    metric: { gap: 1, minWidth: 0 },
+    metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },
+    valueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
     value: { fontWeight: "600", flexShrink: 0 },
-    target: { fontSize: pointerType.meta, lineHeight: 20, color: colors.muted, flexShrink: 1, minWidth: 0 },
-    noData: { fontSize: areasType.value, lineHeight: 20, color: colors.muted },
-    noDataTarget: { fontSize: pointerType.ui, color: colors.muted },
+    target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
+    noData: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
+    noDataTarget: { fontSize: pointerType.meta, color: colors.muted },
 
-    notes: { flexDirection: "row", alignItems: "center", gap: 5, height: 26, paddingHorizontal: 8, borderRadius: 6 },
+    notes: { flexDirection: "row", alignItems: "center", gap: 4, height: 24, paddingHorizontal: 8, borderRadius: 6 },
     notesHover: { backgroundColor: colors.lineStrong },
     notesCount: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "500", color: colors.muted },
     notesPhone: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, height: 28, minWidth: 44, paddingHorizontal: 10, borderRadius: 999, flexShrink: 0 },
     notesCountPhone: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "500", color: colors.muted },
 
-    fileRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 34, paddingRight: 12, borderRadius: 8 },
+    fileRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28, paddingRight: 12, borderRadius: 8 },
     fileRowPhone: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 },
     fileIcon: { width: 16, alignItems: "center", flexShrink: 0 },
     fileName: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text2 },
-    fileNamePhone: { fontSize: pointerType.lede, lineHeight: 20 },
+    fileNamePhone: { fontSize: areasType.value, lineHeight: 20 },
     fileMeta: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 0 },
 
     phoneHead: {
@@ -502,10 +502,10 @@ const makeStyles = (colors: Colors) =>
       borderBottomColor: colors.line,
     },
     phoneHeadName: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase", color: colors.muted },
-    block: { paddingVertical: 10, gap: 6 },
+    block: { paddingVertical: 8, gap: 4 },
     blockName: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
-    blockTitle: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.body, lineHeight: 22, fontWeight: "600", color: colors.text },
+    blockTitle: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600", color: colors.text },
     blockMetric: { paddingLeft: 26, gap: 1, minWidth: 0 },
     valueLinePhone: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
-    noDataPhone: { fontSize: areasType.value, lineHeight: 22, color: colors.muted },
+    noDataPhone: { fontSize: pointerType.ui, lineHeight: 20, color: colors.muted },
   });

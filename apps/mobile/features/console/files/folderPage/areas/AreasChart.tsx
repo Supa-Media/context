@@ -73,13 +73,13 @@ function hoverTitle(text: string): { readonly title?: string } {
 const LINE = 1;
 /** The stem under the top box, and each column's drop from the bus. */
 const DROP = 24;
-const COLUMN = 256;
-const COLUMN_GAP = 24;
-/** A sub-area's box sits this far in from its area's, its spine 12 left of it, under the area's face. */
-const SUB_INSET = 36;
-const SUB_GAP = 10;
+const COLUMN = 232;
+const COLUMN_GAP = 20;
+/** A sub-area's box sits this far in from its area's, its spine 8 left of it, under the area's face. */
+const SUB_INSET = 28;
+const SUB_GAP = 8;
 /** Where a compact box's elbow meets it: the middle of its name line. */
-const SUB_ELBOW = 22;
+const SUB_ELBOW = 17;
 
 export function AreasChart(props: AreasChartProps) {
   const { tree, rootTitle, compact } = props;
@@ -270,7 +270,7 @@ function RootBox({ node, title, ctx }: { node: AreaNode; title: string; ctx: Ctx
           <Icon name="more" size={14} color={colors.muted} />
         </View>
         <View style={styles.ownerRow} accessibilityHint={reachText === "" ? undefined : reachText} {...hoverTitle(reachText)}>
-          <OwnerFace face={ctx.faceOf(seat.owner)} size={20} />
+          <OwnerFace face={ctx.faceOf(seat.owner)} size={16} />
           <Text variant="tree" numberOfLines={1} style={styles.rootOwner}>
             {ownerLine(seat, ctx)}
           </Text>
@@ -341,7 +341,7 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
       >
         <View style={styles.nameBlock}>
           <View style={styles.nameRow} accessibilityHint={reachText === "" ? undefined : reachText} {...hoverTitle(reachText)}>
-            <OwnerFace face={ctx.faceOf(seat.owner)} size={20} />
+            <OwnerFace face={ctx.faceOf(seat.owner)} size={16} />
             <Text variant="rowTitle" numberOfLines={1} style={styles.name}>
               {title}
             </Text>
@@ -414,7 +414,7 @@ function BoxMetric({ headline }: { headline: Headline }) {
       ) : (
         <>
           <View style={styles.valueLine}>
-            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={80} height={24} />}
+            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={56} height={18} stroke={1.4} dot={2.2} />}
             <Text variant="tree" style={[styles.value, { color: ink }]} numberOfLines={1} testID="area-metric-value">
               {headline.value}
             </Text>
@@ -424,7 +424,7 @@ function BoxMetric({ headline }: { headline: Headline }) {
           </View>
           {headline.state === "unknown" ? null : (
             <View style={styles.stateLine}>
-              <StateMark state={headline.state} size={12} />
+              <StateMark state={headline.state} size={11} />
               <Text variant="treeMeta" style={[styles.stateWord, { color: ink }]}>
                 {headline.state === "met" ? "On target" : "Off target"}
               </Text>
@@ -462,7 +462,7 @@ function SubBox({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
         {...{ dataSet: { level: "2" } }}
       >
         <View style={[styles.nameRow, styles.subNameRow]} {...hoverTitle(reachText)}>
-          <OwnerFace face={ctx.faceOf(seat.owner)} size={20} />
+          <OwnerFace face={ctx.faceOf(seat.owner)} size={16} />
           <Text variant="rowTitle" numberOfLines={1} style={styles.subName}>
             {title}
           </Text>
@@ -473,8 +473,8 @@ function SubBox({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
           </Text>
         ) : (
           <View style={[styles.subValueLine, styles.subLine]} testID="area-metric" {...hoverTitle(`${headline.label}${headline.date === "" ? "" : `, ${headline.date}`}`)}>
-            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={48} height={20} stroke={1.8} dot={3} />}
-            <StateMark state={headline.state} size={12} />
+            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={40} height={14} stroke={1.4} dot={2.2} />}
+            <StateMark state={headline.state} size={11} />
             <Text variant="tree" style={[styles.value, { color: valueInk(colors, headline.state) }]} numberOfLines={1} testID="area-metric-value">
               {headline.value}
             </Text>
@@ -536,7 +536,7 @@ const makeStyles = (colors: Colors) =>
     look: { fontSize: pointerType.meta, lineHeight: 16, color: colors.warnText, fontWeight: "600" },
 
     org: { alignItems: "center", width: "100%" },
-    orgRoot: { width: 280 },
+    orgRoot: { width: 240 },
     orgEmpty: { alignItems: "center", gap: 8, paddingTop: 16 },
     stem: { width: LINE, height: DROP, backgroundColor: colors.lineStrong },
     orgScroll: { width: "100%" },
@@ -548,41 +548,41 @@ const makeStyles = (colors: Colors) =>
     busLast: { right: "50%" },
     drop: { position: "absolute", top: 0, left: "50%", width: LINE, height: DROP, backgroundColor: colors.lineStrong },
     sub: { position: "relative", marginTop: SUB_GAP, marginLeft: SUB_INSET },
-    subSpine: { position: "absolute", left: -12, top: -SUB_GAP - 1, width: LINE, backgroundColor: colors.lineStrong },
+    subSpine: { position: "absolute", left: -8, top: -SUB_GAP - 1, width: LINE, backgroundColor: colors.lineStrong },
     subSpineOn: { bottom: 0 },
     subSpineLast: { height: SUB_GAP + 1 + SUB_ELBOW + 1 },
-    subElbow: { position: "absolute", left: -12, top: SUB_ELBOW, width: 12, height: LINE, backgroundColor: colors.lineStrong },
+    subElbow: { position: "absolute", left: -8, top: SUB_ELBOW, width: 8, height: LINE, backgroundColor: colors.lineStrong },
 
     kids: { position: "relative", paddingLeft: 20, marginTop: 16, gap: 8 },
     kidsDeep: { marginTop: 8 },
     spine: { position: "absolute", left: -10, width: LINE, backgroundColor: colors.lineStrong },
     spineOn: { bottom: 0 },
-    elbow: { position: "absolute", left: -10, top: 28, width: 10, height: LINE, backgroundColor: colors.lineStrong },
+    elbow: { position: "absolute", left: -10, top: 25, width: 10, height: LINE, backgroundColor: colors.lineStrong },
 
-    rootBox: { borderRadius: 12, backgroundColor: colors.rootSurface, paddingVertical: 14, paddingHorizontal: 16, gap: 8 },
+    rootBox: { borderRadius: 10, backgroundColor: colors.rootSurface, paddingVertical: 10, paddingHorizontal: 12, gap: 6 },
     rootBoxPhone: { borderRadius: 18, padding: 16 },
     rootTop: { flexDirection: "row", alignItems: "center", gap: 8 },
-    rootName: { flexGrow: 1, flexShrink: 1, fontSize: pointerType.body, lineHeight: 22, color: colors.text },
-    rootOwner: { flexShrink: 1, fontSize: pointerType.ui, lineHeight: 18, color: colors.text2 },
+    rootName: { flexGrow: 1, flexShrink: 1, fontSize: areasType.value, lineHeight: 20, color: colors.text },
+    rootOwner: { flexShrink: 1, fontSize: pointerType.meta, lineHeight: 16, color: colors.text2 },
     ownerRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
 
-    box: { position: "relative", backgroundColor: colors.cardSurface, borderWidth: 1, borderColor: colors.line, borderRadius: 12, minWidth: 0 },
+    box: { position: "relative", backgroundColor: colors.cardSurface, borderWidth: 1, borderColor: colors.line, borderRadius: 10, minWidth: 0 },
     boxPhone: { borderRadius: 18 },
     boxHover: { borderColor: colors.lineStrong },
-    body: { paddingVertical: 12, paddingHorizontal: 14, gap: 10 },
+    body: { paddingVertical: 10, paddingHorizontal: 12, gap: 8 },
     bodyPhone: { padding: 16 },
-    nameBlock: { gap: 4, paddingRight: 20 },
+    nameBlock: { gap: 2, paddingRight: 20 },
     nameRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
-    name: { flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, color: colors.text },
-    ownerText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, paddingLeft: 28 },
-    boxMetric: { gap: 6, minWidth: 0 },
+    name: { flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text },
+    ownerText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, paddingLeft: 24 },
+    boxMetric: { gap: 3, minWidth: 0 },
     valueLine: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
-    value: { fontSize: areasType.value, lineHeight: 20, fontWeight: "600", flexShrink: 0 },
-    target: { fontSize: pointerType.meta, lineHeight: 20, color: colors.muted, flexShrink: 1, minWidth: 0 },
+    value: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", flexShrink: 0 },
+    target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
     stateLine: { flexDirection: "row", alignItems: "center", gap: 6 },
-    stateWord: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "500" },
-    noReadings: { fontSize: pointerType.ui, lineHeight: 18, color: colors.muted },
-    foot: { flexDirection: "row", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.line },
+    stateWord: { fontSize: pointerType.meta, lineHeight: 15, fontWeight: "500" },
+    noReadings: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
+    foot: { flexDirection: "row", justifyContent: "space-between", gap: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.line },
     fold: {
       flexDirection: "row",
       alignItems: "center",
@@ -594,25 +594,25 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 16,
     },
     foldText: { flexShrink: 1 },
-    more: { position: "absolute", top: 10, right: 10, padding: 0 },
+    more: { position: "absolute", top: 9, right: 9, padding: 0 },
     addSub: { position: "absolute", bottom: 8, right: 8, padding: 4, borderRadius: 6, backgroundColor: colors.chipFill },
 
-    subBody: { paddingVertical: 10, paddingHorizontal: 12, gap: 6 },
+    subBody: { paddingVertical: 8, paddingHorizontal: 10, gap: 3 },
     subNameRow: { paddingRight: 18 },
-    subName: { flexShrink: 1, minWidth: 0, fontSize: areasType.value, lineHeight: 20, color: colors.text },
-    subLine: { paddingLeft: 28 },
+    subName: { flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text },
+    subLine: { paddingLeft: 24 },
     subValueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-    subMore: { position: "absolute", top: 9, right: 8 },
+    subMore: { position: "absolute", top: 7, right: 8 },
 
     empty: { borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, gap: 8 },
     emptyName: { flexDirection: "row", alignItems: "center", gap: 8 },
-    ring: { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong },
+    ring: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong },
     emptyTitle: { color: colors.muted },
-    assign: { alignSelf: "flex-start", marginLeft: 28, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 6, backgroundColor: colors.chipFill },
+    assign: { alignSelf: "flex-start", marginLeft: 24, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6, backgroundColor: colors.chipFill },
     assignText: { fontSize: pointerType.ui, lineHeight: 18, color: colors.text, fontWeight: "600" },
 
     ghost: {
-      height: 56,
+      height: 44,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
