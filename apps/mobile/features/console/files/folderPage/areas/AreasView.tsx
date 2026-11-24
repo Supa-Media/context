@@ -25,6 +25,8 @@ import { AreasList } from "./AreasList";
 import { SeatDialog } from "./SeatDialog";
 import { SeatMenu } from "./SeatMenu";
 import { seatMenuModel, type SeatMenuId } from "./seatMenuParts";
+import { readingFor } from "./readings";
+import { useReadings, type ReadBody } from "./useReadings";
 import {
   AREA_KEY,
   areaTree,
@@ -62,13 +64,20 @@ export interface AreasViewProps {
   suggestions: readonly string[];
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   onSelect: (path: string) => void;
+  /** Reads a note's text at the reader's clearance: each area's `metrics.csv`. Absent where nothing can be read. */
+  readBody?: ReadBody;
 }
 
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, suggestions, chooseMany, onSelect } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, suggestions, chooseMany, onSelect, readBody } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
+  const readings = useReadings(notes, readBody);
+  const readingOf = useCallback(
+    (seat: Seat) => (seat.metrics[0] === undefined ? undefined : readingFor(readings.get(seat.folder), seat.metrics[0])),
+    [readings],
+  );
   const [menu, setMenu] = useState<{ seat: Seat; at: { x: number; y: number } | undefined } | null>(null);
   const [editing, setEditing] = useState<{ seat: Seat; start?: "metric" } | null>(null);
   const [adding, setAdding] = useState<Seat | null>(null);
@@ -132,7 +141,7 @@ export function AreasView(props: AreasViewProps) {
   const dismissMenu = useCallback(() => setMenu(null), []);
   const rootTitle = folder === root ? rootName : areaTitle(tree.seat.name);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
-  const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu };
+  const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf };
   return (
     <View testID="areas-view">
       {problem !== null ? (

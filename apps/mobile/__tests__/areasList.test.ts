@@ -67,6 +67,7 @@ async function render(overrides: Partial<AreasListProps> = {}, notes: ListNote[]
     reach: () => "",
     rootTitle: "Supa",
     notesUnder,
+    readingOf: () => undefined,
     onOpen: () => {},
     onMenu: () => {},
     ...overrides,
