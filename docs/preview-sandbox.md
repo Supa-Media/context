@@ -107,6 +107,7 @@ guests and phone invitations, all on 555-01XX numbers) and runs Tex's real group
 | Group chats | A group mode in `/texts-simulator`: 555-01XX members, the real group path, replies to the group's log. Background jobs, cross-chat asks and routines in a simulated group refuse to send for now | Merged (#3796); on a preview after its next push |
 | Web app in a real browser | A smoke check: Chromium opens `/login` with no page errors | In review (#3790) |
 | Background jobs | Unproven on a preview: asked from the app chat for a job, Tex answered directly and no job ran (pr3790, 2026-11-20). Next: a task that needs a job, and job reports to the app chat and the simulator | Open |
+| Group chat turns | Every group chat's home lives in `@context-lc` (`tex/groups/`), and the seed gave that workspace no storage, so every group turn on a preview failed opening its store (`binding_null`), Lab test chats included. The seed now gives it an empty bucket of its own and still none of its notes | Fixed in #4071 |
 | Texting as beta or gamma | Their simulator numbers (555-0102, 555-0103) answered "your notes aren't ready": the seed skipped storage for workspaces with no fixture notes. Now provisioned | Fixed in this change |
 | Gmail, Calendar, Google sign-in and Resend | [`packages/emulators`](../packages/emulators/README.md): one place for every API stand-in (Vercel Labs' emulate, our own, or elsewhere), deployed per preview as `context-emulators-pr<N>`, with the gateway (built with `__CONTEXT_EMULATORS__`) and Convex (`EMULATORS_ORIGIN`, preview only) sending Google calls there | Wired; Resend, Calendar sync tokens and Google Chat next |
 | Word search checked by the smoke test | One exact-word search beside the meaning search | Planned |
@@ -118,7 +119,7 @@ guests and phone invitations, all on 555-01XX numbers) and runs Tex's real group
 - Real texts, calls or mail to or from a preview.
 - Real payments.
 - Real Google accounts, Gmail or Calendar (previews get the emulators instead).
-- Any production or staging data in a preview, including the `context-lc` site.
+- Any production or staging data in a preview, including the `context-lc` site (a preview's `context-lc` has storage of its own for group chat homes, and none of the site's notes).
 - A preview of a fork's pull request: forks never get secrets.
 
 ## Adding something to a preview

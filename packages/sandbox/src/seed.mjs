@@ -6,9 +6,13 @@
  *
  * The preview is a copy of staging's identity, not of its data. Two things are
  * deliberately not done here:
- * - The `context-lc` workspace, a mirror of the production site, is skipped.
- *   A preview never reads or writes production content, and its fixture is
- *   that content.
+ * - The `context-lc` workspace, a mirror of the production site, gets its
+ *   storage and nothing else: none of its fixture notes and no scaffold. A
+ *   preview never reads or writes production content, and its fixture is
+ *   that content. Its storage is there because every group chat's home lives
+ *   in it (`tex/groups/`, sealed): without a binding, every group chat turn on
+ *   a preview fails opening its store (`binding_null`), Lab test chats
+ *   included.
  * - Managed storage is switched on with `billing:setEntitlements`, and the
  *   test upgrade with `billing:activateTestPremium`, as staging does. Neither
  *   needs a payment or a Stripe key. The second accepts an isolated preview
@@ -25,8 +29,12 @@ import { makeFunctionReference } from 'convex/server';
 import { stagingNotes } from '../../../scripts/fixtures/staging-notes.mjs';
 
 export const PERSONAS = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
-/** The fixture workspace that mirrors production and is never seeded into a preview. */
+/** The fixture workspace that mirrors production: a preview gives it storage, never its notes. */
 export const SKIPPED_SLUGS = ['context-lc'];
+/** What the seed does for a workspace: every one gets storage; only a fixture that is not production's gets notes. */
+export function seedPlan(slug) {
+  return { storage: true, notes: !SKIPPED_SLUGS.includes(slug) };
+}
 const CLI = fileURLToPath(new URL('../../../node_modules/convex/bin/main.js', import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const ref = (name) => makeFunctionReference(name);
@@ -251,10 +259,6 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
   let noteCount = 0;
   for (const [slug, entry] of bySlug) {
     const fixture = stagingNotes[slug];
-    if (SKIPPED_SLUGS.includes(slug)) {
-      log(`${slug}: not seeded into a preview, skipped.`);
-      continue;
-    }
     const writer = writerFor(entry.memberships);
     if (!writer) {
       log(`${slug}: no member may write, skipped.`);
@@ -308,6 +312,11 @@ export async function seedPreview(env = process.env, { log = console.log } = {})
     let index;
     try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); }
     catch (error) { if (error?.data?.code !== 'FILE_NOT_FOUND') throw error; }
+    // The production mirror: storage only, so group chat homes can be made in it. No scaffold, no notes.
+    if (!seedPlan(slug).notes) {
+      log(`${slug}: storage ready; its notes are production's and are not seeded into a preview.`);
+      continue;
+    }
     if (!index && writer.role === 'owner') {
       await client.mutation(ref('functions/workspaces:applyStructure'), { workspaceId, template: 'para' });
     }
