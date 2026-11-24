@@ -48,6 +48,12 @@ describe("groupTags: Tex's own native tags", () => {
     expect(reads).toBe(0);
   });
 
+  it("reads a handle in any case, as a sentence's first word writes it", async () => {
+    const storage = await kept();
+    const read = await tagWords(storage, "@Sam can you take the deck?", async () => [SAM]);
+    expect(read).toEqual({ text: "Sam can you take the deck?", tags: [{ start: 0, length: 3, address: SAM }] });
+  });
+
   it("with nobody kept, the words go as given", async () => {
     expect(await tagWords(new MemoryStorage(), "@sam hi", async () => [SAM])).toEqual({ text: "@sam hi", tags: [] });
   });

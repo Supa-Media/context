@@ -19,8 +19,11 @@ import { sha256Hex } from "./groupChat";
 export const TAGS_KEY = "gtags";
 const MAX_PEOPLE = 64;
 const MAX_TAGS = 8;
-/** A handle as `functions/lib/names.ts` allows one, after its "@", not inside a word or an email address. */
-const AT_HANDLE = /(?<![\w@.])@([a-z0-9][a-z0-9-]{0,63})(?![\w-])/g;
+/**
+ * A handle as `functions/lib/names.ts` allows one, after its "@", not inside a word or an email address. Read in any
+ * case: a handle is lowercase, but a turn that starts a sentence with "@Sam-5997" means the same person.
+ */
+const AT_HANDLE = /(?<![\w@.])@([a-z0-9][a-z0-9-]{0,63})(?![\w-])/gi;
 
 export type TagPerson = { handle: string; name?: string };
 /** A tag in the words as sent: its UTF-16 range and the number it tags. */
@@ -49,7 +52,7 @@ export async function tagWords(storage: InboxStorage, text: string, readMembers:
   const kept = (await storage.get<Record<string, TagPerson>>(TAGS_KEY)) ?? {};
   const byHandle = new Map<string, TagPerson>();
   for (const person of Object.values(kept)) byHandle.set(person.handle, person);
-  if (byHandle.size === 0 || ![...text.matchAll(AT_HANDLE)].some((match) => byHandle.has(match[1]!))) return { text, tags: [] };
+  if (byHandle.size === 0 || ![...text.matchAll(AT_HANDLE)].some((match) => byHandle.has(match[1]!.toLowerCase()))) return { text, tags: [] };
   // The members are read only when the words name someone kept: a line's member list is a call of its own.
   const members = await readMembers();
   // The number of each handle among the chat's members now; a handle two numbers share is nobody's.
@@ -63,7 +66,7 @@ export async function tagWords(storage: InboxStorage, text: string, readMembers:
   let last = 0;
   const tags: SendTag[] = [];
   for (const match of text.matchAll(AT_HANDLE)) {
-    const person = byHandle.get(match[1]!);
+    const person = byHandle.get(match[1]!.toLowerCase());
     if (person === undefined) continue;
     const name = shown(person);
     out += text.slice(last, match.index);
