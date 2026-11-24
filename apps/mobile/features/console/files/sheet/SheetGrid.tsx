@@ -276,7 +276,7 @@ export function SheetGrid({
           <View style={[styles.gutterHead, styles.gutterHeadMark]}>
             <Text
               variant="mono"
-              style={[styles.gutterText, shownCount !== sheet.rows.length && styles.countNarrowed]}
+              style={[styles.footCount, shownCount !== sheet.rows.length && styles.countNarrowed]}
               accessibilityLabel={`${shownCount} ${shownCount === 1 ? "row" : "rows"}`}
               testID="sheet-row-count"
             >
@@ -360,7 +360,7 @@ const makeStyles = (colors: Colors) =>
     rowMenu: { backgroundColor: colors.accentDim },
     rowArmed: { backgroundColor: colors.critWash, boxShadow: `inset 0 0 0 1px ${colors.critBorder}` } as object,
     gutterHover: { backgroundColor: colors.surface3 },
-    gutterArmed: { backgroundColor: colors.critWash },
+    gutterArmed: { backgroundColor: colors.critWash, boxShadow: `inset 1px 1px 0 0 ${colors.critBorder}, inset 0 -1px 0 0 ${colors.critBorder}` } as object,
     handle: { width: 24, height: 20, borderRadius: 6, alignItems: "center", justifyContent: "center" },
     handleMenu: { backgroundColor: colors.accent },
     handleArmed: { backgroundColor: colors.crit },
@@ -390,7 +390,7 @@ const makeStyles = (colors: Colors) =>
       overflow: "visible",
     },
     cellNumber: { alignItems: "flex-end" },
-    editing: { overflow: "visible", zIndex: 2, backgroundColor: colors.ground },
+    editing: { overflow: "visible", zIndex: 2, backgroundColor: colors.ground, boxShadow: "0 6px 18px -6px rgba(0,0,0,.35)" } as object,
     addCell: { width: ADD_WIDTH, height: ROW_HEIGHT, borderBottomWidth: 1, borderColor: colors.line },
     empty: { color: colors.chromeMuted, padding: space.x3 },
     footer: {

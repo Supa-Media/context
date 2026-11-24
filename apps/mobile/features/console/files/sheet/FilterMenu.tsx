@@ -11,7 +11,7 @@
  */
 
 import { useState } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
@@ -27,6 +27,7 @@ import {
   type SheetFilter,
 } from "./sheetModel";
 import { useFieldFont } from "../../../design/fieldFont";
+import { densityFor } from "../../../app/frame";
 
 export function FilterMenu({
   sheet,
@@ -55,6 +56,8 @@ export function FilterMenu({
   const [op, setOp] = useState<FilterOp | null>(editing?.op ?? null);
   const [value, setValue] = useState(editing?.value ?? "");
   const verb = editing ? "Update filter" : "Add filter";
+  // A phone's bottom sheet: bigger chips, field and buttons, for a thumb.
+  const phone = anchor === null || densityFor(useWindowDimensions().width) === "compact";
 
   const add = (filter: SheetFilter) => {
     onAdd(filter);
@@ -121,7 +124,7 @@ export function FilterMenu({
                 // Nothing to type: a checkbox's two operators, and "is empty" or "is not empty", are the whole filter.
                 if (!opTakesValue(o)) add({ column: current.name, op: o, value: "" });
               }}
-              style={[styles.op, o === chosen && { backgroundColor: colors.accentDim }]}
+              style={[styles.op, phone && styles.opPhone, o === chosen && { backgroundColor: colors.accentDim }]}
               testID="sheet-filter-op"
             >
               <Text variant="meta" style={o === chosen ? styles.accent : styles.text}>
@@ -130,6 +133,11 @@ export function FilterMenu({
             </Pressable>
           ))}
         </View>
+        {!opTakesValue(chosen) && current.type !== "checkbox" ? (
+          <Text variant="meta" style={styles.note} testID="sheet-filter-note">
+            {`Shows the rows whose ${current.name} ${chosen === "is empty" ? "is blank" : "has a value"}.`}
+          </Text>
+        ) : null}
         {!opTakesValue(chosen) ? null : current.type === "select" || current.type === "person" ? (
           <View>
             {distinctValues(sheet, current.name).map((v) => {
@@ -161,7 +169,7 @@ export function FilterMenu({
               placeholder={current.type === "date" ? "YYYY-MM-DD" : "Value, then Enter"}
               placeholderTextColor={colors.chromeMuted}
               accessibilityLabel="Filter value"
-              style={[styles.field, fieldFont, { outlineColor: colors.accent } as object]}
+              style={[styles.field, phone && styles.fieldPhone, fieldFont, { outlineColor: colors.accent } as object]}
               testID="sheet-filter-value"
             />
           </View>
@@ -175,7 +183,7 @@ export function FilterMenu({
                   onRemove?.();
                   onClose();
                 }}
-                style={styles.add}
+                style={[styles.add, phone && styles.buttonPhone]}
                 testID="sheet-filter-remove"
               >
                 <Text variant="meta" style={styles.muted}>
@@ -188,7 +196,7 @@ export function FilterMenu({
                 accessibilityRole="button"
                 disabled={value.trim() === ""}
                 onPress={() => add({ column: current.name, op: chosen, value: value.trim() })}
-                style={[styles.add, styles.submit]}
+                style={[styles.add, styles.submit, phone && styles.buttonPhone, phone && styles.submitPhone]}
                 testID="sheet-filter-submit"
               >
                 <Text variant="meta" style={[styles.accent, styles.strong]}>
@@ -211,12 +219,17 @@ export function FilterMenu({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    body: { padding: space.x1, gap: 2 },
+    body: { gap: 2 },
+    note: { color: colors.muted, paddingHorizontal: space.x1, paddingVertical: space.x1 },
+    opPhone: { height: 34, paddingHorizontal: space.x3 },
+    fieldPhone: { height: 44, borderRadius: radii.control },
+    buttonPhone: { height: 46, flex: 1, alignItems: "center", borderRadius: radii.control, backgroundColor: colors.surface3 },
+    submitPhone: { marginLeft: space.x2, backgroundColor: colors.accentDim },
     heading: { color: colors.chromeMuted, paddingHorizontal: space.x2, paddingVertical: space.x1 },
     row: { height: 30, flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x2, borderRadius: radii.sm },
     glyph: { color: colors.chromeMuted, width: 18, textAlign: "center" },
     text: { color: colors.text, flexShrink: 1 },
-    muted: { color: colors.text2 },
+    muted: { color: colors.muted },
     accent: { color: colors.accentText },
     title: { color: colors.text, fontWeight: "600" },
     step: { flexDirection: "row", alignItems: "center", gap: space.x1, marginBottom: space.x1 },

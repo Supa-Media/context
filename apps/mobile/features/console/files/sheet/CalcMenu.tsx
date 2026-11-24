@@ -61,7 +61,7 @@ export function CalcMenu({
     <Popover anchor={anchor} width={200} onDismiss={onClose} testID="sheet-calc-menu">
       <View style={styles.body}>
         {figures.map(row)}
-        <View style={styles.rule} />
+        {figures.length > 1 ? <View style={styles.rule} /> : null}
         {counts.map(row)}
       </View>
     </Popover>
@@ -70,7 +70,7 @@ export function CalcMenu({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    body: { padding: space.x1 },
+    body: {},
     row: { height: 30, flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x2, borderRadius: radii.sm },
     text: { color: colors.text, flex: 1 },
     accent: { color: colors.accentText },

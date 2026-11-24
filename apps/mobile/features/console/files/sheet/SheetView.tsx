@@ -189,6 +189,8 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     const now = Date.now();
     const last = lastPress.current;
     const wasSelected = selection !== null && selection.row === row && selection.col === col;
+    // A press elsewhere keeps a row that was waiting on a second Cmd/Ctrl+Backspace.
+    setRowMark(null);
     lastPress.current = { row, col, at: now };
     if (editRef.current && (editRef.current.row !== row || editRef.current.col !== col)) finishEdit(null);
     const column = columnNamed(col);
@@ -364,6 +366,9 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     commit((t) => insertRow(t, at));
     setSelection({ row: at, col: columns[0].name });
     focusGrid();
+    // An empty row matches few filters: say where it went rather than select a row nobody can see.
+    if (view.filters.length > 0) (say ?? setNotice)("Row added. It is hidden by the filters until it has values that match.");
+    else if (view.sort) (say ?? setNotice)(`Row added. With the sort on ${view.sort.column}, it shows where its empty value sorts.`);
   };
 
   const closeMenu = () => {
@@ -488,9 +493,10 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
           warning={
             armedRow < 0
               ? undefined
-              : `${mac ? "⌘ ⌫" : "Ctrl ⌫"} again deletes row ${armedRow + 1} and its values · Esc keeps it`
+              : `${mac ? "⌘⌫" : "Ctrl+⌫"} again deletes row ${armedRow + 1} and its values · Esc keeps it`
           }
-          touchHint={readOnly || editedOnce || !touch ? undefined : "Tap a cell twice to edit"}
+          touchHint={readOnly || editedOnce ? undefined : "Tap a cell twice to edit"}
+          touch={touch}
         />
       )}
       {hidden.length === 0 ? null : (

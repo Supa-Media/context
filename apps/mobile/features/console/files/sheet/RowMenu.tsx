@@ -7,11 +7,12 @@
  */
 
 import { useState } from "react";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { Popover, type Anchor } from "./Popover";
+import { densityFor } from "../../../app/frame";
 
 export function RowMenu({
   number,
@@ -35,11 +36,47 @@ export function RowMenu({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [armed, setArmed] = useState(false);
+  // A phone's bottom sheet: grouped rows a thumb can hit, with Delete in a group of its own.
+  const phone = anchor === null || densityFor(useWindowDimensions().width) === "compact";
   const run = (fn: () => void) => {
     fn();
     onClose();
   };
   const mac = Platform.OS === "web" && typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform ?? "");
+  const deleteLabel = armed ? `Delete row ${number} and its values` : "Delete row";
+  const pressDelete = () => {
+    if (armed) run(onDelete);
+    else {
+      setArmed(true);
+      onArm();
+    }
+  };
+  if (phone) {
+    return (
+      <Popover anchor={anchor} width={216} onDismiss={onClose} testID="sheet-row-menu">
+        <View style={styles.phoneBody}>
+          <View style={styles.phoneHead}>
+            <Text variant="body" style={styles.phoneTitle}>
+              {`Row ${number}`}
+            </Text>
+            {label === "" ? null : (
+              <Text variant="meta" numberOfLines={1} style={styles.headLabel}>
+                {label}
+              </Text>
+            )}
+          </View>
+          <View style={styles.group}>
+            <PhoneItem label="Insert row above" onPress={() => run(() => onInsert("above"))} />
+            <View style={styles.groupRule} />
+            <PhoneItem label="Insert row below" onPress={() => run(() => onInsert("below"))} />
+          </View>
+          <View style={styles.group}>
+            <PhoneItem label={deleteLabel} danger onPress={pressDelete} testID="sheet-row-delete" />
+          </View>
+        </View>
+      </Popover>
+    );
+  }
   return (
     <Popover anchor={anchor} width={216} onDismiss={onClose} testID="sheet-row-menu">
       <View style={styles.body}>
@@ -56,20 +93,9 @@ export function RowMenu({
         <Item label="Insert row above" onPress={() => run(() => onInsert("above"))} />
         <Item label="Insert row below" onPress={() => run(() => onInsert("below"))} />
         <View style={styles.rule} />
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            if (armed) run(onDelete);
-            else {
-              setArmed(true);
-              onArm();
-            }
-          }}
-          style={styles.item}
-          testID="sheet-row-delete"
-        >
+        <Pressable accessibilityRole="button" onPress={pressDelete} style={styles.item} testID="sheet-row-delete">
           <Text variant="tree" style={styles.danger}>
-            {armed ? `Delete row ${number} and its values` : "Delete row"}
+            {deleteLabel}
           </Text>
           {armed || Platform.OS !== "web" ? null : (
             <Text variant="meta" style={styles.keys}>
@@ -93,9 +119,27 @@ function Item({ label, onPress }: { label: string; onPress: () => void }) {
   );
 }
 
+function PhoneItem({ label, danger = false, onPress, testID }: { label: string; danger?: boolean; onPress: () => void; testID?: string }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.phoneItem} testID={testID}>
+      <Text variant="body" style={[styles.phoneText, danger && styles.danger]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    body: { padding: 4 },
+    body: {},
+    phoneBody: { gap: space.x3 },
+    phoneHead: { paddingHorizontal: space.x1, gap: 2 },
+    phoneTitle: { color: colors.text, fontWeight: "600" },
+    group: { borderRadius: radii.control, backgroundColor: colors.surface3, overflow: "hidden" },
+    groupRule: { height: 1, backgroundColor: colors.line, marginLeft: space.x3 },
+    phoneItem: { height: 48, justifyContent: "center", paddingHorizontal: space.x3 },
+    phoneText: { color: colors.text, fontSize: 16 },
     head: { flexDirection: "row", alignItems: "baseline", gap: space.x1, paddingHorizontal: space.x2, paddingVertical: space.x1 },
     headNumber: { color: colors.text2, fontWeight: "600" },
     headLabel: { color: colors.muted, flexShrink: 1 },

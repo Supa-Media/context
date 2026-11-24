@@ -36,6 +36,7 @@ export function FilterBar({
   hint,
   warning,
   touchHint,
+  touch = false,
 }: {
   filters: SheetFilter[];
   sort: SheetViewState["sort"];
@@ -55,8 +56,10 @@ export function FilterBar({
   hint?: string;
   /** Said in the hint slot instead, in red, while a delete waits for its second press. */
   warning?: string;
-  /** A line under the bar on a touch screen, where the hint has no room. */
+  /** A line under the bar on a touch screen, which has no double-click. */
   touchHint?: string;
+  /** A touch screen: the touch line shows instead of the pointer's hint, however wide. */
+  touch?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -110,7 +113,7 @@ export function FilterBar({
                 </Text>
               )}
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Remove filter" onPress={() => onRemove(index)} style={styles.x}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Remove filter on ${f.column}`} onPress={() => onRemove(index)} style={styles.x}>
               <Text variant="meta" style={styles.chipText}>
                 ✕
               </Text>
@@ -135,16 +138,16 @@ export function FilterBar({
           </Text>
         )}
         {warning !== undefined ? (
-          <Text variant="meta" style={[styles.hint, styles.warning]} testID="sheet-hint">
+          <Text variant="meta" style={[styles.hint, styles.warning]} accessibilityLiveRegion="polite" testID="sheet-hint">
             {warning}
           </Text>
-        ) : hint === undefined || !wide ? null : (
+        ) : hint === undefined || !wide || touch ? null : (
           <Text variant="meta" style={styles.hint} testID="sheet-hint">
             {hint}
           </Text>
         )}
       </View>
-      {touchHint === undefined || wide ? null : (
+      {touchHint === undefined || !touch ? null : (
         <Text variant="meta" style={styles.touchHint} testID="sheet-touch-hint">
           {touchHint}
         </Text>
