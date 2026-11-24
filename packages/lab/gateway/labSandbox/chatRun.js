@@ -192,6 +192,14 @@ export function chatStepsOf(entries, { own = null, since = 0 } = {}) {
   return [...worker, ...queued, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
 }
 
+/** What Messages shows for Tex running the group, or null for an action it does not know. */
+export function groupRunWords(action) {
+  if (action?.kind === "name" && typeof action.name === "string") return `Tex named the conversation “${action.name}”.`;
+  if (action?.kind === "photo") return "Tex changed the group photo.";
+  if (action?.kind === "add" && typeof action.address === "string") return `Tex added ${action.address} to the conversation.`;
+  return null;
+}
+
 /**
  * A line that keeps what Tex sends and texts nobody: `sent` holds each text, `calls` every method asked. `onText(text)`
  * is told each text as Text them hands it over (the test chat's line holds it, `line.js`); `onPicture(picture)` keeps a
@@ -212,6 +220,13 @@ export function keepingLine(phones, prefix = "lab", { onText = null, onPicture =
     }
     if (method === "sendMedia" || method === "sendCarousel" || method === "sendAppCard") {
       sent.push({ text: "", media: true, at: Date.now() });
+      return null;
+    }
+    // Running the group (`groupRun.ts`): the chat shows it as Messages does, in the words a simulated group logs
+    // (`simulatedGroup.ts`), which the Lab draws as an event line (`texSends.ts` `texEventOf`).
+    if (method === "runGroup") {
+      const words = groupRunWords(args[0]);
+      if (words !== null && onText !== null) onText(words);
       return null;
     }
     if (method === "readMembers") return [...phones.values()];

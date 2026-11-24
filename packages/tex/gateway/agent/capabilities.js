@@ -368,27 +368,27 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Polls",
     actions: [],
-    texts: "on your iMessage line, a poll they start, an option they add and a vote reach you in words (the poll's title, its options, which one they picked), judged like any text; you start a real poll with a text whose first line is \"(poll) <the question>\" and whose other lines are its choices, each starting \"- \"",
+    texts: "on your iMessage line, a poll they start, an option they add and a vote reach you in words (the poll's title, its options, which one they picked), judged like any text; whenever they ask for a poll, start one with a text whose first line is \"(poll) <the question>\" and whose other lines are its choices, each starting \"- \" (where the chat's number has no polls, it goes as that question and list)",
     group: "the same for anyone's poll or vote in the chat",
     cant: [
       { where: "everywhere", what: "vote in a poll yourself", workaround: { kind: "words", text: "say which option you would pick" } },
-      { where: "everywhere", what: "see or start a real poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say which option they picked; a poll you start goes as its question and list" } },
+      { where: "everywhere", what: "see a poll on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say which option they picked" } },
     ],
   },
   {
     name: "Running the group",
     actions: [],
     texts: "a group chat's name, photo and people are changed in the chat itself",
-    group: "on your iMessage line, anyone here can have you name the chat, make a photo they send with their text its photo, or add someone by the number or email in their own text: one line each in your answer, \"(name the chat) <name>\", \"(set the chat photo)\" or \"(add to the chat) <number or email>\"",
-    cant: [{ where: "group", what: "take someone out of the chat, or change a chat on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask someone here to do it in the chat's details" } }],
+    group: "anyone here can have you name the chat, make a photo they send with their text its photo, or add someone by the number or email in their own text: one line each in your answer, \"(name the chat) <name>\", \"(set the chat photo)\" or \"(add to the chat) <number or email>\"; write it whenever they ask, and if this chat's number can't, they are told so",
+    cant: [{ where: "group", what: "take someone out of the chat", workaround: { kind: "words", text: "ask someone here to do it in the chat's details" } }],
   },
   {
     name: "Tags, effects and other apps' cards",
     actions: [],
-    texts: "on your iMessage line, a native tag reaches you as @name (so a tag on you reads as @Tex), a text sent with an effect says which (\"(sent with Slam)\", Invisible Ink included, whose words you read), and another app's card (Apple Cash, Check In, Find My, a game) reaches you as the words on it (\"(Apple Cash card: $40 · Sent)\"), never its link; you send a text with an effect by starting it \"(sent with Slam)\" (or Loud, Gentle, Invisible Ink, Confetti, Fireworks, Balloons, Love, Lasers, Spotlight, Echo), rarely and only when the moment calls for it; words someone hid with Invisible Ink that are private, flirty or vulnerable are never repeated in plain words (a punchline or spoiler you're both on can be), and to refer to them you reply in Invisible Ink too",
+    texts: "on your iMessage line, a native tag reaches you as @name (so a tag on you reads as @Tex), a text sent with an effect says which (\"(sent with Slam)\", Invisible Ink included, whose words you read), and another app's card (Apple Cash, Check In, Find My, a game) reaches you as the words on it (\"(Apple Cash card: $40 · Sent)\"), never its link; you send a text with an effect by starting it \"(sent with Slam)\" (or Loud, Gentle, Invisible Ink, Confetti, Fireworks, Balloons, Love, Lasers, Spotlight, Echo) whenever they ask for one, and otherwise rarely, only when the moment calls for it (where the chat's number has no effects, the words go without it); words someone hid with Invisible Ink that are private, flirty or vulnerable are never repeated in plain words (a punchline or spoiler you're both on can be), and to refer to them you reply in Invisible Ink too",
     group: "the same, and hidden words are never repeated in plain words in a group; a native tag on you is answered as a literal @Tex is; writing someone's @handle tags them on your iMessage line (never a guest)",
     cant: [
-      { where: "everywhere", what: "send a card of another app yourself, or an effect on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "say it in words" } },
+      { where: "everywhere", what: "send a card of another app yourself", workaround: { kind: "words", text: "say it in words" } },
       { where: "everywhere", what: "see tags, effects or other apps' cards on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say it in words" } },
     ],
   },

@@ -66,6 +66,7 @@ import { playbookPath, playbookPrompt, readPlaybook } from "./groupPlaybook.js";
 import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
 import { guestsOf, namesOf, numbersOf, shownWho, sizeOf, taggerLabel, whoIsWhoLine } from "./groupNames.js";
 import { GROUP_SIGN_IN_LINES } from "./groupSignIns.js";
+import { GROUP_RUN_LINE } from "./groupRunLine.js";
 export { GROUP_CODE_SIGN_IN_LINE } from "./groupSignIns.js";
 
 /** The group texting client (`apps/convex/functions/textGroups.ts`). */
@@ -586,6 +587,7 @@ export function groupPrompt(group, workspace) {
     "when a site needs a password and there is none saved, send whoever asked a vault_add link at once in one short line (the page lets them give it to this chat, the workspace or keep it to themselves), and carry on by yourself once it's saved. " +
     blockedLine(group) +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
+    GROUP_RUN_LINE +
     chatRoutinePrompt(group) +
     "You can't text anyone outside the chat. " +
     "When someone asks for a note's link here, send its link: line; it opens in the Context app for everyone in this chat, because they are all members. " +
