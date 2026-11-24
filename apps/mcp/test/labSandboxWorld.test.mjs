@@ -33,7 +33,7 @@ const about = () => ({
   source: "world",
   kind: "group",
   chat: "world:0123456789abcdef",
-  owner: "world:0123456789abcdef",
+  owner: `chat:${"e".repeat(64)}`,
   ledgerChat: "e".repeat(64),
   chatKey: "e".repeat(64),
   people: PEOPLE.map((p) => ({ handle: speakerKey(p), name: p.name, account: p.account })),
