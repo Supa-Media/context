@@ -10,6 +10,7 @@
  */
 
 import { Pressable, StyleSheet, View } from "react-native";
+import { Path, Svg } from "react-native-svg";
 import { Icon, type IconName } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { radii, space, touchType } from "../../../../design/tokens";
@@ -93,7 +94,7 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
   if (canEdit) {
     items.push({ id: "add", label: "Add a sub-area…", leading: glyph("plus") });
     items.push({ id: "owner", label: owner === null ? "Assign owner…" : "Change owner…", leading: <OwnerFace face={face} size={16} /> });
-    if (owner !== null) items.push({ id: "reach", label: `Edit how to reach ${ownerName}…`, leading: glyph("phone") });
+    if (owner !== null) items.push({ id: "reach", label: `Edit how to reach ${ownerName}…`, leading: <ReachGlyph name="phone" size={14} /> });
     items.push({ id: "metric", label: "Add a metric…", leading: glyph("plus") });
   }
   items.push({ id: "about", label: "Open about.md", leading: glyph("folder") });
@@ -104,6 +105,21 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
 function MenuGlyph({ name }: { name: IconName }) {
   const colors = useColors();
   return <Icon name={name} size={14} color={colors.chromeMuted} />;
+}
+
+/** The prototype's handset and envelope, drawn at its 1.5px stroke; the icon set's `phone` is a device. */
+const REACH_PATHS = {
+  phone: "M5 3h3l1.5 4-2 1.2a10 10 0 0 0 4.3 4.3L13 10.5l4 1.5v3a2 2 0 0 1-2 2A13 13 0 0 1 3 5a2 2 0 0 1 2-2z",
+  mail: "M3 5h14v10H3z M3 5l7 6 7-6",
+} as const;
+
+function ReachGlyph({ name, size }: { name: keyof typeof REACH_PATHS; size: number }) {
+  const colors = useColors();
+  return (
+    <Svg width={size} height={size} viewBox="0 0 20 20" aria-hidden>
+      <Path d={REACH_PATHS[name]} fill="none" stroke={colors.chromeMuted} strokeWidth={1.5} strokeLinejoin="round" />
+    </Svg>
+  );
 }
 
 /** The prototype's chart mark beside "Open chart": a box over two, joined. */
@@ -162,6 +178,8 @@ export function SeatMenuHead({ model, onCopy, touch }: { model: SeatMenuModel; o
                       #
                     </Text>
                   </View>
+                ) : line.icon === "phone" || line.icon === "mail" ? (
+                  <ReachGlyph name={line.icon} size={13} />
                 ) : (
                   <Icon name={line.icon} size={13} color={colors.chromeMuted} />
                 )}
