@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { changePeople, speakerKey, worldAddress, worldControl, worldInput, worldSession, worldSpeaker } from "../../../packages/lab/gateway/labSandbox/world.js";
+import { changePeople, speakerKey, worldAddress, worldControl, worldGrant, worldInput, worldSession, worldSpeaker } from "../../../packages/lab/gateway/labSandbox/world.js";
 import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { createSandboxActions } from "../../../packages/lab/gateway/texDev/sandbox.js";
@@ -174,5 +174,23 @@ test("a made-up chat on a preview is checked before a GitHub run is started for 
 test("a made-up chat whose turn has no session says why on its reply row", async () => {
   const grant = { token: null, payload: null, last: { path: "/agent-texts/group", status: "ready" } };
   await assert.rejects(worldSession({}, grant));
+  assert.match(grant.last.failed, /minted no grant/);
+});
+
+test("the grant a group answer minted is kept for the next tag, which reuses its kept answer and asks nothing", async () => {
+  const { MemoryStorage } = await import("../../../packages/lab/gateway/labSandbox/chatRun.js");
+  const storage = new MemoryStorage();
+  const first = await worldGrant(storage);
+  const fetchImpl = async () => Response.json({ status: "ready", accessToken: "cat_minted_example_000000" });
+  const answer = await worldControl({ CONTROL_PLANE_URL: "https://c.example.invalid", AGENT_WORKER_SECRET: "s" }, first, "lab_x", fetchImpl)("/agent-texts/group", {});
+  assert.equal(answer.accessToken, "lab_x", "the chat object never holds the minted grant");
+  const next = await worldGrant(storage);
+  assert.equal(next.token, "cat_minted_example_000000");
+});
+
+test("a turn's failure alone leaves the chips as the last real answer said", async () => {
+  const grant = { token: null, payload: null, last: null };
+  await assert.rejects(worldSession({}, grant));
+  assert.equal(grant.last.status, undefined);
   assert.match(grant.last.failed, /minted no grant/);
 });

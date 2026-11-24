@@ -162,11 +162,22 @@ export function worldControl(env, grant, labToken, fetchImpl = (input, init) => 
     if (typeof answer.accessToken !== "string") return answer;
     grant.token = answer.accessToken;
     grant.payload = null;
+    // Kept in the chat object's storage: a later tag reuses its kept answer (`groupKept.ts`) and asks nothing.
+    await grant.storage?.put(WORLD_GRANT_KEY, answer.accessToken);
     return { ...answer, accessToken: labToken };
   };
 }
 
 /** The session a made-up chat's turn runs on: the one its grant's token resolves to on the preview. */
+/** Where a made-up chat keeps the grant its last group answer minted, in its chat object's storage (preview only). */
+export const WORLD_GRANT_KEY = "lab:worldGrant";
+
+/** A turn's grant: the one its chat object kept, until the preview mints another. */
+export async function worldGrant(storage) {
+  const kept = await storage.get(WORLD_GRANT_KEY);
+  return { token: typeof kept === "string" ? kept : null, payload: null, last: null, storage };
+}
+
 export async function worldPayload(env, grant) {
   if (typeof grant.token !== "string") return null;
   if (grant.payload) return grant.payload;
@@ -185,7 +196,7 @@ export async function worldSession(env, grant) {
   } catch (error) {
     const failed = [error?.name, error?.status ?? error?.code, String(error?.message ?? error).slice(0, 160)].filter((part) => part !== undefined && part !== null && part !== "").join(": ");
     grant.failed = failed;
-    if (grant.last) grant.last = { ...grant.last, failed };
+    grant.last = { ...(grant.last ?? {}), failed };
     throw error;
   }
 }

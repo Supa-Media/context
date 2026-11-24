@@ -28,7 +28,7 @@ import { JOB_PART_END_PATH, handleJobPartEnd } from "../fromGateway/agent_jobPar
 import { handleAgent } from "../fromGateway/agent_route.js";
 import { TEXTING_ROUTES } from "../fromGateway/agent_textingRoutes.js";
 import { streamTurn, wantsProgress } from "../fromGateway/agent_progress.js";
-import { WORLD_SOURCE, worldAddress, worldControl, worldSession } from "./world.js";
+import { WORLD_SOURCE, worldAddress, worldControl, worldGrant, worldSession } from "./world.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../fromGateway/agent_textsDecide.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../fromGateway/agent_textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../fromGateway/agent_textsEdit.js";
@@ -491,10 +491,10 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const sandboxId = String(about.sandboxId ?? state.meta?.sandboxId ?? row.id).slice(0, 40);
     const isWorld = about.source === WORLD_SOURCE;
     const address = isWorld ? worldAddress(about, line.number) : { ...(await addressOf(about, sandboxId)), line: line.number };
-    const grant = { token: null, payload: null, last: null }; // a made-up chat's, minted by the preview's control plane
     // Anyone a group's text is written as has a number of their own there: a name nobody in the chat has is a guest's.
     if (about.kind === "group" && !isWorld && inbound === null && typeof row.who === "string" && !address.phones.has(row.who)) address.phones.set(row.who, await phoneOf(row.who));
     const storage = MemoryStorage.from(state.meta?.chatObject, rows, onEvent);
+    const grant = await worldGrant(storage); // a made-up chat's, minted by the preview's control plane
     const fresh = storage.data.size === 0;
     const kept = keepingLine(address.phones, row.id, { onText, onPicture });
     // The chat's session and store, opened when the chat object first reaches the gateway, as a real text's are.

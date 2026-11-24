@@ -110,7 +110,7 @@ export function lastGroup(rows: SandboxRow[]): GroupAnswer | null {
   for (let i = rows.length - 1; i >= 0; i -= 1) {
     if (rows[i].kind === "people") return null; // a change since: the next text asks again
     const g = groupOf(rows[i].group);
-    if (g) return g;
+    if (g && g.status !== null) return g; // a turn's failure alone says nothing of what the chat can see
   }
   return null;
 }
