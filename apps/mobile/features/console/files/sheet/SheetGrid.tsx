@@ -7,14 +7,14 @@
  * so the keyboard and the pointer both go through the same handlers.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { FlatList, Platform, Pressable, ScrollView, StyleSheet, View, type ListRenderItemInfo } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { selectOptions } from "../../../../../mcp/src/sheets/csv.js";
 import { CellDisplay } from "./CellDisplay";
-import { CellEditor } from "./CellEditor";
+import { CellEditor, type EditorKeys } from "./CellEditor";
 import { measureNode, type Anchor } from "./Popover";
 import {
   calcFor,
@@ -56,6 +56,7 @@ export function SheetGrid({
   onDraft,
   onPick,
   onFinishEdit,
+  editorKeys,
 }: {
   sheet: SheetData;
   /** The columns that show, in order (hidden ones are left out). */
@@ -75,6 +76,8 @@ export function SheetGrid({
   onPick: (value: string) => void;
   /** Commit the editor: `"enter"` also moves down, `"blur"` only commits. */
   onFinishEdit: (how: "enter" | "blur") => void;
+  /** The open editor's own keys (a suggestion list's arrows), read by the grid's handler first. */
+  editorKeys?: MutableRefObject<EditorKeys | null>;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -137,6 +140,7 @@ export function SheetGrid({
                   label={c.name}
                   draft={editing.draft}
                   choices={c.type === "person" ? people : (options[c.name] ?? [])}
+                  keys={editorKeys}
                   onDraft={onDraft}
                   onPick={onPick}
                   onBlur={() => onFinishEdit("blur")}

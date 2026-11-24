@@ -146,10 +146,9 @@ export function BrowseDocument({
   /*
     The same source, handed to a folder page: its List and Board views and a
     project's property line read and change properties exactly as a list block
-    in a note does. The workspace's people are what an owner menu offers.
+    in a note does. The workspace's people, by name, are what an owner menu and a sheet's person cells offer.
   */
   const people = data.members?.members;
-  // By name, as a folder page's owner menu offers them: a sheet's person cells offer the same people.
   const memberNames = useMemo(() => (people ?? []).map((member) => member.name ?? "").filter((name) => name !== ""), [people]);
   // Tex in this note: the person's own Tex and the open note's log (`comments/tex/useTexInNote.ts`).
   const texInNote = useTexInNote({ tex: texChatTarget(data), note: noteRefOf(current?.id, files.editor), people: mentionablesOf(people) });
@@ -158,12 +157,8 @@ export function BrowseDocument({
   // The one editor, lent to a folder page's side peek: the note typed in there is the editor's note, in its room.
   const editing = usePeekEditing(files, presence);
   // A folder row's arrow opens it in place from the tree's own listings (`files/NestedRows.tsx`).
-  const listings = files.listings;
-  const ensureListing = files.ensureListing;
-  const folderNesting = useMemo(
-    () => ({ listingOf: (path: string) => listings[path], loadListing: (path: string) => ensureListing(path) }),
-    [listings, ensureListing],
-  );
+  const { listings, ensureListing } = files;
+  const folderNesting = useMemo(() => ({ listingOf: (path: string) => listings[path], loadListing: (path: string) => ensureListing(path) }), [listings, ensureListing]);
   const folderPage = useMemo(
     () =>
       folderLists === undefined || current?.id == null
@@ -171,7 +166,7 @@ export function BrowseDocument({
         : {
             source: folderLists,
             workspaceId: current.id,
-            people: (people ?? []).map((member) => member.name ?? "").filter((name) => name !== ""),
+            people: memberNames,
             // Who "Mine" is on a project's List: this viewer's name and address, never written anywhere.
             me: (people ?? [])
               .filter((member) => member.isMe)
@@ -180,7 +175,7 @@ export function BrowseDocument({
             ...(tasks === undefined ? {} : { tasks }),
             ...(editing === undefined ? {} : { editing }), personal: current.kind === "personal",
           },
-    [folderLists, current?.id, current?.kind, people, tasks, editing],
+    [folderLists, current?.id, current?.kind, people, memberNames, tasks, editing],
   );
   /**
    * Where a phone starts, when nothing has been opened yet.

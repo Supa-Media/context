@@ -70,7 +70,7 @@ export function CellDisplay({
     return (
       <View style={[styles.chip, { backgroundColor: tone.wash }]}>
         <View style={[styles.dot, { backgroundColor: tone.dot }]} />
-        <Text variant="body" numberOfLines={1} style={[styles.text, font, font]}>
+        <Text variant="body" numberOfLines={1} style={[styles.text, font]}>
           {text}
         </Text>
       </View>
@@ -86,7 +86,7 @@ export function CellDisplay({
             {text.trim().charAt(0).toUpperCase()}
           </Text>
         </View>
-        <Text variant="body" numberOfLines={1} style={[styles.text, font, font]}>
+        <Text variant="body" numberOfLines={1} style={[styles.text, font]}>
           {text}
         </Text>
       </View>
@@ -137,7 +137,9 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
     },
     tick: { color: colors.ground, lineHeight: 14 },
+    // Hugs its text, as the approved grid's chips do, rather than filling the cell.
     chip: {
+      alignSelf: "flex-start",
       flexDirection: "row",
       alignItems: "center",
       gap: space.x2,

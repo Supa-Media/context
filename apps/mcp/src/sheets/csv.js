@@ -146,12 +146,14 @@ export function parseSheet(text) {
   columns.forEach((c, i) => {
     if (!c.name) { c.name = `column ${i + 1}`; errors.push({ line: head.line, message: `column ${i + 1} has no name` }); }
     const key = c.name.toLowerCase();
-    if (seen.has(key)) errors.push({ line: head.line, message: `two columns are called "${c.name}"` });
+    // `lossy`: rows are keyed by name, so a rewrite of this text would drop one of the two columns.
+    if (seen.has(key)) errors.push({ line: head.line, message: `two columns are called "${c.name}"`, lossy: true });
     seen.add(key);
   });
   const rows = body.map((r) => {
     if (r.cells.length !== columns.length) {
-      errors.push({ line: r.line, message: `has ${r.cells.length} cells, the header has ${columns.length}` });
+      // More cells than the header is `lossy`: a rewrite keeps only the header's width. Fewer is padded, and safe.
+      errors.push({ line: r.line, message: `has ${r.cells.length} cells, the header has ${columns.length}`, ...(r.cells.length > columns.length ? { lossy: true } : {}) });
     }
     const row = {};
     columns.forEach((c, i) => { row[c.name] = r.cells[i] ?? ""; });

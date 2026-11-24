@@ -4,7 +4,7 @@
  * keyboard handler, so the input does not submit by itself.
  */
 
-import { useColors } from "../../../design/theme";
+import { useColors, useScheme } from "../../../design/theme";
 import { pointerType } from "../../../design/tokens";
 import { useFieldFont } from "../../../design/fieldFont";
 
@@ -21,6 +21,8 @@ export function DateField({
   onSubmit?: () => void;
 }) {
   const colors = useColors();
+  // The picker the browser draws follows this, so it is not a white panel on the dark app.
+  const scheme = useScheme();
   // 16px on a phone, so the browser does not zoom into the field.
   const fieldFont = useFieldFont(pointerType.ui);
   return (
@@ -36,10 +38,12 @@ export function DateField({
         width: "100%",
         height: 26,
         boxSizing: "border-box",
-        padding: "0 6px",
-        border: `1px solid ${colors.accent}`,
-        borderRadius: 6,
-        background: colors.ground,
+        // No frame: the cell's selection ring is the one outline.
+        padding: 0,
+        border: "none",
+        outline: "none",
+        background: "transparent",
+        colorScheme: scheme,
         color: colors.text,
         font: "inherit",
         fontSize: fieldFont?.fontSize ?? pointerType.ui,

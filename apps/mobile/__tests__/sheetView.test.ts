@@ -31,7 +31,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(options: { text?: string; readOnly?: boolean } = {}): { changes: string[] } {
+function mount(options: { text?: string; readOnly?: boolean; say?: (m: string) => void } = {}): { changes: string[] } {
   const changes: string[] = [];
   const initial = options.text ?? SHEET;
   const readOnly = options.readOnly ?? false;
@@ -42,6 +42,7 @@ function mount(options: { text?: string; readOnly?: boolean } = {}): { changes: 
       text,
       readOnly,
       people: ["Seyi", "Ada"],
+      ...(options.say ? { say: options.say } : {}),
       onChangeText: (next: string) => {
         changes.push(next);
         setText(next);
@@ -217,5 +218,109 @@ describe("the sheet grid", () => {
     mount({ text });
     expect($('[data-testid="sheet-too-large"]')?.textContent).toContain("50000 rows");
     expect($('[data-testid="sheet-grid"]')).toBeNull();
+  });
+});
+
+describe("the gaps found on 2026-11-24", () => {
+  const PEOPLE = "name,owner:person,stage:select\nA,,lead\nB,,won\n";
+
+  test("a person cell offers the workspace's people, outside the grid so no row covers them, and arrows pick one", () => {
+    const { changes } = mount({ text: PEOPLE });
+    press(cell(0, 1));
+    key(cell(0, 1), "Enter");
+    const menu = $('[data-testid="sheet-cell-suggestions"]') as HTMLElement;
+    expect(menu).not.toBeNull();
+    // Drawn into the body, not inside the grid's rows, which clip and cover it.
+    expect($('[data-testid="sheet-grid"]')?.contains(menu)).toBe(false);
+    expect(menu.textContent).toBe("SeyiAda");
+    const field = fieldIn($('[data-testid="sheet-cell-editor"]') as HTMLElement);
+    key(field, "ArrowDown");
+    key(field, "ArrowDown");
+    key(field, "Enter");
+    expect(changes).toEqual(["name,owner:person,stage:select\nA,Ada,lead\nB,,won\n"]);
+  });
+
+  test("Enter with nothing highlighted keeps what is typed: a new option", () => {
+    const { changes } = mount({ text: PEOPLE });
+    press(cell(0, 2));
+    key(cell(0, 2), "Enter");
+    const field = $('[data-testid="sheet-cell-editor"]') as HTMLElement;
+    typeInto(field, "w");
+    key(fieldIn(field), "Enter");
+    expect(changes).toEqual(["name,owner:person,stage:select\nA,,w\nB,,won\n"]);
+  });
+
+  test("after Enter the keyboard is back on the grid, so arrows keep moving", () => {
+    mount();
+    press(cell(0, 0));
+    key(cell(0, 0), "Enter");
+    key(fieldIn($('[data-testid="sheet-cell-editor"]') as HTMLElement), "Enter");
+    expect(document.activeElement).toBe($('[data-testid="sheet-grid-box"]'));
+  });
+
+  test("Delete clears the selected cell, Cmd+Z puts it back, and Shift+Cmd+Z clears it again", () => {
+    const { changes } = mount();
+    press(cell(0, 0));
+    key(cell(0, 0), "Delete");
+    expect(changes.at(-1)).toContain("\n,2026-12-01,$15,true\n");
+    key(cell(0, 0), "z", { metaKey: true });
+    expect(changes.at(-1)).toBe(SHEET);
+    key(cell(0, 0), "z", { metaKey: true, shiftKey: true });
+    expect(changes.at(-1)).toContain("\n,2026-12-01,$15,true\n");
+  });
+
+  test("a pasted block fills cells right and down from the selection", () => {
+    const { changes } = mount();
+    press(cell(0, 0));
+    act(() => {
+      const event = new Event("paste", { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown };
+      event.clipboardData = { getData: () => "Hulu\t2027-01-01\nPool\t2027-02-02\n" };
+      cell(0, 0).dispatchEvent(event);
+    });
+    expect(changes).toEqual(["name,renews:date,amount:usd,paid:checkbox\nHulu,2027-01-01,$15,true\nPool,2027-02-02,40,false\n"]);
+  });
+
+  test("Tab on the last column leaves the grid rather than being swallowed", () => {
+    mount();
+    press(cell(0, 3));
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    act(() => {
+      cell(0, 3).dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("a typed character on a date cell opens its picker on the date that is there", () => {
+    mount();
+    press(cell(0, 1));
+    key(cell(0, 1), "2");
+    expect(fieldIn($('[data-testid="sheet-cell-editor"]') as HTMLElement).value).toBe("2026-12-01");
+  });
+
+  test("a row longer than the header opens read-only, since saving would drop its extra cell", () => {
+    const { changes } = mount({ text: "a,b\n1,2,3\n" });
+    expect($('[data-testid="sheet-new-row"]')).toBeNull();
+    expect($('[data-testid="sheet-problems"]')?.textContent).toContain("read-only");
+    press(cell(0, 0));
+    key(cell(0, 0), "Delete");
+    expect(changes).toEqual([]);
+  });
+
+  test("two columns of one name open read-only too", () => {
+    mount({ text: "a,A\n1,2\n" });
+    expect($('[data-testid="sheet-new-row"]')).toBeNull();
+  });
+
+  test("renaming onto a name that is taken changes nothing and says so", async () => {
+    const said: string[] = [];
+    const { changes } = mount({ say: (m) => said.push(m) });
+    press($$('[data-testid="sheet-header"]')[0]);
+    await settle();
+    const menu = $('[data-testid="sheet-column-menu"]') as HTMLElement;
+    const name = menu.querySelector("input") as HTMLInputElement;
+    typeInto(name, "paid");
+    key(name, "Enter");
+    expect(changes).toEqual([]);
+    expect(said).toEqual(["There is already a column called paid."]);
   });
 });

@@ -53,12 +53,32 @@ export function storedValue(type: ColumnType, text: string): string {
 
 /** Set one cell of the row at `row` (its index in the file's rows). */
 export function editCell(text: string, row: number, column: string, value: string): string {
+  return editCells(text, [{ row, column, value }]);
+}
+
+/** Set several cells at once (a paste), as one change. A cell whose row or column is gone is skipped. */
+export function editCells(text: string, cells: readonly { row: number; column: string; value: string }[]): string {
   const sheet = load(text);
-  const col = sheet.columns.find((c) => c.name === column);
-  if (!col || !sheet.rows[row]) return text;
   const rows = sheet.rows.slice();
-  rows[row] = { ...rows[row], [column]: storedValue(col.type as ColumnType, value) };
-  return serializeSheet({ columns: sheet.columns, rows });
+  let changed = false;
+  for (const { row, column, value } of cells) {
+    const col = sheet.columns.find((c) => c.name === column);
+    if (!col || !rows[row]) continue;
+    rows[row] = { ...rows[row], [column]: storedValue(col.type as ColumnType, value) };
+    changed = true;
+  }
+  return changed ? serializeSheet({ columns: sheet.columns, rows }) : text;
+}
+
+/** Clipboard text as a block of cells: tab-separated lines, as every spreadsheet copies them. */
+export function clipboardBlock(text: string): string[][] {
+  const lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+  return lines.map((line) => line.split("\t"));
+}
+
+/** The name a rename would store, as csv.js cleans it: separators become spaces. */
+export function cleanColumnName(name: string): string {
+  return name.replace(/[,:\r\n"]/g, " ").trim();
 }
 
 /** Append an empty row. `changeRows` fills every column with "". */
