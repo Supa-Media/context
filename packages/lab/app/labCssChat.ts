@@ -36,10 +36,6 @@ export const LAB_CSS_CHAT = String.raw`
 .tl .imsg .r.in .b.tail::after{content:"";position:absolute;bottom:0;left:-26px;width:26px;height:17px;background:var(--page);border-bottom-right-radius:10px}
 .tl .imsg .r.out .b.tail::before{content:"";position:absolute;bottom:0;right:-7px;width:20px;height:17px;background:var(--bout);border-bottom-left-radius:16px 14px}
 .tl .imsg .r.out .b.tail::after{content:"";position:absolute;bottom:0;right:-26px;width:26px;height:17px;background:var(--page);border-bottom-left-radius:10px}
-.tl .imsg .b .mn{font-weight:600;color:var(--accent)}
-.tl .imsg .r.out .b .mn{color:#fff;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
-.tl .imsg .b .mn.tx{color:var(--accent)}
-.tl .imsg .r.out .b .mn.tx{color:#fff}
 /* tapbacks */
 .tl .imsg .tbs{position:absolute;top:-15px;display:flex;z-index:3}
 .tl .imsg .r.in .tbs{right:-14px}
@@ -227,6 +223,25 @@ export const LAB_CSS_CHAT = String.raw`
 .tl .imsg .tpk .anyin:focus{width:64px;background:var(--page);box-shadow:0 0 0 1px var(--line2) inset;color:var(--text)}
 .tl .imsg .tpk .anyin::placeholder{color:var(--muted)}
 .tl .imsg .r.out .ednote{text-align:right}
+/* Tex's sends on its iMessage line (round 3, group-chat-features-artboards): a tag is the name, bold, no @ */
+.tl .imsg .b .mtg{font-weight:600;color:var(--accent)}
+.tl .imsg .r.out .b .mtg{color:#fff}
+.tl .imsg .fxl{font-size:11px;color:var(--muted);margin:3px 6px 0;font-weight:500;white-space:nowrap}
+.tl .imsg .fxl .rp{border:none;background:none;padding:0;font:inherit;color:var(--accent);margin-left:4px;cursor:pointer}
+.tl .imsg .b.ink{cursor:pointer;background-color:var(--bin);--sp:color-mix(in srgb,var(--text) 55%,transparent);background-image:radial-gradient(var(--sp) .9px,transparent 1.3px),radial-gradient(var(--sp) .7px,transparent 1.1px),radial-gradient(color-mix(in srgb,var(--text) 30%,transparent) 1px,transparent 1.4px);background-size:5px 4px,7px 5px,4px 6px;background-position:0 0,2px 3px,3px 1px}
+.tl .imsg .b.ink .bt{color:transparent}
+.tl .imsg .inkh{font-size:11px;color:var(--dim);margin:3px 6px 0}
+.tl .imsg .inkh b{color:var(--accent);font-weight:600}
+.tl .imsg .poll{width:330px;max-width:100%;box-sizing:border-box;border-radius:18px;background:var(--bin);padding:11px 12px 10px;color:var(--text)}
+.tl .imsg .poll .plh{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tl .imsg .poll .plh svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
+.tl .imsg .poll .plq{font-size:15.5px;font-weight:600;margin:2px 2px 7px;line-height:1.3}
+.tl .imsg .poll .opt{position:relative;display:flex;align-items:center;gap:9px;height:33px;padding:0 10px;border-radius:10px;background:var(--page);margin-top:4px;overflow:hidden;font-size:14px}
+.tl .imsg .poll .opt .ck{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--dim);flex:none}
+.tl .imsg .poll .opt .ol{flex:1;min-width:0}
+.tl .imsg .poll .opt .nc{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:10px;text-align:right;margin-left:6px}
+.tl .imsg .poll .plf{font-size:11.5px;color:var(--muted);margin:6px 2px 0}
+.tl .imsg .ev .evth{display:inline-block;width:22px;height:22px;border-radius:50%;object-fit:cover;vertical-align:-7px;margin-right:6px;box-shadow:0 0 0 1px var(--line2)}
 /* phone width: the hint gives its room to the people */
 @media (max-width:700px){.tl .asrow{flex-wrap:wrap;row-gap:4px}.tl .asrow .note2{display:none}.tl .imw{padding:10px 10px 8px}}
 `;

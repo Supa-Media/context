@@ -8,26 +8,36 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { dropText, editText, reactTo, retryText, TAPBACKS, unsendText, useSandbox } from "../../../engine/sandbox";
 import { pickStep, setDockView } from "../../../engine/sandboxPlay";
 import { firstName } from "./worldModel";
+import { texTags } from "./texSends";
 import type { Bubble } from "./chatModel";
 import { setFill } from "./worldStore";
 
-/** "@Tex" and "@Name" bold in accent; the rest as typed. */
-export function withMentions(text: string, names: string[]): ReactNode {
-  const short = [...new Set(["Tex", ...names.map(firstName), ...names])].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const re = new RegExp(`@(${short.join("|")})\\b`, "g");
-  const out: ReactNode[] = [];
-  let at = 0;
-  for (const m of text.matchAll(re)) {
-    out.push(text.slice(at, m.index));
-    out.push(
-      <span key={m.index} className={"mn" + (m[1] === "Tex" ? " tx" : "")}>
-        @{m[1]}
-      </span>,
-    );
-    at = (m.index ?? 0) + m[0].length;
-  }
-  out.push(text.slice(at));
-  return out;
+/** Tex's words with each @handle of someone here as their tag; a person's words as typed (iMessage sends a typed "@Tex" as words). */
+function wordsOf(text: string, tex: boolean, handles: Record<string, string | undefined>): ReactNode {
+  if (!tex) return text;
+  return texTags(text, handles).map((s, i) => (s.tag ? <span key={i} className="mtg">{s.t}</span> : <Fragment key={i}>{s.t}</Fragment>));
+}
+
+/** The poll Tex started, as its card: the question and each choice, no votes yet (`texSends.ts`). */
+function PollCard({ poll }: { poll: { title: string; choices: string[] } }) {
+  return (
+    <div className="poll" data-poll>
+      <div className="plh">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 13V8M8 13V3M13 13v-7" />
+        </svg>
+        Poll
+      </div>
+      <div className="plq">{poll.title}</div>
+      {poll.choices.map((c) => (
+        <div key={c} className="opt">
+          <span className="ck" />
+          <span className="ol">{c}</span>
+        </div>
+      ))}
+      <div className="plf">No votes yet · Tex started it</div>
+    </div>
+  );
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
@@ -141,8 +151,11 @@ function useAway(open: boolean, ref: React.RefObject<HTMLElement | null>, close:
   }, [open, ref, close]);
 }
 
-export function BubbleView({ b, tail, names, onReply }: { b: Bubble; tail: boolean; names: string[]; onReply: (id: string) => void }) {
+export function BubbleView({ b, tail, onReply }: { b: Bubble; tail: boolean; names?: string[]; onReply: (id: string) => void }) {
   const sb = useSandbox();
+  const [ink, setInk] = useState(true);
+  // Invisible Ink stays hidden until clicked; revealing it tells nobody (the artboards' note).
+  const inked = ink && b.effect === "Invisible Ink";
   const [open, setOpen] = useState<null | "react" | "more">(null);
   const [edit, setEdit] = useState<string | null>(null);
   const [any, setAny] = useState("");
@@ -167,9 +180,11 @@ export function BubbleView({ b, tail, names, onReply }: { b: Bubble; tail: boole
       </div>
     );
   const m = b.kind === "media" && b.media ? mediaOf(b.media) : null;
-  const raw = b.kind === "pics" || !!m?.raw;
+  const raw = b.kind === "pics" || !!m?.raw || !!b.poll;
   const body =
-    b.kind === "pics" ? (
+    b.poll ? (
+      <PollCard poll={b.poll} />
+    ) : b.kind === "pics" ? (
       <div className={"pgr n" + Math.min(b.pics?.length ?? 1, 6)}>
         {(b.pics ?? []).map((u) => (
           <img key={u} className="ph1" src={u} alt="Picture sent" />
@@ -178,7 +193,7 @@ export function BubbleView({ b, tail, names, onReply }: { b: Bubble; tail: boole
     ) : m ? (
       m.body
     ) : (
-      <span className="bt">{withMentions(b.text, names)}</span>
+      <span className="bt">{wordsOf(b.text, !!r.tex, sb.handles)}</span>
     );
   const tbs = b.reactions?.length ? (
     <span className="tbs">
@@ -226,11 +241,25 @@ export function BubbleView({ b, tail, names, onReply }: { b: Bubble; tail: boole
       {raw ? (
         body
       ) : (
-        <span className={"b" + (tail ? " tail" : "") + (open ? " lift" : "")} style={m ? { padding: 0 } : undefined}>
+        <span className={"b" + (tail ? " tail" : "") + (open ? " lift" : "") + (inked ? " ink" : "")} style={m ? { padding: 0 } : undefined} onClick={inked ? () => setInk(false) : undefined}>
           {body}
         </span>
       )}
       {tbs}
+      {inked ? (
+        <div className="inkh">
+          Invisible Ink · <b>click to reveal</b> · only in this window
+        </div>
+      ) : b.effect ? (
+        <div className="fxl">
+          Sent with {b.effect}
+          {b.effect === "Invisible Ink" ? (
+            <button className="rp" onClick={() => setInk(true)}>
+              ↻ Hide again
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <span className="hov">
         <button className="ib" title="React" aria-pressed={open === "react"} disabled={!idle} onClick={() => setOpen(open === "react" ? null : "react")}>
           ☺︎
