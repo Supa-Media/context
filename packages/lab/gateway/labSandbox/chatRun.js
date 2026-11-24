@@ -28,6 +28,7 @@ import { JOB_PART_END_PATH, handleJobPartEnd } from "../fromGateway/agent_jobPar
 import { handleAgent } from "../fromGateway/agent_route.js";
 import { TEXTING_ROUTES } from "../fromGateway/agent_textingRoutes.js";
 import { streamTurn, wantsProgress } from "../fromGateway/agent_progress.js";
+import { WORLD_SOURCE, worldAddress, worldControl, worldPayload } from "./world.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../fromGateway/agent_textsDecide.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../fromGateway/agent_textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../fromGateway/agent_textsEdit.js";
@@ -231,13 +232,16 @@ export function keepingLine(phones, prefix = "lab", { onText = null, onPicture =
  * The control plane as the chat object asks it, answered from what the Lab already read for this chat (`chat`, from
  * `texLabSandbox.ts` `session`). Reads answer; a change is refused and listed (`gate.record`).
  */
-export function controlPlaneSwitch({ about, chat, phones, gate, token, storage = null }) {
+export function controlPlaneSwitch({ about, chat, phones, gate, token, storage = null, world = null }) {
   // Muted in this test chat (a turn's `chat_mute`, or "Tex, stop"): the chat object's own mark (`groupChat.ts` `gmuted`),
   // so the control plane answers as it would for a muted chat, and "Tex, start" starts it again.
   const muted = async () => storage !== null && (await storage.get("gmuted")) === true;
   const names = (about.people ?? []).flatMap((p) => (typeof p.handle === "string" && /^[a-z0-9][a-z0-9-]{0,64}$/.test(p.handle) && phones.has(p.handle) ? [{ phone: phones.get(p.handle), handle: p.handle, ...(p.name && p.name !== "You" ? { name: p.name } : {}) }] : []));
   const guests = [...phones.entries()].filter(([who]) => !names.some((n) => n.handle === who)).map(([, phone], i) => ({ phone, label: `guest-${(4096 + i).toString(16).slice(-4)}` }));
   return async (path, body) => {
+    // A made-up group chat (`world.js`): its group questions are the preview's real control plane's to answer.
+    const real = world === null ? undefined : await world(path, body);
+    if (real !== undefined) return real;
     switch (path) {
       case "/agent-texts/session":
         return { status: "linked", accessToken: token, ...(about.timeZone ? { timeZone: about.timeZone } : {}) };
@@ -289,8 +293,8 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token, storage =
  * Everything one test text's chat object runs on. `agent` and `texts` answer the gateway's routes; tests hand in fakes.
  * `inboxes` is the objects it reaches (`jobs.js` `sandboxInboxes`: its own jobs); without it, every other object refuses.
  */
-export function chatEnvFor({ gate, storage, about, chat, phones, line, token, agent, texts, images, inboxes = null }) {
-  const control = controlPlaneSwitch({ about, chat, phones, gate, token, storage });
+export function chatEnvFor({ gate, storage, about, chat, phones, line, token, agent, texts, images, inboxes = null, world = null }) {
+  const control = controlPlaneSwitch({ about, chat, phones, gate, token, storage, world });
   const pictures = new Set((chat?.pictures ?? []).map(String));
   const download = pictureFetch((...a) => globalThis.fetch(...a));
   const fetchOut = async (input, init) => {
@@ -342,7 +346,8 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
 
 /** A turn's body with a group's made-up key and members put back to the real chat's, which its ledger and home are found by. */
 async function atRealChat(request, about) {
-  if (about.kind !== "group") return request;
+  // A made-up chat is its own real chat on the preview: its key and members are the ones the chat object worked out.
+  if (about.kind !== "group" || about.source === WORLD_SOURCE) return request;
   const body = await request.json().catch(() => null);
   if (body === null || typeof body.group !== "object" || body.group === null) return new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(body) });
   const group = { ...body.group, key: about.chatKey, members: about.members };
@@ -484,9 +489,11 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     if (!state.meta?.chat) throw new Error("the test chat was reset");
     const rows = state.rows ?? [];
     const sandboxId = String(about.sandboxId ?? state.meta?.sandboxId ?? row.id).slice(0, 40);
-    const address = { ...(await addressOf(about, sandboxId)), line: line.number };
+    const isWorld = about.source === WORLD_SOURCE;
+    const address = isWorld ? worldAddress(about, line.number) : { ...(await addressOf(about, sandboxId)), line: line.number };
+    const grant = { token: null, payload: null, last: null }; // a made-up chat's, minted by the preview's control plane
     // Anyone a group's text is written as has a number of their own there: a name nobody in the chat has is a guest's.
-    if (about.kind === "group" && inbound === null && typeof row.who === "string" && !address.phones.has(row.who)) address.phones.set(row.who, await phoneOf(row.who));
+    if (about.kind === "group" && !isWorld && inbound === null && typeof row.who === "string" && !address.phones.has(row.who)) address.phones.set(row.who, await phoneOf(row.who));
     const storage = MemoryStorage.from(state.meta?.chatObject, rows, onEvent);
     const fresh = storage.data.size === 0;
     const kept = keepingLine(address.phones, row.id, { onText, onPicture });
@@ -494,7 +501,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     let opened = null;
     const storeOf = () =>
       (opened ??= (async () => {
-        const session = sessionFromPayload(payload, null, token);
+        const session = isWorld ? sessionFromPayload(await worldPayload(env, grant), null, grant.token) : sessionFromPayload(payload, null, token);
         Object.defineProperty(session, "labSandbox", { value: gate, enumerable: false });
         const store = await storeForSession(session, sandboxEnv, controlPlane);
         const request = new Request(`${origin}/agent`, { method: "POST" });
@@ -532,7 +539,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       parentOfJob: () => book.last("fd") ?? book.tail,
       makeBox: live === null ? null : (name) => boxStub(env.LAB_JOB, { sandbox, rowId: row.id, jobName: name, run: live.key }),
     });
-    envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace });
+    envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace, world: isWorld ? worldControl(env, grant, labToken) : null });
     if (live !== null) {
       Object.assign(live.entry, {
         setup: { config: config ?? null, gateway: LAB_GATEWAY, controlPlane: LAB_CONTROL_PLANE, secret: LAB_WORKER_SECRET },
@@ -550,7 +557,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const { path, body: message } = inbound === null ? inboundOf({ about, row, rows, address, sentHandles }) : inbound(address);
     // A test chat is one Tex already answers in (its grant is what the Lab opened it with): its object starts set up for
     // the people here, as the real chat's is after Tex's first turn there (`groupChat.ts` `setChatBound`).
-    if (about.kind === "group" && fresh) await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from ?? message.asker, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
+    if (about.kind === "group" && fresh && (!isWorld || about.world?.introduced === true)) await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from ?? message.asker, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
     // Its provider is the line's: the lag the `text` step shows is the line's hold.
     const provider = { name: line.name === "photon" ? "photon" : "lab", providerAt: row.at ?? started, receivedAt: now() };
     const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify(inbound === null ? { ...message, provider } : message) }));
@@ -579,7 +586,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const cause = [...new Set(answered.filter((d) => d.text !== "").flatMap((d) => book.causeOf(d.step)))];
     const ordered = book.view().filter((step) => cause.includes(step.id)).map((step) => step.id);
     await gate.flush();
-    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, from: "fd", line: rowLine(line, { out: true }), ...(quiet ? { quiet: true, note: `The chat object took the text (${outcome}) and Tex sent nothing.` } : { cause: ordered }), ...(said.length > 1 ? { parts: said } : {}), ms: at - started, steps: fitSteps(book.view()) } });
+    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, from: "fd", line: rowLine(line, { out: true }), ...(quiet ? { quiet: true, note: `The chat object took the text (${outcome}) and Tex sent nothing.` } : { cause: ordered }), ...(said.length > 1 ? { parts: said } : {}), ...(grant.last !== null ? { group: grant.last } : {}), ms: at - started, steps: fitSteps(book.view()) } });
     // Each job the turn started runs now, on the same fences; its texts post as they are delivered.
     if (registry.jobs.size > 0) {
       phase.from = "job";

@@ -69,6 +69,11 @@ Or try Tex there from production's Lab: in a test chat's picker, set **Code** to
 Training/Dev conversation (tex_dev: `test_chat open { code: "#<pr>", source: "maya" }`). The preview's own Tex,
 running the pull request's code, answers as `alpha`; the first open takes about a minute.
 
+Made-up group chats: from the Lab or `tex_dev test_chat open { source: "world", code: "#<pr>", world }`, the
+preview makes the people a group chat asks for (accounts, handles, roles in Lumio, Maison Solenne and Common Ground,
+guests and phone invitations, all on 555-01XX numbers) and runs Tex's real group rules on them
+([lab-sandbox](./decisions/texting-assistant/lab-sandbox.md)). Production refuses to make them.
+
 ## Real, as in production
 
 | What | How it is known |

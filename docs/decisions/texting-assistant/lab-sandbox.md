@@ -399,3 +399,32 @@ starts from Maya or a Training/Dev conversation: a person's own chats live in pr
 Its tests are `apps/mcp/test/labPreviewChat.test.mjs` (sabotaged): a simplification that lets the bench's token, a
 branch's token or another workflow through the door fails "only the preview workflow on main", and one that keeps a
 call nobody took fails "dropped, never run twice".
+
+## Made-up group chats (Dev, 2026-11-24)
+
+Dev: "a place in labs where I can test out all these things and simulate a fake group chat end to end without having
+to go through real groupchats". Tex dropped into real group chats did not speak up or join in, and the cases that
+matter (everyone on Context, a mix with people who are not, a guest invited by number, different workspace roles, Tex
+added to a chat already talking) could only be tried by making a real group.
+
+`open { source: "world", code: "#<pr>", world }` makes one up. `world` names 1 to 8 people, each on Context with a
+role in the preview's made-up workspaces (Lumio, Maison Solenne, Common Ground), not on Context, or invited by number
+to one; who brought Tex in, how much it joins in (`speaksUp`), whether it has already said hello, and earlier texts
+(`labSandbox/world.js` `worldInput`). The control plane's `world` action (`functions/texLabWorld.ts` `makeWorld`)
+makes those people on the preview only (`isIsolatedPreview`; production refuses and writes nothing): an account,
+handle and simulator number each, their roles set exactly as asked (a role no longer asked for is removed), a phone
+invitation for an invited guest, and the chat's `textGroups` row.
+
+**The group rules are not copied.** A made-up chat's group question goes to the preview's real
+`/agent-texts/group` (`world.js` `worldControl`, with the gateway's own `AGENT_WORKER_SECRET`), so reach, blockers,
+the sponsor and the introduction are `applyGroupTurn`'s and nothing the Lab says. The simplification this forbids is
+a faked control plane that answers "ready" for a made-up chat: it would test the Lab's idea of the rules, which is
+the bug we were hunting. The grant the control plane mints is resolved in the gateway for the turn's store, and the
+turn itself is still handed the test text's own `lab_` token, never the minted grant. Each reply row's `group` says
+what the chat could reach, who kept a workspace out and whether this was Tex's first answer. `join` and `leave`
+change who is here, as in a real chat: a row the chat shows, and the next text's people.
+
+Its tests: `apps/convex/__tests__/texLabWorld.test.ts` (dropping the preview check fails "refuses on production",
+keeping an old role fails "running again puts each person's roles as asked", skipping the invitation fails "a guest
+invited by number") and `apps/mcp/test/labSandboxWorld.test.mjs` (ignoring `world` in the switch, passing the minted
+token to the turn, or keeping people who left each fail a named test).

@@ -19,6 +19,7 @@ import { verifyGithubToken } from "../bench/oidc.js";
 import { bearerToken } from "../fromGateway/session.js";
 import { json } from "../fromGateway/http_responses.js";
 import { callSandbox, sandboxStub } from "./object.js";
+import { worldInput } from "./world.js";
 
 export const BRIDGE_PATH = "/tex-lab/sandbox/bridge";
 export const BRIDGE_AUDIENCE = "context-lab-preview";
@@ -85,7 +86,10 @@ export async function openOnPreview({ env, controlPlane, token, who, input, orig
   if (named.error) return refused(400, named.error);
   const { pr } = named;
   const source = input.source ?? "maya";
-  if (!["maya", "set", "chat"].includes(source)) return refused(400, 'a test chat on a pull request\'s preview starts from "maya", a Training or Dev conversation ("set"), or the preview\'s own chats ("chat")');
+  if (!["maya", "set", "chat", "world"].includes(source)) return refused(400, 'a test chat on a pull request\'s preview starts from "maya", a Training or Dev conversation ("set"), the preview\'s own chats ("chat"), or a made-up group chat ("world")');
+  // A made-up group chat is checked here before a GitHub run is started for it, and made on the preview.
+  const world = source === "world" ? worldInput(input.world) : null;
+  if (world?.error) return refused(400, world.error);
   const counted = await callSandbox(helpers.indexStub(env, who.userId), "count", { key: `previews:${new Date().toISOString().slice(0, 10)}`, max: DAILY_PREVIEW_OPENS }).catch(() => ({ ok: true }));
   if (!counted.ok) return refused(429, `That's ${DAILY_PREVIEW_OPENS} test chats on pull requests today, each a GitHub run: use one you have open.`);
   const { code: _code, by: _by, ...rest } = input;
@@ -100,7 +104,7 @@ export async function openOnPreview({ env, controlPlane, token, who, input, orig
     origin,
     source,
     chat: typeof input.chatId === "string" && input.chatId !== "" ? input.chatId : "me",
-    kind: "one",
+    kind: world ? "group" : "one",
     people: [],
     versionId: typeof input.versionId === "string" && input.versionId !== "" ? input.versionId : "main",
     config: drafted.config ?? null,
@@ -116,7 +120,7 @@ export async function openOnPreview({ env, controlPlane, token, who, input, orig
     await callSandbox(bridgeStub(env, bridgeId), "bridge.stop", {}).catch(() => {});
     return refused(502, `Pull request #${pr}'s preview could not be started: ${started.error}`);
   }
-  await callSandbox(helpers.indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat: about.chat, kind: "1:1", versionId: about.versionId, code: `#${pr}`, by: helpers.byOf(input.by), at: Date.now() } }).catch(() => {});
+  await callSandbox(helpers.indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat: about.chat, kind: world ? "group" : "1:1", versionId: about.versionId, code: `#${pr}`, by: helpers.byOf(input.by), at: Date.now() } }).catch(() => {});
   // The preview's own open, queued for the workflow: kept, so it waits for the run to start.
   const first = await callSandbox(bridgeStub(env, bridgeId), "bridge.call", { kind: "open", body: { ...drafted.body, op: "open", source }, waitMs: Number.isSafeInteger(input.waitMs) ? Math.min(input.waitMs, 45_000) : 0 });
   console.log(JSON.stringify({ event: "lab_sandbox_open", source, kind: "preview", draft: about.versionId !== "main" }));

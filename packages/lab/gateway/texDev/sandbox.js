@@ -505,6 +505,15 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
         return needId(args) ?? (await again(args));
       case "use":
         return needId(args) ?? (await call({ op: "use", sandboxId: args.sandboxId, versionId: args.draft ?? args.versionId ?? "main" }));
+      // Who is in a made-up group chat changes (`labSandbox/world.js`): the row it shows, and the chat's last rows.
+      case "join":
+      case "leave": {
+        if (needId(args)) return needId(args);
+        const changed = await call(args);
+        if (changed.error) return changed;
+        const list = changed.rows ?? [];
+        return { total: list.length, last: list.slice(-ROWS_SHOWN).map(compactRow), next: "send { sandboxId, as, text } texts as anyone still here" };
+      }
       case "about": {
         if (needId(args)) return needId(args);
         const facts = await about(args.sandboxId);

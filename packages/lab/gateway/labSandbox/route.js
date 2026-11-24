@@ -54,7 +54,6 @@
  *    so `tex_dev` reads a test turn with Replay's own code, as it reads a real one.
  */
 
-import REPO from "../../src/texSetsRepo.generated.json" with { type: "json" };
 import { createControlPlane } from "../fromGateway/controlPlane.js";
 import { ONE_TO_ONE_CHAT } from "../fromGateway/agent_ledger.js";
 import { loggedSteps, oneRowPerText, realLedger, realRow } from "./realChat.js";
@@ -76,6 +75,8 @@ import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
 import { checkInTestChat } from "./checkin.js";
 import { searchBenchForPerson, searchForPerson } from "./search.js";
 import { forwardToPreview, openOnPreview } from "./preview.js";
+import { conversationOf, conversationStart, handleOf, setsList } from "./conversations.js";
+import { changePeople, makeWorld, startRows, WORLD_SOURCE, worldAbout, worldInput, worldSpeaker } from "./world.js";
 
 export { oneRowPerText };
 
@@ -85,11 +86,9 @@ export const DAILY_SENDS = 200;
 export const MAX_TEXT = 4_000;
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
-const CONVO_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
 /** The bench's Maya: her Dev conversation when the sets have one, else a fresh 1:1 (Dev2 removed it 2026-11-17). */
 export const MAYA_CONVO = "maya-and-tex";
-const MINUTE = 60_000;
 
 const refused = (status, error) => json({ error }, status);
 const randomId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -108,71 +107,6 @@ async function sha256Hex(text) {
 
 /** A row as the Lab reads it: the ledger's event id left out. */
 const shown = ({ eid: _eid, ...row }) => row;
-
-/** A Training or Dev conversation as the Lab has it: its draft over the repo's copy. Never the Test Set. */
-async function conversationOf(controlPlane, token, id) {
-  if (typeof id !== "string" || !CONVO_ID.test(id)) return { error: [400, "name the conversation: convId"] };
-  const draft = await controlPlane.labSandbox(token, "set", { id }).catch(() => null);
-  const conv = draft?.status === "ok" ? parse(draft.conv) : (REPO.sets ?? []).find((c) => c.id === id) ?? null;
-  if (!conv || !Array.isArray(conv.msgs)) return { error: [404, `There is no Training or Dev conversation ${id}.`] };
-  if (conv.set === "test") return { error: [403, "The Test Set is people only and never runs here."] };
-  return { conv };
-}
-
-/**
- * `sets`: the Training and Dev conversations a test chat can start from, each as the Lab has it (its draft over the
- * repo's copy, `texSets.ts` `listDrafts` through the control plane), a removed one left out. The Test Set is never kept
- * there or in the repo's copy, and anything that says it is one is left out here too.
- */
-async function setsList(controlPlane, token) {
-  const answer = await controlPlane.labSandbox(token, "sets", {}).catch(() => null);
-  if (answer === null) return refused(503, "the control plane did not answer");
-  const drafts = answer.status === "ok" && Array.isArray(answer.drafts) ? answer.drafts.filter((d) => d && typeof d.id === "string") : [];
-  const byId = new Map(drafts.map((d) => [d.id, d]));
-  const repo = REPO.sets ?? [];
-  const convs = [];
-  for (const c of repo) {
-    const d = byId.get(c.id);
-    if (d?.removed) continue;
-    convs.push(d ? (parse(d.conv) ?? c) : c);
-  }
-  for (const d of drafts) if (!d.removed && !repo.some((c) => c.id === d.id)) convs.push(parse(d.conv));
-  const sets = convs
-    .filter((c) => c && typeof c.id === "string" && (c.set === "training" || c.set === "dev") && Array.isArray(c.msgs))
-    .map((c) => ({
-      id: c.id,
-      title: String(c.title ?? c.id),
-      set: c.set,
-      kind: c.kind === "group" ? "group" : "1:1",
-      people: c.kind === "group" ? (Array.isArray(c.members) ? c.members.length : 0) : 1,
-      texts: c.msgs.filter((m) => m && typeof m.text === "string").length,
-    }));
-  return json({ sets });
-}
-
-/** A conversation's messages as a test chat's start: rows, and the ledger entries a turn reads them from. */
-function conversationStart(conv, kind, base) {
-  const msgs = conv.msgs.filter((m) => m && typeof m.text === "string");
-  const until = typeof base === "string" && base !== "" ? msgs.findIndex((m) => m.id === base) : -1;
-  const kept = until < 0 ? msgs : msgs.slice(0, until);
-  const now = Date.now();
-  const rows = [];
-  const history = [];
-  kept.forEach((m, i) => {
-    const at = now - (kept.length - i) * MINUTE;
-    const eid = eventId(at);
-    const tex = m.tex === true || m.who === "Tex";
-    const who = tex ? "Tex" : kind === "group" ? String(m.who ?? "Someone") : "You";
-    rows.push({ id: String(m.id ?? eid), eid, who, text: m.text, at, prod: true });
-    history.push(tex
-      ? { v: 1, id: `ev${eid.replace("-", "")}`, eid, at, kind: "text", event: "text", from: { kind: "tex" }, text: m.text, delivered: true }
-      : { v: 1, id: `ev${eid.replace("-", "")}`, eid, at, kind: "text", event: "text", from: { kind: "person", ...(kind === "group" ? { name: handleOf(m.who) } : {}) }, text: m.text });
-  });
-  return { rows, history };
-}
-
-/** A bench name as a handle (`Mia` → `mia`). */
-const handleOf = (name) => String(name ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 64) || "someone";
 
 /** The most a drawn draft's graph may be: a whole config's steps and wires, with room to spare. */
 export const MAX_DRAWN_GRAPH = 500_000;
@@ -222,7 +156,9 @@ export async function open(env, controlPlane, token, who, input, origin) {
     chat = typeof input.chatId === "string" && input.chatId !== "" ? input.chatId : "me";
   } else if (source === "shared") {
     chat = input.chatId;
-  } else return refused(400, 'source is "chat", "set", "maya" or "shared"');
+  } else if (source === WORLD_SOURCE) {
+    return await openWorld(env, controlPlane, token, who, input, origin, drafted);
+  } else return refused(400, 'source is "chat", "set", "maya", "shared" or "world"');
 
   // A shared chat is someone else's: its session is the sharer's own, given only while it is listed (`shared.js`).
   let owner;
@@ -259,7 +195,6 @@ export async function open(env, controlPlane, token, who, input, origin) {
     people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
   }
   const sandboxId = randomId();
-  const stub = sandboxStub(env, who.userId, sandboxId);
   // The line every text here goes over: Photon, its delays measured from the real chat's own logged deliveries.
   const line = measuredLine(conv === null ? await loggedSteps(env, owner, ledgerChat) : []);
   const about = {
@@ -274,10 +209,36 @@ export async function open(env, controlPlane, token, who, input, origin) {
     ...(source === "shared" ? { shared: true } : {}),
     ...(group ? { chatKey: owner.chat, members: await sha256Hex(`lab:${chat}:${people.map((p) => p.handle).sort().join(",")}`) } : {}),
     people,
+    ...(conv !== null ? { convId: conv.id } : {}),
+  };
+  return await startChat(env, who, input, drafted, about, rows, history);
+}
+
+/** A made-up group chat (`world.js`): its people made on the preview first, then opened like any test chat. */
+async function openWorld(env, controlPlane, token, who, input, origin, drafted) {
+  const asked = worldInput(input.world);
+  if (asked.error) return refused(400, asked.error);
+  const sandboxId = randomId();
+  const line = measuredLine([]);
+  const groupId = `lab-world-${sandboxId}`;
+  const made = await makeWorld(controlPlane, token, { sandboxId, line: line.number, groupId, world: asked.world });
+  if (made.error) return refused(...made.error);
+  const about = { sandboxId, origin, line, source: WORLD_SOURCE, ...worldAbout({ sandboxId, made, world: asked.world, groupId }) };
+  const rows = startRows(asked.world, made.people, Date.now(), (at) => newIds(at));
+  return await startChat(env, who, input, drafted, about, rows, []);
+}
+
+/** A new test chat's object, seeded with its rows and history, and listed for its person. */
+async function startChat(env, who, input, drafted, base, rows, history) {
+  const { sandboxId, source, chat, kind } = base;
+  const group = kind === "group";
+  const people = base.people;
+  const stub = sandboxStub(env, who.userId, sandboxId);
+  const about = {
+    ...base,
     versionId: typeof input.versionId === "string" ? input.versionId : "main",
     config: drafted.config,
     ...(drafted.drawn ? { drawn: true } : {}),
-    ...(conv !== null ? { convId: conv.id } : {}),
     ...(typeof who.timeZone === "string" ? { timeZone: who.timeZone } : {}),
   };
   // The whole chat, in pieces a Durable Object call carries (`object.js` `SEED_CHUNK`).
@@ -335,6 +296,7 @@ async function liveView(stub, state, after) {
 /** Who a test row is from: a person's handle or a name in a group, the person in a 1:1; `{ speaker }` or `{ error }`. */
 function speakerOf(about, as) {
   if (about.kind !== "group") return { speaker: "You" };
+  if (about.source === WORLD_SOURCE) return worldSpeaker(about, as);
   const speaker = typeof as === "string" && as.trim() !== "" ? as.trim().slice(0, 64) : (about.people ?? [])[0]?.handle ?? "someone";
   if (!HANDLE.test(speaker) && !/^[\p{L}\p{N} ._\-']{1,40}$/u.test(speaker)) return { error: [400, "as is a person's handle or a name"] };
   return { speaker };
@@ -353,7 +315,8 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   const counted = await callSandbox(sandboxStub(env, who.userId, "index0000000000"), "count", { key: `sends:${day}`, max: DAILY_SENDS });
   if (!counted.ok) return refused(429, `${DAILY_SENDS} test texts a day: try again tomorrow`);
   // A shared chat's session is asked again on every text, so one no longer shared stops at once.
-  const answer = await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
+  // A made-up chat's session is the grant its own turn mints on the preview (`world.js`), never the caller's.
+  const answer = about.source === WORLD_SOURCE ? { status: "ok", session: null, chat: null } : await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
   // The test chat is this text's, taken in the object in one step: two sends at once never both get past here, whatever
   // the reads above saw. Until its turn starts, anything that fails gives the chat back.
@@ -604,7 +567,10 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       .map((chat) => ({ chatId: chat.key, name: String(chat.name ?? "Group chat"), kind: "group", people: Number.isSafeInteger(chat.people) && chat.people > 0 ? chat.people : 1 }));
     return json({ chats: [{ chatId: "me", name: "You and Tex", kind: "1:1", people: 1 }, ...groups] });
   }
-  if (input.op === "sets") return await setsList(controlPlane, token);
+  if (input.op === "sets") {
+    const listed = await setsList(controlPlane, token);
+    return listed.error ? refused(...listed.error) : json(listed);
+  }
   // `code: "#N"`: the test chat runs on pull request N's own preview, its code and its data (`preview.js`).
   if (input.op === "open") return (await openOnPreview({ env, controlPlane, token, who, input, origin, helpers: routeHelpers() })) ?? (await open(env, controlPlane, token, who, input, origin));
   if (input.op === "list") return json(await listOf(env, who.userId));
@@ -669,6 +635,16 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${input.sandboxId}`, value: null }).catch(() => {});
       await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: null }).catch(() => {});
       return json({ ok: true });
+    // Who is in a made-up chat changes (`world.js`): a row the chat shows, and the next text's people.
+    case "join":
+    case "leave": {
+      if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
+      const changed = await changePeople({ controlPlane, token, about: state.meta.chat, input, newRow: () => newIds() });
+      if (changed.error) return refused(...changed.error);
+      await callSandbox(stub, "meta", { key: "chat", value: changed.chat });
+      await callSandbox(stub, "row.add", { row: { ...changed.row, prod: false } });
+      return json(view(await callSandbox(stub, "state", {})));
+    }
     // For `tex_dev` (Dev2, 2026-11-16: an AI does everything the Lab does here): what the test chat is, the draft its
     // next texts run on, and its history file read as Replay reads a real one (`texDev/sandbox.js`).
     case "about":
@@ -695,6 +671,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
     }
     default:
-      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read, nightly or checkin");
+      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read, nightly, checkin, join or leave");
   }
 }
