@@ -166,7 +166,7 @@ export async function readAndAnswer(world, send, { question, askedAt, model = DE
 /** The judge on one answer (`prompt`: the benchmark's own, or the plain one): its verdict and what it said. */
 export async function judge(send, c, answer, model = DEFAULTS.judge, prompt = plainJudgePrompt) {
   const text = prompt({ id: c.id, type: c.kind, question: c.question, answer: c.answer }, answer || "(no answer)");
-  const got = await ask(send, { model, max_tokens: 10, temperature: 0, messages: [{ role: "user", content: text }] });
+  const got = await ask(send, { model, max_tokens: 10, messages: [{ role: "user", content: text }] });
   const said = got.reply ? textOf(got.reply.content) : "";
   return { correct: got.reply ? verdictOf(said) : null, said, error: got.error, usage: got.usage };
 }

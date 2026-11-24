@@ -10,7 +10,7 @@ import { test } from "node:test";
 
 import { abilityOf, BENCHES, beirOf, entryOf, fetchData, judgePrompt, sessionsOf, sliceOf, transcriptOf, utcMs, verdictOf } from "../../../../packages/bench/benchmarks/longmemeval/source.mjs";
 import { memoryCases } from "../../../../packages/bench/src/beir.mjs";
-import { filingTimes, meteredSend, readAndAnswer, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
+import { filingTimes, judge, meteredSend, readAndAnswer, readerSystem, runQuestion, scoresOf } from "../evals/memoryRun.mjs";
 import { fakeSend } from "../evals/cli.mjs";
 
 /** A LongMemEval item as the memory case its BEIR set gives (`memoryCases`). */
@@ -212,4 +212,16 @@ test("the eval's world searches as production does: a fact deep in one of many l
   assert.ok(results.some((text) => /2023-01-01T10-00/.test(text)), "the search names the session whose fact sits past the first 2,048 characters");
   // A cold world answers by scanning a budget of notes ("scanned 30 of 51 notes"); production answers from its database.
   assert.ok(results.length > 0 && results.every((text) => !/scanned \d+ of \d+ notes/.test(text)), "every search was answered from the search database, not a budgeted scan");
+});
+
+test("the memory judge sends no temperature: the judge model refuses one with a 400", async () => {
+  const bodies = [];
+  const send = async (body) => {
+    bodies.push(JSON.parse(body));
+    return new Response(JSON.stringify({ content: [{ type: "text", text: "yes" }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 });
+  };
+  const got = await judge(send, { id: "q1", kind: "single-session-user", question: "Where did they park?", answer: "Level 2" }, "Level 2");
+  assert.equal(bodies.length, 1);
+  assert.equal("temperature" in bodies[0], false);
+  assert.equal(got.correct, true);
 });

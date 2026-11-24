@@ -1,5 +1,5 @@
 // Tests for the steadier judge (2026-11-19): the conversation's own day, lines the run's record decides, majority
-// votes at temperature 0, and the Lab's Haiku judge. Split from judge.test.mjs, whose fixtures are repeated here.
+// votes with no temperature (the judge model refuses one), and the Lab's Haiku judge. Split from judge.test.mjs, whose fixtures are repeated here.
 // The transport is a recording fake, so no key is needed and no request leaves the test. All names are invented.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -284,7 +284,7 @@ test("the votes are decided by majority, each answer's verdicts show the count, 
   }
 });
 
-test("each question is asked once per vote, every body is different, and every body is at temperature 0 and numbered", async () => {
+test("each question is asked once per vote, every body is different, sends no temperature, and is numbered", async () => {
   const { dir, path, cleanup } = await folder();
   try {
     const rec = recording(fakeJudge());
@@ -292,7 +292,7 @@ test("each question is asked once per vote, every body is different, and every b
     assert.equal(rec.bodies.length, 2 * DEFAULT_VOTES, "two questions, three votes each");
     assert.equal(new Set(rec.bodies).size, rec.bodies.length, "no two bodies are the same");
     for (const body of rec.bodies) {
-      assert.equal(JSON.parse(body).temperature, 0);
+      assert.equal("temperature" in JSON.parse(body), false, "the judge model refuses a temperature (400)");
       assert.match(body, /Grading regrade 2, vote [1-3] of 3\./);
     }
     assert.equal(result.requests, 2 * DEFAULT_VOTES);
