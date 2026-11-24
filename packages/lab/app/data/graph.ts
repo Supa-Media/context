@@ -69,6 +69,15 @@ export function N(id: string, label: string, o: Partial<LabNode>): LabNode {
   return Object.assign({id,label,goal:"",log:false,on:true,rounds:1,out:300,ctx:[],ms:0,timeoutS:0,areas:[],file:"",note:"",icon:"judge"},o) as LabNode;
 }
 
+/**
+ * A saved graph with every step's canvas fields filled in, as `mainGraph0` fills them for another architecture's steps:
+ * a draft made from main by `tex_dev create` keeps those steps as their own config has them, with no `ctx`.
+ */
+export function withStepDefaults<G extends { nodes: LabNode[] }>(g: G): G {
+  if (!Array.isArray(g.nodes) || g.nodes.every((n) => Array.isArray(n?.ctx))) return g;
+  return { ...g, nodes: g.nodes.map((n) => (Array.isArray(n?.ctx) ? n : N(String(n.id), String(n.label ?? n.id), n))) };
+}
+
 export const NODE_INFO: Record<string, { goal: string; logs: string[] | null }> = {
  checkin:{goal:"Three times a day, look at what changed in their workspace, mail and calendar, and text them only what can't wait; most looks stay quiet. Runs the front door with its own read-only tools and setup model.",logs:["note (check-in)"]},
  routine:{goal:"Run a routine note under tex/routines/ on its schedule, as the person who wrote it, and text what it found unless it has nothing to say.",logs:["note (routine)","thinking","tool","judge"]},

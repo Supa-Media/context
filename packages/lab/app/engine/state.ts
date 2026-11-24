@@ -9,7 +9,7 @@
  * as globals, and porting them with the same names and the same reads is what
  * keeps the Lab "EXACTLY like the artifact" (Dev2, 2026-11-13).
  */
-import { groupsOf, MAIN_STAMP, mainGraph } from "../data/graph";
+import { groupsOf, MAIN_STAMP, mainGraph, withStepDefaults } from "../data/graph";
 import { BASE_MODELS } from "../data/models";
 import type { LabCase, LabGraph, LabModel, LabVersion, Selection, Tool, View } from "../types";
 import { foldAround, isGroupFocus, unfoldGroups } from "./groups";
@@ -214,7 +214,10 @@ export const setSaver = (f: ((v: LabVersion) => Promise<void>) | null) => {
 
 export const G = (): LabGraph => lab.cur.graph;
 /** The graph as the Lab shows it at this focus: every group folded, the focused group open (`groups.ts`). */
-export const shownGraph = (g: LabGraph, focusId: string | null): LabGraph => foldAround(g, focusId, groupsOf(g));
+export const shownGraph = (g: LabGraph, focusId: string | null): LabGraph => {
+  const full = withStepDefaults(g);
+  return foldAround(full, focusId, groupsOf(full));
+};
 /** A step by id: one drawn, or one inside a folded group's box (a run, a case or a log names steps, never boxes). */
 export const node = (id: string, g: LabGraph = G()) => g.nodes.find((n) => n.id === id) ?? (g.folded ? Object.values(g.folded).flatMap((f) => f.nodes).find((n) => n.id === id) : undefined);
 /** The graph's steps, every folded group opened: what a run, a grid or a list of steps reads (the canvas draws boxes). */
