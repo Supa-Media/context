@@ -184,6 +184,7 @@ jobs:
           - 'apps/mcp/src/agentActivity.js'
           - 'apps/mcp/src/chaos/contacts.js'
           - 'apps/mcp/src/chaos/rubric.js'
+          - 'apps/mcp/src/data/formula/**'
           - 'apps/mcp/src/encryption.js'
           - 'apps/mcp/src/encryption/**'
           - 'apps/mcp/src/forms.js'

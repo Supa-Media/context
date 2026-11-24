@@ -200,6 +200,15 @@ describe("selection and the parser's problems", () => {
     expect(compareCells("usd", "9", "10")).toBeLessThan(0);
     expect(compareCells("text", "a2", "a10")).toBeLessThan(0);
   });
+
+  test("an instant sorts by its moment, picks the latest by it, and shows its UTC day", () => {
+    // By text, `T09:00:30Z` sorts before `T09:00Z`.
+    expect(compareCells("date", "2026-11-23T09:00Z", "2026-11-23T09:00:30Z")).toBeLessThan(0);
+    expect(compareCells("date", "2026-11-23", "2026-11-23T00:00:01Z")).toBeLessThan(0);
+    expect(displayText("date", "2026-11-23T09:30Z")).toBe("Nov 23, 2026");
+    const sheet = parseSheet("at:date,n:number\n2026-11-23T09:00:30Z,1\n2026-11-23T09:00Z,2\n");
+    expect(calcValue("Latest", sheet as never, sheet.columns[1] as never, [0, 1])).toBe("1");
+  });
 });
 
 describe("every edit the grid makes is text in, text out", () => {
