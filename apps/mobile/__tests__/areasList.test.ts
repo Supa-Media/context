@@ -148,15 +148,16 @@ describe("the Areas List", () => {
     expect(strip(one("area-file-areas/finance/receipts").textContent)).toContain("2 notes");
   });
 
-  test("an unowned area says No owner and draws the ring dot; a warm one draws the warn dot", async () => {
-    await render();
+  test("an unowned area says No owner and draws the ring dot; a missed target draws the warn dot", async () => {
+    // Finance's Monthly cost is $640 against "under $600"; Engineering has modes but no Manager, which is no longer flagged.
+    await render({ readingOf: (seat) => (seat.folder === "areas/finance" ? { value: "$640", date: "2026-11-23", series: [] } : undefined) });
     const design = one("area-row-areas/design");
     expect(strip(design.textContent)).toContain("No owner");
     expect(all("area-dot-ring", design)).toHaveLength(1);
-    const engineering = one("area-row-areas/engineering");
-    expect(all("area-dot-warn", engineering)).toHaveLength(1);
-    expect(all("area-gap-dot", engineering)).toHaveLength(1);
-    expect(all("area-dot-neutral", one("area-row-areas/finance"))).toHaveLength(1);
+    expect(all("area-dot-neutral", one("area-row-areas/engineering"))).toHaveLength(1);
+    const finance = one("area-row-areas/finance");
+    expect(all("area-dot-warn", finance)).toHaveLength(1);
+    expect(strip(finance.textContent)).toContain("$640 / < $600");
   });
 
   test("an area with five files shows three and a Show 2 more row, which shows all five", async () => {
