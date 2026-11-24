@@ -16,6 +16,7 @@
  *
  *   context.lc (apex)
  *     /api/auth/[...]  -> Convex HTTP actions, path unchanged
+ *     /api/sheets/[...] -> Convex HTTP actions (sheet sources), path unchanged
  *     /ingest/[...]    -> PostHog, the app's product analytics, carrying only
  *                         an allowlist of headers (analyticsIngest.ts)
  *     /_expo/[...]     -> the Expo web app, cacheable forever
@@ -182,7 +183,13 @@ export const WWW_HOST = "www.context.lc";
  * prefix is not a degraded experience, it is a dead link: the Worker serves
  * the web app's 404 and Convex is never consulted.
  */
-export const CONVEX_PREFIXES = ["/api/auth/"] as const;
+export const CONVEX_PREFIXES = [
+  "/api/auth/",
+  // Rows a sheet source key adds (`apps/convex/functions/lib/sheetSourceRoute.ts`):
+  // `POST /api/sheets/rows`, the key in the Authorization header, which the
+  // proxy forwards untouched.
+  "/api/sheets/",
+] as const;
 
 /**
  * `/.well-known/openid-configuration` and `/.well-known/jwks.json` are

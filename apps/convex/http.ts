@@ -147,6 +147,7 @@ import * as noteLinkCards from "./functions/lib/publicRoutes/noteLinkCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
 import { calendarChannelRoute, calendarPushHandler, pubsubPushHandler, pubsubPushRoute } from "./functions/lib/googlePush/routes";
+import { sheetRowsHandler, sheetSourceRoute } from "./functions/lib/sheetSourceRoute";
 import { TEX_MACHINE_GATEWAY_ROUTES } from "./functions/lib/gatewayRoutes/texMachines";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
 import { addAuthHttpRoutes, withSecurityHeaders } from "./functions/lib/httpSecurityHeaders";
@@ -702,6 +703,9 @@ export const googlePubsubPush = pubsubPushRoute(pubsubPushHandler);
 http.route({ path: "/google/push/pubsub", method: "POST", handler: googlePubsubPush });
 export const googleCalendarPush = calendarChannelRoute(calendarPushHandler);
 http.route({ path: "/google/push/calendar", method: "POST", handler: googleCalendarPush });
+/** Rows a sheet source key adds to its one sheet, from anything that can POST. `lib/sheetSourceRoute.ts`. */
+export const sheetRows = sheetSourceRoute(sheetRowsHandler);
+http.route({ path: "/api/sheets/rows", method: "POST", handler: sheetRows });
 
 export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
 export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTimingHandler);

@@ -73,11 +73,23 @@ export const PUSH_ROUTE_FACTORIES: Record<string, string> = {
   calendarChannelRoute: "acceptCalendarNotification",
 };
 
+/**
+ * A sheet source's door (`lib/sheetSourceRoute.ts`): a `ctxs_` key in the
+ * `Authorization` header, in its exact shape, hashed before any handler runs.
+ * The key is the customer's own, minted per sheet and revocable, so it is
+ * neither a shared secret of ours nor a signature. What it owes is proved in
+ * `__tests__/sheetSources.test.ts`.
+ */
+export const SOURCE_KEY_ROUTE_FACTORIES: Record<string, string> = {
+  sheetSourceRoute: "sourceKeyHash",
+};
+
 /** Every factory a route in `http.ts` may be built by, of any kind. */
 const ALL_ROUTE_FACTORIES: Record<string, string> = {
   ...ROUTE_FACTORIES,
   ...SIGNED_ROUTE_FACTORIES,
   ...PUSH_ROUTE_FACTORIES,
+  ...SOURCE_KEY_ROUTE_FACTORIES,
 };
 
 /**

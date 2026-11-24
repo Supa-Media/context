@@ -28,3 +28,8 @@ export function useConsoleData(): ConsoleData {
   }
   return value;
 }
+
+/** The console's data, or `null` outside the console (a shared note, a test): for a control that only the console offers. */
+export function useOptionalConsoleData(): ConsoleData | null {
+  return useContext(ConsoleDataContext);
+}

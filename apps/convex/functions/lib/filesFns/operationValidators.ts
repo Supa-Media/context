@@ -64,6 +64,7 @@ import {
 } from "./searchValidators";
 
 export const operationResultValidator = v.union(
+  v.object({ kind: v.literal("sheetAppended"), path: v.string(), etag: v.string(), appended: v.number() }),
   v.object({
     kind: v.literal("routineRuns"),
     runs: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
@@ -575,4 +576,6 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("readActivity") }),
   /** A routine's recent runs, read by the routine note's path. See `fileOps/routineRuns.ts`. */
   v.object({ kind: v.literal("routineRuns"), path: v.string() }),
+  /** Rows a sheet source adds to one sheet; append only. See `fileOps/sheetAppend.ts`. */
+  v.object({ kind: v.literal("sheetAppend"), path: v.string(), rows: v.array(v.record(v.string(), v.string())) }),
 );

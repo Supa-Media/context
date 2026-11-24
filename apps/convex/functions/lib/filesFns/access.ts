@@ -249,6 +249,7 @@ export function indexChangeOf(
   switch (operation.kind) {
     case "write":
     case "removeEncryption":
+    case "sheetAppend":
       return { written: [operation.path], gone: [] };
     case "move":
     case "restoreTrash":
