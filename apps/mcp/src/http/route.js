@@ -63,6 +63,7 @@ import { ACCESS_SOCKET_PATH, handleAccess, handleAgentActivity, handlePresence, 
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleNoteRead, NOTE_READ_PATH } from "../live/noteReadRoute.js";
 import { handleNoteWrite, NOTE_WRITE_PATH } from "../live/noteWriteRoute.js";
+import { FOLDER_NOTES_PATH, handleFolderNotes } from "../live/folderNotesRoute.js";
 import { handleLiveTicket, LIVE_TICKET_PATH } from "../live/ticket.js";
 import { FILE_OP_PATHS, handleFileOp } from "../live/fileOpsRoute.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
@@ -277,6 +278,8 @@ export async function route(request, env, ctx) {
     const noteReadRoute = path === NOTE_READ_PATH;
     // The app saving a whole note, written into the workspace's object (`live/noteWriteRoute.js`).
     const noteWriteRoute = path === NOTE_WRITE_PATH;
+    // A folder page's notes and their front matter, from the workspace's object (`live/folderNotesRoute.js`).
+    const folderNotesRoute = path === FOLDER_NOTES_PATH;
     if (
       summaryRoute ||
       path === "/inbox" ||
@@ -291,6 +294,7 @@ export async function route(request, env, ctx) {
       fileOpRoute ||
       noteReadRoute ||
       noteWriteRoute ||
+      folderNotesRoute ||
       appRoute ||
       texPageRoute ||
       messagesBackupRoute ||
@@ -410,6 +414,7 @@ export async function route(request, env, ctx) {
       }
       if (fileOpRoute) return handleFileOp(request, path, store, session);
       if (noteReadRoute) return handleNoteRead(request, store, session);
+      if (folderNotesRoute) return handleFolderNotes(request, store, session);
       if (noteWriteRoute) {
         // The save's change is recorded as this person's, from the app (`activity/record.js`).
         store.actor = actorFor(session);

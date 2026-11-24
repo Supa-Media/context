@@ -14,7 +14,10 @@ Already through the gateway, each with the control plane as its fallback:
 - live typing and the editor's whole-text replacement: `/collaboration` (`live/collaborationRoute.js`);
 - trash, restore, move, rename, copy and duplicate: `POST /files/*` (`live/fileOpsRoute.js`);
 - the search bar: `POST /app/search` (`http/appSearch.js`);
-- the tree and the change signal: the object's tree socket and its head (`objectTree.ts`, `objectHeads.ts`).
+- the tree and the change signal: the object's tree socket and its head (`objectTree.ts`, `objectHeads.ts`);
+- folder pages' and Lists' notes with their front matter: `POST /files/folder-notes` (`live/folderNotesRoute.js`,
+  `offline/gatewayFolderNotes.ts`), added the same day after the owner timed the Areas page at "like 3 seconds" and
+  asked to "just be able to talk directly to cloudflare"; Convex's `folderNotes` answers what it hands back.
 
 Still through Convex's `runFileOperation`:
 

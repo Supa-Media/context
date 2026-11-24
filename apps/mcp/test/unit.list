@@ -569,6 +569,7 @@ test/objectDateFacts.test.mjs
 test/datePropertiesWrite.test.mjs
 test/dateStamp.test.mjs
 test/agentCheckInTexts.test.mjs
+test/folderNotesRoute.test.mjs
 test/noteReadRoute.test.mjs
 test/noteWriteRoute.test.mjs
 test/toldFacts.test.mjs

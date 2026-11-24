@@ -43,6 +43,7 @@ import { MESSAGES_BACKUP_LOG_ROUTE } from "../src/communications/messagesBackupR
 import { MESSAGES_BACKUP_ROUTE } from "../../../packages/communications/src/backup.js";
 import { NOTE_READ_PATH } from "../src/live/noteReadRoute.js";
 import { NOTE_WRITE_PATH } from "../src/live/noteWriteRoute.js";
+import { FOLDER_NOTES_PATH } from "../src/live/folderNotesRoute.js";
 
 /** Every route set `http/route.js` dispatches on by exact path, by name. */
 const ROUTE_SETS = {
@@ -75,6 +76,7 @@ const ROUTE_SETS = {
   MESSAGES_BACKUP_ROUTE: [MESSAGES_BACKUP_ROUTE],
   NOTE_READ_PATH: [NOTE_READ_PATH],
   NOTE_WRITE_PATH: [NOTE_WRITE_PATH],
+  FOLDER_NOTES_PATH: [FOLDER_NOTES_PATH],
   // Exact paths `route.js` names inline.
   INLINE: ["/mcp", "/mcp/chatgpt", "/mcp/chatgpt/v2", "/inbox", "/agent", "/agent/try", "/agent/review", "/presence", "/collaboration", "/agent-activity", "/approvals"],
 };
