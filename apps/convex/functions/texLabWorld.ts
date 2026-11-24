@@ -21,6 +21,7 @@
  * a real line. Guarded by `isIsolatedPreview` on every call: production and staging answer `refused` and write nothing.
  */
 
+import { LAB_WORLD_EMAIL_DOMAIN } from "./lib/labWorldPeople";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -112,7 +113,7 @@ async function freePhone(ctx: MutationCtx, seed: number, taken: Set<string>): Pr
 
 /** The made-up person's account for this chat, made the first time: user, personal workspace (their handle) and number. */
 async function accountFor(ctx: MutationCtx, key: string, name: string, phone: string, now: number): Promise<{ userId: Id<"users">; handle: string | null }> {
-  const email = `lab-${key.slice(0, 12)}-${seedOf(name.toLowerCase()).toString(16)}@lab-world.invalid`;
+  const email = `lab-${key.slice(0, 12)}-${seedOf(name.toLowerCase()).toString(16)}@${LAB_WORLD_EMAIL_DOMAIN}`;
   const existing = await ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", email)).unique();
   const userId = existing?._id ?? (await ctx.db.insert("users", { email, emailVerificationTime: now, name, isActive: true, createdAt: now }));
   if ((await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).first()) === null) {

@@ -11,6 +11,7 @@ import { parseAdminEmails } from "./admin";
 import { claimName, findName } from "./nameClaims";
 import { seedIngestionSettings } from "./ingestionStore";
 import { keyIfBornEmpty } from "./noteIds/born";
+import { isLabWorldEmail } from "./labWorldPeople";
 
 export const PERSONAS = ["alpha", "beta", "gamma", "delta", "epsilon"] as const;
 export type Persona = typeof PERSONAS[number];
@@ -85,9 +86,14 @@ export async function seedPersonaWorkspaces(
     // A reset may remove fixture identities, never an unrelated teammate. The
     // official pinned workspace is allowed to accumulate real staff members,
     // so its reset only repairs the fixture personas and preserves the rest.
-    if (!fixture.vouchedByStaff && memberships.some(m => !Object.values(users).includes(m.userId))) {
+    // The Lab's made-up people (`labWorldPeople.ts`) are a preview's own fixtures too: a reset removes them.
+    const others = memberships.filter(m => !Object.values(users).includes(m.userId));
+    const madeUp = new Set<Id<"users">>();
+    for (const m of others) if (isLabWorldEmail((await ctx.db.get(m.userId))?.email)) madeUp.add(m.userId);
+    if (!fixture.vouchedByStaff && others.some(m => !madeUp.has(m.userId))) {
       throw new Error(`Non-fixture member in ${fixture.slug}; refusing to reset their workspace.`);
     }
+    if (reset) for (const m of others) if (madeUp.has(m.userId)) await ctx.db.delete(m._id);
     for (const persona of PERSONAS) {
       const role = fixture.roles[persona];
       const member = memberships.find(m => m.userId === users[persona]);
