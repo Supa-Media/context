@@ -243,14 +243,14 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       cursor: "pointer",
     },
     fabActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-    // The dock's gap is the air between this and the button.
+    // The dock's gap is the air between this and the button. `Menu.web.tsx`'s panel, so it reads as the app's menu.
     panel: {
-      width: 312,
-      padding: 10,
-      borderRadius: radii.console,
-      backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.line,
-      boxShadow: shadows.floating,
+      width: 260,
+      padding: 6,
+      borderWidth: 1,
+      borderColor: colors.lineStrong,
+      borderRadius: radii.xl,
+      backgroundColor: colors.surface3,
+      boxShadow: "0 24px 60px -18px rgba(0,0,0,.9)",
     },
   });

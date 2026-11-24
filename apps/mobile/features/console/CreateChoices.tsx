@@ -1,9 +1,8 @@
-import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { fonts, motion, pointerType, radii, touchType } from "../design/tokens";
-import { useReducedMotion } from "../design/useReducedMotion";
+import { radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import type { CreateRow } from "./files/createSheet";
 import { baseName, folderLabel } from "./files/paths";
@@ -15,16 +14,22 @@ import { baseName, folderLabel } from "./files/paths";
  *
  * It was a menu of five rows, each a label and a sentence under it, and the
  * owner called it wordy (Dev, 2026-11-24: "make it a little bit more cleaner
- * and intuitive and maybe more fun"). So the recording is one wide button on
- * top, because it starts something rather than making a file, and the four
- * files are tiles with a coloured mark and one word each. Where they land is
- * said once, under the tiles, instead of on every row.
+ * and intuitive and maybe more fun"). So the recording is one row on top,
+ * because it starts something rather than making a file, and the four files
+ * are tiles of an icon and one word. Where they land is said once, under the
+ * tiles, instead of on every row.
+ *
+ * **It is drawn in the menu's own language** (`MenuRow`, `Menu.web.tsx`): the
+ * same panel, type roles, muted icons and accent-wash highlight. A first cut
+ * gave each tile a status colour and the meeting a red button, and the owner
+ * said it looked like a different design system: status colours here mean
+ * status, and brand blue means live or yours, so neither is decoration.
  *
  * The accessible names stay the full verbs ("New note"), because a tile that
  * says "Note" is a noun to a screen reader.
  */
 
-/** What each row is called to assistive tech, and the word on its tile. */
+/** What each row is called to assistive tech. */
 export const CREATE_LABELS: Record<CreateRow, string> = {
   "resume-meeting": "Resume meeting",
   "new-meeting": "New meeting",
@@ -51,23 +56,12 @@ const TILE_ICONS: Partial<Record<CreateRow, IconName>> = {
 /** The tile order: the two most made first. */
 const TILE_ORDER: CreateRow[] = ["new-note", "new-sheet", "new-drawing", "new-folder"];
 
-function tone(colors: Colors, row: CreateRow): { mark: string; wash: string } {
-  switch (row) {
-    case "new-note":
-      return { mark: colors.accent, wash: colors.accentDim };
-    case "new-sheet":
-      return { mark: colors.ok, wash: colors.okWash };
-    case "new-drawing":
-      return { mark: colors.warn, wash: colors.warnWash };
-    default:
-      return { mark: colors.chromeMuted, wash: colors.chipFill };
-  }
-}
-
 /** Where a file made from here lands, in a few words. */
 export function landsIn(folder: string): string {
   return folder === "" ? "Goes at the top of your workspace" : `Goes in ${folderLabel(baseName(folder))}`;
 }
+
+type PressState = { hovered?: boolean; pressed: boolean; focused?: boolean };
 
 export function CreateChoices({
   rows,
@@ -82,139 +76,107 @@ export function CreateChoices({
   folder?: string;
   /** Which meeting Resume carries on. */
   resumeDetail?: string;
-  /** The phone's sheet: larger marks and the touch type scale, four tiles in a row. */
+  /** The phone's sheet: the touch rows and type, four tiles in a row. */
   touch: boolean;
   onChoose: (row: CreateRow) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const scale = touch ? touchType : pointerType;
   const tiles = TILE_ORDER.filter((row) => rows.includes(row));
-  const mark = touch ? 44 : 36;
-  const reduced = useReducedMotion();
+  const lit = ({ hovered, pressed, focused }: PressState) => hovered === true || pressed || focused === true;
 
-  return (
-    <View style={styles.stack} testID="create-choices">
-      {rows.includes("resume-meeting") ? (
-        <Pressable
-          role="menuitem"
-          accessibilityLabel={CREATE_LABELS["resume-meeting"]}
-          testID="create-row-resume-meeting"
-          onPress={() => onChoose("resume-meeting")}
-          style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
-            styles.wide,
-            { backgroundColor: colors.accentDim },
-            (hovered || pressed) && styles.wideHot,
-          ]}
-        >
-          <View style={[styles.round, { width: mark, height: mark, backgroundColor: colors.accent }]}>
-            <Icon name="play" size={touch ? 20 : 17} color={colors.surface} />
-          </View>
+  const wide = (row: "resume-meeting" | "new-meeting", icon: IconName, label: string, detail: string | undefined) => (
+    <Pressable
+      key={row}
+      role="menuitem"
+      accessibilityLabel={CREATE_LABELS[row]}
+      testID={`create-row-${row}`}
+      onPress={() => onChoose(row)}
+      style={(state: PressState) => [styles.wide, touch ? styles.wideTouch : styles.widePointer, lit(state) && styles.lit]}
+    >
+      {(state: PressState) => (
+        <>
+          <Icon name={icon} size={touch ? 20 : 16} color={lit(state) ? colors.accentText : colors.text2} />
           <View style={styles.words}>
-            <Text style={[styles.title, { fontSize: scale.lede }]}>Resume meeting</Text>
-            {resumeDetail === undefined ? null : (
-              <Text numberOfLines={1} style={[styles.sub, { fontSize: touch ? pointerType.lede : pointerType.ui }]}>
-                {resumeDetail}
+            <Text variant={touch ? "body" : "tree"} style={styles.label}>
+              {label}
+            </Text>
+            {detail === undefined ? null : (
+              <Text variant="treeMeta" numberOfLines={1}>
+                {detail}
               </Text>
             )}
           </View>
-        </Pressable>
-      ) : null}
+        </>
+      )}
+    </Pressable>
+  );
 
-      {rows.includes("new-meeting") ? (
-        <Pressable
-          role="menuitem"
-          accessibilityLabel={CREATE_LABELS["new-meeting"]}
-          testID="create-row-new-meeting"
-          onPress={() => onChoose("new-meeting")}
-          style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
-            styles.wide,
-            { backgroundColor: colors.critWash },
-            (hovered || pressed) && styles.wideHot,
-          ]}
-        >
-          <View style={[styles.round, { width: mark, height: mark, backgroundColor: colors.crit }]}>
-            <Icon name="mic" size={touch ? 20 : 17} color={colors.surface} />
-          </View>
-          <View style={styles.words}>
-            <Text style={[styles.title, { fontSize: scale.lede }]}>Record a meeting</Text>
-            <Text style={[styles.sub, { fontSize: touch ? pointerType.lede : pointerType.ui }]}>Lands in your inbox</Text>
-          </View>
-        </Pressable>
-      ) : null}
+  return (
+    <View style={styles.stack} testID="create-choices">
+      {rows.includes("resume-meeting") ? wide("resume-meeting", "play", "Resume meeting", resumeDetail) : null}
+      {rows.includes("new-meeting") ? wide("new-meeting", "mic", "Record a meeting", "Lands in your inbox") : null}
 
       {tiles.length === 0 ? null : (
-        <View style={styles.grid}>
-          {tiles.map((row) => {
-            const { mark: ink, wash } = tone(colors, row);
-            return (
+        <>
+          {rows.includes("new-meeting") ? <View aria-hidden style={[styles.rule, touch && styles.ruleTouch]} /> : null}
+          <View style={[styles.grid, touch && styles.gridTouch]}>
+            {tiles.map((row) => (
               <Pressable
                 key={row}
                 role="menuitem"
                 accessibilityLabel={CREATE_LABELS[row]}
                 testID={`create-row-${row}`}
                 onPress={() => onChoose(row)}
-                style={({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
+                style={(state: PressState) => [
                   styles.tile,
                   touch ? styles.tileTouch : styles.tilePointer,
-                  !reduced && LIFT,
-                  hovered && !reduced && styles.tileHover,
-                  hovered && reduced && styles.tileHoverStill,
-                  pressed && styles.tilePressed,
+                  lit(state) && styles.lit,
                 ]}
               >
-                <View style={[styles.square, { width: mark - 2, height: mark - 2, backgroundColor: wash }]}>
-                  <Icon name={TILE_ICONS[row]!} size={touch ? 20 : 18} color={ink} />
-                </View>
-                <Text style={[styles.title, { fontSize: pointerType.lede }]}>{TILE_WORDS[row]}</Text>
+                {(state: PressState) => (
+                  <>
+                    <Icon name={TILE_ICONS[row]!} size={touch ? 22 : 18} color={lit(state) ? colors.accentText : colors.text2} />
+                    <Text variant={touch ? "body" : "tree"} style={styles.label}>
+                      {TILE_WORDS[row]}
+                    </Text>
+                  </>
+                )}
               </Pressable>
-            );
-          })}
-        </View>
-      )}
-
-      {tiles.length === 0 || folder === undefined ? null : (
-        <Text style={[styles.where, { fontSize: touch ? pointerType.ui : pointerType.meta }]} testID="create-lands-in">
-          {landsIn(folder)}
-        </Text>
+            ))}
+          </View>
+          {folder === undefined ? null : (
+            <Text variant="treeMeta" style={[styles.where, touch && styles.whereTouch]} testID="create-lands-in">
+              {landsIn(folder)}
+            </Text>
+          )}
+        </>
       )}
     </View>
   );
 }
 
-/** A tile lifts a little under the pointer: a web transition, which React Native's types do not list. */
-const LIFT = { transition: `transform 120ms ${motion.ease}, background-color 120ms ${motion.ease}` } as unknown as ViewStyle;
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    stack: { gap: 8 },
-    wide: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: radii.xl,
-      cursor: "pointer",
-    },
-    wideHot: { opacity: 0.86 },
-    round: { borderRadius: radii.pill, alignItems: "center", justifyContent: "center" },
-    words: { flexShrink: 1, gap: 1 },
-    title: { fontFamily: fonts.body, fontWeight: "600", color: colors.text },
-    sub: { fontFamily: fonts.body, color: colors.muted },
-    grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-    tile: {
-      borderRadius: radii.xl,
-      backgroundColor: colors.surface2,
-      cursor: "pointer",
-    },
-    // Two by two in the popover: each tile half the row, less the gap.
-    tilePointer: { width: "48.5%", flexGrow: 1, alignItems: "flex-start", gap: 10, padding: 12 },
-    // Four in a row on the phone, centred like an app grid.
-    tileTouch: { borderRadius: radii.control, flexBasis: 0, flexGrow: 1, alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 4 },
-    tileHover: { backgroundColor: colors.surface3, transform: [{ translateY: -2 }] },
-    tileHoverStill: { backgroundColor: colors.surface3 },
-    tilePressed: { backgroundColor: colors.surface3, transform: [{ scale: 0.97 }] },
-    square: { borderRadius: radii.xl, alignItems: "center", justifyContent: "center" },
-    where: { fontFamily: fonts.body, color: colors.muted, paddingHorizontal: 6, paddingTop: 2 },
+    stack: { gap: 2 },
+    wide: { flexDirection: "row", alignItems: "center", gap: space.x3, cursor: "pointer" },
+    // `MenuRow`'s pointer row, tall enough for its detail.
+    widePointer: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: radii.sm },
+    // `MenuRow`'s touch row.
+    wideTouch: { paddingVertical: space.x3, paddingHorizontal: space.x4, borderRadius: radii.md, backgroundColor: colors.surface2 },
+    // The menu's one highlight: hover and keyboard focus look the same.
+    lit: { backgroundColor: colors.accentDim },
+    words: { flexShrink: 1 },
+    label: { color: colors.text },
+    rule: { height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginVertical: 4, marginHorizontal: 10 },
+    ruleTouch: { marginVertical: space.x1, height: 0 },
+    grid: { flexDirection: "row", flexWrap: "wrap", gap: 2 },
+    gridTouch: { gap: space.x2 },
+    tile: { alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" },
+    // Two by two in the popover.
+    tilePointer: { width: "49%", flexGrow: 1, paddingVertical: 12, borderRadius: radii.sm },
+    // Four in a row on the phone, each a well like the sheet's other rows.
+    tileTouch: { flexBasis: 0, flexGrow: 1, paddingVertical: space.x3, borderRadius: radii.md, backgroundColor: colors.surface2 },
+    where: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 2 },
+    whereTouch: { paddingHorizontal: space.x1 },
   });
