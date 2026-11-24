@@ -25,6 +25,7 @@ import type { Line, LineDeps, Picture } from "./line";
 import { linksIn } from "./linkPreviews";
 import type { GroupLine, GroupLineDeps, GroupPlace } from "./groupLine";
 import type { Media } from "./outgoing";
+import { effectOf } from "./sendEffect";
 import { tagParts } from "./groupTags";
 import {
   contactPhoton,
@@ -229,9 +230,12 @@ export async function threadedOrPlain<T>(replyTo: string | undefined, send: (rep
  * best effort: the words have gone, so its failure is logged and never fails the send.
  */
 export async function sendPhotonWords(photon: Fetcher, place: PhotonPlace, text: string, replyTo?: string, notes?: LinkNotes): Promise<string | undefined> {
-  const words = text.slice(0, MAX_REPLY_TEXT);
-  if (ONE_LINK.test(words.trim())) return await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words.trim(), { ...(under ? { replyTo: under } : {}), linkPreview: true }));
-  const guid = await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words, under ? { replyTo: under } : {}));
+  // A text Tex starts "(sent with Slam)" goes with that effect, without the mark (`sendEffect.ts`).
+  const marked = effectOf(text);
+  const words = marked.text.slice(0, MAX_REPLY_TEXT);
+  const effect = marked.effect !== undefined ? { effect: marked.effect } : {};
+  if (ONE_LINK.test(words.trim())) return await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words.trim(), { ...(under ? { replyTo: under } : {}), linkPreview: true, ...effect }));
+  const guid = await threadedOrPlain(replyTo, (under) => sendPhotonText(photon, place, words, { ...(under ? { replyTo: under } : {}), ...effect }));
   const link = linksIn(words).find((found) => ONE_LINK.test(found));
   if (link !== undefined) {
     let bubble: string | undefined;
@@ -267,7 +271,7 @@ export function photonLine(deps: LineDeps): Line {
     sendText: async (chatId, text, _key, replyTo) => {
       const p = photon();
       const place = await dmPlace(p, chatId);
-      const card = cardsOn(deps.appCard) ? noteCard(text, deps.appCard) : null;
+      const card = cardsOn(deps.appCard) ? noteCard(effectOf(text).text, deps.appCard) : null;
       if (card) {
         try {
           return await threadedOrPlain(replyTo, (under) => sendPhotonApp(p, place, photonCard(card), under));
@@ -367,9 +371,12 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
   return {
     sendText: async (place, text, replyTo, tags) => {
       // Native tags go as one multipart send, each tag its own part naming its number (`groupTags.ts`).
+      // A multipart send carries no effect, so tagged words go without the mark and without its effect.
       if (tags !== undefined && tags.length > 0) {
         const where = placeOf(place);
-        return await threadedOrPlain(replyTo, (under) => sendPhotonMultipart(photon(), where, tagParts(text, tags), under));
+        const marked = effectOf(text);
+        const shifted = tags.filter((tag) => tag.start >= marked.mark).map((tag) => ({ ...tag, start: tag.start - marked.mark }));
+        if (shifted.length > 0) return await threadedOrPlain(replyTo, (under) => sendPhotonMultipart(photon(), where, tagParts(marked.text, shifted), under));
       }
       return await sendPhotonWords(photon(), placeOf(place), text, replyTo, deps.linkNotes);
     },

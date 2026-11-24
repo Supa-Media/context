@@ -20,6 +20,7 @@ import { isRefusal } from "./carousel";
 import { linkPictureFinder, sendWithLinkPictures } from "./linkPreviews";
 import { counted, type CountDataset } from "./textCounts";
 import { guardedLine } from "./outboundGuard";
+import { withoutEffects } from "./sendEffect";
 import type { Picture } from "./line";
 import { hostedNoteCard, linkAfterCard, whapiNotePreview, type NoteCardDrawer } from "./noteCards";
 import type { SendblueKeys } from "./sendblue";
@@ -104,7 +105,8 @@ export function groupLineFor(deps: GroupLineDeps, groupId: string): GroupLine {
   if (isSimulatedGroup(groupId)) return guardedLine(simulatedGroupLine(deps.simulatorStorage), "group");
   // Every group line, whichever app and wherever it is served from, behind the last guard: a skip is never a text (`outboundGuard.ts`).
   if (deps.remote) return guardedLine(deps.remote(groupId), "group");
-  const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? whapiGroupLine(deps, groupId) : movableGroupLine(deps, sendblueGroupLine(deps));
+  // Only Photon sends an effect; any other line sends Tex's words without its "(sent with X)" mark (`sendEffect.ts`).
+  const line = isPhotonGroupId(groupId) ? photonGroupLine(deps) : isWhapiGroup(groupId) ? withoutEffects(whapiGroupLine(deps, groupId)) : movableGroupLine(deps, withoutEffects(sendblueGroupLine(deps)));
   const dataset = deps.textCounts;
   if (dataset === undefined) return guardedLine(line, "group");
   // Every message Tex sends in a group, counted once the app took it (`textCounts.ts`).
