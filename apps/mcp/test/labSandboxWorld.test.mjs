@@ -122,7 +122,7 @@ test("a made-up chat's group question goes to the real control plane, and the tu
 
 test("worldControl leaves the Lab's own routes to the Lab and refuses without a secret", async () => {
   const grant = {};
-  assert.equal(await worldControl({ CONTROL_PLANE_URL: "https://c.example.invalid", AGENT_WORKER_SECRET: "s" }, grant, "lab_x")("/agent-texts/decide/gate", {}), undefined);
+  for (const path of ["/agent-texts/decide/gate", "/agent-texts/session", "/agent-texts/phones"]) assert.equal(await worldControl({ CONTROL_PLANE_URL: "https://c.example.invalid", AGENT_WORKER_SECRET: "s" }, grant, "lab_x")(path, {}), undefined, path);
   assert.deepEqual(await worldControl({}, grant, "lab_x")("/agent-texts/group", {}), { status: "refused" });
 });
 

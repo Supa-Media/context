@@ -28,8 +28,6 @@ export const MAX_WORLD_PEOPLE = 8;
 export const MAX_START = 40;
 const ROLES = new Set(["owner", "editor", "member"]);
 const NAME = /^[\p{L}\p{N}][\p{L}\p{N} .'\-]{0,39}$/u;
-/** Control-plane routes a made-up chat keeps answered by the Lab: the judge's meter and the old-number setting. */
-const LAB_ANSWERED = new Set(["/agent-texts/decide/gate", "/agent-texts/decide/usage", "/agent-texts/old-line"]);
 
 /** One person as the Lab asks for them, checked, or `{ error }`. */
 function personOf(raw) {
@@ -151,12 +149,15 @@ export function worldControl(env, grant, labToken, fetchImpl = (input, init) => 
   const base = typeof env?.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL.replace(/\/+$/, "") : "";
   const secret = typeof env?.AGENT_WORKER_SECRET === "string" ? env.AGENT_WORKER_SECRET : "";
   return async (path, body) => {
-    if (!path.startsWith("/agent-texts/") || LAB_ANSWERED.has(path)) return undefined;
+    // Only who the group is (and its own settings) is the preview's to answer; the rest stays the Lab's, as for any test chat.
+    if (path !== "/agent-texts/group" && !path.startsWith("/agent-texts/group/")) return undefined;
     if (base === "" || secret === "") return { status: "refused" };
     const response = await fetchImpl(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${secret}` }, body: JSON.stringify(body ?? {}) });
     const answer = await response.json().catch(() => null);
     if (answer === null || typeof answer !== "object") return { status: "refused" };
-    grant.last = { path, status: answer.status ?? null, reach: answer.reach ?? [], blocked: answer.blocked ?? [], intro: answer.intro === true, guests: (answer.guests ?? []).map((g) => g.label) };
+    grant.asked = [...(grant.asked ?? []), { path, status: answer.status ?? null, ...(answer.intro === true ? { intro: true } : {}) }].slice(-8);
+    if (path !== "/agent-texts/group") return answer;
+    grant.last = { path, status: answer.status ?? null, reach: answer.reach ?? [], blocked: answer.blocked ?? [], intro: answer.intro === true || grant.last?.intro === true, guests: (answer.guests ?? []).map((g) => g.label), asked: grant.asked };
     if (typeof answer.accessToken !== "string") return answer;
     grant.token = answer.accessToken;
     grant.payload = null;
