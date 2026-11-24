@@ -35,7 +35,7 @@ import { oldLineSetting } from "./texOldLine";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { groupsOfUser } from "./lib/texIdentity/groups";
 import { isIsolatedPreview } from "./lib/previewDeployment";
-import { worldPeopleOf, worldReach, worldWorkspaces } from "./lib/texLabWorldReach";
+import { WORLD_GROUP_ID, worldChatKey, worldPeopleOf, worldReach, worldWorkspaces } from "./lib/texLabWorldReach";
 
 const CONSOLE_CLIENT_ID = "context_console";
 const CHAT_KEY = /^[0-9a-f]{64}$/;
@@ -205,9 +205,12 @@ export const forGateway = internalQuery({
     if (action === "worldReach") {
       const people = worldPeopleOf(a.people);
       if (people === null) return { status: "bad_request", error: "people are [{ name, account, roles?, invited? }], at most 8" };
+      if (typeof a.chat !== "string" || !WORLD_GROUP_ID.test(a.chat)) return { status: "bad_request", error: "chat is the made-up chat's group id (lab-world-<16 hex>)" };
+      const chatKey = await worldChatKey(ctx, a.chat);
+      if (chatKey === null) return { status: "refused", error: "That made-up chat can't be used." };
       const base = await sessionFor(ctx, userId, "me");
       if (base.status !== "ok") return base;
-      return await worldReach(ctx, userId, base.session, people);
+      return await worldReach(ctx, userId, base.session, people, chatKey);
     }
     if (action === "draft") {
       if (a.draft === "main" || a.draft === undefined || a.draft === null) return { status: "ok", graph: null };

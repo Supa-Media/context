@@ -25,6 +25,8 @@ afterEach(() => vi.unstubAllEnvs());
 
 const CONSOLE = token("lab_console");
 const TEXTING = token("lab_texting");
+const CHAT = "lab-world-0123456789abcdef";
+const keyOf = async (id: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`lab-world:${id}`)))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 type Reach = { status: string; reach: string[]; blocked: { slug: string; who: string; why: string }[]; workspaces: { slug: string }[]; session: { clientId: string; scopes: string[]; defaultWorkspaceId: string; texChatId?: string; workspaces: { workspaceId: string; slug: string; role: string; setupOnly?: true; homeOnly?: true; grantedNames?: string[] }[] } };
 
@@ -58,7 +60,7 @@ describe("made-up group chats on main", () => {
 
   test("everyone on Context in a workspace reaches it, at the lowest role, never above the Lab user's", async () => {
     const w = await world();
-    const r = (await w.lab("worldReach", { people: [
+    const r = (await w.lab("worldReach", { chat: CHAT, people: [
       { name: "Ana", account: "on", roles: { "lumio-test": "owner", "solenne-test": "owner" } },
       { name: "Ben", account: "on", roles: { "lumio-test": "owner", "solenne-test": "member" } },
     ] })) as Reach;
@@ -73,7 +75,7 @@ describe("made-up group chats on main", () => {
 
   test("never personal, never someone else's, and the pin only as Tex's setup", async () => {
     const w = await world();
-    const r = (await w.lab("worldReach", { people: [
+    const r = (await w.lab("worldReach", { chat: CHAT, people: [
       { name: "Ana", account: "on", roles: { "bobs-shared": "owner", [PINNED_CONTEXT_SLUG]: "owner", "alice": "owner", "lumio-test": "member" } },
     ] })) as Reach;
     expect(r.reach).toEqual(["lumio-test"]);
@@ -86,7 +88,7 @@ describe("made-up group chats on main", () => {
 
   test("a guest keeps every workspace out; a person invited by number counts for that workspace", async () => {
     const w = await world();
-    const guest = (await w.lab("worldReach", { people: [
+    const guest = (await w.lab("worldReach", { chat: CHAT, people: [
       { name: "Dan", account: "on", roles: { "lumio-test": "editor" } },
       { name: "Eve", account: "off" },
     ] })) as Reach;
@@ -96,7 +98,7 @@ describe("made-up group chats on main", () => {
     // Nothing reached: the pin read as the chat with no home, as a home-only grant's is, so every row there is private.
     expect(guest.session.workspaces).toEqual([{ workspaceId: w.pinned, slug: PINNED_CONTEXT_SLUG, role: "member", kind: "shared", homeOnly: true, grantedNames: ["#reads-as-chat", "#lab-world-no-home"] }]);
     expect(guest.session.defaultWorkspaceId).toBe(w.pinned);
-    const invited = (await w.lab("worldReach", { people: [
+    const invited = (await w.lab("worldReach", { chat: CHAT, people: [
       { name: "Dan", account: "on", roles: { "lumio-test": "editor" } },
       { name: "Fay", account: "invited", invited: { slug: "lumio-test", role: "member" } },
     ] })) as Reach;
@@ -104,21 +106,37 @@ describe("made-up group chats on main", () => {
     expect(invited.session.workspaces.find((x) => x.slug === "lumio-test")!.role).toBe("member");
   });
 
-  test("team tier, under a group's client, with no 1:1 chat's notes and no token", async () => {
+  test("team tier, under a group's client, on the made-up chat's own key and never the 1:1's, with no token", async () => {
     const w = await world();
-    const r = (await w.lab("worldReach", { people: [{ name: "Ana", account: "on", roles: { "lumio-test": "editor" } }] })) as Reach;
+    const r = (await w.lab("worldReach", { chat: CHAT, people: [{ name: "Ana", account: "on", roles: { "lumio-test": "editor" } }] })) as Reach;
     expect(r.session.scopes).not.toContain("context:private");
     expect(r.session.scopes).toContain("context:read");
     expect(r.session.clientId).toBe("context_texts_group");
-    expect(r.session.texChatId).toBeUndefined();
+    // Its own chat, worked out from the made-up chat's id: never the 1:1's.
+    expect(r.session.texChatId).toBe(await keyOf(CHAT));
     expect(JSON.stringify(r)).not.toContain(TEXTING);
+  });
+
+  // The attack: a caller naming a real chat's key to read its Tex notes. The key is never taken from the caller, and
+  // one a real chat has is refused.
+  test("the chat's key is worked out here, and one a real chat has is refused", async () => {
+    const w = await world();
+    const people = [{ name: "Ana", account: "on", roles: { "lumio-test": "editor" } }];
+    expect(await w.lab("worldReach", { people })).toMatchObject({ status: "bad_request" });
+    const real = "a".repeat(64);
+    expect(await w.lab("worldReach", { chat: real, people })).toMatchObject({ status: "bad_request" });
+    const taken = "lab-world-fedcba9876543210";
+    await w.t.run(async (ctx) => {
+      await ctx.db.insert("textGroups", { groupKey: await keyOf(taken), homeUsers: [w.bob], lastSeenAt: Date.now() } as never);
+    });
+    expect(await w.lab("worldReach", { chat: taken, people })).toMatchObject({ status: "refused" });
   });
 
   test("people of the wrong shape are refused", async () => {
     const w = await world();
-    expect(await w.lab("worldReach", { people: "Ana" })).toMatchObject({ status: "bad_request" });
-    expect(await w.lab("worldReach", { people: [{ name: "", account: "on" }] })).toMatchObject({ status: "bad_request" });
-    expect(await w.lab("worldReach", { people: Array.from({ length: 9 }, (_, i) => ({ name: `P${i}`, account: "off" })) })).toMatchObject({ status: "bad_request" });
+    expect(await w.lab("worldReach", { chat: CHAT, people: "Ana" })).toMatchObject({ status: "bad_request" });
+    expect(await w.lab("worldReach", { chat: CHAT, people: [{ name: "", account: "on" }] })).toMatchObject({ status: "bad_request" });
+    expect(await w.lab("worldReach", { chat: CHAT, people: Array.from({ length: 9 }, (_, i) => ({ name: `P${i}`, account: "off" })) })).toMatchObject({ status: "bad_request" });
   });
 
   // The copy of the rule must not drift from the real one (`lib/textGroupReach.ts` `reachOf`): the same people as real
@@ -134,7 +152,7 @@ describe("made-up group chats on main", () => {
       users.push(id);
     }
     const real = await w.t.run(async (ctx) => (await reachOf(ctx, null as never, [...users, w.alice])).map((r) => [r.workspace.slug, r.role]));
-    const made = (await w.lab("worldReach", { people: Object.entries(roles).map(([name, held]) => ({ name, account: "on", roles: held })) })) as Reach;
+    const made = (await w.lab("worldReach", { chat: CHAT, people: Object.entries(roles).map(([name, held]) => ({ name, account: "on", roles: held })) })) as Reach;
     expect(made.session.workspaces.filter((x) => !x.setupOnly).map((x) => [x.slug, x.role])).toEqual(real);
     expect(real.length).toBe(2);
   });

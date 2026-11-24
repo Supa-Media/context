@@ -87,6 +87,7 @@ test("someone joins without anyone being made, and the next text's session is as
   const reach = { labSandbox: async (_t, action, args) => (sent.push({ action, args }), { status: "ok", session: { grantId: "g" }, reach: ["acme-team"], blocked: [] }) };
   const answer = await localSession(reach, "t", left.chat);
   assert.equal(sent[0].action, "worldReach");
+  assert.equal(sent[0].args.chat, GROUP, "the chat's group id, from which the control plane works out its key");
   assert.deepEqual(sent[0].args.people, [{ name: "Ana", account: "on", roles: { "acme-team": "editor" } }, { name: "Dee", account: "on", roles: { "garden-club": "member" } }]);
   assert.deepEqual(answer, { status: "ok", session: { grantId: "g" }, chat: { world: { reach: ["acme-team"], blocked: [] } } });
 });

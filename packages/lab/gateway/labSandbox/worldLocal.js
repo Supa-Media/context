@@ -65,7 +65,8 @@ export function hereNow(about) {
  * reached kept on `chat.world` for the reply row.
  */
 export async function localSession(controlPlane, token, about) {
-  const answer = await controlPlane.labSandbox(token, "worldReach", { people: hereNow(about) });
+  // The chat's own group id: the control plane works its key out from it (the same as `localGroupKey`), never from us.
+  const answer = await controlPlane.labSandbox(token, "worldReach", { chat: about.world?.groupId, people: hereNow(about) });
   if (answer === null) return { status: "unavailable", error: "the control plane did not answer" };
   if (answer.status !== "ok") return answer;
   return { status: "ok", session: answer.session, chat: { world: { reach: answer.reach ?? [], blocked: answer.blocked ?? [] } } };
