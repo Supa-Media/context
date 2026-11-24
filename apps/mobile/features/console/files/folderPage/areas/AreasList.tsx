@@ -198,7 +198,7 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
               onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
               accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
               hitSlop={6}
-              style={[styles.more, { opacity: root || hovered ? 1 : 0.35 }]}
+              style={[styles.more, { opacity: root || hovered ? 1 : 0 }]}
               testID={`area-more-${seat.folder}`}
             >
               <Icon name="more" size={14} color={colors.muted} />
@@ -481,7 +481,7 @@ const makeStyles = (colors: Colors) =>
     notesCell: { width: 52, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
     more: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
 
-    metric: { gap: 1, minWidth: 0 },
+    metric: { minWidth: 0 },
     metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },
     valueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
     value: { fontWeight: "600", flexShrink: 0 },

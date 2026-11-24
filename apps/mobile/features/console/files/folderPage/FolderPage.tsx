@@ -93,9 +93,6 @@ import { backlogFolderOf } from "./tasks/backlogFolder";
 import { parkedOnBoard } from "./boardLayout";
 import { useFolderTasks } from "./tasks/useFolderTasks";
 
-/** The Areas list's width where the page has room, and the projects List's with it (the owner, 2026-11-24). */
-const AREAS_LIST_WIDTH = 820;
-
 export type { FolderPageHost } from "./useFolderPage";
 
 const NO_WORDS: readonly string[] = [];
@@ -377,10 +374,10 @@ export function FolderPage({
   const chartColumns = seats && view === "chart" && !compact && pageWidth > 0 ? areaTree(folder, areasFolderNow(), notes ?? NO_NOTES).areas.length + 1 : 0;
   // Each column is 232 wide with 20 between (the owner's board, 2026-11-24).
   const wideChart = chartColumns === 0 ? null : Math.min(pageWidth - 96, Math.max(chartColumns * 252, boardWidth(1, 1, pageWidth)));
-  // The Areas list takes 820 where the page has it: its metric, count and ⋯ columns leave the names room.
-  const wideAreas = wideChart ?? (seats && view !== "chart" && !compact && pageWidth > 0 ? Math.min(pageWidth - 96, Math.max(AREAS_LIST_WIDTH, boardWidth(1, 1, pageWidth))) : null);
-  // A projects List is as wide as the Areas list, so the two pages share one measure (the owner, 2026-11-24: "I'd rather have this prototype scale").
-  const wideList = !seats && tracks && view === "list" && !compact && pageWidth > 0 ? Math.min(pageWidth - 96, Math.max(AREAS_LIST_WIDTH, boardWidth(1, 1, pageWidth))) : null;
+  // The Areas list and a projects List keep the page's own column, so their edges line up with the
+  // title and the List · Chart switch above them, as in the prototype (the owner, 2026-11-24:
+  // "spacing still looks off" beside an 820 list that overhung the title on both sides).
+  const wideAreas = wideChart;
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     seats && areaPanel !== null
@@ -489,7 +486,7 @@ export function FolderPage({
       {sheet !== null && sheet === about ? (
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
-      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideAreas !== null || wideList !== null} mainWidth={wideBoard ?? wideAreas ?? wideList} style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideAreas !== null} mainWidth={wideBoard ?? wideAreas} style={styles.contents}>
         {seatsWaiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="areas-waiting" />
         ) : seats ? (
@@ -515,11 +512,9 @@ export function FolderPage({
           </View>
         ) : view === "list" ? (
           tracks ? (
-            <View style={wideList === null || beside !== null ? undefined : [styles.wide, { width: wideList }]}>
-              <RowExtrasProvider extras={extras} edit={rowEdit}>
-                {files}
-              </RowExtrasProvider>
-            </View>
+            <RowExtrasProvider extras={extras} edit={rowEdit}>
+              {files}
+            </RowExtrasProvider>
           ) : (
             files
           )

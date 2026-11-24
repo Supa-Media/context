@@ -61,9 +61,13 @@ who to ask and what is not covered. No new concept: an area is the seat.
   (the owner, 2026-11-24). Put beside the Projects list, the owner tried both
   measures and kept this one for both pages (2026-11-24: "I'd rather have
   this prototype scale"): a projects List on a pointer takes the Areas
-  list's 40-high rows, its 13 semibold names and its 820 column, rather than
-  Areas shrinking to the tree's 36 and 16. Check a redraw inside the app
-  beside its neighbours, not only against the board.
+  list's 40-high rows and its 13 semibold names, rather than Areas shrinking
+  to the tree's 36 and 16. Both lists keep the page's own column, edge to
+  edge with the title and the List · Chart switch, as the prototype draws
+  them: an 820 list centred under a 640 title overhung it on both sides and
+  read as "spacing still looks off" (the owner, 2026-11-24). Their ⋯ shows
+  on hover only. Check a redraw inside the app beside its neighbours, not
+  only against the board.
 
   One press on an area shows it in a side panel beside the list, and a
   second press at once (or the panel's Open area) opens its page (the owner,
