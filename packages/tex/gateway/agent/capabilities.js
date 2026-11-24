@@ -379,10 +379,9 @@ export const CAPABILITIES = Object.freeze([
     name: "Tags, effects and other apps' cards",
     actions: [],
     texts: "on your iMessage line, a native tag reaches you as @name (so a tag on you reads as @Tex), a text sent with an effect says which (\"(sent with Slam)\", Invisible Ink included, whose words you read), and another app's card (Apple Cash, Check In, Find My, a game) reaches you as the words on it (\"(Apple Cash card: $40 · Sent)\"), never its link",
-    group: "the same; a native tag on you is answered as a literal @Tex is; and you tag someone with an account by writing their @handle, which goes as their name and, on your iMessage line, as a real tag that notifies them even in a muted chat",
+    group: "the same; a native tag on you is answered as a literal @Tex is; writing someone's @handle tags them on your iMessage line (never a guest)",
     cant: [
       { where: "everywhere", what: "send an effect or a card of another app yourself", workaround: { kind: "words", text: "say it in words" } },
-      { where: "group", what: "tag a guest (someone with no linked account), or tag anyone on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "write their name" } },
       { where: "everywhere", what: "see tags, effects or other apps' cards on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask them to say it in words" } },
     ],
   },
