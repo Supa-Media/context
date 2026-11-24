@@ -3,6 +3,10 @@
  * the rows (virtualised, so a 50,000-row sheet is only ever drawn as far as
  * the window), a footer of calculations, and the `+` header that adds a column.
  *
+ * A row's number is its handle: under the pointer it turns into ⋯, and a press
+ * (a long-press on a phone) opens the row's menu. The footer's gutter cell
+ * holds how many rows show, in the accent while a filter narrows them.
+ *
  * It draws and reports. Selection, editing and every change are the parent's,
  * so the keyboard and the pointer both go through the same handlers.
  */
@@ -20,7 +24,6 @@ import {
   calcFor,
   calcValue,
   isNumeric,
-  rowCountLabel,
   TYPE_GLYPH,
   type SheetColumn,
   type SheetData,
@@ -40,6 +43,12 @@ export interface GridEditing {
   draft: string;
 }
 
+/** A row drawn apart: its menu is open, or a delete of it waits for a second press. */
+export interface RowMark {
+  row: number;
+  tone: "menu" | "armed";
+}
+
 export function SheetGrid({
   sheet,
   columns,
@@ -57,6 +66,8 @@ export function SheetGrid({
   onPick,
   onFinishEdit,
   editorKeys,
+  rowMark = null,
+  onOpenRow,
 }: {
   sheet: SheetData;
   /** The columns that show, in order (hidden ones are left out). */
@@ -78,12 +89,17 @@ export function SheetGrid({
   onFinishEdit: (how: "enter" | "blur") => void;
   /** The open editor's own keys (a suggestion list's arrows), read by the grid's handler first. */
   editorKeys?: MutableRefObject<EditorKeys | null>;
+  rowMark?: RowMark | null;
+  /** Open a row's menu from its number. Left out on a read-only sheet. */
+  onOpenRow?: (row: number, anchor: Anchor | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const listRef = useRef<FlatList<number> | null>(null);
   const headerRefs = useRef<Record<string, View | null>>({});
   const calcRefs = useRef<Record<string, View | null>>({});
+  const gutterRefs = useRef<Record<number, View | null>>({});
+  const [hovered, setHovered] = useState<number | null>(null);
 
   const options = useMemo(() => {
     const out: Record<string, string[]> = {};
@@ -114,13 +130,42 @@ export function SheetGrid({
 
   const renderRow = ({ item: row, index }: ListRenderItemInfo<number>) => {
     const selected = selection?.row === row;
+    const mark = rowMark?.row === row ? rowMark.tone : null;
+    const hover = hovered === row && onOpenRow !== undefined;
+    const handle = mark !== null || hover;
+    const openRow = () => measureNode(gutterRefs.current[row], (anchor) => onOpenRow?.(row, anchor));
     return (
-      <View style={styles.row} testID="sheet-row">
-        <View style={styles.gutter}>
-          <Text variant="mono" style={styles.gutterText}>
-            {index + 1}
-          </Text>
-        </View>
+      <View
+        style={[styles.row, hover && styles.rowHover, mark === "menu" && styles.rowMenu, mark === "armed" && styles.rowArmed]}
+        onPointerEnter={() => setHovered(row)}
+        onPointerLeave={() => setHovered((h) => (h === row ? null : h))}
+        testID="sheet-row"
+      >
+        <Pressable
+          ref={(node) => {
+            gutterRefs.current[row] = node;
+          }}
+          disabled={onOpenRow === undefined}
+          accessibilityRole={onOpenRow === undefined ? undefined : "button"}
+          accessibilityLabel={onOpenRow === undefined ? undefined : `Row ${index + 1} menu`}
+          // A pointer presses the ⋯; a phone, where a tap on the number is easy to make by mistake, holds it.
+          onPress={Platform.OS === "web" ? openRow : undefined}
+          onLongPress={openRow}
+          style={[styles.gutter, hover && styles.gutterHover, mark === "armed" && styles.gutterArmed]}
+          testID="sheet-row-handle"
+        >
+          {handle ? (
+            <View style={[styles.handle, mark === "menu" && styles.handleMenu, mark === "armed" && styles.handleArmed]}>
+              <Text variant="mono" style={[styles.handleText, mark !== null && styles.handleTextOn]}>
+                ⋯
+              </Text>
+            </View>
+          ) : (
+            <Text variant="mono" style={styles.gutterText}>
+              {index + 1}
+            </Text>
+          )}
+        </Pressable>
         {columns.map((c) => {
           const focused = selected && selection?.col === c.name;
           const isEditing = editing !== null && editing.row === row && editing.col === c.name;
@@ -228,17 +273,17 @@ export function SheetGrid({
           }
         />
         <View style={styles.footer}>
-          <View style={styles.gutterHead} />
-          {columns.map((c, index) => {
-            if (index === 0) {
-              return (
-                <View key={c.name} style={[styles.footCell, width]}>
-                  <Text variant="meta" style={styles.footCount} testID="sheet-row-count">
-                    {rowCountLabel(shownCount, sheet.rows.length)}
-                  </Text>
-                </View>
-              );
-            }
+          <View style={[styles.gutterHead, styles.gutterHeadMark]}>
+            <Text
+              variant="mono"
+              style={[styles.footCount, shownCount !== sheet.rows.length && styles.countNarrowed]}
+              accessibilityLabel={`${shownCount} ${shownCount === 1 ? "row" : "rows"}`}
+              testID="sheet-row-count"
+            >
+              {shownCount}
+            </Text>
+          </View>
+          {columns.map((c) => {
             if (c.type === "checkbox") {
               const checked = order.filter((r) => sheet.rows[r]?.[c.name]?.trim() === "true").length;
               return (
@@ -311,6 +356,17 @@ const makeStyles = (colors: Colors) =>
     addHead: { width: ADD_WIDTH, alignItems: "center", justifyContent: "center" },
     plus: { color: colors.muted, lineHeight: 18 },
     row: { flexDirection: "row", height: ROW_HEIGHT },
+    rowHover: { backgroundColor: colors.chipFill },
+    rowMenu: { backgroundColor: colors.accentDim },
+    rowArmed: { backgroundColor: colors.critWash, boxShadow: `inset 0 0 0 1px ${colors.critBorder}` } as object,
+    gutterHover: { backgroundColor: colors.surface3 },
+    gutterArmed: { backgroundColor: colors.critWash, boxShadow: `inset 1px 1px 0 0 ${colors.critBorder}, inset 0 -1px 0 0 ${colors.critBorder}` } as object,
+    handle: { width: 24, height: 20, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+    handleMenu: { backgroundColor: colors.accent },
+    handleArmed: { backgroundColor: colors.crit },
+    handleText: { color: colors.text2, lineHeight: 14 },
+    handleTextOn: { color: colors.ground },
+    countNarrowed: { color: colors.accentText },
     gutter: {
       width: GUTTER_WIDTH,
       height: ROW_HEIGHT,
@@ -334,7 +390,7 @@ const makeStyles = (colors: Colors) =>
       overflow: "visible",
     },
     cellNumber: { alignItems: "flex-end" },
-    editing: { overflow: "visible", zIndex: 2, backgroundColor: colors.ground },
+    editing: { overflow: "visible", zIndex: 2, backgroundColor: colors.ground, boxShadow: "0 6px 18px -6px rgba(0,0,0,.35)" } as object,
     addCell: { width: ADD_WIDTH, height: ROW_HEIGHT, borderBottomWidth: 1, borderColor: colors.line },
     empty: { color: colors.chromeMuted, padding: space.x3 },
     footer: {

@@ -87,6 +87,22 @@ export function appendRow(text: string): string {
   return result.ok ? serializeSheet(result.sheet) : text;
 }
 
+/** Insert an empty row at `at` (its index in the file's rows; the end when past it). */
+export function insertRow(text: string, at: number): string {
+  const sheet = load(text);
+  const empty = Object.fromEntries(sheet.columns.map((c) => [c.name, ""]));
+  const rows = sheet.rows.slice();
+  rows.splice(Math.max(0, Math.min(at, rows.length)), 0, empty);
+  return serializeSheet({ columns: sheet.columns, rows });
+}
+
+/** Remove the row at `row` (its index in the file's rows). A row that is not there changes nothing. */
+export function deleteRow(text: string, row: number): string {
+  const sheet = load(text);
+  if (!sheet.rows[row]) return text;
+  return serializeSheet({ columns: sheet.columns, rows: sheet.rows.filter((_, i) => i !== row) });
+}
+
 /** Insert a column at `at` (its position in the header; the end when past it). */
 export function insertColumn(text: string, at: number, name = "new column"): string {
   const added = addTo(load(text), { name, type: "text", at });
