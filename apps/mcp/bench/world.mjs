@@ -35,7 +35,7 @@ import { rmSync } from "node:fs";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
-import { benchGroup, benchHome } from "./groupChat.mjs";
+import { benchGroup, benchHome, seedMemberCards } from "./groupChat.mjs";
 import { seedHandles } from "./benchHandles.mjs";
 import { bodyText, snapshot } from "./bucketSnapshot.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, createD1Backend } from "../test/searchProjection/fixtures.mjs";
@@ -349,7 +349,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // search setup under test puts in the Worker's vars.
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
   };
-
+  await seedMemberCards({ bench, group, ids, env, controlPlane, chatToken }); // read only when a config wires `fd -> memberCards`
   /** The gateway's own files on a save, Tex's turn transcript and its calendar copy (calendarCache.js, a cache): never the model's change. */
   const PLUMBING_FILES = new Set(["privacy.md", "activity.md", "tex/calendar.md"]);
   const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path) || path.startsWith(`${TRANSCRIPTS_FOLDER}/`);

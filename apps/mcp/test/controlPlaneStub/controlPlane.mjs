@@ -35,6 +35,7 @@ import { createTreeRoutes } from "./tree.mjs";
 import { createWorkspaceRoutes } from "./workspaces.mjs";
 import { createDreamRoutes } from "./dreams.mjs";
 import { createTranscriptionRoutes } from "./transcription.mjs";
+import { createMemberCardRoutes } from "./memberCards.mjs";
 import { createMoveRoutes } from "./moves.mjs";
 import { TEX_SETUP_CLIENTS } from "../../src/session.js";
 import { mintKeyMaterial, nextGeneration } from "./keys.mjs";
@@ -308,6 +309,7 @@ export function createControlPlaneStub(options = {}) {
   const dreams = createDreamRoutes(clearedOwner);
   const moves = createMoveRoutes(grantForAccessToken, coveredContexts);
   const transcription = createTranscriptionRoutes(grantForAccessToken, coveredContexts);
+  const memberCards = createMemberCardRoutes(); // whose member card a group turn reads (`memberCards.mjs`)
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -892,7 +894,7 @@ export function createControlPlaneStub(options = {}) {
         const answered =
           (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
           (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body)) ??
-          (await moves.handle(path, body)) ?? (await transcription.handle(path, body));
+          (await moves.handle(path, body)) ?? (await transcription.handle(path, body)) ?? (await memberCards.handle(path, body));
         if (answered instanceof Response) return answered; // a sub-router's refusal, with its own status
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
@@ -963,9 +965,7 @@ export function createControlPlaneStub(options = {}) {
     mailboxes: mail.mailboxes,
     devices: mail.devices,
     mailJoinAnswers: mail.joinAnswers,
-    dreams,
-    moves,
-    transcription,
+    dreams, moves, transcription, memberCards,
     issueCode,
     setBuiltinVerdict,
     holdRules,
