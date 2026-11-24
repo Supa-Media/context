@@ -51,6 +51,52 @@ function service(value) {
   return SERVICES.has(value) ? value : "unknown";
 }
 
+const MAX_MENTIONS = 20;
+const MAX_APP_WORDS = 200;
+
+/**
+ * EXTENSION: the native tags in a text (`content.mentions`), each the tagged address and its UTF-16 range in the
+ * text, so the agent can tell a tag from the bare name iMessage writes for it.
+ */
+function mentionsOf(content) {
+  const listed = Array.isArray(content?.mentions) ? content.mentions : [];
+  const mentions = listed
+    .filter((m) => isObject(m) && typeof m.address === "string" && m.address !== "" && Number.isInteger(m.start) && Number.isInteger(m.length) && m.start >= 0 && m.length > 0)
+    .slice(0, MAX_MENTIONS)
+    .map((m) => ({ address: m.address.slice(0, 200), start: m.start, length: m.length }));
+  return mentions.length > 0 ? mentions : undefined;
+}
+
+/** EXTENSION: the bubble or screen effect a text was sent with (`content.expressiveSendStyleId`), Apple's id as given. */
+function effectOf(content) {
+  const id = content?.expressiveSendStyleId;
+  return typeof id === "string" && id !== "" ? id.slice(0, 120) : undefined;
+}
+
+const words = (value) => (typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, MAX_APP_WORDS) : undefined);
+
+/**
+ * EXTENSION: what another app's card shows (`content.miniApp`): its name, its extension's id and the words on the
+ * card, never its opaque payload, so a card from Apple Cash or Check In reads as what the person sees.
+ */
+function appOf(content) {
+  const app = content?.miniApp;
+  if (!isObject(app)) return undefined;
+  const layout = isObject(app.layout) ? app.layout : {};
+  const card = compact({
+    name: words(app.appName),
+    bundle: words(app.extensionBundleId),
+    caption: words(layout.caption),
+    subcaption: words(layout.subcaption),
+    trailingCaption: words(layout.trailingCaption),
+    trailingSubcaption: words(layout.trailingSubcaption),
+    imageTitle: words(layout.imageTitle),
+    imageSubtitle: words(layout.imageSubtitle),
+    summary: words(layout.summary),
+  });
+  return Object.keys(card).length > 0 ? card : undefined;
+}
+
 function attachment(raw) {
   return compact({
     guid: raw.guid,
@@ -106,6 +152,9 @@ function received(event, line, extras) {
       attachments: (message.content?.attachments ?? []).map(attachment),
       balloonBundleId: message.content?.balloonBundleId || undefined,
       appUrl: message.content?.miniApp?.url || undefined,
+      app: appOf(message.content),
+      mentions: mentionsOf(message.content),
+      effect: effectOf(message.content),
       replyToText: extras.replyToText,
       replyToFromMe: extras.replyToFromMe,
     }),
@@ -118,7 +167,7 @@ function edited(event, line, extras) {
   return compact({
     ...envelope(event, line, "message.edited", `photon:message.edited:${event.messageGuid}:${event.sequence}`, chat, event.editedAt),
     from: actorOf(event),
-    message: { guid: event.messageGuid, text: event.content?.text ?? "" },
+    message: compact({ guid: event.messageGuid, text: event.content?.text ?? "", mentions: mentionsOf(event.content) }),
     edited: compact({ targetGuid: event.messageGuid, previousText: extras.previousText }),
   });
 }

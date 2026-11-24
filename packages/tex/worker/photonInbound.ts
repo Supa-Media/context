@@ -23,6 +23,7 @@
  */
 
 import { cardReply } from "./cardChats";
+import { richWords } from "./photonRich";
 import { cutText, MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 import { photonChatId, photonGroupId } from "./photon";
 import type { Reaction, Tapback } from "./reactions";
@@ -223,8 +224,10 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
   }
   const sms = service === "SMS";
   const from = env.from;
+  // Another app's card (not Apple's link preview): read as the words on it (`photonRich.ts`).
+  const otherApp = typeof message.balloonBundleId === "string" && !isLinkPreview(message.balloonBundleId, message.appUrl, typeof message.text === "string" ? message.text.trim() : "");
   if (env.where?.groupId !== undefined) {
-    const text = typeof message.text === "string" ? message.text.trim() : "";
+    const text = richWords(message, otherApp);
     const attachments = sms ? [] : attachmentsOf(message, text, options);
     const participants = participantsOf(isRecord(body.chat) ? body.chat : {}, from);
     if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty", groupId: env.where.groupId, line: env.line, from, participants };
@@ -249,14 +252,16 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
   }
   if (env.where?.chatId === undefined) return { kind: "invalid" };
   // A 1:1 message from one of our iMessage apps is what its card says, and another app's card is not a message (`cardChats.ts`).
-  let text = typeof message.text === "string" ? message.text.trim() : "";
+  let text = richWords(message, false);
   let viaCard: { ask?: string } | undefined;
   const chatId = env.where.chatId;
-  if (typeof message.balloonBundleId === "string" && !isLinkPreview(message.balloonBundleId, message.appUrl, text)) {
-    const card = typeof message.appUrl === "string" ? cardReply({ extensionBundleId: message.balloonBundleId, url: message.appUrl }) : null;
-    if (card === null) return { kind: "ignored", reason: "app_card", chatId, from };
-    text = card.text;
-    viaCard = card.ask !== undefined ? { ask: card.ask } : {};
+  if (otherApp) {
+    const card = typeof message.appUrl === "string" ? cardReply({ extensionBundleId: message.balloonBundleId as string, url: message.appUrl }) : null;
+    // Another app's card is the words on it (Apple Cash, Check In); one with none to read is still not a message.
+    const words = card === null ? richWords(message, true) : "";
+    if (card === null && words === text) return { kind: "ignored", reason: "app_card", chatId, from };
+    text = card === null ? words : card.text;
+    if (card !== null) viaCard = card.ask !== undefined ? { ask: card.ask } : {};
   }
   const attachments = sms ? [] : attachmentsOf(message, text, options);
   if (text === "" && attachments.length === 0) return { kind: "ignored", reason: "empty", chatId, from };
@@ -311,7 +316,8 @@ function sideEvent(body: Rec, env: Envelope, kind: "edited" | "unsent"): PhotonP
   if (messageId === null) return { kind: "invalid" };
   if (env.from === undefined || !E164.test(env.from)) return { kind: "ignored", reason: "sender" };
   if (env.where === null) return { kind: "invalid" };
-  const words = kind === "edited" && isRecord(body.message) && typeof body.message.text === "string" ? body.message.text.trim() : undefined;
+  // An edit's new words keep their native tags (`photonRich.ts`), as the text's did.
+  const words = kind === "edited" && isRecord(body.message) && typeof body.message.text === "string" ? richWords({ text: body.message.text, mentions: body.message.mentions }, false) : undefined;
   const text = words === undefined ? undefined : cutText(words).text;
   // An edit with no words left is not one Tex reads: iMessage edits words, and an emptied text is an unsend.
   if (kind === "edited" && (text === undefined || text === "")) return { kind: "ignored", reason: "empty" };

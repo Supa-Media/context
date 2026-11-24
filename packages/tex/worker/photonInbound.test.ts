@@ -132,6 +132,38 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
     expect(other).toEqual({ kind: "ignored", reason: "app_card", chatId: photonChatId(LINE, PHONE), from: PHONE });
   });
 
+  // Dev, 2026-11-23: other apps' cards (Apple Cash, Check In, Find My) are read as the words on them.
+  it("reads another app's card by the words on it, in a 1:1 and a group, and never by its address", () => {
+    const cash = {
+      guid: "m-cash",
+      text: "",
+      service: "iMessage",
+      balloonBundleId: "com.apple.messages.MSMessageExtensionBalloonPlugin:T:com.apple.PassbookUIService.PeerPaymentMessagesExtension",
+      appUrl: "https://pay.example/secret-token",
+      app: { name: "Apple Pay", bundle: "com.apple.PassbookUIService.PeerPaymentMessagesExtension", caption: "$40", subcaption: "Sent" },
+    };
+    const dm = parsePhotonEvent(event({ message: cash }));
+    expect(dm).toMatchObject({ kind: "message", text: "(Apple Cash card: $40 · Sent)" });
+    expect(JSON.stringify(dm)).not.toContain("secret-token");
+    expect(parsePhotonEvent(groupEvent({ message: cash }))).toMatchObject({ kind: "group-message", text: "(Apple Cash card: $40 · Sent)" });
+    const checkIn = { guid: "m-ci", text: "", service: "iMessage", balloonBundleId: "x:T:com.apple.SafetyMonitorApp.SafetyMonitorMessages", appUrl: "https://x.example", app: { bundle: "com.apple.SafetyMonitorApp.SafetyMonitorMessages", summary: "Sam arrived home" } };
+    expect(parsePhotonEvent(groupEvent({ message: checkIn }))).toMatchObject({ text: "(Check In card: Sam arrived home)" });
+  });
+
+  it("reads a native tag as a tag and an effect by its name, and leaves a plain text as it was", () => {
+    const tagged = { guid: "m-tag", text: "Tex can you ask Sam", service: "iMessage", mentions: [{ address: LINE, start: 0, length: 3 }, { address: OTHER, start: 16, length: 3 }] };
+    expect(parsePhotonEvent(groupEvent({ message: tagged }))).toMatchObject({ kind: "group-message", text: "@Tex can you ask @Sam" });
+    expect(parsePhotonEvent(event({ message: tagged }))).toMatchObject({ kind: "message", text: "@Tex can you ask @Sam" });
+    const slam = { guid: "m-slam", text: "WE WON", service: "iMessage", effect: "com.apple.MobileSMS.expressivesend.impact" };
+    expect(parsePhotonEvent(groupEvent({ message: slam }))).toMatchObject({ text: "(sent with Slam) WE WON" });
+    expect(parsePhotonEvent(groupEvent({ message: { guid: "m-p", text: "Tex hi", service: "iMessage" } }))).toMatchObject({ text: "Tex hi" });
+  });
+
+  it("keeps a tag in an edit's new words", () => {
+    const edit = event({ type: "message.edited", eventId: "photon:message.edited:m-1:3", message: { guid: "m-1", text: "Sam, call Tex", mentions: [{ address: OTHER, start: 0, length: 3 }] }, edited: { targetGuid: "m-1" } });
+    expect(parsePhotonEvent(edit)).toMatchObject({ kind: "edited", text: "@Sam, call Tex" });
+  });
+
   // 2026-11-17: a link sent with its preview reached Tex in a group but was dropped in a 1:1 as another app's card.
   it("reads a link sent with Apple's preview as its words, in a 1:1 as in a group", () => {
     const link = "https://shop.example/products/hoodie";
