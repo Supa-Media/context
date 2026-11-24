@@ -509,6 +509,7 @@ export const CAPABILITIES = Object.freeze([
 /** Where each turn is, for the line under the list. */
 const HERE = Object.freeze({
   texts: "You are in a 1:1 text: the 1:1 part of each line is what you can do now; for a thing that works in a group, say which words to type in that group.",
+  nudge: "You are the Nudge: the 1:1 part of each line is what Tex can offer the person; the can't lines are what Tex must never promise. Offer a capability by its name exactly as the list writes it.",
   group: "You are in a group chat: the group part of each line is what you can do now (the guest part when your instructions say not everyone here is on Context); for a thing only someone's own texts have, say they can text you on their own.",
   job: "You are a background job: you never text anyone, and the list is what Tex can do for them when you report.",
   advisor: "You advise Tex: use the list to tell it what it can do, and where.",
