@@ -89,7 +89,9 @@ export async function objectTreeClient(
 ): Promise<WorkspaceObjectClient | null> {
   // The three questions are asked at once: each is a round trip, and every folder page waits on all of them
   // (owner, 2026-11-24: the Areas page took seconds to draw).
-  const [home, waits, moves] = await Promise.all([
+  // Settled, not raced: a workspace not on its object answers from its home alone, as it always did, whatever
+  // the other two say; one on it is refused by either failing, as before.
+  const [home, waits, moves] = await Promise.allSettled([
     ctx.runQuery(internal.functions.workspaceObjectsRows.homeOf, { workspaceId }).catch(() => null),
     // A change Convex committed and the object has not taken yet. A narrowing, a whole-tree push, an unmarked
     // narrowing, or a binding clear: Convex's rows are the ones a reader must see, so the caller scans them.
@@ -98,11 +100,13 @@ export async function objectTreeClient(
     ctx.runQuery(internal.functions.workspaceObjectPush.treeReadsWait, { workspaceId }),
     ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId }),
   ]);
-  if (home !== "object") return null;
+  if (home.status !== "fulfilled" || home.value !== "object") return null;
   const client = options.client !== undefined ? options.client : consoleWorkspaceClient(ctx, workspaceId, { caller: "tree" });
   if (client === null) return null;
-  if (waits) return null;
-  if (moves.length > 0) return null;
+  if (waits.status === "rejected") throw waits.reason;
+  if (waits.value) return null;
+  if (moves.status === "rejected") throw moves.reason;
+  if (moves.value.length > 0) return null;
   return client;
 }
 
