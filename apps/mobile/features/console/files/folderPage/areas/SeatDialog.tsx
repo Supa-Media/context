@@ -172,20 +172,6 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
               ) : null}
             </Block>
 
-            {ownerCard === null ? null : (
-              <Block title={`How to reach ${label(ownerWord)}`}>
-                <ReachFields
-                  key={`owner:${ownerCard.holder}:${kindOf(ownerWord)}`}
-                  card={ownerCard}
-                  kind={kindOf(ownerWord)}
-                  holderName={label(ownerWord)}
-                  idPrefix="seat"
-                  canEdit={canEdit}
-                  onChange={patchOwner}
-                />
-              </Block>
-            )}
-
             {kind === "person" && ownerWord !== "" ? (
               <Block title="Their agent" hint="Optional: an agent that works this seat for them.">
                 <SeatAgentPicker value={helper} agents={agents} label={label} canEdit={canEdit} noneLabel="None" fieldLabel="Agent" onAgent={changeHelper} testID="seat-helper-input" />
@@ -204,6 +190,20 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
                 )}
               </Block>
             ) : null}
+
+            {ownerCard === null ? null : (
+              <Block title={`How to reach ${label(ownerWord)}`}>
+                <ReachFields
+                  key={`owner:${ownerCard.holder}:${kindOf(ownerWord)}`}
+                  card={ownerCard}
+                  kind={kindOf(ownerWord)}
+                  holderName={label(ownerWord)}
+                  idPrefix="seat"
+                  canEdit={canEdit}
+                  onChange={patchOwner}
+                />
+              </Block>
+            )}
 
             <Block title="Modes" hint="Labels, not rules. With no Manager the chart flags a gap.">
               <View style={styles.chips}>
