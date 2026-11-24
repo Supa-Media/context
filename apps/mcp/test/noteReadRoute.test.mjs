@@ -201,6 +201,21 @@ test("a note nobody has edited together opens ready to edit live, read by the ob
   assert.equal(again.etag, body.etag);
 });
 
+// Sabotage, confirmed: `start: !peek` replaced by `start: true` fails here (the peek starts an editing history).
+test("a peek for a folder page's description reads the words and starts nothing", { skip }, async () => {
+  const w = await world();
+  const response = await post(w, `/@${SLUG}${NOTE_READ_PATH}`, { path: "todo.md", peek: true });
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.text, "# Todo\n\nBuy milk.\n");
+  assert.doesNotMatch(body.etag, /^c2\./, "no editing history was started for a look");
+  assert.equal(body.documentId, undefined);
+  // The next real open still starts one.
+  assert.match((await (await open(w, "todo.md")).json()).etag, /^c2\./);
+  const odd = await post(w, `/@${SLUG}${NOTE_READ_PATH}`, { path: "todo.md", peek: "yes" });
+  assert.equal(odd.status, 400);
+});
+
 test("the bare address (no workspace in it) opens the same note", { skip }, async () => {
   const w = await world();
   const response = await open(w, "areas/daniel-2.md", "");

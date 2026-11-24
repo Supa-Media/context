@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { folderNotesAnswer, folderNotesThroughGateway, folderNotesUrl } from "../features/offline/gatewayFolderNotes";
+import { folderNotesAnswer, folderNotesThroughGateway, folderNotesUrl, frontNotesThroughGateway, peekNoteThroughGateway } from "../features/offline/gatewayFolderNotes";
 import { tableListNotes } from "../features/offline/serverLists";
 
 /**
@@ -79,5 +79,44 @@ describe("a folder page through the gateway", () => {
     expect(await ask(fakeFetch([]))).toBeNull();
     expect(await ask(fakeFetch([{ status: 200, body: { ...PAGE, notes: [{ path: 3, props: "{}" }] } }]))).toBeNull();
     expect(folderNotesAnswer({ ...PAGE, kind: "file" })).toBeNull();
+  });
+});
+
+describe("a page's front notes and description through the gateway", () => {
+  const page = (notes: { path: string }[], extra: Record<string, unknown> = {}) => ({
+    status: 200,
+    body: { ...PAGE, notes: notes.map((each) => ({ ...each, props: JSON.stringify({ heading: each.path }) })), ...extra },
+  });
+
+  test("the front notes of each folder, from one page each, without the folder's other notes", async () => {
+    const sent: { url: string; init: RequestInit }[] = [];
+    const notes = await frontNotesThroughGateway({
+      url: URL_,
+      token,
+      folders: ["p/a", "p/b"],
+      fetchImpl: fakeFetch([page([{ path: "p/a/about.md" }, { path: "p/a/plan.md" }]), page([{ path: "p/b/README.md" }])], sent),
+    });
+    expect(notes?.map((each) => each.path)).toEqual(["p/a/about.md", "p/b/README.md"]);
+    expect(sent.map((each) => JSON.parse(String(each.init.body)))).toEqual([
+      { folder: "p/a", subfolders: false },
+      { folder: "p/b", subfolders: false },
+    ]);
+  });
+
+  test("anything less than a whole answer is the control plane's to give", async () => {
+    const ask = (answers: { status: number; body: unknown }[]) => frontNotesThroughGateway({ url: URL_, token, folders: ["p/a"], fetchImpl: fakeFetch(answers) });
+    expect(await ask([{ status: 409, body: { error: "not_object" } }])).toBeNull();
+    expect(await ask([page([{ path: "p/a/about.md" }], { cursor: "p/a/about.md" })])).toBeNull();
+    expect(await ask([page([], { missing: ["p/a/about.md"] })])).toBeNull();
+  });
+
+  test("a description is a peek, never an open, and only of a Markdown note", async () => {
+    const sent: { url: string; init: RequestInit }[] = [];
+    const read = { kind: "file", path: "p/a/about.md", text: "# A\n", etag: "raw", visibility: "team", inherited: "team", exception: false, readOnly: false, encrypted: false };
+    expect(await peekNoteThroughGateway({ url: "https://gateway.test/files/read", token, path: "p/a/about.md", fetchImpl: fakeFetch([{ status: 200, body: read }], sent) })).toEqual({ text: "# A\n", encrypted: false });
+    expect(JSON.parse(String(sent[0].init.body))).toEqual({ path: "p/a/about.md", peek: true });
+    expect(await peekNoteThroughGateway({ url: "https://gateway.test/files/read", token, path: "p/a/metrics.csv", fetchImpl: fakeFetch([], sent) })).toBeNull();
+    expect(sent).toHaveLength(1);
+    expect(await peekNoteThroughGateway({ url: "https://gateway.test/files/read", token, path: "p/a/about.md", fetchImpl: fakeFetch([{ status: 503, body: { error: "unavailable" } }]) })).toBeNull();
   });
 });

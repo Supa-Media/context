@@ -13,7 +13,10 @@
  * Pure apart from `fetch`; fields are read by name, never spread.
  */
 
-import type { FolderNotesPage } from "./serverLists";
+import { FRONT_NOTES } from "../../../mcp/src/lists/grammar.js";
+import { readNoteThroughGateway } from "../console/files/gatewayNoteRead";
+import type { ListNote } from "../console/files/listBlock/model";
+import { tableListNotes, type FolderNotesPage } from "./serverLists";
 
 /** Long enough for a slow link, short enough that the control plane still answers in good time behind it. */
 export const GATEWAY_FOLDER_NOTES_TIMEOUT_MS = 8_000;
@@ -99,4 +102,53 @@ export async function folderNotesThroughGateway(options: {
     answer = await send(token);
   }
   return answer?.status === 200 ? folderNotesAnswer(answer.body) : null;
+}
+
+/**
+ * The front notes of `folders` (`about.md` and the rest, without their text) through the gateway, one page each
+ * without subfolders, in place of the control plane's batch read; `null` for anything less than a whole answer
+ * (a folder handed back, a page with more after it, a front note the facts have not read), and the caller reads them
+ * from the control plane as before. The words a page draws are read after, by name (`peekNoteThroughGateway`).
+ */
+export async function frontNotesThroughGateway(options: {
+  url: string;
+  token: (refresh: false | { rejected: string }) => Promise<string>;
+  folders: readonly string[];
+  fetchImpl?: typeof fetch;
+}): Promise<ListNote[] | null> {
+  const pages = await Promise.all(
+    options.folders.map(async (folder) => {
+      const page = await folderNotesThroughGateway({ url: options.url, token: options.token, folder, subfolders: false, cursor: undefined, fetchImpl: options.fetchImpl });
+      if (page === null || !page.available || page.cursor !== null) return null;
+      const isFront = (path: string) => parentOf(path) === folder && FRONT_NOTES.includes(path.slice(path.lastIndexOf("/") + 1));
+      if (page.missing.some(isFront)) return null;
+      const list = await tableListNotes({ readNotes: async () => [], folderNotes: async () => page }, folder, false);
+      return list.notes.filter((note) => isFront(note.path));
+    }),
+  );
+  return pages.some((page) => page === null) ? null : pages.flat() as ListNote[];
+}
+
+function parentOf(path: string): string {
+  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+}
+
+/**
+ * One note's words for a page to draw, through the gateway's `/files/read` as a peek (no editing history started,
+ * no open counted); `null` where the control plane should answer: not a Markdown note, handed back, or not readable
+ * just now.
+ */
+export async function peekNoteThroughGateway(options: {
+  url: string;
+  token: (refresh: false | { rejected: string }) => Promise<string>;
+  path: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{ text: string; encrypted: boolean } | null> {
+  if (!options.path.endsWith(".md")) return null;
+  try {
+    const note = await readNoteThroughGateway({ url: options.url, token: options.token, path: options.path, peek: true, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
+    return note === null ? null : { text: note.text, encrypted: note.encrypted };
+  } catch {
+    return null;
+  }
 }

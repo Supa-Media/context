@@ -35,7 +35,8 @@ import {
   subscribePageCache,
 } from "../files/folderPage/pageCache";
 import { preloadAreas } from "../files/folderPage/areas/preloadAreas";
-import { areasFolderNow } from "../files/jobIcons/jobFoldersNow";
+import { preloadProjects } from "../files/folderPage/preloadProjects";
+import { areasFolderNow, projectsFolderNow } from "../files/jobIcons/jobFoldersNow";
 import { NoteIntentContext } from "../files/noteIntent";
 import { FOLDERS_PAGE, useHomeView } from "../home/homeView";
 import { usePhoneHistory } from "../home/phoneHistory";
@@ -263,6 +264,11 @@ export function BrowsePane({
   useEffect(() => {
     if (sharedWorkspace && areasRoot !== null) preloadAreas(folderLists, areasRoot);
   }, [sharedWorkspace, areasRoot, folderLists]);
+  // Each project's page likewise, so opening a project draws at once (`preloadProjects`).
+  const projectsRoot = rootListing?.entries.some((each) => each.kind === "folder" && each.path === projectsFolderNow()) ? projectsFolderNow() : null;
+  useEffect(() => {
+    if (projectsRoot !== null) preloadProjects(folderLists, projectsRoot);
+  }, [projectsRoot, folderLists]);
   // Whatever the listing on screen names, its folders' front notes are read ahead (`preloadFronts`).
   const shownListing = files.listings[selected?.kind === "folder" ? selected.path : ""];
   useEffect(() => {
