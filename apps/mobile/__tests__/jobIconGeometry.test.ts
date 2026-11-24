@@ -41,6 +41,13 @@ describe("drawn job icons", () => {
     );
   });
 
+  test("the data folder draws a database: a lid, two sides and two bands, in the same brush", () => {
+    const strokes = jobStrokes("data");
+    expect(strokes).toHaveLength(5);
+    expect(jobIconMarker("data")).toBe("context:job:data");
+    expect(jobOfIcon(jobIconMarker("data", true))).toBe("data");
+  });
+
   test("deterministic: the same strokes whatever order icons are first drawn in", () => {
     const first = jobStrokes("teams");
     expect(jobStrokes("teams")).toBe(first);

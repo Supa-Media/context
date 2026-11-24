@@ -13,9 +13,11 @@
  *
  *  - **needed**: Inbox, Projects, Areas, Resources, Archive. Every workspace
  *    has one of each. Each can be given to another folder, never taken away.
- *  - **made**: Tex and Website, made by Context the first time the feature is
- *    used. Both can be renamed and nested anywhere (Website since 2026-10-21);
- *    Website's job stays with its own folder, which its site is published from.
+ *  - **made**: Tex, Website and Data, made by Context the first time the
+ *    feature is used. All three can be renamed and nested anywhere (Website
+ *    since 2026-10-21); Website's job stays with its own folder, which its
+ *    site is published from. Data's folder holds a workspace's data sources,
+ *    one subfolder each, and its own `metrics/` (`DATA_PARTS`).
  *  - **optional**: Clients, Teams, Products, added when useful and removable.
  *
  * Meetings is a job on rows (its folder follows the meetings setting) but is
@@ -24,10 +26,10 @@
  * (`tex/routines/`), so they are part of Tex's line.
  */
 
-const { DEFAULT_FOLDER, JOB_LABEL, MAIN_ROLES, EXTRA_ROLES, NO_JOB, ROW_ROLES, TEX_FOLDER, WEBSITE_FOLDER } = require("./folderRoles.cjs");
+const { DATA_FOLDER, DEFAULT_FOLDER, JOB_LABEL, MAIN_ROLES, EXTRA_ROLES, NO_JOB, ROW_ROLES, TEX_FOLDER, WEBSITE_FOLDER } = require("./folderRoles.cjs");
 
 /** The jobs shown as lines, in the order they are drawn. */
-const SHOWN_JOBS = Object.freeze([...MAIN_ROLES, "tex", "website", ...EXTRA_ROLES]);
+const SHOWN_JOBS = Object.freeze([...MAIN_ROLES, "tex", "website", "data", ...EXTRA_ROLES]);
 
 const JOB_GROUP = Object.freeze({
   inbox: "needed",
@@ -37,6 +39,7 @@ const JOB_GROUP = Object.freeze({
   archive: "needed",
   tex: "made",
   website: "made",
+  data: "made",
   meetings: "made",
   clients: "optional",
   teams: "optional",
@@ -54,6 +57,7 @@ const JOB_LINE = Object.freeze({
   archive: "Finished things. The Archive button files here.",
   tex: "What Tex remembers about you, its routines and its daily notes.",
   website: "Pages here are published to your site.",
+  data: "Data sources and metrics: synced sheets and the formulas worked out from them.",
   meetings: "Recordings and transcripts are saved here.",
   clients: "One folder per client: who they are and what was promised.",
   teams: "One folder per team: what it owns and how it runs.",
@@ -152,6 +156,27 @@ function isTexPart(path, texPath) {
 }
 
 /**
+ * The data folder's own folders, by their exact names one level inside it:
+ * `metrics`, where each metric is a note (`data/metrics/<name>.md`). Kept
+ * like Tex's own: Context reads metrics there by name, so the folder keeps its
+ * name and place wherever the data folder is nested, and a person adds notes
+ * and folders beside it. Each source's subfolder is the person's to rename.
+ */
+const DATA_PARTS = Object.freeze(["metrics"]);
+
+/**
+ * Whether `path` is one of the data folder's own folders, given the path of
+ * the folder doing the Data job now (null: no data folder, nothing is).
+ */
+function isDataPart(path, dataPath) {
+  if (typeof path !== "string" || typeof dataPath !== "string" || dataPath === "") return false;
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  if (!clean.startsWith(`${dataPath}/`)) return false;
+  const rest = clean.slice(dataPath.length + 1);
+  return !rest.includes("/") && DATA_PARTS.includes(rest);
+}
+
+/**
  * Words a folder's name may use for a job, besides the job's own name. Kept
  * short on purpose: a guess the person has to untick costs more than one
  * they have to pick.
@@ -239,6 +264,7 @@ function compareRank(a, b) {
 function defaultFolderName(job) {
   if (job === "website") return WEBSITE_FOLDER;
   if (job === "tex") return TEX_FOLDER;
+  if (job === "data") return DATA_FOLDER;
   return DEFAULT_FOLDER[job] ?? null;
 }
 
@@ -262,6 +288,8 @@ module.exports = {
   PERSON_ONLY_TEX_PARTS,
   HOME_TEX_PARTS,
   isTexPart,
+  DATA_PARTS,
+  isDataPart,
   nameWords,
   nameSays,
   guessFolderJobs,

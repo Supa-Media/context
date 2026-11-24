@@ -111,7 +111,8 @@ folders its own way, so a job can no longer come from a root name alone.
 - **Three groups, one list** (`packages/shared/src/folderJobInfo.cjs`, read by
   Settings, the import picker, `orient` and `folder_job` alike): *needed* —
   Inbox, Projects, Areas, Resources, Archive, one each, which can be handed to
-  another folder and never taken away; *made when used* — Tex and Website;
+  another folder and never taken away; *made when used* — Tex, Website and
+  Data;
   *optional* — Clients, Teams, Products, which can be taken away. The list is
   fixed: there are no made-up jobs; a folder of a person's own kind explains
   itself in its `about.md`.
@@ -143,6 +144,18 @@ folders its own way, so a job can no longer come from a root name alone.
   skills, transcripts) are kept the same way inside Tex's folder, wherever it
   is nested, and said on Tex's line (owner, 2026-10-21;
   [custom-emoji](./custom-emoji.md#the-picker-opens-on-contexts-own-hundred-icons)).
+- **Data is a job** (2026-11-24, the data sources plan, stage A; boards
+  `data-sources-artboards` 01 and 13). A shared workspace's data sources,
+  one subfolder of plain CSV sheets each, and its metrics, one note each in
+  `data/metrics/`, live in the folder doing the Data job, made the first time
+  a source or metric is added: the sidebar's **+ → Data source…** ("Makes a
+  data folder the first time"), offered in shared workspaces, makes
+  `data/` and `data/metrics/` and opens it (`features/console/files/dataSource.ts`).
+  It is drawn between Areas and Resources with a database icon, can be
+  renamed, nested and given to another folder like Tex's, and a writer naming
+  `data/...` lands in it wherever it is (`canonicalJobPath`). Its own
+  `metrics` is kept like Tex's own folders (`DATA_PARTS`). A folder an import
+  calls `data` is never guessed as it: the word is too common.
 - **AI clients** use `manage` action `folder_job` `{ job, path | remove }`, a
   row over `apply_layout`, through the same `giveJob` the app's Settings uses.
 

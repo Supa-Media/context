@@ -8,6 +8,8 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   builtInLine,
+  dataFolder,
+  dataFolderFound,
   jobFolder,
   jobOfPath,
   listingJobs,
@@ -15,7 +17,8 @@ import {
   websiteFolder,
   type JobEntry,
 } from "../features/console/files/jobIcons/folderJobs";
-import { setJobFoldersNow } from "../features/console/files/jobIcons/jobFoldersNow";
+import { inDataNow, setJobFoldersNow } from "../features/console/files/jobIcons/jobFoldersNow";
+import { dataSourceDetail, dataSourceOffered, startDataSource } from "../features/console/files/dataSource";
 import { isWebsiteFolder } from "../features/console/website/PublishWebsite";
 import { isNestedJobIcon, jobIconMarker, jobOfIcon } from "../features/console/files/jobIcons/marker";
 
@@ -132,3 +135,41 @@ describe("the built-in line under a folder's title", () => {
   });
 });
 
+
+describe("the data folder (made when used)", () => {
+  test("found by its job wherever it is nested, and absent until one has loaded", () => {
+    expect(dataFolderFound({})).toBeNull();
+    expect(dataFolder({})).toBe("data");
+    const nested = {
+      "": { entries: [folder("Work", { role: null }), folder("areas", { role: "areas" })] },
+      Work: { entries: [folder("Work/Numbers", { role: "data" })] },
+    };
+    expect(dataFolderFound(nested)).toBe("Work/Numbers");
+    expect(dataSourceDetail(nested)).toBeUndefined();
+    expect(dataSourceDetail({ "": { entries: [folder("areas", { role: "areas" })] } })).toBe("Makes a data folder the first time");
+    setJobFoldersNow({ inbox: "inbox", archive: "archive", data: dataFolder(nested) });
+    expect(inDataNow("Work/Numbers/metrics")).toBe(true);
+    expect(inDataNow("data")).toBe(false);
+    setJobFoldersNow({ inbox: "inbox", archive: "archive", data: "data" });
+  });
+
+  test("offered in a shared workspace only", () => {
+    expect(dataSourceOffered("shared")).toBe(true);
+    expect(dataSourceOffered("personal")).toBe(false);
+    expect(dataSourceOffered(undefined)).toBe(false);
+  });
+
+  test("choosing it opens a data folder there is, adding metrics/ when its listing has none", () => {
+    const calls: string[] = [];
+    const files = (listings: Parameters<typeof startDataSource>[0]["listings"]) => ({
+      listings,
+      createFolder: (folder: string, name: string) => void calls.push(`create ${folder}|${name}`),
+      select: (path: string) => (calls.push(`select ${path}`), true),
+    });
+    startDataSource(files({ "": { entries: [folder("Numbers", { role: "data" })] }, Numbers: { entries: [folder("Numbers/github")] } }));
+    expect(calls).toEqual(["create Numbers|metrics", "select Numbers"]);
+    calls.length = 0;
+    startDataSource(files({ "": { entries: [folder("Numbers", { role: "data" })] }, Numbers: { entries: [folder("Numbers/metrics")] } }));
+    expect(calls).toEqual(["select Numbers"]);
+  });
+});

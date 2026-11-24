@@ -103,7 +103,8 @@ function browser(calls: string[] = []): FileBrowser {
     cut: noop,
     paste: noop,
     createNote: noop,
-    createFolder: noop,
+    createFolder: (folder: string, name: string, options?: { open?: boolean }) =>
+      calls.push(`createFolder ${folder}|${name}${options?.open === true ? "|open" : ""}`),
     rename: noop,
     move: noop,
     duplicate: noop,
@@ -113,7 +114,7 @@ function browser(calls: string[] = []): FileBrowser {
   } as unknown as FileBrowser;
 }
 
-function mount(calls: string[] = [], canEdit = true): HTMLElement {
+function mount(calls: string[] = [], canEdit = true, dataSource = false): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -129,6 +130,7 @@ function mount(calls: string[] = [], canEdit = true): HTMLElement {
         createElement(Explorer, {
           files: { ...browser(calls), canEdit },
           contextLabel: "@somebody",
+          dataSource,
         }),
       ),
     );
@@ -225,6 +227,25 @@ describe("New and View are menus", () => {
     }
     pressLabelled("New note");
     expect(calls).toEqual(["createUntitled |note"]);
+  });
+
+  test("a shared workspace's New ends with Data source…, which makes the data folder with metrics/ and opens it", () => {
+    const calls: string[] = [];
+    mount(calls, true, true);
+
+    press(byId("explorer-new"));
+    expect(byId("explorer-data-source")).not.toBeNull();
+    expect(document.body.textContent).toContain("Data source…");
+    expect(byId("menu-detail-data-source")?.textContent).toBe("Makes a data folder the first time");
+    pressLabelled("Data source…");
+    expect(calls).toEqual(["createFolder |data|open", "createFolder data|metrics"]);
+  });
+
+  test("a personal workspace's New has no Data source…", () => {
+    mount([], true, false);
+    press(byId("explorer-new"));
+    expect(byId("explorer-data-source")).toBeNull();
+    expect(document.body.textContent).not.toContain("Data source");
   });
 
   test("View holds sort order and collapse-all", () => {

@@ -117,7 +117,7 @@ export const nodeTables = {
     access: v.optional(v.object({ base: v.union(v.literal("private"), v.literal("team")) })),
     /**
      * A built-in folder's job, under its original name (`inbox`, `projects`,
-     * `website`, `meetings`; `ROW_ROLES` in `folderRoles.cjs`). Set when the
+     * `website`, `meetings`, `tex`, `data`; `ROW_ROLES` in `folderRoles.cjs`). Set when the
      * folder is made at the root under a job's name, or before its first move,
      * and then carried by every rename and move, so the folder is found by its
      * job whatever it is called (`lib/nodes/folderJobs.ts`, owner 2026-10-18).

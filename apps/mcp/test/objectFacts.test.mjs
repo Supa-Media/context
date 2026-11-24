@@ -347,7 +347,7 @@ const JOB_RULES = {
   ],
   notes: [],
 };
-const JOBS_BASE = { inbox: null, projects: "projects", areas: null, resources: null, archive: "archive", clients: null, teams: null, products: "Vault", website: null, meetings: null, tex: null };
+const JOBS_BASE = { inbox: null, projects: "projects", areas: null, resources: null, archive: "archive", clients: null, teams: null, products: "Vault", website: null, meetings: null, tex: null, data: null };
 
 async function withJobs({ home = HOMES.OBJECT, rules = JOB_RULES } = {}) {
   const env = { WORKSPACE_STORE: namespace() };

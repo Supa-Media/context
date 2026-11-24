@@ -22,9 +22,9 @@
  * also reads as the folders doing those jobs (`jobPath`).
  */
 
-import { DEFAULT_FOLDER, WEBSITE_FOLDER } from "@context/shared/src/folderRoles.cjs";
+import { DATA_FOLDER, DEFAULT_FOLDER, WEBSITE_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
-type JobFolders = { inbox: string; projects: string; areas: string; archive: string; website: string };
+type JobFolders = { inbox: string; projects: string; areas: string; archive: string; website: string; data: string };
 
 let now: JobFolders = {
   inbox: DEFAULT_FOLDER.inbox,
@@ -32,6 +32,7 @@ let now: JobFolders = {
   areas: DEFAULT_FOLDER.areas,
   archive: DEFAULT_FOLDER.archive,
   website: WEBSITE_FOLDER,
+  data: DATA_FOLDER,
 };
 
 /** The folder doing the Inbox's job now. */
@@ -71,14 +72,35 @@ export function websiteFolderNow(): string {
   return now.website;
 }
 
+/** The data folder now, wherever it is nested: where data sources and `metrics/` are (the data sources boards). */
+export function dataFolderNow(): string {
+  return now.data;
+}
+
+/** Whether `folder` is the data folder or anywhere under it, by job. */
+export function inDataNow(folder: string): boolean {
+  const data = now.data;
+  return folder === data || folder.startsWith(`${data}/`);
+}
+
 /**
  * Told by the file browser as its listings change. Idempotent. A caller that
- * leaves `projects` or `website` out leaves it where it was.
+ * leaves `projects`, `website` or `data` out leaves it where it was.
  */
-export function setJobFoldersNow(next: { inbox: string; archive: string; projects?: string; areas?: string; website?: string }): void {
+export function setJobFoldersNow(next: { inbox: string; archive: string; projects?: string; areas?: string; website?: string; data?: string }): void {
   const projects = next.projects ?? now.projects;
   const areas = next.areas ?? now.areas;
   const website = next.website ?? now.website;
-  if (next.inbox === now.inbox && next.archive === now.archive && projects === now.projects && areas === now.areas && website === now.website) return;
-  now = { inbox: next.inbox, projects, areas, archive: next.archive, website };
+  const data = next.data ?? now.data;
+  if (
+    next.inbox === now.inbox &&
+    next.archive === now.archive &&
+    projects === now.projects &&
+    areas === now.areas &&
+    website === now.website &&
+    data === now.data
+  ) {
+    return;
+  }
+  now = { inbox: next.inbox, projects, areas, archive: next.archive, website, data };
 }

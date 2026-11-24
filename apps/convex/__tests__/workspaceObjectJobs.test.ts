@@ -46,6 +46,9 @@ const specs: Spec[] = [
   { path: "Vault/tex", kind: "folder", role: "tex" },
   { path: "tex", kind: "folder" },
   { path: "website", kind: "folder" },
+  // The data folder nested in Projects claims its job over a root that has its name.
+  { path: "projects/numbers", kind: "folder", role: "data" },
+  { path: "data", kind: "folder" },
   { path: "Inbox", kind: "folder", role: "none" },
   { path: "inbox", kind: "folder" },
 ];
@@ -149,6 +152,8 @@ describe("the workspace object's folder jobs match Convex's", () => {
     const owner = await convexAnswer(readers.owner);
     expect(owner.jobs.products).toBe("Vault");
     expect(owner.jobs.tex).toBe("Vault/tex");
+    expect(owner.jobs.data).toBe("projects/numbers");
+    expect(team.jobs.data).toBe("projects/numbers");
     expect(owner.jobs.meetings).toBe("projects/meetings");
     expect(team.jobs.meetings).toBeNull();
   });
