@@ -125,7 +125,7 @@ function PhoneItem({ label, danger = false, onPress, testID }: { label: string; 
   const styles = useThemedStyles(makeStyles);
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.phoneItem} testID={testID}>
-      <Text variant="body" style={[styles.phoneText, danger && styles.danger]}>
+      <Text variant="body" style={[styles.phoneText, danger && styles.phoneDanger]}>
         {label}
       </Text>
     </Pressable>
@@ -142,6 +142,7 @@ const makeStyles = (colors: Colors) =>
     groupRule: { height: 1, backgroundColor: colors.line, marginLeft: space.x3 },
     phoneItem: { height: 48, justifyContent: "center", paddingHorizontal: space.x3 },
     phoneText: { color: colors.text, fontSize: pointerType.body },
+    phoneDanger: { color: colors.crit },
     head: { flexDirection: "row", alignItems: "baseline", gap: space.x1, paddingHorizontal: space.x2, paddingVertical: space.x1 },
     headNumber: { color: colors.text2, fontWeight: "600" },
     headLabel: { color: colors.muted, flexShrink: 1 },
