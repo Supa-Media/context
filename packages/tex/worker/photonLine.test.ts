@@ -290,6 +290,16 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
     expect(b.calls).toEqual([{ op: "send/text", body: { line: "+15550000001", chat: "iMessage;+;chat123", text: "hi all", replyTo: "r9" } }]);
   });
 
+  it("a text with native tags goes as one multipart send, each tag its own part naming its number", async () => {
+    const b = bridge();
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    const handle = await app.sendText({ line: "+15550000001", groupId: GROUP }, "Sam can you take it?", "r9", [{ start: 0, length: 3, address: "+15550000003" }]);
+    expect(handle).toBe("sent-guid");
+    expect(b.calls).toEqual([
+      { op: "send/multipart", body: { line: "+15550000001", chat: "iMessage;+;chat123", parts: [{ text: "Sam", mention: "+15550000003" }, { text: " can you take it?" }], replyTo: "r9" } },
+    ]);
+  });
+
   it("members are read as phones, null when the read fails, and the own-message read is null", async () => {
     const b = bridge();
     const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);

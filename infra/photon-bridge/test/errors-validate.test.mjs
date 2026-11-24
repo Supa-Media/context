@@ -193,3 +193,9 @@ test("errorClass names the class of a thrown value, never its message", async ()
   assert.equal(errorClass("a string reason"), "unknown");
   assert.equal(errorClass(null), "unknown");
 });
+
+test("a multipart text part may be a native tag naming a number or an email, and nothing else", () => {
+  const parsed = OPS["send/multipart"].parse({ line: LINE, chat: CHAT, parts: [{ text: "ask " }, { text: "Sam", mention: "+15550100777" }] });
+  assert.deepEqual(parsed.parts, [{ text: "ask " }, { text: "Sam", mention: "+15550100777" }]);
+  assert.throws(() => OPS["send/multipart"].parse({ line: LINE, chat: CHAT, parts: [{ text: "Sam", mention: "Sam" }] }), { code: "invalid_address" });
+});

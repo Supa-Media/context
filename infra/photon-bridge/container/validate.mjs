@@ -174,6 +174,8 @@ function parseParts(body) {
     if (part.attachment !== undefined) {
       return { attachment: parseFile(part.attachment, `part_${index}`) };
     }
+    // A native tag: its words, and the number or email it tags (the SDK's `mentionedAddress`).
+    if (part.mention !== undefined) return { text: str(part, "text", { max: MAX_TEXT }), mention: parseAddress(part.mention) };
     return { text: str(part, "text", { max: MAX_TEXT }) };
   });
 }

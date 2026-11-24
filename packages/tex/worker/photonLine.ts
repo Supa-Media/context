@@ -25,6 +25,7 @@ import type { Line, LineDeps, Picture } from "./line";
 import { linksIn } from "./linkPreviews";
 import type { GroupLine, GroupLineDeps, GroupPlace } from "./groupLine";
 import type { Media } from "./outgoing";
+import { tagParts } from "./groupTags";
 import {
   contactPhoton,
   photonGroupMembers,
@@ -364,7 +365,14 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
   };
   const placeOf = (place: GroupPlace): PhotonPlace => ({ line: placeLine(place), chat: photonGroupChat(place.groupId) });
   return {
-    sendText: async (place, text, replyTo) => await sendPhotonWords(photon(), placeOf(place), text, replyTo, deps.linkNotes),
+    sendText: async (place, text, replyTo, tags) => {
+      // Native tags go as one multipart send, each tag its own part naming its number (`groupTags.ts`).
+      if (tags !== undefined && tags.length > 0) {
+        const where = placeOf(place);
+        return await threadedOrPlain(replyTo, (under) => sendPhotonMultipart(photon(), where, tagParts(text, tags), under));
+      }
+      return await sendPhotonWords(photon(), placeOf(place), text, replyTo, deps.linkNotes);
+    },
     sendMedia: async (place, url, replyTo) => {
       const where = placeOf(place);
       await threadedOrPlain(replyTo, (under) => sendPhotonAttachment(photon(), where, attachmentOf({ url }), under));
