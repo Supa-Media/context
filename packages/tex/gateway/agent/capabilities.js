@@ -379,8 +379,8 @@ export const CAPABILITIES = Object.freeze([
     name: "Running the group",
     actions: [],
     texts: "a group chat's name, photo and people are changed in the chat itself",
-    group: "on your iMessage line, anyone here can have you name the chat, make a photo they send with their text its photo, or add someone by the number or email in their own text: one line each in your answer, \"(name the chat) <name>\", \"(set the chat photo)\" or \"(add to the chat) <number or email>\"",
-    cant: [{ where: "group", what: "take someone out of the chat, or change a chat on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "ask someone here to do it in the chat's details" } }],
+    group: "anyone here can have you name the chat, make a photo they send with their text its photo, or add someone by the number or email in their own text: one line each in your answer, \"(name the chat) <name>\", \"(set the chat photo)\" or \"(add to the chat) <number or email>\"; write it whenever they ask, and if this chat's number can't, they are told so",
+    cant: [{ where: "group", what: "take someone out of the chat", workaround: { kind: "words", text: "ask someone here to do it in the chat's details" } }],
   },
   {
     name: "Tags, effects and other apps' cards",
