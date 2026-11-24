@@ -22,5 +22,10 @@ export default async function learn(input, io) {
   // One after the other, as they always ran: both may write to the same workspace.
   const nudge = await half(() => nudgeAfterTurn({ ...io.ctx, question, answer, tainted, canWrite }));
   const reflect = await half(() => reflectAfterTurn({ ...io.ctx, question, tainted, ownText, canWrite }));
-  return { nudge, reflect };
+  // Their member card, kept in step with About me whenever the nudge ran (about every ten texts), over its own wire
+  // (`learn -> groupCard`, `groupCard.js`); with no wire, nothing changes.
+  const ran = !["skipped", "counting", "not_yet", "failed"].includes(nudge?.outcome);
+  if (!ran || !("groupCard" in (io.use ?? {}))) return { nudge, reflect };
+  const card = await half(() => io.use.groupCard({ canWrite: canWrite === true }));
+  return { nudge, reflect, card };
 }
