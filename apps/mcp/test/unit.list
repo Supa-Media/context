@@ -672,6 +672,7 @@ test/labSandboxCross.test.mjs
 test/editNode.test.mjs
 test/labSandboxEvents.test.mjs
 test/labSandboxLive.test.mjs
+test/labSandboxReads.test.mjs
 test/routineEngagement.test.mjs
 test/doorStep.test.mjs
 test/learnNode.test.mjs
