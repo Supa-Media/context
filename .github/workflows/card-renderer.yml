@@ -49,3 +49,14 @@ jobs:
           answer=$(npx convex run functions/cardAssets:wasmAsset '{}' 2>/dev/null)
           if [ "$answer" = "null" ] || [ -z "$answer" ]; then echo "Still missing."; exit 1; fi
           echo "Installed."
+
+      # A render of a fixed, made-up name, so a deployment whose wasm is there
+      # but whose renders still fail says why. It prints the error's first line
+      # only, never a stack, and the name drawn is this file's own.
+      - name: Does a card draw?
+        run: |
+          if out=$(npx convex run functions/cardRender:renderNoteCard '{"title":"Card renderer check","folder":"","board":"ink","pose":null}' 2>&1 >/dev/null); then
+            echo "A card draws."
+          else
+            echo "A card does not draw:"; echo "$out" | grep -iE "error|uncaught" | head -3 | cut -c1-300; exit 1
+          fi
