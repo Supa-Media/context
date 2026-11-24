@@ -16,6 +16,17 @@ export const GROUP_RUN_LINES = {
 } as const;
 
 /**
+ * What the chat's record keeps of a change Tex made, as Tex's own line: a turn that only ran the group texts nothing,
+ * and with nothing kept the next turn read the ask as unanswered and did it again (2026-11-24, a Lab eval: a poll
+ * asked after a rename renamed the chat a second time).
+ */
+export function groupRunDoneWords(action: GroupAction): string {
+  if (action.kind === "name") return `(named the chat “${action.name}”)`;
+  if (action.kind === "photo") return "(set the chat photo)";
+  return `(added ${action.address} to the chat)`;
+}
+
+/**
  * The words to text, each with its "running the group" lines taken out (one left empty stays in its place, so each
  * text keeps the message it goes under, and is not sent), and what to tell the chat after.
  */

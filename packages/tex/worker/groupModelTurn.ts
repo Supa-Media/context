@@ -13,7 +13,7 @@ import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
 import { maySend } from "./outboundGuard";
 import type { ControlAnswer } from "./groupControl";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
-import { fixedTimings, log, logTiming, say, sayProgress, sendPicture, threadUnder, type SayMeta } from "./groupSay";
+import { fixedTimings, log, logOut, logTiming, say, sayProgress, sendPicture, threadUnder, type SayMeta } from "./groupSay";
 import { prepareAttachments } from "./attachments";
 import { E164 } from "./sendblue";
 import { bubblesUnder } from "./bubblesUnder";
@@ -35,7 +35,7 @@ import { turnCause } from "./groupCause";
 import { watchForSave } from "./vaultWatch";
 import { watchForHandback } from "./handbackWatch";
 import { inviteEveryone } from "./groupInvite";
-import { runTheGroup } from "./groupRunTurn";
+import { groupRunDoneWords, runTheGroup } from "./groupRunTurn";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
 import { answerCrossAsk, crossCounts, crossFields, crossWired, sendCrossAsks } from "./crossChat";
@@ -343,6 +343,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     }
     for (const picture of checkIn ? [] : answer.pictures) (await sendPicture(storage, deps, message, picture, meta), (went += 1)); // After the words, as in a 1:1.
     if (ran?.told) await say(storage, deps, message, ran.told, { system: true });
+    for (const action of ran?.done ?? []) await logOut(storage, deps, message.groupId, { kind: "text", text: groupRunDoneWords(action), delivered: true }, meta); // kept, so the next turn knows it was done
   } catch (error) {
     if (meta.turn) await logStep(storage, message.groupId, deliveryStep(parts, went, Date.now() - delivering, error instanceof Error ? error.name : "error"), deps.now(), meta.turn);
     throw error;
