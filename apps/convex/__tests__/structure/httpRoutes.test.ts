@@ -115,6 +115,7 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "sitePreview",
   "siteCard",
   "siteHome", "siteHomeRevision", "siteRevisionRoute", "sitePage",
+  "noteLinkPreview", "noteLinkCard",
 ]);
 
 /**
@@ -350,6 +351,14 @@ describe("the gateway's HTTP routes", () => {
       // revision, and one address exactly as an anonymous visitor sees it.
       // Fields are pinned in `siteHome.test.ts` and `sitePage.test.ts`.
       "siteHome", "siteHomeRevision", "siteRevisionRoute", "sitePage",
+      // **A note link Tex texted, and its picture.** The argument is a
+      // workspace, a path and a name, all guessable, and that is why neither
+      // answers on them: each answers only when the link's key is the HMAC
+      // this deployment's gateway made over exactly those three, so the probe
+      // space is the links Tex texted, and the answer is only what the link
+      // already says. They read no note, row or bucket. Pinned in
+      // `noteLinkCards.test.ts`; argued in `note-link-previews.md`.
+      "noteLinkPreview", "noteLinkCard",
     ]);
 
     // Read from the routed source, not `http.ts` alone: the handler lives in

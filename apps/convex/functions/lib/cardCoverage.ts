@@ -218,3 +218,17 @@ export function isRenderableSiteCard(facts: { title: string; siteName: string })
   );
   return isRenderable(facts.title, serifCovered) && isRenderableTitle(facts.siteName);
 }
+
+import { libronFont } from "./cardFont/libron";
+
+let libronCovered: Set<number> | null = null;
+
+/**
+ * Can a note link's card be drawn without tofu? Its name is set in Libron and
+ * its folder line in the sans (`noteCardArt.ts`), so each is checked against
+ * its own face.
+ */
+export function isRenderableNoteCard(facts: { title: string; folder: string }): boolean {
+  libronCovered ??= fontCoverage(libronFont().buffer.slice(0, libronFont().byteLength) as ArrayBuffer);
+  return isRenderable(facts.title, libronCovered) && isRenderableTitle(facts.folder);
+}

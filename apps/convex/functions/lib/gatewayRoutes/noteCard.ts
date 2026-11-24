@@ -1,7 +1,8 @@
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { CARD_SUBTITLE_TEXTED } from "../cardArt";
-import { isRenderableTitle } from "../cardCoverage";
+import { isRenderableNoteCard, isRenderableTitle } from "../cardCoverage";
+import { isNotePath, noteCardFactsOf } from "../publicRoutes/noteLinkCards";
 import { json } from "../gatewayAuth";
 import { normalizePreviewTitle } from "../shareTitle";
 
@@ -21,6 +22,11 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
  * note link it is about to text to someone who can open it. Both are in that
  * link, so the picture tells them nothing the link does not.
  *
+ * With the note's `path` it is the card a note link unfurls with (Dev,
+ * 2026-11-23, `note-link-previews.md`): its name, its folders, a backdrop and
+ * Tex, so the picture texted ahead of a link and the one Messages draws from
+ * it are one card. Without one, an older Worker's ask, it is the share card.
+ *
  * `{ png }` (base64) or 404 for anything it will not draw: a name the font
  * cannot draw (tofu), a malformed workspace, or a renderer that failed. The
  * Worker then sends the link alone, as before.
@@ -28,7 +34,18 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export async function agentTextsNoteCardHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const title = typeof body.title === "string" ? normalizePreviewTitle(body.title) : null;
   const slug = typeof body.slug === "string" ? body.slug : "";
-  if (title === null || !SLUG.test(slug) || !isRenderableTitle(title)) return json({ error: "not_drawn" }, 404);
+  if (title === null || !SLUG.test(slug)) return json({ error: "not_drawn" }, 404);
+  if (typeof body.path === "string") {
+    if (!isNotePath(body.path)) return json({ error: "not_drawn" }, 404);
+    const facts = noteCardFactsOf(slug, body.path, title);
+    if (!isRenderableNoteCard(facts)) return json({ error: "not_drawn" }, 404);
+    try {
+      return json({ png: base64Of(await ctx.runAction(internal.functions.cardRender.renderNoteCard, facts)) });
+    } catch {
+      return json({ error: "not_drawn" }, 404);
+    }
+  }
+  if (!isRenderableTitle(title)) return json({ error: "not_drawn" }, 404);
   try {
     const bytes: ArrayBuffer = await ctx.runAction(internal.functions.cardRender.renderCard, {
       title,

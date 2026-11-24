@@ -3,9 +3,8 @@
 Things argued through once and not to be silently reversed. Each names what a
 "simplification" of it would cost, and most name the test that fails if so.
 
-These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim. `CLAUDE.md`
-stays short enough to be read every session and links here. **Read the file covering the area
-you are touching before you change behaviour in it**, and add to it when a durable decision lands.
+These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim. `CLAUDE.md` stays short enough to be read every session and links here.
+**Read the file covering the area you are touching before you change behaviour in it**, and add to it when a durable decision lands.
 
 Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
@@ -168,6 +167,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [A yes answers the ask made in its own chat, and only the latest](./privacy-and-sharing/agent-egress.md) (2026-11-02)
 - [In the pinned workspace, `team` means its members, and All Context users is its own grant](./privacy-and-sharing/all-context-users.md) (2026-10-19, superseding the morning's "`team` is shown as All Context users")
 - [A linked page's card is its cover, for team links too](./privacy-and-sharing/page-covers.md) (2026-10-27)
+- [A note link Tex texts carries the note's name and a key, and unfurls as that note](./privacy-and-sharing/note-link-previews.md) (2026-11-23)
 - [A new note in a shared workspace takes its folder's default](./privacy-and-sharing/shared-folder-default.md) (2026-11-17)
 - [An AI connection reads what was shared with its person, as the app does](./privacy-and-sharing/ai-connection-names.md) (2026-11-03)
 

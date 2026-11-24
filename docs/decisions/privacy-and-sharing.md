@@ -176,6 +176,10 @@ Moved to [A link shows the pictures its note embeds, and no other object](./priv
 
 [A linked page unfurls with its first screen](./privacy-and-sharing/page-covers.md) (decided by the owner, 2026-10-27): a `.page.md` note linked for the team or for anyone previews the cover Tex drew of it; a link for named people keeps the title card.
 
+### A note link Tex texts unfurls with its name
+
+[A note link Tex texts carries the note's name and a key](./privacy-and-sharing/note-link-previews.md) (decided by Dev, 2026-11-23): the card shows the name only when the key the gateway signed over the workspace, path and name holds; a guessed address keeps the frozen card, and the key grants nothing.
+
 ### An AI connection holds its person's names
 
 [An AI connection reads what was shared with its person, as the app does](./privacy-and-sharing/ai-connection-names.md) (decided by the owner, 2026-11-03): every OAuth client gets the groups, handle and row tokens the app gets, so by-name shares and Tex group chat homes open to it; Context's own background clients still get none.

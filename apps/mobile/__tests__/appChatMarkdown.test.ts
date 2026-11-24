@@ -107,6 +107,7 @@ describe("note links", () => {
 
   test("a relative note path is accepted, another host's path is still a note", () => {
     expect(noteLinkOf("/note/@supa/a.md")).toEqual({ href: "/console/@supa?note=a.md", path: "a.md" });
+    expect(noteLinkOf("https://context.lc/note/@supa/a.md?t=A&k=AbCdEfGhIjKlMnOpQrSt_-")).toEqual({ href: "/console/@supa?note=a.md", path: "a.md" });
     expect(noteLinkOf("https://example.org/note/@supa/a.md")?.path).toBe("a.md");
   });
 

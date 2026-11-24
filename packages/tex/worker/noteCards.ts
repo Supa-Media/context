@@ -33,7 +33,7 @@ export function noteCardDrawer(fetcher: Fetch, controlPlaneOrigin: string, worke
         "control_plane",
         `${controlPlaneOrigin}/agent-texts/note-card`,
         workerSecret,
-        { title: link.caption, slug: link.slug },
+        { title: link.caption, slug: link.slug, path: link.path },
         NOTE_CARD_TIMEOUT_MS,
       );
       const png = (json as { png?: unknown } | null)?.png;

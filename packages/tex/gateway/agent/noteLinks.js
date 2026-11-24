@@ -65,6 +65,7 @@ function nothingChanged(name, result) {
 
 import { isPagePath } from "../../../../apps/mcp/src/pages.js";
 import { isTexOwnNote, noteWrite } from "./pageNotice.js";
+import { noteTitleOf, previewKey, previewSigningKey } from "../../../shared/src/notePreview.cjs";
 
 const WRITTEN = /^written: (.+?) \(etag /;
 const READ = /^(etag: [^\n]*\npath: ([^\n]+))/;
@@ -129,6 +130,57 @@ function linked(name, args, text, origin, slug) {
     return match && `${match[1]}\nlink: ${noteLinkUrl(origin, slug, match[2])}${text.slice(match[1].length)}`;
   }
   return null;
+}
+
+/**
+ * A NOTE LINK TEXTED UNFURLS AS THE NOTE (Dev, 2026-11-23).
+ *
+ * A link Tex texts carries the note's name and a key (`t` and `k`), so the card
+ * iMessage draws for it says the note's name over Tex's picture instead of
+ * "A note in Context"; a link without a matching key keeps that frozen card
+ * (`packages/shared/src/notePreview.cjs`, and
+ * `docs/decisions/privacy-and-sharing/note-link-previews.md` for the trade
+ * Dev chose: whoever the text reaches sees the name, never the note).
+ *
+ * The model never holds the key. A read or write here keeps the plain link it
+ * was given beside its signed twin, and the finish step swaps one for the
+ * other in the words that are texted (`withPreviewLinks`). A link the model
+ * retyped, or one from an earlier turn, goes out plain and unfurls as before.
+ */
+
+/** A signer for note links under this deployment's gateway secret, or null without one. Holds the key in a closure, never on an object. */
+export function notePreviewSigner(env) {
+  const secret = env?.GATEWAY_SECRET;
+  let key;
+  return {
+    async sign(url, { slug, path, title }) {
+      if (typeof title !== "string" || title === "") return null;
+      key ??= previewSigningKey(secret);
+      const signingKey = await key;
+      if (signingKey === null) return null;
+      const k = await previewKey(signingKey, { slug, path, title });
+      return `${url}?t=${encodeURIComponent(title)}&k=${k}`;
+    },
+  };
+}
+
+/** The note's text a read or write carried: the body after a read's header, or a whole-note write's content. */
+function noteTextOf(name, args, text) {
+  if (name === "write_note") return typeof args?.content === "string" && args?.section === undefined && args?.edits === undefined ? args.content : null;
+  const header = READ.exec(text);
+  return header ? text.slice(header[0].length) : null;
+}
+
+/** Keep `url`'s signed twin in `previews.signed`, when there is a signer and a name. Never fails the call. */
+async function keepSigned(previews, url, { name, args, text, slug, path }) {
+  if (!previews?.signer || !(previews.signed instanceof Map) || previews.signed.has(url)) return;
+  try {
+    const title = noteTitleOf(path, noteTextOf(name, args, text));
+    const signed = await previews.signer.sign(url, { slug, path, title });
+    if (signed !== null) previews.signed.set(url, signed);
+  } catch {
+    // A link without its key unfurls as it always did.
+  }
 }
 
 /** The note tools whose refusals can name a path or a folder to use instead. */
@@ -202,7 +254,7 @@ function forget(saved, path) {
  * deliverable notes it saved (`withSavedLink`). Everything else, a failed call
  * included, passes through untouched.
  */
-export function withNoteLinks(callTool, { origin, contexts, saved = null }) {
+export function withNoteLinks(callTool, { origin, contexts, saved = null, previews = null }) {
   // No origin means no links, but a refused visibility change still says nothing changed.
   if (origin === null) return async (name, args) => nothingChanged(name, await callTool(name, args));
   return async (name, args) => {
@@ -218,6 +270,8 @@ export function withNoteLinks(callTool, { origin, contexts, saved = null }) {
     if (!text) return result;
     const path = saved !== null && name === "write_note" ? deliverablePath(name, args, result) : null;
     if (path !== null) remember(saved, { slug, path, url: noteLinkUrl(origin, slug, path) });
+    const linkedPath = name === "write_note" ? WRITTEN.exec(first.text)?.[1] : READ.exec(first.text)?.[2];
+    if (linkedPath) await keepSigned(previews, noteLinkUrl(origin, slug, linkedPath), { name, args, text: first.text, slug, path: linkedPath });
     return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
   };
 }

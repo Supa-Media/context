@@ -19,7 +19,7 @@ export default {
       // The deliverable: a new note, then the bare "Here it is" the model texted. The gateway adds the link.
       const first = await chat.text("make me an offboarding checklist in context, a general one I can reuse", [{ toolCalls: [write] }, { text: "Here it is" }]);
       const link = first.answer.split("\n").at(-1);
-      assert.match(link, /^https:\/\/app\.example\/(?:note|p)\/@[^/\s]+\/1-projects\/offboarding-checklist\.md$/, "the reply ends with the saved note's link on its own line");
+      assert.match(link, /^https:\/\/app\.example\/(?:note|p)\/@[^/\s]+\/1-projects\/offboarding-checklist\.md(?:\?t=[^&\s]+&k=[\w-]{22})?$/, "the reply ends with the saved note's link on its own line");
       assert.equal(first.answer.split("\n")[0], "Here it is", "the words stay as the model wrote them");
 
       // The model already linked the note: the reply keeps that one link, and none is added.
@@ -28,7 +28,7 @@ export default {
         (body) => ({ text: `Here it is: ${linkIn(body)}` }),
       ]);
       assert.equal(again.answer.split("https://").length - 1, 1, "the link appears exactly once");
-      assert.match(again.answer, /^Here it is: https:\/\/app\.example\/(?:note|p)\/@[^/\s]+\/1-projects\/short-offboarding\.md$/);
+      assert.match(again.answer, /^Here it is: https:\/\/app\.example\/(?:note|p)\/@[^/\s]+\/1-projects\/short-offboarding\.md(?:\?t=[^&\s]+&k=[\w-]{22})?$/);
 
       // Tex's own memory is not a deliverable: a remembered fact gets no link.
       const remembered = await chat.text("I always want my checklists to list the laptop first", [
