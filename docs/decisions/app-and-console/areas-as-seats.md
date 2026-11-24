@@ -58,8 +58,12 @@ who to ask and what is not covered. No new concept: an area is the seat.
   keep the board's layout but the app's own type scale (names and values at
   13, labels at 12, 40-high rows, 232-wide chart columns): drawn at the
   board's 14-16 with 60-high rows, it read "way too big" beside the sidebar
-  (the owner, 2026-11-24). Check a redraw inside the app, not only against
-  the board.
+  (the owner, 2026-11-24). The List then takes the Projects list's own
+  measure, since the two sit side by side in the sidebar: 36-high rows, the
+  16 regular name, 20 faces, an 18 chevron gutter, the page's own column
+  rather than a wider one, and the metric on one line; ⋯ shows on hover
+  (the owner, 2026-11-24: "the scale is still wrong here"). Check a redraw
+  inside the app beside its neighbours, not only against the board.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as
