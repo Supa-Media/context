@@ -149,6 +149,8 @@ const TEX_FIGURE_ICON = "context:tex";
 const TEX_PART_ICONS = Object.freeze({
   "about.md": contextPartMarker("tex_about"),
   "about-me.md": contextPartMarker("tex_about"),
+  // What their Tex lets a group chat use, kept from About me (`packages/tex/gateway/agent/groupCard.js`): drawn as About me is.
+  "group-card.md": contextPartMarker("tex_about"),
   attention: contextPartMarker("tex_attention"),
   chats: contextPartMarker("tex_chats"),
   "attention.md": contextPartMarker("tex_attention"),

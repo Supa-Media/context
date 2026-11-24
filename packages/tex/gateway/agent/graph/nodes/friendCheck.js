@@ -8,7 +8,7 @@
  * Input `{ draftChars }`. Output `{ to: "pass" | "back" | "skipped", ms }`.
  */
 import { chatLinesOf, friendNotice, friendQuestion, readFriendVerdict } from "../../friendCheck.js";
-import { cardAsker } from "./groupCard.js";
+import { cardAsker } from "../../groupCard.js";
 
 const DEFAULT_MS = 4_000;
 const noTools = async () => ({ isError: true, content: [{ type: "text", text: "No tools here." }] });

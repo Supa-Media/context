@@ -16,6 +16,11 @@
 import { readAboutMe } from "./aboutMe.js";
 import { readWithEtag } from "./jobLog.js";
 import { fingerprint } from "./promptManifest.js";
+import { runTurn } from "./turn.js";
+import { builtinModel } from "./builtin.js";
+import { aiGatewayConfig } from "./aiGateway.js";
+import { ProviderError } from "./providers.js";
+import { builtinMeter } from "./jobLog.js";
 
 export const GROUP_CARD_PATH = "tex/group-card.md";
 
@@ -131,4 +136,31 @@ export async function keepGroupCard({ dispatch, ask }) {
   } catch (error) {
     return { outcome: "failed", where: typeof error?.name === "string" ? error.name : "error" };
   }
+}
+
+/**
+ * One small built-in model call, no tools and one round, answering its text and metered to the session: the card's
+ * writer (`graph/nodes/groupCard.js`) and the Friend check (`graph/nodes/friendCheck.js`) each ask through it.
+ */
+export function cardAsker({ env, controlPlane, session }) {
+  return async (question, callTool) => {
+    const model = builtinModel(env);
+    const meter = builtinMeter(controlPlane, session, model, Date.now());
+    try {
+      const ran = await runTurn({
+        question,
+        tools: [],
+        callTool,
+        env,
+        providerOptions: { ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "group_card" } },
+        maxRounds: 1,
+        roundCap: 1,
+      });
+      await meter(ran.usage, false, ran.model);
+      return ran.answer ?? "";
+    } catch (error) {
+      await meter(null, true, error instanceof ProviderError ? error.model : model);
+      throw error;
+    }
+  };
 }

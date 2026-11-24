@@ -6,38 +6,9 @@
  * model call, and only when About me changed since the card was written. Its output is the outcome and counts, never a
  * line's words. It never throws.
  */
-import { keepGroupCard } from "../../groupCard.js";
+import { cardAsker, keepGroupCard } from "../../groupCard.js";
 import { ownDispatch } from "../../reflect.js";
-import { runTurn } from "../../turn.js";
-import { builtinModel } from "../../builtin.js";
-import { aiGatewayConfig } from "../../aiGateway.js";
-import { ProviderError } from "../../providers.js";
-import { builtinMeter } from "../../jobLog.js";
 import { TEXTS_CLIENT_ID } from "../../../../../../apps/mcp/src/workspaceStore/personTexting.js";
-
-/** Its one model call: no tools, one round, the answer's text. */
-export function cardAsker({ env, controlPlane, session }) {
-  return async (question, callTool) => {
-    const model = builtinModel(env);
-    const meter = builtinMeter(controlPlane, session, model, Date.now());
-    try {
-      const ran = await runTurn({
-        question,
-        tools: [],
-        callTool,
-        env,
-        providerOptions: { ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "group_card" } },
-        maxRounds: 1,
-        roundCap: 1,
-      });
-      await meter(ran.usage, false, ran.model);
-      return ran.answer ?? "";
-    } catch (error) {
-      await meter(null, true, error instanceof ProviderError ? error.model : model);
-      throw error;
-    }
-  };
-}
 
 export async function groupCardNode(input, io) {
   const { env, controlPlane, store, session } = io?.ctx ?? {};
