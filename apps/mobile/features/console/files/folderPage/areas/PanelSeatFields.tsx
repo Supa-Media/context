@@ -230,7 +230,7 @@ function DropValue({ editable, label, onOpen, testID, children }: { editable: bo
   const node = useRef<View>(null);
   if (!editable) return <View style={styles.drop}>{children}</View>;
   return (
-    <View ref={node} collapsable={false}>
+    <View ref={node} collapsable={false} style={styles.dropWrap}>
       <Pressable
         onPress={() => {
           if (node.current?.measureInWindow === undefined) onOpen(null);
@@ -407,6 +407,8 @@ const makeStyles = (colors: Colors) =>
     hint: { marginTop: space.x1 },
     muted: { color: colors.muted },
     value: { flexShrink: 1, minWidth: 0, color: colors.text },
+    // Only as wide as the value, so its hover is not a bar across the panel.
+    dropWrap: { alignSelf: "flex-start", maxWidth: "100%" },
     drop: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 26 },
     dropPress: { paddingHorizontal: 6, marginLeft: -6, borderRadius: radii.sm, justifyContent: "flex-start" },
     hover: { backgroundColor: colors.chipFill },
