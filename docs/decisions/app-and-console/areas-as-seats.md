@@ -65,6 +65,15 @@ who to ask and what is not covered. No new concept: an area is the seat.
   Areas shrinking to the tree's 36 and 16. Check a redraw inside the app
   beside its neighbours, not only against the board.
 
+  One press on an area shows it in a side panel beside the list, and a
+  second press at once (or the panel's Open area) opens its page (the owner,
+  2026-11-24, after trying the prototype: "one click open up the right panel,
+  double click to get into more details"). The panel edits the metric's name,
+  its goal and the modes where they are drawn, through the seat pop-up's own
+  save; who holds the seat and how to reach them stay in the pop-up. A phone
+  has no panel: a press opens the area. `areasPanel.test.ts` fails if a single
+  press opens the area on a page with room.
+
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as
 folders. Enforcing modes would turn labels people try on into rules they fight.

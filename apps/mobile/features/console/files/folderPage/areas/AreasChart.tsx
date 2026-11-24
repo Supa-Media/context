@@ -50,6 +50,8 @@ export interface AreasChartProps {
   reach: (owner: string) => string;
   /** Opens an area's own page. */
   onOpen: (folder: string) => void;
+  /** An area box pressed: the side panel on a desktop (a second press opens it), else its page. Defaults to `onOpen`. */
+  onArea?: (folder: string) => void;
   /** The latest reading of a seat's headline metric, from its `metrics.csv`; undefined when there is none. */
   readingOf: (seat: Seat) => Reading | undefined;
   /** Seat options: from a right-click, the top box, or a ⋯ button (its page coordinates). */
@@ -61,7 +63,7 @@ export interface AreasChartProps {
 }
 
 type Point = { readonly x: number; readonly y: number };
-type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact" | "readingOf">;
+type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact" | "readingOf"> & { readonly onArea: (folder: string) => void };
 
 const pointOf = (event: GestureResponderEvent | undefined): Point | null => (event === undefined ? null : pressPoint(event));
 
@@ -84,7 +86,7 @@ const SUB_ELBOW = 17;
 export function AreasChart(props: AreasChartProps) {
   const { tree, rootTitle, compact } = props;
   const styles = useThemedStyles(makeStyles);
-  const ctx: Ctx = props;
+  const ctx: Ctx = { ...props, onArea: props.onArea ?? props.onOpen };
   return (
     <View style={styles.chart} testID="areas-chart">
       {compact ? <PhoneTree tree={tree} rootTitle={rootTitle} ctx={ctx} /> : <OrgChart tree={tree} rootTitle={rootTitle} ctx={ctx} />}
@@ -331,7 +333,7 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
   return (
     <View style={[styles.box, ctx.compact && styles.boxPhone, hovered && styles.boxHover]} testID={`area-box-${seat.folder}`} ref={menuClick.ref as never}>
       <Pressable
-        onPress={() => ctx.onOpen(seat.folder)}
+        onPress={() => ctx.onArea(seat.folder)}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         role="link"
@@ -453,7 +455,7 @@ function SubBox({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
   return (
     <View style={[styles.box, hovered && styles.boxHover]} testID={`area-box-${seat.folder}`} ref={menuClick.ref as never}>
       <Pressable
-        onPress={() => ctx.onOpen(seat.folder)}
+        onPress={() => ctx.onArea(seat.folder)}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         role="link"
@@ -498,7 +500,7 @@ function EmptyBox({ seat, ctx, big = false }: { seat: Seat; ctx: Ctx; big?: bool
   });
   return (
     <View style={[styles.empty, ctx.compact && styles.boxPhone]} testID={`area-box-${seat.folder}`} ref={menuClick.ref as never}>
-      <Pressable onPress={() => ctx.onOpen(seat.folder)} role="link" accessibilityLabel={`${areaTitle(seat.name)}, no owner`} style={styles.emptyName}>
+      <Pressable onPress={() => ctx.onArea(seat.folder)} role="link" accessibilityLabel={`${areaTitle(seat.name)}, no owner`} style={styles.emptyName}>
         <View style={styles.ring} />
         <Text variant="rowTitle" numberOfLines={1} style={[styles.subName, styles.emptyTitle, big && styles.name]}>
           {areaTitle(seat.name)}
