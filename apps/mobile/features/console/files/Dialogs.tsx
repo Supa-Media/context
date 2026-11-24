@@ -3,17 +3,17 @@ import { ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "re
 import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
+import { Icon, type IconName } from "../../design/components/Icon";
 import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { MoveDestination } from "./browser";
-import { describeNameProblem } from "./paths";
+import { baseName, describeNameProblem, folderLabel } from "./paths";
 import { Shell } from "./DialogShell";
 import { NewFolderForm } from "./NewFolderForm";
 import { PlacePicker } from "./PlacePicker";
 import { DestinationTree } from "./DestinationTree";
 import { useDestinationFolders, type FolderLoad } from "./useDestinationFolders";
-import { createRows } from "./createSheet";
-import { CreateChoices } from "../CreateChoices";
+import { createRows, type CreateRow } from "./createSheet";
 import { useFieldFont } from "../../design/fieldFont";
 
 /**
@@ -22,6 +22,11 @@ import { useFieldFont } from "../../design/fieldFont";
  * Three shapes, in the mockup's language: a shell, a name prompt, and a
  * destination picker.
  */
+
+/** Where something made in `folder` lands, in words: a folder's name, or the top. */
+export function whereIn(folder: string): string {
+  return folder === "" ? "the top of your workspace" : folderLabel(baseName(folder));
+}
 
 /**
  * `+`, on a surface with room for exactly one of it.
@@ -99,6 +104,7 @@ export function CreatePrompt({
    */
   onResumeMeeting?: { detail: string; onResume: () => void } | null;
 }) {
+  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [naming, setNaming] = useState(false);
 
@@ -116,38 +122,92 @@ export function CreatePrompt({
 
   return (
     <Shell title="Create" onClose={onCancel} sheet>
-      <CreateChoices
-        rows={createRows({
+      <Text variant="paneSub">
+        {`In ${whereIn(folder)}.`}
+      </Text>
+      <View style={styles.choices}>
+        {createRows({
           canEdit,
           meeting: onNewMeeting !== null,
           resume: onResumeMeeting !== null,
-        })}
-        folder={folder}
-        {...(onResumeMeeting === null ? {} : { resumeDetail: onResumeMeeting.detail })}
-        touch
-        onChoose={(row) => {
-          /*
-            The folder is the one row that stays in the dialog: it swaps this
-            sheet for `NamePrompt`, so closing first would take the prompt
-            with it. Every other row closes and then acts, because the ones
-            that write a file open the editor on it, and a modal still on
-            screen over a note somebody is now being shown looks like a bug.
-          */
-          if (row === "new-folder") return setNaming(true);
-          onCancel();
-          if (row === "new-note") onCreateNote();
-          if (row === "new-drawing") onCreateDrawing();
-          if (row === "new-sheet") onCreateSheet();
-          if (row === "new-meeting") onNewMeeting?.();
-          if (row === "resume-meeting") onResumeMeeting?.onResume();
-        }}
-      />
+        }).map((row) => (
+          <PressRow
+            key={row}
+            accessibilityLabel={ROW_LABELS[row]}
+            onPress={() => {
+              /*
+                The folder is the one row that stays in the dialog: it swaps this
+                sheet for `NamePrompt`, so closing first would take the prompt
+                with it. Every other row closes and then acts, because the two
+                that write a file open the editor on it — and a modal still on
+                screen over a note somebody is now being shown is the one order
+                that looks like a bug.
+              */
+              if (row === "new-folder") return setNaming(true);
+              onCancel();
+              if (row === "new-note") onCreateNote();
+              if (row === "new-drawing") onCreateDrawing();
+              if (row === "new-sheet") onCreateSheet();
+              if (row === "new-meeting") onNewMeeting?.();
+              if (row === "resume-meeting") onResumeMeeting?.onResume();
+            }}
+            style={styles.choiceRow}
+            hoverStyle={styles.listRowHover}
+            testID={`create-row-${row}`}
+          >
+            <Icon name={ROW_ICONS[row]} size={20} color={colors.chromeMuted} />
+            <View style={styles.choiceWords}>
+              <Text variant="body">{ROW_TITLES[row]}</Text>
+              {row === "resume-meeting" && onResumeMeeting !== null ? (
+                <Text variant="paneSub">{onResumeMeeting.detail}</Text>
+              ) : null}
+            </View>
+          </PressRow>
+        ))}
+      </View>
       <View style={styles.actions}>
         <Button label="Cancel" variant="dialog" onPress={onCancel} />
       </View>
     </Shell>
   );
 }
+
+/**
+ * The accessible name of each row — the same words `CreateButton`'s menu uses,
+ * because a phone and a desktop calling the same thing two names is how one of
+ * them ends up meaning something else.
+ */
+const ROW_LABELS: Record<CreateRow, string> = {
+  "resume-meeting": "Resume meeting",
+  "new-meeting": "New meeting",
+  "new-note": "New note",
+  "new-drawing": "New drawing",
+  "new-sheet": "New table",
+  "new-folder": "New folder",
+};
+
+/** The word on the row. Shorter than the label: the sheet has a title. */
+const ROW_TITLES: Record<CreateRow, string> = {
+  "resume-meeting": "Resume meeting",
+  "new-meeting": "Meeting",
+  "new-note": "Note",
+  "new-drawing": "Drawing",
+  "new-sheet": "Table",
+  "new-folder": "Folder",
+};
+
+/**
+ * Each row's mark, the one the file tree draws for it. A row is its mark and
+ * one word: the sentence each used to carry read as wordy (Dev, 2026-11-24).
+ */
+const ROW_ICONS: Record<CreateRow, IconName> = {
+  "resume-meeting": "play",
+  "new-meeting": "mic",
+  "new-note": "file",
+  "new-drawing": "pencil",
+  "new-sheet": "table",
+  "new-folder": "folder",
+};
 
 /** Ask for a name. Validated as you type, with the reason next to the field. */
 export function NamePrompt({
@@ -473,7 +533,28 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * wrong one of.
    */
   pills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-
+  /**
+   * The two rows of the create chooser.
+   *
+   * In the same well the destination picker's list sits in, so the thing being
+   * chosen from reads the same on both dialogs — but with no `maxHeight`,
+   * because there are exactly two rows and a scroller around two rows says
+   * there might be more.
+   */
+  choices: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    backgroundColor: colors.well,
+    overflow: "hidden",
+  },
+  /**
+   * A row of the chooser. Taller than the destination picker's rows because it
+   * carries two lines and is a thumb target rather than a list to scan — this
+   * dialog only exists on the density where the pointer does not.
+   */
+  choiceRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, paddingHorizontal: 14 },
+  choiceWords: { flexShrink: 1, gap: 2 },
   list: {
     maxHeight: 220,
     borderWidth: 1,
