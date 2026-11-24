@@ -199,7 +199,9 @@ function checkInRun({ codeNotice = null, failWith = null, config = TEX_CONFIG } 
 test("a check-in runs Check-in, the look, the Answer check, a tool call and Text them as logged nodes on the config's wires", async () => {
   const { runs, t, run } = checkInRun();
   const ran = await run();
-  assert.deepEqual(ran.ran, ["checkin", "fd", "answerCheck", "send"], "the run follows checkin -> fd -> answerCheck -> send");
+  // Finish the text (2026-11-23, the no-shadow steps) sits on the way and passes a check-in's words as they are.
+  assert.deepEqual(ran.ran, ["checkin", "fd", "answerCheck", "finish", "send"], "the run follows checkin -> fd -> answerCheck -> finish -> send");
+  assert.deepEqual(runs.find((r) => r.node === "finish")?.output?.when, ["as-is"], "a check-in's words pass Finish the text as they are");
   const nodes = runs.map((r) => r.node);
   assert.ok(nodes.includes("tools"), "the look's tool call ran as the Tools node over fd -> tools");
   const check = runs.find((r) => r.node === "answerCheck");
