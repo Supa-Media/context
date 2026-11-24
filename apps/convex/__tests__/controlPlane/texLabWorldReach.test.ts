@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { addMember, createUser, createWorkspace, gatewayPost } from "../fixtures.helpers";
+import type { Id } from "../../_generated/dataModel";
 import { reachOf } from "../../functions/lib/textGroupReach";
 import { bodyOf, registerClient, seedConnectedClient, token, twoConnectedTenants } from "./fixtures.helpers";
 
@@ -126,7 +127,7 @@ describe("made-up group chats on main", () => {
     const w = await world();
     const roles = { ana: { "lumio-test": "owner", "solenne-test": "member" }, ben: { "lumio-test": "member", "solenne-test": "editor" } } as const;
     const ids = { "lumio-test": w.lumio, "solenne-test": w.solenne };
-    const users = [];
+    const users: Id<"users">[] = [];
     for (const [name, held] of Object.entries(roles)) {
       const id = await createUser(w.t, `${name}@example.invalid`);
       for (const [slug, role] of Object.entries(held)) await addMember(w.t, ids[slug as keyof typeof ids], id, role);
