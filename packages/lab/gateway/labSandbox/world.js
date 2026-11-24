@@ -158,7 +158,7 @@ export function worldControl(env, grant, labToken, fetchImpl = (input, init) => 
     if (answer === null || typeof answer !== "object") return { status: "refused" };
     grant.asked = [...(grant.asked ?? []), { path, status: answer.status ?? null, ...(answer.intro === true ? { intro: true } : {}) }].slice(-8);
     if (path !== "/agent-texts/group") return answer;
-    grant.last = { path, status: answer.status ?? null, reach: answer.reach ?? [], blocked: answer.blocked ?? [], intro: answer.intro === true || grant.last?.intro === true, guests: (answer.guests ?? []).map((g) => g.label), asked: grant.asked };
+    grant.last = { ...(grant.failures ? { failed: grant.failures } : {}), path, status: answer.status ?? null, reach: answer.reach ?? [], blocked: answer.blocked ?? [], intro: answer.intro === true || grant.last?.intro === true, guests: (answer.guests ?? []).map((g) => g.label), asked: grant.asked };
     if (typeof answer.accessToken !== "string") return answer;
     grant.token = answer.accessToken;
     grant.payload = null;
@@ -194,11 +194,30 @@ export async function worldSession(env, grant) {
     if (typeof grant.token !== "string") throw new Error("the preview's control plane minted no grant for this turn");
     return sessionFromPayload(await worldPayload(env, grant), null, grant.token);
   } catch (error) {
-    const failed = [error?.name, error?.status ?? error?.code, String(error?.message ?? error).slice(0, 160)].filter((part) => part !== undefined && part !== null && part !== "").join(": ");
-    grant.failed = failed;
-    grant.last = { ...(grant.last ?? {}), failed };
+    worldFailed(grant, "session", error);
     throw error;
   }
+}
+
+/** A failure on a made-up chat's turn, kept on its reply row (`group.failed`, the last few): never a token or a body. */
+export function worldFailed(grant, where, error) {
+  const said = [error?.name, error?.status ?? error?.code, String(error?.message ?? error).slice(0, 160)].filter((part) => part !== undefined && part !== null && part !== "").join(": ");
+  grant.failures = [...(grant.failures ?? []), `${where}: ${said}`].slice(-4);
+  grant.last = { ...(grant.last ?? {}), failed: grant.failures };
+}
+
+/** The gateway routes a made-up chat's object calls, each failure (a throw or an error status) kept by `worldFailed`. */
+export function worldRoutes(grant, route) {
+  return async (request, path) => {
+    try {
+      const response = await route(request, path);
+      if (response.status >= 400) worldFailed(grant, path, { status: response.status, message: (await response.clone().text().catch(() => "")).slice(0, 160) });
+      return response;
+    } catch (error) {
+      worldFailed(grant, path, error);
+      throw error;
+    }
+  };
 }
 
 /**

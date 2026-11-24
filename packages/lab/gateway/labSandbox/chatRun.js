@@ -28,7 +28,7 @@ import { JOB_PART_END_PATH, handleJobPartEnd } from "../fromGateway/agent_jobPar
 import { handleAgent } from "../fromGateway/agent_route.js";
 import { TEXTING_ROUTES } from "../fromGateway/agent_textingRoutes.js";
 import { streamTurn, wantsProgress } from "../fromGateway/agent_progress.js";
-import { WORLD_SOURCE, worldAddress, worldControl, worldGrant, worldSession } from "./world.js";
+import { WORLD_SOURCE, worldAddress, worldControl, worldGrant, worldRoutes, worldSession } from "./world.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../fromGateway/agent_textsDecide.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../fromGateway/agent_textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../fromGateway/agent_textsEdit.js";
@@ -511,7 +511,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
         attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, controlPlane), (o, sibling) => attachLinkCalls(o, sibling, controlPlane, sandboxEnv));
         return { store, session };
       })());
-    const agent = agentRoute ?? gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate });
+    const agent = (isWorld ? (route) => worldRoutes(grant, route) : (route) => route)(agentRoute ?? gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate }));
     const routes = textsRoute ?? textsRoutes({ about, sandboxEnv, ctx, gate });
     // The chat's session is this text's own token, whoever answers the other routes.
     const linked = { status: "linked", accessToken: labToken, ...(about.timeZone ? { timeZone: about.timeZone } : {}), ...(payload?.defaultWorkspaceId ? { personalWorkspaceId: payload.defaultWorkspaceId } : {}) };

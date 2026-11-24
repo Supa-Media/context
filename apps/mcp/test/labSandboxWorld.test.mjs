@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
-import { changePeople, speakerKey, worldAddress, worldControl, worldGrant, worldInput, worldSession, worldSpeaker } from "../../../packages/lab/gateway/labSandbox/world.js";
+import { changePeople, speakerKey, worldAddress, worldControl, worldGrant, worldInput, worldRoutes, worldSession, worldSpeaker } from "../../../packages/lab/gateway/labSandbox/world.js";
 import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
 import { durableSql } from "./texStoreFixture.mjs";
 import { createSandboxActions } from "../../../packages/lab/gateway/texDev/sandbox.js";
@@ -174,7 +174,7 @@ test("a made-up chat on a preview is checked before a GitHub run is started for 
 test("a made-up chat whose turn has no session says why on its reply row", async () => {
   const grant = { token: null, payload: null, last: { path: "/agent-texts/group", status: "ready" } };
   await assert.rejects(worldSession({}, grant));
-  assert.match(grant.last.failed, /minted no grant/);
+  assert.match(grant.last.failed.join(" "), /minted no grant/);
 });
 
 test("the grant a group answer minted is kept for the next tag, which reuses its kept answer and asks nothing", async () => {
@@ -192,5 +192,14 @@ test("a turn's failure alone leaves the chips as the last real answer said", asy
   const grant = { token: null, payload: null, last: null };
   await assert.rejects(worldSession({}, grant));
   assert.equal(grant.last.status, undefined);
-  assert.match(grant.last.failed, /minted no grant/);
+  assert.match(grant.last.failed.join(" "), /minted no grant/);
+});
+
+test("a made-up chat's gateway call that throws or answers an error is kept on its reply row", async () => {
+  const grant = { token: "t", payload: null, last: { status: "ready" } };
+  const failing = worldRoutes(grant, async (_request, path) => (path === "/agent" ? Response.json({ error: "storage_unavailable" }, { status: 503 }) : Promise.reject(new Error("no store"))));
+  await failing(new Request("https://g.example/agent"), "/agent");
+  await assert.rejects(failing(new Request("https://g.example/agent/events"), "/agent/events"));
+  assert.match(grant.last.failed.join(" | "), /\/agent: 503: .*storage_unavailable.* \| \/agent\/events: Error: no store/);
+  assert.equal(grant.last.status, "ready");
 });
