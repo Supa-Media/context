@@ -53,6 +53,7 @@ const entries: LedgerEntry[] = [
   run("tapback", { emoji: "❤️", why: "they thanked me", lastFailed: false, tagged: false }, { to: "react", emoji: "❤️" }),
   run("checkinResearch", { counts: { mail: 3, changed: 2 } }, { findings: 1, urgent: 1, calls: 6, model: "anthropic/claude-haiku-5-5", brief: "- [tomorrow] a hearing at 9 · mail from the clerk · fill the form" }),
   run("quietCheck", { why: "already on the calendar", mail: 1 }, { to: "quiet", why: "they already said yes", model: "anthropic/claude-haiku-5-5", modelMs: 900 }),
+  run("nudgeOffer", { chars: 40 }, { to: "offer", sent: true, texts: 9, capability: "Calendar", line: "Want me to see your calendar?", why: "a plan with a time", model: "anthropic/claude-haiku-5-5", modelMs: 700 }),
   run("askGate", { askChars: 21, draftChars: 34 }, { to: "back", kind: "fact", sure: 0.9, model: "@cf/cloudflare/clef-flash", modelMs: 109, asks: 1, climbed: { knows: 0, notes: 1, tried: [] }, when: ["tryNext"] }),
   run("rungKnows", { terms: ["sister", "address"] }, { found: [] }),
   run("rungNotes", { query: "sister address", terms: ["sister", "address"] }, { found: ["people/ana.md: 12 Elm St"] }),
