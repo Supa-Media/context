@@ -9,10 +9,11 @@
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
+import { pointerType, radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { Popover, type Anchor } from "./Popover";
 import { densityFor } from "../../../app/frame";
+import { isApplePlatform } from "../../../design/applePlatform";
 
 export function RowMenu({
   number,
@@ -42,7 +43,7 @@ export function RowMenu({
     fn();
     onClose();
   };
-  const mac = Platform.OS === "web" && typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform ?? "");
+  const mac = isApplePlatform();
   const deleteLabel = armed ? `Delete row ${number} and its values` : "Delete row";
   const pressDelete = () => {
     if (armed) run(onDelete);
@@ -139,7 +140,7 @@ const makeStyles = (colors: Colors) =>
     group: { borderRadius: radii.control, backgroundColor: colors.surface3, overflow: "hidden" },
     groupRule: { height: 1, backgroundColor: colors.line, marginLeft: space.x3 },
     phoneItem: { height: 48, justifyContent: "center", paddingHorizontal: space.x3 },
-    phoneText: { color: colors.text, fontSize: 16 },
+    phoneText: { color: colors.text, fontSize: pointerType.body },
     head: { flexDirection: "row", alignItems: "baseline", gap: space.x1, paddingHorizontal: space.x2, paddingVertical: space.x1 },
     headNumber: { color: colors.text2, fontWeight: "600" },
     headLabel: { color: colors.muted, flexShrink: 1 },

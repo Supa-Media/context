@@ -40,6 +40,7 @@ import { measureNode, type Anchor } from "./Popover";
 import { SheetGrid, type GridEditing, type RowMark } from "./SheetGrid";
 import { RowMenu } from "./RowMenu";
 import { useSheetHistory } from "./useSheetHistory";
+import { isApplePlatform } from "../../../design/applePlatform";
 import type { EditorKeys } from "./CellEditor";
 import {
   appendRow,
@@ -444,7 +445,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const touch = compact || Platform.OS !== "web";
   const openColumnObject = menu?.kind === "column" ? columnNamed(menu.column) : undefined;
   const armedRow = rowMark?.tone === "armed" && menu === null ? order.indexOf(rowMark.row) : -1;
-  const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform ?? "");
+  const mac = isApplePlatform();
   const hidden = view.hidden.filter((name) => sheet.columns.some((c) => c.name === name));
 
   return (

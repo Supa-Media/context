@@ -187,6 +187,6 @@ const makeStyles = (colors: Colors) =>
     accent: { color: colors.accentText },
     hint: { marginLeft: "auto", color: colors.muted },
     warning: { color: colors.critText },
-    touchHint: { color: colors.muted, fontSize: 12 },
+    touchHint: { color: colors.muted },
     clear: { height: 26, justifyContent: "center", paddingHorizontal: space.x1 },
   });
