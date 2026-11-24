@@ -6,6 +6,7 @@ import {
   useQueries,
   type RequestForQueries,
 } from "convex/react";
+import { useWriteNote } from "./files/useWriteNote";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "./placeholderData";
@@ -190,7 +191,7 @@ export function useLiveConsoleData(): ConsoleData {
     with a writer no view calls would. Both go through `queuedWriteSender`, so
     there is still exactly one definition of what a queued write is.
   */
-  const writeNoteAction = useAction(api.functions.files.writeNote);
+  const writeNoteAction = useWriteNote();
   const syncManifestAction = useAction(api.functions.files.syncManifest);
   const readNotesAction = useAction(api.functions.files.readNotes);
   /** The bytes behind a workspace's icon. See the prefetch below for why here. */

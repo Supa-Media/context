@@ -262,6 +262,10 @@ export function sessionFromPayload(resolved, slug, token) {
     toolsListedAt: session.toolsListedAt,
     // A text's session from the person object carries who is texting (`sessionPayload.js`); absent everywhere else.
     ...(session.texterIdentity !== undefined ? { texterIdentity: session.texterIdentity } : {}),
+    // The acting person's feature flags, read by `flagOn` (`flags.js`). Until 2026-11-24 they stopped at the payload
+    // and never reached the session, so a gateway check of a flag was always off; `noteWriteRoute.test.mjs` fails
+    // ("a save over a note…") if they stop here again.
+    flags: session.flags,
   };
 
   /**

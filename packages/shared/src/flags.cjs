@@ -52,6 +52,12 @@ const FLAGS = Object.freeze({
     added: "2026-11-08",
     expires: "2027-02-06",
   },
+  "files.app-saves-in-objects": {
+    label: "App saves in objects",
+    description: "The app saves whole notes through the gateway into the workspace object, not through Convex.",
+    added: "2026-11-24",
+    expires: "2027-02-21",
+  },
 });
 
 const FLAG_MODES = Object.freeze(["off", "people", "everyone"]);

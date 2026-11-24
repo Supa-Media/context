@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useAction, useConvex } from "convex/react";
+import { useWriteNote } from "../console/files/useWriteNote";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { announceBucketWrite } from "../console/files/bucketWrites";
@@ -53,7 +54,7 @@ export function useFolderLists(
   useEffect(() => {
     offline.current = reachability === "offline";
   }, [reachability]);
-  const writeNote = useAction(api.functions.files.writeNote);
+  const writeNote = useWriteNote();
   const canEdit = capabilitiesForRole(role).canEdit;
   const convex = useConvex();
   return useMemo(() => {

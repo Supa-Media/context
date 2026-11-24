@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useAction } from "convex/react";
+import { useWriteNote } from "../../files/useWriteNote";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { Dialog } from "../../files/actions";
@@ -29,7 +30,7 @@ export function useTaskHost(
   source: (FolderListSource & ListWriteBack) | undefined,
   setDialog: (dialog: Dialog) => void,
 ): TaskHost | undefined {
-  const writeNote = useAction(api.functions.files.writeNote);
+  const writeNote = useWriteNote();
   const moveEntry = useAction(api.functions.files.moveEntry);
   const trashEntry = useAction(api.functions.files.trashEntry);
   const { canEdit, canShare, say, ensureListing, copyShareLink } = files;
