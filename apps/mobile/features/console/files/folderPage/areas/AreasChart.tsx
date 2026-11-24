@@ -174,10 +174,13 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
       else next.add(folder);
       return next;
     });
-  const branch = (node: AreaNode, level: number): React.ReactNode => {
+  // Each branch draws its own piece of the spine, so the line stops at the last branch's elbow however tall that box is.
+  const branch = (node: AreaNode, level: number, at: number, of: number): React.ReactNode => {
     const shown = open.has(node.seat.folder);
+    const lift = at === 0 ? (level === 1 ? 16 : 8) : 8;
     return (
       <View key={node.seat.folder}>
+        <View style={[styles.spine, { top: -lift }, at === of - 1 ? { height: lift + 29 } : styles.spineOn]} testID="area-line" />
         <View style={styles.elbow} />
         <AreaBox
           node={node}
@@ -187,8 +190,7 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
         />
         {shown && node.areas.length > 0 ? (
           <View style={[styles.kids, styles.kidsDeep]}>
-            <View style={styles.spine} testID="area-line" />
-            {node.areas.map((child) => branch(child, level + 1))}
+            {node.areas.map((child, at) => branch(child, level + 1, at, node.areas.length))}
           </View>
         ) : null}
       </View>
@@ -199,8 +201,7 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
       <RootBox node={tree} title={rootTitle} ctx={ctx} />
       {tree.areas.length > 0 ? (
         <View style={styles.kids}>
-          <View style={styles.spine} testID="area-line" />
-          {tree.areas.map((child) => branch(child, 1))}
+          {tree.areas.map((child, at) => branch(child, 1, at, tree.areas.length))}
         </View>
       ) : null}
       {tree.areas.length === 0 && ctx.onAdd !== null ? <AddLine label="Add a sub-area" onPress={() => ctx.onAdd?.(tree.seat)} /> : null}
@@ -289,7 +290,7 @@ function StateMark({ state, size }: { state: TargetState; size: number }) {
   const colors = useColors();
   if (state === "met") {
     return (
-      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="On target">
+      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="On target" style={{ flexShrink: 0 }}>
         <Circle cx={7} cy={7} r={7} fill={colors.ok} />
         <Path d="M4 7.2l2 2 4-4.4" fill="none" stroke={colors.cardSurface} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
@@ -297,7 +298,7 @@ function StateMark({ state, size }: { state: TargetState; size: number }) {
   }
   if (state === "missed") {
     return (
-      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="Off target">
+      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="Off target" style={{ flexShrink: 0 }}>
         <Path d="M7 0.8L13.6 12.6H0.4Z" fill={colors.warn} stroke={colors.warn} strokeWidth={0.8} strokeLinejoin="round" />
         <Path d="M7 5v3.4" stroke={colors.cardSurface} strokeWidth={1.7} strokeLinecap="round" />
         <Circle cx={7} cy={10.5} r={0.95} fill={colors.cardSurface} />
@@ -553,7 +554,8 @@ const makeStyles = (colors: Colors) =>
 
     kids: { position: "relative", paddingLeft: 20, marginTop: 16, gap: 8 },
     kidsDeep: { marginTop: 8 },
-    spine: { position: "absolute", left: 10, top: -16, bottom: 28, width: LINE, backgroundColor: colors.lineStrong },
+    spine: { position: "absolute", left: -10, width: LINE, backgroundColor: colors.lineStrong },
+    spineOn: { bottom: 0 },
     elbow: { position: "absolute", left: -10, top: 28, width: 10, height: LINE, backgroundColor: colors.lineStrong },
 
     rootBox: { borderRadius: 12, backgroundColor: colors.rootSurface, paddingVertical: 14, paddingHorizontal: 16, gap: 8 },

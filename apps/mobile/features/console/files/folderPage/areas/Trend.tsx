@@ -60,7 +60,7 @@ export function Trend({ geometry, state, width, height, stroke = 1.6, dash = "2 
   const colors = useColors();
   const ink = state === "met" ? colors.ok : state === "missed" ? colors.warn : colors.muted;
   return (
-    <Svg width={width} height={height} viewBox="-3 -3 62 26" preserveAspectRatio="none" aria-hidden testID="area-trend">
+    <Svg width={width} height={height} viewBox="-3 -3 62 26" preserveAspectRatio="none" aria-hidden testID="area-trend" style={{ flexShrink: 0 }}>
       {geometry.targetY === null ? null : (
         <Line x1={-3} x2={59} y1={geometry.targetY} y2={geometry.targetY} stroke={colors.muted} strokeWidth={dashWidth} strokeDasharray={dash} testID="area-trend-target" />
       )}

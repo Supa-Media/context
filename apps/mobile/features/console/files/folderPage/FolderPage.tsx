@@ -42,8 +42,6 @@ import type { ListNote } from "../listBlock/model";
 import { FolderBoard } from "./Board";
 import { boardWidth } from "./pageMeasures";
 
-/** The Areas list's width where the page has room: the owner's board, 2026-11-24. */
-const AREAS_LIST_WIDTH = 940;
 import { makeItTaskStatus, tasksWithSubtasks } from "./taskBasics";
 import { rowExtras, RowExtrasProvider, type RowEdit } from "./rowExtras";
 import { faceFor } from "./taskFace";
@@ -94,6 +92,9 @@ import { usePendingNotes } from "./tasks/usePendingNotes";
 import { backlogFolderOf } from "./tasks/backlogFolder";
 import { parkedOnBoard } from "./boardLayout";
 import { useFolderTasks } from "./tasks/useFolderTasks";
+
+/** The Areas list's width where the page has room: the owner's board, 2026-11-24. */
+const AREAS_LIST_WIDTH = 940;
 
 export type { FolderPageHost } from "./useFolderPage";
 
