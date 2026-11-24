@@ -57,7 +57,8 @@ export function FilterMenu({
   const [value, setValue] = useState(editing?.value ?? "");
   const verb = editing ? "Update filter" : "Add filter";
   // A phone's bottom sheet: bigger chips, field and buttons, for a thumb.
-  const phone = anchor === null || densityFor(useWindowDimensions().width) === "compact";
+  const windowWidth = useWindowDimensions().width;
+  const phone = anchor === null || densityFor(windowWidth) === "compact";
 
   const add = (filter: SheetFilter) => {
     onAdd(filter);

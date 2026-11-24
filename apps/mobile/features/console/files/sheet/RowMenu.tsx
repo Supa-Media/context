@@ -38,7 +38,8 @@ export function RowMenu({
   const styles = useThemedStyles(makeStyles);
   const [armed, setArmed] = useState(false);
   // A phone's bottom sheet: grouped rows a thumb can hit, with Delete in a group of its own.
-  const phone = anchor === null || densityFor(useWindowDimensions().width) === "compact";
+  const windowWidth = useWindowDimensions().width;
+  const phone = anchor === null || densityFor(windowWidth) === "compact";
   const run = (fn: () => void) => {
     fn();
     onClose();
