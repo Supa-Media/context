@@ -86,16 +86,18 @@ export function AreaPanel({ node, width, canEdit, faceOf, label, reach, readingO
   const reachLine = owner === null ? "" : reach(owner);
   return (
     <View style={styles.panel} testID="area-panel">
-      <View style={styles.head}>
-        <OwnerFace face={faceOf(owner)} size={24} />
-        <Text variant="paneTitle" style={styles.title} numberOfLines={1} role="heading" aria-level={2}>
-          {areaTitle(seat.name)}
-        </Text>
+      <View style={styles.headBlock}>
+        <View style={styles.head}>
+          <OwnerFace face={faceOf(owner)} size={22} />
+          <Text variant="paneTitle" style={styles.title} numberOfLines={1} role="heading" aria-level={2}>
+            {areaTitle(seat.name)}
+          </Text>
+          <Pressable onPress={onClose} role="button" accessibilityLabel="Close" hitSlop={6} style={styles.close} testID="area-panel-close">
+            <Icon name="close" size={13} color={colors.chromeMuted} />
+          </Pressable>
+        </View>
         <Pressable onPress={() => onOpen(seat.folder)} role="button" accessibilityLabel={`Open ${areaTitle(seat.name)}`} style={styles.openButton} testID="area-panel-open">
           <Text variant="treeMeta" style={styles.openWord}>Open area</Text>
-        </Pressable>
-        <Pressable onPress={onClose} role="button" accessibilityLabel="Close" hitSlop={6} style={styles.close} testID="area-panel-close">
-          <Icon name="close" size={13} color={colors.chromeMuted} />
         </Pressable>
       </View>
       {problem === null ? null : (
@@ -274,14 +276,17 @@ function InlineField({ value, label, placeholder, editable, onCommit, style, tes
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    panel: { gap: space.x5 },
+    panel: { gap: 18 },
+    headBlock: { gap: space.x3, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: colors.line },
     head: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     title: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600" },
-    openButton: { paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.sm, backgroundColor: colors.text },
+    // Under the name, as the prototype draws it.
+    openButton: { alignSelf: "flex-start", marginLeft: 30, paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.sm, backgroundColor: colors.text },
     openWord: { color: colors.surface, fontWeight: "600" },
     close: { padding: space.x1, borderRadius: radii.sm },
     problem: { color: colors.critText },
-    section: { gap: space.x2 },
+    // A hairline between sections, as the prototype draws them.
+    section: { gap: space.x2, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: colors.line },
     sectionTitle: { color: colors.muted },
     muted: { color: colors.muted },
     field: {

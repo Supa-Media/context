@@ -87,6 +87,7 @@ import { rememberView, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 import { PanelBeside } from "./panel/PanelBeside";
 import { AREA_PANEL_WIDTH } from "./panel/panelModel";
+import { PAGE_DOCK_PAD, PAGE_DOCK_WIDTH, useDockedPanel, usePageDock } from "./panel/PageDock";
 import { TaskPanel } from "./panel/TaskPanel";
 import { useTaskPanel } from "./panel/useTaskPanel";
 import { usePendingNotes } from "./tasks/usePendingNotes";
@@ -256,6 +257,10 @@ export function FolderPage({
   // What the Areas page draws in the side panel: an area's details (`areas/AreaPanel.tsx`), or null.
   const [areaPanel, setAreaPanelState] = useState<((width: number) => ReactNode) | null>(null);
   const setAreaPanel = useCallback((next: ((width: number) => ReactNode) | null) => setAreaPanelState(() => next), []);
+  // Only an Areas page sets one (`AreasView`'s onPanel), so no Areas check is needed here.
+  const dock = usePageDock();
+  const docked = useMemo(() => (dock !== null && areaPanel !== null ? areaPanel(PAGE_DOCK_WIDTH - 2 * PAGE_DOCK_PAD) : null), [dock, areaPanel]);
+  useDockedPanel(docked);
   const openItem = (item: FolderItem) => (panel.fits ? panel.show(item.path) : onSelect(item.path));
   const makeTaskLabel = rowsAreProjects(folder) ? "Make it a project" : "Make it a task";
   const tasks = useFolderTasks({
@@ -379,10 +384,14 @@ export function FolderPage({
   // title and the List · Chart switch above them, as in the prototype (the owner, 2026-11-24:
   // "spacing still looks off" beside an 820 list that overhung the title on both sides).
   const wideAreas = wideChart;
+  // The Areas panel docks at the page region's right edge, full height, where the region hosts a
+  // dock (the pointer layout's `DocumentSurface`); elsewhere it is drawn beside the list as below.
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     seats && areaPanel !== null
-      ? areaPanel
+      ? dock !== null
+        ? null
+        : areaPanel
       : peeking !== null && peeking === about
       ? (width: number) => (
           <AboutPanel

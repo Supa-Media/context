@@ -9,6 +9,7 @@ import type { classifyCommsPath } from "../../communications/paths";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
 import { rememberScroll, usePageScroll } from "./pageScroll";
+import { PageDockHost } from "../../files/folderPage/panel/PageDock";
 
 /** The phone slide's key for the map: no path can be it (`phoneBack.ts` reads it). */
 export const MAP_PAGE_KEY = "\u0000map";
@@ -214,9 +215,12 @@ export function DocumentSurface({
         */
         <>
           {notices}
-          <ScrollView style={styles.page} contentContainerStyle={styles.pageContent} testID="document-scroll">
-            {openDocument}
-          </ScrollView>
+          {/* A page's docked side panel goes beside this scroller, full height (`PageDock`). */}
+          <PageDockHost>
+            <ScrollView style={styles.page} contentContainerStyle={styles.pageContent} testID="document-scroll">
+              {openDocument}
+            </ScrollView>
+          </PageDockHost>
         </>
       )}
     </>
