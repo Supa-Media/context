@@ -1,6 +1,9 @@
 /**
  * A folder, as one file somebody can keep.
  *
+ * (A sheet, a `.csv`, is an entry like any other: the archive stores its text
+ * under its own name. `fileDownload` names a single sheet's download.)
+ *
  * ## Why this is written out rather than installed
  *
  * Non-negotiable #1 is that the customer can always leave with their content,
@@ -40,6 +43,8 @@
  * because an archive is untrusted input to whatever opens it and this one is
  * ours to get right.
  */
+
+import { isSheetPath } from "../../../../mcp/src/sheets/csv.js";
 
 /** One file in the archive. `path` is relative, `/`-separated. */
 export interface ZipEntry {
@@ -229,6 +234,16 @@ export function downloadName(path: string, extension: string): string {
   */
   // eslint-disable-next-line no-control-regex
   const unusable = /[\\/:*?"<>|\u0000-\u001f]/g;
-  const stem = leaf.replace(/\.md$/i, "").replace(unusable, "-").trim();
+  const stem = leaf.replace(/\.(md|csv)$/i, "").replace(unusable, "-").trim();
   return `${stem === "" ? "context" : stem}${extension}`;
+}
+
+/**
+ * What a single file downloads as: a note as `name.md`, a sheet as `name.csv`
+ * with its own type. The text is the file's, byte for byte, in both.
+ */
+export function fileDownload(path: string): { name: string; type: string } {
+  return isSheetPath(path)
+    ? { name: downloadName(path, ".csv"), type: "text/csv;charset=utf-8" }
+    : { name: downloadName(path, ".md"), type: "text/markdown;charset=utf-8" };
 }

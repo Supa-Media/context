@@ -8,6 +8,7 @@ import { accessoryUp } from "../accessory";
 import { saveButton } from "../editor";
 import { noteHeadingSource, splitNote } from "../frontmatter";
 import { isDrawingPath } from "@context/drawings";
+import { isSheetDocument } from "../sheet/sheetFile";
 import { isPagePath } from "@context/shared/src/pages/index.cjs";
 import { PAGE_VIEW_AVAILABLE } from "../pageView/PageView";
 import { usePageAsText } from "../pageView/pageText";
@@ -98,6 +99,8 @@ export function NoteEditor({
   state,
   presence,
   drawingCollaboration,
+  visibility,
+  say,
   canEdit,
   reading = false,
   notices,
@@ -196,6 +199,12 @@ export function NoteEditor({
     because there is nothing to draw until it is opened.
   */
   const drawing = !passphraseLocked && !state.encrypted && isDrawingPath(state.path ?? "");
+  /*
+    A sheet (`.csv`) is decided by path exactly as a drawing is, and is drawn
+    by the grid rather than the Markdown editor: the live editor must never
+    mount over CSV text, for the same reason it must not over a drawing.
+  */
+  const sheet = !passphraseLocked && isSheetDocument(state.path, state.encrypted);
   /*
     Decided by path, exactly as a drawing is, and for the same reason: it has
     to hold for a file that is still loading and for one whose body has not
@@ -317,7 +326,7 @@ export function NoteEditor({
     the same order") is what catches that, and it only catches it when the list
     is actually one of the conditions.
   */
-  const liveEditorOnScreen = !activityList && !drawing && !passphraseLocked && !pageView;
+  const liveEditorOnScreen = !activityList && !drawing && !sheet && !passphraseLocked && !pageView;
 
   /**
    * Whether the note is moving, and when it last came to rest — the whole of
@@ -456,13 +465,13 @@ export function NoteEditor({
     onSignInToComment,
     texInNote,
     // Props, as destructured above.
-    state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
+    state, presence, drawingCollaboration, visibility, say, canEdit, reading, notices, pathBar,
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, onOpenTag, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
     folderLists, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote, trashed,
     // Derived above, in the order the hooks require.
-    styles, editable, passphraseLocked, drawing, activityList, pageView, openedAt, button, compact,
+    styles, editable, passphraseLocked, drawing, sheet, activityList, pageView, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
     setDictateAsked, setHeldLink, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, titleHint, setLineState, padding, barUp, voice, moving, settledAt,
     scroller, offset, frontmatter, body, titled, durability, canDiscard, explains, manualSave,

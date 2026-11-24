@@ -4,6 +4,7 @@
  * of every tool the gateway dispatches, so keep each one a string literal.
  */
 
+import { toolWriteSheetRows } from "./notes/sheetRows.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { historyWriteRefusal } from "../../../../packages/tex/gateway/agent/historyFile.js";
 import { toolDefinitions } from "./registry.js";
@@ -65,6 +66,7 @@ import { toolOrient, toolScopeInfo } from "../orient/tool.js";
 import { toolReadActivity } from "../activity/readActivity.js";
 import { toolReadImage } from "./readImage.js";
 import { toolReadFile } from "./readFile.js";
+import { toolReadSheet } from "./readSheet.js";
 import { toolRotateEncryptionKeys } from "./encryption/rotate.js";
 import { toolSaveContext } from "./saveContext.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "./visibility.js";
@@ -201,11 +203,15 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolReadContact(store, scope, rules, overrides, args);
     case "read_file":
       return toolReadFile(store, scope, rules, overrides, args.path, args.from, args.summary ?? null);
+    case "read_sheet":
+      return toolReadSheet(store, scope, rules, overrides, args);
     case "read_image":
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
       if (args.site !== undefined) return toolSiteAction(store, args);
       if (args.upload !== undefined) return toolImageUploadLinks(store, args);
+      // A sheet's rows, changed in its text and saved as a note's save is (`sheetRows.js`).
+      if (args.rows !== undefined) return toolWriteSheetRows(store, scope, rules, overrides, args, options.noteWrite);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       if (args.mail !== undefined) return toolMailNote(store, scope, rules, overrides, args);
       // One section, or find-and-replace edits: the gateway builds the whole text and saves it as below (`writePart.js`).

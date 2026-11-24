@@ -19,6 +19,7 @@ import { EMAIL_ID_PREFIX } from "../emailRead.js";
 import { TEXTS_ID_PREFIX } from "../texts.js";
 import { GOOGLE_CHAT_ID_PREFIX } from "../googleChatRead.js";
 import { readableFileType } from "../readFile.js";
+import { isSheetPath } from "../../sheets/csv.js";
 
 const CHATGPT = /chatgpt|openai/i;
 
@@ -273,6 +274,12 @@ export function translateFetch(call, app = {}) {
       return target(label, a, { name: "read_note", action: "note", fixed: { path: note, section: named }, copy: [], others: NOTE_READS });
     }
     return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail", "outline", "section", "lines", "full"], others: NOTE_READS });
+  }
+
+  // A sheet (a `.csv` with typed columns): its rows as a table, filtered and sorted by its args (`readSheet.js`).
+  // Paging (`from`) and totals (`summary`) are read_file's, for a long CSV such as an email's attachment.
+  if (isSheetPath(id) && a.from === undefined && a.summary === undefined) {
+    return target(label, a, { name: "read_sheet", action: "sheet", fixed: { path: id }, copy: ["where", "sort", "last", "limit", "columns"] });
   }
 
   // A stored file (a PDF an email carried, a spreadsheet): its words.

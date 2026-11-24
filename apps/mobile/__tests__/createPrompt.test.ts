@@ -61,6 +61,7 @@ interface Made {
   /** Counts, not names: nothing names a note here any more. */
   notes: number;
   drawings: number;
+  sheets: number;
   folders: string[];
   meetings: number;
 }
@@ -69,7 +70,7 @@ function mount(
   folder: string,
   options: { canEdit?: boolean; meeting?: boolean } = {},
 ): Made {
-  const made: Made = { notes: 0, drawings: 0, folders: [], meetings: 0 };
+  const made: Made = { notes: 0, drawings: 0, sheets: 0, folders: [], meetings: 0 };
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -91,6 +92,9 @@ function mount(
           },
           onCreateDrawing: () => {
             made.drawings += 1;
+          },
+          onCreateSheet: () => {
+            made.sheets += 1;
           },
           onCreateFolder: (name: string) => made.folders.push(name),
           onNewMeeting:
@@ -172,7 +176,7 @@ describe("the phone's +", () => {
   test("Note makes the note on the press, asking for no name", () => {
     const made = mount("1-projects");
     press("New note");
-    expect(made).toEqual({ notes: 1, drawings: 0, folders: [], meetings: 0 });
+    expect(made).toEqual({ notes: 1, drawings: 0, sheets: 0, folders: [], meetings: 0 });
     expect(document.body.querySelector("input, textarea")).toBeNull();
   });
 
@@ -187,7 +191,15 @@ describe("the phone's +", () => {
     */
     const made = mount("1-projects");
     press("New drawing");
-    expect(made).toEqual({ notes: 0, drawings: 1, folders: [], meetings: 0 });
+    expect(made).toEqual({ notes: 0, drawings: 1, sheets: 0, folders: [], meetings: 0 });
+    expect(document.body.querySelector("input, textarea")).toBeNull();
+  });
+
+  /** A sheet is made on the press like a drawing, through its own handler, never `onCreateNote`. */
+  test("Sheet makes the sheet on the press, and nothing else", () => {
+    const made = mount("1-projects");
+    press("New sheet");
+    expect(made).toEqual({ notes: 0, drawings: 0, sheets: 1, folders: [], meetings: 0 });
     expect(document.body.querySelector("input, textarea")).toBeNull();
   });
 
@@ -205,6 +217,7 @@ describe("the phone's +", () => {
     expect(made).toEqual({
       notes: 0,
       drawings: 0,
+      sheets: 0,
       folders: ["editor-polish"],
       meetings: 0,
     });
@@ -241,7 +254,7 @@ describe("the phone's +", () => {
   test("Meeting reaches the meeting flow and creates no file", () => {
     const made = mount("1-projects");
     press("New meeting");
-    expect(made).toEqual({ notes: 0, drawings: 0, folders: [], meetings: 1 });
+    expect(made).toEqual({ notes: 0, drawings: 0, sheets: 0, folders: [], meetings: 1 });
   });
 
   /**
@@ -291,6 +304,7 @@ describe("the phone's +", () => {
     expect(mount("1-projects")).toEqual({
       notes: 0,
       drawings: 0,
+      sheets: 0,
       folders: [],
       meetings: 0,
     });

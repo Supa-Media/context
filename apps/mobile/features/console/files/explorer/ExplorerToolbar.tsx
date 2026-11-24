@@ -16,7 +16,7 @@ import type { ExplorerState } from "./useExplorer";
 import { useMapRoute } from "../../map/live/MapRouteContext";
 import { FrameContext } from "../../../app/appFrame/context";
 
-type NewId = "new-note" | "new-folder" | "new-drawing";
+type NewId = "new-note" | "new-folder" | "new-drawing" | "new-sheet";
 type ViewId = `sort-${ListingSort}` | "sort-default" | "collapse";
 
 /**
@@ -114,6 +114,7 @@ export function ExplorerToolbar({
     },
     { id: "new-folder", label: "New folder", testID: "explorer-new-folder" },
     { id: "new-drawing", label: "New drawing", testID: "explorer-new-drawing" },
+    { id: "new-sheet", label: "New sheet", testID: "explorer-new-sheet" },
   ];
   /*
     The top level's Sort setting, saved for everybody in the workspace and drawn
@@ -154,6 +155,7 @@ export function ExplorerToolbar({
     dismiss();
     if (id === "new-note") files.createUntitled(selectedFolder, "note");
     if (id === "new-drawing") files.createUntitled(selectedFolder, "drawing");
+    if (id === "new-sheet") files.createUntitled(selectedFolder, "sheet");
     if (id === "new-folder") setDialog({ kind: "newFolder", folder: selectedFolder });
   };
 

@@ -70,9 +70,9 @@ type VisibilityOperationResult = Extract<OperationResult, { kind: "visibility" }
  */
 export const PERSONAL_HISTORY_FILE = "tex/history.ledger.json";
 
-/** Whether this path may carry its own visibility as a note: Markdown, or the person's own history file. */
+/** Whether this path may carry its own visibility as a note: Markdown, a sheet (`.csv`), or the person's own history file. */
 export function takesOwnVisibility(path: string): boolean {
-  return path.endsWith(".md") || path === PERSONAL_HISTORY_FILE;
+  return path.endsWith(".md") || path.toLowerCase().endsWith(".csv") || path === PERSONAL_HISTORY_FILE;
 }
 
 /**

@@ -15,6 +15,7 @@ import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 import { syncShardedIndex } from "../../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../../mcp/src/search/visible.js";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
+import { isSheetPath } from "../../../../mcp/src/sheets/csv.js";
 import { followChange } from "../../../../mcp/src/search/d1/follow.js";
 import { effectiveVisibility } from "../privacy";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
@@ -200,6 +201,11 @@ export interface SearchResults {
  * the existence oracle rule #2 at the top of this file exists to prevent,
  * reached through a different door.
  *
+ * `withSheets` adds the `.csv` sheets to the list, for the one reader that
+ * needs them: a folder's archive (`exportAccess`, and the app's folder
+ * download). Links, quick open and the map never ask for it, and
+ * `isIndexableNote` is unchanged for all of them.
+ *
  * `null` for a store that is not the tree's, and deliberately not a partial
  * or wrong answer instead: a link that stays undrawn is dishonest about
  * *timing*, never about *destination*.
@@ -207,6 +213,7 @@ export interface SearchResults {
 export async function notePathIndex(
   store: FileStore,
   clearance: Clearance,
+  withSheets = false,
 ): Promise<{ paths: string[] } | null> {
   const state = await loadPrivacyState(store);
   const isVisible = (path: string) =>
@@ -216,7 +223,7 @@ export async function notePathIndex(
   // index's docmap is no longer read for this (decided by the owner,
   // 2026-10-13), and the app only ever asks with the tree's store.
   if (!isServedStore(store)) return null;
-  const paths = (await servedKeys(store)).filter((path) => isIndexableNote(path));
+  const paths = (await servedKeys(store)).filter((path) => isIndexableNote(path) || (withSheets && isSheetPath(path)));
   return { paths: paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
 }
 

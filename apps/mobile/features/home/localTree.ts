@@ -1,5 +1,6 @@
 import type { FileEntry } from "../console/files/types";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
+import { isSheetPath } from "../../../mcp/src/sheets/csv.js";
 
 /**
  * The homepage's workspace as a visitor changes it: the same tree, edited in
@@ -61,9 +62,11 @@ export function addNote(
   name: string,
   text = "",
 ): { tree: DemoContextTree; path: string } | null {
-  const clean = cleanName(name.replace(/\.md$/i, ""));
+  // A sheet keeps its `.csv`; anything else is a note, whatever its name says.
+  const sheet = isSheetPath(name);
+  const clean = cleanName(sheet ? name.replace(/\.csv$/i, "") : name.replace(/\.md$/i, ""));
   if (clean === "" || tree.listings[folder] === undefined) return null;
-  const path = join(folder, freeName(tree, folder, `${clean}.md`));
+  const path = join(folder, freeName(tree, folder, `${clean}${sheet ? ".csv" : ".md"}`));
   const next = withEntry(tree, fileEntry(path, "file"));
   return { tree: { ...next, notes: { ...next.notes, [path]: text } }, path };
 }

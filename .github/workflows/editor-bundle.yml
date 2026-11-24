@@ -54,6 +54,7 @@ jobs:
             apps/mcp/src/forms.js
             apps/mcp/src/lists/**
             apps/mcp/src/lists.js
+            apps/mcp/src/sheets/**
             apps/mobile/features/console/faces/**
             apps/mobile/features/console/files/**
             apps/mobile/features/console/map/live/**

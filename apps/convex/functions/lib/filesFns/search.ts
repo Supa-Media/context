@@ -173,6 +173,8 @@ export async function notePathsHandler(
   ctx: ActionCtx,
   args: {
     workspaceId: Id<"workspaces">;
+    /** The `.csv` sheets too, for an archive; see `notePathIndex`. */
+    withSheets?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "notePaths" }>> {
   const actorUserId = await callerId(ctx);
@@ -185,7 +187,7 @@ export async function notePathsHandler(
     workspaceId: args.workspaceId,
     scope,
     grantedNames,
-    operation: { kind: "notePaths" },
+    operation: args.withSheets === true ? { kind: "notePaths", withSheets: true } : { kind: "notePaths" },
   });
   return result as Extract<OperationResult, { kind: "notePaths" }>;
 }

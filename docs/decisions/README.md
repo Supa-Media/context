@@ -7,8 +7,7 @@ These lived in `CLAUDE.md` until it passed 2,700 lines, and moved here verbatim.
 stays short enough to be read every session and links here. **Read the file covering the area
 you are touching before you change behaviour in it**, and add to it when a durable decision lands.
 
-Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a
-guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
+Code comments and tests across the repo cite these by title — `see CLAUDE.md, "A guard nobody has checked is not a guard"`. The titles are unchanged, so those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 ## [Storage, credentials, and the control plane](./storage-and-credentials.md)
 
@@ -254,6 +253,7 @@ guard"`. The titles are unchanged, so those citations still resolve; look for th
 
 ## [Folder lists](./folder-lists.md)
 
+- [Sheets: one `.csv` per sheet, types in its header, saved and shared like a note](./sheets.md) (2026-11-23)
 - Nothing about it is website-specific
 - Selection only ever narrows
 - A block that does not parse draws its error

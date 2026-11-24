@@ -250,7 +250,7 @@ export const operationValidator = v.union(
    * See `notePathIndex` in `lib/fileOps.ts` and "L1" in
    * `docs/decisions/app-and-console.md`.
    */
-  v.object({ kind: v.literal("notePaths") }),
+  v.object({ kind: v.literal("notePaths"), withSheets: v.optional(v.boolean()) }),
   /** The console map's notes and links. See `workspaceGraph` in `lib/fileOps/graph.ts`. */
   v.object({ kind: v.literal("workspaceGraph"), compact: v.optional(v.boolean()) }),
   /** The subset of these this scope may see now. See `lib/fileOps/visiblePaths.ts`. */

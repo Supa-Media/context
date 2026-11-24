@@ -158,7 +158,14 @@ export async function runToolArgumentCensusChecks(check, harness) {
     server as data and the app checks it against its own schema.
   */
   const APP_ARGUMENTS = /^app_(?:read|change)\.arguments$/;
-  const exempt = (where) => V2_ARGS.test(where) || APP_ARGUMENTS.test(where);
+  /*
+    A sheet's rows (`write_note.rows`): each is keyed by the sheet's own column
+    names, which no schema can list ahead of the file. They are closed where it
+    counts, against the sheet's header: `changeRows` refuses a column the
+    sheet does not have and a value its type does not take, all or nothing.
+  */
+  const SHEET_ROWS = /^write_note\.rows\.(?:append\[\]|update\.match|update\.set|delete\.match)$/;
+  const exempt = (where) => V2_ARGS.test(where) || APP_ARGUMENTS.test(where) || SHEET_ROWS.test(where);
   const openNodes = walked.flatMap((entry) => entry.open).filter((where) => !exempt(where));
   const barePropertyNodes = walked.flatMap((entry) => entry.bare).filter((where) => !exempt(where));
   check(

@@ -44,6 +44,7 @@ type FilesIconName =
   | "compose"
   | "pin"
   | "file"
+  | "table"
   | "copy"
   | "clock"
   | "attach"
@@ -100,6 +101,18 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
       bar("l3", u, w, c, { cx: 0.42, cy: 0.68, length: 0.14 }),
     ];
   },
+
+  table: (u, w, c) => [
+    /*
+      A sheet, drawn as a grid's two marks rather than a full lattice: a
+      rounded rectangle, one rule under the top edge for the header row and one
+      rule down the middle for the columns. At 14pt a lattice is a blur, and two
+      rules are what a spreadsheet icon is recognised by everywhere else.
+    */
+    rect("body", u, w, c, { x0: 0.14, y0: 0.18, x1: 0.86, y1: 0.82, radius: 0.1 }),
+    bar("header", u, w, c, { cx: 0.5, cy: 0.4, length: 0.72 }),
+    bar("column", u, w, c, { cx: 0.5, cy: 0.5, length: 0.64, angle: 90 }),
+  ],
 
   trash: (u, w, c) => [
     /*

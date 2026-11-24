@@ -21,6 +21,7 @@ import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
 import type { DropZone } from "./treeDrop";
 import { visibilityLabel } from "./types";
+import { isSheetPath } from "../../../../mcp/src/sheets/csv.js";
 
 /**
  * The folder tree.
@@ -275,6 +276,7 @@ function FileRow({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const sheetRow = row.kind === "file" && isSheetPath(row.path);
   // Only while the live map is open, and only on a top folder: see `mapCounts.ts`.
   const mapCount = useMapFolderCount(workspaceId, row.kind === "folder" && row.depth === 0 ? row.path : null);
   const interactions = useRowInteractions({
@@ -367,6 +369,7 @@ function FileRow({
               label={row.label}
               icon={folderIcon}
               note={row.kind !== "folder"}
+              sheet={sheetRow}
               onPress={onIconPress === undefined ? undefined : (anchor) => onIconPress(row.path, anchor)}
               onIntent={onIconIntent === undefined ? undefined : () => onIconIntent(row.path)}
             />
@@ -377,8 +380,14 @@ function FileRow({
           numberOfLines={1}
           style={[styles.label, row.selected && styles.nodeSelectedLabel]}
         >
-          {row.label}
+          {sheetRow ? row.label.replace(/\.csv$/i, "") : row.label}
         </Text>
+        {/* A sheet's name without its extension, and `.csv` after it in grey, so it reads apart from a note. */}
+        {sheetRow ? (
+          <Text variant="treeMeta" style={styles.sheetExt} testID="tree-sheet-ext">
+            .csv
+          </Text>
+        ) : null}
         {/*
           After the name and inside the row, so it reads as a fact about this
           note rather than as one more trailing marker. The visibility word is
@@ -417,9 +426,12 @@ function FileRow({
   );
 }
 
-/** A Markdown note's row: the only file that can have an icon (`iconGroup`). */
+/**
+ * A note's row, which can take an icon (`iconGroup`): a Markdown note, or a
+ * sheet (`.csv`), which opens like one and is drawn with the table glyph.
+ */
 function isNoteRow(row: TreeRow): boolean {
-  return row.kind === "file" && /\.md$/i.test(row.path);
+  return row.kind === "file" && (/\.md$/i.test(row.path) || isSheetPath(row.path));
 }
 
 /** The canvas's indent: 8pt of leading padding, 12pt more per level. */
@@ -587,6 +599,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   glyph: { width: 16, marginRight: 4, alignItems: "center", justifyContent: "center" },
   /** Shrinks before the sync mark after it does — a long name ellipsises, the mark stays. */
   label: { flexShrink: 1, minWidth: 0 },
+  sheetExt: { color: colors.chromeMuted, marginLeft: "auto", paddingLeft: 6 },
 
   /**
    * Something under this row is new to you.

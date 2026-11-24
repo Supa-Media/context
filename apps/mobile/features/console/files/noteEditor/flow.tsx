@@ -40,6 +40,7 @@ export function noteFlow(view: NoteView) {
     onSave,
     nameEdit,
     drawing,
+    sheet,
     activityList,
     docWidth,
     trashed,
@@ -56,13 +57,15 @@ export function noteFlow(view: NoteView) {
     its file name over the body as Obsidian's inline title does, and the
     title is a field: click, type, Enter renames (`noteName.ts`).
 
-    Not for a drawing (the canvas is the page) or the activity list (a file
-    the product writes), and not for a locked note.
+    Not for a drawing (the canvas is the page), a sheet (the grid is the page,
+    and this field writes Markdown names, not `.csv` ones), or the activity list
+    (a file the product writes), and not for a locked note.
   */
   const nameable =
     nameEdit !== undefined &&
     state.path !== null &&
     !drawing &&
+    !sheet &&
     !activityList &&
     !passphraseLocked &&
     noteHeadingSource(state.draft, state.path) === "filename";

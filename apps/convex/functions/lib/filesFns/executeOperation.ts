@@ -282,7 +282,7 @@ export async function executeOperation(
         return { kind: "searchResults", ...results };
       }
       case "notePaths": {
-        const found = await notePathIndex(store, clearance);
+        const found = await notePathIndex(store, clearance, operation.withSheets === true);
         return { kind: "notePaths", ...notePathsAnswer(found?.paths ?? null) };
       }
       case "workspaceGraph":

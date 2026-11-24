@@ -85,6 +85,12 @@ export function consoleCreateButton({
           "drawing",
         )
       }
+      onNewSheet={() =>
+        data.files.createUntitled(
+          targetFolder(data.files.listings, data.files.selectedPath),
+          "sheet",
+        )
+      }
       onNewFolder={() =>
         setBarDialog({
           kind: "newFolder",

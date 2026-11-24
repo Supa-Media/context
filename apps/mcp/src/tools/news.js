@@ -42,6 +42,13 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-23",
     text:
+      "a sheet is a .csv whose header gives each column's type after a colon (date:date,value:number,by:person): save one " +
+      "with write like a note; fetch its path for its rows as a table (args where, sort, last, limit, columns); write action " +
+      "rows adds, changes or deletes rows ({ append: [{...}] }, { update: { match, set } }, { delete: { match } }).",
+  },
+  {
+    date: "2026-11-23",
+    text:
       "fetch of a note longer than about 8,000 tokens returns its outline and first part, with a more: line naming the " +
       "next lines; a day of email returns its outline of threads. args { full: true } reads the whole note.",
   },
@@ -489,7 +496,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "af11fd84";
+export const TOOL_SHAPE = "c79feb3a";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

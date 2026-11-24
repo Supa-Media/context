@@ -14,6 +14,7 @@ import { isDrawingPath, newDrawing } from "@context/drawings";
 import { ConvexError } from "convex/values";
 import { useCallback, useRef } from "react";
 import { toFileError } from "../browser";
+import { isSheetPath, newSheetText } from "../../../../../mcp/src/sheets/csv.js";
 import {
   baseName,
   describeNameProblem,
@@ -61,14 +62,15 @@ function cannotAddTo(folder: string): ConvexError<{ code: string; message: strin
 }
 
 /**
- * What a new note or drawing starts as. A named note starts with its name as
+ * What a new note, drawing or sheet starts as. A named note starts with its name as
  * its title. An untitled one starts with an empty title and an empty line: its
  * made-up name is the file's, on its row, and never in its text, so what is
  * typed into the title is only ever the person's (`untitledTitle.ts`, Dev2's
- * pick on 2026-11-05).
+ * pick on 2026-11-05). A sheet starts as its header row alone: CSV has no title.
  */
 function seedFor(name: string): string {
   if (isDrawingPath(name)) return newDrawing();
+  if (isSheetPath(name)) return newSheetText();
   return isUntitled(name) ? "# \n\n" : `# ${name.replace(/\.md$/i, "")}\n\n`;
 }
 
@@ -107,7 +109,13 @@ export function useNoteCreate(deps: NoteCreateDeps) {
 
   const createNote = useCallback(
     (folder: string, rawName: string, untitled?: UntitledKind, navigation = openRun.current) => {
-      const name = ensureMarkdown(rawName);
+      /*
+        A sheet keeps its `.csv`. `ensureMarkdown` would make it `x.csv.md`, a
+        Markdown note holding CSV, so it is never passed through — the same
+        exemption a drawing's `.excalidraw` name gets from being named by its
+        own suffix (`createDrawing`).
+      */
+      const name = isSheetPath(rawName) ? rawName : ensureMarkdown(rawName);
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
       if (problem !== null) return setNotice(problem);
       const path = joinPath(folder, name);
@@ -211,7 +219,8 @@ export function useNoteCreate(deps: NoteCreateDeps) {
               awaitingTitle.current.delete(gone);
               current = untitledName(listingsRef.current, folder, untitled, new Date(), refused);
               at = joinPath(folder, current);
-              awaitingTitle.current.add(at);
+              // A sheet is never renamed to a heading in its text (`createUntitled`).
+              if (!isSheetPath(at)) awaitingTitle.current.add(at);
               const next = at;
               pending = beginOnlineCreate(next);
               drawLocally((listed) => applyNoteCreate(listed, next));
@@ -313,7 +322,7 @@ export function useNoteCreate(deps: NoteCreateDeps) {
   );
 
   /**
-   * New note, new drawing: made now, called `untitled-<date>`, opened.
+   * New note, new drawing, new sheet: made now, called `untitled-<date>`, opened.
    *
    * Delegates rather than writing, so the name checks, the collision check, the
    * offline queue and the drawing seed are all `createNote`'s — one create in
@@ -321,14 +330,15 @@ export function useNoteCreate(deps: NoteCreateDeps) {
    * promise that the name is temporary. See `untitled.ts`.
    */
   const createUntitled = useCallback(
-    (folder: string, kind: "note" | "drawing") => {
+    (folder: string, kind: "note" | "drawing" | "sheet") => {
       if (!options.canEdit) return;
       const navigation = openRun.current;
       const epoch = workspaceGenerationRef.current.epoch;
       const make = (known: Listings) => {
         if (workspaceGenerationRef.current.epoch !== epoch) return;
         const name = untitledName(known, folder, kind, new Date());
-        awaitingTitle.current.add(joinPath(folder, name));
+        // A sheet is not named by its text: no heading, so nothing to take a name from.
+        if (kind !== "sheet") awaitingTitle.current.add(joinPath(folder, name));
         // A note opens now and is written when somebody writes in it; a
         // drawing, and anything offline, is made as before.
         if (kind === "note" && offlineRef.current.reachability !== "offline") return openUnsent(folder, name, navigation);

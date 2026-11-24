@@ -26,6 +26,17 @@ function withNote(call, extra = {}) {
   return out;
 }
 
+/** `rows`: path and etag may ride beside the call or inside args; the rest is the change. */
+function sheetRows(call) {
+  const { path, expected_etag: etag, ...rows } = call.args || {};
+  const out = { rows };
+  const where = call.path ?? path;
+  if (where !== undefined) out.path = where;
+  const expected = call.expected_etag ?? etag;
+  if (expected !== undefined) out.expected_etag = expected;
+  return out;
+}
+
 /** `{ path, <key>: args }`: the write_note sub-objects (comment, mail, site, upload). */
 function nested(key) {
   return (call) => {
@@ -85,6 +96,7 @@ export const ACTIONS = {
       },
     },
     comment: { tool: "write_note", summary: "Comment on words in a note, reply, resolve or delete.", take: nested("comment") },
+    rows: { tool: "write_note", summary: "Add, change or delete rows of a sheet (.csv): args { append } or { update: { match, set } } or { delete: { match } }.", take: sheetRows },
     mail: { tool: "write_note", summary: "Join a note's mail or send mail to agents working on it.", take: nested("mail") },
     upload: {
       tool: "write_note",
