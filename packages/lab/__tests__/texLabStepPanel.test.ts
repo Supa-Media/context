@@ -306,6 +306,49 @@ describe("the step panel's cards", () => {
   });
 });
 
+describe("a code step's own settings", () => {
+  test("Settings draws what the step's code declares; a change is outlined with main's value, and a number out of bounds is not saved", () => {
+    mount();
+    act(() => set({ sel: { t: "node", id: "send" }, pin: true }));
+    click("#cardSet");
+    expect(q(".stepsec")?.textContent).toBe("Settingsfrom the code");
+    const sw = q("#step-set-trimFlattery")!;
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(q("#step-set-linkSavedNote")).not.toBeNull();
+    expect(q('[data-setting="trimFlattery"].chgf')).toBeNull();
+    click("#step-set-trimFlattery");
+    expect(q("#step-set-trimFlattery")!.getAttribute("aria-checked")).toBe("false");
+    expect(G().nodes.find((n) => n.id === "send")!.settings).toEqual({ trimFlattery: false, linkSavedNote: true });
+    expect(q('[data-setting="trimFlattery"].chgf .was')?.textContent).toBe("was on, on main");
+    expect(q('[data-setting="linkSavedNote"].chgf')).toBeNull();
+
+    act(() => set({ sel: { t: "node", id: "answerCheck" }, pin: true }));
+    const box = q("#step-set-proseWords") as HTMLInputElement;
+    expect(box.value).toBe("70");
+    act(() => {
+      box.value = "5";
+      box.dispatchEvent(new Event("change"));
+    });
+    expect(q('[data-setting="proseWords"] [role="alert"]')?.textContent).toBe("Prose limit must be a whole number from 20 to 400. Not saved.");
+    expect(G().nodes.find((n) => n.id === "answerCheck")!.settings?.proseWords).toBe(70);
+    const box2 = q("#step-set-proseWords") as HTMLInputElement;
+    act(() => {
+      box2.value = "120";
+      box2.dispatchEvent(new Event("change"));
+    });
+    expect(G().nodes.find((n) => n.id === "answerCheck")!.settings?.proseWords).toBe(120);
+    expect(q('[data-setting="proseWords"] [role="alert"]')).toBeNull();
+    expect(q('[data-setting="proseWords"].chgf .was')?.textContent).toBe("was 70 on main");
+  });
+
+  test("a step whose code declares no settings shows no section", () => {
+    mount();
+    act(() => set({ sel: { t: "node", id: "fd" }, pin: true }));
+    click("#cardSet");
+    expect(q(".stepsec")).toBeNull();
+  });
+});
+
 describe("following the running step", () => {
   test("the panel follows the step running, a click on a node pins it, and Follow running lets go", () => {
     mount();

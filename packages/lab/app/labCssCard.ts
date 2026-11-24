@@ -59,5 +59,11 @@ export const LAB_CSS_CARD = String.raw`
 .tl #props .bdg.line{background:var(--chip);color:var(--muted);font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px}
 .tl #props .ph .lname{font-size:15px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tl #props .lnote{font-size:12px;color:var(--muted);margin:2px 0 8px}
+.tl #props .stepsec{grid-column:1 / -1;display:flex;align-items:baseline;justify-content:space-between;margin-top:6px;padding-top:10px;border-top:1px solid var(--line)}
+.tl #props .stepsec b{font-size:12px;font-weight:600}.tl #props .stepsec span{font-size:11px;color:var(--dim)}
+.tl #props .setf .stip{display:block;font-size:11px;color:var(--muted);margin-top:2px}.tl #props .setf .stip.bad{color:var(--bad);font-weight:600}
+.tl #props .setf .sw{display:block}.tl #props .setf .chgf .sw{box-shadow:0 0 0 2px var(--chg)}
+.tl #props .setf .unit input{width:72px;flex:none}.tl #props .setf .bad input{border:2px solid var(--bad)}
+.tl #props .setf label.stl{align-self:start;padding-top:6px;line-height:1.3}.tl #props .setf .sw[aria-checked=false]{background:var(--dim)}
 @media (max-width:760px){.tl #props.ins,.tl #props.ins.wide{top:auto;left:12px;right:12px;width:auto;bottom:12px;height:55%}.tl .archcv.withcard .ctop{right:12px}}
 `;

@@ -22,7 +22,8 @@
  */
 "use strict";
 
-const SCHEMA_VERSION = 4;
+const { stepSettingsProblems } = require("./texNodeSettings.cjs");
+const SCHEMA_VERSION = 5;
 
 const MODES = Object.freeze(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
 const EFFORTS = Object.freeze(["off", "low", "medium", "high", "xhigh", "max"]);
@@ -102,9 +103,10 @@ const NODE_SHAPE = Object.freeze({
   fallback: [isText, "a model key"],
   // A step's own limits (Part end: parts, minutes, machineParts, machineMinutes; `jobPartEnd.cjs`), each a whole number.
   limits: [(v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(isCount), "an object of whole numbers"],
-  // A step's own numbers (Dev2, 2026-11-21): a search step's ranking knobs, carried in a Lab draft beside Tex's steps;
-  // search's own schema (`apps/mcp/src/search/config/searchConfig.cjs`) bounds each one.
-  settings: [(v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(isNum), "an object of numbers"],
+  // A step's own settings: a search step's ranking numbers (Dev2, 2026-11-21), bounded by search's own schema
+  // (`apps/mcp/src/search/config/searchConfig.cjs`), or a Tex code step's numbers, switches and choices (Dev2,
+  // 2026-11-23), each declared by the code that reads it (`texNodeSettings.cjs`) and checked against it below.
+  settings: [(v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.values(v).every((x) => isNum(x) || isBool(x) || isText(x)), "an object of numbers, true or false, and words"],
 });
 const NODE_FIELDS = Object.freeze(Object.keys(NODE_SHAPE));
 const REQUIRED = Object.freeze(["label", "on", "model"]);
@@ -145,6 +147,8 @@ function configProblems(config) {
     if (isText(n.model) && n.model !== "code" && !isText(models[n.model])) out.push(`step "${n.id}" runs on "${n.model}", which has no gateway model id`);
     if (isText(n.fallback) && !isText(models[n.fallback])) out.push(`step "${n.id}" falls back to "${n.fallback}", which has no gateway model id`);
     if (isText(n.group) && !groups[n.group]) out.push(`step "${n.id}" is in a group that is not there (${n.group})`);
+    // Each setting is one its step's code declares, inside its bounds (`texNodeSettings.cjs`).
+    if (n.settings !== undefined && NODE_SHAPE.settings[0](n.settings)) out.push(...stepSettingsProblems(n.id, n.settings));
   }
   const pageOf = new Map(config.nodes.filter((n) => n && isText(n.id)).map((n) => [n.id, graphOf(n)]));
   const wires = new Set();
@@ -243,6 +247,9 @@ const MIGRATIONS = Object.freeze([
   (g) => ({ ...g, browsers: browsersOf(g.browsers) }),
   // 3 → 4 (2026-11-21): a step may carry `settings`, an object of numbers (search's steps in a Lab draft). A step drawn
   // before the field has none, so nothing is rewritten.
+  (g) => g,
+  // 4 → 5 (2026-11-23): a Tex code step may carry `settings` its code declares (`texNodeSettings.cjs`): numbers, true or
+  // false, or a choice. A step drawn before has none and runs on each default, so nothing is rewritten.
   (g) => g,
 ]);
 

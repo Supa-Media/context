@@ -70,6 +70,8 @@ New behaviour lands as a setting, so it can be flipped and benched instead of ar
 4. **Measure:** `run { draft }` runs the Dev set's unit tests on GitHub. Training examples are edited through the Testing tab's conversations (`set_*`), not the prompts.
 5. **Land it:** `promote` opens the pull request. The replay gate runs the sealed Test set, and production follows a green main.
 
+A code step's own settings (Dev2, 2026-11-23) are config too. A step's code declares each one in `packages/tex/src/texNodeSettings.cjs`: a number with bounds, on or off, or one of a few choices, with its default. The Lab draws them on the step's Settings card under "Settings · from the code", and `edit { ops: [{ op: "set", node, field: "settings", value: { ... } }] }` changes them in a draft. `check` and Promote refuse a value the declaration doesn't allow, and a test chat on the draft runs the draft's value. Adding a setting is code: declare it with main's behaviour as its default and read it with `settingsOf(env, id)` ([step-settings](./decisions/texting-assistant/step-settings.md)).
+
 A prompt's words, a new step's code and a capability need a pull request: node code in `packages/tex/gateway/agent/graph/nodes/`, words in `packages/tex/src/texPrompt/`. Merge new node code to main first, unwired and on the shelf (`texNodeShelf.json`). Then wire it in a draft, test it on rung 3, and promote.
 
 ## Changing Tex's quality (how well it texts)

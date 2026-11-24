@@ -44,6 +44,8 @@ const SCHEMA = createRequire(import.meta.url)("../packages/tex/src/texConfigSche
 // Every other architecture has a config of its own (Search's `searchConfig.json`, ...; `architectures.cjs`), and a
 // draft's steps on its page are promoted into that file, never into Tex's (Dev2, 2026-11-21).
 const OWN = createRequire(import.meta.url)("../packages/tex/src/architectures.cjs");
+// The settings a step's code declares (`texNodeSettings.cjs`): a draft's value for one is promoted only when that declaration allows it.
+const STEP_SET = createRequire(import.meta.url)("../packages/tex/src/texNodeSettings.cjs");
 // Tex's own config is two files, texting and nightly, joined for every reader and split again here (`texConfigFiles.cjs`).
 const FILES = createRequire(import.meta.url)("../packages/tex/src/texConfigFiles.cjs");
 const SEARCH = createRequire(import.meta.url)("../apps/mcp/src/search/config/labDraft.cjs");
@@ -100,6 +102,10 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) return refuse(`step "${n.id}" runs on "${n.model}", which has no gateway model id in Tex's config`);
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) return refuse(`step "${n.id}" has effort "${n.effort}"`);
     if (typeof n.on !== "boolean") return refuse(`step "${n.id}" is neither on nor off`);
+    if (n.settings !== undefined) {
+      const bad = STEP_SET.stepSettingsProblems(n.id, n.settings);
+      if (bad.length) return refuse(bad.join("; "));
+    }
   }
   // A step deleted while it is off on main is retired (Dev2, 2026-11-20: "removing a node is a Lab edit; leave the
   // code, just don't wire it"): it goes to the shelf with its last definition, which code still reads for its settings
@@ -375,6 +381,15 @@ function selfTest() {
     fuseOf(g).settings = { ...fuseOf(g).settings, hits: 8, nonsense: 1 };
   });
   expect(/nonsense/.test(searchFrom(unknownSetting, searchNow).refused ?? ""), "a search setting search does not have passed");
+  // A Tex step's own settings (`texNodeSettings.cjs`): a value its code declares promotes; one it refuses does not.
+  const sendSet = (settings) => {
+    const g = graph();
+    g.nodes.find((n) => n.id === "send").settings = settings;
+    return configFrom(g, current, words);
+  };
+  expect(sendSet({ trimFlattery: false, linkSavedNote: true }).config?.nodes.find((n) => n.id === "send").settings.trimFlattery === false, "a declared step setting was not promoted");
+  expect(/trimFlattery must be true or false/.test(sendSet({ trimFlattery: "no" }).refused ?? ""), "a step setting its declaration refuses passed");
+  expect(/setting nothing reads: made_up/.test(sendSet({ made_up: 1 }).refused ?? ""), "a step setting nothing declares passed");
   console.log("tex-lab-promote self-test: ok");
 }
 

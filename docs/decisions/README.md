@@ -809,7 +809,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [Tex keeps a short copy of the next seven days, and says it is a copy (2026-11-06)](./texting-assistant/calendar-cache.md)
 - [One drawing of Tex, changed with every architecture change (2026-11-05)](./texting-assistant/architecture-diagram.md)
 - [The Architecture Lab is a staff page, built exactly like its artifact (2026-11-13)](./texting-assistant/architecture-lab.md)
-- [Tex's config is its graph: the wires are predefined, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md); [Tex runs its config's graph: the wires are config, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md)
+- [Tex's config is its graph: the wires are predefined, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md); [Tex runs its config's graph: the wires are config, the nodes are code (2026-11-14)](./texting-assistant/config-graph.md); [A Tex code step declares its own settings, and the config holds their values (2026-11-23)](./texting-assistant/step-settings.md)
 - [Developers work on Tex from their own MCP session, live in the Lab (2026-11-15)](./texting-assistant/tex-dev-tool.md); [The Lab is one package, `packages/lab`, and it depends on Tex, never the reverse (2026-11-20)](./texting-assistant/lab-package.md)
 - [The Lab's test chats run the real turn on a copy that changes nothing, over a simulated Photon line (2026-11-16)](./texting-assistant/lab-sandbox.md)
 - [The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a test chat (2026-11-16)](./texting-assistant/lab-shared-chats.md)

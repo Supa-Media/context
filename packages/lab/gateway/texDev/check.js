@@ -15,6 +15,8 @@ import { EFFORTS as SCHEMA_EFFORTS, provisionalHoldProblems } from "../../../tex
 // A draft's steps on another architecture's page (Search, ...) are checked against that architecture's own schema,
 // never against Tex's (Dev2, 2026-11-21; `architectures.cjs`).
 import { ownProblems, ownVsMain, texSideOf } from "../../../tex/src/architectures.cjs";
+// A Tex step's own settings are checked against what its code declares (`texNodeSettings.cjs`), as CI and Promote do.
+import { stepSettingsProblems } from "../../../tex/src/texNodeSettings.cjs";
 
 const EFFORTS = new Set(SCHEMA_EFFORTS);
 
@@ -54,6 +56,7 @@ export function draftProblems(graph, current = TEX_CONFIG, shelf = Object.keys(S
     if (typeof n.model !== "string" || (n.model !== "code" && typeof current.models[n.model] !== "string")) problems.push(modelProblem(n, graph.models, current.models));
     if (n.effort !== undefined && !EFFORTS.has(n.effort)) problems.push(`promote: step "${n.id}" has effort "${n.effort}" (${[...EFFORTS].join(", ")})`);
     if (typeof n.on !== "boolean") problems.push(`promote: step "${n.id}" is neither on nor off`);
+    if (n.settings !== undefined) problems.push(...stepSettingsProblems(n.id, n.settings).map((p) => `promote: ${p}`));
   }
   const fromNow = base === undefined || (current === TEX_CONFIG && base === CONFIG_STAMP);
   // A step deleted while off is retired to the shelf by Promote, its code kept (Dev2, 2026-11-20); one that is on is not.

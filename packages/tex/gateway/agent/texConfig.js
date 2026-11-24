@@ -27,6 +27,7 @@ import { sandboxGateOf } from "../../../../apps/mcp/src/labSandbox/policy.js";
 // A draft's steps on another architecture's page (Search, ...) are never Tex's: they are taken out before Tex's steps are read (Dev2, 2026-11-21).
 import { texSideOf } from "../../src/architectures.cjs";
 import { EFFORTS as SCHEMA_EFFORTS } from "../../src/texConfigSchema.cjs";
+import { stepSettingProblem, stepSettings } from "../../src/texNodeSettings.cjs";
 
 export const TEX_CONFIG = CONFIG;
 /** The stamp of the config this code runs: a draft made from main keeps it, so Promote merges only its own changes (`texConfigStamp.cjs`). */
@@ -241,6 +242,12 @@ function draftStep(node, edit, config, words) {
   // Its own limits (the dream's About me budget, Part end's parts and minutes), each a whole number; null drops them.
   if (edit.limits === null) delete out.limits;
   else if (edit.limits && typeof edit.limits === "object" && !Array.isArray(edit.limits) && Object.values(edit.limits).every((v) => Number.isInteger(v) && v >= 0)) out.limits = { ...edit.limits };
+  // Its code's declared settings (`texNodeSettings.cjs`): each one its code declares, inside its bounds; others are dropped.
+  if (edit.settings === null) delete out.settings;
+  else if (edit.settings && typeof edit.settings === "object" && !Array.isArray(edit.settings)) {
+    const kept = Object.fromEntries(Object.entries(edit.settings).filter(([name, value]) => stepSettingProblem(node.id, name, value) === null));
+    out.settings = { ...(node.settings ?? {}), ...kept };
+  }
   // What the step reads, when every prompt module it names has words here or in the draft.
   if (Array.isArray(edit.ctx) && edit.ctx.every((entry) => typeof entry === "string" && (PROMPT_ENTRY.exec(entry) === null || typeof words[PROMPT_ENTRY.exec(entry)[1]] === "string"))) out.ctx = edit.ctx;
   return out;
@@ -353,4 +360,9 @@ export function texConfigOf(env) {
   if (gate === null || !gate.config) return CONFIG;
   if (!drafted.has(gate)) drafted.set(gate, withDraft(CONFIG, gate.config));
   return drafted.get(gate);
+}
+
+/** Step `id`'s settings in the config this turn runs on (a Lab test chat's draft, or main), each default filled in (`texNodeSettings.cjs`). */
+export function settingsOf(env, id) {
+  return stepSettings(texConfigOf(env), id);
 }

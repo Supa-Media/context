@@ -40,8 +40,12 @@ export type LabNode = {
   group?: string;
   /** The Lab page the step lives on (`texConfig.json`'s node `graph`, `engine/pages.ts`); none is "texting". */
   graph?: "texting" | "nightly" | "search";
-  /** A search step's numbers (`apps/mcp/src/search/config/searchConfig.json`), each bounded by `SEARCH_SETTINGS_BOUNDS`. */
-  settings?: Record<string, number>;
+  /**
+   * A step's own settings: a search step's numbers (`apps/mcp/src/search/config/searchConfig.json`, bounded by
+   * `SEARCH_SETTINGS_BOUNDS`), or a Tex code step's numbers, switches and choices, each declared by its code
+   * (`packages/tex/src/texNodeSettings.cjs`).
+   */
+  settings?: Record<string, number | boolean | string>;
 };
 
 /** `allow`, on a provisional wire only: what its step may do before the go ("revertible" when absent; Dev2, 2026-11-17). */

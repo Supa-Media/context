@@ -69,7 +69,7 @@ export function fieldText(n: LabNode | null | undefined, name: string): string {
   if (k === "on" || k === "log") return v ? "yes" : "no";
   if (k === "outSchema" || k === "inSchema") return Array.isArray(v) && v.length ? (v as Array<{ name: string }>).map((f) => f.name).join(", ") : "free text";
   if (Array.isArray(v)) return v.join(", ") || "none";
-  if (k === "settings" && v && typeof v === "object") return Object.entries(v as Record<string, number>).map(([key, n]) => `${key} ${n}`).join(", ") || "none";
+  if (k === "settings" && v && typeof v === "object") return Object.entries(v as Record<string, number | boolean | string>).map(([key, n]) => `${key} ${n}`).join(", ") || "none";
   return v === undefined || v === null || v === "" ? "none" : String(v);
 }
 
