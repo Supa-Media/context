@@ -157,7 +157,7 @@ describe("the phone's +", () => {
   test("it says where the thing is going", () => {
     mount("1-projects");
     // By the name the rest of the app shows it under, not the bucket's.
-    expect(document.body.textContent).toContain("Goes in projects");
+    expect(document.body.textContent).toContain("In projects.");
   });
 
   test("and names the root when that is the destination", () => {

@@ -53,7 +53,6 @@ export function consoleCreateButton({
       onNewMeeting={startMeetingFlow}
       beside={joinMeeting === null ? null : <NextUpPill onJoin={joinMeeting} />}
       resume={resumeRow}
-      folder={targetFolder(data.files.listings, data.files.selectedPath)}
       /*
         The same `targetFolder` rule the tree's own `+` and the phone's
         bottom row both use: a selected folder is the destination, anything
