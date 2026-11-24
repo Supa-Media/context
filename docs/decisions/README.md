@@ -991,6 +991,13 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [A handoff that made no link says so, in the gateway's words (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [The benchmark searches the real web (2026-10-11)](./texting-assistant/golden-tasks.md)
 
+## [Data and metrics](./data-and-metrics.md)
+
+- The model (2026-11-24)
+- A formula is a small language, worked out when it is read
+- Sources sync without a model, in their own object
+- Who does what
+
 ## [Connectors](./connectors.md)
 
 - A connector is a token Tex calls the app's API with, and nothing is copied into notes (2026-10-21)

@@ -56,6 +56,11 @@ everyone, it should just be 1 person for now."
   rule #2021 set for logins). The group turn is not offered the connector
   tools; Tex says to text it one-to-one.
 
+One narrowing since (owner, 2026-11-24): a shared workspace's owner may
+connect a source for its Data folder, read-only and reached only by the sync
+object, never by Tex, a chat or an MCP tool
+([data-and-metrics](./data-and-metrics.md#who-does-what)).
+
 Reversing this is a decision here first. The tests that fail are "an app
 connects for one person only" and "a workspace-wide connection, were one ever
 stored, is reached by nobody" (`apps/convex/__tests__/connections/`), and "a
