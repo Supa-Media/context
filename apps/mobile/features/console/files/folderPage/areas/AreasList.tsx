@@ -1,10 +1,12 @@
 /**
  * The List view of an Areas folder, as the owner approved it on 2026-11-24
  * (the Areas redesign board, "E Trend"): one row per area, nested under the
- * open folder's own row. A row reads, left to right: a chevron when it has
- * sub-areas, its owner's face, its name; then its one headline metric (its
- * label over a small trend, the latest value in green or amber, and the
- * target); then a count of the notes and folders in it, which shows them
+ * open folder's own row, drawn at the Projects list's own measure (36 high,
+ * its 16pt regular name, its 18 chevron gutter, in the page's column: the
+ * owner, 2026-11-24, "the scale is still wrong here" beside Projects). A row
+ * reads, left to right: a chevron when it has sub-areas, its owner's face, its
+ * name; then its one headline metric on one line (its label, a small trend,
+ * the latest value in green or amber, and the target); then a count of the notes and folders in it, which shows them
  * under the row; then ⋯ for the seat menu. Notes and folders are hidden until
  * that count is pressed (the owner: "maybe we just hide it? with a button to
  * show them").
@@ -24,7 +26,7 @@ import { Path, Svg } from "react-native-svg";
 import { Icon, type IconName } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import { areasType, pointerType } from "../../../../design/tokens";
+import { areasType, layout, pointerType } from "../../../../design/tokens";
 import { displayName, folderLabel } from "../../paths";
 import type { ItemEntry } from "../model";
 import { OwnerFace, type Face } from "../Glyphs";
@@ -42,11 +44,11 @@ function hoverTitle(text: string): { readonly title?: string } {
   return Platform.OS === "web" && text !== "" ? { title: text } : {};
 }
 
-/** How far each level sits in from its parent: 20 on a pointer, 16 on a phone. */
-const INDENT = 16;
+/** How far each level sits in from its parent: 18 on a pointer (the chevron gutter, as Projects nests), 16 on a phone. */
+const INDENT = 18;
 const INDENT_PHONE = 16;
 /** A file row sits under its area's name: the chevron and face columns past the area's own inset. */
-const FILE_INSET = 52;
+const FILE_INSET = 40;
 const FILE_INSET_PHONE = 26;
 
 export interface AreasListProps {
@@ -140,7 +142,7 @@ function AreaBranch({ node, depth, rootTitle, firstTop, shared }: { node: AreaNo
   const open = !shared.closed.has(node.seat.folder);
   return (
     <>
-      <AreaRow node={node} depth={depth} title={rootTitle} open={open} divided={depth === 1 && !firstTop} shared={shared} />
+      <AreaRow node={node} depth={depth} title={rootTitle} open={open} shared={shared} />
       <FileRows node={node} depth={depth} shared={shared} />
       {open
         ? node.areas.map((sub, at) => <AreaBranch key={sub.seat.folder} node={sub} depth={depth + 1} firstTop={at === 0} shared={shared} />)
@@ -149,7 +151,7 @@ function AreaBranch({ node, depth, rootTitle, firstTop, shared }: { node: AreaNo
   );
 }
 
-function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode; depth: number; title?: string; open: boolean; divided: boolean; shared: Shared }) {
+function AreaRow({ node, depth, title, open, shared }: { node: AreaNode; depth: number; title?: string; open: boolean; shared: Shared }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const { seat } = node;
@@ -168,14 +170,14 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
         accessibilityLabel={root ? `${folderLabel(seat.name)}, seat` : `${folderLabel(seat.name)}, area`}
         testID={root ? "area-row-root" : `area-row-${seat.folder}`}
         {...depthProps(depth)}
-        style={({ hovered }: HoverState) => [styles.areaRow, { paddingLeft: depth * INDENT + 4 }, divided && styles.divided, hovered && styles.hover]}
+        style={({ hovered }: HoverState) => [styles.areaRow, { paddingLeft: depth * INDENT }, hovered && styles.hover]}
       >
         {({ hovered }: HoverState) => (
           <>
             <View style={styles.nameCell}>
               <Chevron node={node} open={open} size={18} shared={shared} />
-              <OwnerMark owner={seat.owner} size={18} shared={shared} />
-              <Text variant="tree" style={[styles.areaName, root && styles.rootName, seat.owner === null && styles.unownedName]} numberOfLines={1}>
+              <OwnerMark owner={seat.owner} size={FACE} shared={shared} />
+              <Text variant="treeTouch" style={[styles.areaName, seat.owner === null && styles.unownedName]} numberOfLines={1}>
                 {name}
               </Text>
             </View>
@@ -189,7 +191,7 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
               onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
               accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
               hitSlop={6}
-              style={[styles.more, { opacity: root || hovered ? 1 : 0.35 }]}
+              style={[styles.more, { opacity: hovered ? 1 : MORE_AT_REST }]}
               testID={`area-more-${seat.folder}`}
             >
               <Icon name="more" size={14} color={colors.muted} />
@@ -225,7 +227,7 @@ function Chevron({ node, open, size, shared, phone = false }: { node: AreaNode; 
   );
 }
 
-/** The headline metric on a pointer: its label, then the trend, the value and the target on one line. */
+/** The headline metric on a pointer, on one line: its label, then the trend, the value and the target. */
 function MetricCell({ headline }: { headline: Headline }) {
   const styles = useThemedStyles(makeStyles);
   const tip = `${headline.label}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
@@ -235,13 +237,13 @@ function MetricCell({ headline }: { headline: Headline }) {
         {headline.label}
       </Text>
       {headline.value === null ? (
-        <Text variant="tree" style={styles.noData} numberOfLines={1} testID="area-row-value">
-          No data yet{headline.target === "" ? null : <Text variant="tree" style={styles.noDataTarget}>{` · target ${headline.target}`}</Text>}
+        <Text variant="treeMeta" style={styles.noData} numberOfLines={1} testID="area-row-value">
+          {headline.target === "" ? "No data yet" : `No data · target ${headline.target}`}
         </Text>
       ) : (
         <View style={styles.valueLine}>
-          {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={56} height={16} stroke={1.4} dot={2.2} />}
-          <Value headline={headline} size={pointerType.ui} />
+          {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={40} height={14} stroke={1.4} dot={2.2} />}
+          <Value headline={headline} size={pointerType.meta} />
           <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
             {headline.target}
           </Text>
@@ -355,7 +357,7 @@ function FileRow({ entry, depth, shared }: { entry: ItemEntry; depth: number; sh
       <View style={styles.fileIcon}>
         <Icon name={KIND_ICON[kind]} size={15} color={colors.muted} />
       </View>
-      <Text variant="tree" style={[styles.fileName, shared.compact && styles.fileNamePhone]} numberOfLines={1}>
+      <Text variant={shared.compact ? "tree" : "treeTouch"} style={[styles.fileName, shared.compact && styles.fileNamePhone]} numberOfLines={1}>
         {name}
       </Text>
       {meta === "" ? null : (
@@ -442,6 +444,11 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
   );
 }
 
+/** The face, at the Projects list's size (`rowExtras` FACE). */
+const FACE = 20;
+/** The ⋯ at rest: hidden until the row is hovered under a pointer, as Projects shows nothing there; faint on touch, which has no hover. */
+const MORE_AT_REST = Platform.OS === "web" ? 0 : 0.35;
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     list: { paddingVertical: 4 },
@@ -449,45 +456,43 @@ const makeStyles = (colors: Colors) =>
     empty: { color: colors.muted, paddingHorizontal: 16, paddingVertical: 12 },
     hover: { backgroundColor: colors.chipFill },
 
-    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric, 52 of count and 24 of ⋯, 16 apart.
+    // The Projects list's row (`FolderRow.row`): 36 high, 6 apart inside the name, rounded like it.
+    // Then 260 of metric, 44 of count and 24 of ⋯ (the owner, 2026-11-24: "the scale is still wrong here").
     areaRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 16,
-      minHeight: 40,
-      paddingVertical: 4,
-      paddingRight: 12,
+      gap: 12,
+      height: layout.explorerRow,
+      paddingRight: 4,
       borderRadius: 8,
     },
     divided: { borderTopWidth: 1, borderTopColor: colors.line, borderRadius: 0 },
-    nameCell: { flexDirection: "row", alignItems: "center", gap: 8, flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
+    nameCell: { flexDirection: "row", alignItems: "center", gap: 6, flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
     chevron: { alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
     chevronPhone: { marginTop: -8, marginBottom: -8, marginLeft: -6, marginRight: -4 },
-    areaName: { flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", color: colors.text },
-    rootName: { fontSize: areasType.value },
+    areaName: { flexShrink: 1, minWidth: 0, color: colors.text },
     unownedName: { color: colors.muted },
-    metricCell: { width: 220, flexShrink: 0, minWidth: 0 },
-    notesCell: { width: 52, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
+    metricCell: { width: 260, flexShrink: 0, minWidth: 0 },
+    notesCell: { width: 44, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
     more: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
 
-    metric: { gap: 1, minWidth: 0 },
-    metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },
-    valueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+    metric: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted, flexShrink: 1, minWidth: 0 },
+    valueLine: { flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 0, maxWidth: "62%" as never },
     value: { fontWeight: "600", flexShrink: 0 },
     target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
-    noData: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
-    noDataTarget: { fontSize: pointerType.meta, color: colors.muted },
+    noData: { flexShrink: 0, maxWidth: "62%" as never, fontSize: pointerType.meta, lineHeight: 15, color: colors.chromeMuted },
 
-    notes: { flexDirection: "row", alignItems: "center", gap: 4, height: 24, paddingHorizontal: 8, borderRadius: 6 },
+    notes: { flexDirection: "row", alignItems: "center", gap: 4, height: 22, paddingHorizontal: 6, borderRadius: 6 },
     notesHover: { backgroundColor: colors.chipFill },
-    notesCount: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "500", color: colors.muted },
+    notesCount: { color: colors.chromeMuted, fontVariant: ["tabular-nums"] },
     notesPhone: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, height: 28, minWidth: 44, paddingHorizontal: 10, borderRadius: 999, flexShrink: 0 },
     notesCountPhone: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "500", color: colors.muted },
 
-    fileRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28, paddingRight: 12, borderRadius: 8 },
+    fileRow: { flexDirection: "row", alignItems: "center", gap: 6, height: layout.explorerRow, paddingRight: 4, borderRadius: 8 },
     fileRowPhone: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 },
     fileIcon: { width: 16, alignItems: "center", flexShrink: 0 },
-    fileName: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text2 },
+    fileName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text2 },
     fileNamePhone: { fontSize: areasType.value, lineHeight: 20 },
     fileMeta: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 0 },
 

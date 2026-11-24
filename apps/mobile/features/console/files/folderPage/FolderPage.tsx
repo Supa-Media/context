@@ -93,9 +93,6 @@ import { backlogFolderOf } from "./tasks/backlogFolder";
 import { parkedOnBoard } from "./boardLayout";
 import { useFolderTasks } from "./tasks/useFolderTasks";
 
-/** The Areas list's width where the page has room: the owner's board, 2026-11-24. */
-const AREAS_LIST_WIDTH = 820;
-
 export type { FolderPageHost } from "./useFolderPage";
 
 const NO_WORDS: readonly string[] = [];
@@ -374,8 +371,8 @@ export function FolderPage({
   const chartColumns = seats && view === "chart" && !compact && pageWidth > 0 ? areaTree(folder, areasFolderNow(), notes ?? NO_NOTES).areas.length + 1 : 0;
   // Each column is 232 wide with 20 between (the owner's board, 2026-11-24).
   const wideChart = chartColumns === 0 ? null : Math.min(pageWidth - 96, Math.max(chartColumns * 252, boardWidth(1, 1, pageWidth)));
-  // The Areas list takes 820 where the page has it: its metric, count and ⋯ columns leave the names room.
-  const wideAreas = wideChart ?? (seats && view !== "chart" && !compact && pageWidth > 0 ? Math.min(pageWidth - 96, Math.max(AREAS_LIST_WIDTH, boardWidth(1, 1, pageWidth))) : null);
+  // The Areas list sits in the page's own column, as the Projects list does (the owner, 2026-11-24: "the scale is still wrong").
+  const wideAreas = wideChart;
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     peeking !== null && peeking === about
