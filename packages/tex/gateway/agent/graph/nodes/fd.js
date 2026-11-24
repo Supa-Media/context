@@ -41,6 +41,9 @@ export async function fdNode(input, io) {
   // The Training moments nearest to this text, started now so they are ready by the first prompt (`examples.js`); only when the
   // config wires `fd -> examples`. Its answer never throws, and a rejection is answered as a fallback, so none can go unhandled.
   const examples = "examples" in io.use ? io.use.examples({ question: String(t.question ?? ""), recent: recentLines(t.history) }).catch(() => ({ when: ["fallback"], why: "error" })) : null;
+  // The member cards of the people in a group's room (`memberCards.js`), started now; only when the config wires
+  // `fd -> memberCards`, on a group chat's own turn. The words stay on the turn, never on the wire.
+  const memberCards = "memberCards" in io.use && t.group && t.chatTurn && !t.job ? io.use.memberCards({}).catch(() => ({ when: ["none"], why: "error" })) : null;
   // What a call carries that the log must not (its arguments, the turn so far, its result): kept here by the call's number, and the wire carries only the number and the tool's name.
   // Each call's arguments and result are kept already, with their privacy rules, as the turn's own tool entry (`ledger.js` `toolEntry`).
   const calls = (t.toolCalls = { mcp: null, web: null, local: new Map(), held: new Map(), planner: null, fallback: null });
@@ -58,6 +61,7 @@ export async function fdNode(input, io) {
   };
   const via = {
     examples,
+    memberCards,
     // A draft the Answer check handed to a background job (`handoff.js`) ends the loop on the job's start line.
     answerCheck: async (draft, info) => {
       const notice = await drafts.answerCheck(draft, info);

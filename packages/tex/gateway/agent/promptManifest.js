@@ -51,6 +51,12 @@ export function manifestOf(parts) {
   return out;
 }
 
+/**
+ * Modules whose words a turn never keeps, only their length and fingerprint: the member cards a group chat's turn is told
+ * (`memberCards.js`), which the chat's people must never read in its records (`docs/decisions/texting-assistant/member-cards.md`).
+ */
+export const UNKEPT_MODULES = Object.freeze(new Set(["context/thread/cards"]));
+
 /** A module longer than this keeps its fingerprint only: a pasted note, say, which the history already holds. */
 export const MAX_KEPT_WORDS = 16_000;
 
@@ -61,7 +67,7 @@ export const MAX_KEPT_WORDS = 16_000;
 export function keptWordsOf(parts) {
   const out = {};
   for (const [id, text] of parts) {
-    if (typeof id !== "string" || id.startsWith("stable/") || typeof text !== "string" || text === "" || text.length > MAX_KEPT_WORDS) continue;
+    if (typeof id !== "string" || id.startsWith("stable/") || UNKEPT_MODULES.has(id) || typeof text !== "string" || text === "" || text.length > MAX_KEPT_WORDS) continue;
     out[fingerprint(text)] = text;
   }
   return out;

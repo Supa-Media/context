@@ -26,6 +26,15 @@ export function createIdentityMethods({ post }) {
     },
 
     /**
+     * Whose member card a group chat's turn may read (`agent/memberCards.js`; `lib/texIdentity/cards.ts`): the people
+     * the tag's grant was minted for, `[{ handle, workspaceId }]`, on an account holder's own tag only, else `null`.
+     */
+    async memberCardHomes(accessToken) {
+      const parsed = await post("/gateway/agent/identity", { accessToken, cards: true });
+      return Array.isArray(parsed?.cards) ? parsed.cards : null;
+    },
+
+    /**
      * The group chats the person texting their own Tex is in, for their 1:1 turn's `group_chats` tool
      * (`agent/groupChats.js`; `lib/texIdentity/groups.ts`): `[{ key, name, people, lastSeenAt }]`, or `null` for
      * every caller who may not know (any client but the 1:1 texting grant, another person's workspace, a dead token).

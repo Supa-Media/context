@@ -16,6 +16,9 @@
  * When the config wires `answerCheck -> askGate`, a draft the code checks let through is read by the lookup ladder's
  * Before-asking step first (`askGate.js`): a draft that asks them a fact Tex could find goes back with what the quick
  * rungs found, or to a background job for the slow ones (`askGate -> handoff`). Unwired, nothing changes.
+ *
+ * When the config wires `answerCheck -> friendCheck`, a group draft the code checks let through, on a turn that read a
+ * member card, is read by the Friend check first (`friendCheck.js`): one that says or hints at a card goes back once.
  */
 export async function answerCheckNode(input, io) {
   const t = io.ctx.turn;
@@ -47,6 +50,12 @@ export async function answerCheckNode(input, io) {
       }
       sentBack += 1;
       stop = await back({ notice: String(notice) });
+      continue;
+    }
+    // A group draft that read a member card, once per draft, when the config wires `answerCheck -> friendCheck`.
+    if ((await friendBefore(io, t, waiting)) === "back" && back.left() > 0 && typeof t.friendNotice === "string") {
+      sentBack += 1;
+      stop = await back({ notice: t.friendNotice });
       continue;
     }
     const ladder = await askBefore(io, t, waiting);
@@ -98,6 +107,20 @@ async function reviewOf(io, t, waiting) {
   if (!("reviewer" in (io.use ?? {}))) return t.answerChecks.review(waiting.draft, waiting.info);
   const out = await io.use.reviewer({ draftChars: String(waiting.draft ?? "").length });
   return out?.back === true ? t.reviewNotice : null;
+}
+
+/**
+ * The Friend check's verdict on a group draft that read a member card (`friendCheck.js`, over `answerCheck ->
+ * friendCheck`), once per draft: "back" or "pass", or null when it is not wired, there was no card, or it failed.
+ */
+async function friendBefore(io, t, waiting) {
+  if (!("friendCheck" in (io.use ?? {})) || !(t.memberCards?.cards?.length > 0) || waiting?.draft === undefined || waiting.draft === t.friendLast) return null;
+  t.friendLast = waiting.draft;
+  try {
+    return (await io.use.friendCheck({ draftChars: String(waiting.draft ?? "").length }))?.to ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
