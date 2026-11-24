@@ -479,7 +479,7 @@ const makeStyles = (colors: Colors) =>
     noDataTarget: { fontSize: pointerType.meta, color: colors.muted },
 
     notes: { flexDirection: "row", alignItems: "center", gap: 4, height: 24, paddingHorizontal: 8, borderRadius: 6 },
-    notesHover: { backgroundColor: colors.lineStrong },
+    notesHover: { backgroundColor: colors.chipFill },
     notesCount: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "500", color: colors.muted },
     notesPhone: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, height: 28, minWidth: 44, paddingHorizontal: 10, borderRadius: 999, flexShrink: 0 },
     notesCountPhone: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "500", color: colors.muted },
