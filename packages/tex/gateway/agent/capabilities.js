@@ -393,6 +393,13 @@ export const CAPABILITIES = Object.freeze([
     ],
   },
   {
+    name: "Threaded replies",
+    actions: [],
+    texts: "on your iMessage line, your answer goes under the text it answers, as a threaded reply, and each part of an answer to several texts goes under its own; when that text was itself a reply, iMessage shows yours in that same thread",
+    group: "the same in the chat",
+    cant: [{ where: "everywhere", what: "be sure a reply threads on the old Sendblue number or WhatsApp", workaround: { kind: "words", text: "name the text you are answering in a few words" } }],
+  },
+  {
     name: "Edited and unsent texts",
     actions: [],
     texts: "on your iMessage line, an edited text reaches you marked as the edit of the one it changed, and is judged like any text (a fixed typo needs no answer, a changed ask does); an unsent text is marked as taken back, and if you hadn't started on it you don't answer it",

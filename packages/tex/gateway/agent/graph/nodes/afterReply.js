@@ -7,11 +7,14 @@
  */
 import { reviewAfterTurn } from "../../selfReview.js";
 
+/** The words that went back, as Text them kept them (`send.js`), for the Classifier to file with the text they answered; "" when none did. */
+export const answerSent = (t) => (typeof t?.answerSent === "string" ? t.answerSent : "");
+
 export async function afterReplyNode(_input, io) {
   const t = io.ctx.turn;
   const out = {};
   const [filed, reviewed] = await Promise.allSettled([
-    typeof t.threadsSort === "function" ? t.threadsSort() : Promise.resolve(null),
+    typeof t.threadsSort === "function" ? t.threadsSort(answerSent(t)) : Promise.resolve(null),
     t.sentAs === "sent" ? reviewAfterTurn({ env: t.env, store: t.store, session: t.session, controlPlane: t.controlPlane, question: t.question, group: t.group, saved: t.group !== null || t.conversation !== null }) : Promise.resolve(undefined),
   ]);
   if (filed.status === "fulfilled" && filed.value !== null) out.filed = Array.isArray(filed.value) ? filed.value.length : 0;

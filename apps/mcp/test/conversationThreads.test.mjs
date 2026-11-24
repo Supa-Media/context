@@ -12,14 +12,20 @@
  * Sabotage record (2026-11-12, classifier after the answer), each applied, this file run, named test failing, reverted:
  *  6. `threadedTurn` calling the classifier before it returns → "classified texts older than a day…" fails (asked 1, not 0).
  *  7. `classifyText` dropping `thinking: "off"` → "the classifier's call thinks not at all…" fails.
+ * Sabotage record (2026-11-24, the classifier reads Tex's answer), each applied, this file run, named test failing, reverted:
+ *  8. `threadsMessage` leaving the answer out → "the classifier reads Tex's answer…" fails.
+ *  9. `threadsSortAndWrite` calling sort with no answer → "the answer that went reaches the sort…" fails.
+ * 10. Text them not keeping the words (`send.js`) → "the answer that went reaches the sort…" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { classifyText, foldThreads, listedThreads, MAX_LISTED, readVerdict, THREADS_MAX_TOKENS, threadsChat, threadsOn, threadsWrite, verdictEntries } from "../../../packages/tex/gateway/agent/conversationThreads.js";
+import { classifyText, foldThreads, listedThreads, MAX_LISTED, readVerdict, THREADS_MAX_TOKENS, threadsChat, threadsOn, threadsSortAndWrite, threadsWrite, verdictEntries } from "../../../packages/tex/gateway/agent/conversationThreads.js";
 import { gatewayBody } from "../../../packages/tex/gateway/agent/aiGateway.js";
 import { threadedTurn } from "../../../packages/tex/gateway/agent/threadedTurn.js";
+import { afterReplyNode } from "../../../packages/tex/gateway/agent/graph/nodes/afterReply.js";
+import { sendNode } from "../../../packages/tex/gateway/agent/graph/nodes/send.js";
 
 const H = 3600e3;
 const NOW = Date.parse("2026-11-07T15:00:00Z");
@@ -181,6 +187,29 @@ test("the classifier's call thinks not at all, so its cap is the answer's alone"
   assert.deepEqual(wire.thinking, { type: "disabled" });
   assert.equal(wire.max_tokens, THREADS_MAX_TOKENS);
   assert.equal(gatewayBody({ model: "anthropic/claude-opus-5-5", system: "s", messages: [{ role: "user", text: "hi" }], tools: [], effort: "low", thinking: "off" }).thinking, undefined, "a model that can't turn it off is not asked to");
+});
+
+// Bot battle, 2026-11-23: the summary was written after Tex answered but from the text alone, so it read "Tex has not
+// replied yet", and the next turn named the asker's text as the chat's latest, leaving out Tex's own three replies.
+test("the classifier reads Tex's answer, so a thread's description says where it stands after the reply", async () => {
+  const asked = [];
+  const request = async (sent) => (asked.push(sent.messages[0].text), { text: '{"thread":"new","title":"Retest","description":"d","finished":[]}' });
+  const base = { threads: [], lines: { byThread: new Map(), recent: [] }, question: "tex, who asked us to test you?", replying: [], config: {}, request };
+  await classifyText({ ...base, answer: "Victor asked you both, at 7:03 pm." });
+  await classifyText(base);
+  assert.match(asked[0], /TEX'S ANSWER\nVictor asked you both, at 7:03 pm\./);
+  assert.doesNotMatch(asked[1], /TEX'S ANSWER/, "no answer went: nothing is shown as one");
+});
+
+test("the answer that went reaches the sort: Text them keeps the words and After the reply hands them over", async () => {
+  let given = null;
+  await threadsSortAndWrite(async (answer) => ((given = answer), []), {}, {}, "ALPHA-24");
+  assert.equal(given, "ALPHA-24");
+  const response = new Response(JSON.stringify({ answer: "Victor asked you both." }));
+  const t = { response, drafts: undefined, threadsSort: async (answer) => ((given = answer), []) };
+  await sendNode({}, { ctx: { turn: t } });
+  await afterReplyNode({}, { ctx: { turn: t } });
+  assert.equal(given, "Victor asked you both.");
 });
 
 test("CONVERSATION_THREADS=off turns it off", () => {

@@ -64,16 +64,18 @@ const CANDIDATES = 30;
 const LAST_LINES = 3;
 const RECENT_LINES = 12;
 const LINE_CHARS = 300;
+/** What the classifier is shown of Tex's answer to the new text. */
+const ANSWER_CHARS = 1_000;
 /** The most thread entries one read takes: far more than any chat's threads. */
 const MAX_READ = 5000;
 const MAX_PAGES = 20;
 
 export const THREADS_SYSTEM = `You sort a text chat with Tex (an assistant people text) into conversation threads. A thread is one subject: a question and its answer, a task, a plan, a debate, a run of jokes about one thing. Several can be open at once and interleave. Time apart does not split a thread; a new subject does.
 
-You are given whether the chat is a group chat or a 1:1 with Tex (CHAT), the chat's threads (id, open or finished, title, description, its last lines), the chat's last lines, and the NEW TEXT. In the lines "You" is Tex and a person is "@name". Decide:
+You are given whether the chat is a group chat or a 1:1 with Tex (CHAT), the chat's threads (id, open or finished, title, description, its last lines), the chat's last lines, the NEW TEXT, and TEX'S ANSWER to it when Tex answered. In the lines "You" is Tex and a person is "@name". Decide:
 1. thread: the id of the thread the new text continues, or "new". A text "replying to" an old message is a hint, not the answer: people often reply under an old bubble while changing subject, so go by what the text is about. A finished thread the text clearly picks up again is that thread (it reopens). A short reaction ("lol", "thanks", a tapback) belongs to the thread it reacts to.
 2. title: for "new", a 3 to 6 word title in plain words; otherwise the thread's title, kept unless it is now wrong.
-3. description: that thread's one or two sentences as they now stand, with the new text in it: what it is about and where it stands (what is asked, what is waiting on whom). At most 240 characters.
+3. description: that thread's one or two sentences as they now stand, with the new text and Tex's answer in it: what it is about and where it stands (what is asked, what Tex answered, what is waiting on whom). When TEX'S ANSWER is given, Tex has replied: never say it hasn't. At most 240 characters.
 4. finished: ids of OTHER open threads the chat's last lines show are done. Only on evidence: the ask was answered and they acknowledged it or moved on from it by saying so, the task was done, or someone dropped it. Silence never finishes a thread. A question of theirs that Tex has not answered keeps its thread open. When unsure, leave it open.
 
 Answer with JSON only: {"thread":"t3"|"new","title":"...","description":"...","finished":["t1"]}`;
@@ -124,7 +126,7 @@ const oneLine = (text, max = LINE_CHARS) => {
 };
 
 /** The classifier's message: the candidate threads with their last lines, the chat's last lines, the new text. */
-export function threadsMessage({ threads, lines, question, replying = [], group = false }) {
+export function threadsMessage({ threads, lines, question, replying = [], group = false, answer = "" }) {
   const candidates = listedThreads(threads, CANDIDATES);
   const parts = [`CHAT: ${group ? "a group chat" : "a 1:1 with Tex"}`, "", "THREADS"];
   if (candidates.length === 0) parts.push("(none yet)");
@@ -134,6 +136,10 @@ export function threadsMessage({ threads, lines, question, replying = [], group 
   }
   parts.push("", "THE CHAT'S LAST LINES", ...(lines.recent.length > 0 ? lines.recent.map((line) => oneLine(line)) : ["(nothing yet)"]));
   parts.push("", "NEW TEXT", oneLine(question, 2_000), ...replying.map((line) => `(${oneLine(line)})`));
+  // Tex's answer, which went before this runs (2026-11-24): without it every description read "Tex has not replied
+  // yet" until the next text, and the next turn took that stale line as the chat's latest state.
+  const said = oneLine(answer, ANSWER_CHARS);
+  if (said !== "") parts.push("", "TEX'S ANSWER", said);
   return parts.join("\n");
 }
 
@@ -185,10 +191,10 @@ export function verdictEntries(verdict, threads, covered, at = Date.now()) {
 // about 430 tokens a time, almost all thinking, about 3 s on its own. A 400-token cap with thinking on cut the verdict
 // off (about 4 turns in 10 of the 2026-11-07 backfill came back unsorted); with thinking off the cap is the answer's
 // alone, a JSON line of about 60-120 tokens.
-export async function classifyText({ threads, lines, question, replying, group = false, config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = texTimeoutMs(texPick(["afterReply", "classifier"], config?.tex), config?.tex) }) {
+export async function classifyText({ threads, lines, question, replying, group = false, answer = "", config, metadata, timeZone = null, request = requestViaGateway, timeoutMs = texTimeoutMs(texPick(["afterReply", "classifier"], config?.tex), config?.tex) }) {
   if (!config) return null;
   const call = request(
-    { model: texModel(texPick(["afterReply", "classifier"], config?.tex), config?.tex), system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group }) }], tools: [], ...texEffort(texPick(["afterReply", "classifier"], config?.tex), config?.tex), maxTokens: THREADS_MAX_TOKENS },
+    { model: texModel(texPick(["afterReply", "classifier"], config?.tex), config?.tex), system: withArchitecture(THREADS_SYSTEM, "threads"), messages: [{ role: "user", text: threadsMessage({ threads, lines, question, replying, group, answer }) }], tools: [], ...texEffort(texPick(["afterReply", "classifier"], config?.tex), config?.tex), maxTokens: THREADS_MAX_TOKENS },
     config,
     { metadata, timeZone }, // told today in their zone (`localNow.js` `withToday`)
   );
@@ -260,9 +266,9 @@ export async function threadsWrite(store, session, entries) {
   await writer?.write(entries);
 }
 
-/** After a turn has answered: sort its text (`threadedTurn.js` `sort`) and keep the verdict for the next turn; answers the entries kept. Never throws. */
-export async function threadsSortAndWrite(sort, store, session) {
-  const entries = await Promise.resolve().then(sort).catch(() => []);
+/** After a turn has answered: sort its text (`threadedTurn.js` `sort`), with the answer that went, and keep the verdict for the next turn; answers the entries kept. Never throws. */
+export async function threadsSortAndWrite(sort, store, session, answer = "") {
+  const entries = await Promise.resolve().then(() => sort(answer)).catch(() => []);
   if (Array.isArray(entries) && entries.length > 0) await threadsWrite(store, session, entries);
   return Array.isArray(entries) ? entries : []; // what it filed, for the classifier's step in the chat's ledger
 }
