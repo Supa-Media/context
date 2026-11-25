@@ -204,3 +204,21 @@ describe("the webhook hands over", () => {
     expect(w.seen.inboxFetched).toBe(0);
   });
 });
+
+describe("a body the gateway refuses", () => {
+  it.each([400, 413])("is refused, not failed, for a %i answer", async (status) => {
+    const { binding: b } = binding(answer(undefined, status));
+    expect(await handOver(b, CALL)).toBe("refused");
+  });
+
+  it("is still failed for a 404, which a half-done deploy can answer", async () => {
+    const { binding: b } = binding(answer(undefined, 404));
+    expect(await handOver(b, CALL)).toBe("failed");
+  });
+
+  it("answers the webhook 400, so Photon's in-order pump drops it instead of holding the line behind it", async () => {
+    const { binding: b } = binding(answer(undefined, 400));
+    const result = await toChat({ GATEWAY_TEXTS: b }, "one", "chat:+15555550100", { text: "hello" });
+    expect(result.status).toBe(400);
+  });
+});

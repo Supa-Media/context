@@ -43,7 +43,7 @@ import { groupNameOf, parseSendblueGroup, sendGroupName } from "./sendblueGroups
 import { groupInboxName } from "./groupInbox";
 import { chatDirectoryName, chatWhereOf } from "./groupRoutines";
 import type { DueRoutine } from "./routineClients";
-import { toChat } from "./handOver";
+import { toChat, webhookStatus } from "./handOver";
 import { arrivalOf, providerTime, type ProviderArrival } from "./providerTiming";
 import { isRecord } from "./sendblue";
 import { verifyLinqSignature } from "./signature";
@@ -164,7 +164,7 @@ export default {
       }
       const reacted = { ...inbound, provider };
       const result = await toChat(env, "react", inbound.from, reacted);
-      return new Response(null, { status: result.ok ? 200 : 503 });
+      return new Response(null, { status: webhookStatus(result) });
     }
 
     // An inline reply carries the words it answers, read from Sendblue now, before it waits in the queue.
@@ -179,7 +179,7 @@ export default {
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
     const brought = { ...message, provider };
     const result = await toChat(env, "one", inbound.from, brought, url.origin);
-    return new Response(null, { status: result.ok ? 200 : 503 });
+    return new Response(null, { status: webhookStatus(result) });
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -282,7 +282,7 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
   const brought = provider === undefined ? grouped : { ...grouped, provider };
   const result = await toChat(env, "group", groupInboxName(grouped.groupId), brought, origin);
   logWebhook(line, "accepted", "group");
-  return new Response(null, { status: result.ok ? 200 : 503 });
+  return new Response(null, { status: webhookStatus(result) });
 }
 
 /**
@@ -319,7 +319,7 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
   // A group's people changed: its kept member list is read from the app before its next answer goes out (`groupMembers.ts`).
   const changed = whapiGroupChanges(payload);
   for (const groupId of changed) {
-    const result = await toChat(env, "members", groupInboxName(groupId), null);
+    const result = await toChat(env, "members", groupInboxName(groupId), {});
     if (!result.ok) failed = true;
   }
   if (changed.length > 0) console.log(JSON.stringify({ event: "whapi_group_change", groups: changed.length, outcome: failed ? "failed" : "marked" }));
@@ -367,13 +367,13 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
     logWebhook("whapi", "accepted", "reaction");
     const reacted = { ...event, provider };
     const result = await toChat(env, "react", event.from, reacted);
-    return new Response(null, { status: result.ok ? 200 : 503 });
+    return new Response(null, { status: webhookStatus(result) });
   }
   logWebhook("whapi", "accepted");
   const { replyTo: _reply, threadRoot: _root, ...rest } = event;
   const message = { ...rest, provider };
   const result = await toChat(env, "one", event.from, message, origin);
-  return new Response(null, { status: result.ok ? 200 : 503 });
+  return new Response(null, { status: webhookStatus(result) });
 }
 
 /**
