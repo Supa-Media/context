@@ -102,10 +102,11 @@ test("on the front door too, an empty answer gets one more round, and the second
   // Dev2, 2026-11-23: three refused sends ended in an empty answer, and the front door, which ran no reply checks, texted the fallback.
   const world = await createEgressWorld();
   try {
-    world.model.install([{ text: "" }, { text: "Sent it, she's copied." }]);
+    // The second answer claims no send: a "Sent it" with no send_email this turn would get its own round (claimCheck rule 7).
+    world.model.install([{ text: "" }, { text: "Still on the reply to her. Nothing's gone out yet." }]);
     const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "can you reply looping her in?", conversation: "texts" });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
-    assert.equal(asked.body.answer, "Sent it, she's copied.");
+    assert.equal(asked.body.answer, "Still on the reply to her. Nothing's gone out yet.");
     assert.ok(JSON.stringify(world.model.requests.at(-1).messages).includes("your answer is empty"));
   } finally {
     world.restore();
