@@ -20,6 +20,7 @@ import type { PrivacyState } from "./privacyState";
 import type { TreeNames } from "./treeChecks";
 import { attachedTree, namesListing } from "./walk";
 import { bareNameOf } from "../../../../mcp/src/tree/links.js";
+import { areaLineCandidates, withAreaLine } from "../../../../mcp/src/moves/areaLines.js";
 
 /**
  * How many notes a move will read looking for references to what moved.
@@ -101,7 +102,12 @@ export async function rewriteReferences(
   // moved are read (`linkCandidates`), so the cap is on those, not on the workspace.
   const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
   const candidates = await linkCandidates(store, options.renames);
-  if (candidates !== null) keys = keys.filter((key) => candidates.has(key));
+  if (candidates !== null) {
+    // A project's `area:` line names its area's folder, not a note, so no link fact points at it: when a front
+    // note moved, every visible front note is read too (`apps/mcp/src/moves/areaLines.js`).
+    const fronts = new Set(areaLineCandidates(keys, options.renames));
+    keys = keys.filter((key) => candidates.has(key) || fronts.has(key));
+  }
   if (keys.length > LINK_SCAN_CAP) return { notes: 0, links: 0, capped: true };
 
   let notes = 0;
@@ -116,7 +122,7 @@ export async function rewriteReferences(
     if (ahead === null) continue;
     const renames = reachable(key);
     const linksOf = (text: string) =>
-      rewriteLinks(text, { fromPath: wasAt.get(key) ?? key, toPath: key, renames, byName });
+      withAreaLine(rewriteLinks(text, { fromPath: wasAt.get(key) ?? key, toPath: key, renames, byName }), text, renames);
     if (linksOf(ahead) === null) continue;
     // A note read ahead may have been edited since. Read it again before
     // writing, so a repair is never built on a version older than it was.
