@@ -177,13 +177,13 @@ export function crossCountsOf(value) {
  * The `ask_chat` tool for one chat turn, or null when this turn can't ask: a run an ask started (one hop), a job's or a
  * routine's turn, a Worker that sent no counts, a 1:1 with no list of groups. `gate(input)` is the
  * Cross-chat gate (node `crossChatGate`), over its config wire; an ask it lets go is pushed to `ledger.crossAsks`.
- * In a group, `contact: true` (the tagger's own name, phone and email for a form) still answers at once from their
- * account, as `ask_personal_tex` did; `identity` is that tool's `asker`.
+ * In a group, `contact: true` (the tagger's own name, phone or email) still answers at once from their account, as
+ * `ask_personal_tex` did, only the facts the ask needs; `identity` is that tool's `asker`.
  */
-export function crossAskTool({ event = null, group = null, groups = null, counts = null, ledger, gate, say = null, identity = null }) {
+export function crossAskTool({ event = null, group = null, groups = null, counts = null, ledger, gate, identity = null }) {
   if (event !== null || counts === null || typeof gate !== "function" || ledger === null || ledger === undefined) return null;
   if (group === null && !Array.isArray(groups)) return null;
-  const facts = group !== null ? personalTexTool({ group, ledger, say, asker: identity }) : null;
+  const facts = group !== null ? personalTexTool({ group, ledger, asker: identity }) : null;
   return {
     tool: {
       name: ASK_CHAT,
@@ -194,7 +194,7 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
             "chat: the group, by name or key. what: the ask, in their words. do: true when it should act, not just answer. The answer comes back later as its own turn, so tell them in a few words that you asked." +
             groupNames(groups)
           : "Ask the personal Tex of whoever tagged you (their own 1:1 with you) for something only it knows about them, or to do something for them there. " +
-            "contact: true for just their name, phone and email for a form or sign-in they asked for: answered at once, never ask them in the chat for these. " +
+            "contact: true for their name, phone or email from their account (fields: only the ones needed): answered at once, never ask them in the chat for these. " +
             "For somebody else here, pass as with their handle: they are asked here first, and only their 👍 or yes lets you. " +
             "Anything else comes back later as its own turn, so tell them in a few words that you asked.",
       inputSchema: {
@@ -205,7 +205,8 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
           do: { type: "boolean", description: "true when the other Tex should do something, not only answer." },
           ...(group !== null
             ? {
-                contact: { type: "boolean", description: "true for only their name, phone and email, answered at once." },
+                contact: { type: "boolean", description: "true for only their name, phone or email from their account, answered at once." },
+                fields: { type: "array", items: { type: "string", enum: ["name", "phone", "email"] }, description: "With contact: only the facts needed." },
                 as: { type: "string", description: "The handle of someone else in this chat, asked here first." },
               }
             : {}),
@@ -216,7 +217,7 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
     call: async (args) => {
       const what = line(args?.what, MAX_WHAT);
       if (what === "") return text("Not asked: say what you need, in a sentence.", true);
-      if (group !== null && args?.contact === true && facts !== null) return facts.call({ what, ...(args?.as ? { as: args.as } : {}) });
+      if (group !== null && args?.contact === true && facts !== null) return facts.call({ what, ...(args?.as ? { as: args.as } : {}), ...(Array.isArray(args?.fields) ? { fields: args.fields } : {}) });
       if (group !== null) {
         const target = offerTarget({ egress: { group } }, args ?? {}, "ask");
         if (target?.error) return text(target.error, true);

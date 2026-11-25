@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ASK_PERSONAL_TEX, PERSONAL_TEX_LINE, personalTexTool } from "../../../packages/tex/gateway/agent/askPersonalTex.js";
+import { ASK_PERSONAL_TEX, PERSONAL_TEX_LINE, contactFieldsOf, personalTexTool } from "../../../packages/tex/gateway/agent/askPersonalTex.js";
 import { ASSISTANT_SEND_ACTIONS } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { addressedTo, offerLine } from "../src/tools/offerFor.js";
@@ -17,6 +17,8 @@ import { createIdentityMethods } from "../src/controlPlane/identity.js";
  *     → "somebody else's personal Tex is never asked before their yes" fails
  *   the `guestTagger` check removed
  *     → "an invited person's tag asks nobody's personal Tex" fails
+ *   `factsLines` answering every field whatever was asked
+ *     → "a last name is answered with the name alone" fails
  */
 
 const ADA = { name: "Ada Lovelace", handle: "ada", phones: ["+15555550100"], emails: ["ada@example.invalid"], google: [] };
@@ -29,10 +31,6 @@ function world({ answer = ADA, group: extra = {} } = {}) {
   const tool = personalTexTool({
     group,
     ledger,
-    say: async (line) => {
-      said.push(line);
-      return true;
-    },
     asker: async () => {
       asked.push(group.from);
       return answer;
@@ -43,16 +41,38 @@ function world({ answer = ADA, group: extra = {} } = {}) {
   return { said, asked, ledger, tool, run, words };
 }
 
-test("the tagger's own ask tells the chat it is asking, then answers their account's facts", async () => {
+test("the tagger's own ask answers their account's facts at once, with no line texted to the chat", async () => {
   const { said, asked, run, words } = world();
   const result = await run({ what: "name, email and phone for the venue's form" });
   assert.equal(result.isError, undefined);
-  assert.deepEqual(said, ["Asking your personal Tex for name, email and phone for the venue's form."]);
+  assert.deepEqual(said, [], "no code-written status line in the chat");
   assert.deepEqual(asked, ["ada"]);
   const text = words(result);
   for (const fact of ["Ada Lovelace", "+15555550100", "ada@example.invalid"]) assert.ok(text.includes(fact), fact);
+  assert.match(text, /Source: @ada's Context account/);
+  assert.match(text, /Personal Tex: not asked/);
   assert.match(text, /never ask them for these again/);
   assert.match(text, /Don't write their phone number or email into the chat/);
+});
+
+// Dev2, 2026-11-25: "what is Seyi's last name?" in a group handed the group turn his phone and four emails.
+test("a last name is answered with the name alone", async () => {
+  const { run, words } = world();
+  const text = words(await run({ what: "What is Ada's last name?" }));
+  assert.match(text, /Name: Ada Lovelace/);
+  assert.doesNotMatch(text, /\+1555|example\.invalid|Phone|Email/);
+  // Named fields win over the words; a form ask with none names all three.
+  const phone = words(await run({ what: "for the booking", fields: ["phone"] }));
+  assert.match(phone, /\+15555550100/);
+  assert.doesNotMatch(phone, /Ada Lovelace|example\.invalid/);
+  assert.deepEqual(contactFieldsOf({}, "details for the sign-up form"), ["name", "phone", "email"]);
+  assert.deepEqual(contactFieldsOf({}, "their email address"), ["email"]);
+  assert.deepEqual(contactFieldsOf({ fields: ["bogus"] }, "phone number"), ["phone"]);
+});
+
+test("an account with no name says so, rather than nothing", async () => {
+  const { run, words } = world({ answer: { ...ADA, name: null } });
+  assert.match(words(await run({ what: "their full name" })), /Name: none/);
 });
 
 test("as naming the tagger themself is their own ask", async () => {
