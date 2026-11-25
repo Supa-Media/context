@@ -80,7 +80,10 @@ export type DataSyncBody =
   | { op: "arm"; about: string }
   | { op: "status"; about: readonly string[] }
   | { op: "arm"; metric: string }
-  | { op: "status"; metric: readonly string[] };
+  | { op: "status"; metric: readonly string[] }
+  /** An owner connecting an app source by its about.md, with the key it reads with: sent once, never kept here. */
+  | { op: "connect"; about: string; key: string; account?: string }
+  | { op: "disconnect"; app: string };
 
 /**
  * One call with the console grant: refused once, re-minted once. The workspace is named beside the body.
@@ -96,7 +99,15 @@ export async function callDataSync(options: {
   const unreachable: DataSyncAnswer = { ok: false, said: "Context couldn't reach the sync just now. Try again." };
   if (typeof doFetch !== "function") return unreachable;
   const body0 = options.body;
-  const payload = JSON.stringify("metric" in body0 ? { workspaceId: options.workspaceId, op: body0.op, metric: body0.metric } : { workspaceId: options.workspaceId, op: body0.op, about: body0.about });
+  const payload = JSON.stringify(
+    body0.op === "connect"
+      ? { workspaceId: options.workspaceId, op: body0.op, about: body0.about, key: body0.key, ...(body0.account === undefined ? {} : { account: body0.account }) }
+      : body0.op === "disconnect"
+        ? { workspaceId: options.workspaceId, op: body0.op, app: body0.app }
+        : "metric" in body0
+          ? { workspaceId: options.workspaceId, op: body0.op, metric: body0.metric }
+          : { workspaceId: options.workspaceId, op: body0.op, about: body0.about },
+  );
   const send = async (token: string) => {
     const abort = typeof AbortController === "function" ? new AbortController() : null;
     const deadline = setTimeout(() => abort?.abort(), TIMEOUT_MS);
@@ -125,7 +136,8 @@ export async function callDataSync(options: {
   }
   const body = answer.body ?? {};
   if (answer.status === 200) {
-    if (options.body.op === "arm") {
+    if (options.body.op === "disconnect") return { ok: true, sources: [] };
+    if (options.body.op === "arm" || options.body.op === "connect") {
       const one = readSourceSync(body);
       return one === null ? unreachable : { ok: true, sources: [one] };
     }
@@ -133,7 +145,7 @@ export async function callDataSync(options: {
     return { ok: true, sources: list };
   }
   if (typeof body.message === "string" && body.message !== "") return { ok: false, said: body.message.slice(0, 500) };
-  if (answer.status === 403) return { ok: false, said: "Only this workspace's owners and editors can sync a source." };
+  if (answer.status === 403) return { ok: false, said: options.body.op === "connect" || options.body.op === "disconnect" ? "Only this workspace's owners can connect an app." : "Only this workspace's owners and editors can sync a source." };
   if (answer.status === 501) return { ok: false, said: "This deployment doesn't sync sources." };
   return unreachable;
 }

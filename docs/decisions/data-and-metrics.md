@@ -99,9 +99,55 @@ identical answers; `__proto__` refused).
   purpose: Tex, a chat and an MCP tool still never reach a workspace-wide
   connection, and a sync connection can only read.
 - **A source's key is bound by the owner's Connect, never by `about.md`.**
-  Editing `about.md` cannot point a source at another vault entry, host or
-  path; a vault entry kept for syncing is opened only by the sync object, and
-  never by an AI client or `send api`.
+  Editing `about.md` cannot point a source at another key, host, account or
+  path; a key kept for syncing is opened only by the sync object, and never by
+  an AI client or `send api`.
+
+## Apps connect with read-only keys: Cloudflare first
+
+*Built 2026-11-25 (stage E, part 2), under the owner's "go ahead and
+implement this" of the data sources boards.*
+
+- **The key is kept sealed in the workspace's sync object, not in the
+  vault.** The plan said "vault entries that only the sync object opens". A
+  vault entry is a person's, shared by levels, and reached by the vault's
+  pages, its proxy and `send api`; keeping a sync key there would have meant
+  teaching every one of those doors to refuse it. Kept in the sync object
+  (`data:<workspaceId>`), it has one reader by construction. It is sealed with
+  a key derived from the gateway secret under its own label, with
+  `data:<workspaceId>:<app>` as additional data, so a key copied under another
+  app, or into another workspace's object, does not open
+  (`apps/mcp/src/data/connect/seal.js`). Rotating the gateway secret stops each
+  app source with "connect it again". No note, bucket, log or answer holds it.
+- **Owners only, from the Context app only.** `POST /files/data-sync` ops
+  `connect` (the source's `about.md` and the key) and `disconnect` (the app).
+  An editor, a member, an AI client and Tex get 403 before any object hears.
+  The app writes the source's `about.md` (`source: cloudflare`) and its empty
+  sheet, then sends the key once.
+- **Checked with the app before it is kept.** Cloudflare's token must be
+  active and reach the account it reads: the one account it reaches, or the
+  one the owner names; the account is bound at connect, beside the key.
+- **Each run asks again**: the connecting owner is still an owner, the
+  `about.md` still says the same app, and the key still opens and is still
+  taken. An `about.md` edited to name anything else stops the source, and the
+  key goes nowhere (`runApp.js`).
+- **What is kept.** Cloudflare's `ai-spend.csv`: AI Gateway's requests,
+  tokens and cost in US dollars by day, gateway, provider and model, the last
+  30 days each run (its analytics answer about a month per query), keyed so a
+  day's row updates in place.
+- **The payments app waits.** `scripts/check-exit-is-ungated.mjs` keeps the
+  payments provider's name off every file under `apps/mcp/src`, because there
+  it would mean billing state on the exit path. Reading a customer's own
+  account as their data is a different thing, but letting the name through is
+  a change to that guard, and that is the owner's to make. A reader was
+  written and tested (a restricted `rk_` key only, a secret key refused before
+  the app is asked, revenue categories in the currency's main unit, no
+  description or customer) and is held until then.
+
+**What a simplification would cost.** A key in `about.md`, the vault or a log
+is readable by anyone who reads those; reading the app from `about.md`'s
+`source:` alone would let an editor send one app's key to another. Tests:
+`apps/mcp/test/dataSyncApps.test.mjs`, `apps/mobile/__tests__/dataSyncApps.test.ts`.
 
 ## What stage B draws, and what it leaves out
 

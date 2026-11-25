@@ -19,6 +19,8 @@
  *   cannot read answers exactly as what is not there.
  * - **Status**: the last run of each source whose `about.md` the reader can read; the others are left out.
  *
+ * Ops `connect` and `disconnect` are an owner connecting an app with a read-only key (`connect/route.js`).
+ *
  * Without the `DATA_SYNC` binding (self-hosting on the free tier) the route answers 501.
  */
 
@@ -32,6 +34,7 @@ import { callDataSync, dataSyncStub } from "./object.js";
 import { sourceFolderOf } from "./run.js";
 import { keptSheetOf } from "./snap.js";
 import { parseFormula } from "../formula/index.js";
+import { handleConnect, mayConnect, parseConnect } from "../connect/route.js";
 
 export const DATA_SYNC_PATH = "/files/data-sync";
 
@@ -99,10 +102,12 @@ export async function handleDataSync(request, store, session, _path, env) {
   }
   const body = await readBody(request);
   if (body === null) return json({ error: "invalid_request" }, 400);
-  const asked = parse(body);
+  const connecting = body.op === "connect" || body.op === "disconnect";
+  const asked = connecting ? parseConnect(body) : parse(body);
   if (asked === null) return json({ error: "invalid_request" }, 400);
   // Checked before anything is read: a call filed under one workspace never reaches another's object.
   if (asked.workspaceId !== session.workspaceId) return json({ error: "wrong_workspace" }, 409);
+  if (connecting && !mayConnect(session)) return json({ error: "forbidden", message: "Only a workspace's owners can connect or disconnect an app." }, 403);
   if (asked.op === "arm" && (!hasScope(session, SCOPE_WRITE) || (session.role !== "owner" && session.role !== "editor"))) {
     return json({ error: "forbidden", message: "Only a workspace's owners and editors can sync a source." }, 403);
   }
@@ -111,6 +116,14 @@ export async function handleDataSync(request, store, session, _path, env) {
   const reading = store?.objectReading ?? null;
   const reader = reading === null ? null : objectReader(reading);
   if (reader === null) return json({ error: "not_object", message: "This workspace's notes haven't moved to their new home yet, so it can't sync from a URL." }, 409);
+
+  if (connecting) {
+    const readSource = async (path) => {
+      const found = await readSources(reader, [path], { withBody: true });
+      return found === null ? undefined : (found.rows[0] ?? null);
+    };
+    return await handleConnect({ asked, session, stub, readSource });
+  }
 
   if (asked.op === "status") {
     let found;
