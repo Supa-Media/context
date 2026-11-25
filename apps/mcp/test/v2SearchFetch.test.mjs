@@ -224,9 +224,11 @@ describe("translateFetch: note paths", () => {
     });
   });
 
-  it("treats a lists value other than true as an unknown key on a note", () => {
+  it("treats a lists value other than true as an unknown key on a note, and lists: false as not given", () => {
+    // false is a flag left off (a client that fills every field sends it, 2026-11-25), so the note is read.
+    assert.deepEqual(translateFetch({ id: "a.md", args: { lists: false } }, CLAUDE).arguments, { path: "a.md" });
     assert.equal(
-      translateFetch({ id: "a.md", args: { lists: false } }, CLAUDE).error,
+      translateFetch({ id: "a.md", args: { lists: "yes" } }, CLAUDE).error,
       'fetch "a.md" takes args: mail, outline, section, lines, full; or, instead, one of: image: "<a picture\'s file name, as the note embeds it>" (one picture the note holds), related: true (with limit), lists: true, transcript, messages, activity. Call it again with only those; orient lists what each id takes.',
     );
   });

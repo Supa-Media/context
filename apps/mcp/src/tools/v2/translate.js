@@ -76,8 +76,33 @@ function translateAction(tool, args) {
     };
   }
   const entry = ACTIONS[tool][action];
-  const call = { path: args.path, content: args.content, expected_etag: args.expected_etag, args: args.args };
-  return { name: entry.tool, arguments: entry.take(call), action };
+  const { inner, lifted } = liftAddressing(args.args);
+  const call = { path: args.path, content: args.content, expected_etag: args.expected_etag, args: inner };
+  return { name: entry.tool, arguments: { ...entry.take(call), ...lifted }, action };
+}
+
+/** Arguments that address the call, never the action's own. */
+const ADDRESSING = ["context", "mailbox", "person_said"];
+
+/**
+ * `context`, `mailbox` and `person_said` written inside `args`, taken out before the action reads it: an action that
+ * nests its args (mail, comment, upload) would otherwise carry them one level down, where routing never looks, and
+ * refuse them as unknown (`mail.mailbox`, 2026-11-25: join's answer says to pass the mailbox on every call, and a bot
+ * put it in args). A blank mailbox or person_said is the field left empty and is dropped.
+ */
+function liftAddressing(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !ADDRESSING.some((key) => Object.hasOwn(raw, key))) return { inner: raw, lifted: {} };
+  const inner = { ...raw };
+  const lifted = {};
+  for (const key of ADDRESSING) {
+    if (!Object.hasOwn(inner, key)) continue;
+    const value = inner[key];
+    delete inner[key];
+    // A blank mailbox or person_said is the field left empty; a blank context is carried up, where routing refuses it.
+    if (value === undefined || (key !== "context" && (value === null || (typeof value === "string" && value.trim() === "")))) continue;
+    lifted[key] = value;
+  }
+  return { inner, lifted };
 }
 
 /**
@@ -88,7 +113,7 @@ function translateAction(tool, args) {
  */
 function addressing(args, out) {
   for (const key of ["context", "mailbox", "person_said"]) {
-    const outer = args[key];
+    const outer = key !== "context" && typeof args[key] === "string" && args[key].trim() === "" ? undefined : args[key];
     const inner = out[key];
     if (outer !== undefined && inner !== undefined && outer !== inner) {
       return { error: `that call names two different values for ${key}; pass it once.` };

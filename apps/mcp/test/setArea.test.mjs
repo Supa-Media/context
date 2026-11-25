@@ -219,3 +219,16 @@ test("nothing to change is said so", async () => {
   const { store } = await world({ "areas/finance/about.md": FINANCE });
   assert.equal((await run(store, { area: "areas/finance" })).isError, true);
 });
+
+test("a blank owner or delegate is the field left empty, never a clear: null clears", async () => {
+  // Grok fills every field it is shown, so a change to one thing arrives with owner: "" and delegate: "" beside it.
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
+  const result = await run(store, { area: "areas/finance", owner: "", delegate: "", modes: ["Doer"] });
+  assert.equal(result.isError, undefined, said(result));
+  const now = await props("areas/finance/about.md");
+  assert.equal(now.owner, "@seyi");
+  assert.deepEqual(now.modes, ["Doer"]);
+  const cleared = await run(store, { area: "areas/finance", owner: null });
+  assert.equal(cleared.isError, undefined, said(cleared));
+  assert.equal((await props("areas/finance/about.md")).owner, undefined);
+});
