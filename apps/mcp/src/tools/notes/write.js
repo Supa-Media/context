@@ -412,6 +412,13 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
       keptMail = true;
     }
   }
+  // And a save never writes the mail itself: the name on a line is the sender's, checked where a line is sent
+  // (`mail.cjs` `mailBlockWritten`). `write action mail` passes `mailOwn`, and nothing else may.
+  if (!sheet && options.mailOwn !== true && !(storedBody !== null && isEncryptedNote(storedBody)) && mail.mailBlockWritten(storedBody, content)) {
+    return toolError(
+      "this save would change the note's mail, and the name on a line is its sender's. Send the line with write action mail, or save the note with its mail as it stands, then try again."
+    );
+  }
   // An about line says who it came from and the day it was written, dated here, never by a model (`agent/aboutLines.js`).
   if (isAboutNotePath(path) && !(storedBody !== null && isEncryptedNote(storedBody))) {
     content = stampAboutLines(content, storedBody, Date.now());

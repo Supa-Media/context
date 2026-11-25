@@ -223,6 +223,25 @@ function appendMail(text, entry) {
  * never a reason to lose it (2026-11-06: a reviewer's whole-note save wiped a
  * split job's mail, and every join with it).
  */
+/** A note's mail block as written, for comparing one save against another; null when it has none. */
+function mailBlockText(text) {
+  const source = typeof text === "string" ? text : "";
+  const block = findMailBlock(source);
+  return block === null ? null : source.slice(block.start, block.end).replace(/\s+$/, "");
+}
+
+/**
+ * Whether a whole-note save would write the note's mail itself. Only `write action mail` adds a line, where the name
+ * comes from the joined mailbox or the caller's own identity and the loop guards run (`tools/notes/mail.js`); the
+ * workspace hands that name to a bot whose folder the note sits in (`workspaceStore/botMail.js`), so a save that
+ * carries a line nobody sent would put another person's name on an ask. A save that leaves the block out is not this:
+ * `keepMailBlock` gives it back.
+ */
+function mailBlockWritten(stored, next) {
+  const now = mailBlockText(next);
+  return now !== null && now !== mailBlockText(stored);
+}
+
 function keepMailBlock(stored, next) {
   const block = findMailBlock(stored);
   if (!block || typeof next !== "string" || findMailBlock(next)) return null;
@@ -312,6 +331,8 @@ module.exports = {
   appendMail,
   stripMail,
   keepMailBlock,
+  mailBlockText,
+  mailBlockWritten,
   newFor,
   describeEntry,
   pairCount,
