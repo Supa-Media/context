@@ -10,7 +10,7 @@
  * the data folder's `metrics/` (`isMetricNotePath`).
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
 import { StyleSheet, View } from "react-native";
 import { formatValue } from "../../../../../mcp/src/data/formula/index.js";
@@ -29,7 +29,8 @@ import { CONTEXT_DATASETS, sourceBySlug, sourcesFromNotes } from "./sources";
 import { useFolderReads, useSheets } from "./useData";
 import { metricView } from "./views";
 import { workOut, type RowsOf, type Sheet } from "./workOut";
-import { periodLabel } from "./words";
+import { useMetricKeep, keptSheetPath } from "./useMetricKeep";
+import { ago, periodLabel } from "./words";
 
 const PERIODS = 6;
 const NO_NOTES: readonly ListNote[] = [];
@@ -54,6 +55,7 @@ export function MetricNoteView({
   const dataFolder = dataFolderNow();
   const areas = areasFolderNow();
   const [now] = useState(() => Date.now());
+  const [keptStamp, setKeptStamp] = useState(0);
   const split = splitNote(text);
   const front = split.frontmatter;
   // A body that opens with its own heading is the note's title already: drawn
@@ -80,8 +82,10 @@ export function MetricNoteView({
       if (bySlug(slug)?.kind === "context" && (CONTEXT_DATASETS as readonly string[]).includes(name)) continue;
       out.set(`${dataFolder}/${slug}/${name}.csv`, 0);
     }
+    // A right-now metric's own sheet of hourly readings, beside its note; read again once Keep every hour wrote it.
+    out.set(keptSheetPath(path), keptStamp);
     return out;
-  }, [metric, inputs, bySlug, dataFolder]);
+  }, [metric, inputs, bySlug, dataFolder, path, keptStamp]);
   const sheets = useSheets(source?.readBody, wanted);
   const rowsOf: RowsOf = useMemo(() => {
     const counting = [...countRead.values()].flatMap((list) => list ?? []);
@@ -102,7 +106,19 @@ export function MetricNoteView({
     const sheetPath = `${dataFolder}/${slug}/${name}.csv`;
     return sheets.get(sheetPath) == null ? input : { ...input, path: sheetPath };
   });
-  const worked = useMemo(() => workOut(metric, rowsOf, now, PERIODS), [metric, rowsOf, now]);
+  const keptSheet = sheets.get(keptSheetPath(path)) ?? null;
+  const worked = useMemo(() => workOut(metric, rowsOf, now, PERIODS, keptSheet), [metric, rowsOf, now, keptSheet]);
+  const keeping = useMetricKeep(path, worked.now);
+  const [keepSaid, setKeepSaid] = useState<string | null>(null);
+  const keepNow = useCallback(() => {
+    if (keeping.keep === undefined) return;
+    setKeepSaid(null);
+    void keeping.keep(keptSheet !== null).then((why) => {
+      setKeepSaid(why);
+      setKeptStamp((at) => at + 1);
+    });
+  }, [keeping, keptSheet]);
+  const lastSaid = keepSaid ?? (keeping.state?.failedAt !== undefined || keeping.state?.stopped === true ? (keeping.state?.said ?? null) : null);
   const settled = dataNotes !== null && [...wanted.keys()].every((each) => sheets.has(each));
   const view = metricView(metric, worked, uses, sources, settled);
   const used = uses.get(metric.name.trim().toLowerCase()) ?? [];
@@ -114,7 +130,7 @@ export function MetricNoteView({
       key: "formula",
       value: metric.parsed.ok ? <FormulaChips parts={view.parts} large /> : <Text style={styles.problem}>{metric.parsed.message}</Text>,
     },
-    { key: "every", value: <Words text={`${metric.every} · worked out as you read`} /> },
+    { key: "every", value: <Words text={worked.now ? `${metric.every} · right now${keeping.armed ? ", kept every hour" : ""}` : `${metric.every} · worked out as you read`} /> },
     ...(inputs.length === 0
       ? []
       : [
@@ -156,8 +172,22 @@ export function MetricNoteView({
       <PropsGrid rows={rows} compact={compact} />
       <View style={styles.readingsHead}>
         <Text style={styles.h3}>Readings</Text>
-        <Text style={styles.from}>worked out from its inputs</Text>
+        {!worked.now ? (
+          <Text style={styles.from}>worked out from its inputs</Text>
+        ) : keeping.armed ? (
+          <Text style={styles.from}>{keeping.state?.syncedAt === undefined ? "kept every hour" : `kept every hour · read ${ago(keeping.state.syncedAt, now)}`}</Text>
+        ) : (
+          <View style={styles.keepRow}>
+            <Text style={styles.fromInline}>right now only</Text>
+            {keeping.keep === undefined || !settled ? null : <SectionLink label="Keep every hour" onPress={keepNow} />}
+          </View>
+        )}
       </View>
+      {worked.now && lastSaid !== null ? (
+        <View style={styles.said}>
+          <Words text={lastSaid} quiet small />
+        </View>
+      ) : null}
       {!metric.parsed.ok ? (
         <Words text="No readings: the formula could not be read." quiet />
       ) : !settled ? (
@@ -211,6 +241,9 @@ const makeStyles = (colors: Colors) =>
     readingsHead: { flexDirection: "row", alignItems: "baseline", gap: 10, marginBottom: 10 },
     h3: { fontSize: pointerType.h3, lineHeight: 26, fontWeight: "600", color: colors.text },
     from: { marginLeft: "auto", fontSize: pointerType.meta, color: colors.muted },
+    keepRow: { marginLeft: "auto", flexDirection: "row", alignItems: "baseline", gap: 10 },
+    fromInline: { fontSize: pointerType.meta, color: colors.muted },
+    said: { marginTop: -4, marginBottom: 10 },
     waiting: { height: 220 },
     card: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, backgroundColor: colors.cardSurface, padding: 12 },
     grid: { flexDirection: "row", borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, overflow: "hidden", marginTop: 10 },

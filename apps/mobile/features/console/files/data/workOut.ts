@@ -40,6 +40,8 @@ export interface Period extends Value {
 
 export interface Worked {
   readonly latest: Value;
+  /** A right-now metric: its sheets have no dates, so its value is the rows as they stand, and past periods are what was kept. */
+  readonly now: boolean;
   /** The last periods, oldest first, ending with the current one. */
   readonly periods: readonly Period[];
   /** The latest value as drawn: "$9.40", "Hidden", or "—". */
@@ -66,20 +68,24 @@ export function shownValue(value: Value, format: string): string {
   return formatValue(value.value, format === "" ? undefined : format) as string;
 }
 
-/** A metric over `rowsOf`, its latest period and the `periods` before it, at `now`. */
-export function workOut(metric: MetricNote, rowsOf: RowsOf, now: number, periods = 7): Worked {
+/**
+ * A metric over `rowsOf`, its latest period and the `periods` before it, at `now`. `kept` is a right-now metric's
+ * own sheet of hourly readings, which its past periods are drawn from.
+ */
+export function workOut(metric: MetricNote, rowsOf: RowsOf, now: number, periods = 7, kept: Sheet | null = null): Worked {
   if (!metric.parsed.ok) {
     const latest: Value = { value: null, status: "error", note: metric.parsed.message };
-    return { latest, periods: [], shown: NONE };
+    return { latest, now: false, periods: [], shown: NONE };
   }
-  const ctx = { rowsOf, every: metric.every, now };
-  const latest = classify(evaluate(metric.parsed.ast, ctx) as { value: number | null; status: string; note?: string });
+  const ctx = { rowsOf, every: metric.every, now, ...(kept === null ? {} : { kept }) };
+  const evaluated = evaluate(metric.parsed.ast, ctx) as { value: number | null; status: string; note?: string; now?: boolean };
+  const latest = classify(evaluated);
   const list = (seriesOf(metric.parsed.ast, ctx, periods) as (Period & { status: string })[]).map((each) => ({
     from: each.from,
     to: each.to,
     ...classify(each),
   }));
-  return { latest, periods: list, shown: shownValue(latest, metric.format) };
+  return { latest, now: evaluated.now === true, periods: list, shown: shownValue(latest, metric.format) };
 }
 
 /** The numbers a trend draws: every period that has one. */
