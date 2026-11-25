@@ -9,6 +9,8 @@ import { before, test } from "node:test";
 
 import worker from "../src/index.js";
 import { callOf, keyClass, mcpEntry } from "../src/mcp/mcpEntryPoint.js";
+import { handleMcp } from "../src/mcp/handlers.js";
+import { laySavePhase } from "../src/mcp/phase.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { texStoreNamespace } from "./texStoreFixture.mjs";
@@ -301,4 +303,37 @@ test("a request whose steps cover it all writes no uncovered point", async () =>
   await Promise.all([mcp.step("a", async () => time.tick(10)), mcp.step("b", async () => {})]);
   mcp.done(new Response("{}"));
   assert.equal(MCP_ENTRY.points.some((p) => p.blobs[2] === "uncovered"), false);
+});
+
+test("a tool that throws answers a 200 JSON-RPC error, and its to_response point says failed (Request errors counts it)", async () => {
+  const MCP_ENTRY = dataset();
+  const mcp = mcpEntry({ MCP_ENTRY }, { now: () => 1_000 });
+  mcp.call = "tools/call:orient";
+  // Every store call throws, so the tool does.
+  const boom = () => {
+    throw new Error("store down");
+  };
+  const store = new Proxy({}, { get: (target, prop) => (prop === "phase" ? target.phase : prop === "then" ? undefined : boom) });
+  laySavePhase(store, mcp);
+  const request = new Request("https://gateway.example.test/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "orient", arguments: {} } }),
+  });
+  const response = await handleMcp(request, store, { workspaceId: "ws_1", scope: "read write", actorClientName: "Claude" });
+  assert.equal(response.status, 200, "the caller still gets a JSON-RPC answer");
+  assert.match(await response.clone().text(), /"error"/);
+  mcp.done(response);
+  assert.deepEqual(MCP_ENTRY.points.map((p) => p.blobs.slice(2, 4)).filter(([name]) => name === "to_response"), [["to_response", "failed"]]);
+});
+
+test("fail() marks only its own request: a 200 with no failure stays ok", () => {
+  const failing = dataset();
+  const one = mcpEntry({ MCP_ENTRY: failing }, { now: () => 1_000 });
+  one.fail();
+  one.done(new Response("{}"));
+  const fine = dataset();
+  mcpEntry({ MCP_ENTRY: fine }, { now: () => 1_000 }).done(new Response("{}"));
+  assert.equal(failing.points.at(-1).blobs[3], "failed");
+  assert.equal(fine.points.at(-1).blobs[3], "ok");
 });
