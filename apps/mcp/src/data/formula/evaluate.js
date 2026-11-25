@@ -26,6 +26,10 @@ import { cellText, dateMs, typedValue } from "../../sheets/csv.js";
 import { columnKey, parseFormula } from "./parse.js";
 import { parseEvery, toMs, windowsMs } from "./windows.js";
 
+/** The columns of a "right now" metric's own sheet, which the sync keeps hourly beside its note. */
+export const KEPT_HOUR = "hour";
+export const KEPT_VALUE = "value";
+
 class Stop {
   constructor(note) {
     this.note = note;
@@ -160,16 +164,19 @@ function refsIn(node, out = []) {
 function evalAggregate(node, env) {
   const where = nameOf(node.source, node.dataset);
   const sheet = env.read(node.source, node.dataset);
-  const placeBy = env.on ? columnIn(sheet, env.on, where) : sheet.firstDate;
-  if (!placeBy) throw new Stop(`${where} has no date column to place its rows in time`);
+  // A "right now" formula reads every row as it stands; any other places each row in the window by its date.
+  const placeBy = env.whole ? null : env.on ? columnIn(sheet, env.on, where) : sheet.firstDate;
+  if (!env.whole && !placeBy) throw new Stop(`${where} has no date column to place its rows in time`);
   const columns = new Map(refsIn(node.expr).map((ref) => [ref, columnIn(sheet, ref.column, where)]));
   const conds = (node.where ?? []).map((cond) => ({ column: columnIn(sheet, cond.column, where), op: cond.op, value: String(cond.value) }));
   const values = [];
   let count = 0;
-  const { from, to, current } = env.window;
+  const { from, to, current } = env.window ?? {};
   for (const row of sheet.rows) {
-    const t = dateMs(cell(row, placeBy));
-    if (Number.isNaN(t) || t < from || (current ? t > to : t >= to)) continue;
+    if (placeBy !== null) {
+      const t = dateMs(cell(row, placeBy));
+      if (Number.isNaN(t) || t < from || (current ? t > to : t >= to)) continue;
+    }
     if (!conds.every((c) => sameValue(cell(row, c.column), c.value) === (c.op === "="))) continue;
     // count(column) counts the filled cells, whatever they hold.
     if (node.fn === "count" && node.expr.type === "ref") {
@@ -224,6 +231,67 @@ function inWindow(ast, env) {
   }
 }
 
+function aggregatesIn(node, out = []) {
+  if (node?.type === "agg") out.push(node);
+  else if (node?.type === "binary") {
+    aggregatesIn(node.left, out);
+    aggregatesIn(node.right, out);
+  }
+  return out;
+}
+
+/**
+ * Whether a formula is a "right now" one: every sheet it reads has no date column (and no `on` names one), so
+ * there is no table of events to work a past period out from, only the rows as they stand. A formula over a
+ * sheet with dates and one without is refused, since its periods would mean two things. Throws Stop for a sheet
+ * it can't read, before anything else is said, so a hidden sheet and a missing one still read alike.
+ */
+function modeOf(ast, env) {
+  if (env.on) return "dated";
+  let dated = null;
+  let undated = null;
+  for (const node of aggregatesIn(ast)) {
+    const sheet = env.read(node.source, node.dataset);
+    if (sheet.firstDate) dated ??= nameOf(node.source, node.dataset);
+    else undated ??= nameOf(node.source, node.dataset);
+  }
+  if (dated !== null && undated !== null) throw new Stop(`${dated} has dates and ${undated} has none: a metric reads sheets of one kind`);
+  return undated !== null ? "now" : "dated";
+}
+
+/** A Stop's answer, or the mode. */
+function modeFor(ast, env) {
+  try {
+    return { mode: modeOf(ast, env) };
+  } catch (err) {
+    if (err instanceof Stop) return { fail: { value: null, status: "error", note: err.note } };
+    return { fail: { value: null, status: "error", note: "the formula could not be worked out" } };
+  }
+}
+
+/** The kept hourly readings of a "right now" metric (`hour`, `value`), as `[{at, value}]`, oldest first. */
+function keptReadings(kept) {
+  if (!kept || !Array.isArray(kept.rows)) return [];
+  const out = [];
+  for (const row of kept.rows) {
+    if (!row || typeof row !== "object") continue;
+    const at = dateMs(cellText(row[KEPT_HOUR]).trim());
+    const value = typedValue("number", cellText(row[KEPT_VALUE]).trim());
+    if (!Number.isNaN(at) && typeof value === "number" && Number.isFinite(value)) out.push({ at, value });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+/** The last kept reading in a window, or no data. */
+function keptIn(readings, window) {
+  let found = null;
+  for (const reading of readings) {
+    if (reading.at < window.from || reading.at >= window.to) continue;
+    found = reading;
+  }
+  return found === null ? { value: null, status: "no_data" } : { value: found.value, status: "ok" };
+}
+
 function start(ast, ctx) {
   const tree = typeof ast === "string" ? parseFormula(ast) : { ok: true, ast };
   if (!tree.ok) return { fail: { value: null, status: "error", note: tree.error.message } };
@@ -234,22 +302,55 @@ function start(ast, ctx) {
   return { ast: tree.ast, now, env: { read: sheetReader(ctx.rowsOf), on } };
 }
 
-/** The formula's value for the current window of `ctx.every`. */
+/**
+ * The formula's value for the current window of `ctx.every`. A "right now" formula (`modeOf`) is its value over
+ * the rows as they stand, marked `now: true`.
+ */
 export function evaluate(ast, ctx) {
   const run = start(ast, ctx);
   if (run.fail) return run.fail;
+  const mode = modeFor(run.ast, run.env);
+  if (mode.fail) return mode.fail;
+  if (mode.mode === "now") return { ...inWindow(run.ast, { ...run.env, whole: true }), now: true };
   const [window] = windowsMs(ctx.every, run.now, 1);
   if (!window) return { value: null, status: "error", note: "the time to work it out at isn't a time" };
   return inWindow(run.ast, { ...run.env, window });
 }
 
-/** The formula over the last `n` windows, oldest first: `[{ from, to, value, status, note? }]`. Each sheet is read once. */
+/**
+ * The formula over the last `n` windows, oldest first: `[{ from, to, value, status, note? }]`. Each sheet is read
+ * once. A "right now" formula can't be worked out for a past window, so each past one is the last hourly reading
+ * the sync kept in it (`ctx.kept`, the metric's own sheet) and the current one is its value now.
+ */
 export function series(ast, ctx, n) {
   const run = start(ast, ctx);
   if (run.fail) return [];
-  return windowsMs(ctx.every, run.now, n).map((window) => ({
-    from: new Date(window.from).toISOString(),
-    to: new Date(window.to).toISOString(),
-    ...inWindow(run.ast, { ...run.env, window }),
-  }));
+  const mode = modeFor(run.ast, run.env);
+  const windows = windowsMs(ctx.every, run.now, n);
+  const at = (window, value) => ({ from: new Date(window.from).toISOString(), to: new Date(window.to).toISOString(), ...value });
+  if (mode.fail) return windows.map((window) => at(window, mode.fail));
+  if (mode.mode === "now") {
+    const readings = keptReadings(ctx.kept);
+    const live = inWindow(run.ast, { ...run.env, whole: true });
+    return windows.map((window) => at(window, window.current ? live : keptIn(readings, window)));
+  }
+  return windows.map((window) => at(window, inWindow(run.ast, { ...run.env, window })));
+}
+
+/** Whether a formula is a "right now" one over these sheets: `true`, `false`, or `null` when it can't be told. */
+export function isRightNow(ast, ctx) {
+  const run = start(ast, { every: "day", ...ctx });
+  if (run.fail) return null;
+  const mode = modeFor(run.ast, run.env);
+  return mode.fail ? null : mode.mode === "now";
+}
+
+/** The value a "right now" formula has over the rows as they stand, as `evaluate` answers; an error for any other. */
+export function evaluateNow(ast, ctx) {
+  const run = start(ast, { every: "day", ...ctx });
+  if (run.fail) return run.fail;
+  const mode = modeFor(run.ast, run.env);
+  if (mode.fail) return mode.fail;
+  if (mode.mode !== "now") return { value: null, status: "error", note: "it reads sheets with dates, so it is worked out from them and never kept" };
+  return { ...inWindow(run.ast, { ...run.env, whole: true }), now: true };
 }

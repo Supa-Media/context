@@ -1,7 +1,7 @@
 /**
- * The app's side of the data sync object (`apps/mcp/src/data/sync/route.js`): arming a Fetch from a URL source,
- * and asking how each one's last run went, through the gateway's `POST /@slug/files/data-sync` with the console's
- * own grant (as `gatewayNoteWrite.ts` saves a note).
+ * The app's side of the data sync object (`apps/mcp/src/data/sync/route.js`): arming a Fetch from a URL source or
+ * a right-now metric (kept hourly beside its note), and asking how each one's last run went, through the gateway's
+ * `POST /@slug/files/data-sync` with the console's own grant (as `gatewayNoteWrite.ts` saves a note).
  *
  * The gateway decides everything: who may arm (an owner or editor), which sources the reader may ask about (only the
  * ones whose about.md they can read), and whether the address is one it will fetch. This file only sends and reads.
@@ -50,10 +50,12 @@ function runOf(value: unknown): SyncRun | null {
   return { at, outcome, ...(typeof said === "string" ? { said: said.slice(0, 500) } : {}), ...(typeof rows === "number" && Number.isFinite(rows) ? { rows } : {}) };
 }
 
-/** One source's answer, or null for one this build cannot read. */
+/** One source's answer, or null for one this build cannot read. A right-now metric's names its note as `metric`. */
 export function readSourceSync(value: unknown): SourceSync | null {
   if (!value || typeof value !== "object") return null;
-  const { about, armed, last } = value as Record<string, unknown>;
+  const { armed, last } = value as Record<string, unknown>;
+  const fields = value as Record<string, unknown>;
+  const about = typeof fields.about === "string" ? fields.about : fields.metric;
   if (typeof about !== "string" || about === "") return null;
   return { about, armed: armed === true, last: runOf(last) };
 }
@@ -73,21 +75,28 @@ export function syncStateOf(sync: SourceSync | undefined): SyncState {
 
 export type DataSyncAnswer = { ok: true; sources: SourceSync[] } | { ok: false; said: string };
 
+/** What one call asks: a url source by its about.md (`about`), or a right-now metric by its note (`metric`). */
+export type DataSyncBody =
+  | { op: "arm"; about: string }
+  | { op: "status"; about: readonly string[] }
+  | { op: "arm"; metric: string }
+  | { op: "status"; metric: readonly string[] };
+
 /**
- * One call with the console grant: refused once, re-minted once. `body` is `{op: "arm", about}` or
- * `{op: "status", about: [paths]}`; the workspace is named beside it.
+ * One call with the console grant: refused once, re-minted once. The workspace is named beside the body.
  */
 export async function callDataSync(options: {
   url: string;
   token: (refresh: false | { rejected: string }) => Promise<string>;
   workspaceId: string;
-  body: { op: "arm"; about: string } | { op: "status"; about: readonly string[] };
+  body: DataSyncBody;
   fetchImpl?: typeof fetch;
 }): Promise<DataSyncAnswer> {
   const doFetch = options.fetchImpl ?? globalThis.fetch;
   const unreachable: DataSyncAnswer = { ok: false, said: "Context couldn't reach the sync just now. Try again." };
   if (typeof doFetch !== "function") return unreachable;
-  const payload = JSON.stringify({ workspaceId: options.workspaceId, op: options.body.op, about: options.body.about });
+  const body0 = options.body;
+  const payload = JSON.stringify("metric" in body0 ? { workspaceId: options.workspaceId, op: body0.op, metric: body0.metric } : { workspaceId: options.workspaceId, op: body0.op, about: body0.about });
   const send = async (token: string) => {
     const abort = typeof AbortController === "function" ? new AbortController() : null;
     const deadline = setTimeout(() => abort?.abort(), TIMEOUT_MS);

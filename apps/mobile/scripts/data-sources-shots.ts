@@ -74,6 +74,18 @@ jest.mock("expo-router", () => ({
 jest.mock("../features/design/components/Menu", () => jest.requireActual("../features/design/components/Menu.web"));
 
 const mockStableNoop = async () => ({});
+
+/** What the sync says of the right-now metric in boards n1 and n2 (`useMetricKeep.ts`), set per board. */
+const mockKeep: { current: Record<string, unknown> } = { current: { state: undefined, armed: false } };
+// The right-now boards draw the console's own Readings header (`KeptReadingsHead`), which shows only inside the console.
+jest.mock("../features/console/ConsoleDataContext", () => ({
+  ...(jest.requireActual("../features/console/ConsoleDataContext") as object),
+  useOptionalConsoleData: () => (mockKeep.current.inConsole === true ? { demo: false } : null),
+}));
+jest.mock("../features/console/files/data/useMetricKeep", () => ({
+  ...(jest.requireActual("../features/console/files/data/useMetricKeep") as object),
+  useMetricKeep: () => mockKeep.current,
+}));
 jest.mock("convex/react", () => ({
   useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
   useQuery: () => undefined,
@@ -167,6 +179,34 @@ const oddNesting: Nesting = {
         : LISTINGS[path],
   loadListing: () => {},
 };
+
+/*
+  A right-now metric: open incidents, over a sheet with no dates, so its value is the rows as they stand and its
+  past days are what the sync kept beside its note, one reading an hour (`data/metrics/open-incidents.csv`).
+*/
+const NOW_METRIC = { slug: "open-incidents", props: { metric: "Open incidents", formula: "count(cloudflare/incidents.id where open = true)", every: "day" }, body: "How many incidents are open right now." };
+const NOW_SHEETS: Record<string, string> = {
+  "data/cloudflare/incidents.csv": "id,title,open:checkbox\nINC-41,Slow search in eu,true\nINC-42,Mail sends late,true\nINC-43,Map tiles blank,true\nINC-39,Login loop,false\n",
+  "data/metrics/open-incidents.csv": `hour:date,value:number\n${[6, 5, 7, 4, 2]
+    // Dated from the clock the note view reads (its own `Date.now()`), so each lands in the day it is drawn under.
+    .map((value, back) => `${new Date(Date.now() - (5 - back) * DAY).toISOString().slice(0, 13)}:00Z,${value}`)
+    .join("\n")}\n`,
+};
+const nowNotes: ListNote[] = [...NOTES, { path: `data/metrics/${NOW_METRIC.slug}.md`, updatedAt: NOW - DAY, properties: NOW_METRIC.props }];
+const nowSource = (kept: boolean): FolderListSource => ({
+  load: async (folder, subfolders) => ({
+    notes: nowNotes.filter((note) => {
+      const prefix = folder === "" ? "" : `${folder}/`;
+      return note.path.startsWith(prefix) && (subfolders || !note.path.slice(prefix.length).includes("/"));
+    }),
+    complete: true,
+  }),
+  readBody: async (path) => {
+    if (path === "data/metrics/open-incidents.csv" && !kept) return null;
+    const text = NOW_SHEETS[path] ?? SHEETS[path];
+    return text === undefined ? null : { text, encrypted: false };
+  },
+});
 
 /** What stage E's sync object will say; drawn here as the boards do. */
 const SYNC: Record<string, { syncedAt?: number; failedAt?: number }> = {
@@ -275,7 +315,7 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type BoardId = "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note";
+type BoardId = "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
 
 const WORLD: Partial<Record<BoardId, { source: FolderListSource; nesting: Nesting }>> = {
   empty: { source: emptySource, nesting: emptyNesting },
@@ -283,6 +323,8 @@ const WORLD: Partial<Record<BoardId, { source: FolderListSource; nesting: Nestin
   "odd-metrics": { source: oddSource, nesting: oddNesting },
   "hidden-note": { source: oddSource, nesting: oddNesting },
   "broken-note": { source: oddSource, nesting: oddNesting },
+  "now-new": { source: nowSource(false), nesting },
+  "now-kept": { source: nowSource(true), nesting },
 };
 
 function noteText(m: { props: Record<string, string>; body?: string }): string {
@@ -334,6 +376,14 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
     case "odd-metrics":
     case "11":
       return h(MetricsPage, { title: "metrics", metrics, readings: null, compact, now: NOW, newMetric: () => {}, onOpen: open });
+    case "now-new":
+    case "now-kept":
+      return h(
+        View as never,
+        null,
+        h(MetricNoteView, { path: `data/metrics/${NOW_METRIC.slug}.md`, text: noteText(NOW_METRIC), source: world.source, compact, gutter: 0, onOpen: open }),
+        h(Text as never, { style: { fontSize: pointerType.lede, lineHeight: 24, color: colors.text, marginTop: 18 } }, NOW_METRIC.body),
+      );
     case "12": {
       const m = METRICS.find((each) => each.slug === "revenue-per-ai-dollar")!;
       return h(
@@ -396,10 +446,18 @@ const SELECTED: Record<BoardId, string> = {
   "odd-metrics": "data/metrics",
   "hidden-note": "data/metrics/refunds-week.md",
   "broken-note": "data/metrics/deploy-gap.md",
+  "now-new": "data/metrics/open-incidents.md",
+  "now-kept": "data/metrics/open-incidents.md",
 };
 
 async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolean): Promise<void> {
   const size = phone ? PHONE : DESKTOP;
+  mockKeep.current =
+    board === "now-kept"
+      ? { inConsole: true, state: { known: true, syncedAt: Date.now() - 12 * MIN }, armed: true }
+      : board === "now-new"
+        ? { inConsole: true, state: { known: true }, armed: false, keep: async () => null }
+        : { state: undefined, armed: false };
   chartWidth = phone ? PHONE.width - 32 - 26 : 820 - 26;
   stampViewport(size);
   container = document.createElement("div");
@@ -442,6 +500,11 @@ describe("data sources shots", () => {
     ["odd-metrics", "x3-unparsed-and-hidden-metrics", "light", true],
     ["hidden-note", "x4-hidden-metric-note", "light", false],
     ["broken-note", "x5-unparsed-metric-note", "light", false],
+    ["now-new", "n1-right-now-metric", "light", false],
+    ["now-new", "n1-right-now-metric", "light", true],
+    ["now-kept", "n2-right-now-kept", "light", false],
+    ["now-kept", "n2-right-now-kept", "dark", false],
+    ["now-kept", "n2-right-now-kept", "light", true],
   ];
   for (const [board, name, scheme, phone] of shots) {
     test(`${name} ${scheme} ${phone ? "phone" : "desktop"}`, async () => {

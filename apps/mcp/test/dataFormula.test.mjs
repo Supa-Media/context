@@ -23,7 +23,7 @@ import { lex } from "../src/data/formula/lex.js";
 import { columnKey, MAX_AGGREGATES, MAX_FORMULA_BYTES, MAX_NODES, parseFormula } from "../src/data/formula/parse.js";
 import { formulaInputs, formulaRefs } from "../src/data/formula/refs.js";
 import { parseEvery, previousWindows, windowFor } from "../src/data/formula/windows.js";
-import { evaluate, series } from "../src/data/formula/evaluate.js";
+import { evaluate, evaluateNow, isRightNow, series } from "../src/data/formula/evaluate.js";
 import { formatValue } from "../src/data/formula/format.js";
 import { plainReading, toText } from "../src/data/formula/render.js";
 import * as barrel from "../src/data/formula/index.js";
@@ -416,13 +416,11 @@ test("a missing input and a hidden one read the same", () => {
   assert.deepEqual(junk, hidden);
 });
 
-test("a column the sheet lacks, a date summed alone, and no date column are errors in words", () => {
+test("a column the sheet lacks and a date summed alone are errors in words", () => {
   assert.deepEqual(value("sum(stripe/revenue.seats)", "month"), { value: null, status: "error", note: 'no column "seats" in stripe/revenue' });
   assert.deepEqual(value("sum(stripe/revenue.usd where tier = x)", "month"), { value: null, status: "error", note: 'no column "tier" in stripe/revenue' });
   assert.match(value("sum(github/pull-requests.merged)", "month").note, /date/);
   assert.match(value("sum(github/pull-requests.merged + 1)", "month").note, /date/);
-  const undated = { rowsOf: () => parseSheet("usd:usd\n5\n"), every: "month", now: NOW };
-  assert.match(evaluate(ok("sum(a/b.usd)"), undated).note, /no date column/);
   assert.equal(value("sum(stripe/revenue.usd)", "fortnight").status, "error");
   assert.equal(evaluate(ok("sum(stripe/revenue.usd)"), { ...ctx("month"), now: "not a time" }).status, "error");
 });
@@ -562,4 +560,56 @@ test("a formula is worked out per hour block, and read in words", () => {
   assert.equal(series(ok("sum(a/b.n)"), { ...c, every: "hour" }, 2)[0].value, 4, "the hour just closed");
   assert.match(plainReading(ok("sum(a/b.n)"), "hour"), /, each hour$/);
   assert.match(plainReading(ok("sum(a/b.n)"), "3 hours"), /, every 3 hours$/);
+});
+
+/* ------------------------- "right now" metrics ------------------------- */
+
+const INCIDENTS = parseSheet(["id,severity,open:checkbox", "1,high,true", "2,low,true", "3,high,false", ""].join("\n"));
+const SEATS = parseSheet(["plan,seats:number", "team,12", "free,30", ""].join("\n"));
+const nowRows = (source, dataset) => ({ "ops/incidents": INCIDENTS, "stripe/seats": SEATS, "github/pull-requests": PRS })[`${source}/${dataset}`] ?? null;
+const nowCtx = (every, extra = {}) => ({ rowsOf: nowRows, every, now: NOW, ...extra });
+
+test("a formula over sheets without dates is a right-now one, worked out over every row as it stands", () => {
+  assert.equal(isRightNow(ok("count(ops/incidents.id where open = true)"), nowCtx("day")), true);
+  assert.equal(isRightNow(ok("count(github/pull-requests.merged)"), nowCtx("day")), false);
+  assert.deepEqual(evaluate(ok("count(ops/incidents.id where open = true)"), nowCtx("week")), { value: 2, status: "ok", now: true });
+  assert.deepEqual(evaluate(ok("sum(stripe/seats.seats) / count(ops/incidents.id)"), nowCtx("day")), { value: 14, status: "ok", now: true });
+  assert.deepEqual(evaluateNow(ok("count(ops/incidents.id where severity = high)"), { rowsOf: nowRows }), { value: 2, status: "ok", now: true });
+  // A dated formula is never kept: it is worked out from its sheet whenever it is read.
+  assert.match(evaluateNow(ok("count(github/pull-requests.merged)"), { rowsOf: nowRows }).note, /never kept/);
+});
+
+test("a formula over one sheet with dates and one without is refused in words", () => {
+  const mixed = evaluate(ok("count(github/pull-requests.merged) / count(ops/incidents.id)"), nowCtx("week"));
+  assert.equal(mixed.status, "error");
+  assert.match(mixed.note, /github\/pull-requests has dates and ops\/incidents has none/);
+  assert.equal(isRightNow(ok("count(github/pull-requests.merged) / count(ops/incidents.id)"), nowCtx("week")), null);
+});
+
+test("a right-now formula over a sheet the reader can't see reads exactly as one that isn't there", () => {
+  const hidden = (source, dataset) => (`${source}/${dataset}` === "ops/incidents" ? null : nowRows(source, dataset));
+  const held = evaluate(ok("count(ops/incidents.id) + sum(stripe/seats.seats)"), { ...nowCtx("day"), rowsOf: hidden });
+  const missing = evaluate(ok("count(ops/nothing.id) + sum(stripe/seats.seats)"), nowCtx("day"));
+  assert.deepEqual(held, { value: null, status: "error", note: "can't read ops/incidents" });
+  assert.equal(missing.note, "can't read ops/nothing");
+  // Mixed and hidden: the hidden sheet is what is said, so its dates (or none) are never told.
+  const both = evaluate(ok("count(github/pull-requests.merged) / count(ops/incidents.id)"), { ...nowCtx("day"), rowsOf: hidden });
+  assert.equal(both.note, "can't read ops/incidents");
+});
+
+test("a right-now series: each past period is the last reading kept in it, the current one is its value now", () => {
+  const kept = parseSheet(["hour:date,value:number", "2026-11-22T10:00:00Z,5", "2026-11-23T09:00:00Z,4", "2026-11-23T20:00:00Z,3", "2026-11-25T08:00:00Z,9", "junk,7", "2026-11-24T01:00:00Z,x", ""].join("\n"));
+  const days = series(ok("count(ops/incidents.id where open = true)"), nowCtx("day", { kept }), 4);
+  assert.deepEqual(days.map((d) => [d.from.slice(0, 10), d.status, d.value]), [
+    ["2026-11-22", "ok", 5],
+    ["2026-11-23", "ok", 3],
+    ["2026-11-24", "no_data", null],
+    ["2026-11-25", "ok", 2],
+  ]);
+  // Nothing kept yet: only the current period has a value.
+  const fresh = series(ok("count(ops/incidents.id)"), nowCtx("hour"), 3);
+  assert.deepEqual(fresh.map((d) => d.status), ["no_data", "no_data", "ok"]);
+  // A refused formula is refused in every period.
+  const mixed = series(ok("count(github/pull-requests.merged) / count(ops/incidents.id)"), nowCtx("day"), 2);
+  assert.deepEqual(mixed.map((d) => d.status), ["error", "error"]);
 });

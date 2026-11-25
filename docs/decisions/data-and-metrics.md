@@ -60,7 +60,8 @@ with Download as folders, and every agent reads it with `fetch`
 - **Only a "right now" number is snapped**: one with no table of events
   behind it (open incidents, a value fetched from a URL) can't be worked out
   again later, so the sync keeps it hourly in that metric's own sheet beside
-  its note, as visible as its inputs. (Being built; see the section below.)
+  its note, as visible as its inputs (see "Right-now metrics are kept
+  hourly" below).
 
 **What a simplification would cost.** Computing on a schedule at an owner's
 clearance and writing the value into a team sheet turns any editor's formula
@@ -300,3 +301,49 @@ auth, tenant isolation, the refused and over-cap runs, a deleted source
 stopping the alarm, the recorded run, repeated arms, rename and move, a
 removed member) and `apps/mobile/__tests__/dataSyncSource.test.ts` (the form,
 the status line, the read-only sheet).
+
+## Right-now metrics are kept hourly
+
+*2026-11-25, `apps/mcp/src/data/sync/snap.js`, `apps/mcp/src/data/formula/evaluate.js`
+and `apps/mobile/features/console/files/data/useMetricKeep.ts`.*
+
+- **What makes a metric "right now".** Every sheet its formula reads has no
+  date column (and no `on` names one): open incidents, seats on a plan. Its
+  value is worked out over the rows as they stand. A formula over one sheet
+  with dates and one without is refused in words, since its periods would mean
+  two things. A sheet the reader can't see is still said as "can't read",
+  before anything about its dates, so hidden and missing still read alike.
+- **Where its history lives.** One sheet per metric, beside its note:
+  `<data>/metrics/<slug>.csv`, columns `hour` (date) and `value` (number),
+  one row an hour, keyed by the hour (a second run in one hour replaces its
+  row), 400 days kept. Each past period on its page is the last reading kept
+  in it; the current one is its value now, worked out as the reader reads.
+- **Kept by the sync object, armed by an editor.** "Keep every hour" on the
+  metric's page makes the sheet when there is none and arms the metric in the
+  workspace's sync object (`kind: "metric"`, beside its url sources, 25 at
+  most). Each run asks again whether its person may still edit, whether the
+  note is still directly in the Data folder's `metrics/`, and whether its
+  formula still reads only undated sheets (if not, it stops and says why).
+- **Never written where more people read it than can read its inputs.** The
+  value is worked out as the person who armed it reads the sheets, so it is
+  kept only when, by the workspace's own rules (member and guest), the kept
+  sheet lets in nobody an input does not: the kept sheet owners-only
+  (`private`), or the input carrying the very same setting (`team` under
+  `team`, one group under that group). An input held for a group or named
+  people under a team kept sheet, or anything under a sealed folder, keeps
+  nothing, and the page says which sheet and to give them the same setting. A
+  link minted on the metrics folder publishes these values as it publishes the
+  folder's other `team` notes: they are made only of `team` sheets.
+- **Tex.** A right-now metric is a metric note like any other, so Tex's line
+  is unchanged; keeping one hourly is the app's step, as Sync now is.
+
+**What a simplification would cost.** Working the value out at the armer's
+own clearance and writing it wherever the note is would let an editor in a
+group publish a group sheet's numbers to the whole team; arming without the
+role check each run keeps a removed editor's standing alive; reading a dated
+formula's value hourly would store per-period numbers the decision above
+rules out. Tests: `apps/mcp/test/dataSyncSnap.test.mjs` (the narrower input
+kept nothing, owners-only kept sheet, a removed editor stops, a dated metric
+stops, hourly rows and same-hour replace, refused bodies),
+`apps/mcp/test/dataFormula.test.mjs` (right-now, mixed, hidden-reads-as-
+missing, kept series) and `apps/mobile/__tests__/metricKeep.test.ts`.

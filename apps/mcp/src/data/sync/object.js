@@ -8,6 +8,9 @@
  * per armed source its `about.md` note id, who armed it and when, and the last run's time and outcome. Never a
  * fetched value, never a credential, never a note's words.
  *
+ * Each armed entry is a source (`kind: "url"`, by its `about.md`) or a right-now metric (`kind: "metric"`, by its
+ * note), whose hourly reading `snap.js` keeps in its own sheet beside the note.
+ *
  * - **Arm** (`op: "arm"`, only through the gateway's `POST /data/sync`, which has checked the caller may edit):
  *   records the source and runs it at once, so the person learns straight away whether the address is refused. A
  *   source run under a minute ago is not run again: arming many times never hammers an address. One alarm at most;
@@ -24,13 +27,17 @@
 import { objectByName } from "../../objectPlace.js";
 import { workspaceClient } from "../../workspaceStore/api.js";
 import { runUrlSource } from "./run.js";
+import { runMetricSnap } from "./snap.js";
 
 /** How often each source runs. */
 export const SYNC_EVERY_MS = 60 * 60 * 1000;
 /** Arming a source run this recently answers its last run instead of fetching again. */
 export const RERUN_AFTER_MS = 60 * 1000;
-/** The most sources one workspace may arm: an hour's runs stay inside one alarm. */
+/** The most sources one workspace may arm, and the most right-now metrics it may keep: an hour's runs stay inside one alarm. */
 export const MAX_SOURCES = 25;
+/** What an armed entry is: a Fetch from a URL source (by its about.md) or a right-now metric (by its note). */
+const KINDS = new Set(["url", "metric"]);
+const kindOf = (entry) => (entry?.kind === "metric" ? "metric" : "url");
 /** How long a stopped source's last word is kept for its page. */
 const STOPPED_KEPT_MS = 30 * 24 * SYNC_EVERY_MS;
 
@@ -126,14 +133,18 @@ export function dataSyncClass(deps = {}) {
       return answer({ error: "bad_call" }, 400);
     }
 
-    async arm({ workspaceId, noteId, armedBy }) {
-      if (typeof noteId !== "string" || !NOTE_ID.test(noteId) || typeof armedBy !== "string" || !USER_ID.test(armedBy)) return { error: "bad_call" };
+    async arm({ workspaceId, noteId, armedBy, kind = "url" }) {
+      if (typeof noteId !== "string" || !NOTE_ID.test(noteId) || typeof armedBy !== "string" || !USER_ID.test(armedBy) || !KINDS.has(kind)) return { error: "bad_call" };
       const { sources } = await this.held();
       const now = this.now();
       const old = sources[noteId] ?? null;
-      const live = Object.values(sources).filter((source) => source.stopped !== true).length;
-      if ((old === null || old.stopped === true) && live >= MAX_SOURCES) return { error: "too_many", said: `A workspace syncs at most ${MAX_SOURCES} addresses.` };
-      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null };
+      // One note is one thing: an about.md is never armed as a metric, nor a metric's note as a source.
+      if (old !== null && old.stopped !== true && kindOf(old) !== kind) return { error: "bad_call" };
+      const live = Object.values(sources).filter((source) => source.stopped !== true && kindOf(source) === kind).length;
+      if ((old === null || old.stopped === true) && live >= MAX_SOURCES) {
+        return { error: "too_many", said: kind === "metric" ? `A workspace keeps at most ${MAX_SOURCES} right-now metrics.` : `A workspace syncs at most ${MAX_SOURCES} addresses.` };
+      }
+      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, ...(kind === "metric" ? { kind } : {}) };
       // Run now unless it ran under a minute ago and was not stopped: arming again never hammers an address.
       const recent = old !== null && old.stopped !== true && old.last && now - old.last.at < RERUN_AFTER_MS;
       if (!recent) {
@@ -163,9 +174,10 @@ export function dataSyncClass(deps = {}) {
       const client = workspaceClient(this.env, workspaceId);
       if (client === null) return { outcome: "failed", said: "This deployment has no workspace objects." };
       try {
-        const done = await runUrlSource({ ...deps, env: this.env, client, workspaceId, source, now: () => now });
+        const run = kindOf(source) === "metric" ? runMetricSnap : runUrlSource;
+        const done = await run({ ...deps, env: this.env, client, workspaceId, source, now: () => now });
         const { outcome, said, rows } = done;
-        console.log(JSON.stringify({ event: "data_sync_run", workspaceId, outcome, ...(Number.isFinite(rows) ? { rows } : {}) }));
+        console.log(JSON.stringify({ event: "data_sync_run", workspaceId, kind: kindOf(source), outcome, ...(Number.isFinite(rows) ? { rows } : {}) }));
         return { outcome, ...(typeof said === "string" ? { said } : {}), ...(Number.isFinite(rows) ? { rows } : {}), ...(done.gone === true ? { gone: true } : {}) };
       } catch (error) {
         console.error(JSON.stringify({ event: "data_sync_run_failed", workspaceId, error: String(error?.name ?? "Error").slice(0, 60) }));

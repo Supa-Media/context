@@ -250,9 +250,14 @@ describe("the test chat dock", () => {
     await tick();
     await clockBy(100_000);
     const t = Number((q("#sbtlTime")?.textContent ?? "").split(" ")[0]);
-    // Capped at how long it has run (about 2 s), still playing, never a total before it is known.
+    // Capped at how long it has run (2 s, plus however long this runner took since), still playing, never a total
+    // before it is known. Measured from the row's own time, so a slow runner can't push it past a fixed number.
+    const sent = sandbox.rows[0]?.at;
+    expect(typeof sent).toBe("number");
+    const ranFor = (Date.now() - (sent as number)) / 1000;
     expect(q("#sbtlTime")?.textContent).not.toMatch(/\//);
-    expect(t).toBeLessThan(3);
+    expect(t).toBeGreaterThanOrEqual(2);
+    expect(t).toBeLessThanOrEqual(ranFor + 0.1);
     expect(q("#sbtlPlay")?.getAttribute("aria-label")).toBe("Pause");
     expect(q("#runPill")?.textContent).toMatch(/^Live · text 1 · watching at real time/);
     // Not being watched (the Grid, the playback paused): live, with the step that runs now.
