@@ -13,7 +13,7 @@ import type { GroupAction } from "./groupRun";
 const TIMEOUT_MS = 30_000;
 
 /** A tapback Photon can put on a message: iMessage's six. */
-export type PhotonKind = "love" | "like" | "dislike" | "laugh" | "emphasize" | "question";
+export type PhotonKind = "love" | "like" | "dislike" | "laugh" | "emphasize" | "question" | "emoji";
 
 /** A file for `send/attachment` or a part of `send/multipart`: its bytes (base64) or an address the bridge fetches. */
 export type PhotonAttachment = { name: string; mimeType: string; data?: string; url?: string };
@@ -118,9 +118,9 @@ export async function unsendPhoton(photon: Fetcher, place: PhotonPlace, guid: st
   await photonCall(photon, "unsend", { ...place, guid });
 }
 
-/** `react`: a tapback on a message (`on` true to put it, false to take it back). */
-export async function reactPhoton(photon: Fetcher, place: PhotonPlace, guid: string, kind: PhotonKind, on: boolean): Promise<void> {
-  await photonCall(photon, "react", { ...place, guid, kind, on });
+/** `react`: a tapback on a message (`on` true to put it, false to take it back); kind "emoji" carries the emoji itself. */
+export async function reactPhoton(photon: Fetcher, place: PhotonPlace, guid: string, kind: PhotonKind, on: boolean, emoji?: string): Promise<void> {
+  await photonCall(photon, "react", { ...place, guid, kind, on, ...(kind === "emoji" && emoji !== undefined ? { emoji } : {}) });
 }
 
 /** A sticker: an image already on the line (its attachment guid), or one to upload with the call. */

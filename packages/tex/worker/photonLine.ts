@@ -184,28 +184,31 @@ const KIND: Partial<Record<Tapback, PhotonKind>> = {
 };
 
 /**
- * The tapback kind for an emoji: the one `reactions.ts` `EMOJI` gives each tapback, read back to its kind. Any emoji
- * that is not one of the six (`ackEmoji.ts` picks more) is a like, the same fallback Sendblue takes.
+ * The tapback kind for an emoji: the one `reactions.ts` `EMOJI` gives each of iMessage's six tapbacks, read back to its
+ * kind, and "emoji" for any other (`ackEmoji.ts`'s 👀, a 🔥), which the bridge sends as that emoji itself. Until
+ * 2026-11-25 any other emoji went as a like, so every "on it" 👀 arrived as a 👍 (Dev2: "why is tex thumbs uping everyone").
  */
 export function photonKind(emoji: string): PhotonKind {
   const bare = (value: string): string => value.replace(/\uFE0F/gu, "");
   for (const [how, symbol] of Object.entries(EMOJI) as [Tapback, string][]) {
-    if (bare(symbol) === bare(emoji)) return KIND[how] ?? "like";
+    if (bare(symbol) === bare(emoji)) return KIND[how] ?? "emoji";
   }
-  return "like";
+  return "emoji";
 }
 
 // ---- the 1:1 line ----
 
-/** Tapback on a message, with a like when the emoji is refused; never throws. The one that went, or null when none did. */
+/**
+ * Tapback on a message; never throws. The one that went, or null when none did. A refused emoji is not sent as a like
+ * instead: a 👍 says yes, which the emoji never meant.
+ */
 async function tapbackOn(photon: Fetcher, place: PhotonPlace, guid: string, emoji: string): Promise<string | null> {
   const kind: PhotonKind = photonKind(emoji);
   try {
-    await reactPhoton(photon, place, guid, kind, true);
+    await reactPhoton(photon, place, guid, kind, true, emoji);
     return emoji;
   } catch {
-    if (kind === "like") return null;
-    return await reactPhoton(photon, place, guid, "like", true).then(() => "👍", () => null);
+    return null;
   }
 }
 
