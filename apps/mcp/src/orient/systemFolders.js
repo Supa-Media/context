@@ -41,7 +41,7 @@ const JOB_LINE = Object.freeze({
     " An area's settings are top-level lines in its about.md, edited as text: owner (\"@username\" or an agent's name), delegate (the one bot or Tex acting for a person owner there; never a person, none when a bot owns it)," +
     " modes (Visionary, Manager, Doer: labels, never rules), approvals (one rule an item) and one metric," +
     " metrics: [<metric name> · target <what good looks like>] with no commas inside, naming a metric note's metric: exactly;" +
-    " a second number is a sub-area of its own. How to reach a holder is one note per holder in its people/ folder, never a login.",
+    " a second number is a sub-area of its own. A bot is configured in its own folder, bots/<bot>/about.md (whose it is, how it is reached, where it works and its cap there), never a login; a person's card is in people/.",
   resources: "reference material worth finding again: how things work, decisions and why, notes on things read.",
   clients: "one folder per client: who they are, what they need, what was promised.",
   teams: "one folder per team or function: what it owns and how it runs.",

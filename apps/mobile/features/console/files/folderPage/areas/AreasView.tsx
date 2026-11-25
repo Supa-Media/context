@@ -43,8 +43,8 @@ import {
   areaTitle,
   cardSlug,
   notesUnder,
+  cardsFolderOf,
   PEOPLE_ABOUT,
-  peopleFolder,
   reachLine,
   seatChanges,
   type AreaNode,
@@ -151,10 +151,10 @@ export function AreasView(props: AreasViewProps) {
       if (owner === null || face.kind !== "agent" || readPicture === undefined) return face;
       const avatar = cardFor(owner, "agent").avatar;
       if (avatar === "") return face;
-      const card = cardPath(root, owner);
+      const card = cardPath(root, owner, withCards);
       return { kind: "agent", picture: { key: `${host?.workspaceId ?? ""}|${avatar}`, read: () => readPicture(card, avatar) } };
     },
-    [plainFace, readPicture, cardFor, root, host?.workspaceId],
+    [plainFace, readPicture, cardFor, root, withCards, host?.workspaceId],
   );
   // A mail note is named for its sender (`pipeline`): a bot's is drawn with its face.
   const senderFace = useCallback(
@@ -195,14 +195,17 @@ export function AreasView(props: AreasViewProps) {
       const same = (a: Card, b: Card) => JSON.stringify(cardChanges(a)) === JSON.stringify(cardChanges(b));
       const changed = cards.filter((card) => card.holder.trim() !== "" && !same(card, cardOf(card.holder, card.kind, root, withCards)));
       if (changed.length === 0) return null;
-      const peopleAbout = `${peopleFolder(root)}/about.md`;
-      if (!withCards.some((note) => note.path === peopleAbout)) {
-        const made = await chooseMany(peopleAbout, PEOPLE_ABOUT, true);
-        if (made !== null) return made;
-      }
+      const marked = new Set<string>();
       for (const card of changed) {
         const was = cardOf(card.holder, card.kind, root, withCards);
-        const problemSaving = await chooseMany(`${peopleFolder(root)}/${cardSlug(card.holder)}.md`, cardChanges(card), was.creates);
+        // The cards' folder says it is not an area before its first card is written (`bots/` or `people/`).
+        const folderAbout = `${cardsFolderOf(root, was.path)}/about.md`;
+        if (!marked.has(folderAbout) && !withCards.some((note) => note.path === folderAbout)) {
+          const made = await chooseMany(folderAbout, PEOPLE_ABOUT, true);
+          if (made !== null) return made;
+        }
+        marked.add(folderAbout);
+        const problemSaving = await chooseMany(was.path, cardChanges(card), was.creates);
         if (problemSaving !== null) return problemSaving;
       }
       return null;
@@ -292,7 +295,7 @@ export function AreasView(props: AreasViewProps) {
             open: onSelect,
             faceOf: senderFace,
           },
-          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
+          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder, withCards), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);

@@ -48,8 +48,14 @@ export const MODE_TIPS: Readonly<Record<Mode, string>> = {
 export const SEAT_KEYS = ["owner", "delegate", "helper", "modes", "metrics", "metric", "approvals"] as const;
 /** Says outright whether a folder is an area: `area: false` keeps a folder in the Areas folder plain. */
 export const AREA_KEY = "area";
-/** The folder in the Areas folder that holds the how-to-reach cards. */
+/** The folder in the Areas folder that held the how-to-reach cards; still read, and a person's card stays there. */
 export const PEOPLE_FOLDER = "people";
+/**
+ * The folder in the Areas folder that holds one folder per bot, `bots/<bot>/about.md` its card (the owner,
+ * 2026-11-25: "areas/bots should replace areas/people, as a place to configure everything about the available
+ * bots"). A new bot's card is written here; one already in `people/` is read and changed where it is.
+ */
+export const BOTS_FOLDER = "bots";
 
 export interface Metric {
   readonly name: string;
@@ -116,6 +122,11 @@ export interface Card {
    * card uploads (the owner, 2026-11-25). "" draws the robot.
    */
   readonly avatar: string;
+  /**
+   * The areas its person lets it work in, each with its cap on the bot's week, as the card writes them:
+   * `areas/operations/Scorecard · 20%` (`@context/shared/src/areaRoutines.cjs`). Empty: wherever an area names it.
+   */
+  readonly worksIn?: readonly string[];
 }
 
 const inside = (folder: string) => (folder === "" ? "" : `${folder}/`);
@@ -140,8 +151,8 @@ function aboutOf(folder: string, notes: readonly ListNote[]): ListNote | null {
 /** Whether `folder` is an area of the Areas folder `root` (see the header). */
 export function isArea(folder: string, root: string, notes: readonly ListNote[]): boolean {
   if (folder === root || !folder.startsWith(inside(root))) return false;
-  // The cards' folder is never a seat, whether or not its `about.md` has been written yet.
-  if (folder === peopleFolder(root)) return false;
+  // The cards' folders are never seats, whether or not their `about.md` has been written yet.
+  if (folder === peopleFolder(root) || folder === botsFolder(root) || folder.startsWith(`${botsFolder(root)}/`)) return false;
   const about = aboutOf(folder, notes);
   const said = text(about?.properties[AREA_KEY]).toLowerCase();
   if (said === "false" || said === "no") return false;
@@ -255,7 +266,7 @@ export function areaTree(folder: string, root: string, notes: readonly ListNote[
   for (const entry of entriesIn(folder, notes)) {
     if (entry.kind === "folder" && isArea(entry.path, root, notes)) areas.push(areaTree(entry.path, root, notes));
     else if (entry.kind === "file" && entry.name === ABOUT_NOTE) continue;
-    else if (entry.kind === "folder" && entry.path === `${inside(root)}${PEOPLE_FOLDER}`) continue;
+    else if (entry.kind === "folder" && (entry.path === peopleFolder(root) || entry.path === botsFolder(root))) continue;
     // An area's mail folder is its Mail, shown on its own (`areaMail.ts`), never a plain folder or a sub-area.
     else if (entry.kind === "folder" && entry.path === `${inside(folder)}mail` && folder !== root) continue;
     else files.push(entry);
@@ -367,13 +378,36 @@ export function peopleFolder(root: string): string {
   return `${inside(root)}${PEOPLE_FOLDER}`;
 }
 
-export function cardPath(root: string, holder: string): string {
-  return `${peopleFolder(root)}/${cardSlug(holder)}.md`;
+export function botsFolder(root: string): string {
+  return `${inside(root)}${BOTS_FOLDER}`;
+}
+
+/** Whether `path` is a bot's card in the bots folder: `<areas>/bots/<bot>/about.md`. */
+export function isBotCardPath(root: string, path: string): boolean {
+  const prefix = `${botsFolder(root)}/`;
+  return path.startsWith(prefix) && /^[^/]+\/about\.md$/i.test(path.slice(prefix.length));
+}
+
+/**
+ * Where `holder`'s card is: the one already written, in `bots/<holder>/about.md` or, as before, `people/<holder>.md`.
+ * A card nobody has written yet goes in `bots/` for an agent and `people/` for a person.
+ */
+export function cardPath(root: string, holder: string, notes: readonly ListNote[] = [], kind: Card["kind"] = "agent"): string {
+  const inBots = `${botsFolder(root)}/${cardSlug(holder)}/${ABOUT_NOTE}`;
+  const inPeople = `${peopleFolder(root)}/${cardSlug(holder)}.md`;
+  if (notes.some((note) => note.path === inBots)) return inBots;
+  if (notes.some((note) => note.path === inPeople)) return inPeople;
+  return kind === "agent" ? inBots : inPeople;
+}
+
+/** The folder a card at `path` sits in, whose `about.md` must say `area: false` so it is never drawn as an area. */
+export function cardsFolderOf(root: string, path: string): string {
+  return path.startsWith(`${botsFolder(root)}/`) ? botsFolder(root) : peopleFolder(root);
 }
 
 /** `holder`'s card, or an empty one of `kind` when nobody has written it yet. */
-export function cardOf(holder: string, kind: Card["kind"], root: string, notes: readonly ListNote[]): Card & { readonly creates: boolean } {
-  const path = cardPath(root, holder);
+export function cardOf(holder: string, kind: Card["kind"], root: string, notes: readonly ListNote[]): Card & { readonly creates: boolean; readonly path: string } {
+  const path = cardPath(root, holder, notes, kind);
   const note = notes.find((each) => each.path === path) ?? null;
   const props = note?.properties ?? {};
   const said = text(props.kind);
@@ -388,7 +422,9 @@ export function cardOf(holder: string, kind: Card["kind"], root: string, notes: 
     belongsTo: text(props.belongs_to),
     reach: reachKind(text(props.reach)),
     avatar: text(props.avatar),
+    worksIn: list(props.works_in),
     creates: note === null,
+    path,
   };
 }
 
@@ -414,7 +450,7 @@ export function cardChanges(card: Card): Change[] {
   ];
 }
 
-/** The `people/about.md` lines that keep the cards' folder out of the areas. */
+/** The `people/about.md` and `bots/about.md` lines that keep the cards' folders out of the areas. */
 export const PEOPLE_ABOUT: readonly Change[] = [[AREA_KEY, "false"]];
 
 /** One line saying how to reach a holder, for a hover or a menu; "" when the card is empty. */
