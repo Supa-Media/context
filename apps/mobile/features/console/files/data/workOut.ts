@@ -178,10 +178,10 @@ export function formulaParts(ast: FormulaTree, kindOf: (source: string) => Sourc
     }
     if (node.type === "agg") {
       const here = `${node.source}/${node.dataset}`;
-      out.push({ t: "fn", text: node.fn });
+      out.push({ t: "fn", text: node.distinct === true ? `${node.fn} distinct` : node.fn });
       const kind = kindOf(node.source);
       let dataset: string | null = here === last ? null : node.dataset;
-      let said: string[] = [node.fn];
+      let said: string[] = node.distinct === true ? [node.fn, "distinct"] : [node.fn];
       const chip = (column: string) => {
         const shown = shortColumn(column, said);
         out.push({ t: "chip", kind, source: node.source, dataset, column: shown, ...(shown === column ? {} : { name: column }) });

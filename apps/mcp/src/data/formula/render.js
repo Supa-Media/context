@@ -9,7 +9,7 @@ import { parseEvery } from "./windows.js";
 
 const SIGN = new Map([["+", "+"], ["-", "−"], ["*", "×"], ["/", "÷"]]);
 const PRECEDENCE = new Map([["+", 1], ["-", 1], ["*", 2], ["/", 2]]);
-const KEYWORDS = new Set(["where", "and"]);
+const KEYWORDS = new Set(["where", "and", "distinct"]);
 const READ_AS = new Map([
   ["sum", "sum of"], ["count", "count of"], ["average", "average of"], ["median", "median of"],
   ["p95", "95th percentile of"], ["min", "minimum of"], ["max", "maximum of"],
@@ -72,7 +72,7 @@ function whereText(where, read) {
 export function toText(ast) {
   const render = (node) => {
     if (node.type === "number") return numberText(node.value);
-    if (node.type === "agg") return `${node.fn}(${rowText(node.expr, { full: false })}${whereText(node.where, false)})`;
+    if (node.type === "agg") return `${node.fn}(${node.distinct ? "distinct " : ""}${rowText(node.expr, { full: false })}${whereText(node.where, false)})`;
     return binary(node, render);
   };
   return render(ast);
@@ -88,7 +88,7 @@ function readRow(node) {
 export function plainReading(ast, every) {
   const render = (node) => {
     if (node.type === "number") return numberText(node.value);
-    if (node.type === "agg") return `${READ_AS.get(node.fn)} ${readRow(node.expr)} in ${node.source}/${node.dataset}${whereText(node.where, true)}`;
+    if (node.type === "agg") return `${READ_AS.get(node.fn)} ${node.distinct ? "distinct " : ""}${readRow(node.expr)} in ${node.source}/${node.dataset}${whereText(node.where, true)}`;
     return binary(node, render);
   };
   const text = render(ast);

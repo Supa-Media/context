@@ -12,6 +12,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { parseSheet } from "../../mcp/src/sheets/csv.js";
+import { parseFormula } from "../../mcp/src/data/formula/index.js";
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 import { cardColumns, dataPageKind, sourceAt, sourcesIn, sourceKindOf } from "../features/console/files/data/sources";
@@ -175,6 +176,17 @@ describe("working a metric out on read", () => {
 });
 
 describe("formula chips", () => {
+  test("count(distinct …) shows its word on the function chip, never in the column", () => {
+    const parsed = parseFormula("count(distinct usage/activity.person where texted = 1)");
+    expect(parsed.ok).toBe(true);
+    expect(formulaParts(parsed.ast as never, () => "other")).toEqual([
+      { t: "fn", text: "count distinct" },
+      { t: "chip", kind: "other", source: "usage", dataset: "activity", column: "person" },
+      { t: "filter", text: "where texted = 1" },
+    ]);
+  });
+
+
   const kindOf = (source: string) => sourceKindOf(source === "eval-ci" ? "push" : source);
   test("function word, one chip per aggregate, the dataset left off when it repeats", () => {
     const [metric] = metricsIn("data/metrics", NOTES).filter((m) => m.slug === "error-rate");
