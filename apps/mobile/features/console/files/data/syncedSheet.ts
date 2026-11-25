@@ -10,6 +10,7 @@
  * is "kept up to date" this way. Pure.
  */
 
+import { isSheetPath } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote } from "../listBlock/model";
 import { metricsFolderOf, sourceAt, type SourceKind } from "./sources";
 
@@ -18,7 +19,7 @@ const SYNCED: ReadonlySet<SourceKind> = new Set<SourceKind>(["github", "cloudfla
 
 /** `<data>/<source>` for a CSV directly in a source folder of the data folder; null for any other path. */
 export function sourceFolderOfSheet(path: string | null, dataFolder: string): string | null {
-  if (path === null || dataFolder === "" || !path.toLowerCase().endsWith(".csv")) return null;
+  if (path === null || dataFolder === "" || !isSheetPath(path)) return null;
   const prefix = `${dataFolder}/`;
   if (!path.startsWith(prefix)) return null;
   const rest = path.slice(prefix.length).split("/");

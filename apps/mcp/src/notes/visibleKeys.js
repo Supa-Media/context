@@ -2,10 +2,11 @@
 
 import { noteUnderPrefix } from "../moves/jobs.js";
 import { canSee, isPlumbing } from "../privacy/engine.js";
+import { isNotePath } from "../../../../packages/shared/src/fileKinds.cjs";
 import { listAllKeys, listImmediateLayout, mapInBatches } from "./storage.js";
 
 /** List note objects without traversing dot-prefixed history/audit/ACL plumbing. */
-export async function listAllNoteKeys(store) {
+export async function listAllNoteKeys(store, listed = isNotePath) {
   // A recursive delimiter walk made one or more list requests for every
   // contact/conversation directory. Large communication trees have thousands
   // of those directories, so a reference rewrite timed out before its first
@@ -14,7 +15,7 @@ export async function listAllNoteKeys(store) {
   const layout = await listImmediateLayout(store);
   const branches = await mapInBatches(layout.prefixes, 8, (prefix) => listAllKeys(store, prefix));
   return [...layout.objects, ...branches.flat()].filter(
-    ({ key }) => key.endsWith(".md") && !isPlumbing(key)
+    ({ key }) => listed(key) && !isPlumbing(key)
   );
 }
 
@@ -23,13 +24,17 @@ export async function listAllNoteKeys(store) {
  * listing tools `store` lists the Convex tree (`tree/served.js`), which
  * already draws a queued folder move at its new names; nothing here reads the
  * old-style move jobs under `.context/moves/` any more (2026-10-13).
+ *
+ * `listed` says which kinds count, Markdown notes unless the caller says
+ * otherwise: `list_notes` passes `isTextFilePath`, so an agent browsing a
+ * folder sees its sheets too (`docs/decisions/file-kinds.md`).
  */
-export async function listVisibleNoteKeys(store, scope, rules, overrides, prefix) {
-  const keys = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store);
+export async function listVisibleNoteKeys(store, scope, rules, overrides, prefix, listed = isNotePath) {
+  const keys = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store, listed);
   return keys.filter(
     ({ key }) =>
       (!prefix || noteUnderPrefix(key, prefix)) &&
-      key.endsWith(".md") &&
+      listed(key) &&
       !isPlumbing(key) &&
       canSee(key, scope, rules, overrides)
   );

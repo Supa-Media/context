@@ -76,4 +76,13 @@ export async function runSheetGatewayChecks() {
     "and is told the same as for a sheet that does not exist",
     teamAppend?.isError === true && missing?.isError === true && text(teamAppend) === text(missing),
   );
+
+  // Browsing a folder names its sheets: an agent is never left to guess that one exists (`docs/decisions/file-kinds.md`).
+  const listed = await call("priv-token", "fetch", { id: "1-projects/finance/" });
+  check("fetch on a folder lists its sheets beside its notes", succeeded(listed) && text(listed).includes("1-projects/finance/metrics.csv"));
+  const teamListed = await call("team-token", "fetch", { id: "1-projects/finance/" });
+  check(
+    "and a team connection is not told a private sheet's name",
+    succeeded(teamListed) && text(teamListed).includes("metrics.csv") && lacks(text(teamListed), "payroll.csv"),
+  );
 }

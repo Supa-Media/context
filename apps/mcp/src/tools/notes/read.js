@@ -12,6 +12,7 @@ import { drawingEmbedLine } from "../../notes/embeds.js";
 import { encryptedNoteRefusal, openStoredNote } from "../../notes/sealing.js";
 import { forwardPath, readForwarding } from "../../forwarding.js";
 import { listVisibleNoteKeys } from "../../notes/visibleKeys.js";
+import { isTextFilePath } from "../../../../../packages/shared/src/fileKinds.cjs";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
@@ -25,7 +26,8 @@ import mail from "../../../../../packages/shared/src/mail.cjs";
 export async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix: pass a folder path, like projects/, or leave prefix out");
-  const visible = await listVisibleNoteKeys(store, scope, rules, overrides, prefix);
+  // A sheet is listed beside the notes: an agent browsing a folder is told every file it can open as text.
+  const visible = await listVisibleNoteKeys(store, scope, rules, overrides, prefix, isTextFilePath);
   if (!visible.length) return toolText("(no visible notes under that prefix)");
   const lines = visible
     .sort((a, b) => a.key.localeCompare(b.key))

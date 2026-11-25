@@ -776,6 +776,7 @@ test/sectionWrites.test.mjs
 test/sectionCap.test.mjs
 test/sheets.test.mjs
 test/fileKinds.test.mjs
+test/orientSheets.test.mjs
 test/readSheet.test.mjs
 test/labSandboxWorld.test.mjs
 test/labSandboxWorldLocal.test.mjs
