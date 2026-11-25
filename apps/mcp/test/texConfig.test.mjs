@@ -116,14 +116,12 @@ test("both send-backs reach the front door through the Answer check's one loop, 
   const loops = TEX_CONFIG.edges.filter((e) => e.mode === "loop" && e.to === "fd").map((e) => [e.from, e.when.join()]);
   assert.deepEqual(loops, [["answerCheck", "*"]]);
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "answerCheck" && e.mode === "wait"), "every draft reaches the Answer check");
-  // The member cards' Friend check (shelf node, decided 2026-11-24; member-cards.md) is one more step the Answer check uses, once a
-  // promote wires it: its send-back rides this one loop too.
-  const friendCheckWire = TEX_CONFIG.edges.some((e) => e.from === "answerCheck" && e.to === "friendCheck") ? [["friendCheck", "*"]] : [];
   // An ask from another chat goes back to it instead of being texted (Dev2, 2026-11-17, cross-chat asks).
   // The lookup ladder's Before-asking step is a helper the Answer check calls (Dev2, 2026-11-20): its send-back rides this one loop.
-  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "answerCheck" && e.mode !== "loop").map((e) => [e.to, e.when.join()]), [["finish", "*"], ["claimChecks", "*"], ["reviewer", "*"], ["chatAnswer", "ask"], ["askGate", "*"], ...friendCheckWire]);
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "answerCheck" && e.mode !== "loop").map((e) => [e.to, e.when.join()]), [["finish", "*"], ["claimChecks", "*"], ["reviewer", "*"], ["chatAnswer", "ask"], ["askGate", "*"], ["friendCheck", "*"]]);
+  // The member cards' Friend check (decided 2026-11-24; member-cards.md) is one more step the Answer check uses: its send-back rides this one loop too.
   // Dev2, 2026-11-23 (the no-shadow steps): the Claim checks and the Reply reviewer are steps the Answer check uses, with no loop of their own.
-  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "answerCheck" && ["claimChecks", "reviewer", "friendCheck"].includes(e.to)).map((e) => e.mode), ["uses", "uses", ...friendCheckWire.map(() => "uses")]);
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "answerCheck" && ["claimChecks", "reviewer", "friendCheck"].includes(e.to)).map((e) => e.mode), ["uses", "uses", "uses"]);
   assert.equal(texStep("checks").on, false, "the old checks step is off");
 });
 
