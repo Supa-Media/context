@@ -91,3 +91,39 @@ identical answers; `__proto__` refused).
   Editing `about.md` cannot point a source at another vault entry, host or
   path; a vault entry kept for syncing is opened only by the sync object, and
   never by an AI client or `send api`.
+
+## What stage B draws, and what it leaves out
+
+*Stage B, 2026-11-25: the Data page (board 01), a source's page (07, 09, 10),
+the metrics page (11) and a metric note (12),
+`apps/mobile/features/console/files/data/`.*
+
+- **Every number is worked out in the app as it is read**, through the
+  reader's own `readBody`: a sheet they cannot read never arrives, so it is
+  missing, and a metric with a missing input is drawn "Hidden" (a period
+  with none, "—"). The app keeps no computed value anywhere but memory.
+  Sheets are cached per reader and folder generation, like an area's
+  readings. Test: `apps/mobile/__tests__/dataSources.test.ts` (a hidden
+  input and a missing one give identical results, and the result never names
+  the sheet).
+- **Status lines say only what is known.** There is no sync object yet
+  (stage E), so a source says "Last row 2h ago" from its newest dated row, or
+  "Not synced yet" / "No rows yet", never "Synced 5 min ago"; a period is
+  "worked out as you read", not "every hour". `readings.csv` is shown when it
+  exists and not yet written.
+- **Connect a source offers "Send from your code" only.** It writes the
+  source's `about.md` (`source: push`) and its first sheet as the person's
+  own notes, then opens the existing key dialog. GitHub, Cloudflare and
+  Stripe need the owner's connection and wait for their stage. A key is
+  listed by its name, when it was made and when last used, and never shown
+  again; the control plane does not keep who made one, so that name is not
+  drawn.
+- **The Context source is counted on read, never written.** `notes-by-status`
+  counts today's notes by `status:` in the folders its `about.md` names, so it
+  has today's rows only, not a history; `time-to-answered` needs a note's
+  `asked:` and `answered:` front matter, and notes without both are left out.
+  It counts only the notes the reader can see, so two readers may see two
+  counts.
+- **New metric** writes a note in `metrics/` with a starting formula over a
+  sheet the workspace has, and opens it. A metric note opens with its
+  properties and readings over the body, which stays the person's text.

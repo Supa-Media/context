@@ -155,7 +155,11 @@ folders its own way, so a job can no longer come from a root name alone.
   renamed, nested and given to another folder like Tex's, and a writer naming
   `data/...` lands in it wherever it is (`canonicalJobPath`). Its own
   `metrics` is kept like Tex's own folders (`DATA_PARTS`). A folder an import
-  calls `data` is never guessed as it: the word is too common.
+  calls `data` is never guessed as it: the word is too common. Since stage B
+  the folder opens as the Data page, each subfolder as its source's page and
+  `metrics/` as the metrics page, picked by job (`dataFolderNow`) and never
+  by name (`features/console/files/data/DataFolderPage.tsx`;
+  [data-and-metrics](../data-and-metrics.md#what-stage-b-draws-and-what-it-leaves-out)).
 - **AI clients** use `manage` action `folder_job` `{ job, path | remove }`, a
   row over `apply_layout`, through the same `giveJob` the app's Settings uses.
 
