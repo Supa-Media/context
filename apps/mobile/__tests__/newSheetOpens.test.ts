@@ -138,16 +138,6 @@ async function ready(): Promise<() => void> {
   return unmount;
 }
 
-function held<T>(): { promise: Promise<T>; release: (value: T) => void; fail: (error: unknown) => void } {
-  let release!: (value: T) => void;
-  let fail!: (error: unknown) => void;
-  const promise = new Promise<T>((resolve, reject) => {
-    release = resolve;
-    fail = reject;
-  });
-  return { promise, release, fail };
-}
-
 function taken(): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code: "CONFLICT", message: "A file already exists at that path. Reload to see it." });
 }
