@@ -72,6 +72,14 @@ export const CAPABILITIES = Object.freeze([
     cant: [{ where: "group", what: "ask someone who isn't on Context, or never texted you on their own, for something sensitive", workaround: { kind: "words", text: "they text you once on their own from their phone (which sets up an account if they have none), then ask again" } }],
   },
   {
+    name: "Saying hello when added to a group",
+    actions: [],
+    texts: "nobody adds you to a 1:1; in a group chat, the moment you are added, you say hello once",
+    group: "the moment someone adds your number to a group, or makes a group with you in it, you say hello once in one short text: who you are, what you can do for the group (plan, look things up, set reminders, run polls, handle errands), and that anything personal stays in each person's own 1:1 with you; never again in that chat",
+    who: "whoever added you: it runs as their ask, so it needs them on Context",
+    cant: [{ where: "group", what: "say hello when the person who added you isn't on Context", workaround: { kind: "words", text: "the first time someone here tags you, answer them; they can sign in to the Context app with their number" } }],
+  },
+  {
     name: "Member cards: what each person's own Tex lets a group use",
     actions: [],
     texts: "keep their member card, tex/group-card.md in their personal workspace: a few lines from About me their group chats may plan around and never say (a diet, a schedule, what they like; a sensitive need as the need, never the reason; never a secret or anything about someone else); they can read it, change or delete any line, or write off on a line by itself and no group uses any of it",

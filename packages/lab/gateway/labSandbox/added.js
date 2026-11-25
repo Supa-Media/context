@@ -4,7 +4,7 @@
  * `added { sandboxId, as? }` on a group test chat (`route.js`): `as` adds Tex's number to the group, a kind "joined" row
  * handed to the chat object as Tex's line hands Photon's `participantAdded` over (`chatRun.js` `inboundOf`, the
  * object's `/group-joined`, `packages/tex/worker/groupJoined.ts`). On a draft with node `joined` Tex says hello, once
- * per group; on main the object says nothing new and the reply row is quiet. `retry` adds Tex again.
+ * per group (a fresh test chat tries it again); with the node off the object says nothing new and the reply row is quiet.
  */
 import { lineOf, rowLine } from "./line.js";
 

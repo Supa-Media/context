@@ -10,7 +10,7 @@ import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
  * Tex says hello when it is added to a group (Dev2, 2026-11-25: "Tex should have an intro when added to a group").
  *
  * Sabotage record (2026-11-25), each fails a test here:
- *  - `acceptJoined` without the `joinedWired` check: "main's config queues nothing";
+ *  - `acceptJoined` without the `joinedWired` check: "a config with node `joined` off queues nothing";
  *  - `acceptJoined` without the `INTRO_KEY` check: "a group hears its hello once";
  *  - `photonGroupChange` marking every `participantAdded` as Tex's: "only Tex's own number added is a join".
  */
@@ -21,12 +21,9 @@ const BO = "+15555550102";
 const GROUP = "11111111-2222-3333-4444-555555555555";
 const JOINED: Joined = { groupId: GROUP, line: LINE, by: ADA, participants: [LINE, ADA, BO] };
 
-/** Main's config with node `joined` wired, as a Lab draft would have it. */
-const WIRED = {
-  ...TEX_CONFIG,
-  nodes: [...TEX_CONFIG.nodes, { id: "joined", label: "Tex added", kind: "input", model: "code", on: true }],
-  edges: [...TEX_CONFIG.edges, { from: "joined", to: "lanes", mode: "wait", when: ["intro"] }],
-};
+/** Main's config, node `joined` wired (since 2026-11-25), and the same with it off, as a Lab draft may have it. */
+const WIRED = TEX_CONFIG;
+const OFF = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((node) => (node.id === "joined" ? { ...node, on: false } : node)) };
 
 type World = { sends: Record<string, unknown>[]; control: Record<string, unknown>[]; asks: Record<string, unknown>[] };
 
@@ -53,10 +50,11 @@ function deps(world: World): GroupDeps {
 }
 
 describe("Tex's hello when it is added to a group", () => {
-  it("main's config queues nothing: the node is on the shelf until a Lab draft wires it", async () => {
-    expect(joinedWired()).toBe(false);
+  it("a config with node `joined` off queues nothing; main's has it on", async () => {
+    expect(joinedWired()).toBe(true);
+    expect(joinedWired(OFF)).toBe(false);
     const storage = new MemoryStorage();
-    expect(await acceptJoined(storage, JOINED, 1_000)).toBe("off");
+    expect(await acceptJoined(storage, JOINED, 1_000, OFF)).toBe("off");
     expect(await storage.get(INTRO_KEY)).toBeUndefined();
   });
 
