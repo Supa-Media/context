@@ -805,3 +805,4 @@ test/areaLines.test.mjs
 test/dataSyncGithub.test.mjs
 test/dataSyncBackground.test.mjs
 test/dataSyncUsage.test.mjs
+test/areaRoutines.test.mjs
