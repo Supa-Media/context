@@ -143,14 +143,13 @@ export function crossCountsOf(value) {
 
 /**
  * The `ask_chat` tool for one chat turn, or null when this turn can't ask: a run an ask started (one hop), a job's or a
- * routine's turn, a guest chat, a Worker that sent no counts, a 1:1 with no list of groups. `gate(input)` is the
+ * routine's turn, a Worker that sent no counts, a 1:1 with no list of groups. `gate(input)` is the
  * Cross-chat gate (node `crossChatGate`), over its config wire; an ask it lets go is pushed to `ledger.crossAsks`.
  * In a group, `contact: true` (the tagger's own name, phone and email for a form) still answers at once from their
  * account, as `ask_personal_tex` did; `identity` is that tool's `asker`.
  */
 export function crossAskTool({ event = null, group = null, groups = null, counts = null, ledger, gate, say = null, identity = null }) {
   if (event !== null || counts === null || typeof gate !== "function" || ledger === null || ledger === undefined) return null;
-  if (group !== null && group.guestChat === true) return null;
   if (group === null && !Array.isArray(groups)) return null;
   const facts = group !== null ? personalTexTool({ group, ledger, say, asker: identity }) : null;
   return {

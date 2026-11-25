@@ -40,9 +40,9 @@ test("the tagger is named by handle and name, and only people in the chat are na
 // Bot battle, 2026-11-23: asked for the chat's latest message, Tex named the asker's and left out its own three
 // replies; asked whether it could thread, it said no while its reply went threaded. Both group prompts say both.
 test("a group is told its own texts count and its answers thread", async () => {
-  const { guestPrompt, GROUP_SELF_LINE } = await import("../../../packages/tex/gateway/agent/groupGuests.js");
+  const { GROUP_SELF_LINE } = await import("../../../packages/tex/gateway/agent/groupGuests.js");
   const group = groupOf({ group: { key: "c3".repeat(32), members: "d4".repeat(32), from: "jo", people: ["jo", "sam"] } });
-  for (const prompt of [groupPrompt(group, "acme"), guestPrompt({ from: "ada", people: ["ada"], home: { folder: "tex/chats/x" } }, "supa")]) {
+  for (const prompt of [groupPrompt(group, "acme"), groupPrompt({ from: "ada", people: ["ada"], home: { folder: "tex/chats/x" }, homeOnly: true }, "supa")]) {
     assert.ok(prompt.includes(GROUP_SELF_LINE));
     assert.match(prompt, /your own texts are messages in this chat/i);
     assert.match(prompt, /threaded reply/);
@@ -84,7 +84,7 @@ test("everyone here is listed, guests by label, with how many", () => {
 });
 
 test("a chat with a guest is told its roster too", () => {
-  const group = { key: "c3".repeat(32), members: "d4".repeat(32), from: "jo", people: ["jo"], chat: [], guests: ["guest-1a2b"], size: 2, guestChat: true, guestTagger: false, home: null };
+  const group = { key: "c3".repeat(32), members: "d4".repeat(32), from: "jo", people: ["jo"], chat: [], guests: ["guest-1a2b"], size: 2, homeOnly: true, guestTagger: false, home: null };
   assert.match(groupPrompt(group, "acme"), /guest-1a2b/);
 });
 
@@ -173,8 +173,8 @@ test("a guest who tagged Tex is named by label and number, and only a label that
   assert.match(taggedLine({ ...guest, cause: "tagged" }), /^guest-1a2b \(\+447700900123\) tagged you\./);
   assert.equal(chatWithNumbers({ from: undefined, asker: "guest-ffff" }).asker, undefined);
   assert.equal(chatWithNumbers({ asker: "guest-1a2b" }).asker, undefined, "an account holder tagged Tex");
-  const home = { ...guest, guestChat: true };
-  assert.equal(taggedLine({ ...home, cause: "tagged" }), "A guest in this chat, guest-1a2b (+447700900123), tagged you.");
+  const home = { ...guest, homeOnly: true };
+  assert.match(taggedLine({ ...home, cause: "tagged" }), /^A guest in this chat, guest-1a2b \(\+447700900123\), tagged you\. They aren't on Context, so nothing goes from an account of theirs/);
 });
 
 /*

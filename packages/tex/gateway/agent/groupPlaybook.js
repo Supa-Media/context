@@ -38,13 +38,12 @@ export function playbookPath(group) {
 export const MAX_PLAYBOOK_CHARS = 12_000;
 
 /**
- * The playbook's text, bounded, or "" when there is none or it can't be read. A guest chat reads none. In a home, its
+ * The playbook's text, bounded, or "" when there is none or it can't be read. Every group keeps one, whoever is in it (Dev2, 2026-11-25). In a home, its
  * own note (`held`: read straight from the chat's object, `groupDirectNotes.js`); when that is missing, the old
  * workspace note through `dispatch` (read only, so what a chat was taught there still applies until a save writes the
  * home's).
  */
 export async function readPlaybook(dispatch, group, held = null) {
-  if (group?.guestChat) return "";
   const home = group?.home?.dispatch && typeof group.home.folder === "string" ? group.home : null;
   const kept = typeof held?.body === "string" ? held.body.trim() || null : undefined;
   const own = kept !== undefined ? kept : home ? await bodyOf(home.dispatch, playbookPath(group)) : null;
@@ -65,7 +64,6 @@ async function bodyOf(dispatch, path) {
 
 /** What a group turn is told about the playbook: its words when there are some, and how it is kept. */
 export function playbookPrompt(group) {
-  if (group?.guestChat) return "";
   const text = typeof group?.playbook === "string" ? group.playbook : "";
   const how =
     `This chat keeps a playbook at ${where(group)}: how it does things, the jobs it wants done a certain way, and who its clients are. ` +

@@ -30,9 +30,9 @@ test("a home routine needs no chat line, in every chat (2026-11-12), and someone
   assert.equal(chatRoutineRefusal(group(), "write_note", args), null);
   assert.equal(chatRoutineRefusal(group(), "write_note", { ...args, path: `@context-lc/${HOME}/routines/daily/shifts.md` }), null);
   // A chat that reaches no shared workspace keeps routines in its home like any chat, and only there.
-  assert.equal(chatRoutineRefusal(group({ guestChat: true }), "write_note", args), null);
-  assert.match(chatRoutineRefusal(group({ guestChat: true }), "write_note", { path: "tex/routines/daily/shifts.md", content: routine }), new RegExp(`${HOME}/routines/<how-often>/`));
-  assert.match(chatRoutinePrompt(group({ guestChat: true })), /You can set reminders and routines for this chat/);
+  assert.equal(chatRoutineRefusal(group({ homeOnly: true }), "write_note", args), null);
+  assert.match(chatRoutineRefusal(group({ homeOnly: true }), "write_note", { path: "tex/routines/daily/shifts.md", content: routine }), new RegExp(`${HOME}/routines/<how-often>/`));
+  assert.match(chatRoutinePrompt(group({ homeOnly: true })), /You can set reminders and routines for this chat/);
   assert.match(chatRoutineRefusal(group({ guestTagger: true }), "write_note", args), /on Context/);
   // Anywhere else, a routine still names its chat.
   assert.match(chatRoutineRefusal(group(), "write_note", { path: "tex/routines/daily/shifts.md", content: routine }), /chat: d{16}/);

@@ -116,8 +116,10 @@ test("a home with no playbook yet still follows the old workspace note, and is t
   assert.match(playbookPrompt(group), new RegExp(`${HOME}/playbook\\.md`));
 });
 
-test("a chat with no home reads and is told the workspace note, and a guest chat reads none", async () => {
+test("a chat with no home reads and is told the workspace note, and a chat that reads only its home keeps its own", async () => {
   assert.equal(playbookPath({}), PLAYBOOK_PATH);
   assert.equal(await readPlaybook(notesDispatch({ [PLAYBOOK_PATH]: "OLD-MARKER" }), {}), "OLD-MARKER");
-  assert.equal(await readPlaybook(notesDispatch({ [PLAYBOOK_PATH]: "OLD-MARKER" }), { guestChat: true, home: { folder: HOME, dispatch: notesDispatch({}) } }), "");
+  const homeOnly = { homeOnly: true, home: { folder: HOME, dispatch: notesDispatch({ [`${HOME}/playbook.md`]: "HOME-MARKER" }) } };
+  assert.equal(await readPlaybook(null, homeOnly), "HOME-MARKER");
+  assert.match(playbookPrompt(homeOnly), /keeps a playbook/);
 });

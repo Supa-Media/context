@@ -28,12 +28,12 @@ const SHAPES = [
   { name: "a member", group: { from: "shyoh" } },
   { name: "an invited person", group: { from: "" } },
   { name: "a guest by label", group: { from: "", guests: ["guest-1a2b"], asker: "guest-1a2b" } },
-  { name: "a guest chat's guest", group: { from: "", guests: ["guest-1a2b"], asker: "guest-1a2b" }, guestChat: true },
+  { name: "a guest chat's guest", group: { from: "", guests: ["guest-1a2b"], asker: "guest-1a2b" }, homeOnly: true },
 ];
 const chat = (shape, cause) => {
   const group = groupOf({ group: { key: KEY, members: MEMBERS, people: ["shyoh", "ada"], ...shape.group, ...(cause === undefined ? {} : { cause }) } });
   assert.ok(group, shape.name);
-  return shape.guestChat ? { ...group, guestChat: true } : group;
+  return shape.homeOnly ? { ...group, homeOnly: true } : group;
 };
 
 // "tagged you" claimed as a fact, not "Nobody tagged you" or "never say anyone tagged you".

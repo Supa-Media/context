@@ -29,7 +29,8 @@ export const ONE_TO_ONE_ONLY = "not here; say they can text you on their own for
  * Each line: `name`, what it covers (`actions`: `write.<action>`, `manage.<action>`, `send.<action>` as the model calls
  * them, `command.<send action>` for a chat command, `words.<kind>` for a group command typed in the chat), and what it is in
  * a 1:1 text (`texts`), a group chat (`group`, null when only a person's own texts have it) and a guest chat (`guest`,
- * when it differs from the group), plus who may ask and approve (`who`), and what Tex can't do yet with the way
+ * when it differs from the group: since 2026-11-25 only where what such a chat may read or send from differs, never a
+ * capability a group has and it lacks), plus who may ask and approve (`who`), and what Tex can't do yet with the way
  * around it (`cant`: `{ where, what, workaround: { kind, text } }`; Dev2, 2026-11-08: "when we do create new capabilities
  * ... we remove/update the line about the capability in code"). `appRoutes` names the app's own routes a line (or a
  * can't) covers, so a button in the app is never the only way to do a thing (agent-first, 2026-11-08;
@@ -48,7 +49,6 @@ export const CAPABILITIES = Object.freeze([
     actions: ["send.ask_personal_tex"],
     texts: "you know their own name, phone number and emails from their account, and use them for any form or sign-in without asking",
     group: "ask the personal Tex of whoever tagged you for their name, phone number and emails, for a form or sign-in they asked for (send ask_personal_tex): the chat is told you're asking, and you never ask them for these; for somebody else here, pass as and only their 👍 or yes lets you ask; never repeat a phone number or email into the chat",
-    guest: "ask them in the chat for what the form needs",
     who: "the person it is about asks, or OKs someone else's ask with their own 👍 or yes",
     cant: [{ where: "group", what: "ask the personal Tex of someone here who isn't on Context", workaround: { kind: "words", text: "ask them in the chat for what the form needs" } }],
   },
@@ -57,7 +57,6 @@ export const CAPABILITIES = Object.freeze([
     actions: ["send.ask_chat", "send.post_in_chat"],
     texts: "ask Tex in one of their group chats for something it knows or to do something there (send ask_chat, naming the group): only groups they are in now, one open ask per group, 10 an hour and 40 a day; the answer comes back as its own turn within 10 minutes, or you hear it timed out, and you tell them",
     group: "ask the personal Tex of whoever tagged you (send ask_chat; contact: true answers their name, number and emails at once): for somebody else here, pass as and only their 👍 or yes lets you ask; asked by their 1:1, answer only what anyone here could ask, and a do-ask posts one line here signed with who asked (send post_in_chat)",
-    guest: "ask them in the chat",
     who: "the person in the 1:1, or the tagger in a group (someone else here with their own 👍 or yes)",
     cant: [
       { where: "group", what: "ask another group chat", workaround: { kind: "words", text: "ask from your own 1:1 with Tex, which can ask any group you are in" } },
@@ -78,11 +77,10 @@ export const CAPABILITIES = Object.freeze([
     actions: ["write.save", "write.save_many", "write.comment", "write.upload", "write.remember", "manage.move", "manage.move_many", "manage.move_folder", "manage.archive", "manage.suggest_destination", "manage.layout", "manage.folder_job", "manage.encrypt"],
     texts: "read, search, write, move and archive notes in every workspace they can reach, comment on a note, add pictures to one, encrypt or decrypt one, and lay down a workspace's starting folders; nothing is ever deleted",
     group: "the same, in the shared workspaces everyone here is a member of, only notes their whole team sees, at the lowest role anyone here holds there (one viewer here makes that workspace read-only for the chat)",
-    guest: "only this chat's folder and notes someone shared with the chat: write a page there or move one; what you make goes in the chat's folder as a page",
+    guest: "only this chat's folder and notes someone shared with the chat, with every note action a group has there; what you make goes in the chat's folder as a page",
     cant: [
       { where: "everywhere", what: "delete a note", workaround: { kind: "words", text: "archive it (manage archive): it moves to the Archive folder, where it can be found or moved back" } },
       { where: "group", what: "read anyone's personal notes or saved logins, or a calendar its person hasn't shared with this chat", workaround: { kind: "words", text: "they point at it here and you ask their personal Tex for it (someone else's needs that person's OK), or they put the note in a shared workspace everyone here is in" } },
-      { where: "guest", what: "archive, comment on, add a picture to or remember in a note, or move a folder", workaround: { kind: "words", text: "someone here who is on Context texts you on their own for it" } },
       { where: "everywhere", what: "delete a workspace or close their account", workaround: { kind: "app_path", text: "Context app → Settings → General → Delete this workspace, or Settings → Profile → Delete account" } },
       { where: "everywhere", what: "change their username (twice in a lifetime; the old name stays theirs and keeps working)", workaround: { kind: "app_path", text: "Context app → Settings → Profile → Username → Change" } },
       { where: "everywhere", what: "make or change a people group, or switch a plugin on or off", workaround: { kind: "app_path", text: "Context app → Settings → People & sharing (groups), or Settings → Plugins (that row shows only to people already using plugins)" } },
@@ -108,7 +106,7 @@ export const CAPABILITIES = Object.freeze([
     actions: ["write.answer", "write.update_answer", "write.retract_answer", "write.vote"],
     texts: "make a Context form (a note with a form block: its fields, who may answer, where answers go; a collect link takes answers from people with no account), answer one, change or take back an answer, or upvote an answer where the form allows votes, as them; making a Google Form is a skill (make-a-google-form)",
     group: "the same, at the lowest role anyone here holds in that workspace",
-    guest: "you can't answer or vote on a form from here",
+    guest: "the same, for forms in this chat's folder",
   },
   {
     // On the shelf until a Lab draft wires `screen` into the front door's ctx: Tex is not told what it cannot see.
@@ -215,7 +213,6 @@ export const CAPABILITIES = Object.freeze([
     actions: ["command.chat_share_mail", "command.chat_unshare_mail", "words.share_mail", "words.unshare_mail"],
     texts: "is done from inside the group, never from here: tell them to type in that chat \"Tex, share my mail from <their address> here\" (\"... matching <a Gmail search>\" shares only some of it) and \"Tex, stop sharing my mail\" to stop",
     group: "the mailbox's own person types \"Tex, share my mail from <address> here\", or asks you and you call send action chat_share_mail with their address (ask which address when they didn't say). It needs their own connected Gmail and them being in this chat. Once shared, anyone here can ask you to search and read it, you watch it for the chat and post only what the chat needs, and a reply from it is sent only on that person's 👍. You may offer to share it when it would help, and their plain yes to your offer is enough: never tell them to type a set phrase.",
-    guest: "shared the same way by its own person; you read it only when someone asks, and nothing watches it",
     who: "Only the mailbox's own person can share it or stop sharing it",
     cant: [{ where: "1:1", what: "share someone's mail with a group chat from a 1:1 text", workaround: { kind: "words", text: "they type \"Tex, share my mail from <their address> here\" in that group chat" } }],
   },
@@ -224,7 +221,6 @@ export const CAPABILITIES = Object.freeze([
     actions: ["command.chat_share_calendar", "command.chat_unshare_calendar"],
     texts: "is done from inside the group, never from here: tell them to ask you in that chat to share their calendar there (naming an address shares only that one), and to ask you there to stop",
     group: "the calendar's own person asks you in this chat and you call send action chat_share_calendar with their address (left out shares every calendar they connected). It needs their own connected Google Calendar and them being in this chat. Once shared, anyone here can ask you what's on it, and the chat's check-ins compare it with what the chat said and ask the person it's about when they disagree. You may offer to share it when it would help, and their plain yes to your offer is enough: never tell them to type a set phrase.",
-    guest: "shared the same way by its own person; you read it only when someone asks, and nothing checks it",
     who: "Only the calendar's own person can share it or stop sharing it",
     cant: [{ where: "1:1", what: "share someone's calendar with a group chat from a 1:1 text", workaround: { kind: "words", text: "they ask you to share their calendar in that group chat" } }],
   },

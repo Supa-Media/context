@@ -43,7 +43,7 @@ export function chatRoutineRefusal(group, name, args) {
   const inHome = homeRoutinePaths(args).length > 0;
   if (routinePaths(args).length === 0 && !inHome) return null;
   // A chat that reaches no shared workspace keeps its routines in its home, like any chat (the owner, 2026-11-12).
-  if (group?.guestChat && !inHome) return chatRoutinesFolder(group) === null ? "Reminders and routines can't be set from this chat." : `Put this chat's routines in its folder, ${chatRoutinesFolder(group)}/<how-often>/ (context: "@context-lc"): it reaches no shared workspace to keep one in.`;
+  if (group?.homeOnly && !inHome) return chatRoutinesFolder(group) === null ? "Reminders and routines can't be set from this chat." : `Put this chat's routines in its folder, ${chatRoutinesFolder(group)}/<how-often>/ (context: "@context-lc"): it reaches no shared workspace to keep one in.`;
   if (group?.guestTagger) return "Only someone here who is on Context can set a reminder or routine for this chat; ask one of them to.";
   const id = chatRoutineId(group?.key);
   if (id === null) return "Reminders and routines can't be set from this chat.";
@@ -63,7 +63,7 @@ export function chatRoutineRefusal(group, name, args) {
 export function chatRoutinePrompt(group) {
   const id = chatRoutineId(group?.key);
   const folder = chatRoutinesFolder(group);
-  if (id === null || (group?.guestChat && folder === null)) return "You can't set reminders or routines from this chat. ";
+  if (id === null || (group?.homeOnly && folder === null)) return "You can't set reminders or routines from this chat. ";
   const where =
     folder === null
       ? "Write one in this workspace at tex/routines/<how-often>/<name>.md, " +

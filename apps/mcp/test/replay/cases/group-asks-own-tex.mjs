@@ -14,7 +14,7 @@ export default {
       assert.match(turn.shown, /if you can't tell what they mean, ask them one short question first/, "and to ask when it can't tell what they mean");
       assert.doesNotMatch(turn.shown, /say the person can text you on their own for that/, "and never to send them off to text it");
       // 2026-11-24, after #4152: Tex found the list by search, failed to open it from the group and asked them to share it.
-      // A guest chat, which has no ask_chat, keeps its own limits instead (`agentGroupGuests.test.mjs`).
+      // Since 2026-11-25 a chat with guests is told the same (`oneGroupPrompt.test.mjs`).
       assert.match(turn.shown, /never fetch it and never ask them to share or paste it: ask their personal Tex/, "and a search hit is fetched through their own Tex");
     } finally {
       chat.restore();
