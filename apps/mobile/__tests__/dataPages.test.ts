@@ -232,3 +232,41 @@ describe("a phone's sources", () => {
     expect(order(phone)).toEqual(order(wide));
   });
 });
+
+describe("reading big sheets once", () => {
+  test("a sheet is read once while its listing stands, and again when the listing says it changed", async () => {
+    const notes: ListNote[] = [{ path: "data/eval-ci/about.md", properties: { source: "push" } }, METRIC];
+    const at = (updatedAt: number) => ({
+      data: listing("data", [entry("data/eval-ci", "folder"), entry("data/metrics", "folder")]),
+      "data/eval-ci": listing("data/eval-ci", [entry("data/eval-ci/about.md"), { ...entry("data/eval-ci/bench-runs.csv"), updatedAt }]),
+      "data/metrics": listing("data/metrics", [entry(METRIC.path)]),
+    });
+    let reads = 0;
+    const readBody = async () => {
+      reads += 1;
+      return { text: BENCH, encrypted: false };
+    };
+    const first = world({ notes, listings: at(1000), readBody });
+    const node = document.createElement("div");
+    document.body.appendChild(node);
+    const root = createRoot(node);
+    roots.push({ root, node });
+    const draw = async (w: World) => {
+      await act(async () => {
+        root.render(h(ThemeProvider, { scheme: "light", children: h(Data, { w }) }));
+      });
+      for (let i = 0; i < 6; i += 1) {
+        await act(async () => {
+          await new Promise((done) => setTimeout(done, 1));
+        });
+      }
+    };
+    await draw(first);
+    await draw(first);
+    expect(reads).toBe(1);
+    // A sync lands: the same source, its listing newer.
+    await draw({ source: first.source, nesting: world({ listings: at(2000) }).nesting });
+    expect(reads).toBe(2);
+    expect(rowsText(node)[0]).toContain("3.0%");
+  });
+});

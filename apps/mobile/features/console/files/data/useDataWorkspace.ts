@@ -65,8 +65,13 @@ export function useDataWorkspace(dataFolder: string, source: FolderListSource | 
   const dataNotes = dataRead.get(dataFolder) ?? null;
   const areaNotes = dataRead.get(areas) ?? null;
   const notes = dataNotes ?? NO_NOTES;
-  // The listings change identity as they load; what is drawn follows their entries.
-  const listingKey = [dataFolder, ...children].map((path) => `${path}:${listingOf(path)?.entries.length ?? -1}`).join("|");
+  // The listings change identity as they load; what is drawn follows their entries, and a sheet is read again when its listing says it changed.
+  const listingKey = [dataFolder, ...children]
+    .map((path) => {
+      const entries = listingOf(path)?.entries;
+      return `${path}:${entries?.length ?? -1}:${entries?.reduce((latest, entry) => Math.max(latest, entry.updatedAt ?? 0), 0) ?? 0}`;
+    })
+    .join("|");
   const sources = useMemo(
     () => sourcesIn(dataFolder, listingOf, notes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
