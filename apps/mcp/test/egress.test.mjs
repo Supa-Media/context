@@ -85,6 +85,10 @@ test("mightWiden says yes to the calls that can widen, and no to the rest", () =
   assert.equal(mightWiden("write_note", { path: "website/index.md", site: { action: "publish" } }), true);
   assert.equal(mightWiden("write_note", { path: "a.md", images: [{ url: "https://pics.example/x.png" }] }), true);
   assert.equal(mightWiden("write_note", { path: "a.md", visibility: "team" }), true);
+  // A bot's logo by address is the same outside fetch (2026-11-25); its bytes sent inline are not.
+  assert.equal(mightWiden("set_area", { bot: { name: "Socials", avatar: { url: "https://pics.example/logo.png" } } }), true);
+  assert.equal(mightWiden("set_area", { bot: { name: "Socials", avatar: { data: "iVBORw0KGgo=" } } }), false);
+  assert.equal(mightWiden("set_area", { area: "areas/x", owner: "Socials" }), false);
   assert.equal(mightWiden("set_visibility", { path: "a.md", visibility: "team" }), true);
   assert.equal(mightWiden("set_folder_visibility", { path: "a", visibility: "team" }), true);
   assert.equal(mightWiden("set_folder_visibility", { path: "a", visibility: "inherit" }), true);
@@ -248,4 +252,16 @@ test("the history file's one predicate refuses the write it always refused", () 
     assert.equal(isChatHistoryPath(path), false, path);
     assert.equal(historyWriteRefusal(path), null, `not refused: ${path}`);
   }
+});
+
+test("a bot's logo by address is judged as an outside fetch, and its bytes are not", async () => {
+  const { wideningOf } = await import("../src/privacy/widening.js");
+  const privacy = async () => ({ rules: [], overrides: [] });
+  const byUrl = await wideningOf("set_area", { bot: { name: "Socials", avatar: { url: "https://pics.example/logo.png" } } }, { privacy });
+  assert.equal(byUrl.audience, "outside");
+  assert.equal(byUrl.summary, "fetch an image from pics.example as Socials's logo");
+  assert.equal(await wideningOf("set_area", { bot: { name: "Socials", avatar: { data: "iVBORw0KGgo=" } } }, { privacy }), null);
+  // Into another workspace, the fetch is still judged rather than passed as an ordinary write there.
+  const into = await wideningOf("set_area", { bot: { name: "Socials", avatar: { url: "https://pics.example/logo.png" } } }, { privacy, into: "@supa", writes: true });
+  assert.notEqual(into.elsewhereOnly, true);
 });

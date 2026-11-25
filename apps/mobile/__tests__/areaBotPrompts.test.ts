@@ -107,6 +107,10 @@ test("a bot with a card is told to put its own logo there, once", () => {
   const text = areaPrompt({ ...AREA, card: "areas/people/finance.md" });
   expect(text).toContain('path: "areas/people/finance.md"');
   expect(text).toContain("avatar: logo.png");
+  // Its bytes, never a link: Context won't fetch an outside address without the person's own words (2026-11-25).
+  expect(text).toContain('action: "upload"');
+  expect(text).toContain('data: "<its base64>"');
+  expect(text).not.toMatch(/url: "/);
   expect(areaPrompt(AREA)).not.toContain("avatar:");
   expect(delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", card: "areas/people/chief.md" })).toContain('path: "areas/people/chief.md"');
 });

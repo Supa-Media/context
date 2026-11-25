@@ -67,6 +67,16 @@ keeps its notes there and knows what its modes ask of it.
   that. A bot joins each note under its name (lowercase, as mail names are)
   and answers in it. The `mail/` folder is never a plain folder or a sub-area
   on the List, the Chart or in `orient`.
+- **A bot sends its own logo's bytes, never a link** (the owner, 2026-11-25,
+  option "Bot sends the image itself", after a Socials bot's setup stalled:
+  its prompt had it pass a logo URL, an outside fetch the sharing judge runs
+  only on the person's own words, and neither the pasted prompt nor a tapped
+  button in the bot's app counted). The setup prompt has the bot upload the
+  file from its shell (`write` action `upload`, then `images` by `sha256`)
+  or send it inline as base64; nothing is fetched, so nothing waits on a
+  yes. `manage` area's `bot.avatar.url` is judged as the same outside fetch
+  (`widening.js`), so the two ways cannot disagree. `egress.test.mjs` and
+  `areaBotPrompts.test.ts` fail if either goes back.
 - **Every orient says who holds each area, and to mail the area that owns a
   problem, delegate first** (the owner, 2026-11-25: agents should know "when
   there are connected agents with expertise that can help out with their

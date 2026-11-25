@@ -236,6 +236,9 @@ export function mightWiden(name, args, { into = null, writes } = {}) {
       );
     case "create_form":
       return a.visibility === "team";
+    // A bot's logo by address is fetched from outside, as write_note's images by url are.
+    case "set_area":
+      return typeof a.bot?.avatar?.url === "string" && a.bot.avatar.url.trim() !== "";
     case "vault_list":
       return Boolean(a.fetch && typeof a.fetch === "object");
     case "set_visibility":
