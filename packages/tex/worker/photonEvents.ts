@@ -16,7 +16,7 @@ import type { WorkerEnv as Env } from "./env";
 import { groupInboxName } from "./groupInbox";
 import { arrivedAs, asOldGroup, removeOldNumber, type Matched } from "./groupMoves";
 import { post } from "./clients";
-import { toChat } from "./handOver";
+import { toChat, webhookStatus } from "./handOver";
 import { inboxByName } from "./objectPlace";
 import { chatNamespace } from "./gatewayChats";
 import { photonAttachmentUrl, photonGroupGuid } from "./photon";
@@ -130,19 +130,19 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     const brought = { ...message, provider };
     const result = await toChat(env, "group", name, brought, known);
     log("accepted", "group");
-    return result.ok ? 200 : 503;
+    return webhookStatus(result);
   }
   if (parsed.kind === "reaction") {
     const reacted = { ...parsed, provider };
     const result = await toChat(env, "react", parsed.from, reacted);
     log("accepted", "reaction");
-    return result.ok ? 200 : 503;
+    return webhookStatus(result);
   }
   if (parsed.kind !== "message") return 400;
   log("accepted");
   const brought = { ...parsed, provider };
   const result = await toChat(env, "one", parsed.from, brought, known);
-  return result.ok ? 200 : 503;
+  return webhookStatus(result);
 }
 
 /**
@@ -161,7 +161,7 @@ async function groupChange(env: Env, change: NonNullable<ReturnType<typeof photo
     return 200;
   }
   const name = groupInboxName(place.groupId);
-  const result = await toChat(env, "members", name, null);
+  const result = await toChat(env, "members", name, {});
   log("accepted", "group_members");
   // Tex's own number added there, by `from`: its hello, once (`groupJoined.ts`; nothing while the config has no node `joined`).
   if (change.texAdded === true && change.from !== undefined) {
@@ -169,7 +169,7 @@ async function groupChange(env: Env, change: NonNullable<ReturnType<typeof photo
     const said = await toChat(env, "joined", name, joined);
     log(said.ok ? "accepted" : "failed", "group_joined");
   }
-  return result.ok ? 200 : 503;
+  return webhookStatus(result);
 }
 
 /**
@@ -209,7 +209,7 @@ async function photonEdit(env: Env, edit: PhotonEdit, provider: unknown): Promis
   }
   const result = await toChat(env, "edit", name, brought);
   log("accepted", `${edit.groupId !== undefined ? "group_" : ""}${edit.kind === "unsent" ? "unsend" : "edit"}`);
-  return result.ok ? 200 : 503;
+  return webhookStatus(result);
 }
 
 /**
