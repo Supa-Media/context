@@ -12,7 +12,7 @@
    state setters that arrive through `deps`, so it cannot see they are stable. */
 import { isDrawingPath, newDrawing } from "@context/drawings";
 import { ConvexError } from "convex/values";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { toFileError } from "../browser";
 import { isSheetPath, newSheetText } from "../../../../../mcp/src/sheets/csv.js";
 import {
@@ -35,14 +35,16 @@ import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { RunOperationValues } from "./useRunOperation";
+import type { SavingValues } from "./useSaving";
 
 type NoteCreateDeps =
   & { options: FileBrowserOptions }
   & Pick<FileActionsValues, "workspaceId" | "workspaceGenerationRef" | "writeNote">
-  & Pick<BrowserStateValues, "beginOnlineCreate" | "drawLocally" | "openRun" | "setExpanded" | "setNotice" | "unsentCreates">
+  & Pick<BrowserStateValues, "beginOnlineCreate" | "drawLocally" | "editor" | "editorRef" | "openRun" | "setExpanded" | "setNotice" | "unsentCreates">
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
   & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
   & Pick<RunOperationValues, "run">
+  & Pick<SavingValues, "performSave">
   & { select: (path: string, written?: OpenNote) => boolean };
 
 /**
@@ -77,7 +79,7 @@ function seedFor(name: string): string {
 export function useNoteCreate(deps: NoteCreateDeps) {
   const {
     options, beginOnlineCreate, drawLocally, openRun, listings, listingsRef, offlineRef, refresh, reportRefreshFailure, run, select,
-    setExpanded, setNotice, unsentCreates, workspaceId, workspaceGenerationRef, writeNote,
+    setExpanded, setNotice, unsentCreates, workspaceId, workspaceGenerationRef, writeNote, performSave, editor, editorRef,
   } = deps;
 
   /**
@@ -106,6 +108,23 @@ export function useNoteCreate(deps: NoteCreateDeps) {
 
   /** The newest create; only it may move the selection when its write lands. */
   const latestCreate = useRef(0);
+
+  /**
+   * A new sheet opened on the press and not written yet (`createUntitled`).
+   * Written from an effect, once the editor holding it has rendered: a save
+   * settles onto the editor only while `editorRef` names its path, and that is
+   * assigned during render, so a write sent in the same tick as the open could
+   * land before it and leave the sheet open with no version.
+   */
+  const sheetToWrite = useRef<string | null>(null);
+  useEffect(() => {
+    const path = sheetToWrite.current;
+    if (path === null) return;
+    sheetToWrite.current = null;
+    if (!unsentCreates.current.has(path)) return;
+    const shown = editorRef.current;
+    performSave(path, shown.path === path ? shown.draft : seedFor(path), null);
+  }, [editor.path, editorRef, performSave, unsentCreates]);
 
   const createNote = useCallback(
     (folder: string, rawName: string, untitled?: UntitledKind, navigation = openRun.current) => {
@@ -239,16 +258,25 @@ export function useNoteCreate(deps: NoteCreateDeps) {
   );
 
   /**
-   * An untitled note, online: opened on the press, written on the first save
-   * of something typed in it, and never written if nothing is
-   * (`unsentNotes.ts`). The row is drawn now and stays until a listing has
-   * the note — or until the note is left blank, which takes it back.
+   * An untitled note or sheet, online: opened on the press. A note is written
+   * on the first save of something typed in it, and never written if nothing
+   * is (`unsentNotes.ts`); a sheet is written straight after (`createUntitled`).
+   * The row is drawn now and stays until a listing has it — or until a blank
+   * note is left, which takes it back. A sheet used to wait for its create's
+   * round trip before it opened, and a slow one, or a press elsewhere
+   * meanwhile, left it in the tree unopened (Dev, 2026-11-25: "when I create a
+   * new sheet, it does not open up in the page the way a note does").
+   *
+   * Returns the path opened, or `null` when nothing was.
    */
   const openUnsent = useCallback(
-    (folder: string, name: string, navigation: number) => {
-      if (workspaceId === null || openRun.current !== navigation) return;
+    (folder: string, name: string, navigation: number, kind: "note" | "sheet" = "note") => {
+      if (workspaceId === null || openRun.current !== navigation) return null;
       const problem = describeNameProblem(name) ?? collision(listingsRef.current, folder, name);
-      if (problem !== null) return setNotice(problem);
+      if (problem !== null) {
+        setNotice(problem);
+        return null;
+      }
       const epoch = workspaceGenerationRef.current.epoch;
       const refused: string[] = [];
       const draw = (path: string) => {
@@ -275,9 +303,10 @@ export function useNoteCreate(deps: NoteCreateDeps) {
             refused.push(current);
             takeBack();
             awaitingTitle.current.delete(path);
-            const nextName = untitledName(listingsRef.current, folder, "note", new Date(), refused);
+            const nextName = untitledName(listingsRef.current, folder, kind, new Date(), refused);
             const next = joinPath(folder, nextName);
-            awaitingTitle.current.add(next);
+            // A sheet is never renamed to a heading in its text (`createUntitled`).
+            if (kind === "note") awaitingTitle.current.add(next);
             retargeted.current.set(next, path);
             register(next, nextName);
             return next;
@@ -300,9 +329,10 @@ export function useNoteCreate(deps: NoteCreateDeps) {
       if (!opened) {
         unsentCreates.current.get(path)?.discard();
         unsentCreates.current.delete(path);
-        return;
+        return null;
       }
       setExpanded((current) => (folder === "" ? current : new Set([...current, folder])));
+      return path;
     },
     [select, workspaceId],
   );
@@ -339,9 +369,21 @@ export function useNoteCreate(deps: NoteCreateDeps) {
         const name = untitledName(known, folder, kind, new Date());
         // A sheet is not named by its text: no heading, so nothing to take a name from.
         if (kind !== "sheet") awaitingTitle.current.add(joinPath(folder, name));
-        // A note opens now and is written when somebody writes in it; a
-        // drawing, and anything offline, is made as before.
-        if (kind === "note" && offlineRef.current.reachability !== "offline") return openUnsent(folder, name, navigation);
+        // A note or a sheet opens now; a drawing, and anything offline, is
+        // made as before. A note is written when somebody writes in it.
+        if (kind !== "drawing" && offlineRef.current.reachability !== "offline") {
+          const opened = openUnsent(folder, name, navigation, kind);
+          /*
+            A sheet is written at once, behind the open: its header row is a
+            file somebody may hand to Tex to fill ("fill this sheet") before
+            typing a cell, and a sheet that existed only on this screen would
+            be nothing Tex could find. The write is the editor's own first
+            save, so a name taken meanwhile moves on (`retarget`) and an edit
+            typed while it is out goes next, on top of its version.
+          */
+          if (kind === "sheet" && opened !== null) sheetToWrite.current = opened;
+          return;
+        }
         createNote(folder, name, kind, navigation);
       };
       /*
@@ -366,12 +408,12 @@ export function useNoteCreate(deps: NoteCreateDeps) {
       */
       if (listings[folder] !== undefined) return make(listings);
       /*
-        Except a note, online, which does not wait for it: nothing is written
+        Except a note or a sheet, online, which does not wait for it: nothing is written
         until somebody types, the listing lands long before that, and a name
         it turns out to have taken moves on at the first save
         (`UnsentCreate.retarget`).
       */
-      if (kind === "note" && offlineRef.current.reachability !== "offline") {
+      if (kind !== "drawing" && offlineRef.current.reachability !== "offline") {
         void refresh([folder]).catch(reportRefreshFailure);
         return make(listings);
       }
@@ -379,7 +421,7 @@ export function useNoteCreate(deps: NoteCreateDeps) {
         .then(({ pages }) => make({ ...listingsRef.current, ...pages }))
         .catch(reportRefreshFailure);
     },
-    [createNote, listings, openUnsent, options.canEdit, refresh, reportRefreshFailure],
+    [createNote, listings, openUnsent, options.canEdit, performSave, refresh, reportRefreshFailure],
   );
 
   return { createNote, createDrawing, awaitingTitle, retargeted, createUntitled };
