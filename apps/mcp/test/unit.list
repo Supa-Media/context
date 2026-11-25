@@ -796,3 +796,4 @@ test/orientArea.test.mjs
 test/botMail.test.mjs
 test/dataSyncApps.test.mjs
 test/dataSyncStripe.test.mjs
+test/attachProjects.test.mjs
