@@ -49,6 +49,37 @@ test("a pull request's deployed is the first production deployment after its mer
   assert.deepEqual(fillDeployed([{ ...pull, merged: "" }], deploys), []);
 });
 
+test("a superseded deploy still ships: deployed comes from the first successful Deploy to Production run after the merge", () => {
+  // GitHub marks every older production deployment "inactive" once a newer one goes out, and that status's time is
+  // when it was superseded. Matching only "success" deployments left every merged pull request waiting for the one
+  // live deployment, so open to live read days (2026-11-25).
+  const pull = pullRequestRow("supa/app", pr(3, "2026-11-24T09:58:00Z", "2026-11-24T10:00:00Z"));
+  const deploys = [
+    { repo: "supa/app", status: "inactive", started: "2026-11-24T10:05:00Z", finished: "2026-11-25T06:00:00Z" },
+    { repo: "supa/app", status: "success", started: "2026-11-25T05:50:00Z", finished: "2026-11-25T06:00:00Z" },
+  ];
+  const runs = [
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "failure", started: "2026-11-24T10:02:00Z", finished: "2026-11-24T10:06:00Z" },
+    { repo: "supa/app", workflow: "CI", conclusion: "success", started: "2026-11-24T10:01:00Z", finished: "2026-11-24T10:04:00Z" },
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-24T10:08:00Z", finished: "2026-11-24T10:12:00Z" },
+    { repo: "supa/site", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-24T10:03:00Z", finished: "2026-11-24T10:04:00Z" },
+  ];
+  assert.deepEqual(fillDeployed([pull], deploys, runs).map((row) => row.deployed), ["2026-11-24T10:12:00Z"]);
+});
+
+test("a deployed time filled wrong is corrected once the runs cover its merge, and kept when they don't", () => {
+  const runs = [
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-20T09:00:00Z", finished: "2026-11-20T09:04:00Z" },
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-20T10:08:00Z", finished: "2026-11-20T10:12:00Z" },
+  ];
+  const wrong = { ...pullRequestRow("supa/app", pr(3, "2026-11-20T09:58:00Z", "2026-11-20T10:00:00Z")), deployed: "2026-11-25T06:00:00Z" };
+  assert.deepEqual(fillDeployed([wrong], [], runs).map((row) => row.deployed), ["2026-11-20T10:12:00Z"]);
+  const right = { ...wrong, deployed: "2026-11-20T10:12:00Z" };
+  assert.deepEqual(fillDeployed([right], [], runs), [], "a row already right is not rewritten");
+  const older = { ...pullRequestRow("supa/app", pr(2, "2026-11-01T09:00:00Z", "2026-11-01T10:00:00Z")), deployed: "2026-11-01T10:20:00Z" };
+  assert.deepEqual(fillDeployed([older], [], runs), [], "a merge before the kept runs keeps the time it had");
+});
+
 test("an install state holds only its own signature, for 30 minutes", async () => {
   const state = await installState({ secret: SECRET, workspaceId: "pAlice", userId: "uAlice", noteId: "n1", nowMs: NOW });
   assert.deepEqual(await readInstallState({ secret: SECRET, state, nowMs: NOW + 60_000 }), { workspaceId: "pAlice", userId: "uAlice", noteId: "n1" });

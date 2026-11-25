@@ -206,8 +206,14 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   since Promote to Production dispatches it on a `prod-deploy/<sha>` branch;
   each read keeps its own catch-up window; kept 30 days, because a busy
   repository runs thousands a week). `deployed` is when the
-  first successful production deployment that started at or after the merge
-  finished, filled in by a later run when the deploy comes after. No body,
+  first production release that started at or after the merge finished: a
+  successful run of the deploy workflow, or a deployment still marked
+  success, filled in by a later run when the deploy comes after. A
+  deployment alone is not enough: GitHub marks every older production
+  deployment `inactive`, stamped when it was superseded, so matching only
+  `success` gave every pull request the one live deployment and open to live
+  read days (2026-11-25). A time already kept is checked again once the
+  releases kept reach back to its merge. No body,
   review, comment, commit message or file is read.
 - **Connecting answers at once; the first run happens behind it**
   (2026-11-25, after production showed the first run taking about 95
