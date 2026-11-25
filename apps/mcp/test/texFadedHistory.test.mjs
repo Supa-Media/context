@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FADE, earlierFromLedger, faded } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
+import { FADE, earlierFromLedger, faded, wholeCharAt } from "../../../packages/tex/gateway/agent/ledgerHistory.js";
 
 const DAY = 86_400_000;
 const BEFORE = Date.UTC(2026, 10, 6, 9);
@@ -71,4 +71,15 @@ test("a 1:1 turn is shown its older days faded, today whole", async () => {
   assert.match(shown, /OLD-ANSWER y+… \[cut\]/);
   assert.doesNotMatch(shown, /TAIL-OF-OLD/);
   assert.match(shown, /TAIL-OF-TODAY/, "today's texts are whole");
+});
+
+test("a clip never splits an emoji, so no lone surrogate reaches the model (2026-11-24: every job part 400'd)", () => {
+  const max = FADE[0].tex;
+  const text = `${"x".repeat(max - 1)}😀${"y".repeat(50)}`; // the emoji's first half is the last character a cut at max keeps
+  const shown = faded({ at: BEFORE - 3 * DAY, from: { kind: "tex" }, text }, BEFORE).text;
+  assert.equal(shown, `${"x".repeat(max - 1)}… [cut]`, "the emoji is dropped whole, not halved");
+  assert.equal(shown.isWellFormed(), true);
+  assert.equal(wholeCharAt("ab", 2), 2);
+  assert.equal(wholeCharAt("a😀", 2), 1);
+  assert.equal(wholeCharAt("a😀", 3), 3);
 });

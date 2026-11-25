@@ -45,7 +45,7 @@ const RETRY_CALL_MS = 2_000;
 const NOT_RETRIED = new Set([400, 401, 403]);
 
 /** Why a model call failed, as the trace keeps it: the provider's own phrase and, through the gateway, each payer asked and its status (`aiGateway.js`). */
-const failedWhy = (error) => ({ ...(typeof error?.reason === "string" ? { reason: error.reason } : {}), ...(Array.isArray(error?.payers) && error.payers.length > 0 ? { payers: error.payers } : {}) });
+const failedWhy = (error) => ({ ...(typeof error?.reason === "string" ? { reason: error.reason } : {}), ...(error?.shape ? { shape: error.shape } : {}), ...(Array.isArray(error?.payers) && error.payers.length > 0 ? { payers: error.payers } : {}) });
 import { BROWSE_TIMED_OUT, BROWSE_TOOL } from "./computer.js";
 import { turnPrompt } from "./turnPrompt.js";
 import { pickTier } from "./router.js";

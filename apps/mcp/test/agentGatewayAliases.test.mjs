@@ -26,7 +26,7 @@ function scripted(replies) {
   const queue = [...replies];
   const calls = [];
   const fetchImpl = async (url, init) => {
-    calls.push({ url, headers: { ...init.headers } });
+    calls.push({ url, headers: { ...init.headers }, body: init.body });
     const next = queue.shift();
     if (!next) throw new Error("fixture: the script ran out");
     return new Response(JSON.stringify(next.body), { status: next.status, headers: { "content-type": "application/json" } });
@@ -209,9 +209,9 @@ export async function runAgentGatewayAliasChecks(check) {
     "a call every payer refused fails naming each payer and its status, and nothing else",
     thrown?.status === 402 &&
       JSON.stringify(thrown.payers) === JSON.stringify([
-        { payer: "alias:first-credits", status: 400 },
-        { payer: "alias:second_credits", status: 400 },
-        { payer: "plan", status: 402 },
+        { payer: "alias:first-credits", status: 400, shape: { type: "invalid_request_error" } },
+        { payer: "alias:second_credits", status: 400, shape: { type: "invalid_request_error" } },
+        { payer: "plan", status: 402, shape: { type: "invalid_request_error" } },
         { payer: "unified", status: 402 },
       ]) &&
       !JSON.stringify(thrown.payers).includes(CREDIT) && !JSON.stringify(thrown.payers).includes("SECRET-QUESTION"),
@@ -230,6 +230,36 @@ export async function runAgentGatewayAliasChecks(check) {
   check(
     "a payer resting from spent credit is named as skipped, not asked",
     refusedAll.calls.length === 4 && resting?.payers?.some((p) => p.payer === "plan" && p.skipped === true) === true && resting.payers.at(-1).payer === "unified",
+  );
+
+  // 2026-11-24: every job part in one chat failed "status 400" from every payer, and nothing kept said why. The refusal's
+  // shape is kept (its type, the field it names, known causes), never its words, which can quote the question.
+  resetCreditState();
+  const badRequest = { status: 400, body: { type: "error", error: { type: "invalid_request_error", message: `messages.3.content.0.text: text content blocks must be non-empty (you said ${QUESTION})` } } };
+  const refusedShape = scripted([badRequest, badRequest, badRequest, badRequest]);
+  let shaped = null;
+  try {
+    await requestViaGateway(CALL, aliased, { fetchImpl: refusedShape.fetchImpl, now: () => T0 + 2, wait: async () => {} });
+  } catch (error) {
+    shaped = error;
+  }
+  const expectedShape = { type: "invalid_request_error", at: "messages.3.content.0", causes: ["empty_text"] };
+  check(
+    "a refused request keeps the refusal's shape (type, field, cause) on the error and each payer, and never its words",
+    shaped?.status === 400 &&
+      JSON.stringify(shaped.shape) === JSON.stringify({ ...expectedShape, at: "messages.3.content.0.text" }) &&
+      shaped.payers.every((p) => JSON.stringify(p.shape) === JSON.stringify({ ...expectedShape, at: "messages.3.content.0.text" })) &&
+      !JSON.stringify({ shape: shaped.shape, payers: shaped.payers }).includes("SECRET-QUESTION") &&
+      !JSON.stringify({ shape: shaped.shape, payers: shaped.payers }).includes("you said"),
+  );
+
+  // An emoji cut in two upstream leaves a lone surrogate, which the provider refuses for the whole request: it goes as U+FFFD.
+  resetCreditState();
+  const halved = scripted([{ status: 200, body: answer("fine") }]);
+  await requestViaGateway({ ...CALL, messages: [{ role: "user", text: "smile \ud83d" }] }, aliased, { fetchImpl: halved.fetchImpl, now: () => T0 + 3 });
+  check(
+    "a lone surrogate in the request is sent as U+FFFD, never as half a pair",
+    typeof halved.calls[0]?.body === "string" && !halved.calls[0].body.includes("\\ud83d") && halved.calls[0].body.includes("smile \ufffd"),
   );
 
   // The round names the payer whose answer it used (`turn.js` keeps it on the model round): the cache is per Anthropic
