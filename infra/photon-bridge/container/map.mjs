@@ -227,6 +227,8 @@ function stickerPlaced(event, line, extras) {
       targetPart: Number.isInteger(event.targetPartIndex) ? event.targetPartIndex : undefined,
       targetText: extras.targetText,
       targetFromMe: extras.targetFromMe,
+      // The sticker's own attachment on the line, so Tex can stick the same one again (`sticker` op).
+      sticker: typeof event.sticker?.guid === "string" && event.sticker.guid !== "" ? event.sticker.guid : undefined,
     }),
   });
 }

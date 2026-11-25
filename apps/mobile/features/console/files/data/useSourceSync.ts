@@ -13,7 +13,9 @@ import { useConsoleGrant } from "../../../agent/useConsoleGrant";
 import { useOptionalConsoleData } from "../../ConsoleDataContext";
 import { selectedContext } from "../../types";
 import { MCP_ENDPOINT } from "../../placeholderData";
+import { Platform } from "react-native";
 import { callDataSync, dataSyncUrl, syncStateOf, type DataSyncBody, type SourceSync } from "./dataSync";
+import { githubCalls, type GithubCalls } from "./githubSync";
 import type { DataSource } from "./sources";
 import type { SyncState } from "./words";
 
@@ -26,10 +28,14 @@ export interface SourceSyncs {
   readonly connect?: (aboutPath: string, key: string, account?: string) => Promise<string | null>;
   /** An owner's Disconnect: the app's key forgotten and its sources stopped. Absent for anyone else. */
   readonly disconnect?: (app: string) => Promise<string | null>;
+  /** An owner's GitHub install and repository pick (`githubSync.ts`), on the web only. Absent for anyone else. */
+  readonly github?: GithubCalls;
+  /** Ask again how the sources' last runs went: after GitHub finished in another window. */
+  readonly refresh: () => void;
 }
 
 /** The sources whose runs the sync object keeps: a url source's, and an app's an owner connected. */
-const SYNCED = new Set(["fetch", "stripe", "cloudflare"]);
+const SYNCED = new Set(["fetch", "stripe", "cloudflare", "github"]);
 
 export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   const data = useOptionalConsoleData();
@@ -54,6 +60,15 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
     [url, workspaceId, mint],
   );
 
+  const [asked, setAsked] = useState(0);
+  const github = useMemo(
+    () =>
+      url === null || workspaceId === null || current?.role !== "owner" || Platform.OS !== "web"
+        ? undefined
+        : githubCalls({ url, workspaceId, token: async (refresh) => (await mint({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken }),
+    [url, workspaceId, current?.role, mint],
+  );
+
   const fetched = useMemo(() => sources.filter((source) => SYNCED.has(source.kind) && source.about !== null).map((source) => source.aboutPath), [sources]);
   const key = fetched.join("\n");
   useEffect(() => {
@@ -73,7 +88,7 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
     };
     // `key` stands for the list of paths, so a new array with the same paths asks nothing again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, url, ask]);
+  }, [key, url, ask, asked]);
 
   const arm = useCallback(
     async (aboutPath: string): Promise<string | null> => {
@@ -131,5 +146,11 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
     [ask, sources],
   );
 
-  return { syncOf: (folder) => byFolder.get(folder), ...(mayArm ? { arm } : {}), ...(mayConnect ? { connect, disconnect } : {}) };
+  return {
+    syncOf: (folder) => byFolder.get(folder),
+    ...(mayArm ? { arm } : {}),
+    ...(mayConnect ? { connect, disconnect } : {}),
+    ...(github === undefined ? {} : { github }),
+    refresh: () => setAsked((n) => n + 1),
+  };
 }

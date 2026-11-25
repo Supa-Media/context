@@ -5,7 +5,7 @@
  * steps in Grid). An edit opens in the bubble itself. Each runs as the Grid's ⋯ does, through the test chat's ops.
  */
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { dropText, editText, reactTo, retryText, TAPBACKS, unsendText, useSandbox } from "../../../engine/sandbox";
+import { dropText, editText, reactTo, retryText, stickOn, TAPBACKS, unsendText, useSandbox } from "../../../engine/sandbox";
 import { pickStep, setDockView } from "../../../engine/sandboxPlay";
 import { firstName } from "./worldModel";
 import { texTags } from "./texSends";
@@ -278,6 +278,9 @@ export function BubbleView({ b, tail, onReply }: { b: Bubble; tail: boolean; nam
               {e}
             </button>
           ))}
+          <button data-tap="sticker" title="Stick a sticker" onClick={() => (close(), void stickOn(r.id))}>
+            🏷️
+          </button>
           <input className="anyin" aria-label="Any emoji" title="Any emoji" placeholder="☺︎" value={any} onChange={(e) => setAny(e.target.value)} onKeyDown={(e) => e.key === "Enter" && any.trim() && (react(any.trim()), setAny(""))} />
           <span className="asw">as {as}</span>
         </div>

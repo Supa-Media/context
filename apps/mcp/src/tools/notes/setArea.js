@@ -69,7 +69,7 @@ async function openNote(store, scope, rules, overrides, path) {
 }
 
 /** Applies `[key, value]` changes to one note (made when `create`), with one retry on a concurrent edit. */
-async function change(store, scope, rules, overrides, path, changes, { create = false } = {}) {
+async function change(store, scope, rules, overrides, path, changes, { create = false, images } = {}) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const opened = await openNote(store, scope, rules, overrides, path);
     if (opened.error) return { error: `${path}: ${opened.error}. Check the area's path with orient { area }, then try again.` };
@@ -81,7 +81,7 @@ async function change(store, scope, rules, overrides, path, changes, { create = 
       text = next.text;
     }
     if (!opened.missing && text === opened.body) return { unchanged: true };
-    const written = await toolWriteNote(store, scope, rules, overrides, { path, content: text, ...(opened.etag ? { expected_etag: opened.etag } : {}) });
+    const written = await toolWriteNote(store, scope, rules, overrides, { path, content: text, ...(opened.etag ? { expected_etag: opened.etag } : {}), ...(images ? { images } : {}) });
     if (written.isError && textOf(written).startsWith("conflict") && attempt === 0) continue;
     if (written.isError) return { error: `${path}: ${textOf(written)}. Read the note, then try again.` };
     return { wrote: true, created: opened.missing === true };
@@ -135,6 +135,20 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     if (line.error) return toolError(`invalid: ${key} is a person's @handle or a bot's name, on one line. Pass it that way, then try again.`);
     if (!line.skip) seat.push([key, line.value]);
   }
+  // A person is never a helper to a bot (the owner, 2026-11-25): either a person owns and delegates to a bot, or a bot
+  // owns outright. People are @handles; a bot is a name.
+  const isPerson = (word) => typeof word === "string" && word.trim().startsWith("@");
+  const isBot = (word) => typeof word === "string" && word.trim() !== "" && !isPerson(word);
+  const helperAsked = seat.find(([key]) => key === "helper");
+  const ownerAsked = seat.find(([key]) => key === "owner");
+  const owner = ownerAsked ? ownerAsked[1] : (await factProps(store, [`${area}/about.md`]))?.get(`${area}/about.md`)?.props?.properties?.owner;
+  if (isBot(owner) && isPerson(helperAsked?.[1])) {
+    return toolError(
+      `refused: a person is never a helper to a bot. Make ${helperAsked[1]} the owner with ${owner} as their delegate (owner: "${helperAsked[1]}", delegate: { person: "${helperAsked[1]}", to: "${owner}" }), or leave out the helper, then try again.`,
+    );
+  }
+  // A bot taking the area holds it outright: any helper goes, as the panel does.
+  if (ownerAsked && isBot(owner) && helperAsked === undefined) seat.push(["helper", null]);
   if (args.modes !== undefined) {
     const asked = Array.isArray(args.modes) ? args.modes : [];
     const modes = knownModes(asked);
@@ -153,18 +167,18 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     if (args.metric === null || args.metric?.name === null || args.metric?.name === "") {
       seat.push(["metrics", null], ["metric", null], ["target", null]);
     } else {
-      const name = typeof args.metric?.name === "string" ? args.metric.name.trim() : "";
-      if (name === "") return toolError("invalid: metric is { name, target? }. Pass the name of a metric in the data folder's metrics/.");
-      const known = await metricNames(store, scope, rules, overrides);
-      const match = known?.find((existing) => metricKey(existing) === metricKey(name));
-      if (known !== null && match === undefined) {
-        return toolError(
-          known.length === 0
-            ? `no metric named "${name}": this workspace has no metrics yet; write one in the data folder's metrics/ first`
-            : `no metric named "${name}"; the metrics here are: ${known.join(", ")}`,
-        );
-      }
-      seat.push(["metrics", [metricLine(match ?? name, args.metric.target)]], ["metric", null], ["target", null]);
+        const name = typeof args.metric?.name === "string" ? args.metric.name.trim() : "";
+        if (name === "") return toolError("invalid: metric is { name, target? }. Pass the name of a metric in the data folder's metrics/.");
+        const known = await metricNames(store, scope, rules, overrides);
+        const match = known?.find((existing) => metricKey(existing) === metricKey(name));
+        if (known !== null && match === undefined) {
+          return toolError(
+            known.length === 0
+              ? `no metric named "${name}": this workspace has no metrics yet; write one in the data folder's metrics/ first`
+              : `no metric named "${name}"; the metrics here are: ${known.join(", ")}`,
+          );
+        }
+        seat.push(["metrics", [metricLine(match ?? name, args.metric.target)]], ["metric", null], ["target", null]);
     }
   }
   if (seat.length > 0) {
@@ -186,10 +200,20 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const card = [["holder", name], ["kind", "agent"], ["bot", kind]];
     if (whose !== undefined) card.push(["belongs_to", whose === "" ? null : whose]);
     if (bot.reach !== undefined) card.push(["reach", bot.reach]);
+    // Its logo, stored in the workspace by the write itself: `avatar:` names it, as a page's photo: does (`uploadedImages.js`).
+    let images;
+    if (bot.avatar !== undefined) {
+      const from = bot.avatar ?? {};
+      const url = typeof from.url === "string" ? from.url.trim() : "";
+      const data = typeof from.data === "string" ? from.data.trim() : "";
+      if ((url === "") === (data === "")) return toolError("invalid: bot.avatar takes url (an https address) or data (base64), one of them. Pass one, then try again.");
+      card.push(["avatar", "logo"]);
+      images = [{ name: "logo", ...(url !== "" ? { url } : { data }) }];
+    }
     const people = `${root}/people`;
     const peopleAbout = await openNote(store, scope, rules, overrides, `${people}/about.md`);
     if (peopleAbout.missing) await change(store, scope, rules, overrides, `${people}/about.md`, [["area", "false"]], { create: true });
-    const wrote = await change(store, scope, rules, overrides, `${people}/${cardSlug(name)}.md`, card, { create: true });
+    const wrote = await change(store, scope, rules, overrides, `${people}/${cardSlug(name)}.md`, card, { create: true, images });
     if (wrote.error) return toolError(wrote.error);
     const listing = await openNote(store, scope, rules, overrides, `${root}/about.md`);
     const agents = (await factProps(store, [`${root}/about.md`]))?.get(`${root}/about.md`)?.props?.properties?.agents;
@@ -198,7 +222,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
       const added = await change(store, scope, rules, overrides, `${root}/about.md`, [["agents", [...have, name]]], { create: true });
       if (added.error) problems.push(added.error);
     }
-    done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""} (card ${people}/${cardSlug(name)}.md)`);
+    done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""}${images ? ", with its logo" : ""} (card ${people}/${cardSlug(name)}.md)`);
   }
 
   // A person's delegate: who answers for them.
@@ -221,16 +245,31 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   if (args.webhook !== undefined) {
     const hook = args.webhook ?? {};
     if (typeof hook.address !== "string") return toolError("invalid: webhook is { address, header?, signing_key? }. Pass the bot's https address.");
-    const answer = await store
-      .botHooks({ action: "set", bot: hookBot, address: hook.address, ...(hook.header ? { header: String(hook.header) } : {}), ...(hook.signing_key ? { signingKey: String(hook.signing_key) } : {}) })
-      .catch(() => ({ error: "the control plane could not be reached; try again" }));
-    if (answer?.error) return toolError(`webhook not saved: ${answer.error} Fix that, then try again.`);
-    done.push(
-      `${hookBot}: webhook saved sealed for ${answer.host}${answer.headerEnds ? ` (header ends ${answer.headerEnds})` : ""}. ` +
-        (answer.keyMade
-          ? "Context made its signing key, which nobody can see: to let the bot check signatures, set one with webhook.signing_key (ctxbot_ and 64 hex characters from a random source) or press Replace on the area panel."
-          : "Calls are signed with the key you passed."),
-    );
+    if (hook.header_from_shell !== undefined) {
+      // The bot sends the header's value itself, from its shell, so no model or chat sees it (`http/botHookUpload.js`).
+      const headerName = String(hook.header_from_shell).trim();
+      if (hook.header || hook.signing_key) return toolError("invalid: header_from_shell replaces header and signing_key. Leave those out, pass only the header's name (Authorization), then try again.");
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(headerName)) return toolError("invalid: header_from_shell is the header's name, like Authorization. Pass just the name, then try again.");
+      if (typeof store.botHookUrl !== "string") return toolError("sending a header from a shell isn't available on this connection. Ask the person to set it in the Context app's area panel, under the bot's Reach.");
+      const minted = await store.botHooks({ action: "ticket", bot: hookBot, address: hook.address, headerName }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try again." }));
+      if (minted?.error || typeof minted?.ticket !== "string") return toolError(`webhook not saved: ${minted?.error ?? "no command was made."} Fix that, then try again.`);
+      done.push(
+        `${hookBot}: nothing saved yet. Run this once in your shell within ${minted.minutes ?? 10} minutes, with $WEBHOOK_SECRET replaced by the environment variable that holds your secret (keep the double quotes, and never print it):\n` +
+          `  curl -sS --fail-with-body -X PUT -H 'Authorization: Bearer ${minted.ticket}' --data-binary "Bearer $WEBHOOK_SECRET" ${store.botHookUrl}\n` +
+          `It sends ${headerName}: Bearer <your secret> straight to Context, which seals it; drop "Bearer " if your webhook takes the bare secret. Then call manage area with test_webhook: "${hookBot}".`,
+      );
+    } else {
+      const answer = await store
+        .botHooks({ action: "set", bot: hookBot, address: hook.address, ...(hook.header ? { header: String(hook.header) } : {}), ...(hook.signing_key ? { signingKey: String(hook.signing_key) } : {}) })
+        .catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try again." }));
+      if (answer?.error) return toolError(`webhook not saved: ${answer.error} Fix that, then try again.`);
+      done.push(
+        `${hookBot}: webhook saved sealed for ${answer.host}${answer.headerEnds ? ` (header ends ${answer.headerEnds})` : ""}. ` +
+          (answer.keyMade
+            ? "Context made its signing key, which nobody can see: to let the bot check signatures, set one with webhook.signing_key (ctxbot_ and 64 hex characters from a random source) or press Replace on the area panel."
+            : "Calls are signed with the key you passed."),
+      );
+    }
   }
   if (args.test_webhook !== undefined) {
     const answer = await store.botHooks({ action: "test", bot: hookBot }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try test_webhook again." }));

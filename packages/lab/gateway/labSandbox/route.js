@@ -73,7 +73,7 @@ import { draftFit, TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
 import { intake } from "./intake.js";
 import { richText } from "./rich.js";
-import { inboundEvent, picsOf, reactionOf, TAPBACK_OF, targetOf } from "./inbound.js";
+import { inboundEvent, picsOf, reactionOf, STICKER_ROW, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
 import { addTex } from "./added.js";
 import { sandboxAsset } from "./pages.js";
@@ -418,9 +418,10 @@ async function send(deps, state, { as, text: typed = "", pics: given, replyTo, a
   return await addRow({ ...deps, state, row: burst.rows.length > 0 ? { ...row, also: burst.rows.map((r) => r.id) } : row, cut, also: burst.rows });
 }
 
-/** `react`: a tapback on a row with words, handed to the chat object as Tex's line hands one over. */
-async function react(deps, state, { msgId, emoji, as }, cut = null) {
-  if (typeof emoji !== "string" || !TAPBACK_OF[emoji]) return refused(400, `emoji is one of ${Object.keys(TAPBACK_OF).join(" ")}`);
+/** `react`: a tapback on a row with words, as Tex's line hands one over (noted or answered is the chat object's call); `sticker: true` sticks a made-up one. */
+async function react(deps, state, { msgId, emoji, as, sticker }, cut = null) {
+  if (sticker === true) emoji = STICKER_ROW;
+  else if (typeof emoji !== "string" || !TAPBACK_OF[emoji]) return refused(400, `emoji is one of ${Object.keys(TAPBACK_OF).join(" ")}, or pass sticker: true`);
   const target = targetOf(state.rows, msgId, "tapped");
   if (target.error) return refused(...target.error);
   const about = state.meta.chat;
@@ -429,8 +430,7 @@ async function react(deps, state, { msgId, emoji, as }, cut = null) {
   if (speaker.error) return refused(...speaker.error);
   const read = await reactionOf({ about, target: target.row, emoji, as: speaker.speaker, rows: state.rows });
   const { at, eid, id } = newIds();
-  // Its line is how the chat shows it; whether it is noted or answered is the chat object's call (`reactions.ts`).
-  const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false, line: rowLine(lineOf(about)) };
+  const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false, line: rowLine(lineOf(about)), ...(sticker === true ? { sticker: `lab-sticker-${id}` } : {}) };
   return await addRow({ ...deps, state, row, cut });
 }
 

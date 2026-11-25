@@ -150,10 +150,49 @@ implement this" of the data sources boards.*
   reads from three days before its newest row to now, then carries the
   history back toward 400 days, each window capped at half of 50 pages.
 
+## GitHub: an App the owner installs, no token kept
+
+*Built 2026-11-25 (stage F), once the owner made the read-only GitHub App
+("Context Data") and set its five secrets. GitHub forbids secret names that
+start with `GITHUB_`, so they are `GH_DATA_APP_ID`, `GH_DATA_APP_SLUG`,
+`GH_DATA_CLIENT_ID`, `GH_DATA_CLIENT_SECRET` and `GH_DATA_PRIVATE_KEY`, set in
+GitHub by the owner, never synced from the vault, and pushed to the production
+gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
+
+- **Installed, not pasted.** The owner's Connect GitHub asks the gateway for
+  GitHub's install page with a `state` signed (HMAC under its own label from
+  the gateway secret) for this workspace, this owner and this source, for 30
+  minutes. GitHub sends the owner's window back to
+  `https://context.lc/data/github/callback`, which hands the code, the
+  installation and the state to the console tab that opened it on a
+  same-origin `BroadcastChannel`, and stores nothing. The console tab, signed
+  in as the owner, finishes it: the gateway refuses a state that isn't that
+  owner's own for that workspace, trades the code for the owner's GitHub
+  token, keeps the installation only if GitHub lists it among the ones that
+  person can reach, and then revokes that token. An installation id from
+  somebody else's link binds nothing. Pasting a key for GitHub is refused.
+- **What is kept**, sealed in the sync object like an app key: the
+  installation id and the repositories picked (none picked reads every one the
+  installation was given, at most 10). Never a token: each run mints an
+  installation token from the App's key, narrowed to read-only Metadata, Pull
+  requests, Deployments and Actions whatever the App is later given. An
+  uninstalled App refuses the mint and the source stops.
+- **Three sheets**: `pull-requests.csv` (kept 400 days; recent ones by
+  update, history carried back toward 90 days a slice a run through search),
+  `deploys.csv` (production deployments only, kept 90 days) and
+  `workflow-runs.csv` (finished runs on the default branch, kept 30 days,
+  because a busy repository runs thousands a week). `deployed` is when the
+  first successful production deployment that started at or after the merge
+  finished, filled in by a later run when the deploy comes after. No body,
+  review, comment, commit message or file is read.
+- **Web and desktop only** for the install itself, since it needs a window
+  and a same-origin channel; the phone shows the source and its sheets.
+
 **What a simplification would cost.** A key in `about.md`, the vault or a log
 is readable by anyone who reads those; reading the app from `about.md`'s
 `source:` alone would let an editor send one app's key to another. Tests:
 `apps/mcp/test/dataSyncApps.test.mjs`, `apps/mcp/test/dataSyncStripe.test.mjs`,
+`apps/mcp/test/dataSyncGithub.test.mjs`, `apps/mobile/__tests__/dataSyncGithub.test.ts`,
 `apps/mobile/__tests__/dataSyncApps.test.ts`, and `--self-test` of the guard.
 
 ## What stage B draws, and what it leaves out

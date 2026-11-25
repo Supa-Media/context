@@ -191,4 +191,64 @@ describe("a bot's webhook", () => {
     // The key Context made is sealed like one typed in the app: the call is signed with something.
     expect(seen[0]!.headers.get("x-context-signature")).toMatch(/^v1=[0-9a-f]{64}$/);
   });
+
+  test("a bot hands over its header from its shell: one ticket, once, for the webhook it names, as the person who minted it", async () => {
+    // The owner, 2026-11-25: a Grok bot holds its secret in an environment variable and may not see it.
+    const seen = stubNet();
+    const { t, ana, kim, supa } = await world();
+    await registerClient(t, "mcp_client_bots");
+    const ANA = token("bots_ana2");
+    const KIM = token("bots_kim2");
+    await seedConnectedClient(t, { workspaceId: supa, userId: ana, clientId: "mcp_client_bots", accessToken: ANA });
+    await seedConnectedClient(t, { workspaceId: supa, userId: kim, clientId: "mcp_client_bots", accessToken: KIM });
+    const door = async (accessToken: string, body: Record<string, unknown>) =>
+      await (await gatewayPost(t, "/gateway/bots/hook", { accessToken, expectedWorkspaceId: String(supa), ...body })).json();
+    const spend = async (body: Record<string, unknown>, secret?: string) =>
+      await gatewayPost(t, "/gateway/bots/hook-ticket", body, secret === undefined ? {} : { secret });
+    const ask = { action: "ticket", bot: "Pipeline", address: HOOK, headerName: "Authorization" };
+
+    // A member can't mint one; a bad address or header name is refused before any ticket exists.
+    expect(await door(KIM, ask)).toEqual({ error: expect.stringContaining("owner or editor") });
+    expect(await door(ANA, { ...ask, address: "http://bot.example.com/x" })).toEqual({ error: expect.any(String) });
+    expect(await door(ANA, { ...ask, headerName: "Authorization: Bearer x" })).toEqual({ error: expect.any(String) });
+    expect(await t.run((ctx) => ctx.db.query("botHookTickets").collect())).toHaveLength(0);
+
+    const minted = await door(ANA, ask);
+    expect(minted).toEqual({ ticket: expect.stringMatching(/^[A-Za-z0-9_-]{16,256}$/), minutes: 10 });
+    // Only its hash is kept.
+    expect(JSON.stringify(await t.run((ctx) => ctx.db.query("botHookTickets").collect()))).not.toContain(minted.ticket);
+
+    expect((await spend({ ticket: minted.ticket, value: "Bearer grok-secret-fbb2" }, "wrong-secret-0000000000")).status).toBe(401);
+    expect(await (await spend({ ticket: "not-a-ticket-at-all-0000", value: "Bearer x" })).json()).toEqual({ error: expect.any(String) });
+    const saved = await (await spend({ ticket: minted.ticket, value: "Bearer grok-secret-fbb2" })).json();
+    expect(saved).toEqual({ host: "bot.example.com", headerEnds: "fbb2" });
+    // Once only.
+    expect(await (await spend({ ticket: minted.ticket, value: "Bearer other" })).json()).toEqual({ error: expect.stringContaining("already used") });
+    const [row] = await t.run((ctx) => ctx.db.query("botHooks").collect());
+    expect(row).toMatchObject({ bot: "pipeline", host: "bot.example.com", headerEnds: "fbb2", setBy: ana });
+    expect(JSON.stringify(row)).not.toContain("grok-secret");
+
+    // The header goes on the call, and the call is signed with a key nobody saw.
+    expect(await door(ANA, { action: "test", bot: "Pipeline" })).toEqual({ ok: true, status: 200 });
+    expect(seen.at(-1)!.headers.get("authorization")).toBe("Bearer grok-secret-fbb2");
+    expect(seen.at(-1)!.headers.get("x-context-signature")).toMatch(/^v1=[0-9a-f]{64}$/);
+
+    // A ticket whose grant was revoked spends nothing, nor one whose person lost the role.
+    const revoked = await door(ANA, ask);
+    const grants = await t.run((ctx) => ctx.db.query("oauthGrants").collect());
+    await t.run(async (ctx) => {
+      for (const grant of grants.filter((each) => each.userId === ana)) await ctx.db.patch(grant._id, { status: "revoked" });
+    });
+    expect(await (await spend({ ticket: revoked.ticket, value: "Bearer revoked" })).json()).toEqual({ error: expect.any(String) });
+    await t.run(async (ctx) => {
+      for (const grant of grants.filter((each) => each.userId === ana)) await ctx.db.patch(grant._id, { status: "active" });
+    });
+    const again = await door(ANA, ask);
+    await t.run(async (ctx) => {
+      const member = await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", supa).eq("userId", ana)).unique();
+      await ctx.db.patch(member!._id, { role: "member" });
+    });
+    expect(await (await spend({ ticket: again.ticket, value: "Bearer later" })).json()).toEqual({ error: expect.any(String) });
+    expect((await t.run((ctx) => ctx.db.query("botHooks").collect()))[0]).toMatchObject({ headerEnds: "fbb2" });
+  });
 });

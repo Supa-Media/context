@@ -108,6 +108,12 @@ export interface Card {
   readonly bot: string;
   readonly belongsTo: string;
   readonly reach: ReachKind;
+  /**
+   * A bot's logo: the name of a picture stored in the workspace, which the
+   * bot puts there itself on its first session, or anyone who can edit the
+   * card uploads (the owner, 2026-11-25). "" draws the robot.
+   */
+  readonly avatar: string;
 }
 
 const inside = (folder: string) => (folder === "" ? "" : `${folder}/`);
@@ -379,6 +385,7 @@ export function cardOf(holder: string, kind: Card["kind"], root: string, notes: 
     bot: botKind(text(props.bot)),
     belongsTo: text(props.belongs_to),
     reach: reachKind(text(props.reach)),
+    avatar: text(props.avatar),
     creates: note === null,
   };
 }
@@ -401,6 +408,7 @@ export function cardChanges(card: Card): Change[] {
     ["bot", person ? null : v(card.bot)],
     ["belongs_to", person || card.bot.trim() === "" ? null : v(card.belongsTo)],
     ["reach", person || card.bot.trim() === "" ? null : card.reach],
+    ["avatar", person ? null : v(card.avatar)],
   ];
 }
 

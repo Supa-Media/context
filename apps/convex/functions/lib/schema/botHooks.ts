@@ -29,4 +29,24 @@ export const botHookTables = {
     /** The bot's HTTP status, or 0 when it could not be reached. */
     lastCallStatus: v.optional(v.number()),
   }).index("by_workspace_bot", ["workspaceId", "bot"]),
+  /**
+   * A one-time ticket a bot spends from its own shell to hand Context its
+   * webhook's header (`functions/botHookTickets.ts`): minted by `manage area`
+   * for one bot, address and header name, good for ten minutes, once. The
+   * ticket and the token that minted it are kept only as hashes; the header's
+   * value never touches this row.
+   */
+  botHookTickets: defineTable({
+    hashedTicket: v.string(),
+    hashedAccessToken: v.string(),
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    bot: v.string(),
+    address: v.string(),
+    headerName: v.string(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_hashed_ticket", ["hashedTicket"])
+    .index("by_workspace_expires", ["workspaceId", "expiresAt"]),
 };

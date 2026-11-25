@@ -31,6 +31,10 @@ import { eventEntry } from "../fromGateway/agent_ledger.js";
 export const SANDBOX_EVENT_CHAT = "labsandbox";
 /** Messages' six tapbacks, by the emoji the Lab sends, named as the Worker reads them (`reactions.ts` `EMOJI`). */
 export const TAPBACK_OF = Object.freeze({ "❤️": "Loved", "👍": "Liked", "👎": "Disliked", "😂": "Laughed at", "‼️": "Emphasized", "❓": "Questioned" });
+/** A sticker's row in a test chat: its `emoji` (drawn on the text it is on), read as Photon's line reads a placed one. */
+export const STICKER_ROW = "sticker";
+/** How Photon's line reads a placed sticker before the chat object keeps it (`photonInbound.ts` `STICKER`). */
+const STICKER_WORDS = "with a sticker";
 /** The group chat lines a turn is handed, at most. */
 const CHAT_LINES = 30;
 /** Redirects a picture may take, each checked again (`remoteImage.cjs`). */
@@ -141,9 +145,10 @@ function askerOf(rows, target) {
  */
 export async function reactionOf({ about, target, emoji, as, rows }) {
   const w = await worker();
-  const how = TAPBACK_OF[emoji];
+  const sticker = emoji === STICKER_ROW;
+  const how = sticker ? "Reacted" : TAPBACK_OF[emoji];
   const words = String(target.text ?? "").trim().slice(0, w.MAX_QUOTED_TEXT);
-  const reaction = { how, words };
+  const reaction = { how, words, ...(sticker ? { emoji: STICKER_WORDS } : {}) };
   const onTex = target.who === "Tex";
   const line = w.reactionLine(reaction, onTex);
   const asTapback = { question: w.tapbackText(how), quoted: words, tapback: how };

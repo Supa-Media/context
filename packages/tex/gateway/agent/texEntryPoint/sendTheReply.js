@@ -59,7 +59,7 @@ export async function sendTheReply(t) {
   const { answered, attachments, background, begun, body, builtinUsed, chatLog, claims, controlPlane, conversation, dispatch, env, front, group, history, hot, inThread, job, keepPictures, learned, ledger, ledgerTurn, meter, offered, opened, production, replyPlace, question, quoted, reacted, received, report, router, runner, session, steer, store, tex, textingWriting, timeZone, turn } = t;
   // The words are Finish the text's (node "finish", `finishTheText.js`), made before this step when the config wires it;
   // a turn that did not run it (a draft without the step) finishes them here, the same way.
-  const { crossAskRun, tapped, hushed, quiet, silent, pictures, captions, choices, offers, verbatim, offerText, answer, sent, under } = t.finished ?? (await tex.step("finish_text", () => finishTheText(t)));
+  const { crossAskRun, tapped, stuck = null, hushed, quiet, silent, pictures, captions, choices, offers, verbatim, offerText, answer, sent, under } = t.finished ?? (await tex.step("finish_text", () => finishTheText(t)));
   // A turn no text of theirs asked (a job's report, a vault save) keeps the gateway's line it was asked, so the chat rebuilt from the ledger shows what Tex answered.
   const eventAsked = report !== null || t.crossChat || question === VAULT_SAVED_QUESTION || question === HANDED_BACK_QUESTION ? String(question).slice(0, 2_000) : null;
   // What the person's chat rebuilt from the ledger shows beside this answer (`ledgerConversation.js`): the files they sent and where a picture is kept, the pages it read, the thread it was typed in.
@@ -86,8 +86,8 @@ export async function sendTheReply(t) {
   const connecting = connectInput({ steps: turn.steps, question, ledger, group });
   if (connecting !== null && afterGraph.wired("send", "connect")) await tex.after("connect", async () => afterGraph.fire("send", "connect", connecting, afterCtx).catch(() => {}).then(() => chatLog?.flush()));
 
-  if (group !== null && job === null && !crossAskRun && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer || (tapped !== null ? tapbackSaidLine(tapped) : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
-  const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (tapped !== null ? tapbackSaidLine(tapped) : hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
+  if (group !== null && job === null && !crossAskRun && !turn.exhausted && !replaced && !(silent && answer === "")) await tex.behind(front, "save_group_chat", () => keepGroupExchange(store, group, history, question, [answer || (tapped !== null ? tapbackSaidLine(tapped, stuck) : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n"), { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), timing: groupTimingLine({ arrivedAt: body.arrivedAt, received, done: Date.now(), fixed: body.fixed }), dispatch }).catch(() => {})); // with its cards' words (`sentPicturesLine`)
+  const saving = conversation !== null && job === null && !turn.exhausted && !replaced, said = [answer || (tapped !== null ? tapbackSaidLine(tapped, stuck) : hushed ? QUIET_ACK_LINE : quiet ? QUIET_REPORT_LINE : ""), sentPicturesLine(pictures, captions)].filter(Boolean).join("\n");
   if (saving) await tex.behind(front, "save_chat", () => (async () => { // a job's answer is its report, never texted: only the coordinator's turn is kept as said (`jobReport.js`)
     try {
       // A caller other than the texting Worker (which posts every text both ways itself, `/agent/events`) keeps its exchange in the ledger, in the gateway's words.
@@ -104,7 +104,7 @@ export async function sendTheReply(t) {
   // "fix this" or frustration scores the conversation after the reply: the Self-review node, on Text them's background wire (`../graph/nodes/selfreview.js`).
   const reply = {
     answer: sent, ...((quiet || silent) && sent === "" ? { quiet: true } : {}), // nothing to text, as a flag the Worker reads, never a word (`jobReport.js`)
-    ...(hushed && report === null && sent === "" ? { react: tapped ?? "" } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
+    ...(hushed && report === null && sent === "" ? { react: tapped ?? "", ...(tapped !== null && stuck !== null ? { sticker: stuck } : {}) } : {}), // a tapback in place of a text: a job start's, the Worker's own pick from their words; the Worker checks the emoji (`reactEmoji.ts`)
     ...(under !== null ? { under } : {}), // which text each part goes under, when one turn answered several (`replyUnder.js`)
     ...(replyPlace === "under" || replyPlace === "plain" ? { place: replyPlace } : {}), // under the text it answers, or plain in the chat (`conversationThreads.js`)
     // How many held calls the answer's last line asks about, so a caller that

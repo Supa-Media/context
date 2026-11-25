@@ -209,3 +209,38 @@ export function appSourceFiles(dataFolder: string, app: ConnectApp, input: { key
 function appAboutText(app: ConnectApp): string {
   return ["---", `source: ${app}`, `name: ${JSON.stringify(APP_NAMES[app])}`, `dataset: ${APP_DATASETS[app]}`, "---", "", `${APP_LINES[app]} An owner connected it with a read-only key, which Context keeps sealed and never writes here.`, ""].join("\n");
 }
+
+/** GitHub's three datasets (`githubSync.ts` `GITHUB_DATASETS`), each a sheet beside its about.md. */
+const GITHUB_SHEETS = ["pull-requests", "deploys", "workflow-runs"] as const;
+
+export interface GithubSourceFiles {
+  readonly folder: string;
+  readonly aboutPath: string;
+  /** Only the files that aren't there yet: a source already made is connected again in place. */
+  readonly files: readonly { path: string; text: string }[];
+}
+
+/** GitHub's folder, its about.md and its three empty sheets, for an owner's Connect. No sign-in is ever written here. */
+export function githubSourceFiles(dataFolder: string, existing: DataSource | null, taken: ReadonlySet<string>): GithubSourceFiles {
+  const about = [
+    "---",
+    "source: github",
+    'name: "GitHub"',
+    "---",
+    "",
+    "Pull requests, production deploys and workflow runs, synced every hour. An owner installed Context's read-only GitHub App; Context keeps only which installation and repositories it reads, sealed, and never writes a sign-in here.",
+    "",
+  ].join("\n");
+  let folder = existing?.folder ?? `${dataFolder}/github`;
+  if (existing === null) {
+    let slug = "github";
+    for (let n = 2; [...taken].some((path) => path === `${dataFolder}/${slug}` || path.startsWith(`${dataFolder}/${slug}/`)) && n < 1000; n += 1) slug = `github-${n}`;
+    folder = `${dataFolder}/${slug}`;
+  }
+  const has = (path: string) => (existing?.datasets ?? []).some((each) => each.path === path);
+  const files = [
+    ...(existing?.about != null ? [] : [{ path: `${folder}/about.md`, text: about }]),
+    ...GITHUB_SHEETS.map((dataset) => ({ path: `${folder}/${dataset}.csv`, text: "" })).filter((file) => !has(file.path)),
+  ];
+  return { folder, aboutPath: `${folder}/about.md`, files };
+}

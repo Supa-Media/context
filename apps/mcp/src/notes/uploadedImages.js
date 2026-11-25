@@ -355,11 +355,12 @@ function rewriteCodeReferences(content, byName, embedded) {
 /**
  * A page (`.page.md`) names its pictures in fields, not embeds: `photo:
  * stand.jpg`, `photos: a.jpg, b.jpg`, `cover:` and a places block's `map:`
- * (`packages/shared/src/pages/`). Each value that is exactly an attached
- * name becomes the stored copy's name, so the page shows the picture where
+ * (`packages/shared/src/pages/`), and a bot's card names its logo in
+ * `avatar:` (the area bots, 2026-11-25). Each value that is exactly an
+ * attached name becomes the stored copy's name, so the picture shows where
  * the writer put it, and it is not tacked on below as an embed.
  */
-const PAGE_PICTURE_FIELD = /^([ \t]*(?:photos?|cover|map|drawing(?:-dark)?)[ \t]*:[ \t]*)(.+)$/gim;
+const PAGE_PICTURE_FIELD = /^([ \t]*(?:photos?|cover|map|avatar|drawing(?:-dark)?)[ \t]*:[ \t]*)(.+)$/gim;
 
 function rewritePageFields(content, byName, embedded) {
   return content.replace(PAGE_PICTURE_FIELD, (_, lead, value) => {
