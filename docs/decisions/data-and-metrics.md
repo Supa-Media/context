@@ -271,7 +271,7 @@ synced sheet says it is kept up to date (08),
   [credential-basics](./storage-and-credentials/credential-basics.md) to a
   scheduled run: the live membership checked by the object is the whole
   proof. Removing the person, or their edit role, stops the source at its next
-  run. *For the owner to confirm.*
+  run. Decided by the owner, 2026-11-24.
 - **A write is a non-person writer's, audited.** The sheet is written with a
   conditional put on the etag it read, as client `context_data_sync`
   ("Data sync") acting for the armer, and the audit records `data_sync` with
