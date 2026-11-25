@@ -18,6 +18,7 @@ import { warmTurn } from "../warmCopy.js";
 import { chatLedger, reportEntry } from "../workEntries.js";
 import { CHAT_ASK_EVENT, CHAT_ANSWER_EVENT } from "../crossChat.js";
 import { JOINED_EVENT } from "../joined.js";
+import { DID_EVENT } from "../did.js";
 import { gatewayGraph } from "../graph/gatewayGraph.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -83,7 +84,10 @@ export async function readTheText(t) {
   // Tex just added to a group (`../joined.js`): node "Tex added" gives its hello its line, a run of its own.
   const joined = await tex.step("joined", () => joinedEvent(body, { chatTurn, job, group, env, writer: store.ledger }));
   if (joined?.refused) return json(joined.refused);
-  let question = vaultSavedQuestion(body, chatEvent) ?? handedBackQuestion(body, chatEvent) ?? (report !== null ? jobReportQuestion(report) : null) ?? crossChat?.question ?? joined?.question ?? (typeof body.question === "string" ? body.question.trim() : "");
+  // What code did for the chat (`../did.js`): node "Tex did" hands the facts over as data, a run of its own.
+  const did = await tex.step("did", () => didEvent(body, { chatTurn, job, env, writer: store.ledger }));
+  if (did?.refused) return json(did.refused);
+  let question = vaultSavedQuestion(body, chatEvent) ?? handedBackQuestion(body, chatEvent) ?? (report !== null ? jobReportQuestion(report) : null) ?? crossChat?.question ?? joined?.question ?? did?.question ?? (typeof body.question === "string" ? body.question.trim() : "");
   Object.assign(t, { body, chatTurn, crossChat: crossChat?.event ?? null, crossPrompt: crossChat?.prompt ?? "", dispatch, group, hot, job, question, received, report, routine, runner, runs, setupRead, supervision });
 }
 // TEX ENTRY POINT: end
@@ -131,4 +135,19 @@ async function joinedEvent(body, { chatTurn, job, group, env, writer }) {
   const graph = gatewayGraph({ env, writer, turn: typeof body.turn === "string" ? body.turn : null, config });
   const { output } = await graph.runNode("joined", { event: body.event, group: group !== null }, {}, "readTheText");
   return output?.to === "intro" ? { question: output.question } : { refused: quiet };
+}
+
+/**
+ * What code did for this chat (`body.event` "did", `packages/tex/worker/didFacts.ts`), read by node `did` over the
+ * turn's graph, so the run is logged: `{ question }` (the facts, as data), `{ refused }` (said nothing) when this
+ * chat's config has no such node or the facts can't be read, or null on any other turn.
+ */
+async function didEvent(body, { chatTurn, job, env, writer }) {
+  if (!chatTurn || job !== null || body?.event !== DID_EVENT) return null;
+  const quiet = { answer: "", quiet: true };
+  const config = texConfigOf(env);
+  if (!config.nodes.some((node) => node.id === "did" && node.on !== false)) return { refused: quiet };
+  const graph = gatewayGraph({ env, writer, turn: typeof body.turn === "string" ? body.turn : null, config });
+  const { output } = await graph.runNode("did", { event: body.event, did: body.did }, {}, "readTheText");
+  return output?.to === "tell" ? { question: output.question } : { refused: quiet };
 }
