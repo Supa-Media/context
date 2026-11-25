@@ -11,14 +11,15 @@ export default {
     const chat = await groupChat();
     try {
       const blocked = [{ slug: "harbor-co", who: "sam", why: "not_member" }];
-      const turn = await chat.tag("ada", "Tex use the login I saved in @harbor-co", "Sam isn't in @harbor-co yet; say \"add Sam\" and I'll invite them.", [], { group: { people: ["ada", "sam"], blocked } });
-      assert.match(turn.shown, /This chat can't use @harbor-co, because of @sam \(not a member of it\)/, "the turn is told who keeps the chat out");
-      assert.match(turn.shown, /add @sam to @harbor-co\\?" counts\): you call send chat_add_everyone, which invites only the people here not in it yet/, "and that adding them is add-everyone");
-      assert.match(turn.shown, /Never send anyone to the app for this/);
-      // 2026-11-16: reach goes by membership or an invitation by number, so a person with no account is named as not invited.
-      const guest = await chat.tag("ada", "Tex use the login I saved in @harbor-co", "The person ending 1a2b isn't invited to @harbor-co yet; say \"add everyone here\" and I'll invite them.", [], { group: { people: ["ada"], blocked: [{ slug: "harbor-co", who: "guest-1a2b", why: "no_account" }] } });
-      assert.match(guest.shown, /a chat reaches a workspace only when everyone in it is a member or invited by number/, "an invitation by number counts");
-      assert.match(guest.shown, /guest-1a2b \(who has no Context account and isn't invited to it\)/, "the guest is named as not invited");
+      const turn = await chat.tag("ada", "Tex use the login I saved in @harbor-co", "Sam isn't in @harbor-co yet. Want me to invite them?", [], { group: { people: ["ada", "sam"], blocked } });
+      assert.match(turn.shown, /This chat can't use @harbor-co: @harbor-co is missing @sam \(not a member\)/, "the turn is told who keeps the chat out");
+      assert.match(turn.shown, /an owner of it can have you invite them \(send chat_add_everyone\)/, "and that inviting them is add-everyone");
+      // 2026-11-16: reach goes by membership or an invitation by number. 2026-11-25: someone with no account is named by
+      // number (or kept name), never by guest label, and the line is facts only: what to say is the model's.
+      const guest = await chat.tag("ada", "Tex use the login I saved in @harbor-co", "The +1 (555) 010-2233 number isn't invited to @harbor-co yet. Want me to invite them?", [], { group: { people: ["ada"], guests: ["guest-1a2b"], numbers: [{ who: "guest-1a2b", phone: "+15550102233" }], blocked: [{ slug: "harbor-co", who: "guest-1a2b", why: "no_account" }] } });
+      assert.match(guest.shown, /A chat reaches a workspace when everyone in it is a member or invited by number/, "an invitation by number counts");
+      assert.match(guest.shown, /the \+1 \(555\) 010-2233 number \(not on Context, not invited\)/, "the guest is named by number");
+      assert.doesNotMatch(guest.shown, /missing guest-|Never send anyone/, "no label, no scripted rule");
       // One list of numbers (2026-11-16): an app sign-in puts a number on the account as a texted code does.
       const roster = CAPABILITIES.flatMap((entry) => entry.cant ?? []).find((cant) => cant.where === "group" && /isn't on Context/.test(cant.what));
       assert.match(roster?.workaround?.text ?? "", /sign in to the Context app with the number/, "Tex offers the app sign-in as a way on");

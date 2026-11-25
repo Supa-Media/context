@@ -22,10 +22,23 @@ jest.mock("@context/tex/src/texModuleChange.cjs", () => jest.requireActual<typeo
 // Tex's map is generated from the config, so it grows with every step added; the golden holds it at its size on
 // 2026-11-22 (16,584 characters), so a config change never moves the artifact's times and costs. Tex's capability list
 // grows with every capability added the same way; it is held at its size on 2026-11-25 (46,411 characters), when
-// main's costs already stood 2.95% over the artifact's and one more line (manage area) put them past the 3%.
+// main's costs already stood 2.95% over the artifact's and one more line (manage area) put them past the 3%. The
+// front door's Training and its about-Tex and working words are held at their sizes on 2026-11-25 the same way, when
+// new Training moments and a plain pitch of Context (#4234) put a 1:1 turn past the 3%.
 jest.mock("@context/lab/app/labData.generated", () => {
   const real = jest.requireActual<typeof import("@context/lab/app/labData.generated")>("@context/lab/app/labData.generated");
-  return { ...real, MODTEXT: { ...real.MODTEXT, map: "m".repeat(16584), caps: "c".repeat(46411) } };
+  return {
+    ...real,
+    MODTEXT: {
+      ...real.MODTEXT,
+      map: "m".repeat(16584),
+      caps: "c".repeat(46411),
+      "p-about-tex": "a".repeat(1032),
+      "p-working": "w".repeat(11132),
+      "train:fd": "t".repeat(73493),
+      "train:fd:all:72000": "t".repeat(68491),
+    },
+  };
 });
 import golden from "./fixtures/texLabGolden.json";
 import { config, diff } from "@context/lab/app/engine/diff";

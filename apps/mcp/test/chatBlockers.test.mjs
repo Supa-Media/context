@@ -8,7 +8,8 @@
  *
  *   `blockedOf` keeping any `who`                       -> "a forged blocker is dropped" fails
  *   `groupPrompt` without `blockedLine`                  -> "the prompt names who and the fix" fails
- *   `blockedLine` dropping "Never send anyone to the app" -> "the prompt names who and the fix" fails
+ *   `blockedLine` naming a guest by label                 -> "the prompt names who is missing" fails
+ *   `blockedLine` scripting a reply or a fix phrase       -> "the prompt names who is missing" fails
  *   chat_add_everyone not saying it skips members        -> "adding one person here is add-everyone" fails
  *   `groupReachOut` dropping blocked                     -> "Replay logs reach and who blocks it" fails
  */
@@ -45,12 +46,16 @@ test("groupOf carries blockers from the body and nothing else from them", () => 
   assert.equal(groupOf({ group: { key: HEX, members: HEX, from: "ada" } }).blocked, undefined);
 });
 
-test("the prompt names who and the fix, by text, never the app", () => {
+test("the prompt names who is missing, as the chat knows them, in facts only", () => {
   const group = groupOf({ group: { key: HEX, members: HEX, from: "ada", people: ["ada", "sam"], blocked: [SHYOH, GUEST] } });
   const line = blockedLine(group);
-  assert.match(line, /@crystal-co, because of @sam \(not a member of it\), guest-1a2b \(who has no Context account and isn't invited to it\)/);
-  assert.match(line, /"add @sam to @crystal-co" counts\): you call send chat_add_everyone, which invites only the people here not in it yet/);
-  assert.match(line, /Never send anyone to the app/);
+  assert.match(line, /@crystal-co is missing @sam \(not a member\), someone here \(not on Context, not invited\)/);
+  assert.match(line, /an owner of it can have you invite them \(send chat_add_everyone\)/);
+  assert.doesNotMatch(line, /guest-/, "never a guest label");
+  assert.doesNotMatch(line, /counts|say so|Never|in one line|leaving/, "facts, not a scripted reply");
+  const numbered = { ...group, numbers: [{ who: "guest-1a2b", phone: "+15550102233" }] };
+  assert.match(blockedLine(numbered), /the \+1 \(555\) 010-2233 number \(not on Context/);
+  assert.match(blockedLine({ ...numbered, guestNames: [{ guest: "guest-1a2b", name: "Tomas" }] }), /Tomas, \+1 \(555\) 010-2233 \(not on Context/);
   assert.ok(groupPrompt(group, "context-lc").includes(line));
   assert.ok(groupPrompt({ ...group, homeOnly: true }, "context-lc").includes(line));
   assert.equal(blockedLine({}), "");
