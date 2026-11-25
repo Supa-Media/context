@@ -91,3 +91,36 @@ identical answers; `__proto__` refused).
   Editing `about.md` cannot point a source at another vault entry, host or
   path; a vault entry kept for syncing is opened only by the sync object, and
   never by an AI client or `send api`.
+
+## What a sync run may write, and how a URL is fetched
+
+*2026-11-25, the pure core of stages E and G: `apps/mcp/src/data/sync/` and
+`apps/mcp/src/data/fetch/`. The sync object that runs them comes next.*
+
+- **A dataset row is matched by its key column**, so a run that sees a pull
+  request or a charge again changes its row in place. Rows older than the
+  rolling 400 days go; a row whose date cannot be read stays, because the
+  sync never guesses a row away. A sheet whose synced columns were changed by
+  hand is left alone and named.
+- **Past 50,000 rows or 5 MB, a run writes nothing** and names the sheet,
+  rather than cutting it short.
+- **A reading is a closed period, written once.** A day, week or month is
+  closed once the next has begun, and dated its first day; a rolling `N days`
+  is read at each UTC midnight over the days before it, and dated the last
+  day it covers. A period that came to nothing, or that could not be worked
+  out (a hidden input among them), writes no row: a gap reads truer than a
+  zero. With nothing written yet, only the last closed period is written:
+  whether connecting should fill in the past is still the owner's question.
+- **Fetch from a URL is held to the site reader's lock and more**: https on a
+  public name only (no port, login or IP literal); the name is looked up over
+  DNS over HTTPS first and refused if any answer is private, loopback,
+  link-local, shared, documentation, multicast or a wrapped v4 address; no
+  redirect is followed; nothing but an agent name and `accept` is sent; at
+  most 5 MB and 10 seconds. It reads CSV, or JSON that is a list of flat
+  objects; `__proto__`, `constructor` and `prototype` are refused as column
+  names, and a row is an object with no prototype.
+
+**What a simplification would cost.** Following a redirect, or skipping the
+lookup, lets an editor's address reach whatever the gateway's network can.
+Cutting a sheet at its bound loses rows silently. Writing an open period makes
+a reading change after it was read. Tests: `apps/mcp/test/dataSync.test.mjs`.
