@@ -172,9 +172,15 @@ export function attachLinkCalls(store, session, controlPlane, env) {
       configurable: true,
     });
   }
-  // The workspace owner's zone, which a note's date properties are written in (`notes/dateStamp.js`).
+  // The workspace owner's zone, which a note's date properties are written in (`notes/dateStamp.js`). The binding this
+  // store was opened from carries it (`sessionStore.js` `boundOwnerTimeZone`), kept in the object's sealed copy and
+  // cleared there when the zone changes, so a save asks `/gateway/time-zone` only where the binding did not say.
   Object.defineProperty(store, "ownerTimeZone", {
-    value: () => controlPlane.ownerTimeZone(session.accessToken, session.workspaceId),
+    value: async () => {
+      const bound = store.boundOwnerTimeZone;
+      if (bound === null || typeof bound === "string") return bound;
+      return await controlPlane.ownerTimeZone(session.accessToken, session.workspaceId);
+    },
     enumerable: false,
     writable: false,
     configurable: true,

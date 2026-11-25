@@ -33,6 +33,13 @@ type BindingTable = (typeof BINDING_TABLES)[number];
 /** Fields of a binding row that no request's store is built from (the automatic move's lease and last word among them). */
 const BINDING_QUIET = new Set(["scaffoldQueuedAt", "leftBehind", "moveLeaseUntil", "moveTriedAt", "moveNote"]);
 
+/**
+ * A person's chosen zone. The binding answer carries it as the owner's zone of every workspace they made
+ * (`../gatewayRoutes/credentials.ts`, `ownerTimeZone`), and the object keeps it in its sealed copy, so a write to it is
+ * a binding change for each of those workspaces: the push clears the copy, and no request reads the old zone from it.
+ */
+export const OWNER_ZONE_TABLE = "accountTimeZones" as const;
+
 /** Fields of a `nodes` row that only say which version of the bytes it is at: no rule changes with them. */
 const BYTES_ONLY = new Set(["etag", "size", "uploaded", "observedAt", "objectAt", "idCopy", "keyedFrom", "storageKey", "noteId"]);
 
@@ -110,6 +117,17 @@ function recordBinding(changes: Map<Id<"workspaces">, WorkspaceChange>, doc: Doc
   if (typeof workspaceId !== "string") return;
   if (fields !== null && fields.every((field) => BINDING_QUIET.has(field))) return;
   changeFor(changes, workspaceId).binding = true;
+}
+
+/** Record a write to a person's zone (`OWNER_ZONE_TABLE`) as a binding change for every workspace they made. */
+async function recordOwnerZone(db: MutationCtx["db"], changes: Map<Id<"workspaces">, WorkspaceChange>, doc: Doc | null): Promise<void> {
+  const userId = doc?.userId;
+  if (typeof userId !== "string") return;
+  const made = await db
+    .query("workspaces")
+    .withIndex("by_created_by", (q) => q.eq("createdBy", userId as Id<"users">))
+    .collect();
+  for (const workspace of made) changeFor(changes, workspace._id).binding = true;
 }
 
 /**
@@ -218,11 +236,21 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       ? { id: args[1] as string, rest: args.slice(2) }
       : { id: args[0] as string, rest: args.slice(1) };
 
+  // A person's zone row as it stands, or `undefined` for an id of any other table. Before and after: a write that
+  // moves a row to another person changes both people's workspaces.
+  const ownerZoneRow = async (id: string): Promise<Doc | null | undefined> =>
+    db.normalizeId(OWNER_ZONE_TABLE, id) === null ? undefined : ((await db.get(id as GenericId<typeof OWNER_ZONE_TABLE>)) as Doc | null);
+  const recordOwnerZoneBoth = async (before: Doc | null, id: string): Promise<void> => {
+    await recordOwnerZone(db, changes, before);
+    await recordOwnerZone(db, changes, (await ownerZoneRow(id)) ?? null);
+  };
+
   Object.assign(watched, {
     async insert(table: string, value: Doc) {
       const id = await (db.insert as (table: string, value: unknown) => Promise<GenericId<string>>)(table, value);
       if ((WATCHED_TABLES as readonly string[]).includes(table)) record(changes, table as Watched, id, value, null, "insert");
       if ((BINDING_TABLES as readonly string[]).includes(table)) recordBinding(changes, value, null);
+      if (table === OWNER_ZONE_TABLE) await recordOwnerZone(db, changes, value);
       if ((ACCESS_TABLES as readonly string[]).includes(table)) noteAccess(table as AccessSource, String(id), value, "insert");
       return id;
     },
@@ -232,9 +260,11 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const fields = value !== null && typeof value === "object" ? Object.keys(value) : null;
       const access = await accessBefore(id, fields);
       const stateBefore = db.normalizeId("nodeAccessState", id) === null ? null : ((await db.get(id as GenericId<"nodeAccessState">)) as Doc | null);
+      const zoneBefore = await ownerZoneRow(id);
       await (db.patch as (...a: unknown[]) => Promise<void>)(...args);
       if (access !== null) noteAccess(access, id, await db.get(id as GenericId<AccessSource>), "after");
       if (bindingTableOf(db, id) !== null) recordBinding(changes, (await db.get(id as GenericId<BindingTable>)) as Doc | null, fields);
+      if (zoneBefore !== undefined) await recordOwnerZoneBoth(zoneBefore, id);
       const table = tableOf(db, id);
       if (table === null) return;
       record(changes, table, id, (await db.get(id as GenericId<Watched>)) as Doc | null, fields, "patch", stateBefore);
@@ -243,7 +273,9 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const { id } = split(args);
       const access = await accessBefore(id, null);
       const bindingBefore = bindingTableOf(db, id) === null ? null : ((await db.get(id as GenericId<BindingTable>)) as Doc | null);
+      const zoneBefore = await ownerZoneRow(id);
       await (db.replace as (...a: unknown[]) => Promise<void>)(...args);
+      if (zoneBefore !== undefined) await recordOwnerZoneBoth(zoneBefore, id);
       if (access !== null) noteAccess(access, id, await db.get(id as GenericId<AccessSource>), "after");
       // Before and after: a replace that moves a binding to another workspace changes both.
       if (bindingBefore !== null) {
@@ -261,7 +293,9 @@ export function watchDb(db: MutationCtx["db"]): RowWatch {
       const before = table === null ? null : ((await db.get(id as GenericId<Watched>)) as Doc | null);
       const bindingBefore = bindingTableOf(db, id) === null ? null : ((await db.get(id as GenericId<BindingTable>)) as Doc | null);
       await accessBefore(id, null);
+      const zoneBefore = await ownerZoneRow(id);
       await (db.delete as (...a: unknown[]) => Promise<void>)(...args);
+      if (zoneBefore !== undefined) await recordOwnerZone(db, changes, zoneBefore);
       if (table !== null) record(changes, table, id, before, null, "delete");
       if (bindingBefore !== null) recordBinding(changes, bindingBefore, null);
     },

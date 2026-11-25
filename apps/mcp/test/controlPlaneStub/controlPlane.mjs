@@ -460,14 +460,14 @@ export function createControlPlaneStub(options = {}) {
         // `noteCap` is a fifth sibling — the free managed tier's cap — split
         // here for the reason above: a fixture may nest it, the wire never does.
         // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
-        // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
-        const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
+        // of `searchIndex` on the wire for the same reason (`storeIndexes.js`), and so is the owner's zone (`credentials.ts`).
+        const { searchIndex, meaningIndex, encryptionKey, noteCap, ownerTimeZone, ...storage } = binding;
         const privacy = (setupRead ? setupRules.get(served) : heldRules.get(served)) ?? (await tree.rulesFor(served));
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
           ...(meaningIndex ? { meaningIndex } : {}),
-          ...(noteCap ? { noteCap } : {}),
+          ...(noteCap ? { noteCap } : {}), ...(ownerTimeZone !== undefined ? { ownerTimeZone } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
           ...(rotation ? { rotation } : {}),
           // The access rules, rendered from the rows on the real route (`gatewayRoutes/credentials.ts`).

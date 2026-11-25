@@ -389,7 +389,7 @@ describe("/gateway/binding — the encryption key", () => {
     expect(await t.run((ctx) => ctx.db.query("noteIdLayout").first())).toBeNull();
     expect(body.keyed).toBe(true);
     expect(body.idLayout).toBe("keys");
-    expect(Object.keys(body).filter((key) => !["privacy", "keyed", "idLayout"].includes(key))).toEqual(["binding"]);
+    expect(Object.keys(body).filter((key) => !["privacy", "keyed", "idLayout", "ownerTimeZone"].includes(key))).toEqual(["binding"]);
   });
 
   test("...and asking for the binding did not create one", async () => {
