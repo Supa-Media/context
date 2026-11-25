@@ -801,3 +801,4 @@ test/dataSyncStripe.test.mjs
 test/attachProjects.test.mjs
 test/areaLines.test.mjs
 test/dataSyncGithub.test.mjs
+test/dataSyncUsage.test.mjs

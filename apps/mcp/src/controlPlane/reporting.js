@@ -29,15 +29,6 @@ export function createReportingMethods({ post }) {
      *
      * @param {{metric: string, workspaceId?: string, count?: number}[]} events
      */
-    /**
-     * The Context usage run's read (`data/sync/runUsage.js`, `apps/convex/functions/lib/gatewayRoutes/usageExport.ts`):
-     * person-days, account ids that texted or signed up, and call and reply timings since `since`. Unlike the
-     * reports around it, its failure is the run's: the run says so and writes nothing.
-     */
-    async usageExport(since) {
-      return await post("/gateway/usage/export", { since }, { timeoutMs: 30_000, maxBytes: 16 * 1024 * 1024 });
-    },
-
     async reportUsage(events, hourly = [], people = []) {
       const counted = Array.isArray(events) ? events : [];
       const breakdown = Array.isArray(hourly) ? hourly : [];
