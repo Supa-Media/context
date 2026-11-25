@@ -281,6 +281,18 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
   });
 });
 
+describe("Photon stickers in a 1:1 (photonLine.ts)", () => {
+  it("sticks a sticker on the person's message in the chat", async () => {
+    const b = bridge();
+    await lineFor(deps(b.photon), DM).stick!(DM, "msg-1", { attachment: "att-2" });
+    expect(b.calls).toEqual([{ op: "sticker", body: { line: "+15550000001", chat: DM_GUID, guid: "msg-1", sticker: "att-2" } }]);
+  });
+
+  it("a line without stickers has no stick at all", () => {
+    expect(lineFor(deps(undefined), "+15550000002").stick).toBeUndefined();
+  });
+});
+
 describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
   it("a Photon group id is sent to by its chat guid, on the line the place names", async () => {
     const b = bridge();
@@ -336,6 +348,24 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
       { op: "group/photo", body: { line: "+15550000001", chat: "iMessage;+;chat123", attachment: "att-7" } },
       { op: "group/add", body: { line: "+15550000001", chat: "iMessage;+;chat123", address: "+15550100199" } },
     ]);
+  });
+
+  it("sticks a sticker on a message: one already on the line by its guid, or an image uploaded with the call", async () => {
+    const b = bridge();
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    const place = { line: "+15550000001", groupId: GROUP };
+    await app.stick!(place, "msg-4", { attachment: "att-7" });
+    await app.stick!(place, "msg-5", { name: "party.png", mimeType: "image/png", url: "https://example.com/party.png" });
+    expect(b.calls).toEqual([
+      { op: "sticker", body: { line: "+15550000001", chat: "iMessage;+;chat123", guid: "msg-4", sticker: "att-7" } },
+      { op: "sticker", body: { line: "+15550000001", chat: "iMessage;+;chat123", guid: "msg-5", sticker: { name: "party.png", mimeType: "image/png", url: "https://example.com/party.png" } } },
+    ]);
+  });
+
+  it("a sticker the bridge refuses throws, so the turn knows it did not stick", async () => {
+    const b = bridge((op) => (op === "sticker" ? refuse(400) : undefined));
+    const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
+    await expect(app.stick!({ line: "+15550000001", groupId: GROUP }, "msg-4", { attachment: "att-7" })).rejects.toBeInstanceOf(ServiceError);
   });
 
   it("a \"(name the chat)\" line that reaches a send is taken out, never run: only the checked turn runs the group", async () => {

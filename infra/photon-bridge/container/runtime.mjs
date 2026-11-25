@@ -275,6 +275,12 @@ export function createRuntime({
             args.on,
           );
           return { ok: true };
+        case "sticker": {
+          const client = clientFor(args.line);
+          const sticker = args.sticker.attachment ?? (await uploadFile(client, args.sticker.file));
+          const placed = await client.messages.placeSticker(args.chat, args.guid, sticker, args.placement, compact({ partIndex: args.part }));
+          return { ok: true, guid: placed.guid, attachment: sticker };
+        }
         case "typing":
           await clientFor(args.line).chats.setTyping(args.chat, args.on);
           return { ok: true };

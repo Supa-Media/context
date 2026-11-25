@@ -23,3 +23,14 @@ test("the runtime module loads against the installed SDK", async () => {
   const runtime = await import("../container/runtime.mjs");
   assert.equal(typeof runtime.createRuntime, "function");
 });
+
+test("the client has every SDK method the sticker op calls", () => {
+  // Built without connecting: the gRPC channel opens on the first call.
+  const client = createGrpcClient({ address: "localhost:1", token: "unused" });
+  try {
+    assert.equal(typeof client.messages.placeSticker, "function");
+    assert.equal(typeof client.attachments.upload, "function");
+  } finally {
+    client.close?.();
+  }
+});
