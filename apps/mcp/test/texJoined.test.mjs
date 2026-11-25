@@ -4,7 +4,7 @@
 //
 // Sabotage record (2026-11-25), each fails a test here:
 //  - `joinedNode` without its group check: "only a group's run is a join";
-//  - `joined` dropped from `GATEWAY_NODES`: "the node has code, and sits on the shelf until a draft wires it".
+//  - `joined` dropped from `GATEWAY_NODES`: "the node has code, and main's config wires it to the Front door".
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -34,9 +34,12 @@ test("the turn is told nobody texted it: it was just added", () => {
   assert.match(taggedLine({ cause: "joined" }), /^Nobody texted you: you were just added to this chat/);
 });
 
-test("the node has code, and sits on the shelf until a draft wires it", () => {
+// Promoted from the shelf on 2026-11-25 (Lab draft "Group intro when Tex is added"): wired, and off the shelf.
+test("the node has code, and main's config wires it to the Front door", () => {
   assert.equal(typeof GATEWAY_NODES.joined, "function");
-  assert.equal(TEX_CONFIG.nodes.some((node) => node.id === "joined"), false);
-  assert.equal(shelf.nodes.joined?.node?.id, "joined");
-  assert.deepEqual(shelf.nodes.joined.node.outSchema.find((f) => f.name === "to")?.options, "intro, refuse");
+  const node = TEX_CONFIG.nodes.find((n) => n.id === "joined");
+  assert.equal(node?.on, true);
+  assert.deepEqual(node.outSchema.find((f) => f.name === "to")?.options, "intro, refuse");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "joined" && e.to === "fd" && e.when?.includes("intro")));
+  assert.equal(shelf.nodes.joined, undefined);
 });

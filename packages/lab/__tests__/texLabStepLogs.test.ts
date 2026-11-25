@@ -48,6 +48,7 @@ const entries: LedgerEntry[] = [
   run("moveJudge", { action: "move_note", path: "projects/agenda.md", workspace: "band" }, { allow: true, reason: "they said yes to the offer" }),
   run("crossChatGate", { from: "one", to: { kind: "group", key: "k" }, what: "is the demo Friday?" }, { to: "ask", ask: { id: "xabcdefghij" } }),
   run("chatAsk", { event: "chat_answer", crossChat: { id: "xabcdefghij" } }, { to: "answer", question: "(Not a text from them.)" }),
+  run("joined", { event: "joined", group: true }, { to: "intro", question: "(Not a text from anyone here.)" }),
   run("chatAnswer", { kind: "ask", id: "xabcdefghij", draft: "Yes." }, { to: "back", id: "xabcdefghij", state: "answered", texts: ["Yes."] }),
   run("computer", { op: "run", owner: "f00d", command: "python3 sum.py" }, { ok: true, ms: 876, exitCode: 0, stdout: "142913828922" }),
   run("tapback", { emoji: "❤️", why: "they thanked me", lastFailed: false, tagged: false }, { to: "react", emoji: "❤️" }),

@@ -532,8 +532,6 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       // Already introduced, as a real chat Tex answers in is (`groupJoined.ts`): only an `added` row says hello here.
       if (row.kind !== "joined") await storage.put(INTRO_KEY, row.at ?? started);
     }
-    // Tex added again in the same test chat: a hello each time it is tried.
-    if (row.kind === "joined") await storage.delete(INTRO_KEY);
     // Its provider is the line's: the lag the `text` step shows is the line's hold.
     const provider = { name: line.name === "photon" ? "photon" : "lab", providerAt: row.at ?? started, receivedAt: now() };
     const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify(inbound === null ? { ...message, provider } : message) }));
