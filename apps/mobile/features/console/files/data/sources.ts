@@ -9,6 +9,7 @@
  * source or sheet a reader cannot see is simply not here.
  */
 
+import { isSheetPath } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote, PropertyValue } from "../listBlock/model";
 import type { FolderListing } from "../types";
 import { ABOUT_NOTE, baseName } from "../paths";
@@ -98,7 +99,7 @@ function sourceOf(folder: string, listing: FolderListing | undefined, notes: rea
   const slug = baseName(folder);
   const named = textOf(about?.properties.name);
   const sheets: Dataset[] = (listing?.entries ?? [])
-    .filter((entry) => entry.kind === "file" && entry.name.toLowerCase().endsWith(".csv"))
+    .filter((entry) => entry.kind === "file" && isSheetPath(entry.name))
     .map((entry) => ({ name: entry.name.slice(0, -4), path: entry.path, computed: false }));
   const datasets =
     kind === "context"

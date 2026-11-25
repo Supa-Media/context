@@ -27,6 +27,7 @@ import {
 } from "@context/collaboration";
 import { replaceNoteText } from "./replaceInObject.js";
 import { isSheetPath, parseSheet } from "../../sheets/csv.js";
+import { isTextFilePath } from "../../../../../packages/shared/src/fileKinds.cjs";
 import { datedForWrite, stampInputsAhead } from "../../notes/dateStamp.js";
 import mail from "../../../../../packages/shared/src/mail.cjs";
 import {
@@ -93,7 +94,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   let content = args.content;
   const expectedEtag = args.expected_etag;
   const sheet = isSheetPath(path);
-  if (!path || !(path.endsWith(".md") || sheet)) return toolError("invalid path (must end in .md, or .csv for a sheet): pass the note's full path");
+  if (!path || !isTextFilePath(path)) return toolError("invalid path (must end in .md, or .csv for a sheet): pass the note's full path");
   if (typeof content !== "string") return toolError("content must be a string: call it again with the note's Markdown as text.");
   // A sheet is written whole only when it reads back as one: a broken row is told while the text is in hand
   // (`sheets/csv.js`, `docs/decisions/sheets.md`). Its rows are changed one by one with write action rows.

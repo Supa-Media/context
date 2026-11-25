@@ -22,6 +22,7 @@ import type { TreeRow } from "./tree";
 import type { DropZone } from "./treeDrop";
 import { visibilityLabel } from "./types";
 import { isSheetPath } from "../../../../mcp/src/sheets/csv.js";
+import { isTextFilePath } from "@context/shared/src/fileKinds.cjs";
 
 /**
  * The folder tree.
@@ -431,7 +432,7 @@ function FileRow({
  * sheet (`.csv`), which opens like one and is drawn with the table glyph.
  */
 function isNoteRow(row: TreeRow): boolean {
-  return row.kind === "file" && (/\.md$/i.test(row.path) || isSheetPath(row.path));
+  return row.kind === "file" && isTextFilePath(row.path);
 }
 
 /** The canvas's indent: 8pt of leading padding, 12pt more per level. */

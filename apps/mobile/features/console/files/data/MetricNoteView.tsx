@@ -11,6 +11,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
 import { StyleSheet, View } from "react-native";
 import { formatValue } from "../../../../../mcp/src/data/formula/index.js";
 import { Text } from "../../../design/components/Text";
@@ -75,7 +76,7 @@ export function MetricNoteView({
     const out = new Map<string, number>();
     for (const input of inputs) {
       const [slug = "", rest = ""] = input.label.split("/");
-      const name = rest.replace(/\.csv$/, "");
+      const name = withoutTextExtension(rest);
       if (bySlug(slug)?.kind === "context" && (CONTEXT_DATASETS as readonly string[]).includes(name)) continue;
       out.set(`${dataFolder}/${slug}/${name}.csv`, 0);
     }
@@ -94,7 +95,7 @@ export function MetricNoteView({
   const links = inputs.map((input) => {
     if (input.path !== null) return input;
     const [slug = "", rest = ""] = input.label.split("/");
-    const name = rest.replace(/\.csv$/, "");
+    const name = withoutTextExtension(rest);
     const found = bySlug(slug);
     if (found === undefined) return input;
     if (found.kind === "context" && (CONTEXT_DATASETS as readonly string[]).includes(name)) return { ...input, path: found.folder };

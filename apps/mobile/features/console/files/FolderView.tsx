@@ -433,6 +433,7 @@ export function FolderView({
           pageWidth={pageWidth}
           onSelect={onSelect}
           titleActions={compact ? phoneButtons : undefined}
+          {...(nesting === undefined ? {} : { listings: nesting })}
           rule={compact && phoneHead !== undefined ? phoneHead : null}
           files={
             <>
