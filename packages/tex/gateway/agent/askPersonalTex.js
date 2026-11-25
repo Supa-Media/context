@@ -15,9 +15,12 @@
  *    chat is shown what Tex would ask their personal Tex for, and only their 👍 or yes, a tag of their own, lets the
  *    same call run, as theirs.
  *
- * What comes back is their account's facts (name, phone, emails), for the form or sign-in they asked for. The model is
- * told to type them where they're needed and not to repeat a phone number or email into the chat. About me notes and
- * anything else in their personal workspace stay out of a group turn.
+ * What comes back is only the account facts the ask needs (decided by the owner, Dev2, 2026-11-25, after "what is
+ * Seyi's last name?" handed a group turn his phone number and four emails): the ones the ask's words name (a
+ * name, a phone, an email), else all three for a form. The answer says it came from their account, not
+ * their personal Tex, which never ran. The chat is not texted a line about it: the answer arrives at once, and a
+ * code-written status line read as plumbing ("Asking your personal Tex for What is …"). About me notes and anything
+ * else in their personal workspace stay out of a group turn.
  */
 
 import { readIdentity } from "./identity.js";
@@ -50,13 +53,30 @@ function whatOf(args) {
   return what || "their name, phone number and email";
 }
 
-/** Their account's facts as the tool answers them: one line each, the phone they text from first. */
-function factsLines(identity) {
+/** The account facts a contact ask may answer. */
+export const CONTACT_FIELDS = ["name", "phone", "email"];
+
+const FIELD_WORDS = {
+  name: /\bnames?\b/i,
+  phone: /\b(phones?|numbers?|cell|mobile)\b/i,
+  email: /\b(e-?mails?|addresse?s?)\b/i,
+};
+
+/**
+ * Which facts this ask gets: the ones the ask's words name, else all three (a form or sign-in that needs whatever it
+ * needs). Never more than the ask needs.
+ */
+export function contactFieldsOf(what) {
+  const worded = CONTACT_FIELDS.filter((field) => FIELD_WORDS[field].test(String(what ?? "")));
+  return worded.length > 0 ? worded : [...CONTACT_FIELDS];
+}
+
+/** Their account's facts as the tool answers them, only `fields`: one line each, the phone they text from first. */
+function factsLines(identity, fields = CONTACT_FIELDS) {
   return [
-    ...(identity.name ? [`Name: ${identity.name}`] : []),
-    ...(identity.phones.length > 0 ? [`Phone: ${identity.phones.join(", ")} (the first is the one they text from)`] : []),
-    ...(identity.emails.length > 0 ? [`Email: ${identity.emails.join(", ")}`] : []),
-    ...(identity.handle ? [`Context handle: @${identity.handle}`] : []),
+    ...(fields.includes("name") ? [identity.name ? `Name: ${identity.name}` : "Name: none"] : []),
+    ...(fields.includes("phone") && identity.phones.length > 0 ? [`Phone: ${identity.phones.join(", ")} (the first is the one they text from)`] : []),
+    ...(fields.includes("email") && identity.emails.length > 0 ? [`Email: ${identity.emails.join(", ")}`] : []),
   ];
 }
 
@@ -65,7 +85,7 @@ function factsLines(identity) {
  * (`groupTurn.js`), `ledger` its egress ledger (an offer is kept there for the reply), `say` texts the chat a line of
  * the gateway's own now (`progress.js` `say`), and `asker()` asks the control plane for the tagger's facts.
  */
-export function personalTexTool({ group, ledger, say = null, asker }) {
+export function personalTexTool({ group, ledger, asker }) {
   if (group === null || group === undefined || typeof asker !== "function") return null;
   return {
     tool: {
@@ -91,7 +111,6 @@ export function personalTexTool({ group, ledger, say = null, asker }) {
       if (group.guestTagger === true || !group.from) {
         return text("Not asked: whoever tagged you isn't on Context, so there is no personal Tex to ask. Ask them in the chat for what the form needs.", true);
       }
-      const told = typeof say === "function" ? await Promise.resolve(say(`Asking your personal Tex for ${what}.`)).catch(() => false) : false;
       let identity = null;
       try {
         identity = readIdentity(await asker());
@@ -104,14 +123,14 @@ export function personalTexTool({ group, ledger, say = null, asker }) {
           true,
         );
       }
-      const lines = factsLines(identity);
+      const fields = contactFieldsOf(what);
       return text(
         [
-          `From @${group.from}'s personal Tex, their own account (as sure as anything they told you):`,
-          ...lines,
+          `Source: @${group.from}'s Context account`,
+          "Personal Tex: not asked",
+          ...factsLines(identity, fields),
           "Type these into the form or sign-in they asked for; never ask them for these again. " +
             "Don't write their phone number or email into the chat unless they asked to see it there.",
-          told ? "The chat was already told you were asking their personal Tex." : "Say in your answer, in a few words, that you got these from their personal Tex.",
         ].join("\n"),
       );
     },

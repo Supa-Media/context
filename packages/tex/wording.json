@@ -1,6 +1,6 @@
 {
   "why": "Sentences of Tex's wording still written in code, per file. Only shrinks (scripts/tex-wording-check.mjs; docs/decisions/texting-assistant/no-scripted-wording.md).",
-  "total": 2561,
+  "total": 2557,
   "files": {
     "packages/tex/gateway/agent/aboutLines.js": 1,
     "packages/tex/gateway/agent/aboutMe.js": 6,
@@ -17,7 +17,7 @@
     "packages/tex/gateway/agent/appChatCards.js": 2,
     "packages/tex/gateway/agent/appChatRoute.js": 41,
     "packages/tex/gateway/agent/askOvertaken.js": 1,
-    "packages/tex/gateway/agent/askPersonalTex.js": 14,
+    "packages/tex/gateway/agent/askPersonalTex.js": 10,
     "packages/tex/gateway/agent/attachments.js": 40,
     "packages/tex/gateway/agent/attention.js": 2,
     "packages/tex/gateway/agent/background.js": 52,

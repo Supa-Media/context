@@ -60,3 +60,20 @@ group, and Dev2 approved ("sounds good") what it may do there:
 colleagues; letting the model set it lets a group unmark itself. Tests: `apps/mcp/test/oneGroupPrompt.test.mjs`
 ("ask_chat reaches only the sender's own Tex ...", "an ask from a group with strangers ..."),
 `packages/tex/worker/crossChat.test.ts`, and the replay case `ask-from-strangers-group`.
+
+## A contact ask answers only what it asks for (2026-11-25)
+
+Decided by the owner, Dev2, 2026-11-25, in the contextual-privacy grilling. Asked in a group "what is Seyi's last
+name?", `ask_chat` with `contact: true` answered by code from his account and handed the group turn his phone number
+and four email addresses; a code-written status line ("Asking your personal Tex for What is Seyi's last name? …")
+was texted to the chat; and the group's Tex then said his personal Tex had no last name, though that Tex never ran.
+
+- A contact ask answers only the facts it needs: the ones the ask's words name (a name, a phone, an email), else all three for a form (`askPersonalTex.js` `contactFieldsOf`). A missing name is
+  said as missing.
+- The answer says it came from their Context account and that their personal Tex was not asked.
+- No status line is texted to the chat for it: it answers at once, so the answer itself is the reply.
+
+Reversing the first rule puts a person's whole contact record into every group turn that asks for one fact, and into
+that turn's log (`askPersonalTex.test.mjs` "a last name is answered with the name alone"; replay case
+`ask-from-strangers-group`, part two).
+

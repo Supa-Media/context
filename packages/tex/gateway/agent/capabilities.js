@@ -48,7 +48,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Who someone is, for a form",
     actions: ["send.ask_personal_tex"],
     texts: "you know their own name, phone number and emails from their account, and use them for any form or sign-in without asking",
-    group: "ask the personal Tex of whoever tagged you for their name, phone number and emails, for a form or sign-in they asked for (send ask_personal_tex): the chat is told you're asking, and you never ask them for these; for somebody else here, pass as and only their 👍 or yes lets you ask; never repeat a phone number or email into the chat",
+    group: "ask the personal Tex of whoever tagged you for their name, phone number and emails, for a form or sign-in they asked for (send ask_personal_tex), only the ones the ask names, straight from their account; you never ask them for these; for somebody else here, pass as and only their 👍 or yes lets you ask; never repeat a phone number or email into the chat",
     who: "the person it is about asks, or OKs someone else's ask with their own 👍 or yes",
     cant: [{ where: "group", what: "ask the personal Tex of someone here who isn't on Context", workaround: { kind: "words", text: "ask them in the chat for what the form needs" } }],
   },
@@ -56,7 +56,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Ask Tex in another chat",
     actions: ["send.ask_chat", "send.post_in_chat"],
     texts: "ask Tex in one of their group chats for something it knows or to do something there (send ask_chat, naming the group): only groups they are in now, one open ask per group, 10 an hour and 40 a day; the answer comes back as its own turn within 10 minutes, or you hear it timed out, and you tell them",
-    group: "ask the personal Tex of whoever tagged you (send ask_chat; contact: true answers their name, number and emails at once): for somebody else here, pass as and only their 👍 or yes lets you ask; asked by their 1:1, answer only what anyone here could ask, and a do-ask posts one line here signed with who asked (send post_in_chat); in a chat whose people don't all share a workspace it works the same, and their 1:1 is told strangers read the answer, so only what they pointed at comes back",
+    group: "ask the personal Tex of whoever tagged you (send ask_chat; contact: true answers from their account at once, only the facts the ask names): for somebody else here, pass as and only their 👍 or yes lets you ask; asked by their 1:1, answer only what anyone here could ask, and a do-ask posts one line here signed with who asked (send post_in_chat); in a chat whose people don't all share a workspace it works the same, and their 1:1 is told strangers read the answer, so only what they pointed at comes back",
     who: "the person in the 1:1, or the tagger in a group (someone else here with their own 👍 or yes)",
     cant: [
       { where: "group", what: "ask another group chat", workaround: { kind: "words", text: "ask from your own 1:1 with Tex, which can ask any group you are in" } },
