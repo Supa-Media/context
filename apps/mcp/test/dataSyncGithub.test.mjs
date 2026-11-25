@@ -16,6 +16,8 @@
  * 4. `readGithub` ignoring the pick: "the owner picks repositories: ..." fails.
  * 5. `fillDeployed` taking a deployment that started before the merge: "a pull request's deployed is the first
  *    production deployment after its merge" fails.
+ * 6. `readGithub` asking only for the default branch's runs: "an owner installs GitHub: ..." fails, as the
+ *    dispatched Deploy to Production run is missing.
  */
 
 import { test } from "node:test";
@@ -110,7 +112,12 @@ function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, r
       return Response.json({ data: { search: { nodes: [], pageInfo: { hasNextPage: false } } } });
     }
     if (/\/actions\/runs$/.test(pathname)) {
-      const runs = pathname.includes("/supa/app/") ? [{ id: 5001, name: "CI", head_branch: "main", run_started_at: "2026-11-25T08:00:00Z", updated_at: "2026-11-25T08:09:00Z", conclusion: "success" }] : [];
+      // The default branch's runs, and, asked apart, runs dispatched on any branch (a production deploy dispatched
+      // on prod-deploy/<sha>); a pull request's runs on its own branch are never asked for.
+      const main = { id: 5001, name: "CI", head_branch: "main", run_started_at: "2026-11-25T08:00:00Z", updated_at: "2026-11-25T08:09:00Z", conclusion: "success" };
+      const deploy = { id: 5002, name: "Deploy to Production", head_branch: "prod-deploy/abc", event: "workflow_dispatch", run_started_at: "2026-11-25T08:10:00Z", updated_at: "2026-11-25T08:30:00Z", conclusion: "failure" };
+      const asked = searchParams.get("branch") === "main" && !searchParams.has("event") ? [main] : searchParams.get("event") === "workflow_dispatch" && !searchParams.has("branch") ? [deploy] : [];
+      const runs = pathname.includes("/supa/app/") ? asked : [];
       return Response.json({ workflow_runs: runs });
     }
     return new Response("{}", { status: 404 });
@@ -200,7 +207,7 @@ test("an owner installs GitHub: the owner's token is revoked, nothing is kept bu
     ],
   );
   assert.deepEqual((await sheet(w.alice, ids.deploys)).rows.map((row) => [row.id, row.status]).sort(), [["901", "success"], ["902", "success"]]);
-  assert.deepEqual((await sheet(w.alice, ids.runs)).rows.map((row) => [row.workflow, row.conclusion]), [["CI", "success"]]);
+  assert.deepEqual((await sheet(w.alice, ids.runs)).rows.map((row) => [row.workflow, row.branch, row.conclusion]), [["CI", "main", "success"], ["Deploy to Production", "prod-deploy/abc", "failure"]]);
   assert.ok(w.net.calls.every((url) => ["api.github.com", "github.com"].includes(new URL(url).hostname)));
 });
 

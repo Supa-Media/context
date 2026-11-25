@@ -7,8 +7,9 @@
  *   days, then carries the history back toward 90 days, a slice a run, by when they were opened.
  * - `deploys.csv`: one row per production deployment (an environment named production or prod), with its commit,
  *   when it started and finished, and how it ended. Kept 90 days.
- * - `workflow-runs.csv`: one row per finished Actions run on the repository's default branch. Kept 30 days: a busy
- *   repository runs thousands a week.
+ * - `workflow-runs.csv`: one row per finished Actions run on the repository's default branch, and per run dispatched
+ *   on any branch (a production deploy dispatched on a branch at one commit), never a pull request's own runs. Kept
+ *   30 days: a busy repository runs thousands a week.
  *
  * `deployed` is when the first production deployment that started at or after the merge finished successfully, so
  * "open to live" is `deployed - opened`. A pull request merged but not yet deployed is filled in by a later run.
@@ -193,12 +194,15 @@ async function deployments({ fetcher, token, repo, sinceMs }) {
   return { ok: true, rows, more: true };
 }
 
-/** Finished runs on the default branch created from `fromMs` (up to `beforeMs`, when given). */
-async function workflowRuns({ fetcher, token, repo, branch, fromMs, beforeMs = null }) {
+/** The runs a run reads: the default branch's, and the ones dispatched on any branch. */
+const RUN_PICKS = (branch) => [{ branch }, { event: "workflow_dispatch" }];
+
+/** Finished runs picked by `pick` (a branch, or an event) created from `fromMs` (up to `beforeMs`, when given). */
+async function workflowRuns({ fetcher, token, repo, pick, fromMs, beforeMs = null }) {
   const rows = [];
   const created = beforeMs === null ? `>=${new Date(fromMs).toISOString()}` : `${new Date(fromMs).toISOString()}..${new Date(beforeMs).toISOString()}`;
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const query = new URLSearchParams({ branch, status: "completed", per_page: "100", page: String(page), created });
+    const query = new URLSearchParams({ ...pick, status: "completed", per_page: "100", page: String(page), created });
     const got = await appJson(fetcher, `${GITHUB_API}/repos/${repo}/actions/runs?${query}`, { headers: githubHeaders(token) }, NAME);
     if (!got.ok) return got;
     const runs = Array.isArray(got.body?.workflow_runs) ? got.body.workflow_runs : [];
@@ -279,13 +283,18 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
     add("deploys", deploys);
     const runs = span("workflow-runs");
     const runFloor = now - GITHUB_SETS[2].keepDays * DAY_MS;
-    const fresh = await workflowRuns({ fetcher, token: minted.token, repo, branch, fromMs: Number.isFinite(runs.newestMs) ? Math.max(runs.newestMs - DAY_MS, runFloor) : runFloor });
-    if (!fresh.ok) return failedOf(fresh);
-    add("workflow-runs", fresh);
-    if (Number.isFinite(runs.oldestMs) && runs.oldestMs > runFloor + 60 * 60_000) {
-      const older = await workflowRuns({ fetcher, token: minted.token, repo, branch, fromMs: runFloor, beforeMs: runs.oldestMs });
-      if (!older.ok) return failedOf(older);
-      add("workflow-runs", older);
+    for (const pick of RUN_PICKS(branch)) {
+      // Dispatched runs were not read before 2026-11-25, so the sheet's own span says nothing of them: read their
+      // whole 30 days each run (a handful a day), and the default branch's from where the sheet ends.
+      const dispatched = pick.event !== undefined;
+      const fresh = await workflowRuns({ fetcher, token: minted.token, repo, pick, fromMs: !dispatched && Number.isFinite(runs.newestMs) ? Math.max(runs.newestMs - DAY_MS, runFloor) : runFloor });
+      if (!fresh.ok) return failedOf(fresh);
+      add("workflow-runs", fresh);
+      if (!dispatched && Number.isFinite(runs.oldestMs) && runs.oldestMs > runFloor + 60 * 60_000) {
+        const older = await workflowRuns({ fetcher, token: minted.token, repo, pick, fromMs: runFloor, beforeMs: runs.oldestMs });
+        if (!older.ok) return failedOf(older);
+        add("workflow-runs", older);
+      }
     }
   }
   // A pull request read now, or kept from before, gets `deployed` from any deployment read now or kept.

@@ -169,11 +169,23 @@ function evalAggregate(node, env) {
   if (!env.whole && !placeBy) throw new Stop(`${where} has no date column to place its rows in time`);
   const columns = new Map(refsIn(node.expr).map((ref) => [ref, columnIn(sheet, ref.column, where)]));
   const conds = (node.where ?? []).map((cond) => ({ column: columnIn(sheet, cond.column, where), op: cond.op, value: String(cond.value) }));
+  // Picking rows by a column nobody has filled in yet (a sign-up's channel before it was recorded) says
+  // nothing: no data, never a 0 that reads as a real count.
+  if (conds.some((c) => c.op === "=" && !sheet.rows.some((row) => cell(row, c.column).trim() !== ""))) return null;
+  const { from, to, current } = env.window ?? {};
+  // A window that ends before the sheet's first dated row is from before anything was recorded: no data, not 0.
+  if (placeBy !== null && Number.isFinite(to)) {
+    let first = Infinity;
+    for (const row of sheet.rows) {
+      const t = dateMs(cell(row, placeBy));
+      if (!Number.isNaN(t) && t < first) first = t;
+    }
+    if (to <= first) return null;
+  }
   const values = [];
   let count = 0;
   // count(distinct …): each filled value once, by its text.
   const seen = node.distinct === true ? new Set() : null;
-  const { from, to, current } = env.window ?? {};
   for (const row of sheet.rows) {
     if (placeBy !== null) {
       const t = dateMs(cell(row, placeBy));
