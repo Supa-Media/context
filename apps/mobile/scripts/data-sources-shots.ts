@@ -77,6 +77,11 @@ const mockStableNoop = async () => ({});
 
 /** What the sync says of the right-now metric in boards n1 and n2 (`useMetricKeep.ts`), set per board. */
 const mockKeep: { current: Record<string, unknown> } = { current: { state: undefined, armed: false } };
+// The right-now boards draw the console's own Readings header (`KeptReadingsHead`), which shows only inside the console.
+jest.mock("../features/console/ConsoleDataContext", () => ({
+  ...(jest.requireActual("../features/console/ConsoleDataContext") as object),
+  useOptionalConsoleData: () => (mockKeep.current.inConsole === true ? { demo: false } : null),
+}));
 jest.mock("../features/console/files/data/useMetricKeep", () => ({
   ...(jest.requireActual("../features/console/files/data/useMetricKeep") as object),
   useMetricKeep: () => mockKeep.current,
@@ -449,8 +454,10 @@ async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolea
   const size = phone ? PHONE : DESKTOP;
   mockKeep.current =
     board === "now-kept"
-      ? { state: { known: true, syncedAt: Date.now() - 12 * MIN }, armed: true }
-      : { state: { known: true }, armed: false, keep: async () => null };
+      ? { inConsole: true, state: { known: true, syncedAt: Date.now() - 12 * MIN }, armed: true }
+      : board === "now-new"
+        ? { inConsole: true, state: { known: true }, armed: false, keep: async () => null }
+        : { state: undefined, armed: false };
   chartWidth = phone ? PHONE.width - 32 - 26 : 820 - 26;
   stampViewport(size);
   container = document.createElement("div");
