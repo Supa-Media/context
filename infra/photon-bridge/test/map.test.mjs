@@ -247,7 +247,7 @@ test("a sticker stuck on a message is a sticker reaction on that message", () =>
   );
   assert.equal(mapped.type, "message.reactionAdded");
   assert.equal(mapped.eventId, "photon:message.stickerPlaced:target-1:140");
-  assert.deepEqual(mapped.reaction, { kind: "sticker", targetGuid: "target-1", targetText: "Tex's words", targetFromMe: true });
+  assert.deepEqual(mapped.reaction, { kind: "sticker", targetGuid: "target-1", targetText: "Tex's words", targetFromMe: true, sticker: "att" });
   assert.equal(mapped.from, "+15550100999");
 });
 

@@ -181,7 +181,10 @@ function reactionOf(reaction: Rec, removed: boolean): Reaction | null {
     return { how: "Reacted", ...target, emoji: [...emoji].slice(0, MAX_EMOJI).join(""), ...removal };
   }
   // A sticker stuck on a message, or a sticker tapback: a reaction whose own text names it (Sendblue never sent these).
-  if (kind === "sticker") return { how: "Reacted", ...target, emoji: STICKER, ...removal };
+  if (kind === "sticker") {
+    const sticker = idOf(reaction.sticker);
+    return { how: "Reacted", ...target, emoji: STICKER, ...(sticker !== null ? { sticker } : {}), ...removal };
+  }
   return null;
 }
 

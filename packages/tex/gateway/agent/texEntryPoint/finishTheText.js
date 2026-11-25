@@ -18,7 +18,7 @@ import { EMPTY_FALLBACK, emptyFallback, isEmptyAnswer, isFallback } from "../rep
 import { withSavedLink } from "../noteLinks.js";
 import { withPreviewLinks } from "../../../../shared/src/notePreview.cjs";
 import { answerWithAsk, textedAsk } from "../textedApprovals.js";
-import { tapbackOf } from "../tapbackEnding.js"; // a tapback as the whole answer: nothing texted, the Worker reacts
+import { tapbackOf, tapbackStickerOf } from "../tapbackEnding.js"; // a tapback as the whole answer: nothing texted, the Worker reacts
 import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 import { scheduledSkip } from "../scheduledQuiet.js"; // a check-in's or routine's skip is a decision, never its words
 
@@ -33,6 +33,7 @@ export async function finishTheText(t) {
   const crossAskRun = t.crossChat?.kind === "ask"; // its answer goes back to the chat that asked, never texted here (`crossChat.js`)
   const finishSet = settingsOf(env, "finish"); // this step's own settings, shown and changed in the Lab (`texNodeSettings.cjs`)
   const tapped = tapbackOf(turn); // the front door answered with only a tapback (`tapbackEnding.js`)
+  const stuck = tapbackStickerOf(turn); // or a sticker this chat kept, in the tapback's place (`packages/tex/worker/stickers.ts`)
   const hushed = turn.answer === QUIET_ACK || tapped !== null; // a job's start or restart texts nothing; their text gets a tapback instead (`background.js`)
   const { answer: replied, quiet } = hushed ? { answer: "", quiet: true } : reportReply(report, turn.answer), silent = job === null && (((group !== null || turn.settled === "say_nothing") && /^\W*SKIP\W*$/.test(String(replied ?? ""))) || typedCallOf(replied) !== null || (report === null && scheduledSkip(group, replied))), { answer: toldMarked, pictures, captions, choices = [], offers = [] } = outgoing.take(quiet ? "" : silent ? (group?.tagged === true ? EMPTY_FALLBACK : "") : !runner && isEmptyAnswer(replied) ? emptyFallback(turn.timing?.failures) : finishSet.trimFlattery === true ? withoutFlattery(replied) : replied); // a report's quiet is a flag, and an ended job always gets a line (`jobReport.js`); a group's bare SKIP, or any say_nothing (`sayNothing.js`), is silence, never the fallback, and only SKIP: "Quiet." answers a question (Dev2, 2026-11-01: Tex texted "my answer got lost" to a message for Instinct); a scheduled group turn's skip is silence however it was worded, its reasoning never a text (2026-11-17, `scheduledQuiet.js`); a literal "@Tex" is never silent: its silence is the fallback (Dev2, 2026-11-12)
   // A saved deliverable's link goes on its own line when the reply does not already link it (`noteLinks.js`, `withSavedLink`).
@@ -58,6 +59,6 @@ export async function finishTheText(t) {
   const handoff = opened?.browser?.handoffLine() ?? null;
   const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
   const under = underOf(underParts, told, sent); // each part of what is sent, with the text it goes under (`replyUnder.js`)
-  return { crossAskRun, tapped, hushed, quiet, silent, pictures, captions, choices, offers, verbatim, offerText, answer, sent, under };
+  return { crossAskRun, tapped, stuck, hushed, quiet, silent, pictures, captions, choices, offers, verbatim, offerText, answer, sent, under };
 }
 // TEX ENTRY POINT: end

@@ -30,3 +30,10 @@ test("a photo past the limit, or with no bytes, is refused, and the stream is st
   await assert.rejects(readWhole(empty, 10), { status: 502, code: "photo_empty" });
   assert.equal(empty.closed, true);
 });
+
+test("the header's metadata is handed on, so a re-uploaded sticker keeps its name", async () => {
+  const stream = streamOf([{ type: "header", info: { fileName: "smile.heic" } }, { type: "primaryChunk", data: new Uint8Array([1]) }]);
+  let seen;
+  await readWhole(stream, 10, (info) => (seen = info));
+  assert.deepEqual(seen, { fileName: "smile.heic" });
+});

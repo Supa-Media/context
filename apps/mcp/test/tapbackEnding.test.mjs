@@ -23,10 +23,12 @@
  *     → "wired on main: off the shelf, a send action, and a chat turn is offered it" fails.
  *  9. `runTheModel.js` offering it on their own tapback (`reactable` always true).
  *     → "through /agent: never offered where the Worker can't react, as on their own tapback" fails.
+ * 10. `tapbackEnding` honouring `sticker` while "Chat stickers" is off.
+ *     → "a chat sticker rides with the tapback only while Chat stickers is on" fails.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TAPBACK_TOOL, eitherEnds, lastCallFailed, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
+import { TAPBACK_TOOL, eitherEnds, lastCallFailed, stickerIdOf, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine, tapbackStickerOf } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
 import { tapbackNode } from "../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
@@ -88,6 +90,40 @@ test("the turn's answer carries the emoji and reads back only one of the 64", ()
   assert.equal(tapbackOf(settled("ok 👍")), null);
   assert.equal(tapbackOf({ answer: "[[tex:quiet-ack]]", settled: "start_background_job" }), null);
   assert.match(tapbackSaidLine("📅"), /reacted 📅 to their text/);
+});
+
+test("a chat sticker rides with the tapback only while Chat stickers is on", async () => {
+  const off = tapbackEnding({ gate: gateOf });
+  assert.equal("sticker" in off.local.tool.inputSchema.properties, false, "off: the model is never offered a sticker");
+  await off.local.call({ emoji: "😂", sticker: "s1a2b3c" }, { messages: [] });
+  assert.equal(off.endsTurn(TAPBACK_TOOL), tapbackAnswer("😂"), "off: a sticker the model names anyway is dropped");
+  const on = tapbackEnding({ gate: gateOf, stickers: true });
+  assert.equal(on.local.tool.inputSchema.properties.sticker.type, "string");
+  const told = await on.local.call({ emoji: "😂", sticker: "sticker s1a2b3c" }, { messages: [] });
+  assert.match(told.content[0].text, /sticker s1a2b3c on their text \(or 😂/);
+  const answer = on.endsTurn(TAPBACK_TOOL);
+  assert.equal(answer, tapbackAnswer("😂", "s1a2b3c"));
+  const settled = { answer, settled: TAPBACK_TOOL };
+  assert.equal(tapbackOf(settled), "😂", "the emoji still reads back, the fallback");
+  assert.equal(tapbackStickerOf(settled), "s1a2b3c");
+  assert.equal(tapbackStickerOf({ answer }), null, "typed as words, never stuck");
+  assert.equal(tapbackStickerOf({ answer: tapbackAnswer("😂"), settled: TAPBACK_TOOL }), null);
+  const unread = tapbackEnding({ gate: gateOf, stickers: true });
+  await unread.local.call({ emoji: "😂", sticker: "the funny one" }, { messages: [] });
+  assert.equal(unread.endsTurn(TAPBACK_TOOL), tapbackAnswer("😂"), "a sticker that is no id goes as the emoji alone");
+  assert.match(tapbackSaidLine("😂", "s1a2b3c"), /stuck sticker s1a2b3c on their text/);
+});
+
+test("a sticker id reads only as the chat writes one", () => {
+  assert.equal(stickerIdOf("s1a2b3c"), "s1a2b3c");
+  assert.equal(stickerIdOf("Sticker S1A2B3C"), "s1a2b3c");
+  for (const bad of ["s1a2b3", "x1a2b3c", "s1a2b3c4", "s1a2b3c]]", "", null, 7]) assert.equal(stickerIdOf(bad), null, String(bad));
+});
+
+test("the node hands a sticker on beside its emoji, and refuses as before", async () => {
+  assert.deepEqual(await tapbackNode({ emoji: "😂", sticker: "s1a2b3c" }), { to: "react", emoji: "😂", sticker: "s1a2b3c" });
+  assert.deepEqual(await tapbackNode({ emoji: "😂", sticker: "nope" }), { to: "react", emoji: "😂" });
+  assert.equal((await tapbackNode({ emoji: "🦄", sticker: "s1a2b3c" })).to, "refuse", "a sticker never stands in for a bad emoji");
 });
 
 test("only this turn's last call before it counts as failed", () => {
