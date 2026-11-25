@@ -234,7 +234,7 @@ export function AreasView(props: AreasViewProps) {
             ...(myHandle === undefined ? {} : { me: myHandle }),
             open: onSelect,
           },
-          tools: { people, agents, isAgent, cardFor, label, ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }) },
+          tools: { people, agents, isAgent, cardFor, label, ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);

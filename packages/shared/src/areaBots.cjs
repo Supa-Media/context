@@ -113,7 +113,7 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach }) 
   lines.push("");
   lines.push(
     `People and other bots talk to you in ${where}mail/, one note per sender (${where}mail/<sender>.md). Join each one once as ${quoted(mailJoinName(name))} with write { action: "mail", path: "<that note>", args: { join: ${quoted(mailJoinName(name))} } }, pass the mailbox it gives you on every call, read with fetch { id: "<that note>", args: { mail: true } }, and answer in the same note with write { action: "mail", path: "<that note>", args: { text } }.${
-      reach === "webhook" ? " New mail also reaches your webhook, naming the note: answer in the reply, or later in the note." : " Check your mail on a timer that survives your session restarting."
+      reach === "webhook" ? " New mail also reaches your webhook as a signed POST that names the note and who wrote, never the message: check x-context-signature (v1=HMAC-SHA256 of \"<x-context-timestamp>.<body>\" with your signing key), then read the note and answer in it." : " Check your mail on a timer that survives your session restarting."
     }`,
   );
   const modeText = modeLines(modes, person);

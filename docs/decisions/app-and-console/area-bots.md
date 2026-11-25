@@ -55,6 +55,33 @@ keeps its notes there and knows what its modes ask of it.
   and answers in it. The `mail/` folder is never a plain folder or a sub-area
   on the List, the Chart or in `orient`.
 
+- **A bot's webhook is sealed like an app connection** (the owner,
+  2026-11-25, option A of two: "ok A"). The bot's Reach is Webhook or
+  Checks its mail, on its card. For a webhook, an owner or editor types the
+  address and an optional `Name: value` header in the panel; the app makes a
+  signing key (`ctxbot_…`, `packages/shared/src/botHooks.cjs`) and shows it
+  once to copy into the bot. The control plane seals all three to the
+  workspace (`botHooks` table, `functions/botHooks.ts`); nobody reads them
+  back, and only whoever set it or an owner replaces it. Only a public https
+  address saves and is called (`packages/shared/src/publicAddress.cjs`,
+  checked against DNS before each call), with no redirects followed.
+- **The workspace notices new mail itself** (the owner, 2026-11-25: "A, plus
+  the workspace noticing"). The workspace object that saves a note sees a new
+  line in `<area>/mail/` wherever it was written: the app, an AI client's
+  `write { action: "mail" }` or by hand (`apps/mcp/src/workspaceStore/botMail.js`).
+  It is told once per new line, never for the bot's own reply or an edit
+  elsewhere in the note. Then it posts `/gateway/bots/mail` behind the gateway's
+  secret alone, as the rows mirror does. That door can only make a bot that
+  already has a webhook in that workspace hear "mail arrived" for a path in
+  its area's mail, within 120 calls an hour per bot. It reads nothing back.
+- **A call says where, never what.** It is a POST signed with
+  `x-context-signature: v1=<HMAC-SHA256(key, "<timestamp>.<body>")>`, and its body
+  is the workspace, the bot, the area, the note's path and who wrote it. The bot reads
+  the message and answers through its own Context connection, at its own
+  clearance, so the control plane never carries a note's body. A call is
+  retried once when the bot can't be reached or answers 5xx, and audited with
+  its status. **Send a test** is the same call from an owner or editor.
+
 **What a simplification would cost.** A bot kept in a table of its own would
 be invisible to agents reading notes and to Download as folders. A webhook
 secret on the card would put a credential in Markdown. One shared mail note
@@ -64,8 +91,12 @@ per area would mix every sender's thread into one log.
 mode meanings), `areasPanel.test.ts` (adding a bot, its prompt, the delegate
 dropdown, and that no secret-like key is ever written to a card),
 `areasSeat.test.ts` (bot cards), `apps/mcp/test/orientArea.test.mjs` (orient
-by area and for a holder, and no oracle for an area the caller cannot see).
+by area and for a holder, and no oracle for an area the caller cannot see),
+`apps/convex/__tests__/botHooks.test.ts` (sealed, signed, no private address,
+owner-only replace, the mail door's limits), `apps/mcp/test/botMail.test.mjs`
+(told once per new line, never its own reply) and
+`apps/mobile/__tests__/areaBotHook.test.ts` (the key shown once, the address
+never shown again).
 
-**Not built yet.** The webhook (a sealed address and secret, signed calls,
-Send a test, replies written back as mail) follows in its own pull request;
-until then a bot checks its area's mail on a timer.
+**Not built yet.** A bot's answer in the webhook's reply body is not written
+back as mail: the bot answers in the note through its own connection.
