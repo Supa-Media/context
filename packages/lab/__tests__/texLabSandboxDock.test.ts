@@ -252,7 +252,9 @@ describe("the test chat dock", () => {
     const t = Number((q("#sbtlTime")?.textContent ?? "").split(" ")[0]);
     // Capped at how long it has run (2 s, plus however long this runner took since), still playing, never a total
     // before it is known. Measured from the row's own time, so a slow runner can't push it past a fixed number.
-    const ranFor = (Date.now() - sandbox.rows[0]!.at) / 1000;
+    const sent = sandbox.rows[0]?.at;
+    expect(typeof sent).toBe("number");
+    const ranFor = (Date.now() - (sent as number)) / 1000;
     expect(q("#sbtlTime")?.textContent).not.toMatch(/\//);
     expect(t).toBeGreaterThanOrEqual(2);
     expect(t).toBeLessThanOrEqual(ranFor + 0.1);
