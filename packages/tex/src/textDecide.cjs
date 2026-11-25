@@ -27,6 +27,11 @@ const STALE_AT = 0.85;
 const MAX_CHAT = 200;
 /** A group chat's ledger key (`chat:<groupKey>`, the hash of its line and id), where the judge's verdict is kept. */
 const LEDGER_CHAT = /^[0-9a-f]{64}$/;
+/** The stickers a chat kept that Decide may react with, newest last (`packages/tex/worker/stickers.ts` ids). */
+const MAX_STICKERS = 8;
+const STICKER_ID = /^s[0-9a-z]{6}$/;
+/** Clef takes at most this many typed questions in one request (the inference Worker refuses more). */
+const MAX_QUESTIONS = 16;
 /** `${at padded to 13}-${seq padded to 6}` (contract section 1). */
 const EVENT_ID = /^\d{13}-\d{6}$/;
 
@@ -72,7 +77,18 @@ function readDecideBody(body) {
     ...(sender !== null ? { sender } : {}),
     ...(typeof body.ledger === "string" && LEDGER_CHAT.test(body.ledger) ? { ledger: body.ledger } : {}),
     ...(body.settle === true ? { settle: true } : {}),
+    ...stickersOf(body.stickers),
   };
+}
+
+/**
+ * The chat's kept stickers Decide may react with (Dev2, 2026-11-25: Tex should use them "in relevant situations", not
+ * only when asked): ids only, never a guid, at most `MAX_STICKERS`, the newest. Anything else is left out, never refused.
+ */
+function stickersOf(value) {
+  if (!Array.isArray(value)) return {};
+  const ids = [...new Set(value.filter((id) => typeof id === "string" && STICKER_ID.test(id)))].slice(-MAX_STICKERS);
+  return ids.length > 0 ? { stickers: ids } : {};
 }
 
 /**
@@ -207,7 +223,7 @@ function judgeState(transcript, facts = []) {
   return `${open}${newestWithin(transcript, MAX_STATE - open.length - close.length)}${close}`;
 }
 
-/** The typed questions, at most 16: act, also_react, wait_seconds, start (2+ messages), mid_turn when a turn runs, one per waiting ask (8 at most), moved_on, emoji, why: 16 at the most. */
+/** The typed questions, at most 16: act, also_react, wait_seconds, start (2+ messages), mid_turn when a turn runs, one per waiting ask (8 at most), moved_on, emoji, why, and sticker when the chat kept some and there is room: 16 at the most. */
 function decideRequest(body, { facts = [] } = {}) {
   const questions = {
     act: {
@@ -277,6 +293,16 @@ function decideRequest(body, { facts = [] } = {}) {
     instructions: "Which reason best explains that judgment of the newest message, as the examples label theirs?",
     criteria: { ...WHY },
   };
+  // A sticker in the emoji's place, from those people used in this chat (their lines read "sticker s1a2b3c on …"), only
+  // where there is room left for one more question: the stale questions come first, since they guard a held action.
+  if ((body.stickers ?? []).length > 0 && Object.keys(questions).length < MAX_QUESTIONS) {
+    questions.sticker = {
+      type: "choice",
+      instructions:
+        'If Tex reacts to the newest message, should it stick one of the stickers people in this chat used, instead of the emoji? Each is named by its id, and the chat\'s lines show where it was used ("sticker s1a2b3c on …", "[sticker s1a2b3c]"). Pick one only where it fits this moment the way it fit where it was used; otherwise none.',
+      criteria: { none: "none: the emoji", ...Object.fromEntries(body.stickers.map((id) => [id, `sticker ${id}, as people used it in this chat`])) },
+    };
+  }
   return { state: judgeState(body.transcript, facts), questions };
 }
 
@@ -354,6 +380,10 @@ function readDecideAnswers(body, answers) {
   const reacts = (noulOf(answers, "also_react") ?? 0) >= 0.5;
   const named = answerOf(answers, "emoji")?.choice;
   const emoji = reacts && typeof named === "string" && Object.hasOwn(REACT_EMOJI, named) ? REACT_EMOJI[named].emoji : undefined;
+  // A sticker only beside a reaction, and only one of the chat's own it was offered; the emoji still goes with it,
+  // for a line that can't stick one.
+  const stuck = answerOf(answers, "sticker")?.choice;
+  const sticker = reacts && typeof stuck === "string" && (body.stickers ?? []).includes(stuck) ? stuck : undefined;
   // How long to wait, from the score's level (0 is one second); missing, the shortest wait.
   const level = answerOf(answers, "wait_seconds")?.score;
   const waitSeconds = typeof level === "number" && Number.isFinite(level) ? Math.min(WAIT_SECOND_LEVELS, Math.max(1, Math.round(level) + 1)) : 1;
@@ -368,6 +398,7 @@ function readDecideAnswers(body, answers) {
     movedOn,
     confidence,
     ...(emoji ? { emoji } : {}),
+    ...(sticker ? { sticker } : {}),
     ...(act === "wait" ? { waitSeconds } : {}),
     ...(typeof why === "string" && Object.hasOwn(WHY, why) ? { why } : {}),
   };

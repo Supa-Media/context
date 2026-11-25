@@ -232,10 +232,12 @@ export async function accept(
   await storage.setAlarm(now + wait);
   // Anything sent while Tex works in this chat is decided with the turn running (`inboxTurn.ts`).
   try {
-    await decideWhileRunning(storage, key, { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji) => {
+    await decideWhileRunning(storage, key, { message, attempts: 0, ...(ev ? { ev } : {}) }, () => now, async (text, emoji, sticker) => {
       const running = runningTurn(storage, text.chatId);
       if (running !== undefined && text.messageId && !text.tapback && text.channel !== "simulator") {
-        await tapback(storage, { chat: text.chatId, now: () => now, by: "decide", asked: emoji, on: ev }, text.text, (sent) => lineFor(lineDeps(running.deps as InboxDeps), text.chatId).acknowledge(text.chatId, text.messageId, sent));
+        const line = lineFor(lineDeps(running.deps as InboxDeps), text.chatId);
+        const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(text.chatId, text.messageId, { attachment: guid });
+        await tapback(storage, { chat: text.chatId, now: () => now, by: "decide", asked: emoji, on: ev }, text.text, (sent) => line.acknowledge(text.chatId, text.messageId, sent), sticker !== undefined ? { id: sticker, stick } : undefined);
       }
     });
   } catch {
@@ -352,7 +354,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       for (const [key] of choice.drop) await storage.delete(key);
       if (choice.answer.length === 0) await presence?.stop();
       // Decide's tapback, in place of words for that text (`inboxTurn.ts`).
-      if (choice.react !== undefined) await acknowledgeText(storage, deps, choice.react, choice.emoji, "decide");
+      if (choice.react !== undefined) await acknowledgeText(storage, deps, choice.react, choice.emoji, "decide", undefined, choice.sticker);
       if (choice.answer.length > 0 && !(await answerTurn(storage, deps, choice.answer, presence))) return;
     } finally {
       await presence?.stop();

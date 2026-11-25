@@ -25,6 +25,7 @@ import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
 import { callsTex, tagsTex } from "./groupWords";
 import { groupStyle } from "./groupStyle";
+import { keptStickers } from "./stickers";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 
@@ -98,6 +99,12 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
   return id;
 }
 
+/** The chat's kept stickers as the ask carries them, or nothing; never fails an ask. */
+async function stickersFor(storage: InboxStorage): Promise<{ stickers?: string[] }> {
+  const ids = await keptStickers(storage).catch(() => []);
+  return ids.length > 0 ? { stickers: ids } : {};
+}
+
 /**
  * Ask the judge about the newest of `candidates`. `look`: a chat Tex is not set up in, judged on these lines alone
  * (`firstLook`), with no ledger to keep its verdict; otherwise the chat's log from its ledger, and the verdict kept
@@ -125,6 +132,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       // The chat's ledger, where the verdict is kept: the control plane's key for it (`groupKeyOf`), never for a first look.
       ...(ledgerKey === undefined ? {} : { ledger: ledgerKey }),
       ...(settle ? { settle: true as const } : {}),
+      // The stickers people used here, which Decide may react with; none on a first look (nothing of the chat is kept).
+      ...(look === undefined ? await stickersFor(storage) : {}),
     },
     running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
   );
@@ -150,7 +159,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
  * tapback only instead of words, never beside them; `reactionFor` checks the emoji). `wait`: untagged messages held for the rest of
  * the burst, `waitSeconds` as decide chose; the chat's state caps it (`chatState.ts`).
  */
-export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupEntry; emoji?: string; wait?: GroupEntry[]; waitSeconds?: number };
+export type GroupChoice = { answer: GroupEntry[]; chat: GroupEntry[]; drop: GroupEntry[]; react?: GroupEntry; emoji?: string; sticker?: string; wait?: GroupEntry[]; waitSeconds?: number };
 
 // The reply rules live in `groupPolicy.ts`; this stays importable from here.
 export { looksUnfinished } from "./groupPolicy";
@@ -199,7 +208,7 @@ export async function chooseGroupTurn(storage: InboxStorage, deps: ControlDeps &
 function chosen(burst: GroupEntry[], act: string, decision: Extract<Decision, { ok: true }>): GroupChoice {
   const newest = burst.at(-1)!;
   // A tapback only in place of words, never beside an answer or a wait (Dev2, 2026-11-10: "uses emojis way too much").
-  const react = act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  const react = act === "react" && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}), ...(decision.sticker ? { sticker: decision.sticker } : {}) } : {};
   if (act === "wait") return { answer: [], chat: [], drop: [], wait: burst, waitSeconds: decision.waitSeconds ?? 1, ...react };
   const tagged = act === "answer" ? -1 : taggedIndex(burst);
   if (tagged !== -1) return { answer: [burst[tagged]!], chat: burst.filter((_, index) => index !== tagged), drop: [] };
@@ -288,7 +297,7 @@ export async function firstLook(storage: InboxStorage, deps: ControlDeps & { now
     answer.push([key, kept]);
   }
   const newest = looks.at(-1)!;
-  const react = decision.ok && decision.act === "react" && chosen.length === 0 && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {};
+  const react = decision.ok && decision.act === "react" && chosen.length === 0 && !newest[1].reacted ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}), ...(decision.sticker ? { sticker: decision.sticker } : {}) } : {};
   return { answer, chat: [], drop: looks.filter((entry) => !chosen.includes(entry)), ...react };
 }
 
@@ -338,7 +347,7 @@ export async function whileRunning(
   running: Live,
   tagged: boolean,
   now: () => number,
-  react: (emoji?: string) => Promise<unknown>,
+  react: (emoji?: string, sticker?: string) => Promise<unknown>,
 ): Promise<WhileRunning> {
   const decision = await ask(storage, { ...running.deps, now }, message, [ev], true);
   if (!decision.ok) return tagged ? "after" : "chat";
@@ -348,7 +357,7 @@ export async function whileRunning(
   // Never forced into a turn of their own: they get their own decide once the running turn is done (addressed, code's floor answers them).
   if (message.from !== running.asker) {
     if (how === "fold" || how === "restart" || how === "queue" || tagged) return "redecide";
-    if (decision.act === "react") await react(decision.emoji);
+    if (decision.act === "react") await react(decision.emoji, decision.sticker);
     return "chat";
   }
   if (how === "fold") {
@@ -374,7 +383,7 @@ export async function whileRunning(
   }
   // Addressed to Tex: answered after, whatever decide said (code's floor).
   if (how === "queue" || tagged) return "after";
-  if (decision.act === "react") await react(decision.emoji);
+  if (decision.act === "react") await react(decision.emoji, decision.sticker);
   return "chat";
 }
 

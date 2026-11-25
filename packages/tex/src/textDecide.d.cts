@@ -42,6 +42,8 @@ export interface DecideBody {
   ledger?: string;
   /** A wait that was not held, or ran out, judged again with no wait to choose: quiet or respond. */
   settle?: true;
+  /** The stickers this chat kept (ids, newest last, at most 8) that Decide may react with instead of the emoji. */
+  stickers?: string[];
 }
 
 export type DecideResult =
@@ -54,6 +56,8 @@ export type DecideResult =
       movedOn: boolean;
       confidence: number;
       emoji?: string;
+      /** One of the body's `stickers`, chosen to stick in the emoji's place; only beside a reaction. */
+      sticker?: string;
       waitSeconds?: number;
       /** One of `WHY`'s keys: why the judge chose what it did. */
       why?: string;

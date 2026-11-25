@@ -235,8 +235,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     let how: Awaited<ReturnType<typeof whileRunning>>;
     try {
-      how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji) =>
-        tapback(storage, { chat: message.groupId, now: () => now, by: "decide", asked: emoji, on: ev }, message.text, (sent) => groupLineFor(groupLineSeam(running.deps as GroupDeps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)),
+      how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji, sticker) =>
+        tapback(storage, { chat: message.groupId, now: () => now, by: "decide", asked: emoji, on: ev }, message.text, (sent) => groupLineFor(groupLineSeam(running.deps as GroupDeps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent), decideSticker(running.deps as GroupDeps, message, sticker)),
       );
     } catch {
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
@@ -328,6 +328,17 @@ export function filesFor(message: GroupMessage, lines: readonly { attachments?: 
 }
 
 type ReactionRead = { kind: "done"; outcome: "queued" | "ignored" } | { kind: "line"; line: string };
+
+/**
+ * Decide's sticker on a message of the group's, by its id, with the line's stick (none on a line without stickers, and
+ * the emoji goes instead: `stepEvents.ts` `tapback`). Nothing when Decide chose no sticker.
+ */
+function decideSticker(deps: GroupDeps, message: GroupMessage, sticker: string | undefined): { id: string; stick: ((guid: string) => Promise<void>) | undefined } | undefined {
+  if (sticker === undefined) return undefined;
+  const line = groupLineFor(groupLineSeam(deps), message.groupId);
+  const place = { line: message.line, groupId: message.groupId };
+  return { id: sticker, stick: line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid }) };
+}
 
 /**
  * A reaction in a group (Dev2, 2026-11-01: every tapback and emoji is input).
@@ -467,7 +478,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       // Decide's reaction goes at once, whatever it decided about words, and only once per message.
       if (choice.react) {
         const [key, item] = choice.react;
-        await tapback(storage, { chat: item.message.groupId, now: deps.now, by: "decide", asked: choice.emoji, on: item.ev }, item.message.text, (sent) => groupLineFor(groupLineSeam(deps), item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, sent));
+        await tapback(storage, { chat: item.message.groupId, now: deps.now, by: "decide", asked: choice.emoji, on: item.ev }, item.message.text, (sent) => groupLineFor(groupLineSeam(deps), item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, sent), decideSticker(deps, item.message, choice.sticker));
         await storage.put<Pending>(key, { ...item, reacted: true });
         for (const list of [choice.answer, choice.wait ?? []]) for (const entry of list) if (entry[0] === key) entry[1] = { ...entry[1], reacted: true };
       }

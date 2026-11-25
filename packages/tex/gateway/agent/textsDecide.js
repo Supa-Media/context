@@ -17,7 +17,7 @@
 import { DECISION_MODEL, decisionEngine } from "./decide.js";
 import { decideWhyNode, decideWhyOn } from "./graph/nodes/decideWhy.js";
 import { recheckNode, recheckOn } from "./graph/nodes/recheck.js";
-import { texConfigOf } from "./texConfig.js";
+import { settingsOf, texConfigOf } from "./texConfig.js";
 import { eventEntry, ledgerFor, ledgerWriter, stepEntry } from "./ledger.js";
 import { checkEvents, EventRefusal } from "./log.js";
 import { dayFromLedger } from "./ledgerHistory.js";
@@ -54,14 +54,17 @@ async function readJson(request) {
 
 /**
  * `{ ...decide's answer, meter: { questions, chars, ms } }`; a model that fails or answers off the set is
- * `{ ok: false, reason: "unavailable", cause }`, as the control plane answered it. `engine` is for tests.
+ * `{ ok: false, reason: "unavailable", cause }`, as the control plane answered it. `engine` and `settings` are for tests.
  */
-export async function decideForTexts(request, env, { engine = decisionEngine(env?.AI), ledger = (key) => ledgerFor(env, { chat: key }), waitUntil = null } = {}) {
+export async function decideForTexts(request, env, { engine = decisionEngine(env?.AI), ledger = (key) => ledgerFor(env, { chat: key }), waitUntil = null, settings = (id) => settingsOf(env, id) } = {}) {
   const path = new URL(request.url).pathname;
   const recheck = path === TEXTS_RECHECK_PATH;
   const raw = await readJson(request);
-  const body = raw === null ? null : recheck ? readRecheckBody(raw) : readDecideBody(raw);
-  if (body === null) return new Response(null, { status: 400 });
+  const read = raw === null ? null : recheck ? readRecheckBody(raw) : readDecideBody(raw);
+  if (read === null) return new Response(null, { status: 400 });
+  // Decide's "Chat stickers" setting off: no sticker is offered, so its reaction is always the emoji.
+  const { stickers, ...rest } = read;
+  const body = stickers !== undefined && settings("decide").stickers === true ? read : rest;
   // Still answers them? (node "recheck", `texConfig.json`): turned off, every group reply goes as it is, with no model asked.
   if (recheck && !recheckOn(texConfigOf(env))) return Response.json({ ok: true, fits: true, off: true, meter: { questions: 0, chars: 0, ms: 0, answered: false } });
   // No model here (a gateway with no AI binding): 503, so the Worker asks the control plane as it did before.
@@ -127,6 +130,7 @@ export function judgeVerdictEntry(body, result, ms, facts = 0) {
     event: body.newest,
     ...(result.why ? { why: result.why } : {}),
     ...(result.emoji ? { emoji: result.emoji } : {}),
+    ...(result.sticker ? { sticker: result.sticker } : {}),
     ...(result.midTurn ? { midTurn: result.midTurn } : {}),
     confidence: result.confidence,
     ...(Array.isArray(result.covers) && result.covers.length ? { covers: result.covers } : {}),

@@ -34,6 +34,7 @@ import { restartTurn, runningTurn, steerInto } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { reactionLine, type Tapback } from "./reactions";
 import { onTexText } from "./thumbs";
+import { keptStickers } from "./stickers";
 import type { SendPart } from "./outgoing";
 import type { InboxStorage } from "./inbox";
 import type { ReplyPlace } from "./clients";
@@ -143,6 +144,8 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
     running,
     waitingAsks: asks,
     newest: candidates.at(-1) ?? "",
+    // The stickers people used here, which Decide may react with.
+    ...(await keptStickers(storage).catch(() => []).then((ids) => (ids.length > 0 ? { stickers: ids } : {}))),
   };
   // Idle, the person is watching the bubble: a slow decide falls back rather than keep them waiting.
   const decision = await decide(deps, asked, running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS);
@@ -182,7 +185,7 @@ export function fallbackTurn(burst: Entry[]): Entry[] {
 }
 
 /** `emoji`: decide's choice for `react` (`reactionFor` checks it). */
-export type Choice = { answer: Entry[]; react?: Message; emoji?: string; drop: Entry[] };
+export type Choice = { answer: Entry[]; react?: Message; emoji?: string; sticker?: string; drop: Entry[] };
 
 /**
  * What the next turn answers, from the waiting texts in the first one's chat,
@@ -227,7 +230,7 @@ export async function chooseTurn(storage: InboxStorage, deps: ControlDeps & { no
   if (decision.act !== "answer") {
     if (must.length > 0) return { answer: must, drop: burst.filter((entry) => !must.includes(entry)) };
     const newest = burst.at(-1)![1].message;
-    return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {}) };
+    return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}), ...(decision.sticker ? { sticker: decision.sticker } : {}) } : {}) };
   }
   const covered = (entry: Entry) => entry[1].force === true || (entry[1].ev !== undefined && decision.covers.includes(entry[1].ev));
   // An older text it left out that still needs an answer goes first; acknowledgements before the answer go unanswered (`gatherTheTurn.ts`).
@@ -279,7 +282,7 @@ async function leftoverTurn(
     if (must.length === 0) {
       await markLeftover(storage, burst[0][1].message.chatId, left, deps.now());
       const newest = burst.at(-1)![1].message;
-      return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}) } : {}) };
+      return { answer: [], drop: burst, ...(decision.act === "react" ? { react: newest, ...(decision.emoji ? { emoji: decision.emoji } : {}), ...(decision.sticker ? { sticker: decision.sticker } : {}) } : {}) };
     }
     answer = must;
     drop = burst.filter((entry) => !must.includes(entry));
@@ -333,7 +336,7 @@ export async function decideWhileRunning(
   key: string,
   item: Pending,
   now: () => number,
-  acknowledge: (message: Message, emoji?: string) => Promise<void>,
+  acknowledge: (message: Message, emoji?: string, sticker?: string) => Promise<void>,
 ): Promise<void> {
   const running = runningTurn(storage, item.message.chatId);
   // An SMS (its sender can be faked), LINK, UNLINK or a saved login's turn is never put into a running turn: it waits and is answered on its own.
@@ -360,5 +363,5 @@ export async function decideWhileRunning(
   }
   if (how === "queue" || !pureAck(item.message)) return void (await keep({ force: true }));
   await storage.delete(key);
-  if (decision.act === "react") await acknowledge(item.message, decision.emoji);
+  if (decision.act === "react") await acknowledge(item.message, decision.emoji, decision.sticker);
 }
