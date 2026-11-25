@@ -49,6 +49,11 @@ export function stickerIdOf(said) {
   return STICKER_ID.test(id) ? id : null;
 }
 
+/**
+ * The tool, `sticker` included, on every turn: the fixed tool list (`sixToolsFixed.js`) shows the catalogue's copy, the
+ * same bytes whatever a turn holds, so a choice offered only while "Chat stickers" is on would never reach the model.
+ * While it is off, a sticker named anyway is dropped and the emoji goes.
+ */
 export const TAPBACK_DEFINITION = {
   name: TAPBACK_TOOL,
   description:
@@ -58,25 +63,13 @@ export const TAPBACK_DEFINITION = {
     type: "object",
     properties: {
       emoji: { type: "string", description: `The one emoji, from these only: ${[...EMOJI].join(" ")}` },
+      sticker: {
+        type: "string",
+        description: "Optional: a sticker someone stuck in this chat, by its id (\"sticker s1a2b3c\" is s1a2b3c), stuck on their text instead of the emoji; the emoji goes if it can't.",
+      },
       why: { type: "string", description: "In a few words, why a tapback answers them. Kept in the history, never sent." },
     },
     required: ["emoji"],
-  },
-};
-
-/** The tool with its `sticker` choice, offered while the Tapback step's "Chat stickers" setting is on. */
-export const TAPBACK_STICKER_DEFINITION = {
-  ...TAPBACK_DEFINITION,
-  description: `${TAPBACK_DEFINITION.description} You may stick a sticker someone here used instead, by its id.`,
-  inputSchema: {
-    ...TAPBACK_DEFINITION.inputSchema,
-    properties: {
-      ...TAPBACK_DEFINITION.inputSchema.properties,
-      sticker: {
-        type: "string",
-        description: "Optional: the id of a sticker someone stuck in this chat, as the chat shows it (\"sticker s1a2b3c\" is s1a2b3c), stuck on their text in place of the emoji. The emoji goes if it can't.",
-      },
-    },
   },
 };
 
@@ -120,7 +113,7 @@ export function tapbackEnding({ gate, tagged = false, stickers = false }) {
   let chosen = null;
   let stuck = null;
   const local = {
-    tool: stickers === true ? TAPBACK_STICKER_DEFINITION : TAPBACK_DEFINITION,
+    tool: TAPBACK_DEFINITION,
     call: async (args = {}, turn = {}) => {
       const asked = stickers === true ? stickerIdOf(args.sticker) : null;
       const out = await gate({ emoji: typeof args.emoji === "string" ? args.emoji : "", why: typeof args.why === "string" ? args.why.slice(0, 300) : "", lastFailed: lastCallFailed(turn.messages), tagged: tagged === true, ...(asked ? { sticker: asked } : {}) }).catch(() => null);
@@ -130,7 +123,8 @@ export function tapbackEnding({ gate, tagged = false, stickers = false }) {
       }
       chosen = tapbackEmoji(out.emoji);
       stuck = stickers === true ? stickerIdOf(out.sticker) : null;
-      const seen = stuck ? `sticker ${stuck} on their text (or ${chosen} if it can't go)` : `${chosen} on their text`;
+      const off = stickers !== true && stickerIdOf(args.sticker) !== null ? " (stickers are off in this chat, so the emoji went)" : "";
+      const seen = stuck ? `sticker ${stuck} on their text (or ${chosen} if it can't go)` : `${chosen} on their text${off}`;
       return { content: [{ type: "text", text: `They see ${seen} and nothing else, unless a call beside it failed. Your turn ends here.` }] };
     },
   };

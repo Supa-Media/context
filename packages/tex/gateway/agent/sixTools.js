@@ -303,7 +303,7 @@ const SHORT_LINES = {
   job_status: "How a background job is going; title exactly as your jobs list shows it.",
   email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
-  tapback: "Answer their text with only a tapback, and end your turn.",
+  tapback: "Only a tapback or chat sticker, no words; ends turn.",
   forward_rule: "Keep forwarding one kind of their mail to one address, once they 👍 it.",
   restart_job: "Pick stopped background jobs back up where they stopped.",
   advisor: "Ask your advisor, a stronger model, for judgment, before a task is done, or when stuck.",

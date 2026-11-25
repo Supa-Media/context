@@ -7,6 +7,7 @@ import { MemoryStorage } from "../../../../../packages/tex/worker/memoryStorage.
 import { groupLineFor } from "../../../../../packages/tex/worker/groupLine.ts";
 import { tapbackEnding, tapbackStickerOf, TAPBACK_TOOL } from "../../../../../packages/tex/gateway/agent/tapbackEnding.js";
 import { tapbackNode } from "../../../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
+import { fixedCarriers } from "../../../../../packages/tex/gateway/agent/sixToolsFixed.js";
 
 const LINE = "+15555550199";
 const FRIEND = "+15555550100";
@@ -29,10 +30,11 @@ const stuck = {
 export default {
   id: "sticker-stuck-back",
   incident: "2026-11-25: Dev2 asked whether Tex can send stickers through Photon. Tex could read a sticker stuck on a text only as \"with a sticker\", and could never stick one.",
-  cause: "The bridge dropped the placed sticker's attachment, the chat kept nothing to stick again, and Tex's tapback could only be one of 64 emoji.",
+  cause: "The bridge dropped the placed sticker's attachment, the chat kept nothing to stick again, and Tex's tapback could only be one of 64 emoji; then the fixed tool list showed the tapback without its sticker choice.",
   path: "group text",
   // Sabotage (2026-11-25): drop `sticker` in photonInbound.ts reactionOf, or the stickerOf check in stepEvents.ts
-  // tapback, and the sticker is never kept, or an id from another chat is stuck.
+  // tapback, and the sticker is never kept, or an id from another chat is stuck; drop `sticker` from TAPBACK_DEFINITION
+  // and the shown tapback offers none.
   async run() {
     const storage = new MemoryStorage();
     const read = parsePhotonEvent(stuck);
@@ -41,6 +43,10 @@ export default {
     const id = kept.emoji.replace(/^sticker /, "");
     assert.match(reactionLine(kept, true), new RegExp(`^sticker ${id} on Tex's message "we're officially booked for Lisbon"$`), "the chat's record names the sticker by its id");
     assert.equal(await stickerOf(storage, id), "at_0_PARTY-CAT");
+
+    // The tool list the model is shown is fixed per kind of chat (`sixToolsFixed.js`): its tapback must offer the
+    // sticker in a 1:1 and in a group, or Tex never names one (2026-11-25 Lab test: "I can't copy the sticker").
+    for (const kind of ["one", "group"]) assert.equal(fixedCarriers(kind).get(TAPBACK_TOOL)?.inputSchema?.properties?.sticker?.type, "string", `${kind}: the shown tapback offers a sticker`);
 
     // Chat stickers on: Tex's tapback names the sticker, and its answer carries it beside the emoji.
     const ending = tapbackEnding({ gate: tapbackNode, stickers: true });

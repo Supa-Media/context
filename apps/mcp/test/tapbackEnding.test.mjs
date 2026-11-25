@@ -28,7 +28,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TAPBACK_TOOL, eitherEnds, lastCallFailed, stickerIdOf, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine, tapbackStickerOf } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
+import { TAPBACK_DEFINITION, TAPBACK_TOOL, eitherEnds, lastCallFailed, stickerIdOf, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine, tapbackStickerOf } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
 import { tapbackNode } from "../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
@@ -94,8 +94,9 @@ test("the turn's answer carries the emoji and reads back only one of the 64", ()
 
 test("a chat sticker rides with the tapback only while Chat stickers is on", async () => {
   const off = tapbackEnding({ gate: gateOf });
-  assert.equal("sticker" in off.local.tool.inputSchema.properties, false, "off: the model is never offered a sticker");
-  await off.local.call({ emoji: "😂", sticker: "s1a2b3c" }, { messages: [] });
+  assert.equal(off.local.tool, TAPBACK_DEFINITION, "the same tool either way: the fixed tool list shows one copy");
+  const offTold = await off.local.call({ emoji: "😂", sticker: "s1a2b3c" }, { messages: [] });
+  assert.match(offTold.content[0].text, /stickers are off/);
   assert.equal(off.endsTurn(TAPBACK_TOOL), tapbackAnswer("😂"), "off: a sticker the model names anyway is dropped");
   const on = tapbackEnding({ gate: gateOf, stickers: true });
   assert.equal(on.local.tool.inputSchema.properties.sticker.type, "string");
