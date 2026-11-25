@@ -211,6 +211,13 @@ const nowSource = (kept: boolean): FolderListSource => ({
 });
 
 /** What stage E's sync object will say; drawn here as the boards do. */
+/** GitHub's calls answered as the boards draw them: two of three repositories picked. */
+const GITHUB_FLOW = {
+  begin: async () => null,
+  repos: async () => ({ repos: [{ name: "supa/app", private: true }, { name: "supa/context", private: false }, { name: "supa/site", private: false }], picked: ["supa/app", "supa/context"] }),
+  pick: async () => null,
+};
+
 const SYNC: Record<string, { syncedAt?: number; failedAt?: number }> = {
   "data/github": { syncedAt: NOW - 5 * MIN },
   "data/cloudflare": { syncedAt: NOW - HOUR },
@@ -317,7 +324,7 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type BoardId = "02" | "02c" | "02s" | "03c" | "04" | "04b" | "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
+type BoardId = "02" | "02c" | "02s" | "02g" | "02r" | "03c" | "04" | "04b" | "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
 
 const WORLD: Partial<Record<BoardId, { source: FolderListSource; nesting: Nesting }>> = {
   empty: { source: emptySource, nesting: emptyNesting },
@@ -366,6 +373,8 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
     case "02":
     case "02c":
     case "02s":
+    case "02g":
+    case "02r":
       return h(
         View as never,
         null,
@@ -378,7 +387,8 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
           onMake: async () => null,
           onMakeUrl: async () => null,
           onConnectApp: async () => null,
-          ...(board === "02c" ? { start: "cloudflare" as const } : board === "02s" ? { start: "stripe" as const } : {}),
+          ...(board === "02c" ? { start: "cloudflare" as const } : board === "02s" ? { start: "stripe" as const } : board === "02g" ? { start: "github" as const } : board === "02r" ? { start: "github-repos" as const } : {}),
+          github: GITHUB_FLOW,
           onClose: () => {},
         }),
       );
@@ -415,8 +425,9 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
     case "01":
     case "empty":
       return h(DataPage, { folder: "data", compact, ws, now: NOW, actions: dataActions, onOpen: open, sync: (folder: string) => SYNC[folder] });
+    // GitHub's page for an owner: Repositories…, Connect again and Disconnect in place of Sync now.
     case "07":
-      return sourcePage("data/github");
+      return sourcePage("data/github", { actions: { repositories: () => {}, reconnect: () => {}, disconnect: () => {}, more: () => {}, copy: () => {} } });
     case "09":
       return sourcePage("data/eval-ci", {
         actions: { newKey: () => {}, more: () => {}, copy: () => {} },
@@ -492,6 +503,8 @@ const SELECTED: Record<BoardId, string> = {
   "02": "data",
   "02c": "data",
   "02s": "data",
+  "02g": "data",
+  "02r": "data",
   "03c": "data/cloudflare",
   "04": "data",
   "04b": "data",
@@ -519,7 +532,7 @@ async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolea
         ? { inConsole: true, state: { known: true }, armed: false, keep: async () => null }
         : { state: undefined, armed: false };
   // The builder's chart sits in its dialog's card: the dialog's width less its padding and the card's.
-  const builder = board === "04" || board === "04b" || board === "02" || board === "02c" || board === "02s";
+  const builder = board === "04" || board === "04b" || board === "02" || board === "02c" || board === "02s" || board === "02g" || board === "02r";
   chartWidth = builder ? (phone ? PHONE.width : 680) - 48 - 26 : phone ? PHONE.width - 32 - 26 : 820 - 26;
   stampViewport(size);
   container = document.createElement("div");
@@ -555,6 +568,11 @@ describe("data sources shots", () => {
     ["02c", "02c-cloudflare-token", "light", true],
     ["02s", "02s-stripe-key", "light", false],
     ["02s", "02s-stripe-key", "light", true],
+    ["02g", "02g-github-connect", "light", false],
+    ["02g", "02g-github-connect", "dark", false],
+    ["02g", "02g-github-connect", "light", true],
+    ["02r", "02r-github-repos", "light", false],
+    ["02r", "02r-github-repos", "light", true],
     ["03c", "03c-cloudflare-source", "light", false],
     ["03c", "03c-cloudflare-source", "light", true],
     ["04", "04-metric-builder", "light", false],

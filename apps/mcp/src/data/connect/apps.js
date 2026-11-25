@@ -1,9 +1,11 @@
 /**
  * The apps an owner connects once for the whole workspace, each with the read-only key it takes, the one dataset it
- * keeps in its source folder, and how a run reads it (`docs/decisions/data-and-metrics.md`). GitHub joins when its
- * App is set up (stage F).
+ * keeps in its source folder (GitHub keeps three, its `sets`), and how a run reads it
+ * (`docs/decisions/data-and-metrics.md`). GitHub is connected by installing the deployment's App, not with a pasted key.
  */
 
+import { GITHUB_SOURCE, readGithub } from "./github.js";
+import { checkGithubInstall } from "./githubApp.js";
 import { CLOUDFLARE_DAYS, CLOUDFLARE_SOURCE, checkCloudflareToken, fetchCloudflareRows } from "./cloudflare.js";
 import { STRIPE_MAX_PAGES, STRIPE_SOURCE, checkStripeKey, fetchStripeRows } from "./stripe.js";
 
@@ -29,6 +31,12 @@ async function readStripe({ kept, newestMs, oldestMs, now, keepDays, fetcher }) 
 }
 
 export const APPS = Object.freeze({
+  github: Object.freeze({
+    ...GITHUB_SOURCE,
+    installed: true,
+    check: checkGithubInstall,
+    read: readGithub,
+  }),
   stripe: Object.freeze({
     ...STRIPE_SOURCE,
     check: checkStripeKey,

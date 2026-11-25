@@ -77,6 +77,10 @@ const NOT_SYNCED = new Map([
     "BENCH_RUNNER_REFRESH_TOKEN_LIVE",
     "Written by ai-benchmark.yml itself: the gateway rotates the benchmark runner's refresh token on every use, and a sync from the vault would restore the retired seed (BENCH_RUNNER_REFRESH_TOKEN), which the gateway treats as a replay and answers by revoking the grant.",
   ],
+  ...["GH_DATA_APP_ID", "GH_DATA_APP_SLUG", "GH_DATA_CLIENT_ID", "GH_DATA_CLIENT_SECRET", "GH_DATA_PRIVATE_KEY"].map((name) => [
+    name,
+    "The read-only GitHub App that workspace owners install as a data source. The owner made its private key and client secret in GitHub and set all five as repository secrets directly (2026-11-25), with the key file deleted from their computer; it is never in the vault. Only deploy-mcp.yml reads them, and the gateway answers 501 for GitHub without them.",
+  ]),
   // The Lab's runner slots 1..3 (scripts/lab-runner-lease.mjs). A slot's client id and
   // refresh token come from `pnpm ai connect --lab-slot N`; tex-lab-run.yml then writes the
   // rotated refresh token back after every run. The same rule as the live token above.

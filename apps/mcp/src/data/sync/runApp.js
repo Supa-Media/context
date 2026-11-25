@@ -1,5 +1,5 @@
 /**
- * One run of one connected app's source (Cloudflare), as the sync object runs it every hour
+ * One run of one connected app's source (Stripe, Cloudflare, GitHub), as the sync object runs it every hour
  * (`docs/decisions/data-and-metrics.md`, "Apps connect with read-only keys").
  *
  * The same checks as a url source (`run.js`), asked again on every run, with two of its own:
@@ -12,7 +12,7 @@
  * 3. **The key:** opened only here, from the sealed copy the object keeps for this workspace and this app
  *    (`connect/seal.js`). A key the app refuses stops the source until an owner connects again.
  *
- * It writes only the app's one dataset sheet inside the source's own folder, over the version it read, and never
+ * It writes only the app's dataset sheets (one, or GitHub's three) inside the source's own folder, over the version it read, and never
  * says what the app answered beyond a count.
  */
 
@@ -77,9 +77,15 @@ export async function runAppSource(deps) {
   if (about.result) return about.result;
   const said = String(frontMatterFields(about.text).source ?? "").trim().toLowerCase();
   if (said !== app.app) return stopped(`Stopped: its about.md no longer says source: ${app.app}.`);
-  const sheetPath = datasetPathOf(folder, app.dataset);
-  const sheetRow = await sheetRowAt(client, reader, sheetPath, "An owner can connect it again to make it.");
-  if (sheetRow.result) return sheetRow.result;
+  // Every dataset the app keeps (GitHub keeps three) must already be a sheet in the source's folder.
+  const sets = app.sets ?? [{ dataset: app.dataset, key: app.key, date: app.date, columns: app.columns }];
+  const places = [];
+  for (const set of sets) {
+    const sheetPath = datasetPathOf(folder, set.dataset);
+    const sheetRow = await sheetRowAt(client, reader, sheetPath, "An owner can connect it again to make it.");
+    if (sheetRow.result) return sheetRow.result;
+    places.push({ set, sheetPath, row: sheetRow.row });
+  }
 
   // 3. The key, opened here only.
   if (typeof deps.sealed !== "string") return stopped(`Stopped: ${app.name} isn't connected. An owner can connect it again here.`);
@@ -94,37 +100,56 @@ export async function runAppSource(deps) {
   const opened = await openStoreFor(deps, workspaceId, source.armedBy);
   if (opened.result) return opened.result;
   const { store } = opened;
-  const read = await readSheet(store, sheetRow.row.key, sheetPath);
-  if (read.result) return read.result;
-  const { current, text: currentText, sheet } = read;
-  const hasColumns = sheet.columns.length > 0;
+  const spans = {};
+  const sheets = {};
+  for (const place of places) {
+    const read = await readSheet(store, place.row.key, place.sheetPath);
+    if (read.result) return read.result;
+    Object.assign(place, read, { hasColumns: read.sheet.columns.length > 0 });
+    spans[place.set.dataset] = place.hasColumns ? spanOf(read.sheet, place.set.date) : { newestMs: Number.NaN, oldestMs: Number.NaN };
+    sheets[place.set.dataset] = place.hasColumns ? read.sheet.rows : [];
+  }
 
-  const span = hasColumns ? spanOf(sheet, app.date) : { newestMs: Number.NaN, oldestMs: Number.NaN };
-  const got = await app.read({ kept, ...span, now, keepDays: KEEP_DAYS, fetcher: deps.fetcher ?? fetch });
+  const single = app.sets === undefined;
+  const got = await app.read({ kept, ...(single ? spans[app.dataset] : { spans, sheets }), now, keepDays: KEEP_DAYS, fetcher: deps.fetcher ?? fetch, env: deps.env });
   if (!got.ok) return got.refused ? stopped(`Stopped: ${got.said}. An owner can connect it again here.`) : failed(`Nothing was written: ${got.said}; ${LATER}.`);
+  const incoming = single ? { [app.dataset]: { rows: got.rows, more: got.more } } : got.sets;
 
-  const merged = mergeSynced({ path: sheetPath, sheet: hasColumns ? sheet : null, columns: [...app.columns], incoming: got.rows, key: app.key, dateColumn: app.date, now });
-  if (!merged.ok) return failed(`Nothing was written: ${merged.refused}.`);
-  if (merged.text === currentText) return { outcome: "ok", rows: merged.rows, added: 0, changed: 0, path: sheetPath };
-  const wrote = await writeOver({
-    store,
-    client,
-    workspaceId,
-    armedBy: source.armedBy,
-    path: sheetPath,
-    key: sheetRow.row.key,
-    current,
-    next: merged.text,
-    now,
-    details: { rows: merged.rows, added: merged.added, changed: merged.changed, from: app.app },
-  });
-  if (wrote !== null) return wrote.result;
+  // Each sheet merged first, so a refusal writes none of them.
+  for (const place of places) {
+    const { set, sheetPath, sheet, hasColumns } = place;
+    place.merged = mergeSynced({ path: sheetPath, sheet: hasColumns ? sheet : null, columns: [...set.columns], incoming: incoming[set.dataset]?.rows ?? [], key: set.key, dateColumn: set.date, now, ...(set.keepDays ? { keepDays: set.keepDays } : {}) });
+    if (!place.merged.ok) return failed(`Nothing was written: ${place.merged.refused}.`);
+  }
+  let rows = 0;
+  let added = 0;
+  let changed = 0;
+  for (const { sheetPath, row, current, text: currentText, merged } of places) {
+    rows += merged.rows;
+    if (merged.text === currentText) continue;
+    added += merged.added;
+    changed += merged.changed;
+    const wrote = await writeOver({
+      store,
+      client,
+      workspaceId,
+      armedBy: source.armedBy,
+      path: sheetPath,
+      key: row.key,
+      current,
+      next: merged.text,
+      now,
+      details: { rows: merged.rows, added: merged.added, changed: merged.changed, from: app.app },
+    });
+    if (wrote !== null) return wrote.result;
+  }
+  const more = Object.values(incoming).some((one) => one?.more === true);
   return {
     outcome: "ok",
-    rows: merged.rows,
-    added: merged.added,
-    changed: merged.changed,
-    path: sheetPath,
-    ...(got.more ? { said: "Still reading older history; the next runs carry it back further." } : {}),
+    rows,
+    added,
+    changed,
+    path: places[0].sheetPath,
+    ...(more ? { said: "Still reading older history; the next runs carry it back further." } : {}),
   };
 }

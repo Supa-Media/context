@@ -19,7 +19,8 @@
  *   cannot read answers exactly as what is not there.
  * - **Status**: the last run of each source whose `about.md` the reader can read; the others are left out.
  *
- * Ops `connect` and `disconnect` are an owner connecting an app with a read-only key (`connect/route.js`).
+ * Ops `connect` and `disconnect` are an owner connecting an app with a read-only key, and `github_start`,
+ * `github_finish` and `github_repos` an owner installing GitHub's App (`connect/route.js`).
  *
  * Without the `DATA_SYNC` binding (self-hosting on the free tier) the route answers 501.
  */
@@ -34,7 +35,7 @@ import { callDataSync, dataSyncStub } from "./object.js";
 import { sourceFolderOf } from "./run.js";
 import { keptSheetOf } from "./snap.js";
 import { parseFormula } from "../formula/index.js";
-import { handleConnect, mayConnect, parseConnect } from "../connect/route.js";
+import { CONNECT_OPS, handleConnect, mayConnect, parseConnect } from "../connect/route.js";
 
 export const DATA_SYNC_PATH = "/files/data-sync";
 
@@ -102,7 +103,7 @@ export async function handleDataSync(request, store, session, _path, env) {
   }
   const body = await readBody(request);
   if (body === null) return json({ error: "invalid_request" }, 400);
-  const connecting = body.op === "connect" || body.op === "disconnect";
+  const connecting = CONNECT_OPS.includes(body.op);
   const asked = connecting ? parseConnect(body) : parse(body);
   if (asked === null) return json({ error: "invalid_request" }, 400);
   // Checked before anything is read: a call filed under one workspace never reaches another's object.
@@ -122,7 +123,7 @@ export async function handleDataSync(request, store, session, _path, env) {
       const found = await readSources(reader, [path], { withBody: true });
       return found === null ? undefined : (found.rows[0] ?? null);
     };
-    return await handleConnect({ asked, session, stub, readSource });
+    return await handleConnect({ asked, session, stub, readSource, env });
   }
 
   if (asked.op === "status") {
