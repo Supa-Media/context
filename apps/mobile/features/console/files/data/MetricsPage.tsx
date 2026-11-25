@@ -15,7 +15,7 @@ import type { MetricView } from "./views";
 import type { Sheet } from "./workOut";
 import { columnsWords, lastRowAt, lastRowWords, rowsWords } from "./words";
 
-export const METRICS_LEDE = "Each metric is a note: its name, formula and period sit in its properties. Each is worked out from its datasets as you read it.";
+export const METRICS_LEDE = "Each metric is a note: its name, formula and period sit in its properties. Each is worked out as you read it.";
 
 export function MetricsPage({
   title,

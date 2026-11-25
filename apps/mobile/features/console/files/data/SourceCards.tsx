@@ -24,16 +24,17 @@ export interface SourceCard {
 
 export function SourceCards({ cards, compact, onOpen }: { cards: readonly SourceCard[]; compact: boolean; onOpen: (path: string) => void }) {
   const styles = useThemedStyles(makeStyles);
+  const [left, right] = cardColumns(cards);
   if (compact) {
+    // Down the left column, then the right: the order a wide page reads them in.
     return (
       <View>
-        {cards.map((card) => (
+        {[...left, ...right].map((card) => (
           <PhoneSource key={card.source.folder} card={card} onOpen={onOpen} />
         ))}
       </View>
     );
   }
-  const [left, right] = cardColumns(cards);
   return (
     <View style={styles.columns}>
       {[left, right].map((column, at) => (

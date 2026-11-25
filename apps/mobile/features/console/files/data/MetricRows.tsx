@@ -140,7 +140,7 @@ const makeStyles = (colors: Colors) =>
     headRow: { height: 30 },
     headCell: { fontSize: pointerType.meta, lineHeight: 16, color: colors.chromeMuted, fontWeight: "400" },
     name: { width: 160, flexShrink: 0 },
-    fileName: { width: 176, flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 },
+    fileName: { width: 190, flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 },
     nameText: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", color: colors.text, flexShrink: 1 },
     valueCell: { width: 120, flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 },
     formulaCell: { flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },

@@ -170,7 +170,8 @@ export function SourcePage({
         lede={lede}
         compact={compact}
       />
-      <SectionHead title="Files" right={compact ? null : `${files.length} files · ordinary files you can open, copy or download`} compact={compact} />
+      {/* Said of a synced source's sheets (07); a push or built-in source's lede already says what its sheets are (09, 10). */}
+      <SectionHead title="Files" right={compact || source.kind === "push" || source.kind === "context" ? null : `${files.length} files · ordinary files you can open, copy or download`} compact={compact} />
       <FileRows files={files} compact={compact} onOpen={onOpen} />
       {source.kind === "push" ? (
         <>
