@@ -9,7 +9,6 @@ import { parseFormula } from "../../mcp/src/data/formula/index.js";
 import { parseSheet } from "../../mcp/src/sheets/csv.js";
 import { datasetHeader, freePath, pushSourceFiles, slugOf, startingFormula } from "../features/console/files/data/dataWrites";
 import { properties, splitNote } from "../features/console/files/frontmatter";
-import { metricOf } from "../features/console/files/data/metrics";
 import type { DataSource } from "../features/console/files/data/sources";
 
 const props = (text: string) => Object.fromEntries(properties(splitNote(text).frontmatter).map((row) => [row.key, row.value]));
