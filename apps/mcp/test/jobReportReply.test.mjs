@@ -75,3 +75,14 @@ test("only a running job's report is offered say_nothing, and none is told to ty
 test("any turn that is not a report keeps its answer exactly", () => {
   assert.deepEqual(reportReply(null, "SKIP"), { answer: "SKIP", quiet: false });
 });
+
+// Dev2, 2026-11-25: a check-in's job ended "I couldn't search Seyi's Gmail" and that went to the chat, which asked for nothing.
+test("a job a check-in started may end in silence, and its turn is told to text only what someone needs", () => {
+  const unasked = { ...done, unasked: true };
+  assert.deepEqual(reportReply(unasked, "SKIP"), { answer: "", quiet: true });
+  assert.deepEqual(reportReply(unasked, ""), { answer: "", quiet: true });
+  assert.deepEqual(reportReply(unasked, "Bo's calendar has the wedding Saturday."), { answer: "Bo's calendar has the wedding Saturday.", quiet: false });
+  assert.match(jobReportPrompt(unasked), /Nobody asked for this job[\s\S]*call send with action say_nothing/);
+  assert.doesNotMatch(jobReportPrompt(unasked), /Never say nothing/);
+  assert.match(jobReportPrompt(done), /Never say nothing/, "a job somebody asked for still always reports");
+});

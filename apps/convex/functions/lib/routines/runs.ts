@@ -57,6 +57,8 @@ export type ClaimedRun = {
   chat?: string;
   /** A chat routine's last run, so its turn can say what is new since (`wake: new mail`). */
   since?: number;
+  /** A chat's check-in only: whether mail is shared with the chat now (`textGroupLooks.ts`). */
+  mail?: boolean;
   /** When this routine next runs after this run (`null` when paused): the alarm re-arms at it. */
   nextRunAt?: number | null;
 };

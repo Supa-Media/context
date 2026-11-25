@@ -148,3 +148,24 @@ question to the person it is about, never a guess
 (`groupRunQuestions.cjs`). `apps/convex/__tests__/textGroupCalendar.test.ts`
 fails if a chat reads a calendar nobody shared with it, or one shared into
 another chat.
+
+## A check-in nobody asked for speaks only when someone needs it (Dev2, 2026-11-25)
+
+Tex Devs' 10 AM check-in searched mail with a tool the chat is never given
+(no mail was shared there; the check-in's words always asked for a mail
+search), told the chat "my mail and calendar lookups keep timing out, so I've
+set a job", and the job then posted "I couldn't search Seyi's Gmail". Nobody in
+the chat had asked for anything. Dev2 kept jobs from check-ins, since a look
+that finds something worth digging into should be able to hand it to one, but:
+
+- the check-in asks for a mail search only when mail is shared with the chat
+  (`mail` on the claimed look, `lib/textGroupLooks.ts`, read by
+  `chatLookQuestion`);
+- a job a check-in starts is announced to nobody (`background.js`
+  `UNASKED_START`), is marked `unasked`, and its report is texted only when
+  someone in the chat needs it, and may end in silence (`jobReport.js`);
+- a group job is told the chat's shared calendars, as the chat's own turn is
+  (`jobRun.ts`), not only its mail.
+
+Reversing any of it brings back the unprompted "set a job" text: replay case
+`checkin-job-unasked-quiet` fails.

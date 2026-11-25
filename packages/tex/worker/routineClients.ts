@@ -37,6 +37,8 @@ export type DueRoutine = {
   chat?: string;
   /** A chat routine's last run, in ms: what "new" means to it (`wake: new mail`). */
   since?: number;
+  /** A chat's check-in only: whether mail is shared with the chat; absent from an older control plane (`groupRunQuestions.cjs`). */
+  mail?: boolean;
   /** When this routine runs next after this run (`null` when paused). */
   nextRunAt?: number | null;
 };
@@ -73,6 +75,7 @@ export async function fetchDueRoutines(fetcher: Fetch, origin: string, secret: s
       phones,
       ...(chat === undefined ? {} : { chat }),
       ...(chat !== undefined && Number.isSafeInteger(run.since) && (run.since as number) > 0 ? { since: run.since as number } : {}),
+      ...(chat !== undefined && typeof run.mail === "boolean" ? { mail: run.mail } : {}),
       ...(typeof run.nextRunAt === "number" || run.nextRunAt === null ? { nextRunAt: run.nextRunAt as number | null } : {}),
     });
   }

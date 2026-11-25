@@ -670,6 +670,8 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     // can't open the inbox shared with the chat it is working for.
     people: [...new Set((asked.names ?? []).map(({ handle }) => handle))].filter(Boolean),
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
+    // And the calendars shared with it (Dev2, 2026-11-25: a check-in's job was told none were, read the wrong ones first).
+    ...(asked.calendar?.length ? { calendar: asked.calendar } : {}),
     chat: [],
   };
   // Streamed, so its steps reach the chat as it takes them; a group's turn texts no progress of its own.

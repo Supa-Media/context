@@ -45,7 +45,7 @@ export function chatWhereOf(value: unknown): ChatWhere | null {
 }
 
 /** A due chat routine handed to its chat's queue. */
-export type ChatRoutineRun = ChatWhere & { runId: string; path: string; phone: string; timeZone?: string; since?: number };
+export type ChatRoutineRun = ChatWhere & { runId: string; path: string; phone: string; timeZone?: string; since?: number; mail?: boolean };
 
 export function chatRoutineRunOf(value: unknown): ChatRoutineRun | null {
   const run = value as Partial<ChatRoutineRun> | null;
@@ -56,7 +56,7 @@ export function chatRoutineRunOf(value: unknown): ChatRoutineRun | null {
   if (typeof run.phone !== "string" || !E164.test(run.phone)) return null;
   const timeZone = typeof run.timeZone === "string" && /^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(run.timeZone) ? run.timeZone : undefined;
   const since = typeof run.since === "number" && Number.isSafeInteger(run.since) && run.since > 0 ? run.since : undefined;
-  return { ...where, runId: run.runId, path: run.path, phone: run.phone, ...(timeZone ? { timeZone } : {}), ...(since ? { since } : {}) };
+  return { ...where, runId: run.runId, path: run.path, phone: run.phone, ...(timeZone ? { timeZone } : {}), ...(since ? { since } : {}), ...(typeof run.mail === "boolean" ? { mail: run.mail } : {}) };
 }
 
 // What a chat routine's and a chat check-in's turn is asked lives in `packages/shared/src/groupRunQuestions.cjs`, so the
@@ -76,7 +76,7 @@ export function chatRoutineMessage(run: ChatRoutineRun): GroupMessage {
     messageId: "",
     text:
       run.path === CHAT_LOOK_PATH
-        ? chatLookQuestion(run.since, lastRanWords(run.since, run.timeZone))
+        ? chatLookQuestion(run.since, lastRanWords(run.since, run.timeZone), { mail: run.mail })
         : chatRoutineQuestion(run.path, lastRanWords(run.since, run.timeZone)),
     routine: { runId: run.runId, path: run.path },
   };

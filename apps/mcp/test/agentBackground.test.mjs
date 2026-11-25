@@ -55,6 +55,8 @@ import {
   withJobSteps,
   withBackground,
   MAX_RUNNING_SHOWN,
+  QUIET_ACK,
+  UNASKED_START,
 } from "../../../packages/tex/gateway/agent/background.js";
 import { FINISH_NOTICE, LAST_NOTICE, OUT_OF_STEPS, exhaustedAnswer, roundNotice } from "../../../packages/tex/gateway/agent/lastRound.js";
 
@@ -155,6 +157,20 @@ test(`no more than ${MAX_RUNNING_JOBS} jobs run at once, and a job needs a title
   const fourth = await background.call({ title: "Fourth different chore", brief: "b" });
   assert.equal(fourth.isError, true);
   assert.match(words(fourth), /already running/);
+});
+
+// Dev2, 2026-11-25: Tex Devs' 10 AM check-in started a job and texted "I've set a job to check them fresh", then the job
+// texted "I couldn't search Seyi's Gmail". Nobody had asked for anything.
+test("a job a chat's own check-in starts is never announced, and carries that nobody asked for it", async () => {
+  const background = backgroundSession({ running: [], job: null, now: NOW, unasked: true });
+  const said = await background.call({ title: "Look at the shared calendars", brief: "b", say: "Lookups are slow, so I've set a job." });
+  assert.equal(words(said), UNASKED_START);
+  assert.equal(background.endsTurn(START_JOB_TOOL, {}), QUIET_ACK, "the turn ends with nothing texted");
+  assert.equal(startedJobs(background, false).jobs[0].unasked, true, "the Worker is told, so its report may stay quiet");
+  const asked = backgroundSession({ running: [], job: null, now: NOW });
+  await asked.call({ title: "Look at the shared calendars", brief: "b", say: "On it." });
+  assert.equal(asked.endsTurn(START_JOB_TOOL, {}), "On it.", "a job somebody asked for still says its start line");
+  assert.equal(startedJobs(asked, false).jobs[0].unasked, undefined);
 });
 
 test("the turn is shown what is running and what just finished, as status notes", () => {

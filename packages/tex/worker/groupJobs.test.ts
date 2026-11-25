@@ -157,15 +157,32 @@ describe("background jobs in a group chat", () => {
     expect(world.sends.length).toBe(sends);
   });
 
-  it("a job is told the mail shared with the chat, as the chat's own turn is", async () => {
+  // And the calendars shared with it (Dev2, 2026-11-25: Tex Devs' check-in job was told none were shared, while six were).
+  it("a job is told the mail and calendars shared with the chat, as the chat's own turn is", async () => {
     const storage = new MemoryStorage();
     const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
     const mail = [{ handle: "ada", address: "ada@work.example" }];
+    const calendar = [{ handle: "bo", address: "bo@work.example" }];
     const names = [{ phone: ADA, handle: "ada" }, { phone: BO, handle: "bo" }];
-    const d = deps(world, { answer: "Pulled the list from ada@work.example." }, { mail, names });
+    const d = deps(world, { answer: "Pulled the list from ada@work.example." }, { mail, calendar, names });
     await acceptJob(storage, groupRun(), NOW);
     await runJob(storage, { ...d, report: async () => true });
-    expect(world.asks[0]).toMatchObject({ group: { from: "ada", mail, people: ["ada", "bo"] } });
+    expect(world.asks[0]).toMatchObject({ group: { from: "ada", mail, calendar, people: ["ada", "bo"] } });
+  });
+
+  // Dev2, 2026-11-25: a check-in's job reported "I couldn't search Seyi's Gmail" to a chat that asked for nothing.
+  it("a job a check-in started tells its report so, and the report may stay quiet", async () => {
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    const inbox = new MemoryStorage();
+    await acceptGroup(inbox, tagged, NOW);
+    await drainGroup(inbox, deps(world, { answer: "", quiet: true, react: "", jobs: [{ title: "Calendar look", brief: "b", unasked: true }] }));
+    const [entry] = await chatJobs(inbox, NOW);
+    const update = { id: entry.id, state: "done", texts: ["Couldn't search the mail."], asked: { from: ADA, text: tagged.text } } as JobUpdate;
+    expect(await jobUpdate(inbox, { ...deps(world, {}), linqApiKey: "" }, update)).toBe(true);
+    const sends = world.sends.length;
+    await drainGroup(inbox, deps(world, { answer: "", quiet: true }));
+    expect(world.asks.at(-1)).toMatchObject({ event: "job_report", jobReport: { title: "Calendar look", unasked: true } });
+    expect(world.sends.length).toBe(sends);
   });
 
   /*
