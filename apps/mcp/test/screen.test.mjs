@@ -94,6 +94,13 @@ describe("validSeen keeps what is valid and drops the rest", () => {
     assert.equal(validSeen({ note: { ...NOTE, path: `${"a".repeat(500)}/b.md` } }).note.path.length, 505, "505 is kept");
   });
 
+  it("keeps an open sheet (.csv) and a sheet tab, as notes", () => {
+    // 2026-11-24: an empty sheet open in the editor was dropped here, so Tex made a new file instead of filling it.
+    const sheet = { workspace: "@supa", path: "inbox/untitled-2026-11-24.csv" };
+    assert.deepEqual(validSeen({ note: sheet, tabs: [{ workspace: "@supa", path: "data/costs.CSV" }] }), { note: sheet, tabs: [{ workspace: "@supa", path: "data/costs.CSV" }] });
+    assert.equal(validSeen({ note: { ...sheet, path: "../x.csv" } }), null, "a sheet path is checked like a note's");
+  });
+
   it("drops invalid tabs one by one and keeps at most eight", () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ ...TAB, noteId: `t${i}`, path: `t${i}.md` }));
     const seen = validSeen({ tabs: [{ workspace: "home", noteId: "x", path: "bad.pdf" }, ...many] });
@@ -196,6 +203,15 @@ describe("the turn note says what is on screen, quietly", () => {
     assert.match(words, /Open note: Projects\/plan\.md \(@home\)\nThe plan is to ship on Friday\./);
     assert.match(words, /Selected: "a phrase"/);
     assert.match(words, /Other open tabs: Projects\/ideas\.md/);
+  });
+
+  it("names an open sheet as a sheet, with its rows and how to fill it in place", () => {
+    const sheet = { workspace: "@supa", path: "inbox/untitled-2026-11-24.csv" };
+    const words = screenNote({ seen: { note: sheet }, noteText: "name,notes", chars: 6000 });
+    assert.match(words, /Open sheet: inbox\/untitled-2026-11-24\.csv \(@supa\)\nname,notes/);
+    assert.match(words, /"this sheet" or "this spreadsheet" means this one/);
+    assert.match(words, /write_note with rows/);
+    assert.doesNotMatch(screenNote({ seen: { note: NOTE }, noteText: "x" }), /Open sheet|write_note with rows/, "a note gets no sheet line");
   });
 
   it("cuts the note at the character count and says so", () => {

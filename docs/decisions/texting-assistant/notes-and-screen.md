@@ -11,6 +11,9 @@ they text it from the app, and be askable from inside a note's comments without 
   old, reads the open note through the turn's own dispatcher (the person's own access), and is told it in the per-text
   turn note. A texted (iMessage) turn never is. Nothing is shown in the app.
 - Off unless a Lab draft wires `screen`: config, not code.
+- A sheet (`.csv`) is a note here too, open or in a tab (2026-11-24, Dev: "fill this spreadsheet" with an empty sheet
+  open made a new file, because the app and the gateway dropped every path that was not `.md`). The turn note names it
+  "Open sheet" and says "this sheet" means it, changed in place by `write_note` `rows`. Pictures and PDFs stay out.
 
 ## Tex in a note (`agent/noteRun.js`, node `noteRun`; `agent/noteRunRoute.js`)
 
