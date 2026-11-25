@@ -9,6 +9,7 @@
  */
 
 import { parseFormula } from "../../../../../mcp/src/data/formula/index.js";
+import { isNotePath, withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote } from "../listBlock/model";
 import { ABOUT_NOTE, baseName } from "../paths";
 import { areaTitle, parseMetric, PEOPLE_FOLDER } from "../folderPage/areas/seat";
@@ -54,7 +55,7 @@ export function parse(formula: string): ParsedFormula {
 
 /** One note as a metric. */
 export function metricOf(note: ListNote): MetricNote {
-  const slug = baseName(note.path).replace(/\.md$/i, "");
+  const slug = withoutTextExtension(baseName(note.path));
   const formula = textOf(note.properties.formula);
   return {
     path: note.path,
@@ -78,7 +79,7 @@ export function metricsIn(metricsFolder: string, notes: readonly ListNote[], ord
     .filter((note) => {
       if (!note.path.startsWith(prefix)) return false;
       const rest = note.path.slice(prefix.length);
-      return !rest.includes("/") && rest.toLowerCase().endsWith(".md") && rest !== ABOUT_NOTE;
+      return !rest.includes("/") && isNotePath(rest) && rest !== ABOUT_NOTE;
     })
     .sort((a, b) => (rank.get(a.path) ?? Infinity) - (rank.get(b.path) ?? Infinity) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     .map(metricOf);
@@ -90,7 +91,7 @@ export function isMetricNotePath(path: string | null, dataFolder: string): boole
   const prefix = `${dataFolder}/metrics/`;
   if (!path.startsWith(prefix)) return false;
   const rest = path.slice(prefix.length);
-  return !rest.includes("/") && rest.toLowerCase().endsWith(".md") && rest !== ABOUT_NOTE;
+  return !rest.includes("/") && isNotePath(rest) && rest !== ABOUT_NOTE;
 }
 
 export interface Use {

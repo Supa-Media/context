@@ -157,6 +157,14 @@ jobs:
           node scripts/check-durable-object-location.mjs --self-test
           node scripts/check-durable-object-location.mjs
 
+      # A path's kind is asked of packages/shared/src/fileKinds.cjs, never a
+      # hard-coded `.md` or `.csv` test (docs/decisions/file-kinds.md). The
+      # sites from before the list are a baseline that only shrinks.
+      - name: File kinds come from one list
+        run: |
+          node scripts/check-file-kinds.mjs --self-test
+          node scripts/check-file-kinds.mjs
+
       # ── AND THE JOBS THIS REPOSITORY NEVER TURNED ON ─────────────────────
       #
       # `ci / Test Shared Package` is gated upstream on an input `ci.yml` does

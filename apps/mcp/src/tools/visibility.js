@@ -1,6 +1,6 @@
 /** `set_visibility` and `set_folder_visibility` — the tools that write a note's or a folder's access row, and name people on a note. */
 
-import { isSheetPath } from "../sheets/csv.js";
+import { isTextFilePath, takesExactOverride } from "../../../../packages/shared/src/fileKinds.cjs";
 import { effectiveVisibility, isPlumbing, visibilityOf } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { currentVersion, versionMatches } from "../notes/version.js";
@@ -33,7 +33,7 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
     return toolError("permission denied: only a personal connection can change enforced visibility; ask the person to change it in the app");
   }
   const path = normalizePath(args.path);
-  if (!path || !(path.endsWith(".md") || isSheetPath(path)) || isPlumbing(path)) {
+  if (!path || !takesExactOverride(path) || isPlumbing(path)) {
     return toolError("invalid path (must be a non-reserved .md note or .csv sheet): pass the note's full path");
   }
   // `people` alone names who else may open the note and leaves its visibility as it is.
@@ -136,7 +136,7 @@ export async function toolSetFolderVisibility(store, scope, args) {
     if (error instanceof TreeUnavailable) return toolError(error.message);
     throw error;
   }
-  const noteObjects = listed.filter(({ key }) => (key.endsWith(".md") || isSheetPath(key)) && !isPlumbing(key));
+  const noteObjects = listed.filter(({ key }) => isTextFilePath(key) && !isPlumbing(key));
   // The rows hold every override: nothing is compacted, and the rules are not rewritten.
   const nextOverrides = state.overrides;
   const compacted = [];

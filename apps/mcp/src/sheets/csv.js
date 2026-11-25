@@ -9,8 +9,11 @@
  *
  * Pure and dependency-free: the gateway's fetch and write tools and the app's
  * grid import the same functions, so every surface reads a sheet the same way.
- * See docs/decisions/sheets.md.
+ * See docs/decisions/sheets.md. Which paths are sheets is the file-kinds
+ * list's to say (`packages/shared/src/fileKinds.cjs`).
  */
+
+import { isSheetPath as isSheetKind } from "../../../../packages/shared/src/fileKinds.cjs";
 
 export const SHEET_EXTENSION = ".csv";
 export const COLUMN_TYPES = Object.freeze(["text", "number", "usd", "date", "person", "select", "checkbox", "link"]);
@@ -44,7 +47,7 @@ export function dateMs(value) {
 }
 
 export function isSheetPath(path) {
-  return typeof path === "string" && path.toLowerCase().endsWith(SHEET_EXTENSION);
+  return isSheetKind(path);
 }
 
 /** `renews:date` → { name: "renews", type: "date" }; `notes` → text. */
