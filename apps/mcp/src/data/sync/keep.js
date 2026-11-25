@@ -34,11 +34,14 @@ function rowOf(columns, source) {
  * `sheet` is the parsed sheet (`{ columns, rows }`) or null for a new one;
  * `columns` the source's own columns, which win for a new sheet and must all
  * be present in an old one; `incoming` the rows the source read.
+ * `handColumns` name columns the sync fills only on a row it adds: a person
+ * edits them afterwards (a bug's `status`), and a later run never puts the
+ * first value back over theirs.
  *
  * → `{ ok: true, text, added, changed, dropped, rows }`, or
  *   `{ ok: false, refused }` with a plain sentence naming `path`.
  */
-export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, now = Date.now(), keepDays = KEEP_DAYS }) {
+export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, now = Date.now(), keepDays = KEEP_DAYS, handColumns = [] }) {
   if (!Array.isArray(columns) || !columns.length) return { ok: false, refused: `${path} has no columns to write` };
   for (const column of columns) {
     if (!column || typeof column.name !== "string" || column.name.trim() === "" || RESERVED.has(column.name.trim().toLowerCase())) {
@@ -53,6 +56,7 @@ export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, n
   const missing = columns.filter((c) => !keptNames.has(c.name)).map((c) => c.name);
   if (missing.length) return { ok: false, refused: `${path} is missing the column ${missing.join(", ")}; it was changed by hand, so the sync left it alone` };
 
+  const hand = new Set(Array.isArray(handColumns) ? handColumns : []);
   const byKey = new Map();
   const order = [];
   for (const row of sheet?.rows ?? []) {
@@ -77,6 +81,7 @@ export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, n
     }
     let different = false;
     for (const column of columns) {
+      if (hand.has(column.name)) continue;
       if (old[column.name] !== fresh[column.name]) { old[column.name] = fresh[column.name]; different = true; }
     }
     if (different) changed += 1;

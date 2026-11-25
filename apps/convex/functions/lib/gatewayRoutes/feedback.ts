@@ -33,6 +33,7 @@ import { TEXTS_CLIENT_ID, parseAgentReport } from "../feedback/agentReport";
 import { deliverFeedback, feedbackTarget } from "../feedback/deliver";
 import { json, stringField } from "../gatewayAuth";
 import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
+import type { FeedbackChannel } from "../feedback/deliver";
 
 const REFUSALS: Record<string, string> = {
   FEEDBACK_INVALID: "invalid",
@@ -67,14 +68,17 @@ export async function gatewayFeedbackHandler(ctx: ActionCtx, body: Record<string
       clientId: session.clientId,
       texts: body.texts,
     });
+    // Which way it came in, for the bug reports sheet: Tex by text, Tex in a group chat, or another AI.
+    const channel: FeedbackChannel = session.clientId === TEXTS_CLIENT_ID ? "tex" : session.clientId === TEXTS_GROUP_CLIENT_ID ? "tex-group" : "agent";
     const sent =
       bugNote !== null
         ? await deliverFeedback(ctx, {
             userId,
             report,
+            channel,
             send: (eventId, now) => fileBugNote(ctx, bugNote, { message: report.message, texts: report.texts, eventId, now }),
           })
-        : await deliverFeedback(ctx, { sentry: sentry!, userId, report });
+        : await deliverFeedback(ctx, { sentry: sentry!, userId, report, channel });
     return json({ report: sent });
   } catch (error) {
     const code = error instanceof ConvexError ? (error.data as { code?: string })?.code : undefined;

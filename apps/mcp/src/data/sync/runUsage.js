@@ -2,7 +2,8 @@
  * One hourly run of the Context usage source (`docs/decisions/data-and-metrics.md`, "The Context usage source"):
  * Context-wide activity, by person ids nobody can turn back into an account, written into the one workspace this
  * deployment's config names (`USAGE_WORKSPACE`, a slug; decided by the owner, 2026-11-25: "Only @supa, named in
- * gateway config"), in four sheets only its owners can open.
+ * gateway config"), in five sheets only its owners can open: four of activity, and one row per bug report people
+ * sent, from the app or by texting Tex (decided by the owner, 2026-11-25: "user reported bugs going into a sheet").
  *
  * Every run asks again:
  * 1. **That this deployment still names a usage workspace.** Unset, the source stops. (Which workspace was checked
@@ -10,7 +11,7 @@
  * 2. **That the person who armed it is still an owner**, by the workspace object's own members.
  * 3. **That the source still is one**: its `about.md` by note id, in a source folder of the Data folder, saying
  *    `source: usage`.
- * 4. **That its four sheets are owners only**, by both of the workspace's renderings (member and guest): each must
+ * 4. **That its five sheets are owners only**, by both of the workspace's renderings (member and guest): each must
  *    be `private`, and none sealed. A sheet anyone else could open stops the source before anything is read, so
  *    loosening a sheet or its folder never publishes a row.
  *
@@ -37,7 +38,7 @@ const FIRST_SINCE_MS = 30 * DAY_MS;
 /** What "returning" looks back over: active today and on another day in the 7 before. */
 const RETURNING_DAYS = 7;
 
-/** The four sheets: their file, key, date column, columns and how long each keeps its rows. */
+/** The five sheets: their file, key, date column, columns and how long each keeps its rows. */
 export const USAGE_SHEETS = Object.freeze({
   activity: {
     file: "activity.csv",
@@ -95,7 +96,27 @@ export const USAGE_SHEETS = Object.freeze({
       { name: "weight", type: "number" },
     ],
   },
+  bugs: {
+    file: "bug-reports.csv",
+    key: "reference",
+    date: "filed",
+    keepDays: 400,
+    // The team's own column: a new row says open, and a run never writes over what they set.
+    hand: ["status"],
+    columns: [
+      { name: "reference", type: "text" },
+      { name: "filed", type: "date" },
+      { name: "person", type: "text" },
+      { name: "channel", type: "text" },
+      { name: "status", type: "text" },
+    ],
+  },
 });
+
+/** The ways a bug report comes in, as the control plane's receipts say them. */
+const BUG_CHANNELS = new Set(["app", "tex", "tex-group", "agent"]);
+/** A report's reference: the 32-hex event id the person was told. */
+const REFERENCE = /^[0-9a-f]{32}$/;
 
 /** This deployment's usage workspace slug, lower-case without `@`, or null when it names none. */
 export function usageWorkspaceOf(env) {
@@ -197,7 +218,17 @@ export async function usageRows(exported, { key, held, now }) {
     calls.push({ id: `${call.at}:${call.tool}:${call.ms}`, at: instant(call.at), tool: call.tool, ms: String(call.ms), ok: call.ok === true ? "1" : "0", client: typeof call.client === "string" ? call.client : "", weight: String(Number.isFinite(call.weight) ? call.weight : 1) });
   }
 
-  return { activity: [...days.values()], signups, replies, calls };
+  // Bug reports: one row per report, by the reference the person was told, so the report itself is found by it
+  // (a Tex bug note's `reference:`, the app's Sentry event). Never a word of the report.
+  const bugs = [];
+  for (const bug of exported.bugs ?? []) {
+    if (!Number.isFinite(bug?.at) || typeof bug.reference !== "string" || !REFERENCE.test(bug.reference) || !BUG_CHANNELS.has(bug.channel)) continue;
+    const person = await mac(bug.userId);
+    if (person === null) continue;
+    bugs.push({ reference: bug.reference, filed: instant(bug.at), person, channel: bug.channel, status: "open" });
+  }
+
+  return { activity: [...days.values()], signups, replies, calls, bugs };
 }
 
 /**
@@ -259,11 +290,13 @@ export async function runUsageSource(deps) {
   }
   const keyed = (name) => new Map(read[name].sheet.rows.map((row) => [String(row?.[USAGE_SHEETS[name].key] ?? ""), row]).filter(([id]) => id !== ""));
   const first = read.activity.sheet.rows.length === 0;
+  const firstBugs = read.bugs.sheet.rows.length === 0;
 
   let exported;
   try {
     const since = now - (first ? FIRST_SINCE_MS : SINCE_MS);
-    exported = typeof deps.usageExport === "function" ? await deps.usageExport(since) : await createControlPlane(env).usageExport(since);
+    const bugsSince = now - (firstBugs ? FIRST_SINCE_MS : SINCE_MS);
+    exported = typeof deps.usageExport === "function" ? await deps.usageExport(since, bugsSince) : await createControlPlane(env).usageExport(since, bugsSince);
   } catch {
     return failed(`Context couldn't read usage just now; ${LATER}.`);
   }
@@ -274,7 +307,7 @@ export async function runUsageSource(deps) {
   for (const name of names) {
     const spec = USAGE_SHEETS[name];
     const { sheet, text, current } = read[name];
-    const merged = mergeSynced({ path: pathOf[name], sheet: sheet.columns.length > 0 ? sheet : null, columns: spec.columns, incoming: rows[name], key: spec.key, dateColumn: spec.date, now, keepDays: spec.keepDays });
+    const merged = mergeSynced({ path: pathOf[name], sheet: sheet.columns.length > 0 ? sheet : null, columns: spec.columns, incoming: rows[name], key: spec.key, dateColumn: spec.date, now, keepDays: spec.keepDays, handColumns: spec.hand ?? [] });
     if (!merged.ok) return failed(`Nothing more was written: ${merged.refused}.`);
     total += merged.rows;
     if (merged.text === text) continue;

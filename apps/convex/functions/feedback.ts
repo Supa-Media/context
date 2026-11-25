@@ -101,14 +101,21 @@ export const submitFeedback = action({
 
 /** Step 2 of the module comment: decide, atomically, what this send is. */
 export const reserveFeedback = internalMutation({
-  args: { userId: v.id("users"), clientReportId: v.string(), now: v.number() },
+  args: {
+    userId: v.id("users"),
+    clientReportId: v.string(),
+    now: v.number(),
+    channel: v.optional(
+      v.union(v.literal("app"), v.literal("tex"), v.literal("tex-group"), v.literal("agent"), v.literal("content")),
+    ),
+  },
   returns: v.union(
     v.object({ kind: v.literal("sent"), eventId: v.string() }),
     v.object({ kind: v.literal("busy") }),
     v.object({ kind: v.literal("limited"), retryAfterMs: v.number() }),
     v.object({ kind: v.literal("reserved"), eventId: v.string(), receiptId: v.id("feedbackReceipts") }),
   ),
-  handler: async (ctx, { userId, clientReportId, now }) => {
+  handler: async (ctx, { userId, clientReportId, now, channel }) => {
     const existing = await ctx.db
       .query("feedbackReceipts")
       .withIndex("by_user_client", (q) => q.eq("userId", userId).eq("clientReportId", clientReportId))
@@ -139,6 +146,7 @@ export const reserveFeedback = internalMutation({
       eventId,
       state: "sending",
       createdAt: now,
+      ...(channel === undefined ? {} : { channel }),
     });
     return { kind: "reserved" as const, eventId, receiptId };
   },

@@ -259,7 +259,7 @@ function UrlSync({ source, status, sync, now, compact, openAbout }: { source: Da
   );
 }
 
-/** The usage source's sync: its four sheets, every hour, and its last run in the url source's words. */
+/** The usage source's sync: its five sheets, every hour, and its last run in the url source's words. */
 function UsageSync({ status, sync, now, compact, openAbout }: { status: string; sync: SyncState | undefined; now: number; compact: boolean; openAbout: ReactNode }) {
   return (
     <>
@@ -267,7 +267,7 @@ function UsageSync({ status, sync, now, compact, openAbout }: { status: string; 
       <PropsGrid
         compact={compact}
         rows={[
-          { key: "reads", value: <Words text="All of Context: who texted, wrote or called each day, by an id that names no one" /> },
+          { key: "reads", value: <Words text="All of Context: who texted, wrote or called each day, and every bug report people sent, by an id that names no one" /> },
           { key: "sheets", value: <>{USAGE_SHEETS.map((name) => <Code key={name} text={`${name}.csv`} />)}</> },
           { key: "who sees it", value: <Words text="Owners only. A sheet anyone else can open stops the sync." /> },
           { key: "every", value: <Words text="hour" /> },
