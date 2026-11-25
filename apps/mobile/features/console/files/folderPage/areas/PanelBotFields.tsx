@@ -12,7 +12,8 @@
 
 import { useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { areaPrompt, botLabel, delegatePrompt } from "@context/shared/src/areaBots.cjs";
+import { botLabel, delegatePrompt, setupPrompt, type OwnedArea } from "@context/shared/src/areaBots.cjs";
+import { MCP_ENDPOINT } from "../../../placeholderData";
 import { writeClipboard } from "../../../../design/clipboard";
 import { Menu } from "../../../../design/components/Menu";
 import { Text } from "../../../../design/components/Text";
@@ -21,7 +22,8 @@ import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MenuItem } from "../../menuItem";
 import { agentName } from "../agents";
-import { areaTitle, type Card, type Seat } from "./seat";
+import { pickSquarePhoto } from "../../../settings/panels/pickSquarePhoto";
+import type { Card } from "./seat";
 
 /** The words a bot is shown with in a menu: "@seyi's Grok bot". */
 export function botDetail(card: Card, label: (owner: string) => string): string {
@@ -29,23 +31,29 @@ export function botDetail(card: Card, label: (owner: string) => string): string 
   return card.belongsTo.trim() === "" ? kind : `${label(card.belongsTo)}'s ${kind}`;
 }
 
-/** The prompt for the bot holding `seat`. */
-export function seatPrompt(seat: Seat, card: Card, workspace: string | undefined): string {
-  return areaPrompt({
+/** The one prompt a bot sets itself up from, covering every area it owns. */
+export function botSetupPrompt(card: Card, areas: readonly OwnedArea[], workspace: string | undefined, cardNote?: string): string {
+  return setupPrompt({
     bot: card.holder,
     kind: card.bot,
     whose: card.belongsTo,
     ...(workspace === undefined ? {} : { workspace }),
-    area: seat.folder,
-    title: areaTitle(seat.name),
-    modes: seat.modes,
+    areas,
     reach: card.reach,
+    endpoint: MCP_ENDPOINT,
+    ...(cardNote === undefined || card.avatar !== "" ? {} : { card: cardNote }),
   });
 }
 
 /** The prompt for the bot a person delegates to. */
-export function personPrompt(person: string, bot: Card, workspace: string | undefined): string {
-  return delegatePrompt({ bot: bot.holder, kind: bot.bot, whose: person, ...(workspace === undefined ? {} : { workspace }) });
+export function personPrompt(person: string, bot: Card, workspace: string | undefined, cardNote?: string): string {
+  return delegatePrompt({
+    bot: bot.holder,
+    kind: bot.bot,
+    whose: person,
+    ...(workspace === undefined ? {} : { workspace }),
+    ...(cardNote === undefined || bot.avatar !== "" ? {} : { card: cardNote }),
+  });
 }
 
 /**
@@ -133,7 +141,7 @@ export function AddBotForm({
  * A prompt to paste into a bot, with its Copy button, folded to its first line
  * until opened so the panel stays short. Copy says whether it worked.
  */
-export function PromptBox({ title, text, testID }: { title: string; text: string; testID: string }) {
+export function PromptBox({ title, text, testID, copyWord = "Copy prompt" }: { title: string; text: string; testID: string; copyWord?: string }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
@@ -145,7 +153,7 @@ export function PromptBox({ title, text, testID }: { title: string; text: string
           <Text variant="treeMeta" style={styles.heading}>{title}</Text>
         </Pressable>
         <Pressable role="button" onPress={() => void copy()} style={styles.primary} testID={`${testID}-copy`}>
-          <Text variant="treeMeta" style={styles.primaryWord}>{said === "Copied" ? "Copied" : "Copy prompt"}</Text>
+          <Text variant="treeMeta" style={styles.primaryWord}>{said === "Copied" ? "Copied" : copyWord}</Text>
         </Pressable>
       </View>
       {said !== null && said !== "Copied" ? <Text variant="treeMeta" role="alert" style={styles.problem}>{said}</Text> : null}
@@ -153,6 +161,46 @@ export function PromptBox({ title, text, testID }: { title: string; text: string
         {text}
       </Text>
     </View>
+  );
+}
+
+/**
+ * "Upload logo", after a bot's name in the Owner row while its card names no
+ * logo: for a bot that can't put its own there on its first session (the
+ * owner, 2026-11-25). The picture is stored in the workspace and named on the
+ * card's `avatar:` line, which is what the list, the panel and mail draw.
+ */
+export function UploadLogo({
+  store,
+  onStored,
+  testID = "area-panel-upload-logo",
+}: {
+  store: (picture: { bytes: ArrayBuffer; contentType: string }) => Promise<{ leaf: string } | { error: string }>;
+  onStored: (leaf: string) => void;
+  testID?: string;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const upload = async () => {
+    if (busy) return;
+    setProblem(null);
+    const picked = await pickSquarePhoto();
+    if (picked.kind === "canceled") return;
+    if (picked.kind === "error") return setProblem(picked.message);
+    setBusy(true);
+    const stored = await store({ bytes: picked.bytes, contentType: picked.contentType });
+    setBusy(false);
+    if ("error" in stored) return setProblem(stored.error);
+    onStored(stored.leaf);
+  };
+  return (
+    <>
+      <Pressable onPress={() => void upload()} role="button" accessibilityLabel="Upload logo" style={styles.ghost} testID={testID}>
+        <Text variant="treeMeta" style={styles.link}>{busy ? "Uploading…" : "Upload logo"}</Text>
+      </Pressable>
+      {problem === null ? null : <Text variant="treeMeta" role="alert" style={styles.problem}>{problem}</Text>}
+    </>
   );
 }
 

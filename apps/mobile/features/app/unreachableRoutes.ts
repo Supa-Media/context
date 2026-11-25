@@ -122,6 +122,17 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     marker: "the URL Google redirects back to",
   },
   {
+    route: "/data/github/callback",
+    file: "app/data/github/callback.tsx",
+    reachable: false,
+    reason:
+      "Where GitHub sends an owner back after installing Context's read-only " +
+      "GitHub App, registered with GitHub as the App's callback URL. It only hands " +
+      "GitHub's answer to the console tab that opened the install window; opened " +
+      "from inside the app it would have nothing to hand.",
+    marker: "where GitHub sends an owner back",
+  },
+  {
     route: "/connect/cli",
     file: "app/connect/cli.tsx",
     reachable: false,

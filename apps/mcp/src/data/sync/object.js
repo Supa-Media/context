@@ -36,7 +36,9 @@ import { runUrlSource } from "./run.js";
 import { runAppSource } from "./runApp.js";
 import { runMetricSnap } from "./snap.js";
 import { APPS, appNamed } from "../connect/apps.js";
-import { sealConnection } from "../connect/seal.js";
+import { openConnection, sealConnection } from "../connect/seal.js";
+import { listGithubRepos } from "../connect/githubApp.js";
+import { MAX_REPOS } from "../connect/github.js";
 
 /** How often each source runs. */
 export const SYNC_EVERY_MS = 60 * 60 * 1000;
@@ -143,6 +145,7 @@ export function dataSyncClass(deps = {}) {
       if (fields.op === "status") return answer(await this.status(fields));
       if (fields.op === "connect") return answer(await this.serially(() => this.connect(fields)));
       if (fields.op === "disconnect") return answer(await this.serially(() => this.disconnect(fields)));
+      if (fields.op === "repos") return answer(await this.serially(() => this.repos(fields)));
       return answer({ error: "bad_call" }, 400);
     }
 
@@ -177,16 +180,20 @@ export function dataSyncClass(deps = {}) {
      * An owner's Connect: the key checked with the app, sealed, kept, and the app's source armed and run. The key is
      * never answered back, logged or kept in the clear; a refused one is not kept at all.
      */
-    async connect({ workspaceId, noteId, armedBy, app: named, key, account }) {
+    async connect({ workspaceId, noteId, armedBy, app: named, key, account, installation }) {
       const app = appNamed(named);
       if (app === null || typeof noteId !== "string" || !NOTE_ID.test(noteId) || typeof armedBy !== "string" || !USER_ID.test(armedBy)) return { error: "bad_call" };
       if (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY || (account !== undefined && (typeof account !== "string" || account.length > 64))) return { error: "bad_call" };
+      // An installed app (GitHub) is connected with GitHub's one-time code and the installation it names, never a key.
+      const installed = APPS[app].installed === true;
+      if (installed !== (typeof installation === "string" && /^[0-9]{1,15}$/.test(installation))) return { error: "bad_call" };
       const { sources } = await this.held();
       const old = sources[noteId] ?? null;
       if (old !== null && old.stopped !== true && (kindOf(old) !== "app" || old.app !== app)) return { error: "bad_call" };
       const live = Object.values(sources).filter((source) => source.stopped !== true && kindOf(source) === "app").length;
       if ((old === null || old.stopped === true) && live >= MAX_SOURCES) return { error: "too_many", said: `A workspace connects at most ${MAX_SOURCES} app sources.` };
-      const checked = await APPS[app].check({ key, ...(account ? { account } : {}) }, deps.fetcher ?? fetch);
+      const input = installed ? { code: key, installation } : { key, ...(account ? { account } : {}) };
+      const checked = await APPS[app].check(input, deps.fetcher ?? fetch, this.env, this.now());
       if (!checked.ok) return { error: "refused", said: `${checked.said}.` };
       let sealed;
       try {
@@ -228,6 +235,44 @@ export function dataSyncClass(deps = {}) {
       await this.ensureAlarm(sources);
       if (had) console.log(JSON.stringify({ event: "data_app_disconnected", workspaceId, app }));
       return { disconnected: had };
+    }
+
+    /**
+     * An owner's GitHub repositories: every one the installation was given, and which the source reads. With `set`, the
+     * owner's pick (each one the installation has), sealed in place of the last, and the source run now.
+     */
+    async repos({ workspaceId, set }) {
+      const app = "github";
+      if (set !== undefined && (!Array.isArray(set) || set.length === 0 || set.length > MAX_REPOS || set.some((name) => typeof name !== "string" || name.length > 201))) return { error: "bad_call" };
+      const connections = (await this.storage.get("connections")) ?? {};
+      const held = connections[app] ?? null;
+      if (held === null) return { error: "not_connected", said: "GitHub isn't connected." };
+      let kept;
+      try {
+        kept = await openConnection(held.sealed, { secret: this.env?.GATEWAY_SECRET, workspaceId, app });
+      } catch {
+        return { error: "not_connected", said: "GitHub's connection can't be opened any more; connect it again." };
+      }
+      const listed = await listGithubRepos({ kept, env: this.env, fetcher: deps.fetcher ?? fetch, now: this.now() });
+      if (!listed.ok) return { error: listed.refused ? "not_connected" : "unavailable", said: `${listed.said}.` };
+      const names = new Set(listed.repos.map((repo) => repo.name));
+      if (set === undefined) return { repos: listed.repos, picked: Array.isArray(kept.repos) ? kept.repos.filter((name) => names.has(name)) : null };
+      const picked = [...new Set(set)];
+      if (picked.some((name) => !names.has(name))) return { error: "bad_call", said: "That repository isn't one this installation can read." };
+      connections[app] = { ...held, sealed: await sealConnection({ ...kept, repos: picked }, { secret: this.env?.GATEWAY_SECRET, workspaceId, app }) };
+      await this.storage.put("connections", connections);
+      const { sources } = await this.held();
+      const now = this.now();
+      for (const [noteId, source] of Object.entries(sources)) {
+        if (kindOf(source) !== "app" || source.app !== app || source.stopped === true) continue;
+        const { gone: _gone, ...outcome } = await this.runOne(workspaceId, source, now);
+        source.last = { at: now, ...outcome };
+        if (outcome.outcome === "stopped") source.stopped = true;
+        sources[noteId] = source;
+      }
+      await this.storage.put("sources", sources);
+      await this.ensureAlarm(sources);
+      return { repos: listed.repos, picked };
     }
 
     async status({ noteIds }) {

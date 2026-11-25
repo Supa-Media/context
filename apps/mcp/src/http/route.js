@@ -5,6 +5,7 @@
  * is one statement, so a pure move cannot make this file shorter.
  */
 
+import { BOT_HOOK_PATH, handleBotHookUpload } from "./botHookUpload.js";
 import { MACHINE_PATHS, handleMachines } from "../machines/routes.js";
 import { MACHINE_JOB_PATHS, handleMachineJob } from "../machines/jobRoutes.js";
 import { JOB_NOTE_PATHS, handleJobNote } from "../../../../packages/tex/gateway/agent/jobNote.js";
@@ -113,6 +114,8 @@ export async function route(request, env, ctx) {
     // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
     // workspace selector; the ticket in its header is the whole authority.
     if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
+    // A bot's webhook header, sent from its shell with a one-time ticket (`http/botHookUpload.js`), the same way.
+    if (url.pathname === BOT_HOOK_PATH) return await handleBotHookUpload(request, env);
     // The benchmark runner's view of which payer's credit is spent (`agent/creditRest.js`). The gateway token is the
     // whole authority. It is matched before a workspace is read off the path.
     if (url.pathname === CREDIT_REST_PATH) return await handleCreditRest(request, env);

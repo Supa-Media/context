@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { MODE_MEANINGS, areaPrompt, delegatePrompt, mailJoinName, modeLines } from "@context/shared/src/areaBots.cjs";
+import { MODE_MEANINGS, areaPrompt, delegatePrompt, mailJoinName, modeLines, setupPrompt } from "@context/shared/src/areaBots.cjs";
 
 const AREA = { bot: "Finance", kind: "grok", whose: "@seyi", workspace: "@supa", area: "areas/operations/finance", title: "Finance", modes: ["Manager", "Doer"] };
 
@@ -82,4 +82,28 @@ test("a bot joins mail under a name mail accepts", () => {
   expect(mailJoinName("Chief of staff")).toBe("chief-of-staff");
   expect(mailJoinName("A very long bot name that goes on and on")).toBe("a-very-long-bot-name-tha");
   expect(mailJoinName("  ")).toBe("bot");
+});
+
+test("a bot with a card is told to put its own logo there, once", () => {
+  const text = areaPrompt({ ...AREA, card: "areas/people/finance.md" });
+  expect(text).toContain('path: "areas/people/finance.md"');
+  expect(text).toContain("avatar: logo.png");
+  expect(areaPrompt(AREA)).not.toContain("avatar:");
+  expect(delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", card: "areas/people/chief.md" })).toContain('path: "areas/people/chief.md"');
+});
+
+test("the setup prompt connects Context first, hands the secret over from the shell, then gives what to keep", () => {
+  // The owner, 2026-11-25: "we cant assume that they have the mcp setup so that should be in every instruction".
+  const one = setupPrompt({ bot: "Pipeline", kind: "grok", whose: "@seyi", workspace: "supa", areas: [{ folder: "areas/ci", title: "CI/CD", modes: ["Doer"] }], reach: "webhook" });
+  expect(one.indexOf("https://mcp.context.lc/mcp")).toBeLessThan(one.indexOf("header_from_shell"));
+  expect(one).toContain("give me the sign-in link and wait");
+  expect(one).toContain('test_webhook: "Pipeline"');
+  expect(one).toContain('orient { context: "@supa", area: "areas/ci" }');
+  expect(one).not.toContain("avatar:");
+  const several = setupPrompt({ bot: "Pipeline", kind: "grok", whose: "@seyi", areas: [{ folder: "areas/ci" }, { folder: "areas/pr" }], reach: "mail", card: "areas/people/pipeline.md", endpoint: "https://mcp.example.com/mcp" });
+  expect(several).toContain("https://mcp.example.com/mcp");
+  expect(several).toContain('for: "Pipeline"');
+  expect(several).toContain("(areas/pr)");
+  expect(several).toContain('path: "areas/people/pipeline.md"');
+  expect(several).not.toContain("header_from_shell");
 });

@@ -253,7 +253,6 @@ const TOP_LEVEL_ONLY_NAMES: readonly string[] = [
  */
 const PRODUCT_RESERVED_NAMES: readonly string[] = [
 
-
   ...MAIL_ROLE_NAMES,
   // Routing / infrastructure
   "api",
@@ -390,6 +389,7 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // `google@` the company's own domain aligns on SPF and DKIM. `s` needs no
   // entry — one character is below `NAME_MIN_LENGTH`.
   "add-gmail",
+  "callback",
   "cli",
   "connections",
   "console",

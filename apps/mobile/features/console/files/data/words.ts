@@ -166,9 +166,10 @@ export function settingsOf(source: DataSource, lastSync?: string): Setting[] {
     else if (textOf(value) !== "") out.push({ key, values: [textOf(value)], code: false });
   }
   if (signsIn(source.kind)) {
-    // An app's key is the owner's, kept sealed by the sync (`apps/mcp/src/data/connect/seal.js`); GitHub isn't connected here yet.
-    const sealed = source.kind === "cloudflare" || source.kind === "stripe";
-    out.push({ key: sealed ? "key" : "sign-in", values: [sealed ? "Read-only, kept sealed by Context, never in this file" : "Kept in the workspace vault, never in this file"], code: false, signIn: true });
+    // An app's key is the owner's, kept sealed by the sync (`apps/mcp/src/data/connect/seal.js`). GitHub keeps no key:
+    // Context's own read-only App mints a token each hour for the installation the owner approved.
+    if (source.kind === "github") out.push({ key: "sign-in", values: ["Read-only GitHub App, installed by an owner; no token is kept"], code: false, signIn: true });
+    else out.push({ key: "key", values: ["Read-only, kept sealed by Context, never in this file"], code: false, signIn: true });
   }
   if (lastSync !== undefined) out.push({ key: "last sync", values: [lastSync], code: false });
   return out;

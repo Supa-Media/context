@@ -38,10 +38,12 @@ async function world(notes = {}) {
     request.ask === "jobs" ? { served: true, jobs: { areas: "areas", projects: "projects" }, roots: ["areas", "projects"] } : served(request);
   store.treeEntries = async () => (await base.list({})).objects;
   const hookCalls = [];
+  Object.defineProperty(store, "botHookUrl", { value: "https://mcp.example.com/api/bot-hook", configurable: true });
   store.botHooks = async (request) => {
     hookCalls.push(request);
     if (request.action === "set") return { host: "bot.example.com", headerEnds: request.header ? "1234" : null, keyMade: !request.signingKey };
     if (request.action === "test") return { ok: true, status: 200 };
+    if (request.action === "ticket") return { ticket: "tkt_abcdefghijklmnop0123", minutes: 10 };
     return { error: "unknown" };
   };
   const text = async (key) => (await (await base.get(key))?.text()) ?? null;
@@ -119,6 +121,21 @@ test("a bot gets its card in people/ and its name on the agents list", async () 
   assert.deepEqual((await props("areas/about.md")).agents, ["Pipeline", "Finance"]);
 });
 
+// A 1×1 PNG.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+test("a bot's logo is stored in the workspace and named on its card's avatar line", async () => {
+  const { store, props, text } = await world({ "areas/finance/about.md": FINANCE });
+  const result = await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.match(said(result), /with its logo/);
+  const avatar = String((await props("areas/people/finance.md")).avatar);
+  assert.match(avatar, /^upload-[0-9a-f]{16}\.(png|webp|jpe?g)$/);
+  // The logo is a field, not an embed added under the card.
+  assert.doesNotMatch(await text("areas/people/finance.md"), /!\[/);
+  assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: {} } })).isError, true);
+});
+
 test("a delegate is written on the person's card, and null takes it away", async () => {
   const { store, props } = await world({ "areas/finance/about.md": FINANCE });
   assert.equal((await run(store, { area: "areas/finance", delegate: { person: "@seyi", to: "Finance" } })).isError, undefined);
@@ -150,6 +167,33 @@ test("a webhook without a signing key says Context made one nobody can see", asy
   const { store } = await world({ "areas/finance/about.md": FINANCE });
   const result = await run(store, { area: "areas/finance", webhook: { bot: "Finance", address: "https://bot.example.com/hook" } });
   assert.match(said(result), /made its signing key/);
+});
+
+test("a bot that can't see its secret gets a one-time command to send the header from its shell", async () => {
+  const { store, hookCalls } = await world({ "areas/finance/about.md": FINANCE });
+  const result = await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization" } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.deepEqual(hookCalls.at(-1), { action: "ticket", bot: "Pipeline", address: "https://bot.example.com/hook", headerName: "Authorization" });
+  const answer = said(result);
+  assert.match(answer, /curl -sS --fail-with-body -X PUT -H 'Authorization: Bearer tkt_abcdefghijklmnop0123' --data-binary "Bearer \$WEBHOOK_SECRET" https:\/\/mcp\.example\.com\/api\/bot-hook/);
+  assert.match(answer, /test_webhook: "Pipeline"/);
+  // Never both: a header typed in the call is the thing this is for avoiding.
+  assert.equal((await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization", header: "Authorization: Bearer x" } })).isError, true);
+  assert.equal((await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization: Bearer x" } })).isError, true);
+});
+
+test("a person is never a helper to a bot: refused, and a bot taking an area drops its helper", async () => {
+  // The owner, 2026-11-25: "a human shouldnt be a helper to a bot".
+  const { store, props } = await world({ "areas/finance/about.md": "---\nowner: \"@seyi\"\nhelper: \"@ana\"\n---\n\n# Finance\n" });
+  const refused = await run(store, { area: "areas/finance", owner: "Finance", helper: "@seyi" });
+  assert.equal(refused.isError, true);
+  assert.match(said(refused), /delegate: \{ person: "@seyi", to: "Finance" \}/);
+  assert.equal((await run(store, { area: "areas/finance", owner: "Finance" })).isError, undefined);
+  const now = await props("areas/finance/about.md");
+  assert.equal(now.owner, "Finance");
+  assert.equal(now.helper, undefined);
+  // With the bot already the owner, a person can't be added as its helper either.
+  assert.equal((await run(store, { area: "areas/finance", helper: "@ana" })).isError, true);
 });
 
 test("nothing to change is said so", async () => {

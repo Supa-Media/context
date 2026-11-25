@@ -37,9 +37,12 @@ async function show(props: Parameters<typeof BotHookView>[0]) {
 const ROW: HookRow = { bot: "finance", host: "bot.example.com", headerEnds: "1234", setByName: "seyi", lastCallAt: 1, lastCallOk: true, lastCallStatus: 200, canReplace: true };
 
 describe("a bot's webhook in the area panel", () => {
-  test("saving sends the address, header and a fresh signing key, then shows the key once", async () => {
+  test("by hand, saving sends the address, header and a fresh signing key; the key is shown once only with no header", async () => {
     const save = jest.fn(async (_address: string, _header: string, _key: string) => {});
     await show({ bot: "Finance", row: null, canEdit: true, save, test: async () => ({ ok: true, status: 200 }) });
+    // The bot sets its own from its setup prompt: the form is behind a link.
+    expect(all("area-panel-hook-address")).toHaveLength(0);
+    await press(one("area-panel-hook-by-hand"));
     await type(one("area-panel-hook-address"), "https://bot.example.com/context");
     await type(one("area-panel-hook-header"), "Authorization: Bearer abc");
     await press(one("area-panel-hook-save"));
@@ -48,9 +51,18 @@ describe("a bot's webhook in the area panel", () => {
     expect(address).toBe("https://bot.example.com/context");
     expect(header).toBe("Authorization: Bearer abc");
     expect(key).toMatch(/^ctxbot_[0-9a-f]{64}$/);
-    expect(one("area-panel-hook-key").textContent).toContain(key);
-    // The typed address is cleared from the screen once it is sealed.
-    expect((one("area-panel-hook-address") as HTMLInputElement).value).toBe("");
+    // A header already proves the call is ours (the owner, 2026-11-25: "why do we get a signing secret when grokbot doesnt need it").
+    expect(all("area-panel-hook-key")).toHaveLength(0);
+    // The typed address is gone from the screen once it is sealed.
+    expect(all("area-panel-hook-address")).toHaveLength(0);
+    unmounts.pop()!();
+
+    await show({ bot: "Finance", row: null, canEdit: true, save, test: async () => ({ ok: true, status: 200 }) });
+    await press(one("area-panel-hook-by-hand"));
+    await type(one("area-panel-hook-address"), "https://bot.example.com/context");
+    await press(one("area-panel-hook-save"));
+    const [, , second] = save.mock.calls[1]!;
+    expect(one("area-panel-hook-key").textContent).toContain(second);
   });
 
   test("once saved it shows the host and the header's end, never the address, and sends a test", async () => {

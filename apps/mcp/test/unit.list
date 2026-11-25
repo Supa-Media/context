@@ -136,6 +136,7 @@ test/queuedFolderMove.test.mjs
 test/readFailure.test.mjs
 test/remember.test.mjs
 test/setArea.test.mjs
+test/botHookUpload.test.mjs
 test/reportProblem.test.mjs
 test/routineSignal.test.mjs
 test/routines.test.mjs
@@ -796,3 +797,4 @@ test/orientArea.test.mjs
 test/botMail.test.mjs
 test/dataSyncApps.test.mjs
 test/dataSyncStripe.test.mjs
+test/dataSyncGithub.test.mjs

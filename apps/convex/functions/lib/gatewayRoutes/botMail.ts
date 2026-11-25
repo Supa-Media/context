@@ -10,7 +10,7 @@
 
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
-import { json, stringField } from "../gatewayAuth";
+import { json, randomOpaqueToken, stringField } from "../gatewayAuth";
 import { hashToken } from "../crypto";
 import { mailJoinName } from "@context/shared/src/areaBots.cjs";
 
@@ -64,6 +64,23 @@ export async function gatewayBotHookHandler(ctx: ActionCtx, body: Record<string,
       }),
     );
   }
+  if (action === "ticket") {
+    // A one-time ticket the bot spends from its shell with its header's value (`functions/botHookTickets.ts`).
+    const address = stringField(body, "address");
+    const headerName = stringField(body, "headerName");
+    if (address === null || headerName === null || bot === "") return json({ error: "Pass the bot's name, its webhook address and the header's name." });
+    const ticket = randomOpaqueToken(32);
+    const refused = await ctx.runMutation(internal.functions.botHookTickets.mintBotHookTicket, {
+      hashedTicket: await hashToken(ticket),
+      hashedAccessToken: await hashToken(accessToken),
+      workspaceId: cleared.workspaceId,
+      userId: cleared.actorUserId,
+      bot,
+      address,
+      headerName,
+    });
+    return json(refused ?? { ticket, minutes: 10 });
+  }
   if (action === "set") {
     const address = stringField(body, "address");
     if (address === null || bot === "") return json({ error: "Pass the bot's name and its webhook address." });
@@ -85,5 +102,42 @@ export async function gatewayBotHookHandler(ctx: ActionCtx, body: Record<string,
       return json({ error: typeof said === "string" ? said : "That webhook could not be saved." });
     }
   }
-  return json({ error: "action is list, set or test." });
+  return json({ error: "action is list, set, ticket or test." });
+}
+
+/** The longest header value a ticket takes. */
+const HEADER_VALUE_MAX = 4096;
+
+/**
+ * `POST /gateway/bots/hook-ticket` — `{ ticket, value }` → `{ host, headerEnds }`, behind the gateway's secret only:
+ * the caller is the gateway's `PUT /api/bot-hook`, where a bot ran the command `manage area` gave it. The ticket is the
+ * person's authority, spent once; the person it names is cleared again with the token that minted it, so a revoked
+ * grant or a lost role spends nothing. The answer never carries the value.
+ */
+export async function gatewayBotHookTicketHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const ticket = stringField(body, "ticket");
+  const value = stringField(body, "value")?.trim() ?? "";
+  if (ticket === null || !/^[A-Za-z0-9_-]{16,256}$/.test(ticket)) return json({ error: "refused" });
+  if (value === "" || value.length > HEADER_VALUE_MAX || /[\r\n]/.test(value)) return json({ error: "Send the header's value, on one line, as the body." });
+  const spent = await ctx.runMutation(internal.functions.botHookTickets.spendBotHookTicket, { hashedTicket: await hashToken(ticket) });
+  const refused = { error: "This command was already used or has expired. Ask manage area for a new one." };
+  if (spent === null) return json(refused);
+  const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
+    hashedAccessToken: spent.hashedAccessToken,
+    expectedWorkspaceId: spent.workspaceId,
+  });
+  if (cleared === null || cleared.workspaceId !== spent.workspaceId || cleared.actorUserId !== spent.userId) return json(refused);
+  try {
+    const saved = await ctx.runAction(internal.functions.botHooks.setBotHookFor, {
+      workspaceId: spent.workspaceId,
+      userId: spent.userId,
+      bot: spent.bot,
+      address: spent.address,
+      headerLine: `${spent.headerName}: ${value}`,
+    });
+    return json({ host: saved.host, headerEnds: saved.headerEnds });
+  } catch (error) {
+    const said = (error as { data?: { message?: unknown } })?.data?.message;
+    return json({ error: typeof said === "string" ? said : "That webhook could not be saved." });
+  }
 }
