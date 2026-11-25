@@ -13,6 +13,7 @@
  *   node scripts/metric-rows.mjs test-set --verdict <verdict.json> --pr <n> --sha <sha>
  *   node scripts/metric-rows.mjs search   --verdict <verdict.json> --pr <n> --sha <sha>
  *   node scripts/metric-rows.mjs capabilities --sha <sha>
+ *   node scripts/metric-rows.mjs bench    --result <result.json> --sha <sha>
  *   node scripts/metric-rows.mjs --self-test
  *
  * Add `--dry-run` to print the rows instead of sending them. With no key set it says so and sends nothing; a refusal
@@ -23,6 +24,9 @@
  *   check `test-set`: part `all`, `kind:one`, `kind:group` and `node:<id>`; value right on the change, of the total,
  *     main right on main.
  *   check `search`: part `first` (right note first) and `top5`; value on the change, of the total, main on main.
+ *   check `bench:<id>`: a Lab search run on main's code (`.github/workflows/lab-eval-run.yml`), such as
+ *     `bench:enterprise-rag-notes`: part `first` and `top5`; value right, of the cases scored, main the same as value
+ *     (the run is main's).
  *   check `capabilities`: part `covered` (value capabilities a replay case exercises, of all capabilities) and `cant`
  *     (value the `cant` entries left, the Parity gaps).
  */
@@ -53,6 +57,21 @@ export function searchRows(verdict, meta) {
   return [
     { ...base(meta, "search", "first"), value: num(verdict?.first), of: num(verdict?.total), main: num(verdict?.mainFirst) },
     { ...base(meta, "search", "top5"), value: num(verdict?.top5), of: num(verdict?.total), main: num(verdict?.mainTop5) },
+  ];
+}
+
+/** A benchmark id as the Lab names it (`packages/bench/benchmarks.generated.json`); anything else sends nothing. */
+const BENCH_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** A Lab search run's result (`apps/mcp/bench/evals/searchCli.mjs`, run on main) as rows; [] when it isn't one. */
+export function benchRows(result, meta) {
+  const id = typeof result?.bench === "string" ? result.bench : "";
+  const s = result?.search;
+  if (!BENCH_ID.test(id) || !s || !(num(s.n) > 0)) return [];
+  const check = `bench:${id}`;
+  return [
+    { ...base(meta, check, "first"), value: num(s.first), of: num(s.n), main: num(s.first) },
+    { ...base(meta, check, "top5"), value: num(s.top5), of: num(s.n), main: num(s.top5) },
   ];
 }
 
@@ -121,11 +140,17 @@ async function main(argv) {
   if (sub === "test-set" || sub === "search") {
     const verdict = JSON.parse(readFileSync(arg(argv, "verdict"), "utf8"));
     rows = sub === "test-set" ? testSetRows(verdict, meta) : searchRows(verdict, meta);
+  } else if (sub === "bench") {
+    rows = benchRows(JSON.parse(readFileSync(arg(argv, "result"), "utf8")), meta);
+    if (rows.length === 0) {
+      console.log("Not a search run with scored cases, so no rows were sent.");
+      return 0;
+    }
   } else if (sub === "capabilities") {
     const { capabilities, caseText } = await readCapabilities();
     rows = capabilityRows(capabilities, caseText, meta);
   } else {
-    throw new Error("usage: metric-rows.mjs test-set|search --verdict <file> --pr <n> --sha <sha> | capabilities --sha <sha> [--dry-run]");
+    throw new Error("usage: metric-rows.mjs test-set|search --verdict <file> --pr <n> --sha <sha> | bench --result <file> --sha <sha> | capabilities --sha <sha> [--dry-run]");
   }
   if (argv.includes("--dry-run")) {
     for (const row of rows) console.log(JSON.stringify(row));
@@ -151,6 +176,10 @@ async function selfTest() {
   ok("rows hold counts only: no field but the sheet's columns", t.every((r) => Object.keys(r).sort().join() === "check,date,main,of,part,pr,sha,value"));
   const s = searchRows({ pass: true, total: 10, first: 7, mainFirst: 6, top5: 9, mainTop5: 9 }, meta);
   ok("a search run is a first row and a top5 row against main", s[0].value === 7 && s[0].main === 6 && s[1].part === "top5" && s[1].value === 9);
+  const b = benchRows({ bench: "enterprise-rag-notes", search: { n: 50, first: 29, top5: 41, firstPct: 58 }, rows: [{ query: "a case's words" }] }, meta);
+  ok("a Lab search run is a first and a top5 row under bench:<id>", b.length === 2 && b[0].check === "bench:enterprise-rag-notes" && b[0].value === 29 && b[0].of === 50 && b[1].part === "top5" && b[1].value === 41);
+  ok("a bench row carries counts only, never a case", !JSON.stringify(b).includes("words") && b.every((r) => Object.keys(r).sort().join() === "check,date,main,of,part,pr,sha,value"));
+  ok("a memory run, an odd bench id or a run with nothing scored sends nothing", benchRows({ bench: "longmemeval-s", scores: { n: 10 } }, meta).length === 0 && benchRows({ bench: "Bad/../id", search: { n: 5, first: 1 } }, meta).length === 0 && benchRows({ bench: "x", search: { n: 0 } }, meta).length === 0);
   const caps = [
     { name: "Areas", actions: ["manage.area"] },
     { name: "Polls", actions: [] },
