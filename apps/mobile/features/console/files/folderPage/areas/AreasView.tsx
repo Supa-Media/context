@@ -325,7 +325,7 @@ export function AreasView(props: AreasViewProps) {
           onAssign={canEdit ? (seat) => setEditing({ seat }) : null}
         />
       ) : (
-        <AreasList {...shared} onOpen={onSelect} onArea={onArea} selected={peek} rootPeeks={onPanel !== undefined} {...(canEdit ? { onPick: pick } : {})} />
+        <AreasList {...shared} onOpen={onSelect} onArea={onArea} selected={peek} rootPeeks={onPanel !== undefined} />
       )}
       {menu !== null ? (
         <SeatMenu

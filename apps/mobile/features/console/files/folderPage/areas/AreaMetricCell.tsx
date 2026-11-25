@@ -6,20 +6,18 @@
  * out) and the target in symbols; with no value yet, just the target, and no
  * placeholder (the owner, 2026-11-25). The sources a workspace metric reads
  * and how fresh they are stay off the row, in its hover tip and on the
- * metric's page. An area with no metric says so, with "+ Pick a metric" for
- * someone who can pick one.
+ * metric's page. An area with no metric leaves the cell blank; picking one
+ * lives in the area's side panel and its ⋯ menu (the owner, 2026-11-25).
  */
 
 import { useRef } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { Path, Svg } from "react-native-svg";
+import { StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { useHoverTitle } from "../../../../design/useHoverTitle";
 import { areasType, pointerType, radii } from "../../../../design/tokens";
 import type { Headline } from "./headline";
 import { Trend } from "./Trend";
-import { areaTitle, type Seat } from "./seat";
 
 /** The headline metric on a pointer: its label line, then the trend, the value and the target on one line. */
 export function MetricCell({ headline }: { headline: Headline }) {
@@ -93,44 +91,6 @@ function Label({ headline }: { headline: Headline }) {
   );
 }
 
-/**
- * An area with no metric: "No metric" over a "+ Pick a metric" chip that
- * opens the picker, or "No metric yet" for someone who cannot pick one.
- */
-export function NoMetric({ seat, compact, onPick }: { seat: Seat; compact: boolean; onPick: ((seat: Seat) => void) | undefined }) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  if (onPick === undefined) {
-    return (
-      <Text variant="treeMeta" style={styles.noMetric} numberOfLines={1} testID="area-no-metric">
-        No metric yet
-      </Text>
-    );
-  }
-  return (
-    <View testID="area-no-metric">
-      <Text variant="treeMeta" style={styles.metricLabel} numberOfLines={1}>
-        No metric
-      </Text>
-      <Pressable
-        onPress={() => onPick(seat)}
-        role="button"
-        accessibilityLabel={`Pick a metric for ${areaTitle(seat.name)}`}
-        hitSlop={4}
-        style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.pick, compact && styles.pickPhone, hovered && styles.pickHover]}
-        testID={`area-pick-${seat.folder}`}
-      >
-        <Svg width={12} height={12} viewBox="0 0 16 16" aria-hidden>
-          <Path d="M8 3v10M3 8h10" fill="none" stroke={colors.accentText} strokeWidth={1.6} strokeLinecap="round" />
-        </Svg>
-        <Text variant="treeMeta" style={[styles.pickWord, compact && styles.pickWordPhone]}>
-          Pick a metric
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
 /** The latest value, green on target and amber off it; muted when Hidden or still being worked out. */
 function Value({ headline, size }: { headline: Headline; size: number }) {
   const colors = useColors();
@@ -159,10 +119,4 @@ const makeStyles = (colors: Colors) =>
     target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
     noData: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
     noDataPhone: { fontSize: pointerType.ui, lineHeight: 20, color: colors.muted },
-    noMetric: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
-    pick: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 4, height: 22, marginTop: 2, paddingLeft: 6, paddingRight: 8, borderRadius: radii.sm, backgroundColor: colors.accentDim },
-    pickPhone: { height: 28, paddingLeft: 8, paddingRight: 10 },
-    pickHover: { opacity: 0.85 },
-    pickWord: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "600", color: colors.accentText },
-    pickWordPhone: { fontSize: pointerType.ui },
   });
