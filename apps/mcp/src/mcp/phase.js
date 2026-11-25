@@ -13,12 +13,19 @@ export function phaseTimer(mcp) {
   timer.took = (name, ms) => {
     if (typeof name === "string" && PHASE_NAME.test(name) && typeof ms === "number" && Number.isFinite(ms) && ms >= 0) mcp.point(`inside:${name}`, ms);
   };
+  // The call failed inside a 200 answer (a tool threw): the entry point's `to_response` says failed.
+  timer.failed = () => mcp.fail();
   return timer;
 }
 
 /** Record `ms`, measured elsewhere, as `inside:<name>` when the store carries a timer; otherwise nothing. */
 export function phaseTook(store, name, ms) {
   if (typeof store?.phase?.took === "function") store.phase.took(name, ms);
+}
+
+/** Mark this request's call failed when the store carries a timer; otherwise nothing. */
+export function phaseFailed(store) {
+  if (typeof store?.phase?.failed === "function") store.phase.failed();
 }
 
 export function phase(store, name, run) {

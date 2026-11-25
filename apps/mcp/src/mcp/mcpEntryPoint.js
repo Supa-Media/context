@@ -59,6 +59,8 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
   let client = "";
   let colo = "";
   let written = false;
+  /** Set when the call itself failed inside a 200: a tool that threw answers a JSON-RPC error, not a 5xx. */
+  let failed = false;
 
   const record = (name, at, state) => {
     const entry = { name, ms: Math.max(0, now() - at), at: at - start, state, span: true };
@@ -105,6 +107,13 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
      */
     set colo(value) {
       colo = typeof value === "string" && COLO.test(value) ? value : "";
+    },
+    /**
+     * The call failed though the answer is a 200: a tool threw and the caller got a JSON-RPC error
+     * (`mcp/handlers.js`). Its `to_response` point says failed, which is what Request errors counts.
+     */
+    fail() {
+      failed = true;
     },
     /** Run a step and wait for it. */
     step(name, run) {
@@ -159,7 +168,7 @@ export function mcpEntry(env, { now = Date.now, surface = "mcp" } = {}) {
       const uncovered = Math.max(0, now() - start) - coveredMs(points);
       // Under 5 ms is a clock's grain and the work between two awaits, not a gap worth a point.
       if (uncovered >= UNCOVERED_FLOOR_MS) points.push({ name: "uncovered", ms: uncovered, at: 0, state: "ok" });
-      record("to_response", start, response instanceof Response && response.status >= 500 ? "failed" : "ok");
+      record("to_response", start, failed || (response instanceof Response && response.status >= 500) ? "failed" : "ok");
       if (!written) {
         written = true;
         write(env, points, { surface, call, workspace, client, colo });

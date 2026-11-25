@@ -15,6 +15,7 @@ import {
 } from "./responses.js";
 import { callToolForSession } from "../tools/session.js";
 import { withOutcome } from "./outcome.js";
+import { phaseFailed } from "./phase.js";
 import {
   declaredProtocolVersion,
   ERROR_HEADER_MISMATCH,
@@ -202,6 +203,7 @@ async function handleModernMcp(request, msg, store, session) {
     }
   } catch (err) {
     // The reason goes to the log; the caller gets a short code (`publicError.js`), never the error's own words.
+    phaseFailed(store);
     const code = logCallFailure(err, { method: msg.method, tool: params?.name });
     return modernErrorResponse(id, -32603, failureText(code), 200);
   }
@@ -264,6 +266,7 @@ async function handleRpc(msg, store, session) {
         return isNotification ? null : jsonRpcErrorObj(id, -32601, `method not found: ${method}`);
     }
   } catch (err) {
+    phaseFailed(store);
     const code = logCallFailure(err, { method, tool: params?.name });
     if (isNotification) return null;
     return jsonRpcErrorObj(id, -32603, failureText(code));
