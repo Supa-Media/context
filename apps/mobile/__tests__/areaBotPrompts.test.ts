@@ -33,6 +33,17 @@ describe("an area bot's prompt", () => {
     expect(text).toContain('args: { join: "finance" }');
   });
 
+  test("routines are the area's and Context runs them; other bots are reached only in Context mail", () => {
+    // The owner, 2026-11-25: routines are defined on an area, not set up by the bot, and bots from different people
+    // and apps talk to each other only through Context mail.
+    for (const text of [areaPrompt(AREA), delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", workspace: "supa" })]) {
+      expect(text).toContain("never set up a routine of your own");
+      expect(text).toContain("used: <whole percent>");
+      expect(text).toContain("Talk to other areas and other bots only in Context mail");
+    }
+    expect(areaPrompt(AREA)).toContain("areas/operations/finance/routines/<how often>/<name>.md");
+  });
+
   test("a webhook bot is told mail also reaches its webhook; one without checks on a timer", () => {
     expect(areaPrompt({ ...AREA, reach: "webhook" })).toContain("reaches your webhook");
     expect(areaPrompt({ ...AREA, reach: "mail" })).toContain("on a timer that survives");

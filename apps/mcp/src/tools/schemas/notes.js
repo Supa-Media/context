@@ -204,6 +204,11 @@ export function noteWriteToolDefinitions() {
                   "send: \"note\" (the default); \"ask\" when you need an answer; \"interrupt\" stops the agent's current step, and only Tex can send one.",
               },
               wait: { type: "number", description: "send, with kind \"ask\": seconds to wait in this call for the answer, at most 120." },
+              used: {
+                type: "number",
+                description:
+                  "send: the share of your weekly usage the work you are answering took, a whole percent from 0 to 100. A bot in an area with a budget says it on every answer.",
+              },
             },
             additionalProperties: false,
           },

@@ -298,12 +298,14 @@ const WHO = /^@?[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/;
  * Answers the workspace's handle, or null to do nothing.
  */
 export const authorizeObjectMail = internalMutation({
-  args: { workspaceId: v.string(), bot: v.string(), area: v.string(), note: v.string(), from: v.string() },
+  args: { workspaceId: v.string(), bot: v.string(), area: v.string(), note: v.string(), from: v.string(), type: v.optional(v.union(v.literal("mail"), v.literal("routine"))) },
   returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces"), workspace: v.string() })),
   handler: async (ctx, args) => {
     const workspaceId = ctx.db.normalizeId("workspaces", args.workspaceId);
     if (workspaceId === null || !NAME.test(args.bot) || !WHO.test(args.from)) return null;
-    if (args.area.length > 512 || !args.note.startsWith(`${args.area}/mail/`) || args.note.length > 512) return null;
+    // Mail names a note in the area's `mail/`; a routine that came due names one in its `routines/`.
+    const folder = args.type === "routine" ? "routines" : "mail";
+    if (args.area.length > 512 || !args.note.startsWith(`${args.area}/${folder}/`) || args.note.includes("/../") || args.note.length > 512) return null;
     const row = await ctx.db
       .query("botHooks")
       .withIndex("by_workspace_bot", (q) => q.eq("workspaceId", workspaceId).eq("bot", args.bot))
@@ -375,10 +377,10 @@ export const callBotHook = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     bot: v.string(),
-    /** Who asked for a test; absent for mail, which the workspace's own object noticed. */
+    /** Who asked for a test; absent for mail and a routine, which the workspace's own object noticed. */
     actorUserId: v.optional(v.id("users")),
     payload: v.object({
-      type: v.union(v.literal("test"), v.literal("mail")),
+      type: v.union(v.literal("test"), v.literal("mail"), v.literal("routine")),
       workspace: v.string(),
       bot: v.string(),
       from: v.string(),

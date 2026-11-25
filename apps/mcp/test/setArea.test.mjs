@@ -219,3 +219,30 @@ test("nothing to change is said so", async () => {
   const { store } = await world({ "areas/finance/about.md": FINANCE });
   assert.equal((await run(store, { area: "areas/finance" })).isError, true);
 });
+
+test("a bot's works_in lists the areas its person lets it work in, each with its cap, and null removes the list", async () => {
+  // The owner, 2026-11-25: "if I attach a grokbot I can define how much of my weekly usage it can use".
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
+  const set = await run(store, { area: "areas/finance", bot: { name: "Finance", whose: "@seyi", works_in: [{ area: "areas/finance", cap: 20 }, "areas/ops · 5%", { area: "areas/finance/" }] } });
+  assert.equal(set.isError, undefined, said(set));
+  assert.match(said(set), /working in areas\/finance · 20%, areas\/ops · 5%/);
+  assert.deepEqual((await props("areas/people/finance.md")).works_in, ["areas/finance · 20%", "areas/ops · 5%"]);
+  for (const works_in of [[{ area: "areas/finance", cap: 120 }], [{ area: "projects/x", cap: 5 }], "areas/finance", [{ area: "areas/finance", cap: 2.5 }]]) {
+    const bad = await run(store, { area: "areas/finance", bot: { name: "Finance", works_in } });
+    assert.equal(bad.isError, true, JSON.stringify(works_in));
+  }
+  const cleared = await run(store, { area: "areas/finance", bot: { name: "Finance", works_in: null } });
+  assert.match(said(cleared), /working wherever an area names it/);
+  assert.equal((await props("areas/people/finance.md")).works_in, undefined);
+});
+
+test("a card already in the bots folder is changed there", async () => {
+  const { store, props } = await world({
+    "areas/finance/about.md": FINANCE,
+    "areas/bots/about.md": "---\narea: false\n---\n",
+    "areas/bots/finance/about.md": "---\nholder: Finance\nkind: agent\nbot: grok\nbelongs_to: \"@seyi\"\n---\n",
+  });
+  const set = await run(store, { area: "areas/finance", bot: { name: "Finance", works_in: [{ area: "areas/finance", cap: 10 }] } });
+  assert.match(said(set), /card areas\/bots\/finance\/about\.md/);
+  assert.deepEqual((await props("areas/bots/finance/about.md")).works_in, ["areas/finance · 10%"]);
+});

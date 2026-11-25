@@ -13,6 +13,12 @@
  * The body says mail arrived and where, never what it says:
  *   {"type":"mail","workspace":"@supa","bot":"finance","from":"@seyi",
  *    "area":"areas/finance","note":"areas/finance/mail/seyi.md","at":"…"}
+ *
+ * An area's routine that came due says which routine, never its words; the bot
+ * reads the note and answers in the area's mail:
+ *   {"type":"routine","workspace":"@supa","bot":"grok-bot","from":"context",
+ *    "area":"areas/operations/Scorecard",
+ *    "note":"areas/operations/Scorecard/routines/weekly/score-every-area.md","at":"…"}
  */
 
 const KEY_PREFIX = "ctxbot_";
@@ -48,8 +54,9 @@ function headerLine(raw) {
 
 /** The body a call carries, with only the fields it may: no message, no address, nothing else. */
 function hookPayload(input) {
-  const out = { type: input.type === "mail" ? "mail" : "test", workspace: String(input.workspace ?? ""), bot: String(input.bot ?? ""), from: String(input.from ?? "") };
-  if (out.type === "mail") {
+  const type = input.type === "mail" || input.type === "routine" ? input.type : "test";
+  const out = { type, workspace: String(input.workspace ?? ""), bot: String(input.bot ?? ""), from: String(input.from ?? "") };
+  if (out.type !== "test") {
     out.area = String(input.area ?? "");
     out.note = String(input.note ?? "");
   }

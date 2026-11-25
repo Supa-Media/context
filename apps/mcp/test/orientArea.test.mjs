@@ -177,3 +177,50 @@ test("no seats, or a map that cannot be read, says nothing", async () => {
   assert.equal(await areaSeatsSection({ treeEntries: async () => { throw new Error("down"); } }, "team", RULES, OVERRIDES), "");
   assert.equal(await areaSeatsSection({}, "team", RULES, OVERRIDES), "");
 });
+
+test("orient area lists the area's routines, its bot's budget, the other bots, and that bots talk only in mail", async () => {
+  // The owner, 2026-11-25: routines are the area's and Context runs them; a bot's person caps its week per area; bots
+  // talk to each other only in Context mail.
+  const props = {
+    ...PROPS,
+    "areas/bots/finance/about.md": { properties: { bot: "grok", holder: "Finance", belongs_to: "@seyi", works_in: ["areas/finance · 20%"] } },
+    "areas/bots/pipeline/about.md": { properties: { bot: "grok", holder: "Pipeline", belongs_to: "@kim" } },
+  };
+  const entries = [
+    ...ENTRIES,
+    { key: "areas/finance/routines/weekly/close-the-books.md", uploaded: at(1) },
+    { key: "areas/finance/routines/someday/maybe.md", uploaded: at(1) },
+    { key: "areas/bots/finance/about.md", uploaded: at(1) },
+    { key: "areas/bots/pipeline/about.md", uploaded: at(1) },
+  ];
+  const base = store();
+  const withBots = {
+    ...base,
+    treeEntries: async () => entries,
+    treeFacts: async (request) =>
+      request.ask === "props"
+        ? { served: true, props: request.paths.filter((path) => props[path]).map((path) => ({ path, props: JSON.stringify(props[path]) })) }
+        : base.treeFacts(request),
+    objectBots: {
+      state: async () => ({
+        week: "2026-11-23",
+        routines: [{ path: "areas/finance/routines/weekly/close-the-books.md", area: "areas/finance", nextAt: Date.parse("2026-11-30T14:00:00Z"), lastAt: Date.parse("2026-11-23T14:00:00Z"), outcome: "sent", answeredAt: null }],
+        usage: [{ bot: "finance", area: "areas/finance", used: 12 }],
+      }),
+    },
+  };
+  const out = text(await toolOrient(withBots, "team", RULES, OVERRIDES, { area: "areas/finance" }));
+  assert.match(out, /## Routines\n- areas\/finance\/routines\/weekly\/close-the-books\.md — next 2026-11-30T14:00:00Z; sent 2026-11-23T14:00:00Z, not answered yet/);
+  assert.match(out, /maybe\.md — won't run: "someday" isn't a schedule/);
+  assert.match(out, /a bot never sets up its own/);
+  assert.match(out, /## Budget\nFinance may spend 20% of its weekly usage here; it has said it used 12% \(week of 2026-11-23\)\. 8% is left\./);
+  // The routines folder is not a sub-area or a note of the area's own.
+  assert.doesNotMatch(out, /routines\/about\.md/);
+  assert.match(out, /Anything for another area or bot: that area.s mail, never your own app.s messages or tasks/);
+
+  const held = text(await toolOrient(withBots, "team", RULES, OVERRIDES, { for: "Finance" }));
+  assert.match(held, /Waiting for your answer: areas\/finance\/routines\/weekly\/close-the-books\.md/);
+  assert.match(held, /Budget: 20% of your week; 12% used this week/);
+  assert.match(held, /## Other bots here\n- Pipeline \(@kim's\)/);
+  assert.doesNotMatch(held, /## Other bots here\n[^#]*- Finance \(/);
+});

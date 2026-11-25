@@ -6,7 +6,9 @@
  *
  *   - the area's `about.md`: owner, delegate, modes, approvals and its one metric (`metrics: [<name> · target <x>]`,
  *     with any older `metric:` and `target:` lines taken away, since they would win over it);
- *   - a bot's card in the areas' `people/` folder: its `bot`, `belongs_to`, `reach` and `avatar`;
+ *   - a bot's card in the areas' `people/` folder (or `bots/<bot>/about.md` where it already is): its `bot`,
+ *     `belongs_to`, `reach`, `avatar` and `works_in`, the areas its person lets it work in with each one's cap on its
+ *     week (`docs/decisions/app-and-console/area-routines.md`);
  *   - the areas' own `about.md` `agents:` list, for a bot named for the first time.
  *
  * A webhook is the one thing that is not a note: it goes sealed to the control plane (`/gateway/bots/hook`,
@@ -16,6 +18,7 @@
  */
 
 import areaBots from "../../../../../packages/shared/src/areaBots.cjs";
+import areaRoutines from "../../../../../packages/shared/src/areaRoutines.cjs";
 import { setNoteProperty } from "../../lists/setProperty.js";
 import { normalizePath } from "../../notes/paths.js";
 import { factJobs, factProps } from "../../tree/facts.js";
@@ -26,6 +29,7 @@ import { toolWriteNote } from "./write.js";
 import { attachProjects } from "./attachProjects.js";
 
 const { BOT_KINDS, MODE_ORDER, botLabel, knownModes, mailJoinName } = areaBots;
+const { botCardPaths, parseWorksInEntry, worksInLine } = areaRoutines;
 
 const REACHES = new Set(["webhook", "mail"]);
 const MAX_RULES = 20;
@@ -110,6 +114,30 @@ function oneLine(value, what) {
   if (value === null || value === "") return { value: null };
   if (typeof value !== "string" || /[\r\n]/.test(value) || value.trim().length > MAX_TEXT) return { error: `${what} is one line of text. Pass it on one line, then try again.` };
   return { value: value.trim() };
+}
+
+/**
+ * `bot.works_in` as the card writes it: a list of `{area, cap?}` or `"<area> · 20%"`, each under the Areas folder,
+ * an empty list (or null) for none. `{lines}` or `{error}`.
+ */
+function worksInOf(value, root) {
+  if (value === null) return { lines: [] };
+  if (!Array.isArray(value) || value.length > 50) return { error: 'invalid: bot.works_in is a list of the areas it may work in, each { area, cap } (cap a whole percent of its week, or left out for none), like [{ area: "areas/finance", cap: 20 }]. Pass it that way, then try again.' };
+  const lines = [];
+  for (const item of value) {
+    const entry =
+      typeof item === "string"
+        ? parseWorksInEntry(item)
+        : item && typeof item === "object" && typeof item.area === "string"
+          ? { area: normalizePath(item.area.replace(/\/about\.md$/i, "").replace(/\/+$/, "")), cap: item.cap === undefined || item.cap === null ? null : Number(item.cap) }
+          : null;
+    if (entry === null || entry.area === "" || /[\r\n·]/.test(entry.area)) return { error: 'invalid: each bot.works_in entry is { area, cap? }, like { area: "areas/finance", cap: 20 }. Fix that entry, then try again.' };
+    if (entry.cap !== null && (!Number.isInteger(entry.cap) || entry.cap < 0 || entry.cap > 100)) return { error: `invalid: the cap for ${entry.area} is a whole percent of the bot's week, from 0 to 100. Pass it that way, then try again.` };
+    if (entry.area !== root && !entry.area.startsWith(`${root}/`)) return { error: `invalid: ${entry.area} is not under the areas folder (${root}/). Pass an area as orient { area } lists it, then try again.` };
+    const line = worksInLine(entry);
+    if (!lines.some((seen) => seen.toLowerCase().split(" · ")[0] === entry.area.toLowerCase())) lines.push(line);
+  }
+  return { lines };
 }
 
 /**
@@ -220,10 +248,23 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
       card.push(["avatar", "logo"]);
       images = [{ name: "logo", ...(url !== "" ? { url } : { data }) }];
     }
+    // Where it works and how much of its week each area may spend: the whole list, as its person sets it.
+    let works;
+    if (bot.works_in !== undefined) {
+      const worksIn = worksInOf(bot.works_in, root);
+      if (worksIn.error) return toolError(worksIn.error);
+      works = worksIn.lines;
+      card.push(["works_in", works.length === 0 ? null : works]);
+    }
     const people = `${root}/people`;
-    const peopleAbout = await openNote(store, scope, rules, overrides, `${people}/about.md`);
-    if (peopleAbout.missing) await change(store, scope, rules, overrides, `${people}/about.md`, [["area", "false"]], { create: true });
-    const wrote = await change(store, scope, rules, overrides, `${people}/${cardSlug(name)}.md`, card, { create: true, images });
+    // A card already in the bots folder stays there; any other is the people/ card, as the app still writes it.
+    const [inBots] = botCardPaths(root, name);
+    const cardAt = (await factProps(store, [inBots]))?.get(inBots)?.props ? inBots : `${people}/${cardSlug(name)}.md`;
+    if (cardAt !== inBots) {
+      const peopleAbout = await openNote(store, scope, rules, overrides, `${people}/about.md`);
+      if (peopleAbout.missing) await change(store, scope, rules, overrides, `${people}/about.md`, [["area", "false"]], { create: true });
+    }
+    const wrote = await change(store, scope, rules, overrides, cardAt, card, { create: true, images });
     if (wrote.error) return toolError(wrote.error);
     const listing = await openNote(store, scope, rules, overrides, `${root}/about.md`);
     const agents = (await factProps(store, [`${root}/about.md`]))?.get(`${root}/about.md`)?.props?.properties?.agents;
@@ -232,7 +273,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
       const added = await change(store, scope, rules, overrides, `${root}/about.md`, [["agents", [...have, name]]], { create: true });
       if (added.error) problems.push(added.error);
     }
-    done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""}${images ? ", with its logo" : ""} (card ${people}/${cardSlug(name)}.md)`);
+    done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""}${images ? ", with its logo" : ""}${works === undefined ? "" : works.length === 0 ? ", working wherever an area names it" : `, working in ${works.join(", ")}`} (card ${cardAt})`);
   }
 
   // A webhook, sealed by the control plane; never echoed.

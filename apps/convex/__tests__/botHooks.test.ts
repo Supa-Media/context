@@ -136,6 +136,26 @@ describe("a bot's webhook", () => {
     expect(seen).toHaveLength(0);
   });
 
+  test("a routine that came due is a signed call of type routine naming the routine note, and only one in that area's routines", async () => {
+    // The owner, 2026-11-25: routines are the area's, and Context sends each to the area's bot when it is due.
+    const seen = stubNet();
+    const { t, ana, supa } = await world();
+    await asUser(t, ana).action(api.functions.botHooks.setBotHook, { workspaceId: supa, bot: "finance", address: HOOK, signingKey: KEY });
+    const routine = { workspaceId: supa, bot: "finance", area: "areas/finance", note: "areas/finance/routines/weekly/close.md", from: "context", type: "routine" };
+    expect(await (await gatewayPost(t, "/gateway/bots/mail", routine)).json()).toEqual({ ok: true, status: 200 });
+    expect(JSON.parse(seen[0]!.body)).toMatchObject({ type: "routine", area: "areas/finance", note: "areas/finance/routines/weekly/close.md", from: "context" });
+    // A routine type naming a mail note, mail naming a routine note, or a path that climbs out: nobody is called.
+    for (const odd of [
+      { note: "areas/finance/mail/kim.md" },
+      { note: "areas/other/routines/weekly/close.md" },
+      { note: "areas/finance/routines/../budget.md" },
+      { type: "mail" },
+    ]) {
+      expect(await (await gatewayPost(t, "/gateway/bots/mail", { ...routine, ...odd })).json(), JSON.stringify(odd)).toEqual({ ok: false, status: 0 });
+    }
+    expect(seen).toHaveLength(1);
+  });
+
   test("a bot that fails is retried once and its status shown; an outsider's test reaches nobody", async () => {
     const seen = stubNet(503);
     const { t, ana, outsider, supa } = await world();

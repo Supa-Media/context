@@ -31,6 +31,13 @@
  * reads the same. Any other bracketed word is not a tag: the line is skipped,
  * as it always was.
  *
+ * After the kind tag a bot may say how much of its weekly usage the work it is
+ * answering took: `[used 3%]`, a whole percent from 0 to 100 (the owner,
+ * 2026-11-25: an area's budget is a share of its bot's week, and Context can't
+ * read a bot's own meter, so the bot says). It is part of the line, so anyone
+ * reading the mail sees it; `workspaceStore/botMail.js` adds it up per area and
+ * week (`docs/decisions/app-and-console/area-routines.md`).
+ *
  * ## Why append-only, and why here
  *
  * Every write is an insertion at the end of the block, which the collaborative
@@ -55,8 +62,10 @@ const MAIL_KINDS = ["note", "ask", "interrupt"];
 /** The kinds written with a tag; a note is written without one. */
 const TAGGED_KINDS = ["ask", "interrupt"];
 const LINE_RE = new RegExp(
-  `^- (\\S+) (${NAME}|${PERSON})(?: \\(([^()\\n]{1,40})\\))? (?:(joined)|to (${NAME})(?: \\[(ask|interrupt)\\])?: ?(.*))$`
+  `^- (\\S+) (${NAME}|${PERSON})(?: \\(([^()\\n]{1,40})\\))? (?:(joined)|to (${NAME})(?: \\[(ask|interrupt)\\])?(?: \\[used (\\d{1,3})%\\])?: ?(.*))$`
 );
+/** The most a `[used N%]` tag says: a bot's whole week. */
+const MAX_USED = 100;
 const CONTINUATION = "    ";
 /** Longest message kept, in characters. */
 const MAX_TEXT = 4000;
@@ -102,7 +111,8 @@ function parseMail(text) {
         kind: match[4] ? "joined" : "mail",
         to: match[4] ? null : match[5],
         mailKind: match[4] ? null : match[6] ?? "note",
-        text: match[4] ? "" : match[7],
+        used: match[4] || match[7] === undefined || Number(match[7]) > MAX_USED ? null : Number(match[7]),
+        text: match[4] ? "" : match[8],
         start: block.bodyStart + row.start,
         end: block.bodyStart + row.next,
       };
@@ -164,7 +174,7 @@ function formatText(text) {
 /**
  * Append one entry. Returns `{ changes }` against `text` (apply them with
  * `applyChanges`), or `{ error }`. `entry` is `{ at, from, app, kind, to,
- * text, mailKind }`; `from` is a joined name or an `@handle`; `mailKind` is
+ * text, mailKind, used? }`; `from` is a joined name or an `@handle`; `mailKind` is
  * `"note"` (the default), `"ask"` or `"interrupt"`.
  */
 function appendMail(text, entry) {
@@ -186,7 +196,13 @@ function appendMail(text, entry) {
     if (!body) return { error: "mail.text is empty" };
     if (body.length > MAX_TEXT) return { error: `mail.text is too long; keep a message under ${MAX_TEXT} characters` };
     const tag = TAGGED_KINDS.includes(mailKind) ? ` [${mailKind}]` : "";
-    line = `- ${at} ${who} to ${to}${tag}: ${body}`;
+    let usedTag = "";
+    if (entry?.used !== undefined && entry?.used !== null) {
+      const used = Number(entry.used);
+      if (!Number.isFinite(used) || used < 0 || used > MAX_USED) return { error: `mail.used is a whole percent of your weekly usage, 0 to ${MAX_USED}` };
+      usedTag = ` [used ${Math.round(used)}%]`;
+    }
+    line = `- ${at} ${who} to ${to}${tag}${usedTag}: ${body}`;
   }
   const block = findMailBlock(source);
   if (block) {
@@ -247,7 +263,8 @@ function describeEntry(event) {
   if (event.kind === "joined") return `- ${event.at} ${who} joined`;
   const body = event.text.split("\n").join(`\n${CONTINUATION}`);
   const tag = TAGGED_KINDS.includes(event.mailKind) ? ` [${event.mailKind}]` : "";
-  return `- ${event.at} ${who} to ${event.to}${tag}: ${body}`;
+  const used = typeof event.used === "number" ? ` [used ${event.used}%]` : "";
+  return `- ${event.at} ${who} to ${event.to}${tag}${used}: ${body}`;
 }
 
 /** Mail from `from` to `to` (a name or everyone) in the `windowMs` (an hour) before `nowMs`. */
@@ -287,6 +304,7 @@ module.exports = {
   MAIL_KINDS,
   MAX_ASK_DEPTH,
   MAX_PER_PAIR_PER_HOUR,
+  MAX_USED,
   findMailBlock,
   parseMail,
   mailName,

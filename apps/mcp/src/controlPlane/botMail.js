@@ -1,5 +1,6 @@
 /**
- * A bot that holds an area, told that mail arrived for it (`POST /gateway/bots/mail`). The workspace object that
+ * A bot that holds an area, told that mail arrived for it, or that one of its area's routines is due
+ * (`POST /gateway/bots/mail`). The workspace object that
  * saved the note sends this (`workspaceStore/botMail.js`); the control plane calls the bot's webhook if one is
  * saved, sealed there. Names and paths only: never the message, never an address or a key.
  */
@@ -8,9 +9,12 @@ const BOT_MAIL_TIMEOUT_MS = 30_000;
 
 export function createBotMailMethods({ post }) {
   return {
-    /** Resolves `{ok, status}`; throws when the control plane is unreachable. */
-    async botMail(workspaceId, { bot, area, note, from }) {
-      return await post("/gateway/bots/mail", { workspaceId, bot, area, note, from }, { timeoutMs: BOT_MAIL_TIMEOUT_MS });
+    /**
+     * Resolves `{ok, status}`; throws when the control plane is unreachable. `type` is `"routine"` for an area's
+     * routine that came due (`workspaceStore/areaRoutines.js`), whose `note` is the routine note; mail otherwise.
+     */
+    async botMail(workspaceId, { bot, area, note, from, type }) {
+      return await post("/gateway/bots/mail", { workspaceId, bot, area, note, from, ...(type === "routine" ? { type } : {}) }, { timeoutMs: BOT_MAIL_TIMEOUT_MS });
     },
 
     /** An agent's `manage area` webhook step, cleared with the person's own token: list, set or test. Never a secret back. */

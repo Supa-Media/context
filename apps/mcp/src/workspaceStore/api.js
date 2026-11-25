@@ -188,6 +188,8 @@ export function workspaceClient(env, workspaceId) {
       read: async (fields) => await ask("ws.collab.read", fields),
       create: async (fields) => await ask("ws.create", fields),
     },
+    // An area's routines and its bots' week (`workspaceStore/areaRoutines.js`), at a reader's clearance.
+    botsState: async ({ scope, groups = [], audience = "member", userId = null }) => await ask("ws.bots.state", { scope, groups, audience, ...(userId ? { userId } : {}) }),
     // A note's mail, read here (`workspaceStore/mailOps.js`): what is new for a mailbox, and an ask's held wait.
     mail: {
       since: async (fields) => await ask("ws.mail.since", fields),

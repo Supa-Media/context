@@ -26,7 +26,7 @@ import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { MACHINE_RUN_CLIENT_ID } from "../machineRun.js";
 
-const { EVERYONE, MAX_ASK_DEPTH, MAX_PER_PAIR_PER_HOUR, appendMail, askDepth, describeEntry, mailName, newFor, pairCount, parseMail } = mail;
+const { EVERYONE, MAX_ASK_DEPTH, MAX_PER_PAIR_PER_HOUR, MAX_USED, appendMail, askDepth, describeEntry, mailName, newFor, pairCount, parseMail } = mail;
 
 /** The longest an ask's sender may wait for its answer in one call, in seconds. */
 export const MAX_ASK_WAIT_S = 120;
@@ -109,6 +109,12 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   if (device !== undefined && !joining) return toolError("mail.device goes with join: drop device, or add join");
   const mailKind = request.kind === undefined ? "note" : request.kind;
   if (!joining && !["note", "ask", "interrupt"].includes(mailKind)) return toolError('mail.kind must be "note", "ask" or "interrupt"; pass one of those');
+  // How much of the sender's weekly usage the work it answers took, said on the line as `[used N%]` (`mail.cjs`): a bot
+  // in an area with a budget says it, and the area's week is added up from it (`workspaceStore/botMail.js`).
+  const used = request.used === undefined || request.used === null ? null : Number(request.used);
+  if (used !== null && (joining || !Number.isFinite(used) || used < 0 || used > MAX_USED)) {
+    return toolError(`mail.used is the share of your weekly usage this work took, a whole percent from 0 to ${MAX_USED}. Send it with text (not when joining), then try again.`);
+  }
   const wait = mailKind === "ask" && request.wait !== undefined ? Number(request.wait) : 0;
   if (!Number.isFinite(wait) || wait < 0 || wait > MAX_ASK_WAIT_S) return toolError(`mail.wait is seconds to wait for the answer, at most ${MAX_ASK_WAIT_S}`);
 
@@ -165,7 +171,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       }
       const refused = mailGuard({ events, from, to, mailKind, role: store.mailTurn?.role ?? null, now: Date.now() });
       if (refused) return toolError(refused);
-      entry = { kind: "mail", from, app, to, text: request.text, mailKind };
+      entry = { kind: "mail", from, app, to, text: request.text, mailKind, ...(used === null ? {} : { used }) };
     }
 
     const at = new Date().toISOString();

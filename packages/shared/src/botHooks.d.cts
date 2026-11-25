@@ -1,7 +1,7 @@
 /** Types for `botHooks.cjs`; see that file for the reasons. */
 
 export interface HookPayload {
-  type: "test" | "mail";
+  type: "test" | "mail" | "routine";
   workspace: string;
   bot: string;
   from: string;

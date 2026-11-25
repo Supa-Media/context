@@ -14,6 +14,8 @@
  * See `docs/decisions/app-and-console/area-bots.md`.
  */
 
+const { mailOnlyText, routinesText } = require("./areaRoutines.cjs");
+
 /** The kinds of bot a card can say it is. Grok is the first; others follow by adding a word. */
 const BOT_KINDS = Object.freeze(["grok"]);
 const BOT_LABELS = Object.freeze({ grok: "Grok bot" });
@@ -142,6 +144,10 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, ca
   );
   lines.push("");
   lines.push(mailText(where, name, reach));
+  lines.push("");
+  lines.push(routinesText(where));
+  lines.push("");
+  lines.push(mailOnlyText());
   const modeText = modeLines(modes, owner || person);
   if (modeText.length > 0) {
     lines.push("");
@@ -175,6 +181,10 @@ function delegatePrompt({ bot, kind, whose, workspace, card }) {
   lines.push("");
   lines.push("Keep what you learn about an area in that area's folder. Projects live in the Projects folder; give each one you start an area: line naming the area it serves.");
   lines.push("");
+  lines.push(routinesText("<area>/"));
+  lines.push("");
+  lines.push(mailOnlyText());
+  lines.push("");
   lines.push(`Ask an area's owner${person ? ` (or ${person})` : ""} before anything its approval rules name.`);
   return lines.join("\n");
 }
@@ -202,6 +212,10 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
   lines.push("Projects still live in the Projects folder, one folder each. When you start one, put an area: line in its about.md naming the area it serves.");
   lines.push("");
   lines.push(mailText("<area>/", name, reach));
+  lines.push("");
+  lines.push(routinesText("<area>/"));
+  lines.push("");
+  lines.push(mailOnlyText());
   lines.push("");
   lines.push("In each area, work as its modes say:");
   for (const mode of MODE_ORDER) lines.push(`- ${mode}: ${MODE_MEANINGS[mode]}`);
