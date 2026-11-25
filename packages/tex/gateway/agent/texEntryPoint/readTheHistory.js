@@ -84,7 +84,7 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, mailRead, groupsRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, week: weekMoment ? { read_day: weekMoment.read_day } : null });
+  Object.assign(t, { attachments, background, computersRead, mailRead, groupsRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, week: weekMoment ? { read_day: weekMoment.read_day, search_chat: weekMoment.search_chat } : null });
 }
 // TEX ENTRY POINT: end
 

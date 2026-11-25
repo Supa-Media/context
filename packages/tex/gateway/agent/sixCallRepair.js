@@ -120,7 +120,7 @@ function emailSearch(call, carrier) {
 function repairSearch(call, carriers) {
   let next = { ...call };
   // `email: true` beside the query, where `texts` and `groups` would be too: inside args.
-  for (const key of ["email", "texts", "groups"]) {
+  for (const key of ["email", "texts", "groups", "history"]) {
     if (next[key] !== true) continue;
     next = { ...next, args: { ...(isObject(next.args) ? next.args : {}), [key]: true } };
     delete next[key];
@@ -128,7 +128,7 @@ function repairSearch(call, carriers) {
   if (!isObject(next.args)) return next;
   const args = { ...next.args };
   // An account (or a sender's address written as mailbox) is only ever an email search's.
-  const mode = args.email === true || args.texts === true || args.groups === true;
+  const mode = args.email === true || args.texts === true || args.groups === true || args.history === true;
   if (!mode && (typeof args.account === "string" && ADDRESS.test(args.account.trim()))) args.email = true;
   next = { ...next, args };
   if (args.email === true) return emailSearch(next, carriers.get("search_email"));

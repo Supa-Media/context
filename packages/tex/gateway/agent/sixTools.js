@@ -399,17 +399,21 @@ function searchTool(base, held) {
   const groups = held.has("group_chats")
     ? "\n\nThe group chats they are in with you: search with args { groups: true, chat, since }, every chat or the one named; each hit names its chat, day, time and who said it."
     : "";
+  // This chat's own history, searched for words (`chatSearch.js`; Dev2, 2026-11-25).
+  const history = held.has("search_chat")
+    ? "\n\nThis chat's own history, every text back to its first: search with args { history: true, who, since, until } when they ask when or whether something was said here, or before asking them what the chat may already hold; each hit names its day, time and who said it."
+    : "";
   // Google Chat has no search here, only reads (`fetch chat:`), so a search that found nothing in notes and mail was
   // taken for the whole record: "you can see the feedback we sent right?" was answered from Gmail while the feedback
   // sat in a Chat message (Training trial-hire, 2026-11-19).
   const chat = held.has("read_google_chat") && !held.has("earlier_chat")
     ? "\n\nTheir Google Chat is not in this search. When what they mean could be in a Chat message (feedback sent, a message to someone they work with, something said in a space), read it too with fetch id \"chat:\" (a direct message with args { to, account })."
     : "";
-  if (!held.has("search_texts")) return { ...base, description: `${head}${groups}${chat}` };
+  if (!held.has("search_texts")) return { ...base, description: `${head}${history}${groups}${chat}` };
   return {
     ...base,
     description:
-      `${head}${groups}${chat}\n\nTheir texts (iMessage and SMS, backed up from their Mac): search with args { texts: true, with, since }, ` +
+      `${head}${history}${groups}${chat}\n\nTheir texts (iMessage and SMS, backed up from their Mac): search with args { texts: true, with, since }, ` +
       "with a query of words, or only with (a name, number or group) or since (a date) to see what came in. " +
       "When they mention something a person sent, texted or told them, search their texts with that person, and their email, before you answer; " +
       `never say you can't see their texts. Fetch a result's ${TEXTS_ID_PREFIX}<id> to read the conversation around it.`,
@@ -457,7 +461,7 @@ function searchWorkspace(context, scope) {
 
 /** Whether a search's args are a notes search: not their texts, their email, or their group chats (each has its own reader). */
 function isNotesSearch(args) {
-  return args.texts !== true && args.email !== true && args.groups !== true;
+  return args.texts !== true && args.email !== true && args.groups !== true && args.history !== true;
 }
 
 /**
@@ -588,6 +592,11 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
     }
     const call = hoistNestedContext(name, args && typeof args === "object" && !Array.isArray(args) ? args : {});
     if (name === "orient") return { name, args: call };
+    // This chat's own history (`chatSearch.js`): `search { query, args: { history: true, who, since, until } }`.
+    if (name === "search" && held.has("search_chat") && call.args && typeof call.args === "object" && call.args.history === true) {
+      const { who, since, until } = call.args;
+      return { name: "search_chat", args: { words: call.query, ...(who !== undefined ? { who } : {}), ...(since !== undefined ? { since } : {}), ...(until !== undefined ? { until } : {}) } };
+    }
     // Their group chats, searched all at once (`groupChats.js`): `search { query, args: { groups: true } }`.
     if (name === "search" && held.has("group_chats") && call.args && typeof call.args === "object" && call.args.groups === true) {
       const { chat, since } = call.args;
