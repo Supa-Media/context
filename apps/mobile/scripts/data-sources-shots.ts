@@ -6,7 +6,10 @@
  * Screenshots of stage B's data pages, to compare with the data sources
  * artboards: the Data page (01, desktop light and dark, phone), the GitHub
  * folder (07, desktop and phone), the Eval CI push source (09), the built-in
- * Context source (10), the metrics folder (11) and a metric note (12).
+ * Context source (10), the metrics folder (11) and a metric note (12), and
+ * the states no board draws (x1 to x5): an empty data folder, the page while
+ * its notes load, a metric whose formula does not parse beside one over a
+ * sheet this reader cannot read, and each of those two opened as a note.
  *
  * The pages are the real components over the real hook (`useDataWorkspace`),
  * fed by an in-memory folder source: every sheet is invented CSV made below,
@@ -127,22 +130,35 @@ const iso = (ms: number) => `${new Date(ms).toISOString().slice(0, 19)}Z`;
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const csv = (header: string, rows: readonly (readonly (string | number)[])[]) => `${header}\n${rows.map((row) => row.join(",")).join("\n")}\n`;
 
+/* As the boards draw them, newest week first: PRs merged each calendar week, their lines in thousands, and open-to-live minutes each rolling week. */
+const MERGED_PER_WEEK = [7, 6, 7, 9, 6, 8];
+const LINES_PER_WEEK = [18.2, 17, 22, 12, 19, 14];
+const LEAD_PER_WEEK = [22, 24, 31, 28, 37, 34, 41];
+
 function pullRequests(): string {
   const rand = seeded(7);
   const rows: (string | number)[][] = [];
   const count = 1284;
   const span = 26 * 7 * DAY;
-  for (let n = 0; n < count; n += 1) {
+  const monday = Date.UTC(2026, 10, 23);
+  const merges = new Map<number, number>();
+  // Newest first, so each week's quota goes to its latest pull requests.
+  for (let n = count - 1; n >= 0; n -= 1) {
     const opened = NOW - 50 * MIN - Math.floor(((count - 1 - n) / count) * span);
-    const week = Math.floor((NOW - opened) / (7 * DAY));
-    // Weekly merges wobble around 9, ending on 7 this week; lines follow.
-    const mergedHere = rand() < (week === 0 ? 0.62 : 0.2 + 0.05 * Math.sin(week));
-    const lead = 10 + Math.floor(rand() * 12) + (week % 3) * 2;
-    const merged = mergedHere ? iso(opened + lead * MIN) : "";
-    const deployed = mergedHere ? iso(opened + (lead + 4) * MIN) : "";
-    const added = mergedHere ? Math.floor(1400 + rand() * 1200 + 500 * Math.cos(week)) : 0;
-    const removed = mergedHere ? Math.floor(300 + rand() * 400) : 0;
-    rows.push([n % 3 === 0 ? "acme/context" : "acme/app", 4000 + n, `Change ${n}`, ["dev", "sam", "ana"][n % 3]!, iso(opened), merged, deployed, added, removed]);
+    const rolling = Math.floor((NOW - opened) / (7 * DAY));
+    const lead = (LEAD_PER_WEEK[rolling] ?? 41) - 1 + Math.floor(rand() * 3);
+    const week = Math.max(0, Math.ceil((monday - (opened + lead * MIN)) / (7 * DAY)));
+    const quota = MERGED_PER_WEEK[week] ?? 9;
+    const done = merges.get(week) ?? 0;
+    const mergedHere = done < quota && rand() < (week === 0 ? 1 : 0.5);
+    if (mergedHere) merges.set(week, done + 1);
+    const merged = mergedHere ? iso(opened + (lead - 4) * MIN) : "";
+    const deployed = mergedHere ? iso(opened + lead * MIN) : "";
+    // Each merged change carries its week's share of the lines, three parts added to one removed.
+    const lines = Math.round(((LINES_PER_WEEK[week] ?? 15) * 1000) / quota);
+    const added = mergedHere ? Math.round(lines * 0.75) : 0;
+    const removed = mergedHere ? lines - added : 0;
+    rows.unshift([n % 3 === 0 ? "acme/context" : "acme/app", 4000 + n, `Change ${n}`, ["dev", "sam", "ana"][n % 3]!, iso(opened), merged, deployed, added, removed]);
   }
   return csv("repo,number,title,author:person,opened:date,merged:date,deployed:date,lines added:number,lines removed:number", rows);
 }
@@ -195,7 +211,7 @@ function benchRuns(): string {
   for (let n = count - 1; n >= 0; n -= 1) {
     const at = NOW - 12 * MIN - n * 2 * HOUR;
     const daysAgo = Math.floor((NOW - at) / DAY);
-    const p95 = Math.round(1436 - daysAgo * 18 + (rand() - 0.5) * 40);
+    const p95 = Math.round(1436 - daysAgo * 18 - rand() * 40);
     const requests = 1200;
     const errors = Math.round(requests * Math.max(0.004, 0.022 - daysAgo * 0.0028) + (rand() - 0.5));
     rows.push([iso(at), n % 2 === 0 ? "search" : "answers", p95, errors, requests]);
@@ -321,6 +337,49 @@ const nesting = {
   loadListing: () => {},
 };
 
+/*
+  The states no board draws. A workspace whose data folder is empty; one
+  whose notes have not arrived; and two metrics the boards never show: one
+  whose formula does not parse, and one reading a sheet this reader cannot
+  read, which arrives exactly as a missing one does.
+*/
+const emptySource: FolderListSource = { load: async () => ({ notes: [], complete: true }), readBody: async () => null };
+const emptyNesting = {
+  listingOf: (path: string) => (path === "data" ? { path, folderDefault: "team" as const, truncated: false, manifestUsable: true, entries: [] } : undefined),
+  loadListing: () => {},
+};
+const loadingSource: FolderListSource = { load: () => new Promise(() => {}), readBody: () => new Promise(() => {}) };
+
+const ODD_METRICS = [
+  { slug: "refunds-week", props: { metric: "Refunds / week", formula: "sum(stripe/refunds.usd)", every: "week", format: "$0" } },
+  { slug: "deploy-gap", props: { metric: "Deploy gap", formula: "median(github/deploys.finished -)", every: "week", format: "duration" } },
+];
+const ODD_NOTES: ListNote[] = [
+  ...NOTES.filter((note) => note.path !== "areas/Finance/about.md"),
+  ...ODD_METRICS.map((m) => ({ path: `data/metrics/${m.slug}.md`, updatedAt: NOW - DAY, properties: m.props })),
+  { path: "areas/Finance/about.md", properties: { metrics: ["Revenue per AI dollar, target over $5", "Refunds / week, target under $500"] } },
+];
+const oddSource: FolderListSource = {
+  load: async (folder, subfolders) => ({
+    notes: ODD_NOTES.filter((note) => {
+      const prefix = folder === "" ? "" : `${folder}/`;
+      return note.path.startsWith(prefix) && (subfolders || !note.path.slice(prefix.length).includes("/"));
+    }),
+    complete: true,
+  }),
+  // stripe/refunds.csv is listed but unreadable here: its read comes back as nothing, as a missing sheet's does.
+  readBody: async (path) => (SHEETS[path] === undefined ? null : { text: SHEETS[path]!, encrypted: false }),
+};
+const oddNesting = {
+  listingOf: (path: string) =>
+    path === "data/metrics"
+      ? { ...LISTINGS[path]!, entries: [...LISTINGS[path]!.entries, ...ODD_METRICS.map((m) => entry(`data/metrics/${m.slug}.md`, "file", NOW - DAY))] }
+      : path === "data/stripe"
+        ? { ...LISTINGS[path]!, entries: [...LISTINGS[path]!.entries, entry("data/stripe/refunds.csv", "file", NOW - HOUR)] }
+        : LISTINGS[path],
+  loadListing: () => {},
+};
+
 /** What stage E's sync object will say; drawn here as the boards do. */
 const SYNC: Record<string, { syncedAt?: number; failedAt?: number }> = {
   "data/github": { syncedAt: NOW - 5 * MIN },
@@ -428,12 +487,31 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type Board = "01" | "07" | "09" | "10" | "11" | "12";
+type Board = "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note";
+
+const WORLD: Partial<Record<Board, { source: FolderListSource; nesting: typeof nesting }>> = {
+  empty: { source: emptySource, nesting: emptyNesting },
+  loading: { source: loadingSource, nesting },
+  "odd-metrics": { source: oddSource, nesting: oddNesting },
+  "hidden-note": { source: oddSource, nesting: oddNesting },
+  "broken-note": { source: oddSource, nesting: oddNesting },
+};
+
+function noteText(m: { props: Record<string, string>; body?: string }): string {
+  return `---\n${Object.entries(m.props).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n\n${m.body ?? ""}\n`;
+}
 
 function Board({ board, compact }: { board: Board; compact: boolean }) {
-  const ws = useDataWorkspace("data", source, nesting, NOW);
+  const world = WORLD[board] ?? { source, nesting };
+  const ws = useDataWorkspace("data", world.source, world.nesting, NOW);
   const colors = useColors();
   const open = () => {};
+  const dataActions = { connect: () => {}, newMetric: () => {} };
+  if (board === "loading") return h(DataPage, { folder: "data", compact, ws, now: NOW, actions: dataActions, onOpen: open });
+  if (board === "hidden-note" || board === "broken-note") {
+    const m = ODD_METRICS[board === "hidden-note" ? 0 : 1]!;
+    return h(MetricNoteView, { path: `data/metrics/${m.slug}.md`, text: noteText(m), source: world.source, compact, gutter: 0, onOpen: open });
+  }
   if (!ws.settled) return null;
   const metrics = metricViews(ws);
   const sourcePage = (folder: string, extra: Partial<Parameters<typeof SourcePage>[0]> = {}) => {
@@ -453,7 +531,8 @@ function Board({ board, compact }: { board: Board; compact: boolean }) {
   };
   switch (board) {
     case "01":
-      return h(DataPage, { folder: "data", compact, ws, now: NOW, actions: { connect: () => {}, newMetric: () => {} }, onOpen: open, sync: (folder: string) => SYNC[folder] });
+    case "empty":
+      return h(DataPage, { folder: "data", compact, ws, now: NOW, actions: dataActions, onOpen: open, sync: (folder: string) => SYNC[folder] });
     case "07":
       return sourcePage("data/github");
     case "09":
@@ -463,19 +542,22 @@ function Board({ board, compact }: { board: Board; compact: boolean }) {
       });
     case "10":
       return sourcePage("data/context");
+    // The metrics page, with the two odd metrics after the board's six.
+    case "odd-metrics":
     case "11":
       return h(MetricsPage, { title: "metrics", metrics, readings: null, compact, now: NOW, newMetric: () => {}, onOpen: open });
     case "12": {
       const m = METRICS.find((each) => each.slug === "revenue-per-ai-dollar")!;
-      const text = `---\n${Object.entries(m.props).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n\n${m.body}\n`;
       return h(
         View as never,
         null,
-        h(MetricNoteView, { path: "data/metrics/revenue-per-ai-dollar.md", text, source, compact, gutter: 0, onOpen: open }),
+        h(MetricNoteView, { path: "data/metrics/revenue-per-ai-dollar.md", text: noteText(m), source, compact, gutter: 0, onOpen: open }),
         // The note's body, as the editor draws it under the view.
         h(Text as never, { style: { fontSize: pointerType.lede, lineHeight: 24, color: colors.text, marginTop: 18 } }, m.body),
       );
     }
+    default:
+      return null;
   }
 }
 
@@ -521,6 +603,11 @@ const SELECTED: Record<Board, string> = {
   "10": "data/context",
   "11": "data/metrics",
   "12": "data/metrics/revenue-per-ai-dollar.md",
+  empty: "data",
+  loading: "data",
+  "odd-metrics": "data/metrics",
+  "hidden-note": "data/metrics/refunds-week.md",
+  "broken-note": "data/metrics/deploy-gap.md",
 };
 
 async function shoot(board: Board, name: string, scheme: Scheme, phone: boolean): Promise<void> {
@@ -553,12 +640,20 @@ describe("data sources shots", () => {
     ["01", "01-data-page", "light", false],
     ["01", "01-data-page", "dark", false],
     ["01", "01-data-page", "light", true],
+    ["01", "01-data-page", "dark", true],
     ["07", "07-github-folder", "light", false],
     ["07", "07-github-folder", "light", true],
     ["09", "09-evalci-folder", "light", false],
     ["10", "10-context-folder", "light", false],
     ["11", "11-metrics-folder", "light", false],
     ["12", "12-metric-note", "light", false],
+    ["empty", "x1-empty-data-folder", "light", false],
+    ["empty", "x1-empty-data-folder", "light", true],
+    ["loading", "x2-loading", "light", false],
+    ["odd-metrics", "x3-unparsed-and-hidden-metrics", "light", false],
+    ["odd-metrics", "x3-unparsed-and-hidden-metrics", "light", true],
+    ["hidden-note", "x4-hidden-metric-note", "light", false],
+    ["broken-note", "x5-unparsed-metric-note", "light", false],
   ];
   for (const [board, name, scheme, phone] of shots) {
     test(`${name} ${scheme} ${phone ? "phone" : "desktop"}`, async () => {
