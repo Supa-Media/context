@@ -112,7 +112,16 @@ export function targetOnScale(worked: Worked, target: string | null): number | n
 
 export type Part =
   | { readonly t: "fn"; readonly text: string }
-  | { readonly t: "chip"; readonly kind: SourceKind; readonly source: string; readonly dataset: string | null; readonly column: string }
+  | {
+      readonly t: "chip";
+      readonly kind: SourceKind;
+      readonly source: string;
+      readonly dataset: string | null;
+      /** The column as drawn, which may leave off words just said (`removed` after `lines added`). */
+      readonly column: string;
+      /** The column's whole name, where the drawn one is shorter: for a screen reader and a hover. */
+      readonly name?: string;
+    }
   | { readonly t: "filter"; readonly text: string }
   | { readonly t: "op"; readonly text: string }
   | { readonly t: "num"; readonly text: string };
@@ -128,10 +137,30 @@ function rowWords(node: FormulaTree): string {
 }
 
 /**
+ * A column's words without the leading words just said: `lines removed` after
+ * `lines added` is "removed", `p95 ms` under `p95` is "ms". Never empty: a
+ * column that is all repeated words keeps its last one.
+ */
+export function shortColumn(column: string, said: readonly string[]): string {
+  const words = column.trim().split(/\s+/);
+  let drop = 0;
+  while (drop < words.length - 1 && said.some((w) => w.toLowerCase() === words[drop]!.toLowerCase())) drop += 1;
+  return words.slice(drop).join(" ");
+}
+
+/** A span between two columns (`deployed − opened`): one quantity, so one chip. */
+function isSpan(node: FormulaTree): boolean {
+  return node.type === "binary" && node.op === "-" && node.left.type === "ref" && node.right.type === "ref";
+}
+
+/**
  * The formula as the board draws it: each aggregate's function in mono, then
- * one chip — the source's mark, the dataset (left off when the chip before
- * read the same one) and its column or per-row sum in bold — and the
- * operators between. A `where` is a chip of its own.
+ * a chip — the source's mark, the dataset (left off when the chip before
+ * read the same one) and its column in bold — and the operators between. A
+ * span (`deployed − opened`) is one chip; any other per-row sum is a chip per
+ * column with its operators between (`lines added` + `removed`), each later
+ * column without the words the one before it said. A `where` is a chip of
+ * its own.
  */
 export function formulaParts(ast: FormulaTree, kindOf: (source: string) => SourceKind): Part[] {
   const out: Part[] = [];
@@ -144,7 +173,31 @@ export function formulaParts(ast: FormulaTree, kindOf: (source: string) => Sourc
     if (node.type === "agg") {
       const here = `${node.source}/${node.dataset}`;
       out.push({ t: "fn", text: node.fn });
-      out.push({ t: "chip", kind: kindOf(node.source), source: node.source, dataset: here === last ? null : node.dataset, column: rowWords(node.expr) });
+      const kind = kindOf(node.source);
+      let dataset: string | null = here === last ? null : node.dataset;
+      let said: string[] = [node.fn];
+      const chip = (column: string) => {
+        const shown = shortColumn(column, said);
+        out.push({ t: "chip", kind, source: node.source, dataset, column: shown, ...(shown === column ? {} : { name: column }) });
+        said = column.trim().split(/\s+/);
+        dataset = null;
+      };
+      const row = (expr: FormulaTree, parent: number) => {
+        if (expr.type === "ref") chip(expr.column);
+        else if (expr.type === "number") out.push({ t: "num", text: String(expr.value) });
+        else if (expr.type === "binary" && isSpan(expr)) {
+          out.push({ t: "chip", kind, source: node.source, dataset, column: rowWords(expr) });
+          dataset = null;
+        } else if (expr.type === "binary") {
+          const p = PRECEDENCE[expr.op] ?? 1;
+          if (p < parent) out.push({ t: "op", text: "(" });
+          row(expr.left, p);
+          out.push({ t: "op", text: SIGN[expr.op] ?? expr.op });
+          row(expr.right, p + (expr.op === "-" || expr.op === "/" ? 1 : 0));
+          if (p < parent) out.push({ t: "op", text: ")" });
+        }
+      };
+      row(node.expr, 0);
       if (node.where.length > 0) {
         const words = node.where.map((c) => `${c.column} ${c.op === "=" ? "=" : "≠"} ${c.value}`).join(" and ");
         out.push({ t: "filter", text: `where ${words}` });

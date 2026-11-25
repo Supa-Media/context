@@ -110,8 +110,8 @@ export function ValueText({ text, state, compact = false, hidden = false }: { te
 }
 
 /**
- * A formula as chips: the function word in mono, then one chip per aggregate
- * — the source's mark, the dataset in muted words and the column in bold —
+ * A formula as chips: the function word in mono, then a chip per column —
+ * the source's mark and dataset in muted words on the first, the column in bold —
  * the operators between, and the period after in the quietest grey.
  */
 export function FormulaChips({ parts, period, large = false }: { parts: readonly Part[]; period?: string | null; large?: boolean }) {
@@ -128,7 +128,7 @@ export function FormulaChips({ parts, period, large = false }: { parts: readonly
             );
           case "chip":
             return (
-              <View key={at} style={styles.chip}>
+              <View key={at} style={styles.chip} {...(part.name === undefined ? {} : { accessibilityLabel: part.name })}>
                 {part.dataset === null ? null : <SourceMark kind={part.kind} size={13} />}
                 {part.dataset === null ? null : (
                   <Text style={styles.chipDataset} numberOfLines={1}>

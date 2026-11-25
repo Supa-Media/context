@@ -16,7 +16,7 @@ import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 import { cardColumns, dataPageKind, sourceAt, sourcesIn, sourceKindOf } from "../features/console/files/data/sources";
 import { isMetricNotePath, metricsIn, usedByWords, usesByMetric } from "../features/console/files/data/metrics";
-import { formulaParts, HIDDEN, inputsOf, stateOf, targetOnScale, trendOf, workOut, type RowsOf, type Sheet } from "../features/console/files/data/workOut";
+import { formulaParts, HIDDEN, shortColumn, inputsOf, stateOf, targetOnScale, trendOf, workOut, type RowsOf, type Sheet } from "../features/console/files/data/workOut";
 import { contextSheets, countedFolders } from "../features/console/files/data/contextSource";
 import { ago, lastRowAt, lastRowWords, rowsWords, settingsOf, sourceStatus } from "../features/console/files/data/words";
 
@@ -189,7 +189,7 @@ describe("formula chips", () => {
     expect(inputsOf(metric!.parsed.ast)).toEqual([{ source: "eval-ci", dataset: "bench-runs" }]);
   });
 
-  test("a per-row sum is one chip, and a where is a chip of its own", () => {
+  test("a span between two columns is one chip, and a where is a chip of its own", () => {
     const [metric] = metricsIn("data/metrics", [note("data/metrics/x.md", { formula: "median(github/pull-requests.deployed - opened where repo = app)" })]);
     if (!metric!.parsed.ok) throw new Error("parses");
     expect(formulaParts(metric!.parsed.ast, kindOf)).toEqual([
@@ -197,6 +197,25 @@ describe("formula chips", () => {
       { t: "chip", kind: "github", source: "github", dataset: "pull-requests", column: "deployed − opened" },
       { t: "filter", text: "where repo = app" },
     ]);
+  });
+
+  test("a per-row sum is a chip per column, each without the words the one before said (board 01)", () => {
+    const [metric] = metricsIn("data/metrics", [note("data/metrics/x.md", { formula: "sum(github/pull-requests.lines added + lines removed)" })]);
+    if (!metric!.parsed.ok) throw new Error("parses");
+    expect(formulaParts(metric!.parsed.ast, kindOf)).toEqual([
+      { t: "fn", text: "sum" },
+      { t: "chip", kind: "github", source: "github", dataset: "pull-requests", column: "lines added" },
+      { t: "op", text: "+" },
+      { t: "chip", kind: "github", source: "github", dataset: null, column: "removed", name: "lines removed" },
+    ]);
+  });
+
+  test("a column under its own function word drops that word, and never empties", () => {
+    const [metric] = metricsIn("data/metrics", [note("data/metrics/x.md", { formula: "p95(eval-ci/bench-runs.p95 ms)" })]);
+    if (!metric!.parsed.ok) throw new Error("parses");
+    expect(formulaParts(metric!.parsed.ast, kindOf)[1]).toEqual({ t: "chip", kind: "push", source: "eval-ci", dataset: "bench-runs", column: "ms", name: "p95 ms" });
+    expect(shortColumn("lines", ["lines"])).toBe("lines");
+    expect(shortColumn("Lines Removed", ["lines", "added"])).toBe("Removed");
   });
 
   test("brackets only where the reading needs them", () => {
