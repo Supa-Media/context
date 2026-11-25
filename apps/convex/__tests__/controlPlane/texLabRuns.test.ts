@@ -20,7 +20,7 @@ import { hashToken } from "../../functions/lib/crypto";
 import { addMember, createUser, createWorkspace, drainScheduled, gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./fixtures.helpers";
 import { withSession } from "../session.helpers";
-import { MAX_PER_DAY, MAX_QUEUED, cleanResults, gateCounts } from "../../functions/texLabRuns";
+import { MAX_PER_DAY, MAX_QUEUED, cleanResults, gateCounts, vsBase } from "../../functions/texLabRuns";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -432,4 +432,118 @@ test("cleanResults keeps a failing row's known failure tags, at most six, and dr
   expect(tagsOfRow([]).tags).toEqual([]);
   expect(tagsOfRow("facts")).not.toHaveProperty("tags");
   expect(tagsOfRow(undefined)).not.toHaveProperty("tags");
+});
+
+describe("sandbox runs (the Lab sandbox's bench driver records its runs in the same table)", () => {
+  const scheduledIn = async (t: Awaited<ReturnType<typeof world>>["t"]) => (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).length;
+
+  test("sandbox_run records a sandbox run on the gateway, running, and dispatches nothing to GitHub", async () => {
+    const { door, t } = await world();
+    const answer = await door("sandbox_run", { draft: "main", kind: "dev", models: "gw" });
+    expect(answer).toMatchObject({ status: "ok" });
+    expect(await runsOf(t)).toEqual([expect.objectContaining({ _id: answer.id, source: "sandbox", stage: "running", models: "gw", kind: "dev", versionId: "main" })]);
+    // Counted on this test's own instance: an earlier test's leftover job can still fire and reach `calls`.
+    expect(await scheduledIn(t)).toBe(0);
+    // The same caller's GitHub run does schedule its dispatch, so the check above is not passing by accident.
+    await door("run", { draft: "main", kind: "dev" });
+    expect(await scheduledIn(t)).toBe(1);
+  });
+
+  test("sandbox_run refuses a node run and Claude Code, and says why", async () => {
+    const { door, t } = await world();
+    expect(await door("sandbox_run", { draft: "main", kind: "node", node: "decide" })).toEqual({ status: "bad_request", error: "a sandbox run runs the Front door's tests: kind dev or chat" });
+    expect(await door("sandbox_run", { draft: "main", kind: "dev", models: "cc" })).toEqual({ status: "bad_request", error: "a sandbox run is on the AI gateway (gw)" });
+    expect(await runsOf(t)).toHaveLength(0);
+  });
+
+  test("sandbox_run with a pull request's target records its code and keeps the repeats asked for", async () => {
+    const { door, t } = await world();
+    const answer = await door("sandbox_run", { draft: "main", kind: "dev", target: "pr12", repeats: 3 });
+    expect(answer).toMatchObject({ status: "ok" });
+    expect((await door("runs", { id: answer.id })).run).toMatchObject({ source: "sandbox", code: "#12", repeats: 3, stage: "running" });
+    expect(await scheduledIn(t)).toBe(0);
+  });
+
+  test("sandbox_report by the starter stores the cleaned results and finishedAt, and the runs read says source", async () => {
+    const { door, t, lab } = await world();
+    const sandbox = await door("sandbox_run", { draft: "main", kind: "dev" });
+    const github = await door("run", { draft: "main", kind: "dev" });
+    expect(await door("sandbox_report", { id: sandbox.id, stage: "running", commit: SHA })).toEqual({ status: "ok" });
+    const results = { pass: 1, total: 2, costUsd: 0.00123456, ms: 900, rows: [{ convId: "c", msgIndex: 1, node: "decide", ok: true, got: "respond", want: "respond", secret: "dropped" }] };
+    expect(await door("sandbox_report", { id: sandbox.id, stage: "done", results })).toEqual({ status: "ok" });
+    const run = (await door("runs", { id: sandbox.id })).run;
+    expect(run).toMatchObject({ source: "sandbox", stage: "done", commit: SHA, error: null, results: { pass: 1, total: 2, costUsd: 0.0012 } });
+    expect(run.finishedAt).toBeGreaterThan(0);
+    expect(run.results.rows[0]).not.toHaveProperty("secret");
+    const listed = (await door("runs", {})).runs;
+    expect(listed.find((r: { id: string }) => r.id === sandbox.id)).toMatchObject({ source: "sandbox" });
+    expect(listed.find((r: { id: string }) => r.id === github.id)).toMatchObject({ source: "github" });
+    expect(await lab.query(api.functions.texLabRuns.get, { id: sandbox.id })).toMatchObject({ source: "sandbox", stage: "done" });
+    // Only the GitHub run above scheduled a dispatch: the sandbox run did not.
+    expect(await scheduledIn(t)).toBe(1);
+    expect(github.id).toBeDefined();
+  });
+
+  test("sandbox_report cuts a failure's error to 300 characters", async () => {
+    const { door } = await world();
+    const { id } = await door("sandbox_run", { draft: "main", kind: "dev" });
+    expect(await door("sandbox_report", { id, stage: "failed", error: "x".repeat(400) })).toEqual({ status: "ok" });
+    expect((await door("runs", { id })).run).toMatchObject({ stage: "failed", error: "x".repeat(300) });
+  });
+
+  test("sandbox_report by another person is refused, and that run is left as it was", async () => {
+    const { door, t } = await world();
+    const other = await createUser(t, "other-sandbox@example.invalid");
+    const id = await t.run((ctx) => ctx.db.insert("texLabRuns", { versionId: "main", kind: "dev", models: "gw", stage: "running", source: "sandbox", by: other, via: "test", startedAt: Date.now() }));
+    expect(await door("sandbox_report", { id, stage: "done", results: { pass: 1, total: 1 } })).toEqual({ status: "refused", error: "only the person who started a sandbox run reports it" });
+    expect((await door("runs", { id })).run).toMatchObject({ stage: "running", results: null });
+  });
+
+  test("sandbox_report on a GitHub run is refused as bad_request, and a bad stage or commit is refused too", async () => {
+    const { door } = await world();
+    const { id: github } = await door("run", { draft: "main", kind: "dev" });
+    expect(await door("sandbox_report", { id: github, stage: "done" })).toMatchObject({ status: "bad_request", error: expect.stringContaining("no sandbox run") });
+    expect((await door("runs", { id: github })).run).toMatchObject({ source: "github", stage: "queued" });
+    const { id } = await door("sandbox_run", { draft: "main", kind: "dev" });
+    expect(await door("sandbox_report", { id, stage: "queued" })).toMatchObject({ status: "bad_request" });
+    expect(await door("sandbox_report", { id, stage: "running", commit: "main" })).toMatchObject({ status: "bad_request" });
+  });
+
+  test("a second report after done answers unchanged and keeps the first results", async () => {
+    const { door } = await world();
+    const { id } = await door("sandbox_run", { draft: "main", kind: "dev" });
+    await door("sandbox_report", { id, stage: "done", results: { pass: 1, total: 2 } });
+    expect(await door("sandbox_report", { id, stage: "failed", error: "late" })).toEqual({ status: "ok", unchanged: true });
+    expect(await door("sandbox_report", { id, stage: "done", results: { pass: 2, total: 2 } })).toEqual({ status: "ok", unchanged: true });
+    expect((await door("runs", { id })).run).toMatchObject({ stage: "done", error: null, results: { pass: 1, total: 2 } });
+  });
+
+  test("the GitHub workflow's door hands out no sandbox run", async () => {
+    const { door, t } = await world();
+    const { id } = await door("sandbox_run", { draft: "main", kind: "dev" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: id })).toBeNull();
+    const { id: github } = await door("run", { draft: "main", kind: "dev" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: github })).toMatchObject({ kind: "dev" });
+  });
+
+  test("the GitHub workflow's report door refuses a sandbox run: only its driver reports it", async () => {
+    const { door, t } = await world();
+    const { id } = await door("sandbox_run", { draft: "main", kind: "dev" });
+    await expect(t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "done", results: { pass: 9, total: 9 } })).rejects.toThrow(/reported by its driver/);
+    expect((await door("runs", { id })).run).toMatchObject({ stage: "running", results: null });
+  });
+
+  test("vsBase never reads a sandbox run against a GitHub main run, nor a GitHub run against a sandbox main run", () => {
+    const results = { pass: 1, total: 2, rows: [] };
+    const sandboxDraft = { id: "s1", versionId: "v1", kind: "dev", set: "dev", models: "gw", source: "sandbox", stage: "done", startedAt: 9, results };
+    const githubDraft = { ...sandboxDraft, id: "g1", source: "github" };
+    const githubMain = { id: "m-gh", versionId: "main", kind: "dev", set: "dev", models: "gw", stage: "done", startedAt: 1, results };
+    const sandboxMain = { ...githubMain, id: "m-sb", source: "sandbox", startedAt: 2 };
+    expect(vsBase(sandboxDraft, [githubMain])).toMatchObject({ verdict: "no base", baseRunId: null });
+    expect(vsBase(githubDraft, [sandboxMain])).toMatchObject({ verdict: "no base", baseRunId: null });
+    expect(vsBase(sandboxDraft, [githubMain, sandboxMain])).toMatchObject({ baseRunId: "m-sb" });
+    expect(vsBase(githubDraft, [githubMain, sandboxMain])).toMatchObject({ baseRunId: "m-gh" });
+    // A run with no source is a GitHub run, as before.
+    expect(vsBase({ ...githubDraft, source: undefined }, [githubMain])).toMatchObject({ baseRunId: "m-gh" });
+  });
 });

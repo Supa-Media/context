@@ -39,6 +39,7 @@ import { collectConvo } from "./setsFdRows.mjs";
 // Moved to `setsFdRows.mjs` (2026-11-19) to keep this file under the size bar; still imported from here.
 export { benchFailed, missedLine } from "./setsFdRows.mjs";
 import { parsePeople } from "./load.mjs";
+import { couldNotRunRow } from "./rowAccounting.mjs";
 import { seedWorld, worldDirOf } from "./setsWorld.mjs";
 import { runPool, scheduleOrder, untilOutOfCredit } from "./setsPool.mjs";
 
@@ -608,7 +609,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       try {
         prepared[k] = { ...(await prepareConvo(mine, { tree, scratch: join(scratch, `c${k + 1}-${handleOf(c.id)}`), env: convoEnv, mode: world, compare })) };
       } catch (error) {
-        prepared[k] = { rows: mine.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` })), tests: [] };
+        prepared[k] = { rows: mine.map((u) => couldNotRunRow(u.row, error)), tests: [] };
       }
     });
     // The one pool: every test of every conversation, longest conversations first and round-robin across them.

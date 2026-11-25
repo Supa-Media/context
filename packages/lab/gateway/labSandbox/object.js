@@ -21,6 +21,7 @@
 import { texLedger } from "../fromGateway/texStore_ledger.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
 import { BridgeMailbox } from "./bridge.js";
+import { BENCH_TTL_MS, benchTables } from "./benchJob.js";
 /** Where a test chat's job box calls out (`jobBox.js` `JOB_OUT_PREFIX`). */
 const JOB_OUT_PREFIX = "/job-out/";
 
@@ -445,6 +446,7 @@ export class LabSandboxObject {
     this.carry = carry;
     this.tables = null;
     this.bridge = null;
+    this.bench = null;
   }
 
   async fetch(request) {
@@ -463,6 +465,19 @@ export class LabSandboxObject {
       this.bridge ??= new BridgeMailbox(this.state);
       const said = await this.bridge.serve(op, body ?? {});
       return said === null ? Response.json({ error: "unknown_op" }, { status: 400 }) : Response.json(said);
+    }
+    // A sandbox bench run's job, or the bench's budget (`benchJob.js`): its own tables, kept a week after its last use.
+    if (op.startsWith("bench.")) {
+      this.bench ??= benchTables(this.state.storage.sql);
+      let said;
+      try {
+        said = this.bench.serve(op, body ?? {});
+      } catch (error) {
+        return Response.json({ error: "refused", message: String(error?.message ?? "refused").slice(0, 200) }, { status: 422 });
+      }
+      if (said === null) return Response.json({ error: "unknown_op" }, { status: 400 });
+      await this.state.storage.setAlarm(Date.now() + BENCH_TTL_MS);
+      return Response.json(said);
     }
     // Whether this is a test chat, read without making a table or arming the alarm: an address nobody opened stays empty.
     if (op === "exists") return Response.json({ exists: chatKept(this.state.storage.sql) });
@@ -492,6 +507,9 @@ export class LabSandboxObject {
   async alarm() {
     this.tables ??= sandboxTables(this.state.storage.sql);
     this.tables.wipe();
+    // A bench job's tables too (`benchJob.js`), when this object kept one.
+    this.bench ??= benchTables(this.state.storage.sql);
+    this.bench.wipe();
     await this.state.storage.deleteAll?.();
   }
 }

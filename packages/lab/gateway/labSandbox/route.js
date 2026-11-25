@@ -83,6 +83,7 @@ import { forwardToPreview, openOnPreview } from "./preview.js";
 import { conversationOf, conversationStart, handleOf, setsList } from "./conversations.js";
 import { changePeople, makeWorld, startRows, WORLD_SOURCE, worldAbout, worldInput, worldSpeaker } from "./world.js";
 import { localGroupKey, localPeople, localSession, worldPlace } from "./worldLocal.js";
+import { BENCH_OPS, serveBench } from "./benchRoute.js";
 
 export { oneRowPerText };
 
@@ -362,7 +363,7 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
 }
 
 /** What the nightly's ops (`nightlyRoute.js`) use of this route's own. */
-const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS, indexStub, byOf, json, aboutOf });
+const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS, indexStub, byOf, json, aboutOf, open });
 
 /** A new test row's ids: its event id and the row id built from it. */
 export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
@@ -606,6 +607,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "intake") return await intake(env, who, input, { controlPlane, token });
   // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
   if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
+  if (BENCH_OPS.has(input.op)) return await serveBench(input, { env, controlPlane, token, who, origin, runTurn, helpers: routeHelpers() }); // a whole set (`benchRoute.js`): own job and budget, never DAILY_SENDS
 
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
   const stub = sandboxStub(env, who.userId, input.sandboxId);
@@ -693,6 +695,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
     }
     default:
-      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read, nightly, checkin, join or leave");
+      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read, nightly, checkin, join, leave or bench_*");
   }
 }

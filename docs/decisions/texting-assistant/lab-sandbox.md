@@ -452,3 +452,42 @@ invited by number") and `apps/mcp/test/labSandboxWorld.test.mjs` (ignoring `worl
 token to the turn, or keeping people who left each fail a named test). On main: `apps/convex/__tests__/controlPlane/texLabWorldReach.test.ts`
 (reaching a personal workspace, starting from an owner's role, counting a guest or keeping `context:private` each fail
 a named test, and "reaches what the real rule gives" fails on drift) and `apps/mcp/test/labSandboxWorldLocal.test.mjs`.
+
+## A whole set scored in the sandbox (Seyi, 2026-11-19; built 2026-11-24)
+
+Seyi: "I don't see why we shouldnt be able to run full tests in sandboxes". A GitHub Lab run waits for one of a few
+bench-login runner slots; the Lab sandbox already runs real Tex on a Training or Dev conversation's copy with no bench
+login. Plan: `products/tex/research/sandbox-bench-scoring-2026-11-19.md`.
+
+**One job object a run, resumable.** `bench_start` keeps the run's units (each Front door unit test × each repeat,
+`packages/lab/src/labRunSets.mjs` `benchUnits`, the conversations picked by the same code the GitHub run uses) in a
+`LabSandbox` object named `labsandbox:<userId>:bench-<runId>` (`labSandbox/benchJob.js`). Each `bench_step` claims one
+unit, runs its turn in a test chat opened exactly as the Lab's `open { source: "set", base }` opens one, keeps the turn
+and resets the test chat (`benchTurn.js`). A unit's first turn and first judged row win; a claim older than a turn's
+bound is claimed again. A driver that dies resumes where it stopped (`scripts/tex-lab-sandbox-bench.mjs resume`).
+
+**The same accounting, not a copy.** The driver turns each sandbox turn into the bench's own files and runs what the
+GitHub run runs on them: `fdTest`, `resultMarkdown`, `judgeFile` (Haiku, the judge prompt and votes unchanged),
+`coreCases`, `collectConvo`, then `resultsOf` and `runVerdict` (`apps/mcp/bench/sandboxRows.mjs`). A row that could
+not run is `couldNotRunRow`'s and a fallback is `fallbackTool`'s on both paths (`apps/mcp/bench/rowAccounting.mjs`,
+which `setsRun.mjs`, `setsFd.mjs`, `setsFdRows.mjs`, `coreArea.mjs` and `world.mjs` call too). The simplification this
+forbids is a sandbox-only scorer: its invalid and fallback counts would drift from the GitHub run's, and a sandbox score
+would read valid where GitHub's reads invalid. `apps/mcp/test/texLabSandboxRows.test.mjs` runs the same units through
+both paths and fails on any difference.
+
+**Its own budget.** Every texted bench unit takes one text from the sandbox bench's own count a day
+(`labsandbox:bench:budget`, `LAB_BENCH_DAILY_TEXTS`, 1,500 by default), never the person's 200 test texts a day
+(`route.js` `DAILY_SENDS`, unchanged). A spent budget gives the claim back and the run waits for tomorrow.
+`apps/mcp/test/labSandboxBench.test.mjs` proves the person's cap is still 200, a bench never raises it, and a person
+whose cap is spent can still run the bench.
+
+**Recorded as a sandbox run.** `texLabRuns.source` is `"sandbox"` (unset is GitHub), started through `tex_dev`'s
+`sandbox_run` (no workflow dispatch; the workflow's `job` and `report` refuse it) and finished through `sandbox_report`
+by the person who started it. A draft's sandbox run is read only against main's sandbox runs (`vsBase`). A run on a
+pull request's preview is recorded on main with code `#<N>`, and its turns run on the preview.
+
+**What it is not, yet.** No record or replay of the bench's simulated world: a turn reads the sandbox's wiring (the
+caller's own workspaces, copy-on-write). Only texted words run (a trigger, a tapback or pictures is a row that could
+not run). A test chat's clock is the day it ran. A group conversation needs one of the caller's group chats
+(`--group-chat`). Its numbers are untrusted until `scripts/tex-lab-parity.mjs` compares a sandbox run with a GitHub run
+on the same commit, over one full Training set with repeats on both sides, and finds them within the repeats' noise.

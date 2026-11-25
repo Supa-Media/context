@@ -33,6 +33,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { regradeCommand } from "./regrade.mjs";
+import { couldNotRunRow } from "./rowAccounting.mjs";
 import { runFd } from "./setsFd.mjs";
 import { RECORD_SETS, worldMode } from "./simFixtures.mjs";
 
@@ -321,7 +322,7 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
         ready[t.node] ??= await table[t.node]();
         rows.push({ ...row, ...(await ready[t.node](c, t.at, label)) });
       } catch (error) {
-        rows.push({ ...row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` });
+        rows.push(couldNotRunRow(row, error));
       }
     }
     return rows;
@@ -330,7 +331,7 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
     try {
       return await table[n].batch(units, { parallel });
     } catch (error) {
-      return units.map((u) => ({ ...u.row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` }));
+      return units.map((u) => couldNotRunRow(u.row, error));
     }
   });
   const [first, ...rest] = await Promise.all([alone(), ...batched]);
