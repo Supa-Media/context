@@ -69,6 +69,16 @@ export const AREA_VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> 
   { view: "chart", label: "Chart" },
 ];
 
+/**
+ * The Areas folder itself adds its bots and the mail between them (the owner, 2026-11-25: "how can I view all the
+ * bots we have, view the conversations happening across bots"). Mail is the word: nothing here is a live chat.
+ */
+export const AREAS_ROOT_VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
+  ...AREA_VIEWS,
+  { view: "bots", label: "Bots" },
+  { view: "talks", label: "Mail" },
+];
+
 /** Shown after status and owner when set, as `priority high`. */
 const QUIET_KEYS = ["priority", "due"];
 

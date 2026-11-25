@@ -339,14 +339,27 @@ describe("seatChanges", () => {
 });
 
 describe("cardSlug and cardPath", () => {
-  test("@dev2 is kept as dev2 under the people folder", () => {
+  test("a person's new card goes in people/, a bot's in bots/<bot>/about.md", () => {
+    // The owner, 2026-11-25: "areas/bots should replace areas/people, as a place to configure everything about the
+    // available bots".
     expect(cardSlug("@dev2")).toBe("dev2");
-    expect(cardPath(ROOT, "@dev2")).toBe("areas/people/dev2.md");
+    expect(cardPath(ROOT, "@dev2", [], "person")).toBe("areas/people/dev2.md");
+    expect(cardPath(ROOT, "Finance Bot")).toBe("areas/bots/finance-bot/about.md");
   });
 
-  test("a name with spaces becomes a dashed slug", () => {
+  test("a card already written is found where it is, in bots/ first", () => {
     expect(cardSlug("Claude Code")).toBe("claude-code");
-    expect(cardPath(ROOT, "Claude Code")).toBe("areas/people/claude-code.md");
+    const old = [note("areas/people/claude-code.md", { kind: "agent" })];
+    expect(cardPath(ROOT, "Claude Code", old)).toBe("areas/people/claude-code.md");
+    const both = [...old, note("areas/bots/claude-code/about.md", { kind: "agent" })];
+    expect(cardPath(ROOT, "Claude Code", both)).toBe("areas/bots/claude-code/about.md");
+    expect(cardOf("Claude Code", "agent", ROOT, both).path).toBe("areas/bots/claude-code/about.md");
+  });
+
+  test("the bots folder and each bot's folder are never areas", () => {
+    const notes = [note("areas/bots/finance/about.md", { kind: "agent", bot: "grok", owner: "@seyi" })];
+    expect(isArea("areas/bots", ROOT, notes)).toBe(false);
+    expect(isArea("areas/bots/finance", ROOT, notes)).toBe(false);
   });
 
   test("odd input with nothing left falls back to someone", () => {
@@ -372,8 +385,9 @@ describe("cardOf", () => {
       phone: "+1 555 010 0177",
       email: "dev2@example.com",
       access: "",
-      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "",
+      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "", worksIn: [],
       creates: false,
+      path: "areas/people/dev2.md",
     });
   });
 

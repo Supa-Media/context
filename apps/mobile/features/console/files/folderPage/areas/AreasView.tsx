@@ -43,8 +43,8 @@ import {
   areaTitle,
   cardSlug,
   notesUnder,
+  cardsFolderOf,
   PEOPLE_ABOUT,
-  peopleFolder,
   reachLine,
   seatChanges,
   type AreaNode,
@@ -53,11 +53,12 @@ import {
   type SeatEdit,
 } from "./seat";
 import { mailNotesOf } from "./areaMail";
+import { BotsPage } from "./BotsPage";
 import { useAreaProjects } from "./useAreaProjects";
 import { useAreaCards } from "./useAreaCards";
 import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
 
-export type AreasPageView = "list" | "chart";
+export type AreasPageView = "list" | "chart" | "bots" | "talks";
 
 export interface AreasViewProps {
   folder: string;
@@ -151,10 +152,10 @@ export function AreasView(props: AreasViewProps) {
       if (owner === null || face.kind !== "agent" || readPicture === undefined) return face;
       const avatar = cardFor(owner, "agent").avatar;
       if (avatar === "") return face;
-      const card = cardPath(root, owner);
+      const card = cardPath(root, owner, withCards);
       return { kind: "agent", picture: { key: `${host?.workspaceId ?? ""}|${avatar}`, read: () => readPicture(card, avatar) } };
     },
-    [plainFace, readPicture, cardFor, root, host?.workspaceId],
+    [plainFace, readPicture, cardFor, root, withCards, host?.workspaceId],
   );
   // A mail note is named for its sender (`pipeline`): a bot's is drawn with its face.
   const senderFace = useCallback(
@@ -195,14 +196,17 @@ export function AreasView(props: AreasViewProps) {
       const same = (a: Card, b: Card) => JSON.stringify(cardChanges(a)) === JSON.stringify(cardChanges(b));
       const changed = cards.filter((card) => card.holder.trim() !== "" && !same(card, cardOf(card.holder, card.kind, root, withCards)));
       if (changed.length === 0) return null;
-      const peopleAbout = `${peopleFolder(root)}/about.md`;
-      if (!withCards.some((note) => note.path === peopleAbout)) {
-        const made = await chooseMany(peopleAbout, PEOPLE_ABOUT, true);
-        if (made !== null) return made;
-      }
+      const marked = new Set<string>();
       for (const card of changed) {
         const was = cardOf(card.holder, card.kind, root, withCards);
-        const problemSaving = await chooseMany(`${peopleFolder(root)}/${cardSlug(card.holder)}.md`, cardChanges(card), was.creates);
+        // The cards' folder says it is not an area before its first card is written (`bots/` or `people/`).
+        const folderAbout = `${cardsFolderOf(root, was.path)}/about.md`;
+        if (!marked.has(folderAbout) && !withCards.some((note) => note.path === folderAbout)) {
+          const made = await chooseMany(folderAbout, PEOPLE_ABOUT, true);
+          if (made !== null) return made;
+        }
+        marked.add(folderAbout);
+        const problemSaving = await chooseMany(was.path, cardChanges(card), was.creates);
         if (problemSaving !== null) return problemSaving;
       }
       return null;
@@ -292,7 +296,7 @@ export function AreasView(props: AreasViewProps) {
             open: onSelect,
             faceOf: senderFace,
           },
-          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
+          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder, withCards), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);
@@ -301,10 +305,13 @@ export function AreasView(props: AreasViewProps) {
           onClose: closePeek,
         };
   useEffect(() => slot.set(panelProps));
-  const peekOpen = peekNode !== undefined;
+  // The Bots and Mail views keep the side panel for a bot (`BotsPage.tsx`); an area's panel stays out of their way.
+  const botsView = view === "bots" || view === "talks";
+  const peekOpen = peekNode !== undefined && !botsView;
   useEffect(() => {
+    if (botsView) return;
     onPanel?.(peekOpen ? (width: number) => <PanelSlot slot={slot} width={width} /> : null);
-  }, [onPanel, peekOpen, slot]);
+  }, [onPanel, peekOpen, slot, botsView]);
   useEffect(() => () => onPanel?.(null), [onPanel]);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
   const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf, ...(projectTools === null ? {} : { projectsOf: projectTools.of }) };
@@ -316,7 +323,24 @@ export function AreasView(props: AreasViewProps) {
           {problem}
         </Text>
       ) : null}
-      {view === "chart" ? (
+      {botsView ? (
+        <BotsPage
+          view={view}
+          root={root}
+          notes={withCards}
+          compact={compact}
+          canEdit={canEdit}
+          {...(myHandle === undefined ? {} : { me: myHandle })}
+          // A mail note is named for its sender (`grok-bot`, `seyi`): a bot's is drawn with its face, a person's with their name.
+          faceOf={(who) => (who === null ? faceOf(null) : (senderFace(who) ?? (isAgent(who) || who.startsWith("@") ? faceOf(who) : { kind: "person", name: who })))}
+          label={label}
+          {...(readBody === undefined ? {} : { read: readBody })}
+          {...(canEdit && host?.tasks !== undefined ? { create: (path: string, text: string) => host.tasks!.io.create(path, text) } : {})}
+          chooseMany={chooseMany}
+          open={onSelect}
+          {...(onPanel === undefined ? {} : { onPanel })}
+        />
+      ) : view === "chart" ? (
         <AreasChart
           {...shared}
           onOpen={onSelect}

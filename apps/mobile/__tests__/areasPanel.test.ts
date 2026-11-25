@@ -196,11 +196,13 @@ describe("the Areas side panel", () => {
     await settle();
     const at = (path: string, key: string) => writes.filter(([p, k]) => p === path && k === key).map(([, , value]) => value);
     expect(at("areas/about.md", "agents").at(-1)).toBe("Claude, Finance Bot");
-    expect(at("areas/people/finance-bot.md", "bot").at(-1)).toBe("grok");
-    expect(at("areas/people/finance-bot.md", "belongs_to").at(-1)).toBe("@seyi");
+    // A new bot's card goes in the bots folder, which says it is not an area (the owner, 2026-11-25).
+    expect(at("areas/bots/about.md", "area").at(-1)).toBe("false");
+    expect(at("areas/bots/finance-bot/about.md", "bot").at(-1)).toBe("grok");
+    expect(at("areas/bots/finance-bot/about.md", "belongs_to").at(-1)).toBe("@seyi");
     expect(at("areas/finance/about.md", "owner").at(-1)).toBe("Finance Bot");
     // No login, key or address is ever written to the card.
-    expect(writes.filter(([p, k]) => p === "areas/people/finance-bot.md" && /secret|token|key|password|url|webhook/i.test(k))).toEqual([]);
+    expect(writes.filter(([p, k]) => p === "areas/bots/finance-bot/about.md" && /secret|token|key|password|url|webhook/i.test(k))).toEqual([]);
   });
 
   test("a bot holding an area shows its setup prompt, naming the area and its modes", async () => {

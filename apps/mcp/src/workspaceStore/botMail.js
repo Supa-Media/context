@@ -12,6 +12,7 @@
  *   - the area's `about.md` names a bot to tell: its owner when that is not a person (`@handle`), or else its one
  *     delegate (the owner, 2026-11-25: "1 delegate per area"; `helper` is the delegate's old name), never Tex,
  *     who reads its mail another way;
+ *   - or the note sits in a bot's own `bots/<bot>/mail/`, whose card (`bots/<bot>/about.md`) names the bot;
  *   - the line is not the bot's own reply.
  *
  * And the bot's person lets it work here, with this area's share of its week not yet spent (`areaRoutines.js`); the
@@ -51,6 +52,11 @@ export function botOfArea(propsJson) {
     return null;
   }
   const word = (value) => (typeof value === "string" && value.trim() !== "" ? value.trim() : null);
+  // A bot's own folder, `bots/<bot>/`, is mail to that bot outside any area: its card names it (the owner, 2026-11-25).
+  if (word(properties.bot) !== null && word(properties.holder) !== null && word(properties.owner) === null) {
+    const holder = word(properties.holder);
+    return holder.startsWith("@") || holder.toLowerCase() === "tex" ? null : holder;
+  }
   const owner = word(properties.owner);
   if (owner === null) return null;
   const bot = owner.startsWith("@") ? word(properties.delegate) ?? word(properties.helper) : owner;

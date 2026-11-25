@@ -1,5 +1,5 @@
 /**
- * The Areas folder's `people/` cards, read from wherever the page is.
+ * The Areas folder's cards, `bots/<bot>/about.md` and the older `people/<holder>.md`, read from wherever the page is.
  *
  * A folder page holds its own folder's notes and the front notes above it
  * (`pageCache.ts` `readFolder`). The cards live in the Areas folder's
@@ -17,42 +17,41 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FolderListSource, ListNote } from "../../listBlock/model";
 import { cachedFolder, readFolder } from "../pageCache";
-import { peopleFolder } from "./seat";
+import { botsFolder, isBotCardPath, peopleFolder } from "./seat";
 
 const NONE: readonly ListNote[] = [];
 
-/** Only the cards: the notes directly in the cards folder. */
-function cardsIn(notes: readonly ListNote[], folder: string): readonly ListNote[] {
-  const prefix = `${folder}/`;
-  return notes.filter((note) => note.path.startsWith(prefix) && !note.path.slice(prefix.length).includes("/"));
+/** Only the cards: the notes directly in `people/`, and each bot's `bots/<bot>/about.md`. */
+function cardsIn(notes: readonly ListNote[], root: string): readonly ListNote[] {
+  const people = `${peopleFolder(root)}/`;
+  return notes.filter((note) => (note.path.startsWith(people) && !note.path.slice(people.length).includes("/")) || isBotCardPath(root, note.path));
 }
 
 /** `notes` with the Areas folder's cards added where the page's own read does not hold them. */
 export function useAreaCards(source: FolderListSource | undefined, root: string, folder: string, notes: readonly ListNote[]): readonly ListNote[] {
-  const cardsFolder = peopleFolder(root);
   const needed = folder !== root && source !== undefined;
-  const [read, setRead] = useState<{ source: FolderListSource; folder: string; notes: readonly ListNote[] } | null>(null);
+  const [read, setRead] = useState<{ source: FolderListSource; root: string; notes: readonly ListNote[] } | null>(null);
   useEffect(() => {
     if (!needed || source === undefined) return;
     let current = true;
-    void readFolder(source, cardsFolder)
-      .then((result) => {
-        if (current) setRead({ source, folder: cardsFolder, notes: cardsIn(result.notes, cardsFolder) });
+    void Promise.all([readFolder(source, peopleFolder(root)).catch(() => null), readFolder(source, botsFolder(root)).catch(() => null)])
+      .then(([people, bots]) => {
+        if (current) setRead({ source, root, notes: cardsIn([...(people?.notes ?? NONE), ...(bots?.notes ?? NONE)], root) });
       })
       .catch(() => {});
     return () => {
       current = false;
     };
-  }, [needed, source, cardsFolder]);
+  }, [needed, source, root]);
   return useMemo(() => {
     if (!needed || source === undefined) return notes;
     const cards =
-      read !== null && read.source === source && read.folder === cardsFolder
+      read !== null && read.source === source && read.root === root
         ? read.notes
-        : cardsIn(cachedFolder(source, cardsFolder)?.notes ?? NONE, cardsFolder);
+        : cardsIn([...(cachedFolder(source, peopleFolder(root))?.notes ?? NONE), ...(cachedFolder(source, botsFolder(root))?.notes ?? NONE)], root);
     if (cards.length === 0) return notes;
     const held = new Set(notes.map((note) => note.path));
     const missing = cards.filter((card) => !held.has(card.path));
     return missing.length === 0 ? notes : [...notes, ...missing];
-  }, [needed, source, notes, read, cardsFolder]);
+  }, [needed, source, notes, read, root]);
 }

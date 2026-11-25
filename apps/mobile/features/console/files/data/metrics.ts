@@ -12,7 +12,7 @@ import { parseFormula } from "../../../../../mcp/src/data/formula/index.js";
 import { isNotePath, withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote } from "../listBlock/model";
 import { ABOUT_NOTE, baseName } from "../paths";
-import { areaTitle, metricKey, metricsOf, PEOPLE_FOLDER } from "../folderPage/areas/seat";
+import { areaTitle, BOTS_FOLDER, metricKey, metricsOf, PEOPLE_FOLDER } from "../folderPage/areas/seat";
 import { textOf } from "./sources";
 
 /** A parsed formula's tree, as `parse.js` builds it. */
@@ -114,8 +114,9 @@ export function usesByMetric(areasFolder: string, notes: readonly ListNote[]): R
   const out = new Map<string, Use[]>();
   const prefix = areasFolder === "" ? "" : `${areasFolder}/`;
   const people = `${prefix}${PEOPLE_FOLDER}/`;
+  const bots = `${prefix}${BOTS_FOLDER}/`;
   for (const note of notes) {
-    if (!note.path.startsWith(prefix) || note.path.startsWith(people) || baseName(note.path) !== ABOUT_NOTE) continue;
+    if (!note.path.startsWith(prefix) || note.path.startsWith(people) || note.path.startsWith(bots) || baseName(note.path) !== ABOUT_NOTE) continue;
     const folder = note.path.slice(0, -ABOUT_NOTE.length - 1);
     if (folder === areasFolder || folder === "") continue;
     // The seat's own reading: `metrics:` items, and a `metric:` with its `target:` first (`seat.ts`).
