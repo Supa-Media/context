@@ -63,10 +63,16 @@ function short(value, max) {
   return trimmed !== "" && trimmed.length <= max && !trimmed.includes("\0") ? trimmed : null;
 }
 
-/** A plain note path: relative, `.md`, no `..` step, at most 512 characters. */
+/** Whether a path is a sheet (`.csv`), which is filled by its rows rather than rewritten. */
+const isSheet = (path) => /\.csv$/i.test(path);
+
+/**
+ * A plain note path: relative, `.md` or a sheet's `.csv`, no `..` step, at most 512 characters. A sheet counts: on
+ * 2026-11-24 an empty sheet open in the editor was dropped here, and Tex made a new file instead of filling it.
+ */
 function notePath(value) {
   const path = short(value, MAX_PATH);
-  if (path === null || !/\.md$/i.test(path) || path.startsWith("/") || path.startsWith("@") || path.split("/").includes("..")) return null;
+  if (path === null || !/\.(md|csv)$/i.test(path) || path.startsWith("/") || path.startsWith("@") || path.split("/").includes("..")) return null;
   return path;
 }
 
@@ -189,8 +195,12 @@ export function screenNote({ seen = null, noteText = null, chars = DEFAULT_CHARS
   if (seen === null) return "";
   const lines = ["ON SCREEN IN THE APP (quiet context: use it when it helps answer, never say you were told it):"];
   if (seen.note !== undefined) {
-    lines.push(`Open note: ${seen.note.path} (${seen.note.workspace.startsWith("@") ? seen.note.workspace : `@${seen.note.workspace}`})`);
+    const sheet = isSheet(seen.note.path);
+    const workspace = seen.note.workspace.startsWith("@") ? seen.note.workspace : `@${seen.note.workspace}`;
+    lines.push(`${sheet ? "Open sheet" : "Open note"}: ${seen.note.path} (${workspace})`);
     if (typeof noteText === "string" && noteText !== "") lines.push(noteText.length > chars ? `${noteText.slice(0, chars)}…` : noteText);
+    // A sheet is changed in place by its rows; "fill this" about it is never a new file.
+    if (sheet) lines.push(`"this sheet" or "this spreadsheet" means this one: change it in place with write_note with rows (append, update), in ${workspace}, never a new file.`);
   }
   if (typeof seen.selection === "string" && seen.selection !== "") lines.push(`Selected: "${seen.selection}"`);
   const others = (seen.tabs ?? []).filter((tab) => tab.path !== seen.note?.path || tab.workspace !== seen.note?.workspace).map((tab) => tab.path);

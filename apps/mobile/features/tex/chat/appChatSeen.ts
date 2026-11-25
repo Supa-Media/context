@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 /**
- * A note as the route names it. `workspace` is "@slug"; `path` is relative and ends in `.md`. No note id: the console
+ * A note as the route names it. `workspace` is "@slug"; `path` is relative and ends in `.md`, or `.csv` for a sheet. No note id: the console
  * holds paths, and `screen.js` reads a note by its path (D1, #3901 made the id optional).
  */
 export interface SeenNote {
@@ -29,8 +29,9 @@ const MAX_TABS = 8;
 /** The most of a selection a send carries: longer is dropped, not cut. */
 const MAX_SELECTION = 2000;
 
-function isMarkdown(path: string): boolean {
-  return /\.md$/i.test(path);
+/** A note Tex can read: Markdown, or a sheet (`.csv`). A picture or a PDF is a file, not a note, and is left out. */
+function isNote(path: string): boolean {
+  return /\.(md|csv)$/i.test(path);
 }
 
 function noteOf(workspace: string, path: string): SeenNote {
@@ -40,8 +41,8 @@ function noteOf(workspace: string, path: string): SeenNote {
 /**
  * The screen as a send carries it, or `null` when nothing remains.
  *
- * - The open note is the editor's path when it is a `.md` and there is a slug.
- * - Tabs are the other `.md` tabs, never the editor's own, the first eight.
+ * - The open note is the editor's path when it is a note (`.md`, or `.csv` for a sheet) and there is a slug.
+ * - Tabs are the other note tabs, never the editor's own, the first eight.
  * - The selection is trimmed and kept only when it is 1 to 2000 characters.
  */
 export function seenFrom(input: {
@@ -53,9 +54,9 @@ export function seenFrom(input: {
   const slug = input.slug?.trim() ?? "";
   if (slug === "") return null;
   const workspace = `@${slug}`;
-  const editorPath = input.editorPath !== null && isMarkdown(input.editorPath) ? input.editorPath : null;
+  const editorPath = input.editorPath !== null && isNote(input.editorPath) ? input.editorPath : null;
   const tabs = input.tabPaths
-    .filter((path) => isMarkdown(path) && path !== input.editorPath)
+    .filter((path) => isNote(path) && path !== input.editorPath)
     .slice(0, MAX_TABS)
     .map((path) => noteOf(workspace, path));
   const selection = input.selection?.trim() ?? "";

@@ -39,6 +39,13 @@ describe("seenFrom", () => {
     expect(seenFrom({ ...base, tabPaths: ["x.png", "y.md"] })?.tabs?.map((t) => t.path)).toEqual(["y.md"]);
   });
 
+  test("an open sheet (.csv) is the open note, and a sheet tab goes too", () => {
+    // 2026-11-24: an empty sheet open in the editor never reached Tex, which made a new file instead of filling it.
+    const seen = seenFrom({ ...base, editorPath: "inbox/untitled-2026-11-24.csv", tabPaths: ["data/costs.CSV", "a.md"] });
+    expect(seen?.note).toEqual({ workspace: "@work", path: "inbox/untitled-2026-11-24.csv" });
+    expect(seen?.tabs?.map((t) => t.path)).toEqual(["data/costs.CSV", "a.md"]);
+  });
+
   test("nine other tabs send the first eight", () => {
     const tabPaths = Array.from({ length: 9 }, (_, i) => `t${i}.md`);
     const seen = seenFrom({ ...base, editorPath: null, tabPaths });
