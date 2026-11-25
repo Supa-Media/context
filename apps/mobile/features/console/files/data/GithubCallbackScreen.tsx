@@ -60,6 +60,6 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     ground: { flex: 1, backgroundColor: colors.ground },
     wrap: { width: "100%", maxWidth: 520, marginHorizontal: "auto", paddingHorizontal: 28, paddingVertical: 56 },
-    title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text, fontSize: 28, lineHeight: leading(28, 1.1) },
+    title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text, fontSize: t.title, lineHeight: leading(t.title, 1.1) },
     sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
   });

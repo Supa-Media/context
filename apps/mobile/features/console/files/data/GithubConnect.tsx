@@ -191,7 +191,7 @@ const makeStyles = (colors: Colors) =>
     repo: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
     repoRule: { borderTopWidth: 1, borderTopColor: colors.line },
     box: { width: 16, height: 16, borderRadius: 4, borderWidth: 1.5, borderColor: colors.line, alignItems: "center", justifyContent: "center" },
-    tick: { fontSize: 11, lineHeight: 12, color: "#FFFFFF", fontWeight: "700" },
+    tick: { fontSize: pointerType.label, lineHeight: 12, color: "#FFFFFF", fontWeight: "700" },
     repoName: { fontSize: pointerType.ui, lineHeight: 17, color: colors.text, flexGrow: 1, flexShrink: 1 },
     repoKind: { fontSize: pointerType.label, lineHeight: 14, color: colors.muted },
     empty: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, padding: 12 },

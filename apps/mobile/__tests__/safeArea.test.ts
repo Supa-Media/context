@@ -166,6 +166,7 @@ function websitePage(): ReactElement {
   return createElement(WebsitePage, { name: "Seyi", view: { ...page, description: null, markdown: "# Home\n\nHello.", navigation: [] }, navigate: () => {}, signIn: () => {} });
 }
 const { GoogleCallbackScreen } = require("../features/console/google/GoogleCallbackScreen") as typeof import("../features/console/google/GoogleCallbackScreen");
+const { GithubCallbackScreen } = require("../features/console/files/data/GithubCallbackScreen") as typeof import("../features/console/files/data/GithubCallbackScreen");
 const { CliConnectedScreen } = require("../features/cli/CliConnectedScreen") as typeof import("../features/cli/CliConnectedScreen");
 const { EditorRegion } = require("../features/console/EditorRegion") as typeof import("../features/console/EditorRegion");
 const { AppFrame } = require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
@@ -289,6 +290,7 @@ const ROUTES: Record<string, Coverage> = {
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },
   "connect/cli.tsx": { kind: "screen", mount: () => createElement(CliConnectedScreen) },
+  "data/github/callback.tsx": { kind: "screen", mount: () => createElement(GithubCallbackScreen) },
   // With no provider or token in the params, each paints its own refusal page.
   "connect/[provider]/index.tsx": { kind: "screen", mount: () => createElement(requireRoute("connect/[provider]/index.tsx")) },
   "connect/[provider]/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("connect/[provider]/[token].tsx")) },
@@ -344,6 +346,8 @@ const ROUTES: Record<string, Coverage> = {
   */
   "(app)/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/_layout.tsx")) },
   "connect/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("connect/_layout.tsx")) },
+  "data/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("data/_layout.tsx")) },
+  "data/github/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("data/github/_layout.tsx")) },
   "invite/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("invite/_layout.tsx")) },
   "(auth)/join/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/join/_layout.tsx")) },
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
