@@ -12,6 +12,7 @@ export const OP_PATHS = [
   "edit",
   "unsend",
   "react",
+  "sticker",
   "typing",
   "read",
   "contact",

@@ -20,6 +20,7 @@ import { counted, type CountDataset } from "./textCounts";
 import { guardedLine } from "./outboundGuard";
 import { withoutEffects } from "./sendEffect";
 import type { LinkNotes } from "./photonLinkBubbles";
+import type { PhotonSticker } from "./photonClient";
 import { isPhotonChatId, photonLine } from "./photonLine";
 import {
   isSendblueChat,
@@ -52,6 +53,8 @@ import {
 /** A picture to send; `title` marks a card Tex drew, kept longer where it is hosted (`media.ts` `CARD_FOR_MS`). */
 export type Picture = { name: string; mediaType: string; data: string; title?: string };
 
+export type { PhotonSticker } from "./photonClient";
+
 export interface Line {
   /**
    * `replyTo` names the message to answer inside the thread of, where the line can (Sendblue); Linq ignores it.
@@ -71,6 +74,11 @@ export interface Line {
   /** A tapback of `emoji` on the person's text (`ackEmoji.ts`), where the line has tapbacks (Sendblue); Linq does nothing. Never throws. */
   /** The tapback that went (the emoji, or the line's fallback), null when none did; nothing when the line cannot tell. */
   acknowledge(chatId: string, messageId: string, emoji: string): Promise<string | null | void>;
+  /**
+   * A sticker stuck on a message (Photon's `placeSticker`), where the line has stickers (Photon); absent elsewhere.
+   * Throws when the line refused or failed. Nothing calls it yet: it is wired through a Lab draft.
+   */
+  stick?(chatId: string, messageId: string, sticker: PhotonSticker): Promise<void>;
   /** Whether the line took the contact card. */
   shareContactCard(chatId: string): Promise<boolean>;
   /** The line's iMessage Name & Photo shared into the chat, or set again first with `refresh`; Linq's card already does both. */

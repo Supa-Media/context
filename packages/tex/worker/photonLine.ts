@@ -39,6 +39,7 @@ import {
   runPhotonGroup,
   sendPhotonPoll,
   sendPhotonText,
+  stickPhoton,
   typingPhoton,
   type PhotonAttachment,
   type PhotonCard,
@@ -347,6 +348,10 @@ export function photonLine(deps: LineDeps): Line {
       }
     },
     // The card goes as a .vcf attachment naming the chat's line (`card.ts`), a contact the person can save.
+    stick: async (chatId, messageId, sticker) => {
+      const p = photon();
+      await stickPhoton(p, await dmPlace(p, chatId), messageId, sticker);
+    },
     shareContactCard: async (chatId) => {
       try {
         const p = photon();
@@ -413,6 +418,7 @@ export function photonGroupLine(deps: GroupLineDeps): GroupLine {
       }
     },
     readOwnMessage: async () => null,
+    stick: async (place, messageId, sticker) => await stickPhoton(photon(), placeOf(place), messageId, sticker),
     runGroup: async (place, action) => await runPhotonGroup(photon(), placeOf(place), action),
   };
 }
