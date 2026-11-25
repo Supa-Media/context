@@ -38,7 +38,7 @@ Search runs from its own config, `apps/mcp/src/search/config/searchConfig.json`.
 
 The real set (`search-real`) grows from Tex's own failed searches: `tex_dev failed_searches { chat, days }` lists, in one call, each note search Tex ran again or gave up on, with its top hits and the note Tex read in the end. Rewrite each into a case, never verbatim, with made-up notes of the same shape.
 
-`search_bench { list: true }` names the benches that have saved queries. A bench's queries are saved by its last Lab eval run on main (`tex_dev eval_run { bench, code: "main" }`, once). Re-run that after a change to the index code (`searchIndex.js`, `meaningIndex.js` and the bench object files), because those rebuild the bench worlds.
+`search_bench { list: true }` names the benches that have saved queries. A bench's queries are saved by its last Lab eval run on main (`tex_dev eval_run { bench, code: "main" }`, once). Re-run that after a change to the index code (`searchIndex.js`, `meaningIndex.js` and the bench object files), because those rebuild the bench worlds. A Lab eval search run on main's code also adds its score to the metrics sheet (`bench:<id>`, right note first and top 5; `scripts/metric-rows.mjs bench`), which the Search area reads; a pull request's run doesn't.
 
 ### A new behaviour (needs code)
 

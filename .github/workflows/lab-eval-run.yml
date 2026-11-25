@@ -408,6 +408,17 @@ jobs:
           npx convex run functions/labEvals:report "$(jq -c --arg id "$RUN_ID" '{runId: $id, stage: "done", summary: (del(.rows))}' "$f")" > /dev/null 2>&1
           echo "Reported $total rows: $(jq -c '{n: .scores.n, correct: .scores.correct, pct: .scores.pct, usd: .scores.usd.total, fullRunUsd}' "$f")"
 
+      # A search run on main's code also adds its score to the metrics sheet, so the Search area reads the standing
+      # benchmarks (enterprise-rag-notes and the rest) beside the sealed search test set (scripts/metric-rows.mjs).
+      # Counts only; a pull request's run, a memory run or a missing key sends nothing, and this never fails the run.
+      - name: Send the score to the metrics sheet
+        if: needs.run.result == 'success' && needs.prep.outputs.search == 'true' && needs.prep.outputs.pr == ''
+        continue-on-error: true
+        env:
+          METRICS_PUSH_KEY: ${{ secrets.METRICS_PUSH_KEY }}
+          SHA: ${{ needs.prep.outputs.sha }}
+        run: node scripts/metric-rows.mjs bench --result "$RUNNER_TEMP/out/result.json" --sha "$SHA"
+
       - name: Report why it failed
         if: needs.run.result != 'success' || failure()
         env:
