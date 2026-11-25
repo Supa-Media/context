@@ -144,9 +144,12 @@ export function conversationFromLedger(entries, { question: asQuestion = null, m
       } else if (from === "system" && entry.told === undefined && entry.delivered !== false && typeof entry.text === "string" && entry.text.trim() !== "") {
         // A fixed line the Worker sent with no model (a group invite's result, `groupInvite.ts`; a refusal; a notice):
         // shown as said, so Tex knows what the chat was told (2026-11-25: Tex, never shown "Done. I invited 1 person",
-        // told the chat the invite had failed and made up a reason).
+        // told the chat the invite had failed and made up a reason). The words here are the writer's, not a fixed
+        // catalogue's as the `told` branch above, so the line carries its own mark: a later turn is tainted from an
+        // assistant turn's `tainted` (`texEntryPoint/sendTheReply.js` `showsOutsideWords`), and a fixed line built on
+        // words from outside must not reach it as clean.
         flush();
-        turns.push({ role: "user", text: TOLD_QUESTION, ...(typeof entry.id === "string" ? { id: entry.id } : {}), ...(Number.isSafeInteger(entry.at) ? { at: entry.at } : {}) }, { role: "assistant", text: entry.text.trim() });
+        turns.push({ role: "user", text: TOLD_QUESTION, ...(typeof entry.id === "string" ? { id: entry.id } : {}), ...(Number.isSafeInteger(entry.at) ? { at: entry.at } : {}) }, { role: "assistant", text: entry.text.trim(), ...(entry.tainted === true ? { tainted: true } : {}) });
       } else if (from === "tex" && entry.delivered !== false && typeof entry.text === "string" && entry.text.trim() !== "") {
         const turn = entry.turn;
         if (typeof turn !== "string" || !replies.has(turn) || byItself.has(turn)) continue;
