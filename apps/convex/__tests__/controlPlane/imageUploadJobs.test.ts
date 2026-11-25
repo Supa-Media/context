@@ -55,6 +55,8 @@ describe("/gateway/jobs/* image uploads", () => {
     const opened = await open(t, ticket, SHA);
     expect(opened?.job).toMatchObject({ workspaceId: aliceWs, kind: "image_upload", imageSha256: SHA, imageBytes: 1234 });
     expect(opened?.binding).toMatchObject({ workspaceId: aliceWs, bucket: "tenant-a" });
+    // An upload stores bytes and reads no note: it never carries (or renders) the workspace's privacy rules.
+    expect(opened).not.toHaveProperty("privacy");
 
     await gatewayPost(t, "/gateway/jobs/report", { ticket, result: { status: "complete" } });
     expect(await open(t, ticket, SHA)).toBeNull();
@@ -122,11 +124,12 @@ describe("/gateway/jobs/* image uploads", () => {
     expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(0);
   });
 
-  test("it opens while the rows judge privacy, when the held rules carry the rows' version", async () => {
+  test("it opens while the rows judge privacy, and never renders the rules for an upload", async () => {
     // Production since 2026-10-17: the privacy authority is on and the rows
-    // judge, so `nodesPrivacy.authority` answers `accessVersion` beside the
-    // rules. `openGatewayJob`'s return validator once lacked it, so every open
-    // threw after the claim spent the ticket: 503, then 409 on the retry.
+    // judge. `openGatewayJob` once read `nodesPrivacy.authority` here, which an
+    // upload never uses, and twice that read threw after the claim spent the
+    // ticket: 503, then 409 on the retry (a validator lacking `accessVersion`,
+    // then 2026-11-25 a large workspace's rows). It reads no rules now.
     const { t, aliceWs } = await twoConnectedTenants();
     await t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: false, privacyAuthority: true, accessSource: "rows", updatedAt: 1 });
@@ -142,6 +145,6 @@ describe("/gateway/jobs/* image uploads", () => {
     const ticket = (await mint(t, ACCESS_A, aliceWs)).ticket as string;
     const opened = await open(t, ticket, SHA);
     expect(opened?.binding).toMatchObject({ workspaceId: aliceWs, bucket: "tenant-a" });
-    expect((opened as { privacy?: { accessVersion?: number } }).privacy?.accessVersion).toEqual(expect.any(Number));
+    expect(opened).not.toHaveProperty("privacy");
   });
 });
