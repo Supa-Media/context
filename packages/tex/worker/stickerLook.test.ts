@@ -76,11 +76,25 @@ describe("a kept sticker is looked at once, and Decide reads its words", () => {
     expect(asked).toHaveLength(2);
   });
 
-  it("a few at a time, newest first, and a sticker used again keeps its words", async () => {
+  it("every sticker a chat drops at once gets its words on the next message, newest first", async () => {
+    const guids = Array.from({ length: 15 }, (_, i) => `g${i + 1}`);
+    const storage = await kept(...guids);
+    const { asked, deps } = world((body) => ({ when: ["looked"], words: `words for ${String(body.sticker)}` }));
+    expect(await lookAtStickers(storage, PLACE, deps)).toBe("looked");
+    // Asked five at a time, the newest five first; within a batch the answers come back in any order.
+    const ids = asked.map((body) => String(body.sticker));
+    expect([...ids].sort()).toEqual(guids.map(stickerId).sort());
+    expect(ids.slice(0, 5).sort()).toEqual(guids.slice(-5).map(stickerId).sort());
+    const ask = await stickersAsk(storage);
+    expect(Object.keys(ask.stickerWords ?? {})).toHaveLength(15);
+    expect(await lookAtStickers(storage, PLACE, deps)).toBe("none");
+  });
+
+  it("newest first, and a sticker used again keeps its words", async () => {
     const storage = await kept("g1", "g2", "g3", "g4");
     const { asked, deps } = world((body) => ({ when: ["looked"], words: `words for ${String(body.sticker)}` }));
     await lookAtStickers(storage, PLACE, deps);
-    expect(asked.map((body) => body.sticker)).toEqual(["g4", "g3", "g2"].map(stickerId));
+    expect(asked.map((body) => String(body.sticker)).sort()).toEqual(["g4", "g3", "g2", "g1"].map(stickerId).sort());
     await keepSticker(storage, { how: "Reacted", words: "nice", emoji: "with a sticker", sticker: "g4" }, NOW + 5);
     expect((await stickersAsk(storage)).stickerWords?.[stickerId("g4")]).toBe(`words for ${stickerId("g4")}`);
   });

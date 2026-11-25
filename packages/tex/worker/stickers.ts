@@ -90,11 +90,11 @@ export async function keepSentStickers<M extends { text: string; stickers?: stri
 }
 
 /** The ids of the stickers this chat kept, newest last, at most `max`: what Decide may react with (`decide.ts`). */
-export async function keptStickers(storage: InboxStorage, max = MAX_STICKERS): Promise<string[]> {
+export async function keptStickers(storage: InboxStorage, max = 3): Promise<string[]> {
   return (await keptSorted(storage, max)).map((item) => item.id);
 }
 
-async function keptSorted(storage: InboxStorage, max = MAX_STICKERS): Promise<Kept[]> {
+async function keptSorted(storage: InboxStorage, max = 3): Promise<Kept[]> {
   const kept = (await storage.get<Kept[]>(STICKERS_KEY).catch(() => undefined)) ?? [];
   return [...kept].sort((a, b) => a.at - b.at).filter((item) => isStickerId(item.id)).slice(-max);
 }
@@ -107,8 +107,8 @@ export async function stickersAsk(storage: InboxStorage): Promise<{ stickers?: s
   return { stickers: kept.map((item) => item.id), ...(Object.keys(words).length > 0 ? { stickerWords: words } : {}) };
 }
 
-/** The kept stickers with no words yet and no look tried in `LOOK_AGAIN_MS`, newest first, at most `max`. */
-export async function unlookedStickers(storage: InboxStorage, now: number, max = 3): Promise<{ id: string; guid: string }[]> {
+/** The kept stickers with no words yet and no look tried in `LOOK_AGAIN_MS`, newest first, at most `max` (all a chat keeps by default). */
+export async function unlookedStickers(storage: InboxStorage, now: number, max = MAX_STICKERS): Promise<{ id: string; guid: string }[]> {
   const kept = await keptSorted(storage).catch(() => [] as Kept[]);
   return kept
     .filter((item) => !item.words && (item.looked === undefined || now - item.looked >= LOOK_AGAIN_MS))
