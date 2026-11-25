@@ -33,6 +33,23 @@ export const MAX_EDITS = 20;
 const INSERTS = new Set(["replace", "append", "prepend"]);
 const COMMENT_ANCHOR = /<!--\/?c:[A-Za-z0-9_-]+-->/g;
 
+/**
+ * A write as its fields mean it, when a client that fills every field it is shown left some blank (Grok,
+ * 2026-11-25): `section: ""` names no section, and `content: ""` beside edits is the body field left empty, since
+ * edits carry their own text. A blank content with no edits is still a note emptied on purpose.
+ */
+export function withoutBlankPart(args) {
+  if (!args || typeof args !== "object") return args;
+  const blank = (value) => typeof value === "string" && value.trim() === "";
+  const dropSection = blank(args.section);
+  const dropContent = args.edits !== undefined && blank(args.content);
+  if (!dropSection && !dropContent) return args;
+  const out = { ...args };
+  if (dropSection) delete out.section;
+  if (dropContent) delete out.content;
+  return out;
+}
+
 export function writesPart(args) {
   return args?.section !== undefined || args?.edits !== undefined;
 }

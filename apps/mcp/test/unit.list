@@ -806,3 +806,4 @@ test/dataSyncGithub.test.mjs
 test/dataSyncBackground.test.mjs
 test/dataSyncUsage.test.mjs
 test/stickerLook.test.mjs
+test/blankFields.test.mjs

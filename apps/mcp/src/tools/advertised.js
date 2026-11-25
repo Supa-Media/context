@@ -136,17 +136,47 @@ function advertisedSchemaFor(name) {
  */
 export function coercedArguments(name, args) {
   if (!args || typeof args !== "object" || Array.isArray(args)) return args;
-  const properties = advertisedSchemaFor(name)?.properties;
+  const schema = advertisedSchemaFor(name);
+  const properties = schema?.properties;
   if (!properties) return args;
+  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
   let out = args;
   for (const [key, value] of Object.entries(args)) {
     if (typeof value !== "string" || !Object.hasOwn(properties, key)) continue;
+    if (!required.has(key) && blankIsAbsent(key, properties[key], value)) {
+      if (out === args) out = { ...args };
+      delete out[key];
+      continue;
+    }
     const read = readAs(properties[key]?.type, value);
     if (read === undefined) continue;
     if (out === args) out = { ...args };
     out[key] = read;
   }
   return out;
+}
+
+/**
+ * Strings a blank never sets: a mailbox, the person's words, the etag a write read, an orient mark. None has a
+ * meaning as `""`. A blank `context` (or `source_context`, `destination_context`) is not here: it is refused, since
+ * serving the connected workspace instead is the quiet version of writing into the wrong one
+ * (`test/crossContext/orientation.test.mjs`).
+ */
+const BLANK_MEANS_UNSET = new Set(["mailbox", "person_said", "expected_etag", "since"]);
+
+/**
+ * An optional argument sent blank, which a client that fills every field it is shown sends for each one it means
+ * to leave out (Grok, 2026-11-25: `url: ""` beside `data`, `tools: ""`, `insert: ""`). A blank is read as absent
+ * only where it can mean nothing else: a property whose type has no string in it, one whose `enum` has no `""`,
+ * and the strings in `BLANK_MEANS_UNSET`. A blank note body, path or name is left as sent, so a
+ * cleared field (set_area's `whose: ""`) still clears.
+ */
+function blankIsAbsent(key, property, text) {
+  if (text.trim() !== "") return false;
+  if (BLANK_MEANS_UNSET.has(key)) return true;
+  const types = Array.isArray(property?.type) ? property.type : [property?.type];
+  if (property?.type !== undefined && !types.includes("string")) return true;
+  return Array.isArray(property?.enum) && !property.enum.includes(text);
 }
 
 /** `text` as one of `type`'s non-string types, or `undefined` when it is not one. */

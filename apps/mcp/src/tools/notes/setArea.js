@@ -106,8 +106,10 @@ async function metricNames(store, scope, rules, overrides) {
 }
 
 function oneLine(value, what) {
-  if (value === undefined) return { skip: true };
-  if (value === null || value === "") return { value: null };
+  // Blank is the field left empty, not a clear: a client that fills every field it is shown sends owner: "" and
+  // delegate: "" beside the one change it means (Grok, 2026-11-25), and that unseated the area. null clears.
+  if (value === undefined || (typeof value === "string" && value.trim() === "")) return { skip: true };
+  if (value === null) return { value: null };
   if (typeof value !== "string" || /[\r\n]/.test(value) || value.trim().length > MAX_TEXT) return { error: `${what} is one line of text. Pass it on one line, then try again.` };
   return { value: value.trim() };
 }
