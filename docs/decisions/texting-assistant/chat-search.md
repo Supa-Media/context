@@ -14,9 +14,10 @@ reads, with the same grant, back to its first text (15 pages of 2,000 entries; a
 was searched and to narrow by days). Whole words with plain endings, never inside another word, the same matching the
 group search uses (`findTexts`). Each hit names its day, time and speaker and the `day:` fetch that opens that day.
 
-It is offered only when the front door's `ctx` lists the module `chatSearch`, so the code ships on the shelf and a Lab
-draft wires it in. The fixed tool list shows it only when the turn holds it (`sixToolsFixed.js`), so main's cached
-bytes do not change while it is off, and a draft that turns it on gets the same bytes on every turn.
+It is offered when the front door's `ctx` lists the module `chatSearch` (on main since 2026-11-25: Dev2 chose word
+search, Lab draft "Search own chat history"), built beside the turn's history from the same ledger whichever way that
+history was read (`texEntryPoint/readTheHistory.js`). `oldest: true` puts the first mention first. The fixed tool list shows it only when the turn holds it (`sixToolsFixed.js`), so main's cached
+bytes do not change while it is off, and a config that offers it gets the same bytes on every turn. Replay case `finds-old-line`.
 
 ## What a "simplification" would cost
 

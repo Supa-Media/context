@@ -86,7 +86,7 @@ const answer = (text, isError = false) => ({ content: [{ type: "text", text }], 
 const dayArg = (value) => (typeof value === "string" && DAY_ID.test(value.trim()) ? value.trim() : null);
 
 /**
- * `search_chat` for one turn: `ledger` and `chat` as `read_day` gets them (`weekHistory.js` `weekTurn`), `grant` the
+ * `search_chat` for one turn: `ledger` and `chat` as `read_day` gets them (`texEntryPoint/readTheHistory.js`), `grant` the
  * turn's, `timeZone` the chat's.
  */
 export function chatSearchTool({ ledger, chat, timeZone = "UTC", grant = null, onRead = () => {}, log = (line) => console.log(line) }) {

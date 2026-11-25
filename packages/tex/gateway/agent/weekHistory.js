@@ -28,7 +28,6 @@ import { withGuestNames } from "./groupGuestNames.js";
 import { renderEvents } from "./logRender.js";
 import { DESK_LEDGER } from "../texStore/desk.js";
 import { texConfigOf, texStep } from "./texConfig.js";
-import { chatSearchTool } from "./chatSearch.js";
 
 /** The two context modules, as their keys start in the front door's `ctx` (`texConfig.json`). */
 export const CHAT_MODULE = "chat";
@@ -335,7 +334,7 @@ export function weekPreface(days, summed) {
 export const WEEK_PREFACE = weekPreface(7, true);
 
 /**
- * The week's history for one turn, read from the chat's ledger (`ledger.read`): `{ history, read_day, search_chat, shown, log }`,
+ * The week's history for one turn, read from the chat's ledger (`ledger.read`): `{ history, read_day, shown, log }`,
  * `history` one user message with its pictures, or null when the ledger holds nothing to show. `now` is the newest
  * text it answers (or the moment it runs); `extra`, `skip` and `tags` as `weekView` takes them.
  */
@@ -355,7 +354,6 @@ export async function weekTurn({ ledger, chat, now, timeZone = "UTC", reads = DE
   const line = { event: "tex_week_history", start, days: days ?? "all", cap: reads.chat?.chars ?? 0, summaryDays: reads.summaries === null ? 0 : reads.summaries.days ?? "all", summaryCap: reads.summaries?.chars ?? 0, texts: view.shown.length, chars: view.chars, cut: view.cut, whole: span.whole, entries: span.entries.length, summaries: summaries.length, pictures: view.pictures.length, picturesShown: pictures.length, readMs: read - began, picturesMs: Date.now() - read };
   log(JSON.stringify(line));
   const read_day = readDayTool({ ledger, chat, timeZone, grant, log });
-  const search_chat = chatSearchTool({ ledger, chat, timeZone, grant, log });
-  if (view.shown.length === 0 && summaries.length === 0) return { history: null, read_day, search_chat, shown: [], log: line };
-  return { history: { role: "user", text: view.text, ...(pictures.length > 0 ? { pictures } : {}) }, read_day, search_chat, shown: view.shown, log: line };
+  if (view.shown.length === 0 && summaries.length === 0) return { history: null, read_day, shown: [], log: line };
+  return { history: { role: "user", text: view.text, ...(pictures.length > 0 ? { pictures } : {}) }, read_day, shown: view.shown, log: line };
 }
