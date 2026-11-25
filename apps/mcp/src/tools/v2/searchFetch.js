@@ -45,7 +45,7 @@ function echo(text) {
  * @returns {{args: object | undefined} | {error: string}}
  */
 function openArgs(call) {
-  const raw = call.args;
+  let raw = call.args;
   if (raw === undefined || raw === null) return { args: undefined };
   if (typeof raw !== "object" || Array.isArray(raw)) {
     return { error: "args has to be an object of named options: call it again with args like { limit: 5 }, or without args." };
@@ -56,12 +56,26 @@ function openArgs(call) {
     const { mailbox, ...rest } = raw;
     return openArgs({ args: { ...rest, account: mailbox } });
   }
+  // A field left empty, as a client that fills every field it is shown sends one (`""`, `null`, `false` for a flag): not given.
+  raw = Object.fromEntries(Object.entries(raw).filter(([key, value]) => !leftEmpty(key, value)));
   for (const key of ADDRESSING) {
     if (Object.hasOwn(raw, key)) {
       return { error: `${key} goes beside args, at the top of the call, not inside it: call it again with ${key} moved out of args.` };
     }
   }
   return { args: Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== undefined)) };
+}
+
+/**
+ * Keys whose `false` still picks what is read: a meeting without its transcript, a day without its messages, a
+ * contact without its activity (`translateFetch`).
+ */
+const FALSE_STILL_CHOOSES = new Set(["transcript", "messages", "activity"]);
+
+/** Every other open arg of search and fetch is a choice or a flag, so blank, null and false all mean "not this". */
+function leftEmpty(key, value) {
+  if (value === false) return !FALSE_STILL_CHOOSES.has(key);
+  return value === null || (typeof value === "string" && value.trim() === "");
 }
 
 /**

@@ -43,6 +43,8 @@ import { acceptJoined, joinedOf } from "./groupJoined";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { isBound, sha256Hex } from "./groupChat";
 import { warmOnRead } from "./warmStep";
+import { lookAtStickers } from "./stickerLook";
+import { photonAttachmentUrl } from "./photon";
 import { textsSessionDeps } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
 import { mintThreadsLink, readJobUpdate, serveThreads, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
@@ -199,6 +201,8 @@ export class SenderInbox implements DurableObject {
       }
       // What the chat just said goes to its ledger now, not at Tex's next turn, so its history keeps up (`chatRead.ts`).
       if (outcome === "kept" || outcome === "queued") this.handOff(this.flushChatter(message));
+      // Stickers the chat kept with no words yet are looked at, so Decide knows what each shows (`stickerLook.ts`).
+      if ((outcome === "kept" || outcome === "queued") && message.line) this.handOff(lookAtStickers(this.state.storage, { line: message.line, groupId: message.groupId }, { texts: this.env.GATEWAY_TEXTS, fetch: this.out, images: this.env.IMAGES, pictureUrl: this.env.STICKER_PICTURE_URL ?? ((guid) => photonAttachmentUrl(this.env.AGENT_ORIGIN, this.env.AGENT_WORKER_SECRET, guid)), now: () => Date.now() }));
       // The group-typing experiment: ask Whapi for this group's presences once a day (`whapi.ts`); never blocks a message.
       const whapi = whapiKeys(this.env.WHAPI_TOKEN, this.env.WHAPI_LINE);
       if (whapi !== null && !message.sms) await watchGroupPresenceDaily(this.state.storage, this.out, whapi, message.groupId, Date.now());

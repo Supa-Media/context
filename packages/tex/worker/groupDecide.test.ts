@@ -241,6 +241,28 @@ for (const { name, groupId } of LINES) {
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toHaveLength(1);
     });
 
+    // Dev2, 2026-11-25 (Tex Devs): a text folded into a run that ends without taking it in (an early run Decide stopped,
+    // or a turn that never read it) was lost: nothing queued it. It waits beside the turn, and the turn dropping it is
+    // what says it was answered.
+    it("Ada's follow-up folded into a turn that never takes it in is answered on its own after", async () => {
+      const storage = new MemoryStorage();
+      const w = setup(groupId, {
+        hold: true,
+        decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : answerAll(body)),
+        // The turn ends without the steered text: it reports none taken in.
+        agent: (body) => ({ answer: `answer to ${body.question}` }),
+      });
+      await acceptGroup(storage, w.message("Tex make a graphic"), 0);
+      const draining = drainGroup(storage, w.deps);
+      await w.running;
+      expect(await acceptGroup(storage, w.message("try again"), 10)).toBe("queued");
+      w.release();
+      await draining;
+      await drainGroup(storage, w.deps);
+      expect(w.steers).toEqual([expect.objectContaining({ turn: w.asks[0].turn, text: "try again" })]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a graphic", "try again"]);
+    });
+
     it("somebody else's queue or restart during Ada's turn is never a restart: it runs as their own turn, resolved for them", async () => {
       for (const midTurn of ["queue", "restart"]) {
         const storage = new MemoryStorage();

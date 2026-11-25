@@ -242,10 +242,10 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
       return tagged ? await enqueue(storage, message, extra, repliesToTex, seen, now) : await idleUntagged(ev);
     }
-    if (how === "folded") {
-      await storage.put(seen, now);
-      return "queued";
-    }
+    // Folded into the asker's running turn: it still waits here, answered by that turn only if the turn says it took it
+    // in (`groupModelTurn.ts` `dropSteered`). A turn that ends without it (an early run Decide stopped, a cancel, a turn
+    // that never read it) leaves it for the drain, which answers it on its own (Dev2, 2026-11-25: "try again" was lost).
+    if (how === "folded") return await enqueue(storage, message, { ...extra, force: true }, repliesToTex, seen, now);
     if (how === "after") return await enqueue(storage, message, { ...extra, force: true }, repliesToTex, seen, now);
     if (how === "redecide") {
       // Not addressed: chat, as any untagged line is, and put to decide once more after the turn.

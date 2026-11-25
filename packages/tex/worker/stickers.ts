@@ -20,7 +20,10 @@ export const MAX_STICKERS = 30;
 const ID = /^s[0-9a-z]{6}$/;
 const MAX_GUID = 200;
 
-type Kept = { id: string; guid: string; at: number };
+/** `words`: what it shows and when it fits, from its look (`stickerLook.ts`); `looked`: when it was last looked at. */
+type Kept = { id: string; guid: string; at: number; words?: string; looked?: number };
+/** A sticker whose look failed is looked at again after this long. */
+export const LOOK_AGAIN_MS = 6 * 60 * 60 * 1000;
 
 /** A sticker's short id from its attachment guid: "s" and six base-36 characters of its FNV-1a hash. Stable per guid. */
 export function stickerId(guid: string): string {
@@ -57,8 +60,11 @@ async function keepGuid(storage: InboxStorage, guid: unknown, now: number): Prom
   const id = stickerId(guid);
   try {
     const kept = (await storage.get<Kept[]>(STICKERS_KEY)) ?? [];
+    const before = kept.find((item) => item.id === id);
     const rest = kept.filter((item) => item.id !== id);
-    await storage.put<Kept[]>(STICKERS_KEY, [...rest, { id, guid, at: now }].slice(-MAX_STICKERS));
+    // Used again, it keeps what its look said.
+    const looked = before === undefined ? {} : { ...(before.words ? { words: before.words } : {}), ...(before.looked ? { looked: before.looked } : {}) };
+    await storage.put<Kept[]>(STICKERS_KEY, [...rest, { id, guid, at: now, ...looked }].slice(-MAX_STICKERS));
   } catch {
     return null;
   }
@@ -84,9 +90,38 @@ export async function keepSentStickers<M extends { text: string; stickers?: stri
 }
 
 /** The ids of the stickers this chat kept, newest last, at most `max`: what Decide may react with (`decide.ts`). */
-export async function keptStickers(storage: InboxStorage, max = 8): Promise<string[]> {
+export async function keptStickers(storage: InboxStorage, max = MAX_STICKERS): Promise<string[]> {
+  return (await keptSorted(storage, max)).map((item) => item.id);
+}
+
+async function keptSorted(storage: InboxStorage, max = MAX_STICKERS): Promise<Kept[]> {
   const kept = (await storage.get<Kept[]>(STICKERS_KEY).catch(() => undefined)) ?? [];
-  return [...kept].sort((a, b) => a.at - b.at).map((item) => item.id).filter(isStickerId).slice(-max);
+  return [...kept].sort((a, b) => a.at - b.at).filter((item) => isStickerId(item.id)).slice(-max);
+}
+
+/** What Decide's ask carries of the chat's stickers: their ids, newest last, and the words of those looked at; or nothing. */
+export async function stickersAsk(storage: InboxStorage): Promise<{ stickers?: string[]; stickerWords?: Record<string, string> }> {
+  const kept = await keptSorted(storage).catch(() => [] as Kept[]);
+  if (kept.length === 0) return {};
+  const words = Object.fromEntries(kept.flatMap((item) => (typeof item.words === "string" && item.words !== "" ? [[item.id, item.words]] : [])));
+  return { stickers: kept.map((item) => item.id), ...(Object.keys(words).length > 0 ? { stickerWords: words } : {}) };
+}
+
+/** The kept stickers with no words yet and no look tried in `LOOK_AGAIN_MS`, newest first, at most `max`. */
+export async function unlookedStickers(storage: InboxStorage, now: number, max = 3): Promise<{ id: string; guid: string }[]> {
+  const kept = await keptSorted(storage).catch(() => [] as Kept[]);
+  return kept
+    .filter((item) => !item.words && (item.looked === undefined || now - item.looked >= LOOK_AGAIN_MS))
+    .reverse()
+    .slice(0, max)
+    .map(({ id, guid }) => ({ id, guid }));
+}
+
+/** Note a look at a kept sticker: when, and its words when it gave some. A sticker no longer kept is left alone. */
+export async function noteLooked(storage: InboxStorage, id: string, now: number, words?: string): Promise<void> {
+  const kept = (await storage.get<Kept[]>(STICKERS_KEY)) ?? [];
+  if (!kept.some((item) => item.id === id)) return;
+  await storage.put<Kept[]>(STICKERS_KEY, kept.map((item) => (item.id === id ? { ...item, looked: now, ...(words ? { words } : {}) } : item)));
 }
 
 /** The attachment guid of a sticker this chat kept, by its id; null for any id this chat never kept. */

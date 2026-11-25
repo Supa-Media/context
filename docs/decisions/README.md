@@ -232,6 +232,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
 - [What an AI client reads is kept, in the customer's bucket](./gateway-protocol/stored-reads.md)
 - [An agent reads part of a long note, and never saves that part as the whole note](./gateway-protocol/section-reads.md)
+- [A field left blank is not given](./gateway-protocol/blank-fields.md)
 
 ## [Markdown forms](./forms.md)
 

@@ -9,6 +9,7 @@
 
 import type { TextsBinding } from "./gatewaySession";
 import { inboxByName, objectById } from "./objectPlace";
+import { isArrival } from "../gateway/texChat/arrival.js";
 
 /** Where the chat object answers each kind of hand-over (`packages/tex/gateway/texChat.js` `ARRIVAL_PATHS`). */
 const ARRIVAL_PATHS: Record<string, string> = { one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit", joined: "/group-joined" };
@@ -22,6 +23,9 @@ export function gatewayOver(env: { SENDER_INBOX?: unknown }): TextsBinding {
       const name = new Headers(init.headers).get("x-inbox-name") ?? "";
       if (url.pathname === "/texts/arrive") {
         const body = JSON.parse(String(init.body)) as { kind: string; inbox: string; message: unknown; origin?: string };
+        // The gateway's own shape check, so a body it would refuse is refused here too (a members change once sent
+        // `message: null`, which the gateway answered 400 and the Worker 503, holding Photon's line behind it).
+        if (!isArrival(body)) return Response.json({ error: "bad_body" }, { status: 400 });
         const origin = (body.kind === "one" || body.kind === "group") && typeof body.origin === "string" ? `?origin=${encodeURIComponent(body.origin)}` : "";
         const sent = body.kind === "members" ? { method: "POST" } : { method: "POST", body: JSON.stringify(body.message) };
         const answer = await byName(body.inbox).fetch(`https://inbox${ARRIVAL_PATHS[body.kind]}${origin}`, sent);

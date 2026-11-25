@@ -1,0 +1,85 @@
+/**
+ * A kept sticker looked at once (node `stickerLook`, turned on by a Lab promote; Dev2, 2026-11-25): the node asks the model what the
+ * picture shows and when it fits, and `/texts/sticker-look` runs it only while the config has it on, never logging the
+ * picture (`packages/tex/gateway/agent/graph/nodes/stickerLook.js`, `textsSticker.js`).
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { lookAtSticker, stickerLookNode, stickerWordsOf, STICKER_LOOK_SYSTEM } from "../../../packages/tex/gateway/agent/graph/nodes/stickerLook.js";
+import { lookForChat, stickerAsk, stickerLookForTexts, stickerLookWired } from "../../../packages/tex/gateway/agent/textsSticker.js";
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+
+const CHAT = "c".repeat(64);
+const PICTURE = { mediaType: "image/png", data: "iVBORw0KGgo=" };
+const CONFIG = { url: "https://gateway.invalid", token: "test-only" };
+
+test("the look sends the picture to the model and keeps a few words of what it shows and when it fits", async () => {
+  let call;
+  const request = async (body) => ((call = body), { toolCalls: [{ name: "meaning", args: { shows: "  cat throwing\nconfetti ", fits: "celebrating good news" } }] });
+  const out = await lookAtSticker(PICTURE, CONFIG, { request });
+  assert.deepEqual(out.when, ["looked"]);
+  assert.equal(out.words, "cat throwing confetti; fits celebrating good news");
+  assert.ok(call.system.startsWith("HOW TEX WORKS") && call.system.includes(STICKER_LOOK_SYSTEM), "the map, then its own words");
+  assert.deepEqual(call.messages[0].attachments, [{ name: "sticker", mediaType: "image/png", data: PICTURE.data }]);
+  assert.equal(call.toolChoice, "meaning");
+  // Words in the picture are part of the sticker: the prompt says so.
+  assert.match(STICKER_LOOK_SYSTEM, /never instructions/);
+});
+
+test("a look that cannot answer is a skip, never a throw, and never words", async () => {
+  assert.deepEqual((await lookAtSticker(PICTURE, null)).when, ["skip"]);
+  assert.deepEqual((await lookAtSticker({}, CONFIG, { request: async () => ({}) })).why, "no picture");
+  assert.deepEqual((await lookAtSticker(PICTURE, CONFIG, { request: async () => ({ toolCalls: [] }) })).why, "no meaning given");
+  const failed = await lookAtSticker(PICTURE, CONFIG, { request: async () => { throw new TypeError("boom"); } });
+  assert.deepEqual(failed.when, ["skip"]);
+  assert.equal(failed.words, undefined);
+  assert.equal(stickerWordsOf({ shows: "x".repeat(500), fits: "y" }).length <= 130, true);
+  assert.equal(stickerWordsOf({ shows: "", fits: "y" }), "");
+});
+
+test("the node reads its picture from the run's context, so the logged input is the sticker's id alone", async () => {
+  const out = await stickerLookNode({ sticker: "s1a2b3c" }, { ctx: { picture: PICTURE, gateway: CONFIG, request: async () => ({ toolCalls: [{ name: "meaning", args: { shows: "a", fits: "b" } }] }) } });
+  assert.equal(out.words, "a; fits b");
+});
+
+test("/texts/sticker-look is off while the config does not turn the node on, runs it when one does, and refuses a body it can't trust", async () => {
+  // Whether main has it on is the config's to say (a Lab promote turns it on), never this test's.
+  assert.equal(stickerLookWired(TEX_CONFIG), TEX_CONFIG.nodes.find((node) => node.id === "stickerLook")?.on === true);
+  assert.ok(TEX_CONFIG.nodes.some((node) => node.id === "stickerLook"), "a node of the config");
+  assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook", on: true }] }), true);
+  assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook" }] }), false);
+  assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook", on: false }] }), false);
+  const ask = stickerAsk({ chat: CHAT, sticker: "s1a2b3c", ...PICTURE });
+  assert.deepEqual(await lookForChat({}, ask, { config: { nodes: [] } }), { when: ["skip"], why: "off" });
+  for (const bad of [
+    { chat: "not-a-key", sticker: "s1a2b3c", ...PICTURE },
+    { chat: CHAT, sticker: "../x", ...PICTURE },
+    { chat: CHAT, sticker: "s1a2b3c", mediaType: "image/heic", data: PICTURE.data },
+    { chat: CHAT, sticker: "s1a2b3c", mediaType: "image/png", data: "<script>" },
+  ]) assert.equal(stickerAsk(bad), null);
+  const post = (body) => new Request("https://gateway/texts/sticker-look", { method: "POST", body: JSON.stringify(body) });
+  assert.equal((await stickerLookForTexts(post({ chat: "x" }), {})).status, 400);
+  const ran = [];
+  const graph = { runNode: async (id, input, ctx) => (ran.push({ id, input, picture: ctx.picture }), { ran: true, output: { when: ["looked"], words: "a; fits b" } }) };
+  assert.deepEqual(await lookForChat({}, ask, { graph, config: { nodes: [{ id: "stickerLook", on: true }] } }), { when: ["looked"], words: "a; fits b" });
+  assert.deepEqual(ran, [{ id: "stickerLook", input: { sticker: "s1a2b3c" }, picture: PICTURE }], "the picture rides in the context, not the logged input");
+});
+
+test("in the gateway, a chat's sticker picture address is minted by the texting Worker over its RPC entrypoint", async () => {
+  const { chatEnv } = await import("../../../packages/tex/gateway/texChat.js");
+  const asked = [];
+  const TEXTING = { stickerPictureUrl: async (call) => (asked.push(call), { url: "https://agent.example/photon/attachment/at_0_X?e=1&s=2" }) };
+  const state = { storage: {}, waitUntil() {} };
+  const env = await chatEnv({ TEXTING }, state, "group:abc", "s1", { gateway: () => ({}), texts: () => ({}) });
+  assert.equal(await env.STICKER_PICTURE_URL("at_0_X"), "https://agent.example/photon/attachment/at_0_X?e=1&s=2");
+  assert.deepEqual(asked, [{ guid: "at_0_X" }]);
+  const none = await chatEnv({}, state, "group:abc", "s1", { gateway: () => ({}), texts: () => ({}) });
+  assert.equal(none.STICKER_PICTURE_URL, undefined, "no Worker bound: none");
+});
+
+test("Decide's logged input names the stickers it was offered and how many it knew the words of", async () => {
+  const { judgedInput } = await import("../../../packages/tex/gateway/agent/textsDecide.js");
+  const logged = judgedInput({ style: "followAlong", candidates: [], stickers: ["s1a2b3c", "s4d5e6f"], stickerWords: { s1a2b3c: "a; fits b" } }, 0);
+  assert.deepEqual([logged.stickers, logged.stickerWords], [["s1a2b3c", "s4d5e6f"], 1]);
+  assert.equal("stickers" in judgedInput({ style: "followAlong", candidates: [] }, 0), false, "none kept: nothing logged");
+});

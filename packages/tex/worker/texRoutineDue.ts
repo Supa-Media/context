@@ -22,6 +22,7 @@ import { readMailDelivery } from "./jobMail";
 import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
 import { jobObject } from "./jobObject";
 import type { TextsBinding } from "./gatewaySession";
+import { photonAttachmentUrl } from "./photon";
 import { checkGroupLineCall, checkLineCall, groupLineCallDeps, lineCallDeps, runGroupLineCall, runLineCall, type GroupLineCall, type LineCall, type LineCallEnv, type LineCallResult } from "./lineCalls";
 
 /** A person's owner is their personal workspace's id, as the gateway names its Tex store. */
@@ -34,6 +35,8 @@ export type TexRoutineEnv = LineCallEnv & {
   GATEWAY_ORIGIN: string;
   /** A job's object is the gateway's `TexJob`, reached through it (`jobObject.ts`). */
   GATEWAY_TEXTS?: TextsBinding;
+  /** This Worker's public origin, which Photon's pictures are served under (`photon.ts`). */
+  AGENT_ORIGIN?: string;
 };
 
 export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
@@ -111,6 +114,16 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
   async groupLineCall(call: GroupLineCall): Promise<LineCallResult> {
     const checked = checkGroupLineCall(call);
     return await runGroupLineCall(groupLineCallDeps(this.env, checked.inbox), checked);
+  }
+
+  /**
+   * A signed address for a picture on Photon's line, by its attachment guid (`photon.ts`): a sticker a chat kept, which
+   * the gateway's chat object fetches to look at once (`stickerLook.ts`). Null when this deployment serves none.
+   */
+  async stickerPictureUrl(call: { guid?: unknown } | null): Promise<{ url: string | null }> {
+    const guid = call?.guid;
+    if (typeof guid !== "string" || guid === "" || guid.length > 200) throw new TypeError("no sticker guid");
+    return { url: await photonAttachmentUrl(this.env.AGENT_ORIGIN, this.env.AGENT_WORKER_SECRET, guid) };
   }
 
   private deps(): RoutineDeps {

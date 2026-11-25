@@ -59,6 +59,13 @@ export async function runUploadedImageChecks() {
   });
   const leaf = leafIn(written);
   check("write_note with a base64 image succeeds and names the stored leaf", !written.isError && Boolean(leaf));
+  // A client that sends every field it is shown, the unused ones as "" (a Grok bot's logo, 2026-11-25).
+  const blanks = await call("priv-token", "write_note", {
+    path: "1-projects/portable/blank-fields.md",
+    content: "# Logo\n\n![[logo.png]]\n",
+    images: [{ name: "logo.png", data: PNG_B64, url: "", sha256: "" }],
+  });
+  check("an image's empty url and sha256 read as absent beside its data", !blanks.isError && Boolean(leafIn(blanks)));
   const stored = await storedBytes(`.context/assets/images/${leaf}`);
   check(
     "the bytes are stored in the opaque image store, byte for byte",

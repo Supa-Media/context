@@ -10,6 +10,7 @@ import type { FolderListSource } from "../../files/listBlock/model";
 import type { ListWriteBack } from "../../../offline/folderListSource";
 import type { TaskHost } from "../../files/folderPage/tasks/taskHost";
 import { taskWriteIO } from "../../files/folderPage/tasks/taskWrites";
+import { copyTargetFor } from "../../files/shareDialog/copyTarget";
 
 /**
  * What a project's List and its side panel add, nest and move tasks with —
@@ -33,7 +34,7 @@ export function useTaskHost(
   const writeNote = useWriteNote();
   const moveEntry = useAction(api.functions.files.moveEntry);
   const trashEntry = useAction(api.functions.files.trashEntry);
-  const { canEdit, canShare, say, ensureListing, copyShareLink } = files;
+  const { canEdit, canShare, say, ensureListing, copyShareLink, openLinkPaths } = files;
   const setProperties = source?.setProperties;
   const remember = source?.remember;
   return useMemo(() => {
@@ -73,11 +74,11 @@ export function useTaskHost(
       ...(canShare
         ? {
             copyLink: (path: string) =>
-              void copyShareLink({ kind: "team", path }).then(({ message }) => {
+              void copyShareLink(copyTargetFor(path, openLinkPaths)).then(({ message }) => {
                 if (message !== null) say(message);
               }),
           }
         : {}),
     };
-  }, [canEdit, canShare, workspaceId, writeNote, moveEntry, trashEntry, setProperties, remember, say, ensureListing, copyShareLink, setDialog]);
+  }, [canEdit, canShare, workspaceId, writeNote, moveEntry, trashEntry, setProperties, remember, say, ensureListing, copyShareLink, openLinkPaths, setDialog]);
 }

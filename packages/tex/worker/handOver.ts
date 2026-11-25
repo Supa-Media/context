@@ -3,9 +3,11 @@
  * hands it to the gateway's `TexTexts` entrypoint at `/texts/arrive`, which queues it in the gateway's TexChat, the only
  * place a chat lives (part C of the runtime simplification: the Worker's SenderInbox class is deleted, 2026-11-25).
  *
- * A hand-over that fails (a non-200, a throw, an outcome it does not know) answers the webhook 503, so the provider
+ * A hand-over that fails (a 5xx, a throw, an outcome it does not know) answers the webhook 503, so the provider
  * sends the text again (Photon's pump retries every 5xx, `infra/photon-bridge/src/pump.ts`), and the chat drops the
- * repeat by its event id. The log names the kind and the outcome, never the text, the phone or the inbox name.
+ * repeat by its event id. A body the gateway refuses (a 400 or 413) answers the webhook 400 instead: Photon's pump delivers
+ * in order and retries a 5xx forever, so a 503 for a body no retry can fix held every later text on the line behind
+ * it (2026-11-25, a members change sent `message: null`). The log names the kind and the outcome, never the text, the phone or the inbox name.
  */
 
 import type { TextsBinding } from "./gatewaySession";
@@ -15,7 +17,7 @@ export type HandOverKind = "one" | "group" | "react" | "members" | "edit" | "joi
 
 /** Every outcome the chat object's routes answer with (`inbox.ts` accept and react, `groupInbox.ts` acceptGroup, an edit's "same"). */
 const OUTCOMES = ["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped", "redirected", "same", "off", "already"] as const;
-export type HandOverOutcome = (typeof OUTCOMES)[number] | "failed";
+export type HandOverOutcome = (typeof OUTCOMES)[number] | "failed" | "refused";
 
 /**
  * POSTs one text (or tapback, or members change) to the gateway's `/texts/arrive`. Resolves to the gateway's outcome,
@@ -40,6 +42,9 @@ async function arrive(
       headers: { "content-type": "application/json" },
       body: JSON.stringify(call),
     });
+    // A 400 or 413 is the gateway refusing the body (`agent/textsArrive.js`): sending it again cannot change that, so
+    // it is not a failure to retry. Any other status (a 404 while a deploy is half done included) is still retried.
+    if (response.status === 400 || response.status === 413) return "refused";
     if (response.status !== 200) return "failed";
     const body: unknown = await response.json();
     const outcome = typeof body === "object" && body !== null ? (body as { outcome?: unknown }).outcome : undefined;
@@ -59,7 +64,7 @@ function eventIdOf(message: unknown): string | undefined {
 /**
  * The Worker's one call site per forward: the Response to answer the webhook with. 200 for every outcome the chat
  * gave (as its routes answer: the webhook is not asked to send it again); 503 when the hand-over failed, so the
- * webhook sends it again; 501 when this Worker has no gateway bound to hand it to.
+ * webhook sends it again; 400 when the gateway refused the body, which no retry fixes; 501 when this Worker has no gateway bound to hand it to.
  */
 export async function toChat(
   env: { GATEWAY_TEXTS?: TextsBinding },
@@ -70,5 +75,14 @@ export async function toChat(
 ): Promise<Response> {
   if (env.GATEWAY_TEXTS === undefined) return new Response(null, { status: 501 });
   const outcome = await handOver(env.GATEWAY_TEXTS, { kind, inbox, eventId: eventIdOf(message), message, origin });
-  return new Response(null, { status: outcome === "failed" ? 503 : 200 });
+  return new Response(null, { status: outcome === "failed" ? 503 : outcome === "refused" ? 400 : 200 });
+}
+
+/**
+ * The status a webhook answers for a hand-over's Response: 200 when taken, 400 when the gateway refused the body (the
+ * provider drops it rather than holding its line behind it), and 503 for anything a retry may fix.
+ */
+export function webhookStatus(result: Response): number {
+  if (result.ok) return 200;
+  return result.status === 400 ? 400 : 503;
 }

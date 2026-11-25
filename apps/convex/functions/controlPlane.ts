@@ -574,10 +574,8 @@ export const openGatewayJob = internalAction({
       return null;
     }
 
-    // Phase 3: a queued move rewrites `privacy.md`, so it writes through the rules too.
-    const privacy = await ctx
-      .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: claimed.workspaceId })
-      .then((held) => held ?? undefined);
+    // No privacy rules: the one job left is an image upload, which stores bytes under their hash and reads no note.
+    // Reading them rendered every row of the workspace and failed a large one's uploads outright (2026-11-25).
 
     return {
       job: claimed,
@@ -605,7 +603,6 @@ export const openGatewayJob = internalAction({
       encryptionKey,
       rotation,
       managedEncryption,
-      privacy,
       // Every workspace is keyed (2026-10-22): the gateway refuses a path-based job.
       keyed: true,
     };

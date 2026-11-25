@@ -1,3 +1,4 @@
+import { copyTargetFor } from "../files/shareDialog/copyTarget";
 import type { Dispatch, SetStateAction } from "react";
 import { Menu } from "../../design/components/Menu";
 import { copyDeferred, writeClipboard } from "../../design/clipboard";
@@ -113,13 +114,13 @@ export function runNoteAction(
     trackButton("copy_link");
     if (visitor !== undefined) return visitor.share(entry.path);
     /*
-      The share sheet's own Copy link: the team link, which grants nothing —
-      reading it is still authorised by membership on every request.
-      `copyShareLink` mints-or-reuses it inside the press, which is what
-      lets iOS Safari's clipboard accept the write.
+      The share sheet's own Copy link: the note's public link when it has one,
+      the workspace link otherwise (`copyTargetFor`). `copyShareLink`
+      mints-or-reuses it inside the press, which is what lets iOS Safari's
+      clipboard accept the write.
     */
     void files
-      .copyShareLink({ kind: "team", path: entry.path })
+      .copyShareLink(copyTargetFor(entry.path, files.openLinkPaths))
       .then(({ message }) => {
         if (message !== null) files.say(message);
       });

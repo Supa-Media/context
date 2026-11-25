@@ -19,10 +19,18 @@
 
 /** Top-level `write` fields, merged under the action's own `args`. */
 function withNote(call, extra = {}) {
-  const out = { ...(call.args || {}), ...extra };
-  if (call.path !== undefined) out.path = call.path;
-  if (call.content !== undefined) out.content = call.content;
-  if (call.expected_etag !== undefined) out.expected_etag = call.expected_etag;
+  const inner = call.args || {};
+  const out = { ...inner, ...extra };
+  // A field left blank beside args is not given: a client that fills every field it is shown sends `content: ""` next to
+  // the args that carry the real content (Grok, 2026-11-25), and that blank took its place. A blank path or etag names
+  // nothing; a blank content alone is still a note emptied on purpose.
+  const blank = (value) => typeof value === "string" && value.trim() === "";
+  for (const key of ["path", "content", "expected_etag"]) {
+    const value = call[key];
+    if (value === undefined) continue;
+    if (blank(value) && (key !== "content" || inner.content !== undefined)) continue;
+    out[key] = value;
+  }
   return out;
 }
 
@@ -30,17 +38,28 @@ function withNote(call, extra = {}) {
 function sheetRows(call) {
   const { path, expected_etag: etag, ...rows } = call.args || {};
   const out = { rows };
-  const where = call.path ?? path;
+  const filled = (value) => (typeof value === "string" && value.trim() === "" ? undefined : value);
+  const where = filled(call.path) ?? path;
   if (where !== undefined) out.path = where;
-  const expected = call.expected_etag ?? etag;
+  const expected = filled(call.expected_etag) ?? etag;
   if (expected !== undefined) out.expected_etag = expected;
   return out;
+}
+
+/**
+ * `mail`'s args without the fields left blank: every one of them (join, text, to, kind, device) means nothing as
+ * `""`, and a client that fills every field it is shown sends `text: ""` beside `join` (Grok, 2026-11-25), which
+ * read as a join and a send at once.
+ */
+function filledMail(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  return Object.fromEntries(Object.entries(args).filter(([, value]) => value !== null && !(typeof value === "string" && value.trim() === "")));
 }
 
 /** `{ path, <key>: args }`: the write_note sub-objects (comment, mail, site, upload). */
 function nested(key) {
   return (call) => {
-    const out = { [key]: call.args || {} };
+    const out = { [key]: (key === "mail" ? filledMail(call.args) : call.args) || {} };
     if (call.path !== undefined) out.path = call.path;
     return out;
   };

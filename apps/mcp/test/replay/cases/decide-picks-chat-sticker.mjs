@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { decideRequest, readDecideAnswers, readDecideBody } from "../../../../../packages/tex/src/textDecide.cjs";
 import { decideForTexts, TEXTS_DECIDE_PATH } from "../../../../../packages/tex/gateway/agent/textsDecide.js";
 import { decide } from "../../../../../packages/tex/worker/decide.ts";
-import { keepSticker, keptStickers, stickerId } from "../../../../../packages/tex/worker/stickers.ts";
+import { keepSticker, keptStickers, noteLooked, stickerId, stickersAsk } from "../../../../../packages/tex/worker/stickers.ts";
 import { tapback } from "../../../../../packages/tex/worker/stepEvents.ts";
 import { MemoryStorage } from "../../../../../packages/tex/worker/memoryStorage.testing.ts";
 
@@ -38,7 +38,7 @@ export default {
   incident:
     "2026-11-25: Dev2 asked Tex to reuse the stickers people in a chat use, \"mainly for reactions\", and then: \"you don't want someone prompting ai to use stickers. it should just use it in relevant situations\". Training examples for the front door changed nothing: in the Lab, good news and thanks got words, because the front door almost never ends a turn on a tapback (4 of 201 one-to-one turns that week), and Decide, which gives a group's unprompted reactions, could only pick an emoji.",
   cause:
-    "Decide is asked one more question when the chat kept stickers: which of them, if any, to stick instead of the emoji. Its answer counts only beside a reaction and only for a sticker this chat was asked with; the Worker sticks it on the text, or sends the emoji where it can't; Decide's \"Chat stickers\" setting off offers none.",
+    "Decide is asked one more question when the chat kept stickers: which of them, if any, to stick instead of the emoji. Its answer counts only beside a reaction and only for a sticker this chat was asked with; the Worker sticks it on the text, or sends the emoji where it can't; Decide's \"Chat stickers\" setting off offers none. Then (Dev2 dropped 15 stickers in Tex Devs \"for start\"): an id alone says nothing, and in the Lab Decide picked the emoji every time, so each kept sticker is looked at once (node stickerLook) and Decide's choice reads what it shows and when it fits.",
   path: "group text",
   async run() {
     // The chat's kept stickers, newest last, are what the Worker asks with.
@@ -53,6 +53,14 @@ export default {
     const asked = decideRequest(body);
     assert.deepEqual(Object.keys(asked.questions.sticker.criteria).sort(), ["none", PARTY, SIDE_EYE].sort());
     assert.match(asked.questions.sticker.instructions, /instead of the emoji/);
+    // A sticker looked at (node stickerLook) is offered with what it shows and when it fits; one not yet, by its id.
+    await noteLooked(storage, PARTY, 3, "cat throwing confetti; fits celebrating good news");
+    const offered = await stickersAsk(storage);
+    assert.deepEqual(offered, { stickers: [SIDE_EYE, PARTY], stickerWords: { [PARTY]: "cat throwing confetti; fits celebrating good news" } });
+    const told = decideRequest(readDecideBody(raw({ ...offered, stickerWords: { ...offered.stickerWords, "s9zzzzz": "never offered" } }))).questions.sticker.criteria;
+    assert.equal(told[PARTY], `sticker ${PARTY}: cat throwing confetti; fits celebrating good news`);
+    assert.match(told[SIDE_EYE], /as people used it in this chat/);
+    assert.equal(Object.values(told).some((words) => words.includes("never offered")), false, "words only for an offered sticker");
     // A chat that kept none is asked exactly as before.
     assert.equal(decideRequest(readDecideBody(raw())).questions.sticker, undefined);
     // Room is kept for the held-action questions: with 8 waiting asks the sixteenth question is not a sticker.

@@ -88,6 +88,10 @@ export const ROLES = Object.freeze({
     node: "planner",
     you: "the Big-ask planner: the Front door hands you a big ask and you split it into background jobs.",
   },
+  stickerLook: {
+    node: "stickerLook",
+    you: "the Sticker look: a group chat kept a sticker someone used, and you say in a few words what it shows and the moment it fits as a reaction. Decide reads your words when it picks a sticker to stick on a text instead of an emoji. Nothing you write reaches the person.",
+  },
   moveJudge: {
     node: "tools",
     you: "the Move judge: before the Front door's tools move or archive a note of theirs, you read their recent texts and Tex's own offer and say whether they asked for it. Nothing you write reaches the person.",

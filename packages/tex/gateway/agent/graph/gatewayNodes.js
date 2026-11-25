@@ -89,6 +89,7 @@ import { computerNode } from "./nodes/computer.js";
 import { rungNotesNode } from "./nodes/rungNotes.js";
 import { rungToolsNode } from "./nodes/rungTools.js";
 import { warmNode } from "./nodes/warm.js";
+import { stickerLookNode } from "./nodes/stickerLook.js";
 import { routerNode } from "./nodes/router.js";
 import { fdQuickNode, fdReadNode, fdActNode } from "./nodes/doors.js";
 
@@ -227,4 +228,6 @@ export const GATEWAY_NODES = {
   get computer() { return computerNode; },
   // The chat's kept prefix sent again before their next text (`nodes/warm.js`, `warmPrefix.js`); on the shelf until a Lab draft wires it.
   get warm() { return warmNode; },
+  // A kept sticker looked at once, its words kept for Decide (`nodes/stickerLook.js`, `../textsSticker.js`); off on main until a Lab draft turns it on.
+  get stickerLook() { return stickerLookNode; },
 };
