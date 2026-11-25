@@ -15,7 +15,7 @@
  */
 import { aiGatewayConfig } from "../../aiGateway.js";
 import { settingsOf, texConfigOf, texEffort, texModel, texStep } from "../../texConfig.js";
-import { DEFAULT_MODEL, DEFAULT_MS, GATES, MAX_KEPT, askNudge, checkedVerdict, freshState, gateOf, nudgePoints, nudgeQuestion, nudgeRecord, parseState, pendingOffer, settlePending, writePoints } from "../../nudges.js";
+import { DEFAULT_MODEL, DEFAULT_MS, GATES, MAX_KEPT, askNudge, checkedVerdict, freshState, gateOf, nudgePoints, nudgeQuestion, nudgeRecord, parseState, pendingOffer, settlePending, toolsUsed, writePoints } from "../../nudges.js";
 
 /** The step's model, effort and time limit in this config; the defaults when the config has no such step. */
 function setupOf(env) {
@@ -82,7 +82,7 @@ export default async function nudgeOffer(_input, io) {
   // The model is asked when an offer may be made, or to read their answer to the last one.
   if (offerOpen || pending) {
     asked = await askNudge(
-      nudgeQuestion({ question: t.question, answer: t.finished?.answer, recent: recentOf(t.history, t.ledger?.untrusted === true), tainted: t.ledger?.untrusted === true, offered: state.offers, pending, offerOpen }),
+      nudgeQuestion({ question: t.question, answer: t.finished?.answer, recent: recentOf(t.history, t.ledger?.untrusted === true), tainted: t.ledger?.untrusted === true, offered: state.offers, pending, offerOpen, used: toolsUsed(t.turn?.steps) }),
       io?.ctx?.gateway ?? aiGatewayConfig(env),
       { ...setupOf(env), fetchImpl: io?.ctx?.fetchImpl, now: () => (Number.isFinite(io?.ctx?.now) ? now : Date.now()) },
     );
