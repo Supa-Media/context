@@ -12,7 +12,7 @@
  * row of its own: a person's own texts are already `agentTurnMarks` in their personal workspace.
  *
  * `exportRows` is what the gateway's hourly usage run reads (`/gateway/usage/export`): those rows, the texts a
- * personal workspace's owner sent, and the accounts made, for the run to MAC and write into the one workspace the
+ * personal workspace's owner sent, the accounts made and the bug reports people sent, for the run to MAC and write into the one workspace the
  * gateway's config names. Ids and times only, never a word, a path or a name.
  */
 
@@ -101,16 +101,24 @@ export interface UsageExport {
   /** A person's own texts: a turn in their personal workspace (`kind` one), its owner's account. */
   texts: { at: number; userId: string; outcome: "answered" | "exhausted" | "failed" }[];
   signups: { at: number; userId: string }[];
+  /**
+   * Reports people sent about a bug: the app's bug button, Tex by text or in a group chat, or another AI's
+   * `report_problem`. Never one about content, never one still sending. Its reference (the event id the person was
+   * told, and a Tex bug note's `reference:`), its channel, when and whose account: never a word of it.
+   */
+  bugs: { at: number; userId: string; channel: "app" | "tex" | "tex-group" | "agent"; reference: string }[];
   /** True when a list stopped at `MAX_EXPORT_ROWS`: the run says so rather than writing a short week as whole. */
   cut: boolean;
 }
 
 /** Everything since `since` (ms), each list oldest first. */
 export const exportRows = internalQuery({
-  args: { since: v.number(), at: v.optional(v.number()) },
+  args: { since: v.number(), bugsSince: v.optional(v.number()), at: v.optional(v.number()) },
   handler: async (ctx, args): Promise<UsageExport> => {
     const now = args.at ?? Date.now();
     const since = Math.max(args.since, now - MAX_EXPORT_DAYS * DAY_MS);
+    // The bug sheet may be newer than the others, so its first run reaches back on its own (receipts keep 30 days).
+    const bugsSince = Math.max(args.bugsSince ?? since, now - MAX_EXPORT_DAYS * DAY_MS);
     let cut = false;
 
     const people = await ctx.db
@@ -145,6 +153,18 @@ export const exportRows = internalQuery({
     if (made.length > MAX_EXPORT_ROWS) cut = true;
     const signups = made.slice(0, MAX_EXPORT_ROWS).map((user) => ({ at: Math.round(user._creationTime), userId: user._id as string }));
 
-    return { activity, texts, signups, cut };
+    const receipts = await ctx.db
+      .query("feedbackReceipts")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", bugsSince))
+      .take(MAX_EXPORT_ROWS + 1);
+    if (receipts.length > MAX_EXPORT_ROWS) cut = true;
+    const bugs: UsageExport["bugs"] = [];
+    for (const receipt of receipts.slice(0, MAX_EXPORT_ROWS)) {
+      // A receipt from before channels were kept can't say it was a bug rather than a report about content.
+      if (receipt.state !== "sent" || receipt.channel === undefined || receipt.channel === "content") continue;
+      bugs.push({ at: receipt.createdAt, userId: receipt.userId as string, channel: receipt.channel, reference: receipt.eventId });
+    }
+
+    return { activity, texts, signups, bugs, cut };
   },
 });

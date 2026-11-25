@@ -34,6 +34,21 @@ function environment(): string {
 
 
 
+/** Which way a report came in, as its receipt keeps it (`schema/feedback.ts`). */
+export type FeedbackChannel = "app" | "tex" | "tex-group" | "agent" | "content";
+
+/**
+ * The channel a report says by its own shape, for a caller that names none:
+ * the app's bug button, a report about content (`functions/reports.ts`), or
+ * an AI's `report_problem`. Tex's two are named by the gateway route, which
+ * knows the grant (`gatewayRoutes/feedback.ts`).
+ */
+export function feedbackChannel(report: Pick<FeedbackReport, "source">): FeedbackChannel {
+  if (report.source === "report") return "content";
+  if (report.source === "agent") return "agent";
+  return "app";
+}
+
 type Reservation =
   | { kind: "sent"; eventId: string }
   | { kind: "busy" }
@@ -53,13 +68,15 @@ export async function deliverFeedback(
     userId,
     report,
     send,
-  }: { sentry?: SentryTarget; userId: Id<"users">; report: FeedbackReport; send?: FeedbackSend },
+    channel,
+  }: { sentry?: SentryTarget; userId: Id<"users">; report: FeedbackReport; send?: FeedbackSend; channel?: FeedbackChannel },
 ): Promise<{ eventId: string }> {
   const now = Date.now();
   const reservation: Reservation = await ctx.runMutation(internal.functions.feedback.reserveFeedback, {
     userId,
     clientReportId: report.clientReportId,
     now,
+    channel: channel ?? feedbackChannel(report),
   });
   if (reservation.kind === "sent") return { eventId: reservation.eventId };
   if (reservation.kind === "busy") {

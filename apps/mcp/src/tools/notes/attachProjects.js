@@ -13,6 +13,7 @@ import { FRONT_NOTES } from "../../lists/grammar.js";
 import { normalizePath } from "../../notes/paths.js";
 import { isVisibleTextFile } from "../../orient/survey.js";
 import { factProps } from "../../tree/facts.js";
+import { servedListingStore } from "../../tree/served.js";
 
 const MAX_PROJECTS = 50;
 
@@ -46,7 +47,9 @@ export async function attachProjects({ store, scope, rules, overrides, area, pro
   if (attach === null || detach === null) {
     return { error: `invalid: attach and detach are a project's folder, or a list of up to ${MAX_PROJECTS}, like "${projectsRoot}/website".`, done, problems };
   }
-  const visible = (await store.treeEntries?.().catch(() => null)) ?? null;
+  // A tool call's store has no `treeEntries` of its own (orient's does): the names come from the Convex tree.
+  const listing = typeof store?.treeEntries === "function" ? store : servedListingStore(store);
+  const visible = await Promise.resolve().then(() => listing.treeEntries()).catch(() => null);
   if (visible === null) return { error: "this workspace's map cannot be read just now; try again shortly.", done, problems };
   const keys = visible.map(({ key }) => key).filter((key) => isVisibleTextFile(key, scope, rules, overrides));
   if (!keys.some((key) => key.startsWith(`${area}/`))) {

@@ -190,6 +190,9 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(note).toContain("Them: find my avocado note");
     expect(note).toContain('from: "@alice-handle"');
     expect(note).toContain(`reference: "${(answer.report as { eventId: string }).eventId}"`);
+    // Its receipt says it came by text, so the bug reports sheet lists it by that reference.
+    const receipts = await t.run((ctx) => ctx.db.query("feedbackReceipts").collect());
+    expect(receipts.map((row) => [row.channel, row.eventId])).toEqual([["tex", (answer.report as { eventId: string }).eventId]]);
   });
 
   test("Tex in a group chat files as its tagger, as a text does; any other AI goes to Sentry", () => {
@@ -370,6 +373,7 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect((await report(t, { message: "read_note timed out" })).report).not.toBeNull();
     expect(sentry).toHaveLength(1);
     expect(bugs(await notesIn(t, pinned))).toEqual([]);
+    expect((await t.run((ctx) => ctx.db.query("feedbackReceipts").collect())).map((row) => row.channel)).toEqual(["agent"]);
   });
 });
 

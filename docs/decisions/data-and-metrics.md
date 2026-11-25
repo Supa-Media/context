@@ -306,13 +306,17 @@ synced sheet says it is kept up to date (08),
   sheet for an area. Two metric notes of one name: the first in the metrics
   folder's order is read, and the picker shows the second as not pickable
   until it is renamed. Test: `apps/mobile/__tests__/areaMetric.test.ts`.
-- **The list's label line says what is known.** "Revenue per AI dollar ·
-  Stripe + Cloudflare · last row 11h ago": the sources are the formula's,
-  named as the Data page names them, and the time is the newest dated row
-  the metric reads, in stage B's words, since there is no sync time yet; a
-  metric over the Context source alone says no time. In the row's 220 of
-  metric column (the owner's widths stand) a long line is cut with "…" and
-  is whole in its hover; on a phone it has a line of its own.
+- **The list's label line is the name and its time range** (the owner,
+  2026-11-25, reversing the sources-and-age line: it repeated "Context usage"
+  on most rows and never said what period a number covers). "Active humans
+  `7d`": the tag comes from the metric note's own `every` (`7 days` → 7d,
+  `day` → today, `week` → this week, `month` → MTD, `12 hours` → 12h), "now"
+  for a right-now metric, and none for a period the engine cannot read or a
+  `metrics.csv` line, which names none. The sources and the newest row's age
+  stay off the row, in its hover tip (set on the element, since React Native
+  Web drops a `title` prop) and on the area's panel and the metric's page;
+  a phone's block has no sources line. Test:
+  `apps/mobile/__tests__/areaMetric.test.ts` and `areaMetricPicker.test.ts`.
 - **A synced sheet is read-only.** A CSV directly in a GitHub, Cloudflare or
   Stripe source's folder opens under "Kept up to date by GitHub. Edits here
   are replaced at the next sync." with a link to the source's page (left off
@@ -536,9 +540,40 @@ asap", and, on where the rows go, "Only @supa, named in gateway config".*
   called start the day this shipped: rebuilding them would mean reading every
   customer's editing history, which the usage source never does.
 
+### Bug reports in the same source
+
+*Decided 2026-11-25, on the owner's "ship user reported bugs going into a
+sheet overnight, either through tex or in the app".*
+
+- **One row per report, in `bug-reports.csv`** beside the other four sheets,
+  so it inherits every check above: the named workspace only, armed by an
+  owner, owners only by both renderings, re-checked every run. Columns:
+  `reference`, `filed`, `person`, `channel`, `status`.
+- **Which reports.** Every report sent through the one intake
+  (`lib/feedback/deliver.ts`): the app's bug button (`app`), a text to Tex
+  (`tex`), Tex in a group chat (`tex-group`) and another AI's
+  `report_problem` (`agent`). A report about content (`functions/reports.ts`)
+  is not a bug and never listed. The receipt the intake already keeps for the
+  daily budget now carries that one word (`channel`); receipts made before it
+  carry none and are not listed (the hand-kept `data/feedback/reports.csv`
+  covers those).
+- **No words of the report.** A row holds the reference the person was told
+  (the Tex bug note's `reference:`, or the app's Sentry event id), the time,
+  the person MAC shared with `activity.csv`, and the channel. The report
+  itself stays where it was filed: a Tex bug note readable by the pinned
+  workspace's members, or Sentry. Who reads the sheet (the usage workspace's
+  owners) is not provably within who reads the report, so a summary or a
+  path, whose name carries the report's first words, is left out until that
+  is checked per row.
+- **`status` is the team's.** A new row says `open`; a run never writes over
+  it (`mergeSynced`'s `handColumns`), so triage edits in the sheet stay.
+- **Backfill.** The sheet's first run reaches back 30 days on its own
+  (`bugsSince`), as far as receipts are kept.
+
 **What a simplification would cost.** Keying a row by account id, or by a MAC
 under `GATEWAY_SECRET`, lets the control plane or a sheet reader name the
 person. Checking visibility only when armed lets a later setting publish the
 rows. Letting any owner arm it gives every workspace everyone's activity.
-Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
+Listing a bug report's text or note path in the sheet would hand it to
+owners who may not read the report. Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
 `apps/convex/__tests__/usagePeople.test.ts`.

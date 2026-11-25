@@ -90,6 +90,29 @@ and the replay case `prompt-under-cliff`. The newest texts of the week stay verb
 the cap leaves out is still opened by the call its summary names, or by `read_day` when the week's own note says
 the oldest texts were left out.
 
+**Counted as billed, cut in steps (Seyi and Finance, 2026-11-24).** Production front-door rounds of 2026-11-19 6 PM
+to 11-24 6 PM ET (Workers Logs: `tex_prompt_budget` against `model_call`'s input, cache read and cache write) showed
+two faults. The estimate ran low: billed tokens were 1.26 times it at the median and 1.30 at p90 over the 368
+trimmed rounds (the estimate is only logged when a round is trimmed; the 135 untrimmed rounds billed over 96,000
+agree, bounded at 1.08 to 1.35), so 206 trimmed calls and 87 untrimmed ones still billed over 100,000, past the cliff
+and past the `clear_tool_uses` trigger in `aiGateway.js`, which rewrites the prefix itself. `TEXT_CHARS_PER_TOKEN` is
+now 2.68 (3.5 / 1.302, rounded down), so a call estimated at the 96,000 budget bills at or under it at p90 and under
+100,000 on 361 of the 368 logged ratios; `HAIKU_INPUT_BUDGET` stays the billed-token ceiling. A text document is counted by its
+words, no longer as one picture. And the cut was worked out afresh every round from the untrimmed body: as a chat grew
+by a text, the stub line moved by a message and everything after it was written to the cache again (368 of 1,047
+rounds; trimmed round-1 cache writes p50 2.5K tokens 1:1 and 28K group, 0.8 to 2.3 s more model time). Now a body
+over the budget sheds whole steps of `TRIM_STEP` (16,000; a round grew by 724 billed tokens at the median and 6,770 at
+p90), so it lands about a step under, and the cut is made on the shortest leading run of messages that is already in
+that step, its last message standing in for the newest. A newer text or tool round in the same step finds the same
+run and makes the same cut, byte for byte; the cut moves again only when the body has grown into the next step. The
+order of what goes is unchanged at the moment of a cut, the newest message and this round's tool results stay unless
+they alone are over the budget, and a clip of the longest text stays the last resort, made to the step and only on
+that run so it is the same clip next round. Approved to merge only after a Lab Dev run on the pull request holds
+quality against main's band: more old context is left out (modelled on the logged rounds: 16.4M billed tokens of
+history and tool results over five days under the old rule, 33.1M under this one). What a simplification would cost:
+recomputing to the budget each round brings the rewrites back. Test: `apps/mcp/test/promptBudget.test.mjs` ("a
+growing chat keeps its fitted prefix…", sabotage lines in its header) and the replay case `prompt-under-cliff`.
+
 **In the bench (2026-11-17).** A Front door unit test posts the chat before its text at each line's own time
 (`apps/mcp/bench/setsFd.mjs` `minutesBefore`, `clock.mjs` `atEarlierTime`), as the Worker posted it live, so the
 turn reads the days the way production does. The bench chat has no day summaries, so a line older than the verbatim

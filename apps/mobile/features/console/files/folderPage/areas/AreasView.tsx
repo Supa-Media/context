@@ -54,6 +54,7 @@ import {
 } from "./seat";
 import { mailNotesOf } from "./areaMail";
 import { useAreaProjects } from "./useAreaProjects";
+import { useAreaCards } from "./useAreaCards";
 import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
 
 export type AreasPageView = "list" | "chart";
@@ -136,9 +137,11 @@ export function AreasView(props: AreasViewProps) {
     };
   }, [people]);
 
+  // The `people/` cards sit beside the areas, so an area's own page reads them from the Areas folder.
+  const withCards = useAreaCards(host?.source, root, folder, notes);
   const cardFor = useCallback(
-    (holder: string, kind: Card["kind"]) => cardOf(holder, kind, root, notes),
-    [root, notes],
+    (holder: string, kind: Card["kind"]) => cardOf(holder, kind, root, withCards),
+    [root, withCards],
   );
   // A bot whose card names its logo is drawn as that logo, read through its card (the owner, 2026-11-25).
   const readPicture = host?.source.readPicture;
@@ -190,21 +193,21 @@ export function AreasView(props: AreasViewProps) {
       if (wrote !== null) return wrote;
       // A card is written only when it says something new: opening a seat never creates one.
       const same = (a: Card, b: Card) => JSON.stringify(cardChanges(a)) === JSON.stringify(cardChanges(b));
-      const changed = cards.filter((card) => card.holder.trim() !== "" && !same(card, cardOf(card.holder, card.kind, root, notes)));
+      const changed = cards.filter((card) => card.holder.trim() !== "" && !same(card, cardOf(card.holder, card.kind, root, withCards)));
       if (changed.length === 0) return null;
       const peopleAbout = `${peopleFolder(root)}/about.md`;
-      if (!notes.some((note) => note.path === peopleAbout)) {
+      if (!withCards.some((note) => note.path === peopleAbout)) {
         const made = await chooseMany(peopleAbout, PEOPLE_ABOUT, true);
         if (made !== null) return made;
       }
       for (const card of changed) {
-        const was = cardOf(card.holder, card.kind, root, notes);
+        const was = cardOf(card.holder, card.kind, root, withCards);
         const problemSaving = await chooseMany(`${peopleFolder(root)}/${cardSlug(card.holder)}.md`, cardChanges(card), was.creates);
         if (problemSaving !== null) return problemSaving;
       }
       return null;
     },
-    [chooseMany, root, notes],
+    [chooseMany, root, withCards],
   );
 
   const addArea = useCallback(

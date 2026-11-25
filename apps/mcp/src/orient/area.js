@@ -279,3 +279,48 @@ export async function holderAnswer(store, scope, rules, overrides, rawHolder) {
   parts.push(`## What each mode asks\n${Object.entries(MODE_MEANINGS).map(([mode, meaning]) => `- ${mode}: ${meaning}`).join("\n")}`);
   return toolText(parts.join("\n\n"));
 }
+
+/** Areas the overview's "Who holds each area" lists; the rest are counted. */
+const SEATS_SHOWN = 30;
+
+/**
+ * The overview's "Who holds each area" lines for the connected workspace: each
+ * area whose about.md names an owner, with its delegate and its mail folder,
+ * and the one rule for reaching it (the owner, 2026-11-25: agents should know
+ * which connected agents can help, "like reporting a slow CI to the Devops
+ * Area", and "always reach out to delegate first"). Only about.md notes this
+ * connection can see are read, so an area it cannot see is never named. ""
+ * when no area names an owner, or the map cannot be read.
+ */
+export async function areaSeatsSection(store, scope, rules, overrides) {
+  try {
+    const entries = await visibleEntries(store, scope, rules, overrides);
+    if (entries === null) return "";
+    const jobs = await factJobs(store);
+    const areasRoot = jobs?.jobs?.areas ?? "areas";
+    const abouts = entries.map(({ key }) => key).filter((key) => key.startsWith(`${areasRoot}/`) && key.endsWith("/about.md")).sort();
+    if (abouts.length === 0) return "";
+    const props = await propsOf(store, abouts);
+    const seats = [];
+    for (const path of abouts) {
+      const seat = seatOf(props.get(path)?.properties);
+      if (seat.owner === null) continue;
+      const area = path.slice(0, -"/about.md".length);
+      const holders = `owner ${seat.owner}${seat.delegate ? `, delegate ${seat.delegate} (ask ${seat.delegate} first)` : ""}`;
+      seats.push(`- \`${area}/\` — ${holders} · mail \`${area}/${AREA_MAIL_FOLDER}/\``);
+    }
+    if (seats.length === 0) return "";
+    const shown = seats.slice(0, SEATS_SHOWN);
+    if (seats.length > SEATS_SHOWN) shown.push(`- (+${seats.length - SEATS_SHOWN} more: orient { for: "<holder>" } or orient { area } names each)`);
+    return [
+      "Who holds each area:",
+      ...shown,
+      "When you notice something another area is responsible for (a slow CI for a DevOps area, a cost spike for Finance), tell that area " +
+        `in its mail rather than leaving it: in \`<area>/${AREA_MAIL_FOLDER}/<your name>.md\` (write it first if it is not there), ` +
+        'send with write { action: "mail", path, args: { text } }. Its delegate is alerted first; go to its owner only when it has no ' +
+        "delegate, or for what its approvals name. orient { area } says one area in full.",
+    ].join("\n");
+  } catch {
+    return "";
+  }
+}

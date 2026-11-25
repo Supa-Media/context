@@ -30,9 +30,9 @@ const KIND_NAMES: Readonly<Record<SourceKind, string | null>> = {
 
 /**
  * The Context usage source's sheets (`apps/mcp/src/data/sync/runUsage.js`): Context-wide activity, kept up to date
- * every hour in the one workspace the deployment names, owners only.
+ * every hour in the one workspace the deployment names, owners only, and one row per bug report people sent.
  */
-export const USAGE_SHEETS = ["activity", "sign-ups", "tex-replies", "calls"] as const;
+export const USAGE_SHEETS = ["activity", "sign-ups", "tex-replies", "calls", "bug-reports"] as const;
 
 /** The built-in Context source's datasets, worked out from notes when read (`contextSource.ts`). */
 export const CONTEXT_DATASETS = ["notes-by-status", "time-to-answered"] as const;
