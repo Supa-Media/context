@@ -526,6 +526,13 @@ describe("sandbox runs (the Lab sandbox's bench driver records its runs in the s
     expect(await t.query(internal.functions.texLabRuns.job, { runId: github })).toMatchObject({ kind: "dev" });
   });
 
+  test("the GitHub workflow's report door refuses a sandbox run: only its driver reports it", async () => {
+    const { door, t } = await world();
+    const { id } = await door("sandbox_run", { draft: "main", kind: "dev" });
+    await expect(t.mutation(internal.functions.texLabRuns.report, { runId: id, stage: "done", results: { pass: 9, total: 9 } })).rejects.toThrow(/reported by its driver/);
+    expect((await door("runs", { id })).run).toMatchObject({ stage: "running", results: null });
+  });
+
   test("vsBase never reads a sandbox run against a GitHub main run, nor a GitHub run against a sandbox main run", () => {
     const results = { pass: 1, total: 2, rows: [] };
     const sandboxDraft = { id: "s1", versionId: "v1", kind: "dev", set: "dev", models: "gw", source: "sandbox", stage: "done", startedAt: 9, results };

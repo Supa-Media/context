@@ -54,8 +54,6 @@
  *    (the Lab, or an AI through `tex_dev`, named by `by` on `open` and on each send).
  *  - `about { sandboxId }` → `{ source, kind, chat, versionId, convId?, people, rows, testRows }`.
  *  - `use { sandboxId, versionId }`: the draft (or main) the next texts run on, as `open`'s `versionId`.
- *  - `bench_record`, `bench_start`, `bench_step`, `bench_row`, `bench_report` and the rest (`benchRoute.js`): a whole
- *    Training or Dev set scored in this sandbox, a job object a run, on the sandbox bench's own budget.
  *  - `read { sandboxId, options }` → the test chat's history file read (`ledger.read` on its own chat, never another),
  *    so `tex_dev` reads a test turn with Replay's own code, as it reads a real one.
  */
@@ -609,8 +607,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "intake") return await intake(env, who, input, { controlPlane, token });
   // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
   if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
-  // A whole Training or Dev set scored here (`benchRoute.js`): its own job object and its own budget, never DAILY_SENDS.
-  if (BENCH_OPS.has(input.op)) return await serveBench(input, { env, controlPlane, token, who, origin, runTurn, helpers: routeHelpers() });
+  if (BENCH_OPS.has(input.op)) return await serveBench(input, { env, controlPlane, token, who, origin, runTurn, helpers: routeHelpers() }); // a whole set (`benchRoute.js`): own job and budget, never DAILY_SENDS
 
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
   const stub = sandboxStub(env, who.userId, input.sandboxId);
