@@ -55,6 +55,7 @@ jest.mock("convex/react", () => ({
   useQueries: () => ({}),
   useMutation: () => mockStableNoop,
   useAction: () => mockStableNoop,
+  useConvex: () => ({ query: mockStableNoop, mutation: mockStableNoop, action: mockStableNoop }),
 }));
 
 const { StyleSheet, View } = require("react-native") as { StyleSheet: { getSheet(): { textContent: string } }; View: unknown };

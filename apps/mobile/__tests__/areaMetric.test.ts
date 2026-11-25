@@ -129,7 +129,7 @@ describe("an area's metric is a workspace metric by name", () => {
     expect(reading.inputs).toBe("");
     // No workspace at all (a page without the file browser's listings) reads the sheet too.
     expect(areaReading({ name: "Monthly cost", target: null }, null, csv)!.value).toBe("$512");
-    // And a name in neither has no reading: "No data yet", as before.
+    // And a name in neither has no reading: the row shows only the name and target.
     expect(areaReading({ name: "Nothing", target: null }, workspace(), csv)).toBeUndefined();
   });
 
