@@ -18,20 +18,27 @@ import { workspaceClient } from "../src/workspaceStore/api.js";
 import { parseSheet } from "../src/sheets/csv.js";
 import { SYNC_EVERY_MS } from "../src/data/sync/object.js";
 import { DATA_SYNC_ACTION, DATA_SYNC_CLIENT_ID } from "../src/data/sync/runParts.js";
-import { keptSheetOf, reachesNoWider } from "../src/data/sync/snap.js";
+import { keptSheetOf, reachesNoWider, widerThanInputs } from "../src/data/sync/snap.js";
 import { parsedRules } from "../src/workspaceStore/serve.js";
-import { audits, dataObject, noteId, NOW, RULES, roleOf, send, skip, world } from "./dataSyncWorld.mjs";
+import { audits, dataObject, guestRules, noteId, NOW, RULES, roleOf, send, skip, world } from "./dataSyncWorld.mjs";
 
 const METRIC = (formula) => `---\nmetric: Open incidents\nformula: "${formula}"\nevery: day\n---\n\nIncidents open right now.\n`;
 const OPEN = "count(ops/incidents.id where open = true)";
 const INCIDENTS = "id,severity,open:checkbox\nINC-1,high,true\nINC-2,low,true\nINC-3,high,false\n";
 let version = 10;
 
-/** The workspace's rules, as its object holds them for members, at a later access version. */
-async function setRules(w, who, extra = {}) {
+/**
+ * The workspace's rules, as its object holds them, at a later access version: both audiences, as the control plane
+ * pushes them. `guest` overrides the derived guest rendering, for a row whose grantee list only that one shows.
+ */
+async function setRules(w, who, extra = {}, guest = null) {
   version += 1;
   const rules = { ...RULES, accessVersion: version, folders: [...RULES.folders, ...(extra.folders ?? [])], notes: [...RULES.notes, ...(extra.notes ?? [])] };
+  const asGuest = guest === null
+    ? guestRules(rules)
+    : { ...guestRules(rules), folders: [...guestRules(rules).folders, ...(guest.folders ?? [])], notes: [...guestRules(rules).notes, ...(guest.notes ?? [])] };
   await workspaceClient(w.env, who.pwid).rules.put(rules, "member");
+  await workspaceClient(w.env, who.pwid).rules.put(asGuest, "guest");
   who.object.store.rows.putRules(rules);
 }
 
@@ -76,6 +83,38 @@ test("who may read a kept value: owners-only always, team over team, one setting
   assert.equal(reachesNoWider(parsed, "data/metrics/private.csv", "data/finance/x.csv"), true);
   assert.equal(reachesNoWider(parsed, "data/metrics/fin.csv", "data/finance/x.csv"), true);
   assert.equal(reachesNoWider(parsed, "data/metrics/fin.csv", "data/ops/x.csv"), false);
+});
+
+test("the check needs both renderings: with one audience's rules missing, nothing is kept", async () => {
+  /*
+    A row's grantee list is invisible in the member rendering: `privacy/rowAccess.js` `visibilityFor` answers `team`
+    for a team row, list or no list. The guest rendering is the only one that shows it, as its token. So a check run
+    over the member rendering alone would pass a kept sheet whose list reaches somebody an input's does not, and
+    missing guest rules have to refuse exactly as missing member rules do.
+  */
+  const member = { folders: [{ prefix: "data", visibility: "team" }], notes: [] };
+  const guest = { folders: [{ prefix: "data", visibility: "private" }], notes: [] };
+  const clientWith = (held) => ({ rules: { get: async (audience) => (held[audience] === undefined ? null : { rules: held[audience] }) } });
+  const pair = ["data/metrics/a.csv", ["data/ops/x.csv"]];
+  assert.deepEqual(await widerThanInputs(clientWith({ member, guest }), ...pair), null, "both held, and neither input is narrower");
+  assert.deepEqual(await widerThanInputs(clientWith({ member }), ...pair), { unknown: true }, "no guest rules");
+  assert.deepEqual(await widerThanInputs(clientWith({ guest }), ...pair), { unknown: true }, "no member rules");
+  assert.deepEqual(await widerThanInputs(clientWith({}), ...pair), { unknown: true }, "neither");
+});
+
+test("a grantee list on the kept sheet keeps nothing, caught by the one rendering that shows it", { skip }, async () => {
+  const w = await world();
+  const made = await withMetric(w, w.alice);
+  // The kept sheet is open to a named person beside the team; the input is open to the team alone. Both answer
+  // `team` in the member rendering, so only the guest rendering, where the listed row is its own token, shows that
+  // the kept sheet reaches further than what its value is made from.
+  await setRules(w, w.alice, {}, { notes: [{ path: made.keptPath, visibility: `@#${made.ids.kept}` }] });
+  const armed = await armMetric(w, w.alice);
+  assert.equal(armed.status, 200, JSON.stringify(armed.body));
+  assert.equal(armed.body.last.outcome, "failed", JSON.stringify(armed.body.last));
+  assert.match(armed.body.last.said, /data\/ops\/incidents\.csv is seen by fewer people than data\/metrics\/open-incidents\.csv/);
+  assert.equal((await keptOf(w.alice, made)).rows.length, 0);
+  assert.equal(audits(w.alice).length, 0);
 });
 
 test("an owner keeps a right-now metric: it reads at once into its own sheet, audited as the data sync", { skip }, async () => {
