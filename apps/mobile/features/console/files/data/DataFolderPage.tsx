@@ -11,18 +11,22 @@
 
 import { useMemo, useState } from "react";
 import { View } from "react-native";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { writeClipboard } from "../../../design/clipboard";
+import { useOptionalConsoleData } from "../../ConsoleDataContext";
+import { selectedContext } from "../../types";
 import { dataFolderNow } from "../jobIcons/jobFoldersNow";
 import type { FolderPageHost } from "../folderPage/useFolderPage";
 import type { RowNesting } from "../NestedRows";
-import { sheetRowsEndpoint } from "../sheet/SheetSources";
+import { SheetSourcesDialog, sheetRowsEndpoint } from "../sheet/SheetSources";
+import { ConnectSourceDialog } from "./ConnectSource";
 import { DataPage, metricViews, type DataActions } from "./DataPage";
+import { freePath, newMetricText, startingFormula, type PushSourceFiles } from "./dataWrites";
 import { MetricsPage } from "./MetricsPage";
 import { PushKeys } from "./PushKeys";
 import { SourcePage } from "./SourcePage";
 import { dataPageKind, metricsFolderOf, sourceAt } from "./sources";
 import { useSheets } from "./useData";
-import { useDataMaking } from "./useDataMaking";
 import { useDataWorkspace } from "./useDataWorkspace";
 
 /** The board's column on a wide page: 820, centred on the note's, as the Areas list widens past it. */
@@ -55,15 +59,53 @@ export function DataFolderPage({
   const kind = dataPageKind(folder, dataFolder);
   const [now] = useState(() => Date.now());
   const ws = useDataWorkspace(dataFolder, host.source, nesting, now);
+  const data = useOptionalConsoleData();
+  const current = data === null ? null : selectedContext(data);
+  const mayKey = current !== null && data?.demo !== true && (current.role === "owner" || current.role === "editor");
+  const io = host.tasks?.io;
   const metricsFolder = metricsFolderOf(dataFolder);
+  const [dialog, setDialog] = useState<null | { kind: "connect" } | { kind: "key"; path: string; columns: readonly string[] }>(null);
   const open = (path: string) => void onSelect(path);
-  const making = useDataMaking({ host, listings: nesting, ws, compact, open });
-  const { mayKey } = making;
+  const taken = useMemo(() => {
+    const out = new Set<string>();
+    for (const path of [dataFolder, metricsFolder, ...ws.sources.map((s) => s.folder)]) {
+      for (const entry of nesting.listingOf(path)?.entries ?? []) out.add(entry.path);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.sources, nesting, dataFolder, metricsFolder]);
+
+  const newMetric =
+    io === undefined
+      ? undefined
+      : () => {
+          const path = freePath(metricsFolder, "new-metric", ".md", taken);
+          void io
+            .create(path, newMetricText(startingFormula(ws.sources, ws.sheets)))
+            .then(() => {
+              host.tasks?.refresh([metricsFolder]);
+              open(path);
+            })
+            .catch(() => host.tasks?.say("The metric could not be made. Try again."));
+        };
   const actions: DataActions = {
-    ...(making.connect === undefined ? {} : { connect: making.connect }),
-    ...(making.newMetric === undefined ? {} : { newMetric: making.newMetric }),
+    ...(io === undefined || !mayKey ? {} : { connect: () => setDialog({ kind: "connect" }) }),
+    ...(newMetric === undefined ? {} : { newMetric }),
   };
-  const newMetric = making.newMetric;
+  const makeSource = async (files: PushSourceFiles): Promise<string | null> => {
+    if (io === undefined) return "You can't add to this workspace.";
+    try {
+      await io.create(files.about.path, files.about.text);
+      await io.create(files.sheet.path, files.sheet.text);
+    } catch {
+      return "The source could not be made. Try again.";
+    }
+    host.tasks?.refresh([dataFolder, files.folder]);
+    const columns = files.sheet.text.trim().split(",").map((cell) => cell.split(":")[0] ?? cell);
+    setDialog({ kind: "key", path: files.sheet.path, columns });
+    open(files.folder);
+    return null;
+  };
 
   const metrics = metricViews(ws);
   const readingsPath = `${metricsFolder}/readings.csv`;
@@ -100,13 +142,13 @@ export function DataFolderPage({
         endpoint={sheetRowsEndpoint()}
         actions={{
           ...(push && mayKey && first !== undefined
-            ? { newKey: () => making.openKey(first.path, (firstSheet?.columns ?? []).map((c) => c.name)) }
+            ? { newKey: () => setDialog({ kind: "key", path: first.path, columns: (firstSheet?.columns ?? []).map((c) => c.name) }) }
             : {}),
           ...(onMore === undefined ? {} : { more: onMore }),
           copy: (text) => void writeClipboard(text),
         }}
-        {...(push && mayKey && making.workspaceId !== null && first !== undefined
-          ? { keys: <PushKeys workspaceId={making.workspaceId} path={first.path} now={now} /> }
+        {...(push && mayKey && current !== null && first !== undefined
+          ? { keys: <PushKeys workspaceId={current.id} path={first.path} now={now} /> }
           : {})}
         onOpen={open}
       />
@@ -116,7 +158,12 @@ export function DataFolderPage({
   return (
     <View style={width === null ? undefined : { width, alignSelf: "center" }}>
       {page}
-      {making.dialogs}
+      {dialog?.kind === "connect" ? (
+        <ConnectSourceDialog dataFolder={dataFolder} taken={taken} sheet={compact} onMake={makeSource} onClose={() => setDialog(null)} />
+      ) : null}
+      {dialog?.kind === "key" && current !== null ? (
+        <SheetSourcesDialog workspaceId={current.id as Id<"workspaces">} path={dialog.path} columns={dialog.columns} onClose={() => setDialog(null)} />
+      ) : null}
     </View>
   );
 }

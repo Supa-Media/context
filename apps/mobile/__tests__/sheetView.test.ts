@@ -31,7 +31,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(options: { text?: string; readOnly?: boolean; say?: (m: string) => void; keptBy?: { name: string; onOpenSource?: () => void } } = {}): { changes: string[] } {
+function mount(options: { text?: string; readOnly?: boolean; say?: (m: string) => void } = {}): { changes: string[] } {
   const changes: string[] = [];
   const initial = options.text ?? SHEET;
   const readOnly = options.readOnly ?? false;
@@ -43,7 +43,6 @@ function mount(options: { text?: string; readOnly?: boolean; say?: (m: string) =
       readOnly,
       people: ["Seyi", "Ada"],
       ...(options.say ? { say: options.say } : {}),
-      ...(options.keptBy ? { keptBy: options.keptBy } : {}),
       onChangeText: (next: string) => {
         changes.push(next);
         setText(next);
@@ -203,19 +202,6 @@ describe("the sheet grid", () => {
     expect($('[data-testid="sheet-new-row"]')).toBeNull();
     expect($('[data-testid="sheet-add-column"]')).toBeNull();
     expect($$('[data-testid="sheet-row"]')).toHaveLength(2);
-  });
-
-  // Data sources, stage C (board 08): a sheet a source syncs says so, links to the source, and cannot be edited here.
-  test("a sheet a source keeps up to date is read-only under its lock line, which opens the source", () => {
-    const opened: string[] = [];
-    const { changes } = mount({ keptBy: { name: "GitHub", onOpenSource: () => void opened.push("source") } });
-    expect($('[data-testid="sheet-synced"]')?.textContent).toContain("Kept up to date by GitHub. Edits here are replaced at the next sync.");
-    expect($('[data-testid="sheet-new-row"]')).toBeNull();
-    expect($('[data-testid="sheet-sources-open"]')).toBeNull();
-    press(cell(1, 3));
-    expect(changes).toEqual([]);
-    press($('[data-testid="sheet-synced-source"]')!);
-    expect(opened).toEqual(["source"]);
   });
 
   test("a file with problems lists the first three with their line numbers and still shows its rows", () => {

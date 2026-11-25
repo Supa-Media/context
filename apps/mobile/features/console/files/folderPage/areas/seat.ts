@@ -43,7 +43,7 @@ export const MODE_TIPS: Readonly<Record<Mode, string>> = {
 };
 
 /** The lines that make a deeper folder an area. */
-export const SEAT_KEYS = ["owner", "helper", "modes", "metrics", "metric", "approvals"] as const;
+export const SEAT_KEYS = ["owner", "helper", "modes", "metrics", "approvals"] as const;
 /** Says outright whether a folder is an area: `area: false` keeps a folder in the Areas folder plain. */
 export const AREA_KEY = "area";
 /** The folder in the Areas folder that holds the how-to-reach cards. */
@@ -154,36 +154,6 @@ export function metricLine(metric: Metric): string {
   return target === "" ? name : `${name} · target ${target}`;
 }
 
-/**
- * An area's metrics as its `about.md` says them. The seat's own line is
- * `metrics: [Name · target over $5]`, its first item the area's one metric.
- * A `metric:` line (and a `target:` beside it) is read too, as the data
- * sources design review sketches it, and wins over `metrics:`: it is the
- * area's one metric, and any `metrics:` item of another name follows it.
- * Saving the seat writes the `metrics:` line and removes those two
- * (`seatChanges`), so the area says its metric once.
- */
-export function metricsOf(props: Readonly<Record<string, PropertyValue>>): Metric[] {
-  const listed = list(props.metrics).map(parseMetric);
-  const single = text(props.metric);
-  if (single === "") return listed;
-  const said = parseMetric(single);
-  const target = text(props.target);
-  const first: Metric = { name: said.name, target: target === "" ? said.target : target };
-  const key = first.name.toLowerCase();
-  return [first, ...listed.filter((metric) => metric.name.trim().toLowerCase() !== key)];
-}
-
-/**
- * A metric's name as it is matched, between an area's line and a metric
- * note's `metric:`: any case, runs of spaces as one, and without commas,
- * which a seat line cannot hold (`metricLine` drops them), so "Revenue, net"
- * picked is still found as "Revenue net".
- */
-export function metricKey(name: string): string {
-  return name.replace(/,/g, "").trim().replace(/\s+/g, " ").toLowerCase();
-}
-
 function modesOf(value: PropertyValue | undefined): Mode[] {
   const said = new Set(list(value, true).map((word) => word.toLowerCase()));
   return MODES.filter((mode) => said.has(mode.toLowerCase()));
@@ -215,7 +185,7 @@ export function seatOf(folder: string, root: string, notes: readonly ListNote[])
     ownerFrom,
     helper: text(props.helper) || null,
     modes: modesOf(props.modes),
-    metrics: metricsOf(props),
+    metrics: list(props.metrics).map(parseMetric),
     approvals: list(props.approvals),
   };
 }
@@ -320,9 +290,6 @@ export function seatChanges(edit: SeatEdit): Change[] {
     ["helper", edit.helper?.trim() || null],
     ["modes", edit.modes.length === 0 ? null : MODES.filter((mode) => edit.modes.includes(mode))],
     ["metrics", lines(edit.metrics.filter((metric) => metric.name.trim() !== "").map(metricLine))],
-    // The `metrics:` line now says the metric; a hand-written `metric:` and `target:` would win over it (`metricsOf`).
-    ["metric", null],
-    ["target", null],
     ["approvals", lines(edit.approvals)],
   ];
 }

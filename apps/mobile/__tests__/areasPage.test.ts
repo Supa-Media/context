@@ -157,7 +157,7 @@ describe("the Areas folder", () => {
     expect(reach.join(" ")).toContain("+1 555 010 0177");
     expect(reach.join(" ")).toContain("Helper");
     const labels = Array.from(menu.querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')).map((node) => strip(node.textContent).trim());
-    expect(labels).toEqual(expect.arrayContaining(["Edit seat…", "Add a sub-area…", "Change owner…", "Pick a metric…", "Open about.md"]));
+    expect(labels).toEqual(expect.arrayContaining(["Edit seat…", "Add a sub-area…", "Change owner…", "Add a metric…", "Open about.md"]));
     expect(labels.some((label) => label.startsWith("Edit how to reach"))).toBe(true);
   });
 
@@ -204,30 +204,22 @@ describe("the Areas folder", () => {
     expect(all("area-trend", where)).toHaveLength(1);
   });
 
-  // Stage C: an area picks one of the workspace's metrics; with none to pick, the picker says so.
-  test("Pick a metric… opens the metric picker, empty in a workspace with no metrics", async () => {
+  test("Add a metric… opens the seat with an empty metric row ready", async () => {
     await mount(host([], { notes: AREAS }), LISTING);
     await press(document.querySelector<HTMLElement>('[aria-label="Options for engineering"]')!);
     await press(one("menu-item-metric"));
-    expect(all("seat-dialog")).toHaveLength(0);
-    expect(all("metric-picker")).toHaveLength(1);
-    expect(strip(one("metric-picker").textContent)).toContain("Engineering metric");
-    expect(all("metric-picker-empty")).toHaveLength(1);
+    expect(all("seat-dialog")).toHaveLength(1);
+    const names = Array.from(document.querySelectorAll<HTMLInputElement>('[aria-label="Metric name"]'));
+    expect(names.length).toBeGreaterThan(0);
+    expect(names[names.length - 1]!.value).toBe("");
   });
 
   // The owner, 2026-11-24: one metric per area; another metric is a sub-area of its own.
-  test("an area with a metric is offered Change metric…, which opens the picker with its target", async () => {
+  test("an area with a metric is offered Edit metric…, and its seat offers no second metric", async () => {
     await mount(host([], { notes: AREAS }), LISTING);
     await press(document.querySelector<HTMLElement>('[aria-label="Options for finance"]')!);
-    expect(all("menu-item-metric").map((node) => strip(node.textContent).trim())).toEqual(["Change metric…"]);
+    expect(all("menu-item-metric").map((node) => strip(node.textContent).trim())).toEqual(["Edit metric…"]);
     await press(one("menu-item-metric"));
-    expect(all("metric-picker")).toHaveLength(1);
-  });
-
-  test("its seat still offers no second metric", async () => {
-    await mount(host([], { notes: AREAS }), LISTING);
-    await press(document.querySelector<HTMLElement>('[aria-label="Options for finance"]')!);
-    await press(one("menu-item-edit"));
     expect(document.querySelectorAll('[aria-label="Metric name"]')).toHaveLength(1);
     expect(all("seat-add-metric")).toHaveLength(0);
   });

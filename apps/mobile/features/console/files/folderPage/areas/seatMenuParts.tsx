@@ -95,7 +95,7 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
     items.push({ id: "add", label: "Add a sub-area…", leading: glyph("plus") });
     items.push({ id: "owner", label: owner === null ? "Assign owner…" : "Change owner…", leading: <OwnerFace face={face} size={16} /> });
     if (owner !== null) items.push({ id: "reach", label: `Edit how to reach ${ownerName}…`, leading: <ReachGlyph name="phone" size={14} /> });
-    items.push({ id: "metric", label: seat.metrics.length === 0 ? "Pick a metric…" : "Change metric…", leading: glyph(seat.metrics.length === 0 ? "plus" : "more") });
+    items.push({ id: "metric", label: seat.metrics.length === 0 ? "Add a metric…" : "Edit metric…", leading: glyph(seat.metrics.length === 0 ? "plus" : "more") });
   }
   items.push({ id: "about", label: "Open about.md", leading: glyph("folder") });
   const subtitle = [ownerName, seat.modes.join(", ")].filter((part) => part !== "").join(" · ");

@@ -294,9 +294,6 @@ describe("seatChanges", () => {
       ["helper", null],
       ["modes", null],
       ["metrics", null],
-      // A hand-written `metric:` and `target:` would win over the line just written, so saving removes them.
-      ["metric", null],
-      ["target", null],
       ["approvals", null],
     ]);
   });

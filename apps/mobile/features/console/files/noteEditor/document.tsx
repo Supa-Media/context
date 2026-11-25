@@ -3,7 +3,7 @@ import { noteGutterFor } from "../../../app/frame";
 import { layout } from "../../../design/tokens";
 import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
-import { SourceSheetView } from "../data/SourceSheetView";
+import { SheetView } from "../sheet/SheetView";
 import { PageView } from "../pageView/PageView";
 import { ActivityPage } from "../../activity/ActivityPage";
 import { ACTIVITY_PATH } from "../../activity/activity";
@@ -395,9 +395,7 @@ export function noteDocument(view: NoteView) {
             screen's 16pt gutter and room under it for the floating buttons.
           */
           <View style={[{ width: "100%", alignSelf: "stretch" }, compact ? { paddingHorizontal: 16, paddingBottom: 96 } : null]}>
-          <SourceSheetView
-            source={folderLists}
-            {...(onOpenNote === undefined ? {} : { onOpenFolder: onOpenNote })}
+          <SheetView
             path={state.path!}
             compact={compact}
             text={presence?.collaboration?.text ?? state.draft}
