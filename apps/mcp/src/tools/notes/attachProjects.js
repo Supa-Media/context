@@ -50,7 +50,7 @@ export async function attachProjects({ store, scope, rules, overrides, area, pro
   if (visible === null) return { error: "this workspace's map cannot be read just now; try again shortly.", done, problems };
   const keys = visible.map(({ key }) => key).filter((key) => isVisibleTextFile(key, scope, rules, overrides));
   if (!keys.some((key) => key.startsWith(`${area}/`))) {
-    return { error: `No area at ${area}/ that this connection can see. orient with no area shows the map.`, done, problems };
+    return { error: `No area at ${area}/ that this connection can see. Call orient with no area to see the map, then try again with an area from it.`, done, problems };
   }
 
   /** The project's front note: the first of FRONT_NOTES it has, or `about.md` to make. */

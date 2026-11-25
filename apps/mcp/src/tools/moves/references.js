@@ -13,6 +13,7 @@ import { forwardPath, readForwarding } from "../../forwarding.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
 import { factCandidates } from "../../tree/facts.js";
 import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
+import { areaLineCandidates, withAreaLine } from "../../moves/areaLines.js";
 
 /**
  * Point every link at where its note went.
@@ -79,7 +80,12 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   // The Convex tree's facts named the notes that can hold a link to what
   // moved (`tree/facts.js`): only those are read. Every visible note still feeds
   // `byName` below, because a bare link is unambiguous only across them all.
-  if (candidates) keys = keys.filter((key) => candidates.has(key));
+  // A project's `area:` line names its area's folder, not a note, so no link fact points at it: when a front note
+  // moved, every visible front note is read too (`moves/areaLines.js`).
+  if (candidates) {
+    const fronts = new Set(areaLineCandidates(keys, renames));
+    keys = keys.filter((key) => candidates.has(key) || fronts.has(key));
+  }
   const paged = Number.isInteger(limit) && limit > 0;
   if (!paged && !paths && keys.length > LINK_SCAN_CAP) {
     return { notes: 0, links: 0, capped: true };
@@ -155,7 +161,12 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
       const allowTarget = (destination) =>
         narrowerVisibility(referrerVisibility, effectiveVisibility(destination, rules, overrides)) ===
           referrerVisibility;
-      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName, forwardTarget, allowTarget });
+      const rewritten = withAreaLine(
+        rewriteLinks(text, { fromPath, toPath: key, renames, byName, forwardTarget, allowTarget }),
+        text,
+        renames,
+        allowTarget,
+      );
       if (rewritten === null) return { notes: 0, links: 0, written: null, failed: false };
       if (!write) return { notes: 1, links: rewritten.changed, written: null, failed: false };
       /*
