@@ -46,7 +46,7 @@ import {
 import { peekGoogleCompletionSecret, rememberGoogleCompletionSecret } from "../features/console/google/google";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-process.env.EXPO_PUBLIC_CONVEX_URL = "https://fake-deployment.convex.cloud";
+process.env.EXPO_PUBLIC_CONVEX_URL = "https://example-deployment.convex.cloud";
 
 function mount() {
   const container = document.createElement("div");
