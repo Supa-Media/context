@@ -400,15 +400,22 @@ export const SLOW_TURN_NOTE =
 export const QUIET_ACK = "[[tex:quiet-ack]]";
 export const QUIET_ACK_LINE = "(You texted them nothing: a job started or picked back up, and they hear only its result.)";
 
+/**
+ * A job a chat's own check-in starts (Dev2, 2026-11-25): nobody asked for the check-in, so the chat is told nothing when
+ * it starts, and its report reaches the chat only when something there needs someone (`jobReport.js` `unasked`). Before,
+ * Tex Devs' 10 AM check-in texted "I've set a job to check them fresh" and the job's "couldn't search Seyi's Gmail" after it.
+ */
+export const UNASKED_START = "Started in the background. Nobody asked for this check-in, so nothing is texted now, and its result reaches the chat only if someone there needs it. Don't do the work in this turn.";
+
 const text = (words, isError = false) => ({ content: [{ type: "text", text: words }], ...(isError ? { isError: true } : {}) });
 
 /**
  * What a texted turn gets for background jobs: the tool (unless it is a job
  * itself), what is running (`prompt`), and the jobs it started (`started`).
  *
- * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void, chooseStart?: (facts: object) => Promise<object> }} options (`chooseStart`: the Job start node, `jobStartChoice.js`)
+ * @param {{ running: Array|null, job: object|null, now: number, report?: boolean, read?: () => void, chooseStart?: (facts: object) => Promise<object>, unasked?: boolean }} options (`chooseStart`: the Job start node, `jobStartChoice.js`; `unasked`: a turn nobody asked for, a chat's own check-in, whose jobs start without a word and report only what someone needs: `UNASKED_START`)
  */
-export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false, opened = () => [], chooseStart = async (facts) => decideStart(facts, null) }) {
+export function backgroundSession({ running, job, now, report = false, read = () => {}, machines = null, inGroup = false, opened = () => [], chooseStart = async (facts) => decideStart(facts, null), unasked = false }) {
   if (running === null) return null;
   const started = [];
   let justStarted = []; // the titles of the jobs started since `endsTurn` last read them: a round may start several
@@ -470,12 +477,15 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         true,
       );
     }
-    started.push({ id: crypto.randomUUID(), title, brief: `${brief}${pagesSection(opened())}`, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`packages/tex/worker/jobs.ts` `startJobs`)
+    started.push({ id: crypto.randomUUID(), title, brief: `${brief}${pagesSection(opened())}`, doneWhen: line(args?.done_when, MAX_STATUS), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(unasked ? { unasked: true } : {}), startedAt: now }); // the id the Worker runs it under, so Tex's page points at it (`packages/tex/worker/jobs.ts` `startJobs`)
     justStarted.push(title);
-    const said = startLine(args?.say);
+    // Nobody asked for this turn, so nobody is told a job started (`UNASKED_START`): its say is dropped.
+    const said = unasked ? "" : startLine(args?.say);
     if (said !== "") saying.push(said);
     return text(
-      `Started in the background as "${title}". ${said !== "" ? "Your say is texted to them" : "Their text gets a tapback"}; then they hear its result. Don't do the work in this turn.`,
+      unasked
+        ? UNASKED_START
+        : `Started in the background as "${title}". ${said !== "" ? "Your say is texted to them" : "Their text gets a tapback"}; then they hear its result. Don't do the work in this turn.`,
     );
   };
   const live = running.filter((entry) => entry.state === "running");
@@ -727,7 +737,7 @@ export function startedJobs(background, tainted, { heard = "", sent = "", asked 
   const reached = background.started.length + background.steered.length + background.resumed.length > 0;
   return {
     ...(background.started.length > 0
-      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine }) => ({ id, title, brief, doneWhen, ...(asked.length > 0 ? { asked: asked.slice(-MAX_ASKED_TEXTS) } : {}), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}) })) }
+      ? { jobs: background.started.map(({ id, title, brief, doneWhen, mail, machine, unasked }) => ({ id, title, brief, doneWhen, ...(asked.length > 0 ? { asked: asked.slice(-MAX_ASKED_TEXTS) } : {}), ...(mail ? { mail } : {}), ...(machine ? { machine } : {}), ...(tainted ? { tainted: true } : {}), ...(unasked ? { unasked: true } : {}) })) }
       : {}),
     ...(background.steered.length + background.resumed.length > 0
       ? { steers: [...background.steered.map((entry) => ({ ...entry })), ...background.resumed.map((entry) => ({ id: entry.id, resume: true, ...(entry.repicked ? { machine: entry.repicked } : {}) }))] }

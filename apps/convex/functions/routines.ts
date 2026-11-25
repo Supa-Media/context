@@ -131,6 +131,7 @@ export const claimDueRoutines = internalMutation({
       phones: v.array(v.string()),
       chat: v.optional(v.string()),
       since: v.optional(v.number()),
+      mail: v.optional(v.boolean()),
       nextRunAt: v.optional(v.union(v.number(), v.null())),
     }),
   ),

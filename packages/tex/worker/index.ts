@@ -465,7 +465,7 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
   const where = found.ok ? chatWhereOf(await found.json()) : null;
   if (where === null) return "no_chat";
   const stub = chatInGateway(env, groupInboxName(where.groupId));
-  const body = { ...where, runId: run.runId, path: run.path, phone, timeZone: run.timeZone, ...(run.since !== undefined ? { since: run.since } : {}) };
+  const body = { ...where, runId: run.runId, path: run.path, phone, timeZone: run.timeZone, ...(run.since !== undefined ? { since: run.since } : {}), ...(run.mail !== undefined ? { mail: run.mail } : {}) };
   const response = await stub.fetch("https://inbox/group-routine", { method: "POST", body: JSON.stringify(body) });
   if (!response.ok) return "failed";
   return ((await response.json()) as { outcome?: unknown }).outcome === "queued" ? "queued" : "failed";

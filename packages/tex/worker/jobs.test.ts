@@ -77,11 +77,17 @@ describe("background jobs", () => {
     expect(
       readStartedJobs([
         { title: "Research", brief: "Do it", doneWhen: "a note", tainted: true },
+        { title: "Look", brief: "From a check-in", unasked: true },
+        { title: "Not unasked", brief: "x", unasked: "yes" },
         { title: "", brief: "x" },
         { title: "No brief" },
         "junk",
       ]),
-    ).toEqual([{ title: "Research", brief: "Do it", doneWhen: "a note", tainted: true }]);
+    ).toEqual([
+      { title: "Research", brief: "Do it", doneWhen: "a note", tainted: true },
+      { title: "Look", brief: "From a check-in", doneWhen: "", unasked: true },
+      { title: "Not unasked", brief: "x", doneWhen: "" },
+    ]);
   });
 
   it("never starts the same job twice, nor a fourth", async () => {

@@ -239,6 +239,8 @@ describe("handing a chat routine out", () => {
     expect(chatWhereOf(true)).toBeNull();
     expect(chatRoutineRunOf({ ...RUN, timeZone: "America/New_York", since: 1_700_000_000_000 })).toEqual({ ...RUN, timeZone: "America/New_York", since: 1_700_000_000_000 });
     expect(chatRoutineRunOf({ ...RUN, timeZone: "x\ny", since: -1 })).toEqual(RUN);
+    expect(chatRoutineRunOf({ ...RUN, mail: false })).toEqual({ ...RUN, mail: false });
+    expect(chatRoutineRunOf({ ...RUN, mail: "no" })).toEqual(RUN);
     expect(saysSkip("SKIP.")).toBe(true);
   });
 
@@ -281,6 +283,18 @@ describe("the words a chat's routine and check-in turns are asked (kept in packa
     expect(chatRoutineMessage({ ...where, path: "tex/groups/orbit-lamp-river/routines/rent.md" }).text).toBe(
       '(It\'s time for this chat\'s routine, tex/groups/orbit-lamp-river/routines/rent.md (context: "@context-lc"). Read that note and do what it says now, for everyone here, as if it had just been asked. If it only wants a word when there is something to say and there isn\'t, call send with action say_nothing: nothing is posted, and never write why you are quiet as your answer, since an answer is posted to everyone here.)',
     );
+  });
+  // Dev2, 2026-11-25: Tex Devs had no mail shared, its check-ins searched mail anyway with a tool a group with no shared
+  // mail is never given, and one told the chat its "mail and calendar lookups keep timing out".
+  it("a check-in in a chat with no mail shared never asks for a mail search", () => {
+    const none = chatRoutineMessage({ ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC", since: 1_700_000_000_000, mail: false }).text;
+    expect(none).not.toContain("mail shared with this chat");
+    expect(none).not.toContain("after:");
+    expect(none).toContain("three places only");
+    expect(none).toContain("mail sent to this chat's own address");
+    expect(none).toContain("calendars shared with this chat");
+    const shared = chatRoutineMessage({ ...RUN, path: CHAT_LOOK_PATH, timeZone: "UTC", since: 1_700_000_000_000, mail: true }).text;
+    expect(shared).toContain("four places only: mail shared with this chat (search it with after:1700000000)");
   });
   it("asks a chat's own check-in in the same words", () => {
     expect(chatRoutineMessage({ ...where, path: CHAT_LOOK_PATH, since: 1_790_000_000_000, timeZone: "UTC" }).text).toBe(

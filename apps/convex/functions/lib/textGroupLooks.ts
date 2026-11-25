@@ -62,6 +62,8 @@ export type ClaimedLook = {
   phones: string[];
   chat: string;
   since: number;
+  /** Whether any mail is shared with the chat now: its check-in asks for a mail search only then (`groupRunQuestions.cjs`). */
+  mail: boolean;
 };
 
 /** Who a chat's look runs as: whoever bound it, else the earliest person sharing mail there. */
@@ -205,7 +207,7 @@ export async function claimChatLooks(ctx: MutationCtx, runIds: string[], now: nu
     const since = group.lastLookAt ?? now - FIRST_LOOK_MS;
     await ctx.db.patch(group._id, { nextLookAt: nextBeatAfter(timeZone, now) ?? undefined, lastLookAt: now, lookRunId: runId, lookClaimedAt: now });
     await recordAudit(ctx, { workspaceId, actorUserId: looker, actorClientId: LOOKS_CLIENT_ID, action: "chat.look", details: {} });
-    looks.push({ runId, path: CHAT_LOOK_PATH, timeZone, send: "text", phones, chat: group.groupKey, since });
+    looks.push({ runId, path: CHAT_LOOK_PATH, timeZone, send: "text", phones, chat: group.groupKey, since, mail: mail.length > 0 });
   }
   return looks;
 }

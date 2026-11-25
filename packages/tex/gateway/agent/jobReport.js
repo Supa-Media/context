@@ -64,7 +64,9 @@ export function jobReportOf(body, { chatTurn, job }) {
   const ask = value.state === "running" && typeof value.ask === "string" && value.ask.includes(MACHINE_ASK_OPENING) ? value.ask.trim().slice(0, MAX_ASK) : "";
   // The job's id, so the chat's history can say which job it was (`workEntries.js` `reportEntry`).
   const id = typeof value.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value.id) ? value.id : null;
-  return { title, state: value.state, texts, ...(ask ? { ask } : {}), ...(id ? { id } : {}) };
+  // A job a chat's own check-in started (`background.js` `UNASKED_START`): nobody asked, so it may end in silence.
+  const unasked = value.unasked === true;
+  return { title, state: value.state, texts, ...(ask ? { ask } : {}), ...(id ? { id } : {}), ...(unasked ? { unasked: true } : {}) };
 }
 
 /** What the coordinator's turn is asked: the gateway's own line, kept in the history as Tex speaking by itself. */
@@ -101,7 +103,9 @@ export function jobReportPrompt(report) {
     "- If it is wrong, contradicts what they were told, or stops short of what they asked, fix it yourself now, or start the job again " +
     '(call send with action background) with a brief that says what to do differently, and tell them in one line which it is.\n' +
     '- A job still running that should change course gets your instruction with a call to send with action steer_job (args: title, note).\n' +
-    (report.state === "running"
+    (report.unasked === true
+      ? `- Nobody asked for this job: the chat's own check-in started it. Text one short line only when someone here needs to act on it or know it now; otherwise, or when all it says is that it couldn't look somewhere, ${SAY_NOTHING}: nothing is texted.`
+      : report.state === "running"
       ? `- If nothing in it is new to them (they already have it, or it repeats another job), ${SAY_NOTHING}: nothing is texted.`
       : "- It has ended, so they always get one line from you saying where it stands and what it found, even when that repeats what they have. Never say nothing.")
   );
@@ -128,7 +132,7 @@ export function reportReply(report, answer) {
   if (typeof report.ask === "string" && report.ask !== "") return { answer: report.ask, quiet: false };
   const said = String(answer ?? "").trim();
   const nothing = said === "" || isControlWord(said) || saysQuiet(said);
-  if (report.state === "running") return nothing ? { answer: "", quiet: true } : { answer, quiet: false };
+  if (report.state === "running" || report.unasked === true) return nothing ? { answer: "", quiet: true } : { answer, quiet: false };
   const words = nothing ? said.replace(CONTROL_EDGE, "").trim() : said;
   return { answer: words === "" || isControlWord(words) ? reportStatusLine(report) : words, quiet: false };
 }

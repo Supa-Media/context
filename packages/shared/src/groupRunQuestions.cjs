@@ -52,12 +52,16 @@ function chatRoutineQuestion(path, lastRan = null) {
  * mailbox's own person is theirs: their own check-ins text them about it.
  * Calendars shared with the chat are looked at too, and held against what the chat said (Dev2, 2026-11-19: a member's
  * calendar had the wedding on Saturday while the chat planned around Sunday, and the check-in stayed quiet).
+ * Mail shared with the chat is named only when some is (`mail` from `textGroupLooks.ts`; Dev2, 2026-11-25: Tex Devs had
+ * none, its check-ins searched mail anyway with a tool they are never given, and one told the chat its "lookups keep
+ * timing out"). `mail` undefined (an older control plane) keeps the line.
  */
-function chatLookQuestion(since, lastRan) {
+function chatLookQuestion(since, lastRan, { mail } = {}) {
   const after = since === undefined ? "" : ` (search it with after:${Math.floor(since / 1000)})`;
+  const shared = mail === false ? "" : `mail shared with this chat${after}, `;
   return (
     `(Time for this chat's check-in: look on your own at what is new${lastRan === null ? "" : ` since ${lastRan}`}, ` +
-    `in four places only: mail shared with this chat${after}, mail sent to this chat's own address (the notes in its folder's email/ that arrived since), ` +
+    `in ${mail === false ? "three" : "four"} places only: ${shared}mail sent to this chat's own address (the notes in its folder's email/ that arrived since), ` +
     "calendars shared with this chat (read_calendar from today for the next 7 days, one account at a time; none shared, skip it), " +
     "and what was asked of you in this chat that you said you would follow up on. " +
     "Hold what you find against what people here said or planned: when an email or a shared calendar disagrees with the chat " +

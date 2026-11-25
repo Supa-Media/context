@@ -310,6 +310,8 @@ describe("the chat checks in on its own", () => {
     expect(runs).toEqual([expect.objectContaining({ path: CHAT_LOOK_PATH, chat: row.groupKey, phones: [SEYI] })]);
     expect(runs[0]!.since).toBeGreaterThanOrEqual(claimedAt - FIRST_LOOK_MS);
     expect(runs[0]!.since).toBeLessThan(claimedAt);
+    // No mail is shared here, so its check-in is told not to search any (Dev2, 2026-11-25).
+    expect(runs[0]!.mail).toBe(false);
     // Handing it out sets the next slot at once.
     expect((await lookRow(t)).nextLookAt).toBeGreaterThan(Date.now());
   });
@@ -353,6 +355,7 @@ describe("the chat checks in on its own", () => {
     const runs = await dueRuns(t);
     expect(runs).toEqual([expect.objectContaining({ path: CHAT_LOOK_PATH, chat: row.groupKey, phones: [SEYI] })]);
     expect(runs[0]!.accessToken).toBeUndefined();
+    expect(runs[0]!.mail).toBe(true); // mail is shared here, so its check-in searches it
     expect(await dueRuns(t)).toEqual([]);
     // Not again while this one is still out.
     await patchLook(t, { nextLookAt: Date.now() - 1 });

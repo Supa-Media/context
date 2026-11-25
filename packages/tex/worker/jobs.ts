@@ -38,7 +38,7 @@ import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd
 /** `mail`: one part of a split ask; the project note every part's job joins the mail of, and this part's name there. */
 /** One of the person's own computers a job runs on (`machineTurn.ts`), as the gateway picked it (`apps/mcp/src/machines/forJobs.js`). */
 export type JobMachine = { workspaceId: string; machineId: string; name: string; tool: "claude" | "codex"; folder: string; repo?: string };
-export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; /** Their earlier texts still open when it started, oldest first (the gateway's `openAsk.js`). */ asked?: string[]; tainted?: true; mail?: JobProject; machine?: JobMachine };
+export type StartedJob = { id?: string; title: string; brief: string; doneWhen?: string; /** Their earlier texts still open when it started, oldest first (the gateway's `openAsk.js`). */ asked?: string[]; tainted?: true; mail?: JobProject; machine?: JobMachine; /** Started by a chat's own check-in, which nobody asked for: its report may end in silence (`jobTexts.ts`). */ unasked?: true };
 export type JobProject = { path: string; name: string; context?: string };
 /** A step a job's turn took, as the gateway told it (`withJobSteps`): tool and target, never a note's text; a failed one, with the tool's short reason. */
 export type JobStep = { at: number; text: string; failed?: true; why?: string };
@@ -63,7 +63,7 @@ export type JobMail = { from: string; app?: string; kind: "note" | "ask" | "inte
 export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true; machine?: JobMachine };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
 /** `ask`: the gateway's own line asking a computer's owner for a 👍, texted as it is (`machineTurn.ts`). */
-export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; ask?: string };
+export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; ask?: string; unasked?: true };
 /** `waiting`: it needs something only they can give; `stuck`: no way forward, or out of time (`jobRun.ts`). */
 export type JobState = "running" | "done" | "failed" | "waiting" | "stuck";
 
@@ -80,7 +80,7 @@ export type MachineRunRef = { runId: string; part: number; deadline: number };
 
 /** The chat's record of a job: no ask, only where its answer goes. */
 /** `resumeAt`: a job paused at the daily limit starts again then, by itself (`jobPause.ts`). */
-export type JobEntry = RunningJob & { chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true; onName?: string; onTool?: "claude" | "codex" };
+export type JobEntry = RunningJob & { unasked?: true; chatId?: string; messageId?: string; line?: string; groupId?: string; channel?: "simulator"; stopped?: true; finalPass?: string; machine?: true; onName?: string; onTool?: "claude" | "codex" };
 
 /** What a job's object tells the chat's inbox. `first`: the job's count of texts before these, so a retry repeats none. */
 /** `vaultWatch`: the phone a job's turn texted a link to save a login to, so its inbox watches for the save (`vaultWatch.ts`). */
@@ -236,13 +236,13 @@ export function readStartedJobs(value: unknown): StartedJob[] {
   if (!Array.isArray(value)) return [];
   return value.slice(0, MAX_TURN_JOBS).flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { id, title, brief, doneWhen, asked, tainted, mail, machine } = entry as Record<string, unknown>;
+    const { id, title, brief, doneWhen, asked, tainted, mail, machine, unasked } = entry as Record<string, unknown>;
     const job = { title: line(title, 120), brief: typeof brief === "string" ? brief.trim().slice(0, 4_000) : "" /* the model's 2,000 and the pages the chat opened (`packages/tex/gateway/agent/jobPages.js`) */, doneWhen: line(doneWhen, MAX_STATUS) };
     if (job.title === "" || job.brief === "") return [];
     const project = readJobProject(mail);
     const computer = readJobMachine(machine);
     const open = Array.isArray(asked) ? asked.filter((words): words is string => typeof words === "string" && words.trim() !== "").slice(-MAX_OPEN_ASKED).map((words) => words.trim().slice(0, 1_000)) : [];
-    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(open.length > 0 ? { asked: open } : {}), ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}), ...(computer ? { machine: computer } : {}) }];
+    return [{ ...(typeof id === "string" && ID.test(id) ? { id } : {}), ...job, ...(open.length > 0 ? { asked: open } : {}), ...(tainted === true ? { tainted: true as const } : {}), ...(project ? { mail: project } : {}), ...(computer ? { machine: computer } : {}), ...(unasked === true ? { unasked: true as const } : {}) }];
   });
 }
 
@@ -461,7 +461,7 @@ export async function startJobs(
     // The gateway's id is used when it is well formed and no entry holds it yet; otherwise a fresh one.
     const gatewayId = job.id !== undefined && ID.test(job.id) && (await storage.get(entryKey(job.id))) === undefined ? job.id : undefined;
     const id = gatewayId ?? crypto.randomUUID();
-    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.machine ? { machine: true as const, on: job.machine.machineId, onName: job.machine.name, onTool: job.machine.tool } : {}) };
+    const entry: JobEntry = { id, title: job.title, state: "running", startedAt: context.now, ...context.place, ...(job.unasked ? { unasked: true as const } : {}), ...(job.machine ? { machine: true as const, on: job.machine.machineId, onName: job.machine.name, onTool: job.machine.tool } : {}) };
     await storage.put(entryKey(id), entry);
     try {
       await context.spawn(id, { ...job, id, inbox: context.inbox, origin: context.origin, attempt: 1, tries: 0, startedAt: context.now });
