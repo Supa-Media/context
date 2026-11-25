@@ -581,12 +581,35 @@ asap", and, on where the rows go, "Only @supa, named in gateway config".*
   called start the day this shipped: rebuilding them would mean reading every
   customer's editing history, which the usage source never does.
 
+### The app's own vitals in the same source
+
+*Decided 2026-11-25, on the owner's pick of the recommended option: the app
+reports Start time, Load time and Clean sessions itself rather than reading
+them out of Sentry.*
+
+- **One row per session per kind, in `app.csv`** beside the other sheets, so
+  it inherits every check above. Columns: `id` (`<session>:<kind>`), `at`,
+  `platform` (web, desktop, ios, android), `kind`, `ms`, `session`; 30 days.
+- **What a session is.** One launch of the app, named by 16 random hex the app
+  makes at launch (`apps/mobile/features/observability/vitals.ts`). It names
+  nobody: the control plane's `appVitals` table keeps no account, device,
+  screen or error text, and deletes rows after 30 days.
+- **The kinds.** `session` (it happened), `start` on a phone or `load` in a
+  browser or the desktop shell (milliseconds to the first frame: since the
+  page was asked for in a browser, since the app's code began on a phone, so
+  a phone's number reads a little short), and `error` (the session reached
+  `reportError` at least once). Clean sessions is one minus sessions with an
+  error over all sessions.
+- **Only with Crash reports on, and only signed in.** Off, the app notes
+  nothing; signed out, nothing is sent. The control plane keeps one row per
+  session per kind and 40 a person an hour, so a loop cannot fill the sheet.
+
 ### Bug reports in the same source
 
 *Decided 2026-11-25, on the owner's "ship user reported bugs going into a
 sheet overnight, either through tex or in the app".*
 
-- **One row per report, in `bug-reports.csv`** beside the other four sheets,
+- **One row per report, in `bug-reports.csv`** beside the other sheets,
   so it inherits every check above: the named workspace only, armed by an
   owner, owners only by both renderings, re-checked every run. Columns:
   `reference`, `filed`, `person`, `channel`, `status`.

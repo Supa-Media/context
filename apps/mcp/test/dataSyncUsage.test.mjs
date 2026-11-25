@@ -45,11 +45,15 @@ const EXPORT = {
     { at: NOW - 90_000, userId: "uBea", channel: "tex", reference: "a".repeat(32) },
     { at: NOW - 80_000, userId: "uBea", channel: "app", reference: "b".repeat(32) },
   ],
+  vitals: [
+    { at: NOW - 70_000, platform: "ios", kind: "start", ms: 1834, session: "0123456789abcdef" },
+    { at: NOW - 69_000, platform: "ios", kind: "session", ms: null, session: "0123456789abcdef" },
+  ],
   cut: false,
   timingsError: null,
 };
 
-/** Alice's workspace with a usage source, its five sheets owners only, and a sync object that reads `exported`. */
+/** Alice's workspace with a usage source, its six sheets owners only, and a sync object that reads `exported`. */
 async function usageWorld({ rules = USAGE_RULES, named = "alice", exported = EXPORT } = {}) {
   const w = await world();
   w.env.USAGE_WORKSPACE = named;
@@ -66,8 +70,8 @@ async function usageWorld({ rules = USAGE_RULES, named = "alice", exported = EXP
     openStore: (answer) => new R2Store(w.buckets.get(answer.binding.workspaceId)),
   });
   const who = w.alice;
-  const ids = { about: noteId(20), activity: noteId(21), signups: noteId(22), replies: noteId(23), calls: noteId(24), bugs: noteId(25) };
-  const files = { activity: "activity.csv", signups: "sign-ups.csv", replies: "tex-replies.csv", calls: "calls.csv", bugs: "bug-reports.csv" };
+  const ids = { about: noteId(20), activity: noteId(21), signups: noteId(22), replies: noteId(23), calls: noteId(24), bugs: noteId(25), app: noteId(26) };
+  const files = { activity: "activity.csv", signups: "sign-ups.csv", replies: "tex-replies.csv", calls: "calls.csv", bugs: "bug-reports.csv", app: "app.csv" };
   who.object.store.rows.put([
     { id: "d-usage", path: "data/usage", kind: "folder", at: 1 },
     { id: "f-uabout", path: "data/usage/about.md", kind: "file", at: 2, storageKey: `notes/${ids.about}.md`, noteId: ids.about, etag: "e-ua" },
@@ -89,7 +93,7 @@ test("the deployment names its usage workspace by slug, with or without @", () =
   for (const bad of [undefined, "", "a b", "@", "x/y", 7]) assert.equal(usageWorkspaceOf({ USAGE_WORKSPACE: bad }), null);
 });
 
-test("an owner of the named workspace arms it, and its five sheets fill, by person id only", { skip }, async () => {
+test("an owner of the named workspace arms it, and its six sheets fill, by person id only", { skip }, async () => {
   const w = await usageWorld();
   const armed = await arm(w, w.alice, "data/usage/about.md");
   assert.equal(armed.status, 200, JSON.stringify(armed.body));
@@ -109,6 +113,9 @@ test("an owner of the named workspace arms it, and its five sheets fill, by pers
   assert.deepEqual(replies.rows.map((row) => [row.kind, row.seconds, row.answered]).sort(), [["one", "", "0"], ["one", "4.2", "1"]]);
   const calls = await w.usage.sheet("calls");
   assert.deepEqual(calls.rows.map((row) => [row.tool, row.ms, row.ok, row.client, row.weight]), [["orient", "540", "1", "Claude", "2"]]);
+  const app = await w.usage.sheet("app");
+  assert.deepEqual(app.columns.map((column) => column.name), ["id", "at", "platform", "kind", "ms", "session"]);
+  assert.deepEqual(app.rows.map((row) => [row.kind, row.platform, row.ms]), [["start", "ios", "1834"], ["session", "ios", ""]]);
   const bugs = await w.usage.sheet("bugs");
   assert.deepEqual(bugs.columns.map((column) => column.name), ["reference", "filed", "person", "channel", "status"]);
   assert.deepEqual(bugs.rows.map((row) => ({ ...row })), [
@@ -288,4 +295,22 @@ test("a person is marked once a day per kind, and the app and Tex are not caller
   assert.deepEqual(probe("context_console"), []);
   assert.deepEqual(probe("context_texts"), []);
   assert.deepEqual(probe(""), []);
+});
+
+test("app vitals keep a platform, a kind, a timing's ms and the session id, and drop anything else", async () => {
+  const rows = await usageRows(
+    {
+      vitals: [
+        { at: NOW, platform: "web", kind: "load", ms: 812.4, session: "aaaaaaaaaaaaaaaa", path: "secret/note.md" },
+        { at: NOW, platform: "web", kind: "error", ms: 5, session: "aaaaaaaaaaaaaaaa" },
+        { at: NOW, platform: "tv", kind: "load", ms: 1, session: "bbbbbbbbbbbbbbbb" },
+        { at: NOW, platform: "ios", kind: "crash", session: "bbbbbbbbbbbbbbbb" },
+        { at: NOW, platform: "ios", kind: "start", ms: null, session: "bbbbbbbbbbbbbbbb" },
+        { at: NOW, platform: "ios", kind: "session", session: "user_123" },
+      ],
+    },
+    { key: KEY, held: { activity: new Map(), signups: new Map() }, now: NOW },
+  );
+  assert.deepEqual(rows.app.map((row) => [row.id, row.kind, row.ms]), [["aaaaaaaaaaaaaaaa:load", "load", "812"], ["aaaaaaaaaaaaaaaa:error", "error", ""]]);
+  assert.equal(JSON.stringify(rows.app).includes("secret"), false);
 });

@@ -220,6 +220,13 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep app vitals past their retention",
+  { hours: 1 },
+  internal.functions.appVitals.prune,
+  {},
+);
+
+crons.interval(
   "sweep hourly usage past its retention",
   { hours: 1 },
   internal.functions.usage.pruneHourly,

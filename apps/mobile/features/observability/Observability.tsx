@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { usePathname } from "expo-router";
 import { startActiveTime } from "./activeTime";
 import { initObservability, trackActive, trackScreen } from "./client";
+import { launchMs, noteLaunch } from "./vitals";
 
 /** Starts both pipelines, records sanitized Expo Router screen names, and counts time in use. */
 export function Observability({ children }: { children: ReactNode }) {
@@ -9,7 +10,13 @@ export function Observability({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void initObservability();
-    return startActiveTime(trackActive);
+    // After the first frame, so the time is the time to something on screen.
+    const frame = requestAnimationFrame(() => noteLaunch(launchMs()));
+    const stop = startActiveTime(trackActive);
+    return () => {
+      cancelAnimationFrame(frame);
+      stop();
+    };
   }, []);
 
   useEffect(() => {

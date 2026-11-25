@@ -59,6 +59,7 @@ import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { usagePeopleTables } from "./functions/lib/schema/usagePeople";
+import { appVitalsTables } from "./functions/lib/schema/appVitals";
 import { texToolFailureTables } from "./functions/lib/schema/texToolFailures";
 import { texLabTables } from "./functions/lib/schema/texLab";
 import { labEvalTables } from "./functions/lib/schema/labEvals";
@@ -172,6 +173,7 @@ const schema = defineSchema({
   ...archivedAccountTables,
   ...agentTurnTables,
   ...usagePeopleTables,
+  ...appVitalsTables,
   ...texToolFailureTables,
   ...texLabTables,
   ...labEvalTables,

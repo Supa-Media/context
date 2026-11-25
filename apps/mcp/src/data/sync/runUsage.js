@@ -2,7 +2,7 @@
  * One hourly run of the Context usage source (`docs/decisions/data-and-metrics.md`, "The Context usage source"):
  * Context-wide activity, by person ids nobody can turn back into an account, written into the one workspace this
  * deployment's config names (`USAGE_WORKSPACE`, a slug; decided by the owner, 2026-11-25: "Only @supa, named in
- * gateway config"), in five sheets only its owners can open: four of activity, and one row per bug report people
+ * gateway config"), in six sheets only its owners can open: four of activity, the app's own vitals, and one row per bug report people
  * sent, from the app or by texting Tex (decided by the owner, 2026-11-25: "user reported bugs going into a sheet").
  *
  * Every run asks again:
@@ -11,7 +11,7 @@
  * 2. **That the person who armed it is still an owner**, by the workspace object's own members.
  * 3. **That the source still is one**: its `about.md` by note id, in a source folder of the Data folder, saying
  *    `source: usage`.
- * 4. **That its five sheets are owners only**, by both of the workspace's renderings (member and guest): each must
+ * 4. **That its six sheets are owners only**, by both of the workspace's renderings (member and guest): each must
  *    be `private`, and none sealed. A sheet anyone else could open stops the source before anything is read, so
  *    loosening a sheet or its folder never publishes a row.
  *
@@ -38,7 +38,7 @@ const FIRST_SINCE_MS = 30 * DAY_MS;
 /** What "returning" looks back over: active today and active on another day in the 7 before. */
 const RETURNING_DAYS = 7;
 
-/** The five sheets: their file, key, date column, columns and how long each keeps its rows. */
+/** The six sheets: their file, key, date column, columns and how long each keeps its rows. */
 export const USAGE_SHEETS = Object.freeze({
   activity: {
     file: "activity.csv",
@@ -96,6 +96,22 @@ export const USAGE_SHEETS = Object.freeze({
       { name: "weight", type: "number" },
     ],
   },
+  // The app's own vitals (Start time, Load time, Clean sessions): one row per app session per kind, by a random
+  // session id the app made at launch (`apps/convex/functions/appVitals.ts`).
+  app: {
+    file: "app.csv",
+    key: "id",
+    date: "at",
+    keepDays: 30,
+    columns: [
+      { name: "id", type: "text" },
+      { name: "at", type: "date" },
+      { name: "platform", type: "text" },
+      { name: "kind", type: "text" },
+      { name: "ms", type: "number" },
+      { name: "session", type: "text" },
+    ],
+  },
   bugs: {
     file: "bug-reports.csv",
     key: "reference",
@@ -115,6 +131,9 @@ export const USAGE_SHEETS = Object.freeze({
 
 /** The ways a bug report comes in, as the control plane's receipts say them. */
 const BUG_CHANNELS = new Set(["app", "tex", "tex-group", "agent"]);
+/** The app's platforms and vital kinds (`apps/convex/functions/appVitals.ts`). */
+const APP_PLATFORMS = new Set(["web", "desktop", "ios", "android"]);
+const APP_KINDS = new Set(["start", "load", "session", "error"]);
 /** A report's reference: the 32-hex event id the person was told. */
 const REFERENCE = /^[0-9a-f]{32}$/;
 
@@ -223,6 +242,15 @@ export async function usageRows(exported, { key, held, now }) {
     calls.push({ id: `${call.at}:${call.tool}:${call.ms}`, at: instant(call.at), tool: call.tool, ms: String(call.ms), ok: call.ok === true ? "1" : "0", client: typeof call.client === "string" ? call.client : "", weight: String(Number.isFinite(call.weight) ? call.weight : 1) });
   }
 
+  // App vitals: the platform, the kind, the milliseconds (a timing only) and the random session id, nothing else.
+  const app = [];
+  for (const vital of exported.vitals ?? []) {
+    if (!Number.isFinite(vital?.at) || !APP_PLATFORMS.has(vital.platform) || !APP_KINDS.has(vital.kind) || typeof vital.session !== "string" || !/^[0-9a-f]{16}$/.test(vital.session)) continue;
+    const timed = vital.kind === "start" || vital.kind === "load";
+    if (timed && !(Number.isFinite(vital.ms) && vital.ms >= 0)) continue;
+    app.push({ id: `${vital.session}:${vital.kind}`, at: instant(vital.at), platform: vital.platform, kind: vital.kind, ms: timed ? String(Math.round(vital.ms)) : "", session: vital.session });
+  }
+
   // Bug reports: one row per report, by the reference the person was told, so the report itself is found by it
   // (a Tex bug note's `reference:`, the app's Sentry event). Never a word of the report.
   const bugs = [];
@@ -233,7 +261,7 @@ export async function usageRows(exported, { key, held, now }) {
     bugs.push({ reference: bug.reference, filed: instant(bug.at), person, channel: bug.channel, status: "open" });
   }
 
-  return { activity: [...days.values()], signups, replies, calls, bugs };
+  return { activity: [...days.values()], signups, replies, calls, app, bugs };
 }
 
 /**

@@ -151,7 +151,7 @@ describe("the export", () => {
     const ok = await gatewayPost(t, "/gateway/usage/export", { since: 0 });
     expect(ok.status).toBe(200);
     const body = await ok.json();
-    expect(Object.keys(body).sort()).toEqual(["activity", "bugs", "calls", "cut", "replies", "signups", "texts", "timingsError"]);
+    expect(Object.keys(body).sort()).toEqual(["activity", "bugs", "calls", "cut", "replies", "signups", "texts", "timingsError", "vitals"]);
     expect(body.calls).toEqual([]);
     expect(typeof body.timingsError).toBe("string");
   });

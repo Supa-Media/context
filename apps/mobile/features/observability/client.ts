@@ -9,6 +9,7 @@ import {
 import type { AnalyticsClient, TelemetryProperties } from "./types";
 import { recordActivity } from "./activity";
 import { loadPreferences, onPreferencesChange, preferences } from "./preferences";
+import { noteVital } from "./vitals";
 
 export type { TelemetryProperties } from "./types";
 
@@ -213,6 +214,8 @@ function sendErrorToSentry(error: unknown, context?: ErrorContext): string | und
  */
 export function reportError(error: unknown, context?: ErrorContext): string | undefined {
   const eventId = sendErrorToSentry(error, context);
+  // This session is no longer a clean one (`./vitals`).
+  noteVital("error");
   // The error's class name and a reference, never its message: a message can
   // quote whatever the failing code was holding.
   const name = error instanceof Error && /^[A-Za-z]{1,40}$/.test(error.name) ? error.name : "Error";

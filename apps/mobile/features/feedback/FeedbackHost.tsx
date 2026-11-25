@@ -6,6 +6,7 @@ import { drainQueue } from "./queue";
 import { useCanSendFeedback, useFeedbackTransport } from "./transport";
 import { closeFeedback, useOpenFeedback } from "./request";
 import { useAccountTelemetrySync } from "./useAccountTelemetrySync";
+import { useAppVitals } from "../observability/useAppVitals";
 
 /**
  * The one place the report dialog is drawn, mounted by the signed-in app
@@ -13,10 +14,12 @@ import { useAccountTelemetrySync } from "./useAccountTelemetrySync";
  *
  * It also sends what is waiting on this device: once when the app opens, and
  * again whenever the device comes back online — and keeps the Privacy &
- * feedback switches following the account.
+ * feedback switches following the account, and the app's own vitals
+ * (start time, load time, clean sessions) reaching the control plane.
  */
 export function FeedbackHost() {
   useAccountTelemetrySync();
+  useAppVitals();
   useFeedbackTransport();
   const canReport = useCanSendFeedback();
   const report = useOpenFeedback();
