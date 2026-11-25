@@ -153,7 +153,7 @@ export const ACTIONS = {
     },
     area: {
       tool: "set_area",
-      summary: "Set an area's owner, helper, modes, approval rules or metric, a bot's card or webhook, or who answers for a person.",
+      summary: "Set an area's owner, its delegate (the one bot or Tex acting for a person owner there), modes, approval rules or metric, or a bot's card or webhook.",
       take: plain,
     },
     fill_dates: { tool: "fill_dates", summary: "Fill every empty date created / date modified from each note's history, once (owner only).", take: plain },

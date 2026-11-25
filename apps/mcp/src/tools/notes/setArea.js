@@ -1,12 +1,12 @@
 /**
- * `manage area` (`set_area`): an area's settings, its metric, its bots and a person's delegate, changed in one call
+ * `manage area` (`set_area`): an area's settings (its owner and delegate among them), its metric and its bots, changed in one call
  * (Dev2, 2026-11-25: "someone should be able to make updates to the areas, the area settings, assign metrics, update
  * bot configs easily through tex or through the mcp"). Everything here is front matter the app's area panel writes
  * too (`apps/mobile/features/console/files/folderPage/areas/seat.ts`), so the two never disagree:
  *
- *   - the area's `about.md`: owner, helper, modes, approvals and its one metric (`metrics: [<name> · target <x>]`,
+ *   - the area's `about.md`: owner, delegate, modes, approvals and its one metric (`metrics: [<name> · target <x>]`,
  *     with any older `metric:` and `target:` lines taken away, since they would win over it);
- *   - a holder's card in the areas' `people/` folder: a bot's `bot`, `belongs_to` and `reach`, a person's `delegation`;
+ *   - a bot's card in the areas' `people/` folder: its `bot`, `belongs_to`, `reach` and `avatar`;
  *   - the areas' own `about.md` `agents:` list, for a bot named for the first time.
  *
  * A webhook is the one thing that is not a note: it goes sealed to the control plane (`/gateway/bots/hook`,
@@ -130,25 +130,35 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
 
   // The area's own settings.
   const seat = [];
-  for (const key of ["owner", "helper"]) {
-    const line = oneLine(args[key], key);
-    if (line.error) return toolError(`invalid: ${key} is a person's @handle or a bot's name, on one line. Pass it that way, then try again.`);
-    if (!line.skip) seat.push([key, line.value]);
+  // Helper is gone (the owner, 2026-11-25): an area has an owner and, when a person owns it, at most one delegate.
+  if (args.helper !== undefined) return toolError("invalid: an area has no helper any more. Pass delegate: the one bot or Tex that acts for the area's person owner here, then try again.");
+  const ownerLine = oneLine(args.owner, "owner");
+  if (ownerLine.error) return toolError("invalid: owner is a person's @handle or a bot's name, on one line. Pass it that way, then try again.");
+  if (!ownerLine.skip) seat.push(["owner", ownerLine.value]);
+  // The old shape, { person, to }, set who answered for a person everywhere; a delegate is per area now.
+  if (args.delegate !== undefined && args.delegate !== null && typeof args.delegate === "object") {
+    return toolError(`invalid: delegate is the name of the one bot (or Tex) that acts for this area's owner here, like delegate: "Finance", or null for none. Pass it once per area, then try again.`);
   }
-  // A person is never a helper to a bot (the owner, 2026-11-25): either a person owns and delegates to a bot, or a bot
-  // owns outright. People are @handles; a bot is a name.
+  const delegateLine = oneLine(args.delegate, "delegate");
+  if (delegateLine.error) return toolError("invalid: delegate is a bot's name or Tex, on one line, or null. Pass it that way, then try again.");
+  // People are @handles; a bot or Tex is a name. Either a person owns and has one delegate, or a bot owns outright.
   const isPerson = (word) => typeof word === "string" && word.trim().startsWith("@");
   const isBot = (word) => typeof word === "string" && word.trim() !== "" && !isPerson(word);
-  const helperAsked = seat.find(([key]) => key === "helper");
-  const ownerAsked = seat.find(([key]) => key === "owner");
-  const owner = ownerAsked ? ownerAsked[1] : (await factProps(store, [`${area}/about.md`]))?.get(`${area}/about.md`)?.props?.properties?.owner;
-  if (isBot(owner) && isPerson(helperAsked?.[1])) {
-    return toolError(
-      `refused: a person is never a helper to a bot. Make ${helperAsked[1]} the owner with ${owner} as their delegate (owner: "${helperAsked[1]}", delegate: { person: "${helperAsked[1]}", to: "${owner}" }), or leave out the helper, then try again.`,
-    );
+  const owner = !ownerLine.skip ? ownerLine.value : (await factProps(store, [`${area}/about.md`]))?.get(`${area}/about.md`)?.props?.properties?.owner;
+  if (!delegateLine.skip) {
+    const to = delegateLine.value;
+    if (isPerson(to)) {
+      return toolError(`refused: a person is never a delegate. Make ${to} the owner (owner: "${to}"), or pass a bot's name or Tex as delegate, then try again.`);
+    }
+    if (to !== null && isBot(owner)) {
+      return toolError(`refused: ${owner} owns ${area} outright, so it has no delegate. Make a person the owner with ${to} as delegate (owner: "@handle", delegate: "${to}"), or leave out the delegate, then try again.`);
+    }
+    if (to !== null && !isPerson(owner)) return toolError(`refused: ${area} has no owner, so nobody to act for. Pass owner: "@handle" too, then try again.`);
+    seat.push(["delegate", to]);
   }
-  // A bot taking the area holds it outright: any helper goes, as the panel does.
-  if (ownerAsked && isBot(owner) && helperAsked === undefined) seat.push(["helper", null]);
+  // A bot taking the area holds it outright: any delegate goes, as the panel does. The old helper line goes with any change to who acts.
+  if (!ownerLine.skip && isBot(owner) && delegateLine.skip) seat.push(["delegate", null]);
+  if (seat.some(([key]) => key === "delegate")) seat.push(["helper", null]);
   if (args.modes !== undefined) {
     const asked = Array.isArray(args.modes) ? args.modes : [];
     const modes = knownModes(asked);
@@ -184,7 +194,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   if (seat.length > 0) {
     const wrote = await change(store, scope, rules, overrides, `${area}/about.md`, seat, { create: area !== root && args.create === true });
     if (wrote.error) return toolError(wrote.error);
-    done.push(wrote.unchanged ? `${area}: already so` : `${area}: set ${seat.map(([key]) => key).filter((key) => key !== "metric" && key !== "target").join(", ")}`);
+    done.push(wrote.unchanged ? `${area}: already so` : `${area}: set ${seat.map(([key]) => key).filter((key) => key !== "metric" && key !== "target" && key !== "helper").join(", ")}`);
   }
 
   // A bot: its card, and its name on the agents list.
@@ -223,17 +233,6 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
       if (added.error) problems.push(added.error);
     }
     done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""}${images ? ", with its logo" : ""} (card ${people}/${cardSlug(name)}.md)`);
-  }
-
-  // A person's delegate: who answers for them.
-  if (args.delegate !== undefined) {
-    const person = typeof args.delegate?.person === "string" ? args.delegate.person.trim() : "";
-    if (!/^@[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(person)) return toolError("invalid: delegate is { person: \"@handle\", to: \"<bot name>\" | \"Tex\" | null }. Pass the person as an @handle.");
-    const to = args.delegate.to === null || args.delegate.to === "" ? null : String(args.delegate.to ?? "").trim();
-    if (to !== null && (to.length > 60 || /[\r\n]/.test(to))) return toolError("invalid: delegate.to is a bot's name, Tex, or null. Pass one of those.");
-    const wrote = await change(store, scope, rules, overrides, `${root}/people/${cardSlug(person)}.md`, [["holder", person], ["kind", "person"], ["delegation", to]], { create: true });
-    if (wrote.error) return toolError(wrote.error);
-    done.push(to === null ? `${person}: nobody answers for them` : `${person}: ${to} answers for them`);
   }
 
   // A webhook, sealed by the control plane; never echoed.
@@ -295,7 +294,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   problems.push(...projects.problems);
 
   if (done.length === 0 && problems.length === 0) {
-    return toolError("invalid: nothing to change; pass owner, helper, modes, approvals, metric, bot, delegate, webhook, test_webhook, attach or detach");
+    return toolError("invalid: nothing to change; pass owner, delegate, modes, approvals, metric, bot, webhook, test_webhook, attach or detach");
   }
   return toolText([...done.map((line) => `- ${line}`), ...problems.map((line) => `- not done: ${line}`)].join("\n"));
 }

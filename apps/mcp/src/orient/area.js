@@ -5,7 +5,8 @@
  * general purpose bot just connected to context").
  *
  * An area is a folder whose `about.md` front matter is its seat (`owner`,
- * `helper`, `modes`, `metrics`, `approvals`;
+ * `delegate`, `modes`, `metrics`, `approvals`; `helper` is the delegate's old
+ * name, still read;
  * `docs/decisions/app-and-console/areas-as-seats.md`). The answer is read
  * from the tree's entries and facts at this connection's clearance, like the
  * overview: a folder it cannot see answers exactly as one that does not exist.
@@ -31,7 +32,7 @@ const HOLDER_AREAS_SHOWN = 40;
 /** The folder in an area that holds its mail, one note per sender. */
 export const AREA_MAIL_FOLDER = "mail";
 
-const SEAT_KEYS = ["owner", "helper", "modes", "metrics", "metric", "approvals"];
+const SEAT_KEYS = ["owner", "delegate", "helper", "modes", "metrics", "metric", "approvals"];
 
 function text(value) {
   if (typeof value === "string") return value.trim();
@@ -58,11 +59,17 @@ function seatOf(properties) {
   const metrics = metricLine !== "" ? [text(props.target) ? `${metricLine} · target ${text(props.target)}` : metricLine] : list(props.metrics);
   return {
     owner: text(props.owner) || null,
-    helper: text(props.helper) || null,
+    // The one bot (or Tex) acting for a person owner here (the owner, 2026-11-25); a bot-owned area has none.
+    delegate: isPerson(text(props.owner)) ? text(props.delegate) || text(props.helper) || null : null,
     modes: knownModes(Array.isArray(props.modes) ? props.modes : list(props.modes).flatMap((line) => line.split(","))),
     metric: metrics[0] ?? null,
     approvals: list(props.approvals),
   };
+}
+
+/** People are @handles; a bot or Tex is a name. */
+function isPerson(word) {
+  return typeof word === "string" && word.trim().startsWith("@");
 }
 
 const same = (a, b) => String(a ?? "").trim().replace(/^@+/, "").toLowerCase() === String(b ?? "").trim().replace(/^@+/, "").toLowerCase();
@@ -90,7 +97,7 @@ async function propsOf(store, paths) {
 function seatLines(seat, inheritedFrom) {
   const lines = [];
   lines.push(`- Owner: ${seat.owner ?? "nobody yet"}${inheritedFrom ? ` (held through ${inheritedFrom})` : ""}`);
-  if (seat.helper) lines.push(`- Helper: ${seat.helper}`);
+  if (seat.delegate) lines.push(`- Delegate: ${seat.delegate} (acts for ${seat.owner} here, asking ${seat.owner} before anything the approval rules name)`);
   lines.push(`- Modes: ${seat.modes.length ? seat.modes.join(", ") : "none set"}`);
   lines.push(`- Metric: ${seat.metric ?? "none set"}`);
   if (seat.approvals.length) {
@@ -235,8 +242,8 @@ export async function areaAnswer(store, scope, rules, overrides, rawArea) {
 }
 
 /**
- * `orient { for: "@seyi" }`: every area the person (or bot) holds or helps
- * in, with its modes, metric and rules, for a bot that acts for them.
+ * `orient { for: "@seyi" }`: every area the person (or bot) owns or is the
+ * delegate of, with its modes, metric and rules.
  */
 export async function holderAnswer(store, scope, rules, overrides, rawHolder) {
   const holder = String(rawHolder ?? "").trim();
@@ -252,19 +259,19 @@ export async function holderAnswer(store, scope, rules, overrides, rawHolder) {
     const properties = props.get(path)?.properties;
     if (!properties || !SEAT_KEYS.some((key) => properties[key] !== undefined)) continue;
     const seat = seatOf(properties);
-    const role = same(seat.owner, holder) ? "owner" : same(seat.helper, holder) ? "helper" : null;
+    const role = same(seat.owner, holder) ? "owner" : same(seat.delegate, holder) ? "delegate" : null;
     if (role !== null) held.push({ area: path.slice(0, -"/about.md".length), seat, role });
   }
   const parts = [`# Areas ${holder} holds`];
   if (held.length === 0) {
-    parts.push(`No area this connection can see names ${holder} as its owner or helper. An area's owner is the \`owner:\` line of its about.md in \`${areasRoot}/\`.`);
+    parts.push(`No area this connection can see names ${holder} as its owner or delegate. An area's owner and delegate are the \`owner:\` and \`delegate:\` lines of its about.md in \`${areasRoot}/\`.`);
     return toolText(parts.join("\n\n"));
   }
   for (const { area, seat, role } of held.slice(0, HOLDER_AREAS_SHOWN)) {
-    const lines = [`## ${titleOf(area)} (\`${area}/\`) — ${role}`];
+    const lines = [`## ${titleOf(area)} (\`${area}/\`) — ${role === "owner" ? "owner" : `delegate, acting for ${seat.owner}`}`];
     lines.push(`- Modes: ${seat.modes.length ? seat.modes.join(", ") : "none set"}`);
     lines.push(`- Metric: ${seat.metric ?? "none set"}`);
-    if (seat.approvals.length) lines.push(`- Needs ${role === "owner" ? holder : "the owner"}'s approval first: ${seat.approvals.join(" / ")}`);
+    if (seat.approvals.length) lines.push(`- Needs ${role === "owner" ? holder : seat.owner}'s approval first: ${seat.approvals.join(" / ")}`);
     lines.push(`- In depth: orient { area: "${area}" }`);
     parts.push(lines.join("\n"));
   }

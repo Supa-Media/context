@@ -70,11 +70,30 @@ describe("what a mode means (the owner's E-Myth reading)", () => {
 });
 
 describe("a delegate's prompt", () => {
-  test("it acts for the person and orients for them across every area", () => {
+  test("a bot with no area yet orients for itself, to find every area it owns or acts in", () => {
     const text = delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", workspace: "supa" });
-    expect(text).toContain("You are Chief, @seyi's Grok bot. You act for @seyi in the Context workspace @supa.");
-    expect(text).toContain('orient { context: "@supa", for: "@seyi" }');
+    expect(text).toContain("You are Chief, @seyi's Grok bot, in the Context workspace @supa.");
+    expect(text).toContain('orient { context: "@supa", for: "Chief" }');
     for (const meaning of Object.values(MODE_MEANINGS)) expect(text).toContain(meaning);
+  });
+
+  test("an area's delegate acts for its person owner there, and asks them first", () => {
+    // The owner, 2026-11-25: "1 delegate per area please".
+    const one = setupPrompt({ bot: "Finance", kind: "grok", whose: "@seyi", workspace: "supa", areas: [{ folder: "areas/finance", title: "Finance", modes: ["Doer"], actsFor: "@shyoh" }] });
+    expect(one).toContain('You act for @shyoh in the area "Finance" (areas/finance) in the Context workspace @supa: @shyoh owns it and you are its delegate.');
+    expect(one).toContain("Ask @shyoh before anything this area's approval rules name.");
+    const several = setupPrompt({
+      bot: "Finance",
+      kind: "grok",
+      whose: "@seyi",
+      areas: [
+        { folder: "areas/finance", title: "Finance" },
+        { folder: "areas/billing", title: "Billing", actsFor: "@shyoh" },
+      ],
+    });
+    expect(several).toContain('"Billing" (areas/billing, for @shyoh, who owns it)');
+    expect(several).toContain('"Finance" (areas/finance)');
+    expect(several).toContain('for: "Finance"');
   });
 });
 
