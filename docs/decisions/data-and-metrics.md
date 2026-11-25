@@ -554,8 +554,9 @@ asap", and, on where the rows go, "Only @supa, named in gateway config".*
   days); the account ids it hands the gateway for texts and sign-ups are
   MAC'd before anything is written. Deleting that object rotates every id.
 - **What each sheet holds.** `activity.csv` (one row per person-day: texted,
-  wrote, called, `active` = texted or wrote, `returning` = active on another
-  day in the 7 before; 90 days), `sign-ups.csv` (one row per person: day,
+  wrote, called, `active` = texted or wrote, `returning` = active that day
+  and on another day in the 7 before, so a day with only an AI client's call
+  is neither and Returning users never passes 100%; 90 days), `sign-ups.csv` (one row per person: day,
   channel, `day1_active` = active that day or the next; 400 days),
   `tex-replies.csv` (one row per answered text with the seconds to its first
   bubble, and one per text a turn failed to answer; 30 days) and `calls.csv`
