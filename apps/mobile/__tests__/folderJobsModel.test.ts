@@ -159,6 +159,8 @@ describe("the data folder (made when used)", () => {
     expect(dataSourceOffered(undefined, true)).toBe(false);
     // Hidden until the Data page ships, so the item never makes a bare folder.
     expect(dataSourceOffered("shared", false)).toBe(false);
+    // The Data page has shipped: a shared workspace is offered it by default.
+    expect(dataSourceOffered("shared")).toBe(true);
   });
 
   test("choosing it opens a data folder there is, adding metrics/ when its listing has none", () => {

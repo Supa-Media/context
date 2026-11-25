@@ -23,12 +23,12 @@ import { dataFolderFound, type JobListings } from "./jobIcons/folderJobs";
 export const DATA_SOURCE_DETAIL = "Makes a data folder the first time";
 
 /**
- * Whether the Data page has shipped. The menu item stays hidden until it has,
- * so nobody makes a data folder that opens as a bare folder (owner,
- * 2026-11-24: "make sure the UI matches what you are showing me"). The stage
- * that adds the Data page sets this true.
+ * Whether the Data page has shipped. The menu item was hidden until it had,
+ * so nobody made a data folder that opened as a bare folder (owner,
+ * 2026-11-24: "make sure the UI matches what you are showing me"). It has:
+ * the data folder now opens as the Data page (`data/DataFolderPage.tsx`).
  */
-export const DATA_PAGE_SHIPPED = false;
+export const DATA_PAGE_SHIPPED = true;
 
 /** Whether the New menu offers "Data source…": a shared workspace, by its kind, once the Data page has shipped. */
 export function dataSourceOffered(kind: string | null | undefined, shipped: boolean = DATA_PAGE_SHIPPED): boolean {
