@@ -32,7 +32,7 @@ import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
 import type { Reading } from "./readings";
 import { headlineOf } from "./headline";
-import { MetricCell, NoMetric, PhoneMetric } from "./AreaMetricCell";
+import { MetricCell, PhoneMetric } from "./AreaMetricCell";
 import { areaTitle, fileKind, type AreaNode, type Seat } from "./seat";
 import type { AreaProjects } from "./areaProjects";
 import { ProjectsButton, ProjectRows } from "./AreaProjectRows";
@@ -77,8 +77,6 @@ export interface AreasListProps {
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
   /** The latest reading of a seat's headline metric, a workspace metric's or its `metrics.csv`'s; undefined when there is none. */
   readingOf: (seat: Seat) => Reading | undefined;
-  /** Opens the metric picker for an area with none: "+ Pick a metric". Absent for a reader, who sees "No metric yet". */
-  onPick?: (seat: Seat) => void;
   /** The projects that serve an area or its sub-areas (`areaProjects.ts`); absent where the Projects folder is not read. */
   projectsOf?: (folder: string) => AreaProjects;
 }
@@ -121,7 +119,7 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, onPick, projectsOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, projectsOf }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   // Folders pressed away from their default: the top row starts open, every area under it starts
   // folded (the owner, 2026-11-25: "collapse the items not on the 1st level, by default on page open").
@@ -141,7 +139,6 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
     rootPeeks,
     onMenu,
     readingOf,
-    ...(onPick === undefined ? {} : { onPick }),
     isOpen: (folder) => (folder === tree.seat.folder) !== flipped.has(folder),
     toggle: (folder) => setFlipped((previous) => flip(previous, folder)),
     shown,
@@ -219,7 +216,7 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
               </Text>
             </View>
             <View style={styles.metricCell}>
-              {headline !== null ? <MetricCell headline={headline} /> : root ? null : <NoMetric seat={seat} compact={false} onPick={shared.onPick} />}
+              {headline === null ? null : <MetricCell headline={headline} />}
             </View>
             <View style={[styles.notesCell, { width: shared.countsWidth }]}>
               <AreaProjectsButton node={node} shared={shared} />
@@ -450,7 +447,7 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
           <NotesButton node={node} shared={shared} phone />
         </View>
         <View style={styles.blockMetric}>
-          {headline === null ? <NoMetric seat={seat} compact onPick={shared.onPick} /> : <PhoneMetric headline={headline} />}
+          {headline === null ? null : <PhoneMetric headline={headline} />}
         </View>
       </Pressable>
       <AreaProjectRows node={node} depth={depth} shared={shared} />

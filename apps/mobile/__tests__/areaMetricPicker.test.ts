@@ -7,16 +7,16 @@
  *
  * Stage C of data sources and metrics (the data sources boards, 05, 06 and
  * 13b): the Areas List draws a workspace metric's value worked out from the
- * reader's sheets, with the sources it reads; an area with none offers
- * "+ Pick a metric" to an editor and says "No metric yet" to a reader; the
- * picker lists the workspace's metrics and Save writes the seat's own line
+ * reader's sheets, with the sources it reads; an area with none leaves its
+ * cell blank for everyone (the owner, 2026-11-25), and an editor picks one
+ * from its ⋯ menu or the side panel; the picker lists the workspace's metrics and Save writes the seat's own line
  * and says so. A sheet the reader cannot read is "Hidden", never named.
  *
  * Sabotage record (temporary local edits, reverted):
  * 1. `AreasView` reading every area from its `metrics.csv` (`readingOf`
  *    ignoring the workspace): "Finance reads the workspace metric" fails.
- * 2. `NoMetric` offering the chip without `onPick`: "a reader sees No metric
- *    yet and no chip" fails.
+ * 2. Putting the "+ Pick a metric" chip back in the row: "an area with no
+ *    metric leaves its cell blank" fails.
  */
 
 import { afterEach, beforeAll, describe, expect, jest, test } from "@jest/globals";
@@ -173,12 +173,14 @@ describe("an area's metric on the Areas page", () => {
     expect(document.body.textContent).not.toContain("ai-spend");
   });
 
-  test("an area with no metric offers Pick a metric, and Save writes the seat line and says so", async () => {
+  test("an area with no metric leaves its cell blank; its menu's Pick a metric opens the picker, and Save writes the seat line and says so", async () => {
     const w = world();
     await render(w);
     const design = one("area-row-areas/design");
-    expect(strip(design.textContent)).toContain("No metric");
-    await press(one("area-pick-areas/design"));
+    expect(strip(design.textContent)).not.toContain("metric");
+    expect(all("area-pick-areas/design")).toHaveLength(0);
+    await press(one("area-more-areas/design"));
+    await press(one("menu-item-metric"));
     const picker = one("metric-picker");
     expect(strip(picker.textContent)).toContain("Design metric");
     expect(strip(picker.textContent)).toContain("Design · seyi");
@@ -213,15 +215,18 @@ describe("an area's metric on the Areas page", () => {
     expect(one("metric-target-over").getAttribute("aria-checked")).toBe("true");
   });
 
-  test("a reader sees No metric yet and no chip", async () => {
+  test("a reader sees a blank cell too", async () => {
     await render(world(), { canEdit: false });
-    expect(strip(one("area-row-areas/design").textContent)).toContain("No metric yet");
+    expect(strip(one("area-row-areas/design").textContent)).not.toContain("metric");
     expect(all("area-pick-areas/design")).toHaveLength(0);
   });
 
   test("on a phone the picker is a sheet whose Over and Under are both whole, the value beside them and the hint under", async () => {
     await render(world(), { compact: true });
-    await press(one("area-pick-areas/design"));
+    // A phone row has no ⋯ and no chip; the open folder's head opens its seat menu.
+    expect(all("area-pick-areas/design")).toHaveLength(0);
+    await press(one("area-row-root"));
+    await press(one("menu-item-metric"));
     expect(strip(one("metric-target-over").textContent)).toBe("Over");
     expect(strip(one("metric-target-under").textContent)).toBe("Under");
     // The hint is its own line, not squeezed into the row with the segment and the value.

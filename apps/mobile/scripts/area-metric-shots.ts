@@ -374,8 +374,9 @@ async function shoot(board: Board, name: string, scheme: Scheme, phone: boolean)
     await click("menu-item-metric");
   }
   if (board === "05" && phone) {
-    // A phone has no ⋯ on a row; Finance, with no metric yet, offers Pick a metric, and the board's choice is made.
-    await click("area-pick-areas/finance");
+    // A phone row has no ⋯ and an area with no metric leaves its cell blank; the open folder's head opens its seat menu.
+    await click("area-row-root");
+    await click("menu-item-metric");
     await click("metric-option-data/metrics/revenue-per-ai-dollar.md");
     const input = document.querySelector<HTMLInputElement>('[data-testid="metric-target-value"]')!;
     await act(async () => {
@@ -383,7 +384,10 @@ async function shoot(board: Board, name: string, scheme: Scheme, phone: boolean)
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
-  if (board === "13b") await click("area-pick-areas/design");
+  if (board === "13b") {
+    await click(phone ? "area-row-root" : "area-more-areas/design");
+    await click("menu-item-metric");
+  }
   if (board === "06" && !phone) await click("area-row-areas/finance");
   await settle(4);
   const injected = [...document.head.querySelectorAll("style")].map((style) => style.textContent ?? "").join("\n");
