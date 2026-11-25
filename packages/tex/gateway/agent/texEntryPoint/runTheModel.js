@@ -206,7 +206,7 @@ export async function runTheModel(t, via) {
   // answering a text of theirs the Worker can react to. Never on their own tapback (the Worker never taps a tapback:
   // `groupModelTurn.ts`, `inbox.ts` `acknowledgeText`), nor on a turn the gateway asked (a vault save, a hand-back).
   const reactable = !quoted?.tapback && question !== VAULT_SAVED_QUESTION && question !== HANDED_BACK_QUESTION;
-  const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true }) : null;
+  const tapping = chatTurn && reactable && job === null && !routine && report === null && !t.crossChat && drawn.wired("tools", "tapback") ? tapbackEnding({ gate: (input) => drawn.fire("tools", "tapback", input, { env }), tagged: group?.tagged === true, stickers: settingsOf(env, "tapback").stickers === true }) : null;
   // Tex's own computer (`../texComputerSandbox.js`), once a config wires the Tex's computer node: a background job's turn
   // only, on a deployment with the TEX_COMPUTER binding. One per person, one per group chat, by the same tag as the browser.
   // Tex's own computer is wired by the config (`tools -> computer`); a texted turn is told so (`forTurn.js` `computersLine`).

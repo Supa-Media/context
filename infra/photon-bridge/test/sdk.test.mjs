@@ -34,3 +34,11 @@ test("the client has every SDK method the sticker op calls", () => {
     client.close?.();
   }
 });
+
+test("a re-uploaded sticker goes under its own name, never a path, or sticker.png", async () => {
+  const { stickerName } = await import("../container/runtime.mjs");
+  assert.equal(stickerName({ fileName: "smile.heic" }), "smile.heic");
+  assert.equal(stickerName({ fileName: "a/b/c.png" }), "c.png");
+  assert.equal(stickerName({ fileName: "" }), "sticker.png");
+  assert.equal(stickerName(undefined), "sticker.png");
+});

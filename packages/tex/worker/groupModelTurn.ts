@@ -278,7 +278,14 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     // Tex's own pick (the front door's `tapback`, `packages/tex/gateway/agent/tapbackEnding.js`) replaces the early one when it
     // differs: a person keeps one tapback on a message, so the second takes the first's place, never beside a text.
     const replaces = acked && tapped !== undefined && answer.react !== "" && answer.react !== undefined && reactionFor(answer.react, ackEmoji(message.text)) !== tapped;
-    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && (!acked || replaces)) await tapback(storage, { chat: message.groupId, now: deps.now, by: answer.react ? "tex" : "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)).catch(() => {});
+    // Tex's pick may be a sticker this chat kept (`stickers.ts`): it goes on their text beside any tapback, its emoji the fallback.
+    const sticker = answer.react ? answer.sticker : undefined;
+    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && (!acked || replaces || sticker !== undefined)) {
+      const line = groupLineFor(groupLineSeam(deps), message.groupId);
+      const place = { line: message.line, groupId: message.groupId };
+      const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid });
+      await tapback(storage, { chat: message.groupId, now: deps.now, by: answer.react ? "tex" : "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => line.react(place, message.messageId, sent), sticker !== undefined ? { id: sticker, stick } : undefined).catch(() => {});
+    }
     await handOff();
     return log(answer.react !== undefined ? "reacted" : "silent");
   }

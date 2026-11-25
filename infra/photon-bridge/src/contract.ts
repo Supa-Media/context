@@ -55,6 +55,8 @@ export type PhotonEvent = {
     targetPart?: number;
     targetText?: string;
     targetFromMe?: boolean;
+    /** A placed sticker's own attachment guid on the line (kind "sticker"). */
+    sticker?: string;
   };
   edited?: { targetGuid: string; previousText?: string };
   unsent?: { targetGuid: string };

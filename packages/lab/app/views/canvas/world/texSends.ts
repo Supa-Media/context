@@ -58,6 +58,7 @@ export function texEventOf(text: string): { text: string; photo: boolean } | nul
   const t = text.trim();
   if (/^Tex named the conversation “.{1,100}”\.$/u.test(t) || /^Tex added \S.{0,80} to the conversation\.$/u.test(t)) return { text: t, photo: false };
   if (t === "Tex changed the group photo.") return { text: t, photo: true };
+  if (t === "Tex stuck a sticker on a message.") return { text: t, photo: false };
   return null;
 }
 

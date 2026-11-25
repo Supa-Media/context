@@ -79,6 +79,7 @@ import { namesAppChat } from "./appChat";
 import { keepThreaded } from "./threadedResend";
 import { deliveryStep, logStep, tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
+import { keepSticker } from "./stickers";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -294,7 +295,9 @@ export async function react(
   inbound: Extract<Inbound, { kind: "reaction" }>,
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
-  const { reaction, kind: _kind, ...message } = inbound;
+  const { reaction: came, kind: _kind, ...message } = inbound;
+  // A sticker stuck on a message is kept for Tex to stick again, and read by its id (`stickers.ts`).
+  const reaction = await keepSticker(storage, came, now);
   const logged = async () => { const line = reactionLine(reaction, await onTexText(storage, message.chatId, reaction)); return logInbound(storage, { kind: "message", ...message, text: line, tapback: reaction.how }, now, line); }; // every reaction in the log, as its line (Dev2, 2026-11-01)
   // A 👍 or 👎 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
   if (reaction.removed) return (await logged(), await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
@@ -361,9 +364,11 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 
 /** Decide's `react`: its emoji when one of the 64, else one picked from the words (`ackEmoji.ts`). */
 /** Kept in the chat's ledger as a `react` step, with who chose it (`by`) and the turn it ended (`stepEvents.ts`). */
-async function acknowledgeText(storage: InboxStorage, deps: InboxDeps, message: Message, emoji: string | undefined, by: string, turn?: string): Promise<string | undefined> {
+async function acknowledgeText(storage: InboxStorage, deps: InboxDeps, message: Message, emoji: string | undefined, by: string, turn?: string, sticker?: string): Promise<string | undefined> {
   if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
-  return (await tapback(storage, { chat: message.chatId, now: deps.now, by, asked: emoji, turn }, message.text, (sent) => lineFor(lineDeps(deps), message.chatId).acknowledge(message.chatId, message.messageId, sent))) ?? undefined;
+  const line = lineFor(lineDeps(deps), message.chatId);
+  const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(message.chatId, message.messageId, { attachment: guid });
+  return (await tapback(storage, { chat: message.chatId, now: deps.now, by, asked: emoji, turn }, message.text, (sent) => line.acknowledge(message.chatId, message.messageId, sent), sticker !== undefined ? { id: sticker, stick } : undefined)) ?? undefined;
 }
 
 /**
@@ -569,7 +574,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
-  let place: ReplyPlace | undefined, react: string | undefined;
+  let place: ReplyPlace | undefined, react: string | undefined, stickTo: string | undefined;
   // The fixed texts sent since the last turn, named to this one for today's history too (`told.ts`); read before the session writes the events.
   const told = await owedTold(storage);
   // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
@@ -615,7 +620,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       onPlace: (placed) => void (place = placed),
-      onReact: (emoji) => void (react = emoji), // a hushed turn's tapback, sent once its answer is in (`packages/tex/gateway/agent/respond.js`)
+      onReact: (emoji, sticker) => void ((react = emoji), (stickTo = sticker)), // a hushed turn's tapback, sent once its answer is in (`packages/tex/gateway/agent/respond.js`)
       warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
@@ -635,7 +640,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   // Answered with a tapback and no words: the classifier's, the emoji checked against the list (`reactEmoji.ts`).
   if (react !== undefined && texts.length === 0) {
     // `react` names the Front door's own pick (`packages/tex/gateway/agent/tapbackEnding.js`); empty, the Worker picks from their words.
-    const sent = await acknowledgeText(storage, deps, message, react || undefined, react ? "tex" : "classifier", steer.turn).catch(() => undefined);
+    const sent = await acknowledgeText(storage, deps, message, react || undefined, react ? "tex" : "classifier", steer.turn, react ? stickTo : undefined).catch(() => undefined);
     // The tapback that went was the whole answer: kept as Tex's line covering their texts, so the next turn reads them as
     // answered ("You: (a tapback) ❤️") instead of "(not answered)", which would have it answer them again in words. One that
     // didn't go leaves them unanswered, which is the truth.

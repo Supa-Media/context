@@ -20,6 +20,7 @@
 import { ackEmoji } from "./ackEmoji";
 import { addEvent } from "./events";
 import { reactionFor } from "./reactEmoji";
+import { stickerOf, stickerWords } from "./stickers";
 import type { Decision, DecideAsk } from "./decide";
 import type { InboxStorage } from "./inbox";
 import { readArrival, type ProviderArrival, type ProviderSend } from "./providerTiming";
@@ -146,18 +147,38 @@ export function triageStep(candidates: string[], to: "tex" | "judge" | "running"
  * whether it went. A send that throws is kept as failed and thrown on. A line that
  * says which tapback went (`Line.acknowledge`) is believed: a fallback is kept as
  * the one sent, and none at all is kept as failed and answered with null.
+ *
+ * `sticker`: a sticker this chat kept, by its id, to stick on the text instead (`stickers.ts`), with the line's `stick`.
+ * It goes first; an id this chat never kept, a line without stickers, or a stick that failed sends the emoji instead,
+ * and the step keeps why. A sticker that went answers `stickerWords(id)`.
  */
 export async function tapback(
   storage: InboxStorage,
   where: { chat: string; now: () => number; by: string; asked?: string; on?: string; turn?: string },
   words: string,
   send: (emoji: string) => Promise<unknown>,
+  sticker?: { id: string; stick: ((guid: string) => Promise<void>) | undefined },
 ): Promise<string | null> {
   const emoji = reactionFor(where.asked, ackEmoji(words));
   // Timed on the wall clock: `now` is when it happened, which some callers fix for the whole text.
   const began = Date.now();
-  const input = { by: where.by, ...(where.asked ? { asked: where.asked } : {}), ...(where.on ? { on: where.on } : {}) };
-  const kept = (ok: boolean, sent: string, cause?: string) => logStep(storage, where.chat, { name: "react", of: where.by, ok, ms: Date.now() - began, input, output: { emoji: sent }, ...(cause ? { cause } : {}) }, where.now(), where.turn);
+  const input = { by: where.by, ...(where.asked ? { asked: where.asked } : {}), ...(where.on ? { on: where.on } : {}), ...(sticker ? { sticker: sticker.id } : {}) };
+  let missed: string | undefined;
+  if (sticker !== undefined) {
+    const guid = await stickerOf(storage, sticker.id);
+    if (guid === null) missed = "sticker_unknown";
+    else if (sticker.stick === undefined) missed = "sticker_no_line";
+    else {
+      try {
+        await sticker.stick(guid);
+        await logStep(storage, where.chat, { name: "react", of: where.by, ok: true, ms: Date.now() - began, input, output: { sticker: sticker.id } }, where.now(), where.turn);
+        return stickerWords(sticker.id);
+      } catch (error) {
+        missed = `sticker_failed:${error instanceof Error ? error.name : "error"}`;
+      }
+    }
+  }
+  const kept = (ok: boolean, sent: string, cause?: string) => logStep(storage, where.chat, { name: "react", of: where.by, ok, ms: Date.now() - began, input, output: { emoji: sent, ...(missed ? { instead: missed } : {}) }, ...(cause ? { cause } : {}) }, where.now(), where.turn);
   let went: unknown;
   try {
     went = await send(emoji);

@@ -64,6 +64,15 @@ const STEP_SETTINGS = Object.freeze({
       tip: "The most words next to a page or picture Tex made (wordy.js).",
     }),
   }),
+  // The Tapback (`graph/nodes/tapback.js`, `tapbackEnding.js`): what a tapback as the whole answer may be.
+  tapback: Object.freeze({
+    stickers: Object.freeze({
+      type: "boolean",
+      default: false,
+      label: "Chat stickers",
+      tip: "Let the tapback stick a sticker someone used in this chat instead, by its id; the emoji goes where it can't (Photon only, stickers.ts).",
+    }),
+  }),
   // The Nudge (`graph/nodes/nudgeOffer.js`, `nudges.js`): when one offer line may go after a finished 1:1 answer.
   nudgeOffer: Object.freeze({
     addLine: on("Add the line", "Add the offer line after the answer. Off: a shadow run that decides, keeps and counts the offer the same way but texts nothing."),

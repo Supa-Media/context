@@ -6,13 +6,15 @@
  * No model and no reads: pure code over what it is handed, logged like every node. Output `to`: "react" with the
  * emoji the Worker sends, or "refuse" with why, in words the model reads before it writes its reply instead.
  */
-import { tapbackEmoji } from "../../tapbackEnding.js";
+import { stickerIdOf, tapbackEmoji } from "../../tapbackEnding.js";
 
 /**
  * `lastFailed`: the last call this turn made before it failed (only the last: one that fails beside it in the same
  * round is caught when the round settles, `tapbackEnding.js`). `tagged`: a literal @Tex tag, always answered in words,
  * as `say_nothing` is refused there (Dev2, 2026-11-12).
- * @param {{ emoji: string, why?: string, lastFailed?: boolean, tagged?: boolean }} input
+ * `sticker`: a sticker of this chat's, by its id, asked for in the emoji's place (only while the step's "Chat stickers"
+ * setting is on, `tapbackEnding.js`); handed on when it reads as one, and the Worker checks the chat kept it.
+ * @param {{ emoji: string, why?: string, lastFailed?: boolean, tagged?: boolean, sticker?: string }} input
  */
 export async function tapbackNode(input) {
   const refuse = (why) => ({ to: "refuse", why });
@@ -20,5 +22,6 @@ export async function tapbackNode(input) {
   if (input?.lastFailed === true) return refuse("your last call failed, so tell them what happened in words");
   const emoji = tapbackEmoji(input?.emoji);
   if (emoji === null) return refuse("a tapback is one of the listed emoji, and that one isn't; pick one of them");
-  return { to: "react", emoji };
+  const sticker = stickerIdOf(input?.sticker);
+  return { to: "react", emoji, ...(sticker ? { sticker } : {}) };
 }

@@ -17,7 +17,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
-import { chatEnvFor, chatStepsOf, gatewayRoutes, inboundOf, keepingLine, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
+import { chatEnvFor, chatStepsOf, gatewayRoutes, inboundOf, keepingLine, STUCK_WORDS, LAB_CONTROL_PLANE, LAB_GATEWAY, LAB_WORKER_SECRET, MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
 import { streamTurn, wantsProgress } from "../../../packages/tex/gateway/agent/progress.js";
 import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { durableSql } from "./texStoreFixture.mjs";
@@ -150,6 +150,16 @@ test("running the group shows in a made-up chat as Messages says it, and texts n
   }
   assert.deepEqual(shown, ["Tex named the conversation “Launch Dinner Crew”.", "Tex changed the group photo.", "Tex added +15555550199 to the conversation."]);
   assert.deepEqual(line.sent, [], "none of it is a text");
+});
+
+test("a sticker Tex sticks shows in a made-up chat as an event line, and texts nobody (stickers.ts)", async () => {
+  // Sabotage: dropping the stick branch in keepingLine fails this.
+  const shown = [];
+  const line = keepingLine(new Map([["ana", "+15555550101"]]), "lab", { onText: (t) => shown.push(t) });
+  assert.deepEqual(await line.rpc.lineCall({ method: "stick", args: ["lab:t1", { attachment: "lab-sticker-t0" }] }), { ok: true, value: null });
+  assert.deepEqual(await line.rpc.groupLineCall({ method: "stick", args: [{ line: "+15555550100", groupId: "lab:x" }, "lab:t1", { attachment: "lab-sticker-t0" }] }), { ok: true, value: null });
+  assert.deepEqual(shown, [STUCK_WORDS, STUCK_WORDS]);
+  assert.deepEqual(line.sent, [], "a sticker is no text");
 });
 
 test("a turn's node lights its row even when the runner calls the watch on its own", async () => {
@@ -288,6 +298,8 @@ test("a test row reaches the chat object as Tex's line hands it over, for each k
   assert.equal(groupTap.path, "/group-accept");
   assert.equal(groupTap.body.text, "");
   assert.equal(groupTap.body.reaction.how, "Loved");
+  const stuck = inboundOf({ about: one, row: { id: "t3", who: "ana", kind: "reaction", emoji: "sticker", sticker: "lab-sticker-t3", on: "t1r" }, rows, address, sentHandles: sent });
+  assert.deepEqual(stuck.body.reaction, { how: "Reacted", emoji: "with a sticker", sticker: "lab-sticker-t3", words: "Sounds good.", onTex: true }, "a sticker row as Photon hands a placed sticker");
   const edit = inboundOf({ about: one, row: { id: "t4", who: "ana", kind: "edit", on: "t1", text: "dinner at 9?" }, rows, address, sentHandles: sent });
   assert.equal(edit.path, "/edit");
   assert.deepEqual([edit.body.kind, edit.body.messageId, edit.body.text, edit.body.previous], ["edited", "t1", "dinner at 9?", "dinner at 8?"], "compared with the words it says now");
