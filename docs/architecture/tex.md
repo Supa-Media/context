@@ -52,7 +52,7 @@ flowchart LR
   n_chatAsk(["Another chat asks<br/>code<br/>graph/nodes/chatAsk.js"]):::start
   n_chatAnswer["Answer the other chat<br/>code<br/>graph/nodes/chatAnswer.js"]:::code
   n_warm["Warm the cache<br/>code<br/>graph/nodes/warm.js · warmPrefix.js · textsWarm.js"]:::code
-  n_stickerLook["Sticker look<br/>Haiku 5.5 · effort low · off<br/>graph/nodes/stickerLook.js · textsSticker.js · worker stickerLook.ts"]:::off
+  n_stickerLook["Sticker look<br/>Haiku 5.5 · effort low<br/>graph/nodes/stickerLook.js · textsSticker.js · worker stickerLook.ts"]:::model
   n_connect["Connect notes<br/>Haiku 5.5 · effort low<br/>noteConnect.js · graph/nodes/connect.js"]:::model
   n_noteRun(["Tex in a note<br/>Haiku 5.5 · effort medium<br/>noteRun.js · graph/nodes/noteRun.js · noteRunRoute.js"]):::start
   n_nudgeOffer["Nudge<br/>Haiku 5.5 · effort low · off<br/>graph/nodes/nudgeOffer.js · nudges.js · capabilities.js"]:::off
@@ -269,7 +269,7 @@ every wire, from the same config.
 | A job reports | jobReport | jobs | on | code |  |  |  | graph/nodes/jobReport.js · jobReport.js · texEntryPoint/readTheText.js |
 | Job start | jobStart | jobs | on | code |  |  |  | graph/nodes/jobStart.js · jobStart.cjs · jobStartChoice.js · background.js |
 | Warm the cache | warm |  | on | code |  |  |  | graph/nodes/warm.js · warmPrefix.js · textsWarm.js |
-| Sticker look | stickerLook |  | off | Haiku 5.5 | low | 10 s |  | graph/nodes/stickerLook.js · textsSticker.js · worker stickerLook.ts |
+| Sticker look | stickerLook |  | on | Haiku 5.5 | low | 10 s |  | graph/nodes/stickerLook.js · textsSticker.js · worker stickerLook.ts |
 | Tex's computer | computer | tools-subagents | on | code |  | 150 s |  | graph/nodes/computer.js · texComputerSandbox.js · infra/tex-computer |
 | Before asking | askGate | ladder | on | @cf/cloudflare/clef-flash |  | 3 s | train:askGate, ask, draft, date | graph/nodes/askGate.js · lookupLadder.js |
 | 1 What it already knows | rungKnows | ladder | on | code |  |  |  | graph/nodes/rungKnows.js · lookupLadder.js |
