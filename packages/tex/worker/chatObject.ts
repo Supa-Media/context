@@ -39,7 +39,7 @@ import { heardInGroup } from "./groupVoice";
 import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, keepGroupEdit } from "./groupInbox";
 import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
-import { crossTimeouts, takeCrossAnswer, takeCrossAsk } from "./crossChat";
+import { crossTimeouts, takeCrossAnswer, takeCrossAside, takeCrossAsk } from "./crossChat";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { isBound, sha256Hex } from "./groupChat";
 import { warmOnRead } from "./warmStep";
@@ -247,6 +247,7 @@ export class SenderInbox implements DurableObject {
     }
     // Tex asks Tex across chats (`crossChat.ts`): another chat's ask, queued as a turn here, and the answer to one of this chat's own.
     if (path === "/cross-ask") return Response.json({ outcome: await takeCrossAsk(this.state.storage, await request.json().catch(() => null), Date.now()) });
+    if (path === "/cross-aside") return Response.json({ outcome: await takeCrossAside(this.state.storage, await request.json().catch(() => null), Date.now()) }); // a group's sensitive ask for this person, asked here (`crossChat.ts`)
     if (path === "/cross-answer") return Response.json({ outcome: await takeCrossAnswer(this.state.storage, await request.json().catch(() => null), Date.now()) });
     if (path === "/page-jobs") return Response.json(await pageJobsOf(this.state.storage, Date.now()));
     if (path === "/page-answer") {

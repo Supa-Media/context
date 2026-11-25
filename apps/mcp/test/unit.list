@@ -784,6 +784,7 @@ test/labSandboxRich.test.mjs
 test/texNudge.test.mjs
 test/memberCards.test.mjs
 test/oneGroupPrompt.test.mjs
+test/privateAside.test.mjs
 test/benchMemberCards.test.mjs
 test/dataFormula.test.mjs
 test/dataSync.test.mjs

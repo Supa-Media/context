@@ -38,7 +38,7 @@ import { inviteEveryone } from "./groupInvite";
 import { groupRunDoneWords, runTheGroup } from "./groupRunTurn";
 import type { GroupPending } from "./groupTurn";
 import { ASK_KEY, filesFor, groupInboxName, routineDone, type GroupDeps, type OpenAsk } from "./groupInbox";
-import { answerCrossAsk, crossCounts, crossFields, crossWired, sendCrossAsks } from "./crossChat";
+import { answerCrossAsk, crossCounts, crossFields, crossWired, sendAsides, sendCrossAsks } from "./crossChat";
 
 export type TurnInput = {
   message: GroupMessage;
@@ -245,6 +245,11 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // a text (Dev2, 2026-11-11), and a quiet turn that returned first left the job never run.
   // Asks the Cross-chat gate let go start in their chats; a run answering another chat's ask sends its answer back and
   // texts nothing here but a do-ask's one signed line, and only to the people it was written for (`crossChat.ts`).
+  // Sensitive asks go to the tagger's own 1:1, never here (`crossChat.ts` `sendAsides`); one that can't is said here in fixed words.
+  if (answer.asides && message.crossChat?.kind !== "ask") {
+    const aside = deps.crossCall ? await sendAsides({ now: deps.now, call: deps.crossCall }, message, answer.asides) : "unreached";
+    if (aside !== "sent") await say(storage, deps, message, aside === "no_1to1" ? GROUP_LINES.asideNo1to1 : GROUP_LINES.asideFailed, { system: true });
+  }
   if (crossOn && answer.crossAsks) await sendCrossAsks(storage, { now: deps.now, call: deps.crossCall! }, { kind: "group", message }, answer.crossAsks);
   if (message.crossChat?.kind === "ask") {
     if (crossOn && answer.crossPost) {

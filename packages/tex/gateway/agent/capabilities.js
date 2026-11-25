@@ -64,6 +64,14 @@ export const CAPABILITIES = Object.freeze([
     ],
   },
   {
+    name: "Sensitive details, asked on the side",
+    actions: ["send.text_privately"],
+    texts: "asked from one of their group chats for a password, card, ID or one-time code, you text them for it here in their own 1:1, and pass a code or detail back to that group (send ask_chat, do true); a login or card they save on the link carries the group on by itself",
+    group: "anything someone must give you that is sensitive (a password, a card, an ID, an account number, a one-time code) is asked for in their own 1:1 with you, never here (send text_privately; a vault link goes that way by itself): here you say only that you'll text them",
+    who: "only whoever tagged you is texted, by the texting Worker from their own message, never someone the model names",
+    cant: [{ where: "group", what: "ask someone who isn't on Context, or never texted you on their own, for something sensitive", workaround: { kind: "words", text: "they text you once on their own from their phone (which sets up an account if they have none), then ask again" } }],
+  },
+  {
     name: "Member cards: what each person's own Tex lets a group use",
     actions: [],
     texts: "keep their member card, tex/group-card.md in their personal workspace: a few lines from About me their group chats may plan around and never say (a diet, a schedule, what they like; a sensitive need as the need, never the reason; never a secret or anything about someone else); they can read it, change or delete any line, or write off on a line by itself and no group uses any of it",
@@ -161,8 +169,8 @@ export const CAPABILITIES = Object.freeze([
     name: "Saved logins, keys and cards (the vault)",
     actions: ["manage.vault_add", "manage.vault_share", "manage.vault_view", "send.fill_login", "send.make_login", "send.fill_card", "send.api", "send.vault_access"],
     texts: "say who can use each saved login, key or card (only them, one group chat, everyone in a workspace, or people by name) and change it when the person who saved it asks (send vault_access: give it to a group chat, a whole shared workspace or a member by @handle, take it back, keep it to themselves, or cut every AI off it), then say who has it now; send the link where they save a login, key or card; sign in yourself with a saved login you never see (a site that signs in by email and a one-time code needs no saved login: they text you the code and you type it); make a new account's password yourself when you sign them up for a site: it's saved to their vault before it's typed, and you never see it (an account they already have still needs its login saved from the link); fill a saved card after asking by text for each purchase, naming the card, total and site, on their plain yes; call an API with a saved key (the first use by each AI is approved in the Context app, never by text); send a private link where they see a saved entry; after they save a login you sent the link for, carry on with the task by yourself",
-    group: "logins and cards saved for this chat or the whole workspace, and ones the person who tagged you saved for themselves (on their own tag only), never typed in the chat; whoever saved one can give it to this chat, the workspace or a person, or take it back, by asking you here (send vault_access); send a save link here in one short line, without asking which vault: its page offers this chat, the whole workspace (showing who here is in it, with Add for anyone who isn't) or just them, and once it's saved you carry on in the chat by yourself; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login; a new account you make here keeps its password in the vault for this chat",
-    guest: "only a login saved for this chat or shared with it, or one the person who tagged you saved for themselves",
+    group: "logins and cards saved for this chat or the whole workspace, and ones the person who tagged you saved for themselves (on their own tag only), never typed in the chat; whoever saved one can give it to this chat, the workspace or a person, or take it back, by asking you here (send vault_access); a save link goes to whoever asked in their own 1:1 with you, never here, and you say here only that you'll text them; its page offers this chat, the whole workspace (showing who here is in it, with Add for anyone who isn't) or just them, and once it's saved you carry on in the chat by yourself; a card is filled on the tagger's plain yes in the chat; a sign-in by emailed code needs no saved login; a new account you make here keeps its password in the vault for this chat",
+    guest: "only a login saved for this chat or shared with it, or one the person who tagged you saved for themselves; someone here who isn't on Context is told to text you on their own to set up an account before they can save one",
     cant: [
       {
         where: "everywhere",
