@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  addColumn, cellProblem, changeRows, deleteColumn, isSheetPath, latestByGroup, MAX_SHEET_ROWS,
+  addColumn, cellProblem, changeRows, dateMs, deleteColumn, isSheetPath, latestByGroup, MAX_SHEET_ROWS,
   moveColumn, newSheetText, parseCsvRecords, parseHeaderCell, parseSheet, querySheet, queryProblems,
   renameColumn, selectOptions, serializeSheet, setColumnType, typedValue,
 } from "../src/sheets/csv.js";
@@ -131,6 +131,39 @@ test("a query naming a missing column or operator is refused", () => {
   assert.equal(queryProblems(sheet, { where: [{ column: "value", op: "~", value: 1 }] }).length, 1);
   assert.equal(queryProblems(sheet, { sort: { column: "nope" } }).length, 1);
   assert.equal(queryProblems(sheet, { where: [{ column: "Value", op: ">=", value: 1 }] }).length, 0);
+});
+
+test("a date is a day or a UTC instant, and a day that does not exist is refused", () => {
+  for (const ok of ["2026-11-23", "2026-11-23T09:30Z", "2026-11-23T09:30:05Z", "2026-11-23T09:30:05.1Z", "2026-11-23T09:30:05.123Z", "2028-02-29"]) {
+    assert.equal(cellProblem("date", ok), "", ok);
+  }
+  for (const no of ["2026-02-30", "2026-13-01", "2026-11-23T24:00Z", "2026-11-23T09:60Z", "2026-11-23T09:30", "2026-11-23T09:30+01:00", "2026-11-23 09:30Z", "2026-11-23T9:30Z", "2026-11-23T09:30:05.1234Z"]) {
+    assert.match(cellProblem("date", no), /not a date/, no);
+  }
+  assert.equal(dateMs("2026-11-23"), Date.UTC(2026, 10, 23));
+  assert.equal(dateMs("2026-11-23T09:30:05.5Z"), Date.UTC(2026, 10, 23, 9, 30, 5, 500));
+  assert.ok(Number.isNaN(dateMs("soon")));
+  assert.equal(typedValue("date", "2026-11-23T09:30Z"), "2026-11-23T09:30Z");
+});
+
+test("dates of mixed precision sort, filter and pick the latest by their moment, not their text", () => {
+  const sheet = parseSheet([
+    "at:date,n:number",
+    "2026-11-23T09:00Z,1",
+    "2026-11-23T09:00:30Z,2",
+    "2026-11-23T09:00:00.500Z,3",
+    "2026-11-23,4",
+    "2026-11-22T23:59Z,5",
+    "",
+  ].join("\n"));
+  assert.deepEqual(querySheet(sheet, { sort: { column: "at" } }).rows.map((r) => r.n), ["5", "4", "1", "3", "2"]);
+  assert.deepEqual(querySheet(sheet, { where: [{ column: "at", op: "after", value: "2026-11-23T09:00Z" }] }).rows.map((r) => r.n), ["2", "3"]);
+  assert.deepEqual(querySheet(sheet, { where: [{ column: "at", op: "before", value: "2026-11-23" }] }).rows.map((r) => r.n), ["5"]);
+  const latest = latestByGroup(parseSheet("k,at:date\na,2026-11-23T09:00:30Z\na,2026-11-23T09:00Z\n"), { groupBy: "k", dateColumn: "at" });
+  assert.equal(latest.get("a").at, "2026-11-23T09:00:30Z");
+  // An instant written back keeps its text.
+  assert.match(serializeSheet(sheet), /2026-11-23T09:00:00\.500Z,3/);
+  assert.equal(changeRows(sheet, { append: [{ at: "2026-11-24T10:00Z", n: 6 }] }).ok, true);
 });
 
 test("latest row per metric goes by date", () => {

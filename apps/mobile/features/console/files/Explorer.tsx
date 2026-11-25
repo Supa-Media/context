@@ -85,6 +85,7 @@ export function Explorer({
   activity,
   agents,
   personal,
+  dataSource,
   onStartBusiness,
 }: ExplorerProps) {
   const colors = useColors();
@@ -149,6 +150,7 @@ export function Explorer({
       query={query}
       closeFilter={closeFilter}
       inBar={frame.columnTools !== null}
+      dataSource={dataSource === true}
     />
   );
   useColumnTools(frame.columnTools, frame.columnTools === null ? null : toolbar);

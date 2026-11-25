@@ -25,13 +25,17 @@ export function DateField({
   const scheme = useScheme();
   // 16px on a phone, so the browser does not zoom into the field.
   const fieldFont = useFieldFont(pointerType.ui);
+  // The browser's picker takes a day only. An instant (`2026-11-24T09:30Z`) shows its
+  // day, and picking a day keeps the instant's time rather than dropping it.
+  const day = value.slice(0, 10);
+  const time = /^\d{4}-\d{2}-\d{2}(T.*)$/.exec(value)?.[1] ?? "";
   return (
     <input
       type="date"
       autoFocus
       aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
+      value={day}
+      onChange={(event) => onChange(event.target.value === "" || time === "" ? event.target.value : event.target.value + time)}
       onBlur={onBlur}
       data-testid="sheet-cell-editor"
       style={{

@@ -19,7 +19,29 @@ export const MAX_SHEET_BYTES = 5 * 1024 * 1024;
 export const MAX_SHEET_ROWS = 50_000;
 
 const TYPE_SET = new Set(COLUMN_TYPES);
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+// A day (`2026-11-24`) or a UTC instant (`2026-11-24T09:30Z`, seconds and milliseconds optional).
+const DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?Z)?$/;
+
+/**
+ * A date cell's moment in milliseconds since the epoch, UTC, or NaN when it is
+ * not a date. A day means its midnight. Parsed by hand rather than with
+ * `Date.parse`, which rolls `2026-02-30` over into March. Instants written to
+ * different precision (`T09:00Z`, `T09:00:30Z`) do not sort by their text, so
+ * anything that orders dates orders by this.
+ */
+export function dateMs(value) {
+  const m = DATE.exec(cellText(value).trim());
+  if (!m) return Number.NaN;
+  const [y, mo, d, h = "0", mi = "0", sec = "0", frac = "0"] = m.slice(1);
+  const hour = Number(h);
+  const minute = Number(mi);
+  const second = Number(sec);
+  if (hour > 23 || minute > 59 || second > 59) return Number.NaN;
+  const ms = Date.UTC(Number(y), Number(mo) - 1, Number(d), hour, minute, second, Number(frac.padEnd(3, "0")));
+  const back = new Date(ms);
+  if (back.getUTCFullYear() !== Number(y) || back.getUTCMonth() !== Number(mo) - 1 || back.getUTCDate() !== Number(d)) return Number.NaN;
+  return ms;
+}
 
 export function isSheetPath(path) {
   return typeof path === "string" && path.toLowerCase().endsWith(SHEET_EXTENSION);
@@ -103,7 +125,7 @@ export function cellProblem(type, value) {
     case "usd":
       return Number.isFinite(Number(s.replace(/[$,]/g, ""))) ? "" : "not a number";
     case "date":
-      return DATE.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) ? "" : "not a date (YYYY-MM-DD)";
+      return Number.isNaN(dateMs(s)) ? "not a date (YYYY-MM-DD, or YYYY-MM-DDTHH:MMZ in UTC)" : "";
     case "checkbox":
       return s === "true" || s === "false" ? "" : "not true or false";
     case "link":
@@ -193,6 +215,11 @@ function compare(type, a, b) {
     const x = typedValue(type, a); const y = typedValue(type, b);
     if (typeof x === "number" && typeof y === "number") return x - y;
   }
+  if (type === "date") {
+    const x = dateMs(a);
+    const y = dateMs(b);
+    if (!Number.isNaN(x) && !Number.isNaN(y)) return x - y;
+  }
   return cellText(a).localeCompare(cellText(b), undefined, { numeric: true });
 }
 
@@ -261,7 +288,7 @@ export function latestByGroup(sheet, { groupBy, dateColumn }) {
     const key = cellText(row[group.name]).trim();
     if (!key) continue;
     const current = out.get(key);
-    if (!current || cellText(row[date.name]) >= cellText(current[date.name])) out.set(key, row);
+    if (!current || compare(date.type, row[date.name], current[date.name]) >= 0) out.set(key, row);
   }
   return out;
 }

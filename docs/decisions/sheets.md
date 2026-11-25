@@ -67,5 +67,7 @@ cells wrote a quotation, never an instruction.
 
 No chart tab, no source tab, no formulas, no per-sheet views saved in the
 file, and no metric-specific UI: the grid is generic and works in any folder.
+Formulas over sheets live in metric notes, not in cells
+([data-and-metrics](./data-and-metrics.md), 2026-11-24).
 Search does not index a sheet's cells yet, and `manage` move takes notes only,
 so an agent cannot move a sheet yet; both are follow-ups, not decisions.

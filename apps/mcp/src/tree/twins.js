@@ -27,7 +27,7 @@ import {
   topLevelRole,
   twinMessage,
 } from "../../../../packages/shared/src/folderRoles.cjs";
-import { INBOX_PARTS, INBOX_PART_LABEL, TEX_PARTS } from "../../../../packages/shared/src/folderJobInfo.cjs";
+import { DATA_PARTS, INBOX_PARTS, INBOX_PART_LABEL, TEX_PARTS } from "../../../../packages/shared/src/folderJobInfo.cjs";
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { listAllKeys } from "../notes/storage.js";
 import { servedListingStore } from "./served.js";
@@ -128,14 +128,16 @@ export async function nameTwinRefusal(store, scope, rules, overrides, path, { ki
 /**
  * The refusal for moving or renaming the folder that plays a main role, or one
  * of the Inbox's own folders (`INBOX_PARTS`, owner 2026-10-18), or of Tex's
- * own at `tex/` (`TEX_PARTS`, owner 2026-10-21), or null. A Tex folder nested
- * elsewhere is kept by the control plane's own check (`assertNotTexPart`).
+ * own at `tex/` (`TEX_PARTS`, owner 2026-10-21), or of the data folder's own at
+ * `data/` (`DATA_PARTS`), or null. A Tex or data folder nested elsewhere is kept
+ * by the control plane's own check (`assertNotTexPart`, `assertNotDataPart`).
  */
 export async function protectedFolderRefusal(store, scope, rules, overrides, path) {
   const segments = path.split("/");
   const inboxPart = segments.length === 2 && INBOX_PARTS.includes(segments[1]) && isMainFolder(segments[0]) && topLevelRole(segments[0]) === "inbox";
   const texPart = segments.length === 2 && segments[0] === "tex" && TEX_PARTS.includes(segments[1]);
-  if (!isMainFolder(path) && !inboxPart && !texPart) return null;
+  const dataPart = segments.length === 2 && segments[0] === "data" && DATA_PARTS.includes(segments[1]);
+  if (!isMainFolder(path) && !inboxPart && !texPart && !dataPart) return null;
   let folders;
   try {
     folders = [...(await levelsOf(store).children("", scope, rules, overrides)).folders];
@@ -145,6 +147,10 @@ export async function protectedFolderRefusal(store, scope, rules, overrides, pat
   if (texPart) {
     if (!folders.includes("tex")) return null;
     return `${segments[1]} is one of Tex's own folders: Tex files into it by name, so it stays where it is. You can add your own notes and folders beside it.`;
+  }
+  if (dataPart) {
+    if (!folders.includes("data")) return null;
+    return `${segments[1]} is one of the data folder's own folders: Context reads metrics from it by name, so it stays where it is. You can add your own notes and folders beside it.`;
   }
   if (inboxPart) {
     if (!isProtectedFolder(segments[0], folders)) return null;

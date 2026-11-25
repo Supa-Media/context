@@ -8,7 +8,7 @@ import { CONTEXT_ICONS, contextIconOf } from "@context/shared/src/contextIcons.c
 import { openingTab, sectionsFor } from "../features/console/files/FolderIconDialog";
 import { ICONS, PARTS } from "../features/console/files/contextIcons/drawings";
 import { PART_EMOJI } from "@context/shared/src/contextIcons.cjs";
-import { TEX_PART_DETAIL } from "../features/console/files/menuBuiltIn";
+import { DATA_PART_DETAIL, TEX_PART_DETAIL } from "../features/console/files/menuBuiltIn";
 import { dir, find, ids, menu } from "./fileMenu/fixtures";
 import { texPartIconUnder } from "../features/console/files/jobIcons/folderJobs";
 import { contextPartMarker } from "@context/shared/src/contextIcons.cjs";
@@ -63,6 +63,18 @@ describe("Tex's own folders keep their name and place", () => {
     expect(find(menu({ kind: "row", row: dir("Assistant/tex/trips") }, { jobOf }), "moveTo")?.disabled).toBeFalsy();
     expect(find(menu({ kind: "row", row: dir("Work/skills") }, { jobOf }), "moveTo")?.disabled).toBeFalsy();
     expect(ids(menu({ kind: "row", row: dir("Work/skills") }, { jobOf }))).toContain("rename");
+  });
+});
+
+describe("the data folder's own metrics keeps its name and place", () => {
+  const jobOf = (path: string) => (path === "Work/Numbers" ? ("data" as const) : null);
+
+  test("Rename and Move to are dimmed on metrics, with the reason; a source's folder beside it moves", () => {
+    const list = menu({ kind: "row", row: dir("Work/Numbers/metrics") }, { jobOf });
+    expect(find(list, "rename")?.disabled).toBe(true);
+    expect(find(list, "moveTo")?.detail).toBe(DATA_PART_DETAIL);
+    expect(find(menu({ kind: "row", row: dir("Work/Numbers/github") }, { jobOf }), "moveTo")?.disabled).toBeFalsy();
+    expect(find(menu({ kind: "row", row: dir("Life/metrics") }, { jobOf }), "moveTo")?.disabled).toBeFalsy();
   });
 });
 

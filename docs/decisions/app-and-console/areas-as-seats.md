@@ -127,6 +127,10 @@ sparkline against the target, on the List and the Chart (`Trend.tsx`,
 `headline.ts`; `areaReadings.test.ts` fails if the target line leaves the
 series' scale).
 
-**Not built yet.** Webhook and
-routine sources for a metric, and Tex previewing a change on the Chart as it
+**Sources.** An area's metric is becoming a workspace metric it picks by name,
+worked out from the Data folder's datasets
+([data-and-metrics](../data-and-metrics.md), 2026-11-24); an area's own
+`metrics.csv` keeps working until then.
+
+**Not built yet.** and Tex previewing a change on the Chart as it
 is typed. Tex already sets a seat or a card by writing the note.

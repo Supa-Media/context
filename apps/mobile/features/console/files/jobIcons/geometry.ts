@@ -98,6 +98,14 @@ const DRAWINGS: Readonly<Record<DrawnJob, readonly Stroke[]>> = {
     [[18, 33], [50, 50], [82, 33]],
     [[50, 50], [50, 84]],
   ],
+  // A database: a stack of discs, its lid, its sides and two bands round it.
+  data: [
+    arc(50, 25, 31, 11, -100, 265, 16),
+    [[19, 25], [19, 75]],
+    [[81, 25], [81, 75]],
+    arc(50, 50, 31, 11, 0, 180, 8),
+    arc(50, 75, 31, 11, 0, 180, 8),
+  ],
   // A microphone.
   meetings: [
     [[38, 30], [38, 50], [62, 50], [62, 30]],

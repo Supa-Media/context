@@ -29,7 +29,7 @@ import {
   topLevelRole,
   twinMessage,
 } from "@context/shared/src/folderRoles.cjs";
-import { INBOX_PART_LABEL, isInboxPart, isTexPart, type InboxPart } from "@context/shared/src/folderJobInfo.cjs";
+import { INBOX_PART_LABEL, isDataPart, isInboxPart, isTexPart, type InboxPart } from "@context/shared/src/folderJobInfo.cjs";
 import { treeJobs } from "./treeChecks";
 import { canSee, isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
@@ -115,7 +115,8 @@ async function guardedJob(store: FileStore, path: string, clearance: Clearance):
  * renamed or moved either: Context files into them by name. They can still
  * be trashed, and a person adds notes and folders beside them (owner,
  * 2026-10-18). Tex's own folders (`TEX_PARTS`: transcripts, routines, ...)
- * are kept the same way (owner, 2026-10-21).
+ * are kept the same way (owner, 2026-10-21), and so is the data folder's own
+ * `metrics` (`DATA_PARTS`), which Context reads metrics from by name.
  */
 export async function assertNotProtectedFolder(
   store: FileStore,
@@ -125,6 +126,7 @@ export async function assertNotProtectedFolder(
 ): Promise<void> {
   if (intent === "move") await assertNotInboxPart(store, path, clearance);
   if (intent === "move") await assertNotTexPart(store, path, clearance);
+  if (intent === "move") await assertNotDataPart(store, path, clearance);
   const job = await guardedJob(store, path, clearance);
   if (job === null) return;
   const label = JOB_LABEL[job as RowRole] ?? path;
@@ -161,6 +163,18 @@ async function assertNotTexPart(store: FileStore, path: string, clearance: Clear
   throw new FileOpError(
     "PATH_INVALID",
     `${baseName(path)} is one of Tex's own folders: Tex files into it by name, so it stays where it is. You can add your own notes and folders beside it.`,
+  );
+}
+
+/** Refuse renaming or moving one of the data folder's own folders (`metrics`) the caller can see. */
+async function assertNotDataPart(store: FileStore, path: string, clearance: Clearance): Promise<void> {
+  const data = (await treeJobs(store))?.jobs.data ?? null;
+  if (!isDataPart(path, data)) return;
+  const state = await loadPrivacyState(store);
+  if (!folderVisibleAtScope(path, clearance, state.rules, state.overrides)) return;
+  throw new FileOpError(
+    "PATH_INVALID",
+    `${baseName(path)} is one of the data folder's own folders: Context reads metrics from it by name, so it stays where it is. You can add your own notes and folders beside it.`,
   );
 }
 

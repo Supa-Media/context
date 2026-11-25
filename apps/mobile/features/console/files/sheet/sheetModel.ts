@@ -9,7 +9,7 @@
  * row the gateway's query would also return.
  */
 
-import { cellProblem, cellText, rowMatches, typedValue } from "../../../../../mcp/src/sheets/csv.js";
+import { cellProblem, cellText, dateMs, rowMatches, typedValue } from "../../../../../mcp/src/sheets/csv.js";
 
 export type ColumnType = "text" | "number" | "usd" | "date" | "person" | "select" | "checkbox" | "link";
 
@@ -136,6 +136,12 @@ export function compareCells(type: ColumnType, a: string, b: string): number {
     const y = typedValue(type, b);
     if (typeof x === "number" && typeof y === "number") return x - y;
   }
+  if (type === "date") {
+    // By the moment, not the text: `T09:00Z` and `T09:00:30Z` do not sort by their characters.
+    const x = dateMs(a);
+    const y = dateMs(b);
+    if (!Number.isNaN(x) && !Number.isNaN(y)) return x - y;
+  }
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
@@ -163,8 +169,9 @@ export function rowCountLabel(shown: number, total: number): string {
   return `${shown} of ${total} rows`;
 }
 
+/** A day in words. An instant (`2026-11-24T09:30Z`) shows its UTC day for now. */
 export function formatDate(iso: string): string {
-  const date = new Date(`${iso}T12:00:00Z`);
+  const date = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
@@ -200,7 +207,7 @@ export function calcValue(kind: CalcKind, sheet: SheetData, column: SheetColumn,
       let best = "";
       for (const row of shown) {
         const d = cellOf(sheet, row, dateColumn.name);
-        if (d !== "" && d >= best) {
+        if (d !== "" && (best === "" || compareCells("date", d, best) >= 0)) {
           best = d;
           pick = row;
         }

@@ -20,13 +20,14 @@
  *    (`apps/convex/functions/lib/websites/siteRoot.ts`).
  *  - **Tex's own folders stay where they are** (transcripts, routines, ...;
  *    `TEX_PARTS`, owner 2026-10-21): Rename and Move to are dimmed with the
- *    reason, Tex filing into each by name.
+ *    reason, Tex filing into each by name. The data folder's own `metrics`
+ *    (`DATA_PARTS`) is kept the same way: Context reads metrics there by name.
  *  - **No built-in folder takes another icon**: its job's drawn icon is the
  *    point (board 9), so "Set icon…" is simply absent.
  */
 
 import { MAIN_ROLES, isMainFolder, isProtectedFolder, topLevelRole, type RowRole } from "@context/shared/src/folderRoles.cjs";
-import { TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
+import { DATA_PARTS, TEX_PARTS } from "@context/shared/src/folderJobInfo.cjs";
 import { isTwinPath, jobOfPath, type JobListings } from "./jobIcons/folderJobs";
 import type { ListingSort } from "@context/shared/src/listingSort.cjs";
 import { drawnLevel, rowPlace } from "./levelOrder";
@@ -39,12 +40,22 @@ export const BUILT_IN_DETAIL = "Built in. It can be renamed or moved, but not de
 
 export const TEX_PART_DETAIL = "Tex files into this folder by its name, so it keeps its name and place.";
 
-/** Whether this row is one of Tex's own folders, one level inside the folder doing Tex's job. */
-export function isTexPartRow(row: { kind: string; path: string }, context: Pick<MenuContext, "jobOf">): boolean {
-  if (row.kind !== "folder") return false;
+export const DATA_PART_DETAIL = "Context reads metrics from this folder by its name, so it keeps its name and place.";
+
+/**
+ * Why this row keeps its name and place, when it is one of Tex's own folders
+ * or the data folder's own, one level inside the folder doing that job; else
+ * `null`.
+ */
+export function keptPartDetail(row: { kind: string; path: string }, context: Pick<MenuContext, "jobOf">): string | null {
+  if (row.kind !== "folder") return null;
   const slash = row.path.lastIndexOf("/");
-  if (slash <= 0) return false;
-  return (TEX_PARTS as readonly string[]).includes(row.path.slice(slash + 1)) && context.jobOf?.(row.path.slice(0, slash)) === "tex";
+  if (slash <= 0) return null;
+  const name = row.path.slice(slash + 1);
+  const job = context.jobOf?.(row.path.slice(0, slash));
+  if (job === "tex" && (TEX_PARTS as readonly string[]).includes(name)) return TEX_PART_DETAIL;
+  if (job === "data" && (DATA_PARTS as readonly string[]).includes(name)) return DATA_PART_DETAIL;
+  return null;
 }
 
 /**
@@ -131,11 +142,11 @@ export function builtInLocks(job: RowRole | null): BuiltInLocks {
   return { kept: job !== null && (MAIN_ROLES as readonly string[]).includes(job) };
 }
 
-/** Rename and Move to, dimmed, the second carrying the reason: one of Tex's own folders. */
-export function fixedItems(context: MenuContext): MenuItem[] {
+/** Rename and Move to, dimmed, the second carrying the reason: one of Tex's own folders, or the data folder's. */
+export function fixedItems(context: MenuContext, detail: string): MenuItem[] {
   return [
     makeItem(context, "rename", "Rename…", { disabled: true }),
-    makeItem(context, "moveTo", "Move to…", { disabled: true, detail: TEX_PART_DETAIL }),
+    makeItem(context, "moveTo", "Move to…", { disabled: true, detail }),
   ];
 }
 
