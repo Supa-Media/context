@@ -40,7 +40,7 @@ export const LOOK_AT_ONCE = 5;
 
 type Answer =
   | { kind: "words"; id: string; words: string }
-  | { kind: "none" | "refused"; id: string }
+  | { kind: "none" | "refused"; id: string; why: string; mediaType?: string }
   | { kind: "no_address" | "off"; id: string };
 
 /** Ask about one sticker's picture. Never throws: a throw is "none". */
@@ -50,19 +50,22 @@ async function askOne(sticker: { id: string; guid: string }, chat: string, deps:
     const url = await deps.pictureUrl(sticker.guid).catch(() => null);
     if (url === null) return { kind: "no_address", id };
     const [picture] = await prepareAttachments([{ url, mimeType: "image/png", filename: "sticker", size: null }], { fetch: deps.fetch, images: deps.images });
-    if (picture === undefined || !("data" in picture)) return { kind: "none", id };
+    // The picture as the model would get it: a sticker Tex could not open says why (a fixed sentence, never its bytes).
+    if (picture === undefined) return { kind: "none", id, why: "no picture" };
+    if (!("data" in picture)) return { kind: "none", id, why: "unread" in picture ? picture.unread : "not a picture", mediaType: picture.mediaType };
     const response = await deps.texts!.fetch("https://gateway/texts/sticker-look", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ chat, sticker: id, mediaType: picture.mediaType, data: picture.data }),
     });
-    if (!response.ok) return { kind: "refused", id };
+    if (!response.ok) return { kind: "refused", id, why: `gateway ${response.status}`, mediaType: picture.mediaType };
     const answer = (await response.json().catch(() => null)) as { when?: unknown; why?: unknown; words?: unknown } | null;
     // The node off: nothing is looked at until a draft turns it on, and the stickers wait as they are.
     if (Array.isArray(answer?.when) && answer.when.includes("skip") && answer.why === "off") return { kind: "off", id };
-    return typeof answer?.words === "string" && answer.words !== "" ? { kind: "words", id, words: answer.words } : { kind: "none", id };
-  } catch {
-    return { kind: "none", id };
+    if (typeof answer?.words === "string" && answer.words !== "") return { kind: "words", id, words: answer.words };
+    return { kind: "none", id, why: typeof answer?.why === "string" ? answer.why.slice(0, 120) : "no words", mediaType: picture.mediaType };
+  } catch (error) {
+    return { kind: "none", id, why: `threw ${String((error as Error)?.name ?? "error").slice(0, 40)}` };
   }
 }
 
@@ -92,6 +95,8 @@ export async function lookAtStickers(storage: InboxStorage, place: { line: strin
         // Tried now, whatever came back but "off": a sticker that cannot be read waits `LOOK_AGAIN_MS` before it is tried again.
         if (answer.kind !== "no_address") await noteLooked(storage, answer.id, deps.now(), answer.kind === "words" ? answer.words : undefined);
         if (answer.kind === "words") looked += 1;
+        // Each sticker that got no words says why, so a look that reads nothing is never a silent count of 0.
+        else console.log(JSON.stringify({ event: "sticker_look_one", sticker: answer.id, outcome: answer.kind, ...("why" in answer ? { why: answer.why } : {}), ...("mediaType" in answer && answer.mediaType ? { mediaType: answer.mediaType } : {}) }));
       }
       const stop = answers.find((answer) => answer.kind === "no_address" || answer.kind === "refused");
       if (stop !== undefined) return done("failed", looked);
