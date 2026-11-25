@@ -182,6 +182,20 @@ test("a bot that can't see its secret gets a one-time command to send the header
   assert.equal((await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization: Bearer x" } })).isError, true);
 });
 
+test("a person is never a helper to a bot: refused, and a bot taking an area drops its helper", async () => {
+  // The owner, 2026-11-25: "a human shouldnt be a helper to a bot".
+  const { store, props } = await world({ "areas/finance/about.md": "---\nowner: \"@seyi\"\nhelper: \"@ana\"\n---\n\n# Finance\n" });
+  const refused = await run(store, { area: "areas/finance", owner: "Finance", helper: "@seyi" });
+  assert.equal(refused.isError, true);
+  assert.match(said(refused), /delegate: \{ person: "@seyi", to: "Finance" \}/);
+  assert.equal((await run(store, { area: "areas/finance", owner: "Finance" })).isError, undefined);
+  const now = await props("areas/finance/about.md");
+  assert.equal(now.owner, "Finance");
+  assert.equal(now.helper, undefined);
+  // With the bot already the owner, a person can't be added as its helper either.
+  assert.equal((await run(store, { area: "areas/finance", helper: "@ana" })).isError, true);
+});
+
 test("nothing to change is said so", async () => {
   const { store } = await world({ "areas/finance/about.md": FINANCE });
   assert.equal((await run(store, { area: "areas/finance" })).isError, true);

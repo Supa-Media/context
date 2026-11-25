@@ -134,6 +134,20 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     if (line.error) return toolError(`invalid: ${key} is a person's @handle or a bot's name, on one line. Pass it that way, then try again.`);
     if (!line.skip) seat.push([key, line.value]);
   }
+  // A person is never a helper to a bot (the owner, 2026-11-25): either a person owns and delegates to a bot, or a bot
+  // owns outright. People are @handles; a bot is a name.
+  const isPerson = (word) => typeof word === "string" && word.trim().startsWith("@");
+  const isBot = (word) => typeof word === "string" && word.trim() !== "" && !isPerson(word);
+  const helperAsked = seat.find(([key]) => key === "helper");
+  const ownerAsked = seat.find(([key]) => key === "owner");
+  const owner = ownerAsked ? ownerAsked[1] : (await factProps(store, [`${area}/about.md`]))?.get(`${area}/about.md`)?.props?.properties?.owner;
+  if (isBot(owner) && isPerson(helperAsked?.[1])) {
+    return toolError(
+      `refused: a person is never a helper to a bot. Make ${helperAsked[1]} the owner with ${owner} as their delegate (owner: "${helperAsked[1]}", delegate: { person: "${helperAsked[1]}", to: "${owner}" }), or leave out the helper, then try again.`,
+    );
+  }
+  // A bot taking the area holds it outright: any helper goes, as the panel does.
+  if (ownerAsked && isBot(owner) && helperAsked === undefined) seat.push(["helper", null]);
   if (args.modes !== undefined) {
     const asked = Array.isArray(args.modes) ? args.modes : [];
     const modes = knownModes(asked);
@@ -233,7 +247,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     if (hook.header_from_shell !== undefined) {
       // The bot sends the header's value itself, from its shell, so no model or chat sees it (`http/botHookUpload.js`).
       const headerName = String(hook.header_from_shell).trim();
-      if (hook.header || hook.signing_key) return toolError("invalid: header_from_shell replaces header and signing_key. Pass only the header's name, like Authorization.");
+      if (hook.header || hook.signing_key) return toolError("invalid: header_from_shell replaces header and signing_key. Leave those out, pass only the header's name (Authorization), then try again.");
       if (!/^[A-Za-z0-9-]{1,64}$/.test(headerName)) return toolError("invalid: header_from_shell is the header's name, like Authorization. Pass just the name, then try again.");
       if (typeof store.botHookUrl !== "string") return toolError("sending a header from a shell isn't available on this connection. Ask the person to set it in the Context app's area panel, under the bot's Reach.");
       const minted = await store.botHooks({ action: "ticket", bot: hookBot, address: hook.address, headerName }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try again." }));
@@ -246,7 +260,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     } else {
       const answer = await store
         .botHooks({ action: "set", bot: hookBot, address: hook.address, ...(hook.header ? { header: String(hook.header) } : {}), ...(hook.signing_key ? { signingKey: String(hook.signing_key) } : {}) })
-        .catch(() => ({ error: "the control plane could not be reached; try again" }));
+        .catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try again." }));
       if (answer?.error) return toolError(`webhook not saved: ${answer.error} Fix that, then try again.`);
       done.push(
         `${hookBot}: webhook saved sealed for ${answer.host}${answer.headerEnds ? ` (header ends ${answer.headerEnds})` : ""}. ` +
