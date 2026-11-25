@@ -35,7 +35,7 @@ function world(answer: (body: Record<string, unknown>) => unknown, status = 200)
 
 async function kept(...guids: string[]) {
   const storage = new MemoryStorage();
-  for (const [i, guid] of guids.entries()) await keepSticker(storage, { emoji: "", sticker: guid }, NOW - 1_000 + i);
+  for (const [i, guid] of guids.entries()) await keepSticker(storage, { how: "Reacted", words: "nice", emoji: "with a sticker", sticker: guid }, NOW - 1_000 + i);
   return storage;
 }
 
@@ -81,7 +81,7 @@ describe("a kept sticker is looked at once, and Decide reads its words", () => {
     const { asked, deps } = world((body) => ({ when: ["looked"], words: `words for ${String(body.sticker)}` }));
     await lookAtStickers(storage, PLACE, deps);
     expect(asked.map((body) => body.sticker)).toEqual(["g4", "g3", "g2"].map(stickerId));
-    await keepSticker(storage, { emoji: "", sticker: "g4" }, NOW + 5);
+    await keepSticker(storage, { how: "Reacted", words: "nice", emoji: "with a sticker", sticker: "g4" }, NOW + 5);
     expect((await stickersAsk(storage)).stickerWords?.[stickerId("g4")]).toBe(`words for ${stickerId("g4")}`);
   });
 
