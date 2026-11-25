@@ -48,11 +48,48 @@ export function noteProperties(text) {
   return Object.create(null);
 }
 
+/** YAML's double-quoted escapes this reader understands; any other `\x` keeps its letter. */
+const ESCAPES = { n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\", "/": "/" };
+
+/**
+ * One value. A quoted one reads up to its closing quote, as YAML does: `\"`
+ * and `\\` inside double quotes, `''` inside single quotes, and a `#` inside
+ * either is text. A plain value drops a trailing ` # comment`.
+ */
 function scalar(raw) {
-  const value = raw.trim().replace(/\s+#.*$/, "");
+  const text = raw.trim();
+  const quoted = text[0] === '"' ? doubleQuoted(text) : text[0] === "'" ? singleQuoted(text) : null;
+  if (quoted !== null) return quoted;
+  const value = text.replace(/\s+#.*$/, "");
   const quote = value[0];
   if ((quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote)) return value.slice(1, -1);
   return value;
+}
+
+/** Whatever follows a closing quote is nothing or a comment; anything else means the value was not one quoted string. */
+const restIsEmpty = (rest) => /^\s*(#.*)?$/.test(rest);
+
+function doubleQuoted(text) {
+  let out = "";
+  for (let i = 1; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') return restIsEmpty(text.slice(i + 1)) ? out : null;
+    if (c === "\\" && i + 1 < text.length) {
+      const next = text[++i];
+      out += Object.hasOwn(ESCAPES, next) ? ESCAPES[next] : next;
+    } else out += c;
+  }
+  return null;
+}
+
+function singleQuoted(text) {
+  let out = "";
+  for (let i = 1; i < text.length; i++) {
+    if (text[i] !== "'") out += text[i];
+    else if (text[i + 1] === "'") out += "'", i++;
+    else return restIsEmpty(text.slice(i + 1)) ? out : null;
+  }
+  return null;
 }
 
 /**

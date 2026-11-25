@@ -17,7 +17,7 @@ import { noteProperties } from "./properties.js";
  *
  * Same discipline as the list grammar. A key that is not a property name, a
  * value with a line break or a control character, a value holding both kinds
- * of quote (which the reader has no escape for), and a frontmatter that is
+ * of quote (or a backslash and a `'`), and a frontmatter that is
  * never closed are all refused with a reason, and the text is not touched.
  * Whatever this writes, `noteProperties` reads back as the value given — the
  * check at the end holds that, so a surprise in somebody's frontmatter comes
@@ -105,7 +105,8 @@ function lastKeyLine(lines, close, key) {
 
 /**
  * A value as the reader will read it back: bare when it is plainly text,
- * otherwise in whichever quote it does not contain.
+ * otherwise in whichever quote it does not contain. A backslash goes in single
+ * quotes, since inside double quotes the reader takes it as an escape.
  *
  * `true`, `false` and a plain number are written bare too. Somebody typing
  * `false` into a `draft` property means false, and a website page's `draft`
@@ -123,7 +124,7 @@ function quoted(value) {
       !/:\s|:$/.test(value) &&
       !/^(true|false|yes|no|null|on|off|~|[-+]?[\d.]+)$/i.test(value));
   if (plain) return value;
-  if (!value.includes('"')) return `"${value}"`;
+  if (!value.includes('"') && !value.includes("\\")) return `"${value}"`;
   if (!value.includes("'")) return `'${value}'`;
   return null;
 }
