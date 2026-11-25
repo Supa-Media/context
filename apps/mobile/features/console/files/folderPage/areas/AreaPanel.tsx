@@ -26,6 +26,7 @@ import { folderLabel } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import { headlineOf } from "./headline";
 import { PanelMail, type PanelMailTools } from "./PanelMail";
+import { PanelProjects, type PanelProjectsTools } from "./PanelProjects";
 import { InlineField, PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
 import type { Reading } from "./readings";
 import { readingSource, type AreaReading } from "./areaMetric";
@@ -49,6 +50,8 @@ export interface AreaPanelProps {
   tools: PanelSeatTools;
   /** The area's mail, one note per sender; absent where there is none to show. */
   mail?: PanelMailTools;
+  /** The projects serving this area, from the Projects folder; absent where that folder is not read. */
+  projects?: PanelProjectsTools;
   /** Shows another area here. */
   onPeek: (folder: string) => void;
   /** Opens an area's own page. */
@@ -61,7 +64,7 @@ function editOf(seat: Seat, patch: Partial<SeatEdit>): SeatEdit {
   return { owner: seat.ownOwner, helper: seat.helper, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
 }
 
-export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, mail, onPeek, onOpen, onClose }: AreaPanelProps) {
+export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, mail, projects, onPeek, onOpen, onClose }: AreaPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
@@ -166,6 +169,12 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
           </Text>
         )}
       </Section>
+
+      {projects === undefined || top !== undefined ? null : (
+        <Section title="Projects">
+          <PanelProjects area={seat.folder} tools={projects} onProblem={setProblem} />
+        </Section>
+      )}
 
       <Section title="Owner">
         <PanelOwnerRows

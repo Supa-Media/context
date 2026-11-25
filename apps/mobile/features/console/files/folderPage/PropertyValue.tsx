@@ -68,6 +68,11 @@ export interface PropertyValueProps {
     /** Whether an owner line names an agent, which is marked beside it. */
     readonly isAgent?: (value: string) => boolean;
   };
+  /**
+   * A value picked from `choices` and never typed, each read through this: an
+   * area's folder as its name. There is then no "New value…"; Clear removes it.
+   */
+  named?: (value: string) => string;
   variant?: TextVariant;
   /** What an unset value reads; `Set owner` by default. Shown to a reader too when given. */
   unsetLabel?: string;
@@ -103,6 +108,7 @@ export function PropertyValue({
   onEditList = null,
   noteWord = null,
   owners,
+  named,
   variant = "tree",
   unsetLabel,
   lead,
@@ -123,7 +129,7 @@ export function PropertyValue({
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState("");
   // An owner written before handles is shown as the member it names, never rewritten here.
-  const shown = value === "" || owners?.label === undefined ? value : owners.label(value);
+  const shown = value === "" ? value : named !== undefined ? named(value) : owners?.label === undefined ? value : owners.label(value);
   // An agent's thread note (`Claude (faster CI/CD thread)`) is left out of the column and kept for hovering.
   const noted = value !== "" && shown !== value && owners?.isAgent?.(value) === true;
   const spoken = noted ? value : shown;
@@ -213,12 +219,12 @@ export function PropertyValue({
     items = [
       ...all.map((choice, index) => ({
         id: `choice:${index}` as const,
-        label: isolateForDisplay(choice),
+        label: isolateForDisplay(named === undefined ? choice : named(choice)),
         // No check gutter at all when nothing is chosen, so the rows line up with "New value…".
         ...(current === null ? {} : { checked: choice.toLowerCase() === current.toLowerCase() }),
       })),
-      { id: "new", label: "New value…", separatorBefore: all.length > 0 },
-      ...(current === null ? [] : [{ id: "clear" as const, label: "Clear" }]),
+      ...(named === undefined ? [{ id: "new" as const, label: "New value…", separatorBefore: all.length > 0 }] : []),
+      ...(current === null ? [] : [{ id: "clear" as const, label: "Clear", ...(named === undefined ? {} : { separatorBefore: true }) }]),
     ];
   }
   // Said before anything is pressed: this choice writes a file that is not there yet.

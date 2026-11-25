@@ -27,6 +27,7 @@ import { OwnerFace, PriorityGlyph } from "./Glyphs";
 import type { ItemActions } from "./items";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { progressPercent } from "./ProgressMeter";
+import { projectAreaTag } from "./areas/areaProjects";
 import { PropertyValue } from "./PropertyValue";
 import { faceFor } from "./taskFace";
 import { allTagsOf, dueOf, dueWord, estimateOf, ownersOf } from "./taskProps";
@@ -60,6 +61,8 @@ export function BoardCard({
   const ref = useCardDrag({ path: item.path, enabled: edit !== null, onStart: () => onLift(true), onEnd: () => onLift(false) });
   const tag = allTagsOf(item)[0];
   const due = dueOf(item.properties);
+  // The area the project serves, on the card's bottom line (the owner, 2026-11-25).
+  const area = projectAreaTag(item.properties, null);
   const estimate = estimateOf(item.properties);
   const owners = ownersOf(item.properties);
   const progress = item.progress;
@@ -116,6 +119,11 @@ export function BoardCard({
           {progress === null ? null : (
             <Text variant="meta" numberOfLines={1} style={styles.fraction} testID="folder-card-progress">
               {`${progress.done}/${progress.total}`}
+            </Text>
+          )}
+          {area === undefined ? null : (
+            <Text variant="meta" numberOfLines={1} style={styles.meta} testID="folder-card-area">
+              {area.label}
             </Text>
           )}
           {due === null ? null : (
