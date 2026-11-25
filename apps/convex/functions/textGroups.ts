@@ -195,6 +195,11 @@ export const applyGroupTurn = internalMutation({
     mint: v.boolean(),
     /** A routine's or check-in's own run: not somebody talking, so the chat's last word stays when it was. */
     routine: v.optional(v.boolean()),
+    /**
+     * A run of `routine` that somebody asked for all the same (their job's report, their ask from another chat): it reads
+     * the asker's reach as a text does (`lib/textGroupReach.ts` `askerReach`). Without it a routine reads the chat's.
+     */
+    asked: v.optional(v.boolean()),
     hashedAccessToken: v.string(),
     hashedRefreshToken: v.string(),
     expiresAt: v.number(),
@@ -284,9 +289,10 @@ export const applyGroupTurn = internalMutation({
       return { status: "unknown_sender", tell };
     }
 
-    // Everyone else is answered from the chat's home, on a grant that also reaches the shared workspaces all its account
-    // holders share (`lib/textGroupReach.ts`): none when anyone here has no account. A routine, a check-in and a job's
-    // report run the same way: an empty reach means the home alone, never a refusal (the owner, 2026-11-12).
+    // Everyone else is answered from the chat's home, on a grant that also reaches the asker's own shared workspaces
+    // (`lib/textGroupReach.ts` `askerReach`, Dev2 2026-11-25), or, for a routine, a check-in or the hello, the ones every
+    // account holder here shares: none when anyone here has no account. An empty reach means the home alone, never a
+    // refusal (the owner, 2026-11-12).
     const answer = await homeAnswer(ctx, args, group, senderUser, others);
     // A deployment with no pinned workspace has no home to answer from: its chat works on the one workspace in its reach.
     if (answer === null) return (await pinnedContextWorkspace(ctx)) === null ? await singleWorkspaceTurn(ctx, args, group, senderUser, others) : { status: "no_shared" };
@@ -297,6 +303,8 @@ export const applyGroupTurn = internalMutation({
 type TurnArgs = {
   groupKey: string;
   sender: string;
+  routine?: boolean;
+  asked?: boolean;
   command?: Infer<typeof commandValidator>;
   mint: boolean;
   hashedAccessToken: string;
@@ -316,7 +324,8 @@ async function homeAnswer(
   senderUser: Id<"users"> | null,
   others: string[],
 ): Promise<GroupAnswer | null> {
-  const turn = await homeOnlyTurn(ctx, args, chat, senderUser, others);
+  // Somebody asked for every turn but a routine's, a check-in's or the hello's (rulebook rule 2, Dev2 2026-11-25).
+  const turn = await homeOnlyTurn(ctx, { ...args, asked: args.routine !== true || args.asked === true }, chat, senderUser, others);
   if (turn === null) return null;
   // Read again: the turn may have named this chat's people on its home just now.
   return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)), ...(await calendarSharesNamed(ctx, chat._id)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };

@@ -19,6 +19,7 @@
  *   `effectiveScopes` ignoring the row's role                           -> "a viewer in the chat ..." fails
  *   `reachOf` listing the default row                                   -> "reach is the rows but the home" fails
  *   `groupOf` reading `reach` from the body                             -> "a body naming more ..." fails
+ *   `groupPrompt` calling the reach the room's                          -> "the prompt names the reach ..." fails
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -105,6 +106,9 @@ test("the prompt names the reach from the session, and a body naming more change
   const prompt = groupPrompt(group, "context-lc");
   assert.match(prompt, /@alpha and @beta/);
   assert.doesNotMatch(prompt, /gamma/);
+  // Whose access it is (Dev2, 2026-11-25, `asker-reach.md`): the asker's, never the room's or anyone else's.
+  assert.match(prompt, /@ada, who asked you, can open, by their access and never anyone else's/);
+  assert.doesNotMatch(prompt, /every person here is a member of/);
   const bare = groupOf({ group: { key: HEX, members: HEX, from: "ada" } }, await resolveSession(TOKEN, null, controlPlane([])));
   assert.equal(bare.reach, undefined);
 });

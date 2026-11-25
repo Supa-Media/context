@@ -288,8 +288,9 @@ export const OPS = Object.freeze({
       };
     },
   },
-  // Stick a sticker on a message (the SDK's `messages.placeSticker`): Photon places an image on a bubble; there is no
-  // sticker-only send. `part` picks one bubble of a multipart message (zero-based; the first when absent).
+  // A sticker: placed on a message's bubble (the SDK's `messages.placeSticker`), or with `send` true, sent to the chat as
+  // an image of its own (`messages.sendAttachment`; Dev2, 2026-11-25: "it should just reply with stickers instead, like a
+  // regular image"). `part` picks one bubble of a multipart message (zero-based; the first when absent).
   sticker: {
     method: "POST",
     parse(body) {
@@ -300,6 +301,7 @@ export const OPS = Object.freeze({
         sticker: parseSticker(body.sticker),
         part: int(body, "part", { min: 0, max: MAX_PARTS - 1, optional: true }),
         placement: parsePlacement(body.placement),
+        send: bool(body, "send", { optional: true }),
       };
     },
   },

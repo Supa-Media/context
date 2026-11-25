@@ -110,13 +110,15 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
     .unique();
   // A chat the person is not in answers as one that does not exist.
   if (group === null || !(group.homeUsers ?? []).includes(userId)) return { status: "not_found" as const, error: "There is no such chat." };
-  // The chat's grant is its sponsor's (`textGroups.sponsorId`), whoever tagged Tex: read the sponsor's grants too.
+  // A chat's run nobody asked for stands on its sponsor's grant (`textGroups.sponsorId`): read the sponsor's grants too.
   const sponsor = group.sponsorId ?? group.boundBy ?? null;
   const sponsorGrants = sponsor === null || sponsor === userId ? [] : await ctx.db
     .query("oauthGrants")
     .withIndex("by_user", (q) => q.eq("userId", sponsor))
     .collect();
-  const mine = [...grants, ...sponsorGrants].filter((grant) => grant.clientId === TEXTS_GROUP_CLIENT_ID && grant.status === "active" && grant.texGroup?.groupId === group._id).sort((a, b) => b.createdAt - a.createdAt);
+  // Their own asker's grant first (`textGroupHomeOnly.ts`: a text reads the asker's reach), then the sponsor's.
+  const own = (grant: Doc<"oauthGrants">) => (grant.userId === userId && grant.texGroup?.reachFor === "asker" ? 1 : 0);
+  const mine = [...grants, ...sponsorGrants].filter((grant) => grant.clientId === TEXTS_GROUP_CLIENT_ID && grant.status === "active" && grant.texGroup?.groupId === group._id).sort((a, b) => own(b) - own(a) || b.createdAt - a.createdAt);
   for (const grant of mine) {
     const live = await liveWithoutToken(ctx, grant);
     if (live === null) continue;
@@ -210,7 +212,9 @@ export const forGateway = internalQuery({
       if (chatKey === null) return { status: "refused", error: "That made-up chat can't be used." };
       const base = await sessionFor(ctx, userId, "me");
       if (base.status !== "ok") return base;
-      return await worldReach(ctx, userId, base.session, people, chatKey);
+      // The text's sender, by name: their text reads their reach (`textGroupReach.ts` `askerReach`).
+      const asker = typeof a.asker === "string" && a.asker.length <= 40 ? a.asker : undefined;
+      return await worldReach(ctx, userId, base.session, people, chatKey, asker);
     }
     if (action === "draft") {
       if (a.draft === "main" || a.draft === undefined || a.draft === null) return { status: "ok", graph: null };

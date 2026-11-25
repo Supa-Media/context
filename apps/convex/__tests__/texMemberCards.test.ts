@@ -105,14 +105,16 @@ for (const pinned of [true, false]) {
       expect(byHandle(await cards(t, after)).map((card) => card.handle)).toEqual(["ada", "bo"]);
     });
 
-    // A home's one grant takes every tag's token, so an earlier one is nobody's own tag now; with no pin each person's
-    // grant is their own, and Ada's token stays her newest own tag until she tags again.
-    test(pinned ? "an earlier token names nobody once someone else tagged" : "an earlier token names nobody once its person tagged again", async () => {
+    // Each person's grant is their own, with a home or without (`asker-reach.md`, 2026-11-25): Ada's token stays her
+    // newest own tag until she tags again, whoever tags in between.
+    test("an earlier token names nobody once its person tagged again", async () => {
       const t = setupTest();
       if (pinned) await pin(t);
       await crew(t);
       const first = await tag(t, ADA, [ADA, BO, CY, LINE]);
-      await tag(t, pinned ? BO : ADA, [ADA, BO, CY, LINE]);
+      await tag(t, BO, [ADA, BO, CY, LINE]);
+      expect(await cards(t, first)).not.toBeNull();
+      await tag(t, ADA, [ADA, BO, CY, LINE]);
       expect(await cards(t, first)).toBeNull();
     });
   });

@@ -131,7 +131,9 @@ export type PhotonSticker = { attachment: string } | PhotonAttachment;
  * bubble of a multipart message; the bridge centers it on the bubble at Photon's example size unless told otherwise.
  */
 export async function stickPhoton(photon: Fetcher, place: PhotonPlace, guid: string, sticker: PhotonSticker, part?: number): Promise<void> {
-  await photonCall(photon, "sticker", { ...place, guid, sticker: "mimeType" in sticker ? sticker : sticker.attachment, ...(part !== undefined ? { part } : {}) });
+  // Sent to the chat as an image of its own, never placed on the bubble (Dev2, 2026-11-25: "it should just reply with
+  // stickers instead, like a regular image"; Photon has no sticker tapback, only a sticker laid over the text).
+  await photonCall(photon, "sticker", { ...place, guid, sticker: "mimeType" in sticker ? sticker : sticker.attachment, send: true, ...(part !== undefined ? { part } : {}) });
 }
 
 /** `typing`: the "…" bubble on or off. */

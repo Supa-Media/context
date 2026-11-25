@@ -29,7 +29,7 @@ import { READS_AS_CHAT_NAME } from "./nodes/chatFolders";
 import { accountTimeZone } from "./routines/access";
 import { effectiveTimeZone } from "./routines/model";
 import { personalWorkspaceOf } from "../textLinks";
-import { liveReach, reachOf } from "./textGroupReach";
+import { askerReach, liveReach, reachOf } from "./textGroupReach";
 import { reachBlockers, type Blocker } from "./textGroupBlockers";
 import { speaksUpOf } from "./texChatRules";
 
@@ -46,6 +46,12 @@ export interface HomeOnlyArgs {
   hashedAccessToken: string;
   hashedRefreshToken: string;
   expiresAt: number;
+  /**
+   * Whether somebody asked for this turn: a text, their job's report, their ask from another chat. It reads the
+   * asker's own reach (`textGroupReach.ts` `askerReach`); a turn nobody asked for (a routine, a check-in, the hello)
+   * reads the chat's.
+   */
+  asked: boolean;
 }
 
 /** A home-only turn's answer, before the chat's style and mail are added (`functions/textGroups.ts`). */
@@ -58,9 +64,9 @@ export interface HomeOnlyReady {
   names: { phone: string; handle: string; name?: string }[];
   guests: { phone: string; label: string }[];
   guestTagger?: string;
-  /** The slugs of the shared workspaces the chat reaches this turn, by name (`lib/textGroupReach.ts`); an account-less person here keeps out every one they aren't invited to by number. */
+  /** The slugs of the shared workspaces this turn reads, by name: the asker's own on a turn somebody asked for, the chat's on one nobody did (`lib/textGroupReach.ts`). */
   reach: string[];
-  /** Who keeps the chat from each shared workspace its asker and sponsor share, so the turn logs it and Tex can say so (`lib/textGroupBlockers.ts`). */
+  /** Who here is not in each of the asker's workspaces the whole chat doesn't share, so the turn logs it and Tex can judge the room (`lib/textGroupBlockers.ts`). */
   blocked: Blocker[];
 }
 
@@ -104,13 +110,19 @@ export async function homeOnlyTurn(
   const sponsor = chat.sponsorId ?? chat.boundBy ?? (await firstWhoCanPay(ctx, [...(senderUser === null ? [] : [senderUser]), ...people])) ?? senderUser ?? people[0];
   if (sponsor === undefined) return null;
   // The chat's reach, worked out now (`lib/textGroupReach.ts`): every shared workspace each account holder here, and the
-  // sponsor who acts, is a member of and every guest is invited to by number. Kept on the chat for its single-workspace readers.
+  // sponsor, is a member of and every guest is invited to by number. Kept on the chat for its single-workspace readers
+  // (mail shares, check-ins, routines), which speak to the whole room, and read by a turn nobody asked for.
   const reachPeople = [...new Set([...people, sponsor])];
   const reachGuests = guests.map((guest) => guest.phone);
-  const reach = await reachOf(ctx, chat, reachPeople, reachGuests);
+  const chatReach = await reachOf(ctx, chat, reachPeople, reachGuests);
+  const chatReachIds = chatReach.map((row) => row.workspace._id);
+  await ctx.db.patch(chat._id, { reach: chatReachIds, reachPeople, reachGuests });
+  // A turn somebody asked for reads the ASKER's own workspaces (rulebook rule 2, Dev2 2026-11-25), on a grant of the
+  // asker's own, so another person's tag never changes what this turn's tokens, earlier tokens or job parts read.
+  const own = args.asked ? await askerReach(ctx, chat, senderUser, sponsor, senderUser === null ? args.sender : null) : null;
+  const reach = own?.rows ?? chatReach;
   const reachIds = reach.map((row) => row.workspace._id);
-  await ctx.db.patch(chat._id, { reach: reachIds, reachPeople, reachGuests });
-  const blocked = await reachBlockers(ctx, { asker: senderUser, sponsor, people: named, guests, reach: reachIds });
+  const blocked = await reachBlockers(ctx, { asker: senderUser, people: named, guests, chatReach: chatReachIds });
   const intro = chat.introducedAt === undefined;
   const minted = args.mint && args.command === undefined;
   if (minted) {
@@ -118,10 +130,13 @@ export async function homeOnlyTurn(
       chat,
       pinned,
       sponsor,
+      // The asker's own grant when an account holder asked; a guest's ask and a run nobody asked for stand on the sponsor.
+      holder: own !== null && senderUser !== null ? senderUser : sponsor,
+      reachFor: own !== null ? "asker" : "chat",
       people,
       reach: reachIds,
-      reachPeople,
-      reachGuests,
+      reachPeople: own?.people ?? reachPeople,
+      reachGuests: own?.guests ?? reachGuests,
       tagger: senderUser,
       guestPhone: senderUser === null ? args.sender : undefined,
       hashedAccessToken: args.hashedAccessToken,
@@ -158,8 +173,10 @@ async function firstWhoCanPay(ctx: MutationCtx, candidates: Id<"users">[]): Prom
 }
 
 /**
- * The chat's home made (or kept) with its people named, and its grant written on the pin for the sponsor. Returns
- * false, and writes nothing else, when the sponsor may not pay or the home has no name.
+ * The chat's home made (or kept) with its people named, and its grant written on the pin for `holder`: the asker on a
+ * turn an account holder asked for, else the sponsor. One grant per holder, chat, kind of reach and guest, so one
+ * person's tag never rewrites what another's tokens read. Returns false, and writes nothing else, when the sponsor may
+ * not pay or the home has no name.
  */
 async function mintHomeOnlyGrant(
   ctx: MutationCtx,
@@ -167,6 +184,8 @@ async function mintHomeOnlyGrant(
     chat: Doc<"textGroups">;
     pinned: Doc<"workspaces">;
     sponsor: Id<"users">;
+    holder: Id<"users">;
+    reachFor: "asker" | "chat";
     people: Id<"users">[];
     reach: Id<"workspaces">[];
     reachPeople: Id<"users">[];
@@ -191,6 +210,7 @@ async function mintHomeOnlyGrant(
     coViewerIds: [] as Id<"users">[],
     meterWorkspaceId: meterWorkspace,
     homeOnly: true as const,
+    reachFor: input.reachFor,
     reach: input.reach,
     reachPeople: input.reachPeople,
     reachGuests: input.reachGuests,
@@ -204,17 +224,24 @@ async function mintHomeOnlyGrant(
     hashedAccessToken: input.hashedAccessToken,
     accessTokenExpiresAt: input.expiresAt,
   };
-  // One grant per chat per sponsor; a new turn's token replaces the last, which stays good until its own expiry.
+  // One grant per holder per chat, per kind of reach and per guest; a new turn's token replaces the last, which stays good
+  // until its own expiry. A grant minted before reach was the asker's (no `reachFor`) is never reused: its earlier tokens
+  // keep the chat's reach they were minted with, and it runs out on its own.
   const grants = await ctx.db
     .query("oauthGrants")
-    .withIndex("by_workspace_user", (q) => q.eq("workspaceId", input.pinned._id).eq("userId", input.sponsor))
+    .withIndex("by_workspace_user", (q) => q.eq("workspaceId", input.pinned._id).eq("userId", input.holder))
     .collect();
   const reusable = grants.find(
     (grant) =>
-      grant.clientId === TEXTS_GROUP_CLIENT_ID && grant.status === "active" && grant.texGroup?.homeOnly === true && grant.texGroup.groupId === input.chat._id,
+      grant.clientId === TEXTS_GROUP_CLIENT_ID &&
+      grant.status === "active" &&
+      grant.texGroup?.homeOnly === true &&
+      grant.texGroup.groupId === input.chat._id &&
+      grant.texGroup.reachFor === input.reachFor &&
+      grant.texGroup.guestPhone === input.guestPhone,
   );
   if (reusable === undefined) {
-    await ctx.db.insert("oauthGrants", { workspaceId: input.pinned._id, userId: input.sponsor, clientId: TEXTS_GROUP_CLIENT_ID, ...token, status: "active", createdAt: Date.now() });
+    await ctx.db.insert("oauthGrants", { workspaceId: input.pinned._id, userId: input.holder, clientId: TEXTS_GROUP_CLIENT_ID, ...token, status: "active", createdAt: Date.now() });
   } else {
     await keepEarlierToken(ctx, reusable);
     await ctx.db.patch(reusable._id, token);
@@ -223,11 +250,11 @@ async function mintHomeOnlyGrant(
   // The audit names the home's path, which in the pin is shown to its actor alone (`audit.ts`).
   await recordAudit(ctx, {
     workspaceId: input.pinned._id,
-    actorUserId: input.sponsor,
+    actorUserId: input.holder,
     actorClientId: TEXTS_GROUP_CLIENT_ID,
     action: "texts.group.session.opened",
     paths: [folder],
-    details: { scopes: scopes.join(" "), participants: input.participants, homeOnly: true },
+    details: { scopes: scopes.join(" "), participants: input.participants, homeOnly: true, reachFor: input.reachFor },
   });
   return true;
 }
@@ -287,12 +314,18 @@ export async function homeBinder(ctx: QueryCtx, chat: Doc<"textGroups">): Promis
 }
 
 /**
- * Whether a home-only grant still resolves: the sponsor who minted it is still the chat's sponsor and may still text,
- * and the grant is for the pin. The chat's mute is checked by the caller (`liveGrants.ts` `groupStillShares`).
+ * Whether a home-only grant still resolves: the chat's sponsor still may text, and the grant is for the pin, held by
+ * the sponsor, or by an asker of the chat for their own turns (`reachFor: "asker"`, `taggerId` the holder) while the
+ * chat's home still names them. The chat's mute is checked by the caller (`liveGrants.ts` `groupStillShares`).
  */
 export async function homeOnlyStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">, group: Doc<"textGroups">): Promise<boolean> {
-  if (group.sponsorId === undefined || group.sponsorId !== grant.userId) return false;
+  if (group.sponsorId === undefined) return false;
   const pinned = await pinnedContextWorkspace(ctx);
   if (pinned === null || pinned._id !== grant.workspaceId) return false;
+  if (group.sponsorId !== grant.userId) {
+    const asker = grant.texGroup?.reachFor === "asker" && grant.texGroup.taggerId === grant.userId;
+    if (!asker || !(group.homeUsers ?? []).includes(grant.userId)) return false;
+    if (await phoneSignInPaused(ctx, group.sponsorId)) return false;
+  }
   return !(await phoneSignInPaused(ctx, grant.userId));
 }

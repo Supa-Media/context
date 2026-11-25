@@ -10,7 +10,9 @@ import { routineChat } from "../functions/lib/routines/chats";
 
 /**
  * A GROUP CHAT REACHES THE SHARED WORKSPACES ALL ITS PEOPLE SHARE (decided by the owner, 2026-10-31, from the Tex Devs
- * meeting of 2026-10-30; `docs/decisions/texting-assistant/groups.md`, `chat-homes.md`).
+ * meeting of 2026-10-30; `docs/decisions/texting-assistant/groups.md`, `chat-homes.md`). Since 2026-11-25 that is what a
+ * run nobody asked for reads (a routine, a check-in, the hello); a text reads its asker's own
+ * (`docs/decisions/texting-assistant/asker-reach.md`, `textGroupAskerReach.test.ts`).
  *
  * A chat is bound to no workspace. Its grant is minted on the pinned workspace (the chat's home), carries the shared
  * workspaces every person with an account is a live member of, and a tool call names one with `context: "@slug"`. Each
@@ -100,6 +102,9 @@ async function grantRow(t: T) {
   return await t.run(async (ctx) => (await ctx.db.query("oauthGrants").collect()).find((entry) => entry.texGroup !== undefined) ?? null);
 }
 
+/** A routine's, a check-in's or the hello's run: nobody asked for it, so it reads the chat's reach. */
+const ROUTINE = { routine: true };
+
 const slugsOf = (session: Session | null) => (session?.workspaces ?? []).map((row) => row.slug);
 
 describe("what a chat reaches", () => {
@@ -126,7 +131,8 @@ describe("what a chat reaches", () => {
     const gamma = await createWorkspace(w.t, w.bo.userId, "gamma-co", { kind: "shared" });
     await addMember(w.t, gamma, w.ada.userId, "editor");
     await addMember(w.t, w.beta, cy.userId, "member");
-    const answer = await turn(w.t, ADA, [ADA, BO, "+15555550122", LINE]);
+    // A run nobody asked for reads the chat's reach (a text reads the asker's: `textGroupAskerReach.test.ts`).
+    const answer = await turn(w.t, ADA, [ADA, BO, "+15555550122", LINE], ROUTINE);
     // Cy is only in @beta, and Ada is not in anything Cy is in but @beta.
     expect(answer).toMatchObject({ status: "ready", reach: ["fjord-co"] });
     expect(slugsOf(await resolves(w.t, answer.accessToken as string))).toEqual(["context-lc", "fjord-co"]);
@@ -134,7 +140,7 @@ describe("what a chat reaches", () => {
 
   test("one of them leaving B drops B on the next call, with no new turn", async () => {
     const w = await world();
-    const answer = await turn(w.t, ADA, [ADA, BO, LINE]);
+    const answer = await turn(w.t, ADA, [ADA, BO, LINE], ROUTINE);
     const token = answer.accessToken as string;
     expect(slugsOf(await resolves(w.t, token))).toEqual(["context-lc", "ember-co", "fjord-co"]);
     await dropMember(w.t, w.beta, w.ada.userId);
@@ -143,13 +149,13 @@ describe("what a chat reaches", () => {
     await dropMember(w.t, w.alpha, w.bo.userId);
     expect(slugsOf(await resolves(w.t, token))).toEqual(["context-lc"]);
     // The next turn works it out afresh.
-    expect(await turn(w.t, ADA, [ADA, BO, LINE])).toMatchObject({ status: "ready", reach: [] });
+    expect(await turn(w.t, ADA, [ADA, BO, LINE], ROUTINE)).toMatchObject({ status: "ready", reach: [] });
   });
 
-  test("a person with no account means home only, whoever tags", async () => {
+  test("a person with no account means home only for a run nobody asked for, whoever it is from", async () => {
     const w = await world();
     for (const sender of [ADA, GUEST]) {
-      const answer = await turn(w.t, sender, [ADA, BO, GUEST, LINE]);
+      const answer = await turn(w.t, sender, [ADA, BO, GUEST, LINE], ROUTINE);
       expect(answer).toMatchObject({ status: "ready", slug: "context-lc", reach: [], minted: true });
       const session = await resolves(w.t, answer.accessToken as string);
       expect(slugsOf(session)).toEqual(["context-lc"]);
@@ -161,7 +167,7 @@ describe("what a chat reaches", () => {
   test("a person whose texting is paused counts as having no account: home only", async () => {
     const w = await world();
     await w.t.run(async (ctx) => void (await ctx.db.insert("phoneSignInPauses", { userId: w.bo.userId, pausedAt: Date.now() } as never)));
-    const answer = await turn(w.t, ADA, [ADA, BO, LINE]);
+    const answer = await turn(w.t, ADA, [ADA, BO, LINE], ROUTINE);
     expect(answer).toMatchObject({ status: "ready", reach: [] });
   });
 
@@ -189,7 +195,7 @@ describe("what a chat reaches", () => {
       const row = await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", w.beta).eq("userId", w.ada.userId)).unique();
       await ctx.db.patch(row!._id, { role: "member" });
     });
-    const answer = await turn(w.t, BO, [ADA, BO, LINE]);
+    const answer = await turn(w.t, BO, [ADA, BO, LINE], ROUTINE);
     const session = await resolves(w.t, answer.accessToken as string);
     const roles = Object.fromEntries(session!.workspaces.map((row) => [row.slug, row.role]));
     // Bo owns both, Ada edits @alpha and views @beta.
