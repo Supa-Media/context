@@ -1,8 +1,9 @@
 /**
  * What the Data page's two buttons make, shared with the Areas page's metric
  * picker so "New metric…" and "Connect a source" there do exactly what they
- * do on the Data page: New metric writes a metric note in the data folder's
- * `metrics/` with a starting formula and opens it; Connect a source offers
+ * do on the Data page: New metric opens the metric builder (`MetricBuilder.tsx`,
+ * boards 04 and 04b), which writes one metric note in the data folder's
+ * `metrics/` and opens it; Connect a source offers
  * Send from your code, which writes the source's `about.md` and its first
  * sheet, then opens the key dialog, and Fetch from a URL, which writes them,
  * opens the source's page and arms its sync (`ConnectSource.tsx`,
@@ -21,7 +22,8 @@ import { dataFolderNow } from "../jobIcons/jobFoldersNow";
 import type { FolderPageHost } from "../folderPage/useFolderPage";
 import { SheetSourcesDialog } from "../sheet/SheetSources";
 import { ConnectSourceDialog } from "./ConnectSource";
-import { freePath, newMetricText, slugOf, startingFormula, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
+import { slugOf, startingFormula, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
+import { MetricBuilderDialog } from "./MetricBuilder";
 import { metricsFolderOf, textOf, type DataSource } from "./sources";
 import { useSourceSyncs } from "./useSourceSync";
 import type { SyncState } from "./words";
@@ -42,7 +44,7 @@ export interface DataMaking {
   readonly dialogs: ReactNode;
 }
 
-type Dialog = null | { kind: "connect" } | { kind: "key"; path: string; columns: readonly string[] };
+type Dialog = null | { kind: "connect" } | { kind: "metric"; at: number } | { kind: "key"; path: string; columns: readonly string[] };
 
 export function useDataMaking({
   host,
@@ -80,19 +82,21 @@ export function useDataMaking({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.sources, listings, dataFolder, metricsFolder]);
 
-  const newMetric =
-    io === undefined || dataFolder === ""
-      ? undefined
-      : () => {
-          const path = freePath(metricsFolder, "new-metric", ".md", taken);
-          void io
-            .create(path, newMetricText(startingFormula(ws.sources, ws.sheets)))
-            .then(() => {
-              host?.tasks?.refresh([metricsFolder]);
-              open(path);
-            })
-            .catch(() => host?.tasks?.say("The metric could not be made. Try again."));
-        };
+  const newMetric = io === undefined || dataFolder === "" ? undefined : () => setDialog({ kind: "metric", at: Date.now() });
+
+  /** The builder's Save: the note as the person's own, then its page. */
+  const saveMetric = async (path: string, text: string): Promise<string | null> => {
+    if (io === undefined) return "You can't add to this workspace.";
+    try {
+      await io.create(path, text);
+    } catch {
+      return "The metric could not be saved. Try again.";
+    }
+    host?.tasks?.refresh([metricsFolder]);
+    setDialog(null);
+    open(path);
+    return null;
+  };
 
   const syncs = useSourceSyncs(ws.sources);
   const armSync = syncs.arm;
@@ -141,6 +145,19 @@ export function useDataMaking({
           sheet={compact}
           onMake={makeSource}
           {...(makeUrlSource === undefined ? {} : { onMakeUrl: makeUrlSource })}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog?.kind === "metric" ? (
+        <MetricBuilderDialog
+          metricsFolder={metricsFolder}
+          taken={taken}
+          sources={ws.sources}
+          sheets={ws.sheets}
+          startFormula={startingFormula(ws.sources, ws.sheets)}
+          sheet={compact}
+          now={dialog.at}
+          onSave={saveMetric}
           onClose={() => setDialog(null)}
         />
       ) : null}

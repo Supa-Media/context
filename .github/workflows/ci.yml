@@ -185,6 +185,8 @@ jobs:
           - 'apps/mcp/src/chaos/contacts.js'
           - 'apps/mcp/src/chaos/rubric.js'
           - 'apps/mcp/src/data/formula/**'
+          - 'apps/mcp/src/data/sync/about.js'
+          - 'apps/mcp/src/notes/format.js'
           - 'apps/mcp/src/encryption.js'
           - 'apps/mcp/src/encryption/**'
           - 'apps/mcp/src/forms.js'

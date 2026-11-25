@@ -7,23 +7,13 @@
 import { describe, expect, test } from "@jest/globals";
 import { parseFormula } from "../../mcp/src/data/formula/index.js";
 import { parseSheet } from "../../mcp/src/sheets/csv.js";
-import { datasetHeader, freePath, newMetricText, pushSourceFiles, slugOf, startingFormula } from "../features/console/files/data/dataWrites";
+import { datasetHeader, freePath, pushSourceFiles, slugOf, startingFormula } from "../features/console/files/data/dataWrites";
 import { properties, splitNote } from "../features/console/files/frontmatter";
-import { metricOf } from "../features/console/files/data/metrics";
 import type { DataSource } from "../features/console/files/data/sources";
 
 const props = (text: string) => Object.fromEntries(properties(splitNote(text).frontmatter).map((row) => [row.key, row.value]));
 
 describe("a new metric note", () => {
-  test("is a metric with a formula that parses, a period and no value", () => {
-    const text = newMetricText("count(github/pull-requests.number)");
-    const metric = metricOf({ path: "data/metrics/new-metric.md", properties: props(text) });
-    expect(metric.name).toBe("New metric");
-    expect(metric.every).toBe("week");
-    expect(metric.parsed.ok).toBe(true);
-    expect(splitNote(text).body).not.toMatch(/\d/);
-  });
-
   test("starts from a sheet the reader has, else a shape to fill in", () => {
     const source: DataSource = {
       folder: "data/github",

@@ -40,6 +40,7 @@ export function ReadingsChart({
   targetLabel,
   state,
   format,
+  accent = false,
 }: {
   /** One per period, oldest first; null where a period has no value. */
   values: readonly (number | null)[];
@@ -48,13 +49,15 @@ export function ReadingsChart({
   targetLabel: string | null;
   state: TargetState;
   format: string;
+  /** Drawn in the accent rather than grey while there is no target to meet: the metric builder's preview (board 04). */
+  accent?: boolean;
 }) {
   const colors = useColors();
   const [width, setWidth] = useState(0);
   const known = values.filter((v): v is number => v !== null);
   const low = Math.min(0, ...known, ...(target === null ? [] : [target]));
   const top = niceTop(Math.max(...known, ...(target === null ? [] : [target]), 0));
-  const ink = state === "met" ? colors.ok : state === "missed" ? colors.warn : colors.muted;
+  const ink = state === "met" ? colors.ok : state === "missed" ? colors.warn : accent ? colors.accent : colors.muted;
   const n = Math.max(values.length, 2);
   const x = (i: number) => LEFT + (i * (width - LEFT - 10)) / (n - 1);
   const y = (v: number) => TOP + (H - BOTTOM - TOP) * (1 - (v - low) / (top - low || 1));
