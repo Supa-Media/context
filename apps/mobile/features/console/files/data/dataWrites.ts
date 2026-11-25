@@ -1,11 +1,10 @@
 /**
- * What the Data page's two buttons write: a metric note from a template, a
- * push source's folder (its about.md and its one dataset), and a url source's
- * (its about.md and its empty dataset). Pure: the text and the paths, never a
- * write.
+ * What Connect a source writes, a push source's folder (its about.md and its
+ * one dataset) and a url source's (its about.md and its empty dataset), and
+ * the formula the metric builder starts from; the metric note itself is
+ * `metricDraft.ts`. Pure: the text and the paths, never a write.
  *
- * Nothing written here carries a value or a credential. A metric note's body
- * is a plain reading for a person to fill in; a push source's key is made
+ * Nothing written here carries a value or a credential. A push source's key is made
  * afterwards by the sheet's own key flow and kept in the control plane, never
  * in a file (`docs/decisions/app-and-console/sheet-sources.md`).
  */
@@ -42,20 +41,6 @@ export function startingFormula(sources: readonly DataSource[], sheets: Readonly
     }
   }
   return "count(source/dataset.column)";
-}
-
-/** A new metric note: its name, formula, period and format in front matter, and a line asking for its plain reading. */
-export function newMetricText(formula: string): string {
-  return [
-    "---",
-    "metric: New metric",
-    `formula: ${JSON.stringify(formula)}`,
-    "every: week",
-    "---",
-    "",
-    "Say in plain words what this counts, so anyone can check the formula. A value is never written here: it is worked out when the metric is read.",
-    "",
-  ].join("\n");
 }
 
 /** The columns a person typed, `suite, p95 ms:number`, as header cells, with a date column first when they named none. */

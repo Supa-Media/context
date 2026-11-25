@@ -108,6 +108,7 @@ const { useDataWorkspace } = require("../features/console/files/data/useDataWork
 const { DataPage, metricViews } = require("../features/console/files/data/DataPage") as typeof import("../features/console/files/data/DataPage");
 const { SourcePage } = require("../features/console/files/data/SourcePage") as typeof import("../features/console/files/data/SourcePage");
 const { MetricsPage } = require("../features/console/files/data/MetricsPage") as typeof import("../features/console/files/data/MetricsPage");
+const { MetricBuilderDialog } = require("../features/console/files/data/MetricBuilder") as typeof import("../features/console/files/data/MetricBuilder");
 const { MetricNoteView } = require("../features/console/files/data/MetricNoteView") as typeof import("../features/console/files/data/MetricNoteView");
 const { KeyList } = require("../features/console/files/data/SourceParts") as typeof import("../features/console/files/data/SourceParts");
 const { sheetRowsEndpoint } = require("../features/console/files/sheet/SheetSources") as typeof import("../features/console/files/sheet/SheetSources");
@@ -315,7 +316,7 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type BoardId = "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
+type BoardId = "04" | "04b" | "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
 
 const WORLD: Partial<Record<BoardId, { source: FolderListSource; nesting: Nesting }>> = {
   empty: { source: emptySource, nesting: emptyNesting },
@@ -360,6 +361,30 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
     });
   };
   switch (board) {
+    // The builder over the data page, as the boards draw it: board 04 with its draft, 04b typing a column.
+    case "04":
+    case "04b":
+      return h(
+        View as never,
+        null,
+        h(DataPage, { folder: "data", compact, ws, now: NOW, actions: dataActions, onOpen: open, sync: (folder: string) => SYNC[folder] }),
+        h(MetricBuilderDialog, {
+          metricsFolder: "data/metrics",
+          taken: new Set(["data/metrics/revenue-per-ai-dollar.md"]),
+          sources: ws.sources,
+          sheets: ws.sheets,
+          startFormula: "",
+          initial:
+            board === "04"
+              ? { name: "Revenue per AI dollar", formula: "sum(stripe/revenue.usd) / sum(cloudflare/ai-spend.usd)", every: "month", format: "$0.00" }
+              : { name: "Revenue per AI dollar (Team plan)", formula: "sum(stripe/revenue.usd where plan = Team) / sum(cloudflare/ai-spend.", every: "month", format: "$0.00" },
+          editing: board === "04b",
+          sheet: compact,
+          now: NOW,
+          onSave: async () => null,
+          onClose: () => {},
+        }),
+      );
     case "01":
     case "empty":
       return h(DataPage, { folder: "data", compact, ws, now: NOW, actions: dataActions, onOpen: open, sync: (folder: string) => SYNC[folder] });
@@ -405,6 +430,8 @@ function page(title: string, body: string, css: string, size: { width: number; h
 <title>${title}</title>
 <style>
   html, body { margin: 0; padding: 0; }
+  /* A photograph of where each animation ends (a dialog's fade), never part of the way there. */
+  *, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; }
   body { -webkit-font-smoothing: antialiased; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   #shot { width: ${size.width}px; ${phone ? "min-height" : "height"}: ${size.height}px; overflow: hidden; position: relative; }
 </style>
@@ -435,6 +462,8 @@ beforeAll(() => {
 });
 
 const SELECTED: Record<BoardId, string> = {
+  "04": "data",
+  "04b": "data",
   "01": "data",
   "07": "data/github",
   "09": "data/eval-ci",
@@ -458,7 +487,9 @@ async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolea
       : board === "now-new"
         ? { inConsole: true, state: { known: true }, armed: false, keep: async () => null }
         : { state: undefined, armed: false };
-  chartWidth = phone ? PHONE.width - 32 - 26 : 820 - 26;
+  // The builder's chart sits in its dialog's card: the dialog's width less its padding and the card's.
+  const builder = board === "04" || board === "04b";
+  chartWidth = builder ? (phone ? PHONE.width : 680) - 48 - 26 : phone ? PHONE.width - 32 - 26 : 820 - 26;
   stampViewport(size);
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -469,20 +500,28 @@ async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolea
     root!.render(h(ThemeProvider, { scheme, children: framed }));
   });
   // The folder reads, the sheet reads and the chart's measure each land a tick later.
-  for (let i = 0; i < 12; i += 1) {
+  // A dialog fades in over 300 ms: photographed once it has.
+  for (let i = 0; i < (builder ? 40 : 12); i += 1) {
     await act(async () => {
-      await new Promise((done) => setTimeout(done, 5));
+      await new Promise((done) => setTimeout(done, builder ? 15 : 5));
     });
   }
   const injected = [...document.head.querySelectorAll("style")].map((style) => style.textContent ?? "").join("\n");
   const css = `${StyleSheet.getSheet().textContent}\n${injected}`;
   const file = resolve(OUT, `${name}-${scheme}-${phone ? "phone" : "desktop"}.html`);
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, page(name, container.innerHTML, css, size, phone));
+  // A dialog is a modal, drawn in a layer of its own on the body beside the page: kept, over the page, as it is seen.
+  const layers = [...document.body.children].filter((each) => each !== container).map((each) => each.outerHTML).join("");
+  writeFileSync(file, page(name, container.innerHTML + layers, css, size, phone));
 }
 
 describe("data sources shots", () => {
   const shots: [BoardId, string, Scheme, boolean][] = [
+    ["04", "04-metric-builder", "light", false],
+    ["04", "04-metric-builder", "dark", false],
+    ["04", "04-metric-builder", "light", true],
+    ["04b", "04b-metric-edit", "light", false],
+    ["04b", "04b-metric-edit", "light", true],
     ["01", "01-data-page", "light", false],
     ["01", "01-data-page", "dark", false],
     ["01", "01-data-page", "light", true],

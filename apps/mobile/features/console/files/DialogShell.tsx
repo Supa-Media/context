@@ -25,6 +25,8 @@ export function Shell({
   onClose,
   sheet = false,
   anchor,
+  width,
+  closable = false,
 }: {
   title: string;
   children: ReactNode;
@@ -44,6 +46,10 @@ export function Shell({
    * sheet, which belongs on the bottom edge whatever raised it.
    */
   anchor?: DialogAnchor;
+  /** A wider card than the usual 460, for a dialog with a chart in it (the metric builder, board 04). */
+  width?: number;
+  /** An × beside the title, for a dialog whose only button is its own action (board 04's Save metric). */
+  closable?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const frame = useWindowDimensions();
@@ -58,14 +64,21 @@ export function Shell({
       >
         {/* Swallow presses inside the card so the scrim only closes on the scrim. */}
         <Pressable
-          style={[styles.card, sheet && styles.sheet, placed !== null && [styles.anchored, placed]]}
+          style={[styles.card, width !== undefined && !sheet && { maxWidth: width }, sheet && styles.sheet, placed !== null && [styles.anchored, placed]]}
           onPress={() => {}}
           accessibilityLabel={title}
           testID={sheet ? "dialog-sheet" : undefined}
         >
-          <Text variant="paneTitle" role="heading" aria-level={2}>
-            {title}
-          </Text>
+          <View style={styles.head}>
+            <Text variant="paneTitle" role="heading" aria-level={2} style={styles.title}>
+              {title}
+            </Text>
+            {closable ? (
+              <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} style={styles.close} testID="dialog-close">
+                <Text style={styles.closeGlyph}>×</Text>
+              </Pressable>
+            ) : null}
+          </View>
           <View style={styles.body}>{children}</View>
         </Pressable>
       </Pressable>
@@ -156,6 +169,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingBottom: 34,
   },
   body: { marginTop: 12, gap: 12 },
+  head: { flexDirection: "row", alignItems: "center", gap: 8 },
+  title: { flexShrink: 1 },
+  close: { marginLeft: "auto", width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: radii.xs },
+  closeGlyph: { fontSize: 20, lineHeight: 22, color: colors.muted },
   /** Under a popover the window stays as it was: the card is the only thing that changed. */
   anchoredScrim: { backgroundColor: "transparent", alignItems: "stretch", justifyContent: "flex-start", padding: 0 },
   anchored: {
