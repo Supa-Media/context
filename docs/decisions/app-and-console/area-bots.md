@@ -67,6 +67,17 @@ keeps its notes there and knows what its modes ask of it.
   that. A bot joins each note under its name (lowercase, as mail names are)
   and answers in it. The `mail/` folder is never a plain folder or a sub-area
   on the List, the Chart or in `orient`.
+- **Every orient says who holds each area, and to mail the area that owns a
+  problem, delegate first** (the owner, 2026-11-25: agents should know "when
+  there are connected agents with expertise that can help out with their
+  area? like for example reporting a slow CI to the Devops Area", and "always
+  reach out to delegate first"; option "Yes, build it"). The connected
+  workspace's block lists each area whose about.md names an owner, with its
+  delegate and its `mail/` folder, read at the connection's clearance, and
+  one line: tell the area in its mail, its delegate is alerted first, and its
+  owner only when it has no delegate or for what its approvals name. Mail in
+  a person-owned area alerts its delegate bot (`botMail.js` `botOfArea`).
+  `orientArea.test.mjs` fails if the list or the rule goes.
 
 - **A bot's webhook is sealed like an app connection** (the owner,
   2026-11-25, option A of two: "ok A"). The bot's Reach is Webhook or

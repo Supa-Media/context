@@ -5,6 +5,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toolOrient } from "../src/orient/tool.js";
+import { areaSeatsSection } from "../src/orient/area.js";
+import { connectedBlock } from "../src/orient/workspaces.js";
 import { parsePrivacyManifest } from "../src/privacy/engine.js";
 
 const HOUR = 60 * 60 * 1000;
@@ -147,4 +149,31 @@ test("an app that drops new arguments can ask the same with about", async () => 
   assert.match(byAbout, /^# Area: Finance/);
   const forAbout = text(await toolOrient(store(), "team", RULES, OVERRIDES, { about: "for @seyi" }));
   assert.match(forAbout, /^# Areas @seyi holds/);
+});
+
+test("the overview says who holds each area, delegate first, and to mail the area that owns a problem", async () => {
+  // The owner, 2026-11-25: agents should know who can help, "like reporting a slow CI to the Devops Area", and
+  // "always reach out to delegate first".
+  const out = await areaSeatsSection(store(), "team", RULES, OVERRIDES);
+  assert.match(out, /^Who holds each area:\n/);
+  assert.match(out, /- `areas\/engineering\/` — owner @seyi, delegate Pipeline \(ask Pipeline first\) · mail `areas\/engineering\/mail\/`/);
+  assert.match(out, /- `areas\/finance\/` — owner Finance · mail `areas\/finance\/mail\/`/);
+  // A bot owner's old helper line names no delegate; an area with no owner line is not listed.
+  assert.match(out, /- `areas\/support\/` — owner Finance · mail/);
+  assert.doesNotMatch(out, /payroll|areas\/about/);
+  assert.match(out, /slow CI for a DevOps area/);
+  assert.match(out, /write \{ action: "mail", path, args: \{ text \} \}/);
+  assert.match(out, /Its delegate is alerted first; go to its owner only when it has no delegate, or for what its approvals name/);
+  // An area this connection cannot see is never named; its owner sees it.
+  assert.doesNotMatch(out, /secret/);
+  assert.match(await areaSeatsSection(store(), "private", RULES, OVERRIDES), /`areas\/secret\/` — owner @seyi/);
+  // Said in the connected workspace's block, after its folders.
+  const block = connectedBlock({ entry: null, page: null, survey: { total: 1, rootNotes: [], folders: [], recent: [], captured: [] }, areaSeats: out });
+  assert.match(block, /Who holds each area:/);
+});
+
+test("no seats, or a map that cannot be read, says nothing", async () => {
+  assert.equal(await areaSeatsSection({ treeEntries: async () => [{ key: "notes.md", uploaded: at(1) }], treeFacts: async () => ({ served: false }) }, "team", RULES, OVERRIDES), "");
+  assert.equal(await areaSeatsSection({ treeEntries: async () => { throw new Error("down"); } }, "team", RULES, OVERRIDES), "");
+  assert.equal(await areaSeatsSection({}, "team", RULES, OVERRIDES), "");
 });

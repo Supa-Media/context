@@ -32,7 +32,7 @@ import { actionManual, actionNames, findAction, toolsManual } from "./manual.js"
 import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
 import { orientMailSection, readMailHealth } from "../../../../packages/tex/gateway/agent/mailHealth.js";
 import { phase } from "../mcp/phase.js";
-import { areaAnswer, holderAnswer } from "./area.js";
+import { areaAnswer, areaSeatsSection, holderAnswer } from "./area.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
 
@@ -164,7 +164,7 @@ async function overview(store, scope, rules, overrides) {
   // `index.md` read once for the front page and the save procedure, and only where this caller may see it.
   let indexText = null;
   const indexOnce = () => (indexText ??= canSee("index.md", scope, rules, overrides) ? readIndexText(store) : Promise.resolve(null));
-  const [survey, page, procedure, privateIndex, globalNote, others, mailboxes] = await Promise.all([
+  const [survey, page, procedure, privateIndex, globalNote, others, mailboxes, areaSeats] = await Promise.all([
     timed("survey", () => surveyOf(store, store, scope, rules, overrides)),
     timed("front_page", () => frontParagraphOf(store, scope, rules, overrides, indexOnce())),
     timed("save_procedure", () => readSaveProcedure(store, scope, rules, overrides, indexOnce())),
@@ -181,6 +181,8 @@ async function overview(store, scope, rules, overrides) {
     timed("other_contexts", () => surveyOtherContexts(store, open.openContext)),
     // Their own mailboxes, said only when one needs them (`agent/mailHealth.js`); the control plane answers the owner alone.
     scope === "private" && currentEntryOf(store)?.kind !== "shared" ? timed("mail_health", () => readMailHealth(store)) : Promise.resolve([]),
+    // Who holds each area and how to reach it, so an agent routes a problem to the area that owns it.
+    timed("area_seats", () => areaSeatsSection(store, scope, rules, overrides)),
   ]);
 
   const parts = [CONTEXT_INTRO];
@@ -199,7 +201,7 @@ async function overview(store, scope, rules, overrides) {
   else if (v2) parts.push(SIX_TOOLS_LINE);
 
   const current = currentEntryOf(store);
-  const connected = connectedBlock({ entry: current, page, survey });
+  const connected = connectedBlock({ entry: current, page, survey, areaSeats });
   const workspaces = [connected];
   if (others.section) workspaces.push(others.section);
   parts.push(
