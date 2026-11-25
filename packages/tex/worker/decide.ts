@@ -34,6 +34,8 @@ export type Decision =
       ms?: number;
       /** Decide's reaction, with any act (reacting is its own decision, Dev2 2026-11-01); sent only if one of `REACT_EMOJI` (`reactionFor`). */
       emoji?: string;
+      /** A sticker this chat kept, by its id, to stick in the emoji's place (one of the ask's `stickers`); the emoji goes where it can't. */
+      sticker?: string;
       /** With `wait`: the seconds decide chose; the chat's state caps the burst (`chatState.ts`). */
       waitSeconds?: number;
       /** Why the judge chose it: one of its labels (`textDecide.cjs` `WHY`), logged as a code. */
@@ -58,6 +60,8 @@ export type DecideAsk = {
   ledger?: string;
   /** A wait that was not held, or ran out, judged again with no wait to choose: quiet or respond (`chooseGroupTurn`). */
   settle?: true;
+  /** The stickers this chat kept, by id, newest last (`stickers.ts` `keptStickers`): Decide may react with one. */
+  stickers?: string[];
 };
 
 /** `texts`: the gateway's binding, where decide asks Clef itself (`decideGateway.ts`); without it, the control plane's route. */
@@ -99,7 +103,7 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
     const ms = Date.now() - started;
     if ("timedOut" in gateway) return unavailable("timeout", ms);
     if ("refused" in gateway) return { ok: false, ...gateway.refused, ms };
-    return readDecision(gateway.json, candidates, waitingAsks, ms);
+    return readDecision(gateway.json, candidates, waitingAsks, ms, ask.stickers ?? []);
   }
   try {
     reply = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/decide`, deps.workerSecret, body, limit);
@@ -109,11 +113,11 @@ export async function decide(deps: ControlDeps, ask: DecideAsk, timeoutMs?: numb
   }
   const ms = Date.now() - started;
   if (reply.status !== 200) return unavailable(`http_${reply.status}`, ms);
-  return readDecision(record(reply.json), candidates, waitingAsks, ms);
+  return readDecision(record(reply.json), candidates, waitingAsks, ms, ask.stickers ?? []);
 }
 
 /** Decide's answer, from the gateway or the control plane, checked like any trust boundary: ids it names must be ones it was given. */
-function readDecision(json: Record<string, unknown>, candidates: readonly string[], waitingAsks: readonly string[], ms: number): Decision {
+function readDecision(json: Record<string, unknown>, candidates: readonly string[], waitingAsks: readonly string[], ms: number, stickers: readonly string[]): Decision {
   if (json.ok === false) {
     const reason = json.reason === "capped" || json.reason === "off" ? json.reason : "unavailable";
     // Convex names the failed check in `cause` (no_group, unconfigured, model_failed, bad_answer, ...); older answers only had `reason`.
@@ -135,6 +139,8 @@ function readDecision(json: Record<string, unknown>, candidates: readonly string
     ms,
     // Checked against the allowlist where it is sent (`reactionFor`); here only its type.
     ...(typeof json.emoji === "string" ? { emoji: json.emoji.slice(0, 16) } : {}),
+    // Only a sticker this chat was asked with: never one named from anywhere else.
+    ...(typeof json.sticker === "string" && stickers.includes(json.sticker) ? { sticker: json.sticker } : {}),
     ...(typeof json.why === "string" && /^[a-z_]{1,40}$/.test(json.why) ? { why: json.why } : {}),
     ...(json.act === "wait" && typeof json.waitSeconds === "number" && Number.isFinite(json.waitSeconds) ? { waitSeconds: Math.min(8, Math.max(1, Math.round(json.waitSeconds))) } : {}),
   };

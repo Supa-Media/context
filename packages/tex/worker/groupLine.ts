@@ -274,3 +274,18 @@ function whapiGroupLine(deps: GroupLineDeps, groupId: string): GroupLine {
     },
   };
 }
+
+/**
+ * Decide's sticker on a group's message, by its id, with the line's stick (none on a line without stickers, and the
+ * emoji goes instead: `stepEvents.ts` `tapback`). Nothing when Decide chose no sticker.
+ */
+export function decideSticker<T extends GroupLineDeps & { remoteGroupLine?: (groupId: string) => GroupLine }>(
+  deps: T,
+  message: { line: string; groupId: string; messageId: string },
+  sticker: string | undefined,
+): { id: string; stick: ((guid: string) => Promise<void>) | undefined } | undefined {
+  if (sticker === undefined) return undefined;
+  const line = groupLineFor(groupLineSeam(deps), message.groupId);
+  const place = { line: message.line, groupId: message.groupId };
+  return { id: sticker, stick: line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid }) };
+}

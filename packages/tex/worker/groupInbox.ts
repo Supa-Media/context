@@ -68,7 +68,7 @@ import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachi
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
-import { groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
+import { decideSticker, groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
 import { inRoom, namesOnlySender, readMembersNow, withMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, markMutedTold, mutedTold, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
@@ -235,8 +235,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     await storage.put(seen, now);
     let how: Awaited<ReturnType<typeof whileRunning>>;
     try {
-      how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji) =>
-        tapback(storage, { chat: message.groupId, now: () => now, by: "decide", asked: emoji, on: ev }, message.text, (sent) => groupLineFor(groupLineSeam(running.deps as GroupDeps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)),
+      how = await whileRunning(storage, message, ev, running, tagged, () => now, (emoji, sticker) =>
+        tapback(storage, { chat: message.groupId, now: () => now, by: "decide", asked: emoji, on: ev }, message.text, (sent) => groupLineFor(groupLineSeam(running.deps as GroupDeps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent), decideSticker(running.deps as GroupDeps, message, sticker)),
       );
     } catch {
       // It is seen already: a throw here must not lose it, so it is queued as when no turn runs.
@@ -467,7 +467,7 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
       // Decide's reaction goes at once, whatever it decided about words, and only once per message.
       if (choice.react) {
         const [key, item] = choice.react;
-        await tapback(storage, { chat: item.message.groupId, now: deps.now, by: "decide", asked: choice.emoji, on: item.ev }, item.message.text, (sent) => groupLineFor(groupLineSeam(deps), item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, sent));
+        await tapback(storage, { chat: item.message.groupId, now: deps.now, by: "decide", asked: choice.emoji, on: item.ev }, item.message.text, (sent) => groupLineFor(groupLineSeam(deps), item.message.groupId).react({ line: item.message.line, groupId: item.message.groupId }, item.message.messageId, sent), decideSticker(deps, item.message, choice.sticker));
         await storage.put<Pending>(key, { ...item, reacted: true });
         for (const list of [choice.answer, choice.wait ?? []]) for (const entry of list) if (entry[0] === key) entry[1] = { ...entry[1], reacted: true };
       }

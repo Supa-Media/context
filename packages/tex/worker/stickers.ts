@@ -83,6 +83,12 @@ export async function keepSentStickers<M extends { text: string; stickers?: stri
   return { ...rest, text: rest.text === "" ? words : `${rest.text} ${words}` } as M;
 }
 
+/** The ids of the stickers this chat kept, newest last, at most `max`: what Decide may react with (`decide.ts`). */
+export async function keptStickers(storage: InboxStorage, max = 8): Promise<string[]> {
+  const kept = (await storage.get<Kept[]>(STICKERS_KEY).catch(() => undefined)) ?? [];
+  return [...kept].sort((a, b) => a.at - b.at).map((item) => item.id).filter(isStickerId).slice(-max);
+}
+
 /** The attachment guid of a sticker this chat kept, by its id; null for any id this chat never kept. */
 export async function stickerOf(storage: InboxStorage, id: unknown): Promise<string | null> {
   if (!isStickerId(id)) return null;

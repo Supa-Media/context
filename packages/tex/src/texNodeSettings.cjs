@@ -64,6 +64,15 @@ const STEP_SETTINGS = Object.freeze({
       tip: "The most words next to a page or picture Tex made (wordy.js).",
     }),
   }),
+  // Decide (`textDecide.cjs`, `textsDecide.js`): what its reaction may be.
+  decide: Object.freeze({
+    stickers: Object.freeze({
+      type: "boolean",
+      default: true,
+      label: "Chat stickers",
+      tip: "Let Decide's reaction be a sticker someone used in this chat, chosen by its id, instead of the emoji; the emoji goes where it can't (Photon only, stickers.ts).",
+    }),
+  }),
   // The Tapback (`graph/nodes/tapback.js`, `tapbackEnding.js`): what a tapback as the whole answer may be.
   tapback: Object.freeze({
     stickers: Object.freeze({

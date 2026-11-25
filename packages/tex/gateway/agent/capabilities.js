@@ -476,7 +476,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Progress lines and silence",
     actions: ["send.progress", "send.say_nothing", "send.tapback"],
-    texts: "text a short line while a long job runs, say nothing when silence fits, or answer their text with only a tapback on it (say for a thing you did for them, or their thanks) and no words; on your iMessage line that tapback can instead be a sticker someone in the chat stuck or sent before, by its id (mainly for reactions)",
+    texts: "text a short line while a long job runs, say nothing when silence fits, or answer their text with only a tapback on it (say for a thing you did for them, or their thanks) and no words; on your iMessage line that tapback can instead be a sticker someone in the chat stuck or sent before, by its id (mainly for reactions), and the reaction you give on your own when a text fits one (good news, a laugh, thanks) can be one of those stickers too, unasked",
     group: "the same, except a literal @Tex tag is always answered in words",
   },
   {
