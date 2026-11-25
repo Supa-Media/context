@@ -18,7 +18,8 @@ implement this".
   `stripe/`, `context/`, or one named by the person for a push source). Its
   `about.md` holds its settings, never a credential. Its **datasets** are
   ordinary CSV sheets beside it ([sheets](./sheets.md)): read, shared and
-  exported like any sheet.
+  exported like any sheet, plus any sheet kept elsewhere that its `about.md`
+  links (below, "A source's sheet can live anywhere").
 - **A metric is a note** in the Data folder's own `metrics/` folder: front
   matter `metric` (its name), `formula`, `every` (`day`, `week`, `month` or
   `N days`) and `format`. Its body is a plain reading of the formula and never
@@ -614,3 +615,30 @@ rows. Letting any owner arm it gives every workspace everyone's activity.
 Listing a bug report's text or note path in the sheet would hand it to
 owners who may not read the report. Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
 `apps/convex/__tests__/usagePeople.test.ts`.
+
+## A source's sheet can live anywhere
+
+Decided by the owner, 2026-11-25: a hand-kept sheet belongs with the work it
+measures (the Filings list in `areas/operations/Filings/`, the weekly scores in
+`areas/operations/Scorecard/`), because without it an area is hard to make sense
+of. The metric and its source stay in the Data folder; only the sheet moves.
+
+- The source's `about.md` links each such sheet in its front matter,
+  `sheets: ["[[areas/operations/Filings/filings.csv]]"]`. The dataset is the
+  sheet's file name, so a formula still says `filings/filings.status`. A sheet
+  in the source's own folder keeps a name both have
+  (`apps/mcp/src/data/sheetLinks.js`, shared by the app and the hourly keep).
+- **Nothing is searched for.** The app lists only the folders those links name
+  (`foldersOfLinkedSheets`), and the hourly keep reads only the about notes of
+  the sources a formula names. An area folder is never scanned for sheets.
+- **A link, not a bare path**, because the move engines already follow a link
+  in front matter: renaming or moving the area keeps the metric reading.
+- The rule that a kept value is never written where more people read it than
+  can read its inputs is asked of the sheet where it really is: an area folder
+  narrower than the kept sheet keeps nothing and names the sheet.
+
+What a "simplification" would cost: sheets only under `data/` puts an area's
+working list in a folder nobody opening the area sees; scanning area folders
+for sheets makes every Data page load read the whole areas tree. Tests:
+`apps/mcp/test/dataSheetLinks.test.mjs`, the linked-sheet case in
+`apps/mcp/test/dataSyncSnap.test.mjs`, `apps/mobile/__tests__/dataLinkedSheets.test.ts`.

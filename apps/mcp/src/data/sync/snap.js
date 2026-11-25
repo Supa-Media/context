@@ -25,6 +25,8 @@ import { parsedRules } from "../../workspaceStore/serve.js";
 import { isNotePath, withoutTextExtension } from "../../../../../packages/shared/src/fileKinds.cjs";
 import { mergeSynced } from "./keep.js";
 import { frontMatterFields, runHour } from "./about.js";
+import { linkedSheets } from "../sheetLinks.js";
+import { noteProperties } from "../../lists/properties.js";
 import { armerReader, failed, noteAndDataFolder, noteText, openStoreFor, readSheet, sheetRowAt, stopped, writeOver } from "./runParts.js";
 
 const WHAT = "the metric's note";
@@ -46,9 +48,32 @@ export function keptSheetOf(notePath, dataFolder) {
   return slug === "" ? null : `${notePath.slice(0, metrics.length)}${slug}.csv`;
 }
 
-/** An input's sheet, as the app reads one: `<data>/<source>/<dataset>.csv`. */
-export function inputSheetOf(dataFolder, { source, dataset }) {
-  return `${dataFolder}/${source}/${dataset}.csv`;
+/**
+ * An input's sheet, as the app reads one: `<data>/<source>/<dataset>.csv`, or the sheet its source's about note links
+ * under `sheets:` by that name (`../sheetLinks.js`). `linked` is that source's links, as `linkedSheets` gives them.
+ */
+export function inputSheetOf(dataFolder, { source, dataset }, linked = []) {
+  const found = linked.find((each) => each.name.toLowerCase() === String(dataset).toLowerCase());
+  return found ? found.path : `${dataFolder}/${source}/${dataset}.csv`;
+}
+
+/**
+ * Each input source's linked sheets, from its `about.md` as `reader` reads it: a source whose about note can't be
+ * read links nothing, and its inputs are read from its own folder as before.
+ */
+async function linkedBySource(client, reader, dataFolder, inputs) {
+  const sources = [...new Set(inputs.map((input) => input.source))];
+  const out = new Map(sources.map((source) => [source, []]));
+  if (sources.length === 0) return out;
+  const paths = sources.map((source) => `${dataFolder}/${source}/about.md`);
+  const rows = (await client.rows.lookup({ paths, withBody: true, ...reader }))?.rows ?? [];
+  sources.forEach((source, at) => {
+    const text = rows.find((row) => row?.path === paths[at] && row.found === true)?.body?.text;
+    if (typeof text !== "string") return;
+    // Its own folder's sheets win a shared name, as the app has it: one in the folder is read from the folder.
+    out.set(source, linkedSheets(noteProperties(text)));
+  });
+  return out;
 }
 
 /**
@@ -86,6 +111,22 @@ export async function widerThanInputs(client, keptPath, inputPaths) {
 }
 
 /**
+ * Each input with the path it is read from: its own folder's sheet when there is one there, else the sheet its
+ * source's about note links by that name. As `{list}`, or `{result}`.
+ */
+async function withOwnFirst(client, reader, dataFolder, named, linked) {
+  const own = named.map((input) => `${dataFolder}/${input.source}/${input.dataset}.csv`);
+  let found;
+  try {
+    const rows = (await client.rows.lookup({ paths: own, ...reader }))?.rows ?? [];
+    found = new Set(rows.filter((row) => row?.found === true).map((row) => row.path));
+  } catch {
+    return { result: failed(`Context couldn't reach this workspace just now; ${LATER}.`) };
+  }
+  return { list: named.map((input, at) => ({ ...input, path: found.has(own[at]) ? own[at] : inputSheetOf(dataFolder, input, linked.get(input.source) ?? []) })) };
+}
+
+/**
  * Take one reading. `deps` as `runUrlSource`'s: `{env, client, workspaceId, source: {noteId, armedBy}, now?,
  * openStore?, controlPlane?}`, where `source.noteId` is the metric note's.
  */
@@ -107,14 +148,22 @@ export async function runMetricSnap(deps) {
   const formula = frontMatterFields(note.text).formula ?? "";
   const parsed = parseFormula(formula);
   if (!parsed.ok) return failed(`Nothing was kept: its formula can't be read (${parsed.error.message}).`);
-  const inputs = formulaInputs(parsed.ast).map((input) => ({ ...input, path: inputSheetOf(dataFolder, input) }));
+  const named = formulaInputs(parsed.ast);
+  let linked;
+  try {
+    linked = await linkedBySource(client, reader, dataFolder, named);
+  } catch {
+    return failed(`Context couldn't reach this workspace just now; ${LATER}.`);
+  }
+  const inputs = await withOwnFirst(client, reader, dataFolder, named, linked);
+  if (inputs.result) return inputs.result;
 
   const kept = await sheetRowAt(client, reader, keptPath, "Open the metric and press Keep every hour to make it again.");
   if (kept.result) return kept.result;
 
   let rows;
   try {
-    rows = (await client.rows.lookup({ paths: inputs.map((input) => input.path), ...reader }))?.rows ?? [];
+    rows = (await client.rows.lookup({ paths: inputs.list.map((input) => input.path), ...reader }))?.rows ?? [];
   } catch {
     return failed(`Context couldn't reach this workspace just now; ${LATER}.`);
   }
@@ -122,7 +171,7 @@ export async function runMetricSnap(deps) {
 
   let wider;
   try {
-    wider = await widerThanInputs(client, keptPath, inputs.map((input) => input.path).filter((path) => rowOf.has(path)));
+    wider = await widerThanInputs(client, keptPath, inputs.list.map((input) => input.path).filter((path) => rowOf.has(path)));
   } catch {
     return failed(`Context couldn't check who can see this metric just now; ${LATER}.`);
   }
@@ -135,7 +184,7 @@ export async function runMetricSnap(deps) {
   if (opened.result) return opened.result;
   const { store } = opened;
   const sheets = new Map();
-  for (const input of inputs) {
+  for (const input of inputs.list) {
     const row = rowOf.get(input.path);
     if (row === undefined) continue;
     const read = await readSheet(store, row.key, input.path);

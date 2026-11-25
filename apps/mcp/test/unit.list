@@ -790,6 +790,7 @@ test/memberCards.test.mjs
 test/oneGroupPrompt.test.mjs
 test/privateAside.test.mjs
 test/benchMemberCards.test.mjs
+test/dataSheetLinks.test.mjs
 test/dataFormula.test.mjs
 test/dataFormulaNoData.test.mjs
 test/dataSync.test.mjs

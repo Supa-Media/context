@@ -9,6 +9,8 @@
  * 2. `runMetricSnap` skipping the armer's role check: "a metric whose armer can no longer edit stops" fails.
  * 3. `keptSheetOf` accepting a note anywhere under the Data folder: "only a note directly in metrics/ is a metric"
  *    fails.
+ * 4. `inputSheetOf` ignoring a source's linked sheets: "a sheet kept in an area's folder, linked from its source's
+ *    about note, is read where it is" fails.
  */
 
 import { test } from "node:test";
@@ -212,4 +214,35 @@ test("a body naming both, a note outside metrics/, a missing kept sheet and an A
   const missing = await armMetric(w2, w2.alice, made2.notePath);
   assert.equal(missing.body.last.outcome, "failed");
   assert.match(missing.body.last.said, /data\/metrics\/open-incidents\.csv is missing/);
+});
+
+test("a sheet kept in an area's folder, linked from its source's about note, is read where it is", { skip }, async () => {
+  /*
+    A source's sheet can live with the work it measures (`src/data/sheetLinks.js`): the metric still names it
+    `ops/incidents`, and the about note's `sheets:` link says where it is. Nothing else is searched, and the check on
+    who may read a kept value is asked of the sheet where it really is.
+  */
+  const w = await world();
+  const made = await withMetric(w, w.alice, { formula: "count(ops/tickets.id where open = true)" });
+  const ids = { tickets: noteId(24, w.alice.pwid), about: noteId(25, w.alice.pwid) };
+  w.alice.object.store.rows.put([
+    { id: `d-areas-${w.alice.pwid}`, path: "areas", kind: "folder", at: 10 },
+    { id: `d-sec-${w.alice.pwid}`, path: "areas/security", kind: "folder", at: 10 },
+    { id: `f-tickets-${w.alice.pwid}`, path: "areas/security/tickets.csv", kind: "file", at: 15, storageKey: `files/${ids.tickets}.csv`, noteId: ids.tickets, etag: "e-tickets" },
+    { id: `f-about-${w.alice.pwid}`, path: "data/ops/about.md", kind: "file", at: 16, storageKey: `notes/${ids.about}.md`, noteId: ids.about, etag: "e-about" },
+  ]);
+  await w.alice.bucket.put(`files/${ids.tickets}.csv`, "id,open:checkbox\nT-1,true\nT-2,true\nT-3,true\nT-4,false\n");
+  await w.alice.object.store.objects.put(`notes/${ids.about}.md`, `---\nsource: push\nsheets: ["[[areas/security/tickets.csv]]"]\n---\n\n# Ops\n`);
+  await setRules(w, w.alice, { folders: [{ prefix: "areas", visibility: "team" }] });
+  const armed = await armMetric(w, w.alice);
+  assert.equal(armed.body.last.outcome, "ok", JSON.stringify(armed.body.last));
+  assert.deepEqual((await keptOf(w.alice, made)).rows.map((r) => r.value), ["3"]);
+  // The area folder made owners-only: the kept sheet is team, so its value is no longer kept, and the sheet named is
+  // the one in the area.
+  await setRules(w, w.alice, { folders: [{ prefix: "areas", visibility: "team" }, { prefix: "areas/security", visibility: "private" }] });
+  w.clock.now = NOW + SYNC_EVERY_MS;
+  await dataObject(w, w.alice.pwid).instance.alarm();
+  const held = (await dataObject(w, w.alice.pwid).storage.get("sources"))[made.ids.note];
+  assert.match(held.last.said, /areas\/security\/tickets\.csv is seen by fewer people than data\/metrics\/open-incidents\.csv/);
+  assert.equal((await keptOf(w.alice, made)).rows.length, 1);
 });
