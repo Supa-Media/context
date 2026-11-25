@@ -194,7 +194,7 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
             "chat: the group, by name or key. what: the ask, in their words. do: true when it should act, not just answer. The answer comes back later as its own turn, so tell them in a few words that you asked." +
             groupNames(groups)
           : "Ask the personal Tex of whoever tagged you (their own 1:1 with you) for something only it knows about them, or to do something for them there. " +
-            "contact: true for their name, phone or email from their account (fields: only the ones needed): answered at once, never ask them in the chat for these. " +
+            "contact: true for their name, phone or email (say which in what): answered at once, never ask them in the chat for these. " +
             "For somebody else here, pass as with their handle: they are asked here first, and only their 👍 or yes lets you. " +
             "Anything else comes back later as its own turn, so tell them in a few words that you asked.",
       inputSchema: {
@@ -205,8 +205,7 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
           do: { type: "boolean", description: "true when the other Tex should do something, not only answer." },
           ...(group !== null
             ? {
-                contact: { type: "boolean", description: "true for only their name, phone or email from their account, answered at once." },
-                fields: { type: "array", items: { type: "string", enum: ["name", "phone", "email"] }, description: "With contact: only the facts needed." },
+                contact: { type: "boolean", description: "true for their name, phone or email, answered at once." },
                 as: { type: "string", description: "The handle of someone else in this chat, asked here first." },
               }
             : {}),
@@ -217,7 +216,7 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
     call: async (args) => {
       const what = line(args?.what, MAX_WHAT);
       if (what === "") return text("Not asked: say what you need, in a sentence.", true);
-      if (group !== null && args?.contact === true && facts !== null) return facts.call({ what, ...(args?.as ? { as: args.as } : {}), ...(Array.isArray(args?.fields) ? { fields: args.fields } : {}) });
+      if (group !== null && args?.contact === true && facts !== null) return facts.call({ what, ...(args?.as ? { as: args.as } : {}) });
       if (group !== null) {
         const target = offerTarget({ egress: { group } }, args ?? {}, "ask");
         if (target?.error) return text(target.error, true);

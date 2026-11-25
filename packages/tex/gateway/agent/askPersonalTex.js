@@ -16,8 +16,8 @@
  *    same call run, as theirs.
  *
  * What comes back is only the account facts the ask needs (decided by the owner, Dev2, 2026-11-25, after "what is
- * Seyi's last name?" handed a group turn his phone number and four emails): `fields` names them, else the ask's own
- * words do (a name, a phone, an email), else all three for a form. The answer says it came from their account, not
+ * Seyi's last name?" handed a group turn his phone number and four emails): the ones the ask's words name (a
+ * name, a phone, an email), else all three for a form. The answer says it came from their account, not
  * their personal Tex, which never ran. The chat is not texted a line about it: the answer arrives at once, and a
  * code-written status line read as plumbing ("Asking your personal Tex for What is …"). About me notes and anything
  * else in their personal workspace stay out of a group turn.
@@ -63,12 +63,10 @@ const FIELD_WORDS = {
 };
 
 /**
- * Which facts this ask gets: `fields` when the model names any, else the ones the ask's words name, else all three
- * (a form or sign-in that needs whatever it needs). Never more than the ask needs.
+ * Which facts this ask gets: the ones the ask's words name, else all three (a form or sign-in that needs whatever it
+ * needs). Never more than the ask needs.
  */
-export function contactFieldsOf(args, what) {
-  const named = Array.isArray(args?.fields) ? CONTACT_FIELDS.filter((field) => args.fields.includes(field)) : [];
-  if (named.length > 0) return named;
+export function contactFieldsOf(what) {
   const worded = CONTACT_FIELDS.filter((field) => FIELD_WORDS[field].test(String(what ?? "")));
   return worded.length > 0 ? worded : [...CONTACT_FIELDS];
 }
@@ -102,7 +100,6 @@ export function personalTexTool({ group, ledger, asker }) {
         properties: {
           what: { type: "string", description: "What you need from their personal Tex, in a few words." },
           as: { type: "string", description: "The handle of someone else in this chat, whose personal Tex you'd ask once they OK it." },
-          fields: { type: "array", items: { type: "string", enum: CONTACT_FIELDS }, description: "Only the facts the ask needs: name, phone, email." },
         },
       },
     },
@@ -126,7 +123,7 @@ export function personalTexTool({ group, ledger, asker }) {
           true,
         );
       }
-      const fields = contactFieldsOf(args, what);
+      const fields = contactFieldsOf(what);
       return text(
         [
           `Source: @${group.from}'s Context account`,

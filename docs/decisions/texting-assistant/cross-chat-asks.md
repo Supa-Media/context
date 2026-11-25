@@ -68,8 +68,7 @@ name?", `ask_chat` with `contact: true` answered by code from his account and ha
 and four email addresses; a code-written status line ("Asking your personal Tex for What is Seyi's last name? …")
 was texted to the chat; and the group's Tex then said his personal Tex had no last name, though that Tex never ran.
 
-- A contact ask answers only the facts it needs: `fields` (name, phone, email) when the model names them, else the
-  ones the ask's words name, else all three for a form (`askPersonalTex.js` `contactFieldsOf`). A missing name is
+- A contact ask answers only the facts it needs: the ones the ask's words name (a name, a phone, an email), else all three for a form (`askPersonalTex.js` `contactFieldsOf`). A missing name is
   said as missing.
 - The answer says it came from their Context account and that their personal Tex was not asked.
 - No status line is texted to the chat for it: it answers at once, so the answer itself is the reply.

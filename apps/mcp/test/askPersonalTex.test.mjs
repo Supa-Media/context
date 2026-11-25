@@ -61,13 +61,12 @@ test("a last name is answered with the name alone", async () => {
   const text = words(await run({ what: "What is Ada's last name?" }));
   assert.match(text, /Name: Ada Lovelace/);
   assert.doesNotMatch(text, /\+1555|example\.invalid|Phone|Email/);
-  // Named fields win over the words; a form ask with none names all three.
-  const phone = words(await run({ what: "for the booking", fields: ["phone"] }));
+  // A form ask that names none gets all three.
+  const phone = words(await run({ what: "her phone number for the booking" }));
   assert.match(phone, /\+15555550100/);
   assert.doesNotMatch(phone, /Ada Lovelace|example\.invalid/);
-  assert.deepEqual(contactFieldsOf({}, "details for the sign-up form"), ["name", "phone", "email"]);
-  assert.deepEqual(contactFieldsOf({}, "their email address"), ["email"]);
-  assert.deepEqual(contactFieldsOf({ fields: ["bogus"] }, "phone number"), ["phone"]);
+  assert.deepEqual(contactFieldsOf("details for the sign-up form"), ["name", "phone", "email"]);
+  assert.deepEqual(contactFieldsOf("their email address"), ["email"]);
 });
 
 test("an account with no name says so, rather than nothing", async () => {
