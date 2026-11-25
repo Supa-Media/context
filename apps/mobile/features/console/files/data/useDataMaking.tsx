@@ -22,7 +22,7 @@ import { dataFolderNow } from "../jobIcons/jobFoldersNow";
 import type { FolderPageHost } from "../folderPage/useFolderPage";
 import { SheetSourcesDialog } from "../sheet/SheetSources";
 import { ConnectSourceDialog } from "./ConnectSource";
-import { slugOf, startingFormula, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
+import { slugOf, startingFormula, type AppSourceFiles, type ConnectApp, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
 import { MetricBuilderDialog } from "./MetricBuilder";
 import { metricsFolderOf, textOf, type DataSource } from "./sources";
 import { useSourceSyncs } from "./useSourceSync";
@@ -40,11 +40,15 @@ export interface DataMaking {
   readonly syncOf: (folder: string) => SyncState | undefined;
   /** Sync now on a url source's page: arms it and runs it at once. Absent for who may not. */
   readonly syncNow?: (source: DataSource) => void;
+  /** Connect again on an app source's page: its form, over the page. Absent for anyone but an owner. */
+  readonly reconnect?: (app: ConnectApp) => void;
+  /** Disconnect on an app source's page: its key forgotten, its sync stopped. Absent for anyone but an owner. */
+  readonly disconnect?: (app: ConnectApp) => void;
   /** The Connect a source and key dialogs, when open. */
   readonly dialogs: ReactNode;
 }
 
-type Dialog = null | { kind: "connect" } | { kind: "metric"; at: number } | { kind: "key"; path: string; columns: readonly string[] };
+type Dialog = null | { kind: "connect"; start?: ConnectApp } | { kind: "metric"; at: number } | { kind: "key"; path: string; columns: readonly string[] };
 
 export function useDataMaking({
   host,
@@ -121,6 +125,27 @@ export function useDataMaking({
           return null;
         };
 
+  const connectApp = syncs.connect;
+  /** An app's Connect: its folder and sheet when they aren't there yet, then the key to the gateway, which runs it at once. */
+  const makeAppSource =
+    connectApp === undefined
+      ? undefined
+      : async (files: AppSourceFiles): Promise<string | null> => {
+          if (io === undefined) return "You can't add to this workspace.";
+          try {
+            if (files.about !== null) await io.create(files.about.path, files.about.text);
+            if (files.sheet !== null) await io.create(files.sheet.path, files.sheet.text);
+          } catch {
+            return "The source could not be made. Try again.";
+          }
+          if (files.about !== null || files.sheet !== null) host?.tasks?.refresh([dataFolder, files.folder]);
+          const why = await connectApp(`${files.folder}/about.md`, files.key, files.account);
+          if (why !== null) return why;
+          setDialog(null);
+          if (!stay) open(files.folder);
+          return null;
+        };
+
   const makeSource = async (files: PushSourceFiles): Promise<string | null> => {
     if (io === undefined) return "You can't add to this workspace.";
     try {
@@ -145,6 +170,9 @@ export function useDataMaking({
           sheet={compact}
           onMake={makeSource}
           {...(makeUrlSource === undefined ? {} : { onMakeUrl: makeUrlSource })}
+          {...(makeAppSource === undefined ? {} : { onConnectApp: makeAppSource })}
+          {...(dialog.start === undefined ? {} : { start: dialog.start })}
+          sources={ws.sources}
           onClose={() => setDialog(null)}
         />
       ) : null}
@@ -173,6 +201,15 @@ export function useDataMaking({
     workspaceId: current?.id ?? null,
     openKey: (path, columns) => setDialog({ kind: "key", path, columns }),
     syncOf: syncs.syncOf,
+    ...(makeAppSource === undefined || dataFolder === "" ? {} : { reconnect: (app: ConnectApp) => setDialog({ kind: "connect", start: app }) }),
+    ...(syncs.disconnect === undefined
+      ? {}
+      : {
+          disconnect: (app: ConnectApp) => {
+            const forget = syncs.disconnect!;
+            void forget(app).then((why) => host?.tasks?.say(why ?? `${app === "stripe" ? "Stripe" : "Cloudflare"} is disconnected. Its sheet stays as it is.`));
+          },
+        }),
     ...(armSync === undefined
       ? {}
       : {

@@ -3,7 +3,8 @@
  * 06): its name and, for a workspace metric, the sources it reads and when
  * their newest row is from; then the trend, the latest value in green or
  * amber (muted when Hidden or still being worked out) and the target in
- * symbols. On a phone the sources line goes under the value. An area with no
+ * symbols; with no value yet, just the target, and no placeholder (the owner,
+ * 2026-11-25). On a phone the sources line goes under the value. An area with no
  * metric says so, with "+ Pick a metric" for someone who can pick one.
  */
 
@@ -34,9 +35,11 @@ export function MetricCell({ headline }: { headline: Headline }) {
         )}
       </Text>
       {headline.value === null ? (
-        <Text variant="tree" style={styles.noData} numberOfLines={1} testID="area-row-value">
-          No data yet{headline.target === "" ? null : <Text variant="tree" style={styles.noDataTarget}>{` · target ${headline.target}`}</Text>}
-        </Text>
+        headline.target === "" ? null : (
+          <Text variant="tree" style={styles.noData} numberOfLines={1} testID="area-row-target">
+            {`target ${headline.target}`}
+          </Text>
+        )
       ) : (
         <View style={styles.valueLine}>
           {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={56} height={16} stroke={1.4} dot={2.2} />}
@@ -59,9 +62,11 @@ export function PhoneMetric({ headline }: { headline: Headline }) {
         {headline.label}
       </Text>
       {headline.value === null ? (
-        <Text variant="tree" style={styles.noDataPhone} numberOfLines={1} testID="area-row-value">
-          {headline.target === "" ? "No data" : `No data · ${headline.target}`}
-        </Text>
+        headline.target === "" ? null : (
+          <Text variant="tree" style={styles.noDataPhone} numberOfLines={1} testID="area-row-target">
+            {`target ${headline.target}`}
+          </Text>
+        )
       ) : (
         <View style={styles.valueLinePhone}>
           {headline.trend === null ? null : (
@@ -146,7 +151,6 @@ const makeStyles = (colors: Colors) =>
     quietValue: { fontWeight: "500" },
     target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
     noData: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
-    noDataTarget: { fontSize: pointerType.meta, color: colors.muted },
     noDataPhone: { fontSize: pointerType.ui, lineHeight: 20, color: colors.muted },
     noMetric: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
     pick: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 4, height: 22, marginTop: 2, paddingLeft: 6, paddingRight: 8, borderRadius: radii.sm, backgroundColor: colors.accentDim },

@@ -13,7 +13,7 @@ import { useConsoleGrant } from "../../../agent/useConsoleGrant";
 import { useOptionalConsoleData } from "../../ConsoleDataContext";
 import { selectedContext } from "../../types";
 import { MCP_ENDPOINT } from "../../placeholderData";
-import { callDataSync, dataSyncUrl, syncStateOf, type SourceSync } from "./dataSync";
+import { callDataSync, dataSyncUrl, syncStateOf, type DataSyncBody, type SourceSync } from "./dataSync";
 import type { DataSource } from "./sources";
 import type { SyncState } from "./words";
 
@@ -22,7 +22,14 @@ export interface SourceSyncs {
   readonly syncOf: (folder: string) => SyncState | undefined;
   /** Arm a url source by its about.md and run it now: null once armed, or the sentence saying why not. Absent for who may not. */
   readonly arm?: (aboutPath: string) => Promise<string | null>;
+  /** An owner's Connect of an app source (Stripe, Cloudflare) with its read-only key, run now. Absent for anyone else. */
+  readonly connect?: (aboutPath: string, key: string, account?: string) => Promise<string | null>;
+  /** An owner's Disconnect: the app's key forgotten and its sources stopped. Absent for anyone else. */
+  readonly disconnect?: (app: string) => Promise<string | null>;
 }
+
+/** The sources whose runs the sync object keeps: a url source's, and an app's an owner connected. */
+const SYNCED = new Set(["fetch", "stripe", "cloudflare"]);
 
 export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   const data = useOptionalConsoleData();
@@ -30,11 +37,12 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   const mint = useConsoleGrant();
   const url = current === null || data?.demo === true ? null : dataSyncUrl(MCP_ENDPOINT, current.slug);
   const mayArm = url !== null && (current?.role === "owner" || current?.role === "editor");
+  const mayConnect = url !== null && current?.role === "owner";
   const workspaceId = current?.id ?? null;
   const [states, setStates] = useState<ReadonlyMap<string, SourceSync>>(new Map());
 
   const ask = useCallback(
-    async (body: { op: "arm"; about: string } | { op: "status"; about: readonly string[] }) => {
+    async (body: DataSyncBody) => {
       if (url === null || workspaceId === null) return { ok: false as const, said: "This workspace can't sync sources here." };
       return await callDataSync({
         url,
@@ -46,7 +54,7 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
     [url, workspaceId, mint],
   );
 
-  const fetched = useMemo(() => sources.filter((source) => source.kind === "fetch" && source.about !== null).map((source) => source.aboutPath), [sources]);
+  const fetched = useMemo(() => sources.filter((source) => SYNCED.has(source.kind) && source.about !== null).map((source) => source.aboutPath), [sources]);
   const key = fetched.join("\n");
   useEffect(() => {
     if (fetched.length === 0 || url === null) return;
@@ -84,12 +92,44 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   const byFolder = useMemo(() => {
     const out = new Map<string, SyncState>();
     for (const source of sources) {
-      if (source.kind !== "fetch") continue;
+      if (!SYNCED.has(source.kind)) continue;
       const held = states.get(source.aboutPath);
       if (held !== undefined) out.set(source.folder, syncStateOf(held));
     }
     return out;
   }, [sources, states]);
 
-  return { syncOf: (folder) => byFolder.get(folder), ...(mayArm ? { arm } : {}) };
+  const connect = useCallback(
+    async (aboutPath: string, key: string, account?: string): Promise<string | null> => {
+      const answer = await ask({ op: "connect", about: aboutPath, key, ...(account === undefined ? {} : { account }) });
+      if (!answer.ok) return answer.said;
+      setStates((held) => {
+        const next = new Map(held);
+        for (const one of answer.sources) next.set(one.about, one);
+        return next;
+      });
+      return null;
+    },
+    [ask],
+  );
+
+  const disconnect = useCallback(
+    async (app: string): Promise<string | null> => {
+      const answer = await ask({ op: "disconnect", app });
+      if (!answer.ok) return answer.said;
+      // Its sources read again as stopped.
+      setStates((held) => {
+        const next = new Map(held);
+        for (const source of sources) {
+          if (source.kind !== app) continue;
+          next.set(source.aboutPath, { about: source.aboutPath, armed: false, last: { at: Date.now(), outcome: "stopped", said: "Disconnected. An owner can connect it again here." } });
+        }
+        return next;
+      });
+      return null;
+    },
+    [ask, sources],
+  );
+
+  return { syncOf: (folder) => byFolder.get(folder), ...(mayArm ? { arm } : {}), ...(mayConnect ? { connect, disconnect } : {}) };
 }

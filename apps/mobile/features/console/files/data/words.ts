@@ -154,7 +154,7 @@ const KIND_WORDS: Readonly<Record<SourceKind, string>> = {
  * saying where that is kept (board 07). Never a credential: about.md holds
  * none, and nothing here reads anything else.
  */
-export function settingsOf(source: DataSource): Setting[] {
+export function settingsOf(source: DataSource, lastSync?: string): Setting[] {
   const out: Setting[] = [];
   for (const [key, value] of Object.entries(source.about?.properties ?? {})) {
     if (DRAWN_ELSEWHERE.has(key)) continue;
@@ -165,7 +165,12 @@ export function settingsOf(source: DataSource): Setting[] {
     if (Array.isArray(value)) out.push({ key, values: value.map(String), code: true });
     else if (textOf(value) !== "") out.push({ key, values: [textOf(value)], code: false });
   }
-  if (signsIn(source.kind)) out.push({ key: "sign-in", values: ["Kept in the workspace vault, never in this file"], code: false, signIn: true });
+  if (signsIn(source.kind)) {
+    // An app's key is the owner's, kept sealed by the sync (`apps/mcp/src/data/connect/seal.js`); GitHub isn't connected here yet.
+    const sealed = source.kind === "cloudflare" || source.kind === "stripe";
+    out.push({ key: sealed ? "key" : "sign-in", values: [sealed ? "Read-only, kept sealed by Context, never in this file" : "Kept in the workspace vault, never in this file"], code: false, signIn: true });
+  }
+  if (lastSync !== undefined) out.push({ key: "last sync", values: [lastSync], code: false });
   return out;
 }
 

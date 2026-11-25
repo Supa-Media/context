@@ -791,3 +791,5 @@ test/dataSyncObject.test.mjs
 test/dataSyncSnap.test.mjs
 test/orientArea.test.mjs
 test/botMail.test.mjs
+test/dataSyncApps.test.mjs
+test/dataSyncStripe.test.mjs

@@ -1,7 +1,11 @@
 /**
- * Connect a source (board 02), as far as this stage goes: the board's "Your own" ways, **Send from your code** and
- * **Fetch from a URL**. GitHub, Cloudflare and Stripe need an owner's connection and wait for their stage, so the
- * board's app tiles are not drawn until they work.
+ * Connect a source (board 02): the board's **Apps**, for an owner, each connected once with a read-only key (Stripe and
+ * Cloudflare now); and its "Your own" ways, **Send from your code** and **Fetch from a URL**. GitHub waits for its
+ * stage, so its tile is not drawn until it works.
+ *
+ * - An app's form takes the key (and, for a Cloudflare token reaching several accounts, the account ID), makes the
+ *   app's folder (`about.md` saying `source: stripe` or `source: cloudflare`, and its empty sheet) unless one is there, and
+ *   hands the key to the gateway, which checks it with the app and keeps it sealed. It is never written to a file.
  *
  * - Send from your code makes the source's folder in the data folder (`about.md` saying `source: push`, and one
  *   dataset sheet with the columns named here), then the sheet's own key flow makes a key, shown once.
@@ -20,12 +24,33 @@ import { Text } from "../../../design/components/Text";
 import { pointerType, radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { Shell } from "../DialogShell";
-import { pushSourceFiles, urlSourceFiles, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
-import { ChevronGlyph, SourceMark } from "./Marks";
+import { APP_DATASETS, appSourceFiles, pushSourceFiles, urlSourceFiles, type AppSourceFiles, type ConnectApp, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
+import { ChevronGlyph, LockGlyph, SourceMark } from "./Marks";
+import type { DataSource } from "./sources";
 
-type Way = "push" | "url";
+type Way = "push" | "url" | ConnectApp;
 
-const WAYS: Readonly<Record<Way, { title: string; line: string; kind: "push" | "fetch" }>> = {
+const APP_TILES: Readonly<Record<ConnectApp, { title: string; line: string }>> = {
+  stripe: { title: "Stripe", line: "Revenue" },
+  cloudflare: { title: "Cloudflare", line: "AI spend" },
+};
+
+const APP_FORMS: Readonly<Record<ConnectApp, { line: string; field: string; placeholder: string; hint: string }>> = {
+  stripe: {
+    line: "A restricted key that reads your balance. Context only reads, every hour, and never shows the key again.",
+    field: "Restricted key",
+    placeholder: "rk_live_…",
+    hint: "In Stripe: Developers → API keys → Create restricted key, with Balance transactions: Read and nothing else. A secret key (sk_) is refused.",
+  },
+  cloudflare: {
+    line: "An API token that reads analytics. Context only reads, every hour, and never shows the token again.",
+    field: "API token",
+    placeholder: "Paste the token",
+    hint: "In Cloudflare: My Profile → API Tokens → Create Token, with Account Analytics: Read and nothing else.",
+  },
+};
+
+const WAYS: Readonly<Record<"push" | "url", { title: string; line: string; kind: "push" | "fetch" }>> = {
   push: { title: "Send from your code", line: "A key and one web request. You name the columns; rows land in a new dataset.", kind: "push" },
   url: { title: "Fetch from a URL", line: "Context reads JSON or CSV from an address every hour, into a dataset.", kind: "fetch" },
 };
@@ -36,6 +61,9 @@ export function ConnectSourceDialog({
   sheet,
   onMake,
   onMakeUrl,
+  onConnectApp,
+  sources,
+  start,
   onClose,
 }: {
   dataFolder: string;
@@ -47,39 +75,90 @@ export function ConnectSourceDialog({
   onMake: (files: PushSourceFiles) => Promise<string | null>;
   /** Write the url source's two files and arm its sync; absent where it can't be armed, and the way is not offered. */
   onMakeUrl?: (files: UrlSourceFiles) => Promise<string | null>;
+  /** An owner's Connect of an app with its key; absent for anyone else, and the Apps are not drawn. */
+  onConnectApp?: (files: AppSourceFiles) => Promise<string | null>;
+  /** The workspace's sources now, so an app already connected says so and is connected again in place. */
+  sources?: readonly DataSource[];
+  /** Open straight on one app's form: a source page's Connect again. */
+  start?: ConnectApp;
   onClose: () => void;
 }) {
-  const [way, setWay] = useState<Way | null>(onMakeUrl === undefined ? "push" : null);
+  const [way, setWay] = useState<Way | null>(start ?? (onMakeUrl === undefined && onConnectApp === undefined ? "push" : null));
+  const existing = (app: ConnectApp) => sources?.find((source) => source.kind === app) ?? null;
   return (
-    <Shell title="Connect a source" onClose={onClose} sheet={sheet}>
+    <Shell title="Connect a source" onClose={onClose} sheet={sheet} closable={way === null}>
       {way === null ? (
-        <Choose onPick={setWay} />
+        <Choose onPick={setWay} apps={onConnectApp !== undefined} url={onMakeUrl !== undefined} connected={(app) => existing(app) !== null} />
       ) : way === "push" ? (
         <PushForm dataFolder={dataFolder} taken={taken} onMake={onMake} onClose={onClose} />
-      ) : (
+      ) : way === "url" ? (
         <UrlForm dataFolder={dataFolder} taken={taken} onMake={onMakeUrl!} onClose={onClose} />
+      ) : (
+        <AppForm app={way} dataFolder={dataFolder} taken={taken} existing={existing(way)} onMake={onConnectApp!} onClose={onClose} />
       )}
     </Shell>
   );
 }
 
-/** Board 02's "Your own" rows, each opening its form. */
-function Choose({ onPick }: { onPick: (way: Way) => void }) {
+/** Board 02: the Apps an owner connects, then the "Your own" rows, each opening its form. */
+function Choose({ onPick, apps, url, connected }: { onPick: (way: Way) => void; apps: boolean; url: boolean; connected: (app: ConnectApp) => boolean }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const own: Way[] = url ? ["push", "url"] : ["push"];
   return (
     <>
       <Text style={styles.lede}>Connected once for the whole workspace. Every area and metric can use it.</Text>
+      {apps ? (
+        <>
+          <Text style={styles.section}>APPS</Text>
+          <View style={styles.tiles}>
+            {(Object.keys(APP_TILES) as ConnectApp[]).map((app) => (
+              <AppTile key={app} app={app} connected={connected(app)} onPress={() => onPick(app)} />
+            ))}
+          </View>
+        </>
+      ) : null}
       <Text style={styles.section}>YOUR OWN</Text>
       <View style={styles.ways}>
-        {(["push", "url"] as const).map((each, index) => (
-          <WayRow key={each} way={each} ruled={index > 0} onPress={() => onPick(each)} />
+        {own.map((each, index) => (
+          <WayRow key={each} way={each as "push" | "url"} ruled={index > 0} onPress={() => onPick(each)} />
         ))}
       </View>
+      {apps ? (
+        <View style={styles.owners}>
+          <LockGlyph size={12} color={colors.muted} />
+          <Text style={styles.ownersText}>Only workspace owners can connect apps. You're an owner here.</Text>
+        </View>
+      ) : null}
     </>
   );
 }
 
-function WayRow({ way, ruled, onPress }: { way: Way; ruled: boolean; onPress: () => void }) {
+function AppTile({ app, connected, onPress }: { app: ConnectApp; connected: boolean; onPress: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${APP_TILES[app].title}${connected ? ", connected" : ""}`}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={[styles.tile, hovered && { backgroundColor: colors.chipFill }]}
+      testID={`connect-app-${app}`}
+    >
+      <View style={styles.tileTop}>
+        <SourceMark kind={app} size={28} />
+        {connected ? <Text style={styles.badge}>Connected</Text> : null}
+      </View>
+      <Text style={styles.wayTitle}>{APP_TILES[app].title}</Text>
+      <Text style={styles.wayLine}>{APP_TILES[app].line}</Text>
+    </Pressable>
+  );
+}
+
+function WayRow({ way, ruled, onPress }: { way: "push" | "url"; ruled: boolean; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [hovered, setHovered] = useState(false);
@@ -106,11 +185,12 @@ function WayRow({ way, ruled, onPress }: { way: Way; ruled: boolean; onPress: ()
 /** The chosen way's row, over its form. */
 function WayHead({ way, line }: { way: Way; line: string }) {
   const styles = useThemedStyles(makeStyles);
+  const app = way !== "push" && way !== "url";
   return (
-    <View style={styles.way} testID={way === "push" ? "connect-push" : "connect-url"}>
-      <SourceMark kind={WAYS[way].kind} size={28} />
+    <View style={styles.way} testID={app ? `connect-${way}` : way === "push" ? "connect-push" : "connect-url"}>
+      <SourceMark kind={app ? way : WAYS[way].kind} size={28} />
       <View style={styles.wayText}>
-        <Text style={styles.wayTitle}>{WAYS[way].title}</Text>
+        <Text style={styles.wayTitle}>{app ? APP_TILES[way].title : WAYS[way].title}</Text>
         <Text style={styles.wayLine}>{line}</Text>
       </View>
     </View>
@@ -118,7 +198,7 @@ function WayHead({ way, line }: { way: Way; line: string }) {
 }
 
 /** The foot every form ends with: what is made, Cancel, and the way's button. */
-function Foot({ lands, busy, ready, onMake, onClose, testID }: { lands: string; busy: boolean; ready: boolean; onMake: () => void; onClose: () => void; testID: string }) {
+function Foot({ lands, busy, ready, onMake, onClose, testID, label = "Make source", busyLabel = "Making…" }: { lands: string; busy: boolean; ready: boolean; onMake: () => void; onClose: () => void; testID: string; label?: string; busyLabel?: string }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   return (
@@ -126,7 +206,7 @@ function Foot({ lands, busy, ready, onMake, onClose, testID }: { lands: string; 
       <Text style={[styles.lands, { color: colors.muted }]}>{lands}</Text>
       <View style={styles.foot}>
         <Button label="Cancel" variant="dialog" onPress={onClose} />
-        <Button label={busy ? "Making…" : "Make source"} variant="dialogPrimary" disabled={!ready} onPress={onMake} testID={testID} />
+        <Button label={busy ? busyLabel : label} variant="dialogPrimary" disabled={!ready} onPress={onMake} testID={testID} />
       </View>
     </>
   );
@@ -220,6 +300,71 @@ function UrlForm({ dataFolder, taken, onMake, onClose }: { dataFolder: string; t
   );
 }
 
+function AppForm({
+  app,
+  dataFolder,
+  taken,
+  existing,
+  onMake,
+  onClose,
+}: {
+  app: ConnectApp;
+  dataFolder: string;
+  taken: ReadonlySet<string>;
+  existing: DataSource | null;
+  onMake: (files: AppSourceFiles) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [key, setKey] = useState("");
+  const [account, setAccount] = useState("");
+  const { busy, problem, make } = useMaking(onMake);
+  const ready = key.trim() !== "" && !busy;
+  const form = APP_FORMS[app];
+  const lands =
+    existing === null
+      ? `Makes ${dataFolder}/${app}/ with an about.md and ${APP_DATASETS[app]}.csv, and syncs it now. The ${app === "stripe" ? "key" : "token"} is kept sealed, never in a file.`
+      : `Connects ${existing.folder}/ again with this ${app === "stripe" ? "key" : "token"}, in place of the one it had, and syncs it now.`;
+  return (
+    <>
+      <WayHead way={app} line={form.line} />
+      <TextField
+        label={form.field}
+        value={key}
+        onChangeText={setKey}
+        placeholder={form.placeholder}
+        hint={form.hint}
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        testID="connect-app-key"
+      />
+      {app === "cloudflare" ? (
+        <TextField
+          label="Account ID"
+          optional
+          value={account}
+          onChangeText={setAccount}
+          placeholder="Only when the token reaches several accounts"
+          autoCapitalize="none"
+          autoCorrect={false}
+          testID="connect-app-account"
+        />
+      ) : null}
+      <Problem text={problem} />
+      <Foot
+        lands={lands}
+        busy={busy}
+        ready={ready}
+        label="Connect"
+        busyLabel="Connecting…"
+        onMake={() => ready && void make(appSourceFiles(dataFolder, app, { key, account }, existing, taken))}
+        onClose={onClose}
+        testID="connect-app-make"
+      />
+    </>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     lede: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, marginTop: -6 },
@@ -242,4 +387,19 @@ const makeStyles = (colors: Colors) =>
     wayLine: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
     foot: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 10 },
     lands: { fontSize: pointerType.meta, lineHeight: 16 },
+    tiles: { flexDirection: "row", gap: 8 },
+    tile: {
+      flexGrow: 1,
+      flexBasis: 0,
+      gap: 2,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: colors.line,
+      borderRadius: radii.card,
+      backgroundColor: colors.cardSurface,
+    },
+    tileTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 },
+    badge: { fontSize: pointerType.label, lineHeight: 14, fontWeight: "600", color: colors.okText, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radii.xs, borderWidth: 1, borderColor: colors.okBorder },
+    owners: { flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.line },
+    ownersText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 1 },
   });

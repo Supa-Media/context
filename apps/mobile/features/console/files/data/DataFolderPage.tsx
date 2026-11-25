@@ -90,6 +90,7 @@ export function DataFolderPage({
     const first = source.datasets.find((dataset) => !dataset.computed);
     const firstSheet = first === undefined ? null : (ws.sheets.get(first.path) ?? null);
     const push = source.kind === "push";
+    const app = source.kind === "cloudflare" || source.kind === "stripe" ? source.kind : null;
     page = (
       <SourcePage
         source={source}
@@ -97,10 +98,12 @@ export function DataFolderPage({
         metrics={metrics.filter((metric) => metric.reads.includes(source.folder))}
         compact={compact}
         now={now}
-        {...(source.kind === "fetch" ? { sync: making.syncOf(source.folder) ?? { known: false } } : {})}
+        {...(source.kind === "fetch" || app !== null ? { sync: making.syncOf(source.folder) ?? { known: false } } : {})}
         endpoint={sheetRowsEndpoint()}
         actions={{
           ...(source.kind === "fetch" && making.syncNow !== undefined ? { syncNow: () => making.syncNow?.(source) } : {}),
+          ...(app !== null && making.reconnect !== undefined ? { reconnect: () => making.reconnect?.(app) } : {}),
+          ...(app !== null && making.disconnect !== undefined ? { disconnect: () => making.disconnect?.(app) } : {}),
           ...(push && mayKey && first !== undefined
             ? { newKey: () => making.openKey(first.path, (firstSheet?.columns ?? []).map((c) => c.name)) }
             : {}),

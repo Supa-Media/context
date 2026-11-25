@@ -129,6 +129,22 @@ export function dataNamespace(envRef, deps) {
 
 export const SECRET = "gateway-secret-for-tests-only-0123456789";
 export const RULES = { etag: "m.1", accessVersion: 1, folders: [{ prefix: "data", visibility: "team" }], notes: [{ path: "data/private-feed/about.md", visibility: "private" }] };
+/**
+ * The guest rendering of a workspace's rules, as `privacy/rowAccess.js` renders the same rows for guests: a row with
+ * no grantee list answers `private` to a guest whatever its base, and a row token stays its token. Production pushes
+ * both audiences in one call (`apps/convex/functions/lib/rowWatch/drain.ts`), so a world holding only the member
+ * rendering modelled a state no workspace is in — and the guest rendering is the only one a grantee list shows up in.
+ */
+export function guestRules(rules) {
+  const guest = (visibility) => (visibility === "team" ? "private" : visibility);
+  return {
+    ...rules,
+    etag: `${rules.etag}.guest`,
+    folders: (rules.folders ?? []).map((folder) => ({ ...folder, visibility: guest(folder.visibility) })),
+    notes: (rules.notes ?? []).map((note) => ({ ...note, visibility: guest(note.visibility) })),
+  };
+}
+
 export const noteId = (n, ws) => `0199a000-0000-7000-8${ws === "pBob" ? "1" : "0"}00-${String(n).padStart(12, "0")}`;
 export const ABOUT = (url, extra = "key: id\n") => `---\nsource: url\nname: "Status page"\nurl: ${url}\ndataset: incidents\n${extra}---\n\nFetched every hour.\n`;
 export const GOOD_URL = "https://status.example.com/incidents.json";
@@ -166,6 +182,7 @@ export async function workspace(w, { pwid, user, slug, about = ABOUT(GOOD_URL) }
   await client.setHome("object");
   await client.setEncryption("none");
   await client.rules.put(RULES, "member");
+  await client.rules.put(guestRules(RULES), "guest");
   const object = ns.get(ns.idFromName(`workspace:${pwid}`));
   object.store.rows.pinWorkspace(pwid);
   const ids = { about: noteId(1, pwid), sheet: noteId(2, pwid), privateAbout: noteId(3, pwid), privateSheet: noteId(4, pwid) };
@@ -201,11 +218,11 @@ export function outside() {
     calls,
     answers,
     dns,
-    fetcher: async (url) => {
+    fetcher: async (url, init) => {
       calls.push(url);
       const host = new URL(url).hostname;
       const answer = answers.get(host);
-      return answer ? answer() : new Response("nope", { status: 404 });
+      return answer ? answer(url, init) : new Response("nope", { status: 404 });
     },
     resolve: async (host) => dns.get(host) ?? null,
   };
