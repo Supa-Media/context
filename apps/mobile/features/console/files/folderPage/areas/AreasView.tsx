@@ -53,11 +53,12 @@ import {
   type SeatEdit,
 } from "./seat";
 import { mailNotesOf } from "./areaMail";
+import { BotsPage } from "./BotsPage";
 import { useAreaProjects } from "./useAreaProjects";
 import { useAreaCards } from "./useAreaCards";
 import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
 
-export type AreasPageView = "list" | "chart";
+export type AreasPageView = "list" | "chart" | "bots" | "talks";
 
 export interface AreasViewProps {
   folder: string;
@@ -304,10 +305,13 @@ export function AreasView(props: AreasViewProps) {
           onClose: closePeek,
         };
   useEffect(() => slot.set(panelProps));
-  const peekOpen = peekNode !== undefined;
+  // The Bots and Mail views keep the side panel for a bot (`BotsPage.tsx`); an area's panel stays out of their way.
+  const botsView = view === "bots" || view === "talks";
+  const peekOpen = peekNode !== undefined && !botsView;
   useEffect(() => {
+    if (botsView) return;
     onPanel?.(peekOpen ? (width: number) => <PanelSlot slot={slot} width={width} /> : null);
-  }, [onPanel, peekOpen, slot]);
+  }, [onPanel, peekOpen, slot, botsView]);
   useEffect(() => () => onPanel?.(null), [onPanel]);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
   const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf, ...(projectTools === null ? {} : { projectsOf: projectTools.of }) };
@@ -319,7 +323,24 @@ export function AreasView(props: AreasViewProps) {
           {problem}
         </Text>
       ) : null}
-      {view === "chart" ? (
+      {botsView ? (
+        <BotsPage
+          view={view}
+          root={root}
+          notes={withCards}
+          compact={compact}
+          canEdit={canEdit}
+          {...(myHandle === undefined ? {} : { me: myHandle })}
+          // A mail note is named for its sender (`grok-bot`, `seyi`): a bot's is drawn with its face, a person's with their name.
+          faceOf={(who) => (who === null ? faceOf(null) : (senderFace(who) ?? (isAgent(who) || who.startsWith("@") ? faceOf(who) : { kind: "person", name: who })))}
+          label={label}
+          {...(readBody === undefined ? {} : { read: readBody })}
+          {...(canEdit && host?.tasks !== undefined ? { create: (path: string, text: string) => host.tasks!.io.create(path, text) } : {})}
+          chooseMany={chooseMany}
+          open={onSelect}
+          {...(onPanel === undefined ? {} : { onPanel })}
+        />
+      ) : view === "chart" ? (
         <AreasChart
           {...shared}
           onOpen={onSelect}

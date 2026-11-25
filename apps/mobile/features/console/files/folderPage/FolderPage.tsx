@@ -47,7 +47,7 @@ import { rowExtras, RowExtrasProvider, type RowEdit } from "./rowExtras";
 import { faceFor } from "./taskFace";
 import { useTaskOwners } from "./useTaskOwners";
 import { estimateOf } from "./taskProps";
-import { AREA_VIEWS, FolderHead, PropertyLine, ViewSwitch } from "./Head";
+import { AREA_VIEWS, AREAS_ROOT_VIEWS, FolderHead, PropertyLine, ViewSwitch } from "./Head";
 import { AreasView } from "./areas/AreasView";
 import { areaTree } from "./areas/seat";
 import { areasFolderNow, inAreasNow, projectsFolderNow } from "../jobIcons/jobFoldersNow";
@@ -338,7 +338,10 @@ export function FolderPage({
   const areasHere = !tracks && host.personal !== true && inAreasNow(folder);
   const seats = areasHere && notes !== null;
   const seatsWaiting = areasHere && notes === null && gaveUp !== folder;
-  const view: FolderPageView = tracks ? (picked === "chart" ? "list" : (picked ?? "list")) : (seats || seatsWaiting) && picked === "chart" ? "chart" : "list";
+  // The Areas folder itself also shows its Bots and the Mail between them; an area below it, only List and Chart.
+  const areasRoot = areasHere && folder === areasFolderNow();
+  const seatView = picked === "chart" || (areasRoot && (picked === "bots" || picked === "talks")) ? picked : "list";
+  const view: FolderPageView = tracks ? (picked === "chart" || picked === "bots" || picked === "talks" ? "list" : (picked ?? "list")) : seats || seatsWaiting ? seatView : "list";
   // Until the notes can say which group each item is in, a Board holds its place, empty, rather
   // than drawing every card under No status first. The List is the listing, drawn at once.
   const waiting = view === "board" && !loaded.settled;
@@ -469,7 +472,7 @@ export function FolderPage({
           tracks ? (
             <ViewSwitch view={view} onChange={choose} compact={compact} />
           ) : seats || seatsWaiting ? (
-            <ViewSwitch view={view} onChange={choose} compact={compact} views={AREA_VIEWS} />
+            <ViewSwitch view={view} onChange={choose} compact={compact} views={areasRoot ? AREAS_ROOT_VIEWS : AREA_VIEWS} />
           ) : null
         }
         actions={
@@ -539,7 +542,7 @@ export function FolderPage({
             root={areasFolderNow()}
             rootName={workspaceName}
             notes={notes ?? NO_NOTES}
-            view={view === "chart" ? "chart" : "list"}
+            view={view === "chart" || view === "bots" || view === "talks" ? view : "list"}
             compact={compact}
             canEdit={loaded.canEdit}
             faceOf={(owner) => faceFor({ faceOf, owners }, owner ?? undefined)}

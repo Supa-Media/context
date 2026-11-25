@@ -104,3 +104,24 @@ test("a person's area, a note outside mail, and a note with no mail tell nobody"
   bot.save("n4", "areas/other/mail/kim.md", withMail("", { from: "@kim", text: "hi", at: "2026-11-25T03:00:00.000Z" }));
   assert.equal(bot.told.length, 0);
 });
+
+test("mail in a bot's own folder tells that bot, named by its card", { skip }, () => {
+  // The owner, 2026-11-25: "maybe even talk to a bot directly inside of context". `bots/<bot>/about.md` is its card.
+  const notes = new Map();
+  const told = [];
+  const card = { holder: "Grok Bot", kind: "agent", bot: "grok", belongs_to: "@seyi" };
+  const watch = botMailWatch(durableSql(), {
+    rows: { byNoteId: (id) => (notes.has(id) ? { path: notes.get(id).path } : null) },
+    objects: { get: (key) => {
+      const id = /^notes\/(.+)\.md$/.exec(key)?.[1];
+      return notes.has(id) ? { body: new TextEncoder().encode(notes.get(id).text) } : null;
+    } },
+    facts: { props: ({ paths }) => ({ served: true, props: paths.filter((p) => p === "areas/bots/grok-bot/about.md").map((path) => ({ path, sealed: false, props: JSON.stringify({ properties: card }) })) }) },
+    tell: (message) => told.push(message),
+    defer: () => {},
+  });
+  notes.set("n1", { path: "areas/bots/grok-bot/mail/seyi.md", text: withMail("", { from: "@seyi", text: "Refresh your logo please", at: "2026-11-25T21:00:00.000Z" }) });
+  watch.noted("notes/n1.md", { changed: true });
+  watch.drain();
+  assert.deepEqual(told, [{ bot: "grok-bot", area: "areas/bots/grok-bot", note: "areas/bots/grok-bot/mail/seyi.md", from: "@seyi" }]);
+});

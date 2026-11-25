@@ -223,4 +223,5 @@ test("orient area lists the area's routines, its bot's budget, the other bots, a
   assert.match(held, /Budget: 20% of your week; 12% used this week/);
   assert.match(held, /## Other bots here\n- Pipeline \(@kim's\)/);
   assert.doesNotMatch(held, /## Other bots here\n[^#]*- Finance \(/);
+  assert.match(held, /Mail written to you outside any area is in `areas\/bots\/finance\/mail\/`/);
 });

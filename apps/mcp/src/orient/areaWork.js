@@ -11,7 +11,7 @@ import areaRoutines from "../../../../packages/shared/src/areaRoutines.cjs";
 import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import { factProps } from "../tree/facts.js";
 
-const { BOTS_FOLDER, PEOPLE_FOLDER, areaRoutineOf, botAllowedIn, botCardPaths, parseWorksIn, mailOnlyText } = areaRoutines;
+const { BOTS_FOLDER, PEOPLE_FOLDER, areaRoutineOf, botAllowedIn, botCardPaths, cardSlug, parseWorksIn, mailOnlyText } = areaRoutines;
 const { mailJoinName } = areaBots;
 
 /** Bots an `orient` names in "Other bots here". */
@@ -153,5 +153,6 @@ export async function otherBotsSection(store, entries, areasRoot, self, held) {
     lines.push(`- ${name}${whose ? ` (${whose}'s)` : ""}${areas.length ? ` — holds ${areas.map((area) => `\`${area}/\` (mail \`${area}/mail/\`)`).join(", ")}` : " — holds no area yet"}`);
     if (lines.length >= BOTS_SHOWN) break;
   }
-  return `## Other bots here\n${lines.length ? lines.join("\n") : "None this connection can see."}\n${mailOnlyText()}`;
+  const own = typeof self === "string" && self.trim() !== "" ? `\nMail written to you outside any area is in \`${areasRoot}/${BOTS_FOLDER}/${cardSlug(self)}/mail/\`, one note per sender: answer there the same way.` : "";
+  return `## Other bots here\n${lines.length ? lines.join("\n") : "None this connection can see."}\n${mailOnlyText()}${own}`;
 }
