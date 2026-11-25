@@ -507,7 +507,11 @@ the Tex test set, the search bench and CI on merge". `scripts/metric-rows.mjs`.*
 - **The columns.** `date, check, part, value, of, main, pr, sha`. `test-set`
   sends `all`, `kind:one`, `kind:group` and one `node:<id>` row a run (right
   on the change, of the total, right on main); `search` sends `first` and
-  `top5`; `capabilities` sends `covered` (of all capabilities) and `cant`.
+  `top5`; `capabilities` sends `covered` (of all capabilities) and `cant`; a Lab search
+  run on main's code (Evals, `lab-eval-run.yml`) sends `bench:<id>` `first`
+  and `top5`, so the Search area can read enterprise-rag-notes and the other
+  standing benchmarks (owner, 2026-11-25: "we havent wired in our enterprise
+  rag run results?").
 - **Counts only, never part of a gate.** The rows carry the numbers the run
   already prints to its log, never a case's words (the Test Set stays sealed:
   [test-set-service](./testing/test-set-service.md)). The step is
