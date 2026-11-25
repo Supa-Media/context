@@ -105,14 +105,26 @@ export function timeOf(value: string): number | null {
 }
 
 /**
+ * A target that puts its direction after the number, as people write it,
+ * turned to the word-first form the rest of this file reads: `10 or more` →
+ * `at least 10`, `4 or less` → `at most 4`. Anything else is returned as written.
+ */
+export function directedTarget(target: string): string {
+  const after = /^\s*(.*?\S)\s+or\s+(more|higher|above|greater|over|less|fewer|lower|below|under)\s*$/i.exec(target);
+  if (after === null || !/\d/.test(after[1]!)) return target;
+  const up = /^(more|higher|above|greater|over)$/i.test(after[2]!);
+  return `${up ? "at least" : "at most"} ${after[1]}`;
+}
+
+/**
  * Whether a reading meets its target, where the target says which way is
- * good: `under $600`, `below 2 days`, `over 100`, `at least 7`. Times compare
+ * good: `under $600`, `below 2 days`, `over 100`, `at least 7`, `10 or more`. Times compare
  * across units, so `1436 ms` misses `under 800 ms` and meets `under 2 s`.
  * Null when the target says neither or either side has no number.
  */
 export function meetsTarget(reading: Reading, target: string | null): boolean | null {
   if (target === null) return null;
-  const want = /^\s*(under|below|less than|at most|<=?|over|above|more than|at least|>=?)\s*(.*)$/i.exec(target);
+  const want = /^\s*(under|below|less than|at most|<=?|over|above|more than|at least|>=?)\s*(.*)$/i.exec(directedTarget(target));
   if (want === null) return null;
   const limitTime = timeOf(want[2]!);
   const haveTime = timeOf(reading.value);
@@ -142,7 +154,7 @@ export function targetState(reading: Reading | undefined, target: string | null)
  */
 export function targetNumber(reading: Reading, target: string | null): number | null {
   if (target === null) return null;
-  const want = /^\s*(?:under|below|less than|at most|<=?|over|above|more than|at least|>=?)?\s*(.*)$/i.exec(target);
+  const want = /^\s*(?:under|below|less than|at most|<=?|over|above|more than|at least|>=?)?\s*(.*)$/i.exec(directedTarget(target));
   const limitText = want?.[1] ?? target;
   const limit = leadingNumber(limitText);
   if (limit === null) return null;

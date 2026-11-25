@@ -4,7 +4,7 @@
  * box's sparkline.
  */
 import { describe, expect, test } from "@jest/globals";
-import { leadingNumber, meetsTarget, readingFor, readingsOf, targetNumber, targetState, timeOf } from "../features/console/files/folderPage/areas/readings";
+import { directedTarget, leadingNumber, meetsTarget, readingFor, readingsOf, targetNumber, targetState, timeOf } from "../features/console/files/folderPage/areas/readings";
 import { trendGeometry } from "../features/console/files/folderPage/areas/Trend";
 
 const SHEET = [
@@ -55,6 +55,20 @@ describe("metric readings from metrics.csv", () => {
     expect(meetsTarget(at("$640"), "under $600")).toBe(false);
     expect(meetsTarget(at("8/10"), "at least 7")).toBe(true);
     expect(meetsTarget(at("2.4 days"), "2 days")).toBeNull();
+  });
+
+  test("a target with its direction after the number, 10 or more, is met or missed too", () => {
+    const at = (value: string) => ({ value, date: "", series: [] });
+    expect(meetsTarget(at("128"), "10 or more")).toBe(true);
+    expect(meetsTarget(at("9"), "10 or more")).toBe(false);
+    expect(meetsTarget(at("10"), "10 or more")).toBe(true);
+    expect(meetsTarget(at("1.8"), "4 or less")).toBe(true);
+    expect(meetsTarget(at("5"), "4 or fewer")).toBe(false);
+    expect(meetsTarget(at("1436 ms"), "2 s or less")).toBe(true);
+    expect(targetNumber(at("128"), "100 or more")).toBe(100);
+    expect(directedTarget("10 or more")).toBe("at least 10");
+    expect(directedTarget("under 30 min")).toBe("under 30 min");
+    expect(directedTarget("more or less")).toBe("more or less");
   });
 
   test("times compare across units, so a reading in ms meets a target in seconds", () => {
