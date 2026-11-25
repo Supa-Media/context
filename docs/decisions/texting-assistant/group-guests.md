@@ -1,5 +1,8 @@
 # A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)
 
+> **2026-11-25:** such a chat is no longer a mode with its own prompt and tools. It gets the same Tex as every group,
+> and only what it may read differs ([one-group-tex](./one-group-tex.md)).
+
 > **Superseded 2026-10-31.** Guest mode is retired. A chat with people who
 > aren't all here is answered from its home in `@context-lc`
 > ([chat-homes](./chat-homes.md)), reached by a home-only grant held by the

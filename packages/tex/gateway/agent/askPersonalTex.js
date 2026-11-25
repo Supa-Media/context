@@ -66,7 +66,7 @@ function factsLines(identity) {
  * the gateway's own now (`progress.js` `say`), and `asker()` asks the control plane for the tagger's facts.
  */
 export function personalTexTool({ group, ledger, say = null, asker }) {
-  if (group === null || group === undefined || group.guestChat === true || typeof asker !== "function") return null;
+  if (group === null || group === undefined || typeof asker !== "function") return null;
   return {
     tool: {
       name: ASK_PERSONAL_TEX,

@@ -58,10 +58,11 @@ test("a run started by an ask can't ask on: one hop", () => {
   assert.equal(crossAskTool({ event: { ...event, kind: "answer" }, groups: GROUPS, counts: COUNTS, ledger: {}, gate }), null);
 });
 
-test("no tool without the Worker's counts, without a list in a 1:1, or in a guest chat", () => {
+test("no tool without the Worker's counts or without a list in a 1:1; a chat that reads only its home asks like any group", () => {
   assert.equal(crossAskTool({ groups: GROUPS, counts: null, ledger: {}, gate }), null);
   assert.equal(crossAskTool({ groups: null, counts: COUNTS, ledger: {}, gate }), null);
-  assert.equal(crossAskTool({ group: { from: "ada", people: ["ada"], guestChat: true }, counts: COUNTS, ledger: {}, gate }), null);
+  // Dev2, 2026-11-25: "there shouldnt be any capability split" between a chat that shares no workspace and one that does.
+  assert.notEqual(crossAskTool({ group: { from: "ada", people: ["ada"], homeOnly: true }, counts: COUNTS, ledger: {}, gate }), null);
 });
 
 test("from a group, ask_chat asks only the tagger's personal Tex; someone else's waits for their yes", async () => {

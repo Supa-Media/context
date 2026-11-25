@@ -8,6 +8,10 @@ import { shownWho, taggerLabel } from "./groupNames.js";
 /** What an invited person's tag adds to the group words: they can ask anything, and sends go from a member. */
 export const INVITED_TAGGER_LINE = invitedLine("The person who tagged you");
 
+/** Someone with no account in a chat that reads only its home: not invited anywhere, so nothing goes from them. */
+export const NOT_ON_CONTEXT_LINE =
+  "They aren't on Context, so nothing goes from an account of theirs: an email or calendar change they ask for goes from someone here who is, on that person's 👍 or yes. ";
+
 /** The same, for whoever texted: a turn nobody tagged must not be told someone did (`judged`). */
 function invitedLine(who) {
   return (
@@ -49,11 +53,12 @@ export function taggedLine(group) {
     return (
       `${who ? `${who}'s newest text` : "The newest text"} doesn't name you: it was handed to you because it looked like a reply to you or a follow-up on your last answer. ` +
       "Nobody tagged you, so never say they did; if it wasn't for you, call send with action say_nothing." +
-      (group.guestTagger && !group.guestChat ? ` ${invitedLine("The person who texted").trim()}` : "")
+      (group.guestTagger ? ` ${(group.homeOnly ? NOT_ON_CONTEXT_LINE : invitedLine("The person who texted")).trim()}` : "")
     );
   }
   const guest = group.asker ? shownWho(group, group.asker).replace(/^@/, "") : "";
   // `tagged` or `named`: a text names you. Who sent it is said only from a field, else that it is not known.
-  if (group.guestChat) return group.from ? `@${group.from} tagged you.` : guest ? `A guest in this chat, ${guest}, tagged you.` : "A guest in this chat tagged you; which guest is not known.";
+  // A chat that reads only its home invites nobody to a workspace: someone with no account is a guest here, and said so.
+  if (group.homeOnly) return group.from ? `@${group.from} tagged you.` : guest ? `A guest in this chat, ${guest}, tagged you. ${NOT_ON_CONTEXT_LINE.trim()}` : "A guest in this chat tagged you; which guest is not known.";
   return (group.from ? `${taggerLabel(group)} tagged you.` : guest ? `${guest} tagged you.` : "A text here tagged you; who sent it is not known.") + (group.guestTagger ? ` ${INVITED_TAGGER_LINE.trim()}` : "");
 }

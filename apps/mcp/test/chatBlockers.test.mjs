@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { groupOf, groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
-import { blockedLine, blockedOf, groupReachOut, guestPrompt } from "../../../packages/tex/gateway/agent/groupGuests.js";
+import { blockedLine, blockedOf, groupReachOut } from "../../../packages/tex/gateway/agent/groupGuests.js";
 import { settingsTools } from "../../../packages/tex/gateway/agent/settingsTools.js";
 
 const HEX = "a".repeat(64);
@@ -52,7 +52,7 @@ test("the prompt names who and the fix, by text, never the app", () => {
   assert.match(line, /"add @sam to @crystal-co" counts\): you call send chat_add_everyone, which invites only the people here not in it yet/);
   assert.match(line, /Never send anyone to the app/);
   assert.ok(groupPrompt(group, "context-lc").includes(line));
-  assert.ok(guestPrompt(group, "context-lc").includes(line));
+  assert.ok(groupPrompt({ ...group, homeOnly: true }, "context-lc").includes(line));
   assert.equal(blockedLine({}), "");
   assert.doesNotMatch(groupPrompt(groupOf({ group: { key: HEX, members: HEX, from: "ada" } }), "context-lc"), /This chat can't use/);
 });

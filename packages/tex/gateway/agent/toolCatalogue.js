@@ -48,7 +48,7 @@ import { learnedSkillSession } from "./learnedSkills.js";
 /** What a factory is handed: nothing it can reach. Its definitions never read these; its calls never run here. */
 const INERT = {
   ledger: { append: async () => null, read: async () => [], list: async () => [] },
-  group: { key: "0".repeat(64), members: [], guestChat: false, guestTagger: false },
+  group: { key: "0".repeat(64), members: [], homeOnly: false, guestTagger: false },
   callTool: async () => ({ content: [] }),
 };
 

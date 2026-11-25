@@ -58,6 +58,8 @@ Every section title of [the texting assistant](../texting-assistant.md) and its 
 - [A guest's name is kept on the chat (2026-11-12)](./groups.md#a-guests-name-is-kept-on-the-chat-dev2-2026-11-12)
 - [The judge reads each group turn's brief (2026-11-12)](./one-judge-one-record.md#the-judge-reads-each-group-turns-brief-dev2-2026-11-12)
 - [A group chat with people who aren't on Context reads only what is shared with the chat (2026-10-25)](./group-guests.md)
+- [Every group chat gets the same Tex; only what it may read differs (2026-11-25)](./one-group-tex.md)
+- [A group chat's sensitive asks go to the asker's own chat (2026-11-25)](./private-asides.md)
 - [Group Tex keeps each chat's home in @context-lc, sealed from the people who run it (2026-10-31)](./chat-homes.md)
 - [A group chat's history has one copy: the memory page in its home, kept in its Durable Object (2026-11-01)](./group-memory-one-copy.md)
 - [A person's texts with Tex are one record in their Tex object, read with About me in one call (2026-11-01)](./one-to-one-history.md)

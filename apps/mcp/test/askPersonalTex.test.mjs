@@ -109,7 +109,8 @@ test("when their personal Tex can't answer, nothing is made up", async () => {
 
 test("offered only on a group chat's turn that can ask the control plane", () => {
   assert.equal(personalTexTool({ group: null, ledger: {}, asker: async () => ADA }), null);
-  assert.equal(personalTexTool({ group: { from: "ada", people: ["ada"], guestChat: true }, ledger: {}, asker: async () => ADA }), null);
+  // A chat whose people share no workspace is a group like any other (Dev2, 2026-11-25: no capability split).
+  assert.notEqual(personalTexTool({ group: { from: "ada", people: ["ada"], homeOnly: true }, ledger: {}, asker: async () => ADA }), null);
   assert.equal(personalTexTool({ group: { from: "ada", people: ["ada"] }, ledger: {}, asker: null }), null);
 });
 
