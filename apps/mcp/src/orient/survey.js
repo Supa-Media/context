@@ -4,6 +4,7 @@
  */
 
 import { canSee, isPlumbing } from "../privacy/engine.js";
+import { isNotePath, isTextFilePath } from "../../../../packages/shared/src/fileKinds.cjs";
 import { classifyCaptureKind } from "../communications/paths.js";
 import { TreeUnavailable } from "../tree/served.js";
 import { frontNotesAmong } from "./folderAbout.js";
@@ -37,7 +38,8 @@ export async function surveyContext(store, scope, rules, overrides) {
     if (error instanceof TreeUnavailable) return unreadableMap(error.message);
     throw error;
   }
-  const isVisible = (key) => isVisibleNote(key, scope, rules, overrides);
+  const isVisible = (key) => isVisibleTextFile(key, scope, rules, overrides);
+  const isFrontNote = (key) => isVisibleNote(key, scope, rules, overrides);
   const root = layoutOf(objects, "");
   const rootNotes = root.objects.filter(({ key }) => isVisible(key)).map(({ key, uploaded }) => ({ key, uploaded }));
 
@@ -53,7 +55,7 @@ export async function surveyContext(store, scope, rules, overrides) {
     .map((folder) => ({
       prefix: folder.prefix,
       count: folder.notes.length,
-      front: frontNotesAmong(folder.prefix, new Set(folder.layout.objects.map(({ key }) => key)), isVisible),
+      front: frontNotesAmong(folder.prefix, new Set(folder.layout.objects.map(({ key }) => key)), isFrontNote),
       children: mergeChildren(folder, scope, rules, overrides),
     }))
     .filter((folder) => folder.count > 0 || folder.children.length > 0);
@@ -101,7 +103,16 @@ function layoutOf(objects, prefix) {
 }
 
 export function isVisibleNote(key, scope, rules, overrides) {
-  return key.endsWith(".md") && !isPlumbing(key) && canSee(key, scope, rules, overrides);
+  return isNotePath(key) && !isPlumbing(key) && canSee(key, scope, rules, overrides);
+}
+
+/**
+ * A note or a sheet this connection can see: what orient counts, lists at the root and ranks as recent. A sheet is
+ * work the person keeps like a note, and an agent that is never told one exists cannot open it
+ * (`docs/decisions/file-kinds.md`). A front note is still Markdown (`isVisibleNote`).
+ */
+export function isVisibleTextFile(key, scope, rules, overrides) {
+  return isTextFilePath(key) && !isPlumbing(key) && canSee(key, scope, rules, overrides);
 }
 
 /**
