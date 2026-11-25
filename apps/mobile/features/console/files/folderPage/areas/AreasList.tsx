@@ -92,8 +92,8 @@ interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | 
   readonly rootPeeks: boolean;
   readonly onArea: (folder: string) => void;
   readonly selected: string | null;
-  /** Areas whose sub-areas are folded away. */
-  readonly closed: ReadonlySet<string>;
+  /** Whether an area's sub-areas are showing: the top row's are on open, every other area's are folded until its chevron is pressed. */
+  readonly isOpen: (folder: string) => boolean;
   readonly toggle: (folder: string) => void;
   /** Areas whose notes and folders are showing. */
   readonly shown: ReadonlySet<string>;
@@ -109,7 +109,9 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
 
 export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, onPick }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
-  const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
+  // Folders pressed away from their default: the top row starts open, every area under it starts
+  // folded (the owner, 2026-11-25: "collapse the items not on the 1st level, by default on page open").
+  const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
   const shared: Shared = {
     compact,
@@ -124,8 +126,8 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
     onMenu,
     readingOf,
     ...(onPick === undefined ? {} : { onPick }),
-    closed,
-    toggle: (folder) => setClosed((previous) => flip(previous, folder)),
+    isOpen: (folder) => (folder === tree.seat.folder) !== flipped.has(folder),
+    toggle: (folder) => setFlipped((previous) => flip(previous, folder)),
     shown,
     toggleNotes: (folder) => setShown((previous) => flip(previous, folder)),
   };
@@ -152,7 +154,7 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
 
 /** An area row, then its notes and folders when they are showing, then its sub-areas unless folded. Depth 0 is the open folder. */
 function AreaBranch({ node, depth, rootTitle, firstTop, shared }: { node: AreaNode; depth: number; rootTitle?: string; firstTop: boolean; shared: Shared }) {
-  const open = !shared.closed.has(node.seat.folder);
+  const open = shared.isOpen(node.seat.folder);
   return (
     <>
       <AreaRow node={node} depth={depth} title={rootTitle} open={open} divided={depth === 1 && !firstTop} shared={shared} />
@@ -374,7 +376,7 @@ function PhoneHead({ seat, title, shared }: { seat: Seat; title: string; shared:
 function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: number; first: boolean; shared: Shared }) {
   const styles = useThemedStyles(makeStyles);
   const { seat } = node;
-  const open = !shared.closed.has(seat.folder);
+  const open = shared.isOpen(seat.folder);
   const headline = headlineOf(seat, shared.readingOf(seat));
   const openMenu = (event: GestureResponderEvent) => shared.onMenu(seat, pressPoint(event));
   return (

@@ -123,6 +123,7 @@ describe("the Areas List", () => {
 
   test("a sub-area sits one level deeper than the top row, and a sub-area of it deeper still", async () => {
     await render();
+    await press(one("area-toggle-areas/finance"));
     const finance = one("area-row-areas/finance");
     const payroll = one("area-row-areas/finance/payroll");
     expect(depthOf(finance)).toBe(1);
@@ -154,6 +155,8 @@ describe("the Areas List", () => {
 
   test("an area with no notes or folders has no count", async () => {
     await render();
+    await press(one("area-toggle-areas/finance"));
+    expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
     expect(all("area-notes-areas/finance/payroll")).toHaveLength(0);
   });
 
@@ -181,9 +184,12 @@ describe("the Areas List", () => {
     expect(all("area-trend-target", finance)).toHaveLength(1);
   });
 
-  test("a metric with no reading yet says so, with its target", async () => {
+  test("a metric with no reading yet shows its name and target, with no placeholder", async () => {
     await render();
-    expect(strip(one("area-row-areas/finance").textContent)).toContain("No data yet · target < $600");
+    const finance = strip(one("area-row-areas/finance").textContent);
+    expect(finance).toContain("Monthly cost");
+    expect(finance).toContain("target < $600");
+    expect(finance).not.toContain("No data");
     expect(all("area-trend", one("area-row-areas/finance"))).toHaveLength(0);
   });
 
@@ -194,9 +200,19 @@ describe("the Areas List", () => {
     expect(design.querySelector('[aria-label="No owner"]')).not.toBeNull();
   });
 
-  test("a chevron shows only on an area with sub-areas, and folds them", async () => {
+  test("on open only the top level is unfolded: areas show, their sub-areas wait for the chevron", async () => {
+    await render();
+    expect(all("area-row-areas/finance")).toHaveLength(1);
+    expect(one("area-toggle-areas").getAttribute("aria-expanded")).toBe("true");
+    expect(one("area-toggle-areas/finance").getAttribute("aria-expanded")).toBe("false");
+    expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+  });
+
+  test("a chevron shows only on an area with sub-areas, and unfolds and folds them", async () => {
     await render();
     expect(all("area-toggle-areas/engineering")).toHaveLength(0);
+    await press(one("area-toggle-areas/finance"));
+    expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
     await press(one("area-toggle-areas/finance"));
     expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
     expect(all("area-row-areas/finance")).toHaveLength(1);

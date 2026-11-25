@@ -78,7 +78,9 @@ describe("the Areas folder", () => {
     const rows = all("area-row-areas/finance").concat(all("area-row-areas/engineering"), all("area-row-areas/design"));
     expect(rows).toHaveLength(3);
     expect(all("area-row-areas/people")).toHaveLength(0);
-    // A sub-area that declares a seat is an area; a note is a file row.
+    // A sub-area that declares a seat is an area, folded under its parent on open; a note is a file row.
+    expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    await press(one("area-toggle-areas/finance"));
     expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
     // Notes and folders wait behind the area's count (the owner, 2026-11-24).
     expect(all("area-file-areas/finance/budget.md")).toHaveLength(0);
