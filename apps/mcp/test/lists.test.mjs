@@ -259,5 +259,21 @@ export async function runListChecks(check) {
     check("a key named __proto__ is only a key", p.__proto__ === "polluted" && ({}).polluted === undefined);
     check("a note without frontmatter has no properties", Object.keys(noteProperties("# Hi\nstatus: x")).length === 0);
     check("an unclosed block is not frontmatter", Object.keys(noteProperties("---\nstatus: x\n")).length === 0);
+    const q = noteProperties(
+      [
+        "---",
+        'formula: "count(runs where workflow = \\"Deploy to Production\\" and ok = 0)"',
+        "single: 'it''s # not a comment'",
+        'slash: "a\\\\b\\tc"',
+        'hashed: "x # y"',
+        "plain: z # a comment",
+        "---",
+      ].join("\n")
+    );
+    check("a double-quoted value reads its escaped quotes", q.formula === 'count(runs where workflow = "Deploy to Production" and ok = 0)');
+    check("a single-quoted value reads a doubled quote and keeps a #", q.single === "it's # not a comment");
+    check("a double-quoted value reads backslash and tab escapes", q.slash === "a\\b\tc");
+    check("a # inside quotes is text, not a comment", q.hashed === "x # y");
+    check("a # after a plain value is still a comment", q.plain === "z");
   }
 }

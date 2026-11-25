@@ -58,6 +58,7 @@ export function runSetPropertyChecks(check) {
   check("a leading zero, a sign or a capital keeps its quotes", set(note, "nav", "007").text.includes('nav: "007"') && set(note, "nav", "-1").text.includes('nav: "-1"') && set(note, "draft", "True").text.includes('draft: "True"'));
   check("a hash that would read as a comment is refused", /comment/.test(set(note, "owner", "room #4").error ?? ""));
   check("a hash inside a word is kept", roundTrips("C#"));
+  check("a backslash that needs quoting reads back as written", roundTrips("-C:\\Users\\ada") && roundTrips("a: \\n"));
   check("the value is trimmed", noteProperties(set(note, "owner", "  Ada ").text).owner === "Ada");
 
   /* ------------------------------ refusals ------------------------------ */
