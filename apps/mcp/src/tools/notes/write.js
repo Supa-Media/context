@@ -27,7 +27,7 @@ import {
 } from "@context/collaboration";
 import { replaceNoteText } from "./replaceInObject.js";
 import { isSheetPath, parseSheet } from "../../sheets/csv.js";
-import { datedForWrite } from "../../notes/dateStamp.js";
+import { datedForWrite, stampInputsAhead } from "../../notes/dateStamp.js";
 import mail from "../../../../../packages/shared/src/mail.cjs";
 import {
   effectiveVisibility,
@@ -201,6 +201,10 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   const ahead = creating && scope === "private" && !leaving;
   if (ahead && typeof store.warm === "function") store.warm(path);
   const twinAsked = ahead ? nameTwinRefusal(store, scope, rules, overrides, path).catch(() => null) : null;
+  // What a date stamp reads (the note's dates from the object and, where it keeps no fresh zone, the owner's zone from
+  // the control plane), asked now beside the find and read only at the stamp (`notes/dateStamp.js` `stampInputsAhead`).
+  // Reads only, for a private connection as the name check above, and never where the object's create is left the checks.
+  const stampAsked = scope === "private" && !sheet && !leaving ? stampInputsAhead(store, path, content) : null;
   // Whether it exists, from the tree; the note itself is opened only once
   // every check below has passed (`present.js`).
   const found = leaving ? { exists: false } : await phase(store, "write_find", () => noteBeingWritten(store, path, { editing: !creating }));
@@ -416,7 +420,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   // Date properties the note asked for (`date created:`, `date modified:`) are filled in this same save, so the etag
   // handed back covers them and the change log gets one entry (`notes/dateStamp.js`).
   if (!sheet && !(storedBody !== null && isEncryptedNote(storedBody))) {
-    content = await phase(store, "write_dates", () => datedForWrite(store, path, content, storedBody));
+    content = await phase(store, "write_dates", () => datedForWrite(store, path, content, storedBody, Date.now(), stampAsked));
   }
   // A link anyone can open is never minted over an encrypted note
   // (`docs/decisions/encryption.md`, "Sharing"). Refused here, before the

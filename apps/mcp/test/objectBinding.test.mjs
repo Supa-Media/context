@@ -478,3 +478,49 @@ test("ATTACK: a guest is never served where the object holds no guest rules, and
   w.object.store.members.setHome("convex");
   assert.equal((await w.client.open("user_a", { audience: "guest" })).binding, null);
 });
+
+/**
+ * A request that had to ask the control plane opens its store from that answer without waiting for it to be kept
+ * (`sessionStore.js` `openBinding`, 2026-11-24): the seal and `ws.binding.put` run beside the request, through its
+ * door to `waitUntil`, and the next request still opens from the object. Sabotage: awaiting the keep again before
+ * returning failed this test (the open waited on the held put).
+ */
+test("a control-plane open is not held up by keeping its answer, and the answer is still kept", { skip }, async () => {
+  const { storeForSession } = await import("../src/session.js");
+  const w = await world();
+  // The id layer's hooks a keyed store is built with; nothing here reads or writes a note.
+  for (const name of ["noteIdLookup", "noteIdWrote", "noteIdAdopt", "noteIdRemoved"]) w.controlPlane[name] = async () => null;
+  // A bucket the store can be built over; nothing reaches it.
+  w.controlPlane.extra = { binding: { ...answerFor(w.workspaceId).binding, endpoint: "https://r2.example.test", region: "auto" } };
+  const object = w.ns.get(w.ns.idFromName(`workspace:${w.workspaceId}`));
+  const inner = object.fetch;
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  let putsAsked = 0;
+  object.fetch = async (request) => {
+    if (new URL(request.url).pathname.includes("ws.binding.put")) {
+      putsAsked += 1;
+      await gate;
+    }
+    return inner(request);
+  };
+  const deferred = [];
+  const opened = await Promise.race([
+    storeForSession(w.session, w.env, w.controlPlane).then((store) => {
+      store.backupBehind.defer = (work) => deferred.push(work);
+      return store;
+    }),
+    new Promise((resolve) => setTimeout(() => resolve("held"), 1000)),
+  ]);
+  assert.notEqual(opened, "held", "the store waited for the binding to be kept");
+  assert.equal(opened.bindingFrom.source, "control_plane");
+  assert.equal(opened.bindingFrom.reason, "none_kept");
+  assert.equal(w.calls.binding, 1);
+  release();
+  assert.equal(deferred.length, 1, "the keep is handed to the request's waitUntil");
+  await Promise.all(deferred);
+  assert.equal(putsAsked, 1);
+  const second = await open(w);
+  assert.equal(second.source, "object", "the answer was kept for the next request");
+  assert.equal(w.calls.binding, 1);
+});

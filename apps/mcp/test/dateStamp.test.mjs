@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { readDocument, replaceText } from "@context/collaboration";
-import { fillDatesPage, stampAfterQuiet } from "../src/notes/dateStamp.js";
+import { datedForWrite, fillDatesPage, stampAfterQuiet, stampInputsAhead } from "../src/notes/dateStamp.js";
 import { toolFillDates } from "../src/tools/fillDates.js";
 
 const CREATED = Date.UTC(2026, 2, 14, 14, 5, 9); // Saturday, March 14th 2026, 9:05:09 am in Chicago
@@ -159,4 +159,84 @@ test("fill_dates is the owner's, and says when the notes are not in the object y
   assert.match((await toolFillDates(store, "team", {})).content[0].text, /^Not run: only the owner/);
   assert.match((await toolFillDates({}, "private", {})).content[0].text, /^Not run: this context's notes/);
   assert.match((await toolFillDates(store, "private", {})).content[0].text, /^Filled date properties in 0 notes; 0 had a date key with no value/);
+});
+
+/**
+ * The stamp's inputs asked beside a save's find (`stampInputsAhead`, 2026-11-24): the zone the object no longer keeps
+ * is asked of the control plane while the save's own checks run, and the stamp waits on the slower of the two, not
+ * their sum. Asking ahead only reads: the zone is left on the object when the stamp uses it, as before.
+ *
+ * Sabotage: having `datedForWrite` ignore `ahead` failed "the stamp reads what was asked ahead" (the zone was asked
+ * twice); calling `rememberZone` inside `stampInputs` failed "asking ahead leaves nothing on the object".
+ */
+function aheadStore({ keptZone = null, ownerZone = "America/Chicago" } = {}) {
+  const calls = { dates: 0, zone: 0, remembered: [] };
+  let releaseZone;
+  const zoneGate = new Promise((resolve) => (releaseZone = resolve));
+  const store = {
+    async objectFacts(request) {
+      if (request.ask === "dates") {
+        calls.dates += 1;
+        return { served: true, dates: { created: CREATED, saved: SAVED, style: null, ...(keptZone ? { zone: keptZone } : {}) } };
+      }
+      return { served: true };
+    },
+    async ownerTimeZone() {
+      calls.zone += 1;
+      await zoneGate;
+      return ownerZone;
+    },
+    rememberTimeZone(zone) {
+      calls.remembered.push(zone);
+    },
+  };
+  return { store, calls, releaseZone };
+}
+
+test("the stamp reads what was asked ahead, and the zone is asked once", async () => {
+  const { store, calls, releaseZone } = aheadStore();
+  const content = "---\ndate created:\ndate modified:\n---\n\nNew.\n";
+  const ahead = stampInputsAhead(store, "projects/a.md", content);
+  // Asked before the save reaches its stamp: the control plane's answer is on its way while the checks run.
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.dates, 1);
+  assert.equal(calls.zone, 1);
+  releaseZone();
+  const stamped = await datedForWrite(store, "projects/a.md", content, null, SAVED, ahead);
+  assert.equal(calls.dates, 1, "the object's dates are not asked again");
+  assert.equal(calls.zone, 1, "the control plane is not asked again");
+  assert.match(stamped, /^date created: 2026-11-09T21:34:00-06:00$/m);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.remembered, ["America/Chicago"], "the zone the control plane answered is left on the object");
+});
+
+test("asking ahead leaves nothing on the object, and a zone the object keeps asks no control plane", async () => {
+  const fresh = aheadStore();
+  const ahead = stampInputsAhead(fresh.store, "projects/a.md", "---\nupdated:\n---\n");
+  fresh.releaseZone();
+  assert.equal((await ahead).timeZone, "America/Chicago");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(fresh.calls.remembered, [], "a save refused after its find never wrote the zone anywhere");
+
+  const kept = aheadStore({ keptZone: "Europe/Paris" });
+  const answer = await stampInputsAhead(kept.store, "projects/a.md", "---\nupdated:\n---\n");
+  assert.equal(answer.timeZone, "Europe/Paris");
+  assert.equal(kept.calls.zone, 0);
+});
+
+test("nothing is asked ahead for a note that could not be stamped", async () => {
+  const { store, calls } = aheadStore();
+  assert.equal(stampInputsAhead(store, "projects/a.md", "---\ntitle: No dates\n---\n\nText.\n"), null);
+  assert.equal(stampInputsAhead(store, "tex/skills/booking.md", "---\nupdated:\n---\n"), null);
+  assert.equal(stampInputsAhead(store, "projects/a.md", undefined), null);
+  assert.equal(calls.dates + calls.zone, 0);
+});
+
+test("without an ahead answer the stamp asks as before", async () => {
+  const { store, calls, releaseZone } = aheadStore();
+  releaseZone();
+  const stamped = await datedForWrite(store, "projects/a.md", "---\nupdated:\n---\n\nNew.\n", null, SAVED, null);
+  assert.equal(calls.dates, 1);
+  assert.equal(calls.zone, 1);
+  assert.match(stamped, /^updated: /m);
 });

@@ -38,6 +38,13 @@ agent's (the cursor does not move). That edit records no activity line and
 sets off no wait of its own. A conflict means somebody else saved first; their
 save stamps after its own pause.
 
+An agent's save asks what its stamp reads (the note's dates from the object,
+and the owner's zone from the control plane only where the object keeps none
+from the last ten minutes) beside its find, for a private connection, and reads
+the answer at the stamp (2026-11-24, Speed: the zone's ask was a median 399 ms
+awaited after the checks). Asking ahead only reads; the zone is left on the
+object when the stamp uses it, as before.
+
 **Backfill.** `manage` action `fill_dates` (owner only) is the one pass over
 notes written before: the object names the notes with an empty date key
 (`dateGaps`), and each is filled from its row's clocks, with `modified` from

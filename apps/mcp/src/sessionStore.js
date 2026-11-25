@@ -91,8 +91,17 @@ async function openBinding(session, env, controlPlane, later = () => {}) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable(`control plane ${error.status ?? error.reason}`);
     throw error;
   }
-  const kept = typeof fromObject.keep === "function" ? await fromObject.keep(opened) : null;
-  logged("control_plane", kept === null ? {} : { kept: kept.kept, keptReason: kept.reason });
+  // The answer is kept in the object for the next request beside this one, not before it (a seal and a
+  // `ws.binding.put` that queues behind this request's own calls to the same object: production, 2026-11-24, a median
+  // 241 ms in search). What is kept, and under which epoch, is decided as before; the store is built from `opened`.
+  if (typeof fromObject.keep === "function") {
+    later(
+      fromObject.keep(opened).then(
+        (kept) => logged("control_plane", kept === null ? {} : { kept: kept.kept, keptReason: kept.reason }),
+        () => logged("control_plane", { kept: false, keptReason: "put_failed" }),
+      ),
+    );
+  } else logged("control_plane");
   if (opened && typeof opened === "object") sources.set(opened, from);
   return opened;
 }
