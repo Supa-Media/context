@@ -441,3 +441,38 @@ kept nothing, owners-only kept sheet, a removed editor stops, a dated metric
 stops, hourly rows and same-hour replace, refused bodies),
 `apps/mcp/test/dataFormula.test.mjs` (right-now, mixed, hidden-reads-as-
 missing, kept series) and `apps/mobile/__tests__/metricKeep.test.ts`.
+
+## CI sends its own numbers
+
+*Asked by the owner, 2026-11-25, with the area metrics plan: "wire push rows from
+the Tex test set, the search bench and CI on merge". `scripts/metric-rows.mjs`.*
+
+- **One sheet, one key.** The Tex test set, the search test set and a merge
+  that changes the capability list or the replay cases each add rows to one
+  workspace sheet through a sheet key ([sheet-sources](./app-and-console/sheet-sources.md)),
+  `METRICS_PUSH_KEY`. A person makes the key in the app on that sheet and
+  pastes it into the repository's secrets; it can only add rows there. With
+  no key the step says so and sends nothing.
+- **The columns.** `date, check, part, value, of, main, pr, sha`. `test-set`
+  sends `all`, `kind:one`, `kind:group` and one `node:<id>` row a run (right
+  on the change, of the total, right on main); `search` sends `first` and
+  `top5`; `capabilities` sends `covered` (of all capabilities) and `cant`.
+- **Counts only, never part of a gate.** The rows carry the numbers the run
+  already prints to its log, never a case's words (the Test Set stays sealed:
+  [test-set-service](./testing/test-set-service.md)). The step is
+  `continue-on-error`, so a refused key never fails a pull request.
+- **By kind.** The eval service's verdict now also counts by conversation
+  kind (`byKind`, `infra/tex-eval/src/rules.ts`), so the Group chats area can
+  read group cases apart. The gate still reads only `byNode`.
+- **Coverage, as counted.** A capability is covered when a replay case reaches
+  one of its actions (`send.email`, `manage action area`,
+  `ACTIONS.manage.area`, `action: "area"`) or names it in
+  `capabilities: [...]`. A capability with no actions of its own is covered
+  only by name.
+
+**What a simplification would cost.** Sending a case's text instead of its
+counts would put the sealed Test Set in a sheet every member reads; making the
+step required would let a missing key block every Tex change. Tests:
+`node scripts/metric-rows.mjs --self-test` (counts-only rows, no key sends
+nothing, key only in the header, batches of 100) and
+`infra/tex-eval/src/testSet.test.ts` (by kind, gate unchanged).

@@ -249,7 +249,12 @@ const PREVIEW_PUSH_IGNORED = ["main"];
  * Workflows that run on `push` to main without a `pull_request` trigger, because
  * they grade no pull request. See "THE PREVIEW PUSH LANE" in the header.
  */
-const PUSH_WITHOUT_PULL_REQUEST = new Set(["preview-cleanup.yml"]);
+const PUSH_WITHOUT_PULL_REQUEST = new Set([
+  "preview-cleanup.yml",
+  // Sends main's own counts (Capability coverage, Parity gaps) to the metrics sheet after a merge; it checks no
+  // change, and a pull request's numbers are not main's (docs/decisions/data-and-metrics.md).
+  "metric-rows.yml",
+]);
 
 /**
  * The two triggers whose configuration a rule below actually reads (A and C).
