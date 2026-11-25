@@ -71,21 +71,21 @@ async function openNote(store, scope, rules, overrides, path) {
 async function change(store, scope, rules, overrides, path, changes, { create = false } = {}) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const opened = await openNote(store, scope, rules, overrides, path);
-    if (opened.error) return { error: `${path}: ${opened.error}` };
-    if (opened.missing && !create) return { error: `${path} isn't there, or this connection can't see it` };
+    if (opened.error) return { error: `${path}: ${opened.error}. Check the area's path with orient { area }, then try again.` };
+    if (opened.missing && !create) return { error: `${path} isn't there, or this connection can't see it. Check the area with orient { area }, or pass create: true to make a sub-area.` };
     let text = opened.missing ? "" : opened.body;
     for (const [key, value] of changes) {
       const next = setNoteProperty(text, key, value);
-      if (next.error) return { error: `${path}: ${next.error}` };
+      if (next.error) return { error: `${path}: ${next.error}. Fix that note's front matter with write, then try again.` };
       text = next.text;
     }
     if (!opened.missing && text === opened.body) return { unchanged: true };
     const written = await toolWriteNote(store, scope, rules, overrides, { path, content: text, ...(opened.etag ? { expected_etag: opened.etag } : {}) });
     if (written.isError && textOf(written).startsWith("conflict") && attempt === 0) continue;
-    if (written.isError) return { error: `${path}: ${textOf(written)}` };
+    if (written.isError) return { error: `${path}: ${textOf(written)}. Read the note, then try again.` };
     return { wrote: true, created: opened.missing === true };
   }
-  return { error: `${path} kept changing; nothing more was written` };
+  return { error: `${path} kept changing, so nothing more was written. Wait a moment, then try again.` };
 }
 
 /** The workspace's metrics, by name, from the data folder's `metrics/` notes this connection can see. */
@@ -107,7 +107,7 @@ async function metricNames(store, scope, rules, overrides) {
 function oneLine(value, what) {
   if (value === undefined) return { skip: true };
   if (value === null || value === "") return { value: null };
-  if (typeof value !== "string" || /[\r\n]/.test(value) || value.trim().length > MAX_TEXT) return { error: `${what} is one line of text` };
+  if (typeof value !== "string" || /[\r\n]/.test(value) || value.trim().length > MAX_TEXT) return { error: `${what} is one line of text. Pass it on one line, then try again.` };
   return { value: value.trim() };
 }
 
@@ -120,10 +120,10 @@ function oneLine(value, what) {
  */
 export async function toolSetArea(store, scope, rules, overrides, args) {
   const area = normalizePath(String(args?.area ?? "").replace(/\/about\.md$/i, "").replace(/\/+$/, ""));
-  if (!area) return toolError('invalid: area is the area\'s folder, like "areas/finance"');
+  if (!area) return toolError('invalid: area is the area\'s folder. Pass it like "areas/finance".');
   const jobs = await factJobs(store);
   const root = jobs?.jobs?.areas ?? area.split("/")[0];
-  if (area !== root && !area.startsWith(`${root}/`)) return toolError(`invalid: ${area} is not under the areas folder (${root}/)`);
+  if (area !== root && !area.startsWith(`${root}/`)) return toolError(`invalid: ${area} is not under the areas folder (${root}/). Pass an area under ${root}/, as orient { area } lists them.`);
   const done = [];
   const problems = [];
 
@@ -131,19 +131,19 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   const seat = [];
   for (const key of ["owner", "helper"]) {
     const line = oneLine(args[key], key);
-    if (line.error) return toolError(`invalid: ${line.error}`);
+    if (line.error) return toolError(`invalid: ${key} is a person's @handle or a bot's name, on one line. Pass it that way, then try again.`);
     if (!line.skip) seat.push([key, line.value]);
   }
   if (args.modes !== undefined) {
     const asked = Array.isArray(args.modes) ? args.modes : [];
     const modes = knownModes(asked);
-    if (modes.length !== asked.length) return toolError(`invalid: modes are ${MODE_ORDER.join(", ")}`);
+    if (modes.length !== asked.length) return toolError(`invalid: modes are ${MODE_ORDER.join(", ")}. Pick from those, then try again.`);
     seat.push(["modes", modes.length === 0 ? null : modes]);
   }
   if (args.approvals !== undefined) {
     const rules_ = Array.isArray(args.approvals) ? args.approvals.map((rule) => String(rule ?? "").trim()).filter((rule) => rule !== "") : null;
     if (rules_ === null || rules_.length > MAX_RULES || rules_.some((rule) => rule.length > MAX_TEXT || /[\r\n]/.test(rule))) {
-      return toolError(`invalid: approvals is a list of up to ${MAX_RULES} one-line rules`);
+      return toolError(`invalid: approvals is a list of up to ${MAX_RULES} one-line rules. Pass them as a list, one rule each.`);
     }
     seat.push(["approvals", rules_.length === 0 ? null : rules_]);
   }
@@ -153,7 +153,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
       seat.push(["metrics", null], ["metric", null], ["target", null]);
     } else {
       const name = typeof args.metric?.name === "string" ? args.metric.name.trim() : "";
-      if (name === "") return toolError("invalid: metric is { name, target? }, the name of a metric in the data folder's metrics/");
+      if (name === "") return toolError("invalid: metric is { name, target? }. Pass the name of a metric in the data folder's metrics/.");
       const known = await metricNames(store, scope, rules, overrides);
       const match = known?.find((existing) => metricKey(existing) === metricKey(name));
       if (known !== null && match === undefined) {
@@ -176,12 +176,12 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   if (args.bot !== undefined) {
     const bot = args.bot ?? {};
     const name = typeof bot.name === "string" ? bot.name.trim() : "";
-    if (name === "" || name.startsWith("@") || name.length > 60) return toolError("invalid: bot.name is the bot's name, like Finance (not an @handle)");
+    if (name === "" || name.startsWith("@") || name.length > 60) return toolError("invalid: bot.name is the bot's name, not an @handle. Pass it like Finance.");
     const kind = bot.kind === undefined ? "grok" : String(bot.kind).toLowerCase();
-    if (!BOT_KINDS.includes(kind)) return toolError(`invalid: bot.kind is one of ${BOT_KINDS.join(", ")}`);
-    if (bot.reach !== undefined && !REACHES.has(bot.reach)) return toolError('invalid: bot.reach is "webhook" or "mail"');
+    if (!BOT_KINDS.includes(kind)) return toolError(`invalid: bot.kind is one of ${BOT_KINDS.join(", ")}. Pick one, or leave it out for grok.`);
+    if (bot.reach !== undefined && !REACHES.has(bot.reach)) return toolError('invalid: bot.reach is "webhook" or "mail". Pick one, then try again.');
     const whose = bot.whose === undefined ? undefined : String(bot.whose).trim();
-    if (whose !== undefined && whose !== "" && !/^@[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(whose)) return toolError("invalid: bot.whose is the @handle of the person it belongs to");
+    if (whose !== undefined && whose !== "" && !/^@[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(whose)) return toolError("invalid: bot.whose is the @handle of the person it belongs to. Pass it like @seyi.");
     const card = [["holder", name], ["kind", "agent"], ["bot", kind]];
     if (whose !== undefined) card.push(["belongs_to", whose === "" ? null : whose]);
     if (bot.reach !== undefined) card.push(["reach", bot.reach]);
@@ -203,9 +203,9 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   // A person's delegate: who answers for them.
   if (args.delegate !== undefined) {
     const person = typeof args.delegate?.person === "string" ? args.delegate.person.trim() : "";
-    if (!/^@[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(person)) return toolError("invalid: delegate is { person: \"@handle\", to: \"<bot name>\" | \"Tex\" | null }");
+    if (!/^@[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(person)) return toolError("invalid: delegate is { person: \"@handle\", to: \"<bot name>\" | \"Tex\" | null }. Pass the person as an @handle.");
     const to = args.delegate.to === null || args.delegate.to === "" ? null : String(args.delegate.to ?? "").trim();
-    if (to !== null && (to.length > 60 || /[\r\n]/.test(to))) return toolError("invalid: delegate.to is a bot's name, Tex, or null");
+    if (to !== null && (to.length > 60 || /[\r\n]/.test(to))) return toolError("invalid: delegate.to is a bot's name, Tex, or null. Pass one of those.");
     const wrote = await change(store, scope, rules, overrides, `${root}/people/${cardSlug(person)}.md`, [["holder", person], ["kind", "person"], ["delegation", to]], { create: true });
     if (wrote.error) return toolError(wrote.error);
     done.push(to === null ? `${person}: nobody answers for them` : `${person}: ${to} answers for them`);
@@ -214,16 +214,16 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   // A webhook, sealed by the control plane; never echoed.
   const hookBot = args.webhook?.bot ?? args.bot?.name ?? args.test_webhook;
   if (args.webhook !== undefined || args.test_webhook !== undefined) {
-    if (typeof store?.botHooks !== "function") return toolError("bot webhooks are not available on this connection");
+    if (typeof store?.botHooks !== "function") return toolError("bot webhooks are not available on this connection. Ask the person to set it in the Context app's area panel, under the bot's Reach.");
     if (typeof hookBot !== "string" || hookBot.trim() === "") return toolError("invalid: name the bot (webhook.bot, or bot.name)");
   }
   if (args.webhook !== undefined) {
     const hook = args.webhook ?? {};
-    if (typeof hook.address !== "string") return toolError("invalid: webhook is { address, header?, signing_key? }");
+    if (typeof hook.address !== "string") return toolError("invalid: webhook is { address, header?, signing_key? }. Pass the bot's https address.");
     const answer = await store
       .botHooks({ action: "set", bot: hookBot, address: hook.address, ...(hook.header ? { header: String(hook.header) } : {}), ...(hook.signing_key ? { signingKey: String(hook.signing_key) } : {}) })
       .catch(() => ({ error: "the control plane could not be reached; try again" }));
-    if (answer?.error) return toolError(`webhook not saved: ${answer.error}`);
+    if (answer?.error) return toolError(`webhook not saved: ${answer.error} Fix that, then try again.`);
     done.push(
       `${hookBot}: webhook saved sealed for ${answer.host}${answer.headerEnds ? ` (header ends ${answer.headerEnds})` : ""}. ` +
         (answer.keyMade
@@ -232,7 +232,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     );
   }
   if (args.test_webhook !== undefined) {
-    const answer = await store.botHooks({ action: "test", bot: hookBot }).catch(() => ({ error: "the control plane could not be reached" }));
+    const answer = await store.botHooks({ action: "test", bot: hookBot }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try test_webhook again." }));
     if (answer?.error) problems.push(`test: ${answer.error}`);
     else done.push(answer.ok ? `${hookBot}: test call answered (${answer.status})` : `${hookBot}: test call ${answer.status === 0 ? "didn't reach it" : `answered ${answer.status}`}`);
   }
