@@ -9,7 +9,9 @@
  * ## Sabotage record
  *
  * Detaching whatever area the line named failed "detach leaves a project serving another area alone". Skipping the
- * visibility filter failed "a project this connection cannot see answers like a missing one".
+ * visibility filter failed "a project this connection cannot see answers like a missing one". Reading only
+ * `store.treeEntries` (which a tool call's store does not have: production answered "map cannot be read") failed "a
+ * tool call's store ... attaches too".
  */
 
 import assert from "node:assert/strict";
@@ -28,7 +30,7 @@ const RULES = [
   { prefix: "projects/secret", vis: "private" },
 ];
 
-async function world(notes) {
+async function world(notes, { manifest = false } = {}) {
   const base = createMemoryStore();
   for (const [key, text] of Object.entries(notes)) await base.put(key, text);
   const folders = RULES.map(({ prefix, vis }) => ({ prefix, visibility: vis }));
@@ -42,7 +44,15 @@ async function world(notes) {
   const served = store.treeFacts;
   store.treeFacts = async (request) =>
     request.ask === "jobs" ? { served: true, jobs: { areas: "areas", projects: "projects" }, roots: ["areas", "projects"] } : served(request);
-  store.treeEntries = async () => (await base.list({})).objects;
+  if (manifest) {
+    // A tool call's store, as production hands it: no treeEntries, only the Convex tree's manifest.
+    Object.defineProperty(store, "treeManifest", {
+      value: async () => ({ served: true, entries: (await base.list({})).objects.map(({ key }) => ({ path: key })), cursor: null }),
+      configurable: true,
+    });
+  } else {
+    store.treeEntries = async () => (await base.list({})).objects;
+  }
   const text = async (key) => (await (await base.get(key))?.text()) ?? null;
   const props = async (key) => noteProperties((await text(key)) ?? "");
   return { store, text, props };
@@ -121,4 +131,12 @@ test("an area that is not there is refused before anything is written", async ()
   const result = await run(store, { area: "areas/nowhere", attach: "projects/website" });
   assert.equal(result.isError, true);
   assert.equal((await props("projects/website/about.md")).area, undefined);
+});
+
+test("a tool call's store, which lists names only through the tree's manifest, attaches too", async () => {
+  const { store, props } = await world(NOTES, { manifest: true });
+  assert.equal(typeof store.treeEntries, "undefined");
+  const result = await run(store, { area: "areas/finance", attach: "projects/website" });
+  assert.equal(result.isError, undefined, said(result));
+  assert.equal((await props("projects/website/about.md")).area, "areas/finance");
 });
