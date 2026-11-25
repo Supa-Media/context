@@ -57,7 +57,7 @@ export function lastRowAt(sheet: Sheet | null): number | null {
   return latest;
 }
 
-/** "Last row 10:00" today, else "Last row Nov 23"; "" for no row with a date. */
+/** "Last row" and its time today (10:00), else "Last row Nov 23"; "" for no row with a date. */
 export function lastRowWords(at: number | null, now: number): string {
   if (at === null) return "";
   const today = new Date(now).toISOString().slice(0, 10);

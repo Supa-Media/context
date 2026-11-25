@@ -332,7 +332,8 @@ const source: FolderListSource = {
   readBody: async (path) => (SHEETS[path] === undefined ? null : { text: SHEETS[path]!, encrypted: false }),
 };
 
-const nesting = {
+type Nesting = { listingOf: (path: string) => FolderListing | undefined; loadListing: () => void };
+const nesting: Nesting = {
   listingOf: (path: string) => LISTINGS[path],
   loadListing: () => {},
 };
@@ -344,7 +345,7 @@ const nesting = {
   read, which arrives exactly as a missing one does.
 */
 const emptySource: FolderListSource = { load: async () => ({ notes: [], complete: true }), readBody: async () => null };
-const emptyNesting = {
+const emptyNesting: Nesting = {
   listingOf: (path: string) => (path === "data" ? { path, folderDefault: "team" as const, truncated: false, manifestUsable: true, entries: [] } : undefined),
   loadListing: () => {},
 };
@@ -370,7 +371,7 @@ const oddSource: FolderListSource = {
   // stripe/refunds.csv is listed but unreadable here: its read comes back as nothing, as a missing sheet's does.
   readBody: async (path) => (SHEETS[path] === undefined ? null : { text: SHEETS[path]!, encrypted: false }),
 };
-const oddNesting = {
+const oddNesting: Nesting = {
   listingOf: (path: string) =>
     path === "data/metrics"
       ? { ...LISTINGS[path]!, entries: [...LISTINGS[path]!.entries, ...ODD_METRICS.map((m) => entry(`data/metrics/${m.slug}.md`, "file", NOW - DAY))] }
@@ -489,7 +490,7 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 
 type Board = "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note";
 
-const WORLD: Partial<Record<Board, { source: FolderListSource; nesting: typeof nesting }>> = {
+const WORLD: Partial<Record<Board, { source: FolderListSource; nesting: Nesting }>> = {
   empty: { source: emptySource, nesting: emptyNesting },
   loading: { source: loadingSource, nesting },
   "odd-metrics": { source: oddSource, nesting: oddNesting },

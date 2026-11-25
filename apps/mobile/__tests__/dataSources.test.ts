@@ -272,7 +272,10 @@ describe("words", () => {
     expect(rowsWords(1284)).toBe("1,284 rows");
     expect(rowsWords(1)).toBe("1 row");
     expect(lastRowAt(BENCH)).toBe(Date.parse("2026-11-25"));
-    expect(lastRowWords(Date.parse("2026-11-25T10:00:00Z"), NOW)).toBe("Last row 10:00");
+    // Today's row by its time (the board's "Last row" and 10:00).
+    const today = lastRowWords(Date.parse("2026-11-25T10:00:00Z"), NOW);
+    expect(today.startsWith("Last row ")).toBe(true);
+    expect(today.slice("Last row ".length)).toBe("10:00");
     expect(lastRowWords(Date.parse("2026-11-23"), NOW)).toBe("Last row Nov 23");
   });
 
