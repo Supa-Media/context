@@ -6,6 +6,7 @@
 
 import type { MetricNote, Use } from "./metrics";
 import { usedByWords } from "./metrics";
+import { metricKey } from "../folderPage/areas/seat";
 import { sourceBySlug, type DataSource } from "./sources";
 import { formulaParts, inputsOf, stateOf, targetOnScale, trendOf, type Part, type TargetState, type Worked, type ValueStatus } from "./workOut";
 
@@ -40,7 +41,7 @@ export function metricView(
   settled: boolean,
 ): MetricView {
   const bySlug = sourceBySlug(sources);
-  const used = uses.get(metric.name.trim().toLowerCase());
+  const used = uses.get(metricKey(metric.name));
   const target = used?.[0]?.target ?? null;
   const parts = metric.parsed.ok ? formulaParts(metric.parsed.ast, (slug) => bySlug(slug)?.kind ?? "other") : [];
   const inputs = metric.parsed.ok ? inputsOf(metric.parsed.ast) : [];

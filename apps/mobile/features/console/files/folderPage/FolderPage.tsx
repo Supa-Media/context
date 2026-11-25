@@ -91,6 +91,7 @@ import { useOfferPageSide } from "../../aside/pageSide";
 
 import { TaskPanel } from "./panel/TaskPanel";
 import { useTaskPanel } from "./panel/useTaskPanel";
+import type { RowNesting } from "../NestedRows";
 import { usePendingNotes } from "./tasks/usePendingNotes";
 import { backlogFolderOf } from "./tasks/backlogFolder";
 import { parkedOnBoard } from "./boardLayout";
@@ -118,6 +119,7 @@ export function FolderPage({
   rule,
   titleActions,
   files,
+  listings,
 }: {
   folder: string;
   /** The listing as `FolderView` draws it: placeholder dropped, in the tree's order. */
@@ -145,6 +147,8 @@ export function FolderPage({
   titleActions?: ReactNode;
   /** The Notes view: the listing itself. */
   files: ReactNode;
+  /** The file browser's listings: the Areas page finds the data folder's metrics by them. */
+  listings?: RowNesting;
 }) {
   const styles = useThemedStyles(makeStyles);
   const loaded = useFolderNotes(host, folder);
@@ -521,6 +525,8 @@ export function FolderPage({
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
             {...(host?.source.readBody === undefined ? {} : { readBody: host.source.readBody })}
+            {...(host === undefined ? {} : { host })}
+            {...(listings === undefined ? {} : { listings })}
             // In the right panel an area shows at any pointer width; drawn beside the list, only where it fits.
             {...((inAside ? !compact : panel.fits) ? { onPanel: setAreaPanel } : {})}
           />

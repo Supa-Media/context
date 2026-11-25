@@ -78,8 +78,9 @@ describe("the Areas side panel", () => {
     expect(selected).toEqual([]);
     expect(all("area-panel")).toHaveLength(1);
     expect(strip(one("area-panel").textContent)).toContain("Finance");
-    // The metric's name and goal are fields, edited where they are drawn.
-    expect((one("area-panel-metric") as HTMLInputElement).value).toBe("Monthly cost");
+    // The metric is picked from the workspace's metrics (stage C); its goal is still a field, edited where it is drawn.
+    expect(strip(one("area-panel-metric").textContent)).toBe("Monthly cost");
+    expect(all("area-panel-pick")).toHaveLength(1);
     expect((one("area-panel-goal") as HTMLInputElement).value).toBe("under $600");
     expect(one("area-row-areas/finance").getAttribute("aria-selected")).toBe("true");
     // Another area replaces it; the panel's own sub-area row shows that one.
