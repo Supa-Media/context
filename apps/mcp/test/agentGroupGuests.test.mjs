@@ -328,3 +328,15 @@ test("a guest chat reads the mail its owner shared with it, only when asked", as
   assert.match(toolReplies(world.model.requests.at(-1))[0], /SHIFTMED-FACILITIES/);
   assert.equal(world.controlPlane.mailReadCalls.at(-1)?.path, "/gateway/email/search");
 });
+
+test("a guest chat, which can't ask anyone's own Tex, is never told to ask it", async () => {
+  // Tex Devs, 2026-11-24: after #4155 a chat with guests was told to fetch a person's list with ask_chat, which a guest chat
+  // never has (`crossAskTool`), and got "ask_chat isn't available on this turn". It keeps its own limits instead.
+  world.model.install([{ text: "Share it with the chat and I'll read it." }]);
+  const asked = await tagged("ada", "Tex can you grab the list I made with you?", { crossCounts: { hour: 0, day: 0, open: [] } });
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  const told = JSON.stringify([world.model.requests[0].system, world.model.requests[0].messages]);
+  assert.match(told, /PEOPLE WHO AREN'T ALL ON CONTEXT/);
+  assert.match(told, /Nothing else there exists for you/, "it keeps the chat's own limits");
+  assert.doesNotMatch(told, /their personal Tex has them|ask their personal Tex/, "and is never told to ask a Tex it can't reach");
+});

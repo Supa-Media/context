@@ -31,9 +31,6 @@ export function chatMailOf(value) {
 export const NO_NOTES_LINE = "Nobody's personal notes or saved logins can be read from here; say the person can text you on their own for that. ";
 export const NO_OTHER_NOTES_LINE = "Nobody else's personal notes, mail or saved logins can be read from here; say the person can text you on their own for that. ";
 
-/** Where a guest chat's turn says its workspace ends (`groupGuests.js`); a turn with cross-chat asks swaps it too. */
-export const GUEST_NOTHING_ELSE_LINE = "Nothing else there exists for you, so never guess at it; someone can share a note with the chat for you to read. ";
-
 /** What a group turn is told about mail: whose it may read here, or that it reads none. */
 export function chatMailPrompt(group) {
   // A guest chat too: its people are whoever the sharer chose to show their mail to (Dev2, 2026-10-29).
