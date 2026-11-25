@@ -348,18 +348,18 @@ export const completeGoogleConnect = action({
     code: v.string(),
     completionSecret: v.optional(v.string()),
   },
-  returns: v.object({ workspaceId: v.id("workspaces") }),
-  handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
+  returns: v.object({ workspaceId: v.id("workspaces"), ai: v.optional(v.boolean()) }),
+  handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces">; ai: boolean }> => {
     // An "allow AI access" consent comes back on this same callback (`googleClients.ts`).
     const hashed = { hashedState: await hashToken(args.state), code: args.code, hashedCompletion: await hashToken(args.completionSecret ?? "") };
     const agent = await ctx.runMutation(internal.functions.googleClients.consumeAgentAttempt, hashed);
-    if (agent !== null) return agent.spent ? { workspaceId: agent.workspaceId } : refuseAttempt();
+    if (agent !== null) return agent.spent ? { workspaceId: agent.workspaceId, ai: true } : refuseAttempt();
     const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
       internal.functions.googleConnect.consumeGoogleAttemptAndExchange,
       hashed,
     );
     if (consumed === null) refuseAttempt();
-    return consumed;
+    return { workspaceId: consumed.workspaceId, ai: false };
   },
 });
 

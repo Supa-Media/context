@@ -1,13 +1,14 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   describeGoogleStartFailure,
+  forgetGoogleCompletionSecret,
   GOOGLE_CALLBACK_PATH,
   googleRedirectUri,
   isGoogleAuthorizeUrl,
   parseGoogleCallback,
+  peekGoogleCompletionSecret,
   rememberGoogleCompletionSecret,
   stateFromGoogleAuthorizeUrl,
-  takeGoogleCompletionSecret,
 } from "../features/console/google/google";
 import { ConvexError } from "convex/values";
 
@@ -55,8 +56,12 @@ describe("Google connect helpers", () => {
     const authorizeUrl = "https://accounts.google.com/o/oauth2/v2/auth?state=state-1";
     expect(stateFromGoogleAuthorizeUrl(authorizeUrl)).toBe("state-1");
     expect(rememberGoogleCompletionSecret("state-1", "completion-1")).toBe(true);
-    expect(takeGoogleCompletionSecret("state-1")).toBe("completion-1");
-    expect(takeGoogleCompletionSecret("state-1")).toBeNull();
+    // Read without removing: a remounted callback must still find it.
+    expect(peekGoogleCompletionSecret("state-1")).toBe("completion-1");
+    expect(peekGoogleCompletionSecret("state-1")).toBe("completion-1");
+    expect(peekGoogleCompletionSecret("state-2")).toBeNull();
+    forgetGoogleCompletionSecret("state-1");
+    expect(peekGoogleCompletionSecret("state-1")).toBeNull();
   });
 
   test("a callback needs both code and state", () => {
