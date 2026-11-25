@@ -239,13 +239,17 @@ export function useNoteCreate(deps: NoteCreateDeps) {
   );
 
   /**
-   * An untitled note, online: opened on the press, written on the first save
-   * of something typed in it, and never written if nothing is
+   * An untitled note or sheet, online: opened on the press, written on the
+   * first save of something typed in it, and never written if nothing is
    * (`unsentNotes.ts`). The row is drawn now and stays until a listing has
-   * the note — or until the note is left blank, which takes it back.
+   * it — or until it is left blank, which takes it back. A sheet used to wait
+   * for its create's round trip before it opened, and a slow one, or a press
+   * elsewhere meanwhile, left it in the tree unopened (Dev, 2026-11-25: "when
+   * I create a new sheet, it does not open up in the page the way a note
+   * does").
    */
   const openUnsent = useCallback(
-    (folder: string, name: string, navigation: number) => {
+    (folder: string, name: string, navigation: number, kind: "note" | "sheet" = "note") => {
       if (workspaceId === null || openRun.current !== navigation) return;
       const problem = describeNameProblem(name) ?? collision(listingsRef.current, folder, name);
       if (problem !== null) return setNotice(problem);
@@ -275,9 +279,10 @@ export function useNoteCreate(deps: NoteCreateDeps) {
             refused.push(current);
             takeBack();
             awaitingTitle.current.delete(path);
-            const nextName = untitledName(listingsRef.current, folder, "note", new Date(), refused);
+            const nextName = untitledName(listingsRef.current, folder, kind, new Date(), refused);
             const next = joinPath(folder, nextName);
-            awaitingTitle.current.add(next);
+            // A sheet is never renamed to a heading in its text (`createUntitled`).
+            if (kind === "note") awaitingTitle.current.add(next);
             retargeted.current.set(next, path);
             register(next, nextName);
             return next;
@@ -339,9 +344,9 @@ export function useNoteCreate(deps: NoteCreateDeps) {
         const name = untitledName(known, folder, kind, new Date());
         // A sheet is not named by its text: no heading, so nothing to take a name from.
         if (kind !== "sheet") awaitingTitle.current.add(joinPath(folder, name));
-        // A note opens now and is written when somebody writes in it; a
-        // drawing, and anything offline, is made as before.
-        if (kind === "note" && offlineRef.current.reachability !== "offline") return openUnsent(folder, name, navigation);
+        // A note or a sheet opens now and is written when somebody writes in
+        // it; a drawing, and anything offline, is made as before.
+        if (kind !== "drawing" && offlineRef.current.reachability !== "offline") return openUnsent(folder, name, navigation, kind);
         createNote(folder, name, kind, navigation);
       };
       /*
@@ -366,12 +371,12 @@ export function useNoteCreate(deps: NoteCreateDeps) {
       */
       if (listings[folder] !== undefined) return make(listings);
       /*
-        Except a note, online, which does not wait for it: nothing is written
+        Except a note or a sheet, online, which does not wait for it: nothing is written
         until somebody types, the listing lands long before that, and a name
         it turns out to have taken moves on at the first save
         (`UnsentCreate.retarget`).
       */
-      if (kind === "note" && offlineRef.current.reachability !== "offline") {
+      if (kind !== "drawing" && offlineRef.current.reachability !== "offline") {
         void refresh([folder]).catch(reportRefreshFailure);
         return make(listings);
       }
