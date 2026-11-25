@@ -115,6 +115,7 @@ import { arriveForTexts, chatCallForTexts, jobCallForTexts, TEXTS_ARRIVE_PATH, T
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../../../packages/tex/gateway/agent/textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../../../packages/tex/gateway/agent/textsEdit.js";
 import { TEXTS_WARM_PATH, warmForTexts } from "../../../packages/tex/gateway/agent/textsWarm.js";
+import { TEXTS_STICKER_PATH, stickerLookForTexts } from "../../../packages/tex/gateway/agent/textsSticker.js";
 import { moveForTexts, TEXTS_MOVE_PATH } from "../../../packages/tex/gateway/agent/textsMove.js";
 import { texJobClass } from "../../../packages/tex/gateway/texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
@@ -238,6 +239,8 @@ export const TexTexts = {
       if (path === TEXTS_EDIT_PATH) return await editForTexts(request);
       // A read receipt, an open chat or typing: the chat's kept prefix sent again, when node `warm` is wired (`agent/textsWarm.js`).
       if (path === TEXTS_WARM_PATH) return await warmForTexts(request, env);
+      // A kept sticker looked at once, its words kept for Decide, when node `stickerLook` is wired (`agent/textsSticker.js`).
+      if (path === TEXTS_STICKER_PATH) return await stickerLookForTexts(request, env);
       if (path === TEXTS_MOVE_PATH) return await moveForTexts(request);
       if (path.startsWith(TEXTS_CHAT_CALL_PREFIX)) return await chatCallForTexts(request, env);
       if (path.startsWith(TEXTS_JOB_CALL_PREFIX)) return await jobCallForTexts(request, env);

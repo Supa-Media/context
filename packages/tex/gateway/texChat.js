@@ -228,6 +228,8 @@ export async function chatEnv(env, state, name, senderId, { gateway, texts, own 
       ? { line: () => appLine(state.storage), groupLine: () => { throw new Error("an app chat has no group line"); } }
       : rpc === undefined ? undefined : { line: (chatId) => remoteLine(rpc, name, chatId), groupLine: (groupId) => remoteGroupLine(rpc, name, groupId) },
     IMAGES: env.IMAGES,
+    // A kept sticker's picture on Photon's line, at an address only the Worker can sign (`packages/tex/worker/stickerLook.ts`).
+    ...(rpc === undefined || typeof rpc.stickerPictureUrl !== "function" ? {} : { STICKER_PICTURE_URL: async (guid) => (await rpc.stickerPictureUrl({ guid }))?.url ?? null }),
     // The Worker's datasets, bound here under the same names, so a text is timed and counted wherever its chat runs.
     TEX_TEXTS: env.TEX_TEXTS,
     TEX_COUNTS: env.TEX_COUNTS,

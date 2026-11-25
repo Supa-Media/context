@@ -157,6 +157,34 @@ describe(`a group's Provisional run, ${name}`, () => {
     expect(await handedTurns(storage)).toEqual([]);
   });
 
+  // Dev2, 2026-11-25 (Tex Devs): a sticker on Tex's text started an early run; "try again" a second later was folded
+  // into it; Decide then stopped the run as quiet, and "try again" was never answered.
+  it("a text folded into an early run Decide then stops is answered as its own turn", async () => {
+    let asking!: () => void;
+    let judged = 0;
+    const reached = new Promise<void>((resolve) => (asking = resolve));
+    const { storage, w, deps, told, asked } = await provisionalWorld(groupId, {
+      decide: (body) => (body.running ? { ...answerAll(body), midTurn: "fold" } : silent()),
+      // Only the first judging waits: the one on the folded text answers at once.
+      decideWait: () => (judged++ === 0 ? reached : Promise.resolve()),
+    });
+    let folded: Promise<unknown> | null = null;
+    const watching = setInterval(() => {
+      if (asked.length === 0 || folded !== null) return;
+      // The run is with the gateway: the asker's next text lands now, then Decide answers the first.
+      folded = acceptGroup(storage, w.message("try again", { from: BO }), 5).then(asking);
+    }, 1);
+    await acceptGroup(storage, w.message("lol nice tex", { from: BO }), 0);
+    await drainGroup(storage, deps);
+    clearInterval(watching);
+    await folded;
+    await drainGroup(storage, deps);
+    expect(w.steers).toEqual([expect.objectContaining({ turn: asked[0].turn, text: "try again" })]);
+    expect(told[0]).toMatchObject({ path: "/agent/cancel" });
+    expect(w.asks.map((ask) => ask.question)).toContain("try again");
+    expect(w.texts).toEqual(["answer to try again"]);
+  });
+
   it("stopped before it reached the gateway, it never asks", async () => {
     const { storage, w, deps, asked } = await provisionalWorld(groupId, { decide: silent });
     await acceptGroup(storage, w.message("lol nice tex", { from: BO }), 0);

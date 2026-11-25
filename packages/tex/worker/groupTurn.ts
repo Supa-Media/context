@@ -25,7 +25,7 @@ import { PICTURE_LINE } from "./groupLines";
 import { burstStillTyped, decideDownAnswer } from "./groupPolicy";
 import { callsTex, tagsTex } from "./groupWords";
 import { groupStyle } from "./groupStyle";
-import { keptStickers } from "./stickers";
+import { stickersAsk } from "./stickers";
 import type { GroupMessage } from "./sendblueGroups";
 import type { InboxStorage } from "./inbox";
 
@@ -99,12 +99,6 @@ export async function logGroupInbound(storage: InboxStorage, message: GroupMessa
   return id;
 }
 
-/** The chat's kept stickers as the ask carries them, or nothing; never fails an ask. */
-async function stickersFor(storage: InboxStorage): Promise<{ stickers?: string[] }> {
-  const ids = await keptStickers(storage).catch(() => []);
-  return ids.length > 0 ? { stickers: ids } : {};
-}
-
 /**
  * Ask the judge about the newest of `candidates`. `look`: a chat Tex is not set up in, judged on these lines alone
  * (`firstLook`), with no ledger to keep its verdict; otherwise the chat's log from its ledger, and the verdict kept
@@ -133,7 +127,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
       ...(ledgerKey === undefined ? {} : { ledger: ledgerKey }),
       ...(settle ? { settle: true as const } : {}),
       // The stickers people used here, which Decide may react with; none on a first look (nothing of the chat is kept).
-      ...(look === undefined ? await stickersFor(storage) : {}),
+      ...(look === undefined ? await stickersAsk(storage) : {}),
     },
     running ? RUNNING_DECIDE_MS : GROUP_DECIDE_MS,
   );

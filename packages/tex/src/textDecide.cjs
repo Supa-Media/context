@@ -27,8 +27,10 @@ const STALE_AT = 0.85;
 const MAX_CHAT = 200;
 /** A group chat's ledger key (`chat:<groupKey>`, the hash of its line and id), where the judge's verdict is kept. */
 const LEDGER_CHAT = /^[0-9a-f]{64}$/;
-/** The stickers a chat kept that Decide may react with, newest last (`packages/tex/worker/stickers.ts` ids). */
-const MAX_STICKERS = 8;
+/** The stickers a chat kept that Decide may react with, newest last (`packages/tex/worker/stickers.ts` ids): all it keeps. */
+const MAX_STICKERS = 30;
+/** A kept sticker's words, what it shows and when it fits (node `stickerLook`), as Decide reads them. */
+const MAX_STICKER_WORDS = 130;
 const STICKER_ID = /^s[0-9a-z]{6}$/;
 /** Clef takes at most this many typed questions in one request (the inference Worker refuses more). */
 const MAX_QUESTIONS = 16;
@@ -77,7 +79,7 @@ function readDecideBody(body) {
     ...(sender !== null ? { sender } : {}),
     ...(typeof body.ledger === "string" && LEDGER_CHAT.test(body.ledger) ? { ledger: body.ledger } : {}),
     ...(body.settle === true ? { settle: true } : {}),
-    ...stickersOf(body.stickers),
+    ...stickersOf(body.stickers, body.stickerWords),
   };
 }
 
@@ -85,10 +87,17 @@ function readDecideBody(body) {
  * The chat's kept stickers Decide may react with (Dev2, 2026-11-25: Tex should use them "in relevant situations", not
  * only when asked): ids only, never a guid, at most `MAX_STICKERS`, the newest. Anything else is left out, never refused.
  */
-function stickersOf(value) {
+function stickersOf(value, words) {
   if (!Array.isArray(value)) return {};
   const ids = [...new Set(value.filter((id) => typeof id === "string" && STICKER_ID.test(id)))].slice(-MAX_STICKERS);
-  return ids.length > 0 ? { stickers: ids } : {};
+  if (ids.length === 0) return {};
+  // Each sticker's words from its look (`graph/nodes/stickerLook.js`), only for an id offered, on one short line.
+  const said = {};
+  for (const id of ids) {
+    const text = words !== null && typeof words === "object" && typeof words[id] === "string" ? words[id].replace(/\s+/g, " ").trim().slice(0, MAX_STICKER_WORDS) : "";
+    if (text !== "") said[id] = text;
+  }
+  return { stickers: ids, ...(Object.keys(said).length > 0 ? { stickerWords: said } : {}) };
 }
 
 /**
@@ -299,8 +308,8 @@ function decideRequest(body, { facts = [] } = {}) {
     questions.sticker = {
       type: "choice",
       instructions:
-        'If Tex reacts to the newest message, should it stick one of the stickers people in this chat used, instead of the emoji? Each is named by its id, and the chat\'s lines show where it was used ("sticker s1a2b3c on …", "[sticker s1a2b3c]"). Pick one only where it fits this moment the way it fit where it was used; otherwise none.',
-      criteria: { none: "none: the emoji", ...Object.fromEntries(body.stickers.map((id) => [id, `sticker ${id}, as people used it in this chat`])) },
+        'If Tex reacts to the newest message, should it stick one of the stickers people in this chat used, instead of the emoji? Each is named by its id, with what it shows and when it fits where Tex looked at it, and the chat\'s lines show where it was used ("sticker s1a2b3c on …", "[sticker s1a2b3c]"). Pick one only where it fits this moment; otherwise none.',
+      criteria: { none: "none: the emoji", ...Object.fromEntries(body.stickers.map((id) => [id, body.stickerWords?.[id] ? `sticker ${id}: ${body.stickerWords[id]}` : `sticker ${id}, as people used it in this chat`])) },
     };
   }
   return { state: judgeState(body.transcript, facts), questions };
