@@ -46,7 +46,7 @@
  * - `gnames` handles by the hash of a phone, never a number (`groupTurn.ts`).
  */
 
-import { didUnsaid } from "./didFacts";
+import { didUnsaid, tellTex, type Did } from "./didFacts";
 import { turnFailed } from "./groupTurnFailed";
 export { turnFailed };
 import { SEEN_FOR_MS } from "./replayWindow";
@@ -611,6 +611,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   const status = asked.status;
   if (status !== "ready" && (await held())) return "cancelled";
   const fixed = (text: string) => say(storage, deps, message, text, { system: true });
+  // What code did, to Tex as facts; the old line only while node `did` is unwired (`didFacts.ts`). A muted chat runs no model: its two lines stay.
+  const told = (did: Did, fallback: string) => tellTex(storage, deps, message, did, fallback);
   // A chat that can't run it now is told nothing: nobody in it asked just now.
   if (routine && status !== "ready") return void (await cannotRun(storage, deps, message, status));
   // A chat that isn't answering keeps nothing it was told.
@@ -624,17 +626,17 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   if (status === "unknown_sender") return asked.tell === true ? void (await fixed(GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await fixed(GROUP_LINES.noShared));
   if (status === "not_allowed") {
-    return void (await fixed(command?.kind === "invite" ? GROUP_LINES.notOwner(asked.slug) : GROUP_LINES.notAllowed(asked.slug)));
+    return void (await told({ action: "invite", status: command?.kind === "invite" ? "not_owner" : "not_allowed", workspace: `@${asked.slug}` }, command?.kind === "invite" ? GROUP_LINES.notOwner(asked.slug) : GROUP_LINES.notAllowed(asked.slug)));
   }
   if (status === "invited") {
     await setChatBound(storage, message);
-    return void (await fixed(GROUP_LINES.invited(asked.slug, asked.count, asked.role)));
+    return void (await told({ action: "invite", status: asked.count === 0 ? "everyone_in" : "invited", workspace: `@${asked.slug}`, people: asked.count, role: asked.role }, GROUP_LINES.invited(asked.slug, asked.count, asked.role)));
   }
-  if (status === "mail_shared") return void (await fixed(GROUP_LINES.mailShared(asked.address, asked.narrowed)));
-  if (status === "mail_unshared") return void (await fixed(GROUP_LINES.mailUnshared(asked.count)));
-  if (status === "mail_refused") return void (await fixed(GROUP_LINES.mailRefused));
+  if (status === "mail_shared") return void (await told({ action: "share_mail", status: "shared", address: asked.address, narrowed: asked.narrowed }, GROUP_LINES.mailShared(asked.address, asked.narrowed)));
+  if (status === "mail_unshared") return void (await told({ action: "unshare_mail", status: asked.count === 0 ? "none_shared" : "unshared", mailboxes: asked.count }, GROUP_LINES.mailUnshared(asked.count)));
+  if (status === "mail_refused") return void (await told({ action: "share_mail", status: "refused" }, GROUP_LINES.mailRefused));
   if (status === "stopped") return void (await fixed(GROUP_LINES.stopped));
-  if (status === "started") return await unmute(storage), void (await fixed(GROUP_LINES.started));
+  if (status === "started") return await unmute(storage), void (await told({ action: "unmute", status: "started" }, GROUP_LINES.started));
   if (status !== "ready") throw new ServiceError("control_plane", null);
   // A routine's run carries no webhook people list (`chatRoutineMessage`): binding to it would bind the chat to nobody,
   // and every untagged text after it would be dropped as said in front of other people.
@@ -643,7 +645,7 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   }
   await keepNames(storage, asked.names ?? [], asked.guests ?? []);
   await keepTagPeople(storage, asked.names ?? []); // who "@handle" tags when Tex sends (`groupTags.ts`)
-  if (command?.kind === "status") return clock?.path("status"), void (await fixed(GROUP_LINES.status(asked.reach ?? [asked.slug])));
+  if (command?.kind === "status") return clock?.path("status"), void (await told({ action: "what_tex_sees", status: "read", workspaces: (asked.reach ?? [asked.slug]).map((slug) => `@${slug}`).join(" ") }, GROUP_LINES.status(asked.reach ?? [asked.slug])));
   // "Tex, share my chats with the devs" (`groupSettings.ts`).
   if (command?.kind === "review_sharing") return clock?.path(command.kind), await groupReviewSharing(storage, deps, message, command.sharing);
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);

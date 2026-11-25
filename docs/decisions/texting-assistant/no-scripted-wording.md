@@ -53,6 +53,11 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
   line is sent exactly as before. First user: adding everyone in a group to a workspace (`groupInvite.ts`). Tests:
   `apps/mcp/test/texDid.test.mjs`, `packages/tex/worker/groupInvite.test.ts` (with the node wired: the facts reach the
   turn, the model out or the gateway down on every try sends the old line once, and the invite runs once).
+- **Group commands next** (B2): the start, invite, mail-sharing and "what can you see" answers, a group run's
+  refusal (`groupRunTurn.ts` `why`) and a side text that couldn't go, each as `{ action, status }` facts. A `did`
+  turn never starts another (its own refusal goes as the old line), so nothing loops. **"Stop" and the once-per-mute
+  reply stay fixed lines**: a muted chat runs no model by design (its grant is refused, `liveGrants.ts`), so the
+  mute holds even with every model down. Test: `packages/tex/worker/groupDid.test.ts`.
 - **People with no account yet** get texts Tex writes too (Dev2, 2026-11-25: Context is free, so nothing is billed);
   a per-number daily cap only keeps a spam number from running up model calls.
 

@@ -20,7 +20,7 @@ describe("runTheGroup", () => {
     const l = line();
     const out = await runTheGroup(["(name the chat) Lisbon trip", "Done!"], { text: "call it Lisbon trip" }, l, PLACE);
     expect(l.ran).toEqual([{ kind: "name", name: "Lisbon trip" }]);
-    expect(out).toEqual({ texts: ["", "Done!"], told: null, done: [{ kind: "name", name: "Lisbon trip" }] });
+    expect(out).toEqual({ texts: ["", "Done!"], told: null, why: null, done: [{ kind: "name", name: "Lisbon trip" }] });
   });
 
   it("tells the chat when someone was not added, and adds nobody", async () => {
@@ -28,15 +28,17 @@ describe("runTheGroup", () => {
     const out = await runTheGroup(["(add to the chat) +15550100199\nAdded Mom!"], { text: "add Mom" }, l, PLACE);
     expect(l.ran).toEqual([]);
     expect(out.told).toBe(GROUP_RUN_LINES.addNotTheirs);
+    expect(out.why).toBe("add_not_theirs");
   });
 
   it("says so when the line cannot, or the app refused", async () => {
     expect((await runTheGroup(["(name the chat) A"], { text: "" }, {}, PLACE)).told).toBe(GROUP_RUN_LINES.cannot);
+    expect((await runTheGroup(["(name the chat) A"], { text: "" }, {}, PLACE)).why).toBe("cannot");
     expect((await runTheGroup(["(name the chat) A"], { text: "" }, line(true), PLACE)).told).toBe(GROUP_RUN_LINES.failed);
   });
 
   it("leaves a turn with no lines as it was", async () => {
     const l = line();
-    expect(await runTheGroup(["hi", "there"], { text: "x" }, l, PLACE)).toEqual({ texts: ["hi", "there"], told: null, done: [] });
+    expect(await runTheGroup(["hi", "there"], { text: "x" }, l, PLACE)).toEqual({ texts: ["hi", "there"], told: null, why: null, done: [] });
   });
 });
