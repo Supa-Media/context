@@ -18,7 +18,6 @@
 
 import { ServiceError } from "./clients";
 import type { Line, Picture, PhotonSticker } from "./line";
-import { isPhotonChatId } from "./photonLine";
 import type { Media } from "./outgoing";
 import type { AppCard } from "./appCards";
 import { groupLineFlags, type GroupLine, type GroupPlace } from "./groupLine";
@@ -59,8 +58,9 @@ export function remoteLine(rpc: LineRpc, inbox: string, chatId: string): Line {
     startTyping: () => call("startTyping").then(() => undefined),
     markRead: (_chatId, messageId) => call("markRead", messageId).then(() => undefined),
     acknowledge: (_chatId, messageId, emoji) => call("acknowledge", messageId, emoji).then(() => undefined),
-    // Only Photon's line has stickers (`photonLine.ts`): on any other, absent, so a sticker's emoji goes instead.
-    ...(isPhotonChatId(chatId) ? { stick: (_chatId: string, messageId: string, sticker: PhotonSticker) => call("stick", messageId, sticker).then(() => undefined) } : {}),
+    // Asked of the far line, which alone knows whether it has stickers (Photon's does, `photonLine.ts`; a Lab test chat's
+    // does too): on any other the call comes back Absent, and the sticker's emoji goes instead (`stepEvents.ts` `tapback`).
+    stick: (_chatId, messageId, sticker: PhotonSticker) => call("stick", messageId, sticker).then(() => undefined),
     shareContactCard: () => call("shareContactCard") as Promise<boolean>,
     shareProfile: (_chatId, refresh) => call("shareProfile", refresh) as ReturnType<Line["shareProfile"]>,
   };

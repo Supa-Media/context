@@ -203,3 +203,14 @@ describe("the seam: a line served from elsewhere is used, and nothing is fetched
     expect(sent).toEqual(["hello there"]);
   });
 });
+
+describe("a sticker on the remote line", () => {
+  it("is asked of the far line whatever the chat, which says Absent when it has none", async () => {
+    // A Lab test chat's 1:1 is not a photon: id, yet its far line sticks (2026-11-25: the sticker went as ❤️, sticker_no_line).
+    const { rpc, calls } = fakeRpc((call) => (call.method === "stick" ? failed({ name: "Absent", message: "this line has no stick" }) : { ok: true, value: undefined }));
+    const line = remoteLine(rpc, INBOX, CHAT);
+    expect(typeof line.stick).toBe("function");
+    await expect(line.stick!(CHAT, "m1", { attachment: "at_0_FAKE" })).rejects.toMatchObject({ name: "Absent" });
+    expect(calls).toEqual([{ inbox: INBOX, chatId: CHAT, method: "stick", args: ["m1", { attachment: "at_0_FAKE" }] }]);
+  });
+});

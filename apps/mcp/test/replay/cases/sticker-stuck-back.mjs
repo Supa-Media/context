@@ -5,6 +5,7 @@ import { keepSticker, stickerOf } from "../../../../../packages/tex/worker/stick
 import { tapback } from "../../../../../packages/tex/worker/stepEvents.ts";
 import { MemoryStorage } from "../../../../../packages/tex/worker/memoryStorage.testing.ts";
 import { groupLineFor } from "../../../../../packages/tex/worker/groupLine.ts";
+import { remoteLine } from "../../../../../packages/tex/worker/remoteLine.ts";
 import { tapbackEnding, tapbackStickerOf, TAPBACK_TOOL } from "../../../../../packages/tex/gateway/agent/tapbackEnding.js";
 import { tapbackNode } from "../../../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
 import { fixedCarriers } from "../../../../../packages/tex/gateway/agent/sixToolsFixed.js";
@@ -30,7 +31,7 @@ const stuck = {
 export default {
   id: "sticker-stuck-back",
   incident: "2026-11-25: Dev2 asked whether Tex can send stickers through Photon. Tex could read a sticker stuck on a text only as \"with a sticker\", and could never stick one.",
-  cause: "The bridge dropped the placed sticker's attachment, the chat kept nothing to stick again, and Tex's tapback could only be one of 64 emoji; then the fixed tool list showed the tapback without its sticker choice.",
+  cause: "The bridge dropped the placed sticker's attachment, the chat kept nothing to stick again, and Tex's tapback could only be one of 64 emoji; then the fixed tool list showed the tapback without its sticker choice, and a 1:1 served from the gateway offered no stick unless its id was Photon's.",
   path: "group text",
   // Sabotage (2026-11-25): drop `sticker` in photonInbound.ts reactionOf, or the stickerOf check in stepEvents.ts
   // tapback, and the sticker is never kept, or an id from another chat is stuck; drop `sticker` from TAPBACK_DEFINITION
@@ -66,6 +67,13 @@ export default {
     const sent = await tapback(storage, { chat: GROUP, now: () => 2_000, by: "tex", asked: "🎉" }, "LETS GOOO", (emoji) => line.react(place, "friend-2", emoji), { id, stick: (guid) => line.stick(place, "friend-2", { attachment: guid }) });
     assert.equal(sent, `sticker ${id}`);
     assert.deepEqual(calls, [{ op: "sticker", body: { line: LINE, chat: CHAT_GUID, guid: "friend-2", sticker: "at_0_PARTY-CAT" } }]);
+
+    // A 1:1 served from the gateway asks its far line, whatever the chat's id: a Lab test chat's is no photon: id, and
+    // its sticker went as the emoji, sticker_no_line (2026-11-25).
+    const asked = [];
+    const far = remoteLine({ lineCall: async (call) => (asked.push(call.method), { ok: true, value: undefined }) }, "inbox", "lab:test-chat");
+    await far.stick("lab:test-chat", "m1", { attachment: "at_0_PARTY-CAT" });
+    assert.deepEqual(asked, ["stick"]);
 
     // A sticker this chat never kept goes as the emoji, never stuck.
     calls.length = 0;
