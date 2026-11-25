@@ -9,6 +9,9 @@
  * - A dataset keeps a rolling `KEEP_DAYS` (400) by its date column; older
  *   rows are dropped. A row whose date cannot be read is kept: the sync never
  *   guesses a row away.
+ * - A column the source writes takes the source's type on every run, so a
+ *   sheet made by hand with plain columns is put right; a column the person
+ *   added keeps its own.
  * - A result past `MAX_SHEET_ROWS` or `MAX_SHEET_BYTES` writes nothing and
  *   names the sheet (non-negotiable 2: a sheet that would not fit is held
  *   back and named, never cut short).
@@ -51,7 +54,13 @@ export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, n
   const names = new Set(columns.map((c) => c.name));
   if (!names.has(key) || !names.has(dateColumn)) return { ok: false, refused: `${path} needs its ${key} and ${dateColumn} columns` };
 
-  const kept = sheet && Array.isArray(sheet.columns) && sheet.columns.length ? sheet.columns : columns;
+  // A column the source writes has the source's type, whatever the sheet said: a sheet made by hand
+  // before the first run has every column text, and a date column read as text places no row in time.
+  // A column the person added keeps its own.
+  const typeOf = new Map(columns.map((c) => [c.name, c.type]));
+  const kept = sheet && Array.isArray(sheet.columns) && sheet.columns.length
+    ? sheet.columns.map((c) => (typeOf.has(c.name) && typeOf.get(c.name) !== undefined ? { ...c, type: typeOf.get(c.name) } : c))
+    : columns;
   const keptNames = new Set(kept.map((c) => c.name));
   const missing = columns.filter((c) => !keptNames.has(c.name)).map((c) => c.name);
   if (missing.length) return { ok: false, refused: `${path} is missing the column ${missing.join(", ")}; it was changed by hand, so the sync left it alone` };

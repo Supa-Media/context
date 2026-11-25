@@ -67,6 +67,13 @@ with Download as folders, and every agent reads it with `fetch`
   again later, so the sync keeps it hourly in that metric's own sheet beside
   its note, as visible as its inputs (see "Right-now metrics are kept
   hourly" below).
+- **No data is blank, never 0** (Dev2, 2026-11-25: "these metrics look
+  fake"). An aggregate is no data when it picks rows by a column nobody has
+  filled in yet (a sign-up's channel before it is recorded), when its sheet
+  has no rows at all, and for a period that ends before the sheet's first
+  dated row, so a trend starts where the records do. A period after the
+  first row with nothing in it is a real 0. Test:
+  `apps/mcp/test/dataFormulaNoData.test.mjs`.
 
 **What a simplification would cost.** Computing on a schedule at an owner's
 clearance and writing the value into a team sheet turns any editor's formula
@@ -265,7 +272,10 @@ the metrics page (11) and a metric note (12),
   request or a charge again changes its row in place. Rows older than the
   rolling 400 days go; a row whose date cannot be read stays, because the
   sync never guesses a row away. A sheet whose synced columns were changed by
-  hand is left alone and named.
+  hand is left alone and named. A column the source writes takes the
+  source's type on every run (a sheet made by hand before the first run has
+  every column text, and a date read as text places no row in time); a
+  column the person added keeps its own.
 - **Past 50,000 rows or 5 MB, a run writes nothing** and names the sheet,
   rather than cutting it short.
 - **Fetch from a URL is held to the site reader's lock and more**: https on a
