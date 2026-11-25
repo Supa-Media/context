@@ -1,7 +1,7 @@
 /**
- * Connect a source (board 02): the board's **Apps**, for an owner, each connected once with a read-only key (Stripe and
- * Cloudflare now); and its "Your own" ways, **Send from your code** and **Fetch from a URL**. GitHub waits for its
- * stage, so its tile is not drawn until it works.
+ * Connect a source (board 02): the board's **Apps**, for an owner, each connected once: GitHub by installing
+ * Context's read-only GitHub App (`GithubConnect.tsx`, boards 02b and 02c, on the web only), Stripe and Cloudflare
+ * with a read-only key; and its "Your own" ways, **Send from your code** and **Fetch from a URL**.
  *
  * - An app's form takes the key (and, for a Cloudflare token reaching several accounts, the account ID), makes the
  *   app's folder (`about.md` saying `source: stripe` or `source: cloudflare`, and its empty sheet) unless one is there, and
@@ -27,8 +27,9 @@ import { Shell } from "../DialogShell";
 import { APP_DATASETS, appSourceFiles, pushSourceFiles, urlSourceFiles, type AppSourceFiles, type ConnectApp, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
 import { ChevronGlyph, LockGlyph, SourceMark } from "./Marks";
 import type { DataSource } from "./sources";
+import { GithubForm, GithubRepos, type GithubFlow } from "./GithubConnect";
 
-type Way = "push" | "url" | ConnectApp;
+type Way = "push" | "url" | ConnectApp | "github" | "github-repos";
 
 const APP_TILES: Readonly<Record<ConnectApp, { title: string; line: string }>> = {
   stripe: { title: "Stripe", line: "Revenue" },
@@ -64,6 +65,7 @@ export function ConnectSourceDialog({
   onConnectApp,
   sources,
   start,
+  github,
   onClose,
 }: {
   dataFolder: string;
@@ -79,30 +81,39 @@ export function ConnectSourceDialog({
   onConnectApp?: (files: AppSourceFiles) => Promise<string | null>;
   /** The workspace's sources now, so an app already connected says so and is connected again in place. */
   sources?: readonly DataSource[];
-  /** Open straight on one app's form: a source page's Connect again. */
-  start?: ConnectApp;
+  /** Open straight on one app's form: a source page's Connect again, or GitHub's Repositories…. */
+  start?: ConnectApp | "github" | "github-repos";
+  /** An owner's GitHub install, on the web: absent elsewhere, and its tile is not drawn. */
+  github?: GithubFlow;
   onClose: () => void;
 }) {
   const [way, setWay] = useState<Way | null>(start ?? (onMakeUrl === undefined && onConnectApp === undefined ? "push" : null));
-  const existing = (app: ConnectApp) => sources?.find((source) => source.kind === app) ?? null;
+  const existing = (app: ConnectApp | "github") => sources?.find((source) => source.kind === app) ?? null;
+  if ((way === "github" || way === "github-repos") && github !== undefined) {
+    return (
+      <Shell title="GitHub" onClose={onClose} sheet={sheet} closable>
+        {way === "github" ? <GithubForm flow={github} onConnected={() => setWay("github-repos")} onClose={onClose} /> : <GithubRepos flow={github} onClose={onClose} />}
+      </Shell>
+    );
+  }
   return (
     <Shell title="Connect a source" onClose={onClose} sheet={sheet} closable={way === null}>
-      {way === null ? (
-        <Choose onPick={setWay} apps={onConnectApp !== undefined} url={onMakeUrl !== undefined} connected={(app) => existing(app) !== null} />
+      {way === null || way === "github" || way === "github-repos" ? (
+        <Choose onPick={setWay} apps={onConnectApp !== undefined} github={github !== undefined} url={onMakeUrl !== undefined} connected={(app) => existing(app) !== null} />
       ) : way === "push" ? (
         <PushForm dataFolder={dataFolder} taken={taken} onMake={onMake} onClose={onClose} />
       ) : way === "url" ? (
         <UrlForm dataFolder={dataFolder} taken={taken} onMake={onMakeUrl!} onClose={onClose} />
       ) : (
-        <AppForm app={way} dataFolder={dataFolder} taken={taken} existing={existing(way)} onMake={onConnectApp!} onClose={onClose} />
+        <AppForm app={way as ConnectApp} dataFolder={dataFolder} taken={taken} existing={existing(way as ConnectApp)} onMake={onConnectApp!} onClose={onClose} />
       )}
     </Shell>
   );
 }
 
 /** Board 02: the Apps an owner connects, then the "Your own" rows, each opening its form. */
-function Choose({ onPick, apps, url, connected }: { onPick: (way: Way) => void; apps: boolean; url: boolean; connected: (app: ConnectApp) => boolean }) {
-  const styles = useThemedStyles(makeStyles);
+function Choose({ onPick, apps, github, url, connected }: { onPick: (way: Way) => void; apps: boolean; github: boolean; url: boolean; connected: (app: ConnectApp | "github") => boolean }) {
+  const styles = useThemedStyles(connectStyles);
   const colors = useColors();
   const own: Way[] = url ? ["push", "url"] : ["push"];
   return (
@@ -112,6 +123,7 @@ function Choose({ onPick, apps, url, connected }: { onPick: (way: Way) => void; 
         <>
           <Text style={styles.section}>APPS</Text>
           <View style={styles.tiles}>
+            {github ? <AppTile app="github" connected={connected("github")} onPress={() => onPick("github")} /> : null}
             {(Object.keys(APP_TILES) as ConnectApp[]).map((app) => (
               <AppTile key={app} app={app} connected={connected(app)} onPress={() => onPick(app)} />
             ))}
@@ -134,14 +146,17 @@ function Choose({ onPick, apps, url, connected }: { onPick: (way: Way) => void; 
   );
 }
 
-function AppTile({ app, connected, onPress }: { app: ConnectApp; connected: boolean; onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
+const GITHUB_TILE = { title: "GitHub", line: "Pull requests, deploys, workflow runs" };
+
+function AppTile({ app, connected, onPress }: { app: ConnectApp | "github"; connected: boolean; onPress: () => void }) {
+  const tile = app === "github" ? GITHUB_TILE : APP_TILES[app];
+  const styles = useThemedStyles(connectStyles);
   const colors = useColors();
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${APP_TILES[app].title}${connected ? ", connected" : ""}`}
+      accessibilityLabel={`${tile.title}${connected ? ", connected" : ""}`}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
@@ -152,14 +167,14 @@ function AppTile({ app, connected, onPress }: { app: ConnectApp; connected: bool
         <SourceMark kind={app} size={28} />
         {connected ? <Text style={styles.badge}>Connected</Text> : null}
       </View>
-      <Text style={styles.wayTitle}>{APP_TILES[app].title}</Text>
-      <Text style={styles.wayLine}>{APP_TILES[app].line}</Text>
+      <Text style={styles.wayTitle}>{tile.title}</Text>
+      <Text style={styles.wayLine}>{tile.line}</Text>
     </Pressable>
   );
 }
 
 function WayRow({ way, ruled, onPress }: { way: "push" | "url"; ruled: boolean; onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
+  const styles = useThemedStyles(connectStyles);
   const colors = useColors();
   const [hovered, setHovered] = useState(false);
   return (
@@ -183,8 +198,8 @@ function WayRow({ way, ruled, onPress }: { way: "push" | "url"; ruled: boolean; 
 }
 
 /** The chosen way's row, over its form. */
-function WayHead({ way, line }: { way: Way; line: string }) {
-  const styles = useThemedStyles(makeStyles);
+function WayHead({ way, line }: { way: "push" | "url" | ConnectApp; line: string }) {
+  const styles = useThemedStyles(connectStyles);
   const app = way !== "push" && way !== "url";
   return (
     <View style={styles.way} testID={app ? `connect-${way}` : way === "push" ? "connect-push" : "connect-url"}>
@@ -198,8 +213,8 @@ function WayHead({ way, line }: { way: Way; line: string }) {
 }
 
 /** The foot every form ends with: what is made, Cancel, and the way's button. */
-function Foot({ lands, busy, ready, onMake, onClose, testID, label = "Make source", busyLabel = "Making…" }: { lands: string; busy: boolean; ready: boolean; onMake: () => void; onClose: () => void; testID: string; label?: string; busyLabel?: string }) {
-  const styles = useThemedStyles(makeStyles);
+export function Foot({ lands, busy, ready, onMake, onClose, testID, label = "Make source", busyLabel = "Making…" }: { lands: string; busy: boolean; ready: boolean; onMake: () => void; onClose: () => void; testID: string; label?: string; busyLabel?: string }) {
+  const styles = useThemedStyles(connectStyles);
   const colors = useColors();
   return (
     <>
@@ -212,7 +227,7 @@ function Foot({ lands, busy, ready, onMake, onClose, testID, label = "Make sourc
   );
 }
 
-function Problem({ text }: { text: string | null }): ReactNode {
+export function Problem({ text }: { text: string | null }): ReactNode {
   return text === null ? null : (
     <Text variant="error" testID="connect-problem">
       {text}
@@ -365,7 +380,7 @@ function AppForm({
   );
 }
 
-const makeStyles = (colors: Colors) =>
+export const connectStyles = (colors: Colors) =>
   StyleSheet.create({
     lede: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, marginTop: -6 },
     section: { fontSize: pointerType.label, lineHeight: 14, fontWeight: "600", letterSpacing: 0.5, color: colors.muted },
