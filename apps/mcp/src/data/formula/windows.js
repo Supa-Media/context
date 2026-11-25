@@ -1,7 +1,10 @@
 /**
  * The stretch of time a metric's period means, in UTC.
  *
- * `day`, `week` (starting Monday, as ISO weeks do) and `month` are the
+ * `hour` and `N hours` (N dividing 24: 1, 2, 3, 4, 6, 8 or 12) are blocks of
+ * the UTC day, the current one to date: a 6-hour period runs 00:00, 06:00,
+ * 12:00 and 18:00 (the owner, 2026-11-24: finer than a day is "every hour,
+ * 3 hours, 6 hours, 12 hours"). `day`, `week` (starting Monday, as ISO weeks do) and `month` are the
  * calendar period to date: from its start up to and including now. `N days`
  * is rolling: the N × 24 hours up to now. A window is
  * `{ from, to, current }` with ISO-8601 instants; a row belongs to it when
@@ -9,20 +12,25 @@
  */
 
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+export const HOUR_BLOCKS = Object.freeze([1, 2, 3, 4, 6, 8, 12]);
 export const MAX_ROLLING_DAYS = 366;
 export const MAX_WINDOWS = 400;
 
-/** "day" | "week" | "month" | "N days" → `{ unit }` / `{ unit: "days", days }`, or null. */
+/** "hour" | "N hours" | "day" | "week" | "month" | "N days" → `{ unit }` / `{ unit: "hours", hours }` / `{ unit: "days", days }`, or null. */
 export function parseEvery(every) {
   if (typeof every !== "string") return null;
   const s = every.trim().toLowerCase();
   if (s === "day" || s === "week" || s === "month") return { unit: s };
+  if (s === "hour") return { unit: "hours", hours: 1 };
   const parts = s.split(" ");
-  if (parts.length !== 2 || (parts[1] !== "days" && parts[1] !== "day")) return null;
+  if (parts.length !== 2) return null;
   const digits = parts[0];
   if (!digits || digits.length > 3 || [...digits].some((c) => c < "0" || c > "9")) return null;
-  const days = Number(digits);
-  return days >= 1 && days <= MAX_ROLLING_DAYS ? { unit: "days", days } : null;
+  const n = Number(digits);
+  if (parts[1] === "hours" || parts[1] === "hour") return HOUR_BLOCKS.includes(n) ? { unit: "hours", hours: n } : null;
+  if (parts[1] !== "days" && parts[1] !== "day") return null;
+  return n >= 1 && n <= MAX_ROLLING_DAYS ? { unit: "days", days: n } : null;
 }
 
 /** A time as milliseconds: a number, a Date or an ISO string; NaN otherwise. */
@@ -34,16 +42,18 @@ export function toMs(now) {
   return Number.NaN;
 }
 
-function startOf(unit, ms) {
+function startOf(unit, ms, hours = 1) {
   const d = new Date(ms);
   const day = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  if (unit === "hours") return day + Math.floor(d.getUTCHours() / hours) * hours * HOUR_MS;
   if (unit === "day") return day;
   if (unit === "week") return day - ((d.getUTCDay() + 6) % 7) * DAY_MS;
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
 }
 
 /** The start of the period `back` periods before the one starting at `start`. */
-function shift(unit, start, back) {
+function shift(unit, start, back, hours = 1) {
+  if (unit === "hours") return start - back * hours * HOUR_MS;
   if (unit === "day") return start - back * DAY_MS;
   if (unit === "week") return start - back * 7 * DAY_MS;
   const d = new Date(start);
@@ -64,8 +74,8 @@ export function windowsMs(every, now, n) {
       const span = period.days * DAY_MS;
       out.push({ from: at - (back + 1) * span, to: at - back * span, current: back === 0 });
     } else {
-      const start = startOf(period.unit, at);
-      out.push({ from: shift(period.unit, start, back), to: back === 0 ? at : shift(period.unit, start, back - 1), current: back === 0 });
+      const start = startOf(period.unit, at, period.hours);
+      out.push({ from: shift(period.unit, start, back, period.hours), to: back === 0 ? at : shift(period.unit, start, back - 1, period.hours), current: back === 0 });
     }
   }
   return out;

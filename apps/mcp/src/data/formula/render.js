@@ -93,6 +93,9 @@ export function plainReading(ast, every) {
   };
   const text = render(ast);
   const period = parseEvery(every);
-  const when = !period ? "" : period.unit === "days" ? `, over the last ${period.days} ${period.days === 1 ? "day" : "days"}` : `, each ${period.unit}`;
+  const when = !period ? ""
+    : period.unit === "days" ? `, over the last ${period.days} ${period.days === 1 ? "day" : "days"}`
+    : period.unit === "hours" ? (period.hours === 1 ? ", each hour" : `, every ${period.hours} hours`)
+    : `, each ${period.unit}`;
   return text.charAt(0).toUpperCase() + text.slice(1) + when;
 }

@@ -156,11 +156,18 @@ export function settingsOf(source: DataSource): Setting[] {
   return out;
 }
 
-/** A period as the readings chart names it: "Jun" for a month, "Nov 17" for a week or a day, its last day for N days. */
+/** "2 PM": an hour block's start, in the reader's own time (the blocks are UTC, but a time of day reads as the reader's). */
+function hourOfDay(ms: number): string {
+  return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric" });
+}
+
+/** A period as the readings chart names it: "Jun" for a month, "Nov 17" for a week or a day, its last day for N days, "2 PM" for an hour block. */
 export function periodLabel(period: { from: string; to: string }, every: string, current = false): string {
   const unit = every.trim().toLowerCase();
   const from = Date.parse(period.from);
   const label =
-    unit === "month" ? MONTHS[new Date(from).getUTCMonth()]! : unit === "week" || unit === "day" ? monthDay(from) : monthDay(Date.parse(period.to));
+    unit === "hour" || / hours?$/.test(unit)
+      ? hourOfDay(from)
+      : unit === "month" ? MONTHS[new Date(from).getUTCMonth()]! : unit === "week" || unit === "day" ? monthDay(from) : monthDay(Date.parse(period.to));
   return current ? `${label}, so far` : label;
 }
