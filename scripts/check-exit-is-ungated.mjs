@@ -103,6 +103,26 @@ export const GATE_TERMS = [
  */
 export const FOREIGN_LITERALS = ['"x-subscription-token"'];
 
+/**
+ * One folder where one gate term names somebody else's service, not a plan of
+ * ours. Each entry lets exactly its listed terms through for files under its
+ * folder, and nothing else: every other term still reddens there, and the
+ * same term still reddens in every other file.
+ *
+ * - `apps/mcp/src/data/connect/`, `stripe`: the data connectors read a
+ *   customer's OWN Stripe account (their revenue, with a read-only key they
+ *   gave) into a sheet in their workspace. That is their data coming in, not
+ *   what they have paid us. Decided by the owner, 2026-11-25 ("Allow it in
+ *   data connectors only"). Our own billing never lives in this folder.
+ */
+export const FOLDER_ALLOWED = [{ folder: "apps/mcp/src/data/connect/", terms: ["stripe"] }];
+
+/** The terms `file` may carry, from `FOLDER_ALLOWED`. */
+export function allowedFor(file = "") {
+  const path = file.split("\\").join("/");
+  return new Set(FOLDER_ALLOWED.filter((entry) => path.startsWith(entry.folder)).flatMap((entry) => entry.terms));
+}
+
 function filesUnder(path) {
   const stat = statSync(path);
   if (!stat.isDirectory()) return [path];
@@ -115,12 +135,14 @@ function filesUnder(path) {
   return out;
 }
 
-/** Every gate term appearing in `source` outside comments. */
-export function gatesIn(source) {
+/** Every gate term appearing in `source` outside comments, less what `file`'s folder allows. */
+export function gatesIn(source, file = "") {
+  const allowed = allowedFor(file);
   let code = stripComments(source);
   for (const literal of FOREIGN_LITERALS) code = code.split(literal).join('""');
   const found = [];
   for (const term of GATE_TERMS) {
+    if (allowed.has(term)) continue;
     // Word-boundaried and case-insensitive: `Premium`, `PREMIUM_PLAN` and
     // `isPremium` are all the same gate wearing different capitalisation.
     if (new RegExp(`\\b${term}\\b`, "i").test(code)) found.push(term);
@@ -132,7 +154,7 @@ function run(roots = EXIT_PATHS) {
   const failures = [];
   for (const root of roots) {
     for (const file of filesUnder(root)) {
-      const gates = gatesIn(readFileSync(file, "utf8"));
+      const gates = gatesIn(readFileSync(file, "utf8"), file);
       if (gates.length > 0) failures.push({ file, gates });
     }
   }
@@ -153,10 +175,16 @@ function selfTest() {
     ["a search provider's header name", `headers: { "x-subscription-token": key }`, false],
     ["that word gating anything else", `headers: { "x-subscription-token": key }; if (!subscription) return null;`, true],
     ["ordinary export code", `const bytes = await store.get(key); return bytes.arrayBuffer();`, false],
+    // The one folder allowance: the word through, only there, and only that word.
+    ["a customer's own Stripe read in the data connectors", `const STRIPE = "https://api.stripe.com/v1/balance_transactions";`, false, "apps/mcp/src/data/connect/stripe.js"],
+    ["stripe anywhere else in the gateway", `const STRIPE = "https://api.stripe.com/v1/balance_transactions";`, true, "apps/mcp/src/data/sync/object.js"],
+    ["a folder that only starts the same", `if (stripe.status) return null;`, true, "apps/mcp/src/data/connectors/x.js"],
+    ["another gate term in the data connectors", `if (workspace.subscription !== "active") return null;`, true, "apps/mcp/src/data/connect/stripe.js"],
+    ["a plan gate in the data connectors", `const plan = await planFor(ctx, id);`, true, "apps/mcp/src/data/connect/apps.js"],
   ];
   let failed = 0;
-  for (const [name, source, shouldFlag] of cases) {
-    const flagged = gatesIn(source).length > 0;
+  for (const [name, source, shouldFlag, file] of cases) {
+    const flagged = gatesIn(source, file).length > 0;
     const ok = flagged === shouldFlag;
     if (!ok) failed += 1;
     console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);

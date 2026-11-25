@@ -11,7 +11,7 @@
  *
  * SABOTAGE (confirmed, reverted): put the key in `appAboutText` → "never writes the key" fails; drop `existing` in
  * `appSourceFiles` → "connects an app again in place" fails; draw the Apps without `onConnectApp` → "only an owner
- * sees the Apps" fails.
+ * sees the Apps" fails; send the account for Stripe too → "its folder keeps revenue.csv…" fails.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -104,6 +104,40 @@ describe("the files an app source is made of", () => {
   });
 });
 
+describe("Stripe, beside Cloudflare", () => {
+  test("its folder keeps revenue.csv and its about.md never the key; its form asks for a restricted key and no account", async () => {
+    const STRIPE = `rk_live_${"Ab1".repeat(8)}`;
+    const files = appSourceFiles("data", "stripe", { key: STRIPE, account: "ignored" }, null, new Set()) as AppSourceFiles;
+    expect(files.about?.text).toMatch(/^---\nsource: stripe\nname: "Stripe"\ndataset: revenue\n---/);
+    expect(files.about?.text).not.toContain(STRIPE);
+    expect(files.sheet).toEqual({ path: "data/stripe/revenue.csv", text: "" });
+    expect("account" in files).toBe(false);
+    expect(appSourceFiles("data", "stripe", { key: " " }, null, new Set())).toMatch(/restricted key/);
+    const made: AppSourceFiles[] = [];
+    await mount(
+      h(ConnectSourceDialog, {
+        dataFolder: "data",
+        taken: new Set<string>(),
+        sheet: false,
+        onMake: async () => null,
+        onMakeUrl: async () => null,
+        onConnectApp: async (each: AppSourceFiles) => {
+          made.push(each);
+          return null;
+        },
+        sources: [],
+        onClose: () => {},
+      }),
+    );
+    await press("connect-app-stripe");
+    expect(document.body.textContent).toContain("A secret key (sk_) is refused.");
+    expect(find("connect-app-account")).toBeNull();
+    type("connect-app-key", STRIPE);
+    await press("connect-app-make");
+    expect(made[0]).toMatchObject({ app: "stripe", folder: "data/stripe", key: STRIPE });
+  });
+});
+
 describe("the connect call", () => {
   test("sends the key once, in the body, and reads back the run", async () => {
     const sent: unknown[] = [];
@@ -147,8 +181,8 @@ describe("the connect dialog's Apps", () => {
       }),
     );
     expect(find("connect-app-cloudflare")?.textContent).toContain("Connected");
-    // The payments app waits on the gateway, so its tile isn't drawn.
-    expect(find("connect-app-stripe")).toBeNull();
+    // Stripe is not connected yet, so its tile offers to connect.
+    expect(find("connect-app-stripe")?.textContent).not.toContain("Connected");
     expect(document.body.textContent).toContain("Only workspace owners can connect apps.");
     await press("connect-app-cloudflare");
     expect(find("connect-cloudflare")).not.toBeNull();

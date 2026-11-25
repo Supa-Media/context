@@ -156,12 +156,11 @@ export function urlSourceFiles(dataFolder: string, address: string, dataset: str
 
 /**
  * The apps an owner connects with a read-only key here, and the one dataset each keeps (`apps/mcp/src/data/connect/apps.js`).
- * The payments app on board 02 waits on the gateway, which can't name it yet (`scripts/check-exit-is-ungated.mjs`).
  */
-export const APP_DATASETS = { cloudflare: "ai-spend" } as const;
+export const APP_DATASETS = { stripe: "revenue", cloudflare: "ai-spend" } as const;
 export type ConnectApp = keyof typeof APP_DATASETS;
 
-const APP_NAMES: Readonly<Record<ConnectApp, string>> = { cloudflare: "Cloudflare" };
+const APP_NAMES: Readonly<Record<ConnectApp, string>> = { stripe: "Stripe", cloudflare: "Cloudflare" };
 
 export interface AppSourceFiles {
   readonly app: ConnectApp;
@@ -175,6 +174,7 @@ export interface AppSourceFiles {
 }
 
 const APP_LINES: Readonly<Record<ConnectApp, string>> = {
+  stripe: "Charges, refunds and disputes from Stripe's balance, synced every hour into revenue.csv, in each currency's main unit, with US dollars in usd.",
   cloudflare: "AI Gateway's spend by day, gateway, provider and model, synced every hour into ai-spend.csv in US dollars.",
 };
 
@@ -184,9 +184,9 @@ const APP_LINES: Readonly<Record<ConnectApp, string>> = {
  */
 export function appSourceFiles(dataFolder: string, app: ConnectApp, input: { key: string; account?: string }, existing: DataSource | null, taken: ReadonlySet<string>): AppSourceFiles | string {
   const key = input.key.trim();
-  if (key === "") return "Paste an API token.";
+  if (key === "") return app === "stripe" ? "Paste a restricted key." : "Paste an API token.";
   const account = input.account?.trim() ?? "";
-  const sendAccount = account === "" ? {} : { account };
+  const sendAccount = account === "" || app !== "cloudflare" ? {} : { account };
   const dataset = APP_DATASETS[app];
   if (existing !== null) {
     const sheetPath = `${existing.folder}/${dataset}.csv`;
