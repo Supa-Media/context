@@ -317,7 +317,7 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type BoardId = "02" | "02c" | "03c" | "04" | "04b" | "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
+type BoardId = "02" | "02c" | "02s" | "03c" | "04" | "04b" | "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
 
 const WORLD: Partial<Record<BoardId, { source: FolderListSource; nesting: Nesting }>> = {
   empty: { source: emptySource, nesting: emptyNesting },
@@ -362,9 +362,10 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
     });
   };
   switch (board) {
-    // Board 02 with its Apps, for an owner, and Cloudflare's token form (connected again in place), over the data page.
+    // Board 02 with its Apps, for an owner, and Cloudflare's token form or Stripe's key form (connected again in place), over the data page.
     case "02":
     case "02c":
+    case "02s":
       return h(
         View as never,
         null,
@@ -377,7 +378,7 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
           onMake: async () => null,
           onMakeUrl: async () => null,
           onConnectApp: async () => null,
-          ...(board === "02c" ? { start: "cloudflare" as const } : {}),
+          ...(board === "02c" ? { start: "cloudflare" as const } : board === "02s" ? { start: "stripe" as const } : {}),
           onClose: () => {},
         }),
       );
@@ -490,6 +491,7 @@ beforeAll(() => {
 const SELECTED: Record<BoardId, string> = {
   "02": "data",
   "02c": "data",
+  "02s": "data",
   "03c": "data/cloudflare",
   "04": "data",
   "04b": "data",
@@ -517,7 +519,7 @@ async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolea
         ? { inConsole: true, state: { known: true }, armed: false, keep: async () => null }
         : { state: undefined, armed: false };
   // The builder's chart sits in its dialog's card: the dialog's width less its padding and the card's.
-  const builder = board === "04" || board === "04b" || board === "02" || board === "02c";
+  const builder = board === "04" || board === "04b" || board === "02" || board === "02c" || board === "02s";
   chartWidth = builder ? (phone ? PHONE.width : 680) - 48 - 26 : phone ? PHONE.width - 32 - 26 : 820 - 26;
   stampViewport(size);
   container = document.createElement("div");
@@ -551,6 +553,8 @@ describe("data sources shots", () => {
     ["02", "02-connect-apps", "light", true],
     ["02c", "02c-cloudflare-token", "light", false],
     ["02c", "02c-cloudflare-token", "light", true],
+    ["02s", "02s-stripe-key", "light", false],
+    ["02s", "02s-stripe-key", "light", true],
     ["03c", "03c-cloudflare-source", "light", false],
     ["03c", "03c-cloudflare-source", "light", true],
     ["04", "04-metric-builder", "light", false],

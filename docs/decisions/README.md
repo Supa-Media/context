@@ -809,7 +809,7 @@ Every section title is listed in [its own index](./texting-assistant/index.md).
 - A formula is a small language, worked out when it is read
 - Sources sync without a model, in their own object
 - Who does what
-- Apps connect with read-only keys: Cloudflare first (2026-11-25)
+- Apps connect with read-only keys: Cloudflare and Stripe (2026-11-25)
 - What stage B draws, and what it leaves out (2026-11-25)
 - What a sync run may write, and how a URL is fetched
 - What stage C draws

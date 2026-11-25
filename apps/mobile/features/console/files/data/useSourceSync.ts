@@ -22,14 +22,14 @@ export interface SourceSyncs {
   readonly syncOf: (folder: string) => SyncState | undefined;
   /** Arm a url source by its about.md and run it now: null once armed, or the sentence saying why not. Absent for who may not. */
   readonly arm?: (aboutPath: string) => Promise<string | null>;
-  /** An owner's Connect of an app source (Cloudflare) with its read-only key, run now. Absent for anyone else. */
+  /** An owner's Connect of an app source (Stripe, Cloudflare) with its read-only key, run now. Absent for anyone else. */
   readonly connect?: (aboutPath: string, key: string, account?: string) => Promise<string | null>;
   /** An owner's Disconnect: the app's key forgotten and its sources stopped. Absent for anyone else. */
   readonly disconnect?: (app: string) => Promise<string | null>;
 }
 
 /** The sources whose runs the sync object keeps: a url source's, and an app's an owner connected. */
-const SYNCED = new Set(["fetch", "cloudflare"]);
+const SYNCED = new Set(["fetch", "stripe", "cloudflare"]);
 
 export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   const data = useOptionalConsoleData();

@@ -207,7 +207,7 @@ export function useDataMaking({
       : {
           disconnect: (app: ConnectApp) => {
             const forget = syncs.disconnect!;
-            void forget(app).then((why) => host?.tasks?.say(why ?? "Cloudflare is disconnected. Its sheet stays as it is."));
+            void forget(app).then((why) => host?.tasks?.say(why ?? `${app === "stripe" ? "Stripe" : "Cloudflare"} is disconnected. Its sheet stays as it is.`));
           },
         }),
     ...(armSync === undefined

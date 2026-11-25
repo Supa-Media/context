@@ -103,7 +103,7 @@ identical answers; `__proto__` refused).
   path; a key kept for syncing is opened only by the sync object, and never by
   an AI client or `send api`.
 
-## Apps connect with read-only keys: Cloudflare first
+## Apps connect with read-only keys: Cloudflare and Stripe
 
 *Built 2026-11-25 (stage E, part 2), under the owner's "go ahead and
 implement this" of the data sources boards.*
@@ -135,19 +135,26 @@ implement this" of the data sources boards.*
   tokens and cost in US dollars by day, gateway, provider and model, the last
   30 days each run (its analytics answer about a month per query), keyed so a
   day's row updates in place.
-- **The payments app waits.** `scripts/check-exit-is-ungated.mjs` keeps the
-  payments provider's name off every file under `apps/mcp/src`, because there
+- **Stripe, through one narrow guard exception.** `scripts/check-exit-is-ungated.mjs`
+  keeps the word `stripe` off every file under `apps/mcp/src`, because there
   it would mean billing state on the exit path. Reading a customer's own
-  account as their data is a different thing, but letting the name through is
-  a change to that guard, and that is the owner's to make. A reader was
-  written and tested (a restricted `rk_` key only, a secret key refused before
-  the app is asked, revenue categories in the currency's main unit, no
-  description or customer) and is held until then.
+  Stripe account is their data coming in, so the owner allowed that one word
+  in `apps/mcp/src/data/connect/` only, and nowhere else; every other gate
+  term still fails there (decided by the owner, 2026-11-25: "Allow it in data
+  connectors only"; the guard's self-test proves both sides). Stripe takes a
+  restricted `rk_` key only, and a secret `sk_` key is refused before Stripe is
+  asked. Its `revenue.csv` keeps the balance transactions that make or take
+  back revenue (charges, refunds, disputes and their reversals), in the
+  currency's main unit, with `usd` filled when the currency is US dollars,
+  and no description or customer, since a description can name one. A run
+  reads from three days before its newest row to now, then carries the
+  history back toward 400 days, each window capped at half of 50 pages.
 
 **What a simplification would cost.** A key in `about.md`, the vault or a log
 is readable by anyone who reads those; reading the app from `about.md`'s
 `source:` alone would let an editor send one app's key to another. Tests:
-`apps/mcp/test/dataSyncApps.test.mjs`, `apps/mobile/__tests__/dataSyncApps.test.ts`.
+`apps/mcp/test/dataSyncApps.test.mjs`, `apps/mcp/test/dataSyncStripe.test.mjs`,
+`apps/mobile/__tests__/dataSyncApps.test.ts`, and `--self-test` of the guard.
 
 ## What stage B draws, and what it leaves out
 

@@ -90,7 +90,7 @@ export function DataFolderPage({
     const first = source.datasets.find((dataset) => !dataset.computed);
     const firstSheet = first === undefined ? null : (ws.sheets.get(first.path) ?? null);
     const push = source.kind === "push";
-    const app = source.kind === "cloudflare" ? source.kind : null;
+    const app = source.kind === "cloudflare" || source.kind === "stripe" ? source.kind : null;
     page = (
       <SourcePage
         source={source}

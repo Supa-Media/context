@@ -41,7 +41,7 @@ const LEDE: Readonly<Record<string, string>> = {
 export interface SourcePageActions {
   /** Sync now: a url source's, for an owner or editor (`dataSync.ts`); absent for anyone else, and not drawn. */
   readonly syncNow?: () => void;
-  /** Connect again, for an app source (Cloudflare): its key form. Absent for anyone but an owner. */
+  /** Connect again, for an app source (Stripe, Cloudflare): its key form. Absent for anyone but an owner. */
   readonly reconnect?: () => void;
   /** Disconnect, for an app source: its key forgotten and its sync stopped. Absent for anyone but an owner. */
   readonly disconnect?: () => void;
@@ -131,7 +131,7 @@ export function SourcePage({
         ? `${status.text} · send from your code`
         : source.kind === "fetch"
           ? `${status.text} · every hour · read-only`
-          : [status.text, every === "" ? (source.kind === "cloudflare" ? "every hour" : "") : `every ${every}`, "read-only"].filter((part) => part !== "").join(" · ");
+          : [status.text, every === "" ? (source.kind === "cloudflare" || source.kind === "stripe" ? "every hour" : "") : `every ${every}`, "read-only"].filter((part) => part !== "").join(" · ");
   const files: FileLine[] = [
     {
       name: "about.md",

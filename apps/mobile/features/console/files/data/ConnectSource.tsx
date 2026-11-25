@@ -1,10 +1,10 @@
 /**
- * Connect a source (board 02): the board's **Apps**, for an owner, each connected once with a read-only key (Cloudflare
- * now); and its "Your own" ways, **Send from your code** and **Fetch from a URL**. GitHub waits for its stage and the
- * payments app for the gateway, so their tiles are not drawn until they work.
+ * Connect a source (board 02): the board's **Apps**, for an owner, each connected once with a read-only key (Stripe and
+ * Cloudflare now); and its "Your own" ways, **Send from your code** and **Fetch from a URL**. GitHub waits for its
+ * stage, so its tile is not drawn until it works.
  *
  * - An app's form takes the key (and, for a Cloudflare token reaching several accounts, the account ID), makes the
- *   app's folder (`about.md` saying `source: cloudflare`, and its empty sheet) unless one is there, and
+ *   app's folder (`about.md` saying `source: stripe` or `source: cloudflare`, and its empty sheet) unless one is there, and
  *   hands the key to the gateway, which checks it with the app and keeps it sealed. It is never written to a file.
  *
  * - Send from your code makes the source's folder in the data folder (`about.md` saying `source: push`, and one
@@ -31,10 +31,17 @@ import type { DataSource } from "./sources";
 type Way = "push" | "url" | ConnectApp;
 
 const APP_TILES: Readonly<Record<ConnectApp, { title: string; line: string }>> = {
+  stripe: { title: "Stripe", line: "Revenue" },
   cloudflare: { title: "Cloudflare", line: "AI spend" },
 };
 
 const APP_FORMS: Readonly<Record<ConnectApp, { line: string; field: string; placeholder: string; hint: string }>> = {
+  stripe: {
+    line: "A restricted key that reads your balance. Context only reads, every hour, and never shows the key again.",
+    field: "Restricted key",
+    placeholder: "rk_live_…",
+    hint: "In Stripe: Developers → API keys → Create restricted key, with Balance transactions: Read and nothing else. A secret key (sk_) is refused.",
+  },
   cloudflare: {
     line: "An API token that reads analytics. Context only reads, every hour, and never shows the token again.",
     field: "API token",
@@ -315,8 +322,8 @@ function AppForm({
   const form = APP_FORMS[app];
   const lands =
     existing === null
-      ? `Makes ${dataFolder}/${app}/ with an about.md and ${APP_DATASETS[app]}.csv, and syncs it now. The token is kept sealed, never in a file.`
-      : `Connects ${existing.folder}/ again with this token, in place of the one it had, and syncs it now.`;
+      ? `Makes ${dataFolder}/${app}/ with an about.md and ${APP_DATASETS[app]}.csv, and syncs it now. The ${app === "stripe" ? "key" : "token"} is kept sealed, never in a file.`
+      : `Connects ${existing.folder}/ again with this ${app === "stripe" ? "key" : "token"}, in place of the one it had, and syncs it now.`;
   return (
     <>
       <WayHead way={app} line={form.line} />
