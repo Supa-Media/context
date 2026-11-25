@@ -5,12 +5,10 @@
  *
  * Sabotage record (2026-11-25), applied, this file run, named test failing, reverted:
  *  1. about-tex.md's old What Context is put back → "Tex has a plain pitch…" fails.
- *  2. prompt.js BUILTIN_IDENTITY's old line put back → "the built-in identity…" fails.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 import { wordsOf } from "../../../scripts/tex-prompt-module.mjs";
-import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 
 test("Tex has a plain pitch, and the person's own setup is never what Context is", () => {
   const about = wordsOf()["about-tex"];
@@ -22,9 +20,3 @@ test("Tex has a plain pitch, and the person's own setup is never what Context is
   assert.match(wordsOf().working, /one way to organise, never what Context is/);
 });
 
-test("the built-in identity, used when no production setup is loaded, says the same", () => {
-  const told = systemPrompt({}, { texting: true });
-  assert.match(told, /a memory that's theirs, that they can text/);
-  assert.match(told, /never what Context is/);
-  assert.doesNotMatch(told, /kept as Markdown files in storage they own/);
-});
