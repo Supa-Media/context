@@ -1,5 +1,5 @@
 /**
- * A kept sticker looked at once (node `stickerLook`, off on main until a Lab draft turns it on; Dev2, 2026-11-25): the node asks the model what the
+ * A kept sticker looked at once (node `stickerLook`, turned on by a Lab promote; Dev2, 2026-11-25): the node asks the model what the
  * picture shows and when it fits, and `/texts/sticker-look` runs it only while the config has it on, never logging the
  * picture (`packages/tex/gateway/agent/graph/nodes/stickerLook.js`, `textsSticker.js`).
  */
@@ -42,8 +42,9 @@ test("the node reads its picture from the run's context, so the logged input is 
   assert.equal(out.words, "a; fits b");
 });
 
-test("/texts/sticker-look is off while no config wires the node, runs it when one does, and refuses a body it can't trust", async () => {
-  assert.equal(stickerLookWired(TEX_CONFIG), false, "off on main");
+test("/texts/sticker-look is off while the config does not turn the node on, runs it when one does, and refuses a body it can't trust", async () => {
+  // Whether main has it on is the config's to say (a Lab promote turns it on), never this test's.
+  assert.equal(stickerLookWired(TEX_CONFIG), TEX_CONFIG.nodes.find((node) => node.id === "stickerLook")?.on === true);
   assert.ok(TEX_CONFIG.nodes.some((node) => node.id === "stickerLook"), "a node of the config");
   assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook", on: true }] }), true);
   assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook" }] }), false);
