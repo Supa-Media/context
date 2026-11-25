@@ -231,7 +231,7 @@ export function mightWiden(name, args, { into = null, writes } = {}) {
       return (
         a.site?.action === "publish" ||
         SHARE_VALUES.has(a.share) ||
-        (Array.isArray(a.images) && a.images.some((image) => typeof image?.url === "string")) ||
+        (Array.isArray(a.images) && a.images.some((image) => typeof image?.url === "string" && image.url.trim() !== "")) ||
         a.visibility === "team"
       );
     case "create_form":
