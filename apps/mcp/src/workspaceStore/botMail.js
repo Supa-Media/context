@@ -9,7 +9,9 @@
  *   - the note sits in an area's `mail/` folder;
  *   - its newest mail line is one it has not told about before (kept per note in `ws_bot_mail`, so an edit
  *     elsewhere in the note, or the same text saved again, tells nobody);
- *   - the area's `about.md` names an owner that is not a person (`@handle`): a bot;
+ *   - the area's `about.md` names a bot to tell: its owner when that is not a person (`@handle`), or else its one
+ *     delegate (the owner, 2026-11-25: "1 delegate per area"; `helper` is the delegate's old name), never Tex,
+ *     who reads its mail another way;
  *   - the line is not the bot's own reply.
  *
  * Then it tells the control plane (`POST /gateway/bots/mail`), which calls the bot's webhook if one is saved and
@@ -37,14 +39,20 @@ export function areaOfMailNote(path) {
   return match === null ? null : match[1];
 }
 
-/** The owner an area's `about.md` props name, or null. */
-function ownerOf(propsJson) {
+/** The bot an area's `about.md` props say answers its mail: a bot owner, else a person owner's delegate; or null. */
+export function botOfArea(propsJson) {
+  let properties;
   try {
-    const owner = JSON.parse(propsJson ?? "null")?.properties?.owner;
-    return typeof owner === "string" && owner.trim() !== "" ? owner.trim() : null;
+    properties = JSON.parse(propsJson ?? "null")?.properties ?? {};
   } catch {
     return null;
   }
+  const word = (value) => (typeof value === "string" && value.trim() !== "" ? value.trim() : null);
+  const owner = word(properties.owner);
+  if (owner === null) return null;
+  const bot = owner.startsWith("@") ? word(properties.delegate) ?? word(properties.helper) : owner;
+  if (bot === null || bot.startsWith("@") || bot.toLowerCase() === "tex") return null;
+  return bot;
 }
 
 /**
@@ -74,9 +82,9 @@ export function botMailWatch(sql, { rows, objects, facts, tell, defer = (work) =
     if (seen === mark) return;
     sql.exec("INSERT INTO ws_bot_mail (note_id, last) VALUES (?, ?) ON CONFLICT(note_id) DO UPDATE SET last = excluded.last", noteId, mark);
     const about = facts.props({ paths: [`${area}/about.md`] }, () => true).props?.[0];
-    const owner = ownerOf(about?.props);
-    if (owner === null || owner.startsWith("@") || about?.sealed) return;
-    const bot = mailJoinName(owner);
+    const holder = botOfArea(about?.props);
+    if (holder === null || about?.sealed) return;
+    const bot = mailJoinName(holder);
     if (newest.from.toLowerCase() === bot) return;
     tell({ bot, area, note: row.path, from: newest.from });
   }

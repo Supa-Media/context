@@ -38,7 +38,7 @@ const JOB_LINE = Object.freeze({
   projects: "active work with a finish line, one folder per project; task statuses and boards live here, and a finished project moves to Archive.",
   areas:
     "ongoing responsibilities with no finish line, such as health, money or a team someone runs." +
-    " An area's settings are top-level lines in its about.md, edited as text: owner (\"@username\" or an agent's name), helper," +
+    " An area's settings are top-level lines in its about.md, edited as text: owner (\"@username\" or an agent's name), delegate (the one bot or Tex acting for a person owner there; never a person, none when a bot owns it)," +
     " modes (Visionary, Manager, Doer: labels, never rules), approvals (one rule an item) and one metric," +
     " metrics: [<metric name> · target <what good looks like>] with no commas inside, naming a metric note's metric: exactly;" +
     " a second number is a sub-area of its own. How to reach a holder is one note per holder in its people/ folder, never a login.",

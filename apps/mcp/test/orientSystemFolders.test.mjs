@@ -91,7 +91,9 @@ test("the Areas line says an area's settings are its about.md lines, one metric 
   });
   const areas = text.split("\n").find((line) => line.startsWith("- Areas"));
   assert.match(areas, /about\.md/);
-  for (const key of ["owner", "helper", "modes", "metrics", "approvals"]) assert.match(areas, new RegExp(`\\b${key}\\b`));
+  for (const key of ["owner", "delegate", "modes", "metrics", "approvals"]) assert.match(areas, new RegExp(`\\b${key}\\b`));
+  // Helper is gone (the owner, 2026-11-25: one delegate per area).
+  assert.doesNotMatch(areas, /\bhelper\b/);
   assert.match(areas, /metrics: \[<metric name> · target <what good looks like>\]/);
   assert.match(areas, /one metric/i);
   const data = text.split("\n").find((line) => line.startsWith("- Data"));
