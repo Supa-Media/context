@@ -29,7 +29,7 @@ import { loadPrivacyState } from "../../../../apps/mcp/src/privacy/state.js";
 import { canSee, readsAsChat } from "../../../../apps/mcp/src/privacy/engine.js";
 import { toolError } from "../../../../apps/mcp/src/tools/results.js";
 import { voicePrompt } from "./chatVoice.js";
-import { chatMailPrompt } from "./groupMail.js";
+import { chatMailPrompt, GUEST_NOTHING_ELSE_LINE } from "./groupMail.js";
 import { chatCalendarPrompt } from "./groupCalendar.js";
 import { chatRoutinePrompt } from "./groupRoutines.js";
 import { whoIsWhoLine } from "./groupNames.js";
@@ -95,7 +95,7 @@ export function guestPrompt(group, workspace) {
     `\n\nTHIS IS AN IMESSAGE GROUP CHAT WITH PEOPLE WHO AREN'T ALL ON CONTEXT. Someone tagged you (who is said with each text), and everyone in the chat reads your answer. ` +
     "Some people here aren't on Context; they can ask you for things like anyone else. " +
     `You can read only what is shared with this chat in ${where}: its folder ${folder} and whatever someone shared with the chat. ` +
-    "Nothing else there exists for you, so never guess at it; someone can share a note with the chat for you to read. " +
+    GUEST_NOTHING_ELSE_LINE +
     `Write what you make for the chat in ${folder}, as a page (<name>.page.md) like any new note: pages save here like anywhere else, ` +
     "so if a page write is refused, read the refusal, fix what it names and write the page again; never tell the chat pages can't be saved from here, and never save a plain note instead. " +
     "A note shared with the chat to view can be read, never changed. " +
