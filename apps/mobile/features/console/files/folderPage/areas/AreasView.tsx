@@ -52,6 +52,8 @@ import {
   type SeatEdit,
 } from "./seat";
 import { mailNotesOf } from "./areaMail";
+import { useAreaProjects } from "./useAreaProjects";
+import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
 
 export type AreasPageView = "list" | "chart";
 
@@ -105,6 +107,8 @@ export function AreasView(props: AreasViewProps) {
   const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
+  // The projects that serve each area: the Projects folder's own read, front matter only.
+  const projectTools = useAreaProjects(host, projectsFolderNow());
   // The workspace's metrics, worked out as they are read; an area naming one reads it, any other its metrics.csv.
   const { metrics: workspace, ws } = useWorkspaceMetrics(host?.source, listings);
   const readingOf = useCallback(
@@ -227,6 +231,17 @@ export function AreasView(props: AreasViewProps) {
           readingOf,
           ...(canEdit ? { onPick: pick } : {}),
           onSave: save,
+          ...(projectTools === null || peekNode === tree
+            ? {}
+            : {
+                projects: {
+                  projects: projectTools.of(peekNode.seat.folder),
+                  choices: projectTools.choices(peekNode.seat.folder),
+                  faceOf,
+                  open: onSelect,
+                  ...(canEdit && projectTools.attach !== undefined ? { attach: projectTools.attach } : {}),
+                },
+              }),
           mail: {
             notesIn: (area: string) => mailNotesOf(area, notes),
             ...(readBody === undefined ? {} : { read: readBody }),
@@ -249,7 +264,7 @@ export function AreasView(props: AreasViewProps) {
   }, [onPanel, peekOpen, slot]);
   useEffect(() => () => onPanel?.(null), [onPanel]);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
-  const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf };
+  const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf, ...(projectTools === null ? {} : { projectsOf: projectTools.of }) };
   const pickingTitle = picking === null ? "" : picking.folder === folder ? rootTitle : areaTitle(picking.name);
   return (
     <View testID="areas-view">

@@ -214,6 +214,7 @@ export function PropertyLine({
   statusMenu,
   owners,
   onChoose,
+  area,
 }: {
   summary: FolderSummary;
   compact: boolean;
@@ -225,6 +226,8 @@ export function PropertyLine({
   owners?: OwnerChoice;
   /** Null for somebody who may not write. */
   onChoose: ((key: string, value: string | null) => void) | null;
+  /** A project's area: the areas it can serve, each read by its name (`areas/areaProjects.ts`). Absent off a project. */
+  area?: { readonly choices: readonly string[]; readonly named: (folder: string) => string };
 }) {
   const styles = useThemedStyles(makeStyles);
   const variant = compact ? "rowValueTouch" : "tree";
@@ -255,6 +258,31 @@ export function PropertyLine({
   if (status !== "" || onChoose !== null) parts.push(editable("status", status));
   // Owner is offered once there is a status: a plain folder asks one question.
   if (owner !== "" || (onChoose !== null && status !== "")) parts.push(editable("owner", owner));
+  // Which area the project serves, after its owner: "area Finance", or "Set area" to a writer (the owner, 2026-11-25).
+  const areaValue = text("area");
+  if (area !== undefined && status !== "" && (areaValue !== "" || onChoose !== null)) {
+    parts.push(
+      <View key="area" style={styles.areaPart}>
+        {areaValue === "" ? null : (
+          <Text variant={variant} style={styles.value}>
+            {"area "}
+          </Text>
+        )}
+        <PropertyValue
+          property="area"
+          value={areaValue}
+          choices={area.choices}
+          named={area.named}
+          unsetLabel={onChoose === null ? undefined : "Set area"}
+          savesTo={savesTo}
+          onChoose={onChoose === null ? null : (next) => onChoose("area", next)}
+          variant={variant}
+          style={styles.value}
+          testID="folder-property-area"
+        />
+      </View>,
+    );
+  }
   for (const key of QUIET_KEYS) {
     const value = text(key);
     if (value !== "") {
@@ -330,6 +358,7 @@ const makeStyles = (colors: Colors) =>
     dot: { color: colors.chromeMuted, paddingHorizontal: 6 },
     line: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", rowGap: 2 },
     part: { flexDirection: "row", alignItems: "center" },
+    areaPart: { flexDirection: "row", alignItems: "center" },
     value: { color: colors.text2 },
     jobLine: { color: colors.text2 },
   });

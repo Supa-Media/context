@@ -50,7 +50,9 @@ import { estimateOf } from "./taskProps";
 import { AREA_VIEWS, FolderHead, PropertyLine, ViewSwitch } from "./Head";
 import { AreasView } from "./areas/AreasView";
 import { areaTree } from "./areas/seat";
-import { areasFolderNow, inAreasNow } from "../jobIcons/jobFoldersNow";
+import { areasFolderNow, inAreasNow, projectsFolderNow } from "../jobIcons/jobFoldersNow";
+import { projectAreaTag } from "./areas/areaProjects";
+import { useAreaChoices } from "./areas/useAreaChoices";
 import type { LedeEditing } from "./LedeEditor";
 import { AboutBlock } from "./AboutBlock";
 import { AboutSheet } from "./AboutSheet";
@@ -62,6 +64,7 @@ import { useAgents } from "./useAgents";
 import { agentShown } from "./agents";
 import {
   folderItems,
+  frontNoteOf,
   groupFolderItems,
   isProjectsFolder,
   NOTE_STATUS,
@@ -177,6 +180,14 @@ export function FolderPage({
   const now = Date.now();
   // The folder's own front note says what the title and description are, and is read ahead of the rest.
   const described = notes ?? loaded.front;
+  const projectsRoot = projectsFolderNow();
+  const projectsParent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
+  /** The rows here are projects: the Projects folder, or a folder of projects in it with no status of its own. */
+  const projectRows = folder === projectsRoot || (projectsParent === projectsRoot && textOf(frontNoteOf(folder, notes ?? NO_NOTES)?.properties ?? {}, "status") === "");
+  /** This page is a project: directly in the Projects folder, or in a folder of projects there. */
+  const projectPage =
+    projectsRoot !== "" &&
+    (projectsParent === projectsRoot || (projectsParent.startsWith(`${projectsRoot}/`) && !projectsParent.slice(projectsRoot.length + 1).includes("/")));
   const summary = useMemo(
     () => (described === null || folder === "" ? null : summarizeFolder(folder, described)),
     [described, folder],
@@ -291,9 +302,19 @@ export function FolderPage({
   const faceOf = taskOwners.faceOf;
   const extras = useMemo(
     // The Backlog folder is where projects are parked, not one of them: it has no status circle.
-    () => rowExtras(items, toneOf, (owner) => faceFor({ faceOf, owners }, owner), (item) => item.path === parkedIn?.path),
-    [items, toneOf, faceOf, owners, parkedIn],
+    () =>
+      rowExtras(
+        items,
+        toneOf,
+        (owner) => faceFor({ faceOf, owners }, owner),
+        (item) => item.path === parkedIn?.path,
+        // In the Projects folder, and in a folder of projects in it (`backlog/`), each project says which area it serves.
+        projectRows ? (item, tone) => (item.path === parkedIn?.path ? undefined : projectAreaTag(item.properties, tone)) : undefined,
+      ),
+    [items, toneOf, faceOf, owners, parkedIn, projectRows],
   );
+  // A project's own page offers the areas it can serve.
+  const areaChoices = useAreaChoices(host, areasFolderNow(), projectPage);
 
   if (host === undefined) {
     return (
@@ -466,6 +487,7 @@ export function FolderPage({
             choices={siblingChoices}
             statusMenu={parentMenu}
             owners={ownerChoiceFor(siblingOwners, summary.creates ? null : summary.target)}
+            {...(areaChoices === undefined ? {} : { area: areaChoices })}
             onChoose={edit === null ? null : (key, value) => void edit(summary.target, key, value, summary.creates)}
           />
         ) : null}
@@ -538,7 +560,7 @@ export function FolderPage({
           </View>
         ) : view === "list" ? (
           tracks ? (
-            <RowExtrasProvider extras={extras} edit={rowEdit}>
+            <RowExtrasProvider extras={extras} edit={rowEdit} onArea={onSelect}>
               {files}
             </RowExtrasProvider>
           ) : (

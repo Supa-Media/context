@@ -144,5 +144,34 @@ worked out from the Data folder's datasets
 
 **Bots** hold seats too, with a prompt that names their area and a delegate's prompt for a person's whole set: [area-bots](./area-bots.md) (2026-11-25).
 
+## A project serves an area, said by one line in the project
+
+*Decided by the owner, 2026-11-25* (the "Projects in areas" boards).
+
+**Why.** An area's metric moves because of projects, and projects live in the
+Projects folder with no line back, so an area could not show its work, and
+nobody could see the link an agent had written. Moving projects into areas
+would break the Projects List and Board; a second copy would drift.
+
+**What it is.** A project stays in the Projects folder and names the area it
+serves with `area: areas/<folder>` in its front note: the line area bots
+already write and `orient { area }` already reads. One project, one area. The
+Areas List ends each area row with a count of its projects in progress (the
+in-progress group of the Projects folder's own status list, so custom words
+count), sub-areas' included because a folded row hides them, drawn with the
+Projects List's half-filled circle; pressing it unfolds them. The area panel
+lists them, folds not started and done into one line, and "Attach a project"
+writes the line, × removes it. The other way, a project row on the Projects
+List (and its Board card) shows its area as a quiet tag, "No area" only for one
+in progress, and a project's page adds "area Finance" to its property line,
+picked by name, never typed. A count of projects with no area on the top row
+was drawn and cut by the owner ("no need for this").
+
+**What it reads.** The Projects folder's front matter through the same read
+the Projects page makes, at the viewer's clearance, so a project somebody
+cannot see never adds to their count. No body is read and nothing new is
+stored (`areas/areaProjects.ts`; `areaProjects.test.ts` fails if a sibling
+sharing a prefix is counted or a not-in-progress project is).
+
 **Not built yet.** Tex previewing a change on the Chart as it
 is typed. Tex already sets a seat or a card by writing the note.

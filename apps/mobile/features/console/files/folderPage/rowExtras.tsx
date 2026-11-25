@@ -32,7 +32,7 @@
  */
 
 import { createContext, useContext, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -53,6 +53,12 @@ export interface RowExtra {
   readonly item?: FolderItem;
   /** A project item with no status yet: an empty circle where the dot goes. */
   readonly unset?: boolean;
+  /**
+   * The area a project serves, as a quiet tag before its count: its folder and
+   * name, or a null folder and "No area" for one in progress that serves none
+   * (the owner, 2026-11-25). Only in the Projects folder.
+   */
+  readonly area?: { readonly folder: string | null; readonly label: string };
 }
 
 /** How a writer changes a row from the List: the page's own write and menus. */
@@ -75,6 +81,8 @@ export function rowExtras(
   faceOf: (owner: string) => Face,
   /** A row with no status that is not a project item all the same: the Backlog folder. */
   quiet?: (item: FolderItem) => boolean,
+  /** The area tag a project row shows (`RowExtra.area`); absent outside the Projects folder. */
+  areaOf?: (item: FolderItem, tone: StatusTone | null) => RowExtra["area"],
 ): ReadonlyMap<string, RowExtra> {
   const extras = new Map<string, RowExtra>();
   for (const item of items) {
@@ -84,8 +92,11 @@ export function rowExtras(
     }
     const progress = item.progress !== null && item.progress.total > 0 ? item.progress : null;
     const faces = ownersOf(item.properties).map(faceOf);
-    if (item.status === "") extras.set(item.path, { tone: null, progress, faces, item, unset: true });
-    else extras.set(item.path, { tone: toneOf(item.status), progress, faces, item });
+    const tone = item.status === "" ? null : toneOf(item.status);
+    const area = areaOf?.(item, tone);
+    const tag = area === undefined ? {} : { area };
+    if (item.status === "") extras.set(item.path, { tone: null, progress, faces, item, unset: true, ...tag });
+    else extras.set(item.path, { tone, progress, faces, item, ...tag });
   }
   return extras;
 }
@@ -93,13 +104,15 @@ export function rowExtras(
 interface RowExtrasValue {
   readonly extras: ReadonlyMap<string, RowExtra>;
   readonly edit: RowEdit | null;
+  /** Opens an area from a project's tag; absent where nothing can be opened. */
+  readonly onArea?: (folder: string) => void;
 }
 
 const RowExtrasContext = createContext<RowExtrasValue | null>(null);
 
 /** Turns the listing's rows inside into List rows; `edit` null for somebody who may only read. */
-export function RowExtrasProvider({ extras, edit = null, children }: { extras: ReadonlyMap<string, RowExtra>; edit?: RowEdit | null; children: ReactNode }) {
-  return <RowExtrasContext.Provider value={{ extras, edit }}>{children}</RowExtrasContext.Provider>;
+export function RowExtrasProvider({ extras, edit = null, onArea, children }: { extras: ReadonlyMap<string, RowExtra>; edit?: RowEdit | null; onArea?: (folder: string) => void; children: ReactNode }) {
+  return <RowExtrasContext.Provider value={{ extras, edit, ...(onArea === undefined ? {} : { onArea }) }}>{children}</RowExtrasContext.Provider>;
 }
 
 /**
@@ -133,7 +146,7 @@ function soleOwner(item: FolderItem): string | null {
 export function useRowTrailShows(extra: RowExtra | null | undefined): boolean {
   const edit = useRowEdit();
   if (extra == null) return false;
-  if (extra.progress !== null || extra.faces.length > 0) return true;
+  if (extra.progress !== null || extra.faces.length > 0 || extra.area !== undefined) return true;
   return edit !== null && isItem(extra) && extra.item !== undefined;
 }
 
@@ -170,6 +183,7 @@ export function RowExtraLead({ extra }: { extra: RowExtra | null }) {
 export function RowExtraTrail({ extra }: { extra: RowExtra | null }) {
   const styles = useThemedStyles(makeStyles);
   const edit = useRowEdit();
+  const onArea = useContext(RowExtrasContext)?.onArea;
   const shows = useRowTrailShows(extra);
   if (extra === null || !shows) return null;
   const item = extra.item;
@@ -205,6 +219,7 @@ export function RowExtraTrail({ extra }: { extra: RowExtra | null }) {
     );
   return (
     <View style={styles.trail} testID="folder-row-extras">
+      {extra.area === undefined ? null : <AreaTag area={extra.area} onArea={onArea} />}
       {extra.progress === null ? null : (
         <Text
           variant="treeMeta"
@@ -220,6 +235,29 @@ export function RowExtraTrail({ extra }: { extra: RowExtra | null }) {
   );
 }
 
+/** A project's area, quiet before its count; it opens the area. "No area" is fainter still and opens nothing. */
+function AreaTag({ area, onArea }: { area: NonNullable<RowExtra["area"]>; onArea: ((folder: string) => void) | undefined }) {
+  const styles = useThemedStyles(makeStyles);
+  const folder = area.folder;
+  const word = (
+    <Text variant="treeMeta" style={folder === null ? styles.noArea : styles.areaWord} numberOfLines={1}>
+      {area.label}
+    </Text>
+  );
+  if (folder === null || onArea === undefined) {
+    return (
+      <View style={folder === null ? undefined : styles.areaTag} testID="folder-row-area">
+        {word}
+      </View>
+    );
+  }
+  return (
+    <Pressable onPress={() => onArea(folder)} role="link" accessibilityLabel={`Open area ${area.label}`} hitSlop={4} style={styles.areaTag} testID="folder-row-area">
+      {word}
+    </Pressable>
+  );
+}
+
 const FACE = 20;
 
 const makeStyles = (colors: Colors) =>
@@ -229,6 +267,9 @@ const makeStyles = (colors: Colors) =>
     trail: { flexDirection: "row", alignItems: "center", gap: space.x3, flexShrink: 0, marginLeft: "auto" as never },
     count: { color: colors.chromeMuted, fontVariant: ["tabular-nums"] },
     faces: { flexDirection: "row", alignItems: "center" },
+    areaTag: { maxWidth: 140, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radii.sm, backgroundColor: colors.chipFill },
+    areaWord: { color: colors.text2 },
+    noArea: { color: colors.chromeMuted },
     overlap: { marginLeft: -4 },
     // A status not set yet: the dot's own ring, dashed (StatusDot is 15pt).
     unset: { width: 15, height: 15, borderRadius: radii.pill, borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.chromeMuted },
