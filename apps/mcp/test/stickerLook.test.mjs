@@ -63,3 +63,15 @@ test("/texts/sticker-look is off while no config wires the node, runs it when on
   assert.deepEqual(await lookForChat({}, ask, { graph, config: { nodes: [{ id: "stickerLook", on: true }] } }), { when: ["looked"], words: "a; fits b" });
   assert.deepEqual(ran, [{ id: "stickerLook", input: { sticker: "s1a2b3c" }, picture: PICTURE }], "the picture rides in the context, not the logged input");
 });
+
+test("in the gateway, a chat's sticker picture address is minted by the texting Worker over its RPC entrypoint", async () => {
+  const { chatEnv } = await import("../../../packages/tex/gateway/texChat.js");
+  const asked = [];
+  const TEXTING = { stickerPictureUrl: async (call) => (asked.push(call), { url: "https://agent.example/photon/attachment/at_0_X?e=1&s=2" }) };
+  const state = { storage: {}, waitUntil() {} };
+  const env = await chatEnv({ TEXTING }, state, "group:abc", "s1", { gateway: () => ({}), texts: () => ({}) });
+  assert.equal(await env.STICKER_PICTURE_URL("at_0_X"), "https://agent.example/photon/attachment/at_0_X?e=1&s=2");
+  assert.deepEqual(asked, [{ guid: "at_0_X" }]);
+  const none = await chatEnv({}, state, "group:abc", "s1", { gateway: () => ({}), texts: () => ({}) });
+  assert.equal(none.STICKER_PICTURE_URL, undefined, "no Worker bound: none");
+});

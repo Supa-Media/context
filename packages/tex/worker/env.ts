@@ -35,6 +35,8 @@ export interface Env {
   PHOTON?: Fetcher; // service binding to the Photon bridge (infra/photon-bridge)
   /** This Worker's own https origin, worked out at deploy (`deploy-agent-worker.yml`): where Photon pictures are signed under. */
   AGENT_ORIGIN?: string;
+  /** In the gateway's chat object: a signed address for a picture on Photon's line, minted by the Worker (`TexRoutines.stickerPictureUrl`). */
+  STICKER_PICTURE_URL?: (guid: string) => Promise<string | null>;
   /** Opens the control plane's /agent-texts/* routes and nothing else. */
   AGENT_WORKER_SECRET: string;
   /** The Convex HTTP origin (…convex.site). */

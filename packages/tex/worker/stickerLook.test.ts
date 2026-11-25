@@ -3,6 +3,7 @@ import { sha256Hex } from "./groupChat";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { LOOK_AGAIN_MS, keepSticker, stickerId, stickersAsk } from "./stickers";
 import { lookAtStickers, OFF_FOR_MS } from "./stickerLook";
+import { photonAttachmentUrl } from "./photon";
 
 const NOW = 1_800_000_000_000;
 const PLACE = { line: "+15555550199", groupId: "photon-group:abc" };
@@ -26,8 +27,7 @@ function world(answer: (body: Record<string, unknown>) => unknown, status = 200)
       fetched.push(String(input));
       return new Response(PNG, { status: 200 });
     },
-    origin: "https://agent.example",
-    secret: SECRET,
+    pictureUrl: (guid: string) => photonAttachmentUrl("https://agent.example", SECRET, guid, NOW),
     now: () => NOW,
   };
   return { asked, fetched, deps };
@@ -85,11 +85,12 @@ describe("a kept sticker is looked at once, and Decide reads its words", () => {
     expect((await stickersAsk(storage)).stickerWords?.[stickerId("g4")]).toBe(`words for ${stickerId("g4")}`);
   });
 
-  it("no gateway binding, or no key to sign the picture's address: nothing is asked and nothing breaks", async () => {
+  it("no gateway binding, or no address for the picture (an older Worker): nothing is asked and nothing breaks", async () => {
     const storage = await kept("at_0_PARTY-CAT");
     const { asked, deps } = world(() => ({ when: ["looked"], words: "x; fits y" }));
     expect(await lookAtStickers(storage, PLACE, { ...deps, texts: undefined })).toBe("no_gateway");
-    expect(await lookAtStickers(storage, PLACE, { ...deps, secret: "short" })).toBe("failed");
+    expect(await lookAtStickers(storage, PLACE, { ...deps, pictureUrl: async () => null })).toBe("failed");
+    expect(await lookAtStickers(storage, PLACE, { ...deps, pictureUrl: async () => { throw new Error("no such method"); } })).toBe("failed");
     expect(asked).toHaveLength(0);
   });
 });

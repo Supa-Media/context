@@ -5,7 +5,8 @@
  *
  * After a message is kept, the chat object asks this for the chat's stickers with no words yet (`unlookedStickers`, a
  * few at a time, a failed one again after `LOOK_AGAIN_MS`): it fetches each one's picture off Photon's line by its guid
- * (a signed `/photon/attachment/<guid>` address, `photon.ts`), makes it a picture the model reads (`attachments.ts`:
+ * (a signed `/photon/attachment/<guid>` address, `photon.ts`, minted by the texting Worker over its RPC entrypoint
+ * when this object runs in the gateway, `TexRoutines.stickerPictureUrl`), makes it a picture the model reads (`attachments.ts`:
  * HEIC to JPEG), and asks the gateway's `/texts/sticker-look` on the `TexTexts` binding, naming the chat's ledger key so
  * the run is logged in the chat's record. The words that come back are kept beside the sticker (`noteLooked`).
  *
@@ -17,16 +18,14 @@ import type { Fetch } from "./clients";
 import type { TextsBinding } from "./gatewaySession";
 import { sha256Hex } from "./groupChat";
 import type { InboxStorage } from "./inbox";
-import { photonAttachmentUrl } from "./photon";
 import { noteLooked, unlookedStickers } from "./stickers";
 
 export type StickerLookDeps = {
   texts?: TextsBinding;
   fetch: Fetch;
   images?: ImagesLike;
-  /** Where Photon's pictures are served, and the key that signs their addresses (`photon.ts`). */
-  origin?: string;
-  secret?: string;
+  /** A signed address for a kept sticker's picture on Photon's line, by its guid (`photon.ts`); null where none is served. */
+  pictureUrl: (guid: string) => Promise<string | null>;
   now: () => number;
 };
 
@@ -53,7 +52,7 @@ export async function lookAtStickers(storage: InboxStorage, place: { line: strin
     for (const sticker of waiting) {
       // Tried now, whatever comes back but "off": a sticker that cannot be read waits `LOOK_AGAIN_MS` before it is tried again.
       const tried = () => noteLooked(storage, sticker.id, deps.now());
-      const url = await photonAttachmentUrl(deps.origin, deps.secret, sticker.guid, deps.now());
+      const url = await deps.pictureUrl(sticker.guid).catch(() => null);
       if (url === null) return done("failed", looked);
       const [picture] = await prepareAttachments([{ url, mimeType: "image/png", filename: "sticker", size: null }], { fetch: deps.fetch, images: deps.images });
       if (picture === undefined || !("data" in picture)) {
