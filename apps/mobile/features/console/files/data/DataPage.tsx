@@ -115,7 +115,6 @@ export function DataPage({
           ) : (
             <MetricRows metrics={metrics} compact={compact} onOpen={onOpen} header phoneLine="usedAndInputs" />
           )}
-          <View style={compact ? styles.phoneSourcesGap : undefined} />
           <SectionHead title="Sources" right={compact ? null : `Each sync adds rows to plain CSV sheets in ${name}/`} compact={compact} />
           {cards.length === 0 ? (
             <Text style={styles.none}>No sources yet. A source is a folder in {name}/ with its sheets.</Text>
@@ -132,7 +131,6 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     waiting: { minHeight: 240 },
     none: { fontSize: pointerType.ui, lineHeight: 20, color: colors.muted, marginBottom: 26 },
-    phoneSourcesGap: { height: 10 },
     empty: { alignItems: "center", gap: 8, paddingTop: 18, paddingBottom: 8, paddingHorizontal: 10 },
     emptyIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.surface3, alignItems: "center", justifyContent: "center" },
     emptyTitle: { fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600", color: colors.text, textAlign: "center" },

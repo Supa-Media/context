@@ -147,7 +147,7 @@ const makeStyles = (colors: Colors) =>
     used: { width: 110, flexShrink: 0, textAlign: "right", fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
     unused: { color: colors.chromeMuted, fontStyle: "italic" },
     problem: { fontSize: pointerType.meta, lineHeight: 16, color: colors.critText },
-    phoneList: { marginBottom: 20 },
+    phoneList: { marginBottom: 10 },
     phoneRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line, gap: 4 },
     phoneTop: { flexDirection: "row", alignItems: "center", gap: 8 },
     phoneName: { flexGrow: 1, flexShrink: 1, fontSize: touchType.ui, lineHeight: 22, fontWeight: "600", color: colors.text },
