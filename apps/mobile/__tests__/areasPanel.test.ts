@@ -135,12 +135,15 @@ describe("the Areas side panel", () => {
     await mount(host(writes, { notes }), LISTING);
     await press(one("area-row-areas/finance"));
     const panel = strip(one("area-panel").textContent);
-    for (const word of ["Owner", "Helper", "Modes", "Phone", "Email", "Tex", "Answers for", "Needs approval"]) expect(panel).toContain(word);
+    for (const word of ["Owner", "Helper", "Modes", "Phone", "Email", "Delegate", "Needs approval"]) expect(panel).toContain(word);
     const card = (key: string) => writes.filter(([path, k]) => path === "areas/people/seyi.md" && k === key).map(([, , value]) => value);
     await typeInto(one("area-panel-phone"), "+1 555 0100");
     await blur(one("area-panel-phone"));
     expect(card("phone")).toEqual(["+1 555 0100"]);
-    await press(one("area-panel-tex"));
+    // Who answers for the owner is a dropdown: Tex, one of the workspace's bots or agents, or nobody (2026-11-25).
+    await press(one("area-panel-delegate"));
+    await settle();
+    await press(one("menu-item-Tex"));
     expect(card("delegation").at(-1)).toBe("Tex");
     // The helper drops a menu of the workspace's agents, and a choice is written at once.
     await press(one("area-panel-helper"));
@@ -158,6 +161,95 @@ describe("the Areas side panel", () => {
     await blur(one("area-panel-rule-new"));
     expect(seat("approvals").at(-1)).toEqual(["Spending over $20 needs approval."]);
     expect(all("seat-dialog")).toHaveLength(0);
+  });
+
+  test("a Grok bot is added as an owner where it is drawn: whose it is, its name, then its prompt", async () => {
+    // The owner, 2026-11-25: "when you choose grokbot, it asks you like whose grokbot it is and the name of the grokbot".
+    windowOf(1440);
+    const writes: Write[] = [];
+    const notes = AREAS.map((note) => (note.path === "areas/about.md" ? { ...note, properties: { agents: ["Claude"] } } : note));
+    await mount(host(writes, { notes }), LISTING);
+    await press(one("area-row-areas/finance"));
+    await press(one("area-panel-owner"));
+    await settle();
+    await press(one("menu-item-__add_bot__"));
+    expect(all("area-panel-add-bot")).toHaveLength(1);
+    await press(one("area-panel-add-bot-whose"));
+    await settle();
+    await press(one("menu-item-@seyi"));
+    await typeInto(one("area-panel-add-bot-name"), "Finance Bot");
+    await press(one("area-panel-add-bot-save"));
+    await settle();
+    const at = (path: string, key: string) => writes.filter(([p, k]) => p === path && k === key).map(([, , value]) => value);
+    expect(at("areas/about.md", "agents").at(-1)).toBe("Claude, Finance Bot");
+    expect(at("areas/people/finance-bot.md", "bot").at(-1)).toBe("grok");
+    expect(at("areas/people/finance-bot.md", "belongs_to").at(-1)).toBe("@seyi");
+    expect(at("areas/finance/about.md", "owner").at(-1)).toBe("Finance Bot");
+    // No login, key or address is ever written to the card.
+    expect(writes.filter(([p, k]) => p === "areas/people/finance-bot.md" && /secret|token|key|password|url|webhook/i.test(k))).toEqual([]);
+  });
+
+  test("a bot holding an area shows its prompt, naming the area and its modes", async () => {
+    windowOf(1440);
+    const notes: ListNote[] = [
+      ...AREAS.map((note) =>
+        note.path === "areas/about.md"
+          ? { ...note, properties: { agents: ["Claude", "Finance"] } }
+          : note.path === "areas/finance/about.md"
+            ? { ...note, properties: { owner: "Finance", modes: ["Manager"] } }
+            : note,
+      ),
+      { path: "areas/people/finance.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi" } },
+    ];
+    await mount(host([], { notes }), LISTING);
+    await press(one("area-row-areas/finance"));
+    expect(all("area-panel-prompt")).toHaveLength(1);
+    const text = strip(one("area-panel-prompt-text").textContent);
+    expect(text).toContain("You are Finance, @seyi's Grok bot.");
+    expect(text).toContain('area: "areas/finance"');
+    expect(text).toContain("Manager:");
+    // The owner menu lists it with whose bot it is.
+    await press(one("area-panel-owner"));
+    await settle();
+    expect(strip(one("menu-item-Finance").textContent)).toContain("@seyi's Grok bot");
+  });
+
+  test("a person who delegates to a bot gets the delegate's prompt, covering every area they hold", async () => {
+    windowOf(1440);
+    const notes: ListNote[] = [
+      ...AREAS.map((note) => (note.path === "areas/about.md" ? { ...note, properties: { agents: ["Chief"] } } : note)),
+      { path: "areas/people/chief.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi" } },
+      { path: "areas/people/seyi.md", properties: { kind: "person", delegation: "Chief" } },
+    ];
+    await mount(host([], { notes }), LISTING);
+    await press(one("area-row-areas/finance"));
+    expect(strip(one("area-panel-delegate").textContent)).toContain("Chief answers for @seyi");
+    const text = strip(one("area-panel-delegate-prompt-text").textContent);
+    expect(text).toContain("You act for @seyi");
+    expect(text).toContain('for: "@seyi"');
+  });
+
+  test("an area's mail is a folder with one note per sender: listed in the panel, and a first message starts your own", async () => {
+    // The owner, 2026-11-25: "mail is a folder and then per person it's one note, or per, not just per person, per AI".
+    windowOf(1440);
+    const writes: Write[] = [];
+    const files: string[] = [];
+    const notes: ListNote[] = [...AREAS, { path: "areas/finance/mail/pipeline.md", properties: {} }];
+    const bodies = { "areas/finance/mail/pipeline.md": "# Mail with Finance\n\n```mail\n- 2026-11-25T03:00:00.000Z pipeline (Grok) to everyone: CI is red again.\n```\n" };
+    const { selected } = await mount(host(writes, { notes, files, bodies }), LISTING);
+    await press(one("area-row-areas/finance"));
+    await settle();
+    // The mail folder is the Mail section, never a plain folder in the area's notes.
+    expect(all("area-panel-note-areas/finance/mail")).toHaveLength(0);
+    expect(strip(one("area-panel-mail-pipeline").textContent)).toContain("pipeline: CI is red again.");
+    await typeInto(one("area-panel-mail-input"), "Why did spend jump on Friday?");
+    await press(one("area-panel-mail-send"));
+    await settle();
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^create areas\/finance\/mail\/seyi\.md\n# Mail with @seyi\n\n```mail\n- \S+ @seyi to everyone: Why did spend jump on Friday\?\n```\n$/);
+    expect(all("area-panel-mail-input")).toHaveLength(0);
+    await press(one("area-panel-mail-pipeline"));
+    expect(selected).toEqual(["areas/finance/mail/pipeline.md"]);
   });
 
   test("in a console the area goes in the right panel, where Meetings is, not in the page", async () => {

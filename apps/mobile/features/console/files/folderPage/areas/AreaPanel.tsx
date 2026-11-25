@@ -25,6 +25,7 @@ import { useColors, useThemedStyles, type Colors } from "../../../../design/them
 import { folderLabel } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import { headlineOf } from "./headline";
+import { PanelMail, type PanelMailTools } from "./PanelMail";
 import { InlineField, PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
 import type { Reading } from "./readings";
 import { readingSource, type AreaReading } from "./areaMetric";
@@ -46,6 +47,8 @@ export interface AreaPanelProps {
   onSave: (seat: Seat, edit: SeatEdit, cards: readonly Card[]) => Promise<string | null>;
   /** The owner pickers' people, agents and cards. */
   tools: PanelSeatTools;
+  /** The area's mail, one note per sender; absent where there is none to show. */
+  mail?: PanelMailTools;
   /** Shows another area here. */
   onPeek: (folder: string) => void;
   /** Opens an area's own page. */
@@ -58,7 +61,7 @@ function editOf(seat: Seat, patch: Partial<SeatEdit>): SeatEdit {
   return { owner: seat.ownOwner, helper: seat.helper, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
 }
 
-export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, onPeek, onOpen, onClose }: AreaPanelProps) {
+export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, mail, onPeek, onOpen, onClose }: AreaPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
@@ -174,6 +177,12 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
           write={(patch, cards) => void write(patch, cards)}
         />
       </Section>
+
+      {mail === undefined || top !== undefined ? null : (
+        <Section title="Mail">
+          <PanelMail area={seat.folder} holder={owner} label={tools.label} tools={mail} />
+        </Section>
+      )}
 
       {seat.approvals.length === 0 && !canEdit ? null : (
         <Section title="Needs approval">

@@ -428,6 +428,7 @@ export function FolderView({
           host={page}
           fallbackTitle={folderLabel(baseName(entry.path)) || contextLabel}
           workspaceName={areaTitle(contextLabel.replace(/^@/, ""))}
+          workspaceHandle={contextLabel}
           icon={entry.path === "" ? null : (iconOf?.(entry.path) ?? null)}
           compact={compact}
           pageWidth={pageWidth}

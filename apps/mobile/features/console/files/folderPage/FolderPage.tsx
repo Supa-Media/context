@@ -112,6 +112,7 @@ export function FolderPage({
   host,
   fallbackTitle,
   workspaceName = "Areas",
+  workspaceHandle,
   icon = null,
   compact,
   pageWidth = 0,
@@ -131,6 +132,8 @@ export function FolderPage({
   fallbackTitle: string;
   /** What the workspace is called ("Supa"): the top of the Areas folder's List and Chart. */
   workspaceName?: string;
+  /** The workspace's handle, `@supa`, which a bot's prompt names. */
+  workspaceHandle?: string;
   /** The folder's own emoji, drawn before its title. */
   icon?: string | null;
   compact: boolean;
@@ -522,6 +525,8 @@ export function FolderPage({
             isAgent={agents.isAgent}
             people={searchOwners}
             agents={agentList}
+            {...(agents.addAgent === null ? {} : { addAgent: agents.addAgent })}
+            {...(workspaceHandle === undefined ? {} : { workspace: workspaceHandle })}
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
             {...(host?.source.readBody === undefined ? {} : { readBody: host.source.readBody })}

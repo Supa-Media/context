@@ -440,7 +440,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [Archive keeps the workspace's shape](./app-and-console/folder-jobs.md#archive-keeps-the-workspaces-shape) (2026-10-18); [Built-in folders have no number in front](./app-and-console/folder-jobs.md#built-in-folders-have-no-number-in-front) (2026-10-21)
 - [Context fills a note's date created and date modified itself](./app-and-console/date-properties.md) (2026-11-10)
 - [Each folder has a Sort setting, shared by everyone in the workspace](./app-and-console/folder-sort.md) (2026-11-04)
-- [Areas are seats: the Areas folder is a List and a Chart of who holds what](./app-and-console/areas-as-seats.md) (2026-11-23); [Sheet sources: a key adds rows to one sheet from anything that can send an HTTP request](./app-and-console/sheet-sources.md) (2026-11-24)
+- [Areas are seats: the Areas folder is a List and a Chart of who holds what](./app-and-console/areas-as-seats.md) (2026-11-23); [Sheet sources: a key adds rows to one sheet from anything that can send an HTTP request](./app-and-console/sheet-sources.md) (2026-11-24); [Bots hold areas: a Grok bot is an owner you can pick, prompt and talk to](./app-and-console/area-bots.md) (2026-11-25)
 - [Experiments, case groups and how sure a score is](./app-and-console/admin-ai.md#experiments-case-groups-and-how-sure-a-score-is-boards-17-22) (2026-10-16)
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)

@@ -142,5 +142,7 @@ worked out from the Data folder's datasets
 ([data-and-metrics](../data-and-metrics.md), 2026-11-24); an area's own
 `metrics.csv` keeps working until then.
 
-**Not built yet.** and Tex previewing a change on the Chart as it
+**Bots** hold seats too, with a prompt that names their area and a delegate's prompt for a person's whole set: [area-bots](./area-bots.md) (2026-11-25).
+
+**Not built yet.** Tex previewing a change on the Chart as it
 is typed. Tex already sets a seat or a card by writing the note.

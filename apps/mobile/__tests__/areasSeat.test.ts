@@ -370,7 +370,7 @@ describe("cardOf", () => {
       delegation: "Tex",
       delegationHow: "",
       access: "",
-      vault: "",
+      vault: "", bot: "", belongsTo: "", reach: "mail",
       creates: false,
     });
   });
@@ -396,6 +396,9 @@ describe("cardChanges", () => {
     delegationHow: "should not be written",
     access: "should not be written",
     vault: "should not be written",
+    bot: "",
+    belongsTo: "",
+    reach: "mail",
   };
   const agent: Card = {
     holder: "Claude Code",
@@ -406,6 +409,9 @@ describe("cardChanges", () => {
     delegationHow: "ask in #ops",
     access: "Claude Code in the dev2 repo",
     vault: "dev2 agent item",
+    bot: "",
+    belongsTo: "",
+    reach: "mail",
   };
 
   test("a person's card never writes access or vault", () => {
@@ -455,7 +461,7 @@ describe("reachLine", () => {
       delegation: "Other Bot",
       delegationHow: "ask in #ops",
       access: "",
-      vault: "",
+      vault: "", bot: "", belongsTo: "", reach: "mail",
     });
     expect(line).toBe("+1 555 010 0177 · dev2@example.com · delegates to Other Bot (ask in #ops)");
   });
@@ -469,7 +475,7 @@ describe("reachLine", () => {
       delegation: "Tex",
       delegationHow: "ignored",
       access: "",
-      vault: "",
+      vault: "", bot: "", belongsTo: "", reach: "mail",
     });
     expect(line).toBe("dev2@example.com · delegates to Tex");
   });
@@ -484,12 +490,15 @@ describe("reachLine", () => {
       delegationHow: "",
       access: "Claude Code in the dev2 repo",
       vault: "dev2 agent item",
+      bot: "",
+      belongsTo: "",
+      reach: "mail",
     });
     expect(line).toBe("Claude Code in the dev2 repo · login in the vault: dev2 agent item");
   });
 
   test("an empty card gives an empty line", () => {
-    expect(reachLine({ holder: "@dev2", kind: "person", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "" })).toBe("");
+    expect(reachLine({ holder: "@dev2", kind: "person", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "", belongsTo: "", reach: "mail" })).toBe("");
   });
 });
 
@@ -501,5 +510,30 @@ describe("a single-line rule keeps its commas", () => {
     ]);
     expect(seat.approvals).toEqual(["Spending over $20, or hiring, needs Seyi"]);
     expect(seat.modes).toEqual(["Manager", "Doer"]);
+  });
+});
+
+describe("bot cards (the owner, 2026-11-25: Grok bots own areas)", () => {
+  const ROOT_B = "areas";
+  test("a bot card says what kind of bot, whose it is and how it is reached", () => {
+    const card = cardOf("Finance", "agent", ROOT_B, [note("areas/people/finance.md", { kind: "agent", bot: "Grok", belongs_to: "@seyi", reach: "webhook" })]);
+    expect(card).toMatchObject({ kind: "agent", bot: "grok", belongsTo: "@seyi", reach: "webhook" });
+  });
+
+  test("an unknown bot word is a plain agent, and a bot with no reach checks its own mail", () => {
+    const card = cardOf("Finance", "agent", ROOT_B, [note("areas/people/finance.md", { kind: "agent", bot: "toaster" })]);
+    expect(card).toMatchObject({ bot: "", reach: "mail" });
+  });
+
+  test("a bot's lines are written for a bot, and never for a person or a plain agent", () => {
+    const bot: Card = { holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail" };
+    expect(cardChanges(bot)).toEqual(expect.arrayContaining([["bot", "grok"], ["belongs_to", "@seyi"], ["reach", "mail"]]));
+    expect(cardChanges({ ...bot, bot: "" })).toEqual(expect.arrayContaining([["bot", null], ["belongs_to", null], ["reach", null]]));
+    expect(cardChanges({ ...bot, kind: "person" })).toEqual(expect.arrayContaining([["bot", null], ["belongs_to", null], ["reach", null]]));
+  });
+
+  test("a bot's reach line says whose bot it is", () => {
+    const line = reachLine({ holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail" });
+    expect(line).toBe("@seyi's Grok bot");
   });
 });

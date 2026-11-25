@@ -37,6 +37,18 @@ export function coreToolDefinitions() {
               "Optional. The orient_mark an earlier orient ended with: answers with only what changed since then, " +
               "much shorter and faster than the overview. Use it to orient again in the same session.",
           },
+          area: {
+            type: "string",
+            description:
+              "Optional. An area's folder (e.g. \"areas/finance\"): orient in that one area, as the bot that holds it: its owner, " +
+              "modes and what they ask, metric, approval rules, notes, mail, attached projects and where to write.",
+          },
+          for: {
+            type: "string",
+            description:
+              "Optional. A person or bot (e.g. \"@seyi\"): every area they hold or help in, with each one's modes, metric and rules, " +
+              "for a bot that acts for them.",
+          },
         },
         additionalProperties: false,
       },

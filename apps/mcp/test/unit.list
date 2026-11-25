@@ -788,3 +788,4 @@ test/dataFormula.test.mjs
 test/dataSync.test.mjs
 test/dataSyncObject.test.mjs
 test/dataSyncSnap.test.mjs
+test/orientArea.test.mjs
