@@ -42,6 +42,7 @@ import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { hashToken } from "./lib/crypto";
 import { newSourceKey } from "./lib/sheetSourceKeys";
 import { normalizePath } from "./lib/fileOps";
+import { isSheetPath } from "@context/shared/src/fileKinds.cjs";
 import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
@@ -68,7 +69,7 @@ function sourceName(name: string): string {
 
 function sheetPath(path: string): string {
   const normal = normalizePath(path);
-  if (normal === null || !normal.toLowerCase().endsWith(".csv")) {
+  if (normal === null || !isSheetPath(normal)) {
     throw new ConvexError({ code: "NOT_A_SHEET", message: "A source adds rows to a sheet: a .csv file." });
   }
   return normal;

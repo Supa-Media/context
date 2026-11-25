@@ -254,6 +254,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 ## [Folder lists](./folder-lists.md)
 
 - [Sheets: one `.csv` per sheet, types in its header, saved and shared like a note](./sheets.md) (2026-11-23)
+- [File kinds: one list says what a path is, never a hard-coded `.md`](./file-kinds.md) (2026-11-25)
 - Nothing about it is website-specific
 - Selection only ever narrows
 - A block that does not parse draws its error

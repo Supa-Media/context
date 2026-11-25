@@ -775,6 +775,7 @@ test/sectionReads.test.mjs
 test/sectionWrites.test.mjs
 test/sectionCap.test.mjs
 test/sheets.test.mjs
+test/fileKinds.test.mjs
 test/readSheet.test.mjs
 test/labSandboxWorld.test.mjs
 test/labSandboxWorldLocal.test.mjs

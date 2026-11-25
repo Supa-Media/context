@@ -228,7 +228,10 @@ export function parsePrivacyManifest(text: string): PrivacyManifest {
     if (section === "folders") {
       rules.push({ prefix: path, vis: match[2] as Visibility });
     } else {
-      if (!path.endsWith(".md") || foldPath(path) === PRIVACY_KEY) {
+      // A sheet's override too, exactly as the gateway's parser (`apps/mcp/src/privacy/engine.js`) takes it: refusing
+      // one here made the whole manifest unreadable, so every note in the workspace failed closed. Spelled out rather
+      // than imported from `fileKinds.cjs`, because this port and the engine import nothing (see the top of this file).
+      if (!(path.endsWith(".md") || path.endsWith(".csv")) || foldPath(path) === PRIVACY_KEY) {
         throw new Error(`invalid exact-note privacy path: ${path}`);
       }
       overrides.set(path, match[2] as Visibility);

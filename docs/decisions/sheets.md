@@ -19,7 +19,9 @@ owner turned a sidecar down ("a YAML and a CSV, that feels like a lot"). Any
 spreadsheet opens the file, and a typed header reads as a column name there.
 
 The extension stays `.csv`, not `.csv.md`: every tool that opens a CSV knows
-it, and the Markdown readers would mangle it.
+it, and the Markdown readers would mangle it. Which paths are sheets is the file-kinds list's
+to say, and only an exact `.csv` is one ([file-kinds](./file-kinds.md),
+2026-11-25).
 
 What a simplification would cost: types kept anywhere but the header means two
 files that drift, and an export that is not the whole sheet.
