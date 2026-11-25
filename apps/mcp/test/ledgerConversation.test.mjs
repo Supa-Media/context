@@ -5,6 +5,7 @@
 //  1. Showing a Tex text whose turn has no reply entry → "a Tex text no reply vouches for is never shown" fails.
 //  2. `tainted` from the Tex text instead of the reply's `clean` → "an answer is tainted unless its reply says clean" fails.
 //  3. Dropping the pairing of told copies (showing both) → "the Worker's and the gateway's copy of a fixed text show once" fails.
+//  4. (2026-11-25) Dropping the branch for the Worker's own fixed lines → "a fixed line the Worker sent is shown as said" fails.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -104,4 +105,21 @@ test("the ledger is read marked or not: every chat's past is copied in, and the 
   const marked = [...chat, { v: 1, id: BACKFILLED, at: 1, kind: "note", text: "(copied in)", backfill: "mark", seq: 0 }];
   assert.deepEqual((await readLedgerConversation(storeWith(marked))).map((turn) => turn.text), ["hi", "Hey."]);
   assert.equal(await readLedgerConversation({}), null, "no ledger: no conversation");
+});
+
+test("a fixed line the Worker sent is shown as said; an unsent or empty one is not", () => {
+  const line = (ms, n, text, extra = {}) => eventEntry({ id: `${T + ms}-${String(n).padStart(6, "0")}`, at: T + ms, from: { kind: "system" }, kind: "text", text, ...extra });
+  const turns = conversationFromLedger(at([
+    person(0, 1, "share @studio with everyone here"),
+    reply("turnI1234", true),
+    tex(1_000, 2, "Adding everyone here to @studio.", "turnI1234"),
+    line(2_000, 3, "Done. I invited 1 person here to @studio as editors."),
+    line(3_000, 4, "Never went out.", { delivered: false }),
+    line(4_000, 5, "   "),
+  ]));
+  assert.deepEqual(turns.slice(2), [
+    { role: "user", text: TOLD_QUESTION, id: `ev${T + 2_000}000003`, at: T + 2_000 },
+    { role: "assistant", text: "Done. I invited 1 person here to @studio as editors." },
+  ]);
+  assert.equal(turns.length, 4);
 });

@@ -17,7 +17,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 import { hashToken } from "../functions/lib/crypto";
-import { groupName } from "../functions/texPage";
+import { distinctNames, groupName } from "../functions/texPage";
 
 const ADA_CHAT = "ab".repeat(32);
 const BO_CHAT = "cd".repeat(32);
@@ -230,5 +230,20 @@ describe("a group chat's name on the page", () => {
     expect(groupName(["You", "bo", "cy"])).toBe("@bo, @cy");
     expect(groupName(["You", "bo", "cy", "dee", "Someone"])).toBe("@bo, @cy +2");
     expect(groupName(["You"])).toBe("Group chat");
+  });
+
+  // Sabotage: returning the chats as they are fails this.
+  test("two chats with one name are told apart by the day each started, where the person is", () => {
+    const nov24 = Date.UTC(2026, 10, 25, 3, 0); // Nov 24, 10 PM in New York
+    const nov25 = Date.UTC(2026, 10, 25, 20, 0);
+    const named = distinctNames(
+      [
+        { name: "@bo", startedAt: nov24 },
+        { name: "@bo", startedAt: nov25 },
+        { name: "@cy", startedAt: nov25 },
+      ],
+      "America/New_York",
+    );
+    expect(named.map((chat) => chat.name)).toEqual(["@bo (since Nov 24)", "@bo (since Nov 25)", "@cy"]);
   });
 });

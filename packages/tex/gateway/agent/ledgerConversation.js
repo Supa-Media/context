@@ -141,6 +141,12 @@ export function conversationFromLedger(entries, { question: asQuestion = null, m
         if (Number.isSafeInteger(entry.at)) toldAt.set(`${source}:${entry.told}`, { at: entry.at, paired: false });
         flush();
         turns.push({ role: "user", text: TOLD_QUESTION, ...(typeof entry.id === "string" ? { id: entry.id } : {}), ...(Number.isSafeInteger(entry.at) ? { at: entry.at } : {}) }, { role: "assistant", text: TOLD[entry.told] });
+      } else if (from === "system" && entry.told === undefined && entry.delivered !== false && typeof entry.text === "string" && entry.text.trim() !== "") {
+        // A fixed line the Worker sent with no model (a group invite's result, `groupInvite.ts`; a refusal; a notice):
+        // shown as said, so Tex knows what the chat was told (2026-11-25: Tex, never shown "Done. I invited 1 person",
+        // told the chat the invite had failed and made up a reason).
+        flush();
+        turns.push({ role: "user", text: TOLD_QUESTION, ...(typeof entry.id === "string" ? { id: entry.id } : {}), ...(Number.isSafeInteger(entry.at) ? { at: entry.at } : {}) }, { role: "assistant", text: entry.text.trim() });
       } else if (from === "tex" && entry.delivered !== false && typeof entry.text === "string" && entry.text.trim() !== "") {
         const turn = entry.turn;
         if (typeof turn !== "string" || !replies.has(turn) || byItself.has(turn)) continue;
