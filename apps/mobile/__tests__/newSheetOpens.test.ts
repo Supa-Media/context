@@ -9,7 +9,6 @@ import { createRoot } from "react-dom/client";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
 import { untitledStem } from "../features/console/files/untitled";
-import { isBlankNewNote } from "../features/offline/blankNewNote";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -20,15 +19,16 @@ import { isBlankNewNote } from "../features/offline/blankNewNote";
  * page the way a note does"*. A sheet was written first and opened only from
  * the write's answer, so the page stayed on whatever it showed for a round
  * trip, and a press elsewhere meanwhile left the sheet in the tree unopened.
- * Now it opens at once from its header row, with no version, like an untitled
- * note (`unsentNotes.ts`); the first save of an edit is the create, and one
- * left as its header row alone is never written.
+ * Now it opens at once from its header row, like an untitled note
+ * (`unsentNotes.ts`), and is written straight after as the editor's own first
+ * save: an empty sheet is still a file, one Tex can be asked to fill.
  *
  * ## Sabotage record
  *
  * Applied as local edits, suite run, named tests observed failing, reverted.
  *
- *   both changes reverted (a sheet written first, no blank-sheet rule)   4
+ *   `createUntitled` sending a sheet to `createNote` again (write first)   3
+ *   the first write sent in the press's tick, not from the effect         1
  */
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -53,6 +53,7 @@ import { useFileBrowser } from "../features/console/files/useFileBrowser";
 const FOLDER = "0-inbox";
 const STEM = untitledStem(new Date());
 const MADE = `${FOLDER}/${STEM}.csv`;
+const NEXT = `${FOLDER}/${STEM}-2.csv`;
 const SEED = "name,notes\n";
 
 function name(fn: string): string {
@@ -91,10 +92,6 @@ function listing(path: string): FolderListing {
         }]
       : [];
   return { path, folderDefault: "private", truncated: false, manifestUsable: true, entries: [...folders, ...notes] };
-}
-
-function written(): string[] {
-  return calls.filter((c) => c.name === name("writeNote")).map((c) => (c.args as { path: string }).path);
 }
 
 function rows(): string[] {
@@ -175,9 +172,11 @@ describe("a new sheet", () => {
     unmount = null;
   });
 
-  test("opens on the press, drawn in its folder, with nothing written or read", async () => {
+  test("opens on the press, drawn in its folder, before any answer", async () => {
     unmount = await ready();
     calls.length = 0;
+    // The create never answers: the sheet must be open anyway.
+    actions[name("writeNote")] = () => new Promise(() => {});
 
     await act(async () => {
       browser.createUntitled(FOLDER, "sheet");
@@ -185,11 +184,10 @@ describe("a new sheet", () => {
 
     expect(browser.selectedPath).toBe(MADE);
     expect(browser.editor.path).toBe(MADE);
-    expect(browser.editor.etag).toBeNull();
     expect(browser.editor.draft).toBe(SEED);
     expect(browser.opening).toBeNull();
     expect(rows()).toContain(MADE);
-    expect(calls.filter((c) => c.name === name("writeNote") || c.name === name("readNote"))).toEqual([]);
+    expect(calls.filter((c) => c.name === name("readNote"))).toEqual([]);
   });
 
   test("does not wait for a folder nobody has listed yet", async () => {
@@ -207,8 +205,31 @@ describe("a new sheet", () => {
     expect(browser.editor.draft).toBe(SEED);
   });
 
-  test("the first save of an edit is the create, at the sheet's .csv name", async () => {
+  test("is written at once, behind the open, as a create", async () => {
     unmount = await ready();
+    await act(async () => {
+      browser.createUntitled(FOLDER, "sheet");
+    });
+    await settle();
+
+    const write = calls.find((c) => c.name === name("writeNote"))?.args as { path: string; expectedEtag?: string };
+    expect(write.path).toBe(MADE);
+    // A create: no version, so the server refuses it over a sheet already there.
+    expect(write.expectedEtag).toBeUndefined();
+    expect(files.get(MADE)).toBe(SEED);
+    expect(browser.editor.path).toBe(MADE);
+    expect(browser.editor.etag).toBe(`etag:${MADE}:${SEED.length}`);
+  });
+
+  test("an edit made while the create is out goes next, on top of its version", async () => {
+    unmount = await ready();
+    const real = actions[name("writeNote")]!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    actions[name("writeNote")] = async (args: never) => {
+      await gate;
+      return real(args);
+    };
     await act(async () => {
       browser.createUntitled(FOLDER, "sheet");
     });
@@ -219,44 +240,46 @@ describe("a new sheet", () => {
     await act(async () => {
       browser.save();
     });
+    await act(async () => {
+      release();
+    });
+    await settle();
     await settle();
 
-    const write = calls.find((c) => c.name === name("writeNote"))?.args as { path: string; expectedEtag?: string };
-    expect(write.path).toBe(MADE);
-    expect(write.expectedEtag).toBeUndefined();
+    const writes = calls.filter((c) => c.name === name("writeNote")).map((c) => c.args as { path: string; text: string; expectedEtag?: string });
+    expect(writes.map((w) => w.path)).toEqual([MADE, MADE]);
+    expect(writes[1]!.expectedEtag).toBe(`etag:${MADE}:${SEED.length}`);
     expect(files.get(MADE)).toBe(text);
-    expect(browser.editor.etag).toBe(`etag:${MADE}:${text.length}`);
   });
 
-  test("left as its header row alone, it is not saved and its row goes", async () => {
+  test("a name taken behind the listing's back moves on to the next one", async () => {
+    files.set(MADE, "a,b\n");
+    unlisted.add(MADE);
     unmount = await ready();
     await act(async () => {
       browser.createUntitled(FOLDER, "sheet");
     });
+    await settle();
+    await settle();
+
+    expect(files.get(MADE)).toBe("a,b\n");
+    expect(files.get(NEXT)).toBe(SEED);
+    expect(browser.editor.path).toBe(NEXT);
+    expect(browser.selectedPath).toBe(NEXT);
+  });
+
+  test("left without an edit, it stays: an empty sheet is still a file", async () => {
+    unmount = await ready();
     await act(async () => {
-      browser.save();
+      browser.createUntitled(FOLDER, "sheet");
     });
+    await settle();
     await act(async () => {
       browser.select("index.md");
     });
     await settle();
 
-    expect(written()).toEqual([]);
-    expect(files.has(MADE)).toBe(false);
-    expect(rows()).not.toContain(MADE);
-    expect(browser.editor.path).toBe("index.md");
-  });
-});
-
-describe("which new sheets are blank", () => {
-  test("an untitled sheet still holding its header row, or nothing, is blank", () => {
-    expect(isBlankNewNote("untitled-2026-11-25.csv", SEED)).toBe(true);
-    expect(isBlankNewNote("0-inbox/untitled-2026-11-25-2.csv", "  ")).toBe(true);
-  });
-
-  test("a row, a renamed column, or a sheet somebody named is not", () => {
-    expect(isBlankNewNote("untitled-2026-11-25.csv", "name,notes\n,\n")).toBe(false);
-    expect(isBlankNewNote("untitled-2026-11-25.csv", "item,notes\n")).toBe(false);
-    expect(isBlankNewNote("budget.csv", SEED)).toBe(false);
+    expect(files.get(MADE)).toBe(SEED);
+    expect(rows()).toContain(MADE);
   });
 });

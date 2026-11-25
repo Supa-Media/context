@@ -9,9 +9,6 @@
 
 const DRAWING = /\.excalidraw\.md$/i;
 const GENERATED = /^untitled-\d{4}-\d{2}-\d{2}(-\d+)?\.md$/i;
-const GENERATED_SHEET = /^untitled-\d{4}-\d{2}-\d{2}(-\d+)?\.csv$/i;
-/** What a new sheet starts as: its header row alone (`newSheetText` in the gateway's `sheets/csv.js`). */
-const SHEET_SEED = "name,notes";
 
 /**
  * Nothing has been written in this new note: an untitled name, and either
@@ -19,17 +16,12 @@ const SHEET_SEED = "name,notes";
  * 2026-11-05), or only the heading one was made with before that
  * (`# untitled-…`, which a draft kept on a device may still hold).
  *
- * An untitled sheet (`untitled-<date>.csv`) is blank while it is still the
- * header row it was made with, and nothing else.
- *
  * Narrow on purpose. A note somebody named, or whose heading they typed (which
  * renames it, `useLinkedTitle`), has something in it; so has a drawing, which
  * is never seeded with a heading.
  */
 export function isBlankNewNote(path: string, text: string): boolean {
   const name = path.slice(path.lastIndexOf("/") + 1);
-  // An untitled sheet nobody has typed in is still its header row alone.
-  if (GENERATED_SHEET.test(name)) return text.trim() === "" || text.trim() === SHEET_SEED;
   if (DRAWING.test(name) || !GENERATED.test(name)) return false;
   const body = text.trim();
   if (body === "") return true;
