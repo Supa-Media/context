@@ -4,9 +4,9 @@
  * 2026-11-14, so there is no other place to look (part C of the runtime simplification, Dev2 approved
  * https://claude.ai/artifact/AcEGnAtBKWqeTAcXa1vveX, retired `jobPlace.ts`'s born-where probe and the `JOBS` switch).
  *
- * A gateway with no job home (a 501: a Lab test chat, whose jobs are its own objects, or self-hosting without `TEX_JOB`)
- * and a Worker without the `GATEWAY_TEXTS` binding reach the job by name in `SENDER_INBOX`, as those always did. The
- * request's path, body and answer pass through unchanged.
+ * A gateway with no job home (a 501: a Lab test chat, whose jobs are its own objects) reaches the job by name in the
+ * chat's own `SENDER_INBOX`, which the Lab gives it. The texting Worker has none (its SenderInbox class is deleted,
+ * 2026-11-25): there, a 501 is the answer. The request's path, body and answer pass through unchanged.
  */
 
 import type { TextsBinding } from "./gatewaySession";
@@ -15,7 +15,7 @@ import { inboxByName } from "./objectPlace";
 /** The gateway's job-call route on the `TexTexts` binding; a job's own route is appended to it. */
 const JOB_CALL = "https://gateway/texts/job-call";
 
-export type JobObjectEnv = { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding };
+export type JobObjectEnv = { SENDER_INBOX?: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding };
 
 export type JobObject = { fetch(input: string | URL, init?: RequestInit): Promise<Response> };
 
@@ -24,11 +24,11 @@ export function jobObject(env: JobObjectEnv, jobId: string): JobObject {
   const binding = env.GATEWAY_TEXTS;
   return {
     async fetch(input: string | URL, init?: RequestInit): Promise<Response> {
-      if (binding === undefined) return await inboxByName(env.SENDER_INBOX, name).fetch(input, init);
+      if (binding === undefined) return env.SENDER_INBOX === undefined ? new Response(null, { status: 501 }) : await inboxByName(env.SENDER_INBOX, name).fetch(input, init);
       const headers = new Headers(init?.headers);
       headers.set("x-inbox-name", name);
       const there = await binding.fetch(`${JOB_CALL}${new URL(String(input)).pathname}`, { ...init, headers });
-      if (there.status !== 501) return there;
+      if (there.status !== 501 || env.SENDER_INBOX === undefined) return there;
       return await inboxByName(env.SENDER_INBOX, name).fetch(input, init);
     },
   };

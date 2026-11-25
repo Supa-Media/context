@@ -5,7 +5,7 @@
  *       │
  *       ├─▶ control plane: which runs are due? (each with its own grant)
  *       ├─▶ gateway /agent {routine}: run it, as its writer
- *       ├─▶ SenderInbox for each phone: text the answer to the chat it
+ *       ├─▶ the chat for each phone: text the answer to the chat it
  *       │                               last texted from
  *       └─▶ control plane: the outcome and how many phones were texted
  *
@@ -142,7 +142,7 @@ const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
 /** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`; `source` and `turn` tag the Tex text it records. */
 export async function textPhone(
-  env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding },
+  env: { GATEWAY_TEXTS?: TextsBinding },
   phone: string,
   text: string,
   idempotencyKey: string,

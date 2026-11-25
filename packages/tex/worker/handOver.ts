@@ -1,10 +1,11 @@
 /**
  * Every incoming text's head runs in the gateway (step 3 of Tex's config graph, docs/architecture/tex.md): the webhook
- * hands it to the gateway's `TexTexts` entrypoint at `/texts/arrive`, which queues it in the gateway's TexChat. The
- * `INTAKE` switch that picked between this and the Worker's SenderInbox is gone (every chat moved 2026-11-22).
+ * hands it to the gateway's `TexTexts` entrypoint at `/texts/arrive`, which queues it in the gateway's TexChat, the only
+ * place a chat lives (part C of the runtime simplification: the Worker's SenderInbox class is deleted, 2026-11-25).
  *
- * A hand-over that fails (a non-200, a throw, an outcome it does not know) falls back to the SenderInbox, so a text
- * is never dropped by the move. The log names the kind and the outcome, never the text, the phone or the inbox name.
+ * A hand-over that fails (a non-200, a throw, an outcome it does not know) answers the webhook 503, so the provider
+ * sends the text again (Photon's pump retries every 5xx, `infra/photon-bridge/src/pump.ts`), and the chat drops the
+ * repeat by its event id. The log names the kind and the outcome, never the text, the phone or the inbox name.
  */
 
 import type { TextsBinding } from "./gatewaySession";
@@ -56,9 +57,9 @@ function eventIdOf(message: unknown): string | undefined {
 }
 
 /**
- * The Worker's one call site per forward. Returns the Response to answer the webhook with when the gateway took the
- * text (200 for every outcome, as the SenderInbox's own routes answer: the webhook is not asked to send it again), or null
- * when the SenderInbox should take it: the binding is absent (self-hosting without it), or the hand-over failed.
+ * The Worker's one call site per forward: the Response to answer the webhook with. 200 for every outcome the chat
+ * gave (as its routes answer: the webhook is not asked to send it again); 503 when the hand-over failed, so the
+ * webhook sends it again; 501 when this Worker has no gateway bound to hand it to.
  */
 export async function toChat(
   env: { GATEWAY_TEXTS?: TextsBinding },
@@ -66,12 +67,8 @@ export async function toChat(
   inbox: string,
   message: unknown,
   origin?: string,
-): Promise<Response | null> {
-  if (env.GATEWAY_TEXTS === undefined) return null;
+): Promise<Response> {
+  if (env.GATEWAY_TEXTS === undefined) return new Response(null, { status: 501 });
   const outcome = await handOver(env.GATEWAY_TEXTS, { kind, inbox, eventId: eventIdOf(message), message, origin });
-  if (outcome === "failed") {
-    console.log(JSON.stringify({ event: "intake_handover_fallback", kind }));
-    return null;
-  }
-  return new Response(null, { status: 200 });
+  return new Response(null, { status: outcome === "failed" ? 503 : 200 });
 }

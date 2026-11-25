@@ -29,7 +29,7 @@ import { readGroupMembers, sendGroupText } from "./sendblueGroups";
 import { logStep } from "./stepEvents";
 import type { MoveBody, MoveOutcome } from "./moveChats";
 
-/** The one object that knows which groups moved: a SenderInbox by this name, used for these keys alone. */
+/** The one object that knows which groups moved: a chat object (in the gateway) by this name, used for these keys alone. */
 export const GROUP_MOVES_NAME = "group-moves";
 const PENDING = "gm:pending:";
 const ALIAS = "gm:alias:";

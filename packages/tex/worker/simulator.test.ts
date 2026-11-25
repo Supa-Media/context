@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { withGateway } from "./gatewayOver.testing";
 import worker, { type Env } from "./index";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -35,6 +36,7 @@ function setup(simulator: string | undefined) {
     GATEWAY_ORIGIN: "https://gw.example",
     SIMULATOR: simulator,
   };
+  withGateway(env);
   return { env, objects };
 }
 
@@ -176,12 +178,12 @@ describe("texts simulator", () => {
 
   // Intake in the gateway (`handOver.ts`): the simulated chat is the gateway's copy, so the simulator proves the
   // gateway's queue and turns; a gateway that cannot hold it (503) leaves the Worker's object answering.
-  it("sends a simulated chat's calls to the gateway when intake is there, and keeps them here when it can't take them", async () => {
+  it("sends a simulated chat's calls to the gateway, and nowhere else when it can't take them", async () => {
     const calls: { url: string; name: string | null; body: unknown }[] = [];
     let status = 200;
     const gateway = {
       fetch: async (url: string, init: RequestInit = {}) => {
-        calls.push({ url, name: new Headers(init.headers).get("x-inbox-name"), body: JSON.parse(String(init.body)) });
+        calls.push({ url, name: new Headers(init.headers).get("x-inbox-name"), body: JSON.parse(new TextDecoder().decode(init.body as ArrayBuffer)) });
         return Response.json({ outcome: "queued" }, { status });
       },
     };
@@ -196,13 +198,10 @@ describe("texts simulator", () => {
     expect(JSON.stringify(calls[0].body)).not.toContain(KEY); // the key's hash travels, never the key
     expect(objects.has(PHONE)).toBe(false);
 
+    // A gateway that cannot take it answers so; there is no copy of the chat in the Worker to fall back to.
     status = 503;
-    const fallback = await worker.fetch(api("/send", { key: KEY, body: { phone: PHONE, text: "again" } }), there);
-    expect(fallback.status).toBe(200);
-    expect(objects.has(PHONE)).toBe(true);
-
-    calls.length = 0;
-    await worker.fetch(api("/send", { key: KEY, body: { phone: PHONE, text: "worker" } }), env);
-    expect(calls).toHaveLength(0);
+    const refused = await worker.fetch(api("/send", { key: KEY, body: { phone: PHONE, text: "again" } }), there);
+    expect(refused.status).toBe(503);
+    expect(objects.has(PHONE)).toBe(false);
   });
 });

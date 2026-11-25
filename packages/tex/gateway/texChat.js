@@ -31,7 +31,7 @@ import { ARCHIVE_PATH, isArchiveName, serveArchive } from "./texChat/workerArchi
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
 const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit", joined: "/group-joined" });
-/** The header the Worker's object names itself with (`inboxMove.ts` `INBOX_NAME_HEADER`). */
+/** The header a chat's name travels in to its object (`packages/tex/worker/gatewayChats.ts` `INBOX_NAME_HEADER`). */
 export const INBOX_NAME_HEADER = "x-inbox-name";
 /** Set on every answer this object gives a passed-on call: the chat answered in the gateway. */
 export const CHAT_HOME_HEADER = "x-tex-chat-home";
@@ -71,14 +71,13 @@ export function texChatClass({ gateway, texts }) {
       if (request.method === "GET" && url.pathname.startsWith("/app/picture/")) return await serveAppPictureById(this.state.storage, url.pathname.slice("/app/picture/".length));
       if (request.method === "GET" && url.pathname.startsWith("/app/file/")) return await serveAppFileById(this.state.storage, url.pathname.slice("/app/file/".length));
       if (url.pathname.startsWith("/chat-call/")) return await this.chatCall(request, url);
-      // Staff moving one chat here before the rest (`packages/lab/gateway/labSandbox/intake.js`): its home, and the copy.
+      // Where the chat is answered, for the Lab's staff sweep (`packages/lab/gateway/labSandbox/intake.js`).
       if (request.method === "GET" && url.pathname === "/home") {
         // The intake sweep asks every chat its home: a chat already here is indexed by its id then, opened or not.
         const home = await homeOf(this.state.storage);
         if (home.home === "gateway") await indexChat(this.env, this.state.storage, await this.state.storage.get(NAME_KEY), await this.state.storage.get(SENDER_ID_KEY));
         return Response.json(home);
       }
-      if (request.method === "POST" && url.pathname === "/move-in") return await this.moveIn(request);
       return Response.json({ error: "unknown_route" }, { status: 404 });
     }
 
@@ -101,14 +100,6 @@ export function texChatClass({ gateway, texts }) {
       const answer = await chat.fetch(new Request(`https://inbox${path}${body.kind === "one" || body.kind === "group" ? origin : ""}`, init));
       const outcome = answer.ok ? await answer.json().catch(() => ({})) : {};
       return Response.json({ outcome: typeof outcome.outcome === "string" ? outcome.outcome : answer.ok ? "queued" : "failed" }, { status: answer.ok ? 200 : 503 });
-    }
-
-    /** Opens the chat now, with no text to answer (`packages/lab/gateway/labSandbox/intake.js`), and answers its home. */
-    async moveIn(request) {
-      const body = await request.json().catch(() => null);
-      if (body === null || typeof body.inbox !== "string" || !INBOX_NAME.test(body.inbox)) return Response.json({ error: "bad_body" }, { status: 400 });
-      const chat = await this.chat(body.inbox);
-      return Response.json({ ...(await homeOf(this.state.storage)), ...(chat === null ? { refused: true } : {}) });
     }
 
     /** A call to a chat by its name (`/texts/chat-call`, another chat's `senderObjects`): answered by the chat here. */
@@ -168,10 +159,10 @@ export function texChatClass({ gateway, texts }) {
   };
 }
 
-/** Where a chat is answered, read from this object's own place: "gateway" once copied in (or born here), else "worker". */
+/** Where a chat is answered, read from this object's own place: "gateway" once placed here, "none" before its first call. */
 export async function homeOf(storage) {
   const place = await storage.get(PLACE_KEY);
-  return place?.arrivedAt === undefined ? { home: "worker" } : { home: "gateway", movedAt: place.arrivedAt, keys: Number.isSafeInteger(place.keys) ? place.keys : 0 };
+  return place?.arrivedAt === undefined ? { home: "none" } : { home: "gateway", movedAt: place.arrivedAt, keys: Number.isSafeInteger(place.keys) ? place.keys : 0 };
 }
 
 /**
