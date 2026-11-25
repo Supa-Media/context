@@ -25,6 +25,8 @@ export interface Headline {
   readonly trend: TrendGeometry | null;
   /** "Stripe + Cloudflare · last row 1h ago" for a workspace metric; "" for `metrics.csv`. */
   readonly source: string;
+  /** "7d", "MTD": the time range the value covers, tagged beside the label; "" when nothing says. */
+  readonly period: string;
   /** Hidden or still being worked out: drawn muted. */
   readonly status: ReadingStatus;
 }
@@ -47,6 +49,7 @@ export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefine
       state: metric.target === null ? "unknown" : reading.state,
       trend: reading.status === "ok" ? trendGeometry(reading.series, reading.limit) : null,
       source: [reading.inputs, reading.when].filter((part) => part !== "").join(" · "),
+      period: reading.period,
       status: reading.status,
     };
   }
@@ -58,6 +61,7 @@ export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefine
     state: metric.target === null ? "unknown" : targetState(reading, metric.target),
     trend: reading === undefined ? null : trendGeometry(reading.series, targetNumber(reading, metric.target)),
     source: "",
+    period: "",
     status: reading === undefined ? "none" : "ok",
   };
 }

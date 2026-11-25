@@ -306,13 +306,17 @@ synced sheet says it is kept up to date (08),
   sheet for an area. Two metric notes of one name: the first in the metrics
   folder's order is read, and the picker shows the second as not pickable
   until it is renamed. Test: `apps/mobile/__tests__/areaMetric.test.ts`.
-- **The list's label line says what is known.** "Revenue per AI dollar ·
-  Stripe + Cloudflare · last row 11h ago": the sources are the formula's,
-  named as the Data page names them, and the time is the newest dated row
-  the metric reads, in stage B's words, since there is no sync time yet; a
-  metric over the Context source alone says no time. In the row's 220 of
-  metric column (the owner's widths stand) a long line is cut with "…" and
-  is whole in its hover; on a phone it has a line of its own.
+- **The list's label line is the name and its time range** (the owner,
+  2026-11-25, reversing the sources-and-age line: it repeated "Context usage"
+  on most rows and never said what period a number covers). "Active humans
+  `7d`": the tag comes from the metric note's own `every` (`7 days` → 7d,
+  `day` → today, `week` → this week, `month` → MTD, `12 hours` → 12h), "now"
+  for a right-now metric, and none for a period the engine cannot read or a
+  `metrics.csv` line, which names none. The sources and the newest row's age
+  stay off the row, in its hover tip (set on the element, since React Native
+  Web drops a `title` prop) and on the area's panel and the metric's page;
+  a phone's block has no sources line. Test:
+  `apps/mobile/__tests__/areaMetric.test.ts` and `areaMetricPicker.test.ts`.
 - **A synced sheet is read-only.** A CSV directly in a GitHub, Cloudflare or
   Stripe source's folder opens under "Kept up to date by GitHub. Edits here
   are replaced at the next sync." with a link to the source's page (left off

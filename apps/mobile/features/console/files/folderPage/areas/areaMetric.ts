@@ -19,7 +19,7 @@ import type { MetricNote, Use } from "../../data/metrics";
 import { usedByWords } from "../../data/metrics";
 import { sourceBySlug, type DataSource } from "../../data/sources";
 import { metricView } from "../../data/views";
-import { ago, lastRowAt } from "../../data/words";
+import { ago, lastRowAt, periodTag } from "../../data/words";
 import { HIDDEN, inputsOf, stateOf, targetOnScale, trendOf, type Sheet, type Worked } from "../../data/workOut";
 import { readingFor, targetNumber, targetState, type Reading, type Readings, type TargetState } from "./readings";
 import { metricKey, type Metric, type Seat, type SeatEdit } from "./seat";
@@ -63,6 +63,8 @@ export interface AreaReading extends Reading {
   readonly inputs: string;
   /** "last row 1h ago", from the newest dated row it reads; "" when nothing says when. */
   readonly when: string;
+  /** "7d", "MTD", "today": the time range the number covers, from the note's `every`; "" for `metrics.csv`. */
+  readonly period: string;
   readonly state: TargetState;
   /** The target on the trend's own scale, for its dashed line. */
   readonly limit: number | null;
@@ -92,6 +94,7 @@ export function workspaceReading(metric: MetricNote, ws: WorkspaceMetrics, targe
     metricPath: metric.path,
     inputs: view.inputs,
     when: newest === null ? "" : `last row ${ago(newest, ws.now)}`,
+    period: periodTag(metric.every, worked?.now === true),
     date: "",
   };
   const status = worked?.latest.status;
@@ -120,6 +123,7 @@ export function areaReading(metric: Metric | undefined, ws: WorkspaceMetrics | n
     metricPath: null,
     inputs: "",
     when: "",
+    period: "",
     state: targetState(reading, metric.target),
     limit: targetNumber(reading, metric.target),
   };
