@@ -275,8 +275,9 @@ const makeStyles = (colors: Colors) =>
       overflow: "hidden",
     },
     codeLine: { fontFamily: fonts.mono, fontSize: pointerType.meta, lineHeight: 19, color: colors.text2, whiteSpace: "pre" } as never,
-    codeString: { color: colors.okText },
-    codeCommand: { color: colors.codeKey },
+    // Spelled out, not inherited: a nested Text would otherwise take the design Text's own face.
+    codeString: { fontFamily: fonts.mono, fontSize: pointerType.meta, lineHeight: 19, color: colors.okText },
+    codeCommand: { fontFamily: fonts.mono, fontSize: pointerType.meta, lineHeight: 19, color: colors.codeKey },
     copy: {
       position: "absolute",
       top: 8,

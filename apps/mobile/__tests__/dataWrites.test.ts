@@ -82,3 +82,21 @@ describe("a push source", () => {
     expect(slugOf("Evil\n---\nsource: github")).toBe("evil-source-github");
   });
 });
+
+describe("the call that sends a row", () => {
+  // Required here, not imported, so the pure tests above stay free of the page's components.
+  const { sendRowCall } = require("../features/console/files/data/SourcePage") as typeof import("../features/console/files/data/SourcePage");
+  const sheet = parseSheet("date:date,suite,p95 ms:number\n2026-11-24,answers,1500\n2026-11-25,search,1436\n") as never;
+
+  test("reads like the sheet's latest row, with the key named and never written", () => {
+    const { text } = sendRowCall("https://example.com/api/sheets/rows", sheet);
+    expect(text).toContain(`'{"rows":[{"suite":"search","p95 ms":1436}]}'`);
+    expect(text).toContain('"Authorization: Bearer $CONTEXT_KEY"');
+    expect(text).not.toContain("date");
+  });
+
+  test("an empty sheet gets a value of each column's type", () => {
+    const { text } = sendRowCall("https://example.com/api/sheets/rows", parseSheet("date:date,suite,n:number\n") as never);
+    expect(text).toContain(`{"suite":"…","n":1}`);
+  });
+});

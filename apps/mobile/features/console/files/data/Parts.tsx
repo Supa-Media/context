@@ -80,7 +80,7 @@ export function DataButton({
       ]}
     >
       {leading}
-      {square ? null : <Text style={[styles.btnLabel, kind === "pri" && styles.priLabel, compact && styles.btnLabelCompact]}>{label}</Text>}
+      {square ? null : <Text style={[styles.btnLabel, kind === "pri" && styles.priLabel, compact && styles.btnLabelCompact]} numberOfLines={1}>{label}</Text>}
     </Pressable>
   );
 }
@@ -196,7 +196,7 @@ const makeStyles = (colors: Colors) =>
       gap: 6,
       flexShrink: 0,
     },
-    btnCompact: { height: 38, borderRadius: radii.card, flexGrow: 1, flexBasis: 0 },
+    btnCompact: { height: 38, borderRadius: radii.card, flexGrow: 1, flexBasis: 0, paddingHorizontal: 8 },
     square: { width: 32, paddingHorizontal: 0 },
     squareCompact: { flexGrow: 0, flexBasis: 44, width: 44, paddingHorizontal: 0 },
     sec: { backgroundColor: colors.chipFill, borderWidth: 1, borderColor: colors.line },
@@ -225,11 +225,13 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.chipFill,
       borderWidth: 1,
       borderColor: colors.line,
-      flexShrink: 0,
+      // The chip gives way before the period does: its dataset name ends in "…", the period stays whole.
+      flexShrink: 1,
+      minWidth: 0,
     },
     filter: { backgroundColor: colors.hintWash, borderColor: colors.hintBorder, paddingLeft: 6 },
-    chipDataset: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
-    chipColumn: { fontSize: pointerType.meta, lineHeight: 16, color: colors.text, fontWeight: "600" },
+    chipDataset: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 1 },
+    chipColumn: { fontSize: pointerType.meta, lineHeight: 16, color: colors.text, fontWeight: "600", flexShrink: 0 },
     op: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, paddingHorizontal: 2 },
-    period: { fontSize: pointerType.meta, lineHeight: 16, color: colors.chromeMuted, paddingLeft: 4 },
+    period: { fontSize: pointerType.meta, lineHeight: 16, color: colors.chromeMuted, paddingLeft: 4, flexShrink: 0 },
   });

@@ -90,6 +90,17 @@ export function MetricNoteView({
       return sheets.get(`${dataFolder}/${slug}/${name}.csv`) ?? null;
     };
   }, [sheets, countRead, counted, now, bySlug, dataFolder]);
+  // A note's sources come from their about.md, which names no sheets: an input links to the sheet that was read.
+  const links = inputs.map((input) => {
+    if (input.path !== null) return input;
+    const [slug = "", rest = ""] = input.label.split("/");
+    const name = rest.replace(/\.csv$/, "");
+    const found = bySlug(slug);
+    if (found === undefined) return input;
+    if (found.kind === "context" && (CONTEXT_DATASETS as readonly string[]).includes(name)) return { ...input, path: found.folder };
+    const sheetPath = `${dataFolder}/${slug}/${name}.csv`;
+    return sheets.get(sheetPath) == null ? input : { ...input, path: sheetPath };
+  });
   const worked = useMemo(() => workOut(metric, rowsOf, now, PERIODS), [metric, rowsOf, now]);
   const settled = dataNotes !== null && [...wanted.keys()].every((each) => sheets.has(each));
   const view = metricView(metric, worked, uses, sources, settled);
@@ -110,7 +121,7 @@ export function MetricNoteView({
             key: "inputs",
             value: (
               <>
-                {inputs.map((input, at) => (
+                {links.map((input, at) => (
                   <View key={input.label} style={styles.inputs}>
                     {at > 0 ? <Text style={styles.sep}>·</Text> : null}
                     {input.path !== null && onOpen !== undefined ? (
@@ -207,5 +218,5 @@ const makeStyles = (colors: Colors) =>
     cellCompact: { flexBasis: "33%", borderBottomWidth: 1, borderBottomColor: colors.line },
     cellLast: { borderRightWidth: 0 },
     cellLabel: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
-    cellValue: { fontSize: 14, lineHeight: 20, fontWeight: "600", color: colors.text },
+    cellValue: { fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600", color: colors.text },
   });

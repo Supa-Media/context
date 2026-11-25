@@ -231,6 +231,12 @@ describe("the Context source, counted on read", () => {
     ]);
   });
 
+  test("a note two folder reads both carry is counted once", () => {
+    const twice = contextSheets(counted, [...notes, ...notes], NOW);
+    expect(twice.get("notes-by-status")!.rows).toEqual(contextSheets(counted, notes, NOW).get("notes-by-status")!.rows);
+    expect(twice.get("time-to-answered")!.rows).toHaveLength(1);
+  });
+
   test("time to answered: minutes from asked to answered, only where both are written", () => {
     const sheets = contextSheets(counted, notes, NOW);
     expect(sheets.get("time-to-answered")!.rows).toEqual([

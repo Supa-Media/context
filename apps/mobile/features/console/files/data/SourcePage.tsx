@@ -48,10 +48,16 @@ export interface SourcePageActions {
 
 /** The call that adds a row, its values made up from the sheet's columns: `$CONTEXT_KEY` stands for the key. */
 export function sendRowCall(endpoint: string, sheet: Sheet | null): { text: string; lines: ReactNode[] } {
+  // The sheet's own latest row where it has one, so the call reads like the data; else a value of each column's type.
+  const last = sheet?.rows[sheet.rows.length - 1];
   const row: Record<string, string | number | boolean> = {};
   for (const column of sheet?.columns ?? []) {
     if (column.type === "date") continue;
-    row[column.name] = column.type === "number" || column.type === "usd" ? 1 : column.type === "checkbox" ? true : "…";
+    const kept = last?.[column.name] ?? "";
+    const numeric = column.type === "number" || column.type === "usd";
+    if (kept !== "" && numeric && Number.isFinite(Number(kept))) row[column.name] = Number(kept);
+    else if (kept !== "" && !numeric && column.type !== "checkbox") row[column.name] = kept;
+    else row[column.name] = numeric ? 1 : column.type === "checkbox" ? true : "…";
   }
   const body = `'${JSON.stringify({ rows: [row] })}'`;
   const text = [

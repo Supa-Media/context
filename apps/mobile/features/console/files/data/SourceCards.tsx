@@ -137,7 +137,7 @@ const makeStyles = (colors: Colors) =>
     cardHead: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 12 },
     cardTitle: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     name: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", color: colors.text },
-    nameSub: { fontWeight: "400", color: colors.muted },
+    nameSub: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "400", color: colors.muted },
     statusLine: { flexDirection: "row", alignItems: "center", gap: 5 },
     status: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 1 },
     statusCompact: { fontSize: pointerType.meta, lineHeight: 17 },

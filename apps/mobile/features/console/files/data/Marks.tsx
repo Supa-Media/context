@@ -14,7 +14,7 @@ import type { SourceKind } from "./sources";
 
 function Glyph({ size, color, width = 1.5, children }: { size: number; color: string; width?: number; children: ReactNode }) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <Svg width={size} height={size} style={{ flexShrink: 0 }} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       {children}
     </Svg>
   );
@@ -94,7 +94,7 @@ export function CopyGlyph({ size, color }: { size: number; color: string }) {
 
 export function MoreGlyph({ size, color }: { size: number; color: string }) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 16 16" fill={color} aria-hidden>
+    <Svg width={size} height={size} style={{ flexShrink: 0 }} viewBox="0 0 16 16" fill={color} aria-hidden>
       <Circle cx={3.5} cy={8} r={1.2} />
       <Circle cx={8} cy={8} r={1.2} />
       <Circle cx={12.5} cy={8} r={1.2} />

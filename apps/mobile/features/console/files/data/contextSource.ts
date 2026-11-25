@@ -117,7 +117,9 @@ export function timeToAnswered(folders: readonly string[], notes: readonly ListN
 }
 
 /** Both datasets, by name. */
-export function contextSheets(counted: CountedFolders, notes: readonly ListNote[], now: number): ReadonlyMap<string, Sheet> {
+export function contextSheets(counted: CountedFolders, read: readonly ListNote[], now: number): ReadonlyMap<string, Sheet> {
+  // Each folder's read carries the front notes above it, so one note can come twice: counted once.
+  const notes = [...new Map(read.map((note) => [note.path, note])).values()];
   return new Map([
     ["notes-by-status", notesByStatus(counted.byStatus, notes, now)],
     ["time-to-answered", timeToAnswered(counted.answered, notes)],
