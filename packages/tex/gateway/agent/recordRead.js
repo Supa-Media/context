@@ -24,7 +24,7 @@ const ABOUT_RECORD =
 
 /** A call that opens a record. The six tools and the names they resolve to. */
 const READS =
-  /^(?:search|fetch|orient|search_notes|read_note|read_notes|read_image|read_file|search_email|read_email|read_calendar|read_texts|list_texts|search_texts|read_day|read_thread|group_chats|read_back)$/;
+  /^(?:search|fetch|orient|search_notes|read_note|read_notes|read_image|read_file|search_email|read_email|read_calendar|read_texts|list_texts|search_texts|read_day|search_chat|read_thread|group_chats|read_back)$/;
 
 export const RECORD_READ_NOTICE =
   "Before this goes: this asks about their notes, a page, their mail or their calendar, and you have not read any of it this turn. " +

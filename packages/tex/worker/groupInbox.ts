@@ -63,6 +63,7 @@ import type { ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
 import { groupReviewSharing } from "./groupSettings";
 import { answers, reactionLine, tapbackText, type Reaction } from "./reactions";
+import { keepSticker } from "./stickers";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachineAsk, onTexText } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
@@ -332,7 +333,9 @@ type ReactionRead = { kind: "done"; outcome: "queued" | "ignored" } | { kind: "l
  *   ("👍 (yes) on Tex's message …"), which the judge is taught to answer.
  * - Anything else: a line of the chat, for the judge like any message.
  */
-async function acceptReaction(storage: InboxStorage, message: GroupMessage, reaction: Reaction, now: number): Promise<ReactionRead> {
+async function acceptReaction(storage: InboxStorage, message: GroupMessage, came: Reaction, now: number): Promise<ReactionRead> {
+  // A sticker stuck on a message is kept for Tex to stick again, and read by its id (`stickers.ts`).
+  const reaction = await keepSticker(storage, came, now);
   const onTex = await onTexText(storage, message.groupId, reaction);
   const line = reactionLine(reaction, onTex);
   const asker = await isAsker(storage, message, now);

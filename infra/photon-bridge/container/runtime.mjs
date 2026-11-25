@@ -23,6 +23,12 @@ function compact(object) {
 }
 
 /** {bytes, name} for an upload: inline base64, or an https URL fetched under the size cap. */
+/** The name a re-uploaded sticker goes under: its own, without any folder, or "sticker.png". */
+export function stickerName(info) {
+  const name = typeof info?.fileName === "string" ? info.fileName.split(/[\\/]/).pop() : "";
+  return name && name.length <= 255 ? name : "sticker.png";
+}
+
 export async function fileBytes(file, fetchImpl = fetch) {
   if (file.data !== undefined) {
     return { bytes: Buffer.from(file.data, "base64"), name: nameFor(file.name, file.mimeType) };
@@ -134,6 +140,13 @@ export function createRuntime({
   async function uploadFile(client, file) {
     const { bytes, name } = await fileBytes(file, fetchImpl);
     const uploaded = await client.attachments.upload({ fileName: name, data: bytes });
+    return uploaded.attachment.guid;
+  }
+
+  async function uploadStickerFrom(client, guid) {
+    let info;
+    const bytes = await readWhole(client.attachments.downloadStream(guid), MAX_PHOTO_BYTES, (header) => (info = header));
+    const uploaded = await client.attachments.upload({ fileName: stickerName(info), data: bytes });
     return uploaded.attachment.guid;
   }
 
@@ -277,7 +290,11 @@ export function createRuntime({
           return { ok: true };
         case "sticker": {
           const client = clientFor(args.line);
-          const sticker = args.sticker.attachment ?? (await uploadFile(client, args.sticker.file));
+          // A sticker someone stuck in the chat is read off the line and uploaded again as Tex's own, as a photo is
+          // read for `group/photo`: a received attachment's guid is never handed to Photon as an upload.
+          const sticker = args.sticker.attachment !== undefined
+            ? await uploadStickerFrom(client, args.sticker.attachment)
+            : await uploadFile(client, args.sticker.file);
           const placed = await client.messages.placeSticker(args.chat, args.guid, sticker, args.placement, compact({ partIndex: args.part }));
           return { ok: true, guid: placed.guid, attachment: sticker };
         }

@@ -115,5 +115,5 @@ async function weekThreaded({ logged, parts, ledger, chat, threads, format, week
   const note = [listed, dayAges(built?.shown ?? [], parts.answering, parts.timeZone)].filter((part) => part !== "").join("\n\n");
   const tagsOf = threadOfEvents(threads, parts.shown);
   const render = (id) => parts.shown.filter((event) => tagsOf.get(event.id) === id).map((event) => lineOf(event, format)).join("\n");
-  return { history: built?.history ? [built.history] : null, read_thread: readThreadTool({ threads, render }), read_day: built?.read_day ?? null, note, week: built?.log ?? null };
+  return { history: built?.history ? [built.history] : null, read_thread: readThreadTool({ threads, render }), read_day: built?.read_day ?? null, search_chat: built?.search_chat ?? null, note, week: built?.log ?? null };
 }

@@ -620,6 +620,7 @@ export const sendText = (text: string, extra: { pics?: string[]; replyTo?: strin
   run("send", { as: asHandle(), text, ...(extra.pics?.length ? { pics: extra.pics.slice(0, 6).map((url) => ({ url })) } : {}), ...(extra.replyTo ? { replyTo: extra.replyTo } : {}) });
 /** A tapback on a text, as whoever the composer sends as: Tex sees it as it would a real one. */
 export const reactTo = (msgId: string, emoji: string) => run("react", { as: asHandle(), msgId, emoji });
+export const stickOn = (msgId: string) => run("react", { as: asHandle(), msgId, sticker: true }); // a sticker, as Photon hands one (`stickers.ts`)
 
 export const addTex = () => run("added", { as: asHandle() }); // Tex's number added to a group test chat, by whoever the composer sends as (`labSandbox/added.js`)
 /** Whoever sent a text, as the gateway knows them: an edit or an unsend is only ever its sender's. */

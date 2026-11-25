@@ -24,14 +24,15 @@ import { ledgerFor } from "./ledger.js";
 import { texConfigOf, texStep } from "./texConfig.js";
 import { dayBefore, midnightOf, readSpan, readSummaries, READ_DAY_CHARS } from "./weekHistory.js";
 import { dayOf } from "./jobLog.js";
+import { bestHits, findTexts, MAX_HITS, terms } from "./chatSearch.js";
 
 /** The module in the front door's `ctx` that turns this on. */
 export const GROUPS_MODULE = "groups";
 export const GROUP_CHATS = "group_chats";
 const GROUP_KEY = /^[0-9a-f]{64}$/;
 const DAY_ID = /^\d{4}-\d{2}-\d{2}$/;
-/** The most hits one search answers, the words kept of each, and the ledger pages it reads of each chat. */
-export const MAX_HITS = 40;
+/** The most hits one search answers (shared with `chatSearch.js`), the words kept of each, and the ledger pages it reads of each chat. */
+export { MAX_HITS };
 const HIT_CHARS = 400;
 const SEARCH_PAGES = 5;
 /** The most summary characters one `summaries` call answers. */
@@ -114,8 +115,6 @@ function transcriptOf(entries, key, timeZone, before = Number.MAX_SAFE_INTEGER) 
   return { text, events: view.events };
 }
 
-const terms = (words) => [...new Set(String(words ?? "").toLowerCase().split(/[^\p{L}\p{N}@']+/u).filter((w) => w.length > 1))].slice(0, 12);
-
 /**
  * The `group_chats` local tool for one turn. `groups` is the control plane's list; `ledgerOf(key)` opens a chat's
  * ledger (`ledger.js` `ledgerFor`); `timeZone` the person's, for days.
@@ -166,16 +165,9 @@ export function groupChatsTool({ groups, ledgerOf, timeZone = "UTC", onRead = ()
       const { entries } = await readSpan(ledgerOf(g.key), g.key, { since: sinceAt, pages: SEARCH_PAGES }).catch(() => ({ entries: [] }));
       const { events } = transcriptOf(entries, g.key, timeZone);
       looked += events.length;
-      for (const e of events) {
-        const text = String(e.text ?? "");
-        const low = text.toLowerCase();
-        // Whole words, with a plain ending ("texas's", "trips", "traveling"), never inside another word ("trip" in "tripleseat").
-        const hits = want.filter((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:s|es|'s|ing|ed|er)?(?![\\p{L}\\p{N}])`, "u").test(low)).length;
-        if (hits > 0) found.push({ g, e, text, hits });
-      }
+      for (const hit of findTexts(events, want)) found.push({ g, ...hit });
     }
-    const all = found.filter((f) => f.hits === want.length);
-    const shown = (all.length > 0 ? all : found).sort((a, b) => b.hits - a.hits || b.e.at - a.e.at).slice(0, MAX_HITS);
+    const { all, shown } = bestHits(found, want);
     log(JSON.stringify({ event: "tex_group_search", chats: targets.length, texts: looked, hits: found.length, whole: all.length, shown: shown.length }));
     if (shown.length === 0) return answer(`No text in ${targets.length === 1 ? targets[0].name : `their ${targets.length} group chats`} holds ${want.map((w) => `"${w}"`).join(" or ")}${sinceAt ? ` since ${since}` : ""}.`);
     const lines = shown.map(({ g, e, text }) => `- ${g.name} · ${day.format(new Date(e.at))} ${time.format(new Date(e.at))} · ${speaker(e.from)}: ${text.replace(/[\s\u0000-\u001f]+/g, " ").slice(0, HIT_CHARS)} (that day: fetch {"id": "groups:${g.key.slice(0, 12)}", "args": {"day": "${dayOf(e.at, timeZone)}"}})`);

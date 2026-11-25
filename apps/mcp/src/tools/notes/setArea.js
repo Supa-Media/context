@@ -23,6 +23,7 @@ import { isVisibleTextFile } from "../../orient/survey.js";
 import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
+import { attachProjects } from "./attachProjects.js";
 
 const { BOT_KINDS, MODE_ORDER, botLabel, knownModes, mailJoinName } = areaBots;
 
@@ -276,8 +277,25 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     else done.push(answer.ok ? `${hookBot}: test call answered (${answer.status})` : `${hookBot}: test call ${answer.status === 0 ? "didn't reach it" : `answered ${answer.status}`}`);
   }
 
+  // Which projects serve this area: one `area:` line in each project's front note.
+  const projects = await attachProjects(
+    {
+      store,
+      scope,
+      rules,
+      overrides,
+      area,
+      projectsRoot: jobs?.jobs?.projects ?? "projects",
+      change: (path, changes, options) => change(store, scope, rules, overrides, path, changes, options),
+    },
+    args,
+  );
+  if (projects.error) return toolError(projects.error);
+  done.push(...projects.done);
+  problems.push(...projects.problems);
+
   if (done.length === 0 && problems.length === 0) {
-    return toolError("invalid: nothing to change; pass owner, helper, modes, approvals, metric, bot, delegate, webhook or test_webhook");
+    return toolError("invalid: nothing to change; pass owner, helper, modes, approvals, metric, bot, delegate, webhook, test_webhook, attach or detach");
   }
   return toolText([...done.map((line) => `- ${line}`), ...problems.map((line) => `- not done: ${line}`)].join("\n"));
 }

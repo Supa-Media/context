@@ -25,9 +25,9 @@ import { chatNamespace } from "./gatewayChats";
 import type { CountDataset } from "./textCounts";
 
 /** The methods of `Line` the gateway may call (`line.ts`). */
-export const LINE_METHODS = ["sendText", "sendMedia", "sendAppCard", "sendCarousel", "uploadPicture", "startTyping", "markRead", "acknowledge", "shareContactCard", "shareProfile"] as const;
+export const LINE_METHODS = ["sendText", "sendMedia", "sendAppCard", "sendCarousel", "uploadPicture", "startTyping", "markRead", "acknowledge", "stick", "shareContactCard", "shareProfile"] as const;
 /** The methods of `GroupLine` the gateway may call (`groupLine.ts`); the webhook flags are read there by `groupLineFlags`, not by a call. */
-export const GROUP_LINE_METHODS = ["sendText", "sendMedia", "react", "readMembers", "readOwnMessage", "runGroup"] as const;
+export const GROUP_LINE_METHODS = ["sendText", "sendMedia", "react", "readMembers", "readOwnMessage", "runGroup", "stick"] as const;
 
 /** Arguments follow the chat id; for `uploadPicture` the picture is the only argument. A group call's place comes first in `args`. */
 export type LineCall = { inbox: string; chatId: string; method: string; args: unknown[] };

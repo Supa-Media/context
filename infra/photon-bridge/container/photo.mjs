@@ -7,12 +7,16 @@ import { RequestError } from "./errors.mjs";
 /** Bigger than any picture Messages sends. */
 export const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
-/** The stream's primary bytes as one array; refused past `max`, or when there are none. The stream is always closed. */
-export async function readWhole(stream, max) {
+/**
+ * The stream's primary bytes as one array; refused past `max`, or when there are none. The stream is always closed.
+ * `onHeader` is handed the attachment's metadata from the header frame, when the stream sends one.
+ */
+export async function readWhole(stream, max, onHeader) {
   const chunks = [];
   let size = 0;
   try {
     for await (const part of stream) {
+      if (part?.type === "header" && onHeader) onHeader(part.info);
       if (part?.type !== "primaryChunk") continue;
       size += part.data.byteLength;
       if (size > max) throw new RequestError(413, "photo_too_large");

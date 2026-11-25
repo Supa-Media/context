@@ -8,7 +8,8 @@
  *  - drop `reachableRenames` from `fileOps/references.ts`: the team note names the private folder;
  *  - rewrite a collaborative note's Markdown rather than its document's text: the edit not yet rendered is lost;
  *  - let `claim` take an entry while another is leased: two passes hold one workspace;
- *  - drop the attempts check from `claim`: an entry that never succeeds is retried for ever.
+ *  - drop the attempts check from `claim`: an entry that never succeeds is retried for ever;
+ *  - drop `withAreaLine` from `fileOps/references.ts`: a project keeps naming its area's old folder.
  */
 
 import { describe, expect, test } from "vitest";
@@ -66,6 +67,22 @@ describe("a move's links follow behind it", () => {
 
     expect(done).toMatchObject({ kind: "linksRepaired", notes: 1, links: 1, capped: false });
     expect(await (await f.store.get("1-projects/launch/plan.md"))!.text()).toContain("[the brief](../../3-resources/brief.md)");
+  });
+
+  // A project's `area:` line names its area's folder, which no link fact points at; the pass follows it when
+  // the area's front note moved with its name (`apps/mcp/src/moves/areaLines.js`).
+  test("a pass points a project's area line at where its area's folder went", async () => {
+    const f = await fixture();
+    f.store.seed("1-projects/keep.md", "---\nstatus: In progress\narea: 1-projects/launch\n---\n\n# Keep\n");
+    f.store.seed("3-resources/launch/about.md", "# Launch\n");
+
+    const done = await repairLinks(f.ctx, f.ws, f.store, OWNER, [
+      { from: "1-projects/launch/about.md", to: "3-resources/launch/about.md" },
+      { from: "1-projects/launch/brief.md", to: "3-resources/launch/brief.md" },
+    ]);
+
+    expect(done.capped).toBe(false);
+    expect(await (await f.store.get("1-projects/keep.md"))!.text()).toContain("area: 3-resources/launch\n");
   });
 
   test("a note with editing history is rewritten on its own text, so an edit not yet in its Markdown is kept", async () => {

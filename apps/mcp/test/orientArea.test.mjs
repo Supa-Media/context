@@ -19,7 +19,11 @@ const PROPS = {
   "areas/finance/payroll/about.md": { properties: { metrics: ["Payroll on time"] } },
   "areas/engineering/about.md": { properties: { owner: "@seyi", modes: ["Visionary"] } },
   "areas/secret/about.md": { properties: { owner: "@seyi" } },
-  "projects/budget-2027/about.md": { properties: { area: "areas/finance" } },
+  "projects/budget-2027/about.md": { properties: { area: "areas/finance", status: "In progress", owner: "@seyi" } },
+  "projects/payroll-run/about.md": { properties: { area: "Areas/Finance/Payroll/", status: "Not started" } },
+  "projects/old-audit/about.md": { properties: { area: "areas/finance", status: "Done" } },
+  "projects/secret-deal/about.md": { properties: { area: "areas/finance", status: "In progress" } },
+  "projects/finance-x/about.md": { properties: { area: "areas/financeX", status: "In progress" } },
   "projects/website/about.md": { properties: { area: "areas/engineering" } },
 };
 
@@ -36,6 +40,10 @@ const ENTRIES = [
   ["areas/secret/plan.md", 40],
   ["projects/budget-2027/about.md", 10],
   ["projects/website/about.md", 10],
+  ["projects/payroll-run/about.md", 10],
+  ["projects/old-audit/about.md", 10],
+  ["projects/secret-deal/about.md", 10],
+  ["projects/finance-x/about.md", 10],
 ].map(([key, hours]) => ({ key, uploaded: at(hours) }));
 
 function store() {
@@ -56,7 +64,7 @@ function store() {
 
 const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\n" +
-  "default_visibility: private\n\nfolder_defaults:\n  areas: team\n  projects: team\n  areas/secret: private\n\nnote_overrides:\n  # none\n" +
+  "default_visibility: private\n\nfolder_defaults:\n  areas: team\n  projects: team\n  projects/secret-deal: private\n  areas/secret: private\n\nnote_overrides:\n  # none\n" +
   "```\n\n<!-- END BRAIN PRIVACY RULES -->\n";
 const { rules: RULES, overrides: OVERRIDES } = parsePrivacyManifest(MANIFEST);
 const text = (result) => result.content.map((part) => part.text).join("\n");
@@ -79,9 +87,20 @@ test("orient area names the seat, what its modes ask, its notes, mail, projects 
   assert.doesNotMatch(notes, /mail\/seyi\.md|about\.md/);
   assert.match(out, /- areas\/finance\/payroll\/ — orient \{ area: "areas\/finance\/payroll" \}/);
   assert.match(out, /## Mail\n- areas\/finance\/mail\/seyi\.md[\s\S]*- areas\/finance\/mail\/pipeline\.md/);
-  assert.match(out, /## Projects attached to this area\n- projects\/budget-2027\//);
-  assert.doesNotMatch(out.slice(out.indexOf("## Projects attached")), /projects\/website/);
+  // In progress first, with counts by group; a sub-area's project is counted and says which it serves.
+  const projects = out.slice(out.indexOf("## Projects attached"), out.indexOf("## Where to write"));
+  assert.match(projects, /## Projects attached to this area\n1 in progress, 1 not started, 1 done\.\n- projects\/budget-2027\/ — In progress, @seyi\n/);
+  assert.match(projects, /- projects\/payroll-run\/ — Not started, serves Areas\/Finance\/Payroll\n- projects\/old-audit\/ — Done/);
+  // Another area, a sibling whose name only starts the same, and a project this connection cannot see are never listed.
+  assert.doesNotMatch(projects, /projects\/website|finance-x|secret-deal/);
+  assert.match(projects, /manage \{ action: "area", args: \{ area: "areas\/finance", attach: "projects\/<name>" \} \}/);
   assert.match(out, /New projects: `projects\/<name>\/`, with `area: areas\/finance`/);
+});
+
+test("the owner, who can see the private project, has it counted", async () => {
+  const out = text(await toolOrient(store(), "private", RULES, OVERRIDES, { area: "areas/finance" }));
+  assert.match(out, /2 in progress, 1 not started, 1 done\./);
+  assert.match(out, /projects\/secret-deal\//);
 });
 
 test("a sub-area with no owner of its own says whose it is through the area above", async () => {

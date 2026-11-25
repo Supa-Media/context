@@ -1,7 +1,7 @@
 // The gateway's door into this Worker's inbound code (`gatewayInbound.js`), declared loosely: the types that matter are
 // checked by this Worker's own config, on the files it re-exports.
 export type Tapback = "Loved" | "Liked" | "Disliked" | "Laughed at" | "Emphasized" | "Questioned" | "Reacted";
-export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true; onTex?: true; emoji?: string; otherWords?: string };
+export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true; onTex?: true; emoji?: string; otherWords?: string; sticker?: string };
 export type InboundAttachment = { url: string; mimeType: string; filename: string; size: number | null };
 export function kindOf(text: string, attachments?: readonly { filename: string; mimeType: string }[]): string;
 export function answers(reaction: Reaction): boolean;

@@ -307,6 +307,13 @@ describe("parsePhotonEvent: tapbacks", () => {
     expect(parsePhotonEvent(reactionEvent("sticker"))).toMatchObject({ kind: "reaction", reaction: { how: "Reacted", emoji: "with a sticker" } });
     expect(parsePhotonEvent(reactionEvent("wave"))).toEqual({ kind: "ignored", reason: "reaction" });
   });
+
+  it("a placed sticker carries its own attachment on the line, for Tex to stick again (stickers.ts)", () => {
+    expect(parsePhotonEvent(reactionEvent("sticker", { sticker: "at_0_ABC" }))).toMatchObject({ kind: "reaction", reaction: { how: "Reacted", emoji: "with a sticker", sticker: "at_0_ABC" } });
+    const unnamed = parsePhotonEvent(reactionEvent("sticker", { sticker: "" }));
+    expect(unnamed).toMatchObject({ kind: "reaction" });
+    expect((unnamed as { reaction: object }).reaction).not.toHaveProperty("sticker");
+  });
 });
 
 describe("parsePhotonEvent: edits and unsends", () => {
