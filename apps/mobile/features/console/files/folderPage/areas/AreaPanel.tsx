@@ -8,8 +8,8 @@
  *
  * Everything is edited in place, with no pop-up (the owner, 2026-11-24: "why
  * cant I make changes inline?"): the metric's name and goal, then Owner and
- * Helper as dropdowns, the modes, and the holder's phone, email and whether
- * Tex answers for them (`PanelSeatFields.tsx`), the approval rules, the
+ * Delegate (the one bot that acts for a person owner in this area) as
+ * dropdowns, the modes, and the holder's phone and email (`PanelSeatFields.tsx`), the approval rules, the
  * sub-areas and the area's notes. Each change is the seat's own lines in its
  * `about.md`, or a holder's card, written through the same save the seat
  * pop-up uses, so it is drawn at once and taken back if refused.
@@ -61,7 +61,7 @@ export interface AreaPanelProps {
 
 /** The seat as an edit, with one change laid over it. */
 function editOf(seat: Seat, patch: Partial<SeatEdit>): SeatEdit {
-  return { owner: seat.ownOwner, helper: seat.helper, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
+  return { owner: seat.ownOwner, delegate: seat.delegate, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
 }
 
 export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, mail, projects, onPeek, onOpen, onClose }: AreaPanelProps) {

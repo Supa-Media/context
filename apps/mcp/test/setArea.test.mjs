@@ -1,6 +1,6 @@
 /**
- * `manage area` (`set_area`, `src/tools/notes/setArea.js`): an area's settings, its one metric, its bots and a
- * person's delegate, changed through the MCP and Tex the way the area panel changes them (Dev2, 2026-11-25). The
+ * `manage area` (`set_area`, `src/tools/notes/setArea.js`): an area's settings (its owner and its one delegate among
+ * them), its one metric and its bots, changed through the MCP and Tex the way the area panel changes them (Dev2, 2026-11-25). The
  * promises: each change is the front matter the panel writes; a metric must be one the workspace has, and a wrong
  * name lists the ones it has; a bot gets its card and its name on the agents list; a webhook goes to the control
  * plane and its answer never carries the address, the header or a key.
@@ -136,13 +136,24 @@ test("a bot's logo is stored in the workspace and named on its card's avatar lin
   assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: {} } })).isError, true);
 });
 
-test("a delegate is written on the person's card, and null takes it away", async () => {
-  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
-  assert.equal((await run(store, { area: "areas/finance", delegate: { person: "@seyi", to: "Finance" } })).isError, undefined);
-  assert.equal((await props("areas/people/seyi.md")).delegation, "Finance");
-  await run(store, { area: "areas/finance", delegate: { person: "@seyi", to: null } });
-  assert.equal((await props("areas/people/seyi.md")).delegation, undefined);
-  assert.equal((await run(store, { area: "areas/finance", delegate: { person: "seyi", to: "Finance" } })).isError, true);
+test("an area's one delegate is written on its about.md, and null takes it away", async () => {
+  // The owner, 2026-11-25: "1 delegate per area please".
+  const { store, props, text } = await world({ "areas/finance/about.md": "---\nowner: \"@seyi\"\nhelper: Old Bot\n---\n\n# Finance\n" });
+  const set = await run(store, { area: "areas/finance", delegate: "Finance" });
+  assert.equal(set.isError, undefined, said(set));
+  assert.match(said(set), /set delegate$/m);
+  const now = await props("areas/finance/about.md");
+  assert.equal(now.delegate, "Finance");
+  // The old helper line goes, so the note never says two things.
+  assert.equal(now.helper, undefined);
+  // Nothing is written on the person's card: a delegate is per area.
+  assert.equal(await text("areas/people/seyi.md"), null);
+  await run(store, { area: "areas/finance", delegate: null });
+  assert.equal((await props("areas/finance/about.md")).delegate, undefined);
+  // The old shape, one delegate for a person everywhere, is refused with the new one.
+  const old = await run(store, { area: "areas/finance", delegate: { person: "@seyi", to: "Finance" } });
+  assert.equal(old.isError, true);
+  assert.match(said(old), /delegate: "Finance"/);
 });
 
 test("a webhook's answer never carries a secret, and a test says how the call went", async () => {
@@ -182,18 +193,26 @@ test("a bot that can't see its secret gets a one-time command to send the header
   assert.equal((await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization: Bearer x" } })).isError, true);
 });
 
-test("a person is never a helper to a bot: refused, and a bot taking an area drops its helper", async () => {
-  // The owner, 2026-11-25: "a human shouldnt be a helper to a bot".
-  const { store, props } = await world({ "areas/finance/about.md": "---\nowner: \"@seyi\"\nhelper: \"@ana\"\n---\n\n# Finance\n" });
-  const refused = await run(store, { area: "areas/finance", owner: "Finance", helper: "@seyi" });
-  assert.equal(refused.isError, true);
-  assert.match(said(refused), /delegate: \{ person: "@seyi", to: "Finance" \}/);
+test("a person is never a delegate, a bot owner has none, and helper is gone", async () => {
+  // The owner, 2026-11-25: "a human shouldnt be a helper to a bot"; a person owns with a bot it delegates to, or a
+  // bot owns outright.
+  const { store, props } = await world({ "areas/finance/about.md": "---\nowner: \"@seyi\"\ndelegate: Finance\n---\n\n# Finance\n" });
+  const person = await run(store, { area: "areas/finance", delegate: "@ana" });
+  assert.equal(person.isError, true);
+  assert.match(said(person), /never a delegate/);
+  assert.equal((await run(store, { area: "areas/finance", helper: "Finance" })).isError, true);
+  // A bot taking the area holds it outright: its delegate goes.
   assert.equal((await run(store, { area: "areas/finance", owner: "Finance" })).isError, undefined);
   const now = await props("areas/finance/about.md");
   assert.equal(now.owner, "Finance");
-  assert.equal(now.helper, undefined);
-  // With the bot already the owner, a person can't be added as its helper either.
-  assert.equal((await run(store, { area: "areas/finance", helper: "@ana" })).isError, true);
+  assert.equal(now.delegate, undefined);
+  // With the bot the owner, nobody can be named its delegate.
+  const refused = await run(store, { area: "areas/finance", delegate: "Tex" });
+  assert.equal(refused.isError, true);
+  assert.match(said(refused), /owns areas\/finance outright/);
+  // Both at once: a person owner and their bot.
+  assert.equal((await run(store, { area: "areas/finance", owner: "@seyi", delegate: "Finance" })).isError, undefined);
+  assert.deepEqual([(await props("areas/finance/about.md")).owner, (await props("areas/finance/about.md")).delegate], ["@seyi", "Finance"]);
 });
 
 test("nothing to change is said so", async () => {

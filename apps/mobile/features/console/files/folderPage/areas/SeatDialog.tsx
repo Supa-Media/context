@@ -1,7 +1,7 @@
 /**
  * "<Area> seat": the pop-up "Edit seat…" opens on an area. It edits the seat's
- * lines in its `about.md` (owner, helper, modes, metrics, approvals) and the
- * how-to-reach cards of the owner and the helper, and saves both in one go.
+ * lines in its `about.md` (owner, delegate, modes, metrics, approvals) and the
+ * how-to-reach cards of the owner and the delegate, and saves both in one go.
  * Credentials are never typed here: an agent's card names a vault item, and
  * the form has no field for a secret.
  */
@@ -21,7 +21,7 @@ import { MODES, MODE_TIPS, type Card, type Mode, type Seat, type SeatEdit } from
 
 export interface SeatDialogProps {
   seat: Seat;
-  /** The holder's card for the current owner / helper, looked up by the parent; called again when the owner field changes. */
+  /** The holder's card for the current owner / delegate, looked up by the parent; called again when the owner field changes. */
   cardFor: (holder: string, kind: Card["kind"]) => Card;
   /** Whether an owner word is an agent (decides which card fields to show). */
   isAgent: (owner: string) => boolean;
@@ -69,7 +69,7 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
     const holder = word.trim();
     return holder === "" ? null : cardFor(holder, kindOf(holder));
   };
-  const helperCardFor = (word: string): Card | null => {
+  const delegateCardFor = (word: string): Card | null => {
     const holder = word.trim();
     return holder === "" ? null : cardFor(holder, "agent");
   };
@@ -78,8 +78,8 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
   // a hint and saving without touching it leaves the inheritance as it was.
   const [owner, setOwner] = useState(seat.ownOwner ?? "");
   const [ownerCard, setOwnerCard] = useState<Card | null>(() => ownerCardFor(seat.ownOwner ?? ""));
-  const [helper, setHelper] = useState(seat.helper ?? "");
-  const [helperCard, setHelperCard] = useState<Card | null>(() => helperCardFor(seat.helper ?? ""));
+  const [delegate, setDelegate] = useState(seat.delegate ?? "");
+  const [delegateCard, setDelegateCard] = useState<Card | null>(() => delegateCardFor(seat.delegate ?? ""));
   const [kind, setKind] = useState<OwnerKind>(() => ownerKindOf(seat.ownOwner ?? "", isAgent));
   const [modes, setModes] = useState<readonly Mode[]>(seat.modes);
   const [metrics, setMetrics] = useState<readonly MetricRow[]>(() => [
@@ -104,7 +104,7 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
   }, [onClose]);
 
   const ownerWord = owner.trim();
-  const helperWord = helper.trim();
+  const delegateWord = delegate.trim();
 
   const changeOwner = (word: string) => {
     setOwner(word);
@@ -115,14 +115,14 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
     if (next === kind) return;
     setKind(next);
     changeOwner("");
-    changeHelper("");
+    changeDelegate("");
   };
-  const changeHelper = (word: string) => {
-    setHelper(word);
-    setHelperCard(helperCardFor(word));
+  const changeDelegate = (word: string) => {
+    setDelegate(word);
+    setDelegateCard(delegateCardFor(word));
   };
   const patchOwner = (patch: Partial<Card>) => setOwnerCard((now) => (now === null ? now : { ...now, ...patch }));
-  const patchHelper = (patch: Partial<Card>) => setHelperCard((now) => (now === null ? now : { ...now, ...patch }));
+  const patchDelegate = (patch: Partial<Card>) => setDelegateCard((now) => (now === null ? now : { ...now, ...patch }));
   const toggleMode = (mode: Mode) =>
     setModes((now) => (now.includes(mode) ? now.filter((each) => each !== mode) : [...now, mode]));
   const setMetric = (id: number, patch: Partial<Omit<MetricRow, "id">>) =>
@@ -134,11 +134,11 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
     if (busy) return;
     const cards: Card[] = [];
     if (ownerCard !== null && ownerWord !== "") cards.push({ ...ownerCard, kind: kindOf(ownerWord) });
-    const helperKept = kind === "person" ? helperWord : "";
-    if (helperCard !== null && helperKept !== "") cards.push({ ...helperCard, kind: "agent" });
+    const delegateKept = kind === "person" ? delegateWord : "";
+    if (delegateCard !== null && delegateKept !== "") cards.push({ ...delegateCard, kind: "agent" });
     const edit: SeatEdit = {
       owner: ownerWord === "" ? null : ownerWord,
-      helper: helperKept === "" ? null : helperKept,
+      delegate: delegateKept === "" ? null : delegateKept,
       modes,
       metrics: metrics.map((row) => ({ name: row.name.trim(), target: row.target.trim() === "" ? null : row.target.trim() })),
       approvals: approvals.map((row) => row.text.trim()).filter((text) => text !== ""),
@@ -174,18 +174,18 @@ export function SeatDialog({ seat, cardFor, isAgent, people, agents, label, canE
             </Block>
 
             {kind === "person" && ownerWord !== "" ? (
-              <Block title="Their agent" hint="Optional: an agent that works this seat for them.">
-                <SeatAgentPicker value={helper} agents={agents} label={label} canEdit={canEdit} noneLabel="None" fieldLabel="Agent" onAgent={changeHelper} testID="seat-helper-input" />
-                {helperCard === null ? null : (
-                  <Block title={`How to reach ${label(helperWord)}`}>
+              <Block title="Delegate" hint="Optional: one bot that acts for them in this area.">
+                <SeatAgentPicker value={delegate} agents={agents} label={label} canEdit={canEdit} noneLabel="None" fieldLabel="Agent" onAgent={changeDelegate} testID="seat-delegate-input" />
+                {delegateCard === null ? null : (
+                  <Block title={`How to reach ${label(delegateWord)}`}>
                     <ReachFields
-                      key={`helper:${helperCard.holder}`}
-                      card={helperCard}
+                      key={`delegate:${delegateCard.holder}`}
+                      card={delegateCard}
                       kind="agent"
-                      holderName={label(helperWord)}
-                      idPrefix="seat-helper"
+                      holderName={label(delegateWord)}
+                      idPrefix="seat-delegate"
                       canEdit={canEdit}
-                      onChange={patchHelper}
+                      onChange={patchDelegate}
                     />
                   </Block>
                 )}

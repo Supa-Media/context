@@ -501,7 +501,7 @@ export const CAPABILITIES = Object.freeze([
     // app's area panel writes, and a bot's webhook sealed by the control plane (Dev2, 2026-11-25).
     name: "Areas and their bots",
     actions: ["manage.area"],
-    texts: "set up an area with manage action area: its owner, helper, modes, approval rules, one metric with a target, a Grok bot's card and webhook, and who answers for a person",
+    texts: "set up an area with manage action area: its owner, its one delegate (the bot or Tex acting for a person owner there), modes, approval rules, one metric with a target, and a Grok bot's card and webhook",
     group: "the same, for a shared workspace this chat can reach",
     cant: [
       {

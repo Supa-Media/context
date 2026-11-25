@@ -1,11 +1,11 @@
 /**
- * The how-to-reach fields of a seat pop-up: a person's phone, email and
- * delegation agent, or an agent's access note and vault item name. It only
+ * The how-to-reach fields of a seat pop-up: a person's phone and email, or an
+ * agent's access note and vault item name. Who acts for a person is the
+ * area's delegate, set per area, never on the card (the owner, 2026-11-25). It only
  * draws and reports changes; the parent holds the card and saves it. No
  * login is typed here: an agent's vault field names the item, nothing more.
  */
 
-import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { TextField } from "../../../../design/components/Input";
 import { Text } from "../../../../design/components/Text";
@@ -58,12 +58,6 @@ function webTitle(hint: string | undefined): object {
   return hint === undefined ? {} : { title: hint };
 }
 
-/** Whether a delegation value names another bot rather than Tex or nobody. */
-function isBot(delegation: string): boolean {
-  const said = delegation.trim();
-  return said !== "" && said.toLowerCase() !== "tex";
-}
-
 export interface ReachFieldsProps {
   card: Card;
   /** An agent's card fields, or a person's. */
@@ -78,10 +72,6 @@ export interface ReachFieldsProps {
 
 export function ReachFields({ card, kind, holderName, idPrefix, canEdit, onChange }: ReachFieldsProps) {
   const styles = useThemedStyles(makeStyles);
-  // Which delegation chip is on: Tex is the stored word, another bot a typed name.
-  // Held here so "Another bot" can be chosen before any name is typed.
-  const [bot, setBot] = useState(() => isBot(card.delegation));
-  const tex = !bot && card.delegation.trim().toLowerCase() === "tex";
   const id = (name: string) => `${idPrefix}-${name}`;
 
   if (kind === "agent") {
@@ -128,60 +118,6 @@ export function ReachFields({ card, kind, holderName, idPrefix, canEdit, onChang
         editable={canEdit}
         testID={id("email")}
       />
-      <View style={styles.block}>
-        <Text variant="eyebrow">Delegation agent</Text>
-        <View style={styles.chips} role="radiogroup" aria-label="Delegation agent">
-          <Chip
-            label="None"
-            on={!bot && !tex}
-            disabled={!canEdit}
-            onPress={() => {
-              setBot(false);
-              onChange({ delegation: "" });
-            }}
-          />
-          <Chip
-            label="Tex"
-            on={tex}
-            disabled={!canEdit}
-            onPress={() => {
-              setBot(false);
-              onChange({ delegation: "Tex" });
-            }}
-          />
-          <Chip
-            label="Another bot"
-            on={bot}
-            disabled={!canEdit}
-            onPress={() => {
-              if (bot) return;
-              setBot(true);
-              onChange({ delegation: "" });
-            }}
-          />
-        </View>
-      </View>
-      {bot ? (
-        <>
-          <TextField
-            label="Bot name"
-            value={card.delegation}
-            onChangeText={(delegation) => onChange({ delegation })}
-            autoCorrect={false}
-            editable={canEdit}
-            testID={id("delegation")}
-          />
-          <TextField
-            label="How to reach it"
-            value={card.delegationHow}
-            onChangeText={(delegationHow) => onChange({ delegationHow })}
-            multiline
-            style={styles.multi}
-            editable={canEdit}
-            testID={id("delegation-how")}
-          />
-        </>
-      ) : null}
       <Text variant="hint">Everyone in this workspace sees this card, on every seat {holderName} holds.</Text>
     </View>
   );

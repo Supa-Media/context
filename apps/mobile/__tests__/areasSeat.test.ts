@@ -52,7 +52,7 @@ describe("isArea", () => {
   });
 
   test("a deeper folder is an area when its about.md declares any seat key", () => {
-    for (const key of ["owner", "helper", "modes", "metrics", "approvals"]) {
+    for (const key of ["owner", "delegate", "helper", "modes", "metrics", "approvals"]) {
       const notes = [note("areas/finance/tax/about.md", { [key]: "x" })];
       expect(isArea("areas/finance/tax", ROOT, notes)).toBe(true);
     }
@@ -74,13 +74,13 @@ describe("isArea", () => {
 });
 
 describe("seatOf", () => {
-  test("reads owner, helper, modes, metrics and approvals", () => {
+  test("reads owner, delegate, modes, metrics and approvals", () => {
     const notes = [
       note(
         "areas/finance/about.md",
         {
           owner: "@dev2",
-          helper: "Claude Code",
+          delegate: "Claude Code",
           modes: ["doer", "MANAGER", "bogus"],
           metrics: ["PR time to ship, target 2 days", "Open bugs"],
           approvals: ["Spending over $20 needs the owner's approval."],
@@ -94,7 +94,7 @@ describe("seatOf", () => {
       ownOwner: "@dev2",
       owner: "@dev2",
       ownerFrom: null,
-      helper: "Claude Code",
+      delegate: "Claude Code",
       modes: ["Manager", "Doer"],
       metrics: [
         { name: "PR time to ship", target: "2 days" },
@@ -103,6 +103,9 @@ describe("seatOf", () => {
       approvals: ["Spending over $20 needs the owner's approval."],
     });
     expect(seat.about).toEqual({ target: "areas/finance/about.md", creates: false });
+    // The old name of the line is still read, and the new one wins over it.
+    expect(seatOf("areas/finance", ROOT, [note("areas/finance/about.md", { owner: "@dev2", helper: "Old Bot" })]).delegate).toBe("Old Bot");
+    expect(seatOf("areas/finance", ROOT, [note("areas/finance/about.md", { owner: "@dev2", helper: "Old Bot", delegate: "Finance" })]).delegate).toBe("Finance");
   });
 
   test("owner written as a list is its first name", () => {
@@ -288,9 +291,11 @@ describe("chart and list helpers", () => {
 describe("seatChanges", () => {
   test("empty values become null, so they are removed rather than left blank", () => {
     expect(
-      seatChanges({ owner: "  ", helper: "", modes: [], metrics: [], approvals: ["  ", ""] }),
+      seatChanges({ owner: "  ", delegate: "", modes: [], metrics: [], approvals: ["  ", ""] }),
     ).toEqual([
       ["owner", null],
+      ["delegate", null],
+      // The delegate's old name is cleared, so the note never says two things.
       ["helper", null],
       ["modes", null],
       ["metrics", null],
@@ -302,14 +307,14 @@ describe("seatChanges", () => {
   });
 
   test("modes are written in MODES order, whatever order they were picked in", () => {
-    const [, , modes] = seatChanges({ owner: "@dev2", helper: null, modes: ["Doer", "Manager"], metrics: [], approvals: [] });
+    const [, , , modes] = seatChanges({ owner: "@dev2", delegate: null, modes: ["Doer", "Manager"], metrics: [], approvals: [] });
     expect(modes).toEqual(["modes", ["Manager", "Doer"]]);
   });
 
   test("blank metric names are dropped; the rest are written as lines", () => {
-    const [, , , metrics] = seatChanges({
+    const [, , , , metrics] = seatChanges({
       owner: "@dev2",
-      helper: null,
+      delegate: null,
       modes: [],
       metrics: [
         { name: "   ", target: "2 days" },
@@ -321,10 +326,10 @@ describe("seatChanges", () => {
     expect(metrics).toEqual(["metrics", ["PR time to ship · target 2 days", "Open bugs"]]);
   });
 
-  test("owner and helper are trimmed, and approvals keep their order", () => {
-    const changes = seatChanges({ owner: " @dev2 ", helper: " Claude Code ", modes: [], metrics: [], approvals: [" first ", "second"] });
+  test("owner and delegate are trimmed, and approvals keep their order", () => {
+    const changes = seatChanges({ owner: " @dev2 ", delegate: " Claude Code ", modes: [], metrics: [], approvals: [" first ", "second"] });
     expect(changes).toContainEqual(["owner", "@dev2"]);
-    expect(changes).toContainEqual(["helper", "Claude Code"]);
+    expect(changes).toContainEqual(["delegate", "Claude Code"]);
     expect(changes).toContainEqual(["approvals", ["first", "second"]]);
   });
 
@@ -359,7 +364,6 @@ describe("cardOf", () => {
         phone: "+1 555 010 0177",
         email: "dev2@example.com",
         delegation: "Tex",
-        delegation_how: "",
       }),
     ];
     expect(cardOf("@dev2", "agent", ROOT, notes)).toEqual({
@@ -367,8 +371,6 @@ describe("cardOf", () => {
       kind: "person",
       phone: "+1 555 010 0177",
       email: "dev2@example.com",
-      delegation: "Tex",
-      delegationHow: "",
       access: "",
       vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "",
       creates: false,
@@ -392,8 +394,6 @@ describe("cardChanges", () => {
     kind: "person",
     phone: " +1 555 010 0177 ",
     email: "dev2@example.com",
-    delegation: "Tex",
-    delegationHow: "should not be written",
     access: "should not be written",
     vault: "should not be written",
     bot: "",
@@ -406,8 +406,6 @@ describe("cardChanges", () => {
     kind: "agent",
     phone: "+1 555 010 0199",
     email: "agent@example.com",
-    delegation: "Other Bot",
-    delegationHow: "ask in #ops",
     access: "Claude Code in the dev2 repo",
     vault: "dev2 agent item",
     bot: "",
@@ -436,11 +434,8 @@ describe("cardChanges", () => {
     expect(changes).toContainEqual(["vault", "dev2 agent item"]);
   });
 
-  test("delegation_how is written only when the delegate is another bot, not Tex", () => {
-    expect(cardChanges({ ...person, delegation: "Other Bot", delegationHow: "ask in #ops" })).toContainEqual(["delegation_how", "ask in #ops"]);
-    expect(cardChanges({ ...person, delegation: "Tex", delegationHow: "ask in #ops" })).toContainEqual(["delegation_how", null]);
-    expect(cardChanges({ ...person, delegation: "tEx", delegationHow: "ask in #ops" })).toContainEqual(["delegation_how", null]);
-    expect(cardChanges({ ...person, delegation: "", delegationHow: "ask in #ops" })).toContainEqual(["delegation_how", null]);
+  test("a card's old delegation lines are cleared: a delegate is per area now", () => {
+    expect(cardChanges(person)).toEqual(expect.arrayContaining([["delegation", null], ["delegation_how", null]]));
   });
 
   test("empty lines are removed, not written blank", () => {
@@ -459,32 +454,9 @@ describe("cardChanges", () => {
 });
 
 describe("reachLine", () => {
-  test("a person's line is phone, email and who they delegate to", () => {
-    const line = reachLine({
-      holder: "@dev2",
-      kind: "person",
-      phone: "+1 555 010 0177",
-      email: "dev2@example.com",
-      delegation: "Other Bot",
-      delegationHow: "ask in #ops",
-      access: "",
-      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "",
-    });
-    expect(line).toBe("+1 555 010 0177 · dev2@example.com · delegates to Other Bot (ask in #ops)");
-  });
-
-  test("a person delegating to Tex gives no how-to", () => {
-    const line = reachLine({
-      holder: "@dev2",
-      kind: "person",
-      phone: "",
-      email: "dev2@example.com",
-      delegation: "Tex",
-      delegationHow: "ignored",
-      access: "",
-      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "",
-    });
-    expect(line).toBe("dev2@example.com · delegates to Tex");
+  test("a person's line is phone and email", () => {
+    const line = reachLine({ holder: "@dev2", kind: "person", phone: "+1 555 010 0177", email: "dev2@example.com", access: "", vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "" });
+    expect(line).toBe("+1 555 010 0177 · dev2@example.com");
   });
 
   test("an agent's line is its access and the vault item name, never a login", () => {
@@ -493,8 +465,6 @@ describe("reachLine", () => {
       kind: "agent",
       phone: "",
       email: "",
-      delegation: "",
-      delegationHow: "",
       access: "Claude Code in the dev2 repo",
       vault: "dev2 agent item",
       bot: "",
@@ -506,7 +476,7 @@ describe("reachLine", () => {
   });
 
   test("an empty card gives an empty line", () => {
-    expect(reachLine({ holder: "@dev2", kind: "person", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "" })).toBe("");
+    expect(reachLine({ holder: "@dev2", kind: "person", phone: "", email: "", access: "", vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "" })).toBe("");
   });
 });
 
@@ -534,14 +504,14 @@ describe("bot cards (the owner, 2026-11-25: Grok bots own areas)", () => {
   });
 
   test("a bot's lines are written for a bot, and never for a person or a plain agent", () => {
-    const bot: Card = { holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail", avatar: "" };
+    const bot: Card = { holder: "Finance", kind: "agent", phone: "", email: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail", avatar: "" };
     expect(cardChanges(bot)).toEqual(expect.arrayContaining([["bot", "grok"], ["belongs_to", "@seyi"], ["reach", "mail"]]));
     expect(cardChanges({ ...bot, bot: "" })).toEqual(expect.arrayContaining([["bot", null], ["belongs_to", null], ["reach", null]]));
     expect(cardChanges({ ...bot, kind: "person" })).toEqual(expect.arrayContaining([["bot", null], ["belongs_to", null], ["reach", null]]));
   });
 
   test("a bot's reach line says whose bot it is", () => {
-    const line = reachLine({ holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail", avatar: "" });
+    const line = reachLine({ holder: "Finance", kind: "agent", phone: "", email: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail", avatar: "" });
     expect(line).toBe("@seyi's Grok bot");
   });
 });

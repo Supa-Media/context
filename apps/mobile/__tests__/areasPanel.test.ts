@@ -140,7 +140,7 @@ describe("the Areas side panel", () => {
     expect(modes.at(-1)).toEqual(["Manager", "Doer"]);
   });
 
-  test("owner, helper, phone, email, Tex and the rules are all edited in the panel, with no pop-up", async () => {
+  test("owner, delegate, phone, email and the rules are all edited in the panel, with no pop-up", async () => {
     // The owner, 2026-11-24: "why cant I make changes inline? wth is the point of a side panel if its just going to link to this ugly pop up".
     windowOf(1440);
     const writes: Write[] = [];
@@ -148,22 +148,23 @@ describe("the Areas side panel", () => {
     await mount(host(writes, { notes }), LISTING);
     await press(one("area-row-areas/finance"));
     const panel = strip(one("area-panel").textContent);
-    for (const word of ["Owner", "Helper", "Modes", "Phone", "Email", "Delegate", "Needs approval"]) expect(panel).toContain(word);
+    for (const word of ["Owner", "Delegate", "Modes", "Phone", "Email", "Needs approval"]) expect(panel).toContain(word);
+    // Helper is gone (the owner, 2026-11-25): one delegate per area.
+    expect(panel).not.toContain("Helper");
+    expect(all("area-panel-helper")).toHaveLength(0);
     const card = (key: string) => writes.filter(([path, k]) => path === "areas/people/seyi.md" && k === key).map(([, , value]) => value);
     await typeInto(one("area-panel-phone"), "+1 555 0100");
     await blur(one("area-panel-phone"));
     expect(card("phone")).toEqual(["+1 555 0100"]);
-    // Who answers for the owner is a dropdown: Tex, one of the workspace's bots or agents, or nobody (2026-11-25).
+    // The area's one delegate is a dropdown: Tex, one of the workspace's bots or agents, or nobody, never a person
+    // (the owner, 2026-11-25: "1 delegate per area please"). It is written on the area, not the person's card.
     await press(one("area-panel-delegate"));
     await settle();
-    await press(one("menu-item-Tex"));
-    expect(card("delegation").at(-1)).toBe("Tex");
-    // The helper drops a menu of the workspace's agents, and a choice is written at once.
-    await press(one("area-panel-helper"));
-    await settle();
+    expect(all("menu-item-@sayo")).toHaveLength(0);
     await press(one("menu-item-Claude"));
     const seat = (key: string) => writes.filter(([path, k]) => path === "areas/finance/about.md" && k === key).map(([, , value]) => value);
-    expect(seat("helper").at(-1)).toBe("Claude");
+    expect(seat("delegate").at(-1)).toBe("Claude");
+    expect(card("delegation").filter((value) => value !== null)).toEqual([]);
     // The owner drops the workspace's people.
     await press(one("area-panel-owner"));
     await settle();
@@ -309,19 +310,25 @@ describe("the Areas side panel", () => {
     expect(text).not.toContain("header_from_shell");
   });
 
-  test("a person who delegates to a bot gets the delegate's prompt, covering every area they hold", async () => {
+  test("an area's delegate bot gets its setup prompt, acting for the area's owner there", async () => {
     windowOf(1440);
     const notes: ListNote[] = [
-      ...AREAS.map((note) => (note.path === "areas/about.md" ? { ...note, properties: { agents: ["Chief"] } } : note)),
+      ...AREAS.map((note) =>
+        note.path === "areas/about.md"
+          ? { ...note, properties: { agents: ["Chief"] } }
+          : note.path === "areas/finance/about.md"
+            ? { ...note, properties: { ...note.properties, delegate: "Chief" } }
+            : note,
+      ),
       { path: "areas/people/chief.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi" } },
-      { path: "areas/people/seyi.md", properties: { kind: "person", delegation: "Chief" } },
     ];
     await mount(host([], { notes }), LISTING);
     await press(one("area-row-areas/finance"));
-    expect(strip(one("area-panel-delegate").textContent)).toContain("Chief answers for @seyi");
+    expect(strip(one("area-panel-delegate").textContent)).toContain("Chief");
+    expect(strip(one("area-panel").textContent)).toContain("Acts for @seyi here");
     const text = strip(one("area-panel-delegate-prompt-text").textContent);
-    expect(text).toContain("You act for @seyi");
-    expect(text).toContain('for: "@seyi"');
+    expect(text).toContain("Set yourself up as Chief");
+    expect(text).toContain("You act for @seyi in the area");
   });
 
   test("an area's mail is a folder with one note per sender: listed in the panel, and a first message starts your own", async () => {

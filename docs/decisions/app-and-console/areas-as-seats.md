@@ -13,7 +13,8 @@ who to ask and what is not covered. No new concept: an area is the seat.
 **What it is.**
 
 - **The seat is a few top-level lines in the area's `about.md`**: `owner`,
-  `helper`, `modes` (Visionary, Manager, Doer: labels, never rules), `metrics`
+  `delegate` (the one bot or Tex acting for a person owner there; `helper` is
+  its old name, still read: [area-bots](./area-bots.md)), `modes` (Visionary, Manager, Doer: labels, never rules), `metrics`
   (one line each, `Name, target <what good looks like>`) and `approvals`
   (one rule a line). Every line is a plain property a person, Tex or any agent
   edits as text; nothing new is stored anywhere else
@@ -80,13 +81,13 @@ who to ask and what is not covered. No new concept: an area is the seat.
   there too. Everything in the panel is edited where it is drawn, with no
   pop-up (the owner, 2026-11-24: "why cant I make changes inline? wth is the
   point of a side panel if its just going to link to this ugly pop up"), laid
-  out as the prototype: the metric's name and its goal; Owner and Helper as
-  dropdowns; the modes; the holder's phone, email and whether Tex answers for
-  them (an agent's access and vault item instead); the approval rules; the
+  out as the prototype: the metric's name and its goal; Owner and, for a
+  person owner, Delegate as dropdowns; the modes; the holder's phone and email
+  (an agent's access and vault item instead); the approval rules; the
   sub-areas with their values; and the area's notes. Each change goes through
   the seat pop-up's own save. A phone has no panel: a press opens the area.
   `areasPanel.test.ts` fails if a single press opens the area on a page with
-  room, or if the owner, helper, card or rules need the pop-up.
+  room, or if the owner, delegate, card or rules need the pop-up.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as
@@ -108,9 +109,9 @@ the seat and how to reach them, including when the holder is an agent.
   (`people/dev2.md`, `people/claude-code.md`), whose `about.md` says
   `area: false`, so the cards are never a seat. Every seat a holder takes shows
   the same card, and it is read at the folder's visibility like any note.
-- **A person's card**: `phone`, `email`, and a `delegation` agent (the name
-  replaces "main agent"): `Tex`, another bot's name with `delegation_how`, or
-  none.
+- **A person's card**: `phone` and `email`. Who acts for them is each area's
+  delegate, not the card (the owner, 2026-11-25); the card's old `delegation`
+  and `delegation_how` lines are cleared when it is saved.
 - **An agent's card**: `access` (where and how to reach it, e.g. "only through
   other Grokbots, or the Grok UI on this account") and `vault`, the **name** of
   the vault item that holds its login. A login, key or token is never written
@@ -127,8 +128,8 @@ listing, with no seats and no List · Chart switch. `areasPage.test.ts` fails if
 a personal workspace draws seats.
 
 **Who holds a seat** (decided by the owner, 2026-11-24): a person from the
-workspace, optionally with their agent (the seat's `helper`), or an agent on
-its own, chosen from the workspace's `agents:` list. The pop-up offers only
+workspace, optionally with one bot, Tex or agent acting for them there (the
+seat's `delegate`), or an agent on its own with no delegate, chosen from the workspace's `agents:` list. The pop-up offers only
 those: owner words merely found in other notes are never offered.
 `areasPage.test.ts` fails if they are.
 
@@ -142,7 +143,7 @@ worked out from the Data folder's datasets
 ([data-and-metrics](../data-and-metrics.md), 2026-11-24); an area's own
 `metrics.csv` keeps working until then.
 
-**Bots** hold seats too, with a prompt that names their area and a delegate's prompt for a person's whole set: [area-bots](./area-bots.md) (2026-11-25).
+**Bots** hold seats too, with a prompt that names their area and one delegate per area: [area-bots](./area-bots.md) (2026-11-25).
 
 ## A project serves an area, said by one line in the project
 

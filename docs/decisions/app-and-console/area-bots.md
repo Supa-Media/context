@@ -28,11 +28,24 @@ keeps its notes there and knows what its modes ask of it.
   notes and goals in the area, projects in the Projects folder with an
   `area:` line naming this area unless they serve another, its mail, and
   what its modes ask.
-- **Delegates.** A person's card says who answers for them: nobody, Tex, or
-  any of the workspace's bots or agents. A bot delegate shows its own prompt,
-  which orients with `orient { for: "@person" }` across every area the
-  person holds, each with its modes. A bot can work at any size: one area,
-  a person's whole set of seats, or (later) one project.
+- **One delegate per area** (decided by the owner, 2026-11-25: "1 delegate
+  per area please", replacing a delegate on the person's card and the area's
+  Helper). An area is owned one of two ways: a person owns it and at most one
+  bot, Tex or agent acts for them there (`delegate:` in its `about.md`), with
+  the person's approval rules; or a bot owns it outright and has no
+  delegate. A person is never a delegate ("a human shouldnt be a helper to a
+  bot"). The panel's Delegate row offers Nobody, Tex, the bots and the
+  agents, never a person; a bot made owner drops the delegate. The old
+  `helper:` line is still read as the delegate under a person owner, and
+  cleared when the delegate is written; a person card's `delegation:` lines
+  are cleared when the card is saved. A delegate bot gets the same setup
+  prompt as an owner bot, its areas marked "for" their owner, and
+  `orient { for: "<bot>" }` lists the areas it owns and the ones it is the
+  delegate of, with whose approval each needs. A bot can work at any size:
+  one area, several, or (later) one project. `setArea.test.mjs` fails if a
+  person is accepted as delegate or a bot owner keeps one;
+  `orientArea.test.mjs` fails if a bot-owned area's old helper reads as a
+  delegate.
 - **Modes are what the bot reads, never a rule.** The meanings are the
   owner's, after The E-Myth: a Visionary sets course and corrects it and does
   not check up on tasks; a Manager makes sure the work is done at high
@@ -85,8 +98,8 @@ keeps its notes there and knows what its modes ask of it.
   "someone should be able to make updates to the areas, the area settings,
   assign metrics, update bot configs easily through tex or through the mcp").
   It is `manage` action `area` (`set_area`, `apps/mcp/src/tools/notes/setArea.js`),
-  not a new tool: owner, helper, modes, approvals, the area's one metric, a
-  bot's card, a person's delegate, and a bot's webhook. It writes the same
+  not a new tool: owner, the area's delegate, modes, approvals, the area's
+  one metric, a bot's card, and a bot's webhook. It writes the same
   front matter the panel writes, at the connection's own clearance, with the
   version it read. A metric must be one the workspace has in its data
   folder's `metrics/`, matched ignoring case; a wrong name is refused with the

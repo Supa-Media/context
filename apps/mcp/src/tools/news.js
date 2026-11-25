@@ -42,6 +42,12 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-25",
     text:
+      'manage action area takes delegate: "<bot name>" | "Tex" | null, the one bot that acts for a person owner in that area, in place of ' +
+      "helper and delegate: { person, to }, which are gone. A person is never a delegate, and an area a bot owns has none.",
+  },
+  {
+    date: "2026-11-25",
+    text:
       "manage action area (args { area, owner?, helper?, modes?, approvals?, metric?: { name, target? }, bot?: { name, whose?, reach? }, " +
       "delegate?: { person, to }, webhook?: { address, header?, signing_key? }, test_webhook? }) sets an area up in one call: who holds it, its " +
       "modes and rules, its one metric, a Grok bot's card, who answers for a person, and a bot's webhook, saved sealed and never shown again.",
@@ -510,7 +516,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "1b1edf38";
+export const TOOL_SHAPE = "969bb6aa";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

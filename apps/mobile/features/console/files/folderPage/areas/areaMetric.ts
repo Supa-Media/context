@@ -189,7 +189,7 @@ export function targetHint(mode: TargetMode, value: string): string {
 export function pickedEdit(seat: Seat, name: string, mode: TargetMode, value: string): SeatEdit {
   return {
     owner: seat.ownOwner,
-    helper: seat.helper,
+    delegate: seat.delegate,
     modes: seat.modes,
     metrics: [{ name: name.trim(), target: targetWords(mode, value) }, ...seat.metrics.slice(1)],
     approvals: seat.approvals,
