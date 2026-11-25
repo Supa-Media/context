@@ -35,7 +35,7 @@ export async function runTheGroup(
   asked: { text: string; attachments?: readonly InboundAttachment[] },
   line: Pick<GroupLine, "runGroup">,
   place: GroupPlace,
-): Promise<{ texts: string[]; told: string | null; done: GroupAction[] }> {
+): Promise<{ texts: string[]; told: string | null; why: "cannot" | "failed" | "add_not_theirs" | "photo_none" | null; done: GroupAction[] }> {
   const actions: GroupAction[] = [];
   const refused: GroupRefusal[] = [];
   const out: string[] = [];
@@ -72,5 +72,6 @@ export async function runTheGroup(
         : refused.includes("photo_none")
           ? GROUP_RUN_LINES.photoNone
           : null;
-  return { texts: out, told, done };
+  const why = cannot ? "cannot" : failed ? "failed" : told === GROUP_RUN_LINES.addNotTheirs ? "add_not_theirs" : told === GROUP_RUN_LINES.photoNone ? "photo_none" : null;
+  return { texts: out, told, why, done };
 }
