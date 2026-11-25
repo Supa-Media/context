@@ -13,21 +13,30 @@
  * the creator. Either must still hold the `owner` role; when neither does (a
  * row from before co-owners existed), the earliest-joined owner is the owner,
  * so a workspace with owners always has exactly one.
+ *
+ * Each of those is read from the person's own membership row, and the owners
+ * from the owner side of `by_workspace_role`, never from a page of the
+ * workspace's members: the owner of a workspace with more members than one
+ * page used to resolve to whoever that page happened to hold, which after a
+ * hand-over is the creator who handed it away.
  */
 
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
-import { requireWorkspaceRole } from "../workspaceAuth";
+import { getMembership, requireWorkspaceRole } from "../workspaceAuth";
 
+/** Owners examined for the fallback; a workspace with more than this many owners has no earliest-joined one. */
 const OWNERS_EXAMINED = 200;
 
 /** The workspace's owner's user id, or null when it has no member with the owner role. */
 export async function primaryOwnerOf(ctx: QueryCtx, workspace: Doc<"workspaces">): Promise<Id<"users"> | null> {
-  const owners = await ownerMemberships(ctx, workspace._id);
   for (const named of [workspace.ownerUserId, workspace.createdBy]) {
-    if (named !== undefined && owners.some((member) => member.userId === named)) return named;
+    if (named === undefined) continue;
+    const member = await getMembership(ctx, workspace._id, named);
+    if (member?.role === "owner") return named;
   }
+  const owners = await ownerMemberships(ctx, workspace._id);
   owners.sort((a, b) => a.joinedAt - b.joinedAt);
   return owners[0]?.userId ?? null;
 }
@@ -37,11 +46,10 @@ export async function ownerMemberships(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<Doc<"workspaceMembers">[]> {
-  const members = await ctx.db
+  return await ctx.db
     .query("workspaceMembers")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "owner"))
     .take(OWNERS_EXAMINED);
-  return members.filter((member) => member.role === "owner");
 }
 
 /** Throws unless `userId` is the workspace's owner, not only a co-owner. */
