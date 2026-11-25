@@ -83,3 +83,11 @@ test("a bot joins mail under a name mail accepts", () => {
   expect(mailJoinName("A very long bot name that goes on and on")).toBe("a-very-long-bot-name-tha");
   expect(mailJoinName("  ")).toBe("bot");
 });
+
+test("a bot with a card is told to put its own logo there, once", () => {
+  const text = areaPrompt({ ...AREA, card: "areas/people/finance.md" });
+  expect(text).toContain('path: "areas/people/finance.md"');
+  expect(text).toContain("avatar: logo.png");
+  expect(areaPrompt(AREA)).not.toContain("avatar:");
+  expect(delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", card: "areas/people/chief.md" })).toContain('path: "areas/people/chief.md"');
+});

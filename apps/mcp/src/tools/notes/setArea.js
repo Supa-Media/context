@@ -68,7 +68,7 @@ async function openNote(store, scope, rules, overrides, path) {
 }
 
 /** Applies `[key, value]` changes to one note (made when `create`), with one retry on a concurrent edit. */
-async function change(store, scope, rules, overrides, path, changes, { create = false } = {}) {
+async function change(store, scope, rules, overrides, path, changes, { create = false, images } = {}) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const opened = await openNote(store, scope, rules, overrides, path);
     if (opened.error) return { error: `${path}: ${opened.error}. Check the area's path with orient { area }, then try again.` };
@@ -80,7 +80,7 @@ async function change(store, scope, rules, overrides, path, changes, { create = 
       text = next.text;
     }
     if (!opened.missing && text === opened.body) return { unchanged: true };
-    const written = await toolWriteNote(store, scope, rules, overrides, { path, content: text, ...(opened.etag ? { expected_etag: opened.etag } : {}) });
+    const written = await toolWriteNote(store, scope, rules, overrides, { path, content: text, ...(opened.etag ? { expected_etag: opened.etag } : {}), ...(images ? { images } : {}) });
     if (written.isError && textOf(written).startsWith("conflict") && attempt === 0) continue;
     if (written.isError) return { error: `${path}: ${textOf(written)}. Read the note, then try again.` };
     return { wrote: true, created: opened.missing === true };
@@ -185,10 +185,20 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const card = [["holder", name], ["kind", "agent"], ["bot", kind]];
     if (whose !== undefined) card.push(["belongs_to", whose === "" ? null : whose]);
     if (bot.reach !== undefined) card.push(["reach", bot.reach]);
+    // Its logo, stored in the workspace by the write itself: `avatar:` names it, as a page's photo: does (`uploadedImages.js`).
+    let images;
+    if (bot.avatar !== undefined) {
+      const from = bot.avatar ?? {};
+      const url = typeof from.url === "string" ? from.url.trim() : "";
+      const data = typeof from.data === "string" ? from.data.trim() : "";
+      if ((url === "") === (data === "")) return toolError("invalid: bot.avatar takes url (an https address) or data (base64), one of them. Pass one, then try again.");
+      card.push(["avatar", "logo"]);
+      images = [{ name: "logo", ...(url !== "" ? { url } : { data }) }];
+    }
     const people = `${root}/people`;
     const peopleAbout = await openNote(store, scope, rules, overrides, `${people}/about.md`);
     if (peopleAbout.missing) await change(store, scope, rules, overrides, `${people}/about.md`, [["area", "false"]], { create: true });
-    const wrote = await change(store, scope, rules, overrides, `${people}/${cardSlug(name)}.md`, card, { create: true });
+    const wrote = await change(store, scope, rules, overrides, `${people}/${cardSlug(name)}.md`, card, { create: true, images });
     if (wrote.error) return toolError(wrote.error);
     const listing = await openNote(store, scope, rules, overrides, `${root}/about.md`);
     const agents = (await factProps(store, [`${root}/about.md`]))?.get(`${root}/about.md`)?.props?.properties?.agents;
@@ -197,7 +207,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
       const added = await change(store, scope, rules, overrides, `${root}/about.md`, [["agents", [...have, name]]], { create: true });
       if (added.error) problems.push(added.error);
     }
-    done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""} (card ${people}/${cardSlug(name)}.md)`);
+    done.push(`${name}: ${botLabel(kind)}${whose ? ` of ${whose}` : ""}${bot.reach ? `, reached by ${bot.reach === "webhook" ? "its webhook" : "checking its mail"}` : ""}${images ? ", with its logo" : ""} (card ${people}/${cardSlug(name)}.md)`);
   }
 
   // A person's delegate: who answers for them.

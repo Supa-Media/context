@@ -91,7 +91,19 @@ function contextArg(workspace) {
  * the person it belongs to, `area` the area's folder, `title` its name as
  * drawn, `modes` the area's modes, `reach` how Context reaches it.
  */
-function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach }) {
+/**
+ * The line that has a bot put its own logo on its card on its first session,
+ * so the workspace shows the face it has in its own app (the owner,
+ * 2026-11-25: "maybe from first response"). The card's `avatar:` names a
+ * picture stored in the workspace, which `write` stores from `images`;
+ * nothing is said when the card's path isn't known.
+ */
+function logoLine(card, workspace) {
+  if (!card) return null;
+  return `The first time, put your logo on your card, so people see the face you have in your own app: write { ${contextArg(workspace)}path: ${quoted(card)}, args: { edits: [{ old: "kind: agent", new: "kind: agent\\navatar: logo.png" }], images: [{ name: "logo.png", url: "<your logo's https address>" }] } } (or data: its base64 in place of url). Skip it once the card has an avatar: line.`;
+}
+
+function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, card }) {
   const name = nameOf(bot) || "the bot";
   const label = botLabel(kind) || "bot";
   const person = nameOf(whose);
@@ -104,6 +116,8 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach }) 
   lines.push(
     `Start every session with: orient { ${contextArg(workspace)}area: ${quoted(area)} }. It tells you this area's goal, its metric and target, its approval rules, its modes, the mail waiting for you and the projects attached to it. If your app drops the area argument, ask orient { ${contextArg(workspace)}about: ${quoted(`area ${area}`)} } instead.`,
   );
+  const logo = logoLine(card, workspace);
+  if (logo) lines.push("", logo);
   lines.push("");
   lines.push(`Keep what you want to remember, your notes, goals and decisions, in ${where}.`);
   lines.push("");
@@ -131,7 +145,7 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach }) 
  * The prompt for a bot a person delegates to: it acts for them in every area
  * they hold, each with that area's modes. `orient for` lists them live.
  */
-function delegatePrompt({ bot, kind, whose, workspace }) {
+function delegatePrompt({ bot, kind, whose, workspace, card }) {
   const name = nameOf(bot) || "the bot";
   const label = botLabel(kind) || "bot";
   const person = nameOf(whose) || "your person";
@@ -141,6 +155,8 @@ function delegatePrompt({ bot, kind, whose, workspace }) {
   lines.push(
     `Start every session with: orient { ${contextArg(workspace)}for: ${quoted(person)} }. It lists every area ${person} holds, their modes in each, each area's metric and rules, and the mail waiting. If your app drops the for argument, ask orient { ${contextArg(workspace)}about: ${quoted(`for ${person}`)} } instead.`,
   );
+  const logo = logoLine(card, workspace);
+  if (logo) lines.push("", logo);
   lines.push("");
   lines.push("In each area, work as its modes say:");
   for (const mode of MODE_ORDER) lines.push(`- ${mode}: ${MODE_MEANINGS[mode]}`);

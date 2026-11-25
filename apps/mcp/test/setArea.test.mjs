@@ -119,6 +119,21 @@ test("a bot gets its card in people/ and its name on the agents list", async () 
   assert.deepEqual((await props("areas/about.md")).agents, ["Pipeline", "Finance"]);
 });
 
+// A 1×1 PNG.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+test("a bot's logo is stored in the workspace and named on its card's avatar line", async () => {
+  const { store, props, text } = await world({ "areas/finance/about.md": FINANCE });
+  const result = await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.match(said(result), /with its logo/);
+  const avatar = String((await props("areas/people/finance.md")).avatar);
+  assert.match(avatar, /^upload-[0-9a-f]{16}\.(png|webp|jpe?g)$/);
+  // The logo is a field, not an embed added under the card.
+  assert.doesNotMatch(await text("areas/people/finance.md"), /!\[/);
+  assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: {} } })).isError, true);
+});
+
 test("a delegate is written on the person's card, and null takes it away", async () => {
   const { store, props } = await world({ "areas/finance/about.md": FINANCE });
   assert.equal((await run(store, { area: "areas/finance", delegate: { person: "@seyi", to: "Finance" } })).isError, undefined);

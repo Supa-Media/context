@@ -39,6 +39,7 @@ import {
   areaTree,
   cardChanges,
   cardOf,
+  cardPath,
   areaTitle,
   cardSlug,
   notesUnder,
@@ -102,7 +103,7 @@ export const DOUBLE_PRESS_MS = 400;
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf: plainFace, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
   // The workspace's metrics, worked out as they are read; an area naming one reads it, any other its metrics.csv.
@@ -134,6 +135,27 @@ export function AreasView(props: AreasViewProps) {
   const cardFor = useCallback(
     (holder: string, kind: Card["kind"]) => cardOf(holder, kind, root, notes),
     [root, notes],
+  );
+  // A bot whose card names its logo is drawn as that logo, read through its card (the owner, 2026-11-25).
+  const readPicture = host?.source.readPicture;
+  const faceOf = useCallback(
+    (owner: string | null): Face => {
+      const face = plainFace(owner);
+      if (owner === null || face.kind !== "agent" || readPicture === undefined) return face;
+      const avatar = cardFor(owner, "agent").avatar;
+      if (avatar === "") return face;
+      const card = cardPath(root, owner);
+      return { kind: "agent", picture: { key: `${host?.workspaceId ?? ""}|${avatar}`, read: () => readPicture(card, avatar) } };
+    },
+    [plainFace, readPicture, cardFor, root, host?.workspaceId],
+  );
+  // A mail note is named for its sender (`pipeline`): a bot's is drawn with its face.
+  const senderFace = useCallback(
+    (sender: string): Face | null => {
+      const agent = agents.find((name) => cardSlug(name) === sender || name.toLowerCase() === sender.toLowerCase());
+      return agent === undefined ? null : faceOf(agent);
+    },
+    [agents, faceOf],
   );
   const reach = useCallback(
     (owner: string) => reachLine(cardFor(owner, isAgent(owner) ? "agent" : "person")),
@@ -233,8 +255,9 @@ export function AreasView(props: AreasViewProps) {
             ...(canEdit && host?.tasks !== undefined ? { create: (path: string, text: string) => host.tasks!.io.create(path, text) } : {}),
             ...(myHandle === undefined ? {} : { me: myHandle }),
             open: onSelect,
+            faceOf: senderFace,
           },
-          tools: { people, agents, isAgent, cardFor, label, ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
+          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder), ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);

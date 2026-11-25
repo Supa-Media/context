@@ -23,5 +23,7 @@ export declare function areaPrompt(input: {
   title?: string;
   modes?: readonly string[];
   reach?: ReachKind;
+  /** The bot's card, `areas/people/pipeline.md`: the prompt then has it put its logo there. */
+  card?: string;
 }): string;
-export declare function delegatePrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string }): string;
+export declare function delegatePrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string; card?: string }): string;

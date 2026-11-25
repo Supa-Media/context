@@ -29,6 +29,12 @@ export function areaToolDefinitions() {
               kind: { type: "string", description: "grok (the default)." },
               whose: { type: "string", description: "The @handle of the person the bot belongs to." },
               reach: { type: "string", enum: ["webhook", "mail"], description: "webhook: Context calls it; mail: it checks its mail on a timer." },
+              avatar: {
+                type: "object",
+                description: "Its logo, shown for it in the app: url (https) or data (base64).",
+                properties: { url: { type: "string" }, data: { type: "string" } },
+                additionalProperties: false,
+              },
             },
             required: ["name"],
             additionalProperties: false,

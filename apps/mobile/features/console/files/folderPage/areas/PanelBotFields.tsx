@@ -21,6 +21,7 @@ import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MenuItem } from "../../menuItem";
 import { agentName } from "../agents";
+import { pickSquarePhoto } from "../../../settings/panels/pickSquarePhoto";
 import { areaTitle, type Card, type Seat } from "./seat";
 
 /** The words a bot is shown with in a menu: "@seyi's Grok bot". */
@@ -30,7 +31,7 @@ export function botDetail(card: Card, label: (owner: string) => string): string 
 }
 
 /** The prompt for the bot holding `seat`. */
-export function seatPrompt(seat: Seat, card: Card, workspace: string | undefined): string {
+export function seatPrompt(seat: Seat, card: Card, workspace: string | undefined, cardNote?: string): string {
   return areaPrompt({
     bot: card.holder,
     kind: card.bot,
@@ -40,12 +41,20 @@ export function seatPrompt(seat: Seat, card: Card, workspace: string | undefined
     title: areaTitle(seat.name),
     modes: seat.modes,
     reach: card.reach,
+    // A bot with no logo yet is told to put its own on its card.
+    ...(cardNote === undefined || card.avatar !== "" ? {} : { card: cardNote }),
   });
 }
 
 /** The prompt for the bot a person delegates to. */
-export function personPrompt(person: string, bot: Card, workspace: string | undefined): string {
-  return delegatePrompt({ bot: bot.holder, kind: bot.bot, whose: person, ...(workspace === undefined ? {} : { workspace }) });
+export function personPrompt(person: string, bot: Card, workspace: string | undefined, cardNote?: string): string {
+  return delegatePrompt({
+    bot: bot.holder,
+    kind: bot.bot,
+    whose: person,
+    ...(workspace === undefined ? {} : { workspace }),
+    ...(cardNote === undefined || bot.avatar !== "" ? {} : { card: cardNote }),
+  });
 }
 
 /**
@@ -153,6 +162,46 @@ export function PromptBox({ title, text, testID }: { title: string; text: string
         {text}
       </Text>
     </View>
+  );
+}
+
+/**
+ * "Upload logo", after a bot's name in the Owner row while its card names no
+ * logo: for a bot that can't put its own there on its first session (the
+ * owner, 2026-11-25). The picture is stored in the workspace and named on the
+ * card's `avatar:` line, which is what the list, the panel and mail draw.
+ */
+export function UploadLogo({
+  store,
+  onStored,
+  testID = "area-panel-upload-logo",
+}: {
+  store: (picture: { bytes: ArrayBuffer; contentType: string }) => Promise<{ leaf: string } | { error: string }>;
+  onStored: (leaf: string) => void;
+  testID?: string;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const upload = async () => {
+    if (busy) return;
+    setProblem(null);
+    const picked = await pickSquarePhoto();
+    if (picked.kind === "canceled") return;
+    if (picked.kind === "error") return setProblem(picked.message);
+    setBusy(true);
+    const stored = await store({ bytes: picked.bytes, contentType: picked.contentType });
+    setBusy(false);
+    if ("error" in stored) return setProblem(stored.error);
+    onStored(stored.leaf);
+  };
+  return (
+    <>
+      <Pressable onPress={() => void upload()} role="button" accessibilityLabel="Upload logo" style={styles.ghost} testID={testID}>
+        <Text variant="treeMeta" style={styles.link}>{busy ? "Uploading…" : "Upload logo"}</Text>
+      </Pressable>
+      {problem === null ? null : <Text variant="treeMeta" role="alert" style={styles.problem}>{problem}</Text>}
+    </>
   );
 }
 

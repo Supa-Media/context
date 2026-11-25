@@ -26,7 +26,7 @@ import type { OwnerSearch } from "../../owners";
 import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
-import { AddBotForm, PromptBox, botDetail, personPrompt, seatPrompt } from "./PanelBotFields";
+import { AddBotForm, PromptBox, UploadLogo, botDetail, personPrompt, seatPrompt } from "./PanelBotFields";
 import { BotHookFields } from "./PanelBotHook";
 import { MODES, MODE_TIPS, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
@@ -43,6 +43,10 @@ export interface PanelSeatTools {
   workspace?: string;
   /** The workspace's id, where a bot's webhook is saved; absent where none can be. */
   workspaceId?: string;
+  /** Where a holder's card is, named in a bot's prompt so it puts its logo there. */
+  cardPath?: (holder: string) => string;
+  /** Stores a picture (a bot's logo); absent where the reader may not write. */
+  storePicture?: (picture: { bytes: ArrayBuffer; contentType: string }) => Promise<{ leaf: string } | { error: string }>;
 }
 
 export type PanelWrite = (patch: Partial<SeatEdit>, cards?: readonly Card[]) => void;
@@ -85,7 +89,7 @@ export function PanelOwnerRows({
   write: PanelWrite;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const { people, agents, isAgent, cardFor, label, addAgent, workspace, workspaceId } = tools;
+  const { people, agents, isAgent, cardFor, label, addAgent, workspace, workspaceId, storePicture, cardPath } = tools;
   const same = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
   const [menu, setMenu] = useState<{ which: "owner" | "helper" | "delegate"; anchor: Anchor } | null>(null);
   const [addingBot, setAddingBot] = useState(false);
@@ -151,12 +155,18 @@ export function PanelOwnerRows({
   return (
     <View style={styles.grid}>
       <Row label="Owner">
-        <DropValue editable={canEdit} label="Change owner" onOpen={(anchor) => setMenu({ which: "owner", anchor })} testID="area-panel-owner">
-          <OwnerFace face={faceOf(owner)} size={18} />
-          <Text variant="tree" style={[styles.value, owner === null && styles.muted]} numberOfLines={1}>
-            {owner === null ? "Nobody yet" : label(owner)}
-          </Text>
-        </DropValue>
+        <View style={styles.inline}>
+          <DropValue editable={canEdit} label="Change owner" onOpen={(anchor) => setMenu({ which: "owner", anchor })} testID="area-panel-owner">
+            <OwnerFace face={faceOf(owner)} size={18} />
+            <Text variant="tree" style={[styles.value, owner === null && styles.muted]} numberOfLines={1}>
+              {owner === null ? "Nobody yet" : label(owner)}
+            </Text>
+          </DropValue>
+          {/* A bot whose card names no logo yet: anyone who can edit the card adds it (the owner, 2026-11-25). */}
+          {canEdit && storePicture !== undefined && card !== null && card.kind === "agent" && card.bot !== "" && card.avatar === "" ? (
+            <UploadLogo store={storePicture} onStored={(leaf) => writeCard({ avatar: leaf })} />
+          ) : null}
+        </View>
       </Row>
       {inherited === null ? null : <Text variant="treeMeta" style={[styles.muted, styles.under]}>{inherited}</Text>}
       {addingBot ? <AddBotForm people={known} label={label} onAdd={addBot} onCancel={() => setAddingBot(false)} /> : null}
@@ -218,7 +228,7 @@ export function PanelOwnerRows({
             </View>
           </Row>
           {card.reach === "webhook" && workspaceId !== undefined ? <BotHookFields workspaceId={workspaceId} bot={owner} canEdit={canEdit} /> : null}
-          <PromptBox title={`Prompt for ${label(owner)}`} text={seatPrompt(seat, card, workspace)} testID="area-panel-prompt" />
+          <PromptBox title={`Prompt for ${label(owner)}`} text={seatPrompt(seat, card, workspace, cardPath?.(card.holder))} testID="area-panel-prompt" />
         </>
       ) : ownerIsAgent ? (
         <>
@@ -245,7 +255,7 @@ export function PanelOwnerRows({
             </DropValue>
           </Row>
           {delegateBot === null ? null : (
-            <PromptBox title={`Prompt for ${label(delegateBot)}`} text={personPrompt(owner, cardFor(delegateBot, "agent"), workspace)} testID="area-panel-delegate-prompt" />
+            <PromptBox title={`Prompt for ${label(delegateBot)}`} text={personPrompt(owner, cardFor(delegateBot, "agent"), workspace, cardPath?.(delegateBot))} testID="area-panel-delegate-prompt" />
           )}
         </>
       )}
@@ -465,6 +475,7 @@ const makeStyles = (colors: Colors) =>
     row: { flexDirection: "row", alignItems: "center", minHeight: 28, gap: space.x2 },
     key: { width: KEY_WIDTH, color: colors.text2 },
     cell: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+    inline: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: space.x2 },
     under: { marginLeft: KEY_WIDTH + space.x2 },
     hint: { marginTop: space.x1 },
     muted: { color: colors.muted },
