@@ -100,7 +100,7 @@ describe("the Areas List's projects count", () => {
     expect(all("area-project-projects/stripe-sync")).toHaveLength(0);
     await press(one("area-projects-areas/finance"));
     expect(all("area-project-projects/stripe-sync")).toHaveLength(1);
-    expect(strip(one("area-project-projects/run-payroll").textContent)).toContain("payroll");
+    expect(strip(one("area-project-projects/run-payroll").textContent)).toContain("Payroll");
     expect(all("area-project-projects/budget")).toHaveLength(0);
     expect(strip(one("area-projects-rest-areas/finance").textContent)).toBe("1 not started · 1 done");
     await press(one("area-project-projects/stripe-sync"));

@@ -14,6 +14,7 @@ import { useColors, useThemedStyles, type Colors } from "../../../../design/them
 import { areasType, pointerType } from "../../../../design/tokens";
 import { OwnerFace, StatusDot, type Face } from "../Glyphs";
 import { areaKey, restLine, type AreaProject, type AreaProjects } from "./areaProjects";
+import { areaTitle } from "./seat";
 
 /** The pointer state a web Pressable reports, which react-native-web adds to RN's. */
 interface HoverState {
@@ -63,7 +64,7 @@ export function ProjectsButton({ count, area, folder, open, phone, onPress }: { 
 export function servesWhere(area: string, project: AreaProject): string {
   if (project.area === null || areaKey(project.area) === areaKey(area)) return "";
   const said = project.area.replace(/\/+$/, "");
-  return said.slice(said.lastIndexOf("/") + 1);
+  return areaTitle(said.slice(said.lastIndexOf("/") + 1));
 }
 
 /** The projects in progress under an area's row, then one muted line for the rest. */

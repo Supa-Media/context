@@ -19,6 +19,7 @@ import { OwnerFace, StatusDot, type Face } from "../Glyphs";
 import type { StatusTone } from "../StatusPill";
 import { servesWhere } from "./AreaProjectRows";
 import { restLine, type AreaProject, type AreaProjects } from "./areaProjects";
+import { areaTitle } from "./seat";
 
 export interface PanelProjectsTools {
   readonly projects: AreaProjects;
@@ -140,7 +141,7 @@ export function PanelProjects({ area, tools, onProblem }: { area: string; tools:
                 {project.name}
               </Text>
               <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
-                {project.area === null ? "No area" : project.area.slice(project.area.lastIndexOf("/") + 1)}
+                {project.area === null ? "No area" : areaTitle(project.area.slice(project.area.lastIndexOf("/") + 1))}
               </Text>
             </Pressable>
           ))}
