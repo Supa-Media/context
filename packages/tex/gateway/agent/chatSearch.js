@@ -62,21 +62,24 @@ export function findTexts(events, want) {
   return found;
 }
 
-/** The hits to show: those holding every word when any do, else those holding some; most words, then newest, first. */
-export function bestHits(found, want) {
+/**
+ * The hits to show: those holding every word when any do, else those holding some; most words, then newest, first, or
+ * oldest first when `oldest` ("when did I first…": the newest-first cut at `MAX_HITS` could drop the first one).
+ */
+export function bestHits(found, want, { oldest = false } = {}) {
   const all = found.filter((f) => f.hits === want.length);
-  const shown = (all.length > 0 ? all : found).sort((a, b) => b.hits - a.hits || b.e.at - a.e.at).slice(0, MAX_HITS);
+  const shown = (all.length > 0 ? all : found).sort((a, b) => b.hits - a.hits || (oldest ? a.e.at - b.e.at : b.e.at - a.e.at)).slice(0, MAX_HITS);
   return { all, shown };
 }
 
 /** What the six's `search` says of it when the turn holds it (`sixTools.js` `searchTool`). */
 export const HISTORY_SEARCH_LINE =
-  "\n\nThis chat's own history, every text back to its first: search with args { history: true, who, since, until } when they ask when or whether something was said here, or before asking them what the chat may already hold; each hit names its day, time and who said it.";
+  "\n\nThis chat's own history, every text back to its first: search with args { history: true, who, since, until, oldest } when they ask when or whether something was said here, or before asking them what the chat may already hold; each hit names its day, time and who said it.";
 
 /** `search { query, args: { history: true, who, since, until } }` as the `search_chat` call it is. */
 export function historySearchCall(call) {
-  const { who, since, until } = call.args;
-  return { name: SEARCH_CHAT, args: { words: call.query, ...(who !== undefined ? { who } : {}), ...(since !== undefined ? { since } : {}), ...(until !== undefined ? { until } : {}) } };
+  const { who, since, until, oldest } = call.args;
+  return { name: SEARCH_CHAT, args: { words: call.query, ...(who !== undefined ? { who } : {}), ...(since !== undefined ? { since } : {}), ...(until !== undefined ? { until } : {}), ...(oldest === true ? { oldest: true } : {}) } };
 }
 
 const answer = (text, isError = false) => ({ content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) });
@@ -102,6 +105,7 @@ export function chatSearchTool({ ledger, chat, timeZone = "UTC", grant = null, o
           who: { type: "string", description: "Only texts from this person (a name or handle as the chat shows it), or \"you\" for your own." },
           since: { type: "string", description: "Only texts from this day on, YYYY-MM-DD." },
           until: { type: "string", description: "Only texts up to and including this day, YYYY-MM-DD." },
+          oldest: { type: "boolean", description: "Oldest first, for when something was first said. Newest first when left out." },
         },
         required: ["words"],
       },
@@ -120,7 +124,8 @@ export function chatSearchTool({ ledger, chat, timeZone = "UTC", grant = null, o
         const view = earlierFromLedger(entries, chat, { before: until ?? Number.MAX_SAFE_INTEGER, chars: Number.MAX_SAFE_INTEGER, fade: false, grant });
         const events = who === "" ? view.events : view.events.filter((e) => speaker(e.from).toLowerCase().replace(/^@/, "").includes(who));
         const found = findTexts(events, want);
-        const { all, shown } = bestHits(found, want);
+        const oldest = args?.oldest === true;
+        const { all, shown } = bestHits(found, want, { oldest });
         if (found.length > 0) onRead();
         log(JSON.stringify({ event: "tex_chat_search", entries: entries.length, whole, texts: events.length, hits: found.length, whole_hits: all.length, shown: shown.length, ms: Date.now() - began }));
         const scope = `${who ? ` from ${args.who.trim()}` : ""}${sinceDay ? ` since ${sinceDay}` : ""}${untilDay ? ` up to ${untilDay}` : ""}`;
@@ -130,7 +135,7 @@ export function chatSearchTool({ ledger, chat, timeZone = "UTC", grant = null, o
         const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" });
         const lines = shown.map(({ e, text }) => `- ${day.format(new Date(e.at))} ${time.format(new Date(e.at))} · ${speaker(e.from)}: ${text.replace(/[\s\u0000-\u001f]+/g, " ").slice(0, HIT_CHARS)} (that day: fetch {"id": "day:${dayOf(e.at, timeZone)}"})`);
         const partial = all.length === 0 ? " None held every word, so these hold some of them." : "";
-        return answer(`${shown.length} of ${found.length} matching texts in this chat${scope}, best first.${partial}${reach}\n${lines.join("\n")}`);
+        return answer(`${shown.length} of ${found.length} matching texts in this chat${scope}, ${oldest ? "oldest" : "newest"} first.${partial}${reach}\n${lines.join("\n")}`);
       } catch (error) {
         log(JSON.stringify({ event: "tex_chat_search", failed: String(error?.name ?? "error").slice(0, 40), ms: Date.now() - began }));
         return answer("This chat's history could not be searched just now.", true);
