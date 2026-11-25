@@ -68,11 +68,11 @@ test("the prompt names who is missing, as the chat knows them, in facts only", (
 test("an asker's workspace someone here isn't in is read, and the prompt says who can't open it", () => {
   const group = { ...groupOf({ group: { key: HEX, members: HEX, from: "ada", people: ["ada", "sam"], blocked: [SHYOH] } }), reach: ["crystal-co"] };
   const line = blockedLine(group);
-  assert.match(line, /^Not everyone here can open @crystal-co: @crystal-co is missing @sam \(not a member\)\. $/);
+  assert.match(line, /^Asker's, not everyone's: @crystal-co is missing @sam \(not a member\)\. $/);
   assert.doesNotMatch(line, /can't use|chat_add_everyone/, "the asker reads it: nothing to fix");
   // One read and one not: each said as it is.
   const both = { ...group, blocked: [SHYOH, { slug: "harbor-co", who: "sam", why: "not_member" }] };
-  assert.match(blockedLine(both), /Not everyone here can open @crystal-co: .*This chat can't use @harbor-co: @harbor-co is missing @sam/);
+  assert.match(blockedLine(both), /Asker's, not everyone's: @crystal-co is missing @sam.*This chat can't use @harbor-co: @harbor-co is missing @sam/);
 });
 
 test("Replay logs reach and who blocks it on every group turn, and nothing for a 1:1", () => {

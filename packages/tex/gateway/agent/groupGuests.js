@@ -64,7 +64,8 @@ export function blockedLine(group) {
   const read = [...bySlug.keys()].filter((slug) => reach.has(slug));
   const kept = [...bySlug.keys()].filter((slug) => !reach.has(slug));
   return (
-    (read.length > 0 ? `Not everyone here can open ${read.map((slug) => `@${slug}`).join(", ")}: ${line(read)}. ` : "") +
+    // A workspace this turn reads is a fact on its own line, with no fix: nothing keeps the asker out of it.
+    (read.length > 0 ? `Asker's, not everyone's: ${line(read)}. ` : "") +
     (kept.length > 0
       ? `This chat can't use ${kept.map((slug) => `@${slug}`).join(", ")}: ${line(kept)}. ` +
         "A chat reaches a workspace when everyone in it is a member or invited by number; an owner of it can have you invite them (send chat_add_everyone). "

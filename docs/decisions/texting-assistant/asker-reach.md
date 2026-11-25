@@ -35,7 +35,7 @@ show it" said by the third person about one of the other two.
   (`homeOnlyStillShares`), and every request still re-reads the asker's membership (`liveReach`).
 - **The room is told who can't open what.** For each of the asker's workspaces the whole chat does not share, the turn
   names who here is not a member, or has no account and no invitation (`textGroupBlockers.ts`, shown by
-  `groupGuests.js` `blockedLine` as "Not everyone here can open @slug: ..."). A workspace the asker is not in is never
+  `groupGuests.js` `blockedLine` as "Asker's, not everyone's: @slug is missing ..."). A workspace the asker is not in is never
   named. The prompt says the reach is the asker's, by their access and never anyone else's (`groupTurn.js`
   `groupPrompt`).
 
