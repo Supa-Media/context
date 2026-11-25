@@ -398,7 +398,9 @@ describe("what the control plane keeps", () => {
     const rows = await t.run((ctx) => ctx.db.query("feedbackReceipts").collect());
     expect(rows).toHaveLength(1);
     const keys = Object.keys(rows[0]!).filter((key) => !key.startsWith("_")).sort();
-    expect(keys).toEqual(["clientReportId", "createdAt", "eventId", "sentAt", "state", "userId"]);
+    expect(keys).toEqual(["channel", "clientReportId", "createdAt", "eventId", "sentAt", "state", "userId"]);
+    // One word for which way it came in, for the bug reports sheet: never the screen it came from.
+    expect(rows[0]!.channel).toBe("app");
     expect(JSON.stringify(rows)).not.toMatch(/board lost|console|opened|TypeError/);
   });
 

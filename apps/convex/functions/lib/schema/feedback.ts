@@ -6,7 +6,7 @@ import { v } from "convex/values";
  * recognised and the daily limit is counted here rather than trusted to the
  * app.
  *
- * Ids, a state and times — **never the report**. The message, the screen, the
+ * Ids, a state, times and which way it came in — **never the report**. The message, the screen, the
  * activity log and the screenshot go to Sentry and nowhere else; this table
  * could not hold them if it wanted to. Swept after thirty days
  * (`purgeExpiredFeedbackReceipts`) and deleted with the account
@@ -23,6 +23,15 @@ export const feedbackTables = {
     state: v.union(v.literal("sending"), v.literal("sent")),
     createdAt: v.number(),
     sentAt: v.optional(v.number()),
+    /**
+     * Which way it came in (`feedbackChannel`): the app's bug button, a text to
+     * Tex, Tex in a group chat, another AI's `report_problem`, or a report about
+     * content. One word, so the Context usage source can list user-reported
+     * bugs by id (`usagePeople.exportRows`). Absent on receipts made before it.
+     */
+    channel: v.optional(
+      v.union(v.literal("app"), v.literal("tex"), v.literal("tex-group"), v.literal("agent"), v.literal("content")),
+    ),
   })
     .index("by_user_client", ["userId", "clientReportId"])
     .index("by_user_created", ["userId", "createdAt"])

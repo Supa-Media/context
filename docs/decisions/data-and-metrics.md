@@ -540,9 +540,40 @@ asap", and, on where the rows go, "Only @supa, named in gateway config".*
   called start the day this shipped: rebuilding them would mean reading every
   customer's editing history, which the usage source never does.
 
+### Bug reports in the same source
+
+*Decided 2026-11-25, on the owner's "ship user reported bugs going into a
+sheet overnight, either through tex or in the app".*
+
+- **One row per report, in `bug-reports.csv`** beside the other four sheets,
+  so it inherits every check above: the named workspace only, armed by an
+  owner, owners only by both renderings, re-checked every run. Columns:
+  `reference`, `filed`, `person`, `channel`, `status`.
+- **Which reports.** Every report sent through the one intake
+  (`lib/feedback/deliver.ts`): the app's bug button (`app`), a text to Tex
+  (`tex`), Tex in a group chat (`tex-group`) and another AI's
+  `report_problem` (`agent`). A report about content (`functions/reports.ts`)
+  is not a bug and never listed. The receipt the intake already keeps for the
+  daily budget now carries that one word (`channel`); receipts made before it
+  carry none and are not listed (the hand-kept `data/feedback/reports.csv`
+  covers those).
+- **No words of the report.** A row holds the reference the person was told
+  (the Tex bug note's `reference:`, or the app's Sentry event id), the time,
+  the person MAC shared with `activity.csv`, and the channel. The report
+  itself stays where it was filed: a Tex bug note readable by the pinned
+  workspace's members, or Sentry. Who reads the sheet (the usage workspace's
+  owners) is not provably within who reads the report, so a summary or a
+  path, whose name carries the report's first words, is left out until that
+  is checked per row.
+- **`status` is the team's.** A new row says `open`; a run never writes over
+  it (`mergeSynced`'s `handColumns`), so triage edits in the sheet stay.
+- **Backfill.** The sheet's first run reaches back 30 days on its own
+  (`bugsSince`), as far as receipts are kept.
+
 **What a simplification would cost.** Keying a row by account id, or by a MAC
 under `GATEWAY_SECRET`, lets the control plane or a sheet reader name the
 person. Checking visibility only when armed lets a later setting publish the
 rows. Letting any owner arm it gives every workspace everyone's activity.
-Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
+Listing a bug report's text or note path in the sheet would hand it to
+owners who may not read the report. Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
 `apps/convex/__tests__/usagePeople.test.ts`.
