@@ -35,7 +35,9 @@ export function turnOf(state, row, entries, ms) {
   const replies = rows.slice(at + 1).filter((r) => r && r.who === "Tex");
   const failed = replies.find((r) => typeof r.error === "string" && r.error !== "");
   if (failed) return { ran: false, error: `the turn failed: ${failed.error}`.slice(0, 300), ms };
-  const said = replies
+  // The turn's own texts: a background job's later report (`from: "job"`) is not the turn's answer, as on the bench.
+  const own = replies.filter((r) => r.from !== "job");
+  const said = own
     .filter((r) => r.quiet !== true)
     .flatMap((r) => (Array.isArray(r.parts) && r.parts.length > 0 ? r.parts : [r.text]))
     .filter((text) => typeof text === "string" && text.trim() !== "")
@@ -56,7 +58,10 @@ export function turnOf(state, row, entries, ms) {
   const fallbacks = (Array.isArray(entries) ? entries : [])
     .filter((e) => e && e.kind === "step" && e.step === "fallback")
     .map((e) => ({ kind: "step", step: "fallback", model: e.model ?? e.output?.model ?? null, input: { status: e.input?.status ?? null } }));
-  return { ran: true, said, tools, changes, usage, fallbacks, ms, at: row.at };
+  // A turn that texted nothing chose to stay quiet: the judge reads the bench's quiet marker (`saidLine.mjs`), never "no answer".
+  const quiet = said.length === 0;
+  const quietWhy = quiet ? String(own.find((r) => typeof r.note === "string")?.note ?? "").slice(0, 200) : "";
+  return { ran: true, said, quiet, ...(quietWhy ? { quietWhy } : {}), tools, changes, usage, fallbacks, ms, at: row.at };
 }
 
 /**

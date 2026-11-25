@@ -11,6 +11,7 @@
 // Sabotage (temporary local edits, reverted, 2026-11-24):
 //   rowAccounting.mjs `fallbackToolsOf` keeping no entries               "the same units come out ..." fails
 //   rowAccounting.mjs `couldNotRunRow` leaving `ran` unset               "the same units come out ..." fails
+//   sandboxRows.mjs writing no assistant line for a quiet turn           "a sandbox turn that stayed quiet ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -120,6 +121,20 @@ test("the same units come out of the GitHub path and the sandbox path with the s
     assert.deepEqual(b.couldNotRun.map((c) => [c.convId, c.msgIndex, c.why]), a.couldNotRun.map((c) => [c.convId, c.msgIndex, c.why]));
     assert.equal(b.couldNotRun.length, 2);
     assert.equal(b.total, a.total, "the same rows counted");
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a sandbox turn that stayed quiet is judged as the bench judges a quiet turn, never as an answer the judge skips", async () => {
+  const scratch = await mkdtemp(join(tmpdir(), "lab-rows-"));
+  try {
+    const quiet = { ran: true, said: [], quiet: true, quietWhy: "The chat object took the text (queued) and Tex sent nothing.", tools: [], changes: [], usage: [], fallbacks: [], ms: 5, at: Date.now() };
+    // A test whose right answer is to stay quiet: the judge must see the quiet marker to pass it.
+    const hush = { ...CONV, id: "fake-hush", msgs: [{ id: "h1", who: "Maya", text: "ok thanks", labels: { fd: { must: ["stayed quiet"], star: true } } }] };
+    const row = await sandboxRow({ unit: { i: 0, chat: "fake-hush", msg: "h1", at: 0, node: "fd", rep: 0 }, conv: hush, turn: quiet, scratch, send: fakeJudge() });
+    assert.equal(row.ran, true, `judged (${row.why ?? ""})`);
+    assert.equal(row.right, true, `the judge read the quiet marker (${row.got ?? ""})`);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }

@@ -89,10 +89,16 @@ test("only texted words run in the sandbox bench; a turn reads back Tex's texts,
   const entries = [stepEntry({ step: "fallback", model: "glm", input: { from: "claude-sonnet-5-5", status: 529 } }), stepEntry({ step: "router", input: {} })];
   const turn = turnOf(state, row, entries, 12);
   assert.deepEqual(turn.said, ["a", "b"]);
+  assert.equal(turn.quiet, false);
   assert.deepEqual(turn.tools, [{ tool: "search", ok: true }, { tool: "read", ok: false }]);
   assert.deepEqual(turn.usage, [{ model: "claude-sonnet-5-5", input: 100, output: 20 }]);
   assert.deepEqual(turn.changes, [{ kind: "note", title: "notes/a.md" }]);
   assert.deepEqual(turn.fallbacks, [{ kind: "step", step: "fallback", model: "glm", input: { status: 529 } }]);
+  const silent = turnOf({ rows: [...state.rows.slice(0, 2), { id: "t1r", reply: "t1", who: "Tex", text: "", quiet: true, note: "Tex sent nothing." }, { id: "t1j1", reply: "t1", who: "Tex", text: "job report", from: "job" }] }, row, [], 3);
+  assert.equal(silent.ran, true);
+  assert.deepEqual(silent.said, [], "a background job's later report is not the turn's answer");
+  assert.equal(silent.quiet, true);
+  assert.equal(silent.quietWhy, "Tex sent nothing.");
   const failed = turnOf({ rows: [...state.rows.slice(0, 2), { id: "t1r", reply: "t1", who: "Tex", text: "", quiet: true, error: "boom" }] }, row, [], 3);
   assert.equal(failed.ran, false);
   assert.match(failed.error, /boom/);

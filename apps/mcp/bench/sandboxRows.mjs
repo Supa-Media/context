@@ -27,6 +27,7 @@ import { parsePeople } from "./load.mjs";
 import { frontMatter } from "./resultNote.mjs";
 import { keyMarkdown, keyPathFor, priceUsd, resultMarkdown } from "./report.mjs";
 import { fallbackToolsOf } from "./rowAccounting.mjs";
+import { saidLine, silentTurn } from "./saidLine.mjs";
 import { fdTest, frontFor, groupFor, senderOf } from "./setsFd.mjs";
 import { collectConvo } from "./setsFdRows.mjs";
 
@@ -38,7 +39,8 @@ const SETUP = "production";
 export const rowOf = (unit) => ({ chat: unit.chat, msg: unit.msg, at: unit.at, node: "fd", rep: unit.rep ?? 0 });
 
 /**
- * The sandbox turn as one bench run (`run.mjs`'s shape, read by `resultMarkdown`): the person's text, Tex's texts, its
+ * The sandbox turn as one bench run (`run.mjs`'s shape, read by `resultMarkdown`): the person's text, Tex's texts (or
+ * the quiet marker when it texted nothing, as `run.mjs` writes it), its
  * tools with a `fallback: ...` entry for each fallback step, what it would have changed, its usage by model (only
  * models the bench has a price for, so an unpriced helper never makes the whole price unknown).
  */
@@ -51,6 +53,7 @@ export function benchRunOf({ person, text, turn }) {
     kept.input += Number(u.input) || 0;
     kept.output += Number(u.output) || 0;
   }
+  const answerOf = { answer: said.join("\n\n"), quiet: said.length === 0, ...(turn.quietWhy ? { quietWhy: turn.quietWhy } : {}) };
   return {
     setup: SETUP,
     question: 1,
@@ -58,7 +61,8 @@ export function benchRunOf({ person, text, turn }) {
     questionText: String(text).replace(/\s+/g, " ").slice(0, 120),
     as: person,
     kind: "task",
-    conversation: [{ from: "person", text }, ...said.map((words) => ({ from: "assistant", text: words }))],
+    // One assistant line for the turn, as `run.mjs` writes it (`saidLine`): its words, or the quiet marker, silent.
+    conversation: [{ from: "person", text }, { from: "assistant", text: saidLine(answerOf), ...(silentTurn(answerOf) ? { silent: true } : {}) }],
     tools: [...(Array.isArray(turn.tools) ? turn.tools : []), ...fallbackToolsOf(turn.fallbacks)],
     changes: (Array.isArray(turn.changes) ? turn.changes : []).map((c) => ({ kind: c.kind, workspace: "sandbox", path: c.title, detail: "kept in the test chat, never carried out" })),
     usageByModel,
