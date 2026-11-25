@@ -123,6 +123,17 @@ export function groupName(peopleNames: readonly string[]): string {
   return `${others.slice(0, 2).join(", ")}${rest > 0 ? ` +${rest}` : ""}`;
 }
 
+/**
+ * Names two or more chats share (2026-11-25: two group chats both listed as "@shyoh", and the new one read as missing
+ * from the Lab), each told apart by the day it started, where the person is. A name only one chat has is left as it is.
+ */
+export function distinctNames<T extends { name: string; startedAt: number }>(chats: readonly T[], timeZone: string | null): T[] {
+  const counts = new Map<string, number>();
+  for (const chat of chats) counts.set(chat.name, (counts.get(chat.name) ?? 0) + 1);
+  const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: timeZone ?? "UTC" });
+  return chats.map((chat) => ((counts.get(chat.name) ?? 0) > 1 ? { ...chat, name: `${chat.name} (since ${day.format(chat.startedAt)})` } : chat));
+}
+
 type Routine = typeof routineValidator.type;
 
 /** A routine row as the page shows it: its schedule and its last outcome code, never its note. */
@@ -239,6 +250,7 @@ export async function pageForUser(ctx: QueryCtx, userId: Id<"users">) {
       return {
         key: chat.groupKey,
         name: chat.chatName ?? groupName(peopleNames),
+        startedAt: chat._creationTime,
         people: Math.max(1, homeUsers.length),
         peopleNames: homeUsers.length > 0 ? peopleNames : ["You"],
         homeWords: chat.homeWords ?? null,
@@ -263,7 +275,7 @@ export async function pageForUser(ctx: QueryCtx, userId: Id<"users">) {
     instructions,
     picks: QUICK_PICKS.map(({ id, label }) => ({ id, label })),
     routines,
-    chats,
+    chats: distinctNames(chats, timeZone).map(({ startedAt: _startedAt, ...chat }) => chat),
   };
 }
 
