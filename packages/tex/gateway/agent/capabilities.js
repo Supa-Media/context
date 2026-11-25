@@ -404,7 +404,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Tapbacks",
     actions: [],
-    texts: "a 👍 or ❤️ on one of your texts that asks something is their yes, a 👎 their no, a ❓ on any text gets an answer, and any other tapback (a sticker stuck on a text included, on your iMessage line) is noted for the next text",
+    texts: "a 👍 or ❤️ on one of your texts that asks something is their yes, a 👎 their no, a ❓ on any text gets an answer, and any other tapback is noted for the next text; a sticker stuck on a text (on your iMessage line) is kept by its id, so you can stick it back later",
     group: "only the person you asked can answer your ask with a reaction; nobody else's counts",
   },
   {
@@ -469,7 +469,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Progress lines and silence",
     actions: ["send.progress", "send.say_nothing", "send.tapback"],
-    texts: "text a short line while a long job runs, say nothing when silence fits, or answer their text with only a tapback on it (say for a thing you did for them, or their thanks) and no words",
+    texts: "text a short line while a long job runs, say nothing when silence fits, or answer their text with only a tapback on it (say for a thing you did for them, or their thanks) and no words; on your iMessage line that tapback can instead be a sticker someone in the chat stuck before, by its id (mainly for reactions)",
     group: "the same, except a literal @Tex tag is always answered in words",
   },
   {
