@@ -228,6 +228,8 @@ export class WorkspaceStore {
     this.store.onTreeChange = (change) => {
       tree.changed(change);
       routines.treeChanged(change);
+      // A new mail note's row lands after its bytes: its first line is told then (`botMail.js`).
+      botMail.treeChanged(change);
     };
     this.tree = tree;
     this.access = accessSockets(this.state, sql);

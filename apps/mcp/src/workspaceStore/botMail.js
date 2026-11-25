@@ -18,6 +18,12 @@
  * And the bot's person lets it work here, with this area's share of its week not yet spent (`areaRoutines.js`); the
  * `[used N%]` its own lines say are counted on the way.
  *
+ * A new note's bytes land before its row (`createNote.js` puts them, then adopts the row; a deferred create gets its
+ * row from the control plane later), so a note with no row yet is checked again when its row lands (`treeChanged`):
+ * the first line of a new mail note, a new sender's or Refresh's, is told like any other (Dev2, 2026-11-25: "the
+ * refresh didnt work"). Only a line from the last hour is told that way, so a move that brings old mail along
+ * wakes nobody.
+ *
  * Then it tells the control plane (`POST /gateway/bots/mail`), which calls the bot's webhook if one is saved and
  * does nothing otherwise. What it sends: the area, the note's path, the bot's name and who wrote. Never the message;
  * the bot reads that through its own connection, at its own clearance.
@@ -32,6 +38,8 @@ const { mailJoinName } = areaBots;
 const { isNotePath } = fileKinds;
 
 const NOTE_KEY = /^notes\/([A-Za-z0-9-]{1,128})\.md$/;
+/** A line older than this, noticed only because its note's row landed or moved, is not news. */
+const ROW_LANDED_FRESH_MS = 60 * 60 * 1000;
 const SCHEMA = ["CREATE TABLE IF NOT EXISTS ws_bot_mail (note_id TEXT PRIMARY KEY, last TEXT NOT NULL)"];
 
 const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray() : []);
@@ -71,12 +79,12 @@ export function botOfArea(propsJson) {
  * @param {any} sql
  * @param {{rows: any, objects: any, facts: any, tell: (message: {bot: string, area: string, note: string, from: string}) => void, defer?: (work: () => void) => void}} deps
  */
-export function botMailWatch(sql, { rows, objects, facts, tell, routines = null, defer = (work) => queueMicrotask(work) }) {
+export function botMailWatch(sql, { rows, objects, facts, tell, routines = null, defer = (work) => queueMicrotask(work), now = Date.now }) {
   for (const statement of SCHEMA) sql.exec(statement);
-  const pending = new Set();
+  const pending = new Map(); // noteId → whether only a fresh line may be told (its row landed, its bytes did not change)
   let scheduled = false;
 
-  function check(noteId) {
+  function check(noteId, onlyFresh) {
     const row = rows.byNoteId(noteId);
     const area = areaOfMailNote(row?.path);
     if (area === null) return;
@@ -90,6 +98,7 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     const seen = all(sql.exec("SELECT last FROM ws_bot_mail WHERE note_id = ?", noteId))[0]?.last ?? null;
     if (seen === mark) return;
     sql.exec("INSERT INTO ws_bot_mail (note_id, last) VALUES (?, ?) ON CONFLICT(note_id) DO UPDATE SET last = excluded.last", noteId, mark);
+    if (onlyFresh && !(Date.parse(newest.at) >= now() - ROW_LANDED_FRESH_MS)) return;
     const about = facts.props({ paths: [`${area}/about.md`] }, () => true).props?.[0];
     const holder = botOfArea(about?.props);
     if (holder === null || about?.sealed) return;
@@ -108,12 +117,20 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     scheduled = false;
     const ids = [...pending];
     pending.clear();
-    for (const noteId of ids) {
+    for (const [noteId, onlyFresh] of ids) {
       try {
-        check(noteId);
+        check(noteId, onlyFresh);
       } catch {
         // Telling a bot never fails a save.
       }
+    }
+  }
+
+  function queue(noteId, onlyFresh) {
+    pending.set(noteId, (pending.get(noteId) ?? true) && onlyFresh);
+    if (!scheduled) {
+      scheduled = true;
+      defer(drain);
     }
   }
 
@@ -121,10 +138,15 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     noted(key, change) {
       const match = typeof key === "string" ? NOTE_KEY.exec(key) : null;
       if (match === null || change?.changed !== true) return;
-      pending.add(match[1]);
-      if (!scheduled) {
-        scheduled = true;
-        defer(drain);
+      queue(match[1], false);
+    },
+    /** The object's `onTreeChange`: a mail note whose row just landed (or moved) is checked again. */
+    treeChanged(change) {
+      if (!Array.isArray(change?.paths)) return;
+      for (const path of change.paths) {
+        if (areaOfMailNote(path) === null) continue;
+        const noteId = rows.byPath?.(path)?.noteId;
+        if (typeof noteId === "string" && noteId !== "") queue(noteId, true);
       }
     },
     drain,
