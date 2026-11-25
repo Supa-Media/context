@@ -1,5 +1,5 @@
 /**
- * Deletions, dropped-domain leaves and folds run objects first (`lib/accessHandOff/takeAway.ts` and `fold.ts` have the why).
+ * Deletions, dropped-domain leaves, folds and owner-role changes run objects first (`lib/accessHandOff/takeAway.ts` and `fold.ts` have the why).
  * `run` takes one queued deletion: it removes the members and invites and
  * revokes the connections in each object the deletion touches, then deletes
  * Convex's rows behind them in one transaction (`finish`). An object that does
@@ -16,6 +16,7 @@ import { takeAwaySteps, type TakeAwayStep, type TakeAwayTarget } from "./lib/acc
 import { foldSteps } from "./lib/accessHandOff/fold";
 import { finishUngroup, ungroupSteps } from "./lib/accessHandOff/ungroup";
 import { renameSteps } from "./lib/accessHandOff/rename";
+import { finishRole, roleSteps } from "./lib/workspaces/coOwners";
 import { leaveDroppedDomains } from "./lib/domainMembership";
 import { consoleWorkspaceClient } from "./lib/workspaceObjects/door";
 import { deleteAccountFor, deleteWorkspaceCascade } from "./account";
@@ -45,6 +46,7 @@ export const planOf = internalQuery({
     if (job.kind === "fold") return { at: job.at, attempt: job.attempt, steps: await foldSteps(ctx, job) };
     if (job.kind === "ungroup") return { at: job.at, attempt: job.attempt, steps: await ungroupSteps(ctx, job) };
     if (job.kind === "rename") return { at: job.at, attempt: job.attempt, steps: await renameSteps(ctx, job) };
+    if (job.kind === "role") return { at: job.at, attempt: job.attempt, steps: await roleSteps(ctx, job) };
     const target: TakeAwayTarget =
       job.kind === "account"
         ? { kind: "account", userId: job.userId! }
@@ -139,6 +141,11 @@ export const finish = internalMutationAfterTakeAway({
     await ctx.db.delete(id);
     // A fold or a rename is already in Convex: the objects were all that was owed.
     if (job.kind === "fold" || job.kind === "rename") return true;
+    // A role change touching the owner role: the object took it, Convex follows (`lib/workspaces/coOwners.ts`).
+    if (job.kind === "role") {
+      await finishRole(ctx, job);
+      return true;
+    }
     if (job.kind === "leave" && job.userId !== undefined) {
       await leaveDroppedDomains(ctx, job.userId, job.workspaceIds ?? []);
     } else if (job.kind === "account" && job.userId !== undefined) {

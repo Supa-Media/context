@@ -51,6 +51,7 @@ import { requireAuthId } from "./lib/signedIn";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "./lib/rowWatch/mutations";
 import { requireEmailProof } from "./lib/emailProof";
+import { handToSuccessor } from "./lib/workspaces/coOwners";
 import type { Id } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
 import { queueManagedErasure } from "./lib/managedErasure/queue";
@@ -179,6 +180,8 @@ export async function deleteAccountFor(ctx: MutationCtx, userId: Id<"users">): P
       // is not a state to leave anybody in.
       await deleteWorkspaceCascade(ctx, membership.workspaceId);
     } else {
+      // Co-owners stay: the longest-serving one becomes the owner if this was the owner (`lib/workspaces/coOwners.ts`).
+      await handToSuccessor(ctx, membership.workspaceId, userId);
       await ctx.db.delete(membership._id);
     }
   }

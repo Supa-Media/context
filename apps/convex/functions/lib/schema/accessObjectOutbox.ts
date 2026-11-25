@@ -43,8 +43,13 @@ export const accessObjectOutboxTables = {
      * `userId`'s memberships in `workspaceIds` moved to `intoId` (one person's two accounts), already in Convex.
      * `rename`: `workspaceId`'s username changed, already in Convex; the object is told its new name with its members
      * (`lib/usernameChange.ts`). It takes nothing away and shares the queue for its order and retries.
+     * `role`: `userId`'s role in `workspaceId` becomes `role`, a change touching the owner role (making or stepping down
+     * a co-owner, `lib/workspaces/coOwners.ts`), put in the object first and written to Convex behind it.
      */
-    kind: v.union(v.literal("account"), v.literal("workspace"), v.literal("leave"), v.literal("fold"), v.literal("ungroup"), v.literal("rename")),
+    kind: v.union(v.literal("account"), v.literal("workspace"), v.literal("leave"), v.literal("fold"), v.literal("ungroup"), v.literal("rename"), v.literal("role")),
+    /** `role`: the role `userId` gets, and who changed it. */
+    role: v.optional(v.union(v.literal("owner"), v.literal("editor"), v.literal("member"))),
+    actorId: v.optional(v.id("users")),
     userId: v.optional(v.id("users")),
     /** `ungroup`: `userIds` leave `groupId` in `workspaceId`, or the whole group goes (`accessHandOff/ungroup.ts`). */
     groupId: v.optional(v.id("workspaceGroups")),

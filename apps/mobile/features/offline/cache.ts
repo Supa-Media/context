@@ -332,9 +332,21 @@ export async function rememberContexts(
   for (const context of contexts) {
     await store.set(
       keyFor("context", context.workspaceId),
-      JSON.stringify({ value: context, cachedAt: now }),
+      JSON.stringify({ value: rememberedAs(context), cachedAt: now }),
     );
   }
+}
+
+/**
+ * The row as it may be remembered. An owner's role in a **shared** workspace can
+ * narrow (a co-owner is stepped down, `apps/convex/functions/lib/workspaces/coOwners.ts`),
+ * and a remembered role decides which cached bodies a launch with no network
+ * serves (`keys.ts`), so it is written down at the clearance it can narrow to:
+ * `editor`, which reads at `team`. A personal workspace's owner is permanent,
+ * and remembered as such. Pinned by `apps/convex/__tests__/ownerRoleIsPermanent.test.ts`.
+ */
+export function rememberedAs(context: RememberedContext): RememberedContext {
+  return context.kind === "shared" && context.role === "owner" ? { ...context, role: "editor" } : context;
 }
 
 /**

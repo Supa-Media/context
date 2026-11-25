@@ -127,7 +127,9 @@ export type UnscopedKind =
    * **Remembering a role cannot widen a clearance, and that is a fact about
    * the control plane rather than a hope about this file.** `private` is
    * `role === "owner"` and nothing else (`visibilityTierForRole`, mirroring
-   * `scopeForRole`), and the owner role cannot be taken away: `setMemberRole`
+   * `scopeForRole`), and an owner of a shared workspace (who may be a co-owner,
+   * and can be stepped down) is remembered at `team` (`rememberedAs` in
+   * `cache.ts`); the owner role of a personal workspace cannot be taken away: `setMemberRole`
    * refuses with `CANNOT_CHANGE_OWNER_ROLE`, `removeMember` with
    * `CANNOT_REMOVE_OWNER`, `leaveWorkspace` with `OWNER_CANNOT_LEAVE`, and
    * ownership transfer is not built. So a remembered `owner` was true when it

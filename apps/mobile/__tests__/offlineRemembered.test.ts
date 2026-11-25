@@ -53,7 +53,7 @@ function row(overrides: Partial<RememberedContext> = {}): RememberedContext {
     workspaceId: WS,
     slug: "acme",
     displayName: "Acme",
-    kind: "shared",
+    kind: "personal",
     role: "owner",
     ...overrides,
   };
@@ -71,6 +71,7 @@ beforeEach(() => {
 describe("what is written down, and what is not", () => {
   test("a context round-trips with every field the console needs to boot", async () => {
     const full = row({
+      kind: "personal",
       meetingsFolder: "3-resources/meetings",
       structureTemplate: "para",
       pinned: true,
@@ -78,6 +79,11 @@ describe("what is written down, and what is not", () => {
     await rememberContexts(store, [full], 1_000);
 
     expect(await recallContexts(store, { now: 2_000 })).toEqual([full]);
+  });
+
+  test("an owner of a shared workspace is remembered at team: a co-owner can be stepped down", async () => {
+    await rememberContexts(store, [row({ kind: "shared", role: "owner" })], 1_000);
+    expect((await recallContexts(store, { now: 2_000 }))[0]?.role).toBe("editor");
   });
 
   /**

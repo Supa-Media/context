@@ -12,6 +12,7 @@
  * whole design.
  */
 
+import { requirePrimaryOwner } from "../workspaces/primaryOwner";
 import { refuseDuringMove } from "../managedProvisioningFns/direction";
 import { ConvexError } from "convex/values";
 import { requireAuthId } from "../signedIn";
@@ -330,7 +331,8 @@ export async function disconnectStorageHandler(
   args: { workspaceId: Id<"workspaces"> },
 ) {
   const userId = (await requireAuthId(ctx)) as Id<"users">;
-  await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+  // The owner's step, not a co-owner's (`lib/workspaces/primaryOwner.ts`).
+  await requirePrimaryOwner(ctx, args.workspaceId, userId);
 
   const binding = await ctx.db
     .query("storageBindings")

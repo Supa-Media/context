@@ -5,9 +5,9 @@
  *
  * **Authority.** Only an `owner` may change who is in a context or what they
  * may do. An `editor` can write notes; that is not the same as being able to
- * decide who reads them. And the `owner` row itself is not removable or
- * demotable by anyone, because there is exactly one of them and a context with
- * none is unadministrable forever.
+ * decide who reads them. And the workspace's owner is not removable or
+ * demotable by anyone, because a context with none is unadministrable forever.
+ * Co-owners, and how one is made, are `coOwners.test.ts`.
  *
  * **Revocation is immediate.** Removing somebody has to cut off the AI clients
  * they already connected — not when their token expires, not after a sweep, in
@@ -290,26 +290,6 @@ describe("changing a role is owner-only", () => {
     ).toBe("INSUFFICIENT_ROLE");
   });
 
-  test("no role change can mint an owner", async () => {
-    const { t, owner, member, workspaceId } = await team();
-    await expect(
-      asUser(t, owner).mutation(api.functions.workspaces.setMemberRole, {
-        workspaceId,
-        userId: member,
-        // @ts-expect-error — the point of the test is that this is not a role.
-        role: "owner",
-      }),
-    ).rejects.toThrow();
-
-    expect(
-      (
-        await asUser(t, owner).query(api.functions.workspaces.listMembers, {
-          workspaceId,
-        })
-      ).filter((m) => m.role === "owner"),
-    ).toHaveLength(1);
-  });
-
   test("the owner's own role cannot be changed", async () => {
     const { t, owner, workspaceId } = await team();
     expect(
@@ -540,31 +520,7 @@ describe("removing a member cuts off their already-issued grants", () => {
   });
 });
 
-describe("a context has exactly one owner, always", () => {
-  test("nothing in the invitation or role flows can create a second", async () => {
-    const { t, owner, editor, member, workspaceId } = await team();
-    // Everything a caller can reach, aimed at making somebody an owner.
-    await asUser(t, owner).mutation(api.functions.workspaces.setMemberRole, {
-      workspaceId,
-      userId: editor,
-      role: "editor",
-    });
-    await asUser(t, owner).mutation(api.functions.invitations.inviteMember, {
-      workspaceId,
-      invitee: "member@example.invalid",
-      role: "editor",
-    });
-
-    const members = await asUser(t, owner).query(
-      api.functions.workspaces.listMembers,
-      { workspaceId },
-    );
-    expect(members.filter((m) => m.role === "owner").map((m) => m.userId)).toEqual([
-      owner,
-    ]);
-    expect(members.find((m) => m.userId === member)?.role).toBe("member");
-  });
-
+describe("a personal context has exactly one owner, always", () => {
   test("the invariant is what makes a handle resolve to one person", async () => {
     // `@name` addresses the sole owner of the personal context called `name`.
     // If a personal context could have two owners, that resolution would have

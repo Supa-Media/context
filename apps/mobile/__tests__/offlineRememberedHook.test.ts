@@ -51,7 +51,7 @@ function row(overrides: Partial<RememberedContext> = {}): RememberedContext {
     workspaceId: WS,
     slug: "acme",
     displayName: "Acme",
-    kind: "shared",
+    kind: "personal",
     role: "owner",
     ...overrides,
   };

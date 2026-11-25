@@ -24,6 +24,7 @@ import { MeetingJoinFixture } from "./MeetingJoinFixture";
 import { TranscriptionConsentFixture } from "./TranscriptionConsentFixture";
 import { MoveNoticeFixture } from "./MoveNoticeFixture";
 import { SetupDoneFixture } from "./SetupDoneFixture";
+import { MembersFixture } from "./MembersFixture";
 import { TexPageFixture } from "./TexPageFixture";
 import { TexChatFixture } from "./TexChatFixture";
 import { HistoryFileFixture } from "./HistoryFileFixture";
@@ -120,6 +121,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
   if (first(params.screen) === "setup-done") return <SetupDoneFixture />;
+  // Settings › People with an owner and a co-owner; `at=co-owner` draws it as the co-owner. See its own header.
+  if (first(params.screen) === "members") return <MembersFixture asCoOwner={first(params.at) === "co-owner"} />;
   if (first(params.screen) === "history-file") return <HistoryFileFixture phone={first(params.at) === "phone"} />;
   if (first(params.screen) === "tex-page") return <TexPageFixture params={params as Record<string, string | string[] | undefined>} />;
   // The console frame with the right panel on the Tex tab, fed by a local fake chat. See its own header.

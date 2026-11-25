@@ -114,7 +114,8 @@ describe("members and invitations come from the workspace object when it serves 
 
     const view = mount();
 
-    expect(mockLastSpec.current).toEqual({});
+    // Only who owns it, which the object's list does not say (`workspaces.ownership`).
+    expect(Object.keys(mockLastSpec.current ?? {})).toEqual(["ownership"]);
     expect(view.loading).toBe(false);
     expect(view.failure).toBeNull();
     expect(view.members.map((m) => m.userId)).toEqual(["u1", "u2"]);
@@ -129,9 +130,9 @@ describe("members and invitations come from the workspace object when it serves 
     mockConvexQueryResults.invitations = INVITE_ROWS;
 
     const view = mount();
-    const keys = Object.keys(mockLastSpec.current ?? {});
+    const keys = Object.keys(mockLastSpec.current ?? {}).sort();
 
-    expect(keys).toEqual(["invitations"]);
+    expect(keys).toEqual(["invitations", "ownership"]);
     expect(getFunctionName(mockLastSpec.current!.invitations.query as never)).toMatch(/listInvitations$/);
     expect(view.members.map((m) => m.userId)).toEqual(["u1", "u2"]);
     expect(view.invitations).toHaveLength(1);
@@ -145,7 +146,7 @@ describe("members and invitations come from the workspace object when it serves 
     const view = mount();
     const keys = Object.keys(mockLastSpec.current ?? {}).sort();
 
-    expect(keys).toEqual(["invitations", "members"]);
+    expect(keys).toEqual(["invitations", "members", "ownership"]);
     expect(getFunctionName(mockLastSpec.current!.members.query as never)).toMatch(/listMembers$/);
     expect(view.members.map((m) => m.userId)).toEqual(["u1", "u2"]);
     expect(view.invitations.map((i) => i.invitationId)).toEqual(["i1"]);
