@@ -1,6 +1,6 @@
 /**
- * Each sticker a group chat keeps, looked at once so Decide knows what it is (node `stickerLook`, on the gateway's shelf
- * until a Lab draft wires it; Dev2, 2026-11-25). Decide offers kept stickers by id (`stickers.ts` `stickersAsk`), and an id
+ * Each sticker a group chat keeps, looked at once so Decide knows what it is (node `stickerLook`, off on main until a
+ * Lab draft turns it on; Dev2, 2026-11-25). Decide offers kept stickers by id (`stickers.ts` `stickersAsk`), and an id
  * says nothing about the picture: in the Lab it picked the emoji every time.
  *
  * After a message is kept, the chat object asks this for the chat's stickers with no words yet (`unlookedStickers`, a
@@ -32,7 +32,7 @@ export type StickerLookDeps = {
 
 export type StickerLookOutcome = "none" | "looked" | "off" | "no_gateway" | "failed";
 
-/** While the gateway answers "off" (the node on the shelf), no picture is fetched again for this long. */
+/** While the gateway answers "off" (the node off), no picture is fetched again for this long. */
 export const OFF_FOR_MS = 30 * 60 * 1000;
 const OFF_KEY = "sticker-look:off";
 
@@ -70,7 +70,7 @@ export async function lookAtStickers(storage: InboxStorage, place: { line: strin
         return done("failed", looked);
       }
       const answer = (await response.json().catch(() => null)) as { when?: unknown; why?: unknown; words?: unknown } | null;
-      // The node on the shelf: nothing is looked at until a draft wires it, and the stickers wait as they are.
+      // The node off: nothing is looked at until a draft turns it on, and the stickers wait as they are.
       if (Array.isArray(answer?.when) && answer.when.includes("skip") && answer.why === "off") {
         await storage.put(OFF_KEY, deps.now());
         return done("off", looked);

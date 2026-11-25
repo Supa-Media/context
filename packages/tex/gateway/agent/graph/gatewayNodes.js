@@ -228,6 +228,6 @@ export const GATEWAY_NODES = {
   get computer() { return computerNode; },
   // The chat's kept prefix sent again before their next text (`nodes/warm.js`, `warmPrefix.js`); on the shelf until a Lab draft wires it.
   get warm() { return warmNode; },
-  // A kept sticker looked at once, its words kept for Decide (`nodes/stickerLook.js`, `../textsSticker.js`); on the shelf until a Lab draft wires it.
+  // A kept sticker looked at once, its words kept for Decide (`nodes/stickerLook.js`, `../textsSticker.js`); off on main until a Lab draft turns it on.
   get stickerLook() { return stickerLookNode; },
 };

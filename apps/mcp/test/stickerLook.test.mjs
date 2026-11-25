@@ -1,6 +1,6 @@
 /**
- * A kept sticker looked at once (node `stickerLook`, on the shelf; Dev2, 2026-11-25): the node asks the model what the
- * picture shows and when it fits, and `/texts/sticker-look` runs it only while a config wires it, never logging the
+ * A kept sticker looked at once (node `stickerLook`, off on main until a Lab draft turns it on; Dev2, 2026-11-25): the node asks the model what the
+ * picture shows and when it fits, and `/texts/sticker-look` runs it only while the config has it on, never logging the
  * picture (`packages/tex/gateway/agent/graph/nodes/stickerLook.js`, `textsSticker.js`).
  */
 import { test } from "node:test";
@@ -43,8 +43,10 @@ test("the node reads its picture from the run's context, so the logged input is 
 });
 
 test("/texts/sticker-look is off while no config wires the node, runs it when one does, and refuses a body it can't trust", async () => {
-  assert.equal(stickerLookWired(TEX_CONFIG), false, "on the shelf on main");
-  assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook" }] }), true);
+  assert.equal(stickerLookWired(TEX_CONFIG), false, "off on main");
+  assert.ok(TEX_CONFIG.nodes.some((node) => node.id === "stickerLook"), "a node of the config");
+  assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook", on: true }] }), true);
+  assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook" }] }), false);
   assert.equal(stickerLookWired({ nodes: [{ id: "stickerLook", on: false }] }), false);
   const ask = stickerAsk({ chat: CHAT, sticker: "s1a2b3c", ...PICTURE });
   assert.deepEqual(await lookForChat({}, ask, { config: { nodes: [] } }), { when: ["skip"], why: "off" });
@@ -58,6 +60,6 @@ test("/texts/sticker-look is off while no config wires the node, runs it when on
   assert.equal((await stickerLookForTexts(post({ chat: "x" }), {})).status, 400);
   const ran = [];
   const graph = { runNode: async (id, input, ctx) => (ran.push({ id, input, picture: ctx.picture }), { ran: true, output: { when: ["looked"], words: "a; fits b" } }) };
-  assert.deepEqual(await lookForChat({}, ask, { graph, config: { nodes: [{ id: "stickerLook" }] } }), { when: ["looked"], words: "a; fits b" });
+  assert.deepEqual(await lookForChat({}, ask, { graph, config: { nodes: [{ id: "stickerLook", on: true }] } }), { when: ["looked"], words: "a; fits b" });
   assert.deepEqual(ran, [{ id: "stickerLook", input: { sticker: "s1a2b3c" }, picture: PICTURE }], "the picture rides in the context, not the logged input");
 });

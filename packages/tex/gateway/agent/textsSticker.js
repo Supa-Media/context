@@ -5,7 +5,7 @@
  * sticker's id and its picture (base64, already a type the model reads). The run is logged in the chat's ledger like any
  * node's, its id and the words it gave, never the picture.
  *
- * Answers the node's output, or `{ when: ["skip"], why: "off" }` while no config wires the node (it is on the shelf).
+ * Answers the node's output, or `{ when: ["skip"], why: "off" }` while the config has the node off.
  */
 import { gatewayGraph } from "./graph/gatewayGraph.js";
 import { STICKER_LOOK_NODE } from "./graph/nodes/stickerLook.js";
@@ -21,9 +21,9 @@ const MEDIA = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 /** A picture the model takes (5 MB) in base64, with room for the JSON around it. */
 const MAX_BODY_CHARS = 7_000_000;
 
-/** Whether the config runs node `stickerLook`: only then is a sticker looked at. */
+/** Whether the config runs node `stickerLook` (on main it is off until a Lab draft turns it on): only then is a sticker looked at. */
 export function stickerLookWired(config) {
-  return Array.isArray(config?.nodes) && config.nodes.some((node) => node?.id === STICKER_LOOK_NODE && node.on !== false);
+  return Array.isArray(config?.nodes) && config.nodes.some((node) => node?.id === STICKER_LOOK_NODE && node.on === true);
 }
 
 /** The body's chat, sticker and picture, or null for anything else. */

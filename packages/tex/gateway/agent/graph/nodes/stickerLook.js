@@ -1,5 +1,5 @@
 /**
- * Node `stickerLook` (shelf; Dev2, 2026-11-25: a set of stickers dropped in a chat "for start", and Tex should use them
+ * Node `stickerLook` (off on main until a Lab draft turns it on; Dev2, 2026-11-25: a set of stickers dropped in a chat "for start", and Tex should use them
  * "in relevant situations" on its own). Decide offers a chat's kept stickers by id (`textDecide.cjs`), and an id alone
  * says nothing: in the Lab, with stickers kept, it picked the plain emoji every time. This node looks at one sticker once,
  * when the chat keeps it, and says in a few words what it shows and the moment it fits as a reaction; the chat object
@@ -13,10 +13,11 @@
  * Never throws: a failed or empty look is a skip, and the chat object tries that sticker again later.
  */
 import { aiGatewayConfig, requestViaGateway } from "../../aiGateway.js";
+import { withArchitecture } from "../../texArchitecture.js";
 import { texConfigOf, texEffort, texModel, texStep } from "../../texConfig.js";
 
 export const STICKER_LOOK_NODE = "stickerLook";
-/** The model when the step's config names none (the node run off the shelf). */
+/** The model when the step's config names none (a config with no such step). */
 const DEFAULT_MODEL = "anthropic/claude-haiku-5-5";
 const DEFAULT_MS = 10_000;
 /** The most each part of the answer keeps, so a sticker's words stay short in Decide's choices. */
@@ -78,7 +79,7 @@ export async function lookAtSticker(picture, config, { model = DEFAULT_MODEL, ef
       request(
         {
           model,
-          system: STICKER_LOOK_SYSTEM,
+          system: withArchitecture(STICKER_LOOK_SYSTEM, "stickerLook"),
           messages: [{ role: "user", text: "The sticker:", attachments: [{ name: "sticker", mediaType: picture.mediaType, data: picture.data }] }],
           tools: [MEANING_TOOL],
           toolChoice: MEANING_TOOL.name,

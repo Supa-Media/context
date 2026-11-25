@@ -54,7 +54,7 @@ describe("a kept sticker is looked at once, and Decide reads its words", () => {
     expect(asked).toHaveLength(1);
   });
 
-  it("the node on the shelf: nothing is kept, and no picture is fetched again for a while", async () => {
+  it("the node off: nothing is kept, and no picture is fetched again for a while", async () => {
     const storage = await kept("at_0_PARTY-CAT");
     const { asked, fetched, deps } = world(() => ({ when: ["skip"], why: "off" }));
     expect(await lookAtStickers(storage, PLACE, deps)).toBe("off");
