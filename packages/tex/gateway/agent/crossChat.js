@@ -18,7 +18,7 @@
  */
 
 import { personalTexTool, PERSONAL_TEX_LINE } from "./askPersonalTex.js";
-import { NO_NOTES_LINE, NO_OTHER_NOTES_LINE } from "./groupMail.js";
+import { GUEST_NOTHING_ELSE_LINE, NO_NOTES_LINE, NO_OTHER_NOTES_LINE } from "./groupMail.js";
 import { offerTarget } from "../../../../apps/mcp/src/tools/offerFor.js";
 
 export const ASK_CHAT = "ask_chat";
@@ -265,13 +265,20 @@ export const CROSS_CHAT_GROUP_LINE =
 export const CROSS_CHAT_NOTES_LINE =
   "Their notes, lists, plans and chats with you aren't open here, but their personal Tex has them: when someone points at something of theirs " +
   "(something they made, saved or told you on their own), get it with send action ask_chat, saying what they mean in their own words, and use or share " +
-  "what comes back; if you can't tell what they mean, ask them one short question first. Never tell them to text you on their own for it. " +
+  "what comes back; if you can't tell what they mean, ask them one short question first. Opening it yourself from here fails, even when a search names it, " +
+  "so never fetch it and never ask them to share or paste it: ask their personal Tex. Never tell them to text you on their own for it. " +
   "For somebody else's, pass as and they OK it first; saved logins stay in their own chat. ";
+
+// Dev's Tex Devs test, 2026-11-24 (after #4152): "Nothing else there exists for you" outweighed the line above, and Tex
+// found the list, failed to open it from the group and asked them to share it.
+export const CROSS_CHAT_GUEST_LINE =
+  "Nothing else in it is open to you here, so never guess at it; what someone here keeps on their own, their personal Tex can get for you (below). ";
 
 /** A group turn's prompt when cross-chat asks are wired: ask the person's own Tex rather than send them away. */
 export function crossChatGroupPrompt(prompt) {
   return String(prompt ?? "")
     .replace(PERSONAL_TEX_LINE, CROSS_CHAT_GROUP_LINE)
+    .replace(GUEST_NOTHING_ELSE_LINE, CROSS_CHAT_GUEST_LINE)
     .replace(NO_NOTES_LINE, CROSS_CHAT_NOTES_LINE)
     .replace(NO_OTHER_NOTES_LINE, CROSS_CHAT_NOTES_LINE);
 }
