@@ -15,8 +15,8 @@
  *
  *  1. `emailGate` returning null for every call (no hold). → `a texted email
  *     is held, shown whole, and not sent` fails: the email is sent at once.
- *  3. A checker "no" treated as "unsure". → `a Mail checker no refuses it
- *     before the person is asked` fails.
+ *  3. A checker "no" refused before anything is held (the pre-2026-11-24
+ *     gate). → `a Mail checker no is held and put to the person…` fails.
  *  4. `emailCaller` treating every client as "texting-assistant". → `an MCP
  *     client may not send unless the Mail checker's note lets it` fails.
  *  5. `disarmTexting` not called before a model turn. → `a yes after the
@@ -277,21 +277,31 @@ export async function runEmailGateChecks(check) {
 
     /* ---------------- the Mail checker ---------------- */
 
+    // 2026-11-24: a "no" refused before anything was held left no armed ask, so the 👍 on Tex's own question matched
+    // nothing and the email never went. It is held like an unsure one: the person's 👍 on the gateway's ask decides.
     model.install([
       { toolCalls: [{ name: "send_email", args: { ...EMAIL, to: ["boss@example.com"] } }] },
       verdict("no", "they asked to reply to Jo, not to email their boss"),
-      { text: "I won't send that." },
+      { text: "Drafted it to your boss." },
     ]);
     before = sends().length;
     const refused = await ask(env, TOKEN_TEXTS, "reply to Jo that Thursday works");
     const refusedReply = JSON.stringify(model.requests.at(-1)?.messages ?? []);
     check(
-      "a Mail checker no refuses it before the person is asked",
+      "a Mail checker no is held and put to the person, the email alone, never sent and never refused into Tex's own ask",
       sends().length === before &&
-        pending().length === 0 &&
-        refused.body?.asked === 0 &&
-        refusedReply.includes("Not sent, and not put to the person") &&
-        refusedReply.includes("not to email their boss"),
+        pending().length === 1 &&
+        refused.body?.asked === 1 &&
+        (refused.body?.verbatim?.[0] ?? "").includes("boss@example.com") &&
+        !(refused.body?.answer ?? "").includes("not to email their boss") &&
+        refusedReply.includes("Held for their 👍") &&
+        !refusedReply.includes("Not sent, and not put to the person"),
+    );
+    const heldNo = sends().length;
+    await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: refused.body?.verbatim?.[0] ?? "", tapback: "Liked", conversation: "texts" });
+    check(
+      "the 👍 on a held checker no's ask sends it, the person's call and not the checker's",
+      sends().length === heldNo + 1 && sends().at(-1)?.email?.to?.includes("boss@example.com") && pending().length === 0,
     );
 
     model.install([

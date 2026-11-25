@@ -29,7 +29,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
-import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { CLAIM_NOTICE, MUTE_NOTICE, SENT_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, claimsASend, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../../../packages/tex/gateway/agent/claimCheck.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { otherSitesNotice } from "../../../packages/tex/gateway/agent/otherSites.js";
 import { EVERYWHERE_NOTICE, claimsSearchedEverywhere, searchedEverywhere } from "../../../packages/tex/gateway/agent/searchClaims.js";
@@ -87,6 +87,61 @@ test("\"Will do.\" to a mute, with nothing kept, is sent back; kept in tex/atten
   const kept = claimCheck({ question });
   await kept.wrap(async () => ({ content: [] }))("write_note", { path: "tex/attention.md", content: "---\nmute: [github]\n---\n" });
   assert.equal(kept.check("Muted github."), null);
+});
+
+/*
+  2026-11-24: a Mail checker "no" was refused before anything was held, Tex
+  asked in its own words, the 👍 on that matched no armed ask, and Tex could
+  still text "Sent!". An email is said to have gone only when this turn sent it.
+*/
+test("an email said to be sent is read as one; one waiting on their 👍, or sent by someone else, is not", () => {
+  assert.ok(claimsASend("Sent!"));
+  assert.ok(claimsASend("Sent ✓"));
+  assert.ok(claimsASend("Done, sent it to Jo."));
+  assert.ok(claimsASend("I’ve sent the reply to Jo."));
+  assert.ok(claimsASend("I forwarded it to Relay. Anything else?"));
+  assert.ok(claimsASend("The forward went out a minute ago."));
+  assert.ok(claimsASend("Your email has been sent."));
+  assert.ok(!claimsASend("I'll send it once you approve."));
+  assert.ok(!claimsASend("It's waiting for your \u{1F44D}."));
+  assert.ok(!claimsASend("Give it a \u{1F44D} and it sends."));
+  assert.ok(!claimsASend("Jo sent you an email about Thursday."));
+  assert.ok(!claimsASend("It was sent by Amazon on Tuesday."));
+  assert.ok(!claimsASend("It hasn't been sent yet."));
+  assert.ok(!claimsASend("Not sent: Gmail needs reconnecting."));
+  assert.ok(!claimsASend("Want me to send it to Jo?"));
+  assert.ok(!claimsASend("Sent from my iPhone"));
+});
+
+test("\"Sent!\" with no email sent, or with one held or failed, gets one more round; a send that went lets it go", async () => {
+  const none = claimCheck({ question: "send Jo the thursday email" });
+  assert.equal(none.check("Sent!"), SENT_NOTICE, "nothing was called");
+
+  const held = claimCheck({ question: "send Jo the thursday email" });
+  await held.wrap(async () => ({ isError: true, held: true, content: [{ type: "text", text: "Held for their 👍" }] }))("send_email", { to: ["jo@example.com"] });
+  assert.equal(held.check("Sent to Jo ✓"), SENT_NOTICE, "a held email has not gone");
+
+  const failed = claimCheck({ question: "send Jo the thursday email" });
+  await failed.wrap(async () => ({ isError: true, content: [{ type: "text", text: "Not sent." }] }))("send", { action: "email", args: { to: ["jo@example.com"] } });
+  assert.equal(failed.check("I've sent it to Jo."), SENT_NOTICE, "a failed send has not gone");
+
+  const sent = claimCheck({ question: "send Jo the thursday email" });
+  await sent.wrap(async () => ({ content: [{ type: "text", text: "Sent." }] }))("send_email", { to: ["jo@example.com"] });
+  assert.equal(sent.check("Sent to Jo ✓"), null);
+
+  const waiting = claimCheck({ question: "send Jo the thursday email" });
+  await waiting.wrap(async () => ({ isError: true, held: true, content: [] }))("send_email", { to: ["jo@example.com"] });
+  assert.equal(waiting.check("I'll send it once you approve."), null, "a held email said to wait is the honest answer");
+
+  const slack = claimCheck({ question: "post it in #general" });
+  await slack.wrap(async () => ({ content: [{ type: "text", text: "Posted." }] }))("slack_api", { method: "chat.postMessage" });
+  assert.equal(slack.check("Sent!"), null, "a Slack message that went is what \"Sent!\" is about");
+  const slackEmail = claimCheck({ question: "post it and email Jo" });
+  await slackEmail.wrap(async () => ({ content: [] }))("slack_api", { method: "chat.postMessage" });
+  assert.equal(slackEmail.check("Posted, and the email went out too."), SENT_NOTICE, "but not an email nothing sent");
+
+  const relayed = claimCheck({ question: "how did the job go", reported: true });
+  assert.equal(relayed.check("Sent the invoice to Jo."), null, "a job's report tells what the job sent");
 });
 
 test("the notice is given once, so the check never loops", () => {

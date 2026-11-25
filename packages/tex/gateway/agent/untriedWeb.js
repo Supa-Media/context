@@ -26,9 +26,14 @@
  * day: it missed every turn this file does not check, so it is now composed
  * into every chat turn's answer checks (`runTheModel.js`).
  * `frontDoorChecks` picks which of these runs for a turn.
+ *
+ * Since 2026-11-24 it also sends back an answer saying an email was sent when
+ * no send_email went through this turn (`claimCheck.js` rule 7, `SENT_NOTICE`):
+ * a Mail checker "no" had been refused with nothing held, the 👍 on Tex's own
+ * question matched no ask, and front-door texts run no other claim check.
  */
 
-import { TRY_NOTICE, saysItCouldNot } from "./claimCheck.js";
+import { SENT_NOTICE, TRY_NOTICE, falselySent, saysItCouldNot, sentBy } from "./claimCheck.js";
 import { EMPTY_NOTICE, isEmptyAnswer } from "./replyChecks.js";
 import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
@@ -38,20 +43,25 @@ import { stepOf } from "./standsCheck.js";
  * `{ wrap, wrapWeb, check }`, shaped like `claimCheck`'s, for the front door.
  * `question` is their ask, so a record ask with no read can be sent back (`recordRead.js`).
  */
-export function untriedWebCheck({ question = "", reaction = false } = {}) {
+export function untriedWebCheck({ question = "", reaction = false, reported = false } = {}) {
   let hadWeb = false;
   let triedWeb = false;
   let noticed = false;
   let figuresChecked = false;
   let recordNoticed = false;
   let emptyNoticed = false;
+  let sentNoticed = false;
+  // What this turn's sends that went were: an email, or a Slack or Chat message (`sentBy`).
+  const sent = new Set();
   const steps = [];
   return {
-    /** The turn's own tools, so a read is visible to the record check. */
+    /** The turn's own tools, so a read is visible to the record check, and a send to the sent check. */
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
         steps.push(stepOf(name, args, result));
+        const went = sentBy(name, args, result);
+        if (went !== null) sent.add(went);
         return result;
       };
     },
@@ -74,6 +84,12 @@ export function untriedWebCheck({ question = "", reaction = false } = {}) {
       if (!emptyNoticed && !reaction && isEmptyAnswer(answer)) {
         emptyNoticed = true;
         return EMPTY_NOTICE;
+      }
+      // "Sent!" with no email sent this turn: one held for their 👍, or one that failed, has not gone.
+      // A job's report relayed tells what the job sent (`reported`).
+      if (!sentNoticed && !reported && falselySent(answer, { sent: sent.has("email"), sentOther: sent.has("other") })) {
+        sentNoticed = true;
+        return SENT_NOTICE;
       }
       if (!noticed && hadWeb && !triedWeb && saysItCouldNot(answer)) {
         noticed = true;
@@ -100,7 +116,7 @@ export function untriedWebCheck({ question = "", reaction = false } = {}) {
  * The one check a texted or group turn gets from its front-door side (`prepareTheAnswer.js`), or null. A console 1:1
  * gets none from here: the stands gate every chat turn runs is its check (`standsCheck.js` `standsGate`).
  */
-export function frontDoorChecks({ claims, runner, texted, group, question, reaction = false }) {
-  if (claims === null && !runner && (texted || group !== null)) return untriedWebCheck({ question, reaction });
+export function frontDoorChecks({ claims, runner, texted, group, question, reaction = false, reported = false }) {
+  if (claims === null && !runner && (texted || group !== null)) return untriedWebCheck({ question, reaction, reported });
   return null;
 }

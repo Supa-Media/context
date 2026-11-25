@@ -8,7 +8,9 @@
  * nothing held; the 👍 on that reached the checker as a bare "👍" and was
  * refused again; Tex re-offered ("Say yes and I'll forward it"); only the
  * third 👍, on the gateway's own ask, sent it (`src/tools/emailGate.js`,
- * `src/agent/mailChecker.js`, `src/tools/likedPreview.js`).
+ * `src/agent/mailChecker.js`, `src/tools/likedPreview.js`). Since
+ * 2026-11-24 a "no" is held and asked about like any other, so its one 👍
+ * is on the gateway's ask.
  *
  * ## Sabotage record
  *
@@ -20,8 +22,8 @@
  *     sends the forward at once…` fails.
  *  3. `agreedToForward` without the checker's "yes". → `a 👍 on an offer to
  *     forward sends it only when the Mail checker says they asked` fails.
- *  4. The claim check bouncing an offer after a checker "no". → `a checker no
- *     asks in one short text, which the claim check lets go` fails.
+ *  4. A checker "no" refused before anything is held (the pre-2026-11-24
+ *     gate). → `a checker no is held and shown whole…` fails.
  *  5. `checkerQuestion` dropping the words a 👍 was on. → `the Mail checker
  *     reads the 👍 with the words it was on` fails.
  */
@@ -76,27 +78,41 @@ export async function runEmailGateOneThumbChecks(check) {
       model.requests.length === relayModel && sends().length === relaySends + 1 && sends().at(-1)?.email?.forward === "18rcpt" && pending().length === 0,
     );
 
-    // A checker "no" still refuses, and Tex asks in one short text: the 👍 on that text sends the forward.
+    // A checker "no" is held like an unasked one (2026-11-24): refused into Tex's own question, it left no armed ask,
+    // and the 👍 on that question matched nothing. Its one 👍 is on the gateway's ask, and that sends the forward.
     // Another copy: the one above went within the hour, and is answered as sent rather than sent twice.
     const AGAIN = { ...RELAY, body: "The Anthropic receipt for the Supa Media books." };
     const OFFERED = "The Relay receipt still hasn't gone out. Do you want me to send it to supa.media.llc@receipts.relay.example?";
     model.install([
       { toolCalls: [{ name: "send_email", args: AGAIN }] },
       verdict("no", "they were asking about Kansi's receipt"),
-      { text: OFFERED },
+      { text: "I drafted the Relay forward." },
     ]);
     relayModel = model.requests.length;
-    const offeredTurn = await ask(env, TOKEN_TEXTS, "what about the kansi receipt");
-    const refusedRound = JSON.stringify(model.requests.at(-1)?.messages ?? []);
+    const heldNo = await ask(env, TOKEN_TEXTS, "what about the kansi receipt");
+    const heldRound = JSON.stringify(model.requests.at(-1)?.messages ?? []);
+    const heldNoAsk = heldNo.body?.verbatim?.[0] ?? "";
     check(
-      "a checker no asks in one short text, which the claim check lets go (no extra round)",
-      (offeredTurn.body?.answer ?? "").includes("Do you want me to send it to") &&
+      "a checker no is held and shown whole, with no extra round and nothing sent",
+      heldNo.body?.asked === 1 &&
+        heldNoAsk.includes("Receipt-2508-0278-2435.pdf") &&
         model.requests.length === relayModel + 3 &&
-        refusedRound.includes("Their 👍 or yes to that text sends it") &&
-        !refusedRound.includes("Show them the draft") &&
-        pending().length === 0,
+        heldRound.includes("Held for their 👍") &&
+        !heldRound.includes("Not sent, and not put to the person") &&
+        pending().length === 1,
     );
-    model.install([{ toolCalls: [{ name: "send_email", args: AGAIN }] }, verdict("yes"), { text: "Sent ✓" }]);
+    const noSends = sends().length;
+    relayModel = model.requests.length;
+    await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: heldNoAsk, tapback: "Liked", conversation: "texts" });
+    check(
+      "the 👍 on a checker no's ask sends the forward, with no model and no second ask",
+      model.requests.length === relayModel && sends().length === noSends + 1 && sends().at(-1)?.email?.forward === "18rcpt" && pending().length === 0,
+    );
+
+    // Tex's own offer to forward, in its words: their 👍 on it reaches the checker, whose yes sends it. A third copy:
+    // the two above went within the hour, and the same copy again is answered as sent rather than sent twice.
+    const LATER = { ...RELAY, body: "Anthropic receipt #2508-0278-2435, for the Supa Media books." };
+    model.install([{ toolCalls: [{ name: "send_email", args: LATER }] }, verdict("yes"), { text: "Sent ✓" }]);
     const likedSends = sends().length;
     const likedOffer = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: OFFERED, tapback: "Liked", conversation: "texts" });
     const offerChecker = model.requests.filter(isChecker).at(-1);
@@ -110,7 +126,7 @@ export async function runEmailGateOneThumbChecks(check) {
     );
 
     // Not when the offer named someone else, nor when the checker isn't sure they asked: then the forward is held and asked about.
-    model.install([{ toolCalls: [{ name: "send_email", args: { ...AGAIN, to: ["other@relay.example"] } }] }, verdict("yes"), { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...LATER, to: ["other@relay.example"] } }] }, verdict("yes"), { text: "Drafted." }]);
     let heldSends = sends().length;
     const otherAddress = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: OFFERED, tapback: "Liked", conversation: "texts" });
     check(
@@ -118,7 +134,7 @@ export async function runEmailGateOneThumbChecks(check) {
       sends().length === heldSends && otherAddress.body?.asked === 1 && pending().length === 1,
     );
     await ask(env, TOKEN_TEXTS, "no");
-    model.install([{ toolCalls: [{ name: "send_email", args: AGAIN }] }, verdict("unsure", "not clear"), { text: "Drafted." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: LATER }] }, verdict("unsure", "not clear"), { text: "Drafted." }]);
     heldSends = sends().length;
     const doubted = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: OFFERED, tapback: "Liked", conversation: "texts" });
     check(

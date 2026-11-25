@@ -209,28 +209,16 @@ export async function emailGate(supplied, { store, session, target }) {
       stages.checker = Date.now() - at;
     }
     /*
-      A "no" is an email that goes against what they said. Its old answer here
-      ("Show them the draft and ask whether they want it sent") had Tex ask in
-      its own words with nothing held, and the owner gave three 👍s before one
-      forward went (2026-10-23). An email Tex merely proposes is "unasked"
-      now, and held like any other. For a "no", their yes or 👍 to Tex's one
-      short question releases a forward (`agreedToForward`) or an email whose
-      whole text it showed (`agreedWordsHold`), and the claim check lets that
-      question go (`checkerRefused`, `agent/claimCheck.js`).
+      A "no" is an email that goes against what they said. It is held like an
+      unasked or unsure one: a pending record and an Approve card, so their 👍
+      to that card is the one thing that sends it. Refusing it before anything
+      was held had Tex ask in its own words with no armed ask behind the
+      question, so a later 👍 matched nothing and the email never went, while
+      Tex could still say it had (2026-11-24). A "no" is never released by an
+      earlier yes or 👍 either (`agreed` below): the checker read those same
+      texts and found the email does not match them.
     */
-    if (checked?.verdict === "no") {
-      recordMail(session, email, mailVerdict(checked));
-      return {
-        ...toolError(
-          `Not sent, and not put to the person: the Mail checker read their texts and says ${checked.reason || "it goes against what they said"}. ` +
-            "Fix the email to match what they said and call send_email again. If it already does, ask them in one short text whether to send it, " +
-            "naming who it goes to and, for a forward, which email; for any other email, show its whole text. Their 👍 or yes to that text sends it. " +
-            "Don't tell them a mail check held it.",
-        ),
-        ...stagesPart(stages),
-        checkerRefused: true,
-      };
-    }
+    if (checked?.verdict === "no") recordMail(session, email, mailVerdict(checked));
   }
 
   // An unasked, unsure or unchecked email is still put to the person, as the email
@@ -247,10 +235,10 @@ export async function emailGate(supplied, { store, session, target }) {
   // Their yes or 👍 to Tex's own preview of this email: every address and the whole body in the words they agreed to (`likedPreview.js`).
   // A forward's offer names who it goes to, and the Mail checker, reading their 👍 or yes on it, says they asked for it (`agreedToForward`).
   // An email whose body they said yes to, its recipients named in Tex's recent texts, with the checker's yes too (`agreedToShownEmail`).
-  // Never for attached files, whose contents no offer can have shown.
+  // Never for attached files, whose contents no offer can have shown, and never for a Mail checker "no", which is held above.
   const recipients = [...email.to, ...email.cc];
   const agreed =
-    texting && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]) || (checked?.verdict === "yes" && agreedToShownEmail(session, recipients, email.body)));
+    texting && checked?.verdict !== "no" && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]) || (checked?.verdict === "yes" && agreedToShownEmail(session, recipients, email.body)));
   if (agreed) {
     await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
     console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));

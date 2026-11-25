@@ -17,6 +17,8 @@
  *       `an unsure checker holds a shown email whose recipient Tex named, and sends nothing` fails (the email goes).
  *  (ii) `recipientsShown` made to return true → `a recipient Tex never named holds the email, even with the body
  *       agreed and the checker's yes` fails (the email goes to attacker@evil.example).
+ *  (iii) `checked?.verdict !== "no" &&` removed from the `agreed` condition in `emailGate.js` (2026-11-24) →
+ *       `a checker no on an email whose words they 👍'd is held…` fails (the email goes on the earlier 👍).
  */
 
 import assert from "node:assert/strict";
@@ -175,6 +177,29 @@ test("the exact body, with the recipient Tex named and the Mail checker's yes, g
 });
 
 /* Each attack below must not release the email: it is held or refused, and nothing is sent. */
+
+/*
+  2026-11-24: a Mail checker "no" is held for the person's 👍 on the gateway's own ask, never released by an earlier
+  yes: the checker read those same texts and found the email goes against them.
+*/
+test("a checker no on an email whose words they 👍'd is held for their 👍 on the ask, never sent on that earlier one", async () => {
+  const world = await createEgressWorld();
+  try {
+    world.controlPlane.flags.emailSender = "seyi@gmail.example";
+    // Their 👍 on words holding the recipient and the whole body: with any other verdict, `agreedWordsHold` would send it.
+    const liked = `To ${BRAM}:\n\n${BODY}`;
+    world.model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, verdict("no", "they asked to wait"), { text: "Drafted." }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: liked, tapback: "Liked", conversation: "texts" });
+    assert.equal(sendsOf(world).length, 0, "the earlier yes sends nothing");
+    assert.equal(world.pending().length, 1, "held, with a pending record the 👍 can approve");
+    const reply = JSON.stringify(world.model.requests.at(-1)?.messages ?? []);
+    assert.ok(reply.includes("Held for their 👍"), "the model is told it is held, not refused");
+    assert.ok(!reply.includes("Not sent, and not put to the person"), "never refused into an ask in Tex's own words");
+    assert.equal(asked.status, 200);
+  } finally {
+    world.restore();
+  }
+});
 
 test("an unsure checker holds a shown email whose recipient Tex named, and sends nothing", async () => {
   const world = await createEgressWorld();

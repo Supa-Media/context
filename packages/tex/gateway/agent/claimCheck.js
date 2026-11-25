@@ -44,6 +44,11 @@
  *      2026-10-26). One more round says to make the call with the change;
  *      a turn that ends with nothing held drops the asks it corrected
  *      (`stale`, `textedAsk`). Judged on their words, not the model's.
+ *   7. The answer says an email was sent or went out, and no send_email call
+ *      succeeded in this turn. A Mail checker "no" used to be refused before
+ *      anything was held; Tex asked in its own words, the 👍 on that matched
+ *      no armed ask, and Tex could still text "Sent!" (2026-11-24). An email
+ *      held for their 👍, or one whose send failed, has not gone.
  *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
@@ -347,6 +352,56 @@ export const SUPERSEDE_NOTICE =
   "Make the call again now with their change: they are shown the new one, and the old one is dropped. " +
   "If you need something to make it, ask only for that. If nothing new is held when this answer goes, the old one is dropped and they are told.";
 
+/*
+  An email said to be sent (rule 7): "Sent!", "I've sent it to Jo", "the
+  forward went out". Read sentence by sentence; one that waits on something
+  ("once you approve", "when you 👍 it"), a question, a negation, and an email
+  someone else sent ("Jo sent it", "it was sent by Amazon") are not claims.
+*/
+const SENT_CLAIMS = [
+  /\b(?:I(?:'ve| have)?|it(?:'s| has| was)|that(?:'s| has| was)|(?:the|your|this|that) (?:email|e-mail|reply|forward)(?:\s+(?:has|was|is))?)\s+(?:just\s+|now\s+|also\s+|already\s+)?(?:been\s+)?(?:sent|forwarded|emailed)\b(?!\s+(?:by|from|to me|to you)\b)/i,
+  /^(?:done[,!.]?\s+|all set[,!.]?\s+)?(?:sent|forwarded)\b(?!\s+(?:by|from)\b)/i,
+  /\b(?:it|that|the (?:email|e-mail|reply|forward)|your (?:email|e-mail|reply|forward))\s+(?:just\s+)?(?:went out|has gone out|'s gone out|is on its way)\b/i,
+];
+/** A sentence that waits on them or a step still to come, or says it has not gone: "I'll send it once you approve." */
+const SENT_LATER = /\b(?:once|as soon as|when|after|if|until|will|won't|not|never|hasn't|haven't|isn't|wasn't|didn't)\b|'ll\b|\?\s*$/i;
+
+/** Whether an answer says an email was sent or went out. */
+export function claimsASend(answer) {
+  return String(answer ?? "")
+    .replace(/[‘’]/g, "'")
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .some((sentence) => sentence !== "" && !SENT_LATER.test(sentence) && SENT_CLAIMS.some((pattern) => pattern.test(sentence)));
+}
+
+/**
+ * What a call that went sent: "email" for a send_email (as the gateway names it, or as the model writes it,
+ * `send { action: "email" }`), "other" for a Slack or Google Chat message, null for anything else, or for a send
+ * that was held for their 👍 or failed. Shared with the front door's checks (`untriedWeb.js`).
+ */
+export function sentBy(name, args, result) {
+  if (result?.isError === true || result?.held === true) return null;
+  const action = name === "send" ? args?.action : null;
+  if (name === "send_email" || action === "email") return "email";
+  if (name === "slack_api" || name === "google_chat" || action === "slack" || action === "google_chat") return "other";
+  return null;
+}
+/** "Sent!" after a Slack or Chat message that went is about it, unless the answer names an email. */
+const NAMES_AN_EMAIL = /\b(?:e-?mails?|forward(?:ed)?|gmail|inbox)\b/i;
+
+/** Whether an answer says an email went when this turn sent none (`sent`: one did; `sentOther`: a Slack or Chat message did). */
+export function falselySent(answer, { sent = false, sentOther = false } = {}) {
+  if (sent || !claimsASend(answer)) return false;
+  return !sentOther || NAMES_AN_EMAIL.test(String(answer ?? ""));
+}
+
+export const SENT_NOTICE =
+  "Before this goes: your answer says an email was sent, but no email went out in this turn. " +
+  "If it is held for their 👍, say in one short line that it is waiting for their 👍, never that it went. " +
+  "If sending failed, say plainly that it did not go. Never say an email was sent unless send action email succeeded in this turn. " +
+  "If your answer wasn't about an email you sent, send it again as it was.";
+
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
   "If they asked for it, make the change now with your tools and then answer. If you can't, answer again saying plainly that it is not done, " +
@@ -421,8 +476,9 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   let wrote = false;
   let keptWish = false;
   let held = false;
-  // The Mail checker refused an email and told Tex to ask in one short text, which a yes or 👍 then releases (`emailGate.js`).
-  let checkerRefused = false;
+  // An email this turn sent: a held or failed send_email is not one (rule 7).
+  let sentEmail = false;
+  let sentOther = false;
   let noticed = false;
   let hadWeb = false;
   let triedWeb = false;
@@ -517,7 +573,9 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
         saw(name, args, result);
         steps.push(stepOf(name, args, result));
         if (result?.held === true) held = true;
-        if (result?.checkerRefused === true) checkerRefused = true;
+        const went = sentBy(name, args, result);
+        if (went === "email") sentEmail = true;
+        if (went === "other") sentOther = true;
         if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
@@ -700,11 +758,13 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
           ? MUTE_NOTICE
           : claimsAChange(answer) && !wrote
             ? CLAIM_NOTICE
-            : offersAHeldChange(answer) && !held && !checkerRefused
-              ? offerNotice(offeredKinds(answer))
-              : hadWeb && !triedWeb && saysItCouldNot(answer)
-                ? TRY_NOTICE
-                : null;
+            : !reported && falselySent(answer, { sent: sentEmail, sentOther })
+              ? SENT_NOTICE
+              : offersAHeldChange(answer) && !held
+                ? offerNotice(offeredKinds(answer))
+                : hadWeb && !triedWeb && saysItCouldNot(answer)
+                  ? TRY_NOTICE
+                  : null;
       if (notice !== null) {
         noticed = true;
         fact("claim", notice);
