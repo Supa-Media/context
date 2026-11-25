@@ -39,6 +39,20 @@ export interface DataWorkspace {
 
 const NO_NOTES: readonly ListNote[] = [];
 
+const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+
+/** The folders outside the sources' own that their about notes' `sheets:` links point into, once each. */
+export function foldersOfLinkedSheets(sources: readonly DataSource[]): string[] {
+  const out = new Set<string>();
+  for (const source of sources) {
+    for (const dataset of source.datasets) {
+      const folder = folderOf(dataset.path);
+      if (!dataset.computed && folder !== source.folder) out.add(folder);
+    }
+  }
+  return [...out];
+}
+
 /** Sheets and computed datasets, by `source/dataset`: what a formula reads. */
 export function rowsReader(sources: readonly DataSource[], sheets: ReadonlyMap<string, Sheet | null>): RowsOf {
   const bySlug = sourceBySlug(sources);
@@ -77,6 +91,18 @@ export function useDataWorkspace(dataFolder: string, source: FolderListSource | 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dataFolder, notes, listingKey],
   );
+  // A sheet a source's about.md links from elsewhere (an area's folder) is read by its own folder's listing, which
+  // says when it changed: only the folders those links name are listed, nothing is searched.
+  const linkedFolders = useMemo(() => foldersOfLinkedSheets(sources), [sources]);
+  useEffect(() => {
+    for (const folder of linkedFolders) loadListing(folder);
+  }, [linkedFolders, loadListing]);
+  const linkedKey = linkedFolders
+    .map((path) => {
+      const entries = listingOf(path)?.entries;
+      return `${path}:${entries?.length ?? -1}:${entries?.reduce((latest, entry) => Math.max(latest, entry.updatedAt ?? 0), 0) ?? 0}`;
+    })
+    .join("|");
   const order = useMemo(() => (listingOf(metricsFolder)?.entries ?? []).map((e) => e.path), [listingOf, metricsFolder]);
   const metrics = useMemo(() => metricsIn(metricsFolder, notes, order), [metricsFolder, notes, order]);
   const uses = useMemo(() => usesByMetric(areas, areaNotes ?? NO_NOTES), [areas, areaNotes]);
@@ -89,15 +115,15 @@ export function useDataWorkspace(dataFolder: string, source: FolderListSource | 
   const wanted = useMemo(() => {
     const out = new Map<string, number>();
     for (const each of sources) {
-      const entries = listingOf(each.folder)?.entries ?? [];
       for (const dataset of each.datasets) {
         if (dataset.computed) continue;
+        const entries = listingOf(folderOf(dataset.path))?.entries ?? [];
         out.set(dataset.path, entries.find((entry) => entry.path === dataset.path)?.updatedAt ?? 0);
       }
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sources, listingKey]);
+  }, [sources, listingKey, linkedKey]);
   const read = useSheets(source?.readBody, wanted);
   const minute = Math.floor(now / 60_000);
   const sheets = useMemo(() => {
@@ -120,6 +146,7 @@ export function useDataWorkspace(dataFolder: string, source: FolderListSource | 
     dataNotes !== null &&
     top !== undefined &&
     children.every((child) => listingOf(child) !== undefined) &&
+    linkedFolders.every((folder) => listingOf(folder) !== undefined) &&
     sheetsSettled(source?.readBody, wanted.keys()) &&
     [...countRead.values()].every((list) => list !== null);
   return { sources, metrics, uses, sheets, worked, settled, rowsOf, notes: dataNotes };

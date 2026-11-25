@@ -817,6 +817,7 @@ Every section title is listed in [its own index](./texting-assistant/index.md).
 - The sync object, and Fetch from a URL
 - Right-now metrics are kept hourly
 - CI sends its own numbers (2026-11-25)
+- A source's sheet can live anywhere (2026-11-25)
 
 ## [Connectors](./connectors.md)
 

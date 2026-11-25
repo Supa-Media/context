@@ -3,7 +3,8 @@
  * each subfolder of the data folder but its own `metrics/` is one source, its
  * `about.md` says what kind (`source:`) and what it is called (`name:`), and
  * its datasets are the plain CSV sheets beside it (the data sources boards, 01
- * and 07; `docs/decisions/data-and-metrics.md`).
+ * and 07; `docs/decisions/data-and-metrics.md`), and any sheet kept elsewhere
+ * that its `about.md` links under `sheets:` (`apps/mcp/src/data/sheetLinks.js`).
  *
  * Pure. The listings and notes are the reader's own, at their clearance, so a
  * source or sheet a reader cannot see is simply not here.
@@ -13,6 +14,7 @@ import { isSheetPath } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote, PropertyValue } from "../listBlock/model";
 import type { FolderListing } from "../types";
 import { ABOUT_NOTE, baseName } from "../paths";
+import { linkedSheets } from "../../../../../mcp/src/data/sheetLinks.js";
 
 export type SourceKind = "github" | "cloudflare" | "stripe" | "context" | "usage" | "push" | "fetch" | "other";
 
@@ -120,7 +122,9 @@ function sourceOf(folder: string, listing: FolderListing | undefined, notes: rea
           ...sheets.filter((sheet) => !(CONTEXT_DATASETS as readonly string[]).includes(sheet.name)),
         ]
       : sheets;
-  return { folder, slug, kind, name: named || KIND_NAMES[kind] || slug, aboutPath, about, datasets };
+  // A sheet kept with the work it measures (an area's own folder), linked from the about note: named like one beside it.
+  const linked = linkedSheets(about?.properties, datasets.map((each) => each.name)).map((each) => ({ ...each, computed: false }));
+  return { folder, slug, kind, name: named || KIND_NAMES[kind] || slug, aboutPath, about, datasets: [...datasets, ...linked] };
 }
 
 /**
