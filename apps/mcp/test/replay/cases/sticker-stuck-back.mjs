@@ -49,7 +49,8 @@ export default {
   // Sabotage (2026-11-25): drop `sticker` in photonInbound.ts reactionOf, or the stickerOf check in stepEvents.ts
   // tapback, and the sticker is never kept, or an id from another chat is stuck; drop `sticker` from TAPBACK_DEFINITION
   // and the shown tapback offers none; drop `stickers` in photonInbound.ts received, or the keepSentStickers call, and a
-  // sticker sent alone reads no id.
+  // sticker sent alone reads no id; drop the sticker fallback in nodes/tapback.js and a sticker asked with an emoji off
+  // the list is refused.
   async run() {
     const storage = new MemoryStorage();
     const read = parsePhotonEvent(stuck);
@@ -76,6 +77,10 @@ export default {
     const ending = tapbackEnding({ gate: tapbackNode, stickers: true });
     await ending.local.call({ emoji: "🎉", sticker: `sticker ${id}` }, { messages: [] });
     assert.equal(tapbackStickerOf({ answer: ending.endsTurn(TAPBACK_TOOL), settled: TAPBACK_TOOL }), id);
+    // Battle of the Bots, 2026-11-25: "use that sticker tex" came with 🤖, an emoji off the list; the sticker still goes.
+    const offList = tapbackEnding({ gate: tapbackNode, stickers: true });
+    await offList.local.call({ emoji: "🤖", sticker: id }, { messages: [] });
+    assert.equal(tapbackStickerOf({ answer: offList.endsTurn(TAPBACK_TOOL), settled: TAPBACK_TOOL }), id, "an emoji off the list never holds the sticker back");
 
     // The Worker sticks the kept sticker on the text, on Photon's line.
     const calls = [];

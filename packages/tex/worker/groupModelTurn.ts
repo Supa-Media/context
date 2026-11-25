@@ -5,6 +5,7 @@
  * only while it still answers its asker's newest words (`groupRecheck.ts`).
  */
 
+import { didUnsaid, tellTex } from "./didFacts";
 import { reactionFor } from "./reactEmoji";
 import { ackEmoji } from "./ackEmoji";
 import { canRedraft, chatEvent, readChatState } from "./chatState";
@@ -187,7 +188,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         ...(covers.length > 0 ? { covers, chat: message.groupId, ...(await outbox(storage, message.groupId)) } : {}), // the chat's day is the gateway's ledger; the outbox goes on top
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : message.crossChat ? crossFields(message.crossChat) : message.event !== undefined ? { event: message.event } : {}), ...(crossOn ? { crossCounts: await crossCounts(storage, deps.now()) } : {}), // a job reporting to this chat's turn (`jobTexts.ts`), or a login it asked for saved (`vaultWatch.ts`)
+        ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : message.crossChat ? crossFields(message.crossChat) : message.event !== undefined ? { event: message.event, ...(message.did ? { did: message.did } : {}) } : {}), ...(crossOn ? { crossCounts: await crossCounts(storage, deps.now()) } : {}), // a job reporting to this chat's turn (`jobTexts.ts`), or a login it asked for saved (`vaultWatch.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now(), { results: true }) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
@@ -215,6 +216,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   if (message.jobReport !== undefined && answer.kind === "no_model") throw new ServiceError("gateway", 409);
   // Out of today's background turns, trying again is no use: the chat hears there is news, and the job list keeps it.
   if (message.jobReport !== undefined && answer.kind === "daily_limit") return void (await say(storage, deps, message, GROUP_LINES.jobReportRefused, { system: true, reason: "failed" }));
+  if (answer.kind === "daily_limit" || answer.kind === "no_model") if (await didUnsaid(storage, deps, message, answer.kind)) return;
   if (routine && (answer.kind === "daily_limit" || answer.kind === "no_model")) return void (await routineDone(deps, message, answer.kind === "daily_limit" ? "daily_limit" : "no_provider"));
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow.", { system: true }));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet.", { system: true }));
@@ -248,7 +250,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Sensitive asks go to the tagger's own 1:1, never here (`crossChat.ts` `sendAsides`); one that can't is said here in fixed words.
   if (answer.asides && message.crossChat?.kind !== "ask") {
     const aside = deps.crossCall ? await sendAsides({ now: deps.now, call: deps.crossCall }, message, answer.asides) : "unreached";
-    if (aside !== "sent") await say(storage, deps, message, aside === "no_1to1" ? GROUP_LINES.asideNo1to1 : GROUP_LINES.asideFailed, { system: true });
+    if (aside !== "sent") await tellTex(storage, deps, message, { action: "text_on_the_side", status: aside === "no_1to1" ? "no_1to1" : "failed" }, aside === "no_1to1" ? GROUP_LINES.asideNo1to1 : GROUP_LINES.asideFailed);
   }
   if (crossOn && answer.crossAsks) await sendCrossAsks(storage, { now: deps.now, call: deps.crossCall! }, { kind: "group", message }, answer.crossAsks);
   if (message.crossChat?.kind === "ask") {
@@ -328,6 +330,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   const now = await readTwice();
   if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) {
     log(now === null ? "members_unread_after" : "joined");
+    if (await didUnsaid(storage, deps, message, now === null ? "failed" : "joined")) return;
     if (routine) return void (await routineDone(deps, message, now === null ? "failed" : "no_chat"));
     // Held for the newcomer: logged as never delivered, and the chat is told why.
     for (const text of texts) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: kindOf(text), text, delivered: false, reason: "held_newcomer", ...meta });
@@ -357,7 +360,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       went += 1;
     }
     for (const picture of checkIn ? [] : answer.pictures) (await sendPicture(storage, deps, message, picture, meta), (went += 1)); // After the words, as in a 1:1.
-    if (ran?.told) await say(storage, deps, message, ran.told, { system: true });
+    if (ran?.told) await tellTex(storage, deps, message, { action: "run_group", status: ran.why ?? "failed" }, ran.told);
     for (const action of ran?.done ?? []) await logOut(storage, deps, message.groupId, { kind: "text", text: groupRunDoneWords(action), delivered: true }, meta); // kept, so the next turn knows it was done
   } catch (error) {
     if (meta.turn) await logStep(storage, message.groupId, deliveryStep(parts, went, Date.now() - delivering, error instanceof Error ? error.name : "error"), deps.now(), meta.turn);

@@ -11,7 +11,7 @@ import type { GroupDeps } from "./groupInbox";
 import { GROUP_LINES } from "./groupLines";
 import { setChatBound } from "./groupChat";
 import { dropKept } from "./groupKept";
-import { say } from "./groupSay";
+import { tellTex } from "./didFacts";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
 
@@ -26,7 +26,9 @@ export async function inviteEveryone(storage: InboxStorage, deps: GroupDeps, mes
     // reached then: dropped, so the next tag mints one that reaches the workspace (2026-11-25: a search right after the
     // invite still ran on the chat's home alone, and Tex said it couldn't see the workspace).
     await dropKept(storage);
-    return void (await say(storage, deps, message, GROUP_LINES.invited(asked.slug, asked.count, asked.role), { system: true }));
+    // Tex says how it went, from the facts (`didFacts.ts`); the old line only while node `did` is unwired.
+    const did = { action: "invite", status: "invited", workspace: `@${asked.slug}`, people: asked.count, role: asked.role };
+    return void (await tellTex(storage, deps, message, did, GROUP_LINES.invited(asked.slug, asked.count, asked.role)));
   }
-  if (asked.status === "not_allowed") return void (await say(storage, deps, message, GROUP_LINES.notOwner(invite.slug), { system: true }));
+  if (asked.status === "not_allowed") return void (await tellTex(storage, deps, message, { action: "invite", status: "not_owner", workspace: `@${invite.slug}` }, GROUP_LINES.notOwner(invite.slug)));
 }

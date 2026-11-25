@@ -8,6 +8,9 @@
  */
 import { stickerIdOf, tapbackEmoji } from "../../tapbackEnding.js";
 
+/** The emoji that goes when a sticker asked for with an emoji off the list can't be stuck. */
+const STICKER_FALLBACK = "❤️";
+
 /**
  * `lastFailed`: the last call this turn made before it failed (only the last: one that fails beside it in the same
  * round is caught when the round settles, `tapbackEnding.js`). `tagged`: a literal @Tex tag, always answered in words,
@@ -20,8 +23,10 @@ export async function tapbackNode(input) {
   const refuse = (why) => ({ to: "refuse", why });
   if (input?.tagged === true) return refuse("they tagged you by name, so this turn answers them in words; reply with text instead");
   if (input?.lastFailed === true) return refuse("your last call failed, so tell them what happened in words");
-  const emoji = tapbackEmoji(input?.emoji);
-  if (emoji === null) return refuse("a tapback is one of the listed emoji, and that one isn't; pick one of them");
   const sticker = stickerIdOf(input?.sticker);
+  // With a sticker, the emoji only goes if the sticker can't: an emoji off the list never holds the sticker back
+  // (Battle of the Bots, 2026-11-25: "use that sticker" with 🤖 was refused, then the retry was refused as a failed call).
+  const emoji = tapbackEmoji(input?.emoji) ?? (sticker ? STICKER_FALLBACK : null);
+  if (emoji === null) return refuse("a tapback is one of the listed emoji, and that one isn't; pick one of them");
   return { to: "react", emoji, ...(sticker ? { sticker } : {}) };
 }

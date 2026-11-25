@@ -124,7 +124,8 @@ test("a sticker id reads only as the chat writes one", () => {
 test("the node hands a sticker on beside its emoji, and refuses as before", async () => {
   assert.deepEqual(await tapbackNode({ emoji: "😂", sticker: "s1a2b3c" }), { to: "react", emoji: "😂", sticker: "s1a2b3c" });
   assert.deepEqual(await tapbackNode({ emoji: "😂", sticker: "nope" }), { to: "react", emoji: "😂" });
-  assert.equal((await tapbackNode({ emoji: "🦄", sticker: "s1a2b3c" })).to, "refuse", "a sticker never stands in for a bad emoji");
+  assert.deepEqual(await tapbackNode({ emoji: "🤖", sticker: "s1a2b3c" }), { to: "react", emoji: "❤️", sticker: "s1a2b3c" }, "an emoji off the list never holds a sticker back");
+  assert.equal((await tapbackNode({ emoji: "🤖" })).to, "refuse", "without a sticker, an emoji off the list is still refused");
 });
 
 test("only this turn's last call before it counts as failed", () => {

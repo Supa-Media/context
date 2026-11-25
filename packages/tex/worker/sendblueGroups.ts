@@ -1,3 +1,4 @@
+import type { Did } from "./didFacts";
 import type { CrossEvent } from "./crossChat";
 /**
  * Sendblue group chats (docs.sendblue.com: Groups): the receive webhook's
@@ -87,7 +88,12 @@ export type GroupMessage = {
   crossChat?: CrossEvent;
   /** A login Tex asked for in this chat was saved: the chat's own turn carries the task on, queued by this Worker (`vaultWatch.ts`). */
   /** Tex was just added to this chat: its hello, queued by this Worker once (`groupJoined.ts`); never a webhook's. */
-  event?: "vault_saved" | "browser_handed_back" | "joined";
+  /** `did`: code ran something a person here asked for, and the chat's own turn says what happened (`didFacts.ts`). */
+  event?: "vault_saved" | "browser_handed_back" | "joined" | "did";
+  /** With `event` "did": what code did, as data (`didFacts.ts`). */
+  did?: Did;
+  /** With `event` "did": what is sent if its turn can't run at all, never silence (`didFacts.ts` `didUnsaid`). */
+  didFallback?: string;
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };

@@ -37,6 +37,30 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
    rate limits, timeouts and a burst of texts in a group chat; when the turn cannot run, the outage line goes out on a
    clean trigger, never a hang or a silent drop.
 
+## How a fixed text moves to Tex: node "Tex did" (2026-11-25)
+
+- **The action still runs in code**, once, as before. Then the texting Worker queues one turn of the chat's own, as a
+  saved login's turn is: `event: "did"`, asked by the person who asked for the action, under their text, with what
+  happened as facts (`packages/tex/worker/didFacts.ts` `tellTex`): `{ action, status, ... }`, short names and short
+  values only.
+- **Node `did`** (`packages/tex/gateway/agent/graph/nodes/did.js`, `agent/did.js`) checks the facts and hands the
+  Front door `{"from":"context","did":{...}}` as its question; its cause line is empty. Tex writes the text, taught by
+  Training conversations.
+- **Never silent.** A `did` turn that can't run (the chat can't run one now, no model, the daily limit, every retry
+  failed, the queue full) sends the action's old line once, logged as `group_did` `unsaid_<why>`
+  (`didFacts.ts` `didUnsaid`). A retry re-sends the facts and never repeats the action.
+- **Config, not code.** The node merged on the shelf; until a Lab draft wires it (`did` to `fd`, when `tell`), the old
+  line is sent exactly as before. First user: adding everyone in a group to a workspace (`groupInvite.ts`). Tests:
+  `apps/mcp/test/texDid.test.mjs`, `packages/tex/worker/groupInvite.test.ts` (with the node wired: the facts reach the
+  turn, the model out or the gateway down on every try sends the old line once, and the invite runs once).
+- **Group commands next** (B2): the start, invite, mail-sharing and "what can you see" answers, a group run's
+  refusal (`groupRunTurn.ts` `why`) and a side text that couldn't go, each as `{ action, status }` facts. A `did`
+  turn never starts another (its own refusal goes as the old line), so nothing loops. **"Stop" and the once-per-mute
+  reply stay fixed lines**: a muted chat runs no model by design (its grant is refused, `liveGrants.ts`), so the
+  mute holds even with every model down. Test: `packages/tex/worker/groupDid.test.ts`.
+- **People with no account yet** get texts Tex writes too (Dev2, 2026-11-25: Context is free, so nothing is billed);
+  a per-number daily cap only keeps a spam number from running up model calls.
+
 ## What a "simplification" would cost
 
 Adding one sentence where a bad reply showed up is the cheapest way to turn one failing case green, and it is how the

@@ -196,6 +196,25 @@
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
       "node": {"label":"Reflect","goal":"After a hard or corrected turn, write down what worked as a learned skill for next time.","log":true,"on":false,"rounds":4,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"reflect.js","note":"","icon":"star","model":"haiku-5-5","effort":"off","id":"reflect","inSchema":[{"name":"question","type":"text"},{"name":"tainted","type":"yesno"},{"name":"ownText","type":"yesno"},{"name":"canWrite","type":"yesno"}],"outSchema":[{"name":"outcome","type":"text"},{"name":"reason","type":"text","optional":true},{"name":"where","type":"text","optional":true},{"name":"error","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"model","type":"text","optional":true}]}
+    },
+    "did": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/did.js",
+        "packages/tex/gateway/agent/did.js",
+        "packages/tex/gateway/agent/texEntryPoint/readTheText.js",
+        "packages/tex/worker/didFacts.ts",
+        "packages/tex/worker/groupInvite.ts",
+        "packages/tex/gateway/agent/groupTurnCause.js",
+        "packages/tex/worker/groupInbox.ts",
+        "packages/tex/worker/groupTurnFailed.ts",
+        "packages/tex/worker/groupRunTurn.ts",
+        "packages/tex/worker/groupModelTurn.ts",
+        "packages/tex/worker/groupCause.ts",
+        "packages/tex/worker/sendblueGroups.ts",
+        "packages/tex/worker/clients.ts"
+      ],
+      "why": "What code did for a chat, handed to Tex as data so Tex writes the text (Dev2, 2026-11-25: \"Tex's code never writes what Tex says\"; docs/decisions/texting-assistant/no-scripted-wording.md). Merged unwired: until a Lab draft wires it (did to fd, when tell), the Worker sends the old fixed line. Promote takes it off the shelf.",
+      "node": {"id":"did","label":"Tex did","goal":"When code ran something a person in the chat asked for (an invite, a mute, a shared mailbox, a job it could not start), start a run in that chat with what happened, as data, so Tex tells them in its own words.","log":true,"on":true,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"graph/nodes/did.js · did.js · didFacts.ts","note":"","icon":"text","kind":"input","model":"code","x":0,"y":560,"inSchema":[{"name":"event","type":"text"},{"name":"did","type":"object"}],"outSchema":[{"name":"to","type":"choice","options":"tell, refuse"},{"name":"question","type":"text","optional":true},{"name":"why","type":"text","optional":true}]}
     }
   }
 }
