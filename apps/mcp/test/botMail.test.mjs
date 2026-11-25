@@ -36,7 +36,7 @@ function withMail(text, entry) {
   return out;
 }
 
-function world({ owner = "Finance" } = {}) {
+function world({ owner = "Finance", delegate } = {}) {
   const notes = new Map(); // noteId → {path, text}
   const told = [];
   const watch = botMailWatch(durableSql(), {
@@ -45,7 +45,7 @@ function world({ owner = "Finance" } = {}) {
       const id = /^notes\/(.+)\.md$/.exec(key)?.[1];
       return notes.has(id) ? { body: new TextEncoder().encode(notes.get(id).text) } : null;
     } },
-    facts: { props: ({ paths }) => ({ served: true, props: paths.filter((p) => p === "areas/finance/about.md").map((path) => ({ path, sealed: false, props: JSON.stringify({ properties: { owner } }) })) }) },
+    facts: { props: ({ paths }) => ({ served: true, props: paths.filter((p) => p === "areas/finance/about.md").map((path) => ({ path, sealed: false, props: JSON.stringify({ properties: { owner, ...(delegate === undefined ? {} : { delegate }) } }) })) }) },
     tell: (message) => told.push(message),
     defer: () => {},
   });
@@ -79,6 +79,19 @@ test("a person's new line tells the area's bot once, and never the bot's own rep
   text = withMail(text, { from: "@seyi", text: "Thanks", at: "2026-11-25T03:02:00.000Z" });
   save("n1", "areas/finance/mail/seyi.md", text);
   assert.equal(told.length, 2);
+});
+
+test("a person's area tells its one delegate bot, never Tex or a person", { skip }, () => {
+  // The owner, 2026-11-25: "does mailing a bot attached to an area work?" with @seyi owning Finance and the Finance
+  // bot as its delegate.
+  const delegated = world({ owner: "@seyi", delegate: "Finance" });
+  delegated.save("n1", "areas/finance/mail/kim.md", withMail("", { from: "@kim", text: "How much are we spending?", at: "2026-11-25T03:00:00.000Z" }));
+  assert.deepEqual(delegated.told, [{ bot: "finance", area: "areas/finance", note: "areas/finance/mail/kim.md", from: "@kim" }]);
+  for (const delegate of ["Tex", "@ana"]) {
+    const other = world({ owner: "@seyi", delegate });
+    other.save("n1", "areas/finance/mail/kim.md", withMail("", { from: "@kim", text: "hi", at: "2026-11-25T03:00:00.000Z" }));
+    assert.equal(other.told.length, 0, delegate);
+  }
 });
 
 test("a person's area, a note outside mail, and a note with no mail tell nobody", { skip }, () => {
