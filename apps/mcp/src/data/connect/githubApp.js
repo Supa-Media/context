@@ -122,8 +122,10 @@ export async function installationToken({ app, installation, fetcher, nowMs }) {
 
 async function stateKey(secret) {
   if (typeof secret !== "string" || secret.length < 16) throw new Error("no gateway secret");
-  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "HKDF", false, ["deriveKey"]);
-  return await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: STATE_INFO }, base, { name: "HMAC", hash: "SHA-256", length: 256 }, false, ["sign", "verify"]);
+  // One HMAC step over the label, its own key apart from every other use of the gateway secret.
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const bytes = await crypto.subtle.sign("HMAC", base, STATE_INFO);
+  return await crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
 /** The signed install state: this workspace, this person, this source's about.md note, for 30 minutes. */
