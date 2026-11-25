@@ -64,15 +64,21 @@ export function reachesNoWider(parsed, keptPath, inputPath) {
   return kept === input;
 }
 
-/** The first input whose readers are fewer than the kept sheet's, by every audience the workspace has rules for; or null. */
-async function widerThanInputs(client, keptPath, inputPaths) {
+/**
+ * The first input whose readers are fewer than the kept sheet's, by **both** of the workspace's renderings; or null.
+ *
+ * Both or nothing. A row's grantee list is invisible in the member rendering — `privacy/rowAccess.js`
+ * `visibilityFor` answers `team` for a team row, list or no list — so the guest rendering, where a listed row is its
+ * own token, is the only one that shows a list at all. Comparing one rendering would pass a kept sheet whose list
+ * reaches somebody an input's does not, and a rendering the object does not hold is a question nobody answered:
+ * either way, nothing is compared and nothing is kept.
+ */
+export async function widerThanInputs(client, keptPath, inputPaths) {
   const audiences = await Promise.all(["member", "guest"].map((audience) => client.rules.get(audience)));
-  const member = audiences[0]?.rules ?? null;
-  // No member rules held: the object would show nobody anything, so nothing is compared or kept.
-  if (member === null) return { unknown: true };
-  for (const held of [member, audiences[1]?.rules ?? null]) {
-    if (held === null) continue;
-    const parsed = parsedRules(held);
+  const held = audiences.map((answer) => answer?.rules ?? null);
+  if (held.some((rules) => rules === null)) return { unknown: true };
+  for (const rules of held) {
+    const parsed = parsedRules(rules);
     const narrower = inputPaths.find((path) => !reachesNoWider(parsed, keptPath, path));
     if (narrower !== undefined) return { narrower };
   }
