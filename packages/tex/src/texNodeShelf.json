@@ -196,18 +196,6 @@
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
       "node": {"label":"Reflect","goal":"After a hard or corrected turn, write down what worked as a learned skill for next time.","log":true,"on":false,"rounds":4,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"reflect.js","note":"","icon":"star","model":"haiku-5-5","effort":"off","id":"reflect","inSchema":[{"name":"question","type":"text"},{"name":"tainted","type":"yesno"},{"name":"ownText","type":"yesno"},{"name":"canWrite","type":"yesno"}],"outSchema":[{"name":"outcome","type":"text"},{"name":"reason","type":"text","optional":true},{"name":"where","type":"text","optional":true},{"name":"error","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"model","type":"text","optional":true}]}
-    },
-    "joined": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/joined.js",
-        "packages/tex/gateway/agent/joined.js",
-        "packages/tex/gateway/agent/texEntryPoint/readTheText.js",
-        "packages/tex/worker/groupJoined.ts",
-        "packages/tex/worker/chatObject.ts",
-        "packages/tex/worker/photonEvents.ts"
-      ],
-      "why": "Tex's hello when it is added to a group (Dev2, 2026-11-25: \"Tex should have an intro when added to a group\"). Merged unwired; a Lab draft wires it (joined to lanes, when intro) and Promote takes it off the shelf.",
-      "node": {"id":"joined","label":"Tex added","goal":"Once per group, when Tex's number is added or a group is made with Tex in it, start a run in that chat for Tex's hello: who Tex is, what it does for the group, and that anything personal stays in each person's own 1:1.","log":true,"on":true,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"graph/nodes/joined.js · joined.js · groupJoined.ts","note":"","icon":"text","kind":"input","model":"code","x":0,"y":480,"inSchema":[{"name":"event","type":"text"},{"name":"group","type":"yesno"}],"outSchema":[{"name":"to","type":"choice","options":"intro, refuse"},{"name":"question","type":"text","optional":true},{"name":"why","type":"text","optional":true}]}
     }
   }
 }
