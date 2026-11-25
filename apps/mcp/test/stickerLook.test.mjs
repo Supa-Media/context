@@ -19,7 +19,7 @@ test("the look sends the picture to the model and keeps a few words of what it s
   const out = await lookAtSticker(PICTURE, CONFIG, { request });
   assert.deepEqual(out.when, ["looked"]);
   assert.equal(out.words, "cat throwing confetti; fits celebrating good news");
-  assert.equal(call.system, STICKER_LOOK_SYSTEM);
+  assert.ok(call.system.startsWith("HOW TEX WORKS") && call.system.includes(STICKER_LOOK_SYSTEM), "the map, then its own words");
   assert.deepEqual(call.messages[0].attachments, [{ name: "sticker", mediaType: "image/png", data: PICTURE.data }]);
   assert.equal(call.toolChoice, "meaning");
   // Words in the picture are part of the sticker: the prompt says so.
