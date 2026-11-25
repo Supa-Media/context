@@ -174,17 +174,19 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
     });
   });
 
-  it("the tapback is the emoji's kind, a like when the kind is refused, and a like for an emoji with none", async () => {
+  it("the tapback is the emoji's kind, any other emoji is sent as itself, and a refused one is never a like", async () => {
     const b = bridge();
     const line = lineFor(deps(b.photon), DM);
     await line.acknowledge(DM, "msg-1", "😂");
     expect(b.calls.at(-1)?.body).toMatchObject({ guid: "msg-1", kind: "laugh", on: true });
-    await line.acknowledge(DM, "msg-1", "🫡");
-    expect(b.calls.at(-1)?.body).toMatchObject({ kind: "like" });
+    // The "on it" 👀 (and any emoji but the six) goes as that emoji, never as a 👍 (Dev2, 2026-11-25).
+    await line.acknowledge(DM, "msg-1", "👀");
+    expect(b.calls.at(-1)?.body).toMatchObject({ kind: "emoji", emoji: "👀", on: true });
 
-    const refusing = bridge((op, body) => (op === "react" && body.kind === "love" ? refuse(400) : undefined));
-    await lineFor(deps(refusing.photon), DM).acknowledge(DM, "msg-2", "❤️");
-    expect(refusing.calls.filter((c) => c.op === "react").map((c) => c.body.kind)).toEqual(["love", "like"]);
+    const refusing = bridge((op, body) => (op === "react" && (body.kind === "love" || body.kind === "emoji") ? refuse(400) : undefined));
+    await expect(lineFor(deps(refusing.photon), DM).acknowledge(DM, "msg-2", "❤️")).resolves.toBeNull();
+    await expect(lineFor(deps(refusing.photon), DM).acknowledge(DM, "msg-2", "👀")).resolves.toBeNull();
+    expect(refusing.calls.filter((c) => c.op === "react").map((c) => c.body.kind)).toEqual(["love", "emoji"]);
   });
 
   it("the tapback never throws, even when the bridge is down, and says none went", async () => {
@@ -199,7 +201,8 @@ describe("Photon 1:1 line (photonLine.ts)", () => {
     expect(photonKind("😂")).toBe("laugh");
     expect(photonKind("‼️")).toBe("emphasize");
     expect(photonKind("❓")).toBe("question");
-    expect(photonKind("🎨")).toBe("like");
+    expect(photonKind("🎨")).toBe("emoji");
+    expect(photonKind("👀")).toBe("emoji");
   });
 
   it("a refused send is a 400 refusal and a failed one a 500 failure, both as ServiceError('photon')", async () => {
@@ -398,12 +401,14 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
     await expect(broken.react(place, "m1", "👍")).resolves.toBeUndefined();
   });
 
-  it("a group's tapback falls back to a like, and a group's picture goes as an attachment by address", async () => {
+  it("a group's refused tapback is not swapped for a like, and a group's picture goes as an attachment by address", async () => {
     const b = bridge((op, body) => (op === "react" && body.kind === "laugh" ? refuse(400) : undefined));
     const app = groupLineFor({ fetch: globalThis.fetch, photon: b.photon }, GROUP);
     const place = { line: "+15550000001", groupId: GROUP };
     await app.react(place, "m2", "😂");
-    expect(b.calls.filter((c) => c.op === "react").map((c) => c.body.kind)).toEqual(["laugh", "like"]);
+    expect(b.calls.filter((c) => c.op === "react").map((c) => c.body.kind)).toEqual(["laugh"]);
+    await app.react(place, "m2", "👀");
+    expect(b.calls.at(-1)?.body).toMatchObject({ kind: "emoji", emoji: "👀" });
     await app.sendMedia(place, "https://files.example.com/a.png", "r3");
     expect(b.calls.at(-1)?.body).toMatchObject({ chat: "iMessage;+;chat123", name: "a.png", mimeType: "image/png", replyTo: "r3" });
   });
