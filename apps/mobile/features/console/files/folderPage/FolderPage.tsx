@@ -291,7 +291,7 @@ export function FolderPage({
   if (host === undefined) {
     return (
       <>
-        <FolderHead title={fallbackTitle} icon={icon} switcher={null} large={compact} actions={titleActions} folder={folder}>
+        <FolderHead title={fallbackTitle} icon={icon} switcher={null} large={compact} actions={titleActions}>
           {rule}
         </FolderHead>
         <View style={styles.contents}>{files}</View>
@@ -433,7 +433,7 @@ export function FolderPage({
   return (
     <>
       <FolderHead
-        large={compact} folder={folder}
+        large={compact}
         title={summary?.title ?? fallbackTitle}
         icon={icon}
         onOpenTitle={summary !== null && !summary.creates && summary.title !== null ? () => onSelect(summary.target) : undefined}

@@ -66,13 +66,6 @@ export interface ChaosFrame {
 
 const byId = (id: string) => document.querySelector(`[data-testid="${id}"]`);
 
-/** The demo opens on a note in Projects; its breadcrumb is the way to that folder's page. */
-const openProjects = async ({ density, settle, press }: FrameCtx) => {
-  // A phone has no breadcrumb: its back button goes up one folder.
-  press(byId(density === "phone" ? "phone-back" : "breadcrumb-folder-1-projects"));
-  await settle();
-};
-
 /** A phone opens on that note; back, and back again, is Home. */
 /** Back to Inbox, where the @name menu carries the Chaos line (board 2, 2026-10-17). */
 const openNameMenu = async ({ settle, press }: FrameCtx) => {
@@ -85,39 +78,6 @@ const openNameMenu = async ({ settle, press }: FrameCtx) => {
 };
 
 export const FRAMES: readonly ChaosFrame[] = [
-  {
-    id: "01-folder-line",
-    title: "A crowded folder's page: one quiet line beside the title",
-    sizes: ["desktop", "phone"],
-    schemes: ["light", "dark"],
-    prepare: openProjects,
-    assert: ["12 things in here · calm is 4 or 5"],
-  },
-  {
-    id: "02-folder-advice",
-    title: "The line, pressed: how to calm the folder",
-    sizes: ["desktop", "phone"],
-    schemes: ["light", "dark"],
-    prepare: async (ctx) => {
-      await openProjects(ctx);
-      ctx.press(byId("folder-chaos-line"));
-      await ctx.settle();
-    },
-    assert: ["12 things in here. Folders feel calm with 4 or 5."],
-  },
-  {
-    id: "03-panel",
-    title: "The whole workspace's score",
-    sizes: ["desktop"],
-    prepare: async (ctx) => {
-      await openProjects(ctx);
-      ctx.press(byId("folder-chaos-line"));
-      await ctx.settle();
-      ctx.press(byId("folder-chaos-whole"));
-      await ctx.settle();
-    },
-    assert: ["Chaos 34 of 100", "Biggest wins", "Long notes", "How it’s scored"],
-  },
   {
     id: "05-phone-menu",
     title: "The phone's @name menu on Inbox",

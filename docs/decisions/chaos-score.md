@@ -76,21 +76,19 @@ on the score by itself, with every change logged and reversible
 ([housekeeping](./texting-assistant/housekeeping.md)). It is the only actor
 that does; everything else here still only reports.
 
-One surface gives advice, because the owner asked for it (2026-10-13): a
-crowded or thin folder's page has one muted line beside its title ("14
-things in here · calm is 4 or 5"), and pressing it says how that folder
-could be calmer, in words from this rubric ("find two to five themes",
-"move these notes up into the folder above"). Words only: nothing it says
-comes with a button that moves a note, and it speaks only when pressed. The
-tree's foot has no chaos line.
+A folder page has no chaos line. It had one beside its title from
+2026-10-13 ("14 things in here · calm is 4 or 5", which opened advice when
+pressed); Dev removed it on 2026-11-24 ("remove this line anywhere and
+everywhere it is"). The tree's foot has no chaos line either.
+`chaosModel.test.ts` fails if the line's words come back anywhere in the
+app.
 
 ## No figure in the app
 
 The owner took Tex out of the app on 2026-10-14 ("looks awful"): the
 folder page, the tree's foot, the panel and the phone's Home are words only.
 The foot's line was the figure alone, so it went with it; the panel is
-reached from a folder's advice ("The whole workspace's score") and from the
-phone's Home card. `chaosRender.test.ts` checks that no chaos surface in the
+reached from the phone's @name menu and Home card. `chaosRender.test.ts` checks that no chaos surface in the
 app draws an svg. Bringing Tex back to the app is the owner's call, not a
 polish pass.
 

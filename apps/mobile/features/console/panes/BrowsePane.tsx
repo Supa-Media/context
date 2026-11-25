@@ -42,13 +42,6 @@ import { FOLDERS_PAGE, useHomeView } from "../home/homeView";
 import { usePhoneHistory } from "../home/phoneHistory";
 import { goToLevel, HOME_LABEL } from "../home/phoneBack";
 import { useMapRoute } from "../map/live/MapRouteContext";
-import { useChaosView } from "../../chaos/ChaosContext";
-import {
-  cachedFolderLine,
-  folderLinesVersion,
-  preloadFolderLine,
-  subscribeFolderLines,
-} from "../../chaos/folderLineCache";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -226,22 +219,17 @@ export function BrowsePane({
     folder has already started them. Re-rendered as each one lands.
   */
   useSyncExternalStore(subscribePageCache, pageCacheVersion, pageCacheVersion);
-  // The chaos line under a folder's title is part of the page too (`folderLineCache`).
-  const askChaos = useChaosView()?.folderScore;
-  useSyncExternalStore(subscribeFolderLines, folderLinesVersion, folderLinesVersion);
   const folderPending =
     compact &&
     target !== null &&
     target.kind === "folder" &&
     classifyCommsPath(target.path) === null &&
-    (!folderPageReady(folderLists, target.path) ||
-      (askChaos !== undefined && cachedFolderLine(askChaos, target.path) === undefined));
+    !folderPageReady(folderLists, target.path);
   const pendingFolder = folderPending && target !== null ? target.path : null;
   useEffect(() => {
     if (pendingFolder === null) return;
     preloadFolderPage(folderLists, pendingFolder);
-    preloadFolderLine(askChaos, pendingFolder);
-  }, [pendingFolder, folderLists, askChaos]);
+  }, [pendingFolder, folderLists]);
   // The page already on screen, until the one being opened is ready to swap
   // in. See `useShownEntry`.
   const { entry: selected, holding } = useShownEntry({
