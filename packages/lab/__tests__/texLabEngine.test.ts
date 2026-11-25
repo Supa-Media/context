@@ -20,10 +20,12 @@ jest.mock("@context/lab/app/data/graph", () => jest.requireActual<typeof import(
 // The artifact had two kinds of module, "same every turn" and "changes every turn"; its goldens are drawn with those.
 jest.mock("@context/tex/src/texModuleChange.cjs", () => jest.requireActual<typeof import("./fixtures/texLabArtifactGraph")>("./fixtures/texLabArtifactGraph").artifactModuleChangeModule());
 // Tex's map is generated from the config, so it grows with every step added; the golden holds it at its size on
-// 2026-11-22 (16,584 characters), so a config change never moves the artifact's times and costs.
+// 2026-11-22 (16,584 characters), so a config change never moves the artifact's times and costs. The capability list
+// (`caps`) is generated from capabilities.js the same way and is held at its size on 2026-11-25 (46,411 characters), so
+// a capability line added or removed never moves them either (a new line for text_privately moved core/q1's cost).
 jest.mock("@context/lab/app/labData.generated", () => {
   const real = jest.requireActual<typeof import("@context/lab/app/labData.generated")>("@context/lab/app/labData.generated");
-  return { ...real, MODTEXT: { ...real.MODTEXT, map: "m".repeat(16584) } };
+  return { ...real, MODTEXT: { ...real.MODTEXT, map: "m".repeat(16584), caps: "c".repeat(46411) } };
 });
 import golden from "./fixtures/texLabGolden.json";
 import { config, diff } from "@context/lab/app/engine/diff";
