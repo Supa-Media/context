@@ -48,6 +48,7 @@
  * built-in model is the Workers AI one as before (`builtin.js`).
  */
 
+import { refusalShape } from "./refusalShape.js";
 import { ProviderError, THINKING_REFUSED, anthropicMessages } from "./providers.js";
 import { prefixPrint } from "./prefixPrint.js";
 import { withToday } from "./localNow.js";
@@ -416,7 +417,7 @@ async function send(config, body, { payer, metadata }, fetchImpl) {
           ...(payer?.key ? { "x-api-key": payer.key } : {}),
           ...(payer?.alias ? { "cf-aig-byok-alias": payer.alias } : {}),
         },
-        body: JSON.stringify(body),
+        body: wellFormedJson(body),
         signal: controller.signal,
         redirect: "manual",
       });
@@ -453,10 +454,22 @@ async function sendWithRetry(config, body, options, fetchImpl, wait) {
   return { ...(await send(config, body, options, fetchImpl)), retried: { status: first.status } };
 }
 
+/**
+ * The request as JSON with every string well formed: a lone half of a surrogate pair (an emoji cut in two anywhere
+ * upstream) becomes U+FFFD instead of a 400 the provider gives for the whole request (2026-11-24).
+ */
+export function wellFormedJson(body) {
+  return JSON.stringify(body, (_key, value) => (typeof value === "string" ? value.toWellFormed() : value));
+}
+
 /** A refused round, named by its status; a 400 about thinking blocks says so, and only by that code. */
 const namesThinking = (answer) => answer.status === 400 && /thinking|signature/i.test(answer.text ?? "");
 function statusError(answer) {
-  return new ProviderError(namesThinking(answer) ? THINKING_REFUSED : `status ${answer.status ?? "none"}`, answer.status);
+  const error = new ProviderError(namesThinking(answer) ? THINKING_REFUSED : `status ${answer.status ?? "none"}`, answer.status);
+  // What the refusal was about, by its shape only (`refusalShape.js`): never its words, which can quote the request.
+  const shape = answer.status === 200 ? null : refusalShape(answer.text);
+  if (shape !== null) error.shape = shape;
+  return error;
 }
 
 /**
@@ -527,7 +540,8 @@ export async function requestViaGateway(call, config, options = {}) {
       continue;
     }
     answer = await sendIt(payer);
-    payers.push({ payer: payer.name, status: answer.status ?? null });
+    const shape = answer.status === 200 ? null : refusalShape(answer.text);
+    payers.push({ payer: payer.name, status: answer.status ?? null, ...(shape !== null ? { shape } : {}) });
     if (answer.status === 200) {
       paidBy = "credit";
       servedBy = payer.name;
@@ -550,7 +564,8 @@ export async function requestViaGateway(call, config, options = {}) {
   }
   if (!answer) {
     answer = await sendIt(null);
-    payers.push({ payer: "unified", status: answer.status ?? null });
+    const shape = answer.status === 200 ? null : refusalShape(answer.text);
+    payers.push({ payer: "unified", status: answer.status ?? null, ...(shape !== null ? { shape } : {}) });
   }
   if (answer.status !== 200) {
     throw failed(statusError(answer));

@@ -258,6 +258,12 @@ const LINK = /https?:\/\/[^\s<>()"']+/g;
  * days whole, older ones clipped, Tex's own answers most. A clipped text keeps every link it held, so a page or
  * draft Tex sent stays findable however old.
  */
+/** `max`, or one less when the character before it is the first half of a surrogate pair, so a cut never splits one. */
+export function wholeCharAt(text, max) {
+  const code = text.charCodeAt(max - 1);
+  return max > 0 && code >= 0xd800 && code <= 0xdbff ? max - 1 : max;
+}
+
 export function faded(event, before, fade = FADE) {
   const text = String(event.text ?? "");
   if (!Number.isFinite(before) || before === Number.MAX_SAFE_INTEGER) return event;
@@ -266,8 +272,11 @@ export function faded(event, before, fade = FADE) {
   if (tier === undefined) return event;
   const max = event.from?.kind === "tex" ? tier.tex : tier.them;
   if (text.length <= max) return event;
-  const links = [...new Set(text.slice(max).match(LINK) ?? [])].filter((link) => !text.slice(0, max).includes(link));
-  return { ...event, text: `${text.slice(0, max).trimEnd()}… [cut${links.length > 0 ? `; links: ${links.join(" ")}` : ""}]` };
+  // Never between the two halves of an emoji: half of one is a lone surrogate, which the model provider refuses as
+  // invalid JSON (2026-11-24: every job part in one chat failed with a 400 while the cut fell on one).
+  const at = wholeCharAt(text, max);
+  const links = [...new Set(text.slice(at).match(LINK) ?? [])].filter((link) => !text.slice(0, at).includes(link));
+  return { ...event, text: `${text.slice(0, at).trimEnd()}… [cut${links.length > 0 ? `; links: ${links.join(" ")}` : ""}]` };
 }
 
 /** `events` (newest first) without the oldest day, which ran out of room part-way. */
