@@ -43,6 +43,29 @@ function held(objects, key) {
   return { etag: found.etag, text: decoder.decode(found.body) };
 }
 
+/** The key the desk keeps for a note by `name`, from the keys file alone (`DESK_KEYS_KEY`): a note key of this object, false, or null. */
+function keptKey(objects, name) {
+  const keys = held(objects, DESK_KEYS_KEY);
+  if (keys === null) return null;
+  try {
+    const key = JSON.parse(keys.text)?.direct?.[name];
+    return key === false ? false : typeof key === "string" && NOTE_KEY.test(key) ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The person's member card (`tex/group-card.md`, `agent/groupCard.js`), the one note of a person's object a group chat's
+ * turn reads (`agent/memberCards.js`; `docs/decisions/texting-assistant/member-cards.md`): `{etag, text}`, or null when
+ * the desk keeps no key for it (the person has none, or no 1:1 turn has looked it up yet). Nothing else of the object
+ * rides on it: no history, no other note.
+ */
+export function readCard(objects) {
+  const key = keptKey(objects, "card");
+  return typeof key === "string" ? held(objects, key) : null;
+}
+
 /**
  * The desk, from the object's own storage: `{history, notes}`. `history` is
  * the record (`{etag, text}`) or null; `notes[name]` is `{etag, text}`, false

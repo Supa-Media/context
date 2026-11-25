@@ -39,3 +39,6 @@ export async function benchGroup({ name, bench, person, rows, ids, own, controlP
   await controlPlane.addGrant({ workspaceId: "ws_pinned", role: "editor", userId: `user_bench_${own.workspace}`, accessToken: homeToken, scopes: ["context:read", "context:write"], clientId: "context_texts_group", grantedNames: ["#reads-as-chat"], homeOnly: true, chatHome: benchHome(name), texChatId: group.key });
   return { group: { ...group, home: benchHome(name), homeToken }, tagger: group.people.get(person.toLowerCase()) ?? null, chatToken };
 }
+
+/** A group chat's member cards, seeded where production keeps them (`memberCards.mjs`). */
+export { seedMemberCards } from "./memberCards.mjs";

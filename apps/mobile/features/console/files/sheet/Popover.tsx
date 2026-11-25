@@ -68,6 +68,7 @@ export function Popover({
           }
           testID={testID}
         >
+          {sheet ? <View style={styles.grabber} /> : null}
           <ScrollView keyboardShouldPersistTaps="handled">{children}</ScrollView>
         </Pressable>
       </Pressable>
@@ -78,6 +79,7 @@ export function Popover({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     scrim: { flex: 1 },
+    grabber: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong, marginTop: -space.x1, marginBottom: space.x2 },
     scrimSheet: { backgroundColor: "rgba(3,3,4,.72)", justifyContent: "flex-end" },
     popover: {
       position: "absolute",

@@ -4,7 +4,9 @@
  * `{ accessToken, asker: true }`, who tagged Tex in a group chat, on their own
  * tag only (`askerIdentityHandler`); with `{ accessToken, expectedWorkspaceId,
  * groups: true }`, `{ groups: [{ key, name, people, lastSeenAt }] | null }`, the
- * group chats the 1:1 texting grant's own person is in (`lib/texIdentity/groups.ts`).
+ * group chats the 1:1 texting grant's own person is in (`lib/texIdentity/groups.ts`); with `{ accessToken, cards:
+ * true }`, `{ cards: [{ handle, workspaceId }] | null }`, whose member card a group chat's turn may read, on an
+ * account holder's own tag only (`lib/texIdentity/cards.ts`).
  *
  * Who is texting Tex (`lib/texIdentity/identity.ts`). Behind the gateway's
  * secret, with the person's own access token: the person comes off the
@@ -23,6 +25,11 @@ export async function gatewayAgentIdentityHandler(ctx: ActionCtx, body: Record<s
   if (body.asker === true) {
     if (accessToken === null) return json({ identity: null });
     return json({ identity: await ctx.runQuery(internal.functions.texIdentity.askerForGateway, { hashedAccessToken: await hashToken(accessToken) }) });
+  }
+  // `{ accessToken, cards: true }`: whose member card a group chat's own tag may read (`memberCardsHandler`).
+  if (body.cards === true) {
+    if (accessToken === null) return json({ cards: null });
+    return json({ cards: await ctx.runQuery(internal.functions.texIdentity.cardsForGateway, { hashedAccessToken: await hashToken(accessToken) }) });
   }
   const expected = stringField(body, "expectedWorkspaceId");
   // `{ accessToken, expectedWorkspaceId, groups: true }`: the group chats the person texting their own Tex is in.

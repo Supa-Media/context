@@ -47,6 +47,7 @@ import { readTheTextNode } from "./nodes/readTheText.js";
 import { reviewerNode } from "./nodes/reviewer.js";
 import { claimChecksNode } from "./nodes/claimChecks.js";
 import { finishNode } from "./nodes/finish.js";
+import nudgeOffer from "./nodes/nudgeOffer.js";
 import { recheckNode } from "./nodes/recheck.js";
 import { toolRulesNode } from "./nodes/toolRules.js";
 import { runARoutineNode } from "./nodes/runARoutine.js";
@@ -76,6 +77,9 @@ import { jobStartNode } from "./nodes/jobStart.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
+import { memberCardsNode } from "./nodes/memberCards.js";
+import { groupCardNode } from "./nodes/groupCard.js";
+import { friendCheckNode } from "./nodes/friendCheck.js";
 import { askGateNode } from "./nodes/askGate.js";
 import quietCheck from "./nodes/quietCheck.js";
 import checkinResearch from "./nodes/checkinResearch.js";
@@ -197,6 +201,12 @@ export const GATEWAY_NODES = {
   get jobStart() { return jobStartNode; },
   // The Training moments nearest to a text, for the front door's preamble (`nodes/examples.js`, `texExamples.cjs`); on the shelf until a Lab draft wires fd -> examples.
   get examples() { return examplesNode; },
+  // Member cards, on the shelf (`docs/decisions/texting-assistant/member-cards.md`): the person's Tex keeps their card
+  // (`nodes/groupCard.js`, learn -> groupCard), a group's turn reads the cards of the people here (`nodes/memberCards.js`,
+  // fd -> memberCards), and a draft that used one is read for anything said or hinted (`nodes/friendCheck.js`).
+  get groupCard() { return groupCardNode; },
+  get memberCards() { return memberCardsNode; },
+  get friendCheck() { return friendCheckNode; },
   // The lookup ladder, on the shelf: before Tex asks them a fact it could find, its Before-asking step and its quick
   // rungs, each its own step (`nodes/askGate.js`, `../lookupLadder.js`); a Lab draft wires answerCheck -> askGate.
   get askGate() { return askGateNode; },
@@ -204,6 +214,8 @@ export const GATEWAY_NODES = {
   get quietCheck() { return quietCheck; },
   // A check-in's Research: read-only digging whose brief the look reads (`nodes/checkinResearch.js`); a draft wires checkin -> checkinResearch.
   get checkinResearch() { return checkinResearch; },
+  // The Nudge: one offer line after a finished 1:1 answer, each capability offered once (`nodes/nudgeOffer.js`, `../nudges.js`); finish -> nudgeOffer, off on main.
+  get nudgeOffer() { return nudgeOffer; },
   get rungKnows() { return rungKnowsNode; },
   get rungNotes() { return rungNotesNode; },
   get rungTools() { return rungToolsNode; },

@@ -23,10 +23,36 @@ export interface SheetData {
   rows: Record<string, string>[];
 }
 
-export type CalcKind = "None" | "Sum" | "Average" | "Min" | "Max" | "Latest" | "Count";
-export const CALCS: readonly CalcKind[] = ["None", "Sum", "Average", "Min", "Max", "Latest", "Count"];
+export type CalcKind = "None" | "Sum" | "Average" | "Min" | "Max" | "Latest" | "Count" | "Empty" | "Filled";
 
-export type FilterOp = "is" | "is not" | "contains" | ">" | "<" | "after" | "before" | "is checked" | "is not checked";
+/**
+ * The calculations a column's footer offers, by type: only what means something for it. The first list is the
+ * type's own figures, the second the counts every column has; the menu draws a rule between them.
+ */
+export function calcsFor(type: ColumnType): { figures: CalcKind[]; counts: CalcKind[] } {
+  const counts: CalcKind[] = ["Count", "Empty", "Filled"];
+  if (isNumeric(type)) return { figures: ["None", "Sum", "Average", "Min", "Max"], counts };
+  if (type === "date") return { figures: ["None", "Latest"], counts };
+  return { figures: ["None"], counts };
+}
+
+export type FilterOp =
+  | "is"
+  | "is not"
+  | "contains"
+  | ">"
+  | "<"
+  | "after"
+  | "before"
+  | "is checked"
+  | "is not checked"
+  | "is empty"
+  | "is not empty";
+
+/** An operator that compares with nothing: its filter has no value. */
+export function opTakesValue(op: FilterOp): boolean {
+  return op !== "is empty" && op !== "is not empty" && op !== "is checked" && op !== "is not checked";
+}
 
 export interface SheetFilter {
   column: string;
@@ -72,6 +98,11 @@ export function isNumeric(type: ColumnType): boolean {
 }
 
 export function filterOpsFor(type: ColumnType): FilterOp[] {
+  if (type === "checkbox") return ["is checked", "is not checked"];
+  return [...valueOpsFor(type), "is empty", "is not empty"];
+}
+
+function valueOpsFor(type: Exclude<ColumnType, "checkbox">): FilterOp[] {
   switch (type) {
     case "select":
     case "person":
@@ -85,8 +116,6 @@ export function filterOpsFor(type: ColumnType): FilterOp[] {
       return [">", "<", "is"];
     case "date":
       return ["after", "before", "is"];
-    case "checkbox":
-      return ["is checked", "is not checked"];
   }
 }
 
@@ -159,7 +188,9 @@ export function displayText(type: ColumnType, text: string): string {
 export function calcValue(kind: CalcKind, sheet: SheetData, column: SheetColumn, shown: number[]): string {
   if (kind === "None") return "";
   const values = shown.map((row) => cellOf(sheet, row, column.name).trim()).filter((v) => v !== "");
-  if (kind === "Count") return String(values.length);
+  if (kind === "Count") return String(shown.length);
+  if (kind === "Filled") return String(values.length);
+  if (kind === "Empty") return String(shown.length - values.length);
   if (kind === "Latest") {
     if (shown.length === 0) return "";
     const dateColumn = sheet.columns.find((c) => c.type === "date");
@@ -189,9 +220,12 @@ export function calcValue(kind: CalcKind, sheet: SheetData, column: SheetColumn,
   return formatNumber(column.type, Math.max(...nums)) + note;
 }
 
-/** What a column's footer shows before anybody picks: Sum for money, nothing otherwise. */
+/** What a column's footer shows: the pick if the type offers it, else Sum for money and nothing otherwise. */
 export function calcFor(view: SheetViewState, column: SheetColumn): CalcKind {
-  return view.calcs[column.name] ?? (column.type === "usd" ? "Sum" : "None");
+  const picked = view.calcs[column.name];
+  const offered = calcsFor(column.type);
+  if (picked !== undefined && (offered.figures.includes(picked) || offered.counts.includes(picked))) return picked;
+  return column.type === "usd" ? "Sum" : "None";
 }
 
 /** Lines to show above the grid for the parser's problems: the first three, with their line numbers. */

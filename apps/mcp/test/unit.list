@@ -779,3 +779,6 @@ test/readSheet.test.mjs
 test/labSandboxWorld.test.mjs
 test/labSandboxWorldLocal.test.mjs
 test/labSandboxRich.test.mjs
+test/texNudge.test.mjs
+test/memberCards.test.mjs
+test/benchMemberCards.test.mjs

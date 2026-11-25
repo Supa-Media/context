@@ -11,8 +11,13 @@
  * character edits; Enter or Tab commits and moves; Escape cancels. A checkbox
  * toggles on Enter or Space. Delete or Backspace clears a cell, Cmd/Ctrl+Z and
  * Shift+Cmd/Ctrl+Z undo and redo this session's changes, and a paste fills a
- * block from the selected cell. Focus comes back to the grid after an edit, so
- * the keys keep working. A read-only sheet keeps the moves and the view.
+ * block from the selected cell. Cmd/Ctrl+Backspace marks the selected row to
+ * go, and a second press deletes it (Escape keeps it). Focus comes back to the
+ * grid after an edit, so the keys keep working. A read-only sheet keeps the
+ * moves and the view.
+ *
+ * On a touch screen a tap selects a cell and a tap on the selected cell edits
+ * it, which a line under the filter bar says until the first edit.
  *
  * A file whose text the grid cannot hold without losing some of it (a row with
  * more cells than the header, two columns of one name) opens read-only and
@@ -32,16 +37,21 @@ import { FilterMenu } from "./FilterMenu";
 import { SheetHead } from "./SheetHead";
 import { SheetSourcesButton } from "./SheetSources";
 import { measureNode, type Anchor } from "./Popover";
-import { SheetGrid, type GridEditing } from "./SheetGrid";
+import { SheetGrid, type GridEditing, type RowMark } from "./SheetGrid";
+import { RowMenu } from "./RowMenu";
+import { useSheetHistory } from "./useSheetHistory";
+import { isApplePlatform } from "../../../design/applePlatform";
 import type { EditorKeys } from "./CellEditor";
 import {
   appendRow,
   cleanColumnName,
   clipboardBlock,
   columnIndex,
+  deleteRow,
   editCell,
   editCells,
   insertColumn,
+  insertRow,
   removeColumn,
   renameColumnText,
   retypeColumn,
@@ -78,14 +88,12 @@ export type SheetViewProps = {
 type Menu =
   | { kind: "column"; column: string; anchor: Anchor | null }
   | { kind: "calc"; column: string; anchor: Anchor | null }
-  | { kind: "filter"; anchor: Anchor | null };
+  | { kind: "filter"; anchor: Anchor | null; index: number | null }
+  | { kind: "row"; row: number; anchor: Anchor | null };
 
 /** A double press on one cell this close together starts an edit, as a double-click does. */
 const DOUBLE_PRESS_MS = 400;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
-
-/** How many of this session's changes Cmd/Ctrl+Z can take back. */
-const UNDO_DEPTH = 100;
 
 export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
@@ -113,14 +121,17 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const gridRef = useRef<View | null>(null);
   const lastPress = useRef<{ row: number; col: string; at: number } | null>(null);
   const editorKeys = useRef<EditorKeys | null>(null);
-  // This session's changes, newest last, for Cmd/Ctrl+Z; a different file starts with none.
-  const history = useRef<{ undo: string[]; redo: string[] }>({ undo: [], redo: [] });
+  const filterChips = useRef<(View | null)[]>([]);
+  // A row drawn apart: its menu is open, or it waits for a second Cmd/Ctrl+Backspace.
+  const [rowMark, setRowMark] = useState<RowMark | null>(null);
+  const [editedOnce, setEditedOnce] = useState(false);
+  const { commit, undo } = useSheetHistory(path, text, onChangeText);
   useEffect(() => {
     setSelection(null);
     setEditingState(null);
     setNotice(null);
     setMenu(null);
-    history.current = { undo: [], redo: [] };
+    setRowMark(null);
   }, [path]);
 
   // The editor's state, read synchronously: a blur that follows an Enter must find it already closed.
@@ -128,44 +139,6 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const setEditing = (next: GridEditing | null) => {
     editRef.current = next;
     setEditingState(next);
-  };
-
-  // The text as last sent: a second change in one moment builds on the first, not on the stale prop.
-  const liveText = useRef(text);
-  liveText.current = text;
-  const sent = useRef<{ from: string; to: string } | null>(null);
-  const send = (edit: (current: string) => string, record: "undo" | "redo" | "none"): void => {
-    const sentNow = sent.current;
-    const base = sentNow && sentNow.from === liveText.current ? sentNow.to : liveText.current;
-    const next = edit(base);
-    if (next === base) return;
-    const h = history.current;
-    if (record === "undo") {
-      h.undo = [...h.undo, base].slice(-UNDO_DEPTH);
-      h.redo = [];
-    } else if (record === "redo") {
-      h.redo = [...h.redo, base].slice(-UNDO_DEPTH);
-    }
-    sent.current = { from: liveText.current, to: next };
-    onChangeText(next);
-  };
-  const commit = (edit: (current: string) => string): void => send(edit, "undo");
-  const undo = (again: boolean) => {
-    const h = history.current;
-    const from = again ? h.redo : h.undo;
-    const back = from[from.length - 1];
-    if (back === undefined) return;
-    if (again) h.redo = from.slice(0, -1);
-    else h.undo = from.slice(0, -1);
-    if (again) {
-      // Redo is a change like any other, so it can be undone again.
-      const sentNow = sent.current;
-      const base = sentNow && sentNow.from === liveText.current ? sentNow.to : liveText.current;
-      h.undo = [...h.undo, base].slice(-UNDO_DEPTH);
-      send(() => back, "none");
-    } else {
-      send(() => back, "redo");
-    }
   };
 
   /** Put the keyboard back on the grid once an editor closes, so arrows and Enter keep working. */
@@ -192,6 +165,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     if (readOnly || !column || column.type === "checkbox") return;
     setSelection({ row, col });
     setEditing({ row, col, draft });
+    setEditedOnce(true);
   };
 
   const toggle = (row: number, col: string) => {
@@ -215,6 +189,9 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const onCellPress = (row: number, col: string) => {
     const now = Date.now();
     const last = lastPress.current;
+    const wasSelected = selection !== null && selection.row === row && selection.col === col;
+    // A press elsewhere keeps a row that was waiting on a second Cmd/Ctrl+Backspace.
+    setRowMark(null);
     lastPress.current = { row, col, at: now };
     if (editRef.current && (editRef.current.row !== row || editRef.current.col !== col)) finishEdit(null);
     const column = columnNamed(col);
@@ -225,7 +202,8 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
       return;
     }
     const double = last !== null && last.row === row && last.col === col && now - last.at < DOUBLE_PRESS_MS;
-    if (double) startEdit(row, col, valueAt(row, col));
+    // A touch screen has no double-click to learn: a tap on the cell already selected edits it.
+    if (double || (touch && wasSelected)) startEdit(row, col, valueAt(row, col));
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -248,6 +226,22 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
         focusGrid();
       }
       return;
+    }
+    const armed = rowMark?.tone === "armed" ? rowMark.row : null;
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "Backspace" || e.key === "Delete")) {
+      if (readOnly || !selection) return;
+      e.preventDefault();
+      if (armed === selection.row) removeRow(selection.row);
+      else setRowMark({ row: selection.row, tone: "armed" });
+      return;
+    }
+    if (armed !== null) {
+      // Anything else keeps the row; Escape says so and does nothing more.
+      setRowMark(null);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        return;
+      }
     }
     if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "z") {
       if (readOnly) return;
@@ -358,6 +352,31 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     startEdit(at, columns[0].name, "");
   };
 
+  const removeRow = (row: number) => {
+    finishEdit(null);
+    commit((t) => deleteRow(t, row));
+    setRowMark(null);
+    setSelection(null);
+    focusGrid();
+  };
+
+  const insertRowBeside = (row: number, side: "above" | "below") => {
+    if (readOnly || columns.length === 0) return;
+    finishEdit(null);
+    const at = side === "above" ? row : row + 1;
+    commit((t) => insertRow(t, at));
+    setSelection({ row: at, col: columns[0].name });
+    focusGrid();
+    // An empty row matches few filters: say where it went rather than select a row nobody can see.
+    if (view.filters.length > 0) (say ?? setNotice)("Row added. It is hidden by the filters until it has values that match.");
+    else if (view.sort) (say ?? setNotice)(`Row added. With the sort on ${view.sort.column}, it shows where its empty value sorts.`);
+  };
+
+  const closeMenu = () => {
+    setMenu(null);
+    setRowMark((m) => (m && m.tone === "menu" ? null : m));
+  };
+
   const addColumnAt = (side: "end" | "left" | "right", name: string | null) => {
     if (readOnly) return;
     if (side === "end") {
@@ -423,7 +442,10 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     );
   }
 
+  const touch = compact || Platform.OS !== "web";
   const openColumnObject = menu?.kind === "column" ? columnNamed(menu.column) : undefined;
+  const armedRow = rowMark?.tone === "armed" && menu === null ? order.indexOf(rowMark.row) : -1;
+  const mac = isApplePlatform();
   const hidden = view.hidden.filter((name) => sheet.columns.some((c) => c.name === name));
 
   return (
@@ -456,11 +478,26 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
       {sheet.columns.length === 0 ? null : (
         <FilterBar
           filters={view.filters}
+          sort={view.sort}
+          shown={order.length}
+          total={sheet.rows.length}
+          editingIndex={menu?.kind === "filter" ? menu.index : null}
           addRef={addFilterRef}
-          onOpenAdd={() => measureNode(addFilterRef.current, (anchor) => setMenu({ kind: "filter", anchor }))}
+          chipRefs={filterChips}
+          onOpenAdd={() => measureNode(addFilterRef.current, (anchor) => setMenu({ kind: "filter", anchor, index: null }))}
+          onEdit={(index) => measureNode(filterChips.current[index], (anchor) => setMenu({ kind: "filter", anchor, index }))}
           onRemove={(index) => updateView((v) => ({ ...v, filters: v.filters.filter((_, i) => i !== index) }))}
-          onClear={() => updateView((v) => ({ ...v, filters: [] }))}
+          onFlipSort={() => updateView((v) => (v.sort ? { ...v, sort: { ...v.sort, direction: v.sort.direction === "asc" ? "desc" : "asc" } } : v))}
+          onClearSort={() => updateView((v) => ({ ...v, sort: null }))}
+          onClear={() => updateView((v) => ({ ...v, filters: [], sort: null }))}
           hint={readOnly ? undefined : "Double-click to edit · click a column name to change its type"}
+          warning={
+            armedRow < 0
+              ? undefined
+              : `${mac ? "⌘⌫" : "Ctrl+⌫"} again deletes row ${armedRow + 1} and its values · Esc keeps it`
+          }
+          touchHint={readOnly || editedOnce ? undefined : "Tap a cell twice to edit"}
+          touch={touch}
         />
       )}
       {hidden.length === 0 ? null : (
@@ -496,6 +533,15 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
           onPick={pick}
           onFinishEdit={(how) => finishEdit(how === "enter" ? [1, 0] : null)}
           editorKeys={editorKeys}
+          rowMark={rowMark}
+          onOpenRow={
+            readOnly
+              ? undefined
+              : (row, anchor) => {
+                  setRowMark({ row, tone: "menu" });
+                  setMenu({ kind: "row", row, anchor });
+                }
+          }
         />
       </View>
       {readOnly ? null : (
@@ -511,7 +557,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
             column={openColumnObject}
             readOnly={readOnly}
             anchor={menu.anchor}
-            onClose={() => setMenu(null)}
+            onClose={closeMenu}
             actions={{
               onRename: (to) => renameColumn(menu.column, to),
               onRetype: (type) => retype(menu.column, type),
@@ -526,17 +572,43 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
         columnNamed(menu.column) === undefined ? null : (
           <CalcMenu
             current={calcFor(view, columnNamed(menu.column) as SheetColumn)}
+            column={columnNamed(menu.column) as SheetColumn}
+            sheet={sheet}
+            shown={order}
             anchor={menu.anchor}
             onPick={(kind: CalcKind) => updateView((v) => ({ ...v, calcs: { ...v.calcs, [menu.column]: kind } }))}
-            onClose={() => setMenu(null)}
+            onClose={closeMenu}
           />
         )
+      ) : menu.kind === "row" ? (
+        <RowMenu
+          number={order.indexOf(menu.row) + 1}
+          label={columns.length === 0 ? "" : valueAt(menu.row, columns[0].name).trim()}
+          anchor={menu.anchor}
+          onInsert={(side) => insertRowBeside(menu.row, side)}
+          onDelete={() => removeRow(menu.row)}
+          onArm={() => setRowMark({ row: menu.row, tone: "armed" })}
+          onClose={() => {
+            // Leaving the menu keeps the row, armed or not.
+            setMenu(null);
+            setRowMark(null);
+          }}
+        />
       ) : (
         <FilterMenu
+          key={menu.index ?? "new"}
           sheet={sheet}
           anchor={menu.anchor}
-          onAdd={(filter: SheetFilter) => updateView((v) => ({ ...v, filters: [...v.filters, filter] }))}
-          onClose={() => setMenu(null)}
+          editing={menu.index === null ? undefined : view.filters[menu.index]}
+          onAdd={(filter: SheetFilter) => {
+            const at = menu.index;
+            updateView((v) => ({ ...v, filters: at === null ? [...v.filters, filter] : v.filters.map((f, i) => (i === at ? filter : f)) }));
+          }}
+          onRemove={() => {
+            const at = menu.index;
+            updateView((v) => ({ ...v, filters: v.filters.filter((_, i) => i !== at) }));
+          }}
+          onClose={closeMenu}
         />
       )}
     </View>

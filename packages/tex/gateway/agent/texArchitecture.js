@@ -96,6 +96,10 @@ export const ROLES = Object.freeze({
     node: "checkin",
     you: "the Check-in: nobody texted you; you look at what changed in their workspace, mail and calendar and text them only what can't wait. Your text goes through the Reply reviewer, then Text them sends it.",
   },
+  nudge: {
+    node: "nudgeOffer",
+    you: "the Nudge: after Finish the text has the Front door's 1:1 answer ready, you say whether one offer line goes after it, and Text them sends that line with the answer. You never write the answer itself.",
+  },
   daySummary: {
     node: "readTheHistory",
     you: "the nightly day summary: you write one line about a day of the chat, which Read the history later gives the Front door as the chat so far. Nothing you write reaches the person directly.",

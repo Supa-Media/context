@@ -20,8 +20,12 @@ import {
   renameColumnText,
   retypeColumn,
   storedValue,
+  insertRow,
+  deleteRow,
 } from "../features/console/files/sheet/sheetEdits";
 import {
+  calcFor,
+  calcsFor,
   calcValue,
   compareCells,
   displayText,
@@ -81,9 +85,17 @@ describe("which rows show", () => {
   });
 
   test("filter operators per type are the ones the type means", () => {
-    expect(filterOpsFor("select")).toEqual(["is", "is not"]);
-    expect(filterOpsFor("date")).toEqual(["after", "before", "is"]);
+    expect(filterOpsFor("select")).toEqual(["is", "is not", "is empty", "is not empty"]);
+    expect(filterOpsFor("date")).toEqual(["after", "before", "is", "is empty", "is not empty"]);
     expect(filterOpsFor("checkbox")).toEqual(["is checked", "is not checked"]);
+  });
+
+  test("is empty and is not empty split the rows on a blank cell", () => {
+    const sheet = sheetOf(TEXT);
+    const empty = visibleRows(sheet, { ...EMPTY_VIEW, filters: [{ column: "amount", op: "is empty", value: "" }] });
+    const filled = visibleRows(sheet, { ...EMPTY_VIEW, filters: [{ column: "amount", op: "is not empty", value: "" }] });
+    expect(empty).toHaveLength(1);
+    expect([...empty, ...filled].sort()).toEqual([0, 1, 2]);
   });
 });
 
@@ -103,10 +115,20 @@ describe("footer calculations", () => {
     expect(calcValue("Max", sheet, amount, all)).toBe("$40");
   });
 
-  test("Count counts the values present; Latest takes the newest by the date column", () => {
-    expect(calcValue("Count", sheet, amount, all)).toBe("2");
+  test("Count counts the rows, Filled and Empty the values there and not; Latest takes the newest by the date column", () => {
+    expect(calcValue("Count", sheet, amount, all)).toBe("3");
+    expect(calcValue("Filled", sheet, amount, all)).toBe("2");
+    expect(calcValue("Empty", sheet, amount, all)).toBe("1");
     expect(calcValue("Latest", sheet, sheet.columns.find((c) => c.name === "name")!, all)).toBe("Hulu");
     expect(calcValue("Latest", sheet, renews, [0, 1])).toBe("Dec 1, 2026");
+  });
+
+  test("a column offers only the calculations its type means, and a pick it does not offer falls back", () => {
+    expect(calcsFor("text")).toEqual({ figures: ["None"], counts: ["Count", "Empty", "Filled"] });
+    expect(calcsFor("usd").figures).toEqual(["None", "Sum", "Average", "Min", "Max"]);
+    const name = sheet.columns.find((c) => c.name === "name")!;
+    expect(calcFor({ ...EMPTY_VIEW, calcs: { name: "Sum" } }, name)).toBe("None");
+    expect(calcFor({ ...EMPTY_VIEW, calcs: { name: "Filled" } }, name)).toBe("Filled");
   });
 
   test("a number calculation on a text column says nothing rather than a wrong sum", () => {
@@ -233,5 +255,16 @@ describe("every edit the grid makes is text in, text out", () => {
 
   test("the text a select or person cell takes is as typed, trimmed", () => {
     expect(storedValue("select", "  New option ")).toBe("New option");
+  });
+});
+
+describe("row edits", () => {
+  test("insertRow puts an empty row at the index, and deleteRow takes exactly that row", () => {
+    const text = "name,amount:usd\nA,1\nB,2\n";
+    expect(insertRow(text, 1)).toBe("name,amount:usd\nA,1\n,\nB,2\n");
+    expect(deleteRow(text, 0)).toBe("name,amount:usd\nB,2\n");
+    // Two identical rows: only the one at the index goes.
+    expect(deleteRow("a\nx\nx\n", 1)).toBe("a\nx\n");
+    expect(deleteRow(text, 9)).toBe(text);
   });
 });

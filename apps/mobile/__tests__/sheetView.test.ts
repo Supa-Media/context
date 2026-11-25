@@ -177,7 +177,8 @@ describe("the sheet grid", () => {
 
   test("a filter narrows the rows and the footer says how many of how many", async () => {
     mount();
-    expect($('[data-testid="sheet-row-count"]')?.textContent).toBe("2 rows");
+    expect($('[data-testid="sheet-row-count"]')?.textContent).toBe("2");
+    expect($('[data-testid="sheet-shown-count"]')).toBeNull();
     press($('[data-testid="sheet-add-filter"]') as HTMLElement);
     await settle();
     const menu = $('[data-testid="sheet-filter-menu"]') as HTMLElement;
@@ -185,7 +186,8 @@ describe("the sheet grid", () => {
     typeInto(menu.querySelector('[data-testid="sheet-filter-value"]') as HTMLElement, "Gy");
     press(buttonWithText(document.body, "Add filter") as HTMLElement);
     expect($$('[data-testid="sheet-row"]')).toHaveLength(1);
-    expect($('[data-testid="sheet-row-count"]')?.textContent).toBe("1 of 2 rows");
+    expect($('[data-testid="sheet-row-count"]')?.textContent).toBe("1");
+    expect($('[data-testid="sheet-shown-count"]')?.textContent).toBe("1 of 2 rows");
     expect(cell(0, 0).textContent).toBe("Gym");
   });
 
@@ -322,5 +324,127 @@ describe("the gaps found on 2026-11-24", () => {
     key(name, "Enter");
     expect(changes).toEqual([]);
     expect(said).toEqual(["There is already a column called paid."]);
+  });
+});
+
+describe("the new sheet UI of 2026-11-24", () => {
+  const handle = (row: number): HTMLElement => $$('[data-testid="sheet-row-handle"]')[row];
+
+  test("a row's menu inserts above, and deleting takes a second press", async () => {
+    const { changes } = mount();
+    press(handle(1));
+    await settle();
+    const menu = $('[data-testid="sheet-row-menu"]') as HTMLElement;
+    expect(menu.textContent).toContain("Row 2");
+    press(buttonWithText(menu, "Insert row above") as HTMLElement);
+    expect(changes).toEqual(["name,renews:date,amount:usd,paid:checkbox\nNetflix,2026-12-01,$15,true\n,,,\nGym,2026-12-09,40,false\n"]);
+    press(handle(2));
+    await settle();
+    const del = $('[data-testid="sheet-row-delete"]') as HTMLElement;
+    press(del);
+    expect(changes).toHaveLength(1);
+    expect(del.textContent).toBe("Delete row 3 and its values");
+    press(del);
+    expect(changes.at(-1)).toBe("name,renews:date,amount:usd,paid:checkbox\nNetflix,2026-12-01,$15,true\n,,,\n");
+  });
+
+  test("Cmd+Backspace arms the selected row and says so, Escape keeps it, and a second press deletes it", () => {
+    const { changes } = mount();
+    press(cell(0, 0));
+    key(cell(0, 0), "Backspace", { metaKey: true });
+    expect(changes).toEqual([]);
+    expect($('[data-testid="sheet-hint"]')?.textContent).toContain("again deletes row 1");
+    key(cell(0, 0), "Escape");
+    expect($('[data-testid="sheet-hint"]')?.textContent ?? "").not.toContain("deletes");
+    key(cell(0, 0), "Backspace", { metaKey: true });
+    key(cell(0, 0), "Backspace", { metaKey: true });
+    expect(changes).toEqual(["name,renews:date,amount:usd,paid:checkbox\nGym,2026-12-09,40,false\n"]);
+  });
+
+  test("a read-only sheet has no row menu", () => {
+    mount({ readOnly: true });
+    press(handle(0));
+    expect($('[data-testid="sheet-row-menu"]')).toBeNull();
+  });
+
+  test("a sort shows as a chip that flips on a press and clears on its ✕", async () => {
+    mount();
+    press($$('[data-testid="sheet-header"]')[2]);
+    await settle();
+    press(buttonWithText($('[data-testid="sheet-column-menu"]') as HTMLElement, "Sort descending") as HTMLElement);
+    expect($('[data-testid="sheet-sort-chip"]')?.textContent).toBe("Sorted byamount▼✕");
+    expect(cell(0, 0).textContent).toBe("Gym");
+    press($('[data-testid="sheet-sort-flip"]') as HTMLElement);
+    expect(cell(0, 0).textContent).toBe("Netflix");
+    expect($('[data-testid="sheet-sort-chip"]')?.textContent).toContain("▲");
+    press($('[data-testid="sheet-sort-clear"]') as HTMLElement);
+    expect($('[data-testid="sheet-sort-chip"]')).toBeNull();
+  });
+
+  test("a filter's chip reopens it filled in, to update or remove it", async () => {
+    mount();
+    press($('[data-testid="sheet-add-filter"]') as HTMLElement);
+    await settle();
+    press(buttonWithText($('[data-testid="sheet-filter-menu"]') as HTMLElement, "amount") as HTMLElement);
+    typeInto($('[data-testid="sheet-filter-value"]') as HTMLElement, "20");
+    press($('[data-testid="sheet-filter-submit"]') as HTMLElement);
+    expect($$('[data-testid="sheet-row"]')).toHaveLength(1);
+    press($('[data-testid="sheet-filter-chip"] [role="button"]') as HTMLElement);
+    await settle();
+    expect(fieldIn($('[data-testid="sheet-filter-value"]') as HTMLElement).value).toBe("20");
+    expect($('[data-testid="sheet-filter-submit"]')?.textContent).toBe("Update filter");
+    typeInto($('[data-testid="sheet-filter-value"]') as HTMLElement, "10");
+    press($('[data-testid="sheet-filter-submit"]') as HTMLElement);
+    expect($$('[data-testid="sheet-filter-chip"]')).toHaveLength(1);
+    expect($$('[data-testid="sheet-row"]')).toHaveLength(2);
+    press($('[data-testid="sheet-filter-chip"] [role="button"]') as HTMLElement);
+    await settle();
+    press($('[data-testid="sheet-filter-remove"]') as HTMLElement);
+    expect($$('[data-testid="sheet-filter-chip"]')).toHaveLength(0);
+  });
+
+  test("is empty applies in one press and its chip has no value", async () => {
+    mount({ text: "name,notes\nA,\nB,x\n" });
+    press($('[data-testid="sheet-add-filter"]') as HTMLElement);
+    await settle();
+    press(buttonWithText($('[data-testid="sheet-filter-menu"]') as HTMLElement, "notes") as HTMLElement);
+    press($$('[data-testid="sheet-filter-op"]').find((el) => el.textContent === "is empty") as HTMLElement);
+    expect($('[data-testid="sheet-filter-chip"]')?.textContent).toBe("notes is empty✕");
+    expect($$('[data-testid="sheet-row"]')).toHaveLength(1);
+    expect(cell(0, 0).textContent).toBe("A");
+  });
+
+  test("the calc menu offers what fits the type and shows each figure", async () => {
+    mount();
+    press($$('[data-testid="sheet-calc"]')[0]);
+    await settle();
+    const menu = $('[data-testid="sheet-calc-menu"]') as HTMLElement;
+    expect(Array.from(menu.querySelectorAll('[role="button"]')).map((b) => b.textContent)).toEqual(["None", "Count2", "Empty0", "Filled2"]);
+  });
+
+  test("on a phone a tap on the selected cell edits it, and a line says so until then", () => {
+    function Phone() {
+      const [text, setText] = useState(SHEET);
+      return createElement(SheetView, { path: "subs.csv", text, readOnly: false, compact: true, onChangeText: setText });
+    }
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(createElement(Phone)));
+    unmount = () => act(() => root.unmount());
+    expect($('[data-testid="sheet-touch-hint"]')?.textContent).toBe("Tap a cell twice to edit");
+    press(cell(0, 0));
+    expect($('[data-testid="sheet-cell-editor"]')).toBeNull();
+    // Later than a double press, so only being selected counts.
+    const later = Date.now() + 1000;
+    const now = Date.now;
+    Date.now = () => later;
+    try {
+      press(cell(0, 0));
+    } finally {
+      Date.now = now;
+    }
+    expect($('[data-testid="sheet-cell-editor"]')).not.toBeNull();
+    expect($('[data-testid="sheet-touch-hint"]')).toBeNull();
   });
 });

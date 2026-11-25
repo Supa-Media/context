@@ -313,6 +313,16 @@ dataset = "tex_text_timing"
 binding = "TEX_COUNTS"
 dataset = "tex_text_counts"
 
+# One point per run of Tex's Nudge step and per answer to one of its offers
+# (`packages/tex/gateway/agent/nudges.js`): what it decided (offer, none, or
+# the gate that skipped it), the capability's name, whether the line was sent,
+# and the person's answer (taken, declined, ignored), indexed by workspace so
+# offers and retention add up per person. Names and counts only, never a word
+# anyone wrote. Optional: without it nothing is written.
+[[analytics_engine_datasets]]
+binding = "TEX_NUDGES"
+dataset = "tex_nudges"
+
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -534,6 +544,10 @@ dataset = "tex_text_timing_staging"
 binding = "TEX_COUNTS"
 dataset = "tex_text_counts_staging"
 
+[[env.staging.analytics_engine_datasets]]
+binding = "TEX_NUDGES"
+dataset = "tex_nudges_staging"
+
 [[env.staging.services]]
 binding = "SITE_SHOTS"
 service = "context-site-shots-staging"
@@ -658,6 +672,10 @@ dataset = "tex_text_timing_preview"
 [[env.preview.analytics_engine_datasets]]
 binding = "TEX_COUNTS"
 dataset = "tex_text_counts_preview"
+
+[[env.preview.analytics_engine_datasets]]
+binding = "TEX_NUDGES"
+dataset = "tex_nudges_preview"
 
 # Site screenshots and the eval service stay on staging's Workers: they hold no customer data and have no
 # address of their own. The texting Worker is this pull request's own preview.

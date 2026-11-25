@@ -196,6 +196,33 @@
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
       "node": {"label":"Reflect","goal":"After a hard or corrected turn, write down what worked as a learned skill for next time.","log":true,"on":false,"rounds":4,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"reflect.js","note":"","icon":"star","model":"haiku-5-5","effort":"off","id":"reflect","inSchema":[{"name":"question","type":"text"},{"name":"tainted","type":"yesno"},{"name":"ownText","type":"yesno"},{"name":"canWrite","type":"yesno"}],"outSchema":[{"name":"outcome","type":"text"},{"name":"reason","type":"text","optional":true},{"name":"where","type":"text","optional":true},{"name":"error","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"model","type":"text","optional":true}]}
+    },
+    "groupCard": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/groupCard.js",
+        "packages/tex/gateway/agent/groupCard.js",
+        "packages/tex/gateway/agent/graph/nodes/learn.js",
+        "packages/tex/gateway/agent/texDesk.js"
+      ],
+      "why": "Member cards (Sayo, 2026-11-24; docs/decisions/texting-assistant/member-cards.md): after Learn's memory nudge runs, the person's own Tex keeps tex/group-card.md in their personal workspace in step with About me: short hints a group chat's Tex may use and never say, under the five classes (a sensitive need as the need, never the reason; never a secret or anything about somebody else). Code refuses a line with a phone, an email, money or a link. Unwired, nothing changes: a Lab draft turns it on with learn -> groupCard (uses)."
+    },
+    "memberCards": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/memberCards.js",
+        "packages/tex/gateway/agent/memberCards.js",
+        "packages/tex/gateway/agent/graph/nodes/fd.js",
+        "packages/tex/gateway/agent/texEntryPoint/runTheModel.js",
+        "packages/tex/gateway/texStore/desk.js"
+      ],
+      "why": "Member cards: a group chat's turn reads the cards of the people in the room now, by code: the control plane names them on an account holder's own tag (/gateway/agent/identity with cards), the chat must name them too, and no chat with a guest reads any. The words go in the front door's thread note and are never kept in the chat's records; the node logs counts only. Unwired, nothing changes: a Lab draft turns it on with fd -> memberCards (uses)."
+    },
+    "friendCheck": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/friendCheck.js",
+        "packages/tex/gateway/agent/friendCheck.js",
+        "packages/tex/gateway/agent/graph/nodes/answerCheck.js"
+      ],
+      "why": "Member cards' second line: a group draft the code checks let through, on a turn that read a card, is read once by a small model for anything quoted, explained or hinted from a card, or a word that someone told Tex; it goes back once with what to take out. A failure or a late answer lets it go. Unwired, nothing changes: a Lab draft turns it on with answerCheck -> friendCheck (uses)."
     }
   }
 }
