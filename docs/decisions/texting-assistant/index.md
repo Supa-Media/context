@@ -17,7 +17,7 @@ Every section title of [the texting assistant](../texting-assistant.md) and its 
 - [The Lab's test chats run the real turn on a copy that changes nothing, over a simulated Photon line (2026-11-16)](./lab-sandbox.md)
 - [The Lab's "Shared with devs" chats are the review-sharing yes, tested as their person in a test chat (2026-11-16)](./lab-shared-chats.md)
 - [The Context app's own chat with Tex: its own chat, the same history (2026-11-19, draft)](./app-chat.md)
-- [What a turn is told about itself comes from state, never a stock sentence (2026-11-17)](./turn-told-from-state.md)
+- [What a turn is told about itself comes from state, never a stock sentence (2026-11-17)](./turn-told-from-state.md); [Tex's code hands over facts and never writes what Tex says (2026-11-25)](./no-scripted-wording.md)
 - [An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)](./edits-and-unsends.md)
 - [A Provisional run starts a step before the steps that decide whether it should run (2026-11-17)](./provisional-run.md)
 - [A retried turn goes on from what its last try did (2026-11-17)](./turn-resume.md)

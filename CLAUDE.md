@@ -220,6 +220,13 @@ config change in the same pull request
 `scripts/tex-diagram-check.mjs` fails CI when either is stale or code runs a
 step or model call the config has no node for.
 
+**Tex's code never writes what Tex says** (a hard rule for every writer, decided by the owner, 2026-11-25;
+[no-scripted-wording](./docs/decisions/texting-assistant/no-scripted-wording.md)). Code hands Tex facts as data;
+behaviour is taught by Training conversations or a Lab prompt module; Tex writes every text, except a named outage
+line for when no model can run. For each sentence ask: a fact (pass it as data), a policy (Training or a module, in
+general words, never a prompt wall), or a missing tool (build it)? A wording fix may be hiding a logic bug: find it.
+`scripts/tex-wording-check.mjs` holds the count in `packages/tex/wording.json`, and it only shrinks.
+
 **Tex has one capability list**, `packages/tex/gateway/agent/capabilities.js`: what it
 can do in a 1:1 text, a group chat and a guest chat, who asks, drafts and
 approves, and what it can't do yet with the way around it. A change to what a person can get Tex to do, or how they set it up
