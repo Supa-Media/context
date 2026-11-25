@@ -83,3 +83,13 @@ test("Decide's logged input names the stickers it was offered and how many it kn
   assert.deepEqual([logged.stickers, logged.stickerWords], [["s1a2b3c", "s4d5e6f"], 1]);
   assert.equal("stickers" in judgedInput({ style: "followAlong", candidates: [] }, 0), false, "none kept: nothing logged");
 });
+
+// Every look in production threw on 2026-11-25: the node's output schema named `when` as a choice, the graph checked
+// the tag (an array) against it, and the look answered "failed" before any model was asked. Run it through the real
+// graph over the real config, never a stand-in graph, so the node's own output is held to the schema Tex runs.
+test("the look runs through the real graph over Tex's own config", async () => {
+  const { gatewayGraph } = await import("../../../packages/tex/gateway/agent/graph/gatewayGraph.js");
+  const run = await gatewayGraph({ env: {}, writer: null, config: TEX_CONFIG }).runNode("stickerLook", { sticker: "s1a2b3c" }, { env: {}, picture: { mediaType: "image/jpeg", data: "AAAA" } }, "textsSticker");
+  assert.equal(run.ran, true);
+  assert.deepEqual(run.output.when, ["skip"], "no model is set up here, so it skips: what matters is that it did not throw");
+});
