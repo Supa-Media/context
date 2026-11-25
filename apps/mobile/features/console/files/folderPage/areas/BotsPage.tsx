@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
-import { radii, space } from "../../../../design/tokens";
+import { pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { agoLabel } from "../../mail/model";
 import type { ListNote } from "../../listBlock/model";
@@ -221,7 +221,7 @@ const makeStyles = (colors: Colors) =>
     headRow: { paddingBottom: space.x1 },
     muted: { color: colors.muted },
     group: { gap: 2, marginTop: space.x2 },
-    groupTitle: { color: colors.muted, textTransform: "uppercase", letterSpacing: 0.4, fontSize: 11, marginBottom: space.x1 },
+    groupTitle: { color: colors.muted, textTransform: "uppercase", letterSpacing: 0.4, fontSize: pointerType.meta, marginBottom: space.x1 },
     row: { flexDirection: "row", alignItems: "center", gap: space.x3, minHeight: 48, paddingHorizontal: space.x2, marginHorizontal: -space.x2, borderRadius: radii.sm },
     rowOn: { backgroundColor: colors.chipFill },
     rowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
