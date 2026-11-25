@@ -24,7 +24,7 @@ import { Path, Svg } from "react-native-svg";
 import { Icon, type IconName } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import { areasType, pointerType, radii } from "../../../../design/tokens";
+import { areasType, pointerType } from "../../../../design/tokens";
 import { displayName, folderLabel } from "../../paths";
 import type { ItemEntry } from "../model";
 import { OwnerFace, type Face } from "../Glyphs";
