@@ -47,10 +47,17 @@ with Download as folders, and every agent reads it with `fetch`
   one, and drawn "Hidden". So a team metric over a private sheet shows its
   number only to people who can see that sheet, and no computed value is ever
   written where a wider audience reads it.
-- **`readings.csv` keeps closed periods only.** The Data folder's
-  `metrics/readings.csv` (`date, metric, value`) gains one row per metric per
-  closed period, and only for a metric whose every input is at least as
-  visible as the `metrics/` folder.
+- **No stored history for a metric over a table of events** (the owner,
+  2026-11-24, replacing a shared `metrics/readings.csv`): "I would keep a
+  table for PRs merged each hour, and then do the calculation on the fly".
+  The source sheets are that table (one row per pull request, charge or
+  run), so any hour, day, week or month is worked out from them when it is
+  looked at. Storing per-period numbers and adding them up would be wrong for
+  medians, p95s and ratios. Sources sync every hour.
+- **Only a "right now" number is snapped**: one with no table of events
+  behind it (open incidents, a value fetched from a URL) can't be worked out
+  again later, so the sync keeps it hourly in that metric's own sheet beside
+  its note, as visible as its inputs. (Being built; see the section below.)
 
 **What a simplification would cost.** Computing on a schedule at an owner's
 clearance and writing the value into a team sheet turns any editor's formula
@@ -135,3 +142,29 @@ the metrics page (11) and a metric note (12),
 - **New metric** writes a note in `metrics/` with a starting formula over a
   sheet the workspace has, and opens it. A metric note opens with its
   properties and readings over the body, which stays the person's text.
+
+## What a sync run may write, and how a URL is fetched
+
+*2026-11-25: `apps/mcp/src/data/sync/keep.js` and
+`apps/mcp/src/data/fetch/url.js`, the pure core the sync object will run.*
+
+- **A dataset row is matched by its key column**, so a run that sees a pull
+  request or a charge again changes its row in place. Rows older than the
+  rolling 400 days go; a row whose date cannot be read stays, because the
+  sync never guesses a row away. A sheet whose synced columns were changed by
+  hand is left alone and named.
+- **Past 50,000 rows or 5 MB, a run writes nothing** and names the sheet,
+  rather than cutting it short.
+- **Fetch from a URL is held to the site reader's lock and more**: https on a
+  public name only (no port, login or IP literal); the name is looked up over
+  DNS over HTTPS first and refused if any answer is private, loopback,
+  link-local, shared, documentation, multicast or a wrapped v4 address; no
+  redirect is followed; nothing but an agent name and `accept` is sent; at
+  most 5 MB and 10 seconds. It reads CSV, or JSON that is a list of flat
+  objects; `__proto__`, `constructor` and `prototype` are refused as column
+  names, and a row is an object with no prototype.
+
+**What a simplification would cost.** Following a redirect, or skipping the
+lookup, lets an editor's address reach whatever the gateway's network can.
+Cutting a sheet at its bound loses rows silently. Tests:
+`apps/mcp/test/dataSync.test.mjs`.
