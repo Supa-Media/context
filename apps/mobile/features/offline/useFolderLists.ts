@@ -8,6 +8,7 @@ import { noteReadUrl } from "../console/files/gatewayNoteRead";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { announceBucketWrite } from "../console/files/bucketWrites";
+import { dataUrlFor } from "../console/files/imageBytes";
 import { capabilitiesForRole } from "../console/capabilities";
 import { folderListSource, type ListWriteBack } from "./folderListSource";
 import { neededEtags } from "./mirrorHolds";
@@ -129,10 +130,27 @@ export function useFolderLists(
     // Any member reads the owner column, so any member may ask what old owner words name.
     const resolveOwners = (words: readonly string[]) =>
       convex.query(api.functions.owners.resolveOwners, { workspaceId: id, words: [...words] });
-    if (!canEdit) return { ...source, resolveOwners };
+    // A bot's logo, named on its card: read through the card, which is its gate, as any picture in a note.
+    const readPicture = async (notePath: string, leaf: string) => {
+      try {
+        const read = await convex.action(api.functions.files.readNoteImage, { workspaceId: id, notePath, leaf });
+        return dataUrlFor(read.bytes, read.contentType);
+      } catch {
+        return null;
+      }
+    };
+    if (!canEdit) return { ...source, resolveOwners, readPicture };
     return {
       ...source,
       resolveOwners,
+      readPicture,
+      storePicture: async (picture: { bytes: ArrayBuffer; contentType: string }) => {
+        try {
+          return await convex.action(api.functions.files.storeNoteImage, { workspaceId: id, ...picture });
+        } catch (failure) {
+          return { error: (failure as { data?: { message?: string } })?.data?.message ?? "That picture didn't save. Try again." };
+        }
+      },
       // People from the server; agents are the workspace's own list, which a
       // folder page lays over these defaults (`folderPage/agents.ts`).
       searchOwners: async (query: string, prefer: readonly string[]) => ({

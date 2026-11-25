@@ -1,9 +1,11 @@
 /**
  * How Context reaches a bot that holds an area, under its Reach row: the bot's
  * webhook (`apps/convex/functions/botHooks.ts`, decided by the owner
- * 2026-11-25). The address and an optional header are typed here once and
- * sealed on the account server; nobody reads them back. The signing key is
- * made here, shown once to copy into the bot, and sealed with them. After
+ * 2026-11-25). A bot sets its own from its setup prompt, sending its secret
+ * from its shell; by hand, the address and an optional header are typed here
+ * once and sealed on the account server, and nobody reads them back. The
+ * signing key is made here and sealed with them, and shown once only for a
+ * webhook with no header, the one way such a bot can tell a call is ours. After
  * that the panel shows the host, the header's last four characters, who set
  * it, how the last call went, and Send a test.
  */
@@ -67,7 +69,8 @@ export function BotHookView({
   const [tested, setTested] = useState<string | null>(null);
 
   if (row === undefined) return null;
-  const showForm = canEdit && (row === null || editing) && (row === null || row.canReplace);
+  // The bot sets its own webhook from its setup prompt; typing one here is the way by hand, behind a link (the owner, 2026-11-25).
+  const showForm = canEdit && editing && (row === null || row.canReplace);
 
   const onSave = async () => {
     if (busy) return;
@@ -76,7 +79,8 @@ export function BotHookView({
     const key = makeSigningKey((bytes) => globalThis.crypto.getRandomValues(bytes));
     try {
       await save(address.trim(), header.trim(), key);
-      setShownKey(key);
+      // A webhook with a header already proves the call is ours: its key is kept, unseen, and never offered.
+      setShownKey(header.trim() === "" ? key : null);
       setCopied(false);
       setEditing(false);
       setAddress("");
@@ -126,6 +130,14 @@ export function BotHookView({
         </View>
       )}
       {row === null && !canEdit ? <Text variant="treeMeta" style={styles.muted}>No webhook saved.</Text> : null}
+      {row === null && canEdit && !editing ? (
+        <View style={styles.saved}>
+          <Text variant="treeMeta" style={styles.muted}>{`No webhook yet: ${bot} sets it from its setup prompt.`}</Text>
+          <Pressable role="button" onPress={() => setEditing(true)} style={styles.link} testID="area-panel-hook-by-hand">
+            <Text variant="treeMeta" style={styles.mutedLink}>Set the webhook up by hand</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {showForm ? (
         <View style={styles.form}>
           <TextInput
@@ -215,5 +227,6 @@ const makeStyles = (colors: Colors) =>
     strong: { color: colors.text, fontWeight: "600" },
     mono: { fontFamily: fonts.mono, color: colors.text },
     muted: { color: colors.muted },
+    mutedLink: { color: colors.muted, textDecorationLine: "underline" },
     problem: { color: colors.critText },
   });

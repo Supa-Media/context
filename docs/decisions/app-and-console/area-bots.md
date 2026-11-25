@@ -95,6 +95,33 @@ keeps its notes there and knows what its modes ask of it.
   editor). Its answer is the host and the header's last four characters. When
   the agent passes no signing key, Context makes one nobody can see, and the
   answer says how to set a known one.
+- **A bot sets itself up from one prompt** (the owner, 2026-11-25: "we
+  should just give people a prompt for their grokbot to set it up themselves,
+  also we cant assume that they have the mcp setup"). The area panel's "Set
+  up <bot>" prompt (`setupPrompt`) has the bot connect Context at the MCP
+  address and wait while the person signs in, hand Context its webhook, put
+  its logo on its card, and keep the rest in memory. A bot that owns several
+  areas gets one prompt covering them all, oriented with `orient for: <bot>`.
+  Typing a webhook in the panel is behind "Set the webhook up by hand".
+- **The secret goes from the bot's shell, never through a chat.** A bot may
+  hold its webhook's secret only in an environment variable. `manage area`
+  with `webhook.header_from_shell: "Authorization"` mints a ticket for that
+  one bot, address and header name (`/gateway/bots/hook`, action `ticket`;
+  `apps/convex/functions/botHookTickets.ts`) and answers with a curl command;
+  the bot runs it (`PUT /api/bot-hook`, `apps/mcp/src/http/botHookUpload.js`)
+  with the value as the body. The ticket is good once, for ten minutes; only
+  its hash is kept; spending it clears the person who minted it again with
+  the same token, so a revoked grant or a lost role spends nothing. A value
+  whose variable the shell never filled in (`$NAME`) is refused.
+- **No signing key with a header.** A webhook with a header already proves
+  each call is Context's, so its key is made and sealed but never shown; the
+  key is shown once only for a webhook with no header.
+- **A bot shows its own logo.** Its card's `avatar:` names a picture stored
+  in the workspace; the area list, the Owner row and mail draw it where the
+  robot was, read through the card (`readNoteImage`: the card is the gate). The
+  bot puts its own there from its setup prompt (`write` with `images`, which
+  rewrites `avatar:` like a page's `photo:`); `manage area` takes
+  `bot.avatar`; an editor can press "Upload logo" in the Owner row.
 
 **What a simplification would cost.** A bot kept in a table of its own would
 be invisible to agents reading notes and to Download as folders. A webhook
@@ -111,8 +138,11 @@ owner-only replace, the mail door's limits), `apps/mcp/test/botMail.test.mjs`
 (told once per new line, never its own reply) and
 `apps/mobile/__tests__/areaBotHook.test.ts` (the key shown once, the address
 never shown again), `apps/mcp/test/setArea.test.mjs` (`manage area`'s front
-matter, the metric match and its refusal, no secret in the answer) and the
-agents' door test in `botHooks.test.ts`.
+matter, the metric match and its refusal, no secret in the answer, the logo,
+the one-time command) and the agents' door and shell-ticket tests in
+`botHooks.test.ts` (once only, a revoked grant spends nothing), and
+`apps/mcp/test/botHookUpload.test.mjs` (the PUT never echoes the value, an
+unfilled variable is refused).
 
 **Not built yet.** A bot's answer in the webhook's reply body is not written
 back as mail: the bot answers in the note through its own connection.

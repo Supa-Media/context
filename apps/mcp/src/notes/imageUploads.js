@@ -35,6 +35,7 @@
  * measured on what arrived.
  */
 
+import { BOT_HOOK_PATH } from "../http/botHookUpload.js";
 import { IMAGE_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 import { sniffImageType } from "../../../../packages/shared/src/remoteImage.cjs";
 import { storeForOpenedBinding } from "../session.js";
@@ -57,6 +58,8 @@ const TICKET_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
  * stays here, off the store's enumerable fields and out of every tool.
  */
 export function attachImageUploads(store, session, controlPlane, origin, env = null) {
+  // And where a bot sends its webhook's header from its shell, the same kind of one-time command (`http/botHookUpload.js`).
+  if (origin) Object.defineProperty(store, "botHookUrl", { value: `${origin}${BOT_HOOK_PATH}`, enumerable: false, configurable: true });
   // And the picture compressor, over the same request (`pictureCompression.js`).
   if (env) attachPictureCompression(store, env, { workspaceId: session?.workspaceId ?? null });
   if (typeof controlPlane?.createGatewayJob !== "function") return;

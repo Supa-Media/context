@@ -39,6 +39,7 @@ import {
   areaTree,
   cardChanges,
   cardOf,
+  cardPath,
   areaTitle,
   cardSlug,
   notesUnder,
@@ -104,7 +105,7 @@ export const DOUBLE_PRESS_MS = 400;
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf: plainFace, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
   // The projects that serve each area: the Projects folder's own read, front matter only.
@@ -137,6 +138,42 @@ export function AreasView(props: AreasViewProps) {
 
   const cardFor = useCallback(
     (holder: string, kind: Card["kind"]) => cardOf(holder, kind, root, notes),
+    [root, notes],
+  );
+  // A bot whose card names its logo is drawn as that logo, read through its card (the owner, 2026-11-25).
+  const readPicture = host?.source.readPicture;
+  const faceOf = useCallback(
+    (owner: string | null): Face => {
+      const face = plainFace(owner);
+      if (owner === null || face.kind !== "agent" || readPicture === undefined) return face;
+      const avatar = cardFor(owner, "agent").avatar;
+      if (avatar === "") return face;
+      const card = cardPath(root, owner);
+      return { kind: "agent", picture: { key: `${host?.workspaceId ?? ""}|${avatar}`, read: () => readPicture(card, avatar) } };
+    },
+    [plainFace, readPicture, cardFor, root, host?.workspaceId],
+  );
+  // A mail note is named for its sender (`pipeline`): a bot's is drawn with its face.
+  const senderFace = useCallback(
+    (sender: string): Face | null => {
+      const agent = agents.find((name) => cardSlug(name) === sender || name.toLowerCase() === sender.toLowerCase());
+      return agent === undefined ? null : faceOf(agent);
+    },
+    [agents, faceOf],
+  );
+  // Every area a holder names itself the owner of, from the Areas folder down: a bot's setup prompt covers them all.
+  const ownedAreas = useCallback(
+    (holder: string) => {
+      const out: { folder: string; title: string; modes: readonly string[] }[] = [];
+      const walk = (node: AreaNode) => {
+        if (node.seat.ownOwner !== null && node.seat.ownOwner.trim().toLowerCase() === holder.trim().toLowerCase()) {
+          out.push({ folder: node.seat.folder, title: areaTitle(node.seat.name), modes: node.seat.modes });
+        }
+        for (const child of node.areas) walk(child);
+      };
+      walk(areaTree(root, root, notes));
+      return out;
+    },
     [root, notes],
   );
   const reach = useCallback(
@@ -248,8 +285,9 @@ export function AreasView(props: AreasViewProps) {
             ...(canEdit && host?.tasks !== undefined ? { create: (path: string, text: string) => host.tasks!.io.create(path, text) } : {}),
             ...(myHandle === undefined ? {} : { me: myHandle }),
             open: onSelect,
+            faceOf: senderFace,
           },
-          tools: { people, agents, isAgent, cardFor, label, ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
+          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);
