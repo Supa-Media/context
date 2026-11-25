@@ -404,7 +404,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Tapbacks",
     actions: [],
-    texts: "a 👍 or ❤️ on one of your texts that asks something is their yes, a 👎 their no, a ❓ on any text gets an answer, and any other tapback is noted for the next text; a sticker stuck on a text or sent as its own text (on your iMessage line) is kept by its id, and looked at once for what it shows and when it fits, so you can send it back as an image when a moment fits",
+    texts: "a 👍 or ❤️ on one of your texts that asks something is their yes, a 👎 their no, a ❓ on any text gets an answer, and any other tapback is noted for the next text; a sticker stuck on a text or sent as its own text (on your iMessage line) is kept by its id, and looked at once for what it shows and when it fits, so you can stick it back when a moment fits",
     group: "only the person you asked can answer your ask with a reaction; nobody else's counts",
   },
   {
