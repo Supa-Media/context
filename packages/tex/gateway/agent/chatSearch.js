@@ -85,31 +85,34 @@ export function historySearchCall(call) {
 const answer = (text, isError = false) => ({ content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) });
 const dayArg = (value) => (typeof value === "string" && DAY_ID.test(value.trim()) ? value.trim() : null);
 
+/** What the model is shown of `search_chat`: the same for every turn, so the fixed tool list can show it (`sixToolsFixed.js`). */
+export const SEARCH_CHAT_DEFINITION = Object.freeze({
+  name: SEARCH_CHAT,
+  description:
+    "Search this chat's whole history, every text back to its first, for words: when they ask when or whether something was said here " +
+    '("when did I tell you about…", "what was that place we talked about", "did she say…"), or before you ask them something the chat may already hold. ' +
+    "Whole words, so try the plain word they would have used, and a second search with other words if the first finds nothing. " +
+    "Each hit names its day, time and who said it, and the fetch that opens that day word for word.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      words: { type: "string", description: "The words to look for." },
+      who: { type: "string", description: "Only texts from this person (a name or handle as the chat shows it), or \"you\" for your own." },
+      since: { type: "string", description: "Only texts from this day on, YYYY-MM-DD." },
+      until: { type: "string", description: "Only texts up to and including this day, YYYY-MM-DD." },
+      oldest: { type: "boolean", description: "Oldest first, for when something was first said. Newest first when left out." },
+    },
+    required: ["words"],
+  },
+});
+
 /**
  * `search_chat` for one turn: `ledger` and `chat` as `read_day` gets them (`texEntryPoint/readTheHistory.js`), `grant` the
  * turn's, `timeZone` the chat's.
  */
 export function chatSearchTool({ ledger, chat, timeZone = "UTC", grant = null, onRead = () => {}, log = (line) => console.log(line) }) {
   return {
-    tool: {
-      name: SEARCH_CHAT,
-      description:
-        "Search this chat's whole history, every text back to its first, for words: when they ask when or whether something was said here " +
-        '("when did I tell you about…", "what was that place we talked about", "did she say…"), or before you ask them something the chat may already hold. ' +
-        "Whole words, so try the plain word they would have used, and a second search with other words if the first finds nothing. " +
-        "Each hit names its day, time and who said it, and the fetch that opens that day word for word.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          words: { type: "string", description: "The words to look for." },
-          who: { type: "string", description: "Only texts from this person (a name or handle as the chat shows it), or \"you\" for your own." },
-          since: { type: "string", description: "Only texts from this day on, YYYY-MM-DD." },
-          until: { type: "string", description: "Only texts up to and including this day, YYYY-MM-DD." },
-          oldest: { type: "boolean", description: "Oldest first, for when something was first said. Newest first when left out." },
-        },
-        required: ["words"],
-      },
-    },
+    tool: SEARCH_CHAT_DEFINITION,
     call: async (args) => {
       const began = Date.now();
       const want = terms(args?.words);

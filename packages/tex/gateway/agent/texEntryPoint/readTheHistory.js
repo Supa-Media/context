@@ -46,8 +46,9 @@ export async function readTheHistory(t) {
   // The chat's history (`weekHistory.js`): when the front door reads the `chat:` and `summaries:` modules, every chat, one-to-one or group, is shown its chat word for word over the days the config names after each earlier day's summary, with its pictures.
   const reads = chatTurn && job === null && place !== null && typeof store?.texLedger === "function" ? historyReadsOf(env) : null;
   const week = reads !== null ? { reads, grant: carryKey(session), readPicture: pictureReader(group, dispatch) } : null;
-  // This chat's own history, searched by its words (`chatSearch.js`): its own ledger, whichever way the turn's history was read.
-  const chatSearch = chatTurn && job === null && place !== null && typeof store?.texLedger === "function" && chatSearchOn(env) ? chatSearchTool({ ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, grant: carryKey(session) }) : null;
+  // This chat's own history, searched by its words (`chatSearch.js`): its own ledger, whichever way the turn's history was read,
+  // in every kind of turn of the chat (a text, a check-in, a routine, a job), so each is shown the same tools (`sixToolsFixed.js`).
+  const chatSearch = place !== null && typeof store?.texLedger === "function" && chatSearchOn(env) ? chatSearchTool({ ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, grant: carryKey(session) }) : null;
   // The threaded turn carries the history modules even with conversation threads off (then it sorts nothing).
   const threading = threadsOn(env);
   const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && (threading || week !== null) && typeof store?.texLedger === "function"

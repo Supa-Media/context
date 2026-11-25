@@ -16,7 +16,7 @@ group search uses (`findTexts`). Each hit names its day, time and speaker and th
 
 It is offered when the front door's `ctx` lists the module `chatSearch` (on main since 2026-11-25: Dev2 chose word
 search, Lab draft "Search own chat history"), built beside the turn's history from the same ledger whichever way that
-history was read (`texEntryPoint/readTheHistory.js`). `oldest: true` puts the first mention first. The fixed tool list shows it only when the turn holds it (`sixToolsFixed.js`), so main's cached
+history was read (`texEntryPoint/readTheHistory.js`). `oldest: true` puts the first mention first. The fixed tool list shows it only when the config offers it (`sixToolsFixed.js`, `turn.js`), to every kind of turn alike, so a cached
 bytes do not change while it is off, and a config that offers it gets the same bytes on every turn. Replay case `finds-old-line`.
 
 ## What a "simplification" would cost

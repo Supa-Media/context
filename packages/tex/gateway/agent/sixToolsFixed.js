@@ -53,7 +53,7 @@ export const NEVER_A_ONES = new Set(["earlier_chat"]);
 /**
  * Every carrier a kind is shown, by name: the gateway's, then Tex's own, then the setup's skill reader when the turn
  * holds it (one setup for every person, so it is the same for every chat), and the chat's own history search when the
- * config offers it (`chatSearch.js`: one config for every turn of a deploy or a Lab draft, so it is the same bytes for
+ * config offers it (`chatSearch.js` `chatSearchOn`, passed by `turn.js`: one config for every turn of a deploy or a Lab draft, so the same bytes for
  * every chat; off, nothing about it is shown). Memoized by kind, skill reader and search.
  */
 const memo = new Map();
