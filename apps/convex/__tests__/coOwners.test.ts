@@ -11,7 +11,7 @@
  *
  * Sabotage, each confirmed to fail a case here: `requirePrimaryOwner` checking only the owner role; dropping the
  * email-code check from making a co-owner; writing the role straight to Convex on an `object` workspace; leaving
- * `handToSuccessor` out of account deletion.
+ * `handToSuccessor` out of account deletion; resolving the owner from a page of member rows rather than their own row.
  *
  * Every value is fake (example.invalid).
  */
@@ -230,5 +230,46 @@ describe("where the object decides the members", () => {
     expect(fake.puts).toEqual([{ userId: String(sayo), role: "owner" }]);
     expect(await roles(t, owner, workspaceId)).toMatchObject({ [sayo]: "owner" });
     expect(await t.run((ctx) => ctx.db.query("accessTakeAways").collect())).toEqual([]);
+  });
+});
+
+describe("a workspace with more members than one page of them", () => {
+  /** 200 members, one page of `workspaceMembers` by creation order, who joined before the co-owner did. */
+  async function fillWithMembers(t: TestConvex, workspaceId: Id<"workspaces">) {
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 200; i += 1) {
+        const userId = await ctx.db.insert("users", { email: `co-owner-filler-${i}@example.invalid`, emailVerificationTime: 1, createdAt: 1 });
+        await ctx.db.insert("workspaceMembers", { workspaceId, userId, role: "member", joinedAt: 2 });
+      }
+    });
+  }
+
+  // Who the owner is decides every one-way step, so it is never read off a page of rows: with the owner's own row
+  // outside that page, a page read falls through to the creator, who handed the workspace away and is a co-owner now.
+  test("the owner is the owner however many members joined before them", async () => {
+    const { t, owner, john, workspaceId } = await team();
+    await fillWithMembers(t, workspaceId);
+    const late = await createUser(t, "co-owner-late@example.invalid");
+    await joinViaInvitation(t, { workspaceId, owner, invitee: late, addressedTo: "co-owner-late@example.invalid", role: "editor" });
+    await makeCoOwner(t, owner, workspaceId, late);
+    expect(await asUser(t, owner).mutation(api.functions.workspaces.handOver, { workspaceId, userId: late })).toEqual({ ownerUserId: late });
+    expect(await codeOf(() => makeCoOwner(t, owner, workspaceId, john))).toBe("OWNER_ONLY");
+    expect(await makeCoOwner(t, late, workspaceId, john)).toEqual({ role: "owner" });
+  });
+
+  // The fallback for a row from before co-owners existed, where neither the named owner nor the creator holds the
+  // role: the earliest-joined owner, found however far down the workspace's members their row sits.
+  test("the earliest-joined owner is found with a page of members in front of them", async () => {
+    const { t, owner, sayo, john, workspaceId } = await team();
+    await fillWithMembers(t, workspaceId);
+    const late = await createUser(t, "co-owner-fallback@example.invalid");
+    await joinViaInvitation(t, { workspaceId, owner, invitee: late, addressedTo: "co-owner-fallback@example.invalid", role: "editor" });
+    await makeCoOwner(t, owner, workspaceId, late);
+    await t.run(async (ctx) => {
+      const creator = (await ctx.db.query("workspaceMembers").withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", owner)).unique())!;
+      await ctx.db.patch(creator._id, { role: "editor" });
+    });
+    expect(await makeCoOwner(t, late, workspaceId, john)).toEqual({ role: "owner" });
+    expect(await codeOf(() => makeCoOwner(t, sayo, workspaceId, sayo))).toBe("INSUFFICIENT_ROLE");
   });
 });
