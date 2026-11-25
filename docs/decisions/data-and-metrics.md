@@ -124,6 +124,14 @@ the metrics page (11) and a metric note (12),
   `asked:` and `answered:` front matter, and notes without both are left out.
   It counts only the notes the reader can see, so two readers may see two
   counts.
+- **Where the pages part from their boards, on purpose.** No "Count a
+  folder" button on the Context source (10): which folders it counts is
+  edited in its `about.md`, and a button would only open that. A metric
+  note's readings sit over its body, not under it (12): the body is the
+  editor, which scrolls itself. A value has no unit after it ("1,436", not
+  "1,436 ms"): the shared formats have none. A file or key row says when, not
+  who ("Edited 3d ago", "Made Nov 3"): no editor's name is kept for it. The
+  page head's tile is the Data job's icon, as every built-in folder's is.
 - **New metric** writes a note in `metrics/` with a starting formula over a
   sheet the workspace has, and opens it. A metric note opens with its
   properties and readings over the body, which stays the person's text.
