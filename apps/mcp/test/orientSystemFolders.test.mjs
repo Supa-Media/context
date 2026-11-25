@@ -81,3 +81,20 @@ test("no data folder, no data line, and nothing said missing about it", () => {
   assert.doesNotMatch(text, /Data/);
   assert.doesNotMatch(text, /not found/);
 });
+
+// Dev2, 2026-11-24: areas, their settings and their metric are changed "easily through tex or through the mcp".
+// An area's settings are lines in its about.md, so orient says which lines, and a metric note's own lines.
+test("the Areas line says an area's settings are its about.md lines, one metric naming a metric note", () => {
+  const text = systemFoldersSection({
+    folders: [],
+    jobs: jobs({ inbox: "inbox", projects: "projects", areas: "areas", resources: "resources", archive: "archive", data: "data" }),
+  });
+  const areas = text.split("\n").find((line) => line.startsWith("- Areas"));
+  assert.match(areas, /about\.md/);
+  for (const key of ["owner", "helper", "modes", "metrics", "approvals"]) assert.match(areas, new RegExp(`\\b${key}\\b`));
+  assert.match(areas, /metrics: \[<metric name> · target <what good looks like>\]/);
+  assert.match(areas, /one metric/i);
+  const data = text.split("\n").find((line) => line.startsWith("- Data"));
+  for (const key of ["metric", "formula", "every", "format"]) assert.match(data, new RegExp(`\\b${key}:`));
+  assert.match(data, /never a value/i);
+});
