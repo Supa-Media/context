@@ -115,6 +115,14 @@ to prevent:
   and the object's member check are live on every request) and every change to
   the binding's own rows clears it, so what can lag is a plan's note cap, a
   feature switch or a search index's descriptor, by one request.
+- **A miss is kept beside the request, not before it** (2026-11-24, Speed:
+  `ws.binding.put` queued behind the request's own calls to the same object,
+  a median 241 ms in search). Where the control plane had to be asked, its
+  answer builds this request's store at once, and the seal and the put run
+  beside it through the request's `waitUntil`, under the epoch read before the
+  ask exactly as before, so nothing read before a change is kept after its
+  clear. What it gives up: a request arriving in the put's few milliseconds
+  asks the control plane too, as concurrent requests always could.
 - **Asked beside the session, where it is the same object** (2026-11-03, for
   Dev's "every read and write under 0.1 s": the session and the open were two
   trips of 15 to 30 ms each to one object). A personal workspace's object is

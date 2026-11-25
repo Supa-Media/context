@@ -98,19 +98,40 @@ export function stampWanted(previous, text) {
 }
 
 /**
+ * What a stamp reads: the note's dates from the workspace's object, and the owner's zone where the object keeps none
+ * (`dateFacts.js` `rememberZone`), asked of the control plane only then. Never rejects: each half degrades to null.
+ * `asked` says whether the control plane was asked, so the zone is left on the object only when it answered.
+ */
+async function stampInputs(store, path) {
+  const dates = await noteDates(store, path);
+  if (dates.zone !== null) return { dates, timeZone: dates.zone, asked: false };
+  return { dates, timeZone: await ownerZone(store), asked: true };
+}
+
+/**
+ * `stampInputs` begun early, beside a save's own find and checks (`tools/notes/write.js`), so a save whose kept zone
+ * has expired waits on the slower of the control plane's answer and the save's own work before its stamp, not on their
+ * sum (production, 2026-11-24: `cp:/gateway/time-zone` a median 399 ms in 61 of 162 saves, awaited after the checks).
+ * Only reads: nothing is left on the object, and no note is changed, until `datedForWrite` uses the answer. Null where
+ * this content could never be stamped at `path`, so a save with no date property asks nothing ahead.
+ */
+export function stampInputsAhead(store, path, content) {
+  if (typeof content !== "string" || !stampsPath(path) || !hasDateKeys(content)) return null;
+  return stampInputs(store, path).catch(() => null);
+}
+
+/**
  * `write_note`'s text with its date properties filled, before it is stored. `storedBody` is the note as it is now
  * (null for a new note: its first save is now). A rewrite that changed nothing but dates keeps `modified` as it was;
- * an empty `modified` on such a rewrite takes the note's last save, not now.
+ * an empty `modified` on such a rewrite takes the note's last save, not now. `ahead` is `stampInputsAhead`'s promise
+ * for the same store and path, when the save began it; without it (or if it came to nothing) the inputs are asked now.
  */
-export async function datedForWrite(store, path, content, storedBody, now = Date.now()) {
+export async function datedForWrite(store, path, content, storedBody, now = Date.now(), ahead = null) {
   if (typeof content !== "string" || !stampsPath(path) || !hasDateKeys(content) || !stampWanted(storedBody, content)) return content;
-  const dates = await noteDates(store, path);
   // The zone kept beside the facts (`dateFacts.js` `rememberZone`) answers without the control plane. The first save
-  // after it expires still asks, then leaves the answer there for the next one. Asking beside the facts, not after,
-  // so a miss waits on the slower of the two, not on their sum.
-  const zoneAsked = dates.zone === null ? ownerZone(store) : null;
-  const timeZone = dates.zone ?? (await zoneAsked);
-  if (zoneAsked !== null && timeZone !== null) rememberZone(store, timeZone);
+  // after it expires still asks, then leaves the answer there for the next one.
+  const { dates, timeZone, asked } = (ahead === null ? null : await ahead) ?? (await stampInputs(store, path));
+  if (asked && timeZone !== null) rememberZone(store, timeZone);
   const changed = contentChanged(storedBody, content);
   return stampDates(content, {
     previous: storedBody,
