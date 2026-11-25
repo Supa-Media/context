@@ -96,9 +96,16 @@ export function PropsGrid({ rows, compact }: { rows: readonly { key: string; val
   );
 }
 
-export function Code({ text }: { text: string }) {
+/** A value as code; `long` keeps one that may run past the column (an address) on one line, cut with "…". */
+export function Code({ text, long = false }: { text: string; long?: boolean }) {
   const styles = useThemedStyles(makeStyles);
-  return <Text style={styles.code}>{text}</Text>;
+  return long ? (
+    <Text style={[styles.code, styles.codeLong]} numberOfLines={1}>
+      {text}
+    </Text>
+  ) : (
+    <Text style={styles.code}>{text}</Text>
+  );
 }
 
 export function Words({ text, quiet = false, small = false }: { text: string; quiet?: boolean; small?: boolean }) {
@@ -252,6 +259,7 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 1,
       borderRadius: radii.xs,
     },
+    codeLong: { flexShrink: 1, minWidth: 0, maxWidth: "100%" },
     words: { fontSize: pointerType.ui, lineHeight: 20, color: colors.text },
     quiet: { color: colors.muted },
     small: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },

@@ -18,10 +18,17 @@
  * and the card to people/, and a member is offered no Save.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act } from "react";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// The Areas page's Connect a source asks the url sources' syncs with the console grant; no gateway here.
+jest.mock("../features/agent/useConsoleGrant", () => ({
+  useConsoleGrant: () => async () => {
+    throw new Error("No fixture gateway session");
+  },
+}));
 
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FolderListing } from "../features/console/files/types";

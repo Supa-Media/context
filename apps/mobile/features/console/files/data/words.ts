@@ -66,10 +66,17 @@ export function lastRowWords(at: number | null, now: number): string {
   return `Last row ${monthDay(at)}`;
 }
 
-/** What the sync object says of a source's last run; absent until a source syncs (stage E). */
+/** What the sync object says of a source's last run (`dataSync.ts` `syncStateOf`); absent where none was asked. */
 export interface SyncState {
+  /** The sync object answered for this source (it may never have run it). */
+  readonly known?: boolean;
   readonly syncedAt?: number;
   readonly failedAt?: number;
+  /** It runs no more until an editor presses Sync now: its about.md moved, or its person can no longer edit. */
+  readonly stopped?: boolean;
+  /** The last run's own sentence: why it failed or stopped. */
+  readonly said?: string;
+  readonly rows?: number;
 }
 
 export interface Status {
@@ -92,6 +99,10 @@ export function sourceLastRow(source: DataSource, sheets: ReadonlyMap<string, Sh
 
 export function sourceStatus(source: DataSource, sheets: ReadonlyMap<string, Sheet | null>, now: number, sync?: SyncState): Status {
   if (source.kind === "context") return { tone: "ok", text: "Built in · live", short: "Built in · live" };
+  if (sync?.stopped === true) {
+    const when = sync.failedAt ?? sync.syncedAt;
+    return { tone: "bad", text: when === undefined ? "Not syncing" : `Stopped ${ago(when, now)}`, short: "stopped" };
+  }
   if (sync?.failedAt !== undefined && (sync.syncedAt === undefined || sync.failedAt > sync.syncedAt)) {
     const when = ago(sync.failedAt, now);
     return { tone: "bad", text: `Sync failed ${when}`, short: `failed ${when}` };
@@ -100,6 +111,8 @@ export function sourceStatus(source: DataSource, sheets: ReadonlyMap<string, She
     const when = ago(sync.syncedAt, now);
     return { tone: "ok", text: `Synced ${when}`, short: when };
   }
+  // A url source says only what its sync object says: a row's own date is the source's, not when it was fetched.
+  if (source.kind === "fetch") return { tone: "quiet", text: "Not synced yet", short: "not synced yet" };
   const last = sourceLastRow(source, sheets);
   if (last === null) return { tone: "quiet", text: source.kind === "push" ? "No rows yet" : "Not synced yet", short: source.kind === "push" ? "no rows yet" : "not synced yet" };
   const when = ago(last, now);

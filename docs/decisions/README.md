@@ -810,6 +810,9 @@ Every section title is listed in [its own index](./texting-assistant/index.md).
 - Sources sync without a model, in their own object
 - Who does what
 - What stage B draws, and what it leaves out (2026-11-25)
+- What a sync run may write, and how a URL is fetched
+- What stage C draws
+- The sync object, and Fetch from a URL
 
 ## [Connectors](./connectors.md)
 

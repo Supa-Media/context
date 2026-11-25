@@ -72,7 +72,7 @@ export function DataFolderPage({
 
   let page = null;
   if (kind === "data") {
-    page = <DataPage folder={folder} compact={compact} ws={ws} now={now} actions={actions} onOpen={open} />;
+    page = <DataPage folder={folder} compact={compact} ws={ws} now={now} actions={actions} sync={making.syncOf} onOpen={open} />;
   } else if (kind === "metrics") {
     page = (
       <MetricsPage
@@ -97,8 +97,10 @@ export function DataFolderPage({
         metrics={metrics.filter((metric) => metric.reads.includes(source.folder))}
         compact={compact}
         now={now}
+        {...(source.kind === "fetch" ? { sync: making.syncOf(source.folder) ?? { known: false } } : {})}
         endpoint={sheetRowsEndpoint()}
         actions={{
+          ...(source.kind === "fetch" && making.syncNow !== undefined ? { syncNow: () => making.syncNow?.(source) } : {}),
           ...(push && mayKey && first !== undefined
             ? { newKey: () => making.openKey(first.path, (firstSheet?.columns ?? []).map((c) => c.name)) }
             : {}),

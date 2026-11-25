@@ -120,6 +120,7 @@ import { texJobClass } from "../../../packages/tex/gateway/texJob.js";
 import { WorkspaceStore as WorkspaceStoreDurableObject } from "./workspaceStore.js";
 import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
 import { BenchStore as BenchStoreObject } from "../../../packages/lab/gateway/bench/store.js";
+import { DataSyncObject } from "./data/sync/object.js";
 import { labJobFence } from "../../../packages/lab/gateway/labSandbox/jobBox.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { json } from "./http/responses.js";
@@ -209,6 +210,8 @@ export const WorkspaceStore = WorkspaceStoreDurableObject;
 export const BenchStore = BenchStoreObject;
 /** One Lab test chat, one Durable Object per person's test chat (`labSandbox/object.js`). */
 export const LabSandbox = LabSandboxObject;
+/** Each workspace's data sync, one Durable Object per workspace (`data/sync/object.js`): its url sources, hourly. */
+export const DataSync = DataSyncObject;
 /**
  * One Lab test chat's background job, one Durable Object per job (`labSandbox/jobBox.js`): the `TexJob` class itself, its
  * own alarm driving each pass, fenced so every call out is answered by its test chat's object.

@@ -261,6 +261,19 @@ class_name = "BenchStore"
 tag = "v11-bench-store"
 new_sqlite_classes = ["BenchStore"]
 
+# Each workspace's data sync (src/data/sync/object.js): one SQLite-backed object per workspace (`data:<workspaceId>`),
+# placed `enam` like every object here, that runs the workspace's "Fetch from a URL" sources on its own hourly alarm,
+# never the workspace object's, so a slow address never delays a note save. It keeps each armed source's note id, who
+# armed it and its last run's time and outcome; never a fetched value, a note's words or a credential. Self-hosting
+# on the free tier: leave it out, and `POST /files/data-sync` answers 501 (a url source's page says it isn't synced).
+[[durable_objects.bindings]]
+name = "DATA_SYNC"
+class_name = "DataSync"
+
+[[migrations]]
+tag = "v12-data-sync"
+new_sqlite_classes = ["DataSync"]
+
 # Where each Tex turn's time went (src/agent/turnStages.js): numbers, a kind
 # and an outcome per turn, never words, a person or a workspace. Read with the
 # account's Analytics Engine SQL API (`SELECT ... FROM tex_timing`). The code
@@ -516,6 +529,10 @@ class_name = "BenchStore"
 name = "CREDIT_REST"
 class_name = "CreditRest"
 
+[[env.staging.durable_objects.bindings]]
+name = "DATA_SYNC"
+class_name = "DataSync"
+
 [[env.staging.analytics_engine_datasets]]
 binding = "TEX_TIMING"
 dataset = "tex_timing_staging"
@@ -643,6 +660,10 @@ class_name = "BenchStore"
 [[env.preview.durable_objects.bindings]]
 name = "CREDIT_REST"
 class_name = "CreditRest"
+
+[[env.preview.durable_objects.bindings]]
+name = "DATA_SYNC"
+class_name = "DataSync"
 
 # Analytics Engine datasets, each the staging name with `_preview` in place of `_staging`.
 [[env.preview.analytics_engine_datasets]]
