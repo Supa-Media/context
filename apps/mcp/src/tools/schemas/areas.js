@@ -32,7 +32,7 @@ export function areaToolDefinitions() {
               reach: { type: "string", enum: ["webhook", "mail"], description: "webhook: Context calls it; mail: it checks its mail on a timer." },
               avatar: {
                 type: "object",
-                description: "Its logo, shown for it in the app: url (https) or data (base64).",
+                description: "Its logo, shown for it in the app: data (its base64), or url (https), which Context fetches only when the person's own words ask for it (person_said).",
                 properties: { url: { type: "string" }, data: { type: "string" } },
                 additionalProperties: false,
               },

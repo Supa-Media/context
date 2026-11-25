@@ -190,6 +190,12 @@ async function classify(name, args, { into, privacy }) {
       if (team) facets.push(team);
       return summed(facets, { elsewhereOnly: facets.every((facet) => facet.elsewhere === true) });
     }
+    // A bot's logo by address: the same outside fetch as write_note's images by url (2026-11-25), so the same check.
+    case "set_area": {
+      const url = typeof a.bot?.avatar?.url === "string" ? a.bot.avatar.url.trim() : "";
+      if (url === "") return null;
+      return { audience: "outside", summary: `fetch an image from ${hostOf(url)} as ${typeof a.bot?.name === "string" ? a.bot.name : "a bot"}'s logo` };
+    }
     // A request through Context goes to a site outside the workspace, and its
     // body or address can carry what the turn read, as an image address can.
     case "vault_list":

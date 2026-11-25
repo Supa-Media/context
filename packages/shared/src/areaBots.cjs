@@ -109,7 +109,12 @@ function mailText(where, name, reach) {
  */
 function logoLine(card, workspace) {
   if (!card) return null;
-  return `The first time, put your logo on your card, so people see the face you have in your own app: write { ${contextArg(workspace)}path: ${quoted(card)}, args: { edits: [{ old: "kind: agent", new: "kind: agent\\navatar: logo.png" }], images: [{ name: "logo.png", url: "<your logo's https address>" }] } } (or data: its base64 in place of url). Skip it once the card has an avatar: line.`;
+  const ctx = contextArg(workspace);
+  return (
+    `The first time, put your logo on your card, so people see the face you have in your own app. Send the picture's bytes yourself, never a link: Context does not download an outside address without the person's own OK. ` +
+    `With a shell: write { ${ctx}action: "upload", path: ${quoted(card)}, args: { files: [{ name: "logo.png", sha256: "<its SHA-256>", bytes: <its size> }] } }, run the curl command it gives, then write { ${ctx}path: ${quoted(card)}, args: { edits: [{ old: "kind: agent", new: "kind: agent\\navatar: logo.png" }], images: [{ name: "logo.png", sha256: "<its SHA-256>" }] } }. ` +
+    `Without a shell, the same write with images: [{ name: "logo.png", data: "<its base64>" }]. Skip it once the card has an avatar: line.`
+  );
 }
 
 function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, card, actsFor }) {
