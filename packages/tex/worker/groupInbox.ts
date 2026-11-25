@@ -68,7 +68,7 @@ import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachi
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
-import { groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
+import { decideSticker, groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
 import { inRoom, namesOnlySender, readMembersNow, withMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, markMutedTold, mutedTold, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
@@ -328,17 +328,6 @@ export function filesFor(message: GroupMessage, lines: readonly { attachments?: 
 }
 
 type ReactionRead = { kind: "done"; outcome: "queued" | "ignored" } | { kind: "line"; line: string };
-
-/**
- * Decide's sticker on a message of the group's, by its id, with the line's stick (none on a line without stickers, and
- * the emoji goes instead: `stepEvents.ts` `tapback`). Nothing when Decide chose no sticker.
- */
-function decideSticker(deps: GroupDeps, message: GroupMessage, sticker: string | undefined): { id: string; stick: ((guid: string) => Promise<void>) | undefined } | undefined {
-  if (sticker === undefined) return undefined;
-  const line = groupLineFor(groupLineSeam(deps), message.groupId);
-  const place = { line: message.line, groupId: message.groupId };
-  return { id: sticker, stick: line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid }) };
-}
 
 /**
  * A reaction in a group (Dev2, 2026-11-01: every tapback and emoji is input).
