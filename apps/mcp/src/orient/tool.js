@@ -32,6 +32,7 @@ import { actionManual, actionNames, findAction, toolsManual } from "./manual.js"
 import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
 import { orientMailSection, readMailHealth } from "../../../../packages/tex/gateway/agent/mailHealth.js";
 import { phase } from "../mcp/phase.js";
+import { areaAnswer, holderAnswer } from "./area.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
 
@@ -277,7 +278,14 @@ async function sinceAnswer(store, scope, rules, overrides, since) {
  * @param {object} options `about` (a string, see `aboutAnswer`), `since`, and the legacy `tools` flag
  */
 export async function toolOrient(store, scope, rules, overrides, options = {}) {
+  // One area, or every area one person or bot holds (the owner, 2026-11-25). Also
+  // as `about: "area <path>"` and `about: "for @who"`, for an app that drops arguments it
+  // was not told about when it connected.
+  if (typeof options.area === "string" && options.area.trim() !== "") return await areaAnswer(store, scope, rules, overrides, options.area);
+  if (typeof options.for === "string" && options.for.trim() !== "") return await holderAnswer(store, scope, rules, overrides, options.for);
   const about = aboutOf(options);
+  const asked = about === null ? null : /^(area|for)\s+(.+)$/i.exec(about);
+  if (asked) return await (asked[1].toLowerCase() === "area" ? areaAnswer : holderAnswer)(store, scope, rules, overrides, asked[2].trim());
   if (about === null && options.since !== undefined) return await sinceAnswer(store, scope, rules, overrides, options.since);
   if (about === null) return await overview(store, scope, rules, overrides);
   return await aboutAnswer(store, scope, rules, overrides, about);

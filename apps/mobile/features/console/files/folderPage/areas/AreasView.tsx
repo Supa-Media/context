@@ -71,6 +71,10 @@ export interface AreasViewProps {
   people: OwnerSearch;
   /** The workspace's agents (`agents:`), offered as an owner or a person's agent. */
   agents: readonly string[];
+  /** Adds a name to the workspace's agents (a new bot); absent for somebody who may not. */
+  addAgent?: (name: string) => Promise<string | null>;
+  /** The workspace's handle, `@supa`, named in a bot's prompt. */
+  workspace?: string;
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   onSelect: (path: string) => void;
   /** Reads a note's text at the reader's clearance: each area's `metrics.csv`. Absent where nothing can be read. */
@@ -97,7 +101,7 @@ export const DOUBLE_PRESS_MS = 400;
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
   // The workspace's metrics, worked out as they are read; an area naming one reads it, any other its metrics.csv.
@@ -211,7 +215,7 @@ export function AreasView(props: AreasViewProps) {
           readingOf,
           ...(canEdit ? { onPick: pick } : {}),
           onSave: save,
-          tools: { people, agents, isAgent, cardFor, label },
+          tools: { people, agents, isAgent, cardFor, label, ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);

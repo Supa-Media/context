@@ -27,6 +27,7 @@
  * `docs/decisions/app-and-console/areas-as-seats.md`.
  */
 
+import { botKind, botLabel, reachKind, type ReachKind } from "@context/shared/src/areaBots.cjs";
 import type { ListNote, PropertyValue } from "../../listBlock/model";
 import { ABOUT_NOTE, baseName } from "../../paths";
 import { entriesIn, type ItemEntry } from "../model";
@@ -97,6 +98,16 @@ export interface Card {
   readonly access: string;
   /** The vault item holding an agent's login: a name only, never the login. */
   readonly vault: string;
+  /**
+   * The kind of bot an agent is (`grok`), or "" for a plain agent. A bot is
+   * somebody's (`belongsTo`, a person's handle) and is given a prompt that
+   * names the area it holds (`@context/shared/src/areaBots.cjs`, the owner,
+   * 2026-11-25). How Context reaches it is `reach`; its webhook, if any, is
+   * kept sealed on the server and never on the card.
+   */
+  readonly bot: string;
+  readonly belongsTo: string;
+  readonly reach: ReachKind;
 }
 
 const inside = (folder: string) => (folder === "" ? "" : `${folder}/`);
@@ -363,6 +374,9 @@ export function cardOf(holder: string, kind: Card["kind"], root: string, notes: 
     delegationHow: text(props.delegation_how),
     access: text(props.access),
     vault: text(props.vault),
+    bot: botKind(text(props.bot)),
+    belongsTo: text(props.belongs_to),
+    reach: reachKind(text(props.reach)),
     creates: note === null,
   };
 }
@@ -381,6 +395,10 @@ export function cardChanges(card: Card): Change[] {
     ["delegation_how", other ? v(card.delegationHow) : null],
     ["access", person ? null : v(card.access)],
     ["vault", person ? null : v(card.vault)],
+    // A bot's own lines; a plain agent and a person have none.
+    ["bot", person ? null : v(card.bot)],
+    ["belongs_to", person || card.bot.trim() === "" ? null : v(card.belongsTo)],
+    ["reach", person || card.bot.trim() === "" ? null : card.reach],
   ];
 }
 
@@ -396,6 +414,7 @@ export function reachLine(card: Card): string {
     const deleg = card.delegation.trim();
     if (deleg !== "") out.push(`delegates to ${deleg}${deleg.toLowerCase() !== "tex" && card.delegationHow !== "" ? ` (${card.delegationHow})` : ""}`);
   } else {
+    if (card.bot !== "") out.push(card.belongsTo === "" ? botLabel(card.bot) : `${card.belongsTo}'s ${botLabel(card.bot)}`);
     if (card.access !== "") out.push(card.access);
     if (card.vault !== "") out.push(`login in the vault: ${card.vault}`);
   }

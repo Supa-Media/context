@@ -3,8 +3,9 @@
  * (the owner, 2026-11-24: "why cant I make changes inline? wth is the point of
  * a side panel if its just going to link to this ugly pop up"): Owner and
  * Helper as values that drop a menu, the modes as chips, and the holder's
- * card (phone, email, whether Tex answers for them; or an agent's access and
- * vault item) as fields typed where they are drawn. Then the approval rules,
+ * card (phone, email, who answers for them: Tex, a bot or nobody; or an
+ * agent's access and vault item; or a bot's person and its prompt) as fields
+ * typed where they are drawn. Then the approval rules,
  * one line each, and the area's notes.
  *
  * Every choice is written as it is made, through the same save the seat
@@ -25,6 +26,7 @@ import type { OwnerSearch } from "../../owners";
 import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
+import { AddBotForm, PromptBox, botDetail, personPrompt, seatPrompt } from "./PanelBotFields";
 import { MODES, MODE_TIPS, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
 /** What the panel needs to edit an owner where it is drawn. */
@@ -34,12 +36,17 @@ export interface PanelSeatTools {
   isAgent: (owner: string) => boolean;
   cardFor: (holder: string, kind: Card["kind"]) => Card;
   label: (owner: string) => string;
+  /** Adds a name to the workspace's agents; absent for somebody who may not. */
+  addAgent?: (name: string) => Promise<string | null>;
+  /** The workspace's handle, `@supa`, named in a bot's prompt. */
+  workspace?: string;
 }
 
 export type PanelWrite = (patch: Partial<SeatEdit>, cards?: readonly Card[]) => void;
 
 type Anchor = { x: number; y: number } | null;
 const NOBODY = "__nobody__";
+const ADD_BOT = "__add_bot__";
 
 /** The workspace's people, asked once when a menu opens. */
 function usePeopleList(search: OwnerSearch, asking: boolean): readonly string[] {
@@ -75,29 +82,54 @@ export function PanelOwnerRows({
   write: PanelWrite;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const { people, agents, isAgent, cardFor, label } = tools;
-  const [menu, setMenu] = useState<{ which: "owner" | "helper"; anchor: Anchor } | null>(null);
-  const known = usePeopleList(people, menu?.which === "owner");
+  const { people, agents, isAgent, cardFor, label, addAgent, workspace } = tools;
+  const same = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
+  const [menu, setMenu] = useState<{ which: "owner" | "helper" | "delegate"; anchor: Anchor } | null>(null);
+  const [addingBot, setAddingBot] = useState(false);
+  const known = usePeopleList(people, menu?.which === "owner" || addingBot);
+  const bots = agents.filter((agent) => cardFor(agent, "agent").bot !== "");
+  const plain = agents.filter((agent) => !bots.includes(agent));
   const owner = seat.owner;
   const ownerIsAgent = owner !== null && isAgent(owner);
   const helper = seat.helper;
   const card = owner === null ? null : cardFor(owner, ownerIsAgent ? "agent" : "person");
+  const delegate = card === null || card.kind !== "person" ? null : card.delegation.trim();
+  const delegateBot = delegate === null || delegate === "" ? null : bots.find((bot) => same(bot, delegate)) ?? null;
   const writeCard = (patch: Partial<Card>) => {
     if (card === null) return;
     const next = { ...card, ...patch };
     if (JSON.stringify(next) !== JSON.stringify(card)) write({}, [next]);
   };
+  const addBot = async (name: string, whose: string): Promise<string | null> => {
+    if (addAgent === undefined) return "Bots can’t be added here.";
+    if (!agents.some((agent) => same(agent, name))) {
+      const why = await addAgent(name);
+      if (why !== null) return why;
+    }
+    const bot: Card = { ...cardFor(name, "agent"), holder: name, kind: "agent", bot: "grok", belongsTo: whose, reach: "mail" };
+    setAddingBot(false);
+    write({ owner: name, helper: null }, [bot]);
+    return null;
+  };
   const toggleMode = (mode: Mode) => write({ modes: seat.modes.includes(mode) ? seat.modes.filter((each) => each !== mode) : [...seat.modes, mode] });
 
-  const same = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
   const ownerItems: MenuItem<string>[] =
     menu?.which === "owner"
       ? [
           ...unique([...(owner === null ? [] : [owner]), ...known]).filter((word) => !isAgent(word)).map((word) => ({ id: word, label: label(word), checked: same(owner, word) })),
-          ...agents.map((agent, at) => ({ id: agent, label: label(agent), detail: "Agent", checked: same(owner, agent), ...(at === 0 ? { separatorBefore: true } : {}) })),
+          // The workspace's bots, each with whose it is, and the line that adds one (the owner, 2026-11-25).
+          ...bots.map((bot, at) => ({ id: bot, label: label(bot), detail: botDetail(cardFor(bot, "agent"), label), checked: same(owner, bot), ...(at === 0 ? { separatorBefore: true } : {}) })),
+          ...(addAgent === undefined ? [] : [{ id: ADD_BOT, label: "+ Add a Grok bot…", ...(bots.length === 0 ? { separatorBefore: true } : {}) }]),
+          ...plain.map((agent, at) => ({ id: agent, label: label(agent), detail: "Agent", checked: same(owner, agent), ...(at === 0 ? { separatorBefore: true } : {}) })),
           { id: NOBODY, label: "Nobody", checked: owner === null, separatorBefore: true },
         ]
+      : menu?.which === "delegate"
+        ? [
+            { id: NOBODY, label: "Nobody", checked: delegate === null || delegate === "" },
+            { id: "Tex", label: "Tex", checked: delegate !== null && same(delegate, "Tex") },
+            ...bots.map((bot, at) => ({ id: bot, label: label(bot), detail: botDetail(cardFor(bot, "agent"), label), checked: delegate !== null && same(delegate, bot), ...(at === 0 ? { separatorBefore: true } : {}) })),
+            ...plain.map((agent, at) => ({ id: agent, label: label(agent), detail: "Agent", checked: delegate !== null && same(delegate, agent), ...(at === 0 ? { separatorBefore: true } : {}) })),
+          ]
       : [
           { id: NOBODY, label: "None", checked: helper === null },
           ...agents.map((agent) => ({ id: agent, label: label(agent), checked: same(helper, agent) })),
@@ -105,7 +137,9 @@ export function PanelOwnerRows({
   const choose = (id: string) => {
     const which = menu?.which;
     setMenu(null);
+    if (id === ADD_BOT) return setAddingBot(true);
     const word = id === NOBODY ? null : id;
+    if (which === "delegate") return writeCard({ delegation: word ?? "" });
     // An agent holding the seat has no helper of its own.
     if (which === "owner") write({ owner: word, ...(word !== null && isAgent(word) ? { helper: null } : {}) });
     else write({ helper: word });
@@ -122,6 +156,7 @@ export function PanelOwnerRows({
         </DropValue>
       </Row>
       {inherited === null ? null : <Text variant="treeMeta" style={[styles.muted, styles.under]}>{inherited}</Text>}
+      {addingBot ? <AddBotForm people={known} label={label} onAdd={addBot} onCancel={() => setAddingBot(false)} /> : null}
       {ownerIsAgent ? null : (
         <Row label="Helper">
           <DropValue editable={canEdit} label="Change helper" onOpen={(anchor) => setMenu({ which: "helper", anchor })} testID="area-panel-helper">
@@ -153,7 +188,17 @@ export function PanelOwnerRows({
           })}
         </View>
       </Row>
-      {card === null || owner === null ? null : ownerIsAgent ? (
+      {card === null || owner === null ? null : ownerIsAgent && card.bot !== "" ? (
+        <>
+          <Row label="Whose">
+            <InlineField value={card.belongsTo} label="Whose bot it is" placeholder={canEdit ? "@handle" : "Not set"} editable={canEdit} onCommit={(belongsTo) => writeCard({ belongsTo })} style={styles.field} testID="area-panel-bot-whose" />
+          </Row>
+          <Row label="Reach">
+            <InlineField value={card.access} label="Where and how to reach it" placeholder={canEdit ? "Where and how to reach it" : "Not set"} editable={canEdit} onCommit={(access) => writeCard({ access })} style={styles.field} testID="area-panel-access" />
+          </Row>
+          <PromptBox title={`Prompt for ${label(owner)}`} text={seatPrompt(seat, card, workspace)} testID="area-panel-prompt" />
+        </>
+      ) : ownerIsAgent ? (
         <>
           <Row label="Reach">
             <InlineField value={card.access} label="Where and how to reach it" placeholder={canEdit ? "Where and how to reach it" : "Not set"} editable={canEdit} onCommit={(access) => writeCard({ access })} style={styles.field} testID="area-panel-access" />
@@ -170,21 +215,16 @@ export function PanelOwnerRows({
           <Row label="Email">
             <InlineField value={card.email} label="Email" placeholder={canEdit ? "Add an email" : "Not set"} editable={canEdit} onCommit={(email) => writeCard({ email })} style={styles.field} keyboard="email-address" testID="area-panel-email" />
           </Row>
-          <Row label="Tex">
-            <Pressable
-              role="checkbox"
-              aria-checked={card.delegation.trim().toLowerCase() === "tex"}
-              disabled={!canEdit}
-              onPress={() => writeCard({ delegation: card.delegation.trim().toLowerCase() === "tex" ? "" : "Tex" })}
-              style={styles.check}
-              testID="area-panel-tex"
-            >
-              <View style={[styles.box, card.delegation.trim().toLowerCase() === "tex" && styles.boxOn]}>
-                {card.delegation.trim().toLowerCase() === "tex" ? <Icon name="check" size={11} color={colors.surface} /> : null}
-              </View>
-              <Text variant="tree" style={styles.value} numberOfLines={1}>{`Answers for ${label(owner)}`}</Text>
-            </Pressable>
+          <Row label="Delegate">
+            <DropValue editable={canEdit} label="Who answers for them" onOpen={(anchor) => setMenu({ which: "delegate", anchor })} testID="area-panel-delegate">
+              <Text variant="tree" style={[styles.value, (delegate ?? "") === "" && styles.muted]} numberOfLines={1}>
+                {(delegate ?? "") === "" ? "Nobody" : `${label(delegate ?? "")} answers for ${label(owner)}`}
+              </Text>
+            </DropValue>
           </Row>
+          {delegateBot === null ? null : (
+            <PromptBox title={`Prompt for ${label(delegateBot)}`} text={personPrompt(owner, cardFor(delegateBot, "agent"), workspace)} testID="area-panel-delegate-prompt" />
+          )}
         </>
       )}
       {owner === null ? null : (
@@ -194,7 +234,7 @@ export function PanelOwnerRows({
         <Menu<string>
           items={ownerItems}
           {...(menu.anchor === null ? {} : { anchor: menu.anchor })}
-          title={menu.which === "owner" ? "Owner" : "Helper"}
+          title={menu.which === "owner" ? "Owner" : menu.which === "delegate" ? "Answers for them" : "Helper"}
           onSelect={choose}
           onDismiss={() => setMenu(null)}
         />
@@ -431,9 +471,6 @@ const makeStyles = (colors: Colors) =>
     },
     inputEditable: {},
     inputFocused: { borderColor: colors.accent, backgroundColor: colors.surface },
-    check: { flexDirection: "row", alignItems: "center", gap: space.x2, alignSelf: "flex-start" },
-    box: { width: 15, height: 15, borderRadius: 3, borderWidth: 1, borderColor: colors.lineStrong, alignItems: "center", justifyContent: "center" },
-    boxOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     rules: { gap: space.x1 },
     ruleRow: { flexDirection: "row", alignItems: "flex-start", gap: space.x1 },
     rule: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.meta },
