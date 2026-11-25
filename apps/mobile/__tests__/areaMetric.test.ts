@@ -199,6 +199,8 @@ describe("the target", () => {
     ["above 3", "> 3"],
     ["below 1%", "< 1%"],
     ["7", "7"],
+    ["10 or more", "≥ 10"],
+    ["4 or less", "≤ 4"],
   ])("%s is written %s", (target, short) => {
     expect(shortTarget(target)).toBe(short);
   });
@@ -206,6 +208,8 @@ describe("the target", () => {
   test("the picker splits a target into Over or Under and its value, and writes it back", () => {
     expect(splitTarget("over $5")).toEqual({ mode: "over", value: "$5" });
     expect(splitTarget("under 30 min")).toEqual({ mode: "under", value: "30 min" });
+    expect(splitTarget("10 or more")).toEqual({ mode: "over", value: "10" });
+    expect(splitTarget("4 or less")).toEqual({ mode: "under", value: "4" });
     expect(splitTarget("at most 2")).toEqual({ mode: "under", value: "2" });
     expect(splitTarget(null)).toEqual({ mode: "over", value: "" });
     expect(targetWords("under", " 30 min ")).toBe("under 30 min");
