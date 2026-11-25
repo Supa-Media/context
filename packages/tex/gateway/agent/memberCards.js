@@ -82,9 +82,11 @@ export function cardsPrompt(read) {
     "What the people here let you use: each person's own Tex wrote these from what they told it, for planning with them in a group. " +
       "They are not things anyone said here.",
     ...cards.map((card) => `@${card.handle}: ${card.lines.join("; ")}`),
-    "Plan around them without being asked: pick what works for everyone. Never quote one, explain one, hint at the reason " +
-      "behind one, or say who told you or that you were told. If someone asks why, say it's what works for the group. " +
-      "What someone says in this chat is the chat's: you may answer what was said here, and only that.",
+    "Plan around them without being asked: pick what works for everyone. When the chat proposes something a line doesn't fit " +
+      "(a bar crawl, a spicy place, a pricey night), go along and add an option that works for that person too, offered as one " +
+      "more idea for the whole group. Never quote one, explain one, hint at the reason behind one, or say who told you or that " +
+      "you were told. If someone asks why, say it's what works for the group. " +
+      "What someone says in this chat is the chat's: you may answer with what was said here, even about someone else, and only that.",
     "",
   ].join("\n");
 }

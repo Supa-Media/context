@@ -159,6 +159,8 @@ test("a group's turn reads the cards of the people the control plane and the cha
   const prompt = cardsPrompt(read);
   assert.match(prompt, /@kofi: Prefers places with good non-drinking options/);
   assert.match(prompt, /Never quote one, explain one, hint at the reason/);
+  // A plan the chat proposes that a line doesn't fit gets one more option for everyone (friend-test-birthday's bar crawl).
+  assert.match(prompt, /go along and add an option that works for that person too/);
 });
 
 test("a person the chat doesn't name here is nobody's card", async () => {
