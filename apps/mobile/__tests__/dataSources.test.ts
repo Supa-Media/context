@@ -91,10 +91,10 @@ describe("sources", () => {
       { key: "source", values: ["GitHub"], code: false },
       { key: "repositories", values: ["supa/app", "supa/context"], code: true },
       { key: "every", values: ["hour"], code: false },
-      { key: "sign-in", values: ["Kept in the workspace vault, never in this file"], code: false, signIn: true },
+      { key: "sign-in", values: ["Read-only GitHub App, installed by an owner; no token is kept"], code: false, signIn: true },
     ]);
     // A push source keeps no sign-in, so it says none.
-    expect(settingsOf(sourceAt("data/eval-ci", listingOf, NOTES)).some((s) => s.key === "sign-in")).toBe(false);
+    expect(settingsOf(sourceAt("data/eval-ci", listingOf, NOTES)).some((s) => s.signIn === true)).toBe(false);
   });
 });
 

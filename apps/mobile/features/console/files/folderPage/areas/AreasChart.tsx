@@ -28,13 +28,15 @@ import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { areasType, pointerType } from "../../../../design/tokens";
-import { OwnerFace, type Face } from "../Glyphs";
+import { OwnerFace, StatusDot, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
 import type { Reading, TargetState } from "./readings";
 import { headlineOf, type Headline } from "./headline";
 import { Trend } from "./Trend";
 import { MODE_TIPS, areaTitle, kindCounts, needLook, type AreaNode, type Seat } from "./seat";
+import type { AreaProjects } from "./areaProjects";
+import { projectsWords } from "./AreaProjectRows";
 
 export interface AreasChartProps {
   /** Rooted at the open folder. */
@@ -60,10 +62,14 @@ export interface AreasChartProps {
   onAdd: ((parent: Seat) => void) | null;
   /** Opens the seat pop-up on an empty seat; Assign owner is hidden when null. */
   onAssign: ((seat: Seat) => void) | null;
+  /** The projects that serve an area or its sub-areas; absent where the Projects folder is not read. */
+  projectsOf?: (folder: string) => AreasProjectsCount;
 }
 
+type AreasProjectsCount = Pick<AreaProjects, "inProgress">;
+
 type Point = { readonly x: number; readonly y: number };
-type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact" | "readingOf"> & { readonly onArea: (folder: string) => void };
+type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact" | "readingOf" | "projectsOf"> & { readonly onArea: (folder: string) => void };
 
 const pointOf = (event: GestureResponderEvent | undefined): Point | null => (event === undefined ? null : pressPoint(event));
 
@@ -324,6 +330,7 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
   const title = areaTitle(seat.name);
   const headline = headlineOf(seat, ctx.readingOf(seat));
   const files = kindCounts(node.files);
+  const inProgress = ctx.projectsOf?.(seat.folder).inProgress.length ?? 0;
   const reachText = seat.owner === null ? "" : ctx.reach(seat.owner);
   const menuClick = useRightClick((at) => {
     ctx.onMenu(seat, at);
@@ -358,6 +365,14 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
           </Text>
         ) : (
           <BoxMetric headline={headline} />
+        )}
+        {inProgress === 0 ? null : (
+          <View style={styles.projects} testID={`area-box-projects-${seat.folder}`}>
+            <StatusDot tone="in-progress" />
+            <Text variant="treeMeta" style={styles.small} numberOfLines={1}>
+              {projectsWords(inProgress)}
+            </Text>
+          </View>
         )}
         {seat.modes.length === 0 && files === "" ? null : (
           <View style={styles.foot}>
@@ -535,6 +550,7 @@ const makeStyles = (colors: Colors) =>
     chart: { width: "100%" },
     muted: { color: colors.muted },
     small: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
+    projects: { flexDirection: "row", alignItems: "center", gap: 6 },
     look: { fontSize: pointerType.meta, lineHeight: 16, color: colors.warnText, fontWeight: "600" },
 
     org: { alignItems: "center", width: "100%" },

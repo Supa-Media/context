@@ -370,7 +370,7 @@ describe("cardOf", () => {
       delegation: "Tex",
       delegationHow: "",
       access: "",
-      vault: "", bot: "", belongsTo: "", reach: "mail",
+      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "",
       creates: false,
     });
   });
@@ -399,6 +399,7 @@ describe("cardChanges", () => {
     bot: "",
     belongsTo: "",
     reach: "mail",
+    avatar: "",
   };
   const agent: Card = {
     holder: "Claude Code",
@@ -412,7 +413,13 @@ describe("cardChanges", () => {
     bot: "",
     belongsTo: "",
     reach: "mail",
+    avatar: "",
   };
+
+  test("a bot's card keeps its logo, and a person's never has one", () => {
+    expect(cardChanges({ ...agent, bot: "grok", avatar: "upload-0123456789abcdef.png" })).toContainEqual(["avatar", "upload-0123456789abcdef.png"]);
+    expect(cardChanges({ ...person, avatar: "upload-0123456789abcdef.png" })).toContainEqual(["avatar", null]);
+  });
 
   test("a person's card never writes access or vault", () => {
     const changes = cardChanges(person);
@@ -461,7 +468,7 @@ describe("reachLine", () => {
       delegation: "Other Bot",
       delegationHow: "ask in #ops",
       access: "",
-      vault: "", bot: "", belongsTo: "", reach: "mail",
+      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "",
     });
     expect(line).toBe("+1 555 010 0177 · dev2@example.com · delegates to Other Bot (ask in #ops)");
   });
@@ -475,7 +482,7 @@ describe("reachLine", () => {
       delegation: "Tex",
       delegationHow: "ignored",
       access: "",
-      vault: "", bot: "", belongsTo: "", reach: "mail",
+      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "",
     });
     expect(line).toBe("dev2@example.com · delegates to Tex");
   });
@@ -493,12 +500,13 @@ describe("reachLine", () => {
       bot: "",
       belongsTo: "",
       reach: "mail",
+      avatar: "",
     });
     expect(line).toBe("Claude Code in the dev2 repo · login in the vault: dev2 agent item");
   });
 
   test("an empty card gives an empty line", () => {
-    expect(reachLine({ holder: "@dev2", kind: "person", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "", belongsTo: "", reach: "mail" })).toBe("");
+    expect(reachLine({ holder: "@dev2", kind: "person", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "" })).toBe("");
   });
 });
 
@@ -522,18 +530,18 @@ describe("bot cards (the owner, 2026-11-25: Grok bots own areas)", () => {
 
   test("an unknown bot word is a plain agent, and a bot with no reach checks its own mail", () => {
     const card = cardOf("Finance", "agent", ROOT_B, [note("areas/people/finance.md", { kind: "agent", bot: "toaster" })]);
-    expect(card).toMatchObject({ bot: "", reach: "mail" });
+    expect(card).toMatchObject({ bot: "", reach: "mail", avatar: "" });
   });
 
   test("a bot's lines are written for a bot, and never for a person or a plain agent", () => {
-    const bot: Card = { holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail" };
+    const bot: Card = { holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail", avatar: "" };
     expect(cardChanges(bot)).toEqual(expect.arrayContaining([["bot", "grok"], ["belongs_to", "@seyi"], ["reach", "mail"]]));
     expect(cardChanges({ ...bot, bot: "" })).toEqual(expect.arrayContaining([["bot", null], ["belongs_to", null], ["reach", null]]));
     expect(cardChanges({ ...bot, kind: "person" })).toEqual(expect.arrayContaining([["bot", null], ["belongs_to", null], ["reach", null]]));
   });
 
   test("a bot's reach line says whose bot it is", () => {
-    const line = reachLine({ holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail" });
+    const line = reachLine({ holder: "Finance", kind: "agent", phone: "", email: "", delegation: "", delegationHow: "", access: "", vault: "", bot: "grok", belongsTo: "@seyi", reach: "mail", avatar: "" });
     expect(line).toBe("@seyi's Grok bot");
   });
 });

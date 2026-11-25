@@ -9,11 +9,11 @@
 
 import type { TextsBinding } from "./gatewaySession";
 
-/** The hand-over's kinds: a 1:1 text, a group message, a tapback, a group whose members changed, and an edit of a text. */
-export type HandOverKind = "one" | "group" | "react" | "members" | "edit";
+/** The hand-over's kinds: a 1:1 text, a group message, a tapback, a group whose members changed, an edit of a text, and Tex added to a group. */
+export type HandOverKind = "one" | "group" | "react" | "members" | "edit" | "joined";
 
 /** Every outcome the chat object's routes answer with (`inbox.ts` accept and react, `groupInbox.ts` acceptGroup, an edit's "same"). */
-const OUTCOMES = ["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped", "redirected", "same"] as const;
+const OUTCOMES = ["queued", "duplicate", "full", "preview", "kept", "ignored", "noted", "held", "dropped", "redirected", "same", "off", "already"] as const;
 export type HandOverOutcome = (typeof OUTCOMES)[number] | "failed";
 
 /**

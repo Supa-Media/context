@@ -22,7 +22,9 @@ import { dataFolderNow } from "../jobIcons/jobFoldersNow";
 import type { FolderPageHost } from "../folderPage/useFolderPage";
 import { SheetSourcesDialog } from "../sheet/SheetSources";
 import { ConnectSourceDialog } from "./ConnectSource";
-import { slugOf, startingFormula, type AppSourceFiles, type ConnectApp, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
+import { githubSourceFiles, slugOf, startingFormula, type AppSourceFiles, type ConnectApp, type PushSourceFiles, type UrlSourceFiles } from "./dataWrites";
+import type { GithubFlow } from "./GithubConnect";
+import { openGithubInstall } from "./githubSync";
 import { MetricBuilderDialog } from "./MetricBuilder";
 import { metricsFolderOf, textOf, type DataSource } from "./sources";
 import { useSourceSyncs } from "./useSourceSync";
@@ -41,14 +43,16 @@ export interface DataMaking {
   /** Sync now on a url source's page: arms it and runs it at once. Absent for who may not. */
   readonly syncNow?: (source: DataSource) => void;
   /** Connect again on an app source's page: its form, over the page. Absent for anyone but an owner. */
-  readonly reconnect?: (app: ConnectApp) => void;
+  readonly reconnect?: (app: ConnectApp | "github") => void;
   /** Disconnect on an app source's page: its key forgotten, its sync stopped. Absent for anyone but an owner. */
-  readonly disconnect?: (app: ConnectApp) => void;
+  readonly disconnect?: (app: ConnectApp | "github") => void;
+  /** Repositories… on GitHub's page: the picker (board 02c). Absent for anyone but an owner on the web. */
+  readonly githubRepos?: () => void;
   /** The Connect a source and key dialogs, when open. */
   readonly dialogs: ReactNode;
 }
 
-type Dialog = null | { kind: "connect"; start?: ConnectApp } | { kind: "metric"; at: number } | { kind: "key"; path: string; columns: readonly string[] };
+type Dialog = null | { kind: "connect"; start?: ConnectApp | "github" | "github-repos" } | { kind: "metric"; at: number } | { kind: "key"; path: string; columns: readonly string[] };
 
 export function useDataMaking({
   host,
@@ -146,6 +150,39 @@ export function useDataMaking({
           return null;
         };
 
+  const calls = syncs.github;
+  /** GitHub's install: its folder and sheets when missing, GitHub's own page in a window, then the gateway finishes it. */
+  const github: GithubFlow | undefined =
+    calls === undefined || io === undefined || dataFolder === ""
+      ? undefined
+      : {
+          begin: async () => {
+            const made = githubSourceFiles(dataFolder, ws.sources.find((source) => source.kind === "github") ?? null, taken);
+            try {
+              for (const file of made.files) await io.create(file.path, file.text);
+            } catch {
+              return "The source could not be made. Try again.";
+            }
+            if (made.files.length > 0) host?.tasks?.refresh([dataFolder, made.folder]);
+            const started = await calls.start(made.aboutPath);
+            if (typeof started === "string") return started;
+            const back = await openGithubInstall(started.url);
+            if (back === "blocked") return "Your browser blocked GitHub's window. Allow pop-ups for Context, then try again.";
+            if (back === "closed") return "GitHub's window closed before it was finished. Try again.";
+            const why = await calls.finish(back);
+            if (why !== null) return why;
+            syncs.refresh();
+            if (!stay) open(made.folder);
+            return null;
+          },
+          repos: calls.repos,
+          pick: async (names) => {
+            const why = await calls.pick(names);
+            if (why === null) syncs.refresh();
+            return why;
+          },
+        };
+
   const makeSource = async (files: PushSourceFiles): Promise<string | null> => {
     if (io === undefined) return "You can't add to this workspace.";
     try {
@@ -172,6 +209,7 @@ export function useDataMaking({
           {...(makeUrlSource === undefined ? {} : { onMakeUrl: makeUrlSource })}
           {...(makeAppSource === undefined ? {} : { onConnectApp: makeAppSource })}
           {...(dialog.start === undefined ? {} : { start: dialog.start })}
+          {...(github === undefined ? {} : { github })}
           sources={ws.sources}
           onClose={() => setDialog(null)}
         />
@@ -201,13 +239,15 @@ export function useDataMaking({
     workspaceId: current?.id ?? null,
     openKey: (path, columns) => setDialog({ kind: "key", path, columns }),
     syncOf: syncs.syncOf,
-    ...(makeAppSource === undefined || dataFolder === "" ? {} : { reconnect: (app: ConnectApp) => setDialog({ kind: "connect", start: app }) }),
+    ...(makeAppSource === undefined || dataFolder === "" ? {} : { reconnect: (app: ConnectApp | "github") => setDialog({ kind: "connect", start: app }) }),
+    ...(github === undefined ? {} : { githubRepos: () => setDialog({ kind: "connect", start: "github-repos" }) }),
     ...(syncs.disconnect === undefined
       ? {}
       : {
-          disconnect: (app: ConnectApp) => {
+          disconnect: (app: ConnectApp | "github") => {
             const forget = syncs.disconnect!;
-            void forget(app).then((why) => host?.tasks?.say(why ?? `${app === "stripe" ? "Stripe" : "Cloudflare"} is disconnected. Its sheet stays as it is.`));
+            const name = app === "stripe" ? "Stripe" : app === "github" ? "GitHub" : "Cloudflare";
+            void forget(app).then((why) => host?.tasks?.say(why ?? `${name} is disconnected. Its sheets stay as they are.`));
           },
         }),
     ...(armSync === undefined

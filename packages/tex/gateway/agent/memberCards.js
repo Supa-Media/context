@@ -26,7 +26,7 @@ const WORKSPACE = /^[A-Za-z0-9_-]{1,64}$/;
 /** Whether this turn may read cards at all: a group's, with an account holder's tag, and nobody here without an account. */
 export function cardsAllowed(group) {
   if (group === null || typeof group !== "object") return false;
-  if (group.guestChat === true || group.guestTagger === true || !group.from) return false;
+  if (group.guestTagger === true || !group.from) return false;
   if (Array.isArray(group.guests) && group.guests.length > 0) return false;
   return true;
 }

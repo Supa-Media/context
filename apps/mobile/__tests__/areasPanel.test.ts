@@ -33,6 +33,11 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
   },
 }));
 
+// "Upload logo" picks a picture on the device; here it is always the same few bytes.
+jest.mock("../features/console/settings/panels/pickSquarePhoto", () => ({
+  pickSquarePhoto: async () => ({ kind: "picked", bytes: new Uint8Array([1, 2, 3]).buffer, contentType: "image/png" }),
+}));
+
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FolderListing } from "../features/console/files/types";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
@@ -197,7 +202,7 @@ describe("the Areas side panel", () => {
     expect(writes.filter(([p, k]) => p === "areas/people/finance-bot.md" && /secret|token|key|password|url|webhook/i.test(k))).toEqual([]);
   });
 
-  test("a bot holding an area shows its prompt, naming the area and its modes", async () => {
+  test("a bot holding an area shows its setup prompt, naming the area and its modes", async () => {
     windowOf(1440);
     const notes: ListNote[] = [
       ...AREAS.map((note) =>
@@ -216,8 +221,14 @@ describe("the Areas side panel", () => {
     // Reach: Context calls its webhook, written on the bot's card; the address itself is never on the card.
     await press(one("area-panel-reach-webhook"));
     expect(writes.filter(([p, k]) => p === "areas/people/finance.md" && k === "reach").map(([, , v]) => v)).toEqual(["webhook"]);
+    // The bot sets its own webhook from its setup prompt; typing it here is behind a link.
+    expect(all("area-panel-hook-address")).toHaveLength(0);
+    await press(one("area-panel-hook-by-hand"));
     expect(all("area-panel-hook-address")).toHaveLength(1);
     const text = strip(one("area-panel-prompt-text").textContent);
+    // Every setup prompt says how to connect Context first, and hands the secret over from the bot's shell.
+    expect(text).toContain("https://mcp.context.lc/mcp");
+    expect(text).toContain('header_from_shell: "Authorization"');
     expect(text).toContain("You are Finance, @seyi's Grok bot.");
     expect(text).toContain('area: "areas/finance"');
     expect(text).toContain("Manager:");
@@ -225,6 +236,77 @@ describe("the Areas side panel", () => {
     await press(one("area-panel-owner"));
     await settle();
     expect(strip(one("menu-item-Finance").textContent)).toContain("@seyi's Grok bot");
+  });
+
+  test("a bot is drawn with the logo its card names, and one without a logo gets Upload logo and is told to add its own", async () => {
+    // The owner, 2026-11-25: "match the logos from the actual grok bot ... part of the setup somehow, maybe from first response".
+    windowOf(1440);
+    const notes: ListNote[] = [
+      ...AREAS.map((note) =>
+        note.path === "areas/about.md"
+          ? { ...note, properties: { agents: ["Pipeline", "Finance"] } }
+          : note.path === "areas/finance/about.md"
+            ? { ...note, properties: { owner: "Finance" } }
+            : note.path === "areas/engineering/about.md"
+              ? { ...note, properties: { owner: "Pipeline" } }
+              : note,
+      ),
+      { path: "areas/people/pipeline.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi", avatar: "upload-0123456789abcdef.png" } },
+      { path: "areas/people/finance.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi" } },
+    ];
+    const writes: Write[] = [];
+    const reads: string[] = [];
+    const stored: string[] = [];
+    const base = host(writes, { notes });
+    const withPictures = {
+      ...base,
+      source: {
+        ...base.source,
+        readPicture: async (note: string, leaf: string) => {
+          reads.push(`${note} ${leaf}`);
+          return "data:image/png;base64,AAAA";
+        },
+        storePicture: async (picture: { bytes: ArrayBuffer; contentType: string }) => {
+          stored.push(picture.contentType);
+          return { leaf: "upload-fedcba9876543210.png" };
+        },
+      },
+    };
+    await mount(withPictures, LISTING);
+    await settle();
+    // The list draws Pipeline's logo, read through its card; Finance keeps the robot.
+    expect(reads).toContain("areas/people/pipeline.md upload-0123456789abcdef.png");
+    expect(all("owner-face-logo").length).toBeGreaterThan(0);
+    await press(one("area-row-areas/finance"));
+    await settle();
+    expect(strip(one("area-panel-prompt-text").textContent)).toContain('path: "areas/people/finance.md"');
+    await press(one("area-panel-upload-logo"));
+    await settle();
+    expect(stored).toEqual(["image/png"]);
+    expect(writes.filter(([p, k]) => p === "areas/people/finance.md" && k === "avatar").map(([, , v]) => v)).toEqual(["upload-fedcba9876543210.png"]);
+  });
+
+  test("a bot that owns several areas gets one setup prompt covering them all", async () => {
+    // The owner, 2026-11-25: "a grokbot can own multiple areas".
+    windowOf(1440);
+    const notes: ListNote[] = [
+      ...AREAS.map((note) =>
+        note.path === "areas/about.md"
+          ? { ...note, properties: { agents: ["Pipeline"] } }
+          : note.path === "areas/finance/about.md" || note.path === "areas/engineering/about.md"
+            ? { ...note, properties: { ...note.properties, owner: "Pipeline" } }
+            : note,
+      ),
+      { path: "areas/people/pipeline.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi", reach: "mail" } },
+    ];
+    await mount(host([], { notes }), LISTING);
+    await press(one("area-row-areas/finance"));
+    const text = strip(one("area-panel-prompt-text").textContent);
+    expect(text).toContain("(areas/finance)");
+    expect(text).toContain("(areas/engineering)");
+    expect(text).toContain('for: "Pipeline"');
+    // A bot that checks its own mail has no webhook step.
+    expect(text).not.toContain("header_from_shell");
   });
 
   test("a person who delegates to a bot gets the delegate's prompt, covering every area they hold", async () => {

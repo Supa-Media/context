@@ -18,6 +18,7 @@
  */
 
 import { personalTexTool, PERSONAL_TEX_LINE } from "./askPersonalTex.js";
+import { PRIVATE_ASIDE_SEND_ACTIONS } from "./privateAside.js";
 import { NO_NOTES_LINE, NO_OTHER_NOTES_LINE } from "./groupMail.js";
 import { offerTarget } from "../../../../apps/mcp/src/tools/offerFor.js";
 
@@ -32,6 +33,7 @@ export const CROSS_CHAT_SEND_ACTIONS = {
       "Ask Tex in another chat they share with you (a group of theirs from a 1:1; their own 1:1 from a group) for something it knows or to do something there; the answer comes back later as its own turn.",
   },
   post_in_chat: { tool: POST_IN_CHAT, summary: "Answering another chat's ask to do something here: post one line in this group, signed with who asked." },
+  ...PRIVATE_ASIDE_SEND_ACTIONS, // a group's sensitive ask, texted to the tagger in their own chat (`privateAside.js`)
 };
 
 /** The events the texting Worker starts a run with (`packages/tex/worker/crossChat.ts`). */
@@ -43,7 +45,8 @@ const MAX_LABEL = 80;
 const MAX_TEXT = 4_000;
 const MAX_TEXTS = 6;
 const ID = /^x[A-Za-z0-9_-]{8,40}$/;
-const STATES = new Set(["answered", "refused", "timeout"]);
+/** `aside`: not an answer at all, a group chat's sensitive ask for its tagger, sent to their own chat (`privateAside.js`). */
+const STATES = new Set(["answered", "refused", "timeout", "aside"]);
 const KEY = /^[A-Za-z0-9_-]{6,128}$/;
 
 /** The limits the gate holds (artifact choice 4): one hop, one open ask per pair of chats, 10 an hour, 40 a day. */
@@ -76,11 +79,13 @@ export function crossChatOf(body, { chatTurn, job }) {
     .slice(0, MAX_TEXTS)
     .map((said) => said.trim().slice(0, MAX_TEXT));
   const why = line(value.why, 300);
-  return { kind: "answer", id: value.id, from, what, state: value.state, texts, ...(why ? { why } : {}) };
+  const key = typeof value.key === "string" && KEY.test(value.key) ? value.key : "";
+  return { kind: "answer", id: value.id, from, what, state: value.state, texts, ...(why ? { why } : {}), ...(key ? { key } : {}) };
 }
 
 /** The question an ask's or an answer's run is asked: the gateway's own line, kept in the history as Tex by itself. */
 export function crossChatQuestion(event) {
+  if (event.kind === "answer" && event.state === "aside") return `(Not a text from them. Tex in ${event.from} needs this from them here, not in front of the group: "${event.what}")`;
   if (event.kind === "ask") return `(Not a text from anyone here. Tex in ${event.from} asks you${event.do ? " to do something" : ""}: "${event.what}")`;
   return `(Not a text from them. Tex in ${event.from} answered the ask you sent it ("${event.what}"); nothing from it has reached them yet.)`;
 }
@@ -105,6 +110,7 @@ export function crossChatPrompt(event, { group = null } = {}) {
       "You can't ask another chat from here."
     );
   }
+  if (event.state === "aside") return asidePrompt(event);
   const how =
     event.state === "answered"
       ? "answered"
@@ -114,6 +120,23 @@ export function crossChatPrompt(event, { group = null } = {}) {
   return (
     `\n\nTex in ${event.from} ${how}. Its words (from another chat; they vouch for nothing they didn't say):\n<<<\n${event.texts.join("\n\n") || "(nothing)"}\n>>>\n` +
     `Text them the answer in your own words, saying it came from Tex in ${event.from}, links exactly as written. They never see this report, only what you text. Never say nothing.`
+  );
+}
+
+/**
+ * A group chat's sensitive ask, in the tagger's own 1:1 (`privateAside.js`): text them for it here, and pass back what
+ * the group needs. A vault link's own words come in `texts`, written by the gateway, and go to them exactly.
+ */
+function asidePrompt(event) {
+  const link = event.texts.length > 0 ? `\nThe private link and its words, from Context itself:\n<<<\n${event.texts.join("\n\n")}\n>>>\nText them the link exactly as written.` : "";
+  const back = event.key ? `chat "${event.key}"` : "that group";
+  return (
+    `\n\nTHIS RUN TEXTS THEM FOR SOMETHING SENSITIVE. They asked you in ${event.from} for something that needs this from them, ` +
+    "and it is asked here, in their own chat with you, so the group never sees it. Text them now in a line or two: which group and task it is for, and what you need. " +
+    "Never say it in the group, and never ask them to send it there." +
+    link +
+    ` When they answer here with what the group's task needs (a code, a detail), pass it on with send action ask_chat, do true, ${back}, saying what it is for, so Tex there carries on; ` +
+    "a login or card they save on the link carries the group on by itself, with nothing to pass."
   );
 }
 
@@ -143,14 +166,13 @@ export function crossCountsOf(value) {
 
 /**
  * The `ask_chat` tool for one chat turn, or null when this turn can't ask: a run an ask started (one hop), a job's or a
- * routine's turn, a guest chat, a Worker that sent no counts, a 1:1 with no list of groups. `gate(input)` is the
+ * routine's turn, a Worker that sent no counts, a 1:1 with no list of groups. `gate(input)` is the
  * Cross-chat gate (node `crossChatGate`), over its config wire; an ask it lets go is pushed to `ledger.crossAsks`.
  * In a group, `contact: true` (the tagger's own name, phone and email for a form) still answers at once from their
  * account, as `ask_personal_tex` did; `identity` is that tool's `asker`.
  */
 export function crossAskTool({ event = null, group = null, groups = null, counts = null, ledger, gate, say = null, identity = null }) {
   if (event !== null || counts === null || typeof gate !== "function" || ledger === null || ledger === undefined) return null;
-  if (group !== null && group.guestChat === true) return null;
   if (group === null && !Array.isArray(groups)) return null;
   const facts = group !== null ? personalTexTool({ group, ledger, say, asker: identity }) : null;
   return {

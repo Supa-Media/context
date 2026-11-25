@@ -19,6 +19,7 @@ import { callSandbox } from "../../../packages/lab/gateway/labSandbox/object.js"
 import { inboundEvent, reactionOf, TAPBACK_OF } from "../../../packages/lab/gateway/labSandbox/inbound.js";
 import { turnRequestBody } from "../../../packages/lab/gateway/labSandbox/harness.js";
 import { handleLabSandbox, oneRowPerText } from "../../../packages/lab/gateway/labSandbox/route.js";
+import { inboundOf } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
 import { guideText } from "../../../packages/lab/gateway/texDev/guide.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
@@ -386,6 +387,30 @@ test("an unsend goes to the chat object, marks the text taken back, and leaves i
   }
 });
 
+test("Tex added goes to the chat object as Photon's participantAdded, from whoever added it; a 1:1 refuses it", async () => {
+  const w = routeWorld();
+  try {
+    const { body: mine } = await w.call({ op: "open", source: "chat", chatId: "me" });
+    assert.equal((await w.call({ op: "added", sandboxId: mine.sandboxId })).status, 400, "Tex is never added to a 1:1");
+    const { body: opened } = await w.call({ op: "open", source: "chat", chatId: KEY });
+    const sandboxId = opened.sandboxId;
+    const added = await w.call({ op: "added", sandboxId, as: "ana" });
+    assert.equal(added.status, 200);
+    assert.equal(w.turns.at(-1).row.kind, "joined");
+    assert.equal(w.turns.at(-1).row.who, "ana");
+    const rows = (await w.call({ op: "get", sandboxId })).body.rows;
+    assert.equal(rows.find((r) => r.id === added.body.msgId).text, "ana added Tex to the group");
+    // Handed over as the line hands Photon's event over: `/group-joined`, by the adder's number, with everyone here.
+    const address = { groupId: "lab-group", line: "+15555550199", phones: new Map([["ana", "+15555550101"], ["kai", "+15555550102"]]) };
+    const handed = inboundOf({ about: { kind: "group" }, row: w.turns.at(-1).row, rows, address, sentHandles: new Map() });
+    assert.deepEqual(handed, { path: "/group-joined", body: { groupId: "lab-group", line: "+15555550199", by: "+15555550101", participants: ["+15555550101", "+15555550102"] } });
+    assert.equal((await w.call({ op: "retry", sandboxId, msgId: added.body.msgId })).status, 200, "retry adds Tex again");
+    assert.equal((await w.call({ op: "get", sandboxId })).body.rows.filter((r) => r.kind === "joined").length, 1);
+  } finally {
+    w.restore();
+  }
+});
+
 test("a group test text's turn gets what the control plane said about the chat, for the chat object's answers", async () => {
   const w = routeWorld();
   try {
@@ -399,7 +424,7 @@ test("a group test text's turn gets what the control plane said about the chat, 
 
 test("tex_dev's guide documents the test chat's pictures, replies, tapbacks, edits, unsends and sets", () => {
   const line = guideText().split("\n").find((l) => l.startsWith("- test_chat "));
-  for (const word of ["pics", "replyTo", '"react"', "emoji", '"edit"', '"unsend"', '"sets"', "edit step"]) assert.ok(line.includes(word), `the guide's test_chat line names ${word}`);
+  for (const word of ["pics", "replyTo", '"react"', "emoji", '"edit"', '"unsend"', '"added"', '"sets"', "edit step"]) assert.ok(line.includes(word), `the guide's test_chat line names ${word}`);
   assert.ok(!line.includes("Tex doesn't receive edits yet"));
 });
 

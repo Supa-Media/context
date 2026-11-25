@@ -85,29 +85,13 @@ export type DataSyncBody =
   | { op: "connect"; about: string; key: string; account?: string }
   | { op: "disconnect"; app: string };
 
-/**
- * One call with the console grant: refused once, re-minted once. The workspace is named beside the body.
- */
-export async function callDataSync(options: {
-  url: string;
-  token: (refresh: false | { rejected: string }) => Promise<string>;
-  workspaceId: string;
-  body: DataSyncBody;
-  fetchImpl?: typeof fetch;
-}): Promise<DataSyncAnswer> {
+type Token = (refresh: false | { rejected: string }) => Promise<string>;
+
+/** One POST with the console grant: refused once, re-minted once. `null` when it could not be sent or read. */
+export async function postDataSync(options: { url: string; token: Token; payload: Record<string, unknown>; fetchImpl?: typeof fetch }): Promise<{ status: number; body: Record<string, unknown> | null } | null> {
   const doFetch = options.fetchImpl ?? globalThis.fetch;
-  const unreachable: DataSyncAnswer = { ok: false, said: "Context couldn't reach the sync just now. Try again." };
-  if (typeof doFetch !== "function") return unreachable;
-  const body0 = options.body;
-  const payload = JSON.stringify(
-    body0.op === "connect"
-      ? { workspaceId: options.workspaceId, op: body0.op, about: body0.about, key: body0.key, ...(body0.account === undefined ? {} : { account: body0.account }) }
-      : body0.op === "disconnect"
-        ? { workspaceId: options.workspaceId, op: body0.op, app: body0.app }
-        : "metric" in body0
-          ? { workspaceId: options.workspaceId, op: body0.op, metric: body0.metric }
-          : { workspaceId: options.workspaceId, op: body0.op, about: body0.about },
-  );
+  if (typeof doFetch !== "function") return null;
+  const payload = JSON.stringify(options.payload);
   const send = async (token: string) => {
     const abort = typeof AbortController === "function" ? new AbortController() : null;
     const deadline = setTimeout(() => abort?.abort(), TIMEOUT_MS);
@@ -123,17 +107,41 @@ export async function callDataSync(options: {
       clearTimeout(deadline);
     }
   };
-  let answer: { status: number; body: Record<string, unknown> | null };
   try {
     let token = await options.token(false);
-    answer = await send(token);
+    let answer = await send(token);
     if (answer.status === 401) {
       token = await options.token({ rejected: token });
       answer = await send(token);
     }
+    return answer;
   } catch {
-    return unreachable;
+    return null;
   }
+}
+
+/**
+ * One call with the console grant: refused once, re-minted once. The workspace is named beside the body.
+ */
+export async function callDataSync(options: {
+  url: string;
+  token: Token;
+  workspaceId: string;
+  body: DataSyncBody;
+  fetchImpl?: typeof fetch;
+}): Promise<DataSyncAnswer> {
+  const unreachable: DataSyncAnswer = { ok: false, said: "Context couldn't reach the sync just now. Try again." };
+  const body0 = options.body;
+  const payload =
+    body0.op === "connect"
+      ? { workspaceId: options.workspaceId, op: body0.op, about: body0.about, key: body0.key, ...(body0.account === undefined ? {} : { account: body0.account }) }
+      : body0.op === "disconnect"
+        ? { workspaceId: options.workspaceId, op: body0.op, app: body0.app }
+        : "metric" in body0
+          ? { workspaceId: options.workspaceId, op: body0.op, metric: body0.metric }
+          : { workspaceId: options.workspaceId, op: body0.op, about: body0.about };
+  const answer = await postDataSync({ url: options.url, token: options.token, payload, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
+  if (answer === null) return unreachable;
   const body = answer.body ?? {};
   if (answer.status === 200) {
     if (options.body.op === "disconnect") return { ok: true, sources: [] };

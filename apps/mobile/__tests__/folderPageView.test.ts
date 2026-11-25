@@ -164,7 +164,8 @@ describe("a folder whose children have statuses", () => {
   test("opens in List: the Notes rows, a dot on each task and none on a note", async () => {
     await mount(entry("folder", "projects"), PROJECTS, host([]));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
-    expect(all("folder-row").map((node) => strip(node.textContent))).toEqual(["app", "do this", "web", "loose"]);
+    // A project in progress serving no area says so, quietly, after its name (the owner, 2026-11-25).
+    expect(all("folder-row").map((node) => strip(node.textContent))).toEqual(["appNo area", "do this", "webNo area", "loose"]);
     // Nothing declared, so active and paused are In progress words.
     expect(dotOf(rowNamed("web"))).toBe("status-dot-in-progress");
     expect(dotOf(rowNamed("app"))).toBe("status-dot-in-progress");

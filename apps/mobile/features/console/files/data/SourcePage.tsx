@@ -3,8 +3,9 @@
  * about.md and each sheet with its columns, row count and last row — the
  * metrics that read it, and its settings as about.md has them.
  *
- * - A source that signs in (GitHub, Cloudflare, Stripe) says where its
- *   sign-in is kept: in the workspace vault, never in about.md (board 07).
+ * - A connected app says how it reads: Stripe's and Cloudflare's keys kept
+ *   sealed by the sync, GitHub through Context's read-only App with no token
+ *   kept; never in about.md (board 07).
  * - A push source lists its keys by name, never a key, and the call that
  *   sends a row with `$CONTEXT_KEY` (board 09); its keys come from the
  *   control plane and are drawn by `keys`.
@@ -41,10 +42,12 @@ const LEDE: Readonly<Record<string, string>> = {
 export interface SourcePageActions {
   /** Sync now: a url source's, for an owner or editor (`dataSync.ts`); absent for anyone else, and not drawn. */
   readonly syncNow?: () => void;
-  /** Connect again, for an app source (Stripe, Cloudflare): its key form. Absent for anyone but an owner. */
+  /** Connect again, for an app source (Stripe, Cloudflare, GitHub): its key form, or GitHub's install. Absent for anyone but an owner. */
   readonly reconnect?: () => void;
   /** Disconnect, for an app source: its key forgotten and its sync stopped. Absent for anyone but an owner. */
   readonly disconnect?: () => void;
+  /** Repositories…, for GitHub: which of its installation's repositories it reads. Absent for anyone but an owner. */
+  readonly repositories?: () => void;
   /** New key, for a push source: absent for someone who may not make one. */
   readonly newKey?: () => void;
   /** The folder's own menu, the ⋯ on the right. */
@@ -131,7 +134,7 @@ export function SourcePage({
         ? `${status.text} · send from your code`
         : source.kind === "fetch"
           ? `${status.text} · every hour · read-only`
-          : [status.text, every === "" ? (source.kind === "cloudflare" || source.kind === "stripe" ? "every hour" : "") : `every ${every}`, "read-only"].filter((part) => part !== "").join(" · ");
+          : [status.text, every === "" ? (source.kind === "cloudflare" || source.kind === "stripe" || source.kind === "github" ? "every hour" : "") : `every ${every}`, "read-only"].filter((part) => part !== "").join(" · ");
   const files: FileLine[] = [
     {
       name: "about.md",
@@ -161,13 +164,14 @@ export function SourcePage({
         <DataButton label="Connect again" leading={<RefreshGlyph size={12} color={colors.text} />} onPress={actions.reconnect} compact={compact} />
       )}
       {actions.disconnect === undefined ? null : <DataButton label="Disconnect" onPress={actions.disconnect} compact={compact} />}
+      {actions.repositories === undefined ? null : <DataButton label="Repositories…" onPress={actions.repositories} compact={compact} />}
       {actions.newKey === undefined ? null : <DataButton label="New key" leading={<PlusGlyph size={12} color={colors.text} />} onPress={actions.newKey} compact={compact} />}
       {actions.more === undefined ? null : (
         <DataButton label="More" square leading={<MoreGlyph size={14} color={colors.text} />} onPress={actions.more} compact={compact} />
       )}
     </>
   );
-  const hasButtons = actions.syncNow !== undefined || actions.reconnect !== undefined || actions.disconnect !== undefined || actions.newKey !== undefined || actions.more !== undefined;
+  const hasButtons = actions.syncNow !== undefined || actions.reconnect !== undefined || actions.disconnect !== undefined || actions.repositories !== undefined || actions.newKey !== undefined || actions.more !== undefined;
   const lede = source.about?.lede?.trim() || LEDE[source.kind] || null;
   const openAbout = source.about === null ? null : <SectionLink label="Open about.md" onPress={() => onOpen(source.aboutPath)} />;
   const firstSheet = source.datasets[0] === undefined ? null : (sheets.get(source.datasets[0].path) ?? null);

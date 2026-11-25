@@ -170,9 +170,15 @@ test("a person the chat doesn't name here is nobody's card", async () => {
   assert.ok(!asked.includes("ws_maya") && !asked.includes("ws_kofi"));
 });
 
+// Dev2, 2026-11-25: a chat whose people all have accounts but share no workspace reads only its home; it once counted
+// as a guest chat, so friends-and-family chats never read a card. Only a guest in the room turns cards off.
+test("a chat whose people all have accounts reads cards even when it shares no workspace", () => {
+  assert.equal(cardsAllowed({ ...GROUP, homeOnly: true }), true);
+});
+
 test("a chat with a guest reads no cards, nor a guest's or nobody's tag, nor a refused token", async () => {
   const { env, asked } = envWith(CARDS);
-  for (const group of [{ ...GROUP, guests: ["Guest 1"] }, { ...GROUP, guestChat: true }, { ...GROUP, guestTagger: true }, { ...GROUP, from: "" }, null]) {
+  for (const group of [{ ...GROUP, guests: ["Guest 1"] }, { ...GROUP, guests: ["Guest 1"], homeOnly: true }, { ...GROUP, guestTagger: true }, { ...GROUP, from: "" }, null]) {
     assert.equal(cardsAllowed(group), false);
     assert.equal(await readMemberCards({ env, controlPlane: plane(), session: { accessToken: "tok" }, group }), null);
   }

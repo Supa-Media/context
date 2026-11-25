@@ -14,7 +14,7 @@
  * edge makes the dock taller or shorter.
  */
 import { useEffect, useRef, useState } from "react";
-import { attachSandbox, takeUrlSandbox, tryFromHere, backTo, dropText, readSandboxChats, sandboxProblem, openSandbox, resetSandbox, sendAs, useSandbox, type SandboxRow } from "../../engine/sandbox";
+import { addTex, attachSandbox, takeUrlSandbox, tryFromHere, backTo, dropText, readSandboxChats, sandboxProblem, openSandbox, resetSandbox, sendAs, useSandbox, type SandboxRow } from "../../engine/sandbox";
 import { isStale, noteRan, pickStep, playExternal, playLit, playTexText, playText, setDockView, usePlay } from "../../engine/sandboxPlay";
 import { chatKeyOf, playProd } from "../mine/playProd";
 import { texCauseRun } from "../../engine/sandboxRun";
@@ -269,6 +269,11 @@ export function SandboxChat() {
                     ⤢
                   </button>
                 </>
+              ) : null}
+              {isWorld || sb.people.length > 1 ? (
+                <button className="ghost" id="sbAddTex" title="Someone adds Tex's number to this group, as the one you send as: on a draft with Tex added wired, Tex says hello" disabled={sb.busy || !!sb.running} onClick={() => void addTex()}>
+                  Tex added
+                </button>
               ) : null}
               <button className="ghost" id="sbReset" title="Throw away the test texts and start again from the real chat" disabled={sb.busy} onClick={() => void resetSandbox()}>
                 Reset

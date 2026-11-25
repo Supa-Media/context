@@ -560,6 +560,8 @@ describe("every route is reachable, or says why not", () => {
         still render, and one entry point brings it back.
       */
       "/console/map",
+      // GitHub sends an owner back here after installing the data App (2026-11-25).
+      "/data/github/callback",
       "/e2e-fixture",
       "/invite/[token]",
       /*

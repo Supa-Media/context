@@ -169,6 +169,12 @@ async function groupChange(env: Env, change: NonNullable<ReturnType<typeof photo
   const name = groupInboxName(place.groupId);
   const result = (await toChat(env, "members", name, null)) ?? (await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/group-members-changed", { method: "POST" }));
   log("accepted", "group_members");
+  // Tex's own number added there, by `from`: its hello, once (`groupJoined.ts`; nothing while the config has no node `joined`).
+  if (change.texAdded === true && change.from !== undefined) {
+    const joined = { groupId: place.groupId, line: place.line, by: change.from };
+    const said = (await toChat(env, "joined", name, joined)) ?? (await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/group-joined", { method: "POST", body: JSON.stringify(joined) }));
+    log(said.ok ? "accepted" : "failed", "group_joined");
+  }
   return result.ok ? 200 : 503;
 }
 

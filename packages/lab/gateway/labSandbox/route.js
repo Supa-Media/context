@@ -75,6 +75,7 @@ import { intake } from "./intake.js";
 import { richText } from "./rich.js";
 import { inboundEvent, picsOf, reactionOf, STICKER_ROW, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
+import { addTex } from "./added.js";
 import { sandboxAsset } from "./pages.js";
 import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
 import { checkInTestChat } from "./checkin.js";
@@ -362,7 +363,7 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
 }
 
 /** What the nightly's ops (`nightlyRoute.js`) use of this route's own. */
-const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS, indexStub, byOf, json, aboutOf });
+const routeHelpers = () => ({ draftConfig, refused, view, newIds, DAILY_SENDS, indexStub, byOf, json, aboutOf, speakerOf, addRow });
 
 /** A new test row's ids: its event id and the row id built from it. */
 export const newIds = (at = Date.now(), eid = eventId(at)) => ({ at, eid, id: `t${eid.replace("-", "")}` });
@@ -607,7 +608,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   if (input.op === "intake") return await intake(env, who, input, { controlPlane, token });
   // The nightly on the caller's own workspace, for real (`nightly.js`): no test chat, main or a saved draft only.
   if (input.op === "nightly" && input.real === true) return await nightlyForReal({ env, controlPlane, token, who, origin, helpers: routeHelpers() }, input);
-
   if (typeof input.sandboxId !== "string" || !SANDBOX_ID.test(input.sandboxId)) return refused(400, "name the test chat: sandboxId");
   const stub = sandboxStub(env, who.userId, input.sandboxId);
   // Asked first, making nothing: an id nobody opened gets no tables and no alarm (`object.js` `exists`).
@@ -619,7 +619,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
   const forwarded = state.meta.chat.remote ? await forwardToPreview({ env, controlPlane, token, who, stub, state, input, helpers: routeHelpers() }) : null;
   if (forwarded !== null) return forwarded;
   const deps = { env, ctx, controlPlane, token, who, stub, origin, runTurn, graph: input.graph };
-  if (["send", "react", "edit", "unsend", "retry", "use"].includes(input.op)) {
+  if (["send", "react", "edit", "unsend", "retry", "use", "added"].includes(input.op)) {
     await callSandbox(indexStub(env, who.userId), "meta", { key: `used:${input.sandboxId}`, value: { at: Date.now(), by: byOf(input.by), op: input.op } }).catch(() => {});
   }
   switch (input.op) {
@@ -632,6 +632,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
     case "edit":
     case "unsend":
       return await change(deps, state, input, input.op);
+    case "added": return await addTex({ ...deps, helpers: routeHelpers() }, state, input);
     case "retry": {
       const found = testRow(state, input.msgId);
       if (found.error) return refused(...found.error);
@@ -643,6 +644,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       const before = { ...state, rows: (state.rows ?? []).slice(0, at) };
       if (row.kind === "reaction") return await react(deps, before, { msgId: row.on, emoji: row.emoji, as: row.who }, row.id);
       if (row.kind === "edit" || row.kind === "unsend") return await change(deps, before, { msgId: row.on, text: row.text, as: row.who }, row.kind, row.id);
+      if (row.kind === "joined") return await addTex({ ...deps, helpers: routeHelpers() }, before, { as: row.who }, row.id);
       return await send(deps, before, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo }, row.id);
     }
     case "back":
@@ -694,6 +696,6 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       return asset === null ? refused(404, "There is no such page in this test chat.") : json(asset);
     }
     default:
-      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, retry, back, drop, reset, get, page, about, use, read, nightly, checkin, join or leave");
+      return refused(400, "op is chats, sets, shared, ledger, intake, list, open, search, send, react, edit, unsend, added, retry, back, drop, reset, get, page, about, use, read, nightly, checkin, join or leave");
   }
 }

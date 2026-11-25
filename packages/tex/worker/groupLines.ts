@@ -53,6 +53,10 @@ export const GROUP_LINES = {
   noStorage: "I can't open this chat's workspace right now, so I can't answer here. It's a problem on my side, and it's been flagged.",
   // A turn whose workflow never started (`groupTurnRun.ts` `stuck`).
   stuck: "I'm having trouble answering right now. Try me again in a minute.",
+  /** A sensitive ask for the tagger had no 1:1 of theirs to go to (`crossChat.ts` `sendAsides`): never asked here instead. */
+  asideNo1to1: "Text me on your own first, so I can ask you for that there instead of here.",
+  /** A sensitive ask for the tagger couldn't be handed to their 1:1 right now. */
+  asideFailed: "I couldn't text you on the side just now. Text me on your own and I'll pick it up there.",
   /** A job's report the chat's turn could not run for, after every try: the result waits in the job list for the next tag (as 1:1's `jobReportRefused`). */
   jobReportRefused: "One of the things I was working on has news, but I can't put it into words right now. Tag me and I'll catch you up.",
 } as const;

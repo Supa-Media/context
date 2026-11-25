@@ -200,6 +200,14 @@ export interface FolderListSource {
    * surface has nothing to read, and the panel then shows no body.
    */
   readBody?(path: string): Promise<{ text: string; encrypted: boolean } | null>;
+  /**
+   * A picture a listed note names (a bot's card names its logo in `avatar:`),
+   * as an image `src`. The note is the gate, as for any picture in a note
+   * (`readNoteImage`): null when this reader can't see a note naming it.
+   */
+  readPicture?(notePath: string, leaf: string): Promise<string | null>;
+  /** Stores a picture in the workspace and answers with its name, or a sentence saying why not. Absent where the reader may not write. */
+  storePicture?(picture: { bytes: ArrayBuffer; contentType: string }): Promise<{ leaf: string } | { error: string }>;
 }
 
 /** What the notes for one list came back as. */

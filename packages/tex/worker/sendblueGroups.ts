@@ -84,7 +84,8 @@ export type GroupMessage = {
   /** Another chat's ask, or the answer to this chat's own, queued by this Worker (`crossChat.ts`); never a webhook's. */
   crossChat?: CrossEvent;
   /** A login Tex asked for in this chat was saved: the chat's own turn carries the task on, queued by this Worker (`vaultWatch.ts`). */
-  event?: "vault_saved" | "browser_handed_back";
+  /** Tex was just added to this chat: its hello, queued by this Worker once (`groupJoined.ts`); never a webhook's. */
+  event?: "vault_saved" | "browser_handed_back" | "joined";
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };

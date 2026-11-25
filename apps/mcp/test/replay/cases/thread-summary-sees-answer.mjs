@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { classifyText, threadsSortAndWrite } from "../../../../../packages/tex/gateway/agent/conversationThreads.js";
 import { groupOf, groupPrompt } from "../../../../../packages/tex/gateway/agent/groupTurn.js";
-import { guestPrompt } from "../../../../../packages/tex/gateway/agent/groupGuests.js";
 
 export default {
   id: "thread-summary-sees-answer",
@@ -22,7 +21,7 @@ export default {
     await threadsSortAndWrite(sort, {}, {}, "Rae asked you both to test me, at 7:03 pm.");
     assert.match(shown[0], /TEX'S ANSWER\nRae asked you both to test me, at 7:03 pm\./, "the summary is written knowing what Tex said");
     const group = groupOf({ group: { key: "c3".repeat(32), members: "d4".repeat(32), from: "rae", people: ["rae", "lee"] } });
-    for (const prompt of [groupPrompt(group, "acme"), guestPrompt({ from: "rae", people: ["rae"], home: { folder: "tex/chats/x" } }, "acme")]) {
+    for (const prompt of [groupPrompt(group, "acme"), groupPrompt({ from: "rae", people: ["rae"], home: { folder: "tex/chats/x" }, homeOnly: true }, "acme")]) {
       assert.match(prompt, /Your own texts are messages in this chat like anyone's/);
       assert.match(prompt, /goes under the text it answers, as an iMessage threaded reply/);
     }

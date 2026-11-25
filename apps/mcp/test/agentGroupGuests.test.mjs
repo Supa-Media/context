@@ -17,7 +17,7 @@
  *    names, history and live editing, would find the chat's own folder shut);
  *  - `readOnlyAt` answering false: "a note shared to view is read, never
  *    changed";
- *  - dropping the `as` check in `guestAwareCallTool`: "a guest's email goes
+ *  - dropping the `as` check in `homeOnlyCallTool`: "a guest's email goes
  *    only from a member, on that member's yes";
  *  - letting `route.js` settle on a guest's turn: "a guest's yes or 👍
  *    releases nothing held for the person who turned guest mode on";
@@ -46,7 +46,8 @@ import { actorAccessOf } from "../src/vault/access.js";
 import { recipientMaySee } from "../src/live/relayAuthorization.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 import { PAGE_SKILL_STAMP } from "../src/pageSkill.js";
-import { guestAwareCallTool, guestPrompt } from "../../../packages/tex/gateway/agent/groupGuests.js";
+import { homeOnlyCallTool } from "../../../packages/tex/gateway/agent/groupGuests.js";
+import { groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
 
 const TOKEN_CHAT = `cat_group_guests_chat_${"0".repeat(18)}`;
 const KEY = "c".repeat(64);
@@ -123,7 +124,8 @@ test("a guest chat reads only what is shared with the chat, and is told so", asy
   assert.match(flights, /TAP 204/);
   assert.doesNotMatch(budget, /BUDGET-MARKER/, "a note not shared with the chat doesn't exist for it");
   const system = JSON.stringify(world.model.requests[0].system);
-  assert.match(system, /PEOPLE WHO AREN'T ALL ON CONTEXT/);
+  assert.match(system, /Some people here aren't on Context/);
+  assert.match(system, /You can read only what is shared with this chat/);
   assert.doesNotMatch(system, /A guest in this chat tagged you/, "who tagged is per text, never in the cached system prompt");
   assert.match(JSON.stringify(world.model.requests[0].messages), /A guest in this chat tagged you/);
 });
@@ -220,7 +222,7 @@ test("research a guest chat saves as a plain note goes back to be a page, and th
 });
 
 test("the chat is told where its home is, and that it is the one folder it writes", () => {
-  const prompt = guestPrompt({ from: "ada", people: ["ada"], home: { folder: FOLDER } }, "supa");
+  const prompt = groupPrompt({ from: "ada", people: ["ada"], home: { folder: FOLDER }, homeOnly: true }, "supa");
   assert.ok(prompt.includes(`${FOLDER}/`), "told where to write");
   assert.match(prompt, /Write what you make for the chat in tex\/chats\/chair-blast-tiger\//);
 });
@@ -231,7 +233,7 @@ test("a page named like a note the chat can't see is saved under another name, n
   // the chat's home: a refusal anywhere else is passed on as it was.
   const refusal = { isError: true, content: [{ type: "text", text: "permission denied: write destination is outside this connection's team-writable folder defaults." }] };
   const callTool = async () => refusal;
-  const dispatch = guestAwareCallTool(callTool, { store: {}, group: { home: { folder: FOLDER }, people: ["ada"] }, guestTagger: false });
+  const dispatch = homeOnlyCallTool(callTool, { store: {}, group: { home: { folder: FOLDER }, people: ["ada"] }, guestTagger: false });
   const refused = await dispatch("write_note", { path: `${FOLDER}/research.page.md`, content: "# Research" });
   assert.equal(refused.isError, true);
   assert.match(refused.content[0].text, /That name can't be written from this chat\. Save it under a different name in tex\/chats\/chair-blast-tiger\//);
@@ -273,7 +275,7 @@ test("a guest's yes or 👍 releases nothing held for the person who turned gues
 test("a chat is known by its grant, whatever the Worker sends", async () => {
   world.model.install([{ text: "Hi." }]);
   await tagged("", "Tex hi", {}, { guest: "../../notes" });
-  assert.match(JSON.stringify(world.model.requests.at(-1).system), /PEOPLE WHO AREN'T ALL ON CONTEXT/);
+  assert.match(JSON.stringify(world.model.requests.at(-1).system), /You can read only what is shared with this chat/);
 });
 
 test("a guest chat's names: the guest marker and row tokens drop only for a chat", () => {
@@ -317,26 +319,26 @@ test("a guest chat's live keystrokes reach only readers who see everything", () 
   assert.equal(recipientMaySee({ grantedGroups: new Set() }, member, path, privacy), true, "anyone else's update as before");
 });
 
-test("a guest chat reads the mail its owner shared with it, only when asked", async () => {
+test("a guest chat reads the mail its owner shared with it, and watches it like any group", async () => {
   world.controlPlane.flags.mailResults = [{ address: "ada@work.example", id: "m1", threadId: "m1", date: "2026-10-29T10:00:00.000Z", from: "Jo <jo@example.com>", to: "ada@work.example", subject: "SHIFTMED-FACILITIES", snippet: "" }];
   world.model.install([{ toolCalls: [{ name: "search", args: { query: "shiftmed", args: { email: true, account: "ada@work.example" } } }] }, { text: "Found it." }]);
   await tagged("", "Tex which facilities are in the ShiftMed mail?", {}, { mail: [{ handle: "ada", address: "ada@work.example" }] });
   const first = world.model.requests.length - 2;
   const system = JSON.stringify(world.model.requests[first].system);
   assert.match(system, /@ada's ada@work\.example/);
-  assert.match(system, /nothing watches it here on its own/);
+  assert.match(system, /You watch this mail for the chat on your own/, "every chat with a home looks (`textGroupLooks.ts`)");
   assert.match(toolReplies(world.model.requests.at(-1))[0], /SHIFTMED-FACILITIES/);
   assert.equal(world.controlPlane.mailReadCalls.at(-1)?.path, "/gateway/email/search");
 });
 
-test("a guest chat, which can't ask anyone's own Tex, is never told to ask it", async () => {
-  // Tex Devs, 2026-11-24: after #4155 a chat with guests was told to fetch a person's list with ask_chat, which a guest chat
-  // never has (`crossAskTool`), and got "ask_chat isn't available on this turn". It keeps its own limits instead.
+test("a member's tag in a chat with guests asks their own Tex like any group, and keeps the chat's limits", async () => {
+  // Tex Devs, 2026-11-24: a chat with guests was told to fetch a person's list with ask_chat, which it then didn't have.
+  // Since 2026-11-25 (Dev2: no capability split) it has it: a member's tag asks their own Tex, a guest's is refused by the gate.
   world.model.install([{ text: "Share it with the chat and I'll read it." }]);
   const asked = await tagged("ada", "Tex can you grab the list I made with you?", { crossCounts: { hour: 0, day: 0, open: [] } });
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   const told = JSON.stringify([world.model.requests[0].system, world.model.requests[0].messages]);
-  assert.match(told, /PEOPLE WHO AREN'T ALL ON CONTEXT/);
   assert.match(told, /Nothing else there exists for you/, "it keeps the chat's own limits");
-  assert.doesNotMatch(told, /their personal Tex has them|ask their personal Tex/, "and is never told to ask a Tex it can't reach");
+  // This world wires no Cross-chat gate, so the turn holds ask_personal_tex; with the gate wired it is ask_chat (`group-asks-own-tex`).
+  assert.match(told, /send action ask_personal_tex|their personal Tex has them/, "and is told to ask the tagger's own Tex, which it now has");
 });

@@ -15,6 +15,7 @@ import { useFieldFont } from "../../../../design/fieldFont";
 import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { agoLabel } from "../../mail/model";
+import { OwnerFace, type Face } from "../Glyphs";
 import { firstMailNote, senderNote, senderOf, threadOf, type Thread } from "./areaMail";
 
 /** What the panel needs to show and start an area's mail. */
@@ -29,6 +30,8 @@ export interface PanelMailTools {
   me?: string;
   /** Opens a note. */
   open: (path: string) => void;
+  /** A sender's face, for a bot (its logo, where its card names one); null draws the mail mark. */
+  faceOf?: (sender: string) => Face | null;
 }
 
 /** Each conversation's count and newest message, read once per path and text change. */
@@ -86,6 +89,7 @@ export function PanelMail({ area, holder, label, tools }: { area: string; holder
       {[...paths, ...(sent !== null && !paths.includes(sent) ? [sent] : [])].map((path) => {
         const thread = threads.get(path);
         const who = senderOf(path);
+        const face = path === mine ? null : (tools.faceOf?.(who) ?? null);
         return (
           <Pressable
             key={path}
@@ -95,7 +99,7 @@ export function PanelMail({ area, holder, label, tools }: { area: string; holder
             style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.thread, hovered && styles.hover]}
             testID={`area-panel-mail-${who}`}
           >
-            <Icon name="mail" size={14} color={colors.muted} />
+            {face === null ? <Icon name="mail" size={14} color={colors.muted} /> : <OwnerFace face={face} size={16} />}
             <View style={styles.threadText}>
               <Text variant="tree" numberOfLines={1}>{path === mine ? `You ↔ ${holder === null ? "the owner" : label(holder)}` : who}</Text>
               {thread?.last ? (

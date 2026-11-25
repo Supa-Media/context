@@ -21,7 +21,6 @@ import { test } from "node:test";
 
 import { LANGUAGE_LINE, MAX_VOICE_CHARS, MIRROR_LINE, groupVoicePath, readGroupVoice, voicePrompt } from "../../../packages/tex/gateway/agent/chatVoice.js";
 import { groupPrompt, readGroupMemory } from "../../../packages/tex/gateway/agent/groupTurn.js";
-import { guestPrompt } from "../../../packages/tex/gateway/agent/groupGuests.js";
 import { systemPrompt } from "../../../packages/tex/gateway/agent/prompt.js";
 import { instructionsPrompt } from "../../../packages/tex/gateway/agent/customInstructions.js";
 
@@ -38,7 +37,7 @@ test("every texted turn mirrors the chat and answers in its language, a producti
 
 test("their own instructions win over a group's line or two and the mirroring; with none, the line or two stands", () => {
   assert.match(groupPrompt(GROUP, "supa"), /in a line or two/);
-  assert.match(guestPrompt({ ...GROUP, guestChat: true }, "supa"), /in a line or two/);
+  assert.match(groupPrompt({ ...GROUP, homeOnly: true }, "supa"), /in a line or two/);
   assert.match(instructionsPrompt("Give detailed answers."), /Follow them over the built-in style rules above \(how long to answer, a sentence or two, a line or two in a group, matching how the chat writes/);
   assert.match(MIRROR_LINE, /unless their instructions say otherwise/);
   assert.equal(instructionsPrompt(""), "", "none set, nothing overridden");
