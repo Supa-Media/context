@@ -155,6 +155,8 @@ export function judgedInput(body, facts = 0) {
     candidates: Array.isArray(body.candidates) ? body.candidates : [],
     ...(typeof body.transcript === "string" ? { transcriptChars: body.transcript.length } : {}),
     ...(Array.isArray(body.waitingAsks) ? { waitingAsks: body.waitingAsks.length } : {}),
+    // The kept stickers Decide was offered, by id, and how many it knew the words of (the Lab shows whether one was offered).
+    ...(Array.isArray(body.stickers) && body.stickers.length > 0 ? { stickers: body.stickers, stickerWords: Object.keys(body.stickerWords ?? {}).length } : {}),
     facts,
   };
 }

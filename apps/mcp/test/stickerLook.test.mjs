@@ -75,3 +75,10 @@ test("in the gateway, a chat's sticker picture address is minted by the texting 
   const none = await chatEnv({}, state, "group:abc", "s1", { gateway: () => ({}), texts: () => ({}) });
   assert.equal(none.STICKER_PICTURE_URL, undefined, "no Worker bound: none");
 });
+
+test("Decide's logged input names the stickers it was offered and how many it knew the words of", async () => {
+  const { judgedInput } = await import("../../../packages/tex/gateway/agent/textsDecide.js");
+  const logged = judgedInput({ style: "followAlong", candidates: [], stickers: ["s1a2b3c", "s4d5e6f"], stickerWords: { s1a2b3c: "a; fits b" } }, 0);
+  assert.deepEqual([logged.stickers, logged.stickerWords], [["s1a2b3c", "s4d5e6f"], 1]);
+  assert.equal("stickers" in judgedInput({ style: "followAlong", candidates: [] }, 0), false, "none kept: nothing logged");
+});
