@@ -327,6 +327,9 @@ async function openSessionStore(session, env, controlPlane) {
   // For the agent tools' listing (`http/routing.js` `treeManifest`, `store/objectManifest.js`). Non-enumerable: it holds
   // the object's client, which nothing that spreads or logs a store should carry.
   Object.defineProperty(store, "objectReading", { value: objectReading, enumerable: false, writable: false, configurable: true });
+  // The owner's zone the binding answer carried (`controlPlane/session.js` `bindingAnswerOf`): a zone, null, or
+  // `undefined` where it said nothing, and then `store.ownerTimeZone` asks `/gateway/time-zone` (`http/routing.js`).
+  Object.defineProperty(store, "boundOwnerTimeZone", { value: opened.ownerTimeZone, enumerable: false, writable: false, configurable: true });
   // Where its binding came from (`openBinding`): `{source, reason}`, so a slow open can say why (`http/mcpRoute.js`).
   Object.defineProperty(store, "bindingFrom", { value: sources.get(opened) ?? null, enumerable: false, writable: false, configurable: true });
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
