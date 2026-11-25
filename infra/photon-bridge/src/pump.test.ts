@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { CHECKPOINT_PREFIX, deliver, pumpOnce, retryDelayMs, type QueuedEvent } from "./pump";
+import { CHECKPOINT_PREFIX, deliverOnce, HELD_ALERT_MS, LONG_POLL_MS, PARK_AFTER_MS, PARK_RETRY_MS, PARKED_PREFIX, Pump, retryDelayMs, type Parked, type QueuedEvent } from "./pump";
 import type { PhotonEvent } from "./contract";
 
 const LINE = "+15550100123";
@@ -30,122 +30,177 @@ function agentReplying(...statuses: (number | Error)[]) {
   return { event };
 }
 
-const noSleep = vi.fn(async () => {});
-
-describe("deliver", () => {
-  it("passes a 2xx and does not wait", async () => {
-    const agent = agentReplying(200);
+describe("deliverOnce", () => {
+  it("passes a 2xx", async () => {
     const log = vi.fn();
-    await expect(deliver(agent, queued(5), { sleep: noSleep, log })).resolves.toBe("delivered");
-    expect(agent.event).toHaveBeenCalledWith(event(5));
+    await expect(deliverOnce(agentReplying(200), queued(5), log)).resolves.toBe("delivered");
     expect(log).not.toHaveBeenCalled();
   });
 
   it("drops a 4xx and logs it without the message text", async () => {
-    const agent = agentReplying(422);
     const log = vi.fn();
-    await expect(deliver(agent, queued(6), { sleep: noSleep, log })).resolves.toBe("dropped");
+    await expect(deliverOnce(agentReplying(422), queued(6), log)).resolves.toBe("dropped");
     expect(log).toHaveBeenCalledWith({ event: "deliver.refused", line: "0123", seq: 6, status: 422 });
     expect(JSON.stringify(log.mock.calls)).not.toContain("hello");
   });
 
-  it("retries a 5xx with backoff until the agent takes it", async () => {
-    const agent = agentReplying(503, 500, 200);
-    const sleep = vi.fn(async (_ms: number) => {});
-    const log = vi.fn();
-    await expect(deliver(agent, queued(7), { sleep, log })).resolves.toBe("delivered");
-    expect(agent.event).toHaveBeenCalledTimes(3);
-    expect(sleep.mock.calls.map((call) => call[0])).toEqual([1000, 2000]);
-  });
-
-  it("retries a thrown call, not only a status", async () => {
-    const agent = agentReplying(new Error("rpc reset"), 200);
-    const sleep = vi.fn(async () => {});
-    await expect(deliver(agent, queued(8), { sleep, log: vi.fn() })).resolves.toBe("delivered");
-    expect(sleep).toHaveBeenCalledTimes(1);
+  it("asks for a retry on a 5xx or a thrown call", async () => {
+    await expect(deliverOnce(agentReplying(503), queued(7), vi.fn())).resolves.toBe("retry");
+    await expect(deliverOnce(agentReplying(new Error("rpc reset")), queued(8), vi.fn())).resolves.toBe("retry");
   });
 
   it("treats 429 as a refusal the agent gave, not a retry signal", async () => {
-    const agent = agentReplying(429);
-    await expect(deliver(agent, queued(9), { sleep: noSleep, log: vi.fn() })).resolves.toBe("dropped");
+    await expect(deliverOnce(agentReplying(429), queued(9), vi.fn())).resolves.toBe("dropped");
   });
 });
 
-describe("pumpOnce", () => {
-  function port(responses: Response[]) {
-    const fetch = vi.fn(async (_input: string | Request, _init?: RequestInit) => responses.shift() ?? new Response(null, { status: 500 }));
-    return { fetch };
-  }
+/** A fake container: a queue of events, `/next` honouring `skip` as `ledger.mjs` does, `/ack` removing one. */
+function container(items: QueuedEvent[]) {
+  const queue = [...items];
+  const acked: string[] = [];
+  const polls: string[] = [];
+  const fetch = vi.fn(async (input: string | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/next") {
+      polls.push(url.search);
+      const skip = new Set(url.searchParams.getAll("skip"));
+      const item = queue.find((q) => !skip.has(q.event.chat.guid));
+      return item ? Response.json(item) : new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/ack") {
+      const { id } = JSON.parse(String(init?.body)) as { id: string };
+      const index = queue.findIndex((q) => q.id === id);
+      if (index < 0) return new Response(null, { status: 404 });
+      queue.splice(index, 1);
+      acked.push(id);
+      const seq = Number(id.split(":")[1]);
+      return Response.json({ ok: true, line: LINE, frontier: seq });
+    }
+    return new Response(null, { status: 500 });
+  });
+  return { port: { fetch }, queue, acked, polls };
+}
 
+function inChat(seq: number, guid: string): QueuedEvent {
+  const item = queued(seq);
+  return { ...item, event: { ...item.event, chat: { guid, kind: "group" } } };
+}
+
+/** An agent that fails every event of `failing` chats with 503 until `healed` is set. */
+function agentFailing(failing: Set<string>) {
+  const seen: number[] = [];
+  return {
+    seen,
+    event: vi.fn(async (e: PhotonEvent) => {
+      if (failing.has(e.chat.guid)) return { status: 503 };
+      seen.push(e.seq ?? -1);
+      return { status: 200 };
+    }),
+  };
+}
+
+describe("Pump", () => {
   it("is idle when the container has nothing queued", async () => {
-    const store = { put: vi.fn(async () => {}) };
+    const box = container([]);
     const agent = agentReplying();
-    const result = await pumpOnce({
-      port: port([new Response(null, { status: 204 })]),
-      agent,
-      store,
-      sleep: noSleep,
-      log: vi.fn(),
-    });
-    expect(result).toBe("idle");
+    const pump = new Pump({ port: box.port, agent, store: { put: vi.fn(async () => {}) }, log: vi.fn() });
+    await expect(pump.step()).resolves.toBe("idle");
     expect(agent.event).not.toHaveBeenCalled();
-    expect(store.put).not.toHaveBeenCalled();
   });
 
   it("delivers, acks, and stores the frontier the container reports", async () => {
+    const box = container([queued(11)]);
     const store = { put: vi.fn(async () => {}) };
-    const agent = agentReplying(200);
-    const tcp = port([
-      Response.json(queued(11)),
-      Response.json({ ok: true, line: LINE, frontier: 11 }),
-    ]);
-    const result = await pumpOnce({ port: tcp, agent, store, sleep: noSleep, log: vi.fn() });
-    expect(result).toBe("acked");
-    expect(tcp.fetch.mock.calls[1]?.[0]).toBe("http://container/ack");
-    expect(JSON.parse(String((tcp.fetch.mock.calls[1]?.[1] as RequestInit).body))).toEqual({ id: "run:11" });
+    const pump = new Pump({ port: box.port, agent: agentReplying(200), store, log: vi.fn() });
+    await expect(pump.step()).resolves.toBe("acked");
+    expect(box.acked).toEqual(["run:11"]);
     expect(store.put).toHaveBeenCalledWith(`${CHECKPOINT_PREFIX}${LINE}`, 11);
   });
 
   it("acks an event the bridge made itself (no sequence) and stores no frontier for it", async () => {
+    const box = container([{ ...queued(14), seq: null }]);
     const store = { put: vi.fn(async () => {}) };
-    const agent = agentReplying(200);
-    const tcp = port([Response.json({ ...queued(14), seq: null }), Response.json({ ok: true, line: LINE, frontier: 9 })]);
-    await expect(pumpOnce({ port: tcp, agent, store, sleep: noSleep, log: vi.fn() })).resolves.toBe("acked");
-    expect(agent.event).toHaveBeenCalledTimes(1);
+    await expect(new Pump({ port: box.port, agent: agentReplying(200), store, log: vi.fn() }).step()).resolves.toBe("acked");
     expect(store.put).not.toHaveBeenCalled();
   });
 
-  it("does not ack an event the agent has not taken", async () => {
-    const store = { put: vi.fn(async () => {}) };
-    const tcp = port([Response.json(queued(12))]);
-    const agent = {
-      event: vi.fn(async () => {
-        throw new Error("agent down");
-      }),
+  it("one chat's failing event never holds another chat's texts (2026-11-25: a members change held the whole line)", async () => {
+    const box = container([inChat(1, "group-a"), inChat(2, "group-a"), inChat(3, "dm-b"), inChat(4, "dm-c")]);
+    const failing = new Set(["group-a"]);
+    const agent = agentFailing(failing);
+    let clock = 0;
+    const pump = new Pump({ port: box.port, agent, store: { put: vi.fn(async () => {}) }, log: vi.fn(), now: () => clock });
+    for (let i = 0; i < 4; i++) await pump.step();
+    // b and c went through while a's head is retried; a's second text was never handed over before its head.
+    expect(agent.seen).toEqual([3, 4]);
+    expect(box.acked).toEqual(["run:3", "run:4"]);
+    expect(pump.busy()).toEqual(["group-a"]);
+    expect(box.polls.at(-1)).toContain("skip=group-a");
+    // a heals: its head goes, then its second text, in order.
+    failing.clear();
+    clock += 60_000;
+    await pump.step();
+    await pump.step();
+    expect(agent.seen).toEqual([3, 4, 1, 2]);
+    expect(pump.busy()).toEqual([]);
+  });
+
+  it("parks an event still failing after PARK_AFTER_MS, alerts, and lets its chat move on", async () => {
+    const box = container([inChat(1, "group-a"), inChat(2, "group-a")]);
+    const agent = { event: vi.fn(async (e: PhotonEvent) => ({ status: e.seq === 1 ? 503 : 200 })) };
+    const kept = new Map<string, Parked>();
+    const parked = {
+      put: vi.fn(async (k: string, v: Parked) => void kept.set(k, v)),
+      list: vi.fn(async () => new Map(kept)),
+      delete: vi.fn(async (k: string) => kept.delete(k)),
     };
-    // The loop retries forever on a failing agent; stop it after the first attempt.
-    const sleep = vi.fn(async () => {
-      throw new Error("stop");
-    });
-    await expect(
-      pumpOnce({ port: tcp, agent, store, sleep, log: vi.fn() }),
-    ).rejects.toThrow("stop");
-    expect(tcp.fetch).toHaveBeenCalledTimes(1);
-    expect(store.put).not.toHaveBeenCalled();
+    const log = vi.fn();
+    let clock = 0;
+    const pump = new Pump({ port: box.port, agent, store: { put: vi.fn(async () => {}) }, parked, log, now: () => clock });
+    await pump.step();
+    expect(pump.busy()).toEqual(["group-a"]);
+    clock = HELD_ALERT_MS;
+    await pump.step();
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ event: "bridge.alert", outcome: "chat_held", seq: 1 }));
+    clock = PARK_AFTER_MS + 1;
+    await pump.step();
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ event: "bridge.alert", outcome: "event_parked", seq: 1 }));
+    expect([...kept.keys()]).toEqual([`${PARKED_PREFIX}run:1`]);
+    expect(box.acked).toEqual(["run:1", "run:2"]);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("hello");
   });
 
-  it("treats an ack the container no longer knows as done, and stores nothing", async () => {
-    const store = { put: vi.fn(async () => {}) };
-    const tcp = port([Response.json(queued(13)), new Response(null, { status: 404 })]);
-    await expect(pumpOnce({ port: tcp, agent: agentReplying(200), store, sleep: noSleep, log: vi.fn() })).resolves.toBe("acked");
-    expect(store.put).not.toHaveBeenCalled();
+  it("offers a parked event again after PARK_RETRY_MS and forgets it once taken", async () => {
+    const item = inChat(9, "group-a");
+    const kept = new Map<string, Parked>([[`${PARKED_PREFIX}${item.id}`, { item, parkedAt: 0, triedAt: 0 }]]);
+    const parked = {
+      put: vi.fn(async (k: string, v: Parked) => void kept.set(k, v)),
+      list: vi.fn(async () => new Map(kept)),
+      delete: vi.fn(async (k: string) => kept.delete(k)),
+    };
+    const agent = agentReplying(200);
+    let clock = PARK_RETRY_MS - 1;
+    const pump = new Pump({ port: container([]).port, agent, store: { put: vi.fn(async () => {}) }, parked, log: vi.fn(), now: () => clock });
+    await pump.step();
+    expect(agent.event).not.toHaveBeenCalled();
+    clock = PARK_RETRY_MS + 120_000;
+    await pump.step();
+    expect(agent.event).toHaveBeenCalledTimes(1);
+    expect(kept.size).toBe(0);
+  });
+
+  it("waits no longer than until the next retry is due", async () => {
+    const box = container([inChat(1, "group-a")]);
+    let clock = 0;
+    const pump = new Pump({ port: box.port, agent: agentFailing(new Set(["group-a"])), store: { put: vi.fn(async () => {}) }, log: vi.fn(), now: () => clock });
+    await pump.step();
+    expect(pump.waitMs()).toBe(1000);
+    expect(pump.waitMs()).toBeLessThan(LONG_POLL_MS);
   });
 
   it("fails on a bad next response so the caller backs off", async () => {
-    const tcp = port([new Response(null, { status: 500 })]);
-    await expect(
-      pumpOnce({ port: tcp, agent: agentReplying(), store: { put: vi.fn(async () => {}) }, sleep: noSleep, log: vi.fn() }),
-    ).rejects.toThrow("next 500");
+    const port = { fetch: vi.fn(async () => new Response(null, { status: 500 })) };
+    await expect(new Pump({ port, agent: agentReplying(), store: { put: vi.fn(async () => {}) }, log: vi.fn() }).step()).rejects.toThrow("next 500");
   });
 });
 

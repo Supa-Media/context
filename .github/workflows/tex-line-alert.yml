@@ -1,0 +1,55 @@
+# Every 5 minutes, check Tex's iMessage line in production and keep one open
+# issue labelled tex-line-alert while a chat is held behind a failing event,
+# an event is set aside, or the line's frontier is stuck (Dev2, 2026-11-25: one
+# group's members change held every text on the line and nothing told anyone).
+# The rules and the report live in scripts/tex-line-alert.mjs; the report holds
+# codes and counts only, never anyone's words, number or chat id, since this
+# repository is public.
+name: Tex line alert
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: tex-line-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check Tex's iMessage line
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read the last 5 minutes
+        id: read
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: "5"
+        run: |
+          set -euo pipefail
+          node scripts/tex-line-alert.mjs > report.md
+          if [ -s report.md ]; then echo "failing=true" >> "$GITHUB_OUTPUT"; cat report.md; else echo "Healthy."; fi
+
+      - name: Open or update the alert issue
+        if: steps.read.outputs.failing == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh label create tex-line-alert --color B60205 --description "Tex's iMessage line is holding texts back" 2>/dev/null || true
+          open=$(gh issue list --label tex-line-alert --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body-file report.md
+          else
+            gh issue create --title "Tex's iMessage line is holding texts back" --label tex-line-alert --assignee lilseyi --body-file report.md
+          fi

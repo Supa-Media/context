@@ -20,6 +20,7 @@ import { GAP_TIMEOUT_MS, MAX_REPLAY_MS } from "./replay.mjs";
 /** A skip wider than this is not a gap but a bad number; it is refused, not looped over. */
 const MAX_SKIP = 1_000_000;
 const NONE = Object.freeze({ skipped: 0, first: null });
+const EMPTY = new Set();
 
 export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString("hex"), now = Date.now } = {}) {
   const lines = new Map();
@@ -108,7 +109,9 @@ export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString
   }
 
   function wake() {
-    while (waiters.length > 0 && queue.length > 0) waiters.shift()();
+    if (queue.length === 0) return;
+    // Each waiter once: one whose chats are all still being retried puts itself back for the next push.
+    for (const waiter of waiters.splice(0)) waiter();
   }
 
   return {
@@ -174,24 +177,37 @@ export function createLedger({ checkpoints = {}, runId = randomBytes(6).toString
       wake();
     },
 
-    /** The oldest queued event the object has not acked, or null. */
-    next() {
-      return queue[0] ?? null;
+    /**
+     * The oldest queued event the object has not acked, or null. `skip` holds the chats (`chat.guid`) the object is
+     * still retrying: every event of such a chat waits behind its head, so one chat's failing event keeps that chat in
+     * order without holding the rest of the line (2026-11-25).
+     */
+    next(skip = EMPTY) {
+      if (skip.size === 0) return queue[0] ?? null;
+      return queue.find((item) => !skip.has(item.event?.chat?.guid)) ?? null;
     },
 
-    /** Resolves with the next queued event, or null after `ms`. */
-    wait(ms) {
-      if (queue.length > 0) return Promise.resolve(queue[0]);
+    /** Resolves with the next queued event not in `skip`, or null after `ms`. */
+    wait(ms, skip = EMPTY) {
+      const ready = this.next(skip);
+      if (ready) return Promise.resolve(ready);
+      const next = (s) => this.next(s);
       return new Promise((resolve) => {
-        const waiter = () => {
-          clearTimeout(timer);
-          resolve(queue[0]);
-        };
         const timer = setTimeout(() => {
           const index = waiters.indexOf(waiter);
           if (index >= 0) waiters.splice(index, 1);
           resolve(null);
         }, ms);
+        // A push wakes every waiter; one whose chats are all skipped keeps waiting.
+        function waiter() {
+          const item = next(skip);
+          if (!item) {
+            waiters.push(waiter);
+            return;
+          }
+          clearTimeout(timer);
+          resolve(item);
+        }
         waiters.push(waiter);
       });
     },

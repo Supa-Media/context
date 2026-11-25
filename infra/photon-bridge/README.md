@@ -23,6 +23,14 @@ Photon sends.
   `app.mjs` serves the ops.
 - `src/pump.ts`: delivery and retry. A 2xx or 4xx from the agent passes the
   event; a 5xx or a thrown call retries and the checkpoint does not move.
+  Order is kept per chat, not per line (2026-11-25): a chat whose event is
+  failing is retried with backoff while `/next?skip=<chat>` hands out every
+  other chat's events. A chat held 2 minutes logs `bridge.alert chat_held`;
+  an event still failing after 5 minutes is parked in the object's storage
+  (`parked:<id>`), acked so its chat moves on, logged `bridge.alert
+  event_parked`, offered again hourly and dropped after a day
+  (`parked_dropped`). `scripts/tex-line-alert.mjs` reads those alerts every 5
+  minutes and keeps a `tex-line-alert` issue open while they fire.
 - `container/delivery.mjs`: Photon has no delivery event, so each send is read
   back (`messages.get`) 30 s and 3 min after it went. An error code becomes a
   `message.status` event, state `failed` (the agent marks the send, and sends a

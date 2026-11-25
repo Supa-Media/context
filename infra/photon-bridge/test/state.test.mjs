@@ -384,3 +384,35 @@ test("checkpoints names each line that has a frontier, for the object to store",
   assert.deepEqual(ledger.checkpoints(), { [LINE]: 5, "+15550100999": 9 });
   assert.deepEqual(createLedger({ runId: "cp2" }).checkpoints(), {});
 });
+
+function groupText(seq, chat) {
+  const t = text(seq);
+  return { ...t, chatGuid: chat, message: { ...t.message, chatGuids: [chat] } };
+}
+
+test("next skips the chats the object is still retrying, so one chat's failure holds only that chat (2026-11-25)", async () => {
+  const A = "any;+;group-a";
+  const B = "any;+;group-b";
+  const ledger = createLedger({ checkpoints: { [LINE]: 0 }, runId: "skip1" });
+  ledger.offer(LINE, groupText(1, A));
+  ledger.offer(LINE, groupText(2, A));
+  ledger.offer(LINE, groupText(3, B));
+  const skipA = new Set([A]);
+  assert.equal(ledger.next(skipA).seq, 3, "b's text is handed out while a's head is retried");
+  assert.deepEqual(ledger.ack(ledger.next(skipA).id), { line: LINE, frontier: 0 }, "the frontier waits behind a's head");
+  assert.equal(ledger.next(skipA), null, "a's second text never jumps its head");
+  assert.equal(await ledger.wait(5, skipA), null);
+  assert.equal(ledger.next().seq, 1, "without skip, a's head comes first again");
+  ledger.ack(ledger.next().id);
+  assert.deepEqual(ledger.ack(ledger.next().id), { line: LINE, frontier: 3 });
+});
+
+test("a waiter whose chats are all skipped keeps waiting, and wakes for another chat's text", async () => {
+  const A = "any;+;group-a";
+  const B = "any;+;group-b";
+  const ledger = createLedger({ checkpoints: { [LINE]: 0 }, runId: "skip2" });
+  const waiting = ledger.wait(2000, new Set([A]));
+  ledger.offer(LINE, groupText(1, A));
+  ledger.offer(LINE, groupText(2, B));
+  assert.equal((await waiting).seq, 2);
+});

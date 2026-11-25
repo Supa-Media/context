@@ -153,9 +153,9 @@ export function createRuntime({
   return {
     configured,
 
-    /** The oldest unacked mapped event, waiting up to `ms` for one. */
-    nextEvent(ms) {
-      return ledger.wait(ms);
+    /** The oldest unacked mapped event of a chat not in `skip`, waiting up to `ms` for one. */
+    nextEvent(ms, skip) {
+      return ledger.wait(ms, skip);
     },
 
     /** The object stored event `id`; returns {line, frontier}, or null if unknown. */

@@ -7,7 +7,7 @@
  *   GET  /frontiers             {checkpoints}: each line's frontier, for the object to store
  *   GET  /logs?after=id         the container's log records since `id` (see log.mjs)
  *   POST /start                 {checkpoints} mint tokens and start listeners
- *   GET  /next?wait=ms          the oldest unacked event, or 204
+ *   GET  /next?wait=ms&skip=   the oldest unacked event of a chat not skipped, or 204
  *   POST /ack                   {id} the object stored the event
  *   POST /<op>                  the ops in validate.mjs (send/text, edit, ...)
  *   GET  /attachment/<guid>     the attachment's bytes, streamed
@@ -54,6 +54,17 @@ function parseCheckpoints(value) {
   return out;
 }
 
+/** The most chats one `/next` may skip, and the longest chat id it takes. */
+const MAX_SKIPPED = 200;
+const MAX_SKIP_ID = 200;
+
+/** The chats the object is still retrying (`skip`, repeated): their events wait behind each one's head. */
+function skipOf(params) {
+  const ids = params.getAll("skip");
+  if (ids.length > MAX_SKIPPED || ids.some((id) => id.length === 0 || id.length > MAX_SKIP_ID)) throw new RequestError(400, "invalid_skip");
+  return new Set(ids);
+}
+
 function waitMs(raw) {
   const value = Number(raw ?? 0);
   if (!Number.isFinite(value) || value < 0) return 0;
@@ -79,7 +90,7 @@ export function createApp({ runtime, log = () => {}, ring, now = Date.now }) {
     }
 
     if (req.method === "GET" && path === "/next") {
-      const item = await runtime.nextEvent(waitMs(url.searchParams.get("wait")));
+      const item = await runtime.nextEvent(waitMs(url.searchParams.get("wait")), skipOf(url.searchParams));
       if (!item) {
         res.writeHead(204);
         return res.end();
