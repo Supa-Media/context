@@ -171,7 +171,8 @@ async function classify(name, args, { into, privacy }) {
           );
         }
         const hosts = (Array.isArray(a.images) ? a.images : [])
-          .filter((image) => typeof image?.url === "string")
+          // A client that fills every field it is shown sends url: "" beside its data: that fetches nothing (2026-11-25).
+          .filter((image) => typeof image?.url === "string" && image.url.trim() !== "")
           .map((image) => hostOf(image.url));
         if (hosts.length > 0) {
           facets.push({ audience: "outside", summary: `fetch an image from ${[...new Set(hosts)].join(", ")} into ${a.path}` });

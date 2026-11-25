@@ -84,6 +84,8 @@ test("mightWiden says yes to the calls that can widen, and no to the rest", () =
   assert.equal(mightWiden("write_note", { path: "a.md", share: "members" }), true);
   assert.equal(mightWiden("write_note", { path: "website/index.md", site: { action: "publish" } }), true);
   assert.equal(mightWiden("write_note", { path: "a.md", images: [{ url: "https://pics.example/x.png" }] }), true);
+  // An empty url beside inline data fetches nothing (a Grok bot's logo was refused as "fetch an image from ", 2026-11-25).
+  assert.equal(mightWiden("write_note", { path: "a.md", images: [{ name: "logo.png", data: "iVBORw0KGgo=", url: "" }] }), false);
   assert.equal(mightWiden("write_note", { path: "a.md", visibility: "team" }), true);
   // A bot's logo by address is the same outside fetch (2026-11-25); its bytes sent inline are not.
   assert.equal(mightWiden("set_area", { bot: { name: "Socials", avatar: { url: "https://pics.example/logo.png" } } }), true);
@@ -264,4 +266,13 @@ test("a bot's logo by address is judged as an outside fetch, and its bytes are n
   // Into another workspace, the fetch is still judged rather than passed as an ordinary write there.
   const into = await wideningOf("set_area", { bot: { name: "Socials", avatar: { url: "https://pics.example/logo.png" } } }, { privacy, into: "@supa", writes: true });
   assert.notEqual(into.elsewhereOnly, true);
+});
+
+test("an image with an empty url and inline data is not an outside fetch", async () => {
+  const { wideningOf } = await import("../src/privacy/widening.js");
+  const privacy = async () => ({ rules: [], overrides: [] });
+  const args = { path: "areas/people/socials.md", images: [{ name: "logo.png", data: "iVBORw0KGgo=", url: "  " }] };
+  assert.equal(await wideningOf("write_note", args, { privacy }), null);
+  // Into another workspace it is an ordinary write there, which runs unjudged.
+  assert.equal((await wideningOf("write_note", args, { privacy, into: "@supa", writes: true }))?.elsewhereOnly, true);
 });

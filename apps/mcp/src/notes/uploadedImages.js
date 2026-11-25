@@ -226,9 +226,11 @@ export async function prepareNoteImages(content, images, store = null) {
     }
     if (names.has(name)) return { error: `${label}: two images are named ${name}` };
     names.add(name);
-    const hasData = typeof image.data === "string";
-    const hasUrl = typeof image.url === "string";
-    const hasUpload = typeof image.sha256 === "string";
+    // An empty field is an absent one: some clients send every field they are shown, the rest as "" (2026-11-25).
+    const given = (value) => typeof value === "string" && value.trim() !== "";
+    const hasData = given(image.data);
+    const hasUrl = given(image.url);
+    const hasUpload = given(image.sha256);
     if (Number(hasData) + Number(hasUrl) + Number(hasUpload) !== 1) {
       return { error: `${label}: pass exactly one of data (base64), url, or the sha256 of a picture sent with an upload link` };
     }
