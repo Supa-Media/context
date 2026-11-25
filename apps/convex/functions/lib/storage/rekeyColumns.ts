@@ -82,6 +82,10 @@ export const ROTATED_ENVELOPE_COLUMNS = [
   "encryptedTargetSecretAccessKey",
   "encryptedApiKey",
   "encryptedClientSecret",
+  // A bot's webhook (`functions/botHooks.ts`), each sealed to its workspace.
+  "encryptedUrl",
+  "encryptedHeader",
+  "encryptedSigningKey",
 ] as const;
 
 /**

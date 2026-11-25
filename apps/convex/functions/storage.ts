@@ -567,6 +567,12 @@ export const applyConnectionRekey = internalMutation({
   handler: rekeyConnectors.applyConnectionRekeyHandler,
 });
 
+export const applyBotHookRekey = internalMutation({
+  args: rekeyConnectors.applyBotHookRekeyArgs,
+  returns: v.boolean(),
+  handler: rekeyConnectors.applyBotHookRekeyHandler,
+});
+
 export const applyOAuthClientRekey = internalMutation({
   args: rekeyConnectors.applyOAuthClientRekeyArgs,
   returns: v.boolean(),

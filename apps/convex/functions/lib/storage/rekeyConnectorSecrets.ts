@@ -20,6 +20,9 @@ import { recordAudit } from "../audit";
 import { envelopeKeyId } from "../crypto";
 
 const connectionField = v.union(v.literal("encryptedAccessToken"), v.literal("encryptedRefreshToken"));
+/** A bot's webhook (`functions/botHooks.ts`): its address, header and signing key, each sealed to the workspace. */
+const BOT_HOOK_FIELDS = ["encryptedUrl", "encryptedHeader", "encryptedSigningKey"] as const;
+const botHookField = v.union(v.literal("encryptedUrl"), v.literal("encryptedHeader"), v.literal("encryptedSigningKey"));
 
 /** An envelope sealed under an older key, or null when it is current or absent; "unreadable" when its key id can't be read. */
 function staleEnvelope(envelope: unknown, currentKeyId: string): string | null | "unreadable" {
@@ -38,6 +41,7 @@ export const listConnectorRekeyCandidatesReturns = v.object({
     v.object({ rowId: v.id("providerConnections"), workspaceId: v.id("workspaces"), field: connectionField, envelope: v.string() }),
   ),
   clients: v.array(v.object({ rowId: v.id("providerOAuthClients"), envelope: v.string() })),
+  botHooks: v.array(v.object({ rowId: v.id("botHooks"), workspaceId: v.id("workspaces"), field: botHookField, envelope: v.string() })),
   unreadable: v.number(),
 });
 
@@ -49,6 +53,12 @@ export interface ConnectorRekeyCandidates {
     envelope: string;
   }[];
   clients: { rowId: Id<"providerOAuthClients">; envelope: string }[];
+  botHooks: {
+    rowId: Id<"botHooks">;
+    workspaceId: Id<"workspaces">;
+    field: (typeof BOT_HOOK_FIELDS)[number];
+    envelope: string;
+  }[];
   unreadable: number;
 }
 
@@ -56,12 +66,19 @@ export async function listConnectorRekeyCandidatesHandler(
   ctx: QueryCtx,
   args: ObjectType<typeof listConnectorRekeyCandidatesArgs>,
 ): Promise<ConnectorRekeyCandidates> {
-  const out: ConnectorRekeyCandidates = { connections: [], clients: [], unreadable: 0 };
+  const out: ConnectorRekeyCandidates = { connections: [], clients: [], botHooks: [], unreadable: 0 };
   for (const row of await ctx.db.query("providerConnections").take(args.limit)) {
     for (const field of ["encryptedAccessToken", "encryptedRefreshToken"] as const) {
       const stale = staleEnvelope(row[field], args.currentKeyId);
       if (stale === "unreadable") out.unreadable += 1;
       else if (stale !== null) out.connections.push({ rowId: row._id, workspaceId: row.workspaceId, field, envelope: stale });
+    }
+  }
+  for (const row of await ctx.db.query("botHooks").take(args.limit)) {
+    for (const field of BOT_HOOK_FIELDS) {
+      const stale = staleEnvelope(row[field], args.currentKeyId);
+      if (stale === "unreadable") out.unreadable += 1;
+      else if (stale !== null) out.botHooks.push({ rowId: row._id, workspaceId: row.workspaceId, field, envelope: stale });
     }
   }
   for (const row of await ctx.db.query("providerOAuthClients").take(args.limit)) {
@@ -98,5 +115,21 @@ export async function applyOAuthClientRekeyHandler(ctx: MutationCtx, args: Objec
   const row = await ctx.db.get(args.rowId);
   if (row === null || row.encryptedClientSecret !== args.expectedEnvelope) return false;
   await ctx.db.patch(args.rowId, { encryptedClientSecret: args.envelope });
+  return true;
+}
+
+export const applyBotHookRekeyArgs = {
+  rowId: v.id("botHooks"),
+  field: botHookField,
+  expectedEnvelope: v.string(),
+  envelope: v.string(),
+};
+
+/** Conditional on the exact bytes read, so a webhook replaced mid-pass is never overwritten. */
+export async function applyBotHookRekeyHandler(ctx: MutationCtx, args: ObjectType<typeof applyBotHookRekeyArgs>) {
+  const row = await ctx.db.get(args.rowId);
+  if (row === null || row[args.field] !== args.expectedEnvelope) return false;
+  await ctx.db.patch(args.rowId, { [args.field]: args.envelope });
+  await recordAudit(ctx, { workspaceId: row.workspaceId, action: "encryption.rekeyed" });
   return true;
 }

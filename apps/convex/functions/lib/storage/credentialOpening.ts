@@ -372,6 +372,24 @@ export const rekeyStorageBindingsHandler = async (
     if (applied) connectorSecretsRekeyed += 1;
     else connectorSecretsSkipped += 1;
   }
+  for (const candidate of connectors.botHooks) {
+    const context = { workspaceId: candidate.workspaceId as string };
+    let plaintext: string;
+    try {
+      plaintext = await decryptSecret(candidate.envelope, keyset, context);
+    } catch {
+      connectorSecretsUnreadable += 1;
+      continue;
+    }
+    const applied: boolean = await ctx.runMutation(internal.functions.storage.applyBotHookRekey, {
+      rowId: candidate.rowId,
+      field: candidate.field,
+      expectedEnvelope: candidate.envelope,
+      envelope: await encryptSecret(plaintext, keyset, context),
+    });
+    if (applied) connectorSecretsRekeyed += 1;
+    else connectorSecretsSkipped += 1;
+  }
   for (const candidate of connectors.clients) {
     let plaintext: string;
     try {
