@@ -10,7 +10,8 @@
  * ## Sabotage record
  *
  * Removing the `datedForWrite` call from `write_note` failed "an agent's write fills both keys" and the quiet stamp
- * case. Which save of a burst stamps is timed in `dateStamp.test.mjs`, where the clock is the test's.
+ * case. Ignoring the binding's zone in `store.ownerTimeZone` (`http/routing.js`) failed "the owner's zone the binding
+ * carries". Which save of a burst stamps is timed in `dateStamp.test.mjs`, where the clock is the test's.
  */
 
 import assert from "node:assert/strict";
@@ -83,6 +84,19 @@ const read = async (path) => {
 };
 const valueOf = (body, key) => new RegExp(`^${key}:[ ]?(.*)$`, "m").exec(body)?.[1] ?? null;
 
+/** The workspace's binding as the stub serves it; a test may give it the owner's zone the real route sends beside it. */
+const BINDING = {
+  provider: "s3",
+  endpoint: S3_ENDPOINT,
+  region: "auto",
+  bucket: "date-properties",
+  accessKeyId: "AKIAEXAMPLEEXAMPLEDP",
+  secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEDP",
+  forcePathStyle: true,
+  capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true, serverSideCopy: "same-store" },
+  status: "active",
+};
+
 let restore = [];
 let controlPlane;
 
@@ -94,17 +108,7 @@ before(async () => {
   restore.push(controlPlane.install());
   controlPlane.serveTreesFrom(null, { s3 });
   controlPlane.dreams.state.timeZone = "America/Chicago";
-  controlPlane.addWorkspace("ws_dates", "dates", {
-    provider: "s3",
-    endpoint: S3_ENDPOINT,
-    region: "auto",
-    bucket: "date-properties",
-    accessKeyId: "AKIAEXAMPLEEXAMPLEDP",
-    secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEDP",
-    forcePathStyle: true,
-    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true, serverSideCopy: "same-store" },
-    status: "active",
-  });
+  controlPlane.addWorkspace("ws_dates", "dates", BINDING);
   await controlPlane.addGrant({
     workspaceId: "ws_dates",
     userId: "user_owner",
@@ -135,6 +139,34 @@ test("an agent's write fills both keys, in the owner's zone, and its etag stays 
   assert.equal(valueOf(second.body, "date created"), valueOf(first.body, "date created"), "date created never moves");
   assert.notEqual(valueOf(second.body, "date modified"), valueOf(first.body, "date modified"), "date modified follows the edit");
   assert.ok(second.body.includes("Second."));
+});
+
+test("the owner's zone the binding carries is the zone written, with no /gateway/time-zone ask", async () => {
+  // Nothing kept from the tests before: without the binding's zone this save would have to ask.
+  forgetTimeZones();
+  BINDING.ownerTimeZone = "America/Chicago";
+  try {
+    const asked = () => controlPlane.calls.filter((entry) => entry.path === "/gateway/time-zone").length;
+    const before = asked();
+    const path = "projects/bound-zone.md";
+    const created = await write({ path, content: "---\ntitle: Bound\ndate created:\n---\n\nFirst.\n" });
+    assert.equal(created.isError, false, created.text);
+    assert.match(valueOf((await read(path)).body, "date created"), ISO_CHICAGO);
+    assert.equal(asked(), before, "the zone came with the binding");
+  } finally {
+    delete BINDING.ownerTimeZone;
+    forgetTimeZones();
+  }
+});
+
+test("a binding with no zone said asks /gateway/time-zone, as before", async () => {
+  forgetTimeZones();
+  const before = controlPlane.calls.filter((entry) => entry.path === "/gateway/time-zone").length;
+  const path = "projects/asked-zone.md";
+  const created = await write({ path, content: "---\ntitle: Asked\ndate created:\n---\n\nFirst.\n" });
+  assert.equal(created.isError, false, created.text);
+  assert.match(valueOf((await read(path)).body, "date created"), ISO_CHICAGO);
+  assert.ok(controlPlane.calls.filter((entry) => entry.path === "/gateway/time-zone").length > before);
 });
 
 test("a rewrite that changes nothing but dates keeps the agent's words", async () => {

@@ -18,7 +18,9 @@ import { RecentRunsSection } from "../../routines/RecentRuns";
 import { editChangesTitle } from "../linkedTitle";
 import { ChipsPlacement } from "./chips/ChipsPlacement";
 import { chipsFit } from "./chips/chipModel";
-import { inProjectsNow } from "../jobIcons/jobFoldersNow";
+import { dataFolderNow, inProjectsNow } from "../jobIcons/jobFoldersNow";
+import { isMetricNotePath } from "../data/metrics";
+import { MetricNoteView } from "../data/MetricNoteView";
 import { parentPath } from "../paths";
 import type { NoteView } from "./view";
 
@@ -157,6 +159,13 @@ export function noteDocument(view: NoteView) {
     chipsFit(state.path);
   const adding = addAsked > 0 && wholeEdit !== undefined;
   /*
+    A metric note in the Data folder's `metrics/` opens as board 12: its
+    front matter drawn as the metric's properties and its readings worked out
+    as it is read, in place of the folded Properties row
+    (`data/MetricNoteView.tsx`). The body under it stays the person's text.
+  */
+  const metricNote = !passphraseLocked && !state.encrypted && isMetricNotePath(state.path, dataFolderNow());
+  /*
     Who changed this note last, when it was not the reader's own hand (board 3,
     option A, owner 2026-10-17): Recent lists only what they did, so their
     agents' work is said here, where the note is.
@@ -230,8 +239,18 @@ export function noteDocument(view: NoteView) {
           2026-10-30), and its front matter is the Excalidraw plugin's
           bookkeeping, not anything a person filed.
         */}
-        <Reveal open={!passphraseLocked && !pageView && !drawing && !sheet && (frontmatter !== "" || adding)}>
-        {!passphraseLocked && !pageView && !drawing && !sheet && (frontmatter !== "" || adding) ? (
+        {metricNote ? (
+          <MetricNoteView
+            path={state.path!}
+            text={presence?.collaboration?.text ?? state.draft}
+            source={folderLists}
+            compact={compact}
+            gutter={gutter}
+            {...(onOpenNote === undefined ? {} : { onOpen: onOpenNote })}
+          />
+        ) : null}
+        <Reveal open={!metricNote && !passphraseLocked && !pageView && !drawing && !sheet && (frontmatter !== "" || adding)}>
+        {!metricNote && !passphraseLocked && !pageView && !drawing && !sheet && (frontmatter !== "" || adding) ? (
           <Properties
             frontmatter={frontmatter}
             addAsked={addAsked}

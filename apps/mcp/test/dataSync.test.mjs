@@ -1,17 +1,15 @@
 /**
  * Data sources, the pure parts of syncing (`src/data/sync/`, `src/data/fetch/`):
- * what a run may write into a dataset, which readings a metric adds to
- * `metrics/readings.csv`, and the locks on fetching from a URL an editor typed.
+ * what a run may write into a dataset, and the locks on fetching from a URL an editor typed.
  *
  * Sabotage record (temporary local edits, reverted):
  * 1. Dropping the row cap in `mergeSynced`:
  *    "a run past 50,000 rows writes nothing and names the sheet" fails.
- * 2. `closedReadings` keeping the last (open) window: "only closed periods" fails.
- * 3. `fetchDataset` following redirects (`redirect: "follow"` and no 3xx check):
+ * 2. `fetchDataset` following redirects (`redirect: "follow"` and no 3xx check):
  *    "a redirect is refused" fails.
- * 4. Dropping the fc00::/7 line in `isPrivateAddress`: "private answers refuse
+ * 3. Dropping the fc00::/7 line in `isPrivateAddress`: "private answers refuse
  *    the name" fails.
- * 5. Leaving the `__proto__` column check out of `jsonSheet`: "reserved names
+ * 4. Leaving the `__proto__` column check out of `jsonSheet`: "reserved names
  *    are refused" fails.
  */
 
@@ -19,7 +17,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { KEEP_DAYS, mergeSynced } from "../src/data/sync/keep.js";
-import { closedReadings, lastReading, MAX_BACKFILL } from "../src/data/sync/readings.js";
 import { fetchDataset, isPrivateAddress, jsonSheet, publicHttps } from "../src/data/fetch/url.js";
 import { MAX_SHEET_ROWS, parseSheet } from "../src/sheets/csv.js";
 
@@ -85,64 +82,6 @@ test("reserved names are refused as a synced column", () => {
   }
   assert.equal(jsonSheet(JSON.parse('[{"__proto__": 1}]')).ok, false);
   assert.equal(jsonSheet(JSON.parse('[{"constructor": 1}]')).ok, false);
-});
-
-// --- readings ---------------------------------------------------------------
-
-const deploys = parseSheet([
-  "id,at:date,minutes:number",
-  "a,2026-11-16T10:00Z,10",
-  "b,2026-11-17T10:00Z,20",
-  "c,2026-11-23T10:00Z,30",
-  "d,2026-11-24T10:00Z,40",
-  "e,2026-11-25T10:00Z,50",
-].join("\n"));
-const rowsOf = (source, dataset) => (source === "github" && dataset === "deploys" ? deploys : null);
-
-test("only closed periods are written, dated by their first day", () => {
-  const r = closedReadings({ metric: "Deploy minutes", formula: "sum(github/deploys.minutes)", every: "day", rowsOf, now: NOW, backfill: 3 });
-  // 2026-11-22 had no rows: a sum over nothing is no reading, not a zero.
-  assert.deepEqual(r.rows, [
-    { date: "2026-11-23", metric: "Deploy minutes", value: "30" },
-    { date: "2026-11-24", metric: "Deploy minutes", value: "40" },
-  ]);
-  assert.ok(!r.rows.some((x) => x.date === "2026-11-25"), "today is still open");
-});
-
-test("a week reads Monday to Sunday and is dated its Monday", () => {
-  const r = closedReadings({ metric: "M", formula: "sum(github/deploys.minutes)", every: "week", rowsOf, now: NOW });
-  assert.deepEqual(r.rows, [{ date: "2026-11-16", metric: "M", value: "30" }]);
-});
-
-test("a run after the last reading writes only what closed since, once", () => {
-  const after = lastReading([{ date: "2026-11-22", metric: "deploy minutes", value: "1" }, { date: "2026-11-10", metric: "Other", value: "2" }], "Deploy minutes");
-  assert.equal(after, Date.parse("2026-11-22T00:00:00Z"));
-  const r = closedReadings({ metric: "Deploy minutes", formula: "sum(github/deploys.minutes)", every: "day", rowsOf, now: NOW, after });
-  assert.deepEqual(r.rows.map((x) => x.date), ["2026-11-23", "2026-11-24"]);
-  const again = closedReadings({ metric: "Deploy minutes", formula: "sum(github/deploys.minutes)", every: "day", rowsOf, now: NOW, after: Date.parse("2026-11-24") });
-  assert.deepEqual(again.rows, []);
-});
-
-test("a rolling period is read at each UTC midnight over the days before it", () => {
-  const r = closedReadings({ metric: "M", formula: "sum(github/deploys.minutes)", every: "2 days", rowsOf, now: NOW, backfill: 2 });
-  assert.deepEqual(r.rows, [
-    { date: "2026-11-23", metric: "M", value: "30" },
-    { date: "2026-11-24", metric: "M", value: "70" },
-  ]);
-  const next = closedReadings({ metric: "M", formula: "sum(github/deploys.minutes)", every: "2 days", rowsOf, now: NOW + DAY, after: Date.parse("2026-11-24") });
-  assert.deepEqual(next.rows.map((x) => x.date), ["2026-11-25"]);
-});
-
-test("a hidden input writes nothing, and says why without naming more than the formula does", () => {
-  const r = closedReadings({ metric: "M", formula: "sum(stripe/revenue.amount)", every: "day", rowsOf, now: NOW });
-  assert.deepEqual(r.rows, []);
-  assert.equal(r.errors.length, 1);
-  assert.match(r.errors[0].note, /can't read stripe\/revenue/);
-});
-
-test(`backfill is bounded by ${MAX_BACKFILL}`, () => {
-  const r = closedReadings({ metric: "M", formula: "count(github/deploys.id)", every: "day", rowsOf, now: NOW, backfill: 10_000 });
-  assert.equal(r.rows.length, MAX_BACKFILL);
 });
 
 // --- fetch from a URL -------------------------------------------------------

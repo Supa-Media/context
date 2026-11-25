@@ -74,7 +74,7 @@ function problemOf(error: unknown): string {
   return typeof data?.message === "string" ? data.message : "That did not work. Try again.";
 }
 
-function SheetSourcesDialog({
+export function SheetSourcesDialog({
   workspaceId,
   path,
   columns,

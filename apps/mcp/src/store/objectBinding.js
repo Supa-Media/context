@@ -210,6 +210,8 @@ function keeper(object, workspaceId, secret, epoch, encryption, now) {
           managedEncryption: opened.managedEncryption,
           noteCap: opened.noteCap,
           idLayout: opened.idLayout,
+          // Cleared with the copy when the owner's zone changes (`apps/convex/functions/lib/rowWatch/watch.ts`).
+          ownerTimeZone: opened.ownerTimeZone,
         },
         { secret, workspaceId },
       );

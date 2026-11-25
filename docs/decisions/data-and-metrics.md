@@ -47,10 +47,17 @@ with Download as folders, and every agent reads it with `fetch`
   one, and drawn "Hidden". So a team metric over a private sheet shows its
   number only to people who can see that sheet, and no computed value is ever
   written where a wider audience reads it.
-- **`readings.csv` keeps closed periods only.** The Data folder's
-  `metrics/readings.csv` (`date, metric, value`) gains one row per metric per
-  closed period, and only for a metric whose every input is at least as
-  visible as the `metrics/` folder.
+- **No stored history for a metric over a table of events** (the owner,
+  2026-11-24, replacing a shared `metrics/readings.csv`): "I would keep a
+  table for PRs merged each hour, and then do the calculation on the fly".
+  The source sheets are that table (one row per pull request, charge or
+  run), so any hour, day, week or month is worked out from them when it is
+  looked at. Storing per-period numbers and adding them up would be wrong for
+  medians, p95s and ratios. Sources sync every hour.
+- **Only a "right now" number is snapped**: one with no table of events
+  behind it (open incidents, a value fetched from a URL) can't be worked out
+  again later, so the sync keeps it hourly in that metric's own sheet beside
+  its note, as visible as its inputs. (Being built; see the section below.)
 
 **What a simplification would cost.** Computing on a schedule at an owner's
 clearance and writing the value into a team sheet turns any editor's formula
@@ -92,10 +99,54 @@ identical answers; `__proto__` refused).
   path; a vault entry kept for syncing is opened only by the sync object, and
   never by an AI client or `send api`.
 
+## What stage B draws, and what it leaves out
+
+*Stage B, 2026-11-25: the Data page (board 01), a source's page (07, 09, 10),
+the metrics page (11) and a metric note (12),
+`apps/mobile/features/console/files/data/`.*
+
+- **Every number is worked out in the app as it is read**, through the
+  reader's own `readBody`: a sheet they cannot read never arrives, so it is
+  missing, and a metric with a missing input is drawn "Hidden" (a period
+  with none, "—"). The app keeps no computed value anywhere but memory.
+  Sheets are cached per reader and folder generation, like an area's
+  readings. Test: `apps/mobile/__tests__/dataSources.test.ts` (a hidden
+  input and a missing one give identical results, and the result never names
+  the sheet).
+- **Status lines say only what is known.** There is no sync object yet
+  (stage E), so a source says "Last row 2h ago" from its newest dated row, or
+  "Not synced yet" / "No rows yet", never "Synced 5 min ago"; a period is
+  "worked out as you read", not "every hour". `readings.csv` is shown when it
+  exists and not yet written.
+- **Connect a source offers "Send from your code" only.** It writes the
+  source's `about.md` (`source: push`) and its first sheet as the person's
+  own notes, then opens the existing key dialog. GitHub, Cloudflare and
+  Stripe need the owner's connection and wait for their stage. A key is
+  listed by its name, when it was made and when last used, and never shown
+  again; the control plane does not keep who made one, so that name is not
+  drawn.
+- **The Context source is counted on read, never written.** `notes-by-status`
+  counts today's notes by `status:` in the folders its `about.md` names, so it
+  has today's rows only, not a history; `time-to-answered` needs a note's
+  `asked:` and `answered:` front matter, and notes without both are left out.
+  It counts only the notes the reader can see, so two readers may see two
+  counts.
+- **Where the pages part from their boards, on purpose.** No "Count a
+  folder" button on the Context source (10): which folders it counts is
+  edited in its `about.md`, and a button would only open that. A metric
+  note's readings sit over its body, not under it (12): the body is the
+  editor, which scrolls itself. A value has no unit after it ("1,436", not
+  "1,436 ms"): the shared formats have none. A file or key row says when, not
+  who ("Edited 3d ago", "Made Nov 3"): no editor's name is kept for it. The
+  page head's tile is the Data job's icon, as every built-in folder's is.
+- **New metric** writes a note in `metrics/` with a starting formula over a
+  sheet the workspace has, and opens it. A metric note opens with its
+  properties and readings over the body, which stays the person's text.
+
 ## What a sync run may write, and how a URL is fetched
 
-*2026-11-25, the pure core of stages E and G: `apps/mcp/src/data/sync/` and
-`apps/mcp/src/data/fetch/`. The sync object that runs them comes next.*
+*2026-11-25: `apps/mcp/src/data/sync/keep.js` and
+`apps/mcp/src/data/fetch/url.js`, the pure core the sync object will run.*
 
 - **A dataset row is matched by its key column**, so a run that sees a pull
   request or a charge again changes its row in place. Rows older than the
@@ -104,13 +155,6 @@ identical answers; `__proto__` refused).
   hand is left alone and named.
 - **Past 50,000 rows or 5 MB, a run writes nothing** and names the sheet,
   rather than cutting it short.
-- **A reading is a closed period, written once.** A day, week or month is
-  closed once the next has begun, and dated its first day; a rolling `N days`
-  is read at each UTC midnight over the days before it, and dated the last
-  day it covers. A period that came to nothing, or that could not be worked
-  out (a hidden input among them), writes no row: a gap reads truer than a
-  zero. With nothing written yet, only the last closed period is written:
-  whether connecting should fill in the past is still the owner's question.
 - **Fetch from a URL is held to the site reader's lock and more**: https on a
   public name only (no port, login or IP literal); the name is looked up over
   DNS over HTTPS first and refused if any answer is private, loopback,
@@ -122,5 +166,5 @@ identical answers; `__proto__` refused).
 
 **What a simplification would cost.** Following a redirect, or skipping the
 lookup, lets an editor's address reach whatever the gateway's network can.
-Cutting a sheet at its bound loses rows silently. Writing an open period makes
-a reading change after it was read. Tests: `apps/mcp/test/dataSync.test.mjs`.
+Cutting a sheet at its bound loses rows silently. Tests:
+`apps/mcp/test/dataSync.test.mjs`.

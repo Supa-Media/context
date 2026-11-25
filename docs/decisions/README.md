@@ -808,6 +808,7 @@ Every section title is listed in [its own index](./texting-assistant/index.md).
 - A formula is a small language, worked out when it is read
 - Sources sync without a model, in their own object
 - Who does what
+- What stage B draws, and what it leaves out (2026-11-25)
 
 ## [Connectors](./connectors.md)
 

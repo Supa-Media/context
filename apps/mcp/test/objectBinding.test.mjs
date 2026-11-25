@@ -123,6 +123,29 @@ async function open(w, session = w.session, now = Date.now) {
   return { source: "control_plane", opened, reason: first.reason, kept };
 }
 
+test("the owner's zone the control plane said is kept in the sealed copy; a copy sealed before it says nothing", { skip }, async () => {
+  const w = await world();
+  w.controlPlane.extra = { ownerTimeZone: "America/Chicago" };
+  assert.equal((await open(w)).source, "control_plane");
+  const second = await open(w);
+  assert.equal(second.source, "object");
+  assert.equal(second.opened.ownerTimeZone, "America/Chicago");
+
+  // An owner with no zone is null, said, and kept as said.
+  const none = await world({ workspaceId: "ws_no_zone" });
+  none.controlPlane.extra = { ownerTimeZone: null };
+  await open(none);
+  assert.equal((await open(none)).opened.ownerTimeZone, null);
+
+  // A copy kept from an answer without the field (an older control plane, or sealed before this): not known, so the
+  // store asks `/gateway/time-zone` as before (`http/routing.js`).
+  const older = await world({ workspaceId: "ws_older" });
+  await open(older);
+  const served = await open(older);
+  assert.equal(served.source, "object");
+  assert.equal(served.opened.ownerTimeZone, undefined);
+});
+
 test("the second request opens its binding from the object, with the object's rules and no control-plane binding call", { skip }, async () => {
   const w = await world();
   const first = await open(w);

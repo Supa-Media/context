@@ -45,6 +45,17 @@ the answer at the stamp (2026-11-24, Speed: the zone's ask was a median 399 ms
 awaited after the checks). Asking ahead only reads; the zone is left on the
 object when the stamp uses it, as before.
 
+Since 2026-11-24 (Speed, round 2: that ask still cost about 300 ms on a
+save whose kept zone was older than ten minutes, nearly half of them) the
+zone also rides on `/gateway/binding`, as `ownerTimeZone` beside the binding:
+the same answer `/gateway/time-zone` gives the same token, read with the same
+two proofs. The workspace's object keeps it in its sealed copy of the binding,
+and a write to the owner's `accountTimeZones` row clears that copy in every
+workspace they made, as a change to the binding's own rows does
+(`credential-basics.md`, "Never stale past a change"). So a save reads the zone
+from the binding its store opened from, and asks `/gateway/time-zone` only
+where the binding did not say (an older copy, or the read failed).
+
 **Backfill.** `manage` action `fill_dates` (owner only) is the one pass over
 notes written before: the object names the notes with an empty date key
 (`dateGaps`), and each is filled from its row's clocks, with `modified` from
