@@ -14,7 +14,7 @@
  * make it, and its button is not drawn.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useOptionalConsoleData } from "../../ConsoleDataContext";
 import { selectedContext } from "../../types";
@@ -151,37 +151,46 @@ export function useDataMaking({
         };
 
   const calls = syncs.github;
+  // The values GitHub's flow reads at the moment it is run. Kept in a ref, so the flow below keeps its identity and
+  // the picker's effect does not ask GitHub again on every redraw of this page.
+  const latest = useRef({ ws, taken, host, stay, open, refresh: syncs.refresh });
+  latest.current = { ws, taken, host, stay, open, refresh: syncs.refresh };
   /** GitHub's install: its folder and sheets when missing, GitHub's own page in a window, then the gateway finishes it. */
-  const github: GithubFlow | undefined =
-    calls === undefined || io === undefined || dataFolder === ""
-      ? undefined
-      : {
-          begin: async () => {
-            const made = githubSourceFiles(dataFolder, ws.sources.find((source) => source.kind === "github") ?? null, taken);
-            try {
-              for (const file of made.files) await io.create(file.path, file.text);
-            } catch {
-              return "The source could not be made. Try again.";
-            }
-            if (made.files.length > 0) host?.tasks?.refresh([dataFolder, made.folder]);
-            const started = await calls.start(made.aboutPath);
-            if (typeof started === "string") return started;
-            const back = await openGithubInstall(started.url);
-            if (back === "blocked") return "Your browser blocked GitHub's window. Allow pop-ups for Context, then try again.";
-            if (back === "closed") return "GitHub's window closed before it was finished. Try again.";
-            const why = await calls.finish(back);
-            if (why !== null) return why;
-            syncs.refresh();
-            if (!stay) open(made.folder);
-            return null;
+  const github: GithubFlow | undefined = useMemo(
+    () =>
+      calls === undefined || io === undefined || dataFolder === ""
+        ? undefined
+        : {
+            begin: async (onStep) => {
+              const { ws: now, taken: names, host: page, stay: staying, open: openSource, refresh } = latest.current;
+              const made = githubSourceFiles(dataFolder, now.sources.find((source) => source.kind === "github") ?? null, names);
+              try {
+                for (const file of made.files) await io.create(file.path, file.text);
+              } catch {
+                return "The source could not be made. Try again.";
+              }
+              if (made.files.length > 0) page?.tasks?.refresh([dataFolder, made.folder]);
+              const started = await calls.start(made.aboutPath);
+              if (typeof started === "string") return started;
+              const back = await openGithubInstall(started.url);
+              if (back === "blocked") return "Your browser blocked GitHub's window. Allow pop-ups for Context, then try again.";
+              if (back === "closed") return "GitHub's window closed before it was finished. Try again.";
+              onStep?.("connecting");
+              const why = await calls.finish(back);
+              if (why !== null) return why;
+              refresh();
+              if (!staying) openSource(made.folder);
+              return null;
+            },
+            repos: calls.repos,
+            pick: async (names) => {
+              const why = await calls.pick(names);
+              if (why === null) latest.current.refresh();
+              return why;
+            },
           },
-          repos: calls.repos,
-          pick: async (names) => {
-            const why = await calls.pick(names);
-            if (why === null) syncs.refresh();
-            return why;
-          },
-        };
+    [calls, io, dataFolder],
+  );
 
   const makeSource = async (files: PushSourceFiles): Promise<string | null> => {
     if (io === undefined) return "You can't add to this workspace.";

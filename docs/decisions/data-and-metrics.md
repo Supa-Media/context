@@ -67,6 +67,13 @@ with Download as folders, and every agent reads it with `fetch`
   again later, so the sync keeps it hourly in that metric's own sheet beside
   its note, as visible as its inputs (see "Right-now metrics are kept
   hourly" below).
+- **No data is blank, never 0** (Dev2, 2026-11-25: "these metrics look
+  fake"). An aggregate is no data when it picks rows by a column nobody has
+  filled in yet (a sign-up's channel before it is recorded), when its sheet
+  has no rows at all, and for a period that ends before the sheet's first
+  dated row, so a trend starts where the records do. A period after the
+  first row with nothing in it is a real 0. Test:
+  `apps/mcp/test/dataFormulaNoData.test.mjs`.
 
 **What a simplification would cost.** Computing on a schedule at an owner's
 clearance and writing the value into a team sheet turns any editor's formula
@@ -193,11 +200,31 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
 - **Three sheets**: `pull-requests.csv` (kept 400 days; recent ones by
   update, history carried back toward 90 days a slice a run through search),
   `deploys.csv` (production deployments only, kept 90 days) and
-  `workflow-runs.csv` (finished runs on the default branch, kept 30 days,
-  because a busy repository runs thousands a week). `deployed` is when the
+  `workflow-runs.csv` (finished runs on the default branch plus every run of
+  the production deploy workflow (`deploy-production.yml`) on any branch,
+  since Promote to Production dispatches it on a `prod-deploy/<sha>` branch;
+  each read keeps its own catch-up window; kept 30 days, because a busy
+  repository runs thousands a week). `deployed` is when the
   first successful production deployment that started at or after the merge
   finished, filled in by a later run when the deploy comes after. No body,
   review, comment, commit message or file is read.
+- **Connecting answers at once; the first run happens behind it**
+  (2026-11-25, after production showed the first run taking about 95
+  seconds while the app gave up on every call after 30). Finishing the
+  install, and saving a repository pick, seal and keep what changed, arm the
+  source and answer straight away: armed, with no last run. The run itself is
+  queued on the sync object's alarm, set to fire now, and the alarm goes back
+  to its hourly time after it. An alarm rather than work left running after
+  the answer, because an alarm is kept and retried by the runtime, and it
+  keeps the object to one alarm. While a run is going, listing the
+  repositories and asking a source's status never wait for it. The app asks
+  the status again a few times, on a fixed backoff that stops, while a call
+  fails or a source is armed with no run yet, so "Not synced yet" clears by
+  itself; the repository picker asks GitHub once per opening and again only
+  on Try again; and the form says "Waiting for GitHub…" only while GitHub's
+  window is open, then "Connecting…". A pasted-key app (Stripe, Cloudflare)
+  still runs at Connect, since it is quick and its first run is the check
+  the person waits for.
 - **Web and desktop only** for the install itself, since it needs a window
   and a same-origin channel; the phone shows the source and its sheets.
 
@@ -262,7 +289,10 @@ the metrics page (11) and a metric note (12),
   request or a charge again changes its row in place. Rows older than the
   rolling 400 days go; a row whose date cannot be read stays, because the
   sync never guesses a row away. A sheet whose synced columns were changed by
-  hand is left alone and named.
+  hand is left alone and named. A column the source writes takes the
+  source's type on every run (a sheet made by hand before the first run has
+  every column text, and a date read as text places no row in time); a
+  column the person added keeps its own.
 - **Past 50,000 rows or 5 MB, a run writes nothing** and names the sheet,
   rather than cutting it short.
 - **Fetch from a URL is held to the site reader's lock and more**: https on a
@@ -349,7 +379,13 @@ synced sheet says it is kept up to date (08),
   keeps no note text, no rows and no credential. The first workspace to call
   it pins it, and it refuses any other. One alarm serves every source: set
   only when none is set, re-set after a run only while a source is still
-  running, deleted when none is. A self-hosted gateway without the binding
+  running, deleted when none is. A run that must happen soon (GitHub's first,
+  or after a repository pick) is listed as `soon` and moves the alarm to now,
+  keeping the hourly time it displaced; that early alarm runs only the
+  sources waiting for it, then puts the hourly time back. Runs never overlap
+  (one run at a time, apart from the lock that guards what is stored), and
+  the alarm re-reads the sources before keeping each result, so a connect,
+  arm or disconnect that lands during a long run is never overwritten by it. A self-hosted gateway without the binding
   answers the route 501 and its url sources say "Not synced yet".
 - **Arming is an app step by an owner or editor.** Connect a source → Fetch
   from a URL writes the source's `about.md` (`source: url`, `url:`,
@@ -540,9 +576,40 @@ asap", and, on where the rows go, "Only @supa, named in gateway config".*
   called start the day this shipped: rebuilding them would mean reading every
   customer's editing history, which the usage source never does.
 
+### Bug reports in the same source
+
+*Decided 2026-11-25, on the owner's "ship user reported bugs going into a
+sheet overnight, either through tex or in the app".*
+
+- **One row per report, in `bug-reports.csv`** beside the other four sheets,
+  so it inherits every check above: the named workspace only, armed by an
+  owner, owners only by both renderings, re-checked every run. Columns:
+  `reference`, `filed`, `person`, `channel`, `status`.
+- **Which reports.** Every report sent through the one intake
+  (`lib/feedback/deliver.ts`): the app's bug button (`app`), a text to Tex
+  (`tex`), Tex in a group chat (`tex-group`) and another AI's
+  `report_problem` (`agent`). A report about content (`functions/reports.ts`)
+  is not a bug and never listed. The receipt the intake already keeps for the
+  daily budget now carries that one word (`channel`); receipts made before it
+  carry none and are not listed (the hand-kept `data/feedback/reports.csv`
+  covers those).
+- **No words of the report.** A row holds the reference the person was told
+  (the Tex bug note's `reference:`, or the app's Sentry event id), the time,
+  the person MAC shared with `activity.csv`, and the channel. The report
+  itself stays where it was filed: a Tex bug note readable by the pinned
+  workspace's members, or Sentry. Who reads the sheet (the usage workspace's
+  owners) is not provably within who reads the report, so a summary or a
+  path, whose name carries the report's first words, is left out until that
+  is checked per row.
+- **`status` is the team's.** A new row says `open`; a run never writes over
+  it (`mergeSynced`'s `handColumns`), so triage edits in the sheet stay.
+- **Backfill.** The sheet's first run reaches back 30 days on its own
+  (`bugsSince`), as far as receipts are kept.
+
 **What a simplification would cost.** Keying a row by account id, or by a MAC
 under `GATEWAY_SECRET`, lets the control plane or a sheet reader name the
 person. Checking visibility only when armed lets a later setting publish the
 rows. Letting any owner arm it gives every workspace everyone's activity.
-Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
+Listing a bug report's text or note path in the sheet would hand it to
+owners who may not read the report. Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
 `apps/convex/__tests__/usagePeople.test.ts`.

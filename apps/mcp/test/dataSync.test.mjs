@@ -11,6 +11,8 @@
  *    the name" fails.
  * 4. Leaving the `__proto__` column check out of `jsonSheet`: "reserved names
  *    are refused" fails.
+ * 5. Keeping an old sheet's column types as they are (`kept` = the sheet's
+ *    columns): "a synced column takes its source's type" fails.
  */
 
 import assert from "node:assert/strict";
@@ -37,6 +39,17 @@ test("a run adds new rows, changes seen rows in place, and never doubles one", (
   assert.equal(r.changed, 1);
   const back = parseSheet(r.text);
   assert.deepEqual(back.rows.map((x) => x.title), ["first", "second, renamed", "third"]);
+});
+
+test("a synced column takes its source's type, so a sheet made by hand with plain columns is put right", () => {
+  // The usage sheets were made before their first run, every column text: with no date column, every
+  // metric over them read as a right-now count of all their rows, and drew no trend (2026-11-25).
+  const sheet = parseSheet("number:text,opened:text,title:text,note:number\n1,2026-11-20,first,4\n");
+  const r = mergeSynced({ path: PATH, sheet, columns: COLUMNS, key: "number", dateColumn: "opened", now: NOW, incoming: [] });
+  assert.equal(r.ok, true);
+  const back = parseSheet(r.text);
+  assert.deepEqual(back.columns.map((c) => `${c.name}:${c.type}`), ["number:number", "opened:date", "title:text", "note:number"]);
+  assert.equal(back.rows[0].note, "4");
 });
 
 test(`a dataset keeps a rolling ${KEEP_DAYS} days, sorted by date, and keeps rows it can't date`, () => {

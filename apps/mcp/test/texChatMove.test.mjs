@@ -253,19 +253,17 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.equal(await storage.get("__inbox_name"), PHONE);
   });
 
-  it("move-in opens the chat with no text, and home says it is answered here", async () => {
+  it("home says none before the chat's first call, and gateway after; move-in is gone", async () => {
     controlPlane();
     const worker = fakeWorker();
     const { chat } = chatObject(worker.rpc);
-    const before = await chat.fetch(new Request("https://chat/home"));
-    assert.deepEqual(await before.json(), { home: "worker" });
-    const moved = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
-    const body = await moved.json();
-    assert.equal(body.home, "gateway");
-    assert.equal(body.keys, 0);
+    assert.deepEqual(await (await chat.fetch(new Request("https://chat/home"))).json(), { home: "none" });
     assert.deepEqual(await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { status: 200, body: { outcome: "queued" } });
-    const bad = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: "" }) }));
-    assert.equal(bad.status, 400);
+    const after = await (await chat.fetch(new Request("https://chat/home"))).json();
+    assert.equal(after.home, "gateway");
+    assert.equal(after.keys, 0);
+    const gone = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
+    assert.equal(gone.status, 404);
     assert.deepEqual(worker.calls.inboxFetch, []);
   });
 

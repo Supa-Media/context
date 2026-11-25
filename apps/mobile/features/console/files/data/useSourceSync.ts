@@ -7,14 +7,14 @@
  * "Not synced yet" and offers no Sync now.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../../agent/useConsoleGrant";
 import { useOptionalConsoleData } from "../../ConsoleDataContext";
 import { selectedContext } from "../../types";
 import { MCP_ENDPOINT } from "../../placeholderData";
 import { Platform } from "react-native";
-import { callDataSync, dataSyncUrl, syncStateOf, type DataSyncBody, type SourceSync } from "./dataSync";
+import { callDataSync, dataSyncUrl, syncStateOf, type DataSyncAnswer, type DataSyncBody, type SourceSync } from "./dataSync";
 import { githubCalls, type GithubCalls } from "./githubSync";
 import type { DataSource } from "./sources";
 import type { SyncState } from "./words";
@@ -36,6 +36,20 @@ export interface SourceSyncs {
 
 /** The sources whose runs the sync object keeps: a url source's, the usage source's, and an app's an owner connected. */
 const SYNCED = new Set(["fetch", "usage", "stripe", "cloudflare", "github"]);
+
+/**
+ * How long to wait before asking the status again, one entry per retry: a status ask that failed, or a first run
+ * the gateway has started in the background and not finished. At most this many retries; then the page says what
+ * it last knew, and a refresh starts the schedule again.
+ */
+export const STATUS_RETRY_MS = [5_000, 15_000, 30_000, 60_000, 120_000] as const;
+
+/** The delay before the next status ask after `answer`, the `tries`th retry so far; null when none is due. */
+export function nextStatusRetry(answer: DataSyncAnswer, tries: number): number | null {
+  if (tries >= STATUS_RETRY_MS.length) return null;
+  const waiting = !answer.ok || answer.sources.some((one) => one.armed && one.last === null);
+  return waiting ? STATUS_RETRY_MS[tries]! : null;
+}
 
 export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   const data = useOptionalConsoleData();
@@ -61,6 +75,9 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   );
 
   const [asked, setAsked] = useState(0);
+  // Retries of the status ask since the last refresh, or since the paths or the address changed; and the timer for the next.
+  const retries = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const github = useMemo(
     () =>
       url === null || workspaceId === null || current?.role !== "owner" || Platform.OS !== "web"
@@ -71,20 +88,33 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
 
   const fetched = useMemo(() => sources.filter((source) => SYNCED.has(source.kind) && source.about !== null).map((source) => source.aboutPath), [sources]);
   const key = fetched.join("\n");
+  // A new list of paths or address starts the retries again.
+  useEffect(() => {
+    retries.current = 0;
+  }, [key, url]);
   useEffect(() => {
     if (fetched.length === 0 || url === null) return;
     let live = true;
     void ask({ op: "status", about: fetched }).then((answer) => {
-      if (!live || !answer.ok) return;
-      setStates((held) => {
-        const next = new Map(held);
-        for (const path of fetched) if (!answer.sources.some((one) => one.about === path)) next.set(path, { about: path, armed: false, last: null });
-        for (const one of answer.sources) next.set(one.about, one);
-        return next;
-      });
+      if (!live) return;
+      if (answer.ok) {
+        setStates((held) => {
+          const next = new Map(held);
+          for (const path of fetched) if (!answer.sources.some((one) => one.about === path)) next.set(path, { about: path, armed: false, last: null });
+          for (const one of answer.sources) next.set(one.about, one);
+          return next;
+        });
+      }
+      // A failed ask, or a first run still going in the background, is asked again on the schedule.
+      const delay = nextStatusRetry(answer, retries.current);
+      if (delay === null) return;
+      retries.current += 1;
+      retryTimer.current = setTimeout(() => setAsked((n) => n + 1), delay);
     });
     return () => {
       live = false;
+      if (retryTimer.current !== null) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
     };
     // `key` stands for the list of paths, so a new array with the same paths asks nothing again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,6 +133,11 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
     },
     [ask],
   );
+
+  const refresh = useCallback(() => {
+    retries.current = 0;
+    setAsked((n) => n + 1);
+  }, []);
 
   const byFolder = useMemo(() => {
     const out = new Map<string, SyncState>();
@@ -151,6 +186,6 @@ export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
     ...(mayArm ? { arm } : {}),
     ...(mayConnect ? { connect, disconnect } : {}),
     ...(github === undefined ? {} : { github }),
-    refresh: () => setAsked((n) => n + 1),
+    refresh,
   };
 }

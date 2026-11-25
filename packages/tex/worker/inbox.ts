@@ -79,7 +79,7 @@ import { namesAppChat } from "./appChat";
 import { keepThreaded } from "./threadedResend";
 import { deliveryStep, logStep, tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
-import { keepSticker } from "./stickers";
+import { keepSentStickers, keepSticker } from "./stickers";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -199,6 +199,8 @@ export async function accept(
   }
   if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
   message = await settleCard(storage, message, now);
+  // A sticker sent as its own text is kept for Tex to stick back, and read by its id (`stickers.ts`).
+  message = await keepSentStickers(storage, message, now);
   const pending = await storage.list<Pending>({ prefix: TEXTS_QUEUE.prefix });
   if (pending.size >= MAX_PENDING) return "full";
 

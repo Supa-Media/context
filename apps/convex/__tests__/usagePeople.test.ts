@@ -16,6 +16,7 @@ import { createUser, createWorkspace, gatewayPost, seedGrant, setupTest, TEST_GA
  * 2. `peopleMarks` accepting any string as a person: "a person is a 16-hex MAC" fails.
  * 3. `exportRows` keeping group turns: "only a person's own 1:1 texts count as texting" fails.
  * 4. The export route built with no gateway check: "the export is the gateway's alone" fails.
+ * 5. `exportRows` keeping content reports: "bug reports are the sent ones, by reference and channel" fails.
  */
 
 const P1 = "0123456789abcdef";
@@ -118,6 +119,29 @@ describe("the export", () => {
     expect(out.cut).toBe(false);
   });
 
+  test("bug reports are the sent ones, by reference and channel, never a report about content or one still sending", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@example.invalid");
+    const now = Date.now();
+    const receipt = (n: number, extra: Record<string, unknown>) => ({ userId: ada, clientReportId: `c${n}`, eventId: String(n).repeat(32), state: "sent" as const, createdAt: now - n * 1000, ...extra });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("feedbackReceipts", receipt(1, { channel: "tex" }));
+      await ctx.db.insert("feedbackReceipts", receipt(2, { channel: "app" }));
+      await ctx.db.insert("feedbackReceipts", receipt(3, { channel: "content" }));
+      await ctx.db.insert("feedbackReceipts", receipt(4, { channel: "agent", state: "sending" }));
+      await ctx.db.insert("feedbackReceipts", receipt(5, {}));
+      await ctx.db.insert("feedbackReceipts", receipt(6, { channel: "tex-group", createdAt: now - 10 * DAY }));
+    });
+    const out = await t.query(internal.functions.usagePeople.exportRows, { since: now - DAY });
+    expect(out.bugs).toEqual([
+      { at: now - 2000, userId: ada, channel: "app", reference: "2".repeat(32) },
+      { at: now - 1000, userId: ada, channel: "tex", reference: "1".repeat(32) },
+    ]);
+    // The bug sheet's own first run reaches back further than the others'.
+    const back = await t.query(internal.functions.usagePeople.exportRows, { since: now - DAY, bugsSince: now - 30 * DAY });
+    expect(back.bugs.map((row: { channel: string }) => row.channel)).toEqual(["tex-group", "app", "tex"]);
+  });
+
   test("the export is the gateway's alone", async () => {
     const t = setupTest();
     for (const secret of [null, `${TEST_GATEWAY_SECRET}x`]) {
@@ -127,7 +151,7 @@ describe("the export", () => {
     const ok = await gatewayPost(t, "/gateway/usage/export", { since: 0 });
     expect(ok.status).toBe(200);
     const body = await ok.json();
-    expect(Object.keys(body).sort()).toEqual(["activity", "calls", "cut", "replies", "signups", "texts", "timingsError"]);
+    expect(Object.keys(body).sort()).toEqual(["activity", "bugs", "calls", "cut", "replies", "signups", "texts", "timingsError"]);
     expect(body.calls).toEqual([]);
     expect(typeof body.timingsError).toBe("string");
   });

@@ -88,11 +88,24 @@ export function ConnectSourceDialog({
   onClose: () => void;
 }) {
   const [way, setWay] = useState<Way | null>(start ?? (onMakeUrl === undefined && onConnectApp === undefined ? "push" : null));
+  // Set once GitHub connected in this dialog: its first sync is still running, and the picker says so.
+  const [firstRun, setFirstRun] = useState(false);
   const existing = (app: ConnectApp | "github") => sources?.find((source) => source.kind === app) ?? null;
   if ((way === "github" || way === "github-repos") && github !== undefined) {
     return (
       <Shell title="GitHub" onClose={onClose} sheet={sheet} closable>
-        {way === "github" ? <GithubForm flow={github} onConnected={() => setWay("github-repos")} onClose={onClose} /> : <GithubRepos flow={github} onClose={onClose} />}
+        {way === "github" ? (
+          <GithubForm
+            flow={github}
+            onConnected={() => {
+              setFirstRun(true);
+              setWay("github-repos");
+            }}
+            onClose={onClose}
+          />
+        ) : (
+          <GithubRepos flow={github} firstRun={firstRun} onClose={onClose} />
+        )}
       </Shell>
     );
   }

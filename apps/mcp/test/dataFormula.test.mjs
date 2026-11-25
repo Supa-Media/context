@@ -379,11 +379,12 @@ test("average, min, max and arithmetic between aggregates", () => {
   assert.deepEqual(value("(1 + 2) * 3", "day"), { value: 9, status: "ok" });
 });
 
-test("a period with no rows is no data; count of none is 0", () => {
+test("a period with no rows is no data; so is a count over a sheet with no rows at all", () => {
   const empty = { rowsOf: () => ({ columns: [{ name: "date", type: "date" }, { name: "usd", type: "usd" }], rows: [] }), every: "month", now: NOW };
   assert.equal(evaluate(ok("sum(a/b.usd)"), empty).status, "no_data");
   assert.equal(evaluate(ok("sum(a/b.usd)"), empty).value, null);
-  assert.deepEqual(evaluate(ok("count(a/b.usd)"), empty), { value: 0, status: "ok" });
+  // Nothing recorded yet is blank, never a 0 that reads as a real count (Dev2, 2026-11-25: "these metrics look fake").
+  assert.deepEqual(evaluate(ok("count(a/b.usd)"), empty), { value: null, status: "no_data" });
 });
 
 test("in + and -, a sheet with no rows this period counts as 0 beside one that has rows", () => {

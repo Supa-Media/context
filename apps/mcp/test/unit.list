@@ -791,6 +791,7 @@ test/oneGroupPrompt.test.mjs
 test/privateAside.test.mjs
 test/benchMemberCards.test.mjs
 test/dataFormula.test.mjs
+test/dataFormulaNoData.test.mjs
 test/dataSync.test.mjs
 test/dataSyncObject.test.mjs
 test/dataSyncSnap.test.mjs
@@ -801,4 +802,5 @@ test/dataSyncStripe.test.mjs
 test/attachProjects.test.mjs
 test/areaLines.test.mjs
 test/dataSyncGithub.test.mjs
+test/dataSyncBackground.test.mjs
 test/dataSyncUsage.test.mjs

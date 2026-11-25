@@ -16,6 +16,7 @@
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
+import { setImmediate as realSetImmediate } from "timers";
 import { act, createElement as h, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
@@ -26,9 +27,19 @@ jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaFrame: () => ({ x: 0, y: 0, width: 1280, height: 800 }),
 }));
 
+const mockData: { current: unknown } = { current: null };
+jest.mock("../features/console/ConsoleDataContext", () => ({
+  ...jest.requireActual<Record<string, unknown>>("../features/console/ConsoleDataContext"),
+  useOptionalConsoleData: () => mockData.current,
+}));
+const mockMint = async () => ({ accessToken: "fake-token" });
+jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => mockMint }));
+
 import { ThemeProvider } from "../features/design/theme";
 import { ConnectSourceDialog } from "../features/console/files/data/ConnectSource";
-import type { GithubFlow } from "../features/console/files/data/GithubConnect";
+import { GithubForm, GithubRepos, type GithubFlow } from "../features/console/files/data/GithubConnect";
+import { nextStatusRetry, STATUS_RETRY_MS, useSourceSyncs, type SourceSyncs } from "../features/console/files/data/useSourceSync";
+import type { DataSource } from "../features/console/files/data/sources";
 import { githubSourceFiles } from "../features/console/files/data/dataWrites";
 import { githubCalls, githubReturnOf, handBackGithubReturn, openGithubInstall, GITHUB_CHANNEL } from "../features/console/files/data/githubSync";
 import { settingsOf } from "../features/console/files/data/words";
@@ -37,13 +48,24 @@ import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 
 let roots: { root: Root; node: HTMLElement }[] = [];
-afterEach(() => {
+function unmountAll() {
   for (const { root, node } of roots) {
     act(() => root.unmount());
     node.remove();
   }
   roots = [];
+}
+afterEach(() => {
+  unmountAll();
+  jest.useRealTimers();
 });
+const deferred = () => {
+  let open = () => {};
+  const wait = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { wait, open };
+};
 
 async function mount(element: ReactElement): Promise<HTMLElement> {
   const node = document.createElement("div");
@@ -171,17 +193,15 @@ describe("boards 02, 02b and 02c", () => {
   test("only an owner on the web sees GitHub; its form shows the three datasets, then the picker starts syncing the pick", async () => {
     await mount(dialog({}));
     expect(find("connect-app-github")).toBeNull();
-    for (const { root, node } of roots) {
-      act(() => root.unmount());
-      node.remove();
-    }
-    roots = [];
+    unmountAll();
     const picked: string[][] = [];
     await mount(dialog({ github: flow(picked) }));
     await press("connect-app-github");
     for (const dataset of ["pull-requests", "deploys", "workflow-runs"]) expect(find(`github-set-${dataset}`)).not.toBeNull();
     expect(document.body.textContent).toContain("Can't change code, settings or secrets");
     await press("connect-github-make");
+    // Just connected: the first sync is still to come, so the picker says so.
+    expect(document.body.textContent).toContain("Syncing for the first time… then every hour");
     expect(find("github-repos")?.textContent).toContain("supa/site");
     expect(find("github-repo-supa/app")?.getAttribute("aria-checked")).toBe("true");
     expect(find("github-repo-supa/site")?.getAttribute("aria-checked")).toBe("false");
@@ -198,3 +218,146 @@ describe("boards 02, 02b and 02c", () => {
     expect(lines).toContain("sign-in: Read-only GitHub App, installed by an owner; no token is kept");
   });
 });
+
+describe("the picker and the form while GitHub finishes", () => {
+  type Answer = { repos: { name: string; private: boolean }[]; picked: null } | string;
+  const picker = (repos: jest.Mock<() => Promise<Answer>>) =>
+    h(GithubRepos, {
+      flow: { begin: async () => null, repos: repos as unknown as GithubFlow["repos"], pick: async () => null } as GithubFlow,
+      onClose: () => {},
+    });
+
+  test("the repository picker asks GitHub once per open, however often it redraws, and again only on Try again", async () => {
+    let answer: Answer = { repos: [{ name: "supa/app", private: true }], picked: null };
+    const repos = jest.fn(async () => answer);
+    await mount(picker(repos));
+    const root = roots[roots.length - 1]!.root;
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {
+        root.render(h(ThemeProvider, { scheme: "light", children: picker(repos) }));
+      });
+    }
+    expect(repos).toHaveBeenCalledTimes(1);
+    expect(find("github-repo-supa/app")).not.toBeNull();
+
+    // A listing that failed says so and offers Try again, which asks once more.
+    unmountAll();
+    answer = "GitHub didn't answer. Try again.";
+    await mount(picker(repos));
+    expect(repos).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).toContain("GitHub didn't answer. Try again.");
+    answer = { repos: [{ name: "supa/site", private: false }], picked: null };
+    await press("github-repos-retry");
+    expect(repos).toHaveBeenCalledTimes(3);
+    expect(find("github-repo-supa/site")).not.toBeNull();
+  });
+
+  test("the form says Connecting… once GitHub sent the owner back", async () => {
+    const reached = deferred();
+    const back = deferred();
+    let connected = 0;
+    const flow: GithubFlow = {
+      begin: async (onStep) => {
+        await reached.wait;
+        onStep?.("connecting");
+        await back.wait;
+        return null;
+      },
+      repos: async () => ({ repos: [], picked: null }),
+      pick: async () => null,
+    };
+    await mount(h(GithubForm, { flow, onConnected: () => (connected += 1), onClose: () => {} }));
+    await press("connect-github-make");
+    expect(document.body.textContent).toContain("Waiting for GitHub…");
+    expect(document.body.textContent).not.toContain("Connecting…");
+
+    await act(async () => {
+      reached.open();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.body.textContent).toContain("Connecting…");
+    expect(document.body.textContent).not.toContain("Waiting for GitHub…");
+    expect(document.body.textContent).toContain("GitHub sent you back. Context is connecting it.");
+
+    await act(async () => {
+      back.open();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(connected).toBe(1);
+  });
+});
+
+describe("a status ask that failed or found a first run still going", () => {
+  test("the retry decision: a failed ask or a first run still going is asked again, on the fixed schedule", () => {
+    const failed = { ok: false as const, said: "Context couldn't reach the sync just now. Try again." };
+    const running = { ok: true as const, sources: [{ about: "data/feed/about.md", armed: true, last: null }] };
+    const landed = { ok: true as const, sources: [{ about: "data/feed/about.md", armed: true, last: { at: 1, outcome: "ok" as const } }] };
+    expect(STATUS_RETRY_MS).toEqual([5_000, 15_000, 30_000, 60_000, 120_000]);
+    expect(nextStatusRetry(failed, 0)).toBe(5_000);
+    expect(nextStatusRetry(running, 1)).toBe(15_000);
+    expect(nextStatusRetry(landed, 0)).toBeNull();
+    expect(nextStatusRetry({ ok: true, sources: [] }, 0)).toBeNull();
+    expect(nextStatusRetry(failed, STATUS_RETRY_MS.length - 1)).toBe(120_000);
+    expect(nextStatusRetry(failed, STATUS_RETRY_MS.length)).toBeNull();
+  });
+
+  test("the sync list asks again after a failure, stops once the first run landed, and never polls forever", async () => {
+    // React's scheduler runs on the timers it has, so only the page's own timers are faked.
+    jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick", "queueMicrotask", "requestAnimationFrame"] });
+    const about = "data/feed/about.md";
+    const replies = [
+      { status: 500, body: { message: "Try again later." } },
+      { status: 200, body: { sources: [{ about, armed: true, last: null }] } },
+      { status: 200, body: { sources: [{ about, armed: true, last: { at: 1, outcome: "ok", rows: 3 } }] } },
+    ];
+    const fetchMock = jest.fn(async () => {
+      const next = replies.shift() ?? { status: 200, body: { sources: [{ about, armed: true, last: { at: 1, outcome: "ok", rows: 3 } }] } };
+      return json(next.body, next.status);
+    });
+    const real = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      mockData.current = {
+        demo: false,
+        selectedContextId: "c1",
+        contexts: [{ id: "c1", slug: "acme", role: "owner", name: "Acme" }],
+      };
+      const source = { kind: "fetch", about: { path: about, properties: {} }, aboutPath: about, folder: "data/feed", datasets: [] } as unknown as DataSource;
+      const seen: SourceSyncs[] = [];
+      const Probe = () => {
+        seen.push(useSourceSyncs([source]));
+        return null;
+      };
+      await mount(h(Probe));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // Timers and the fetch replies run in order. `act` waits on timers itself, so between steps the state changes are
+      // let through by a real macrotask from Node's timers module, which fake timers leave alone.
+      const macrotask = () => new Promise<void>((resolve) => realSetImmediate(resolve));
+      // The page's timer updates the state outside `act`, as it does in the app; the warning is off for these steps only.
+      const env = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean };
+      env.IS_REACT_ACT_ENVIRONMENT = false;
+      // React's scheduler also waits on a timer here, so each step runs the timers that fall due after it too.
+      const tick = async (ms: number) => {
+        for (let i = 0; i < 4; i++) {
+          await jest.advanceTimersByTimeAsync(i === 0 ? ms : 0);
+          await macrotask();
+        }
+      };
+      await tick(4_999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await tick(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await tick(15_000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(seen[seen.length - 1]?.syncOf("data/feed")).toEqual({ known: true, syncedAt: 1, rows: 3 });
+      // The first run landed: nothing more is asked, however long the page stays open.
+      await tick(10 * 60_000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      globalThis.fetch = real;
+      mockData.current = null;
+      (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    }
+  });
+});
+

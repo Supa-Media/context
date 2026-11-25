@@ -63,7 +63,7 @@ import type { ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
 import { groupReviewSharing } from "./groupSettings";
 import { answers, reactionLine, tapbackText, type Reaction } from "./reactions";
-import { keepSticker } from "./stickers";
+import { keepSentStickers, keepSticker } from "./stickers";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdsAsAnswer, holdThumb, onMachineAsk, onTexText } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
@@ -187,6 +187,12 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   // WhatsApp and Photon name only the sender: the group's kept list, read from the app when there is none, says who
   // else heard it (`groupMembers.ts`).
   message = await withMembers(storage, message, app, now);
+  // A sticker sent as its own text is kept for Tex to stick back, and read by its id (`stickers.ts`); only where Tex is
+  // set up, since a chat it is not keeps nothing (below).
+  if (message.stickers !== undefined) {
+    const { stickers: _stickers, ...plain } = message;
+    message = message.sms !== true && (await isBound(storage, message)) ? await keepSentStickers(storage, message, now) : plain;
+  }
   const { repliesToTex, forTex: tagged, byCode } = await isItForTexInGroup(storage, message, now);
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
