@@ -537,3 +537,29 @@ test("bug sweep: numbers, percents, UTC strings and the canonical size stay soun
   const parsed = parseFormula(big);
   if (parsed.ok) assert.ok(new TextEncoder().encode(toText(parsed.ast)).byteLength <= 2048);
 });
+
+test("hour periods are blocks of the UTC day, dividing 24", () => {
+  assert.deepEqual(parseEvery("hour"), { unit: "hours", hours: 1 });
+  assert.deepEqual(parseEvery("6 hours"), { unit: "hours", hours: 6 });
+  assert.deepEqual(parseEvery("12 Hours"), { unit: "hours", hours: 12 });
+  for (const bad of ["5 hours", "24 hours", "0 hours", "hours", "1.5 hours"]) assert.equal(parseEvery(bad), null, bad);
+  const at = "2026-11-24T14:25:00Z";
+  assert.deepEqual(windowFor("hour", at), { from: "2026-11-24T14:00:00.000Z", to: "2026-11-24T14:25:00.000Z", current: true });
+  assert.deepEqual(windowFor("6 hours", at), { from: "2026-11-24T12:00:00.000Z", to: "2026-11-24T14:25:00.000Z", current: true });
+  const three = previousWindows("3 hours", "2026-11-24T01:10:00Z", 3);
+  assert.deepEqual(three.map((w) => [w.from, w.to]), [
+    ["2026-11-23T18:00:00.000Z", "2026-11-23T21:00:00.000Z"],
+    ["2026-11-23T21:00:00.000Z", "2026-11-24T00:00:00.000Z"],
+    ["2026-11-24T00:00:00.000Z", "2026-11-24T01:10:00.000Z"],
+  ]);
+});
+
+test("a formula is worked out per hour block, and read in words", () => {
+  const sheet = parseSheet("at:date,n:number\n2026-11-24T09:15Z,1\n2026-11-24T13:00Z,2\n2026-11-24T14:59Z,4\n");
+  const c = { rowsOf: () => sheet, every: "6 hours", now: "2026-11-24T15:00:00Z" };
+  assert.equal(evaluate(ok("sum(a/b.n)"), c).value, 6);
+  assert.deepEqual(series(ok("sum(a/b.n)"), c, 2).map((w) => w.value), [1, 6]);
+  assert.equal(series(ok("sum(a/b.n)"), { ...c, every: "hour" }, 2)[0].value, 4, "the hour just closed");
+  assert.match(plainReading(ok("sum(a/b.n)"), "hour"), /, each hour$/);
+  assert.match(plainReading(ok("sum(a/b.n)"), "3 hours"), /, every 3 hours$/);
+});

@@ -18,7 +18,7 @@ import { cardColumns, dataPageKind, sourceAt, sourcesIn, sourceKindOf } from "..
 import { isMetricNotePath, metricsIn, usedByWords, usesByMetric } from "../features/console/files/data/metrics";
 import { formulaParts, HIDDEN, shortColumn, inputsOf, stateOf, targetOnScale, trendOf, workOut, type RowsOf, type Sheet } from "../features/console/files/data/workOut";
 import { contextSheets, countedFolders } from "../features/console/files/data/contextSource";
-import { ago, lastRowAt, lastRowWords, rowsWords, settingsOf, sourceStatus } from "../features/console/files/data/words";
+import { ago, lastRowAt, lastRowWords, periodLabel, rowsWords, settingsOf, sourceStatus } from "../features/console/files/data/words";
 
 const NOW = Date.parse("2026-11-25T11:00:00Z");
 
@@ -288,5 +288,15 @@ describe("words", () => {
     // No sync has run yet (stage B has none): said plainly, never "Synced".
     expect(sourceStatus(sources[0]!, sheets, NOW)).toEqual({ tone: "quiet", text: "Not synced yet", short: "not synced yet" });
     expect(sourceStatus(sources[1]!, sheets, NOW).text).toBe("Last row 11h ago");
+  });
+});
+
+describe("hour periods", () => {
+  test("an hour block is named by its start, in the reader's time; days and months keep their names", () => {
+    const block = { from: "2026-11-24T18:00:00.000Z", to: "2026-11-25T00:00:00.000Z" };
+    const start = new Date(block.from).toLocaleTimeString("en-US", { hour: "numeric" });
+    expect(periodLabel(block, "6 hours")).toBe(start);
+    expect(periodLabel(block, "hour", true)).toBe(`${start}, so far`);
+    expect(periodLabel(block, "day")).toBe("Nov 24");
   });
 });

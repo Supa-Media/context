@@ -227,7 +227,7 @@ function inWindow(ast, env) {
 function start(ast, ctx) {
   const tree = typeof ast === "string" ? parseFormula(ast) : { ok: true, ast };
   if (!tree.ok) return { fail: { value: null, status: "error", note: tree.error.message } };
-  if (!parseEvery(ctx?.every)) return { fail: { value: null, status: "error", note: `"${ctx?.every}" isn't a period: use day, week, month or N days` } };
+  if (!parseEvery(ctx?.every)) return { fail: { value: null, status: "error", note: `"${ctx?.every}" isn't a period: use hour, N hours, day, week, month or N days` } };
   const now = ctx.now === undefined ? Date.now() : toMs(ctx.now);
   if (!Number.isFinite(now)) return { fail: { value: null, status: "error", note: "the time to work it out at isn't a time" } };
   const on = typeof ctx.on === "string" && ctx.on.trim() ? ctx.on : null;

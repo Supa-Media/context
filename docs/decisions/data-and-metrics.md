@@ -35,8 +35,11 @@ with Download as folders, and every agent reads it with `fetch`
 - **Grammar.** `sum`, `count`, `average`, `median`, `p95`, `min`, `max` over a
   column `source/dataset.column`, with per-row `+ − × ÷` inside
   (`deployed - opened`), an optional `where col = value` joined by `and`, and
-  `+ − × ÷` between aggregates. A window is the metric's `every`: a calendar
-  day, ISO week or month to date in UTC, or a rolling `N days`. A date minus a
+  `+ − × ÷` between aggregates. A window is the metric's `every`: an hour or a
+  block of `N hours` (2, 3, 4, 6, 8 or 12, aligned to UTC midnight; the
+  owner, 2026-11-24), a calendar day, ISO week or month to date in UTC, or a
+  rolling `N days`. A chart names an hour block by its start in the reader's
+  own time. A date minus a
   date is minutes. There are no loops, no user functions and nothing that
   reaches out; the parser is hand-written and refuses `__proto__`,
   `constructor` and `prototype`, and a formula is at most 2 KB, 8 aggregates
