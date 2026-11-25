@@ -90,6 +90,15 @@ function isTextFilePath(path) {
 }
 
 /**
+ * A name without its text extension: `readings.csv` → `readings`,
+ * `Plan.MD` → `Plan`. Any other name is returned as it is, so `photo.png`
+ * keeps its `.png`. @param {string} name
+ */
+function withoutTextExtension(name) {
+  return isTextFilePath(name) ? name.slice(0, -extensionOf(name).length) : name;
+}
+
+/**
  * Text whose extension is written exactly as `TEXT_KINDS` lists it, the only
  * paths the privacy parsers take an exact override for. `Budget.CSV` is a
  * sheet, but it takes its folder's visibility. @param {unknown} path
@@ -110,4 +119,5 @@ module.exports = {
   isSheetPath,
   isTextFilePath,
   takesExactOverride,
+  withoutTextExtension,
 };

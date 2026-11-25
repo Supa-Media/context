@@ -25,6 +25,7 @@
 import { afterEach, beforeAll, describe, jest, test } from "@jest/globals";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
 import { act, createElement as h, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
@@ -410,7 +411,7 @@ const iconOf = (path: string) => (JOBS[path] === undefined ? null : jobIconMarke
 type Row = Parameters<typeof FileTree>[0]["rows"][number];
 function row(path: string, depth = 0, extra: Partial<Row> = {}): Row {
   const name = path.slice(path.lastIndexOf("/") + 1);
-  return { kind: "folder", key: path, path, name, label: name.replace(/\.md$/, ""), depth, expanded: false, selected: false, markerIsDefault: true, readOnly: false, ...extra };
+  return { kind: "folder", key: path, path, name, label: withoutTextExtension(name), depth, expanded: false, selected: false, markerIsDefault: true, readOnly: false, ...extra };
 }
 
 function treeFor(selected: string): Row[] {

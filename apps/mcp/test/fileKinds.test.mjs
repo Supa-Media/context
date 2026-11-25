@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  FILE, NOTE, SHEET, TEXT_EXTENSIONS, extensionOf, isNotePath, isSheetPath, isTextFilePath, kindOf, takesExactOverride,
+  FILE, NOTE, SHEET, TEXT_EXTENSIONS, extensionOf, isNotePath, isSheetPath, isTextFilePath, kindOf, takesExactOverride, withoutTextExtension,
 } from "../../../packages/shared/src/fileKinds.cjs";
 
 test("a note is Markdown, a sheet is a .csv, and anything else is a file", () => {
@@ -59,4 +59,11 @@ test("a dot-file, a folder and a non-string have no text kind", () => {
   assert.equal(kindOf("areas/"), FILE);
   assert.equal(kindOf(null), FILE);
   assert.equal(kindOf(42), FILE);
+});
+
+test("a name loses only a text extension", () => {
+  assert.equal(withoutTextExtension("readings.csv"), "readings");
+  assert.equal(withoutTextExtension("Plan.MD"), "Plan");
+  assert.equal(withoutTextExtension("home.page.md"), "home.page");
+  assert.equal(withoutTextExtension("photo.png"), "photo.png");
 });
