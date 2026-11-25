@@ -46,6 +46,9 @@
  * - `gnames` handles by the hash of a phone, never a number (`groupTurn.ts`).
  */
 
+import { didUnsaid } from "./didFacts";
+import { turnFailed } from "./groupTurnFailed";
+export { turnFailed };
 import { SEEN_FOR_MS } from "./replayWindow";
 import { GROUP_QUEUE, queueFull, queueItem } from "./chatQueue";
 import { ASK_KEY, isAsker, isItForTexInGroup, type OpenAsk } from "./isItForTex";
@@ -54,7 +57,7 @@ import { reportRoutineResult, type RoutineOutcome } from "./routineClients";
 import { chatRoutineMessage, type ChatRoutineRun } from "./groupRoutines";
 import { askControlPlane, type ControlAnswer } from "./groupControl";
 import { dropKept, keepAnswer, keptAnswer, refreshKept } from "./groupKept";
-import { failedLine, GROUP_LINES, PICTURE_LINE } from "./groupLines";
+import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { Command, ControlAnswer };
 import { log, MAX_SENT, say, timedReply, type ReplyClock } from "./groupSay";
@@ -73,7 +76,6 @@ import { inRoom, namesOnlySender, readMembersNow, withMembers } from "./groupMem
 import type { NoteCardDrawer } from "./noteCards";
 import { isBound, isMuted, keepChatLine, markMutedTold, mutedTold, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
-import { watchFailed } from "./reviewWatch";
 import { callsTex, groupCommand, type Command } from "./groupWords";
 import { keepTagPeople } from "./groupTags";
 import type { JobRun, JobSteer } from "./jobs";
@@ -558,20 +560,10 @@ export async function answerInline(storage: InboxStorage, entries: GroupEntry[],
  * 2026-11-12: the Nov Babies chat's two finished pages were dropped here), unless Tex was told to stop in this chat.
  */
 async function cannotRun(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, status: string | null): Promise<void> {
+  if (await didUnsaid(storage, deps, message, status ?? "no_chat")) return;
   if (message.jobReport === undefined || status === "muted" || status === "stopped") return await routineDone(deps, message, "no_chat");
   log("job_report_held");
   await say(storage, deps, message, GROUP_LINES.jobReportRefused, { system: true, reason: "failed" }).catch(() => {});
-}
-
-/** A turn given up on (`reason` as logged): a routine nobody asked for just now fails quietly; anyone else is told what broke, and the chat is scored (`watchFailed`). */
-export async function turnFailed(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, reason: string | undefined): Promise<void> {
-  if (message.jobReport !== undefined) {
-    // Never lost in silence: the chat hears that news is waiting, and the job list holds it for the next tag (`chatJobs`).
-    log("job_report_failed");
-    await say(storage, deps, message, GROUP_LINES.jobReportRefused, { system: true, reason: "failed" }).catch(() => {});
-  } else if (message.crossChat !== undefined) log("cross_chat_failed"); // the asking chat hears it timed out (`crossChat.ts`)
-  else if (message.routine !== undefined) await routineDone(deps, message, "failed");
-  else await say(storage, deps, message, failedLine(reason), { system: true, reason: reason === "gateway:504" ? "timed_out" : "failed" }).catch(() => {}).then(() => watchFailed(storage, deps, message));
 }
 
 /** One turn for `entries`, as one message (`mergedGroup`). "cancelled" when a restart cancelled it: nothing of it was sent. */

@@ -191,7 +191,9 @@ export function setup(
         await held;
       }
       const took = steers.filter((steer) => steer.turn === body.turn);
-      return Response.json(opts.agent?.(body) ?? { answer: `answer to ${body.question}`, ...(took.length > 0 ? { steered: took.map((steer) => steer.id) } : {}) });
+      const out = opts.agent?.(body);
+      if (out instanceof Response) return out; // a status of its own: 409 is no model, 429 a rate limit
+      return Response.json(out ?? { answer: `answer to ${body.question}`, ...(took.length > 0 ? { steered: took.map((steer) => steer.id) } : {}) });
     }
     throw new Error(`unexpected ${url}`);
   }) as unknown as Fetch;

@@ -16,6 +16,7 @@
  * quote the request, and the request is somebody's message.
  */
 
+import type { Did } from "./didFacts";
 import { readUnder, type UnderPart } from "./bubblesUnder";
 import type { GatewayAttachment } from "./attachments";
 import { type Settings } from "./texStyle";
@@ -318,6 +319,7 @@ export async function askAgent(
     job,
     onStep,
     event,
+    did,
     jobReport,
     crossChat,
     crossCounts,
@@ -342,7 +344,9 @@ export async function askAgent(
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
     onStep?: (text: string, how?: StepHow) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
-    event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer" | "joined";
+    event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer" | "joined" | "did";
+    /** What code did for this chat, as data, with `event` "did" (`didFacts.ts`); the gateway's node `did` reads it. */
+    did?: Did;
     /** Another chat's ask, or the answer to this chat's own (`crossChat.ts` `crossFields`); and what this chat holds of its asks, for the Cross-chat gate. */
     crossChat?: Omit<CrossEvent, "reply">;
     crossCounts?: { hour: number; day: number; open: string[] };
@@ -383,6 +387,7 @@ export async function askAgent(
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
     ...(event ? { event } : {}),
+    ...(did ? { did } : {}),
     ...(jobReport ? { jobReport } : {}),
     ...(crossChat ? { crossChat } : {}),
     ...(crossCounts ? { crossCounts } : {}),
