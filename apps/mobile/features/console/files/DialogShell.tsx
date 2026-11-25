@@ -10,7 +10,7 @@ import {
   type TargetedEvent,
 } from "react-native";
 import { Text } from "../../design/components/Text";
-import { radii } from "../../design/tokens";
+import { pointerType, radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 
 /**
@@ -172,7 +172,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { flexShrink: 1 },
   close: { marginLeft: "auto", width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: radii.xs },
-  closeGlyph: { fontSize: 20, lineHeight: 22, color: colors.muted },
+  closeGlyph: { fontSize: pointerType.h3, lineHeight: 22, color: colors.muted },
   /** Under a popover the window stays as it was: the card is the only thing that changed. */
   anchoredScrim: { backgroundColor: "transparent", alignItems: "stretch", justifyContent: "flex-start", padding: 0 },
   anchored: {

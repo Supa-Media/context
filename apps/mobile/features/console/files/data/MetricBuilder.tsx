@@ -13,6 +13,7 @@ import { plainReading } from "../../../../../mcp/src/data/formula/index.js";
 import { Button } from "../../../design/components/Button";
 import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
+import { useFieldFont } from "../../../design/fieldFont";
 import { fonts, pointerType, radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { Shell } from "../DialogShell";
@@ -79,6 +80,7 @@ export function MetricBuilderDialog({
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveProblem, setSaveProblem] = useState<string | null>(null);
+  const formatFont = useFieldFont(pointerType.ui);
   const set = (patch: Partial<MetricDraft>) => setDraft((was) => ({ ...was, ...patch }));
 
   const path = metricPathFor(metricsFolder, draft.name, taken);
@@ -150,7 +152,7 @@ export function MetricBuilderDialog({
               accessibilityLabel="Shown as"
               autoCapitalize="none"
               autoCorrect={false}
-              style={styles.formatInput}
+              style={[styles.formatInput, formatFont]}
               testID="metric-format"
             />
           </View>
@@ -252,6 +254,7 @@ function FormulaInput({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const input = useRef<TextInput>(null);
+  const formulaFont = useFieldFont(pointerType.ui);
   const [caret, setCaret] = useState(formula.length);
   const [place, setPlace] = useState<{ start: number; end: number } | undefined>(undefined);
   const [focused, setFocused] = useState(true);
@@ -323,7 +326,7 @@ function FormulaInput({
         placeholder="sum(stripe/revenue.usd) ÷ sum(cloudflare/ai-spend.usd)"
         placeholderTextColor={colors.muted}
         accessibilityLabel="Formula"
-        style={styles.formulaInput}
+        style={[styles.formulaInput, formulaFont]}
         testID="metric-formula"
       />
       {open ? (
