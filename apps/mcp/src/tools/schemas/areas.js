@@ -5,13 +5,9 @@ export function areaToolDefinitions() {
       name: "set_area",
       title: "Set up an area",
       description:
-        "Change an area's settings in one call, the same front matter the app's area panel writes: who holds it (owner, helper: a person's @handle " +
-        "or a bot's name), its modes (Visionary, Manager, Doer), the rules that need the owner's approval, and its one metric (the name of a metric note " +
-        "in the data folder's metrics/, with a target). bot { name, kind: grok, whose: @handle, reach: webhook | mail } makes or changes a bot's card " +
-        "and lists it among the workspace's agents; set owner to its name to give it the area. delegate { person: @handle, to: bot name | Tex | null } says " +
-        "who answers for a person in every area they hold. webhook { address, header?, signing_key? } saves the bot's webhook sealed (an owner or " +
-        "editor only; Context calls it signed when the area's mail gets a new message, and never shows the address, header or key again); " +
-        "test_webhook: <bot name> sends it a signed test call. orient { area } shows an area afterwards.",
+        "Change an area's settings, as the app's area panel does: owner and helper (@handle or bot name), modes, approval rules and its one " +
+        "metric (a metric note's name in the data folder's metrics/, with a target). bot makes or changes a bot's card; delegate says who " +
+        "answers for a person; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call.",
       inputSchema: {
         type: "object",
         properties: {
