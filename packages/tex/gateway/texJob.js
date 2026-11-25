@@ -4,12 +4,11 @@
  * object's own storage, the way `texChat.js` runs a chat's. Its own alarm drives each pass (`jobDrive.ts`) through the job
  * node (`passNext`).
  *
- * Differences from `TexChat`, which copies a chat in from the Worker:
+ * Differences from `TexChat`:
  *   - nothing is copied. The object is born on its first `POST /job-start` (the job's name in `x-inbox-name`), which
  *     records `__job_born` and `__inbox_name`. Until then every path but `/job-start` answers 404
  *     `{"here": false}`;
- *   - the name header is taken off every call before the inner object sees it. The inner object's move gate would
- *     otherwise try to copy the object in from the Worker, which a job never was (`inboxMove.ts` `placeGate`);
+ *   - the name header is taken off every call before the inner object sees it;
  *   - the inner object reaches other jobs' objects here, and chats' in `TEX_CHAT` (`chatEnv`'s `senderObjects`).
  *
  * Every job is born here: a chat reaches it by name (`chatEnv`'s `senderObjects`), and the Worker through
@@ -26,7 +25,7 @@ import { JOB_NAME } from "./texJobName.js";
 import { gatewayGraph } from "./agent/graph/gatewayGraph.js";
 import { jobNodeWriter, readJobNodes } from "./texJobLog.js";
 
-/** The header a job's name travels in between objects (`inboxMove.ts` `INBOX_NAME_HEADER`). */
+/** The header a job's name travels in between objects (`packages/tex/worker/gatewayChats.ts` `INBOX_NAME_HEADER`). */
 export const JOB_NAME_HEADER = "x-inbox-name";
 /** Set once, when the object is born: the time it was. */
 export const BORN_KEY = "__job_born";

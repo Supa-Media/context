@@ -56,10 +56,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
-  "durable_objects": {
-    "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
-  },
-  "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+  // Every chat lives in the gateway's TexChat. The Worker's own chat class, SenderInbox, was deleted on 2026-11-25 (part C
+  // of the runtime simplification) after a census proved each of its objects moved, purged, empty or archived whole into
+  // the gateway (`docs/decisions/texting-assistant/chat-in-gateway.md`). Its migration tags stay: they are history.
+  "migrations": [
+    { "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] },
+    { "tag": "v2-sender-inbox-deleted", "deleted_classes": ["SenderInbox"] }
+  ],
   "vars": {
     "GATEWAY_ORIGIN": "https://mcp.context.lc",
     // Context cards (src/appCards.ts, src/cardChats.ts): "on" for every
@@ -85,7 +88,8 @@
   ],
   // The gateway's `TexTexts` entrypoint (packages/tex/gateway/agent/textsSession.js): a text's session from the person object,
   // without Convex. A named entrypoint is reachable only through this binding, so there is no secret to set. The
-  // gateway must have deployed the entrypoint first. Self-hosting without it: delete this block; sessions are Convex's.
+  // gateway must have deployed the entrypoint first. Every chat lives in the gateway and is reached through it, so it is
+  // required, self-hosting included.
   "services": [
     { "binding": "GATEWAY_TEXTS", "service": "context-mcp", "entrypoint": "TexTexts" },
     // The Photon bridge (infra/photon-bridge): Tex's sends on photon: chats. It answers 503 "unconfigured" until its secrets are set.
@@ -95,10 +99,10 @@
     "staging": {
       "name": "context-agent-staging",
       "workers_dev": true,
-      "durable_objects": {
-        "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
-      },
-      "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+      "migrations": [
+        { "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] },
+        { "tag": "v2-sender-inbox-deleted", "deleted_classes": ["SenderInbox"] }
+      ],
       "triggers": { "crons": ["* * * * *"] },
       "images": { "binding": "IMAGES" },
       "analytics_engine_datasets": [
@@ -125,10 +129,10 @@
     "preview": {
       "name": "context-agent-__PREVIEW__",
       "workers_dev": true,
-      "durable_objects": {
-        "bindings": [{ "name": "SENDER_INBOX", "class_name": "SenderInbox" }]
-      },
-      "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
+      "migrations": [
+        { "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] },
+        { "tag": "v2-sender-inbox-deleted", "deleted_classes": ["SenderInbox"] }
+      ],
       "triggers": { "crons": ["* * * * *"] },
       "images": { "binding": "IMAGES" },
       "analytics_engine_datasets": [

@@ -21,11 +21,7 @@ import { inboxForPageChat, readPageChat, readPageSteer, type PageJobs } from "./
 import { readMailDelivery } from "./jobMail";
 import { readPageAnswer, type PageAnswerOutcome } from "./pageAnswer";
 import { jobObject } from "./jobObject";
-import { adoptable, archive, census, CENSUS_PATH, EXPORT_PATH, namesById, SELF_NAMES_PATH, type Adoptable, type ArchiveCounts, type CensusCounts, type ObjectCensus } from "./workerCensus";
-import { objectById, objectIdText } from "./objectPlace";
 import type { TextsBinding } from "./gatewaySession";
-import { chatMove as moveChat } from "./gatewayMove";
-import { inboxFetch, inboxId } from "./chatCalls";
 import { checkGroupLineCall, checkLineCall, groupLineCallDeps, lineCallDeps, runGroupLineCall, runLineCall, type GroupLineCall, type LineCall, type LineCallEnv, type LineCallResult } from "./lineCalls";
 
 /** A person's owner is their personal workspace's id, as the gateway names its Tex store. */
@@ -36,7 +32,6 @@ export type TexRoutineEnv = LineCallEnv & {
   CONTROL_PLANE_ORIGIN: string;
   AGENT_WORKER_SECRET: string;
   GATEWAY_ORIGIN: string;
-  SENDER_INBOX: DurableObjectNamespace;
   /** A job's object is the gateway's `TexJob`, reached through it (`jobObject.ts`). */
   GATEWAY_TEXTS?: TextsBinding;
 };
@@ -47,86 +42,6 @@ export class TexRoutines extends WorkerEntrypoint<TexRoutineEnv> {
     const scope = scopeOf(call);
     if (scope === null) throw new TypeError("an alarm names a person's owner and a routine path");
     return await runScopedRoutine(this.deps(), scope);
-  }
-
-  /** Moves a chat's inbox out to the gateway, or takes it back (`gatewayMove.ts`); rejects a name that never moves (`TypeError`). */
-  async chatMove(call: { inbox: string; op: "out" | "back" }): Promise<{ status: number; body: unknown }> {
-    return await moveChat(this.env.SENDER_INBOX, call);
-  }
-
-  /** One of this Worker's objects, called by the gateway's copy of a chat by its placed name (`chatCalls.ts`). */
-  async inboxFetch(call: { name?: unknown } | null, request: Request): Promise<Response> {
-    return await inboxFetch(this.env.SENDER_INBOX, call, request);
-  }
-
-  /**
-   * What each of this Worker's objects named by id still holds, counted (`workerCensus.ts`): the Lab's staff `intake`
-   * op asks it before the SenderInbox class is deleted. Rejects more than `CENSUS_BATCH` ids (`TypeError`).
-   * `names` (the caller's candidate chat names) are hashed here, and each object still here answers which one it was
-   * made from by index, never by name. With `adopt`, each chat object no candidate matched works out its own name from
-   * the chat it last answered, kept only when that name's id is its own, and hands it back for the gateway to move.
-   */
-  async census(call: { ids?: unknown; names?: unknown; adopt?: unknown } | null): Promise<CensusCounts & { adoptable?: Adoptable[] }> {
-    const idOf = (name: string) => objectIdText(this.env.SENDER_INBOX, name);
-    const byId = namesById(call?.names, idOf);
-    const askObject = async (id: string, path: string): Promise<Response | null> => {
-      const stub = objectById(this.env.SENDER_INBOX, id);
-      return stub === null ? null : await stub.fetch(`https://inbox${path}`);
-    };
-    const counts = await census(
-      async (id) => {
-        const answer = await askObject(id, CENSUS_PATH);
-        return answer?.ok ? ((await answer.json()) as ObjectCensus) : null;
-      },
-      call?.ids,
-      (id) => byId.get(id),
-    );
-    if (call?.adopt !== true) return counts;
-    const found = await adoptable(
-      counts.hereObjects,
-      async (id) => {
-        const answer = await askObject(id, SELF_NAMES_PATH);
-        return answer?.ok ? ((await answer.json()) as string[]) : [];
-      },
-      idOf,
-    );
-    return { ...counts, adoptable: found };
-  }
-
-
-  /**
-   * Each object named by id that still holds data no name leads to, copied whole into the gateway's archive
-   * (`/texts/worker-archive`, `texChat/workerArchive.js`) before the SenderInbox class is deleted; nothing is deleted
-   * here. The Lab's staff `intake` op asks it (Dev2, 2026-11-23).
-   */
-  async archive(call: { ids?: unknown } | null): Promise<ArchiveCounts> {
-    const ask = async (id: string, path: string): Promise<Response | null> => {
-      const stub = objectById(this.env.SENDER_INBOX, id);
-      return stub === null ? null : await stub.fetch(`https://inbox${path}`);
-    };
-    return await archive(call?.ids, {
-      census: async (id) => {
-        const answer = await ask(id, CENSUS_PATH);
-        return answer?.ok ? ((await answer.json()) as ObjectCensus) : null;
-      },
-      export: async (id) => {
-        const answer = await ask(id, EXPORT_PATH);
-        if (!answer?.ok) throw new Error("export failed");
-        return (await answer.json()) as [string, unknown][] | null;
-      },
-      keep: async (id, entries) => {
-        if (this.env.GATEWAY_TEXTS === undefined) return "failed";
-        const answer = await this.env.GATEWAY_TEXTS.fetch("https://gateway/texts/worker-archive", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, entries }) });
-        if (!answer.ok) return "failed";
-        const body = (await answer.json().catch(() => ({}))) as { kept?: unknown; already?: unknown };
-        return body.already === true ? "already" : body.kept === true ? "kept" : "failed";
-      },
-    });
-  }
-
-  /** The id a chat had here, for the addresses its pictures and pages are served at (`chatCalls.ts`). */
-  async inboxId(call: { name?: unknown } | null): Promise<string> {
-    return inboxId(this.env.SENDER_INBOX, call);
   }
 
   /** The Tex page's view of a chat's jobs (`texPage.ts`); rejects a chat that names neither a phone nor a group key (`TypeError`). */

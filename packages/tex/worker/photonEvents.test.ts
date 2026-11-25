@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withGateway } from "./gatewayOver.testing";
 import worker, { type Env } from "./index";
 import { PhotonEvents } from "./photonEvents";
 import { MAX_REPLAY_MS } from "./replayWindow";
@@ -16,7 +17,7 @@ const ORIGIN = "https://agent.example";
 type Routed = { to: string; path: string; body: Record<string, unknown> };
 
 /**
- * The Worker's env with the SenderInbox stubbed by name. `status` is what each inbox answers with; `origin` is what the
+ * The Worker's env with the chats stubbed by name (reached through `gatewayOver.testing.ts`). `status` is what each inbox answers with; `origin` is what the
  * chat object reports as its stored origin (`/origin`), null for a chat that has never seen one.
  */
 function env(over: Partial<Env> = {}, inbox: { status?: number; origin?: string | null; moves?: (path: string, body: Record<string, unknown>) => Record<string, unknown> | undefined } = {}): { env: Env; routed: Routed[]; bridge: string[] } {
@@ -44,7 +45,7 @@ function env(over: Partial<Env> = {}, inbox: { status?: number; origin?: string 
   return {
     routed,
     bridge,
-    env: {
+    env: withGateway({
       SENDER_INBOX: namespace,
       LINQ_WEBHOOK_SECRET: "",
       LINQ_API_KEY: "k",
@@ -53,7 +54,7 @@ function env(over: Partial<Env> = {}, inbox: { status?: number; origin?: string 
       GATEWAY_ORIGIN: "https://gw.example",
       PHOTON: photon,
       ...over,
-    },
+    }),
   };
 }
 

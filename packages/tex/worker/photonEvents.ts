@@ -12,7 +12,7 @@
  */
 
 import { WorkerEntrypoint } from "cloudflare:workers";
-import type { Env } from "./env";
+import type { WorkerEnv as Env } from "./env";
 import { groupInboxName } from "./groupInbox";
 import { arrivedAs, asOldGroup, removeOldNumber, type Matched } from "./groupMoves";
 import { post } from "./clients";
@@ -128,26 +128,20 @@ export async function photonEvent(env: Env, body: unknown): Promise<number> {
     await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, message, photonGroupNameOf(body));
     const name = groupInboxName(message.groupId);
     const brought = { ...message, provider };
-    const result =
-      (await toChat(env, "group", name, brought, known)) ??
-      (await inboxByName(env.SENDER_INBOX, name).fetch(`https://inbox/group-accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
+    const result = await toChat(env, "group", name, brought, known);
     log("accepted", "group");
     return result.ok ? 200 : 503;
   }
   if (parsed.kind === "reaction") {
     const reacted = { ...parsed, provider };
-    const result =
-      (await toChat(env, "react", parsed.from, reacted)) ??
-      (await inboxByName(env.SENDER_INBOX, parsed.from).fetch("https://inbox/react", { method: "POST", body: JSON.stringify(reacted) }));
+    const result = await toChat(env, "react", parsed.from, reacted);
     log("accepted", "reaction");
     return result.ok ? 200 : 503;
   }
   if (parsed.kind !== "message") return 400;
   log("accepted");
   const brought = { ...parsed, provider };
-  const result =
-    (await toChat(env, "one", parsed.from, brought, known)) ??
-    (await inboxByName(env.SENDER_INBOX, parsed.from).fetch(`https://inbox/accept?origin=${encodeURIComponent(known ?? "")}`, { method: "POST", body: JSON.stringify(brought) }));
+  const result = await toChat(env, "one", parsed.from, brought, known);
   return result.ok ? 200 : 503;
 }
 
@@ -167,12 +161,12 @@ async function groupChange(env: Env, change: NonNullable<ReturnType<typeof photo
     return 200;
   }
   const name = groupInboxName(place.groupId);
-  const result = (await toChat(env, "members", name, null)) ?? (await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/group-members-changed", { method: "POST" }));
+  const result = await toChat(env, "members", name, null);
   log("accepted", "group_members");
   // Tex's own number added there, by `from`: its hello, once (`groupJoined.ts`; nothing while the config has no node `joined`).
   if (change.texAdded === true && change.from !== undefined) {
     const joined = { groupId: place.groupId, line: place.line, by: change.from };
-    const said = (await toChat(env, "joined", name, joined)) ?? (await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/group-joined", { method: "POST", body: JSON.stringify(joined) }));
+    const said = await toChat(env, "joined", name, joined);
     log(said.ok ? "accepted" : "failed", "group_joined");
   }
   return result.ok ? 200 : 503;
@@ -213,7 +207,7 @@ async function photonEdit(env: Env, edit: PhotonEdit, provider: unknown): Promis
     if (arrival.from !== null) brought = asOldGroup({ ...brought, groupId: edit.groupId, participants: edit.participants ?? [edit.from] }, arrival.from);
     name = groupInboxName(brought.groupId ?? edit.groupId);
   }
-  const result = (await toChat(env, "edit", name, brought)) ?? (await inboxByName(env.SENDER_INBOX, name).fetch("https://inbox/edit", { method: "POST", body: JSON.stringify(brought) }));
+  const result = await toChat(env, "edit", name, brought);
   log("accepted", `${edit.groupId !== undefined ? "group_" : ""}${edit.kind === "unsent" ? "unsend" : "edit"}`);
   return result.ok ? 200 : 503;
 }

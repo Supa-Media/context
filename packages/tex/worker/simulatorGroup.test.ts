@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { withGateway } from "./gatewayOver.testing";
 import worker, { type Env } from "./index";
 import { acceptGroup, drainGroup, groupInboxName } from "./groupInbox";
 import { groupLineFor } from "./groupLine";
@@ -34,6 +35,7 @@ function setup(simulator: string | undefined) {
     }),
   } as unknown as DurableObjectNamespace;
   const env: Env = { SENDER_INBOX: namespace, LINQ_WEBHOOK_SECRET: "", LINQ_API_KEY: "k", AGENT_WORKER_SECRET: "s", CONTROL_PLANE_ORIGIN: "https://cp.example", GATEWAY_ORIGIN: "https://gw.example", SIMULATOR: simulator };
+  withGateway(env);
   return { env, objects };
 }
 

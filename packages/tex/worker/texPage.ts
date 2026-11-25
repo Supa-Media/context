@@ -104,7 +104,7 @@ export function readPageChat(value: unknown): PageChat | null {
  * The inbox a page's chat is kept in, or null when there is no such chat. A
  * group's key is looked up in its directory entry, which knows the group.
  */
-export async function inboxForPageChat(env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding }, chat: PageChat): Promise<{ fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> } | null> {
+export async function inboxForPageChat(env: { GATEWAY_TEXTS?: TextsBinding }, chat: PageChat): Promise<{ fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> } | null> {
   if ("phone" in chat) return chatInGateway(env, chat.phone);
   const directory = chatInGateway(env, chatDirectoryName(chat.groupKey));
   const found = await directory.fetch("https://inbox/chat-where", { method: "GET" });

@@ -182,8 +182,9 @@ old inbox is idle (no call, alarm or handed-on work running), since a turn
 waits on the gateway for seconds. Until then, and after any failed copy, the
 old inbox keeps answering, so a move never stops anyone's texts. The copy is
 checked by a digest the old inbox computes over every key and value, and a
-value the copy cannot carry exactly refuses the move. Tests:
-`packages/tex/worker/inboxMove.test.ts`.
+value the copy cannot carry exactly refuses the move. (The texting Worker's
+inboxes, and this copy with them, are gone since 2026-11-25: every chat lives in
+the gateway, `texting-assistant/chat-in-gateway.md`.)
 
 ## Measured (production, 2026-10-31 18:00 to 2026-11-01 18:00 UTC)
 

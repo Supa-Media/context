@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withGateway } from "./gatewayOver.testing";
 import worker, { type Env } from "./index";
 
 const RAW_KEY = new Uint8Array(32).map((_, i) => 200 - i);
@@ -33,14 +34,14 @@ function env(): { env: Env; routedTo: string[] } {
   } as unknown as DurableObjectNamespace;
   return {
     routedTo,
-    env: {
+    env: withGateway<Env>({
       SENDER_INBOX: namespace,
       LINQ_WEBHOOK_SECRET: SECRET,
       LINQ_API_KEY: "k",
       AGENT_WORKER_SECRET: "s",
       CONTROL_PLANE_ORIGIN: "https://cp.example",
       GATEWAY_ORIGIN: "https://gw.example",
-    },
+    }),
   };
 }
 

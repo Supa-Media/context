@@ -8,6 +8,11 @@ import type { Line } from "./line";
 import type { GroupLine } from "./groupLine";
 
 export interface Env {
+  /**
+   * Every other chat and job, by name, as the chat object reaches them: handed to it by the gateway (`texChat.js`
+   * `senderObjects`) or a Lab test chat. The texting Worker has none (its SenderInbox class was deleted, 2026-11-25), so
+   * its own handlers take `WorkerEnv` and reach a chat through `gatewayChats.ts`.
+   */
   SENDER_INBOX: DurableObjectNamespace;
   /** A job's pass and its "couldn't finish" line as the gateway's job node runs them (`packages/tex/gateway/texJob.js`); absent, run in the object. */
   JOB_STEP?: JobStep;
@@ -63,3 +68,6 @@ export interface Env {
   APPLE_TEAM_ID?: string;
   APP_STORE_ID?: string;
 }
+
+/** The texting Worker's own bindings: everything the chat object reads but the chats themselves. */
+export type WorkerEnv = Omit<Env, "SENDER_INBOX">;

@@ -42,7 +42,7 @@ export async function arriveForTexts(request, env) {
   return Response.json(outcome, { status: answer.status });
 }
 
-/** The prefix of a call the texting Worker's moved chat object passes on (`packages/tex/worker/inboxMove.ts` `forward`). */
+/** The prefix of a call to a chat by its name, from the texting Worker (`packages/tex/worker/gatewayChats.ts`). */
 export const TEXTS_CHAT_CALL_PREFIX = "/texts/chat-call/";
 
 /**
