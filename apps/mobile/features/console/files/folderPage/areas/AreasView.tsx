@@ -161,7 +161,9 @@ export function AreasView(props: AreasViewProps) {
       const now = Date.now();
       const last = lastPress.current;
       lastPress.current = { folder: area, at: now };
-      if (onPanel === undefined || (last !== null && last.folder === area && now - last.at < DOUBLE_PRESS_MS)) {
+      // The top row is this page already: pressing it only ever shows it in the panel.
+      const again = last !== null && last.folder === area && now - last.at < DOUBLE_PRESS_MS && area !== tree.seat.folder;
+      if (onPanel === undefined || again) {
         lastPress.current = null;
         setPeek(null);
         onSelect(area);
@@ -169,11 +171,12 @@ export function AreasView(props: AreasViewProps) {
       }
       setPeek(area);
     },
-    [onPanel, onSelect],
+    [onPanel, onSelect, tree],
   );
   const closePeek = useCallback(() => setPeek(null), []);
   // A folder change (opening an area) closes the panel.
   useEffect(() => setPeek(null), [folder]);
+  const rootTitle = folder === root ? rootName : areaTitle(tree.seat.name);
   const peekNode = peek === null ? undefined : findNode(tree, peek);
   // The panel's contents follow this view's every render through a slot of
   // their own, so the page only hears when the panel opens or closes.
@@ -183,13 +186,12 @@ export function AreasView(props: AreasViewProps) {
       ? null
       : {
           node: peekNode,
+          ...(peekNode === tree ? { top: rootTitle } : {}),
           canEdit,
           faceOf,
-          label,
-          reach,
           readingOf,
-          onSave: (seat, edit) => save(seat, edit, []),
-          onEditSeat: (seat) => setEditing({ seat }),
+          onSave: save,
+          tools: { people, agents, isAgent, cardFor, label },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);
@@ -203,7 +205,6 @@ export function AreasView(props: AreasViewProps) {
     onPanel?.(peekOpen ? (width: number) => <PanelSlot slot={slot} width={width} /> : null);
   }, [onPanel, peekOpen, slot]);
   useEffect(() => () => onPanel?.(null), [onPanel]);
-  const rootTitle = folder === root ? rootName : areaTitle(tree.seat.name);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
   const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf };
   return (
@@ -222,7 +223,7 @@ export function AreasView(props: AreasViewProps) {
           onAssign={canEdit ? (seat) => setEditing({ seat }) : null}
         />
       ) : (
-        <AreasList {...shared} onOpen={onSelect} onArea={onArea} selected={peek} />
+        <AreasList {...shared} onOpen={onSelect} onArea={onArea} selected={peek} rootPeeks={onPanel !== undefined} />
       )}
       {menu !== null ? (
         <SeatMenu

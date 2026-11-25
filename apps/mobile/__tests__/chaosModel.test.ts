@@ -9,10 +9,6 @@ import {
   biggestWins,
   chaosToT,
   chaosWord,
-  askYourAi,
-  folderAdvice,
-  folderLine,
-  folderLineShows,
   folderHint,
   folderLabel,
   itemsLabel,
@@ -98,39 +94,19 @@ describe("a folder's hint", () => {
   });
 });
 
-describe("the folder page's line", () => {
-  test("only past fine, or thin", () => {
-    expect(folderLineShows(null)).toBe(false);
-    expect(folderLineShows({ folder: "a", items: 12, chaos: 33 })).toBe(true);
-    expect(folderLineShows({ folder: "a", items: 10, chaos: 25 })).toBe(false);
-    expect(folderLineShows({ folder: "a", items: 2, chaos: 20 })).toBe(true);
-    expect(folderLineShows({ folder: "a", items: 2, chaos: 0 })).toBe(false);
-    expect(folderLineShows({ folder: "a", items: 5, chaos: 0 })).toBe(false);
-  });
-  test("the line: how many things, and what calm is, in plain words", () => {
-    expect(folderLine({ folder: "a", items: 14, chaos: 45 })).toEqual({ lead: "14 things in here", tail: "calm is 4 or 5" });
-    expect(folderLine({ folder: "a", items: 1, chaos: 40 }).lead).toBe("Only 1 thing in here");
-    expect(folderLine({ folder: "a", items: 0, chaos: 60 }).lead).toBe("Only an about note in here");
-  });
-  test("the advice fits the folder: split a crowded one, fold up a thin one", () => {
-    const crowded = folderAdvice({ folder: "a", items: 14, chaos: 45 });
-    expect(crowded.lead).toBe("14 things in here. Folders feel calm with 4 or 5.");
-    expect(crowded.tips.join(" ")).toContain("two to five themes");
-    expect(crowded.tips.join(" ")).toContain("Archive never counts");
-    const thin = folderAdvice({ folder: "a", items: 1, chaos: 40 });
-    expect(thin.lead).toBe("Only 1 thing in here. Folders feel calm with 4 or 5.");
-    expect(thin.tips[0]).toBe("Move this note up into the folder above.");
-    expect(folderAdvice({ folder: "a", items: 2, chaos: 20 }).tips[0]).toBe("Move these notes up into the folder above.");
-    expect(folderAdvice({ folder: "a", items: 0, chaos: 60 }).lead).toBe("Only an about note in here.");
-  });
-  test("advice, never a nag: nothing it says tells anyone they should", () => {
-    for (const items of [0, 1, 2, 14, 40]) {
-      const says = folderAdvice({ folder: "a", items, chaos: 60 });
-      expect([says.lead, ...says.tips].join(" ").toLowerCase()).not.toMatch(/you should|tidy|clean up/);
+describe("no folder page line", () => {
+  // Dev, 2026-11-24, of "Only 2 things in here · calm is 4 or 5": "remove this line anywhere and everywhere it is".
+  test("the app says it nowhere", () => {
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+    const path = require("node:path") as typeof import("node:path");
+    const root = path.join(__dirname, "..");
+    let found = "";
+    try {
+      found = execFileSync("grep", ["-rlE", "calm is 4 or 5|things in here", "features", "app", "scripts"], { cwd: root, encoding: "utf8" });
+    } catch {
+      // grep exits 1 when nothing matches.
     }
-  });
-  test("names the folder for your AI", () => {
-    expect(askYourAi({ folder: "3-resources", items: 14, chaos: 45 })).toContain("organize");
+    expect(found.trim()).toBe("");
   });
 });
 
@@ -167,13 +143,5 @@ describe("when the tree changed", () => {
   test("the same entries in another order are the same tree", () => {
     const before = treeShape({ "": listing("", ["a", "b.md"]) });
     expect(treeChanged(before, treeShape({ "": listing("", ["b.md", "a"]) }))).toBe(false);
-  });
-});
-
-describe("asking your AI about the top of the workspace", () => {
-  test("names it in words, not as a path", () => {
-    expect(askYourAi({ folder: "", items: 30, chaos: 80 })).toBe(
-      "Or ask your AI to organize the top of this workspace. It knows how this is scored.",
-    );
   });
 });

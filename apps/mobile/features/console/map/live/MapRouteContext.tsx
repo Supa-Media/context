@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { MapSideProvider } from "../../aside/mapSide";
+import { PageSideProvider } from "../../aside/pageSide";
 import type { ConsoleRouter } from "../../layout/types";
 import { routeMap, type MapRoute } from "./route";
 
@@ -19,7 +20,9 @@ export const MapRouteProvider = MapRouteContext.Provider;
 export function MapRouteAndSideProvider({ value, children }: { value: MapRoute | undefined; children: ReactNode }) {
   return (
     <MapRouteContext.Provider value={value}>
-      <MapSideProvider>{children}</MapSideProvider>
+      <MapSideProvider>
+        <PageSideProvider>{children}</PageSideProvider>
+      </MapSideProvider>
     </MapRouteContext.Provider>
   );
 }

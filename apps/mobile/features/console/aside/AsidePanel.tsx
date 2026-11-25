@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { pendingCount } from "../../approvals/copy";
 import type { ApprovalsView } from "../../approvals/useApprovals";
 import { space } from "../../design/tokens";
@@ -11,6 +11,7 @@ import type { PastWorkspace } from "../../meetings/usePastMeetings";
 import { TexChatTab } from "../../tex/chat/TexChatTab";
 import type { SeenBody } from "../../tex/chat/appChatSeen";
 import { useMapSide } from "./mapSide";
+import { usePageSide } from "./pageSide";
 import { AsideStrip } from "./AsideStrip";
 import { changedSinceSeen, useAsideChoice } from "./asideChoice";
 import { useFrame } from "../../app/AppFrame";
@@ -111,7 +112,9 @@ export function AsidePanel({
   // The tab somebody chose, if this console still shows it; else Meetings, which every console shows.
   const wanted = asideTabFor(chosen);
   const map = useMapSide();
+  const area = usePageSide();
   const tabs = visibleAsideTabs({
+    area: area !== null,
     map: map !== null,
     note: map?.noteKey != null,
     tex: tex !== null,
@@ -146,6 +149,18 @@ export function AsidePanel({
   }, [noteKey, setChosen]);
 
   const frame = useFrame();
+  /*
+    An area pressed on the Areas page brings its tab forward and opens the
+    panel if it was shut, the way a note clicked on the map brings Note
+    forward: it is the person's own press.
+  */
+  const areaShown = area !== null;
+  useEffect(() => {
+    if (!changedSinceSeen("areaShown", areaShown) || !areaShown) return;
+    setChosen("area");
+    if (!frame.state.asideOpen) frame.toggleAside();
+    else if (frame.state.asideFolded) frame.setAsideFolded(false);
+  }, [areaShown, setChosen, frame]);
   // Folded, or shut where the frame keeps a column for it (`regionsFor`), the
   // panel is its rail alone. Drawn outside a frame it is whole.
   const strip = frame.state.asideFolded || (!frame.state.asideOpen && frame.regions?.aside === "column");
@@ -214,6 +229,10 @@ export function AsidePanel({
           <View style={styles.body} testID="aside-map-note">
             {map.note}
           </View>
+        ) : showing === "area" && area !== null ? (
+          <ScrollView style={styles.body} contentContainerStyle={styles.areaContent} testID="aside-area">
+            {area}
+          </ScrollView>
         ) : showing === "vault" && vault !== null ? (
           <View style={styles.body} testID="aside-vault">
             <VaultTab workspaceId={vault.workspaceId} />
@@ -252,5 +271,6 @@ const makeStyles = (_colors: Colors) =>
     folded: { flex: 1, alignItems: "flex-end" },
     panel: { flex: 1, minWidth: 0, paddingTop: space.x2 },
     body: { flex: 1, minHeight: 0 },
+    areaContent: { paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x6 },
     hidden: { display: "none" },
   });

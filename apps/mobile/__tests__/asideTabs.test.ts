@@ -93,7 +93,7 @@ describe("the catalogue", () => {
     `visibleAsideTabs`, not by this list.
   */
   test("the map's two tabs lead (only while it is open), then Meetings, Tex and the Vault, and no in-app agent", () => {
-    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "meetings", "tex", "vault"]);
+    expect(ASIDE_TABS.map((tab) => tab.key)).toEqual(["activity", "note", "area", "meetings", "tex", "vault"]);
     expect(ASIDE_TABS.map((tab) => tab.label)).not.toContain("Chat");
   });
 
@@ -108,6 +108,12 @@ describe("the catalogue", () => {
     with a workspace open has one: never the demo, a visitor or the landing.
     SABOTAGE: default `vault` to true in `visibleAsideTabs` and the first line fails.
   */
+  // The owner, 2026-11-24: the area pressed on the Areas page shows in this panel, only while one is.
+  test("an area pressed on the Areas page is a tab only while it is shown, before Meetings", () => {
+    expect(visibleAsideTabs({})).not.toContain("area");
+    expect(visibleAsideTabs({ area: true })).toEqual(["area", "meetings"]);
+  });
+
   test("the Vault is a tab only with a workspace open, after Tex", () => {
     expect(visibleAsideTabs({})).toEqual(["meetings"]);
     expect(visibleAsideTabs({ vault: true })).toEqual(["meetings", "vault"]);

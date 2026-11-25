@@ -66,6 +66,8 @@ export interface AreasListProps {
   onArea?: (folder: string) => void;
   /** The area shown in the side panel, drawn selected; null when none. */
   selected?: string | null;
+  /** A press on the top row shows it in the side panel too, rather than opening its menu (the owner, 2026-11-24). */
+  rootPeeks?: boolean;
   /** Right-click on an area row, or its ⋯ button (`at` null). */
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
   /** The latest reading of a seat's headline metric, from its `metrics.csv`; undefined when there is none. */
@@ -84,7 +86,8 @@ function depthProps(depth: number): ViewProps {
 }
 
 /** Everything a row needs from the list, passed down once. */
-interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected"> {
+interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected" | "rootPeeks"> {
+  readonly rootPeeks: boolean;
   readonly onArea: (folder: string) => void;
   readonly selected: string | null;
   /** Areas whose sub-areas are folded away. */
@@ -102,7 +105,7 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, onMenu, readingOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
@@ -115,6 +118,7 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
     onOpen,
     onArea: onArea ?? onOpen,
     selected,
+    rootPeeks,
     onMenu,
     readingOf,
     closed,
@@ -172,7 +176,7 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
   return (
     <View ref={menuClick.ref as never}>
       <Pressable
-        onPress={(event: GestureResponderEvent) => (root ? openMenu(pressPoint(event)) : shared.onArea(seat.folder))}
+        onPress={(event: GestureResponderEvent) => (root && !shared.rootPeeks ? openMenu(pressPoint(event)) : shared.onArea(seat.folder))}
         accessibilityLabel={root ? `${folderLabel(seat.name)}, seat` : `${folderLabel(seat.name)}, area`}
         testID={root ? "area-row-root" : `area-row-${seat.folder}`}
         {...depthProps(depth)}
@@ -194,15 +198,19 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
             <View style={styles.notesCell}>
               <NotesButton node={node} shared={shared} />
             </View>
-            <Pressable
-              onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
-              accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
-              hitSlop={6}
-              style={[styles.more, { opacity: root || hovered ? 1 : 0 }]}
-              testID={`area-more-${seat.folder}`}
-            >
-              <Icon name="more" size={14} color={colors.muted} />
-            </Pressable>
+            {/* In the margin past the row's right edge, on hover only, so it takes no room from the
+                row (the owner, 2026-11-24: "remove the deadspace"). The top row's own press opens the menu. */}
+            {root ? null : (
+              <Pressable
+                onPress={(event: GestureResponderEvent) => openMenu(pressPoint(event))}
+                accessibilityLabel={`Options for ${folderLabel(seat.name)}`}
+                hitSlop={6}
+                style={[styles.more, { opacity: hovered ? 1 : 0 }]}
+                testID={`area-more-${seat.folder}`}
+              >
+                <Icon name="more" size={14} color={colors.muted} />
+              </Pressable>
+            )}
           </>
         )}
       </Pressable>
@@ -460,7 +468,7 @@ const makeStyles = (colors: Colors) =>
     // The area shown in the side panel.
     selected: { backgroundColor: colors.accentDim },
 
-    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric, 52 of count and 24 of ⋯, 16 apart.
+    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric and 52 of count, 16 apart; the ⋯ floats past the right edge.
     areaRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -479,7 +487,7 @@ const makeStyles = (colors: Colors) =>
     unownedName: { color: colors.muted },
     metricCell: { width: 220, flexShrink: 0, minWidth: 0 },
     notesCell: { width: 52, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
-    more: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
+    more: { position: "absolute", right: -28, top: "50%", marginTop: -12, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6 },
 
     metric: { minWidth: 0 },
     metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },

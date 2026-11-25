@@ -86,6 +86,9 @@ import { useStatusEdits } from "./useStatusEdits";
 import { rememberView, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 import { PanelBeside } from "./panel/PanelBeside";
+import { AREA_PANEL_WIDTH } from "./panel/panelModel";
+import { useOfferPageSide } from "../../aside/pageSide";
+
 import { TaskPanel } from "./panel/TaskPanel";
 import { useTaskPanel } from "./panel/useTaskPanel";
 import { usePendingNotes } from "./tasks/usePendingNotes";
@@ -94,6 +97,9 @@ import { parkedOnBoard } from "./boardLayout";
 import { useFolderTasks } from "./tasks/useFolderTasks";
 
 export type { FolderPageHost } from "./useFolderPage";
+
+/** What the area's trend is drawn across in the right panel: its default 340 less its padding. */
+const AREA_SIDE_WIDTH = 300;
 
 const NO_WORDS: readonly string[] = [];
 const NO_NOTES: readonly ListNote[] = [];
@@ -255,6 +261,10 @@ export function FolderPage({
   // What the Areas page draws in the side panel: an area's details (`areas/AreaPanel.tsx`), or null.
   const [areaPanel, setAreaPanelState] = useState<((width: number) => ReactNode) | null>(null);
   const setAreaPanel = useCallback((next: ((width: number) => ReactNode) | null) => setAreaPanelState(() => next), []);
+  // The area goes in the console's right panel, where Meetings is (`aside/pageSide.tsx`); with no
+  // console around the page, beside the list (`beside` below). Only an Areas page sets one.
+  const offered = useMemo(() => (areaPanel === null ? null : areaPanel(AREA_SIDE_WIDTH)), [areaPanel]);
+  const inAside = useOfferPageSide(offered);
   const openItem = (item: FolderItem) => (panel.fits ? panel.show(item.path) : onSelect(item.path));
   const makeTaskLabel = rowsAreProjects(folder) ? "Make it a project" : "Make it a task";
   const tasks = useFolderTasks({
@@ -281,7 +291,7 @@ export function FolderPage({
   if (host === undefined) {
     return (
       <>
-        <FolderHead title={fallbackTitle} icon={icon} switcher={null} large={compact} actions={titleActions} folder={folder}>
+        <FolderHead title={fallbackTitle} icon={icon} switcher={null} large={compact} actions={titleActions}>
           {rule}
         </FolderHead>
         <View style={styles.contents}>{files}</View>
@@ -378,10 +388,14 @@ export function FolderPage({
   // title and the List · Chart switch above them, as in the prototype (the owner, 2026-11-24:
   // "spacing still looks off" beside an 820 list that overhung the title on both sides).
   const wideAreas = wideChart;
+  // The Areas panel docks at the page region's right edge, full height, where the region hosts a
+  // dock (the pointer layout's `DocumentSurface`); elsewhere it is drawn beside the list as below.
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     seats && areaPanel !== null
-      ? areaPanel
+      ? inAside
+        ? null
+        : areaPanel
       : peeking !== null && peeking === about
       ? (width: number) => (
           <AboutPanel
@@ -419,7 +433,7 @@ export function FolderPage({
   return (
     <>
       <FolderHead
-        large={compact} folder={folder}
+        large={compact}
         title={summary?.title ?? fallbackTitle}
         icon={icon}
         onOpenTitle={summary !== null && !summary.creates && summary.title !== null ? () => onSelect(summary.target) : undefined}
@@ -486,7 +500,7 @@ export function FolderPage({
       {sheet !== null && sheet === about ? (
         <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
-      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideAreas !== null} mainWidth={wideBoard ?? wideAreas} style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board" || wideAreas !== null} mainWidth={wideBoard ?? wideAreas} panelWidth={seats ? AREA_PANEL_WIDTH : null} style={styles.contents}>
         {seatsWaiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="areas-waiting" />
         ) : seats ? (
@@ -507,7 +521,8 @@ export function FolderPage({
             chooseMany={loaded.chooseMany}
             onSelect={onSelect}
             {...(host?.source.readBody === undefined ? {} : { readBody: host.source.readBody })}
-            {...(panel.fits ? { onPanel: setAreaPanel } : {})}
+            // In the right panel an area shows at any pointer width; drawn beside the list, only where it fits.
+            {...((inAside ? !compact : panel.fits) ? { onPanel: setAreaPanel } : {})}
           />
           </View>
         ) : view === "list" ? (

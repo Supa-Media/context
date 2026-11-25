@@ -1,6 +1,6 @@
 /**
  * The top of a folder page: its title with the List · Board switch beside it,
- * its chaos line on its own line under them, and — for a folder that is a project, or can become one — the
+ * and — for a folder that is a project, or can become one — the
  * quiet property line and the first paragraph of its front note (spec A5).
  *
  * ## The property line
@@ -50,7 +50,6 @@ import { EmojiGlyph } from "../../emoji/EmojiGlyph";
 import { JobIcon } from "../jobIcons/JobIcon";
 import { TEX_HOME_LINE, builtInLine } from "../jobIcons/folderJobs";
 import { isNestedJobIcon, jobOfIcon, twinJobOfIcon } from "../jobIcons/marker";
-import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
 import { areasType, leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
@@ -124,11 +123,8 @@ export function FolderHead({
   actions,
   children,
   large = false,
-  folder,
 }: {
   title: string;
-  /** The folder this page is, for its chaos line under the title (`features/chaos`); absent draws none. */
-  folder?: string;
   /** The emoji somebody gave this folder, drawn before its title as it is beside its name in every listing. */
   icon?: string | null;
   /** A phone's page: Home's big title, so a folder reads as a place (board 07). */
@@ -205,8 +201,6 @@ export function FolderHead({
           {jobLine}
         </Text>
       )}
-      {/* Under the title, on every page: beside it, it squeezed a long name onto two lines. */}
-      {folder !== undefined ? <FolderChaosLine folder={folder} ownLine /> : null}
       {children}
     </Settle>
   );

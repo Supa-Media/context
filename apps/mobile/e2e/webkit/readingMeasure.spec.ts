@@ -147,13 +147,13 @@ test.describe("at a desktop console width", () => {
       on the character count below.
     */
     expect(box.width / box.fontSize).toBeGreaterThan(30);
-    expect(box.width / box.fontSize).toBeLessThan(42);
+    expect(box.width / box.fontSize).toBeLessThan(52);
 
     /*
       And the reason that box matters, in the unit the constraint is really
-      in. The design value is 40em (`layout.readingMeasureEm`), measured at 580px
+      in. The design value is 50em (`layout.readingMeasureEm`), measured at 800px
       in the console's own face; prose averages 0.45-0.55em a character, so a
-      different sans puts this anywhere from about 73 to 89.
+      different sans puts this anywhere from about 91 to 111.
 
       These bounds are deliberately wider than that. How many characters fit is
       the font's business, and this file must not go red because a CI image
@@ -163,7 +163,7 @@ test.describe("at a desktop console width", () => {
       tight bound lives, because that one is arithmetic.
     */
     expect(box.longestLine).toBeGreaterThan(50);
-    expect(box.longestLine).toBeLessThanOrEqual(95);
+    expect(box.longestLine).toBeLessThanOrEqual(120);
 
     // The paragraph really did wrap more than once — a one-line paragraph
     // would satisfy everything above while proving nothing.

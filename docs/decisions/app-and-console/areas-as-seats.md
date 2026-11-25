@@ -69,14 +69,24 @@ who to ask and what is not covered. No new concept: an area is the seat.
   on hover only. Check a redraw inside the app beside its neighbours, not
   only against the board.
 
-  One press on an area shows it in a side panel beside the list, and a
+  One press on an area shows it in the console's right panel, as its Area
+  tab beside Meetings, opening the panel if it was shut (the owner,
+  2026-11-24: "just put it in the left panel like this", of that panel; a
+  card inside the page read as "not a side panel"). Where no console hosts
+  the page, it is drawn beside the list. One press on an area shows it, and a
   second press at once (or the panel's Open area) opens its page (the owner,
   2026-11-24, after trying the prototype: "one click open up the right panel,
-  double click to get into more details"). The panel edits the metric's name,
-  its goal and the modes where they are drawn, through the seat pop-up's own
-  save; who holds the seat and how to reach them stay in the pop-up. A phone
-  has no panel: a press opens the area. `areasPanel.test.ts` fails if a single
-  press opens the area on a page with room.
+  double click to get into more details"). The top row (the workspace) shows
+  there too. Everything in the panel is edited where it is drawn, with no
+  pop-up (the owner, 2026-11-24: "why cant I make changes inline? wth is the
+  point of a side panel if its just going to link to this ugly pop up"), laid
+  out as the prototype: the metric's name and its goal; Owner and Helper as
+  dropdowns; the modes; the holder's phone, email and whether Tex answers for
+  them (an agent's access and vault item instead); the approval rules; the
+  sub-areas with their values; and the area's notes. Each change goes through
+  the seat pop-up's own save. A phone has no panel: a press opens the area.
+  `areasPanel.test.ts` fails if a single press opens the area on a page with
+  room, or if the owner, helper, card or rules need the pop-up.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as

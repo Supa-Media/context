@@ -22,6 +22,7 @@ import {
   panelFits,
   panelText,
   peekLayout,
+  AREA_PANEL_WIDTH,
   taskRefOf,
   tickStatus,
 } from "../features/console/files/folderPage/panel/panelModel";
@@ -149,6 +150,16 @@ describe("what a panel writes and says", () => {
     expect(narrower.overlap).toBeGreaterThan(0);
     expect(peekLayout(4000, 640, false)!.panel).toBe(720);
     expect(peekLayout(0, 640, false)).toBeNull();
+  });
+
+  test("the Areas panel is the prototype's narrow column, and sits beside the list where a half-page panel would lie over it", () => {
+    // A 1,050 page, the sidebar open: half the page would lie over an 800 list.
+    expect(peekLayout(1050, 800, false)!.mode).toBe("over");
+    const areas = peekLayout(1050, 800, false, null, AREA_PANEL_WIDTH)!;
+    expect(areas.mode).toBe("beside");
+    expect(areas.panel).toBe(AREA_PANEL_WIDTH);
+    // The list gives up the room; it is never narrower than a list is drawn.
+    expect(areas.width - areas.panel - 24).toBeGreaterThanOrEqual(480);
   });
 
   test("a Board wider than the column stays where it was when the panel lies over it", () => {

@@ -38,9 +38,6 @@ export type ChaosWord = "calm" | "fine" | "crowded" | "chaotic";
 /** How many biggest wins the panel lists. */
 export const WINS_SHOWN = 5;
 
-/** Past this a folder page shows its line: the rubric's "fine" ends here. */
-const LINE_FROM = 30;
-
 /** The figure's untangling, 0 the full scribble and 1 the calm #. */
 export function chaosToT(chaos: number): number {
   if (!Number.isFinite(chaos)) return 0;
@@ -100,62 +97,6 @@ export function folderHint(items: number, chaos: number): string {
 /** A folder's name as the tree shows it, the root named. */
 export function folderLabel(folder: string): string {
   return folder === "" ? "Top level" : displayPath(folder);
-}
-
-/** A folder page shows its line only past fine, or when it is thin. */
-export function folderLineShows(folder: ChaosFolder | null | undefined): folder is ChaosFolder {
-  return folder != null && (folder.chaos > LINE_FROM || isThin(folder));
-}
-
-const things = (n: number) => (n === 1 ? "1 thing" : `${n} things`);
-
-/** A folder page's line beside its title: "14 things in here", and what calm is. */
-export function folderLine(folder: ChaosFolder): { lead: string; tail: string } {
-  const tail = "calm is 4 or 5";
-  if (folder.items === 0) return { lead: "Only an about note in here", tail };
-  if (isThin(folder)) return { lead: `Only ${things(folder.items)} in here`, tail };
-  return { lead: `${things(folder.items)} in here`, tail };
-}
-
-/**
- * What a folder's line says when pressed: how this folder could be calmer, from the
- * rubric's own advice (the "How we define chaos" skill). Words only: nothing
- * here moves a note, and the person, or an agent they ask, decides (Dev2,
- * 2026-10-13).
- */
-export function folderAdvice(folder: ChaosFolder): { lead: string; tips: string[] } {
-  if (folder.items === 0) {
-    return {
-      lead: "Only an about note in here.",
-      tips: [
-        "Add the notes this folder was made for.",
-        "Or move its about note's words into the folder above, and remove this one.",
-      ],
-    };
-  }
-  if (isThin(folder)) {
-    return {
-      lead: `Only ${things(folder.items)} in here. Folders feel calm with 4 or 5.`,
-      tips: [
-        folder.items === 1 ? "Move this note up into the folder above." : "Move these notes up into the folder above.",
-        "Or merge this folder with one on the same subject.",
-      ],
-    };
-  }
-  return {
-    lead: `${things(folder.items)} in here. Folders feel calm with 4 or 5.`,
-    tips: [
-      "Find two to five themes, and give each one a folder of its own.",
-      "Move finished work to Archive. Archive never counts.",
-      "Keep dated or numbered notes together: a series counts as one.",
-    ],
-  };
-}
-
-/** The advice's last line: an AI connected to Context already knows the rules. */
-export function askYourAi(folder: ChaosFolder): string {
-  const name = folder.folder === "" ? "the top of this workspace" : folderLabel(folder.folder);
-  return `Or ask your AI to organize ${name}. It knows how this is scored.`;
 }
 
 /** The panel's biggest wins: the server's order, at most five, nothing already calm. */

@@ -76,8 +76,14 @@ export const layout = {
    * 342pt of text inside 24pt gutters, which is far narrower than 40em at
    * 16px, so the measure cannot bind there and the padding governs. Two values
    * would be two things to keep in step for no gain.
+   *
+   * 50em (800px) since 2026-11-24: the owner compared the Areas page with its
+   * prototype, whose column is about 800 wide, and asked for that column
+   * everywhere ("lets try widening the column everywhere"). Every page, note
+   * and folder alike, is this one column, so the title, the lists and the
+   * note's text keep one left edge.
    */
-  readingMeasureEm: 40,
+  readingMeasureEm: 50,
 
   /**
    * The gutter the web editor's scroller keeps either side of the measure.

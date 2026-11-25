@@ -64,10 +64,8 @@ test("a folder with an emoji keeps its arrow, and the title has its row to itsel
   // Side by side on one line, the arrow first.
   expect(chevron.x + chevron.width).toBeLessThanOrEqual(emoji.x + 1);
   expect(Math.abs(chevron.y + chevron.height / 2 - (emoji.y + emoji.height / 2))).toBeLessThan(4);
-  // The chaos line is under the title row, never squeezed beside it.
-  const head = (await page.getByTestId("folder-head-row").boundingBox())!;
-  const chaos = (await page.getByTestId("folder-chaos").boundingBox())!;
-  expect(chaos.y).toBeGreaterThanOrEqual(head.y + head.height - 1);
+  // No chaos line under the title (Dev, 2026-11-24: "remove this line anywhere and everywhere it is").
+  await expect(page.getByTestId("folder-chaos")).toHaveCount(0);
   const task = page.getByTestId("folder-row").filter({ hasText: "togather" }).first();
   await expect(task.getByTestId("folder-row-emoji")).toHaveCount(0);
   await expect(task.getByTestId("folder-row-status")).toHaveCount(1);

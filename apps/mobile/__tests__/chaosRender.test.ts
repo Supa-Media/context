@@ -6,7 +6,7 @@
  * THE CHAOS SCORE, ON THE GLASS.
  *
  * `chaosModel.test.ts` proves the words; this proves the surfaces draw them
- * and that each press lands: a folder page's line and its advice, the panel,
+ * and that each press lands: the panel,
  * the phone Home's line, and that the app draws no Tex (Dev2, 2026-10-14: the
  * figure stays on the homepage only). The figure's own eyes and colours are
  * checked here too, for the homepage. And the
@@ -25,11 +25,10 @@ import { createRoot } from "react-dom/client";
 import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
 import { Explorer } from "../features/console/files/Explorer";
 import type { FileBrowser } from "../features/console/files/browser";
-import { ChaosProvider, useConsoleChaos } from "../features/chaos/ChaosContext";
+import { ChaosProvider, useChaosView, useConsoleChaos } from "../features/chaos/ChaosContext";
 import { Tex } from "../features/chaos/Tex";
 import { texColors } from "../features/design/tokens/landingColors";
 import { ChaosSheet } from "../features/chaos/ChaosPopover";
-import { FolderChaosLine } from "../features/chaos/FolderChaosLine";
 import type { ChaosScore } from "../features/chaos/chaosModel";
 import type { ChaosSource } from "../features/chaos/useChaosScore";
 
@@ -163,14 +162,17 @@ const press = async (element: Element | null) => {
 const explorer = () =>
   createElement(Explorer, { files: browser(), contextLabel: "@seyi" });
 
-const line = (folder = "0-inbox") => createElement(FolderChaosLine, { folder });
 const crowded = { folder: "0-inbox", items: 12, chaos: 33 };
 
-/** The workspace's panel, reached the one way a wide window has: a folder's line, its advice, the whole score. */
+/** Whatever opens the workspace's panel (the phone's @name menu does), as one button. */
+function Opener() {
+  const view = useChaosView();
+  return createElement("button", { "data-testid": "open-chaos", onClick: () => view?.openPanel("sheet") });
+}
+
 async function openPanel(opened: string[] = [], result: ChaosScore = SCORED) {
-  await mount(line(), source(result, crowded), opened);
-  await press(byId("folder-chaos-line"));
-  await press(byId("folder-chaos-whole"));
+  await mount(createElement(Opener), source(result, crowded), opened);
+  await press(byId("open-chaos"));
 }
 
 describe("the tree's foot", () => {
@@ -216,8 +218,7 @@ describe("the panel", () => {
     await press(byId("chaos-win-0-inbox"));
     expect(opened).toEqual(["0-inbox"]);
     expect(byId("chaos-panel")).toBeNull();
-    await press(byId("folder-chaos-line"));
-    await press(byId("folder-chaos-whole"));
+    await press(byId("open-chaos"));
     await press(byId("chaos-long-2-areas/journal/2026.md"));
     expect(opened).toEqual(["0-inbox", "2-areas/journal/2026.md"]);
   });
@@ -232,64 +233,6 @@ describe("the panel", () => {
     expect(
       document.querySelectorAll('[data-testid^="chaos-win-"]'),
     ).toHaveLength(5);
-  });
-});
-
-describe("a folder page's line", () => {
-  test("asks about its own folder, then one plain line: how many things, and what calm is", async () => {
-    const asked: string[] = [];
-    await mount(line(), source(SCORED, crowded, asked));
-    expect(asked).toEqual(["0-inbox"]);
-    expect(byId("folder-chaos-line")?.textContent).toBe("12 things in here · calm is 4 or 5");
-  });
-
-  test("words only: no figure", async () => {
-    await mount(line(), source(SCORED, crowded));
-    expect(byId("folder-chaos")?.querySelector("svg")).toBeNull();
-  });
-
-  test("thin says so", async () => {
-    await mount(
-      line(),
-      source(SCORED, { folder: "0-inbox", items: 2, chaos: 20 }),
-    );
-    expect(byId("folder-chaos-line")?.textContent).toBe("Only 2 things in here · calm is 4 or 5");
-  });
-
-  test("a calm or fine folder, an unscored workspace, or no score: no line", async () => {
-    await mount(
-      line(),
-      source(SCORED, { folder: "0-inbox", items: 8, chaos: 15 }),
-    );
-    expect(byId("folder-chaos")).toBeNull();
-    await mount(
-      line(),
-      source(UNSCORED, { folder: "0-inbox", items: 20, chaos: 65 }),
-    );
-    expect(byId("folder-chaos")).toBeNull();
-    await mount(line());
-    expect(byId("folder-chaos")).toBeNull();
-  });
-
-  test("pressing it: how this folder could be calmer, with no figure, and nothing moves", async () => {
-    await mount(line(), source(SCORED, crowded));
-    expect(byId("folder-chaos-advice")).toBeNull();
-    await press(byId("folder-chaos-line"));
-    const advice = byId("folder-chaos-advice");
-    const words = strip(advice?.textContent);
-    expect(words).toContain("12 things in here. Folders feel calm with 4 or 5.");
-    expect(words).toContain("two to five themes");
-    expect(words).toContain("ask your AI to organize inbox");
-    expect(words.toLowerCase()).not.toMatch(/you should|tidy|clean up/);
-    expect(advice?.querySelector("svg")).toBeNull();
-  });
-
-  test("from there, the whole workspace's score opens the panel", async () => {
-    await openPanel();
-    expect(byId("folder-chaos-advice")).toBeNull();
-    expect(strip(byId("chaos-panel")?.textContent)).toContain(
-      "Chaos 34 of 100",
-    );
   });
 });
 

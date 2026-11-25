@@ -3,6 +3,7 @@
  * Board and the task side panel's tests share it. Fake names and paths only.
  */
 
+import { PageSideProvider, usePageSide } from "../../features/console/aside/pageSide";
 import { act, createElement, useState, type ReactNode } from "react";
 import { FrameContext, useFrame } from "../../features/app/appFrame/context";
 import { createRoot } from "react-dom/client";
@@ -149,7 +150,7 @@ export interface Tree {
   hidden: boolean;
 }
 
-export async function mount(page: FolderPageHost, listing: FolderListing = LISTING, nav?: ConsoleNav, tree?: Tree) {
+export async function mount(page: FolderPageHost, listing: FolderListing = LISTING, nav?: ConsoleNav, tree?: Tree, docked = false) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -162,20 +163,31 @@ export async function mount(page: FolderPageHost, listing: FolderListing = LISTI
     root.render(
       createElement(SafeAreaProvider, {
         initialMetrics: { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } },
-        children: wrap(nav, tree, createElement(FolderView, {
+        children: wrap(nav, tree, dockedIf(docked, createElement(FolderView, {
           entry: entry("folder", listing.path),
           listing,
           canSetVisibility: true,
           contextLabel: "@seyi",
           onSelect: (path: string) => void selected.push(path),
           page,
-        })),
+        }))),
       }),
     );
   });
   await act(async () => {});
   await act(async () => {});
   return { container, selected };
+}
+
+/** Inside a console, whose right panel shows what the page offers it (`aside/pageSide.tsx`). */
+function dockedIf(docked: boolean, child: ReturnType<typeof createElement>) {
+  return docked ? createElement(PageSideProvider, null, child, createElement(OfferedSide)) : child;
+}
+
+/** The right panel's Area tab, as `AsidePanel` draws it. */
+function OfferedSide() {
+  const side = usePageSide();
+  return side === null ? null : createElement("div", { "data-testid": "aside-area" }, side);
 }
 
 function wrap(nav: ConsoleNav | undefined, tree: Tree | undefined, child: ReturnType<typeof createElement>) {

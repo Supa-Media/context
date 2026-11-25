@@ -36,6 +36,11 @@ export const ASIDE_TABS = [
   */
   { key: "activity", label: "Activity" },
   { key: "note", label: "Note" },
+  /*
+    The area pressed on the Areas page (the owner, 2026-11-24: "just put it
+    in the left panel like this"), only while one is shown (`pageSide.tsx`).
+  */
+  { key: "area", label: "Area" },
   { key: "meetings", label: "Meetings" },
   /* Right after Meetings, as the rail has it: under the calendar icon. */
   { key: "tex", label: "Tex" },
@@ -65,7 +70,10 @@ export function visibleAsideTabs({
   note = false,
   tex = false,
   vault = false,
+  area = false,
 }: {
+  /** A page offers an area to show (`pageSide.tsx`). */
+  area?: boolean;
   /** This console has a Tex chat to show: the owner of the personal workspace it has open. */
   tex?: boolean;
   /** The live map is open: its Activity tab leads. */
@@ -80,6 +88,7 @@ export function visibleAsideTabs({
     if (key === "note") return map && note;
     if (key === "tex") return tex;
     if (key === "vault") return vault;
+    if (key === "area") return area;
     return true;
   });
 }
