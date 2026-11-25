@@ -80,7 +80,7 @@ export interface ColumnSuggestion {
 
 const MAX_SUGGESTIONS = 8;
 /** Words the formula already means something by: a suggestion for them would swallow what was typed. */
-const WORDS = new Set<string>([...(FUNCTIONS as readonly string[]), "where", "and"]);
+const WORDS = new Set<string>([...(FUNCTIONS as readonly string[]), "where", "and", "distinct"]);
 
 /** A column as a formula writes it: as words when it is plain, in quotes when it holds anything else. */
 export function columnWords(column: string): string {

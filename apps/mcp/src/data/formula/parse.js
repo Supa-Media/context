@@ -5,6 +5,7 @@
  *   term    := factor (("*" | "×" | "/" | "÷") factor)*
  *   factor  := NUMBER | agg | "(" formula ")"
  *   agg     := FN "(" colexpr [where] ")"     FN: sum count average median p95 min max
+ *            | "count" "(" "distinct" colexpr [where] ")"   each filled value once
  *   colexpr := the same + − × ÷ and brackets, per row, over refs and numbers
  *   ref     := source "/" dataset "." column  |  column
  *   where   := "where" cond ("and" cond)*
@@ -18,7 +19,8 @@
  * tree always carries full refs, and one aggregate reads one dataset.
  *
  * Nodes: `{ type: "number", value }`, `{ type: "binary", op, left, right }`
- * (op `+ - * /`), `{ type: "agg", fn, source, dataset, expr, where }`,
+ * (op `+ - * /`), `{ type: "agg", fn, source, dataset, expr, where }` (a
+ * `count(distinct …)` carries `distinct: true`, and no other node has the key),
  * `{ type: "ref", source, dataset, column }`, and where conditions
  * `{ column, op: "=" | "!=", value }`.
  *
@@ -189,6 +191,14 @@ class Parser {
     this.next(); // the function's name
     this.next(); // "("
     this.agg = { source: "", dataset: "" };
+    // `distinct` before a column, never a column of that name: `count(a/b.distinct)` and `count(distinct/x.y)` stay plain.
+    const lead = this.peek();
+    const after = this.peek(1);
+    if (isKeyword(lead, "distinct") && after && (after.type === "word" || after.type === "num" || after.type === "str")) {
+      if (fn !== "count") throw new Refusal(`distinct works only with count, as in count(distinct source/dataset.column).`, lead.at);
+      this.next();
+      node.distinct = true;
+    }
     if (isOp(this.peek(), ")") || !this.peek()) {
       throw new Refusal(`${fn} needs a column, like ${fn}(source/dataset.column).`, this.here());
     }

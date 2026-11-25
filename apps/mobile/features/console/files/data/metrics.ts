@@ -22,6 +22,8 @@ export type FormulaTree =
   | {
       readonly type: "agg";
       readonly fn: string;
+      /** `count(distinct …)`: each filled value once. */
+      readonly distinct?: true;
       readonly source: string;
       readonly dataset: string;
       readonly expr: FormulaTree;

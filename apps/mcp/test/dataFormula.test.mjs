@@ -613,3 +613,56 @@ test("a right-now series: each past period is the last reading kept in it, the c
   const mixed = series(ok("count(github/pull-requests.merged) / count(ops/incidents.id)"), nowCtx("day"), 2);
   assert.deepEqual(mixed.map((d) => d.status), ["error", "error"]);
 });
+
+/* ------------------------------ count distinct ----------------------------- */
+
+const ACTIVITY = parseSheet([
+  "day:date,person,texted:number,wrote:number",
+  "2026-11-19,p1,1,0",
+  "2026-11-19,p2,0,1",
+  "2026-11-24,p1,1,1",
+  "2026-11-25,p1,1,0",
+  "2026-11-25,p3,0,1",
+  "2026-11-25,,1,0",
+  "2026-11-10,p9,1,1",
+  "",
+].join("\n"));
+const activityCtx = (every) => ({ rowsOf: (s, d) => (`${s}/${d}` === "usage/activity" ? ACTIVITY : null), every, now: NOW });
+
+test("count(distinct …) parses, keeps its word through toText, and reads in plain words", () => {
+  const ast = ok("count(distinct usage/activity.person where texted = 1)");
+  assert.equal(ast.fn, "count");
+  assert.equal(ast.distinct, true);
+  assert.equal(toText(ast), "count(distinct usage/activity.person where texted = 1)");
+  roundTrips("count(distinct usage/activity.person where texted = 1) ÷ count(distinct usage/activity.person)");
+  assert.equal(plainReading(ast, "7 days"), "Count of distinct person in usage/activity where texted is 1, over the last 7 days");
+  // Case does not matter, and a plain count has no distinct mark at all.
+  assert.equal(ok("COUNT(Distinct usage/activity.person)").distinct, true);
+  assert.equal(Object.hasOwn(ok("count(usage/activity.person)"), "distinct"), false);
+});
+
+test("count distinct counts each filled value once, inside the window", () => {
+  assert.equal(evaluate(ok("count(distinct usage/activity.person)"), activityCtx("7 days")).value, 3);
+  assert.equal(evaluate(ok("count(distinct usage/activity.person where texted = 1)"), activityCtx("7 days")).value, 1);
+  assert.equal(evaluate(ok("count(distinct usage/activity.person where wrote = 1)"), activityCtx("7 days")).value, 3);
+  assert.equal(evaluate(ok("count(distinct usage/activity.person)"), activityCtx("day")).value, 2);
+  // The plain count still counts rows: p1 three times.
+  assert.equal(evaluate(ok("count(usage/activity.person)"), activityCtx("7 days")).value, 5);
+});
+
+test("distinct belongs to count alone, and a column may still be named distinct", () => {
+  bad("sum(distinct usage/activity.texted)", /distinct.*count/i);
+  bad("median(distinct a/b.ms)", /distinct.*count/i);
+  bad("count(distinct)", /dataset/i);
+  const named = ok("count(a/b.distinct)");
+  assert.equal(named.distinct, undefined);
+  assert.equal(named.expr.column, "distinct");
+  assert.equal(ok("count(distinct a/b.distinct)").distinct, true);
+  roundTrips("count(distinct a/b.distinct)");
+});
+
+test("count distinct over a per-row sum counts distinct results", () => {
+  const sheet = parseSheet(["day:date,a:number,b:number", "2026-11-25,1,2", "2026-11-25,2,1", "2026-11-25,3,3", ""].join("\n"));
+  const r = evaluate(ok("count(distinct x/y.a + b)"), { rowsOf: () => sheet, every: "day", now: NOW });
+  assert.equal(r.value, 2);
+});
