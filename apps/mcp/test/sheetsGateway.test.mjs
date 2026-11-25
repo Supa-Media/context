@@ -26,6 +26,11 @@ export async function runSheetGatewayChecks() {
   });
   check("a sheet is saved like a note", succeeded(created) && (await storedText(path))?.startsWith("date:date,"));
 
+  // The privacy parsers take an exact override for `.csv` as written; a `.CSV` override line would make the whole
+  // manifest unreadable, so the gate refuses it (`docs/decisions/file-kinds.md`).
+  const shouting = await call("priv-token", "set_visibility", { path: "1-projects/finance/Budget.CSV", visibility: "private" });
+  check("a .CSV takes its folder's visibility, never an override of its own", shouting?.isError === true && text(shouting).includes("invalid path"));
+
   const broken = await call("priv-token", "write", { path: "1-projects/finance/broken.csv", content: "a,b\n1\n" });
   check(
     "a CSV that does not read back is refused, naming the line",

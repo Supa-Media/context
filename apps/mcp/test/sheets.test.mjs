@@ -30,11 +30,9 @@ const METRICS = [
   "",
 ].join("\n");
 
-// Exactly `.csv`, as the privacy engine's override parser matches it (`docs/decisions/file-kinds.md`): a `.CSV` that
-// was a sheet could be given its own visibility, and that one override line made the whole manifest unreadable.
-test("a .csv path is a sheet, a .CSV is a file; a note is not", () => {
+test("a .csv path is a sheet, any case; a note is not", () => {
   assert.equal(isSheetPath("areas/finance/metrics.csv"), true);
-  assert.equal(isSheetPath("A.CSV"), false);
+  assert.equal(isSheetPath("A.CSV"), true);
   assert.equal(isSheetPath("notes/a.md"), false);
   assert.equal(isSheetPath("a.csv.md"), false);
 });

@@ -34,14 +34,18 @@ before the list are a baseline in `scripts/file-kinds-baseline.json` that only
 shrinks: a file may not hold more than it allows, and `--update` writes the
 lower counts back. `apps/mcp/test/fileKinds.test.mjs` pins the kinds.
 
-## The extension is matched exactly
+## A kind is any case, an override is exact
 
-`Plan.MD` and `Data.CSV` are files, not a note and a sheet. The privacy
-engine's exact-note parser (`apps/mcp/src/privacy/engine.js` and its control
-plane port) matches `.md` and `.csv` as written, and one line it refuses makes
-the whole manifest unreadable, which fails every note in the workspace closed.
-A kind that ignored case let `set_visibility` write exactly that line for a
-`.CSV`. Matching case in the list keeps every gate in step with the parser.
+`Budget.CSV` is a sheet and `Plan.MD` is a note: a kind ignores case, as the
+sheet grid always has. One question is asked exactly: whether a path may carry
+its own visibility (`takesExactOverride`). The privacy engine's exact-note
+parser (`apps/mcp/src/privacy/engine.js` and its control plane port) matches
+`.md` and `.csv` as written, and one line it refuses makes the whole manifest
+unreadable, which fails every note in the workspace closed. `set_visibility`
+took a `.CSV` before this list and could write exactly that line; now a
+`.CSV` takes its folder's visibility. `sheetsGateway.test.mjs` fails if the
+gate takes one again. A `write` with `visibility` on a `.CSV` is not yet
+checked the same way: a follow-up.
 
 The two privacy parsers keep their literal tests and are exempt from the
 guard: the engine imports nothing, and the port is tested against the engine's

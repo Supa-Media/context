@@ -17,7 +17,7 @@ import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 import { visibilityValidator } from "./validators";
 import { isPlumbing, type Visibility } from "../privacy";
-import { isTextFilePath } from "@context/shared/src/fileKinds.cjs";
+import { takesExactOverride } from "@context/shared/src/fileKinds.cjs";
 
 /**
  * Resolve the name an owner typed to the one an access row may hold.
@@ -73,7 +73,7 @@ export const PERSONAL_HISTORY_FILE = "tex/history.ledger.json";
 
 /** Whether this path may carry its own visibility as a note: Markdown, a sheet (`.csv`), or the person's own history file. */
 export function takesOwnVisibility(path: string): boolean {
-  return isTextFilePath(path) || path === PERSONAL_HISTORY_FILE;
+  return takesExactOverride(path) || path === PERSONAL_HISTORY_FILE;
 }
 
 /**

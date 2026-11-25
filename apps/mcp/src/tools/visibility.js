@@ -1,6 +1,6 @@
 /** `set_visibility` and `set_folder_visibility` — the tools that write a note's or a folder's access row, and name people on a note. */
 
-import { isTextFilePath } from "../../../../packages/shared/src/fileKinds.cjs";
+import { isTextFilePath, takesExactOverride } from "../../../../packages/shared/src/fileKinds.cjs";
 import { effectiveVisibility, isPlumbing, visibilityOf } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { currentVersion, versionMatches } from "../notes/version.js";
@@ -33,7 +33,7 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
     return toolError("permission denied: only a personal connection can change enforced visibility; ask the person to change it in the app");
   }
   const path = normalizePath(args.path);
-  if (!path || !isTextFilePath(path) || isPlumbing(path)) {
+  if (!path || !takesExactOverride(path) || isPlumbing(path)) {
     return toolError("invalid path (must be a non-reserved .md note or .csv sheet): pass the note's full path");
   }
   // `people` alone names who else may open the note and leaves its visibility as it is.
