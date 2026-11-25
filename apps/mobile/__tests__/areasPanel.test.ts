@@ -19,6 +19,14 @@ import { act } from "react";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // The Areas page's Connect a source asks the url sources' syncs with the console grant; no gateway here.
+// A bot's webhook reads the account server (`PanelBotHook.tsx`): nothing saved yet.
+jest.mock("convex/react", () => ({
+  useQuery: () => [],
+  useAction: () => async () => ({ ok: true, status: 200 }),
+  useMutation: () => async () => null,
+  useConvex: () => ({}),
+  useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
+}));
 jest.mock("../features/agent/useConsoleGrant", () => ({
   useConsoleGrant: () => async () => {
     throw new Error("No fixture gateway session");
@@ -201,9 +209,14 @@ describe("the Areas side panel", () => {
       ),
       { path: "areas/people/finance.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi" } },
     ];
-    await mount(host([], { notes }), LISTING);
+    const writes: Write[] = [];
+    await mount(host(writes, { notes }), LISTING);
     await press(one("area-row-areas/finance"));
     expect(all("area-panel-prompt")).toHaveLength(1);
+    // Reach: Context calls its webhook, written on the bot's card; the address itself is never on the card.
+    await press(one("area-panel-reach-webhook"));
+    expect(writes.filter(([p, k]) => p === "areas/people/finance.md" && k === "reach").map(([, , v]) => v)).toEqual(["webhook"]);
+    expect(all("area-panel-hook-address")).toHaveLength(1);
     const text = strip(one("area-panel-prompt-text").textContent);
     expect(text).toContain("You are Finance, @seyi's Grok bot.");
     expect(text).toContain('area: "areas/finance"');

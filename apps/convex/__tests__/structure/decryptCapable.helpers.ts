@@ -409,6 +409,7 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.googleMailProbe.report",
       "functions.googleReconnect.recheckRevokedGrants",
       "functions.googleScopeCheck.recheckCalendarWrite",
+      "functions.botHooks.callBotHook", // A bot's webhook, one signed call; see CREDENTIAL_BARRIERS.
       "functions.meetingCalendar.readMeetingCalendars", // Join and take notes' calendar barrier; see CREDENTIAL_BARRIERS.
       "functions.googleConnect.revokeGoogleGrant",
       "functions.googleClients.exchangeAndBindAgent", // agent grant (googleClients.ts), on the schedule edge

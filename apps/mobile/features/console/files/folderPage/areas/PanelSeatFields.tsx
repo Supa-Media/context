@@ -27,6 +27,7 @@ import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
 import { AddBotForm, PromptBox, botDetail, personPrompt, seatPrompt } from "./PanelBotFields";
+import { BotHookFields } from "./PanelBotHook";
 import { MODES, MODE_TIPS, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
 /** What the panel needs to edit an owner where it is drawn. */
@@ -40,6 +41,8 @@ export interface PanelSeatTools {
   addAgent?: (name: string) => Promise<string | null>;
   /** The workspace's handle, `@supa`, named in a bot's prompt. */
   workspace?: string;
+  /** The workspace's id, where a bot's webhook is saved; absent where none can be. */
+  workspaceId?: string;
 }
 
 export type PanelWrite = (patch: Partial<SeatEdit>, cards?: readonly Card[]) => void;
@@ -82,7 +85,7 @@ export function PanelOwnerRows({
   write: PanelWrite;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const { people, agents, isAgent, cardFor, label, addAgent, workspace } = tools;
+  const { people, agents, isAgent, cardFor, label, addAgent, workspace, workspaceId } = tools;
   const same = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
   const [menu, setMenu] = useState<{ which: "owner" | "helper" | "delegate"; anchor: Anchor } | null>(null);
   const [addingBot, setAddingBot] = useState(false);
@@ -194,8 +197,27 @@ export function PanelOwnerRows({
             <InlineField value={card.belongsTo} label="Whose bot it is" placeholder={canEdit ? "@handle" : "Not set"} editable={canEdit} onCommit={(belongsTo) => writeCard({ belongsTo })} style={styles.field} testID="area-panel-bot-whose" />
           </Row>
           <Row label="Reach">
-            <InlineField value={card.access} label="Where and how to reach it" placeholder={canEdit ? "Where and how to reach it" : "Not set"} editable={canEdit} onCommit={(access) => writeCard({ access })} style={styles.field} testID="area-panel-access" />
+            <View style={styles.modes}>
+              {(["webhook", "mail"] as const).map((reach) => {
+                const on = card.reach === reach;
+                return (
+                  <Pressable
+                    key={reach}
+                    disabled={!canEdit}
+                    onPress={() => writeCard({ reach })}
+                    role="radio"
+                    aria-checked={on}
+                    accessibilityLabel={reach === "webhook" ? "Context calls its webhook" : "It checks its mail"}
+                    style={[styles.mode, on && styles.modeOn]}
+                    testID={`area-panel-reach-${reach}`}
+                  >
+                    <Text variant="treeMeta" style={on ? styles.modeWordOn : styles.modeWord}>{reach === "webhook" ? "Webhook" : "Checks its mail"}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </Row>
+          {card.reach === "webhook" && workspaceId !== undefined ? <BotHookFields workspaceId={workspaceId} bot={owner} canEdit={canEdit} /> : null}
           <PromptBox title={`Prompt for ${label(owner)}`} text={seatPrompt(seat, card, workspace)} testID="area-panel-prompt" />
         </>
       ) : ownerIsAgent ? (

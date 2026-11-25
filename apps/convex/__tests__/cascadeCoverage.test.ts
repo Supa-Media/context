@@ -271,6 +271,8 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
     // Asserted exactly, so a new one is a diff to review rather than a silent
     // addition — and so this file cannot pass by finding nothing.
     expect(credentialBearingWorkspaceTables()).toEqual([
+      // A bot's webhook (`functions/botHooks.ts`), swept with the workspace.
+      "botHooks",
       "cloudflareProvisioning",
       // The agent client's second consent (`googleClients.ts`), swept as a
       // connect attempt like the one above.

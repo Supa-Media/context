@@ -52,6 +52,7 @@ import { countNoteWrite, countObjectCall, objectCaller } from "./observability/c
 import { mirrorOutbox } from "./workspaceStore/mirrorOutbox.js";
 import { flushMirror } from "./workspaceStore/mirrorFlush.js";
 import { indexBuilder } from "./workspaceStore/indexBuild.js";
+import { botMailWatch } from "./workspaceStore/botMail.js";
 
 const CALL = "x-tex-call";
 /** How long a person-object write that failed waits before it is sent again. */
@@ -105,7 +106,14 @@ export class WorkspaceStore {
     if (this.store !== null) return this.store;
     const sql = this.state.storage.sql;
     // Each note saved here counted as created or edited, by its id (`observability/callCounts.js`), for tex.lc/admin.
-    const objects = texObjects(sql, { onPut: (key, change) => countNoteWrite(this.env, this.state.id?.toString?.(), key, change) });
+    // And a new line in an area's mail, for the bot that holds the area (`workspaceStore/botMail.js`).
+    let botMail = null;
+    const objects = texObjects(sql, {
+      onPut: (key, change) => {
+        countNoteWrite(this.env, this.state.id?.toString?.(), key, change);
+        botMail?.noted(key, change);
+      },
+    });
     const rows = workspaceRows(sql);
     const log = (event, fields) => console.log(JSON.stringify({ event, ...fields }));
     const store = {
@@ -179,6 +187,19 @@ export class WorkspaceStore {
     };
     // The search indexes caught up on the alarm while changes wait, not only behind a search.
     store.indexBuild = indexBuilder(store);
+    botMail = botMailWatch(sql, {
+      rows,
+      objects,
+      facts: store.facts,
+      tell: (message) => {
+        const workspaceId = rows.workspaceId();
+        if (workspaceId === null) return;
+        const sent = createControlPlane(this.env)
+          .botMail(workspaceId, message)
+          .catch((error) => log("bot_mail_failed", { workspaceId, reason: String(error?.reason ?? "unknown") }));
+        this.state.waitUntil?.(sent);
+      },
+    });
     this.store = store;
     const tree = treeSockets(this.state, sql, this.store);
     this.store.onTreeChange = (change) => tree.changed(change);

@@ -102,4 +102,43 @@ describe("rotating the encryption key", () => {
       },
     );
   });
+
+  /** Sabotage: drop the bot-hook walk from `credentialOpening.ts`, and the webhook stays on the retired key. */
+  test("a bot's sealed webhook is moved forward", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    const workspace = { workspaceId: workspaceId as string };
+    const hookId = await t.run(async (ctx) =>
+      ctx.db.insert("botHooks", {
+        workspaceId,
+        bot: "finance",
+        host: "bot.example.com",
+        encryptedUrl: await encryptSecret("https://bot.example.com/hook", requireKeyset(), workspace),
+        encryptedHeader: await encryptSecret("authorization: Bearer x", requireKeyset(), workspace),
+        headerEnds: "er x",
+        encryptedSigningKey: await encryptSecret(`ctxbot_${"0".repeat(64)}`, requireKeyset(), workspace),
+        setBy: owner,
+        setAt: Date.now(),
+      }),
+    );
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(await t.action(internal.functions.storage.rekeyStorageBindings, {})).toMatchObject({ connectorSecretsRekeyed: 3, connectorSecretsUnreadable: 0 });
+      },
+    );
+    await withEnv(
+      { STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY, STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2", STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined, STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined },
+      async () => {
+        const hook = await t.run((ctx) => ctx.db.get(hookId));
+        expect(await decryptSecret(hook!.encryptedUrl, requireKeyset(), workspace)).toBe("https://bot.example.com/hook");
+        expect(await decryptSecret(hook!.encryptedSigningKey, requireKeyset(), workspace)).toBe(`ctxbot_${"0".repeat(64)}`);
+      },
+    );
+  });
 });

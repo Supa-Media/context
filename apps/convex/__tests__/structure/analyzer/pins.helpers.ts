@@ -88,6 +88,16 @@ export const CREDENTIAL_BARRIERS = new Set([
    * here because the Google refresh token is sealed with the same decrypt.
    */
   "functions.meetingCalendar.readMeetingCalendars",
+  /*
+   * A bot's webhook (`functions/botHooks.ts`, decided by the owner
+   * 2026-11-25: Grok bots hold areas and hear about their mail). It opens one
+   * bot's sealed address, header and signing key, makes one signed POST that
+   * says mail arrived and where (never the message), retries once, and
+   * returns only `{ok, status}`. Its callers, `testBotHook` and `pingBot`,
+   * take the user from the session and clear them with `authorizeBotCall`
+   * (membership, role for a test, an hourly allowance) first.
+   */
+  "functions.botHooks.callBotHook",
 ]);
 
 /**

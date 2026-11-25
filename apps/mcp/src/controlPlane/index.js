@@ -22,6 +22,7 @@ import { createMailHealthMethods } from "./mailHealth.js";
 import { createAccessProfileMethods } from "./accessProfiles.js";
 import { createAccessMirrorMethods } from "./accessMirror.js";
 import { createRowsMirrorMethods } from "./rowsMirror.js";
+import { createBotMailMethods } from "./botMail.js";
 import { createIdentityMethods } from "./identity.js";
 import { createTranscriptionMethods } from "./transcription.js";
 import { createTexCommandMethods } from "./texCommands.js";
@@ -55,6 +56,7 @@ export function createControlPlane(env, options = {}) {
     ...createSiteMethods({ post, required }),
     ...createVaultMethods({ post, required }),
     ...createConnectionMethods({ post }),
+    ...createBotMailMethods({ post }),
     ...createTreeMethods({ post }),
     ...createNoteIdMethods({ post, required }),
     ...createPrivacyMethods({ post }),
