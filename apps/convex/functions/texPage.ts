@@ -128,10 +128,18 @@ export function groupName(peopleNames: readonly string[]): string {
  * from the Lab), each told apart by the day it started, where the person is. A name only one chat has is left as it is.
  */
 export function distinctNames<T extends { name: string; startedAt: number }>(chats: readonly T[], timeZone: string | null): T[] {
-  const counts = new Map<string, number>();
-  for (const chat of chats) counts.set(chat.name, (counts.get(chat.name) ?? 0) + 1);
-  const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: timeZone ?? "UTC" });
-  return chats.map((chat) => ((counts.get(chat.name) ?? 0) > 1 ? { ...chat, name: `${chat.name} (since ${day.format(chat.startedAt)})` } : chat));
+  const zone = timeZone ?? "UTC";
+  const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: zone });
+  const minute = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: zone });
+  const tally = (labels: string[]) => labels.reduce((counts, label) => counts.set(label, (counts.get(label) ?? 0) + 1), new Map<string, number>());
+  const names = tally(chats.map((chat) => chat.name));
+  // Two that also started the same day (2026-11-25: both "@shyoh" chats were made that day) are told apart by the minute.
+  const days = tally(chats.map((chat) => `${chat.name}\u0000${day.format(chat.startedAt)}`));
+  return chats.map((chat) => {
+    if ((names.get(chat.name) ?? 0) < 2) return chat;
+    const sameDay = (days.get(`${chat.name}\u0000${day.format(chat.startedAt)}`) ?? 0) > 1;
+    return { ...chat, name: `${chat.name} (since ${(sameDay ? minute : day).format(chat.startedAt)})` };
+  });
 }
 
 type Routine = typeof routineValidator.type;
