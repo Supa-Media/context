@@ -144,7 +144,6 @@
   "apps/mobile/features/offline/mirrorSearch.ts": 1,
   "apps/mobile/features/share/share.ts": 1,
   "apps/mobile/features/tex/chat/appChatMarkdown.ts": 1,
-  "apps/mobile/features/tex/chat/appChatSeen.ts": 1,
   "apps/mobile/features/tex/dashboard/DashboardBugs.web.tsx": 1,
   "apps/mobile/features/tex/history/historyLines.ts": 1,
   "apps/mobile/scripts/folder-jobs-shots.ts": 1,
