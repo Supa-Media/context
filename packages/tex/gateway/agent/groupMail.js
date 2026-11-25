@@ -27,6 +27,10 @@ export function chatMailOf(value) {
     .map(({ handle, address }) => ({ handle, address }));
 }
 
+/** Where a group turn without cross-chat asks sends someone for their own notes; a turn with them swaps these (`crossChat.js`). */
+export const NO_NOTES_LINE = "Nobody's personal notes or saved logins can be read from here; say the person can text you on their own for that. ";
+export const NO_OTHER_NOTES_LINE = "Nobody else's personal notes, mail or saved logins can be read from here; say the person can text you on their own for that. ";
+
 /** What a group turn is told about mail: whose it may read here, or that it reads none. */
 export function chatMailPrompt(group) {
   // A guest chat too: its people are whoever the sharer chose to show their mail to (Dev2, 2026-10-29).
@@ -36,7 +40,7 @@ export function chatMailPrompt(group) {
     return (
       "Nobody's mail is shared with this chat yet. A mailbox's own person can share theirs here by asking you in any words, or by saying yes when you offer " +
       "(send action chat_share_mail with their address, when you have it); offer that when the chat wants mail it can't see. Their plain yes to your offer is enough: never tell them to type a set phrase. " +
-      "Nobody's personal notes or saved logins can be read from here; say the person can text you on their own for that. "
+      NO_NOTES_LINE
     );
   const named = shared.map(({ handle, address }) => `@${handle}'s ${address}`).join(", ");
   return (
@@ -47,7 +51,7 @@ export function chatMailPrompt(group) {
     (group?.guestChat
       ? "In a chat with guests you read it when someone asks; nothing watches it here on its own. "
       : "You watch this mail for the chat on your own: new mail brings a look, and you post here only what the chat needs. Nobody has to set that up; if asked to watch it, say you already do. ") +
-    "Nobody else's personal notes, mail or saved logins can be read from here; say the person can text you on their own for that. "
+    NO_OTHER_NOTES_LINE
   );
 }
 

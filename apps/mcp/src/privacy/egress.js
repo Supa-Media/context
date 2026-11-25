@@ -21,6 +21,8 @@
 
 import { classifyCaptureKind } from "../communications/paths.js";
 import { isChatHistoryPath, normalizePath } from "../notes/paths.js";
+import { splitMessageAnchor } from "../search/commsIndex.js";
+import { isSheetPath } from "../../../../packages/shared/src/fileKinds.cjs";
 
 /**
  * Tools whose results are, by construction, words people other than the person
@@ -124,16 +126,43 @@ export function recordRead(ledger, { name, args, result, writing = false }) {
     if (UNTRUSTED_LISTINGS.has(name)) ledger.untrusted = ledger.outside = true;
     return;
   }
-  if (UNTRUSTED_READS.has(name) || readsCapturedContent(name, args) || carriesUntrustedFrontmatter(result)) {
+  if (UNTRUSTED_READS.has(name) || readsCapturedContent(name, args) || readsSheetRows(name, args) || carriesUntrustedFrontmatter(result)) {
     ledger.untrusted = ledger.outside = true;
   }
+}
+
+/**
+ * The key a read will actually open: a trailing, well-formed message anchor is dropped, exactly as `toolReadNote`
+ * drops it (`tools/notes/read.js`, `search/commsIndex.js` `splitMessageAnchor`). A search of mail answers
+ * `<day>.md#msg-<hex>` and that is the key the next `read_note` arrives with, so judging the key as written left the
+ * day of somebody else's email behind it marking nothing. A hash that is not an anchor is an ordinary character in an
+ * ordinary name and is kept.
+ */
+function readPath(raw) {
+  return typeof raw === "string" ? splitMessageAnchor(raw).path : raw;
+}
+
+/**
+ * A sheet's rows read as a note. `read_sheet` is in `UNTRUSTED_READS` because a sheet's rows are filled by a source
+ * key held by an outside service (`functions/sheetSources.ts`) or by a public address a source fetches
+ * (`data/fetch/url.js`), not typed by a member; `read_note` reads any path, so the same rows have to mark the same
+ * turn whichever tool brought them. The taint follows the path, as it does for a chat's history file. The app chat's
+ * screen pastes the open file into the turn's note through this same dispatcher
+ * (`packages/tex/gateway/agent/screen.js`), and that file may be a sheet.
+ */
+function readsSheetRows(name, args) {
+  // `read_notes` reads many: any one of them that is a sheet marks the turn.
+  if (name === "read_notes") return (Array.isArray(args?.paths) ? args.paths : []).some((path) => isSheetPath(readPath(path)));
+  if (name !== "read_note" && name !== "fetch") return false;
+  // `fetch` routes a sheet to `read_note`, so its id is the path to judge.
+  return isSheetPath(readPath(name === "fetch" ? args?.id : args?.path));
 }
 
 /** A note read by path that is a mailbox day, a calendar day, a meeting or a saved chat. */
 function readsCapturedContent(name, args) {
   // `read_notes` reads many: any one of them that is captured content marks the turn.
   if (name === "read_notes") return (Array.isArray(args?.paths) ? args.paths : []).some((path) => readsCapturedContent("read_note", { path }));
-  const raw = name === "fetch" ? args?.id : args?.path;
+  const raw = readPath(name === "fetch" ? args?.id : args?.path);
   // A chat's history file is judged on the raw id: it may name another context (`@name/tex/...`), which
   // `normalizePath` leaves on, and `fetch` routes the file to `read_note` so the name tells nothing.
   if (isChatHistoryPath(raw)) return true;

@@ -4,7 +4,7 @@
     "1:1 first text": { "model": 1, "beforeModel": 22 },
     "1:1 warm text": { "model": 1, "beforeModel": 15 },
     "1:1 text after a deploy": { "model": 1, "beforeModel": 17 },
-    "group first tag": { "model": 1, "beforeModel": 17 },
-    "group tag": { "model": 1, "beforeModel": 11 }
+    "group first tag": { "model": 1, "beforeModel": 18 },
+    "group tag": { "model": 1, "beforeModel": 12 }
   }
 }

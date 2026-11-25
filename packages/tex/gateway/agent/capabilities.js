@@ -81,7 +81,7 @@ export const CAPABILITIES = Object.freeze([
     guest: "only this chat's folder and notes someone shared with the chat: write a page there or move one; what you make goes in the chat's folder as a page",
     cant: [
       { where: "everywhere", what: "delete a note", workaround: { kind: "words", text: "archive it (manage archive): it moves to the Archive folder, where it can be found or moved back" } },
-      { where: "group", what: "read anyone's personal notes or saved logins, or a calendar its person hasn't shared with this chat", workaround: { kind: "words", text: "they text you on their own for it, or put the note in a shared workspace everyone here is in" } },
+      { where: "group", what: "read anyone's personal notes or saved logins, or a calendar its person hasn't shared with this chat", workaround: { kind: "words", text: "they point at it here and you ask their personal Tex for it (someone else's needs that person's OK), or they put the note in a shared workspace everyone here is in" } },
       { where: "guest", what: "archive, comment on, add a picture to or remember in a note, or move a folder", workaround: { kind: "words", text: "someone here who is on Context texts you on their own for it" } },
       { where: "everywhere", what: "delete a workspace or close their account", workaround: { kind: "app_path", text: "Context app → Settings → General → Delete this workspace, or Settings → Profile → Delete account" } },
       { where: "everywhere", what: "change their username (twice in a lifetime; the old name stays theirs and keeps working)", workaround: { kind: "app_path", text: "Context app → Settings → Profile → Username → Change" } },

@@ -8,7 +8,9 @@ export default {
   cause: "A group turn read no member's card; with member cards promoted (docs/decisions/texting-assistant/member-cards.md) it is told what it may use and that it never says it.",
   path: "group tag",
   async run() {
-    const line = architectureFor("group").split("\n").find((entry) => entry.startsWith("- Member cards"));
+    // The map names the step ("- Member cards (code, no model)") and the capability ("- Member cards: what each ..."); the
+    // capability line is the one that says what the group may do with them.
+    const line = architectureFor("group").split("\n").find((entry) => entry.startsWith("- Member cards:"));
     assert.ok(line, "the group turn is told about member cards");
     assert.match(line, /never quote a card, explain it, hint at the reason behind it or say who told you/);
     const told = cardsPrompt({ asked: 1, cards: [{ handle: "kofi", lines: ["Prefers places with good non-drinking options"] }] });
