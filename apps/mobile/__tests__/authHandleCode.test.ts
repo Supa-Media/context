@@ -27,6 +27,15 @@ describe("whose code is it", () => {
     expect(shouldHandleAuthCode("/text")).toBe(true);
   });
 
+  // Sabotage: drop the /data/github/ line in handleCode.ts and this fails.
+  test("GitHub's install code on the Data callback is never auth's", () => {
+    expect(shouldHandleAuthCode("/data/github/callback")).toBe(false);
+    expect(shouldHandleAuthCode("/data")).toBe(true);
+    expect(shouldHandleAuthCode("/data/github")).toBe(true);
+    expect(shouldHandleAuthCode("/data/githubs/callback")).toBe(true);
+    expect(shouldHandleAuthCode("/data/status/callback")).toBe(true);
+  });
+
   test("everywhere else the sign-in link keeps working", () => {
     expect(shouldHandleAuthCode("/")).toBe(true);
     expect(shouldHandleAuthCode("/login")).toBe(true);
