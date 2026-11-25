@@ -89,8 +89,10 @@ to prevent:
   without it almost no request took this path.
 - **Never stale past a change.** Every write to the tables a binding is made of
   (`storageBindings`, `managedEncryptionWorkspaces`, `workspaceObjectHomes`,
-`workspaceDataKeys`, `workspaceKeyRotations`) is
-  watched like a row write (`lib/rowWatch/watch.ts` `BINDING_TABLES`): the
+`workspaceDataKeys`, `workspaceKeyRotations`), and to the owner's zone the
+  answer carries (`accountTimeZones`, for every workspace that person made), is
+  watched like a row write (`lib/rowWatch/watch.ts` `BINDING_TABLES`,
+  `OWNER_ZONE_TABLE`): the
   push clears the copy, and a clear moves an epoch on so an answer read before
   it can never be put back. Whether a change is still coming is the object's
   own word since 2026-11-03 (Dev's "every read and write under 0.1 s"): `ws.open`

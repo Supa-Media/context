@@ -5,6 +5,7 @@
  */
 import { CONTROL_PLANE_MOVE_BATCH_TIMEOUT_MS, CONTROL_PLANE_MOVE_TIMEOUT_MS, CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 import { TREE_RESPONSE_BYTE_CAP } from "./tree.js";
+import { zoneOrNull } from "./timeZone.js";
 import { sha256Hex } from "./client.js";
 import { parseToken } from "../workspaceStore/access.js";
 import { workspaceClient } from "../workspaceStore/api.js";
@@ -307,5 +308,9 @@ export function bindingAnswerOf(parsed, required) {
     // workspace is keyed; anything else is a control plane that cannot say
     // where notes are, and the session store refuses it.
     idLayout: parsed.idLayout === "keys" ? "keys" : null,
+    // The workspace owner's zone, as `/gateway/time-zone` answers the same token (`controlPlane/timeZone.js`): a zone,
+    // or null for an owner who never set one. `undefined` where the answer does not say (an older control plane, or a
+    // copy the object kept before it did), and then the store asks that route as before (`http/routing.js`).
+    ownerTimeZone: parsed.ownerTimeZone === undefined ? undefined : zoneOrNull(parsed.ownerTimeZone),
   };
 }

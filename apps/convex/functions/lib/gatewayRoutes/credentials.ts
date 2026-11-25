@@ -83,18 +83,26 @@ export async function gatewayBindingHandler(
   // The workspace's access rules, rendered from its rows for this reader (`nodesPrivacy.ts`). Absent only when
   // they cannot be read, and the gateway then fails closed. The workspace is the one the grant opened, never one
   // the request named.
-  const privacy = await ctx
-    .runQuery(internal.functions.nodesPrivacy.authority, {
-      workspaceId: opened.binding.workspaceId as Id<"workspaces">,
-      // A pin reader holds the rows as a guest sees them (`lib/pinnedReaders.ts`), so every read the gateway
-      // judges by these rules, listing and search included, gives them the notes open to All Context users only.
-      ...(opened.audience === "guest" ? { audience: "guest" as const } : {}),
-      // Tex's setup read: a member's rules, narrowed to the setup's folders (`lib/texSetupRead.ts`).
-      ...(opened.setupRead === true ? { setupOnly: true as const } : {}),
-      // A Tex guest chat holds the guest rules read for it: only its group's rows (`lib/nodes/chatFolders.ts`).
-      ...(opened.chatNames !== undefined ? { chatNames: opened.chatNames } : {}),
-    })
-    .catch(() => null);
+  const [privacy, ownerTimeZone] = await Promise.all([
+    ctx
+      .runQuery(internal.functions.nodesPrivacy.authority, {
+        workspaceId: opened.binding.workspaceId as Id<"workspaces">,
+        // A pin reader holds the rows as a guest sees them (`lib/pinnedReaders.ts`), so every read the gateway
+        // judges by these rules, listing and search included, gives them the notes open to All Context users only.
+        ...(opened.audience === "guest" ? { audience: "guest" as const } : {}),
+        // Tex's setup read: a member's rules, narrowed to the setup's folders (`lib/texSetupRead.ts`).
+        ...(opened.setupRead === true ? { setupOnly: true as const } : {}),
+        // A Tex guest chat holds the guest rules read for it: only its group's rows (`lib/nodes/chatFolders.ts`).
+        ...(opened.chatNames !== undefined ? { chatNames: opened.chatNames } : {}),
+      })
+      .catch(() => null),
+    // The workspace owner's zone, exactly as `/gateway/time-zone` answers this token for this workspace (the same
+    // grant, the same workspace off its row), read beside the rules so a save's date properties need no second trip
+    // (`apps/mcp/src/notes/dateStamp.js`). A failure leaves it absent, and the gateway asks that route as before.
+    ctx
+      .runQuery(internal.functions.routines.ownerTimeZone, { workspaceId: opened.binding.workspaceId as Id<"workspaces"> })
+      .catch(() => undefined),
+  ]);
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
@@ -130,6 +138,10 @@ export async function gatewayBindingHandler(
     // Eighth: the access rules the gateway judges by. Absent only when they
     // could not be read, and then the gateway treats everything as private.
     ...(privacy === null ? {} : { privacy }),
+    // The owner's zone, a string or `null` for an owner who never set one; absent only when it could not be read.
+    // The workspace object keeps it in its sealed copy, cleared when the zone changes (`lib/rowWatch/watch.ts`
+    // `OWNER_ZONE_TABLE`).
+    ...(ownerTimeZone === undefined ? {} : { ownerTimeZone }),
     // Ninth: absent unless reads use the id keys (`notes/<id>.md`, `files/<id><ext>`).
     ...(idLayout === null ? {} : { idLayout }),
     // Tenth: every workspace is keyed (2026-10-22): its notes live at id keys. The

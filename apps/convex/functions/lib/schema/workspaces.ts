@@ -181,7 +181,11 @@ export const workspaceTables = {
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_slug", ["slug"]),
+  })
+    .index("by_slug", ["slug"])
+    // The workspaces whose owner's zone a person's `accountTimeZones` row is (`lib/rowWatch/watch.ts`): a change to it
+    // clears the binding each one's object keeps, which carries that zone (`gatewayRoutes/credentials.ts`).
+    .index("by_created_by", ["createdBy"]),
 
   /**
    * Whether this workspace's bucket-backed website is live.

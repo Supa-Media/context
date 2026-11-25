@@ -6,7 +6,8 @@
  * Until the clear lands the workspace reads as behind, so the gateway never opens a store from the old copy
  * (`apps/mcp/src/store/objectBinding.js`). Sabotage, each confirmed to fail a case here: drop the binding tables (the data keys among them) from
  * the watch (no entry), drop the clear from the drain (the copy survives), drop the scheduled clear for a workspace
- * not on its object (the copy survives a switch back).
+ * not on its object (the copy survives a switch back), drop the owner's zone from the watch (a zone change leaves the
+ * copy, and the zone it carries, in place).
  */
 
 import { createRequire } from "node:module";
@@ -81,7 +82,7 @@ async function world() {
   store.rows.pinWorkspace(workspaceId);
   const kept: Kept = store.binding;
   kept.put({ sealed: "v1.aaaa.bbbb", at: Date.now(), epoch: 0 });
-  return { t, workspaceId, kept, ops, hold, release: () => open() };
+  return { t, owner, workspaceId, kept, ops, hold, release: () => open() };
 }
 
 async function setHome(t: TestConvex, workspaceId: Id<"workspaces">, home: "bucket" | "dual" | "object") {
@@ -156,6 +157,36 @@ describe("a binding change clears the object's kept copy", () => {
     await watched(t, (db) => db.patch(row._id, { scaffoldQueuedAt: Date.now() }));
     expect(await outbox(t, workspaceId)).toEqual([]);
     expect(kept.get().sealed).not.toBeNull();
+  });
+
+  test("the owner's zone changing clears the copy, which carries that zone, in every workspace they made and no other", async () => {
+    const { t, owner, workspaceId, kept } = await world();
+    await setHome(t, workspaceId, "object");
+    const other = await createUser(t, "binding-clear-other@example.com");
+    const theirs = await createWorkspace(t, other, "binding-clear-theirs", { kind: "shared" });
+    await setHome(t, theirs, "object");
+    // Set, changed and removed: each is a change to what the copy says.
+    const zoneId = await t.run(async (ctx) => {
+      const watch = watchDb((ctx as MutationCtx).db);
+      const id = await watch.db.insert("accountTimeZones", { userId: owner, timeZone: "America/Chicago", updatedAt: Date.now() });
+      await flushRowChanges(ctx as MutationCtx, watch.changes);
+      return id;
+    });
+    expect(await outbox(t, workspaceId)).toMatchObject([{ binding: true, nodeIds: [], access: false }]);
+    expect(await outbox(t, theirs)).toEqual([]);
+    await drainScheduled(t);
+    expect(kept.get()).toMatchObject({ sealed: null, epoch: 1 });
+    kept.put({ sealed: "v1.aaaa.bbbb", at: Date.now(), epoch: 1 });
+    await watched(t, (db) => db.patch(zoneId, { timeZone: "Europe/Paris", updatedAt: Date.now() }));
+    expect(await outbox(t, workspaceId)).toMatchObject([{ binding: true }]);
+    await drainScheduled(t);
+    expect(kept.get()).toMatchObject({ sealed: null, epoch: 2 });
+    kept.put({ sealed: "v1.aaaa.bbbb", at: Date.now(), epoch: 2 });
+    await watched(t, (db) => db.delete(zoneId));
+    expect(await outbox(t, workspaceId)).toMatchObject([{ binding: true }]);
+    await drainScheduled(t);
+    expect(kept.get()).toMatchObject({ sealed: null, epoch: 3 });
+    expect(await outbox(t, theirs)).toEqual([]);
   });
 
   test("a workspace switched back off its object has its copy cleared all the same", async () => {

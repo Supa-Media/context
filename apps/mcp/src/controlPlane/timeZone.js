@@ -10,6 +10,11 @@ export const TIME_ZONE_TTL_MS = 10 * 60_000;
 const KEPT = 500;
 const ZONE = /^[A-Za-z0-9_+\-/]{1,64}$/;
 
+/** A zone as the control plane answers one, checked as every answer here is: the zone, or null. */
+export function zoneOrNull(value) {
+  return typeof value === "string" && ZONE.test(value) ? value : null;
+}
+
 const kept = new Map();
 
 /** Forget every kept answer (tests). */
@@ -24,7 +29,7 @@ export function createTimeZoneMethods({ post }) {
       const held = kept.get(workspaceId);
       if (held && now - held.at < TIME_ZONE_TTL_MS) return held.zone;
       const parsed = await post("/gateway/time-zone", { accessToken, expectedWorkspaceId: workspaceId });
-      const zone = typeof parsed?.timeZone === "string" && ZONE.test(parsed.timeZone) ? parsed.timeZone : null;
+      const zone = zoneOrNull(parsed?.timeZone);
       if (kept.size >= KEPT) kept.delete(kept.keys().next().value);
       kept.set(workspaceId, { zone, at: now });
       return zone;
