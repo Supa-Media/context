@@ -104,7 +104,12 @@ keeps its notes there and knows what its modes ask of it.
   line in `<area>/mail/` wherever it was written: the app, an AI client's
   `write { action: "mail" }` or by hand (`apps/mcp/src/workspaceStore/botMail.js`).
   It is told once per new line, never for the bot's own reply or an edit
-  elsewhere in the note. Then it posts `/gateway/bots/mail` behind the gateway's
+  elsewhere in the note. A brand-new note's bytes land before its row, so the
+  object looks again when the row lands: the first line of a new mail note (a
+  new sender's, or the app's Refresh) is told like any other, and a note that
+  arrives holding only lines older than an hour (a move) tells nobody. Until
+  2026-11-25 that first line was missed (the owner: "the refresh didnt work";
+  `apps/mcp/test/botMailNewNote.test.mjs`). Then it posts `/gateway/bots/mail` behind the gateway's
   secret alone, as the rows mirror does. That door can only make a bot that
   already has a webhook in that workspace hear "mail arrived" for a path in
   its area's mail, within 120 calls an hour per bot. It reads nothing back.
