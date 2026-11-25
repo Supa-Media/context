@@ -201,11 +201,11 @@ export function outside() {
     calls,
     answers,
     dns,
-    fetcher: async (url) => {
+    fetcher: async (url, init) => {
       calls.push(url);
       const host = new URL(url).hostname;
       const answer = answers.get(host);
-      return answer ? answer() : new Response("nope", { status: 404 });
+      return answer ? answer(url, init) : new Response("nope", { status: 404 });
     },
     resolve: async (host) => dns.get(host) ?? null,
   };

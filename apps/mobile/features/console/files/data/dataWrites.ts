@@ -153,3 +153,59 @@ export function urlSourceFiles(dataFolder: string, address: string, dataset: str
     sheet: { path: `${folder}/${sheetSlug}.csv`, text: "" },
   };
 }
+
+/**
+ * The apps an owner connects with a read-only key here, and the one dataset each keeps (`apps/mcp/src/data/connect/apps.js`).
+ * The payments app on board 02 waits on the gateway, which can't name it yet (`scripts/check-exit-is-ungated.mjs`).
+ */
+export const APP_DATASETS = { cloudflare: "ai-spend" } as const;
+export type ConnectApp = keyof typeof APP_DATASETS;
+
+const APP_NAMES: Readonly<Record<ConnectApp, string>> = { cloudflare: "Cloudflare" };
+
+export interface AppSourceFiles {
+  readonly app: ConnectApp;
+  readonly folder: string;
+  /** Written only when the folder has no about.md yet; a source already there is connected again as it is. */
+  readonly about: { path: string; text: string } | null;
+  readonly sheet: { path: string; text: string } | null;
+  /** The key as pasted, and the Cloudflare account it reads when the token reaches several. Sent once, never written. */
+  readonly key: string;
+  readonly account?: string;
+}
+
+const APP_LINES: Readonly<Record<ConnectApp, string>> = {
+  cloudflare: "AI Gateway's spend by day, gateway, provider and model, synced every hour into ai-spend.csv in US dollars.",
+};
+
+/**
+ * An app source's folder and its empty sheet, for an owner's Connect. Its about.md says only what it is: the key is
+ * never in a file. A source already connected for this app (`existing`) is reused, so connecting again swaps the key.
+ */
+export function appSourceFiles(dataFolder: string, app: ConnectApp, input: { key: string; account?: string }, existing: DataSource | null, taken: ReadonlySet<string>): AppSourceFiles | string {
+  const key = input.key.trim();
+  if (key === "") return "Paste an API token.";
+  const account = input.account?.trim() ?? "";
+  const sendAccount = account === "" ? {} : { account };
+  const dataset = APP_DATASETS[app];
+  if (existing !== null) {
+    const sheetPath = `${existing.folder}/${dataset}.csv`;
+    const hasSheet = existing.datasets.some((each) => each.path === sheetPath);
+    return {
+      app,
+      folder: existing.folder,
+      about: existing.about === null ? { path: existing.aboutPath, text: appAboutText(app) } : null,
+      sheet: hasSheet ? null : { path: sheetPath, text: "" },
+      key,
+      ...sendAccount,
+    };
+  }
+  let slug: string = app;
+  for (let n = 2; [...taken].some((path) => path === `${dataFolder}/${slug}` || path.startsWith(`${dataFolder}/${slug}/`)) && n < 1000; n += 1) slug = `${app}-${n}`;
+  const folder = `${dataFolder}/${slug}`;
+  return { app, folder, about: { path: `${folder}/about.md`, text: appAboutText(app) }, sheet: { path: `${folder}/${dataset}.csv`, text: "" }, key, ...sendAccount };
+}
+
+function appAboutText(app: ConnectApp): string {
+  return ["---", `source: ${app}`, `name: ${JSON.stringify(APP_NAMES[app])}`, `dataset: ${APP_DATASETS[app]}`, "---", "", `${APP_LINES[app]} An owner connected it with a read-only key, which Context keeps sealed and never writes here.`, ""].join("\n");
+}

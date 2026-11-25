@@ -109,6 +109,7 @@ const { DataPage, metricViews } = require("../features/console/files/data/DataPa
 const { SourcePage } = require("../features/console/files/data/SourcePage") as typeof import("../features/console/files/data/SourcePage");
 const { MetricsPage } = require("../features/console/files/data/MetricsPage") as typeof import("../features/console/files/data/MetricsPage");
 const { MetricBuilderDialog } = require("../features/console/files/data/MetricBuilder") as typeof import("../features/console/files/data/MetricBuilder");
+const { ConnectSourceDialog } = require("../features/console/files/data/ConnectSource") as typeof import("../features/console/files/data/ConnectSource");
 const { MetricNoteView } = require("../features/console/files/data/MetricNoteView") as typeof import("../features/console/files/data/MetricNoteView");
 const { KeyList } = require("../features/console/files/data/SourceParts") as typeof import("../features/console/files/data/SourceParts");
 const { sheetRowsEndpoint } = require("../features/console/files/sheet/SheetSources") as typeof import("../features/console/files/sheet/SheetSources");
@@ -316,7 +317,7 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type BoardId = "04" | "04b" | "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
+type BoardId = "02" | "02c" | "03c" | "04" | "04b" | "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note" | "now-new" | "now-kept";
 
 const WORLD: Partial<Record<BoardId, { source: FolderListSource; nesting: Nesting }>> = {
   empty: { source: emptySource, nesting: emptyNesting },
@@ -361,6 +362,31 @@ function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
     });
   };
   switch (board) {
+    // Board 02 with its Apps, for an owner, and Cloudflare's token form (connected again in place), over the data page.
+    case "02":
+    case "02c":
+      return h(
+        View as never,
+        null,
+        h(DataPage, { folder: "data", compact, ws, now: NOW, actions: dataActions, onOpen: open, sync: (folder: string) => SYNC[folder] }),
+        h(ConnectSourceDialog, {
+          dataFolder: "data",
+          taken: new Set<string>(),
+          sheet: compact,
+          sources: ws.sources,
+          onMake: async () => null,
+          onMakeUrl: async () => null,
+          onConnectApp: async () => null,
+          ...(board === "02c" ? { start: "cloudflare" as const } : {}),
+          onClose: () => {},
+        }),
+      );
+    // Cloudflare's page for an owner, its token refused at the last run.
+    case "03c":
+      return sourcePage("data/cloudflare", {
+        actions: { reconnect: () => {}, disconnect: () => {}, more: () => {}, copy: () => {} },
+        sync: { known: true, syncedAt: NOW - 3 * HOUR, failedAt: NOW - 25 * MIN, stopped: true, said: "Stopped: Cloudflare refused the token. An owner can connect it again here." },
+      });
     // The builder over the data page, as the boards draw it: board 04 with its draft, 04b typing a column.
     case "04":
     case "04b":
@@ -462,6 +488,9 @@ beforeAll(() => {
 });
 
 const SELECTED: Record<BoardId, string> = {
+  "02": "data",
+  "02c": "data",
+  "03c": "data/cloudflare",
   "04": "data",
   "04b": "data",
   "01": "data",
@@ -488,7 +517,7 @@ async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolea
         ? { inConsole: true, state: { known: true }, armed: false, keep: async () => null }
         : { state: undefined, armed: false };
   // The builder's chart sits in its dialog's card: the dialog's width less its padding and the card's.
-  const builder = board === "04" || board === "04b";
+  const builder = board === "04" || board === "04b" || board === "02" || board === "02c";
   chartWidth = builder ? (phone ? PHONE.width : 680) - 48 - 26 : phone ? PHONE.width - 32 - 26 : 820 - 26;
   stampViewport(size);
   container = document.createElement("div");
@@ -517,6 +546,13 @@ async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolea
 
 describe("data sources shots", () => {
   const shots: [BoardId, string, Scheme, boolean][] = [
+    ["02", "02-connect-apps", "light", false],
+    ["02", "02-connect-apps", "dark", false],
+    ["02", "02-connect-apps", "light", true],
+    ["02c", "02c-cloudflare-token", "light", false],
+    ["02c", "02c-cloudflare-token", "light", true],
+    ["03c", "03c-cloudflare-source", "light", false],
+    ["03c", "03c-cloudflare-source", "light", true],
     ["04", "04-metric-builder", "light", false],
     ["04", "04-metric-builder", "dark", false],
     ["04", "04-metric-builder", "light", true],
