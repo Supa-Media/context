@@ -17,6 +17,12 @@
  * The same holds for the Tex page (`/tex`, `/tex/<handle>`), whose `?code=`
  * is a computer's pairing code.
  *
+ * And for GitHub's Data install callback (`/data/github/callback`), whose
+ * `?code=` is GitHub's OAuth code for the gateway to trade. Redeemed as a
+ * sign-in code it signed the owner out the moment GitHub sent them back
+ * (2026-11-25). The route sits outside the `(app)` gate, but the root
+ * provider still sees the code.
+ *
  * The prefix is deliberately `/connect/`, not `/connect/google`: the next
  * provider added under that prefix gets the same protection without anyone
  * re-finding this bug.
@@ -27,6 +33,8 @@ export function shouldHandleAuthCode(pathname: string): boolean {
   // code shown on the person's computer. Redeemed as a sign-in code it signed
   // the person out on every open, so they could never approve it (2026-11-04).
   if (pathname === "/tex" || pathname.startsWith("/tex/")) return false;
+  // GitHub's install callback, `/data/github/callback?code=…&installation_id=…`.
+  if (pathname.startsWith("/data/github/")) return false;
   return true;
 }
 

@@ -154,6 +154,32 @@ export async function readInstallState({ secret, state, nowMs }) {
 export const installUrl = (app, state) => `https://github.com/apps/${app.slug}/installations/new?state=${encodeURIComponent(state)}`;
 
 /**
+ * The App's registered callback on this deployment, sent as the token exchange's `redirect_uri`: GitHub requires it
+ * to match a registered Callback URL when present, and production's is `https://context.lc/data/github/callback`.
+ * Null (so the field is left out and GitHub defaults to the first callback) when the deployment names no https origin.
+ */
+function callbackUrl(env) {
+  const origin = typeof env?.APP_ORIGIN === "string" ? env.APP_ORIGIN.replace(/\/+$/, "") : "";
+  return /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?$/.test(origin) ? `${origin}/data/github/callback` : null;
+}
+
+/**
+ * Why GitHub's token endpoint gave no token, as a short phrase an owner can pass on: GitHub's own error code and
+ * description when it answered (often HTTP 200 with `{error, error_description}`), else `appJson`'s sentence. Only
+ * a snake_case code and a bounded plain description are kept, and never one carrying a secret or the code it was sent.
+ */
+function tradeRefusal(traded, secrets) {
+  if (!traded.ok) return traded.said;
+  const error = typeof traded.body?.error === "string" && /^[a-z_]{1,64}$/.test(traded.body.error) ? traded.body.error : "";
+  const raw = typeof traded.body?.error_description === "string" ? traded.body.error_description.trim() : "";
+  const plain = raw.length <= 200 && /^[A-Za-z0-9 .,;:'()_/-]+$/.test(raw) && !secrets.some((secret) => secret !== "" && raw.includes(secret));
+  const description = plain ? raw.replace(/[.\s]+$/, "") : "";
+  if (error !== "" && description !== "") return `${error}: ${description}`;
+  if (error !== "") return error;
+  return "GitHub answered without a token";
+}
+
+/**
  * The owner's return from GitHub, checked: the code traded for the owner's GitHub token, the installation found
  * among the ones that person can reach, the token revoked, and a read-only token minted to prove the App can read.
  * `{ok: true, kept: {installation, repos: null}}` or `{ok: false, said}`. `repos: null` reads every repository the
@@ -165,14 +191,22 @@ export async function checkGithubInstall(input, fetcher, env, nowMs = Date.now()
   const code = typeof input?.code === "string" ? input.code : "";
   const installation = typeof input?.installation === "string" ? input.installation : "";
   if (!CODE.test(code) || !INSTALLATION.test(installation)) return { ok: false, said: "GitHub's answer was incomplete; connect it again" };
+  const redirect = callbackUrl(env);
   const traded = await appJson(
     fetcher,
     LOGIN,
-    { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "user-agent": "context-data-sync" }, body: JSON.stringify({ client_id: app.clientId, client_secret: app.clientSecret, code }) },
+    {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json", "user-agent": "context-data-sync" },
+      body: JSON.stringify({ client_id: app.clientId, client_secret: app.clientSecret, code, ...(redirect === null ? {} : { redirect_uri: redirect }) }),
+    },
     NAME,
   );
   const userToken = traded.ok && typeof traded.body?.access_token === "string" ? traded.body.access_token : "";
-  if (userToken === "") return { ok: false, said: "GitHub didn't confirm who approved it; connect it again" };
+  if (userToken === "") {
+    const why = tradeRefusal(traded, [app.clientSecret, app.clientId, code]);
+    return { ok: false, said: `GitHub didn't confirm who approved it (${why}); connect it again` };
+  }
   let reachable = false;
   try {
     for (let page = 1; page <= MAX_INSTALLATION_PAGES && !reachable; page += 1) {
