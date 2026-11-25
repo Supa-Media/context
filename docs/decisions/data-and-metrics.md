@@ -208,6 +208,23 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   first successful production deployment that started at or after the merge
   finished, filled in by a later run when the deploy comes after. No body,
   review, comment, commit message or file is read.
+- **Connecting answers at once; the first run happens behind it**
+  (2026-11-25, after production showed the first run taking about 95
+  seconds while the app gave up on every call after 30). Finishing the
+  install, and saving a repository pick, seal and keep what changed, arm the
+  source and answer straight away: armed, with no last run. The run itself is
+  queued on the sync object's alarm, set to fire now, and the alarm goes back
+  to its hourly time after it. An alarm rather than work left running after
+  the answer, because an alarm is kept and retried by the runtime, and it
+  keeps the object to one alarm. While a run is going, listing the
+  repositories and asking a source's status never wait for it. The app asks
+  the status again a few times, on a fixed backoff that stops, while a call
+  fails or a source is armed with no run yet, so "Not synced yet" clears by
+  itself; the repository picker asks GitHub once per opening and again only
+  on Try again; and the form says "Waiting for GitHub…" only while GitHub's
+  window is open, then "Connecting…". A pasted-key app (Stripe, Cloudflare)
+  still runs at Connect, since it is quick and its first run is the check
+  the person waits for.
 - **Web and desktop only** for the install itself, since it needs a window
   and a same-origin channel; the phone shows the source and its sheets.
 
@@ -362,7 +379,13 @@ synced sheet says it is kept up to date (08),
   keeps no note text, no rows and no credential. The first workspace to call
   it pins it, and it refuses any other. One alarm serves every source: set
   only when none is set, re-set after a run only while a source is still
-  running, deleted when none is. A self-hosted gateway without the binding
+  running, deleted when none is. A run that must happen soon (GitHub's first,
+  or after a repository pick) is listed as `soon` and moves the alarm to now,
+  keeping the hourly time it displaced; that early alarm runs only the
+  sources waiting for it, then puts the hourly time back. Runs never overlap
+  (one run at a time, apart from the lock that guards what is stored), and
+  the alarm re-reads the sources before keeping each result, so a connect,
+  arm or disconnect that lands during a long run is never overwritten by it. A self-hosted gateway without the binding
   answers the route 501 and its url sources say "Not synced yet".
 - **Arming is an app step by an owner or editor.** Connect a source → Fetch
   from a URL writes the source's `about.md` (`source: url`, `url:`,

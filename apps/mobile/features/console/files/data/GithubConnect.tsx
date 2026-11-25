@@ -5,7 +5,7 @@
  * `githubSync.ts`'s; this file only draws and hands on.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { pointerType, radii } from "../../../design/tokens";
@@ -16,8 +16,11 @@ import { GITHUB_COLUMNS, GITHUB_DATASETS, type GithubRepo } from "./githubSync";
 
 /** What the dialog hands GitHub's steps: each resolves to null once done, or the sentence saying why not. */
 export interface GithubFlow {
-  /** Make the source's folder and sheets if missing, open GitHub, and finish the install when it sends the owner back. */
-  readonly begin: () => Promise<string | null>;
+  /**
+   * Make the source's folder and sheets if missing, open GitHub, and finish the install when it sends the owner back.
+   * `onStep("connecting")` is called once GitHub has sent the owner back and the gateway is finishing it.
+   */
+  readonly begin: (onStep?: (step: "connecting") => void) => Promise<string | null>;
   readonly repos: () => Promise<{ repos: GithubRepo[]; picked: string[] | null } | string>;
   readonly pick: (names: readonly string[]) => Promise<string | null>;
 }
@@ -29,10 +32,13 @@ export function GithubForm({ flow, onConnected, onClose }: { flow: GithubFlow; o
   const colors = useColors();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // "github" while the window is open; "connecting" once GitHub sent the owner back.
+  const [step, setStep] = useState<"github" | "connecting">("github");
   const begin = async () => {
     setBusy(true);
+    setStep("github");
     setProblem(null);
-    const why = await flow.begin().catch(() => "That did not work. Try again.");
+    const why = await flow.begin((next) => setStep(next)).catch(() => "That did not work. Try again.");
     setBusy(false);
     if (why === null) onConnected();
     else setProblem(why);
@@ -78,11 +84,17 @@ export function GithubForm({ flow, onConnected, onClose }: { flow: GithubFlow; o
       </View>
       <Problem text={problem} />
       <Foot
-        lands={busy ? "Finish on GitHub, in the window that opened. This waits for you." : "GitHub opens in a new window to ask you. The first sync brings in the last 90 days, then it syncs every hour. No AI model runs."}
+        lands={
+          !busy
+            ? "GitHub opens in a new window to ask you. The first sync brings in the last 90 days, then it syncs every hour. No AI model runs."
+            : step === "connecting"
+              ? "GitHub sent you back. Context is connecting it."
+              : "Finish on GitHub, in the window that opened. This waits for you."
+        }
         busy={busy}
         ready={!busy}
         label="Connect GitHub (read-only)"
-        busyLabel="Waiting for GitHub…"
+        busyLabel={step === "connecting" ? "Connecting…" : "Waiting for GitHub…"}
         onMake={() => void begin()}
         onClose={onClose}
         testID="connect-github-make"
@@ -91,8 +103,8 @@ export function GithubForm({ flow, onConnected, onClose }: { flow: GithubFlow; o
   );
 }
 
-/** Board 02c. */
-export function GithubRepos({ flow, onClose }: { flow: GithubFlow; onClose: () => void }) {
+/** Board 02c. `firstRun`: the owner has just connected, so the first sync is still to come. */
+export function GithubRepos({ flow, firstRun = false, onClose }: { flow: GithubFlow; firstRun?: boolean; onClose: () => void }) {
   const shared = useThemedStyles(connectStyles);
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -100,12 +112,17 @@ export function GithubRepos({ flow, onClose }: { flow: GithubFlow; onClose: () =
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // The list is asked once per open, and again only on Try again: `flow` is a new object on every redraw of the parent.
+  const [listProblem, setListProblem] = useState<string | null>(null);
+  const [tries, setTries] = useState(0);
+  const flowRef = useRef(flow);
+  flowRef.current = flow;
   useEffect(() => {
     let live = true;
-    void flow.repos().then((answer) => {
+    void flowRef.current.repos().then((answer) => {
       if (!live) return;
       if (typeof answer === "string") {
-        setProblem(answer);
+        setListProblem(answer);
         setRepos([]);
         return;
       }
@@ -115,7 +132,12 @@ export function GithubRepos({ flow, onClose }: { flow: GithubFlow; onClose: () =
     return () => {
       live = false;
     };
-  }, [flow]);
+  }, [tries]);
+  const retry = () => {
+    setListProblem(null);
+    setRepos(null);
+    setTries((n) => n + 1);
+  };
   const toggle = (name: string) =>
     setPicked((now) => {
       const next = new Set(now);
@@ -141,6 +163,13 @@ export function GithubRepos({ flow, onClose }: { flow: GithubFlow; onClose: () =
       <View style={styles.repos} testID="github-repos">
         {repos === null ? (
           <Text style={styles.empty}>Asking GitHub…</Text>
+        ) : repos.length === 0 && listProblem !== null ? (
+          <View style={styles.listFailed}>
+            <Text style={styles.empty}>{listProblem}</Text>
+            <Pressable onPress={retry} role="button" accessibilityLabel="Try again" style={styles.retry} testID="github-repos-retry">
+              <Text style={[styles.retryText, { color: colors.accent }]}>Try again</Text>
+            </Pressable>
+          </View>
         ) : repos.length === 0 ? (
           <Text style={styles.empty}>GitHub gave Context no repositories. Add some to the App's installation on GitHub.</Text>
         ) : (
@@ -166,7 +195,7 @@ export function GithubRepos({ flow, onClose }: { flow: GithubFlow; onClose: () =
       </View>
       <Text style={styles.hint}>New repositories are left out until you add them here. At most 10.</Text>
       <Problem text={problem} />
-      <Foot lands="Syncs every hour" busy={busy} ready={!busy && picked.size > 0} label="Start syncing" busyLabel="Syncing…" onMake={() => void start()} onClose={onClose} testID="github-repos-start" />
+      <Foot lands={firstRun ? "Syncing for the first time… then every hour" : "Syncs every hour"} busy={busy} ready={!busy && picked.size > 0} label="Start syncing" busyLabel="Syncing…" onMake={() => void start()} onClose={onClose} testID="github-repos-start" />
     </>
   );
 }
@@ -196,4 +225,7 @@ const makeStyles = (colors: Colors) =>
     repoKind: { fontSize: pointerType.label, lineHeight: 14, color: colors.muted },
     empty: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, padding: 12 },
     hint: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, marginTop: -6 },
+    listFailed: { gap: 8 },
+    retry: { alignSelf: "flex-start", paddingHorizontal: 12, paddingBottom: 12 },
+    retryText: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "600" },
   });
