@@ -38,13 +38,13 @@ const MAX_TEXT = 4_000;
 
 export type CrossTarget = { kind: "group"; key: string; name?: string } | { kind: "person"; who: string };
 /** An ask the gateway's Cross-chat gate let go (`crossChatGate.js`). */
-export type CrossAsk = { id: string; pair: string; to: CrossTarget; what: string; do: boolean };
+export type CrossAsk = { id: string; pair: string; to: CrossTarget; what: string; do: boolean; strangers?: boolean };
 /** What an ask-run hands back (node `chatAnswer`). */
 export type CrossBack = { id: string; state: "answered" | "refused"; texts: string[]; why?: string };
 export type CrossState = "answered" | "refused" | "timeout" | "aside";
 /** What a chat's turn is started with (`chat_ask` or `chat_answer`), as the gateway reads it (`crossChatOf`). */
 export type CrossEvent =
-  | { kind: "ask"; id: string; from: string; what: string; do: boolean; key?: string; reply: string }
+  | { kind: "ask"; id: string; from: string; what: string; do: boolean; strangers?: boolean; key?: string; reply: string }
   | { kind: "answer"; id: string; from: string; what: string; state: CrossState; texts: string[]; why?: string; key?: string };
 
 /** Where the asking chat's answer-run is queued: a 1:1 by code, or a group as its asker's tag. */
@@ -78,7 +78,7 @@ export function readCrossAsks(value: unknown): CrossAsk[] {
         : ask.to?.kind === "person" && typeof ask.to.who === "string" && ask.to.who !== ""
           ? { kind: "person", who: line(ask.to.who, 64) }
           : null;
-    if (to !== null) asks.push({ id: ask.id, pair: ask.pair, to, what, do: ask.do === true });
+    if (to !== null) asks.push({ id: ask.id, pair: ask.pair, to, what, do: ask.do === true, ...(ask.strangers === true ? { strangers: true } : {}) });
   }
   return asks;
 }
@@ -124,7 +124,7 @@ export async function sendCrossAsks(storage: InboxStorage, deps: CrossDeps, orig
     await storage.put<CrossRecord>(`${CROSS_PREFIX}${ask.id}`, { id: ask.id, pair: ask.pair, to: ask.to, what: ask.what, at: now, state: "open", back });
     sent.push(now);
     await storage.put(SENT_KEY, sent);
-    const event = { id: ask.id, what: ask.what, do: ask.do, reply: own, from: origin.kind === "one" ? "their own 1:1 chat with you" : "a group chat they're in", ...(key ? { key } : {}) };
+    const event = { id: ask.id, what: ask.what, do: ask.do, ...(ask.strangers === true ? { strangers: true } : {}), reply: own, from: origin.kind === "one" ? "their own 1:1 chat with you" : "a group chat they're in", ...(key ? { key } : {}) };
     let outcome = "unreached";
     try {
       const target = ask.to.kind === "group" ? await deps.call(`group-key:${ask.to.key}`, "/chat-where", null) : null;
@@ -153,11 +153,11 @@ function refusedWhy(outcome: string): string {
 
 /** `/cross-ask` in the other chat's object: queue the ask as a turn of this chat's own. */
 export async function takeCrossAsk(storage: InboxStorage, body: unknown, now: number): Promise<"queued" | "no_1to1" | "full" | "bad"> {
-  const ask = body as { id?: unknown; what?: unknown; do?: unknown; reply?: unknown; from?: unknown; key?: unknown; asker?: unknown; groupId?: unknown; line?: unknown } | null;
+  const ask = body as { id?: unknown; what?: unknown; do?: unknown; strangers?: unknown; reply?: unknown; from?: unknown; key?: unknown; asker?: unknown; groupId?: unknown; line?: unknown } | null;
   if (!ask || typeof ask.id !== "string" || !ID.test(ask.id) || typeof ask.reply !== "string" || ask.reply.length > 300 || typeof ask.asker !== "string" || !E164.test(ask.asker)) return "bad";
   const what = line(ask.what, MAX_WHAT), from = line(ask.from, 80);
   if (what === "" || from === "") return "bad";
-  const event: CrossEvent = { kind: "ask", id: ask.id, from, what, do: ask.do === true, reply: ask.reply, ...(typeof ask.key === "string" && KEY.test(ask.key) ? { key: ask.key } : {}) };
+  const event: CrossEvent = { kind: "ask", id: ask.id, from, what, do: ask.do === true, ...(ask.strangers === true ? { strangers: true } : {}), reply: ask.reply, ...(typeof ask.key === "string" && KEY.test(ask.key) ? { key: ask.key } : {}) };
   const eventId = `cross-ask:${ask.id}`;
   if (typeof ask.groupId === "string" && typeof ask.line === "string") {
     // As its asker's tag, only while they are still in the chat, as a routine is: the control plane checks it again.
