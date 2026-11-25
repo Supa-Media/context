@@ -418,10 +418,10 @@ async function send(deps, state, { as, text: typed = "", pics: given, replyTo, a
   return await addRow({ ...deps, state, row: burst.rows.length > 0 ? { ...row, also: burst.rows.map((r) => r.id) } : row, cut, also: burst.rows });
 }
 
-/** `react`: a tapback on a row with words, as Tex's line hands one over; `sticker: true` sticks a made-up sticker (`stickers.ts`). */
-async function react(deps, state, { msgId, emoji: tapped, as, sticker }, cut = null) {
-  const emoji = sticker === true ? STICKER_ROW : tapped;
-  if (sticker !== true && (typeof emoji !== "string" || !TAPBACK_OF[emoji])) return refused(400, `emoji is one of ${Object.keys(TAPBACK_OF).join(" ")}, or pass sticker: true`);
+/** `react`: a tapback on a row with words, as Tex's line hands one over (noted or answered is the chat object's call); `sticker: true` sticks a made-up one. */
+async function react(deps, state, { msgId, emoji, as, sticker }, cut = null) {
+  if (sticker === true) emoji = STICKER_ROW;
+  else if (typeof emoji !== "string" || !TAPBACK_OF[emoji]) return refused(400, `emoji is one of ${Object.keys(TAPBACK_OF).join(" ")}, or pass sticker: true`);
   const target = targetOf(state.rows, msgId, "tapped");
   if (target.error) return refused(...target.error);
   const about = state.meta.chat;
@@ -430,7 +430,6 @@ async function react(deps, state, { msgId, emoji: tapped, as, sticker }, cut = n
   if (speaker.error) return refused(...speaker.error);
   const read = await reactionOf({ about, target: target.row, emoji, as: speaker.speaker, rows: state.rows });
   const { at, eid, id } = newIds();
-  // Its line is how the chat shows it; whether it is noted or answered is the chat object's call (`reactions.ts`).
   const row = { id, eid, who: speaker.speaker, kind: "reaction", emoji, on: target.row.id, text: read.line, at, prod: false, line: rowLine(lineOf(about)), ...(sticker === true ? { sticker: `lab-sticker-${id}` } : {}) };
   return await addRow({ ...deps, state, row, cut });
 }
