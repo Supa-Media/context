@@ -176,7 +176,7 @@ describe("turning a refusal into something a person can act on", () => {
     const removal = describeMembersFailure(convexError("CANNOT_REMOVE_OWNER"));
     const demotion = describeMembersFailure(convexError("CANNOT_CHANGE_OWNER_ROLE"));
     expect(removal).toEqual(demotion);
-    expect(removal.next).toContain("not built yet");
+    expect(removal.next).toContain("hand the workspace to a co-owner");
   });
 
   test("an unknown failure never leaks the raw thrown text", () => {

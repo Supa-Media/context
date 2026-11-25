@@ -49,6 +49,7 @@ import { internalQuery, query } from "../_generated/server";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
+import { requirePrimaryOwner } from "./lib/workspaces/primaryOwner";
 import {
   hasAnyEntitlement,
   planIsPaying,
@@ -399,7 +400,8 @@ export const startPortal = mutation({
   returns: v.object({ sessionId: v.id("billingSessions") }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
-    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+    // The card and cancelling are the owner's, not a co-owner's (`lib/workspaces/primaryOwner.ts`).
+    await requirePrimaryOwner(ctx, args.workspaceId, userId);
 
     const plan = await planFor(ctx, args.workspaceId);
     if (plan?.stripeCustomerId === undefined) {

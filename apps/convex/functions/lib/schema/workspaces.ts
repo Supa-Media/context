@@ -78,6 +78,14 @@ export const workspaceTables = {
     treeSort: v.optional(v.string()),
     displayName: v.string(),
     createdBy: v.id("users"),
+    /**
+     * The one owner of a shared workspace, when it was handed over (`lib/workspaces/primaryOwner.ts`). Every other
+     * member with the `owner` role is a co-owner: they see and do what the owner does, except the one-way steps
+     * (delete the workspace, hand it over, make or remove co-owners, disconnect storage, manage the card, connect or
+     * remove a custom domain). Absent: the creator, as before (decided by the owner, 2026-11-25;
+     * `docs/decisions/identity-and-access/co-owners.md`).
+     */
+    ownerUserId: v.optional(v.id("users")),
     kind: v.union(v.literal("personal"), v.literal("shared")),
     /**
      * Which starting layout was written into the bucket. Purely a record of

@@ -6,6 +6,7 @@ import { isProductionTestAccount } from "../testAccount";
 import { managedBucketName } from "../managedStorage";
 import { normalizeName } from "../names";
 import { requireWorkspaceRole } from "../workspaceAuth";
+import { requirePrimaryOwner } from "../workspaces/primaryOwner";
 
 /**
  * Who may tear down a workspace, checked before `deleteWorkspaceCascade` runs.
@@ -53,12 +54,8 @@ export async function authorizeWorkspaceDeletion(
   args: { workspaceId: Id<"workspaces">; confirmSlug: string },
 ): Promise<void> {
   const userId = (await requireAuthId(ctx)) as Id<"users">;
-  const { workspace } = await requireWorkspaceRole(
-    ctx,
-    args.workspaceId,
-    userId,
-    "owner",
-  );
+  // The owner's step, not a co-owner's (`lib/workspaces/primaryOwner.ts`).
+  const { workspace } = await requirePrimaryOwner(ctx, args.workspaceId, userId);
 
   if (workspace.kind !== "shared") {
     throw new ConvexError({

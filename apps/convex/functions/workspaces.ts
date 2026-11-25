@@ -33,6 +33,9 @@ import {
 import { setMeetingsFolderHandler } from "./lib/workspaces/settings";
 import { setWorkspaceDisplayNameHandler } from "./lib/workspaces/rename";
 import { retireSetupWidgetHandler } from "./lib/workspaces/setupRetired";
+import { handOverHandler } from "./lib/workspaces/coOwners";
+import { primaryOwnerOf } from "./lib/workspaces/primaryOwner";
+import { requireWorkspaceAccess } from "./lib/workspaceAuth";
 import {
   recordWorkspaceIconPhotoHandler,
   setWorkspaceIconHandler,
@@ -274,6 +277,7 @@ export const listMembers = query({
     v.object({
       userId: v.id("users"),
       role: v.string(),
+      isOwner: v.boolean(),
       email: v.optional(v.string()),
       name: v.optional(v.string()),
       /** Their own `@name` (their personal workspace), so the share field finds a member by it. */
@@ -579,12 +583,14 @@ export const leaveWorkspace = mutation({
 });
 
 /**
- * Change what somebody may do in a context. Owner-only.
+ * Change what somebody may do in a context. Owners and co-owners only.
  *
- * `editor` and `member` only — the same closed set `inviteMember` offers, for
- * the same reason. A promotion to `owner` would be an ownership transfer with
- * no confirmation and no way back, and a demotion *from* `owner` is the
- * unrecoverable case `removeMember` describes.
+ * `owner` makes a co-owner: the workspace's owner's step alone, on a shared
+ * workspace, after their email code. Taking `owner` away is the owner's step
+ * too, or a co-owner stepping themself down; the owner's own role never
+ * changes here (`handOver` instead). See `lib/workspaces/coOwners.ts`. Where
+ * the object decides the members, an owner-role change answers `pending` and
+ * lands once the object took it.
  *
  * Setting the role somebody already has writes nothing and records nothing. An
  * audit trail that logs a change that did not happen makes the trail harder to
@@ -594,8 +600,36 @@ export const setMemberRole = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
-    role: v.union(v.literal("editor"), v.literal("member")),
+    role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
   },
-  returns: v.object({ role: v.string() }),
+  returns: v.object({ role: v.string(), pending: v.optional(v.boolean()) }),
   handler: (ctx, args) => setMemberRoleHandler(ctx, args),
+});
+
+/**
+ * Who owns this workspace, as opposed to co-owning it, and whether it may have
+ * co-owners at all (shared only). Members only, like `listMembers`; the app
+ * reads it beside a members list the workspace object serves, which carries no
+ * owner of its own (`lib/workspaces/primaryOwner.ts`).
+ */
+export const ownership = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ ownerUserId: v.union(v.id("users"), v.null()), coOwnersAllowed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const { workspace } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    return { ownerUserId: await primaryOwnerOf(ctx, workspace), coOwnersAllowed: workspace.kind === "shared" };
+  },
+});
+
+/**
+ * The owner hands the workspace to one of its co-owners and stays on as a
+ * co-owner. Shared workspaces only, after the owner's email code
+ * (`lib/workspaces/coOwners.ts`).
+ */
+export const handOver = mutation({
+  args: { workspaceId: v.id("workspaces"), userId: v.id("users") },
+  returns: v.object({ ownerUserId: v.id("users") }),
+  handler: async (ctx, args) =>
+    handOverHandler(ctx, { ...args, actorId: (await requireAuthId(ctx)) as Id<"users"> }),
 });

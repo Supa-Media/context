@@ -32,6 +32,11 @@ export interface ConsoleMember {
   joinedAt: number;
   /** True for the signed-in person, so the row can say so instead of guessing. */
   isMe: boolean;
+  /**
+   * The workspace's owner, as opposed to a co-owner: both have the `owner` role, and only the owner takes the
+   * one-way steps (`apps/convex/functions/lib/workspaces/primaryOwner.ts`).
+   */
+  isOwner?: boolean;
 }
 
 export interface ConsoleInvitation {
@@ -54,6 +59,17 @@ export interface MemberActions {
   remove: (userId: string) => Promise<void>;
   setRole: (userId: string, role: AssignableRole) => Promise<void>;
   withdraw: (invitationId: string) => Promise<void>;
+  /**
+   * Make someone a co-owner, or step a co-owner down (theirs to do for themself). Present for every owner and
+   * co-owner; the row decides which choices to offer (`ownerChoices`), and the backend refuses the rest.
+   */
+  setOwnerRole: (userId: string, role: MemberRole) => Promise<void>;
+  /** The owner hands the workspace to a co-owner (`workspaces.handOver`). */
+  handOver: (userId: string) => Promise<void>;
+  /** The signed-in person is the workspace's owner, not only a co-owner. */
+  iAmOwner: boolean;
+  /** A shared workspace: a personal one keeps exactly one owner. */
+  coOwnersAllowed: boolean;
 }
 
 /**
@@ -82,7 +98,7 @@ export interface MembersView {
   readOnlyReason?: string;
 }
 
-/** Whether a role may change who is in a context. Owner, and only owner. */
+/** Whether a role may change who is in a context. Owners and co-owners, who share the `owner` role. */
 export function canManageMembers(role: string | undefined): boolean {
   return role === "owner";
 }
@@ -115,6 +131,8 @@ export function describeRole(role: string): string {
   switch (role) {
     case "owner":
       return "Full control, including storage and access";
+    case "co-owner":
+      return "Everything the owner can do, except deleting or handing over the workspace";
     case "editor":
       return "Can read and write notes";
     case "member":
@@ -140,6 +158,23 @@ export const ASSIGNABLE_ROLES: ReadonlyArray<{
   { value: "member", label: "Member", detail: describeRole("member") },
   { value: "editor", label: "Editor", detail: describeRole("editor") },
 ];
+
+/** What a row's menu offers beyond Can edit / Can view / Remove, by who is looking at whom. */
+export type OwnerChoice = "co-owner" | "hand-over" | "step-down";
+
+/**
+ * The owner-role choices one row offers. The owner's own row offers none (they hand over instead); a co-owner's row
+ * offers the owner a hand-over and stepping them down, and the co-owner themself stepping down; an editor's or a
+ * member's row offers the owner "make co-owner" on a shared workspace. A co-owner never sees another co-owner's.
+ */
+export function ownerChoices(member: ConsoleMember, actions: MemberActions | undefined): OwnerChoice[] {
+  if (actions === undefined || member.isOwner === true) return [];
+  if (member.role === "owner") {
+    if (actions.iAmOwner) return ["hand-over", "step-down"];
+    return member.isMe ? ["step-down"] : [];
+  }
+  return actions.iAmOwner && actions.coOwnersAllowed ? ["co-owner"] : [];
+}
 
 /** The role a member can be switched to with one tap. */
 export function oppositeRole(role: string): AssignableRole | null {
@@ -219,9 +254,30 @@ export function describeMembersFailure(error: unknown): MembersFailure {
       };
     case "CANNOT_REMOVE_OWNER":
     case "CANNOT_CHANGE_OWNER_ROLE":
+    case "OWNER_CANNOT_LEAVE":
       return {
-        headline: "A context keeps its owner",
-        next: "Transferring a context to somebody else is a separate step, and is not built yet.",
+        headline: "A workspace keeps its owner",
+        next: "The owner can hand the workspace to a co-owner first.",
+      };
+    case "OWNER_ONLY":
+      return {
+        headline: "Only the workspace's owner can do that",
+        next: "Co-owners can do everything else. Ask the owner.",
+      };
+    case "CO_OWNER":
+      return {
+        headline: "They're a co-owner",
+        next: "Make them Can edit or Can view first, then remove them.",
+      };
+    case "NOT_A_CO_OWNER":
+      return {
+        headline: "Make them a co-owner first",
+        next: "The workspace can only be handed to a co-owner.",
+      };
+    case "PERSONAL_CONTEXT":
+      return {
+        headline: "A personal workspace has one owner",
+        next: "Share it with Can edit instead.",
       };
     case "INVITATION_NOT_FOUND":
       return {

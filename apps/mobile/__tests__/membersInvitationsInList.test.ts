@@ -72,21 +72,26 @@ test("with nothing sent there is no empty invitations card", () => {
 const click = (host: HTMLElement, testID: string) =>
   act(() => (host.querySelector(`[data-testid="${testID}"]`) as HTMLElement).click());
 
-function withActions(): { view: MembersView; calls: string[] } {
+function withActions(options: { iAmOwner?: boolean; coOwnersAllowed?: boolean } = {}): { view: MembersView; calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
     view: {
       ...view([{ invitationId: "i1", invitee: "@tomi", role: "member", expiresAt: Date.now() + 86_400_000 }]),
       members: [
-        { userId: "u1", role: "owner", name: "Seyi", email: "seyi@example.com", joinedAt: 0, isMe: true },
+        { userId: "u1", role: "owner", name: "Seyi", email: "seyi@example.com", joinedAt: 0, isMe: options.iAmOwner ?? true, isOwner: true },
         { userId: "u2", role: "editor", name: "LK", email: "lk@example.com", joinedAt: 1, isMe: false },
+        { userId: "u3", role: "owner", name: "Sayo", email: "sayo@example.com", joinedAt: 2, isMe: options.iAmOwner === false, isOwner: false },
       ],
       actions: {
         invite: async (who, role) => void calls.push(`invite ${who} ${role}`),
         remove: async (id) => void calls.push(`remove ${id}`),
         setRole: async (id, role) => void calls.push(`role ${id} ${role}`),
         withdraw: async (id) => void calls.push(`withdraw ${id}`),
+        setOwnerRole: async (id, role) => void calls.push(`owner-role ${id} ${role}`),
+        handOver: async (id) => void calls.push(`hand-over ${id}`),
+        iAmOwner: options.iAmOwner ?? true,
+        coOwnersAllowed: options.coOwnersAllowed ?? true,
       },
     },
   };
@@ -136,4 +141,53 @@ test("a member sees words, never a menu or an invite button", () => {
   expect(host.querySelector('[data-testid^="member-role-"]')).toBeNull();
   expect(host.querySelector('[data-testid="members-invite-open"]')).toBeNull();
   expect(host.textContent ?? "").toContain("Can edit");
+});
+
+test("the owner makes a co-owner: Co-owner… only arms, says what they get, and Confirm makes them one", async () => {
+  const { view: v, calls } = withActions();
+  const host = mountSection(v);
+  expect(host.querySelector('[data-testid="member-role-u3"]')?.textContent).toContain("Co-owner");
+  click(host, "member-role-u2");
+  click(host, "member-role-u2-option-co-owner");
+  expect(calls).toEqual([]);
+  expect(host.textContent ?? "").toContain("will see every private note");
+  await act(async () => {
+    (host.querySelector('[data-testid="member-co-owner-u2"]') as HTMLElement).click();
+  });
+  expect(calls).toEqual(["owner-role u2 owner"]);
+});
+
+test("the owner hands over to a co-owner after a red Confirm, or steps them down", async () => {
+  const { view: v, calls } = withActions();
+  const host = mountSection(v);
+  click(host, "member-role-u3");
+  click(host, "member-role-u3-option-hand-over");
+  expect(host.textContent ?? "").toContain("becomes the owner and you become a co-owner");
+  await act(async () => {
+    (host.querySelector('[data-testid="member-hand-over-u3"]') as HTMLElement).click();
+  });
+  click(host, "member-role-u3");
+  await act(async () => {
+    (host.querySelector('[data-testid="member-role-u3-option-member"]') as HTMLElement).click();
+  });
+  expect(calls).toEqual(["hand-over u3", "owner-role u3 member"]);
+});
+
+test("a co-owner sees no co-owner choices on others, and can step themself down", async () => {
+  const { view: v, calls } = withActions({ iAmOwner: false });
+  const host = mountSection(v);
+  expect(host.querySelector('[data-testid="member-role-u1"]')).toBeNull();
+  click(host, "member-role-u2");
+  expect(host.querySelector('[data-testid="member-role-u2-option-co-owner"]')).toBeNull();
+  click(host, "member-role-u3");
+  await act(async () => {
+    (host.querySelector('[data-testid="member-role-u3-option-step-down"]') as HTMLElement).click();
+  });
+  expect(calls).toEqual(["owner-role u3 editor"]);
+});
+
+test("a personal workspace offers no Co-owner…", () => {
+  const host = mountSection(withActions({ coOwnersAllowed: false }).view);
+  click(host, "member-role-u2");
+  expect(host.querySelector('[data-testid="member-role-u2-option-co-owner"]')).toBeNull();
 });

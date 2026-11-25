@@ -11,6 +11,7 @@ import {
   type ConsoleInvitation,
   type ConsoleMember,
   type MemberActions,
+  type MemberRole,
   type MembersView,
 } from "./members";
 
@@ -93,6 +94,8 @@ export function useMembers(options: {
   const spec = useMemo<RequestForQueries>(() => {
     if (workspaceId === null) return EMPTY_QUERY_SPEC;
     const out: RequestForQueries = {};
+    // Who owns it, as opposed to co-owning it: the object's members list does not say (`workspaces.ownership`).
+    out.ownership = { query: api.functions.workspaces.ownership, args: { workspaceId } };
     if (!membersServed) {
       out.members = { query: api.functions.workspaces.listMembers, args: { workspaceId } };
     }
@@ -113,6 +116,10 @@ export function useMembers(options: {
   const revokeInvitation = useMutation(api.functions.invitations.revokeInvitation);
   const removeMember = useMutation(api.functions.workspaces.removeMember);
   const setMemberRole = useMutation(api.functions.workspaces.setMemberRole);
+  const handOverMutation = useMutation(api.functions.workspaces.handOver);
+  const ownership = usable<{ ownerUserId: string | null; coOwnersAllowed: boolean }>(results.ownership);
+  const ownerUserId = ownership?.ownerUserId ?? null;
+  const coOwnersAllowed = ownership?.coOwnersAllowed ?? false;
 
   const members: ConsoleMember[] = (usable<MemberSummary[]>(rawMembers) ?? []).map(
     (member) => ({
@@ -125,8 +132,11 @@ export function useMembers(options: {
       // Decided by the control plane, which is the only party that knows who is
       // calling — see `listMembers`.
       isMe: member.isMe,
+      isOwner: member.userId === ownerUserId,
     }),
   );
+
+  const iAmOwner = members.some((member) => member.isMe && member.isOwner === true);
 
   const invitations: ConsoleInvitation[] = (
     usable<InvitationSummary[]>(rawInvitations) ?? []
@@ -167,6 +177,16 @@ export function useMembers(options: {
           }),
         );
       },
+      // A change touching the owner role always goes to Convex, which checks who owns the workspace and, where the
+      // object decides the members, puts it there first (`lib/workspaces/coOwners.ts`).
+      setOwnerRole: async (userId: string, assigned: MemberRole) => {
+        await setMemberRole({ workspaceId, userId: userId as Id<"users">, role: assigned });
+      },
+      handOver: async (userId: string) => {
+        await handOverMutation({ workspaceId, userId: userId as Id<"users"> });
+      },
+      iAmOwner,
+      coOwnersAllowed,
       withdraw: async (invitationId: string) => {
         await objectFirst(invitesTopic, "revoke_invite", { invitationId }, () =>
           revokeInvitation({
@@ -185,6 +205,9 @@ export function useMembers(options: {
     inviteMember,
     removeMember,
     setMemberRole,
+    handOverMutation,
+    iAmOwner,
+    coOwnersAllowed,
     revokeInvitation,
   ]);
 

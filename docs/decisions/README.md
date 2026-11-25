@@ -125,6 +125,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - A shared workspace opened to an email domain
 - [Signing out ends a token at once: the session is checked on every call](./identity-and-access/session-checked-every-call.md)
 - [Who may reach what lives in the objects, one copy](./identity-and-access/access-in-objects.md)
+- [A workspace has one owner, plus co-owners](./identity-and-access/co-owners.md)
 - [The staff console takes a second factor: an authenticator code per session](./identity-and-access/staff-second-factor.md)
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)

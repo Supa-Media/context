@@ -58,7 +58,9 @@ import { openStore } from "./store";
  *
  * It cannot be **wider than the truth**, which is the only direction that
  * discloses anything. The clearance a cached copy is served under is
- * `private` for `owner` and `team` for everybody else, and the owner role
+ * `private` for `owner` and `team` for everybody else, an owner of a shared
+ * workspace is remembered at `team` (a co-owner can be stepped down;
+ * `rememberedAs`), and a personal workspace's owner role
  * cannot be taken away — `setMemberRole`, `removeMember` and `leaveWorkspace`
  * each refuse it by name, and ownership transfer is not built. A remembered
  * `owner` was true when it was written and is still true now; every other role

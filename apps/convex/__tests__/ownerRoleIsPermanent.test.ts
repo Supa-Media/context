@@ -38,6 +38,13 @@
  * cache, and a demoted ex-owner's device would go on serving `private` copies
  * on every launch with no network until the age bound reached them.
  *
+ * **Since 2026-11-25 a shared workspace has co-owners, and a co-owner can be
+ * stepped down** (`lib/workspaces/coOwners.ts`). So the premise now holds only
+ * for a personal workspace's owner and for a shared workspace's owner, and the
+ * app remembers every owner of a shared workspace at `team`
+ * (`rememberedAs`, `apps/mobile/features/offline/cache.ts`). The last test
+ * below pins why.
+ *
  * This is that test. If it goes red because ownership can now be transferred,
  * the fix is not here: `useRememberedContexts` has to stop remembering a role
  * that can narrow, by remembering the clearance as `team` for any context
@@ -123,33 +130,6 @@ describe("the owner role is permanent, which is what makes a remembered role saf
   });
 
   /**
-   * The narrower move that would reopen the same hole without touching any of
-   * the three refusals above: widening what `setMemberRole` will *accept*.
-   *
-   * Its validator is `editor | member`, so `owner` is refused by the argument
-   * check before the handler's own `CANNOT_CHANGE_OWNER_ROLE` is ever reached.
-   * A promotion to `owner` is not itself a disclosure — it widens a clearance,
-   * and this cache is only ever wrong in the narrow direction — but a
-   * validator that accepts `owner` is the first half of a transfer, and a
-   * transfer is the demotion this file exists to rule out. Failing here on the
-   * half that is harmless is the point: it is the change that arrives first.
-   */
-  test("`setMemberRole` will not even take `owner` as an argument", async () => {
-    const { t, owner, other, workspaceId } = await sharedContext();
-
-    const error = await captureError(() =>
-      asUser(t, owner).mutation(api.functions.workspaces.setMemberRole, {
-        workspaceId,
-        userId: other,
-        // The point of the test — an argument the validator must keep refusing.
-        role: "owner" as "editor" | "member",
-      }),
-    );
-
-    expect(error).not.toBeNull();
-  });
-
-  /**
    * And the other direction of the same premise: a role that is *not* owner
    * reads at `team`, so remembering it can never widen anything. Pinned here
    * rather than assumed, because "every other role is `team`" is the sentence
@@ -178,5 +158,15 @@ describe("the owner role is permanent, which is what makes a remembered role saf
     // ends of that promotion are the same clearance and a device that missed
     // it missed nothing that matters here.
     expect(row?.role).not.toBe("owner");
+  });
+});
+
+describe("a co-owner's role can narrow, which is why a shared owner is remembered at team", () => {
+  test("the owner steps a co-owner down to member", async () => {
+    const { t, owner, other, workspaceId } = await sharedContext();
+    await asUser(t, owner).mutation(api.functions.workspaces.setMemberRole, { workspaceId, userId: other, role: "owner" });
+    expect(
+      await asUser(t, owner).mutation(api.functions.workspaces.setMemberRole, { workspaceId, userId: other, role: "member" }),
+    ).toEqual({ role: "member" });
   });
 });

@@ -18,6 +18,8 @@ import { deleteMemberPlaces } from "../places";
 import { getMembership, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { MAX_MEMBERS_RETURNED } from "./constants";
 import { memberNotFound } from "./errors";
+import { changeOwnerRole, type Role } from "./coOwners";
+import { primaryOwnerOf } from "./primaryOwner";
 
 export async function listMembersHandler(
   ctx: QueryCtx,
@@ -26,6 +28,8 @@ export async function listMembersHandler(
   {
     userId: Id<"users">;
     role: string;
+    /** The workspace's owner, as opposed to a co-owner (`primaryOwner.ts`). */
+    isOwner: boolean;
     email?: string;
     name?: string;
     /** Their personal workspace's name, without the `@`: what people type to find them. */
@@ -42,6 +46,8 @@ export async function listMembersHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .take(MAX_MEMBERS_RETURNED);
 
+  const workspace = await ctx.db.get(args.workspaceId);
+  const owner = workspace === null ? null : await primaryOwnerOf(ctx, workspace);
   const rows = [];
   for (const member of members) {
     const user = await ctx.db.get(member.userId);
@@ -49,6 +55,7 @@ export async function listMembersHandler(
     rows.push({
       userId: member.userId,
       role: member.role,
+      isOwner: member.userId === owner,
       email: user?.email,
       name: user?.name,
       ...(handle === undefined ? {} : { handle }),
@@ -70,10 +77,15 @@ export async function removeMemberHandler(
   if (target === null) return { removed: false };
 
   if (target.role === "owner") {
+    // The owner is never removed (they hand over first), and a co-owner is stepped down before removal, so a
+    // removal never takes the owner role away by itself (`coOwners.ts`).
+    const workspace = await ctx.db.get(args.workspaceId);
+    const isOwner = workspace !== null && (await primaryOwnerOf(ctx, workspace)) === target.userId;
     throw new ConvexError({
-      code: "CANNOT_REMOVE_OWNER",
-      message:
-        "A context's owner cannot be removed. Transferring ownership is a separate step, and is not built yet.",
+      code: isOwner ? "CANNOT_REMOVE_OWNER" : "CO_OWNER",
+      message: isOwner
+        ? "The workspace's owner can't be removed. They can hand it to a co-owner first."
+        : "Make them an editor or member first, then remove them.",
     });
   }
 
@@ -103,11 +115,13 @@ export async function leaveWorkspaceHandler(
   if (membership === null) return { left: false };
 
   if (membership.role === "owner") {
-    throw new ConvexError({
-      code: "OWNER_CANNOT_LEAVE",
-      message:
-        "You own this context, so leaving would orphan it. Transferring ownership is a separate step, and is not built yet.",
-    });
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null || (await primaryOwnerOf(ctx, workspace)) === userId) {
+      throw new ConvexError({
+        code: "OWNER_CANNOT_LEAVE",
+        message: "You own this workspace. Hand it to a co-owner first, then you can leave.",
+      });
+    }
   }
 
   await ctx.db.delete(membership._id);
@@ -126,23 +140,17 @@ export async function leaveWorkspaceHandler(
 
 export async function setMemberRoleHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces">; userId: Id<"users">; role: "editor" | "member" },
-): Promise<{ role: string }> {
+  args: { workspaceId: Id<"workspaces">; userId: Id<"users">; role: Role },
+): Promise<{ role: string; pending?: boolean }> {
   const actorId = (await requireAuthId(ctx)) as Id<"users">;
-  await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
+  const { workspace } = await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
 
   const target = await getMembership(ctx, args.workspaceId, args.userId);
   if (target === null) throw memberNotFound();
 
-  if (target.role === "owner") {
-    throw new ConvexError({
-      code: "CANNOT_CHANGE_OWNER_ROLE",
-      message:
-        "A context's owner keeps the owner role. Transferring ownership is a separate step, and is not built yet.",
-    });
-  }
-
   if (target.role === args.role) return { role: target.role };
+  // Making, stepping down or removing a co-owner: the owner's step, or a co-owner's own (`coOwners.ts`).
+  if (target.role === "owner" || args.role === "owner") return await changeOwnerRole(ctx, { workspace, actorId, target, role: args.role });
 
   await ctx.db.patch(target._id, { role: args.role });
 

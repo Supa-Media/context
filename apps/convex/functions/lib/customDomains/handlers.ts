@@ -33,6 +33,7 @@ import {
   type CheckFindings,
 } from "./lifecycle";
 import { ensureWwwCompanion, wwwCompanionOf, wwwHostnameFor, wwwRedirectFor } from "./www";
+import { requirePrimaryOwner } from "../workspaces/primaryOwner";
 
 type Row = Doc<"customDomains">;
 
@@ -287,7 +288,8 @@ export async function connectDomainAs(
   hostname: string,
 ): Promise<Id<"customDomains">> {
   const args = { workspaceId, hostname };
-  await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+  // Connecting a domain is the owner's step, not a co-owner's (`lib/workspaces/primaryOwner.ts`).
+  await requirePrimaryOwner(ctx, args.workspaceId, userId);
 
   if (customDomainsDeployment() === null) {
     throw new ConvexError({
@@ -452,6 +454,7 @@ export async function removeHandler(
   args: { domainId: Id<"customDomains"> },
 ): Promise<null> {
   const { row: named, userId } = await domainForOwner(ctx, args.domainId);
+  await requirePrimaryOwner(ctx, named.workspaceId, userId);
   // A `www.` goes with its root, and only with it: removed alone, the sweep
   // would only register it again.
   const root = named.wwwOf === undefined ? named : await ctx.db.get(named.wwwOf);

@@ -7,6 +7,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { resolveAddressedUser } from "../identities";
 import { getMembership, type WorkspaceRole } from "../workspaceAuth";
+import { primaryOwnerOf } from "../workspaces/primaryOwner";
 
 /** The roles that may write a note, and so may be a routine's writer. */
 export function isWritingRole(role: WorkspaceRole): boolean {
@@ -25,8 +26,8 @@ export async function writingRole(
 }
 
 /**
- * The workspace's owner, for a routine file found with no known writer: its
- * creator while they still own it, else the earliest-joined owner.
+ * The workspace's owner, for a routine file found with no known writer
+ * (`lib/workspaces/primaryOwner.ts`).
  */
 export async function workspaceOwner(
   ctx: QueryCtx,
@@ -34,15 +35,7 @@ export async function workspaceOwner(
 ): Promise<Id<"users"> | null> {
   const workspace = await ctx.db.get(workspaceId);
   if (workspace === null) return null;
-  const members = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .take(200);
-  const owners = members.filter((member) => member.role === "owner");
-  const creator = owners.find((member) => member.userId === workspace.createdBy);
-  if (creator !== undefined) return creator.userId;
-  owners.sort((a, b) => a.joinedAt - b.joinedAt);
-  return owners[0]?.userId ?? null;
+  return await primaryOwnerOf(ctx, workspace);
 }
 
 /** The time zone a person chose, or null. */

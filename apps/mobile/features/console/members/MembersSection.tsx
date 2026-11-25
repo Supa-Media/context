@@ -14,7 +14,9 @@ import {
   memberDetail,
   inviteOutcomeMessage,
   memberLabel,
+  ownerChoices,
   type AssignableRole,
+  type OwnerChoice,
   type ConsoleInvitation,
   type ConsoleMember,
   type MemberActions,
@@ -188,10 +190,20 @@ function MemberRow({
    * press minutes later near the same row removes nobody.
    */
   const removal = useArming(() => run(() => actions!.remove(member.userId)));
+  // Making a co-owner and handing the workspace over each ask once too, with
+  // what they give said beside the Confirm (`ownerHint`); the server then asks
+  // for the owner's email code.
+  const coOwner = useArming(() => run(() => actions!.setOwnerRole(member.userId, "owner")));
+  const handOver = useArming(() => run(() => actions!.handOver(member.userId)));
+  const choices = ownerChoices(member, actions);
+  const coOwnerRow = member.role === "owner";
 
-  // The owner's row never carries a menu: an owner cannot be removed and
-  // cannot be demoted, so a menu there would only ever refuse.
-  const manageable = actions !== undefined && member.role !== "owner";
+  // The owner's row never carries a menu: the owner cannot be removed or
+  // demoted, so a menu there would only ever refuse. A co-owner's row carries
+  // one only for the owner, and for the co-owner themself (to step down).
+  const manageable = actions !== undefined && (coOwnerRow ? choices.length > 0 : true);
+  const label = roleLabel(member.role, member.isOwner === true);
+  const armed = [removal, coOwner, handOver].find((arming) => arming.stage === "armed");
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -216,50 +228,57 @@ function MemberRow({
             {member.isMe ? `${memberLabel(member)} · you` : memberLabel(member)}
           </Text>
           <Text variant="rowSub" style={styles.rowSub}>
-            {detail ?? describeRole(member.role)}
+            {detail ?? describeRole(member.role === "owner" && member.isOwner !== true ? "co-owner" : member.role)}
           </Text>
         </Grow>
-        {removal.stage === "armed" ? (
-          <Button
-            label="Confirm"
-            variant="danger"
-            disabled={busy}
-            accessibilityLabel={`Confirm removing ${memberLabel(member)}`}
-            testID={`member-remove-${member.userId}`}
-            onPress={removal.press}
-          />
-        ) : null}
         {manageable ? (
-          <PickMenu<AssignableRole | "remove">
-            label={roleLabel(member.role)}
-            accessibilityLabel={`${memberLabel(member)}: ${roleLabel(member.role)}. Change`}
-            options={[
-              { key: "editor", label: roleLabel("editor") },
-              { key: "member", label: roleLabel("member") },
-              { key: "remove", label: "Remove from workspace", danger: true },
-            ]}
-            selected={member.role === "editor" || member.role === "member" ? member.role : null}
+          <PickMenu<RowChoice>
+            label={label}
+            accessibilityLabel={`${memberLabel(member)}: ${label}. Change`}
+            options={rowOptions(member, choices)}
+            selected={coOwnerRow ? null : member.role === "editor" || member.role === "member" ? member.role : null}
             disabled={busy}
             onPick={(key) => {
-              if (key === "remove") {
-                removal.press();
-                return;
-              }
+              if (key === "remove") return removal.press();
+              if (key === "co-owner") return coOwner.press();
+              if (key === "hand-over") return handOver.press();
+              // Stepping a co-owner down, or a co-owner stepping themself down, goes through the owner-role path.
+              if (key === "step-down") return void run(() => actions!.setOwnerRole(member.userId, "editor"));
+              if (coOwnerRow) return void run(() => actions!.setOwnerRole(member.userId, key));
               if (key !== member.role) void run(() => actions!.setRole(member.userId, key));
             }}
             testID={`member-role-${member.userId}`}
           />
         ) : (
           <Text variant="rowSub" style={styles.roleWord}>
-            {roleLabel(member.role)}
+            {label}
           </Text>
         )}
       </View>
-      {removal.stage === "armed" ? (
+      {armed !== undefined ? (
         <Hint>
-          <Text variant="hint">
-            {`Removing ${memberLabel(member)} cuts off every AI client they have connected to this workspace, immediately.`}
-          </Text>
+          {armed === handOver ? (
+            <Text variant="hint" style={styles.oneWay}>
+              {`${memberLabel(member)} becomes the owner and you become a co-owner. Only ${memberLabel(member)} can hand it back or step you down.`}
+            </Text>
+          ) : (
+            <Text variant="hint">
+              {armed === coOwner
+                ? `${memberLabel(member)} will see every private note and run the workspace with you. Only you can delete it, hand it over, change its storage or card, or add co-owners. You can step them down any time.`
+                : `Removing ${memberLabel(member)} cuts off every AI client they have connected to this workspace, immediately.`}
+            </Text>
+          )}
+          {/* Under the words rather than in the row, so a long name keeps its width on a phone. */}
+          <View style={styles.confirmRow}>
+            <Button
+              label="Confirm"
+              variant={armed === coOwner ? "dialogPrimary" : "danger"}
+              disabled={busy}
+              accessibilityLabel={`Confirm: ${armedWhat(armed === removal ? "remove" : armed === coOwner ? "co-owner" : "hand-over", memberLabel(member))}`}
+              testID={`member-${armed === removal ? "remove" : armed === coOwner ? "co-owner" : "hand-over"}-${member.userId}`}
+              onPress={armed.press}
+            />
+          </View>
         </Hint>
       ) : null}
       {failure !== null ? (
@@ -318,11 +337,46 @@ function InvitationRow({
   );
 }
 
-/** "Owner", "Can edit", "Can view": the artboard's words for the three roles. */
-export function roleLabel(role: string): string {
+type RowChoice = AssignableRole | "remove" | OwnerChoice;
+
+/**
+ * A row's menu. An editor's or member's: Can edit, Can view, Co-owner… for the
+ * owner, and Remove. A co-owner's, for the owner: Make the owner…, then Can edit
+ * and Can view (stepping them down); for the co-owner themself: Step down.
+ */
+function rowOptions(member: ConsoleMember, choices: OwnerChoice[]): { key: RowChoice; label: string; danger?: boolean }[] {
+  if (member.role === "owner") {
+    if (choices.includes("hand-over")) {
+      return [
+        { key: "hand-over", label: "Make the owner…", danger: true },
+        { key: "editor", label: roleLabel("editor") },
+        { key: "member", label: roleLabel("member") },
+      ];
+    }
+    return choices.includes("step-down") ? [{ key: "step-down", label: "Step down to Can edit" }] : [];
+  }
+  return [
+    { key: "editor", label: roleLabel("editor") },
+    { key: "member", label: roleLabel("member") },
+    ...(choices.includes("co-owner") ? [{ key: "co-owner" as const, label: "Co-owner…" }] : []),
+    { key: "remove", label: "Remove from workspace", danger: true },
+  ];
+}
+
+function armedWhat(kind: "remove" | "co-owner" | "hand-over", name: string): string {
+  if (kind === "co-owner") return `make ${name} a co-owner`;
+  if (kind === "hand-over") return `make ${name} the owner`;
+  return `remove ${name}`;
+}
+
+/**
+ * "Owner", "Co-owner", "Can edit", "Can view": the artboard's words for the
+ * roles. Both owners hold the `owner` role; `isOwner` tells the owner apart.
+ */
+export function roleLabel(role: string, isOwner = true): string {
   switch (role) {
     case "owner":
-      return "Owner";
+      return isOwner ? "Owner" : "Co-owner";
     case "editor":
       return "Can edit";
     case "member":
@@ -498,4 +552,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   send: { marginTop: 13, alignSelf: "flex-start" },
   readOnly: { marginTop: 13 },
   hintStrong: { color: colors.hintStrong, fontWeight: "600" },
+  // A step nobody can take back: bold red, inline (`docs/decisions/app-and-console`).
+  oneWay: { color: colors.crit, fontWeight: "700" },
+  confirmRow: { flexDirection: "row", marginTop: 8 },
 });
