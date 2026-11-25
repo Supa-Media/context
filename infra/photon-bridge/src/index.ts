@@ -2,8 +2,10 @@ import { DurableObject } from "cloudflare:workers";
 import { forwardContainerLogs, type LogCursor, type ReportedHealth } from "./containerLogs";
 import {
   CHECKPOINT_PREFIX,
-  pumpOnce,
+  Pump,
   retryDelayMs,
+  type Parked,
+  type ParkStore,
   type AgentEvents,
   type CheckpointStore,
   type Fetchish,
@@ -70,6 +72,7 @@ export class PhotonBridge extends DurableObject<Env> {
   private live = false;
   private starting?: Promise<void>;
   private pumping?: Promise<void>;
+  private pump?: Pump;
   private logCursor?: LogCursor;
   private forwarding?: Promise<void>;
   private lastHealth: ReportedHealth | null = null;
@@ -92,6 +95,26 @@ export class PhotonBridge extends DurableObject<Env> {
 
   private store(): CheckpointStore {
     return { put: (key, value) => this.ctx.storage.put(key, value) };
+  }
+
+  private parkStore(): ParkStore {
+    return {
+      put: (key, value) => this.ctx.storage.put(key, value),
+      list: (prefix) => this.ctx.storage.list<Parked>({ prefix }),
+      delete: (key) => this.ctx.storage.delete(key),
+    };
+  }
+
+  /** The delivery loop's state (the chats being retried), kept for the object's life. */
+  private pumpState(): Pump {
+    this.pump ??= new Pump({
+      port: { fetch: (input, init) => this.port().fetch(input, init) },
+      agent: this.env.AGENT,
+      store: this.store(),
+      parked: this.parkStore(),
+      log,
+    });
+    return this.pump;
   }
 
   /** Starts the container if needed, pings it, and sends it the stored frontiers. */
@@ -178,7 +201,9 @@ export class PhotonBridge extends DurableObject<Env> {
     while (this.configured) {
       try {
         await this.ensure();
-        await pumpOnce({ port: this.port(), agent: this.env.AGENT, store: this.store(), sleep, log });
+        const pump = this.pumpState();
+        const outcome = await pump.step();
+        if (outcome === "blocked") await sleep(Math.max(pump.waitMs(), 250));
         failures = 0;
       } catch (error) {
         this.live = false;

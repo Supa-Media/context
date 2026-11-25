@@ -41,8 +41,8 @@ function countBy(items, key) {
   return [...counts].map(([name, n]) => `${code(name)} ${n}`).join(", ");
 }
 
-/** The window's events with an event code, as the Texting assistant logs workflow reads them. */
-async function readEvents(minutes) {
+/** The window's events with an event code from one Worker (`service`), as the Texting assistant logs workflow reads them. */
+export async function readEvents(minutes, service = "context-agent") {
   const to = Date.now();
   const from = to - minutes * 60_000;
   const url = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query`;
@@ -58,7 +58,7 @@ async function readEvents(minutes) {
         view: "events",
         limit: 500,
         ...(offset ? { offset } : {}),
-        parameters: { filters: [{ key: "$metadata.service", operation: "eq", type: "string", value: "context-agent" }] },
+        parameters: { filters: [{ key: "$metadata.service", operation: "eq", type: "string", value: service }] },
       }),
     });
     const data = await response.json().catch(() => ({}));
@@ -81,7 +81,7 @@ async function readEvents(minutes) {
   return out;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === `file://${process.argv[1]}` && process.argv[1].endsWith("tex-alert.mjs")) {
   const events = await readEvents(Number(process.env.MINUTES ?? 15));
   const problems = problemsIn(events);
   if (problems.length > 0) {

@@ -252,3 +252,18 @@ test("the frontiers are served on the container's own port for the object to sto
     await server.close();
   }
 });
+
+test("next passes the chats to skip on, and refuses a skip list that is too long", async () => {
+  let seen = null;
+  const server = await serve(fakeRuntime({ nextEvent: async (_ms, skip) => { seen = skip; return null; } }));
+  try {
+    const empty = await fetch(`${server.base}/next?wait=10&skip=any%3B%2B%3Ba&skip=any%3B%2B%3Bb`);
+    assert.equal(empty.status, 204);
+    assert.deepEqual([...seen], ["any;+;a", "any;+;b"]);
+    const many = new URLSearchParams(Array.from({ length: 201 }, (_, i) => ["skip", `c${i}`]));
+    const refused = await fetch(`${server.base}/next?${many}`);
+    assert.equal(refused.status, 400);
+  } finally {
+    await server.close();
+  }
+});
