@@ -1,36 +1,34 @@
 /**
  * The gateway's TexChat runs the texting Worker's chat object as it is (step 3 of Tex's config graph,
- * docs/architecture/tex.md): a text handed over copies the Worker's chat in, is queued here, and is answered by the
- * gateway's own `/agent` over a real hop (a fresh gateway isolate, here the same fake gateway reached through `fetch`),
- * the answer going out on the Worker's line over its RPC. The Worker's side of the
- * move is its real code (`inboxMove.ts` `serveMoveOut`), run on an in-memory object.
+ * docs/architecture/tex.md): a text handed over is queued here, in a chat born here on its first call, and answered by
+ * the gateway's own `/agent` over a real hop (a fresh gateway isolate, here the same fake gateway reached through
+ * `fetch`), the answer going out on the Worker's line over its RPC. Nothing is asked of the Worker's chat objects: part C
+ * of the runtime simplification (Dev2 approved https://claude.ai/artifact/AcEGnAtBKWqeTAcXa1vveX) ended the copy in.
  *
  * Runs under `--experimental-transform-types` with `test/tsRegister.mjs` (`test/run.mjs`), which load the Worker's
  * TypeScript the way the deploy's bundler does.
  *
- * Sabotage record (run 2026-11-14, each break reverted before the next):
- *   1. `chatEnv`'s `TEX_LINE` removed: the chat object fell back to a local line with no keys, and "a handed-over
- *      text is answered on the Worker's line" failed (no `lineCall` reached the fake Worker).
- *   2. `copyIn` stopped checking the outcome (`moved.outcome !== "arrived"` dropped): "a copy the Worker refuses
- *      leaves the Worker answering" failed, the object answering a chat it never copied.
- *   3. `workerObjects` answered "" for the chat's own id: "the chat's own id is the Worker's" failed.
- *   4. `chatEnv` passed `SIMULATOR: "on"` whatever the gateway's var: "a simulated chat ... only where the simulator is
- *      on" failed (the gateway without it answered the simulator).
- *   5. `chat` left a rejected `this.opening` in place (2026-11-17): "a rejected copy is forgotten, and the next call
- *      copies" failed, the second call awaiting the same rejection.
- *   6. The failure log put `chat: name` back (2026-11-17): the same test failed, the line containing the phone number.
- *   7. (2026-11-21) `moveIn` answered its home without calling `chat()`: "move-in copies the Worker's chat in" failed.
+ * Sabotage record (each break reverted before the next):
+ *   1. (2026-11-14) `chatEnv`'s `TEX_LINE` removed: the chat object fell back to a local line with no keys, and "a
+ *      handed-over text is answered on the Worker's line" failed (no `lineCall` reached the fake Worker).
+ *   2. (2026-11-14) `chatEnv` passed `SIMULATOR: "on"` whatever the gateway's var: "a simulated chat ... only where the
+ *      simulator is on" failed (the gateway without it answered the simulator).
+ *   3. (2026-11-25) `placeChat` kept "" as the sender id: "the chat's own id is this object's" failed.
+ *   4. (2026-11-25) `chat()` placed a chat for a name `INBOX_NAME` refuses: "a bad arrival is refused before anything is
+ *      placed" failed.
+ *   5. (2026-11-25) `placeChat` wrote the place before the name: "a failed place is tried again" failed, the chat open
+ *      with no name kept.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { texChatClass } from "../../../packages/tex/gateway/texChat.js";
 
-const { serveMoveOut } = await import("../../../packages/tex/worker/inboxMove.ts");
-
 const PHONE = "+15555550100";
 const LINE = "+15555550199";
 const CHAT = `${LINE};${PHONE}`;
 const SELF = "https://gateway.example";
+/** This chat's own object id in the gateway. */
+const OWN_ID = "c".repeat(64);
 
 /** A Durable Object's storage, in memory: the calls the chat object and the move make. */
 class DoStorage {
@@ -64,24 +62,10 @@ class DoStorage {
   }
 }
 
-/** The Worker's side: its chat object's storage, its move, its line and its other calls, each recorded. */
-function fakeWorker({ refuseMove = false } = {}) {
-  const old = new DoStorage();
-  old.data.set("history:1", { text: "an older line" });
-  const calls = { line: [], move: [], inboxFetch: [] };
+/** The Worker's side: its line and its other calls, each recorded. It has no chat objects to ask. */
+function fakeWorker() {
+  const calls = { line: [], inboxFetch: [] };
   const rpc = {
-    async chatMove({ inbox, op }) {
-      calls.move.push({ inbox, op });
-      if (refuseMove && op === "out") return { status: 409, body: { busy: true } };
-      const path = op === "out" ? "/__move_out" : "/__move_back";
-      const body = op === "out" ? JSON.stringify({ name: inbox, to: "gateway" }) : undefined;
-      const answer = await serveMoveOut(new Request(`https://inbox${path}`, { method: "POST", body }), old, 0, Date.now());
-      const text = await answer.text();
-      return { status: answer.status, body: text === "" ? null : JSON.parse(text) };
-    },
-    async inboxId({ name }) {
-      return `worker-id-of-${name}`;
-    },
     async lineCall(call) {
       calls.line.push(call);
       if (call.method === "sendText") return { ok: true, value: "handle-1" };
@@ -95,11 +79,8 @@ function fakeWorker({ refuseMove = false } = {}) {
       calls.inboxFetch.push({ name: target.name, path: new URL(request.url).pathname });
       return Response.json({});
     },
-    async groupTurn() {
-      return null;
-    },
   };
-  return { rpc, old, calls };
+  return { rpc, calls };
 }
 
 /** The gateway's own `/agent`, reached over the hop (`texChat.js` `hopToGateway`), and the control plane over the network. */
@@ -150,7 +131,7 @@ function chatObject(rpc, extra = {}) {
   const TexChat = texChatClass({ gateway: () => gateway, texts: () => texts });
   const storage = new DoStorage();
   const work = [];
-  const state = { storage, waitUntil: (promise) => work.push(promise), blockConcurrencyWhile: (run) => run() };
+  const state = { id: { toString: () => OWN_ID }, storage, waitUntil: (promise) => work.push(promise), blockConcurrencyWhile: (run) => run() };
   const env = { TEXTING: rpc, PUBLIC_ORIGIN: SELF, CONTROL_PLANE_URL: "https://cp.example", AGENT_WORKER_SECRET: "s", ...extra };
   return { chat: new TexChat(state, env), storage, asked, work };
 }
@@ -183,17 +164,19 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.deepEqual(calls, []);
   });
 
-  it("a handed-over text is copied in, queued, and answered on the Worker's line", async () => {
+  it("a handed-over text is placed here, queued, and answered on the Worker's line, with nothing asked of its objects", async () => {
     controlPlane();
     const worker = fakeWorker();
     const { chat, storage, asked, work } = chatObject(worker.rpc);
 
     const first = await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi"), origin: "https://agent.example" });
     assert.deepEqual(first, { status: 200, body: { outcome: "queued" } });
-    // The Worker's chat was copied in and marked moved to the gateway; this one holds its lines.
-    assert.deepEqual(worker.calls.move, [{ inbox: PHONE, op: "out" }]);
-    assert.equal((await worker.old.get("__inbox_place")).movedTo, "gateway");
-    assert.deepEqual(await storage.get("history:1"), { text: "an older line" });
+    // Born here: its name and own id kept, nothing copied, and no Worker object asked.
+    const place = await storage.get("__inbox_place");
+    assert.equal(typeof place.arrivedAt, "number");
+    assert.equal(place.born, true);
+    assert.equal(await storage.get("__inbox_name"), PHONE);
+    assert.deepEqual(worker.calls.inboxFetch, []);
     assert.notEqual(storage.alarm, null);
 
     await chat.alarm();
@@ -206,6 +189,7 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.equal(sent[0].inbox, PHONE);
     assert.equal(sent[0].chatId, CHAT);
     assert.equal(sent[0].args[0], "answer to hi");
+    assert.deepEqual(worker.calls.inboxFetch, []);
   });
 
   it("a text's provider times become the chat's text step, and never ride on with the text", async () => {
@@ -224,17 +208,18 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.equal(pending[0].message.provider, undefined);
   });
 
-  it("the same text again is a duplicate, and the copy is made once", async () => {
+  it("the same text again is a duplicate, and the chat is placed once", async () => {
     controlPlane();
     const worker = fakeWorker();
-    const { chat } = chatObject(worker.rpc);
+    const { chat, storage } = chatObject(worker.rpc);
     await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") });
+    const placed = await storage.get("__inbox_place");
     const again = await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") });
     assert.deepEqual(again, { status: 200, body: { outcome: "duplicate" } });
-    assert.equal(worker.calls.move.length, 1);
+    assert.deepEqual(await storage.get("__inbox_place"), placed);
   });
 
-  it("a call the Worker's moved object passes on is answered here", async () => {
+  it("a call by the chat's name (`/chat-call`) is answered here", async () => {
     controlPlane();
     const worker = fakeWorker();
     const { chat } = chatObject(worker.rpc);
@@ -243,96 +228,52 @@ describe("TexChat runs the Worker's chat object", () => {
       new Request("https://chat/chat-call/accept", { method: "POST", headers: { "x-inbox-name": PHONE }, body: JSON.stringify(message("m2", "again")) }),
     );
     assert.deepEqual(await passed.json(), { outcome: "queued" });
-    assert.equal(passed.headers.get("x-tex-chat-home"), "gateway", "a passed-on call says it was answered here");
+    assert.equal(passed.headers.get("x-tex-chat-home"), "gateway", "a call by name says it was answered here");
     // A pass-on with no name, or a bad one, is refused before the chat object.
     const unnamed = await chat.fetch(new Request("https://chat/chat-call/accept", { method: "POST", body: "{}" }));
     assert.equal(unnamed.status, 400);
   });
 
-  it("a rejected copy is forgotten, and the next call copies", async () => {
+  it("a failed place is tried again on the next call, and never leaves a chat open with no name", async () => {
     controlPlane();
     const worker = fakeWorker();
     const { chat, storage } = chatObject(worker.rpc);
-    const realGet = storage.get.bind(storage);
-    let copyReads = 0;
-    storage.get = async (key) => {
-      // chat() reads the place, then copyIn reads it again. That second read rejects, so the
-      // cached copy promise rejects before any row is copied. The text must not be logged.
-      if (key === "__inbox_place" && ++copyReads === 2) {
-        const error = new Error("secret words failed the copy");
-        error.name = "CopyFailed";
-        throw error;
+    const realPut = storage.put.bind(storage);
+    let failed = false;
+    storage.put = async (key, value) => {
+      if (key === "__sender_id" && !failed) {
+        failed = true;
+        throw Object.assign(new Error("storage down"), { name: "PutFailed" });
       }
-      return realGet(key);
+      return realPut(key, value);
     };
-    const lines = [];
-    const realLog = console.log;
-    console.log = (...args) => {
-      const line = args.map(String).join(" ");
-      if (line.includes("tex_chat_move_failed")) lines.push(line);
-      realLog(...args);
-    };
-    const text = "secret words";
-    try {
-      await assert.rejects(arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", text) }), { name: "CopyFailed" });
-      assert.equal(worker.calls.move.length, 0);
-      const second = await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", text) });
-      assert.deepEqual(second, { status: 200, body: { outcome: "queued" } });
-      assert.deepEqual(worker.calls.move, [{ inbox: PHONE, op: "out" }]);
-      assert.deepEqual(await storage.get("history:1"), { text: "an older line" });
-      const failed = lines
-        .map((line) => {
-          try {
-            return JSON.parse(line);
-          } catch {
-            return null;
-          }
-        })
-        .find((line) => line?.event === "tex_chat_move_failed");
-      assert.equal(JSON.stringify(failed).includes(PHONE), false);
-      assert.equal(failed.error, "CopyFailed");
-      assert.equal(JSON.stringify(failed).includes(text), false);
-    } finally {
-      console.log = realLog;
-    }
+    await assert.rejects(arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { name: "PutFailed" });
+    assert.equal(await storage.get("__inbox_place"), undefined);
+    assert.deepEqual(await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { status: 200, body: { outcome: "queued" } });
+    assert.equal(await storage.get("__inbox_name"), PHONE);
   });
 
-  it("move-in copies the Worker's chat in with no text, and home says where it is answered (Dev2's chat first, 2026-11-21)", async () => {
+  it("move-in opens the chat with no text, and home says it is answered here", async () => {
     controlPlane();
     const worker = fakeWorker();
-    const { chat, storage } = chatObject(worker.rpc);
+    const { chat } = chatObject(worker.rpc);
     const before = await chat.fetch(new Request("https://chat/home"));
     assert.deepEqual(await before.json(), { home: "worker" });
     const moved = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
     const body = await moved.json();
     assert.equal(body.home, "gateway");
-    assert.equal(body.keys, 1);
-    assert.equal((await worker.old.get("__inbox_place")).movedTo, "gateway");
-    assert.deepEqual(await storage.get("history:1"), { text: "an older line" });
-    // Asked again: nothing is copied twice.
-    await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
-    assert.equal(worker.calls.move.length, 1);
-    // A text after is queued here, as a handed-over one is.
+    assert.equal(body.keys, 0);
     assert.deepEqual(await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { status: 200, body: { outcome: "queued" } });
     const bad = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: "" }) }));
     assert.equal(bad.status, 400);
+    assert.deepEqual(worker.calls.inboxFetch, []);
   });
 
-  it("move-in refused by a busy Worker object answers worker and leaves it answering", async () => {
-    controlPlane();
-    const worker = fakeWorker({ refuseMove: true });
-    const { chat, storage } = chatObject(worker.rpc);
-    const moved = await chat.fetch(new Request("https://chat/move-in", { method: "POST", body: JSON.stringify({ inbox: PHONE }) }));
-    assert.deepEqual(await moved.json(), { home: "worker", refused: true });
-    assert.equal(await storage.get("history:1"), undefined);
-  });
-
-  it("no text is answered twice across a move: a hand-over whose answer was lost, sent again by the Worker's moved object, is a duplicate", async () => {
+  it("no text is answered twice: a hand-over whose answer was lost, sent again by name and by the webhook's retry, is a duplicate", async () => {
     controlPlane();
     const worker = fakeWorker();
     const { chat, storage, asked, work } = chatObject(worker.rpc);
-    // The hand-over queued the text here, but the Worker never read the answer (a dropped connection): it falls back to
-    // its own object (`handOver.ts`), which has moved, and passes the same text on (`inboxMove.ts` `forward`).
+    // The hand-over queued the text here, but the Worker never read the answer (a dropped connection).
     assert.deepEqual(await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") }), { status: 200, body: { outcome: "queued" } });
     const again = await chat.fetch(new Request("https://chat/chat-call/accept", { method: "POST", headers: { "x-inbox-name": PHONE }, body: JSON.stringify(message("m1", "hi")) }));
     assert.deepEqual(await again.json(), { outcome: "duplicate" });
@@ -345,27 +286,31 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.equal(worker.calls.line.filter((call) => call.method === "sendText").length, 1);
   });
 
-  it("a copy the Worker refuses leaves the Worker answering", async () => {
-    controlPlane();
-    const worker = fakeWorker({ refuseMove: true });
-    const { chat, storage } = chatObject(worker.rpc);
-    const refused = await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") });
-    assert.deepEqual(refused, { status: 503, body: { outcome: "not_here" } });
-    assert.equal(await storage.get("history:1"), undefined);
-    assert.equal((await worker.old.get("__inbox_place")), undefined);
-  });
-
-  it("the chat's own id is the Worker's, so its counts and addresses still name it", async () => {
+  it("the chat's own id is this object's, so its counts and addresses name it", async () => {
     controlPlane();
     const worker = fakeWorker();
-    const { chat } = chatObject(worker.rpc);
+    const { chat, storage } = chatObject(worker.rpc);
     await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") });
-    assert.equal(chat.inner.state.id.toString(), `worker-id-of-${PHONE}`);
-    assert.equal(chat.inner.env.SENDER_INBOX.idFromName(`enam:${PHONE}`).toString(), `worker-id-of-${PHONE}`);
+    assert.equal(await storage.get("__sender_id"), OWN_ID);
+    assert.equal(chat.inner.state.id.toString(), OWN_ID);
+    assert.equal(chat.inner.env.SENDER_INBOX.idFromName(`enam:${PHONE}`).toString(), OWN_ID);
     assert.equal(chat.inner.env.SENDER_INBOX.idFromName("enam:+15555550111").toString(), "");
   });
 
-  it("a simulated chat is copied in and answered here, its reply in its log and never on the line, only where the simulator is on", async () => {
+  it("a chat already placed keeps the name and id it has", async () => {
+    controlPlane();
+    const worker = fakeWorker();
+    const { chat, storage } = chatObject(worker.rpc);
+    const old = "d".repeat(64);
+    await storage.put("__inbox_place", { arrivedAt: 1, keys: 3 });
+    await storage.put("__inbox_name", PHONE);
+    await storage.put("__sender_id", old);
+    await arrive(chat, { kind: "one", inbox: PHONE, message: message("m1", "hi") });
+    assert.equal(await storage.get("__sender_id"), old);
+    assert.deepEqual(await storage.get("__inbox_place"), { arrivedAt: 1, keys: 3 });
+  });
+
+  it("a simulated chat is born and answered here, its reply in its log and never on the line, only where the simulator is on", async () => {
     controlPlane();
     const SIM = "+12125550100";
     const worker = fakeWorker();
@@ -374,7 +319,6 @@ describe("TexChat runs the Worker's chat object", () => {
       chat.fetch(new Request(`https://chat/chat-call/sim/${action}`, { method: "POST", headers: { "x-inbox-name": SIM }, body: JSON.stringify(body) }));
     const keyHash = "ab".repeat(32);
     assert.deepEqual(await (await sim("send", { keyHash, phone: SIM, text: "hello sim" })).json(), { outcome: "queued" });
-    assert.deepEqual(worker.calls.move, [{ inbox: SIM, op: "out" }]);
     await chat.alarm();
     await Promise.allSettled(work);
     assert.deepEqual(asked, ["hello sim"]);
@@ -387,11 +331,13 @@ describe("TexChat runs the Worker's chat object", () => {
     assert.equal(refused.status, 404);
   });
 
-  it("a bad arrival is refused before anything is copied", async () => {
+  it("a bad arrival is refused before anything is placed", async () => {
     const worker = fakeWorker();
-    const { chat } = chatObject(worker.rpc);
+    const { chat, storage } = chatObject(worker.rpc);
     assert.equal((await arrive(chat, { kind: "one", inbox: "bad name!", message: {} })).status, 400);
     assert.equal((await arrive(chat, { kind: "shout", inbox: PHONE, message: {} })).status, 400);
-    assert.equal(worker.calls.move.length, 0);
+    // And opened straight by a name no inbox has: nothing placed, no chat.
+    assert.equal(await chat.chat("bad name!"), null);
+    assert.equal(await storage.get("__inbox_place"), undefined);
   });
 });

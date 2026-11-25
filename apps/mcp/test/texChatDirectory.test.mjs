@@ -4,11 +4,10 @@
  *
  * A group chat tells its directory entry (`group-key:<key>`) where it is, so a chat routine, a staff move, the Tex page
  * and a cross-chat ask find the group from its key. The entry was the texting Worker's object; it is now a `TexChat`
- * object of its own, answered from its storage, and an entry it does not hold yet is read once from the Worker's and
- * kept.
+ * object of its own, answered from its storage only: the Worker's entries are no longer read (2026-11-25).
  *
- * Sabotage checked (each reverted): `isDirectoryName` answering false sends the entry to the chat move and fails
- * "answers from its own storage"; dropping the `storage.put` after the Worker read fails "reads the Worker's entry once".
+ * Sabotage checked (each reverted): `isDirectoryName` answering false sends the entry to the chat and fails "answers
+ * from its own storage"; reading the Worker's entry again (2026-11-25) fails "answers null when it holds no entry".
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -72,24 +71,14 @@ describe("a group's directory entry", () => {
     assert.equal(store.map.size, 0);
   });
 
-  it("reads the Worker's entry once when it holds none, and keeps it", async () => {
+  it("answers null when it holds no entry, keeping nothing and never asking the Worker, even one that holds one", async () => {
     const { rpc, calls } = worker(WHERE);
     const { call, store } = directory(rpc);
-    assert.deepEqual(await (await call("GET")).json(), WHERE);
-    assert.deepEqual(store.map.get("chatwhere"), WHERE);
-    assert.deepEqual(await (await call("GET")).json(), WHERE);
-    assert.deepEqual(calls.inboxFetch, [[`enam:${NAME}`, "/chat-where"]]);
-  });
-
-  it("answers null, keeping nothing, when neither it nor the Worker has an entry, or the Worker's is malformed", async () => {
-    for (const entry of [null, { line: "x", groupId: "" }]) {
-      const { rpc } = worker(entry);
-      const { call, store } = directory(rpc);
-      assert.equal(await (await call("GET")).json(), null);
-      assert.equal(store.map.size, 0);
-    }
-    const { call } = directory(undefined);
-    assert.equal(await (await call("GET")).json(), null, "with no Worker bound, an empty entry is null");
+    assert.equal(await (await call("GET")).json(), null);
+    assert.equal(store.map.size, 0);
+    assert.deepEqual(calls.inboxFetch, [], "the Worker's entries are never read (part C, 2026-11-25)");
+    const { call: unbound } = directory(undefined);
+    assert.equal(await (await unbound("GET")).json(), null, "with no Worker bound, an empty entry is null");
   });
 
   it("answers no other route", async () => {

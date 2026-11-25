@@ -14,13 +14,9 @@
  *     passes are run by its own (`texJob.js`): no Workflow, and no call back to the Worker for it (2026-11-21);
  *   - the control plane is reached as the Worker reached it, with `AGENT_WORKER_SECRET`.
  *
- * A chat comes here once, on its first call, by copying the Worker's object in (`packages/tex/worker/inboxMove.ts`, the
- * same copy and digest the Worker's own moves use): the Worker's object marks itself moved and passes every later call
- * on to this one (`/texts/chat-call`). A copy that fails leaves the Worker's object answering, and the call is refused
- * here so the Worker answers it.
- *
- * Every chat comes here: the Worker hands each text over (`packages/tex/worker/handOver.ts`), and a chat still in the
- * Worker is copied in on its first one.
+ * Every chat lives here and is born here, on its first call (`placeChat`). Until part C of the runtime simplification
+ * (Dev2 approved https://claude.ai/artifact/AcEGnAtBKWqeTAcXa1vveX) a chat still in the Worker was copied in on its
+ * first call; every chat had moved by 2026-11-22, and the boxes no name led to were archived (`texChat/workerArchive.js`).
  */
 
 import { ARRIVAL_KINDS, INBOX_NAME } from "./texChat/arrival.js";
@@ -91,7 +87,7 @@ export function texChatClass({ gateway, texts }) {
       if (chat !== null) await chat.alarm();
     }
 
-    /** A text handed over by the Worker (`agent/textsArrive.js`): copied in first, then answered as the Worker's object would. */
+    /** A text handed over by the Worker (`agent/textsArrive.js`): answered by the chat, born here on its first. */
     async arrive(request) {
       const body = await request.json().catch(() => null);
       if (body === null || !ARRIVAL_KINDS.has(body.kind) || typeof body.inbox !== "string" || !INBOX_NAME.test(body.inbox)) {
@@ -107,10 +103,7 @@ export function texChatClass({ gateway, texts }) {
       return Response.json({ outcome: typeof outcome.outcome === "string" ? outcome.outcome : answer.ok ? "queued" : "failed" }, { status: answer.ok ? 200 : 503 });
     }
 
-    /**
-     * Copies the Worker's chat in now, with no text to answer (`packages/lab/gateway/labSandbox/intake.js`): the same
-     * copy a handed-over text starts, so the chat's later texts and calls are answered here. Answers its home after.
-     */
+    /** Opens the chat now, with no text to answer (`packages/lab/gateway/labSandbox/intake.js`), and answers its home. */
     async moveIn(request) {
       const body = await request.json().catch(() => null);
       if (body === null || typeof body.inbox !== "string" || !INBOX_NAME.test(body.inbox)) return Response.json({ error: "bad_body" }, { status: 400 });
@@ -118,12 +111,12 @@ export function texChatClass({ gateway, texts }) {
       return Response.json({ ...(await homeOf(this.state.storage)), ...(chat === null ? { refused: true } : {}) });
     }
 
-    /** A call the Worker's moved object passed on (`inboxMove.ts` `forward`): answered by the copy here. */
+    /** A call to a chat by its name (`/texts/chat-call`, another chat's `senderObjects`): answered by the chat here. */
     async chatCall(request, url) {
       const name = request.headers.get(INBOX_NAME_HEADER);
       if (name === null || !INBOX_NAME.test(name)) return new Response(null, { status: 400 });
       // A group's directory entry is not a chat: it is answered from this object's own storage (`texChat/directory.js`).
-      if (isDirectoryName(name)) return await serveDirectory(request, url.pathname.slice("/chat-call".length), { storage: this.state.storage, rpc: this.env.TEXTING, name });
+      if (isDirectoryName(name)) return await serveDirectory(request, url.pathname.slice("/chat-call".length), { storage: this.state.storage });
       const chat = await this.chat(name);
       if (chat === null) return new Response(null, { status: 503 });
       const path = url.pathname.slice("/chat-call".length);
@@ -137,7 +130,7 @@ export function texChatClass({ gateway, texts }) {
       return new Response(answer.body, { status: answer.status, statusText: answer.statusText, headers: marked });
     }
 
-    /** The Worker's chat object, running on this chat's copy; null while the copy cannot be made. */
+    /** The chat object (`packages/tex/worker/chatObject.ts`), running on this object's storage; null with no name to place. */
     async chat(name) {
       if (this.inner !== null) return this.inner;
       const { storage } = this.state;
@@ -145,26 +138,13 @@ export function texChatClass({ gateway, texts }) {
       if (typeof name === "string" && (await isAppChatName(name)) && (await storage.get(PLACE_KEY))?.arrivedAt === undefined) {
         await placeAppChat(storage, name, Date.now);
       }
-      const place = await storage.get(PLACE_KEY);
-      if (place?.arrivedAt === undefined) {
-        if (typeof name !== "string" || this.env.TEXTING === undefined) return null;
-        // Not inside blockConcurrencyWhile: the Worker's move can call back here, and the input gate has to be open for that.
-        // One attempt at a time. A rejection is dropped when it settles, and only if it is still this attempt, so the
-        // next call copies again instead of awaiting the same failure until the object restarts.
-        if (this.opening === undefined) {
-          const opening = copyIn(this.env.TEXTING, storage, name);
-          this.opening = opening;
-          opening.catch((error) => {
-            if (this.opening === opening) this.opening = undefined;
-            // The error's name only. A 1:1 inbox name is the person's phone number, and the message can carry the text being copied.
-            console.log(JSON.stringify({ event: "tex_chat_move_failed", error: String(error?.name ?? "error").slice(0, 40) }));
-          });
-        }
-        const moved = await this.opening;
-        this.opening = undefined;
-        console.log(JSON.stringify({ event: "tex_chat_move", ...moved }));
-        if (moved.outcome !== "arrived") return null;
+      // Any other chat is born here too, on its first call (part C of the runtime simplification, Dev2 approved
+      // https://claude.ai/artifact/AcEGnAtBKWqeTAcXa1vveX): every chat the Worker held has moved, so there is nothing
+      // to copy. Its addresses (pictures, a page of its jobs) carry this object's own id, indexed by `byid:<id>`.
+      if (typeof name === "string" && INBOX_NAME.test(name) && (await storage.get(PLACE_KEY))?.arrivedAt === undefined) {
+        await placeChat(storage, name, this.state.id.toString(), Date.now);
       }
+      if ((await storage.get(PLACE_KEY))?.arrivedAt === undefined) return null;
       this.name = name ?? (await storage.get(NAME_KEY)) ?? null;
       if (this.name === null) return null;
       const { SenderInbox } = await import("../../../packages/tex/worker/gatewayChat.js");
@@ -195,31 +175,19 @@ export async function homeOf(storage) {
 }
 
 /**
- * Copy the Worker's chat object in (`inboxMove.ts` `arrive`, run against the Worker over RPC), and keep its name and
- * id. A storage failure throws, and the caller drops the attempt so the next call retries. Anything but `arrived`
- * leaves this object empty and the Worker's answering.
+ * Places a chat born here: its name, and the id its addresses carry (this object's own). Written once; a chat already
+ * placed (copied from the Worker before part C, or born here) keeps what it has.
  */
-async function copyIn(rpc, storage, name) {
-  const { arrive } = await import("../../../packages/tex/worker/gatewayChat.js");
-  const stubs = () => ({
-    fetch: async (request) => {
-      const op = new URL(request.url).pathname === "/__move_back" ? "back" : "out";
-      const answer = await rpc.chatMove({ inbox: name, op });
-      return Response.json(answer.body ?? null, { status: answer.status });
-    },
-  });
-  const moved = await arrive(stubs, storage, name, () => Date.now());
-  if (moved.outcome === "arrived") {
-    await storage.put(NAME_KEY, name);
-    const id = await rpc.inboxId({ name }).catch(() => "");
-    await storage.put(SENDER_ID_KEY, typeof id === "string" ? id : "");
-  }
-  return moved;
+export async function placeChat(storage, name, senderId, now) {
+  if ((await storage.get(PLACE_KEY))?.arrivedAt !== undefined) return;
+  await storage.put(NAME_KEY, name);
+  await storage.put(SENDER_ID_KEY, typeof senderId === "string" ? senderId : "");
+  await storage.put(PLACE_KEY, { arrivedAt: now(), keys: 0, born: true });
 }
 
 /**
  * The state the chat object runs on: this object's storage and work, with the id it had in the Worker, so the
- * addresses it mints for pictures and pages still reach it (the Worker's object passes them on).
+ * addresses it mints for pictures and pages reach it through its `byid:<id>` index (`texChat/byId.js`).
  */
 export function chatState(state, senderId) {
   return {
@@ -338,12 +306,10 @@ function chatId(name, chatName, senderId) {
  * The `SENDER_INBOX` the chat object reads, all of it the gateway's (part C of the runtime simplification, Dev2 approved
  * https://claude.ai/artifact/AcEGnAtBKWqeTAcXa1vveX): this chat's own name is served by this object (`own`), a job's
  * name (`enam:job:<id>`) by the gateway's `TEX_JOB` object of that name, and every other name (another chat, a group's
- * directory entry) by its `TEX_CHAT` object, through the same `/chat-call` door the texting Worker uses. A chat still in
- * the Worker is copied in on that first call, as a handed-over text copies it. Nothing goes through the Worker's
- * objects, so a cross-chat ask, a job's report and a directory write no longer make the round trip there and back.
+ * directory entry) by its `TEX_CHAT` object, through the same `/chat-call` door the texting Worker uses.
  *
- * The `group-moves` table (`groupMoves.ts`) is reached the same way: it is copied in from the Worker on its first call,
- * as a chat is, and the Worker's own webhook and line read it in the gateway too (`gatewayChats.ts` `chatNamespace`).
+ * The `group-moves` table (`groupMoves.ts`) is reached the same way, and the Worker's own webhook and line read it in
+ * the gateway too (`gatewayChats.ts` `chatNamespace`).
  */
 function senderObjects(env, chatName, senderId, own) {
   return {
