@@ -207,6 +207,7 @@
         "packages/tex/gateway/agent/groupTurnCause.js",
         "packages/tex/worker/groupInbox.ts",
         "packages/tex/worker/groupTurnFailed.ts",
+        "packages/tex/worker/groupRunTurn.ts",
         "packages/tex/worker/groupModelTurn.ts",
         "packages/tex/worker/groupCause.ts",
         "packages/tex/worker/sendblueGroups.ts",

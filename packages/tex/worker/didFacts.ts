@@ -83,7 +83,8 @@ export function didMessage(message: GroupMessage, did: Did, now: number, fallbac
 export async function tellTex(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, did: Did, fallback: string): Promise<"queued" | "sent" | "dropped"> {
   const facts = didOf(did);
   if (facts === null) return log("unreadable", did), "dropped";
-  if (!didWired(deps.texGraph)) {
+  // A did turn never starts another: what it set off is said in its old line, so nothing loops.
+  if (!didWired(deps.texGraph) || message.event === DID_EVENT) {
     await say(storage, deps, message, fallback, { system: true });
     return log("off", facts), "sent";
   }

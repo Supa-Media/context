@@ -5,7 +5,7 @@
  * only while it still answers its asker's newest words (`groupRecheck.ts`).
  */
 
-import { didUnsaid } from "./didFacts";
+import { didUnsaid, tellTex } from "./didFacts";
 import { reactionFor } from "./reactEmoji";
 import { ackEmoji } from "./ackEmoji";
 import { canRedraft, chatEvent, readChatState } from "./chatState";
@@ -250,7 +250,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Sensitive asks go to the tagger's own 1:1, never here (`crossChat.ts` `sendAsides`); one that can't is said here in fixed words.
   if (answer.asides && message.crossChat?.kind !== "ask") {
     const aside = deps.crossCall ? await sendAsides({ now: deps.now, call: deps.crossCall }, message, answer.asides) : "unreached";
-    if (aside !== "sent") await say(storage, deps, message, aside === "no_1to1" ? GROUP_LINES.asideNo1to1 : GROUP_LINES.asideFailed, { system: true });
+    if (aside !== "sent") await tellTex(storage, deps, message, { action: "text_on_the_side", status: aside === "no_1to1" ? "no_1to1" : "failed" }, aside === "no_1to1" ? GROUP_LINES.asideNo1to1 : GROUP_LINES.asideFailed);
   }
   if (crossOn && answer.crossAsks) await sendCrossAsks(storage, { now: deps.now, call: deps.crossCall! }, { kind: "group", message }, answer.crossAsks);
   if (message.crossChat?.kind === "ask") {
@@ -360,7 +360,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       went += 1;
     }
     for (const picture of checkIn ? [] : answer.pictures) (await sendPicture(storage, deps, message, picture, meta), (went += 1)); // After the words, as in a 1:1.
-    if (ran?.told) await say(storage, deps, message, ran.told, { system: true });
+    if (ran?.told) await tellTex(storage, deps, message, { action: "run_group", status: ran.why ?? "failed" }, ran.told);
     for (const action of ran?.done ?? []) await logOut(storage, deps, message.groupId, { kind: "text", text: groupRunDoneWords(action), delivered: true }, meta); // kept, so the next turn knows it was done
   } catch (error) {
     if (meta.turn) await logStep(storage, message.groupId, deliveryStep(parts, went, Date.now() - delivering, error instanceof Error ? error.name : "error"), deps.now(), meta.turn);
