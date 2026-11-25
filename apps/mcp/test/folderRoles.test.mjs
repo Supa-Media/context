@@ -194,6 +194,27 @@ test("the website job is the website folder until a row says otherwise", () => {
   assert.equal(folderJobs([row("Site", "website"), row("website")]).jobs.website, "Site");
 });
 
+test("the data job is the data folder until a row says otherwise, and data/... lands wherever it is nested", () => {
+  assert.equal(folderJobs([row("data")]).jobs.data, "data");
+  assert.equal(folderJobs([row("Metrics", "data"), row("data")]).jobs.data, "Metrics");
+  const nested = folderJobs([row("Work"), row("Work/Numbers", "data")]);
+  assert.equal(jobPath(nested, "data/metrics/open-to-live.md"), "Work/Numbers/metrics/open-to-live.md");
+  assert.equal(jobPath(nested, "data"), "Work/Numbers");
+  assert.equal(jobPath(folderJobs([row("Work")]), "data/metrics/a.md"), "data/metrics/a.md", "no data folder yet: as given");
+  // A root folder really called data is the folder, whatever else claims the job.
+  assert.equal(jobPath(folderJobs([row("data"), row("Work/Numbers", "data")]), "data/a.csv"), "data/a.csv");
+});
+
+test("the data folder draws between Areas and Resources (the data sources boards, 01)", () => {
+  const sorted = ["resources", "data", "archive", "recipes", "areas", "inbox", "projects", "website"].sort(compareTopLevelFolders);
+  assert.deepEqual(sorted, ["inbox", "projects", "areas", "data", "resources", "website", "recipes", "archive"]);
+  const f = (name, extra = {}) => ({ kind: "folder", name, path: name, ...extra });
+  const listed = [f("Numbers", { role: "data" }), f("Library", { role: "resources" }), f("Life", { role: "areas" })]
+    .sort((a, b) => compareListingEntries("", a, b))
+    .map((entry) => entry.name);
+  assert.deepEqual(listed, ["Life", "Numbers", "Library"]);
+});
+
 test("a default name is carried to the folder doing that job now", () => {
   const answer = folderJobs([row("Capture", "inbox"), row("1-projects"), row("Old stuff", "archive")]);
   assert.equal(jobPath(answer, "0-inbox/memories/a.md"), "Capture/memories/a.md");

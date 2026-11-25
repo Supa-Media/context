@@ -146,7 +146,7 @@ async function filesUnder(
 
 async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
   const jobs = [];
-  for (const role of [...MAIN_ROLES, "meetings", "website", "tex"]) {
+  for (const role of [...MAIN_ROLES, "meetings", "website", "tex", "data"]) {
     const rows: Doc<"nodes">[] = await db
       .query("nodes")
       .withIndex("by_workspace_role", (q) =>

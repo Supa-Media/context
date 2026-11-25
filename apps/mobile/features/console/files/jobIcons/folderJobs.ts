@@ -14,6 +14,7 @@
  */
 
 import {
+  DATA_FOLDER,
   DEFAULT_FOLDER,
   JOB_LABEL,
   ROLE_DESCRIPTION,
@@ -166,6 +167,21 @@ export function archiveFolder(listings: JobListings): string {
 /** Where the website's folder is, wherever it is nested: the folder doing its job, else `website`. */
 export function websiteFolder(listings: JobListings): string {
   return jobFolder(listings, "website", WEBSITE_FOLDER);
+}
+
+/**
+ * Where the data folder is among the loaded listings, wherever it is nested,
+ * or `null` while no loaded folder does the Data job: a workspace has none
+ * until its first source or metric (the data sources boards, 13).
+ */
+export function dataFolderFound(listings: JobListings): string | null {
+  const found = jobFolder(listings, "data", "");
+  return found === "" ? null : found;
+}
+
+/** Where the data folder is: the folder doing its job, else `data`, which the server reads as that folder (`jobPath`). */
+export function dataFolder(listings: JobListings): string {
+  return dataFolderFound(listings) ?? DATA_FOLDER;
 }
 
 /**

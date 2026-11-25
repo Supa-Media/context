@@ -22,6 +22,8 @@ export type ExplorerProps = {
   workspaces?: ReactNode;
   /** The selected context is a personal workspace. Asked by "Add a folder" (`AddFolderSheet`). */
   personal?: boolean;
+  /** The New menu offers "Data source…": a shared workspace (`dataSourceOffered`, `dataSource.ts`). */
+  dataSource?: boolean;
   /** Opens the new-workspace flow from the business question. See `ExplorerDialogs`. */
   onStartBusiness?: () => void;
   /** Handed straight to the share dialog. See `ExplorerDialogs`. */

@@ -27,6 +27,9 @@ export declare const TEX_PARTS: readonly TexPart[];
 export declare const PERSON_ONLY_TEX_PARTS: readonly TexPart[];
 export declare const HOME_TEX_PARTS: readonly TexPart[];
 export declare function isTexPart(path: string, texPath: string | null): boolean;
+export type DataPart = "metrics";
+export declare const DATA_PARTS: readonly DataPart[];
+export declare function isDataPart(path: string, dataPath: string | null): boolean;
 export declare function nameWords(name: string): string;
 export declare function nameSays(name: string): { job: ShownJob; own: boolean } | null;
 export declare function guessFolderJobs(

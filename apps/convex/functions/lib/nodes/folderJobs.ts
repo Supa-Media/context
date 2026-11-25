@@ -3,7 +3,7 @@
  * the owner, 2026-10-18; `docs/decisions/app-and-console/folder-jobs.md`).
  *
  * A folder row's `role` holds its job under the job's original name
- * (`inbox`, `projects`, ... `website`, `meetings`). It is written in three
+ * (`inbox`, `projects`, ... `website`, `meetings`, `tex`, `data`). It is written in three
  * places, and never cleared:
  *
  *  - **when the row is made** at the root under a job's name (`0-inbox`,

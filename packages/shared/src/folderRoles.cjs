@@ -34,7 +34,7 @@
  * ## Order
  *
  * A folder's `order` on its row, when somebody has set one; otherwise Inbox,
- * Projects, Areas, Resources, extras, Website, the person's own folders by
+ * Projects, Areas, Data, Resources, extras, Website, the person's own folders by
  * name, and Archive last, whatever the numbers say.
  */
 
@@ -111,10 +111,10 @@ const ROLE_PATTERN = /^(?:\d+-)?([a-z]+)$/i;
 
 /**
  * The jobs a folder ROW can carry in `role`: the eight built-ins, the website
- * folder, the meetings folder and Tex's folder, always under these original
- * names.
+ * folder, the meetings folder, Tex's folder and the data folder, always under
+ * these original names.
  */
-const ROW_ROLES = Object.freeze([...MAIN_ROLES, ...EXTRA_ROLES, "website", "meetings", "tex"]);
+const ROW_ROLES = Object.freeze([...MAIN_ROLES, ...EXTRA_ROLES, "website", "meetings", "tex", "data"]);
 
 /** The website folder's name when nothing has moved it (`DEFAULT_WEBSITE_ROOT`). */
 const WEBSITE_FOLDER = "website";
@@ -127,6 +127,15 @@ const WEBSITE_FOLDER = "website";
 const TEX_FOLDER = "tex";
 
 /**
+ * The data folder's name when nothing has moved it: a workspace's data
+ * sources and the metrics worked out from them (`data/metrics/`), made the
+ * first time a source or metric is added and carried to wherever the folder
+ * doing the job is now by `jobPath`, as `website/...` and `tex/...` are
+ * (`docs/decisions/app-and-console/folder-jobs.md`).
+ */
+const DATA_FOLDER = "data";
+
+/**
  * What a row's `role` holds once a person took a job away from it, or gave it
  * to another folder: a folder that does no job even though its name says one,
  * so a root `clients` the person said is not their Clients folder stays theirs
@@ -134,10 +143,11 @@ const TEX_FOLDER = "tex";
  */
 const NO_JOB = "none";
 
-const JOB_LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings", tex: "Tex" });
+const JOB_LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings", tex: "Tex", data: "Data" });
 
 /** Where each job is drawn among its siblings when no `order` is set, in steps of ten. */
-const JOB_RANK = Object.freeze({ ...ROLE_RANK, website: 7, meetings: 7, tex: OWN_FOLDER_RANK });
+/** Data draws between Areas and Resources, as the data sources boards draw it: the areas read their metrics from it. */
+const JOB_RANK = Object.freeze({ ...ROLE_RANK, website: 7, meetings: 7, tex: OWN_FOLDER_RANK, data: 2.5 });
 
 function isRowRole(value) {
   return typeof value === "string" && ROW_ROLES.includes(value);
@@ -145,11 +155,12 @@ function isRowRole(value) {
 
 /**
  * The job a top-level folder NAME plays: a built-in role (`folderRole`), or
- * `website` and `tex` for those folders' own names.
+ * `website`, `tex` and `data` for those folders' own names.
  */
 function jobOfName(name) {
   if (name === WEBSITE_FOLDER) return "website";
   if (name === TEX_FOLDER) return "tex";
+  if (name === DATA_FOLDER) return "data";
   return folderRole(name);
 }
 
@@ -366,6 +377,7 @@ function folderJobs(rows) {
   }
   if (jobs.website === null && unclaimedRoots.includes(WEBSITE_FOLDER)) jobs.website = WEBSITE_FOLDER;
   if (jobs.tex === null && unclaimedRoots.includes(TEX_FOLDER)) jobs.tex = TEX_FOLDER;
+  if (jobs.data === null && unclaimedRoots.includes(DATA_FOLDER)) jobs.data = DATA_FOLDER;
   return { jobs, roots: sorted.filter((row) => row.top).map((row) => row.name) };
 }
 
@@ -453,6 +465,7 @@ module.exports = {
   ROW_ROLES,
   WEBSITE_FOLDER,
   TEX_FOLDER,
+  DATA_FOLDER,
   NO_JOB,
   JOB_LABEL,
   isRowRole,

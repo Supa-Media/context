@@ -29,6 +29,7 @@ export const JobIcon = memo(function JobIcon({
   tile = false,
   archived = false,
   nested = false,
+  ink: inkOverride,
   testID,
 }: {
   job: DrawnJob;
@@ -42,11 +43,13 @@ export const JobIcon = memo(function JobIcon({
   archived?: boolean;
   /** Inside another folder: drawn in the text colour. */
   nested?: boolean;
+  /** Draw in this colour instead, e.g. a menu's quiet glyph colour beside other glyphs. */
+  ink?: string;
   testID?: string;
 }) {
   const scheme = useScheme();
   const colors = useColors();
-  const ink = archived ? colors.chromeMuted : nested ? colors.text : texColors[scheme].ink;
+  const ink = inkOverride ?? (archived ? colors.chromeMuted : nested ? colors.text : texColors[scheme].ink);
   const drawing = tile ? Math.round(size * TILE_INSET) : size;
   const svg = <Drawing job={job} size={drawing} ink={ink} {...(tile || archived || testID === undefined ? {} : { testID })} />;
   const box = Math.round(drawing * BOX_SHARE);

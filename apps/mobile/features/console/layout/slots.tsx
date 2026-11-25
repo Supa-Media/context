@@ -22,6 +22,7 @@ import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
 import { selectedContext, type ConsoleData } from "../types";
 import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
+import { dataSourceOffered } from "../files/dataSource";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
 import type { SeenBody } from "../../tex/chat/appChatSeen";
@@ -246,6 +247,7 @@ export function consoleExplorer({
         // The tree's agent squares and the foot's "N agents active".
         agents={data.agents}
         personal={selectedContext(data)?.kind === "personal"}
+        dataSource={dataSourceOffered(selectedContext(data)?.kind)}
         onStartBusiness={() => router.push(NEW_WORKSPACE_ROUTE)}
         /*
           **No `vault` and no `vaultDetail` any more, and the line they

@@ -1,22 +1,25 @@
 import { useCallback, useContext, useRef, useState } from "react";
 import { View } from "react-native";
+import { Icon, type IconName } from "../../../design/components/Icon";
 import { Menu } from "../../../design/components/Menu";
 import { Text } from "../../../design/components/Text";
 import { isApplePlatform } from "../../../design/applePlatform";
 import { describeBinding } from "../../../design/keymap";
-import { useThemedStyles } from "../../../design/theme";
+import { useColors, useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
 import { SORT_CHOICES } from "../sortChoices";
 import type { ListingSort } from "@context/shared/src/listingSort.cjs";
 import type { MenuItem } from "../menu";
 import { baseName, folderLabel } from "../paths";
+import { dataSourceDetail, startDataSource } from "../dataSource";
+import { JobIcon } from "../jobIcons/JobIcon";
 import { IconButton } from "./IconButton";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
 import { useMapRoute } from "../../map/live/MapRouteContext";
 import { FrameContext } from "../../../app/appFrame/context";
 
-type NewId = "new-note" | "new-folder" | "new-drawing" | "new-sheet";
+type NewId = "new-note" | "new-folder" | "new-drawing" | "new-sheet" | "data-source";
 type ViewId = `sort-${ListingSort}` | "sort-default" | "collapse";
 
 /**
@@ -36,8 +39,11 @@ type ViewId = `sort-${ListingSort}` | "sort-default" | "collapse";
  *   became one bar (leadership weekly, 2026-10-17): ⌘K's Tab narrows the
  *   tree instead, and while it is narrowed the label's place says so, with
  *   Clear.
- * - **New** is a menu — note, folder, drawing — naming the folder it makes
- *   them in. ⌘N still makes a note in one step.
+ * - **New** is a menu — note, folder, drawing, table — naming the folder it
+ *   makes them in, each with the mark the tree draws for it. ⌘N still makes a
+ *   note in one step. In a shared workspace it ends with **Data source…**,
+ *   which makes the data folder the first time (`dataSource.ts`, the data
+ *   sources boards, 13).
  * - **View** is a menu — sort order, and collapse every folder. Collapse-all
  *   used to be a button drawn as a pane with a band, which read as "hide the
  *   sidebar" (that is ⌘B and the top bar's toggle); in a menu it has a name.
@@ -62,6 +68,7 @@ export function ExplorerToolbar({
   query,
   closeFilter,
   inBar = false,
+  dataSource = false,
 }: {
   files: FileBrowser;
   selectedFolder: ExplorerState["selectedFolder"];
@@ -71,8 +78,12 @@ export function ExplorerToolbar({
   closeFilter: ExplorerState["closeFilter"];
   /** Drawn in the title row over the column rather than at its head. */
   inBar?: boolean;
+  /** The New menu offers "Data source…" (`dataSourceOffered`). */
+  dataSource?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const glyph = (name: IconName) => <Icon name={name} size={14} color={colors.chromeMuted} />;
   const [open, setOpen] = useState<"new" | "view" | null>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
   const newRef = useRef<View>(null);
@@ -104,17 +115,29 @@ export function ExplorerToolbar({
 
   const where = selectedFolder === "" ? "the top level" : folderLabel(baseName(selectedFolder));
   const newNoteChord = describeBinding("newNote", isApplePlatform());
+  const dataSourceLine = dataSourceDetail(files.listings);
+  const dataSourceItem: MenuItem<NewId> = {
+    id: "data-source",
+    label: "Data source…",
+    ...(dataSourceLine === undefined ? {} : { detail: dataSourceLine }),
+    // The data folder's own drawn mark, in the menu's quiet glyph colour like the rows above (board 13).
+    leading: <JobIcon job="data" size={14} ink={colors.chromeMuted} />,
+    separatorBefore: true,
+    testID: "explorer-data-source",
+  };
   const newItems: MenuItem<NewId>[] = [
     {
       id: "new-note",
       label: "New note",
       detail: `In ${where}.`,
       ...(newNoteChord === null ? {} : { shortcut: newNoteChord }),
+      leading: glyph("file"),
       testID: "explorer-new-note",
     },
-    { id: "new-folder", label: "New folder", testID: "explorer-new-folder" },
-    { id: "new-drawing", label: "New drawing", testID: "explorer-new-drawing" },
-    { id: "new-sheet", label: "New table", testID: "explorer-new-sheet" },
+    { id: "new-folder", label: "New folder", leading: glyph("folder"), testID: "explorer-new-folder" },
+    { id: "new-drawing", label: "New drawing", leading: glyph("pencil"), testID: "explorer-new-drawing" },
+    { id: "new-sheet", label: "New table", leading: glyph("table"), testID: "explorer-new-sheet" },
+    ...(dataSource ? [dataSourceItem] : []),
   ];
   /*
     The top level's Sort setting, saved for everybody in the workspace and drawn
@@ -157,6 +180,7 @@ export function ExplorerToolbar({
     if (id === "new-drawing") files.createUntitled(selectedFolder, "drawing");
     if (id === "new-sheet") files.createUntitled(selectedFolder, "sheet");
     if (id === "new-folder") setDialog({ kind: "newFolder", folder: selectedFolder });
+    if (id === "data-source") startDataSource(files);
   };
 
   const chooseView = (id: ViewId) => {

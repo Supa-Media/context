@@ -87,6 +87,14 @@ describe("decideJobChange", () => {
     expect(decideJobChange(jobs, "projects", "1-projects", folderAt)).toEqual({ clear: [], set: null });
     expect(decideJobChange(empty, "tex", "Life/Assistant", folderAt)).toEqual({ clear: [], set: "Life/Assistant" });
   });
+
+  test("the Data job is made when used: given to a folder anywhere, never taken away", () => {
+    const jobs = folderJobs([{ path: "data", name: "data", top: true }]);
+    expect(jobs.jobs.data).toBe("data");
+    expect(decideJobChange(jobs, "data", "Work/Numbers", folderAt)).toEqual({ clear: ["data"], set: "Work/Numbers" });
+    const refused = decideJobChange(jobs, "data", null, folderAt);
+    expect(isRefusal(refused) ? refused.message : "went ahead").toMatch(/Data is needed/);
+  });
 });
 
 describe("guessFolderJobs", () => {
@@ -230,5 +238,32 @@ describe("Tex's own folders (owner, 2026-10-21)", () => {
     expect(await guarded("Assistant/tex/transcripts", "remove")).toBe("allowed");
     expect(await guarded("Assistant/tex/trips", "move")).toBe("allowed");
     expect(await guarded("Work/skills", "move")).toBe("allowed");
+  });
+});
+
+describe("the data folder's own folders", () => {
+  test("metrics stays where it is wherever the data folder is, while a source's folder beside it moves freely", async () => {
+    const f = await keyedFixture();
+    await addFolder(f, "Work", undefined);
+    await addFolder(f, "Work/Numbers", "data");
+    await addFolder(f, "Work/Numbers/metrics");
+    await addFolder(f, "Work/Numbers/github");
+    await addFolder(f, "Life");
+    await addFolder(f, "Life/metrics");
+    const named = Object.create(f.store) as FileStore;
+    attachTreeListing(f.ctx, f.ws, named);
+    const guarded = (path: string, intent: "move" | "remove") =>
+      assertNotProtectedFolder(named, path, OWNER, intent).then(
+        () => "allowed",
+        (error: Error) => error.message,
+      );
+    expect(await guarded("Work/Numbers/metrics", "move")).toMatch(/metrics is one of the data folder's own folders/);
+    expect(await guarded("Work/Numbers/metrics", "remove")).toBe("allowed");
+    expect(await guarded("Work/Numbers/github", "move")).toBe("allowed");
+    expect(await guarded("Life/metrics", "move")).toBe("allowed");
+  });
+
+  test("an import's folder called data is never guessed as the Data folder", () => {
+    expect(guessFolderJobs([{ path: "data" }, { path: "Work/Data" }], folderJobs([]))).toEqual([]);
   });
 });

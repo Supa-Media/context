@@ -40,7 +40,7 @@ import { drawnLevel, movedLevel, withFolderSort, withRowOrder } from "../levelOr
 import { baseName, folderLabel, parentPath } from "../paths";
 import { sortWords } from "../sortChoices";
 import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, texPartIconUnder, projectsFolder,
-  areasFolder, websiteFolder } from "../jobIcons/folderJobs";
+  areasFolder, websiteFolder, dataFolder } from "../jobIcons/folderJobs";
 import { setJobFoldersNow } from "../jobIcons/jobFoldersNow";
 import { jobIconMarker, twinIconMarker } from "../jobIcons/marker";
 import type { FileBrowserOptions, Listings } from "./types";
@@ -93,6 +93,7 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
       areas: areasFolder(listings),
       archive: archiveFolder(listings),
       website: websiteFolder(listings),
+      data: dataFolder(listings),
     });
     return loadedJobs(listings);
   }, [listings]);

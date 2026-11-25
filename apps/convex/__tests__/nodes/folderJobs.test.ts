@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import { canonicalJobPath, folderJobsOf } from "../../functions/lib/nodes/folderJobs";
+import { canonicalJobPath, folderJobsOf, roleForNewFolder } from "../../functions/lib/nodes/folderJobs";
 import { followedPath } from "../../functions/lib/nodes/settingsFollow";
 import { listed, start } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, liveAt, rowOf } from "./keyedFixture.helpers";
@@ -101,6 +101,25 @@ describe("folder jobs on rows", () => {
     expect(await liveAt(f, "1-projects/secret")).toBe(false);
   });
 
+  test("the data folder is made when used: a root data folder takes the job, and data/... follows it once renamed", async () => {
+    const f = await keyedFixture();
+    // No data folder yet: a root folder named data is the one to take the job; one nested by that name is not.
+    const role = await f.t.run(async (ctx) => await roleForNewFolder(ctx.db, f.ws, { path: "data", kind: "folder" }));
+    expect(role).toBe("data");
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("nodes", { workspaceId: f.ws, noteId: NOTE_ID(91), path: "data", name: "data", kind: "folder", role: "data", observedAt: 1 });
+    });
+    expect((await jobs(f)).jobs.data).toBe("data");
+    // The job is held now, so a second root folder by the name does not take it.
+    expect((await f.t.run(async (ctx) => await roleForNewFolder(ctx.db, f.ws, { path: "data", kind: "folder" }))) ?? null).toBeNull();
+
+    const before = await rowOf(f, "data");
+    await f.t.run(async (ctx) => await ctx.db.patch(before._id, { name: "Numbers", path: "Numbers" }));
+    expect((await jobs(f)).jobs.data).toBe("Numbers");
+    const path = await f.t.run(async (ctx) => await canonicalJobPath(ctx.db, f.ws, "data/metrics/open-to-live.md"));
+    expect(path).toBe("Numbers/metrics/open-to-live.md");
+  });
+
   test("the root listing carries each folder's job, and a renamed one keeps its place", async () => {
     const f = await keyedFixture();
     await start(f, "1-projects", "Zebra work");
@@ -181,6 +200,11 @@ describe("what a built-in folder may do", () => {
   test("a main folder can be renamed or moved where notes are kept by id, never removed", async () => {
     expect(await guarded("1-projects", "move", true)).toBe("allowed");
     expect(await guarded("1-projects", "remove", true)).toMatch(/can't be archived or deleted/);
+  });
+
+  test("the data folder moves and goes like an own folder: only its metrics are kept by name", async () => {
+    expect(await guarded("data", "move", true)).toBe("allowed");
+    expect(await guarded("data", "remove", true)).toBe("allowed");
   });
 
   test("the website folder moves where notes are kept by id, and stays put elsewhere; own folders are free", async () => {

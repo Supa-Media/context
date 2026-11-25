@@ -11,7 +11,7 @@
  * value, in date order, for the box's sparkline.
  */
 
-import { parseSheet } from "../../../../../../mcp/src/sheets/csv.js";
+import { dateMs, parseSheet } from "../../../../../../mcp/src/sheets/csv.js";
 import type { Metric } from "./seat";
 
 export const METRICS_SHEET = "metrics.csv";
@@ -60,7 +60,20 @@ export function readingsOf(text: string): Readings {
   });
   for (const [name, list] of byMetric) {
     // Date order, and the sheet's own order among rows of one date: the later row is the newer reading.
-    const ordered = [...list].sort((a, b) => (a.date === b.date ? a.at - b.at : a.date < b.date ? -1 : 1));
+    // By time, so `2026-11-24T09:00:30Z` sorts after `2026-11-24T09:00Z`; a date that does not read keeps text order.
+    const when = (d: string) => {
+      const ms = dateMs(d) as number;
+      return Number.isNaN(ms) ? null : ms;
+    };
+    const ordered = [...list].sort((a, b) => {
+      const ta = when(a.date);
+      const tb = when(b.date);
+      if (ta !== null && tb !== null && ta !== tb) return ta - tb;
+      if (ta === null || tb === null) {
+        if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      }
+      return a.at - b.at;
+    });
     const last = ordered[ordered.length - 1]!;
     const series = ordered.map((r) => leadingNumber(r.value)).filter((n): n is number => n !== null);
     out.set(name, { value: last.value, date: last.date, series });

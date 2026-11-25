@@ -148,7 +148,7 @@ async function folderJob(calls, args) {
   const path = typeof args.path === "string" ? args.path.trim().replace(/^\/+|\/+$/g, "") : undefined;
   if (args.remove === true && path !== undefined) return toolError("pass path or remove, not both.");
   if (path === undefined && args.remove !== true) {
-    if (job === "tex" || job === "website") {
+    if (job === "tex" || job === "website" || job === "data") {
       return toolError(`${JOB_LABEL[job]}'s folder is made the first time it is used. To use one that exists, pass its path.`);
     }
     if (!SHOWN_JOBS.includes(job)) return toolError(`There is no "${job}" job. The jobs are ${jobNames()}. A folder of your own kind explains itself in its about.md. Pick one of those.`);

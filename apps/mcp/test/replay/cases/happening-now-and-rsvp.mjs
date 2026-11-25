@@ -18,12 +18,14 @@ export default {
     try {
       const now = Date.now();
       const today = iso(now).slice(0, 10);
+      // Kept inside today's UTC day, so a run just after midnight still finds the party on today's page.
+      const dayStart = Date.parse(`${today}T00:00:00Z`);
       const party = {
         id: "p1",
         account: "rowan@work.example",
         title: "Mini golf birthday",
-        start: { dateTime: iso(now - 30 * 60_000) },
-        end: { dateTime: iso(now + 90 * 60_000) },
+        start: { dateTime: iso(Math.max(now - 30 * 60_000, dayStart)) },
+        end: { dateTime: iso(Math.min(now + 90 * 60_000, dayStart + 86_400_000 - 1_000)) },
         attendees: [
           { email: "rowan@work.example", self: true, organizer: true, responseStatus: "accepted" },
           { name: "Bo Guest", email: "bo@example.invalid", responseStatus: "tentative" },
