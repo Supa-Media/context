@@ -112,3 +112,12 @@ test("the fixed tool list shows it only when the turn holds it, so main's cached
     assert.equal(on.resolve("search", { query: "x", args: { history: true } }).name, "search_chat", kind);
   }
 });
+
+test("oldest puts the first mention first, for \"when did I first…\"", async () => {
+  const tool = chatSearchTool({ ledger: await ledger(), chat: ME, timeZone: ZONE, log: () => {} });
+  const first = text(await tool.call({ words: "atlanta", oldest: true })).split("\n")[1];
+  assert.match(first, /Sep 2, 2026 9:00 AM · @seyi: my flight to Atlanta/);
+  assert.match(text(await tool.call({ words: "atlanta", oldest: true })), /oldest first/);
+  const notesless = sixToolsOver([chatSearchTool({ ledger: null, chat: ME, timeZone: ZONE, log: () => {} }).tool]);
+  assert.deepEqual(notesless.resolve("search", { query: "atlanta", args: { history: true, oldest: true } }), { name: "search_chat", args: { words: "atlanta", oldest: true } });
+});
