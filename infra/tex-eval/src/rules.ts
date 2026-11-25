@@ -36,14 +36,17 @@ export interface Test {
   chat: string;
   msg: string;
   node: string;
+  /** The conversation's kind, "one" (a 1:1 text) or "group": only for the verdict's counts by kind. */
+  kind?: "one" | "group";
 }
 
 /** Every unit test in a conversation: one starred label, one person's message by one node (texSets.cjs `unitTests`). */
 export function unitTests(c: Conversation): Test[] {
   const out: Test[] = [];
+  const kind = c.kind === "group" ? "group" : "one";
   for (const m of c.msgs ?? []) {
     if (!m || m.tex) continue;
-    for (const [node, l] of Object.entries(m.labels ?? {})) if (l && l.star === true) out.push({ chat: c.id, msg: m.id, node });
+    for (const [node, l] of Object.entries(m.labels ?? {})) if (l && l.star === true) out.push({ chat: c.id, msg: m.id, node, kind });
   }
   return out;
 }
@@ -113,6 +116,12 @@ export interface Verdict {
   right: number;
   main: number;
   byNode: Record<string, NodeScore>;
+  /**
+   * The same counts by conversation kind ("one" or "group"), for the Group chats area's metric
+   * (`docs/decisions/data-and-metrics.md`, "CI sends its own numbers"). Counts only, and never part of the gate.
+   * A test stored before kinds were kept counts as "one".
+   */
+  byKind: Record<string, NodeScore>;
 }
 
 /**
@@ -125,15 +134,18 @@ export function verdict(tests: Test[], branch: Result[], main: Result[]): Verdic
   const b = rightIn(branch);
   const m = rightIn(main);
   const byNode: Record<string, NodeScore> = {};
+  const byKind: Record<string, NodeScore> = {};
   for (const t of tests) {
-    const s = (byNode[t.node] ??= { total: 0, right: 0, main: 0 });
-    s.total += 1;
-    if (b.has(keyOf(t))) s.right += 1;
-    if (m.has(keyOf(t))) s.main += 1;
+    const kind = t.kind === "group" ? "group" : "one";
+    for (const s of [(byNode[t.node] ??= { total: 0, right: 0, main: 0 }), (byKind[kind] ??= { total: 0, right: 0, main: 0 })]) {
+      s.total += 1;
+      if (b.has(keyOf(t))) s.right += 1;
+      if (m.has(keyOf(t))) s.main += 1;
+    }
   }
   const scores = Object.values(byNode);
   const sum = (f: (s: NodeScore) => number) => scores.reduce((a, s) => a + f(s), 0);
-  return { pass: scores.every((s) => s.right >= s.main), total: tests.length, right: sum((s) => s.right), main: sum((s) => s.main), byNode };
+  return { pass: scores.every((s) => s.right >= s.main), total: tests.length, right: sum((s) => s.right), main: sum((s) => s.main), byNode, byKind };
 }
 
 /** The UTC day a time falls on, as the day cap counts. */

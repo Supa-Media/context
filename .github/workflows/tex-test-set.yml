@@ -121,6 +121,18 @@ jobs:
         if: steps.start.outputs.capped != 'true'
         run: node scripts/tex-test-set.mjs finish --dir "$RUNNER_TEMP/sealed" | tee -a "$GITHUB_STEP_SUMMARY"; exit "${PIPESTATUS[0]}"
 
+      # Counts only, the same ones printed above, added to the workspace's metrics sheet with a sheet key
+      # (scripts/metric-rows.mjs; docs/decisions/data-and-metrics.md, "CI sends its own numbers"). Never part of the gate.
+      - name: Send the counts to the metrics sheet
+        if: always() && steps.score.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          METRICS_PUSH_KEY: ${{ secrets.METRICS_PUSH_KEY }}
+          HEAD: ${{ steps.pr.outputs.head }}
+        run: |
+          [ -f "$RUNNER_TEMP/sealed/verdict.json" ] || { echo "No verdict, so nothing to send."; exit 0; }
+          node scripts/metric-rows.mjs test-set --verdict "$RUNNER_TEMP/sealed/verdict.json" --pr "$PR" --sha "$HEAD"
+
       - name: Mark the commit and re-run the pull request's check
         if: always()
         env:

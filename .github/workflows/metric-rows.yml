@@ -1,0 +1,43 @@
+# CI sends its own numbers (docs/decisions/data-and-metrics.md, "CI sends its own numbers").
+#
+# When a merge to main changes Tex's capability list or its replay cases, this counts Capability coverage (the
+# capabilities a replay case exercises, of all of them) and the Parity gaps (the `cant` entries left), and adds both
+# as rows to the workspace's metrics sheet with its sheet key (scripts/metric-rows.mjs). It reads only files in this
+# repository and sends counts; it deploys nothing and never fails a merge. With no METRICS_PUSH_KEY it says so and
+# sends nothing.
+
+name: Metric rows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/tex/gateway/agent/capabilities.js"
+      - "apps/mcp/test/replay/cases/**"
+      - "scripts/metric-rows.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metric-rows
+  cancel-in-progress: false
+
+jobs:
+  capabilities:
+    name: Send Capability coverage and Parity gaps
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Count and send
+        env:
+          METRICS_PUSH_KEY: ${{ secrets.METRICS_PUSH_KEY }}
+        run: node scripts/metric-rows.mjs capabilities --sha "$GITHUB_SHA"

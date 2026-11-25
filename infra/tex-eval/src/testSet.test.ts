@@ -48,6 +48,18 @@ describe("the rules", () => {
     expect(mayRun({ commit: 1, pr: 10, day: 1000, allowed: 1 })).toEqual({ ok: true, spendsAllowance: true });
   });
 
+  it("counts the verdict by conversation kind as well, without changing the gate", () => {
+    const group = { ...conv("g", { decide: 1 }), kind: "group" };
+    const tests = [...unitTests(conv("a", { decide: 1 })), ...unitTests(group)];
+    expect(tests.map((t) => t.kind)).toEqual(["one", "group"]);
+    const r = (chat: string, right: boolean) => ({ chat, msg: "decide-0", node: "decide", right });
+    const v = verdict(tests, [r("a", true), r("g", false)], [r("a", true), r("g", true)]);
+    expect(v.byKind).toEqual({ one: { total: 1, right: 1, main: 1 }, group: { total: 1, right: 0, main: 1 } });
+    expect(v.pass).toBe(false);
+    // A test stored before kinds were kept counts as a 1:1 one.
+    expect(verdict([{ chat: "a", msg: "1", node: "fd" }], [], []).byKind).toEqual({ one: { total: 1, right: 0, main: 0 } });
+  });
+
   it("passes only when no node gets fewer right than on main, and counts a missing answer as wrong", () => {
     const tests = [
       { chat: "a", msg: "1", node: "decide" },

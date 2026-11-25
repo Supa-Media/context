@@ -81,6 +81,10 @@ const NOT_SYNCED = new Map([
     name,
     "The read-only GitHub App that workspace owners install as a data source. The owner made its private key and client secret in GitHub and set all five as repository secrets directly (2026-11-25), with the key file deleted from their computer; it is never in the vault. Only deploy-mcp.yml reads them, and the gateway answers 501 for GitHub without them.",
   ]),
+  [
+    "METRICS_PUSH_KEY",
+    "A sheet key (`ctxs_…`) for the workspace's CI metrics sheet, made in the app on that sheet by a person and shown once (docs/decisions/app-and-console/sheet-sources.md: a key is never typed into or shown by a model). It can only add rows to that one sheet, so it is pasted into the repository's secrets directly rather than kept in the vault. scripts/metric-rows.mjs sends nothing without it.",
+  ],
   // The Lab's runner slots 1..3 (scripts/lab-runner-lease.mjs). A slot's client id and
   // refresh token come from `pnpm ai connect --lab-slot N`; tex-lab-run.yml then writes the
   // rotated refresh token back after every run. The same rule as the live token above.

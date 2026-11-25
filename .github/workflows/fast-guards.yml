@@ -83,6 +83,7 @@ jobs:
           node scripts/check-workflow-output-secrets.mjs --self-test
           node scripts/check-workflow-output-secrets.mjs
           node scripts/bench-runner-lock.mjs --self-test
+          node scripts/metric-rows.mjs --self-test
           node scripts/check-package-tests-run.mjs --self-test
           node scripts/check-package-tests-run.mjs
           node scripts/check-workflow-cloudflare-preflight.mjs --self-test
