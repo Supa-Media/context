@@ -7,6 +7,7 @@
  * signed, and the bot answers in the same note. Pure — no React, no storage.
  */
 
+import { isNotePath, withoutTextExtension } from "@context/shared/src/fileKinds.cjs";
 import { appendMail, parseMail, type MailEvent } from "@context/shared/src/mail.cjs";
 import type { ListNote } from "../../listBlock/model";
 import { cardSlug } from "./seat";
@@ -23,7 +24,7 @@ export function mailNotesOf(area: string, notes: readonly ListNote[]): string[] 
   const prefix = `${mailFolder(area)}/`;
   return notes
     .map((note) => note.path)
-    .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/") && path.endsWith(".md"))
+    .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/") && isNotePath(path))
     .sort((a, b) => a.localeCompare(b));
 }
 
@@ -34,7 +35,7 @@ export function senderNote(area: string, sender: string): string {
 
 /** Who a mail note is with, from its name: `mail/seyi.md` → "seyi". */
 export function senderOf(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+  return withoutTextExtension(path.slice(path.lastIndexOf("/") + 1));
 }
 
 /**
