@@ -219,7 +219,13 @@ function evalNode(node, env) {
     case "binary": {
       const left = evalNode(node.left, env);
       const right = evalNode(node.right, env);
-      if (left === null || right === null) return null;
+      if (left === null && right === null) return null;
+      // A sum or count beside another, in + or -: a period with no rows on one side adds nothing (bills this
+      // month with no AI spend yet is the bills). * and / keep no data, since 0 there would change the answer.
+      if (left === null || right === null) {
+        if (node.op !== "+" && node.op !== "-") return null;
+        return arithmetic(node.op, left ?? 0, right ?? 0);
+      }
       return arithmetic(node.op, left, right);
     }
     default:

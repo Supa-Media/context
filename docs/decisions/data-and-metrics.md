@@ -37,7 +37,10 @@ with Download as folders, and every agent reads it with `fetch`
   filled value once (people active, not their rows; added 2026-11-25 for the
   Context usage source), with per-row `+ − × ÷` inside
   (`deployed - opened`), an optional `where col = value` joined by `and`, and
-  `+ − × ÷` between aggregates. A window is the metric's `every`: an hour or a
+  `+ − × ÷` between aggregates. In `+` and `−`, a side whose period has no
+  rows adds nothing when the other side has rows (bills this month with no AI
+  spend yet is the bills); both empty is no data, `×` and `÷` keep no data,
+  and a sheet the reader can't see is still an error, never a 0. A window is the metric's `every`: an hour or a
   block of `N hours` (2, 3, 4, 6, 8 or 12, aligned to UTC midnight; the
   owner, 2026-11-24), a calendar day, ISO week or month to date in UTC, or a
   rolling `N days`. A chart names an hour block by its start in the reader's

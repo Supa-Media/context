@@ -386,6 +386,25 @@ test("a period with no rows is no data; count of none is 0", () => {
   assert.deepEqual(evaluate(ok("count(a/b.usd)"), empty), { value: 0, status: "ok" });
 });
 
+test("in + and -, a sheet with no rows this period counts as 0 beside one that has rows", () => {
+  // Monthly cost = bills + AI spend: a month with bills and no AI spend yet is the bills, not no data.
+  const sheets = {
+    "a/bills": { columns: [{ name: "date", type: "date" }, { name: "usd", type: "number" }], rows: [{ date: "2026-11-02", usd: "40" }] },
+    "a/spend": { columns: [{ name: "date", type: "date" }, { name: "usd", type: "number" }], rows: [] },
+  };
+  const env = { rowsOf: (source, dataset) => sheets[`${source}/${dataset}`] ?? null, every: "month", now: NOW };
+  assert.deepEqual(evaluate(ok("sum(a/bills.usd) + sum(a/spend.usd)"), env), { value: 40, status: "ok" });
+  assert.deepEqual(evaluate(ok("sum(a/spend.usd) - sum(a/bills.usd)"), env), { value: -40, status: "ok" });
+  // Both empty is still no data, and * and / never stand an empty side in for 0.
+  assert.equal(evaluate(ok("sum(a/spend.usd) + sum(a/spend.usd)"), env).status, "no_data");
+  assert.equal(evaluate(ok("sum(a/bills.usd) * sum(a/spend.usd)"), env).status, "no_data");
+  assert.equal(evaluate(ok("sum(a/bills.usd) / sum(a/spend.usd)"), env).status, "no_data");
+  // A sheet the reader can't see is never stood in for by 0: it is still "can't read", not a partial sum.
+  const hidden = evaluate(ok("sum(a/bills.usd) + sum(a/secret.usd)"), env);
+  assert.equal(hidden.status, "error");
+  assert.equal(hidden.value, null);
+});
+
 test("dividing by 0 is an error that says so, between aggregates and inside one", () => {
   const zero = { ...ctx("month"), now: Date.parse("2026-10-20T00:00:00Z") };
   assert.deepEqual(evaluate(ok("sum(stripe/revenue.usd) ÷ sum(cloudflare/ai-spend.usd)"), zero), { value: null, status: "error", note: "divides by 0" });
