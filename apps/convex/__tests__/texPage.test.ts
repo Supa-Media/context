@@ -246,4 +246,15 @@ describe("a group chat's name on the page", () => {
     );
     expect(named.map((chat) => chat.name)).toEqual(["@bo (since Nov 24)", "@bo (since Nov 25)", "@cy"]);
   });
+
+  test("two that also started the same day are told apart by the minute", () => {
+    const named = distinctNames(
+      [
+        { name: "@bo", startedAt: Date.UTC(2026, 10, 25, 20, 22) },
+        { name: "@bo", startedAt: Date.UTC(2026, 10, 25, 15, 5) },
+      ],
+      "America/New_York",
+    );
+    expect(named.map((chat) => chat.name)).toEqual(["@bo (since Nov 25, 3:22 PM)", "@bo (since Nov 25, 10:05 AM)"]);
+  });
 });
