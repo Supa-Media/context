@@ -97,7 +97,6 @@ const { SourcePage } = require("../features/console/files/data/SourcePage") as t
 const { MetricsPage } = require("../features/console/files/data/MetricsPage") as typeof import("../features/console/files/data/MetricsPage");
 const { MetricNoteView } = require("../features/console/files/data/MetricNoteView") as typeof import("../features/console/files/data/MetricNoteView");
 const { KeyList } = require("../features/console/files/data/SourceParts") as typeof import("../features/console/files/data/SourceParts");
-const { sheetOfText } = require("../features/console/files/data/useData") as typeof import("../features/console/files/data/useData");
 const { sheetRowsEndpoint } = require("../features/console/files/sheet/SheetSources") as typeof import("../features/console/files/sheet/SheetSources");
 const { pointerType } = require("../features/design/tokens") as typeof import("../features/design/tokens");
 
@@ -488,9 +487,9 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type Board = "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note";
+type BoardId = "01" | "07" | "09" | "10" | "11" | "12" | "empty" | "loading" | "odd-metrics" | "hidden-note" | "broken-note";
 
-const WORLD: Partial<Record<Board, { source: FolderListSource; nesting: Nesting }>> = {
+const WORLD: Partial<Record<BoardId, { source: FolderListSource; nesting: Nesting }>> = {
   empty: { source: emptySource, nesting: emptyNesting },
   loading: { source: loadingSource, nesting },
   "odd-metrics": { source: oddSource, nesting: oddNesting },
@@ -502,7 +501,7 @@ function noteText(m: { props: Record<string, string>; body?: string }): string {
   return `---\n${Object.entries(m.props).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n\n${m.body ?? ""}\n`;
 }
 
-function Board({ board, compact }: { board: Board; compact: boolean }) {
+function BoardView({ board, compact }: { board: BoardId; compact: boolean }) {
   const world = WORLD[board] ?? { source, nesting };
   const ws = useDataWorkspace("data", world.source, world.nesting, NOW);
   const colors = useColors();
@@ -597,7 +596,7 @@ beforeAll(() => {
   setJobFoldersNow({ inbox: "inbox", archive: "archive", projects: "projects", areas: "areas", data: "data" });
 });
 
-const SELECTED: Record<Board, string> = {
+const SELECTED: Record<BoardId, string> = {
   "01": "data",
   "07": "data/github",
   "09": "data/eval-ci",
@@ -611,14 +610,14 @@ const SELECTED: Record<Board, string> = {
   "broken-note": "data/metrics/deploy-gap.md",
 };
 
-async function shoot(board: Board, name: string, scheme: Scheme, phone: boolean): Promise<void> {
+async function shoot(board: BoardId, name: string, scheme: Scheme, phone: boolean): Promise<void> {
   const size = phone ? PHONE : DESKTOP;
   chartWidth = phone ? PHONE.width - 32 - 26 : 820 - 26;
   stampViewport(size);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
-  const content = h(Board, { board, compact: phone });
+  const content = h(BoardView, { board, compact: phone });
   const framed = phone ? h(PhoneFrame, null, h(View as never, { style: { paddingHorizontal: 16 } }, content)) : h(DesktopFrame, { selected: SELECTED[board] }, content);
   await act(async () => {
     root!.render(h(ThemeProvider, { scheme, children: framed }));
@@ -637,7 +636,7 @@ async function shoot(board: Board, name: string, scheme: Scheme, phone: boolean)
 }
 
 describe("data sources shots", () => {
-  const shots: [Board, string, Scheme, boolean][] = [
+  const shots: [BoardId, string, Scheme, boolean][] = [
     ["01", "01-data-page", "light", false],
     ["01", "01-data-page", "dark", false],
     ["01", "01-data-page", "light", true],
