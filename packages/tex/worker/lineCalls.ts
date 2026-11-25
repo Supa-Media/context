@@ -37,7 +37,6 @@ export type LineCallResult = { ok: true; value: unknown } | { ok: false; error: 
 
 /** What the Worker's line keys and media hosting need from its bindings. */
 export type LineCallEnv = {
-  SENDER_INBOX: DurableObjectNamespace;
   /** The gateway's `TexTexts`: the chat a line call names is the gateway's (`gatewayChats.ts`). */
   GATEWAY_TEXTS?: TextsBinding;
   LINQ_API_KEY: string;

@@ -2,7 +2,7 @@
  * The texts simulator: a staging-only way to text the assistant from a browser,
  * without Linq and without a real phone number.
  *
- *     browser ──/texts-simulator/api/send──▶ this Worker ──▶ SenderInbox
+ *     browser ──/texts-simulator/api/send──▶ this Worker ──▶ the gateway's TexChat
  *                                                              │  alarm, same
  *                                                              ▼  replyTo()
  *     browser ◀──/texts-simulator/api/thread── the inbox's simulator log
@@ -27,8 +27,7 @@
 import type { InboxStorage } from "./inbox";
 import { cut } from "./inbound";
 import type { Message } from "./reply";
-import { inboxByName } from "./objectPlace";
-import { GATEWAY_CALL_PREFIX, INBOX_NAME_HEADER } from "./inboxMove";
+import { chatInGateway } from "./gatewayChats";
 import type { TextsBinding } from "./gatewaySession";
 import { claim, clear, record, sha256Hex, SIMULATED_PHONE, thread } from "./simulatorLog";
 import { handleSimulatorGroup, SIM_GROUP_PATH } from "./simulatorGroup";
@@ -45,7 +44,7 @@ export function simulatorEnabled(value: string | undefined): boolean {
 // ── The Worker's routes ───────────────────────────────────────────────────
 
 /** `GATEWAY_TEXTS`: a simulated chat runs in the gateway, as every chat does (`handOver.ts`). */
-export type SimulatorEnv = { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding };
+export type SimulatorEnv = { GATEWAY_TEXTS?: TextsBinding };
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const KEY_PATTERN = /^[0-9a-f]{32,128}$/;
@@ -102,14 +101,9 @@ export async function handleSimulator(request: Request, env: SimulatorEnv, page:
   if (phone === null || !SIMULATED_PHONE.test(phone)) return new Response(null, { status: 400 });
 
   const body = JSON.stringify({ keyHash: await sha256Hex(key), phone, text });
-  // The simulated chat is the gateway's copy, copied in on its first call, so the simulator
-  // proves the gateway's queue and turns (step 3 of Tex's config graph). A copy that cannot be made answers 503 and
-  // the Worker's own object answers, as a real text's hand-over falls back (`handOver.ts`).
-  if (env.GATEWAY_TEXTS !== undefined) {
-    const there = await env.GATEWAY_TEXTS.fetch(`${GATEWAY_CALL_PREFIX}/sim/${action}`, { method: "POST", headers: { [INBOX_NAME_HEADER]: phone }, body }).catch(() => null);
-    if (there !== null && there.status !== 503) return there;
-  }
-  return inboxByName(env.SENDER_INBOX, phone).fetch(`https://inbox/sim/${action}`, { method: "POST", body });
+  // The simulated chat is the gateway's, born there on its first call, so the simulator proves the gateway's queue and
+  // turns (step 3 of Tex's config graph); there is no other copy of it.
+  return await chatInGateway(env, phone).fetch(`https://inbox/sim/${action}`, { method: "POST", body });
 }
 
 /** The Durable Object's side: one sender's claim, log and queue. */

@@ -6,7 +6,7 @@
  *     Run by hand (`.github/workflows/tell-texters-new-number.yml`)
  *       │
  *       ├─▶ control plane: every phone Tex may know (/agent-texts/phones)
- *       └─▶ SenderInbox for each phone: one text, in the old chat that
+ *       └─▶ the chat for each phone: one text, in the old chat that
  *             phone itself started, and only once
  *
  * Tex never texts anyone first: a phone with no remembered chat, or whose

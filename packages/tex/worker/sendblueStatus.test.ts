@@ -17,6 +17,7 @@
  *  6. `resendPlain` threading its resend -> "the resend is plain, by the chat's own line" fails.
  */
 
+import { withGateway } from "./gatewayOver.testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -179,7 +180,7 @@ describe("the status route", () => {
         fetch: async (_url: string, init?: RequestInit) => (routed.push({ to: id.name, body: JSON.parse(String(init?.body ?? "{}")) }), Response.json({ outcome: "logged" })),
       }),
     } as unknown as DurableObjectNamespace;
-    return { routed, env: { SENDER_INBOX: namespace, LINQ_WEBHOOK_SECRET: "", LINQ_API_KEY: "k", AGENT_WORKER_SECRET: "s", CONTROL_PLANE_ORIGIN: "https://cp.example", GATEWAY_ORIGIN: "https://gw.example", SENDBLUE_STATUS_URL: STATUS_URL } };
+    return { routed, env: withGateway<Env>({ SENDER_INBOX: namespace, LINQ_WEBHOOK_SECRET: "", LINQ_API_KEY: "k", AGENT_WORKER_SECRET: "s", CONTROL_PLANE_ORIGIN: "https://cp.example", GATEWAY_ORIGIN: "https://gw.example", SENDBLUE_STATUS_URL: STATUS_URL }) };
   }
   const post = (path: string, body: unknown) => new Request(`https://agent.example${path}`, { method: "POST", body: JSON.stringify(body) });
 

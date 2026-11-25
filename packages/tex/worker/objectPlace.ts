@@ -31,8 +31,7 @@ export function objectById(namespace: DurableObjectNamespace, id: string): Durab
 
 /**
  * The texting inbox named `name`, under the name placed in eastern North
- * America (`enam:<name>`), every call naming the inbox so the first can copy
- * in the one kept under the old name (`inboxMove.ts`).
+ * America (`enam:<name>`), every call naming the inbox in `x-inbox-name`.
  */
 export function inboxByName(namespace: DurableObjectNamespace, name: string): { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> } {
   const stub = objectByName(namespace, `enam:${name}`);

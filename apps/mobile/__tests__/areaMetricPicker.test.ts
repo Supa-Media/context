@@ -152,12 +152,17 @@ async function render(w: ReturnType<typeof world>, overrides: Partial<AreasViewP
 }
 
 describe("an area's metric on the Areas page", () => {
-  test("Finance reads the workspace metric its seat names, in any case, with the sources it reads", async () => {
+  test("Finance reads the workspace metric its seat names, in any case, tagged with its time range", async () => {
     await render(world());
-    const row = strip(one("area-row-areas/finance").textContent);
+    const finance = one("area-row-areas/finance");
+    const row = strip(finance.textContent);
     expect(row).toContain("$9.40");
     expect(row).toContain("> $5");
-    expect(strip(one("area-metric-source", one("area-row-areas/finance")).textContent)).toContain("Stripe + Cloudflare");
+    expect(strip(one("area-metric-period", finance).textContent)).toBe("MTD");
+    // The sources and their age stay off the row (the area metric rows board), and in its hover tip.
+    expect(row).not.toContain("Stripe + Cloudflare");
+    expect(row).not.toContain("last row");
+    expect(one("area-metric", finance).getAttribute("title")).toContain("Stripe + Cloudflare");
   });
 
   test("a sheet the reader cannot read makes it Hidden, and names no sheet", async () => {

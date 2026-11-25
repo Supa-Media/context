@@ -4,7 +4,7 @@
  *
  * Answers ids, days, times, tool names and numbers: the person-days (already MACs), the accounts made and the
  * owners of personal workspaces that texted (account ids, for the gateway to MAC before anything is written), and
- * the call and reply timings. Never a name, an address, a path or a word.
+ * the call and reply timings, and the bug reports people sent (account ids and the reference they were told). Never a name, an address, a path or a word.
  */
 
 import { internal } from "../../../_generated/api";
@@ -18,10 +18,11 @@ const DAY_MS = 86_400_000;
 export async function gatewayUsageExportHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const now = Date.now();
   const since = typeof body.since === "number" && Number.isFinite(body.since) ? Math.max(body.since, now - MAX_EXPORT_DAYS * DAY_MS) : now - 7 * DAY_MS;
+  const bugsSince = typeof body.bugsSince === "number" && Number.isFinite(body.bugsSince) ? Math.max(body.bugsSince, now - MAX_EXPORT_DAYS * DAY_MS) : since;
   // Calls are read back 14 days at most: the sheet keeps no more, and a busy fortnight stays under its rows.
   const callsSince = Math.max(since, now - 14 * DAY_MS);
   const [rows, timings]: [UsageExport, UsageTimings] = await Promise.all([
-    ctx.runQuery(internal.functions.usagePeople.exportRows, { since }),
+    ctx.runQuery(internal.functions.usagePeople.exportRows, { since, bugsSince }),
     usageTimings(
       {
         CLOUDFLARE_ANALYTICS_TOKEN: process.env.CLOUDFLARE_ANALYTICS_TOKEN,

@@ -1,7 +1,7 @@
 /**
  * context-agent: the Worker behind Tex, the texting assistant.
  *
- *     Sendblue ──POST /sendblue──▶ this Worker ──▶ SenderInbox (one per phone number)
+ *     Sendblue ──POST /sendblue──▶ this Worker ──▶ the gateway's TexChat (one per phone number)
  *     Whapi (WhatsApp) ──POST /whapi──▶ the same inboxes and group queues (`whapi.ts`)
  *     (Linq ──POST /linq──▶, the old shared line, until it is retired)
  *                                             │  alarm
@@ -14,7 +14,7 @@
  * daytime check-ins and daily housekeeping are due (routines.ts, dreams.ts,
  * heartbeats.ts, housekeeping.ts). For a
  * routine or a check-in: the control plane names the runs, the gateway runs each with
- * its own grant, and the answer is texted through each phone's SenderInbox to
+ * its own grant, and the answer is texted through each phone's chat in the gateway to
  * the chat that phone last texted from. The control plane hears only an
  * outcome and a count.
  *
@@ -53,11 +53,10 @@ import { isWhapiGroup, phoneOfJid, readWhapiMessage, verifyWhapiSecret, whapiKey
 import { parseWhapiWebhook, whapiGroupChanges, whapiGroupNames } from "./whapiInbound";
 import { logEventShape, logSendblueShape } from "./webhookShape";
 import { groupLineFor } from "./groupLine";
-import { inboxByName, objectById } from "./objectPlace";
 import { chatByIdInGateway, chatInGateway, chatNamespace } from "./gatewayChats";
 
 export type { Env } from "./env";
-import type { Env } from "./env";
+import type { WorkerEnv as Env } from "./env";
 
 /** Linq's payloads are small; anything this big is not one of them. */
 const MAX_BODY_BYTES = 256 * 1024;
@@ -163,9 +162,8 @@ export default {
         inbound.reaction = { ...inbound.reaction, words: (words ?? "").slice(0, 500) };
         delete inbound.on;
       }
-      const stub = inboxByName(env.SENDER_INBOX, inbound.from);
       const reacted = { ...inbound, provider };
-      const result = (await toChat(env, "react", inbound.from, reacted)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(reacted) }));
+      const result = await toChat(env, "react", inbound.from, reacted);
       return new Response(null, { status: result.ok ? 200 : 503 });
     }
 
@@ -178,12 +176,9 @@ export default {
       if (keys !== null) Object.assign(message, await threadContext((input, init) => fetch(input, init), keys, replyTo, threadRoot, message.chatId));
     }
 
-    const stub = inboxByName(env.SENDER_INBOX, inbound.from);
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
     const brought = { ...message, provider };
-    const result =
-      (await toChat(env, "one", inbound.from, brought, url.origin)) ??
-      (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, { method: "POST", body: JSON.stringify(brought) }));
+    const result = await toChat(env, "one", inbound.from, brought, url.origin);
     return new Response(null, { status: result.ok ? 200 : 503 });
   },
 
@@ -282,13 +277,10 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
     return new Response(null, { status: 200 });
   }
   await sendGroupName((input, init) => fetch(input, init), env.CONTROL_PLANE_ORIGIN, env.AGENT_WORKER_SECRET, grouped, name); // its folder's name, never in the message
-  const stub = inboxByName(env.SENDER_INBOX, groupInboxName(grouped.groupId));
   // The Worker's own address goes along, as for a 1:1 text: without it the group's pictures had nowhere to be
   // served from, and every answer with a card failed after its words went out (2026-10-26).
   const brought = provider === undefined ? grouped : { ...grouped, provider };
-  const result =
-    (await toChat(env, "group", groupInboxName(grouped.groupId), brought, origin)) ??
-    (await stub.fetch(`https://inbox/group-accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(brought) }));
+  const result = await toChat(env, "group", groupInboxName(grouped.groupId), brought, origin);
   logWebhook(line, "accepted", "group");
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
@@ -327,9 +319,7 @@ async function whapiWebhook(request: Request, env: Env, origin: string): Promise
   // A group's people changed: its kept member list is read from the app before its next answer goes out (`groupMembers.ts`).
   const changed = whapiGroupChanges(payload);
   for (const groupId of changed) {
-    const result =
-      (await toChat(env, "members", groupInboxName(groupId), null)) ??
-      (await inboxByName(env.SENDER_INBOX, groupInboxName(groupId)).fetch("https://inbox/group-members-changed", { method: "POST" }));
+    const result = await toChat(env, "members", groupInboxName(groupId), null);
     if (!result.ok) failed = true;
   }
   if (changed.length > 0) console.log(JSON.stringify({ event: "whapi_group_change", groups: changed.length, outcome: failed ? "failed" : "marked" }));
@@ -375,18 +365,14 @@ async function whapiEvent(env: Env, keys: WhapiKeys, event: ReturnType<typeof pa
       delete event.on;
     }
     logWebhook("whapi", "accepted", "reaction");
-    const stub = inboxByName(env.SENDER_INBOX, event.from);
     const reacted = { ...event, provider };
-    const result = (await toChat(env, "react", event.from, reacted)) ?? (await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(reacted) }));
+    const result = await toChat(env, "react", event.from, reacted);
     return new Response(null, { status: result.ok ? 200 : 503 });
   }
   logWebhook("whapi", "accepted");
   const { replyTo: _reply, threadRoot: _root, ...rest } = event;
   const message = { ...rest, provider };
-  const stub = inboxByName(env.SENDER_INBOX, event.from);
-  const result =
-    (await toChat(env, "one", event.from, message, origin)) ??
-    (await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(origin)}`, { method: "POST", body: JSON.stringify(message) }));
+  const result = await toChat(env, "one", event.from, message, origin);
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
 
@@ -425,11 +411,7 @@ async function media(request: Request, env: Env, url: URL): Promise<Response> {
   if (request.method !== "GET") return new Response(null, { status: 405 });
   const match = /^\/media\/([0-9a-f]{64})\/([0-9a-f]{64})\.[a-z]{3,4}$/.exec(url.pathname);
   if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
-  return await chatByIdInGateway(env, match[1], `/media/${match[2]}`, async () => {
-    const stub = objectById(env.SENDER_INBOX, match[1]);
-    if (stub === null) return new Response(null, { status: 404 });
-    return stub.fetch(`https://inbox/media/${match[2]}`);
-  });
+  return await chatByIdInGateway(env, match[1], `/media/${match[2]}`);
 }
 
 /**
@@ -441,11 +423,7 @@ async function threads(request: Request, env: Env, url: URL): Promise<Response> 
   if (request.method !== "GET") return new Response(null, { status: 405 });
   const match = /^\/threads\/([0-9a-f]{64})\/([0-9a-f]{64})$/.exec(url.pathname);
   if (!match || !OBJECT_ID.test(match[1])) return new Response(null, { status: 404 });
-  return await chatByIdInGateway(env, match[1], `/threads/${match[2]}`, async () => {
-    const stub = objectById(env.SENDER_INBOX, match[1]);
-    if (stub === null) return new Response(null, { status: 404 });
-    return stub.fetch(`https://inbox/threads/${match[2]}`);
-  });
+  return await chatByIdInGateway(env, match[1], `/threads/${match[2]}`);
 }
 
 /**
@@ -493,7 +471,6 @@ async function runInChat(env: Env, run: DueRoutine): Promise<"queued" | "no_chat
   return ((await response.json()) as { outcome?: unknown }).outcome === "queued" ? "queued" : "failed";
 }
 
-export { SenderInbox } from "./chatObject";
 export { PhotonEvents } from "./photonEvents";
 
 /**

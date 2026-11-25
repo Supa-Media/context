@@ -16,6 +16,15 @@
  * 4. `readGithub` ignoring the pick: "the owner picks repositories: ..." fails.
  * 5. `fillDeployed` taking a deployment that started before the merge: "a pull request's deployed is the first
  *    production deployment after its merge" fails.
+ * 6. The deploy read sending `branch` too: "Deploy to Production runs are read on every branch: ..." fails.
+ * 7. The deploy read's 404 no longer skipped: the same test fails, and "an owner installs GitHub: ..." fails too
+ *    (repo supa/context answers 404 for its deploy workflow).
+ * 8. `mergeSynced` (`sync/keep.js`) adding an incoming row whose key it already holds as a second row: the same test
+ *    fails, and "an owner installs GitHub: ..." fails too.
+ * 9. The deploy workflow read removed (`DEPLOY_WORKFLOWS` read as empty): "Deploy to Production runs are read on
+ *    every branch: ..." and "a non-404 failure of the deploy read ..." fail, and "an owner installs GitHub: ..." fails.
+ * 10. The deploy read taking its span from every kept run of the repository, as the default-branch read once did:
+ *    "each workflow-runs read keeps its own window: ..." fails.
  */
 
 import { test } from "node:test";
@@ -25,7 +34,7 @@ import { SYNC_EVERY_MS } from "../src/data/sync/object.js";
 import { READ_ONLY, installState, readInstallState } from "../src/data/connect/githubApp.js";
 import { fillDeployed, pullRequestRow } from "../src/data/connect/github.js";
 import { skip, NOW, SECRET, world, send, dataObject, roleOf } from "./dataSyncWorld.mjs";
-import { CLIENT_ID, CLIENT_SECRET, CALLBACK, USER_TOKEN, INSTALL_TOKEN, CODE, ABOUT, withGithubApp, withSource, pr, github, start, finish, sheet, stateOf, logsOf, installed } from "./dataSyncGithubWorld.mjs";
+import { CLIENT_ID, CLIENT_SECRET, CALLBACK, USER_TOKEN, INSTALL_TOKEN, CODE, ABOUT, CI_RUN, DEPLOY_RUN, withGithubApp, withSource, pr, github, start, finish, sheet, stateOf, logsOf, installed, firstRun } from "./dataSyncGithubWorld.mjs";
 
 test("a pull request's deployed is the first production deployment after its merge", () => {
   const pull = pullRequestRow("supa/app", pr(3, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z"));
@@ -92,8 +101,68 @@ test("an owner installs GitHub: the owner's token is revoked, nothing is kept bu
     ],
   );
   assert.deepEqual((await sheet(w.alice, ids.deploys)).rows.map((row) => [row.id, row.status]).sort(), [["901", "success"], ["902", "success"]]);
-  assert.deepEqual((await sheet(w.alice, ids.runs)).rows.map((row) => [row.workflow, row.conclusion]), [["CI", "success"]]);
+  assert.deepEqual(
+    (await sheet(w.alice, ids.runs)).rows.map((row) => [row.id, row.workflow, row.branch, row.conclusion]).sort(),
+    [
+      ["5001", "CI", "main", "success"],
+      ["7001", "Deploy to Production", `prod-deploy/${"c".repeat(40)}`, "failure"],
+    ],
+  );
   assert.ok(w.net.calls.every((url) => ["api.github.com", "github.com"].includes(new URL(url).hostname)));
+});
+
+test("Deploy to Production runs are read on every branch: no branch param, the workflow's own URL, a repo without it skipped, a run both reads find stored once", { skip }, async () => {
+  const w = await world();
+  const deployOnMain = { id: 7002, name: "Deploy to Production", head_branch: "main", run_started_at: "2026-11-25T09:00:00Z", updated_at: "2026-11-25T09:10:00Z", conclusion: "success" };
+  const { ids, seen, state } = await installed(w, {
+    mainRuns: (repo) => (repo === "supa/app" ? [CI_RUN, deployOnMain] : []),
+    deployRuns: (repo) => (repo === "supa/app" ? [DEPLOY_RUN, deployOnMain] : new Response("{}", { status: 404 })),
+  });
+  const last = await firstRun(w, state);
+  assert.equal(last.outcome, "ok", JSON.stringify(last));
+  const deployCalls = seen.filter((call) => call.path.endsWith("/actions/workflows/deploy-production.yml/runs"));
+  assert.ok(deployCalls.some((call) => call.query.has("created")), "the deploy read ran");
+  for (const call of deployCalls) {
+    assert.equal(call.query.has("branch"), false, "the deploy read takes no branch");
+    assert.equal(call.query.get("status"), "completed");
+    assert.equal(call.query.get("per_page"), "100");
+    assert.ok(call.query.has("created"));
+  }
+  assert.ok(deployCalls.some((call) => call.path === "/repos/supa/context/actions/workflows/deploy-production.yml/runs"), "supa/context's deploy read was made");
+  const mainCalls = seen.filter((call) => call.path === "/repos/supa/app/actions/runs");
+  assert.ok(mainCalls.length > 0);
+  for (const call of mainCalls) assert.equal(call.query.get("branch"), "main");
+  const rows = (await sheet(w.alice, ids.runs)).rows;
+  assert.deepEqual(rows.map((row) => row.id).sort(), ["5001", "7001", "7002"]);
+  const text = await (await w.alice.bucket.get(`files/${ids.runs}.csv`)).text();
+  assert.equal(text.split("\n").filter((line) => line.startsWith("7002,")).length, 1, "run 7002 is stored once");
+});
+
+test("each workflow-runs read keeps its own window: kept default-branch runs don't cut the deploy read to a day", { skip }, async () => {
+  const w = await world();
+  const { ids, seen, state } = await installed(w);
+  const runFloor = NOW - 30 * 86_400_000;
+  const kept = [
+    "id,repo,workflow,branch,started,finished,conclusion",
+    "4001,supa/app,CI,main,2026-11-24T12:00:00Z,2026-11-24T12:05:00Z,success",
+    "4002,supa/app,CI,main,2026-10-28T00:00:00Z,2026-10-28T00:05:00Z,success",
+  ].join("\n");
+  await w.alice.bucket.put(`files/${ids.runs}.csv`, `${kept}\n`);
+  const last = await firstRun(w, state);
+  assert.equal(last.outcome, "ok", JSON.stringify(last));
+  const created = (path) => seen.filter((call) => call.path === path).map((call) => call.query.get("created"));
+  // The default-branch read: a day before its newest kept run, then the history back to the floor.
+  assert.deepEqual(created("/repos/supa/app/actions/runs"), [">=2026-11-23T12:00:00.000Z", `${new Date(runFloor).toISOString()}..2026-10-28T00:00:00.000Z`]);
+  // The deploy read has no kept rows of its own yet, so it reads the whole 30 days.
+  assert.deepEqual(created("/repos/supa/app/actions/workflows/deploy-production.yml/runs"), [`>=${new Date(runFloor).toISOString()}`]);
+});
+
+test("a non-404 failure of the deploy read fails the run and keeps no workflow runs", { skip }, async () => {
+  const w = await world();
+  const { ids, state } = await installed(w, { deployRuns: (repo) => (repo === "supa/app" ? new Response("{}", { status: 500 }) : []) });
+  const last = await firstRun(w, state);
+  assert.notEqual(last.outcome, "ok", JSON.stringify(last));
+  assert.equal((await sheet(w.alice, ids.runs)).rows.length, 0);
 });
 
 test("a state that isn't this owner's own, or has expired, binds nothing", { skip }, async () => {

@@ -8,6 +8,8 @@
  *    on the guest-listed sheet.
  * 3. `usageRows` writing the account id instead of its MAC: "no account id reaches a sheet" fails.
  * 4. `markCaller` counting the app's own calls: "the app and Tex are not callers" fails.
+ * 5. `mergeSynced` ignoring `handColumns`: "a bug's status is the team's" fails.
+ * 6. `usageRows` taking any channel: "a bug row is a reference, a time, a person id and a channel" fails.
  */
 
 import assert from "node:assert/strict";
@@ -39,27 +41,33 @@ const EXPORT = {
   signups: [{ at: NOW - 2 * 3_600_000, userId: "uBea" }],
   calls: [{ at: NOW - 5000, tool: "orient", ms: 540, ok: true, client: "Claude", weight: 2 }],
   replies: [{ at: NOW - 59_000, kind: "one", seconds: 4.2 }],
+  bugs: [
+    { at: NOW - 90_000, userId: "uBea", channel: "tex", reference: "a".repeat(32) },
+    { at: NOW - 80_000, userId: "uBea", channel: "app", reference: "b".repeat(32) },
+  ],
   cut: false,
   timingsError: null,
 };
 
-/** Alice's workspace with a usage source, its four sheets owners only, and a sync object that reads `exported`. */
+/** Alice's workspace with a usage source, its five sheets owners only, and a sync object that reads `exported`. */
 async function usageWorld({ rules = USAGE_RULES, named = "alice", exported = EXPORT } = {}) {
   const w = await world();
   w.env.USAGE_WORKSPACE = named;
   w.reads = [];
+  w.bugReads = [];
   w.env.DATA_SYNC = w.data = dataNamespace({ env: w.env }, {
     now: () => w.clock.now,
     personKey: KEY,
-    usageExport: async (since) => {
+    usageExport: async (since, bugsSince) => {
       w.reads.push(since);
+      w.bugReads.push(bugsSince);
       return structuredClone(exported);
     },
     openStore: (answer) => new R2Store(w.buckets.get(answer.binding.workspaceId)),
   });
   const who = w.alice;
-  const ids = { about: noteId(20), activity: noteId(21), signups: noteId(22), replies: noteId(23), calls: noteId(24) };
-  const files = { activity: "activity.csv", signups: "sign-ups.csv", replies: "tex-replies.csv", calls: "calls.csv" };
+  const ids = { about: noteId(20), activity: noteId(21), signups: noteId(22), replies: noteId(23), calls: noteId(24), bugs: noteId(25) };
+  const files = { activity: "activity.csv", signups: "sign-ups.csv", replies: "tex-replies.csv", calls: "calls.csv", bugs: "bug-reports.csv" };
   who.object.store.rows.put([
     { id: "d-usage", path: "data/usage", kind: "folder", at: 1 },
     { id: "f-uabout", path: "data/usage/about.md", kind: "file", at: 2, storageKey: `notes/${ids.about}.md`, noteId: ids.about, etag: "e-ua" },
@@ -81,7 +89,7 @@ test("the deployment names its usage workspace by slug, with or without @", () =
   for (const bad of [undefined, "", "a b", "@", "x/y", 7]) assert.equal(usageWorkspaceOf({ USAGE_WORKSPACE: bad }), null);
 });
 
-test("an owner of the named workspace arms it, and its four sheets fill, by person id only", { skip }, async () => {
+test("an owner of the named workspace arms it, and its five sheets fill, by person id only", { skip }, async () => {
   const w = await usageWorld();
   const armed = await arm(w, w.alice, "data/usage/about.md");
   assert.equal(armed.status, 200, JSON.stringify(armed.body));
@@ -101,6 +109,13 @@ test("an owner of the named workspace arms it, and its four sheets fill, by pers
   assert.deepEqual(replies.rows.map((row) => [row.kind, row.seconds, row.answered]).sort(), [["one", "", "0"], ["one", "4.2", "1"]]);
   const calls = await w.usage.sheet("calls");
   assert.deepEqual(calls.rows.map((row) => [row.tool, row.ms, row.ok, row.client, row.weight]), [["orient", "540", "1", "Claude", "2"]]);
+  const bugs = await w.usage.sheet("bugs");
+  assert.deepEqual(bugs.columns.map((column) => column.name), ["reference", "filed", "person", "channel", "status"]);
+  assert.deepEqual(bugs.rows.map((row) => ({ ...row })), [
+    { reference: "a".repeat(32), filed: new Date(NOW - 90_000).toISOString().replace(/\.\d{3}Z$/, "Z"), person: bea, channel: "tex", status: "open" },
+    { reference: "b".repeat(32), filed: new Date(NOW - 80_000).toISOString().replace(/\.\d{3}Z$/, "Z"), person: bea, channel: "app", status: "open" },
+  ]);
+  assert.equal(w.bugReads[0], NOW - 30 * DAY);
 
   // No account id reaches a sheet.
   for (const name of Object.keys(USAGE_SHEETS)) {
@@ -113,6 +128,39 @@ test("an owner of the named workspace arms it, and its four sheets fill, by pers
   assert.equal(w.reads.at(-1), NOW + 3_600_000 - 2 * DAY);
   const again = await w.usage.sheet("activity");
   assert.equal(again.rows.length, activity.rows.length);
+  // The bug sheet has rows now, so it reads back two days too.
+  assert.equal(w.bugReads.at(-1), NOW + 3_600_000 - 2 * DAY);
+});
+
+test("a bug's status is the team's: a run adds it as open and never writes over it", { skip }, async () => {
+  const w = await usageWorld();
+  await arm(w, w.alice, "data/usage/about.md");
+  const key = `files/${w.usage.ids.bugs}.csv`;
+  const text = await (await w.alice.bucket.get(key)).text();
+  await w.alice.bucket.put(key, text.replace(`${"a".repeat(32)},`, `${"a".repeat(32)},`).replace(/open(\r?\n|$)/, "fixed in #1$1"));
+  w.clock.now = NOW + 3_600_000;
+  await dataObject(w, "pAlice").instance.alarm();
+  const bugs = await w.usage.sheet("bugs");
+  assert.deepEqual(bugs.rows.map((row) => [row.reference.slice(0, 1), row.status]), [["a", "fixed in #1"], ["b", "open"]]);
+});
+
+test("a bug row is a reference, a time, a person id and a channel: nothing else gets in", async () => {
+  const rows = await usageRows(
+    {
+      bugs: [
+        { at: NOW, userId: "uBea", channel: "tex-group", reference: "c".repeat(32) },
+        { at: NOW, userId: "uBea", channel: "content", reference: "d".repeat(32) },
+        { at: NOW, userId: "uBea", channel: "agent", reference: "the printer is on fire" },
+        { at: NOW, userId: "bad id with spaces", channel: "app", reference: "e".repeat(32) },
+        { at: "yesterday", userId: "uBea", channel: "app", reference: "f".repeat(32) },
+        { at: NOW, userId: "uBea", channel: "agent", reference: "0".repeat(32), message: "secret words" },
+      ],
+    },
+    { key: KEY, held: { activity: new Map(), signups: new Map() }, now: NOW },
+  );
+  assert.deepEqual(rows.bugs.map((row) => [row.reference.slice(0, 1), row.channel]), [["c", "tex-group"], ["0", "agent"]]);
+  assert.equal(JSON.stringify(rows.bugs).includes("secret"), false);
+  assert.equal(JSON.stringify(rows.bugs).includes("uBea"), false);
 });
 
 test("only the workspace the deployment names can turn it on, and only its owners", { skip }, async () => {

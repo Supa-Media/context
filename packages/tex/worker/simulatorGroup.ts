@@ -88,7 +88,7 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
  * The Worker's side of `/texts-simulator/api/group/*`. The caller has checked the simulator is on and the key's shape;
  * this checks every id, number and member before the group object sees anything.
  */
-export async function handleSimulatorGroup(request: Request, env: { SENDER_INBOX: DurableObjectNamespace; GATEWAY_TEXTS?: TextsBinding }, path: string, keyHash: string, url: URL): Promise<Response> {
+export async function handleSimulatorGroup(request: Request, env: { GATEWAY_TEXTS?: TextsBinding }, path: string, keyHash: string, url: URL): Promise<Response> {
   const action = ({ "/api/group/send": "send", "/api/group/thread": "thread", "/api/group/clear": "clear" } as Record<string, SimGroupAction>)[path];
   if (action === undefined) return new Response(null, { status: 404 });
   if (request.method !== (action === "thread" ? "GET" : "POST")) return new Response(null, { status: 405 });

@@ -32,6 +32,7 @@ import { metricsIn, usesByMetric } from "../features/console/files/data/metrics"
 import { sourcesIn } from "../features/console/files/data/sources";
 import { keptBy, sourceFolderOfSheet } from "../features/console/files/data/syncedSheet";
 import { sheetOfText } from "../features/console/files/data/useData";
+import { periodTag } from "../features/console/files/data/words";
 import { rowsReader } from "../features/console/files/data/useDataWorkspace";
 import { workOut, type Sheet } from "../features/console/files/data/workOut";
 import {
@@ -46,7 +47,7 @@ import {
   type WorkspaceMetrics,
 } from "../features/console/files/folderPage/areas/areaMetric";
 import { headlineOf } from "../features/console/files/folderPage/areas/headline";
-import { readingsOf } from "../features/console/files/folderPage/areas/readings";
+import { readingFor, readingsOf } from "../features/console/files/folderPage/areas/readings";
 import { metricsOf, seatChanges, seatOf } from "../features/console/files/folderPage/areas/seat";
 import { shortTarget } from "../features/console/files/folderPage/areas/shortTarget";
 
@@ -115,6 +116,8 @@ describe("an area's metric is a workspace metric by name", () => {
     expect(reading.state).toBe("met");
     expect(reading.inputs).toBe("Stripe + Cloudflare");
     expect(reading.when).toBe("last row 1h ago");
+    // The time range the number covers, from the note's own `every`: a month so far.
+    expect(reading.period).toBe("MTD");
     expect(reading.series).toEqual([6.1, 9.4]);
     expect(areaReading({ name: "Revenue per AI dollar", target: "over $10" }, workspace(), undefined)!.state).toBe("missed");
   });
@@ -127,6 +130,8 @@ describe("an area's metric is a workspace metric by name", () => {
     expect(reading.series).toEqual([540, 512]);
     expect(reading.state).toBe("met");
     expect(reading.inputs).toBe("");
+    // A metrics.csv line names no period, so it gets no tag rather than a guessed one.
+    expect(reading.period).toBe("");
     // No workspace at all (a page without the file browser's listings) reads the sheet too.
     expect(areaReading({ name: "Monthly cost", target: null }, null, csv)!.value).toBe("$512");
     // And a name in neither has no reading: the row shows only the name and target.
@@ -279,5 +284,36 @@ describe("a sheet a source keeps up to date", () => {
     expect(sourceFolderOfSheet("data/github/pull-requests.csv", "")).toBeNull();
     // A source whose about.md this reader cannot read is no source to them: no lock line, nothing named.
     expect(keptBy("data/github/pull-requests.csv", "data", [])).toBeNull();
+  });
+});
+
+describe("the time range an area row's number covers", () => {
+  test("each period a metric note can name reads as a short tag", () => {
+    expect(periodTag("7 days", false)).toBe("7d");
+    expect(periodTag("30 days", false)).toBe("30d");
+    expect(periodTag("1 day", false)).toBe("1d");
+    expect(periodTag("day", false)).toBe("today");
+    expect(periodTag("week", false)).toBe("this week");
+    expect(periodTag(" Month ", false)).toBe("MTD");
+    expect(periodTag("hour", false)).toBe("this hour");
+    expect(periodTag("12 hours", false)).toBe("12h");
+  });
+
+  test("a right-now metric is the rows as they stand, so it says now whatever its period", () => {
+    expect(periodTag("day", true)).toBe("now");
+  });
+
+  test("a period the engine cannot read gets no tag rather than a wrong one", () => {
+    expect(periodTag("fortnight", false)).toBe("");
+    expect(periodTag("", false)).toBe("");
+  });
+
+  test("the row's headline carries the tag, and keeps the source for the hover and the panel", () => {
+    const area = seatOf("areas/finance", "areas", [note("areas/finance/about.md", { metrics: ["Revenue per AI dollar · target over $5"] })]);
+    const line = headlineOf(area, areaReading({ name: "Revenue per AI dollar", target: "over $5" }, workspace(), undefined))!;
+    expect(line.period).toBe("MTD");
+    expect(line.source).toBe("Stripe + Cloudflare · last row 1h ago");
+    const csv = readingsOf("date:date,metric,value\n2026-11-23,Revenue per AI dollar,$9");
+    expect(headlineOf(area, readingFor(csv, { name: "Revenue per AI dollar", target: "over $5" }))!.period).toBe("");
   });
 });

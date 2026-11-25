@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, createVerify } from "node:crypto";
 
 import { parseSheet } from "../src/sheets/csv.js";
-import { noteId, send } from "./dataSyncWorld.mjs";
+import { noteId, send, dataObject } from "./dataSyncWorld.mjs";
 
 export const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs1", format: "pem" } });
 export const CLIENT_ID = "Iv1.testclient";
@@ -43,7 +43,12 @@ export async function withSource(w, who, source = "github") {
 export const pr = (number, opened, merged, updated = merged ?? opened) => ({ number, title: `Change ${number}`, createdAt: opened, mergedAt: merged, updatedAt: updated, additions: 10 * number, deletions: number, author: { login: "dev" } });
 
 /** GitHub as it answers, recording each call's host, path and the authorization it carried. */
-export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], trade = null } = {}) {
+export const DEPLOY_RUN = { id: 7001, name: "Deploy to Production", head_branch: `prod-deploy/${"c".repeat(40)}`, run_started_at: "2026-11-25T08:30:00Z", updated_at: "2026-11-25T08:50:00Z", conclusion: "failure" };
+export const CI_RUN = { id: 5001, name: "CI", head_branch: "main", run_started_at: "2026-11-25T08:00:00Z", updated_at: "2026-11-25T08:09:00Z", conclusion: "success" };
+/** The deploy workflow's runs per repo: the one deploy on a prod-deploy branch for supa/app, and a 404 for supa/context. */
+const DEFAULT_DEPLOY_RUNS = (repo) => (repo === "supa/app" ? [DEPLOY_RUN] : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }));
+
+export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], trade = null, deployRuns = DEFAULT_DEPLOY_RUNS, mainRuns = (repo) => (repo === "supa/app" ? [CI_RUN] : []) } = {}) {
   const seen = [];
   const auth = (init) => String(new Headers(init?.headers ?? {}).get("authorization") ?? "");
   w.net.answers.set("github.com", (url, init) => {
@@ -91,10 +96,12 @@ export function github(w, { installations = [Number(INSTALLATION)], mintStatus =
       }
       return Response.json({ data: { search: { nodes: [], pageInfo: { hasNextPage: false } } } });
     }
-    if (/\/actions\/runs$/.test(pathname)) {
-      const runs = pathname.includes("/supa/app/") ? [{ id: 5001, name: "CI", head_branch: "main", run_started_at: "2026-11-25T08:00:00Z", updated_at: "2026-11-25T08:09:00Z", conclusion: "success" }] : [];
-      return Response.json({ workflow_runs: runs });
+    const deploying = /^\/repos\/(.+)\/actions\/workflows\/([^/]+)\/runs$/.exec(pathname);
+    if (deploying) {
+      const answer = deployRuns(deploying[1]);
+      return answer instanceof Response ? answer : Response.json({ workflow_runs: answer });
     }
+    if (/\/actions\/runs$/.test(pathname)) return Response.json({ workflow_runs: mainRuns(pathname.replace(/^\/repos\/|\/actions\/runs$/g, "")) });
     return new Response("{}", { status: 404 });
   });
   return seen;
@@ -117,12 +124,22 @@ export async function logsOf(work) {
   }
 }
 
-export async function installed(w) {
+export async function installed(w, options) {
   withGithubApp(w);
   const ids = await withSource(w, w.alice);
-  const seen = github(w);
+  const seen = github(w, options);
   const started = await start(w, w.alice);
   assert.equal(started.status, 200, JSON.stringify(started.body));
   return { ids, seen, state: stateOf(started) };
 }
 
+
+/** Finishes the install and runs the first sync the way production does, on the alarm; answers that run's last. */
+export async function firstRun(w, state, who = w.alice) {
+  const done = await finish(w, who, state);
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  const object = dataObject(w, who.pwid);
+  await object.instance.alarm();
+  const source = Object.values(object.storage.map.get("sources")).find((one) => one.kind === "app" && one.app === "github");
+  return source?.last ?? null;
+}

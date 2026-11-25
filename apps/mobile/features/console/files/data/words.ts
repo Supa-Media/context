@@ -5,6 +5,7 @@
  */
 
 import { dateMs } from "../../../../../mcp/src/sheets/csv.js";
+import { parseEvery } from "../../../../../mcp/src/data/formula/windows.js";
 import type { DataSource, SourceKind } from "./sources";
 import { signsIn, textOf } from "./sources";
 import type { Sheet } from "./workOut";
@@ -191,4 +192,19 @@ export function periodLabel(period: { from: string; to: string }, every: string,
       ? hourOfDay(from)
       : unit === "month" ? MONTHS[new Date(from).getUTCMonth()]! : unit === "week" || unit === "day" ? monthDay(from) : monthDay(Date.parse(period.to));
   return current ? `${label}, so far` : label;
+}
+
+/**
+ * The time range a metric's number covers, as the Areas list tags it: "7d" for
+ * `7 days`, "today", "this week", "MTD" for a month so far, "12h"; "now" for a
+ * right-now metric, whose rows are counted as they stand. "" for a period the
+ * engine cannot read, so a row is never tagged with a range it does not cover.
+ */
+export function periodTag(every: string, rightNow: boolean): string {
+  if (rightNow) return "now";
+  const period = parseEvery(every) as { unit: string; days?: number; hours?: number } | null;
+  if (period === null) return "";
+  if (period.unit === "days") return `${period.days}d`;
+  if (period.unit === "hours") return period.hours === 1 ? "this hour" : `${period.hours}h`;
+  return period.unit === "day" ? "today" : period.unit === "week" ? "this week" : "MTD";
 }

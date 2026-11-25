@@ -213,6 +213,12 @@ function attachmentsOf(message: Rec, text: string, options: PhotonParseOptions):
     .slice(0, MAX_INBOUND_ATTACHMENTS);
 }
 
+/** The line's guids of the stickers sent as this message (Apple's `isSticker`), kept for Tex to stick back (`stickers.ts`). */
+function stickersOf(message: Rec): string[] {
+  const listed = Array.isArray(message.attachments) ? message.attachments.slice(0, MAX_INBOUND_ATTACHMENTS) : [];
+  return listed.flatMap((item) => (isRecord(item) && item.sticker === true && idOf(item.guid) !== null ? [idOf(item.guid) as string] : []));
+}
+
 /** A `message.received`: a 1:1 message, or a group's. */
 function received(body: Rec, env: Envelope, options: PhotonParseOptions): PhotonParsed {
   const message = isRecord(body.message) ? body.message : null;
@@ -250,6 +256,7 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
       ...(quoted !== "" ? { quoted } : {}),
       ...(sms ? { sms: true as const } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(!sms && stickersOf(message).length > 0 ? { stickers: stickersOf(message) } : {}),
     };
     return group;
   }
@@ -279,6 +286,7 @@ function received(body: Rec, env: Envelope, options: PhotonParseOptions): Photon
     messageId: guid,
     ...cutText(text),
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(!sms && stickersOf(message).length > 0 ? { stickers: stickersOf(message) } : {}),
     // An inline reply is answered inside its thread, and told it was a reply, even when its words are not there.
     ...(replyTo !== null ? { threaded: true as const } : {}),
     ...(replyTo !== null && quoted !== "" ? { quoted } : {}),

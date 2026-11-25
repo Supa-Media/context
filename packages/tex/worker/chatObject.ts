@@ -8,7 +8,6 @@
 import { retryText, stopTurn } from "./turnWatch";
 import { jobRoute } from "./jobRoutes";
 import { jobObject } from "./jobObject";
-import { CENSUS_PATH, censusOf, EXPORT_PATH, exportOf, SELF_NAMES_PATH, selfNames } from "./workerCensus";
 import { logged } from "./agentError";
 import { type Inbound } from "./inbound";
 import { accept, carryOnAfterSave, drain, keepEdit, react, type InboxDeps, type InboxStorage } from "./inbox";
@@ -61,14 +60,10 @@ import { retryLater } from "./groupRetry";
 import { inboxByName, inboxIdOf, objectByName } from "./objectPlace";
 import { logDropped, logStep, textStep, sendStep } from "./stepEvents";
 import { readArrival } from "./providerTiming";
-import { movedAlarm, placeGate, type MoveStorage } from "./inboxMove";
 
 import type { Env } from "./env";
 
 export class SenderInbox implements DurableObject {
-  /** Calls, alarms and handed-on work running now: an inbox moves only when there are none (`inboxMove.ts`). */
-  private busy = 0;
-
   /** The object's way out to the network; the gateway's copy routes its own origin in-process (`packages/tex/gateway/texChat.js`). */
   private readonly out: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -77,28 +72,11 @@ export class SenderInbox implements DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
-    // What this object still holds, counted before any move gate could pass the call on (`workerCensus.ts`).
-    if (new URL(request.url).pathname === CENSUS_PATH) return Response.json(await censusOf(this.state.storage));
-    if (new URL(request.url).pathname === SELF_NAMES_PATH) return Response.json(await selfNames(this.state.storage));
-    if (new URL(request.url).pathname === EXPORT_PATH) return Response.json(await exportOf(this.state.storage));
-    const stubs = (name: string) => objectByName(this.env.SENDER_INBOX, name);
-    const gate = await placeGate(request, this.state.storage as unknown as MoveStorage, stubs, this.busy, (run) => this.state.blockConcurrencyWhile(run), Date.now, this.env.GATEWAY_TEXTS);
-    if ("response" in gate) return gate.response;
-    return await this.counted(() => this.serve(gate.request));
+    return await this.serve(request);
   }
 
-  /** One call or alarm, counted as running until it ends. */
-  private async counted<T>(run: () => Promise<T>): Promise<T> {
-    this.busy += 1;
-    try {
-      return await run();
-    } finally {
-      this.busy -= 1;
-    }
-  }
-
-  /** Work that outlives a call, counted as running until it settles. */
-  private handOff = (work: Promise<unknown>): void => this.state.waitUntil(this.counted(() => Promise.resolve(work)));
+  /** Work that outlives a call, kept alive until it settles. */
+  private handOff = (work: Promise<unknown>): void => this.state.waitUntil(Promise.resolve(work));
 
   /** What a group just said, to its ledger now: by a turn's token, or for a chat Tex is set up in, by its ledger key (`chatRead.ts`). */
   private async flushChatter(message: GroupMessage): Promise<void> {
@@ -386,8 +364,7 @@ export class SenderInbox implements DurableObject {
   }
 
   async alarm(): Promise<void> {
-    // A moved inbox's alarm only clears its old copy (`inboxMove.ts`).
-    if (!(await movedAlarm(this.state.storage as unknown as MoveStorage, Date.now()))) await this.counted(() => this.runAlarm());
+    await this.runAlarm();
   }
 
   private async runAlarm(): Promise<void> {

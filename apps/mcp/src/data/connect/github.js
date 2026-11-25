@@ -7,8 +7,9 @@
  *   days, then carries the history back toward 90 days, a slice a run, by when they were opened.
  * - `deploys.csv`: one row per production deployment (an environment named production or prod), with its commit,
  *   when it started and finished, and how it ended. Kept 90 days.
- * - `workflow-runs.csv`: one row per finished Actions run on the repository's default branch. Kept 30 days: a busy
- *   repository runs thousands a week.
+ * - `workflow-runs.csv`: one row per finished Actions run on the repository's default branch, and every run of its
+ *   production deploy workflow (`DEPLOY_WORKFLOWS`) on any branch, since a deploy runs on a `prod-deploy/<sha>` branch
+ *   of its own. Kept 30 days: a busy repository runs thousands a week.
  *
  * `deployed` is when the first production deployment that started at or after the merge finished successfully, so
  * "open to live" is `deployed - opened`. A pull request merged but not yet deployed is filled in by a later run.
@@ -29,6 +30,8 @@ const RECENT_MS = 3 * DAY_MS;
 export const MAX_REPOS = 10;
 const MAX_PAGES = 10;
 const PRODUCTION = ["production", "Production", "prod", "Prod"];
+/** Production deploy workflow files whose runs are read on every branch, since a deploy runs on a branch of its own. */
+export const DEPLOY_WORKFLOWS = Object.freeze(["deploy-production.yml"]);
 
 const text = (name) => ({ name, type: "text" });
 const date = (name) => ({ name, type: "date" });
@@ -193,14 +196,19 @@ async function deployments({ fetcher, token, repo, sinceMs }) {
   return { ok: true, rows, more: true };
 }
 
-/** Finished runs on the default branch created from `fromMs` (up to `beforeMs`, when given). */
-async function workflowRuns({ fetcher, token, repo, branch, fromMs, beforeMs = null }) {
+/**
+ * Finished runs created from `fromMs` (up to `beforeMs`, when given): on `branch` of all the repository's workflows,
+ * or, when `workflow` is set, that workflow's runs on any branch. A repository without that workflow answers 404,
+ * which is no rows, not a failure.
+ */
+async function workflowRuns({ fetcher, token, repo, branch = null, workflow = null, fromMs, beforeMs = null }) {
   const rows = [];
   const created = beforeMs === null ? `>=${new Date(fromMs).toISOString()}` : `${new Date(fromMs).toISOString()}..${new Date(beforeMs).toISOString()}`;
+  const path = workflow === null ? "actions/runs" : `actions/workflows/${encodeURIComponent(workflow)}/runs`;
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const query = new URLSearchParams({ branch, status: "completed", per_page: "100", page: String(page), created });
-    const got = await appJson(fetcher, `${GITHUB_API}/repos/${repo}/actions/runs?${query}`, { headers: githubHeaders(token) }, NAME);
-    if (!got.ok) return got;
+    const query = new URLSearchParams({ ...(workflow === null && branch !== null ? { branch } : {}), status: "completed", per_page: "100", page: String(page), created });
+    const got = await appJson(fetcher, `${GITHUB_API}/repos/${repo}/${path}?${query}`, { headers: githubHeaders(token) }, NAME);
+    if (!got.ok) return workflow !== null && got.status === 404 ? { ok: true, rows: [], more: false } : got;
     const runs = Array.isArray(got.body?.workflow_runs) ? got.body.workflow_runs : [];
     for (const run of runs) {
       const row = workflowRunRow(repo, run);
@@ -241,6 +249,25 @@ const deployOfSheet = (row) => Object.fromEntries(GITHUB_SETS[1].columns.map(({ 
 
 const failedOf = (got) => ({ ok: false, refused: got.refused === true, said: got.said ?? "GitHub didn't answer" });
 
+/** The newest and oldest `started` (ms) over the sheet rows `keep` passes; NaN for none. */
+function runSpan(rows, keep) {
+  const times = rows.filter(keep).map((row) => Date.parse(cellOf(row.started))).filter(Number.isFinite);
+  return times.length === 0 ? { newestMs: Number.NaN, oldestMs: Number.NaN } : { newestMs: Math.max(...times), oldestMs: Math.min(...times) };
+}
+
+/**
+ * A run's catch-up for one read: the window since the newest kept run (a day back, for late finishes), then the
+ * history back toward `runFloor` when the kept rows do not reach it yet. `read({fromMs, beforeMs?})` is one read.
+ */
+async function catchUpRuns({ read, span, runFloor }) {
+  const fresh = await read({ fromMs: Number.isFinite(span.newestMs) ? Math.max(span.newestMs - DAY_MS, runFloor) : runFloor });
+  if (!fresh.ok) return fresh;
+  if (!(Number.isFinite(span.oldestMs) && span.oldestMs > runFloor + 60 * 60_000)) return fresh;
+  const older = await read({ fromMs: runFloor, beforeMs: span.oldestMs });
+  if (!older.ok) return older;
+  return { ok: true, rows: [...fresh.rows, ...older.rows], more: fresh.more || older.more };
+}
+
 /**
  * One run's reading: `{ok: true, sets: {<dataset>: {rows, more}}}` or `{ok: false, said, refused}`. `spans` are each
  * kept sheet's newest and oldest dates; `sheets` the kept rows, read so a pull request merged earlier gets its
@@ -277,15 +304,20 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
     const deploys = await deployments({ fetcher, token: minted.token, repo, sinceMs: fullDeploys ? floor : Math.max(now - RECENT_MS, floor) });
     if (!deploys.ok) return failedOf(deploys);
     add("deploys", deploys);
-    const runs = span("workflow-runs");
+    // Each read keeps its own span per repository, from the kept rows it could have written (default-branch rows for
+    // the branch read, other-branch rows for the deploy read), so deploy history neither hides a gap in default-branch
+    // runs nor is cut to the last day by a busy default branch.
     const runFloor = now - GITHUB_SETS[2].keepDays * DAY_MS;
-    const fresh = await workflowRuns({ fetcher, token: minted.token, repo, branch, fromMs: Number.isFinite(runs.newestMs) ? Math.max(runs.newestMs - DAY_MS, runFloor) : runFloor });
-    if (!fresh.ok) return failedOf(fresh);
-    add("workflow-runs", fresh);
-    if (Number.isFinite(runs.oldestMs) && runs.oldestMs > runFloor + 60 * 60_000) {
-      const older = await workflowRuns({ fetcher, token: minted.token, repo, branch, fromMs: runFloor, beforeMs: runs.oldestMs });
-      if (!older.ok) return failedOf(older);
-      add("workflow-runs", older);
+    const keptRuns = (sheets["workflow-runs"] ?? []).filter((row) => cellOf(row.repo) === repo);
+    const defaultRuns = await catchUpRuns({ read: (window) => workflowRuns({ fetcher, token: minted.token, repo, branch, ...window }), span: runSpan(keptRuns, (row) => cellOf(row.branch) === branch), runFloor });
+    if (!defaultRuns.ok) return failedOf(defaultRuns);
+    add("workflow-runs", defaultRuns);
+    // A manual deploy on the default branch is found by both reads; `mergeSynced` keys the sheet by run id, so it is
+    // stored once.
+    for (const workflow of DEPLOY_WORKFLOWS) {
+      const deployRuns = await catchUpRuns({ read: (window) => workflowRuns({ fetcher, token: minted.token, repo, workflow, ...window }), span: runSpan(keptRuns, (row) => cellOf(row.branch) !== branch), runFloor });
+      if (!deployRuns.ok) return failedOf(deployRuns);
+      add("workflow-runs", deployRuns);
     }
   }
   // A pull request read now, or kept from before, gets `deployed` from any deployment read now or kept.

@@ -1,10 +1,9 @@
 /**
- * Sabotage record (run 2026-11-14, each break reverted before the next):
- *   1. toChat's fallback broken: `if (outcome === "failed")` replaced so a failed hand-over returns a 503 Response
- *      instead of null. Failing: "a failed hand-over falls back to the SenderInbox" (index-level) and the toChat
- *      failed-outcome cases.
- *   Reverted; this file is the green state. The `INTAKE` switch and its default case went 2026-11-22: every text is
- *   handed over whenever the gateway is bound.
+ * Sabotage record (each break reverted before the next):
+ *   1. (2026-11-14) toChat's fallback broken. Since 2026-11-25 there is no fallback: the Worker's SenderInbox class is
+ *      deleted, and a failed hand-over answers 503 so the provider sends the text again.
+ *   2. (2026-11-25) toChat answered 200 for a failed hand-over: "answers 503 when the hand-over fails" and "a failed
+ *      hand-over answers the webhook 503" failed.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { type Env } from "./index";
@@ -92,12 +91,11 @@ describe("toChat", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("is null when the gateway binding is absent (self-hosting without it)", async () => {
-    expect(await toChat({}, "one", "chat:+15555550100", {})).toBeNull();
+  it("is 501 when the gateway binding is absent: there is nowhere else a chat lives", async () => {
+    expect((await toChat({}, "one", "chat:+15555550100", {})).status).toBe(501);
   });
 
-  // The SenderInbox's routes answer 200 for every outcome, "full" included, and the webhook answers `result.ok`; the
-  // gateway's must too, or a full queue would be answered 503 only once the chat moved.
+  // The chat's routes answer 200 for every outcome, "full" included, and the webhook answers `result.ok`.
   it("answers 200 for every outcome, full included, and sends the event id it carries", async () => {
     for (const outcome of ["queued", "duplicate", "full", "held"]) {
       const { binding: b, calls } = binding(answer(outcome));
@@ -107,12 +105,12 @@ describe("toChat", () => {
     }
   });
 
-  it("is null, so the SenderInbox takes the text, when the hand-over fails, and says so without the text", async () => {
+  it("answers 503 when the hand-over fails, so the webhook sends it again, and says so without the text", async () => {
     const lines: string[] = [];
     vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
     const { binding: b } = binding(answer("queued", 500));
-    expect(await toChat({ GATEWAY_TEXTS: b }, "react", "chat:+15555550100", { text: "hi" })).toBeNull();
-    expect(lines.map((line) => JSON.parse(line))).toContainEqual({ event: "intake_handover_fallback", kind: "react" });
+    expect((await toChat({ GATEWAY_TEXTS: b }, "react", "chat:+15555550100", { text: "hi" })).status).toBe(503);
+    expect(lines.map((line) => JSON.parse(line))).toContainEqual({ event: "intake_handover", kind: "react", outcome: "failed" });
     expect(lines.join("\n")).not.toMatch(/5555550|hi"/);
   });
 
@@ -176,12 +174,12 @@ function workerEnv(extra: Partial<Env>): { env: Env; seen: { inboxFetched: numbe
 }
 
 describe("the webhook hands over", () => {
-  it("keeps the SenderInbox only without a gateway binding", async () => {
+  it("answers the webhook 503 without a gateway binding, and touches no inbox", async () => {
     const w = workerEnv({});
     vi.spyOn(console, "log").mockImplementation(() => {});
     const response = await worker.fetch(await signedRequest(received), w.env);
-    expect(response.status).toBe(200);
-    expect(w.seen.inboxFetched).toBe(1);
+    expect(response.status).toBe(503);
+    expect(w.seen.inboxFetched).toBe(0);
   });
 
   it("hands a 1:1 text to the gateway, and leaves the inbox alone", async () => {
@@ -196,13 +194,13 @@ describe("the webhook hands over", () => {
     expect(calls[0].body).toMatchObject({ kind: "one", inbox: PHONE, eventId: "evt_1", origin: "https://agent.example" });
   });
 
-  it("falls back to the SenderInbox when the hand-over fails, so the text is not dropped", async () => {
+  it("a failed hand-over answers the webhook 503, so it is sent again, and no Worker inbox takes it", async () => {
     const { binding: b, calls } = binding(answer("queued", 500));
     const w = workerEnv({ GATEWAY_TEXTS: b });
     vi.spyOn(console, "log").mockImplementation(() => {});
     const response = await worker.fetch(await signedRequest(received), w.env);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(calls).toHaveLength(1);
-    expect(w.seen.inboxFetched).toBe(1);
+    expect(w.seen.inboxFetched).toBe(0);
   });
 });

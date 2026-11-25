@@ -12,7 +12,7 @@
  * is not a send, so it counts against no cap and calls no other object.
  */
 
-/** Where the Worker's copy of a chat says it is placed (`packages/tex/worker/inboxMove.ts` `PLACE_KEY`). */
+/** Where a chat's object says it is placed: when it arrived or was born here (`texChat.js` `placeChat`). */
 export const PLACE_KEY = "__inbox_place";
 /** The name the chat object keeps for itself (`texChat.js`, set by a copy or by this placement). */
 export const NAME_KEY = "__inbox_name";
