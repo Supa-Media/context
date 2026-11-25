@@ -368,19 +368,9 @@ export async function deleteWorkspaceCascade(
     });
     await ctx.db.delete(connection._id);
   }
+  for (const link of await ctx.db.query("providerConnectLinks").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()) await ctx.db.delete(link._id);
   // Every bot's sealed webhook (`functions/botHooks.ts`). Nothing to revoke: the bot holds its own copy of the key.
-  for (const hook of await ctx.db
-    .query("botHooks")
-    .withIndex("by_workspace_bot", (q) => q.eq("workspaceId", workspaceId))
-    .collect()) {
-    await ctx.db.delete(hook._id);
-  }
-  for (const link of await ctx.db
-    .query("providerConnectLinks")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect()) {
-    await ctx.db.delete(link._id);
-  }
+  for (const hook of await ctx.db.query("botHooks").withIndex("by_workspace_bot", (q) => q.eq("workspaceId", workspaceId)).collect()) await ctx.db.delete(hook._id);
 
   // Every in-flight connect attempt, for every provider that has one. No
   // workspace index exists on these tables — each is keyed by state for its
