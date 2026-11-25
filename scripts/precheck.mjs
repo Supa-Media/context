@@ -383,7 +383,7 @@ function assertShallowFetchStripped() {
       if (result !== `${indent}:`) throw new Error(`a bare fetch was not neutralized: ${source.trim()} -> ${JSON.stringify(result)}`);
     }
   }
-  if (fetches !== 4) throw new Error(`expected four BASE_SHA fetches in fast-guards.yml, found ${fetches}`);
+  if (fetches !== 5) throw new Error(`expected five BASE_SHA fetches in fast-guards.yml, found ${fetches}`);
   assertGuardPhaseLeavesHistory(executed.filter((step, index) => original[index].includes('"$BASE_SHA"')));
 }
 

@@ -272,6 +272,20 @@ jobs:
             node scripts/tex-diagram-check.mjs
           fi
 
+      # Tex's code hands over facts and never writes what Tex says (Dev2, 2026-11-25, a hard rule for every writer):
+      # the count of sentences written in code only shrinks (docs/decisions/texting-assistant/no-scripted-wording.md).
+      - name: No new wording written in Tex's code
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TEX_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
+          node scripts/tex-wording-check.mjs --self-test
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          node scripts/tex-wording-check.mjs
+
       # No node runs outside the graph (Dev2, 2026-11-20): a node's function is called by the runner, and a job is
       # started only over its node's wire into Job start.
       - name: No Tex node runs outside its wires
