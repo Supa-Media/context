@@ -14,6 +14,9 @@
  *     who reads its mail another way;
  *   - the line is not the bot's own reply.
  *
+ * And the bot's person lets it work here, with this area's share of its week not yet spent (`areaRoutines.js`); the
+ * `[used N%]` its own lines say are counted on the way.
+ *
  * Then it tells the control plane (`POST /gateway/bots/mail`), which calls the bot's webhook if one is saved and
  * does nothing otherwise. What it sends: the area, the note's path, the bot's name and who wrote. Never the message;
  * the bot reads that through its own connection, at its own clearance.
@@ -62,7 +65,7 @@ export function botOfArea(propsJson) {
  * @param {any} sql
  * @param {{rows: any, objects: any, facts: any, tell: (message: {bot: string, area: string, note: string, from: string}) => void, defer?: (work: () => void) => void}} deps
  */
-export function botMailWatch(sql, { rows, objects, facts, tell, defer = (work) => queueMicrotask(work) }) {
+export function botMailWatch(sql, { rows, objects, facts, tell, routines = null, defer = (work) => queueMicrotask(work) }) {
   for (const statement of SCHEMA) sql.exec(statement);
   const pending = new Set();
   let scheduled = false;
@@ -85,7 +88,13 @@ export function botMailWatch(sql, { rows, objects, facts, tell, defer = (work) =
     const holder = botOfArea(about?.props);
     if (holder === null || about?.sealed) return;
     const bot = mailJoinName(holder);
+    // What the bot said it used, and the routines it answered (`areaRoutines.js`).
+    routines?.recordMail(noteId, area, holder);
     if (newest.from.toLowerCase() === bot) return;
+    // An area its bot's person hasn't let it work in, or whose share of the bot's week is spent, is held: the mail
+    // stays in the note, and the bot finds it there (`docs/decisions/app-and-console/area-routines.md`).
+    const found = routines?.budget(area) ?? null;
+    if (found !== null && (!found.allowed || routines.spent(found))) return;
     tell({ bot, area, note: row.path, from: newest.from });
   }
 

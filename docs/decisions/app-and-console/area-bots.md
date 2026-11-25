@@ -178,5 +178,8 @@ the one-time command) and the agents' door and shell-ticket tests in
 `apps/mcp/test/botHookUpload.test.mjs` (the PUT never echoes the value, an
 unfilled variable is refused).
 
+**Routines and budgets.** An area's recurring jobs and how much of its bot's
+week it may spend: [area-routines](./area-routines.md).
+
 **Not built yet.** A bot's answer in the webhook's reply body is not written
 back as mail: the bot answers in the note through its own connection.

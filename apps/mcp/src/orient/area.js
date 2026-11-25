@@ -22,6 +22,7 @@ import { factJobs, factProps } from "../tree/facts.js";
 import { toolError, toolText } from "../tools/results.js";
 import { relativeAge } from "./render.js";
 import { isVisibleTextFile } from "./survey.js";
+import { areaWorkSections, botOfSeat, botsState, capsFor, holderWorkLines, otherBotsSection } from "./areaWork.js";
 
 const { MODE_MEANINGS, knownModes, modeLines } = areaBots;
 
@@ -193,16 +194,19 @@ export async function areaAnswer(store, scope, rules, overrides, rawArea) {
   const lede = props.get(`${area}/about.md`)?.lede;
 
   const mailPrefix = `${area}/${AREA_MAIL_FOLDER}/`;
+  const routinesPrefix = `${area}/routines/`;
   const newestFirst = (a, b) => (b.uploaded?.getTime?.() ?? 0) - (a.uploaded?.getTime?.() ?? 0);
   const mail = under.filter(({ key }) => key.startsWith(mailPrefix) && !key.slice(mailPrefix.length).includes("/")).sort(newestFirst);
   const notes = under
-    // A sub-area's seat is its own (orient it by its own area); its other notes are this area's too.
-    .filter(({ key }) => !key.startsWith(mailPrefix) && !key.endsWith("/about.md"))
+    // A sub-area's seat is its own (orient it by its own area); its other notes are this area's too. Its routines
+    // have their own section.
+    .filter(({ key }) => !key.startsWith(mailPrefix) && !key.startsWith(routinesPrefix) && !key.endsWith("/about.md"))
     .sort(newestFirst);
   const subAreas = [...new Set(under.map(({ key }) => key.slice(area.length + 1)).filter((rest) => rest.includes("/")).map((rest) => rest.slice(0, rest.indexOf("/"))))]
-    .filter((name) => name !== AREA_MAIL_FOLDER)
+    .filter((name) => name !== AREA_MAIL_FOLDER && name !== "routines")
     .sort();
   const jobs = await factJobs(store);
+  const areasRoot = jobs?.jobs?.areas ?? area.split("/")[0];
   const projectsRoot = jobs?.jobs?.projects ?? (entries.some(({ key }) => key.startsWith("projects/")) ? "projects" : null);
   const projects = await attachedProjects(store, entries, projectsRoot, area);
 
@@ -224,6 +228,7 @@ export async function areaAnswer(store, scope, rules, overrides, rawArea) {
         : "No mail yet.") +
       `\nOne note per sender in ${mailPrefix}. Read one with fetch { id: "<note>", args: { mail: true } }; answer in the same note with write { action: "mail", path: "<note>", args: { text } }.`,
   );
+  parts.push(...(await areaWorkSections(store, entries, area, areasRoot, props.get(`${area}/about.md`)?.properties, await botsState(store))));
   parts.push(
     `## Projects attached to this area\n` +
       projectLines(projects).join("\n") +
@@ -236,7 +241,8 @@ export async function areaAnswer(store, scope, rules, overrides, rawArea) {
     "## Where to write\n" +
       `- Notes, goals and decisions you want to keep: \`${area}/\`.\n` +
       `- New projects: \`${projectsRoot ?? "projects"}/<name>/\`, with \`area: ${area}\` in its about.md unless it serves another area.\n` +
-      `- The seat itself (owner, modes, metric, rules) is the front matter of \`${area}/about.md\`.`,
+      `- The seat itself (owner, modes, metric, rules) is the front matter of \`${area}/about.md\`.\n` +
+      `- Anything for another area or bot: that area's mail, never your own app's messages or tasks.`,
   );
   return toolText(parts.join("\n\n"));
 }
@@ -255,13 +261,20 @@ export async function holderAnswer(store, scope, rules, overrides, rawHolder) {
   const abouts = entries.map(({ key }) => key).filter((key) => key.startsWith(`${areasRoot}/`) && key.endsWith("/about.md"));
   const props = await propsOf(store, abouts);
   const held = [];
+  // Which areas each bot holds, for "Other bots here".
+  const byBot = new Map();
   for (const path of abouts.sort()) {
     const properties = props.get(path)?.properties;
     if (!properties || !SEAT_KEYS.some((key) => properties[key] !== undefined)) continue;
     const seat = seatOf(properties);
+    const area = path.slice(0, -"/about.md".length);
+    const bot = botOfSeat(properties);
+    if (bot !== null) byBot.set(bot.toLowerCase(), [...(byBot.get(bot.toLowerCase()) ?? []), area]);
     const role = same(seat.owner, holder) ? "owner" : same(seat.delegate, holder) ? "delegate" : null;
-    if (role !== null) held.push({ area: path.slice(0, -"/about.md".length), seat, role });
+    if (role !== null) held.push({ area, seat, role });
   }
+  const state = isPerson(holder) ? null : await botsState(store);
+  const caps = isPerson(holder) ? null : await capsFor(store, areasRoot, holder);
   const parts = [`# Areas ${holder} holds`];
   if (held.length === 0) {
     parts.push(`No area this connection can see names ${holder} as its owner or delegate. An area's owner and delegate are the \`owner:\` and \`delegate:\` lines of its about.md in \`${areasRoot}/\`.`);
@@ -272,11 +285,14 @@ export async function holderAnswer(store, scope, rules, overrides, rawHolder) {
     lines.push(`- Modes: ${seat.modes.length ? seat.modes.join(", ") : "none set"}`);
     lines.push(`- Metric: ${seat.metric ?? "none set"}`);
     if (seat.approvals.length) lines.push(`- Needs ${role === "owner" ? holder : seat.owner}'s approval first: ${seat.approvals.join(" / ")}`);
+    if (caps !== null && !caps.has(area.toLowerCase())) lines.push("- Your card doesn't list this area, so Context sends you nothing from here until your person adds it.");
+    lines.push(...holderWorkLines(area, state, caps?.get(area.toLowerCase()) ?? null));
     lines.push(`- In depth: orient { area: "${area}" }`);
     parts.push(lines.join("\n"));
   }
   if (held.length > HOLDER_AREAS_SHOWN) parts.push(`(+${held.length - HOLDER_AREAS_SHOWN} more areas)`);
   parts.push(`## What each mode asks\n${Object.entries(MODE_MEANINGS).map(([mode, meaning]) => `- ${mode}: ${meaning}`).join("\n")}`);
+  if (!isPerson(holder)) parts.push(await otherBotsSection(store, entries, areasRoot, holder, byBot));
   return toolText(parts.join("\n\n"));
 }
 

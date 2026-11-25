@@ -53,6 +53,7 @@ import { mirrorOutbox } from "./workspaceStore/mirrorOutbox.js";
 import { flushMirror } from "./workspaceStore/mirrorFlush.js";
 import { indexBuilder } from "./workspaceStore/indexBuild.js";
 import { botMailWatch } from "./workspaceStore/botMail.js";
+import { areaRoutinesWatch } from "./workspaceStore/areaRoutines.js";
 
 const CALL = "x-tex-call";
 /** How long a person-object write that failed waits before it is sent again. */
@@ -93,7 +94,7 @@ export class WorkspaceStore {
       // An owed member write waits its retry, whatever Tex arms the one alarm for.
       // So does an index build with changes still waiting (`workspaceStore/indexBuild.js`): the earlier of the two.
       const otherWake = () => {
-        const times = [store.members.pending().length > 0 || store.mirror.count() > 0 ? Date.now() + REACH_RETRY_MS : null, store.indexBuild.wake()];
+        const times = [store.members.pending().length > 0 || store.mirror.count() > 0 ? Date.now() + REACH_RETRY_MS : null, store.indexBuild.wake(), store.areaRoutines?.wake() ?? null];
         const set = times.filter((at) => typeof at === "number");
         return set.length === 0 ? null : Math.min(...set);
       };
@@ -108,10 +109,13 @@ export class WorkspaceStore {
     // Each note saved here counted as created or edited, by its id (`observability/callCounts.js`), for tex.lc/admin.
     // And a new line in an area's mail, for the bot that holds the area (`workspaceStore/botMail.js`).
     let botMail = null;
+    // And an area's routines and its bot's budget, kept here (`workspaceStore/areaRoutines.js`).
+    let routines = null;
     const objects = texObjects(sql, {
       onPut: (key, change) => {
         countNoteWrite(this.env, this.state.id?.toString?.(), key, change);
         botMail?.noted(key, change);
+        routines?.noted(key, change);
       },
     });
     const rows = workspaceRows(sql);
@@ -187,10 +191,29 @@ export class WorkspaceStore {
     };
     // The search indexes caught up on the alarm while changes wait, not only behind a search.
     store.indexBuild = indexBuilder(store);
+    // A due routine goes to its bot the way mail does: the control plane calls the bot's webhook if one is saved.
+    const tellBot = (message) => {
+      const workspaceId = rows.workspaceId();
+      if (workspaceId === null) return;
+      const sent = createControlPlane(this.env)
+        .botMail(workspaceId, message)
+        .catch((error) => log("bot_mail_failed", { workspaceId, kind: message.type ?? "mail", reason: String(error?.reason ?? "unknown") }));
+      this.state.waitUntil?.(sent);
+    };
+    routines = areaRoutinesWatch(sql, {
+      rows,
+      objects,
+      facts: store.facts,
+      tell: tellBot,
+      findAreasRoot: () => store.facts.jobs({}, null, () => true)?.jobs?.areas ?? null,
+      arm: () => this.tex().arm(),
+    });
+    store.areaRoutines = routines;
     botMail = botMailWatch(sql, {
       rows,
       objects,
       facts: store.facts,
+      routines,
       tell: (message) => {
         const workspaceId = rows.workspaceId();
         if (workspaceId === null) return;
@@ -202,7 +225,10 @@ export class WorkspaceStore {
     });
     this.store = store;
     const tree = treeSockets(this.state, sql, this.store);
-    this.store.onTreeChange = (change) => tree.changed(change);
+    this.store.onTreeChange = (change) => {
+      tree.changed(change);
+      routines.treeChanged(change);
+    };
     this.tree = tree;
     this.access = accessSockets(this.state, sql);
     // The computers this workspace owns: their rows, runs and the runner's socket (`workspaceStore/machines.js`).
@@ -276,6 +302,15 @@ export class WorkspaceStore {
     await flushReach(store);
     const tex = this.tex();
     await tex.alarm();
+    // An area's routines that are due, sent to its bot (`workspaceStore/areaRoutines.js`).
+    const areaWake = store.areaRoutines.wake();
+    if (areaWake !== null && areaWake <= Date.now()) {
+      try {
+        store.areaRoutines.run();
+      } catch (error) {
+        console.log(JSON.stringify({ event: "area_routines_failed", reason: String(error?.name ?? "Error") }));
+      }
+    }
     // The search indexes, after Tex's routines, so a build never holds a routine back.
     if (store.indexBuild.wake() !== null && store.indexBuild.wake() <= Date.now()) await store.indexBuild.run();
     tex.arm();

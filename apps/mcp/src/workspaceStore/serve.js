@@ -270,6 +270,12 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
     if (access !== null) return access;
     // A note's mail, judged as a read is (`mailOps.js`).
     if (isMailOp(op)) return Response.json(await serveMail(store, op, fields, judgeFor(rows, fields, store.members ?? null)));
+    // An area's routines and its bots' week (`areaRoutines.js`), each path judged as a read is.
+    if (op === "ws.bots.state") {
+      if (store.areaRoutines === undefined || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });
+      const judge = judgeFor(rows, fields, store.members ?? null);
+      return Response.json({ served: true, ...store.areaRoutines.state((path) => judge.sees({ path })) });
+    }
     switch (op) {
       case "ws.read": {
         const behind = await waitForMarks(store.marks ?? null);
