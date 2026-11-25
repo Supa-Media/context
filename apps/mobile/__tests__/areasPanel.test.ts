@@ -287,6 +287,38 @@ describe("the Areas side panel", () => {
     expect(writes.filter(([p, k]) => p === "areas/people/finance.md" && k === "avatar").map(([, , v]) => v)).toEqual(["upload-fedcba9876543210.png"]);
   });
 
+  test("an area's own page draws its bot's logo too, though the cards sit beside the areas", async () => {
+    // The owner, 2026-11-25: "the images arent loading when you get out of the first layer?" A folder page reads
+    // only its own folder (and the front notes above), and the cards are in areas/people/.
+    windowOf(1440);
+    const notes: ListNote[] = [
+      { path: "areas/about.md", properties: { agents: ["Pipeline"] } },
+      { path: "areas/engineering/about.md", properties: { owner: "Pipeline" } },
+      { path: "areas/engineering/ci/about.md", properties: { metrics: ["Red main hours"] } },
+      { path: "areas/people/pipeline.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi", avatar: "upload-00112233445566aa.png" } },
+    ];
+    const reads: string[] = [];
+    const base = host([], { notes });
+    const under = (folder: string, deep: boolean) =>
+      notes.filter((note) => note.path.startsWith(`${folder}/`) && (deep || !note.path.slice(folder.length + 1).includes("/")));
+    const page = {
+      ...base,
+      source: {
+        ...base.source,
+        load: async (folder: string, deep: boolean) => ({ notes: under(folder, deep), complete: true }),
+        loadFront: undefined,
+        readPicture: async (note: string, leaf: string) => {
+          reads.push(`${note} ${leaf}`);
+          return "data:image/png;base64,AAAA";
+        },
+      },
+    };
+    await mount(page, { ...LISTING, path: "areas/engineering", entries: [entry("folder", "areas/engineering/ci")] });
+    await settle();
+    expect(reads).toContain("areas/people/pipeline.md upload-00112233445566aa.png");
+    expect(all("owner-face-logo").length).toBeGreaterThan(0);
+  });
+
   test("a bot that owns several areas gets one setup prompt covering them all", async () => {
     // The owner, 2026-11-25: "a grokbot can own multiple areas".
     windowOf(1440);
