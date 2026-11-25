@@ -696,6 +696,7 @@ test/weekHistory.test.mjs
 test/agentProvisional.test.mjs
 test/sharedFolderDefault.test.mjs
 test/groupChats.test.mjs
+test/chatSearch.test.mjs
 test/moveJudge.test.mjs
 test/crossChat.test.mjs
 test/texJoined.test.mjs

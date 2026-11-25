@@ -52,11 +52,13 @@ export const NEVER_A_ONES = new Set(["earlier_chat"]);
 
 /**
  * Every carrier a kind is shown, by name: the gateway's, then Tex's own, then the setup's skill reader when the turn
- * holds it (one setup for every person, so it is the same for every chat). Memoized by kind and skill reader.
+ * holds it (one setup for every person, so it is the same for every chat), and the chat's own history search when the
+ * config offers it (`chatSearch.js`: one config for every turn of a deploy or a Lab draft, so it is the same bytes for
+ * every chat; off, nothing about it is shown). Memoized by kind, skill reader and search.
  */
 const memo = new Map();
-export function fixedCarriers(kind, { readSkill = null } = {}) {
-  const key = `${kind === "group" ? "group" : "one"}\u0000${readSkill ? JSON.stringify(readSkill) : ""}`;
+export function fixedCarriers(kind, { readSkill = null, chatSearch = null } = {}) {
+  const key = `${kind === "group" ? "group" : "one"}\u0000${readSkill ? JSON.stringify(readSkill) : ""}\u0000${chatSearch ? JSON.stringify(chatSearch) : ""}`;
   if (memo.has(key)) return memo.get(key);
   const shown = new Map();
   const gateway = gatewayCarriers(kind === "group" ? "group" : "one");
@@ -66,6 +68,7 @@ export function fixedCarriers(kind, { readSkill = null } = {}) {
   if (kind !== "group") for (const tool of textingWriteTools(gateway, { texting: true })) shown.set(tool.name, tool);
   for (const [name, tool] of catalogue(kind)) if (!shown.has(name) && !(kind === "group" ? NEVER_A_GROUPS : NEVER_A_ONES).has(name)) shown.set(name, tool);
   if (readSkill) shown.set(readSkill.name, readSkill);
+  if (chatSearch) shown.set(chatSearch.name, chatSearch);
   if (memo.size > 32) memo.clear();
   memo.set(key, shown);
   return shown;

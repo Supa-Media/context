@@ -127,7 +127,7 @@ export function rungOf(name, args = {}) {
   if (tool === "search_web") return "web";
   if (tool === "open_page" || tool.startsWith("browse")) return "browser";
   if (tool === "ask_advisor") return "advisor";
-  if (tool === "read_back" || tool === "read_day") return "knows";
+  if (tool === "read_back" || tool === "read_day" || tool === "search_chat") return "knows";
   if (APP_TOOLS.test(tool)) return "apps";
   if (tool === "search" && args?.email === true) return "apps";
   if (tool === "fetch" && APP_IDS.test(String(args?.id ?? ""))) return "apps";

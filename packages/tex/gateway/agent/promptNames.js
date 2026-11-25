@@ -59,6 +59,7 @@ export const RETIRED_TOOL_NAMES = Object.freeze({
   read_google_chat: 'fetch id "chat:"',
   read_thread: 'fetch id "thread:"',
   read_day: 'fetch id "day:<date>"',
+  search_chat: "search with args { history: true }",
   read_back: 'fetch id "read:<ref>"',
   group_chats: 'fetch id "groups:"',
   plan_big_ask: "send action plan",

@@ -72,6 +72,7 @@ Every section title of [the texting assistant](../texting-assistant.md) and its 
 - [One Haiku reviewer in place of the reply gates (2026-11-06)](./reply-judge.md#one-haiku-reviewer-in-place-of-the-gates-dev2-2026-11-06)
 - [Conversation threads: a chat shown by subject, not as one long scroll (2026-11-07)](./conversation-threads.md)
 - [One history module for every chat: the last 7 days, and each earlier day summed up (2026-11-16)](./week-history.md)
+- [Search this chat's own history (2026-11-25)](./chat-search.md)
 - [A slow group answer gets a tapback from code, and the intro rides on the answer (2026-11-12)](./conversation-threads.md)
 - [Group time awareness: ages in code, old moments offered with how they landed, Tex chooses (2026-11-11)](./group-time-awareness.md)
 - [A person's Tex folder and a group chat's home use the same names (2026-11-01)](./tex-folders.md)
