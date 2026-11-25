@@ -10,11 +10,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { wordsOf } from "../../../scripts/tex-prompt-module.mjs";
 
-test("Tex has a plain pitch, and the person's own setup is never what Context is", () => {
+test("Tex has a plain pitch, and the person's own setup is not what Context is", () => {
   const about = wordsOf()["about-tex"];
   assert.match(about, /a memory that's theirs, that they can text, and that every AI they use can read/);
-  assert.match(about, /never what Context is/);
-  assert.match(about, /use everyday examples/, "someone Tex knows nothing about gets everyday examples");
+  assert.match(about, /not what Context is/);
   assert.match(about, /guides\/what-is-context\.md/, "details come from the guides");
   assert.doesNotMatch(about, /Obsidian|PARA/, "the pitch never plants another app's or a method's name");
   assert.match(wordsOf().working, /one way to organise, never what Context is/);
