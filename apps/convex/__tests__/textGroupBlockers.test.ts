@@ -7,13 +7,13 @@ import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers"
  * A GROUP CHAT IS TOLD WHO KEEPS IT FROM A WORKSPACE (Dev2, 2026-11-16, after a chat lost its shared workspace
  * overnight when someone joined who isn't a member, and Tex could only say "this chat can't see it").
  *
- * Reach is unchanged (`lib/textGroupReach.ts`): a workspace every person and the sponsor share, none when anyone has no
- * account. The turn's answer only names, for each shared workspace the asker and the sponsor both belong to that the
- * chat misses, who here is not a member of it and who here has no linked account (`lib/textGroupBlockers.ts`).
+ * Since 2026-11-25 a text reads its asker's own shared workspaces (`docs/decisions/texting-assistant/asker-reach.md`).
+ * The turn's answer names, for each of the asker's shared workspaces the whole chat does not share, who here is not a
+ * member of it and who here has no linked account (`lib/textGroupBlockers.ts`), so Tex can judge what fits the room.
  *
  * ## Sabotage record (run by hand; each must fail a test here)
  *
- *   `reachBlockers` skipping the sponsor check            -> "a workspace the sponsor isn't in is never named" fails
+ *   `reachBlockers` naming a workspace the asker isn't in  -> "a workspace the asker isn't in is never named" fails
  *   `reachBlockers` not skipping reached workspaces       -> "a chat that reaches everything names nothing" fails
  *   guests left out of the blockers                       -> "a person with no account is named by label" fails
  */
@@ -76,10 +76,10 @@ describe("who keeps a chat from a workspace", () => {
     expect(blockedOf(await turn(w.t, BO, [ADA, BO, LINE]))).toEqual([]);
   });
 
-  test("someone who joins and isn't a member is named for each workspace, and reach stays empty", async () => {
+  test("someone who joins and isn't a member is named for each of the asker's workspaces, which the asker still reads", async () => {
     const w = await world();
     const answer = await turn(w.t, ADA, [ADA, BO, CY, LINE]);
-    expect(answer).toMatchObject({ status: "ready", reach: [] });
+    expect(answer).toMatchObject({ status: "ready", reach: ["ember-co", "fjord-co"] });
     const blocked = blockedOf(answer);
     expect(blocked.map((entry) => entry.slug)).toEqual(["ember-co", "fjord-co"]);
     for (const entry of blocked) expect(entry).toMatchObject({ why: "not_member" });
@@ -88,14 +88,14 @@ describe("who keeps a chat from a workspace", () => {
     // Adding them to one gives that one back and names only the other.
     await addMember(w.t, w.ember, w.cy.userId, "member");
     const after = await turn(w.t, ADA, [ADA, BO, CY, LINE]);
-    expect(after).toMatchObject({ reach: ["ember-co"] });
+    expect(after).toMatchObject({ reach: ["ember-co", "fjord-co"] });
     expect(blockedOf(after).map((entry) => entry.slug)).toEqual(["fjord-co"]);
   });
 
   test("a person with no account is named by label, never by number", async () => {
     const w = await world();
     const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE]);
-    expect(answer).toMatchObject({ reach: [] });
+    expect(answer).toMatchObject({ reach: ["ember-co", "fjord-co"] });
     const blocked = blockedOf(answer);
     expect(blocked.map((entry) => entry.slug)).toEqual(["ember-co", "fjord-co"]);
     for (const entry of blocked) expect(entry).toMatchObject({ why: "no_account", who: expect.stringMatching(/^guest-[0-9a-f]{4}$/) });
@@ -107,14 +107,16 @@ describe("who keeps a chat from a workspace", () => {
     expect(blockedOf(await turn(w.t, GUEST, [ADA, BO, GUEST, LINE]))).toEqual([]);
   });
 
-  test("a workspace the sponsor isn't in is never named, though the asker is in it", async () => {
+  test("the asker's own workspace the sponsor isn't in is read, and the sponsor named as not in it", async () => {
     const w = await world();
     // Bo and Cy share @gale-co; Ada, the sponsor, does not. Bo asks with Cy here.
     const gale = await createWorkspace(w.t, w.bo.userId, "gale-co", { kind: "shared" });
     await addMember(w.t, gale, w.cy.userId, "editor");
     const answer = await turn(w.t, BO, [ADA, BO, CY, LINE]);
-    expect(blockedOf(answer).map((entry) => entry.slug)).toEqual(["ember-co", "fjord-co"]);
-    expect(JSON.stringify(answer)).not.toContain("gale-co");
+    expect(answer).toMatchObject({ reach: ["ember-co", "fjord-co", "gale-co"] });
+    const blocked = blockedOf(answer);
+    expect(blocked.map((entry) => entry.slug)).toEqual(["ember-co", "fjord-co", "gale-co"]);
+    expect(blocked.find((entry) => entry.slug === "gale-co")).toMatchObject({ who: "ada", why: "not_member" });
   });
 
   test("a workspace the asker isn't in is never named, though the sponsor is in it", async () => {

@@ -83,8 +83,8 @@ async function inviteByNumber(t: T, workspaceId: Id<"workspaces">, invitedBy: Id
   );
 }
 
-async function turn(t: T, sender: string, participants: string[]) {
-  return await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender, participants, mint: true });
+async function turn(t: T, sender: string, participants: string[], extra: Record<string, unknown> = {}) {
+  return await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender, participants, mint: true, ...extra });
 }
 
 async function resolves(t: T, accessToken: string): Promise<Session | null> {
@@ -105,6 +105,9 @@ async function world() {
   return { ...w, ada, bo, ember, fjord };
 }
 
+/** A run nobody asked for reads the chat's reach, which these tests are about (a text reads its asker's: `textGroupAskerReach.test.ts`). */
+const ROUTINE = { routine: true };
+
 const slugsOf = (session: Session | null) => (session?.workspaces ?? []).map((row) => row.slug);
 
 describe("one list of numbers", () => {
@@ -112,7 +115,7 @@ describe("one list of numbers", () => {
     const w = await world();
     const nia = await signedInByPhone(w.t, "nia", NIA);
     await addMember(w.t, w.ember, nia, "editor");
-    const answer = await turn(w.t, ADA, [ADA, BO, NIA, LINE]);
+    const answer = await turn(w.t, ADA, [ADA, BO, NIA, LINE], ROUTINE);
     expect(answer).toMatchObject({ status: "ready", reach: ["ember-co"] });
     expect(slugsOf(await resolves(w.t, answer.accessToken as string))).toContain("ember-co");
     // Nia is named as herself where she isn't a member, never as someone with no account.
@@ -124,7 +127,7 @@ describe("someone with no account counts where their number is invited", () => {
   test("a guest invited by number to @ember-co lets the chat reach it, at the invitation's role", async () => {
     const w = await world();
     await inviteByNumber(w.t, w.ember, w.bo, GUEST, "member");
-    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE]);
+    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE], ROUTINE);
     expect(answer).toMatchObject({ status: "ready", reach: ["ember-co"] });
     const session = await resolves(w.t, answer.accessToken as string);
     expect(session?.workspaces.find((row) => row.slug === "ember-co")?.role).toBe("member");
@@ -136,7 +139,7 @@ describe("someone with no account counts where their number is invited", () => {
     await inviteByNumber(w.t, w.ember, w.bo, GUEST, "editor");
     // Nia, in neither, keeps the chat from both, so both are named; the guest only for the one they aren't invited to.
     await signedInByPhone(w.t, "nia", NIA);
-    const blocked = ((await turn(w.t, ADA, [ADA, BO, GUEST, NIA, LINE])).blocked ?? []) as Blocker[];
+    const blocked = ((await turn(w.t, ADA, [ADA, BO, GUEST, NIA, LINE], ROUTINE)).blocked ?? []) as Blocker[];
     expect(blocked.map((row) => [row.slug, row.who === "nia" ? "nia" : "guest", row.why])).toEqual([
       ["ember-co", "nia", "not_member"],
       ["fjord-co", "nia", "not_member"],
@@ -147,7 +150,7 @@ describe("someone with no account counts where their number is invited", () => {
   test("revoking the invitation drops the workspace on the chat's next call", async () => {
     const w = await world();
     const invitation = await inviteByNumber(w.t, w.ember, w.bo, GUEST, "editor");
-    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE]);
+    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE], ROUTINE);
     expect(slugsOf(await resolves(w.t, answer.accessToken as string))).toContain("ember-co");
     await w.t.run(async (ctx) => void (await ctx.db.patch(invitation, { status: "revoked" })));
     expect(slugsOf(await resolves(w.t, answer.accessToken as string))).not.toContain("ember-co");

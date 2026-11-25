@@ -11,6 +11,7 @@
  *   `blockedLine` naming a guest by label                 -> "the prompt names who is missing" fails
  *   `blockedLine` scripting a reply or a fix phrase       -> "the prompt names who is missing" fails
  *   chat_add_everyone not saying it skips members        -> "adding one person here is add-everyone" fails
+ *   `blockedLine` ignoring the turn's reach                -> "an asker's workspace someone here isn't in" fails
  *   `groupReachOut` dropping blocked                     -> "Replay logs reach and who blocks it" fails
  */
 import assert from "node:assert/strict";
@@ -60,6 +61,18 @@ test("the prompt names who is missing, as the chat knows them, in facts only", (
   assert.ok(groupPrompt({ ...group, homeOnly: true }, "context-lc").includes(line));
   assert.equal(blockedLine({}), "");
   assert.doesNotMatch(groupPrompt(groupOf({ group: { key: HEX, members: HEX, from: "ada" } }), "context-lc"), /This chat can't use/);
+});
+
+// A text reads its asker's own workspaces (Dev2, 2026-11-25, `asker-reach.md`): one the room doesn't all share is read,
+// and the turn is told who here can't open it, as a fact, with no fix to offer, since nothing keeps the asker out.
+test("an asker's workspace someone here isn't in is read, and the prompt says who can't open it", () => {
+  const group = { ...groupOf({ group: { key: HEX, members: HEX, from: "ada", people: ["ada", "sam"], blocked: [SHYOH] } }), reach: ["crystal-co"] };
+  const line = blockedLine(group);
+  assert.match(line, /^Asker's, not everyone's: @crystal-co is missing @sam \(not a member\)\. $/);
+  assert.doesNotMatch(line, /can't use|chat_add_everyone/, "the asker reads it: nothing to fix");
+  // One read and one not: each said as it is.
+  const both = { ...group, blocked: [SHYOH, { slug: "harbor-co", who: "sam", why: "not_member" }] };
+  assert.match(blockedLine(both), /Asker's, not everyone's: @crystal-co is missing @sam.*This chat can't use @harbor-co: @harbor-co is missing @sam/);
 });
 
 test("Replay logs reach and who blocks it on every group turn, and nothing for a 1:1", () => {

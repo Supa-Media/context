@@ -330,7 +330,7 @@ async function addRow({ env, ctx, controlPlane, token, who, stub, state, row, or
   // A shared chat's session is asked again on every text, so one no longer shared stops at once.
   // A made-up chat's session is the grant its own turn mints on the preview (`world.js`), never the caller's.
   // On main its session is the caller's own, narrowed to what its people's chat reaches (`worldLocal.js`).
-  const answer = about.source === WORLD_SOURCE ? (about.world?.local ? await localSession(controlPlane, token, about) : { status: "ok", session: null, chat: null }) : await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
+  const answer = about.source === WORLD_SOURCE ? (about.world?.local ? await localSession(controlPlane, token, about, row.who) : { status: "ok", session: null, chat: null }) : await controlPlane.labSandbox(token, "session", { chat: about.chat, ...(about.shared === true ? { shared: true } : {}) });
   if (answer?.status !== "ok") return refused(404, answer?.error ?? "This chat is no longer yours to test in.");
   // The test chat is this text's, taken in the object in one step: two sends at once never both get past here, whatever
   // the reads above saw. Until its turn starts, anything that fails gives the chat back.

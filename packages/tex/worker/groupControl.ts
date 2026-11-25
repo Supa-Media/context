@@ -67,6 +67,15 @@ export function devShareOf(value: unknown): { devShare?: DevShare } {
   return { devShare: { shared: entry.shared, by: handles(entry.by), waiting: handles(entry.waiting) } };
 }
 
+/**
+ * The runs of a routine's kind that somebody asked for (Dev2, 2026-11-25, `docs/decisions/texting-assistant/asker-reach.md`):
+ * their job's report (`jobTexts.ts`), their ask from another chat and its answer (`crossChat.ts`), the browser they
+ * handed back (`handbackWatch.ts`) and the login they saved (`vaultWatch.ts`). Each reads the asker's own reach; a
+ * routine, a check-in and the hello, which nobody asked for, read the chat's. Literals, not imports, so this file
+ * imports none of those (a test holds them equal).
+ */
+export const ASKED_RUN_PATHS: readonly string[] = Object.freeze(["(job report)", "(another chat's ask)", "(browser handed back)", "(vault saved)"]);
+
 /** `mint: false` asks without minting a grant: the turn already holds a kept token (`groupKept.ts`). */
 export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null, { mint = true }: { mint?: boolean } = {}): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" || command.kind === "review_sharing" ? undefined : command;
@@ -79,6 +88,8 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
     ...(command === null && mint ? { mint: true } : {}),
     // A routine's or check-in's own turn is nobody talking: the chat's last word stays when it was (`textGroupLooks.ts`).
     ...(message.routine !== undefined ? { routine: true } : {}),
+    // A routine somebody asked for reads their own reach, as their text does (`textGroupReach.ts` `askerReach`).
+    ...(message.routine !== undefined && ASKED_RUN_PATHS.includes(message.routine.path) ? { asked: true } : {}),
   });
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = record(json);

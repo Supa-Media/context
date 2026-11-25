@@ -29,10 +29,12 @@ const CHAT_KEY = /^[0-9a-f]{64}$/;
 /** The chat a group grant's link names, its people from the grant itself; null for any other grant. */
 export async function requestChatOf(ctx: QueryCtx, grant: Doc<"oauthGrants">, chatKey: string | undefined): Promise<RequestChat | null> {
   if (typeof chatKey !== "string" || !CHAT_KEY.test(chatKey) || grant.texGroup === undefined) return null;
-  // A home-only grant is its sponsor's: the chat's accounts are the ones its reach was worked out for, the tagger first.
+  // A home-only grant: the chat's accounts are the ones its home names (an asker's grant's reach is worked out for the
+  // asker alone, `textGroupReach.ts` `askerReach`), the tagger first.
   const group = grant.texGroup;
   const first = group.homeOnly === true ? group.taggerId : grant.userId;
-  const others = group.homeOnly === true ? (group.reachPeople ?? []) : group.coViewerIds;
+  const chat = group.homeOnly === true ? await ctx.db.get(group.groupId) : null;
+  const others = group.homeOnly === true ? (chat?.homeUsers ?? group.reachPeople ?? []) : group.coViewerIds;
   const accounts = [...new Set([...(first === undefined ? [] : [first]), ...others])];
   const people: ChatPerson[] = accounts.map((userId) => ({ userId }));
   for (const id of grant.texGroup.coInvitationIds ?? []) {

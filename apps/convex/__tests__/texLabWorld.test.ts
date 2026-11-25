@@ -56,8 +56,8 @@ async function make(t: T, people: unknown[], extra: Record<string, unknown> = {}
   };
 }
 
-async function turn(t: T, sender: string, participants: string[]) {
-  const response = await t.fetch("/agent-texts/group", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGENT_SECRET}` }, body: JSON.stringify({ line: LINE, groupId: GROUP, sender, participants, mint: true }) });
+async function turn(t: T, sender: string, participants: string[], extra: Record<string, unknown> = {}) {
+  const response = await t.fetch("/agent-texts/group", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGENT_SECRET}` }, body: JSON.stringify({ line: LINE, groupId: GROUP, sender, participants, mint: true, ...extra }) });
   return JSON.parse(await response.text()) as Record<string, unknown>;
 }
 
@@ -105,9 +105,14 @@ describe("the real group rules run on made-up people", () => {
     expect(made.status).toBe("ok");
     const [ana, ben, cleo] = made.people!;
     expect(ana.handle).toMatch(/^ana-/);
-    const answer = await turn(w.t, ana.phone, [ana.phone, ben.phone, cleo.phone, LINE]);
+    // A routine reads what everyone shares, at the lowest role; a text reads its asker's own (`asker-reach.md`).
+    const answer = await turn(w.t, ana.phone, [ana.phone, ben.phone, cleo.phone, LINE], { routine: true });
     expect(answer).toMatchObject({ status: "ready", reach: ["lumio"] });
     expect(await rolesIn(w.t, answer.accessToken as string)).toMatchObject({ lumio: "member" });
+    const asked = await turn(w.t, ana.phone, [ana.phone, ben.phone, cleo.phone, LINE]);
+    expect(asked).toMatchObject({ status: "ready", reach: ["lumio", "maison-solenne"] });
+    expect(await rolesIn(w.t, asked.accessToken as string)).toMatchObject({ lumio: "owner", "maison-solenne": "editor" });
+    expect((await turn(w.t, cleo.phone, [ana.phone, ben.phone, cleo.phone, LINE])).reach).toEqual(["lumio"]);
   });
 
   test("one person not on Context leaves the chat its home only", async () => {
@@ -115,9 +120,12 @@ describe("the real group rules run on made-up people", () => {
     asPreview();
     const made = await make(w.t, [ON("Ana", { lumio: "owner" }), ON("Ben", { lumio: "editor" }), { name: "Sam", account: "off" }]);
     const [ana, ben, sam] = made.people!;
-    const answer = await turn(w.t, ana.phone, [ana.phone, ben.phone, sam.phone, LINE]);
+    const answer = await turn(w.t, ana.phone, [ana.phone, ben.phone, sam.phone, LINE], { routine: true });
     expect(answer.status).toBe("ready");
     expect(answer.reach ?? []).toEqual([]);
+    // Sam asking reads nothing of anyone's; Ana asking reads her own.
+    expect((await turn(w.t, sam.phone, [ana.phone, ben.phone, sam.phone, LINE])).reach ?? []).toEqual([]);
+    expect((await turn(w.t, ana.phone, [ana.phone, ben.phone, sam.phone, LINE])).reach).toEqual(["lumio"]);
     expect(answer.guests).toEqual([expect.objectContaining({ phone: sam.phone })]);
   });
 
@@ -126,9 +134,12 @@ describe("the real group rules run on made-up people", () => {
     asPreview();
     const made = await make(w.t, [ON("Ana", { lumio: "owner" }), { name: "Priya", account: "invited", invited: { slug: "lumio", role: "member" } }]);
     const [ana, priya] = made.people!;
-    const answer = await turn(w.t, ana.phone, [ana.phone, priya.phone, LINE]);
+    const answer = await turn(w.t, ana.phone, [ana.phone, priya.phone, LINE], { routine: true });
     expect(answer).toMatchObject({ status: "ready", reach: ["lumio"] });
     expect(await rolesIn(w.t, answer.accessToken as string)).toMatchObject({ lumio: "member" });
+    // Priya's own ask reads Lumio at her invitation's role.
+    const priyaAsks = await turn(w.t, priya.phone, [ana.phone, priya.phone, LINE]);
+    expect(await rolesIn(w.t, priyaAsks.accessToken as string)).toMatchObject({ lumio: "member" });
   });
 
   test("running again puts each person's roles as asked, and adds whoever joined", async () => {

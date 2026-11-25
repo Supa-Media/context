@@ -371,7 +371,8 @@ describe("Tex's setup in a group chat", () => {
     const t = setupTest();
     const pinned = await pin(t);
     const { ada, studio } = await crew(t);
-    const answer = await turn(t, ADA, [ADA, BO, CY, LINE]);
+    // A run nobody asked for reads the chat's reach; a text reads its asker's (`textGroupAskerReach.test.ts`).
+    const answer = await turn(t, ADA, [ADA, BO, CY, LINE], { routine: true });
     expect(answer).toMatchObject({ status: "ready", slug: PINNED_CONTEXT_SLUG, reach: ["studio"] });
     const session = await resolves(t, answer.accessToken as string);
     expect(session?.defaultWorkspaceId).toBe(pinned);
@@ -389,7 +390,8 @@ describe("Tex's setup in a group chat", () => {
   });
 
   // "Only me" (Dev2, 2026-11-12): a login its saver kept for themselves is used in a chat on their own tag alone. The
-  // tagger rides on the token minted for that tag; an earlier token, kept alive for a turn still running, names nobody.
+  // tagger rides on the token minted for that tag; an earlier token, kept alive for a turn still running, names nobody,
+  // and another person's tag never makes it theirs.
   // Sabotage: drop the `ownTagToken` match in `controlPlane/session.ts` `ownTagOf` and the second check fails.
   test("a turn's token names its own tagger, and only that token does", async () => {
     const t = setupTest();
@@ -399,6 +401,9 @@ describe("Tex's setup in a group chat", () => {
     expect((await resolves(t, first.accessToken as string)) as unknown).toMatchObject({ texTaggerId: ada.userId });
     const second = await turn(t, BO, [ADA, BO, CY, LINE]);
     expect((await resolves(t, second.accessToken as string)) as unknown).toMatchObject({ texTaggerId: bo.userId });
+    // Each asker's turns are on a grant of their own (`textGroupHomeOnly.ts`): Bo's tag never makes Ada's token his.
+    expect((await resolves(t, first.accessToken as string)) as unknown).toMatchObject({ texTaggerId: ada.userId });
+    await turn(t, ADA, [ADA, BO, CY, LINE]);
     const earlier = (await resolves(t, first.accessToken as string)) as { texTaggerId?: string } | null;
     if (earlier !== null) expect(earlier.texTaggerId).toBeUndefined();
   });
@@ -419,7 +424,10 @@ describe("Tex's setup in a group chat", () => {
     expect(await asker(first.accessToken)).toMatchObject({ handle: "ada", phones: [ADA] });
     const second = await turn(t, BO, [ADA, BO, CY, LINE]);
     expect(await asker(second.accessToken)).toMatchObject({ handle: "bo", phones: [BO] });
-    // Ada's earlier token, kept alive for her turn still running, names nobody now that Bo tagged.
+    // Bo's tag never makes Ada's token his: each asker's turns are on a grant of their own.
+    expect(await asker(first.accessToken)).toMatchObject({ handle: "ada" });
+    // Ada's earlier token, kept alive for her turn still running, names nobody once she tags again.
+    await turn(t, ADA, [ADA, BO, CY, LINE]);
     expect(await asker(first.accessToken)).toBeNull();
     expect(await asker("cat_unknown_token_000000000000000000")).toBeNull();
     expect(await asker(42)).toBeNull();

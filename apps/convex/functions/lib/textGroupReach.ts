@@ -1,8 +1,14 @@
 /**
  * What a Tex group chat reaches (decided by the owner, 2026-10-31, from the Tex Devs meeting of 2026-10-30;
- * `docs/decisions/texting-assistant/groups.md`, `chat-homes.md`).
+ * `docs/decisions/texting-assistant/groups.md`, `chat-homes.md`; the asker's reach decided by Dev2, 2026-11-25,
+ * `docs/decisions/texting-assistant/asker-reach.md`).
  *
- * A chat is not bound to one workspace. Its reach is every SHARED workspace that ALL of its people with accounts are
+ * A turn somebody asked for (a text, their job's report, their ask from another chat) reads the ASKER's own shared
+ * workspaces (`askerReach`): the asker's access is the ceiling, and the asker is the verified sender only, so "Seyi,
+ * tell Tex to show it" from John runs on John's. What is said of it in front of the room is the model's judgment.
+ *
+ * A turn nobody asked for (a routine, a check-in, the hello) reads the CHAT's reach (`reachOf` over everyone): every
+ * SHARED workspace that ALL of its people with accounts are
  * live members of, worked out on the fly, so the chat sees no more than its least-privileged person could. Someone
  * with no account at all counts in a workspace that invited their number (a pending phone invitation, as "Tex, add
  * everyone here to @slug" sends, `lib/textGroupInvited.ts`), at that invitation's role, and keeps the chat from every
@@ -127,6 +133,27 @@ export async function reachOf(
   now: number = Date.now(),
 ): Promise<ReachRow[]> {
   return await invitedByNumber(ctx, await sharedByAll(ctx, [...new Set(people)]), guests, now);
+}
+
+/**
+ * A turn somebody asked for: the asker's own shared workspaces, each at the asker's own role (never a personal
+ * workspace, never the pin). Someone with no account (`asker` null) asks on the sponsor's standing, and reaches only a
+ * workspace they hold a pending phone invitation to that the sponsor is a member of, at the lower role. `people` and
+ * `guests` are what the grant re-checks on every request (`liveReach`).
+ */
+export async function askerReach(
+  ctx: QueryCtx,
+  chat: Doc<"textGroups">,
+  asker: Id<"users"> | null,
+  sponsor: Id<"users">,
+  guestPhone: string | null,
+  now: number = Date.now(),
+): Promise<{ rows: ReachRow[]; people: Id<"users">[]; guests: string[] }> {
+  const people = [asker ?? sponsor];
+  const guests = asker === null && guestPhone !== null ? [guestPhone] : [];
+  // A guest with no number to check has nothing of their own to read.
+  if (asker === null && guestPhone === null) return { rows: [], people, guests };
+  return { rows: await reachOf(ctx, chat, people, guests, now), people, guests };
 }
 
 /**

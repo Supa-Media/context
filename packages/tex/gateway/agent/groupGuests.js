@@ -43,25 +43,33 @@ export function blockedOf(value) {
 }
 
 /**
- * Who keeps the chat from a shared workspace its asker and sponsor share (`apps/convex/functions/lib/textGroupBlockers.ts`;
- * Dev2, 2026-11-16: the Crystal Care chat lost its workspace overnight when someone joined who isn't a member). Facts
- * only (Dev2, 2026-11-25: "hard coding responses to a model goes against the point"): who is missing and what lets a
- * chat in. What to say, and when, is the model's judgment, taught by Training conversations. Someone without an
- * account is named as the chat knows them, a kept name or their number, never by a guest label (Dev2, 2026-11-25: Tex
- * called someone "guest-e792" though it knew the number). "" when nothing is missing.
+ * Who here can't open a shared workspace of the asker's (`apps/convex/functions/lib/textGroupBlockers.ts`; Dev2,
+ * 2026-11-16: the Crystal Care chat lost its workspace overnight when someone joined who isn't a member; 2026-11-25:
+ * a turn reads the asker's own workspaces, `docs/decisions/texting-assistant/asker-reach.md`). Facts only (Dev2,
+ * 2026-11-25: "hard coding responses to a model goes against the point"): who is missing, and, for a workspace this
+ * turn can't read, what lets a chat in. What to say, and when, is the model's judgment, taught by Training
+ * conversations. Someone without an account is named as the chat knows them, a kept name or their number, never by a
+ * guest label (Dev2, 2026-11-25: Tex called someone "guest-e792" though it knew the number). "" when nothing is missing.
  */
 export function blockedLine(group) {
   const blocked = Array.isArray(group?.blocked) ? group.blocked : [];
   if (blocked.length === 0) return "";
+  const reach = new Set(Array.isArray(group?.reach) ? group.reach : []);
   const bySlug = new Map();
   for (const { slug, who, why } of blocked) {
     const named = why === "no_account" ? `${knownAs(group, who)} (not on Context, not invited)` : `@${who} (not a member)`;
     bySlug.set(slug, [...(bySlug.get(slug) ?? []), named]);
   }
-  const lines = [...bySlug].map(([slug, names]) => `@${slug} is missing ${names.join(", ")}`);
+  const line = (slugs) => slugs.map((slug) => `@${slug} is missing ${bySlug.get(slug).join(", ")}`).join("; ");
+  const read = [...bySlug.keys()].filter((slug) => reach.has(slug));
+  const kept = [...bySlug.keys()].filter((slug) => !reach.has(slug));
   return (
-    `This chat can't use ${[...bySlug.keys()].map((slug) => `@${slug}`).join(", ")}: ${lines.join("; ")}. ` +
-    "A chat reaches a workspace when everyone in it is a member or invited by number; an owner of it can have you invite them (send chat_add_everyone). "
+    // A workspace this turn reads is a fact on its own line, with no fix: nothing keeps the asker out of it.
+    (read.length > 0 ? `Asker's, not everyone's: ${line(read)}. ` : "") +
+    (kept.length > 0
+      ? `This chat can't use ${kept.map((slug) => `@${slug}`).join(", ")}: ${line(kept)}. ` +
+        "A chat reaches a workspace when everyone in it is a member or invited by number; an owner of it can have you invite them (send chat_add_everyone). "
+      : "")
   );
 }
 

@@ -5,8 +5,10 @@
  * each with a role in some of the Lab user's OWN shared workspaces, and this answers what a real group chat of theirs
  * would reach, by the rule `lib/textGroupReach.ts` keeps for real chats:
  *
- *  - every SHARED workspace that ALL the people on Context are in, and every person with no account is invited to by
- *    number, at the LOWEST role among them;
+ *  - a text from someone reads THEIR shared workspaces, at their role (`askerReach`, Dev2 2026-11-25); someone with no
+ *    account reads only the one they are invited to by number;
+ *  - with no asker named, every SHARED workspace that ALL the people on Context are in, and every person with no
+ *    account is invited to by number, at the LOWEST role among them (a routine's, a check-in's);
  *  - never a personal workspace, and the pin only as a home-only grant's home row is, read as the chat with no home:
  *    Tex's own setup and nothing else;
  *  - read at team tier: no `context:private`, no granted names.
@@ -98,21 +100,26 @@ export async function worldChatKey(ctx: QueryCtx, groupId: string): Promise<stri
   return real === null ? key : null;
 }
 
-export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { scopes: string[]; texChatId?: string; [k: string]: unknown }, people: WorldPersonIn[], chatKey: string) {
+export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { scopes: string[]; texChatId?: string; [k: string]: unknown }, people: WorldPersonIn[], chatKey: string, askerName?: string) {
   const mine = await worldWorkspaces(ctx, userId);
+  const asker = askerName === undefined ? undefined : people.find((p) => p.name.toLowerCase() === askerName.toLowerCase());
   const reached: SessionRow[] = [];
   const blocked: Blocked[] = [];
   for (const w of mine) {
     const stands = people.map((p) => ({ p, s: standing(p, w.slug) }));
     const out = stands.flatMap((x) => ("why" in x.s ? [{ slug: w.slug, who: x.p.name, why: x.s.why }] : []));
-    if (people.length > 0 && out.length === 0) {
-      // The lowest role among them, never above the Lab user's own.
+    // A text reads its asker's own workspaces (`askerReach`); with nobody asking, the ones everyone here is in.
+    const own = asker === undefined ? null : standing(asker, w.slug);
+    const reads = own !== null ? "role" in own : people.length > 0 && out.length === 0;
+    if (reads) {
+      // The asker's role (or the lowest among them), never above the Lab user's own.
       let role = w.role;
-      for (const x of stands) if ("role" in x.s && RANK[x.s.role] < RANK[role]) role = x.s.role;
+      for (const x of own !== null ? [{ s: own }] : stands) if ("role" in x.s && RANK[x.s.role] < RANK[role]) role = x.s.role;
       reached.push({ workspaceId: w.workspaceId, slug: w.slug, role, kind: "shared" });
-    } else if (new Set(blocked.map((b) => b.slug)).size < MAX_BLOCKED) {
-      blocked.push(...out);
     }
+    // Who here keeps a workspace from the whole chat, named for the asker's own ones only (`textGroupBlockers.ts`).
+    const named = own === null ? !reads : reads;
+    if (named && out.length > 0 && new Set(blocked.map((b) => b.slug)).size < MAX_BLOCKED) blocked.push(...out);
   }
   const setup = await pinnedContextRow(ctx, new Set());
   if (setup === null) return { status: "not_found" as const, error: "This deployment has no pinned workspace for a made-up chat's setup." };

@@ -1,16 +1,18 @@
 /**
- * Who keeps a group chat from a shared workspace (Dev2, 2026-11-16, after the Crystal Care chat lost its workspace
- * overnight when someone joined who isn't a member, and Tex could only say "this chat can't see it").
+ * Who here can't open a workspace the asker's turn reads (Dev2, 2026-11-16, after the Crystal Care chat lost its
+ * workspace overnight when someone joined who isn't a member; changed 2026-11-25, rulebook rule 2).
  *
- * A chat's reach is every shared workspace that ALL its account holders and its sponsor are members of and every
- * person with no account is invited to by number (`lib/textGroupReach.ts`). This module only names, for the turn, why a
- * workspace is missing: for each shared workspace the asker and the sponsor are both members of that the chat does not
- * reach, the account holders here who are not members of it, and the people with no account who aren't invited to it
- * by number. The turn logs it and Tex can say who it is and what fixes it ("Tex, add everyone here"), by text.
+ * A turn somebody asked for reads the ASKER's own shared workspaces (`lib/textGroupReach.ts` `askerReach`), not only
+ * the ones everyone here shares; the chat-wide reach (every account holder here a member, every person with no
+ * account invited by number) is what a routine, a check-in or the hello reads. This module names, for the turn, each
+ * of the asker's shared workspaces the whole chat does not share, and who here is not in it: the account holders who
+ * are not members, and the people with no account who aren't invited by number. The turn logs it, and Tex uses it to
+ * judge what fits the room (a summary by default; Training teaches it), or, on a run nobody asked for, says what
+ * keeps the chat out and what fixes it ("Tex, add everyone here").
  *
- * What it tells the chat: that the asker and the sponsor share a workspace by that name, and who here is not in it.
- * Both are the asker's own to say (they asked in this chat), and a non-member learns no more than its name, which is
- * how sharing is addressed anyway. A workspace only the sponsor is in, with an asker who isn't, is never named.
+ * What it tells the chat: that the asker is in a workspace by that name, and who here is not. Both are the asker's
+ * own to say (they asked in this chat), and a non-member learns no more than its name, which is how sharing is
+ * addressed anyway. A workspace the asker is not in is never named, whoever else here is in it.
  */
 
 import type { Doc, Id } from "../../_generated/dataModel";
@@ -34,7 +36,8 @@ export interface Blocker {
 }
 
 /**
- * Why the chat misses each shared workspace its asker and sponsor both belong to, by slug, empty when it misses none.
+ * Who here is not in each of the asker's shared workspaces the chat as a whole does not reach (`chatReach`), by slug,
+ * empty when the chat shares them all.
  * `people` are the accounts here, named by handle (or by `label` when they have none), `guests` the numbers with no
  * account and the labels they are named by.
  */
@@ -42,16 +45,16 @@ export async function reachBlockers(
   ctx: MutationCtx,
   input: {
     asker: Id<"users"> | null;
-    sponsor: Id<"users">;
     people: { userId: Id<"users">; label: string }[];
     guests: { phone: string; label: string }[];
-    reach: Id<"workspaces">[];
+    /** The workspaces the whole chat shares this turn (`lib/textGroupReach.ts` `reachOf` over everyone here). */
+    chatReach: Id<"workspaces">[];
   },
 ): Promise<Blocker[]> {
   // A guest who asked has no workspaces of their own to name; only an account holder's ask names any.
   if (input.asker === null) return [];
   const pin = await pinnedContextWorkspace(ctx);
-  const reached = new Set(input.reach);
+  const reached = new Set(input.chatReach);
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", input.asker as Id<"users">))
@@ -61,7 +64,6 @@ export async function reachBlockers(
     if (reached.has(membership.workspaceId)) continue;
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null || workspace.kind !== "shared" || (pin !== null && workspace._id === pin._id)) continue;
-    if (input.sponsor !== input.asker && (await getMembership(ctx, workspace._id, input.sponsor)) === null) continue;
     candidates.push(workspace);
   }
   candidates.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));

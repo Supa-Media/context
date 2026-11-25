@@ -74,6 +74,30 @@ describe("made-up group chats on main", () => {
     expect(r.session.defaultWorkspaceId).toBe(w.pinned);
   });
 
+  // A text reads its sender's own reach (Dev2, 2026-11-25, `asker-reach.md`), as a real chat's does.
+  test("a text reads its asker's own workspaces at the asker's role, and names who here isn't in them", async () => {
+    const w = await world();
+    const people = [
+      { name: "Ana", account: "on", roles: { "lumio-test": "editor", "solenne-test": "owner" } },
+      { name: "Ben", account: "on", roles: { "solenne-test": "member" } },
+      { name: "Cy", account: "off" },
+    ];
+    const ana = (await w.lab("worldReach", { chat: CHAT, people, asker: "Ana" })) as Reach;
+    expect(ana.reach).toEqual(["lumio-test", "solenne-test"]);
+    // Ana's own role, never above the Lab user's (Alice edits Lumio and owns Solenne).
+    expect(ana.session.workspaces.find((x) => x.slug === "solenne-test")!.role).toBe("owner");
+    expect(ana.blocked.filter((b) => b.slug === "lumio-test").map((b) => b.who)).toEqual(["Ben", "Cy"]);
+    const ben = (await w.lab("worldReach", { chat: CHAT, people, asker: "ben" })) as Reach;
+    expect(ben.reach).toEqual(["solenne-test"]);
+    expect(slugs(ben)).not.toContain("lumio-test");
+    expect(ben.session.workspaces.find((x) => x.slug === "solenne-test")!.role).toBe("member");
+    // Nothing of Lumio is named to Ben's ask: it isn't his.
+    expect(JSON.stringify(ben.blocked)).not.toContain("lumio-test");
+    // Someone with no account reads nothing; nobody named reads the chat's reach (none, with Cy here).
+    expect(((await w.lab("worldReach", { chat: CHAT, people, asker: "Cy" })) as Reach).reach).toEqual([]);
+    expect(((await w.lab("worldReach", { chat: CHAT, people })) as Reach).reach).toEqual([]);
+  });
+
   test("never personal, never someone else's, and the pin only as Tex's setup", async () => {
     const w = await world();
     const r = (await w.lab("worldReach", { chat: CHAT, people: [
