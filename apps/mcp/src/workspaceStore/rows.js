@@ -399,6 +399,10 @@ export function workspaceRows(sql) {
       const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
       return { rows: live.length, sha256: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("") };
     },
+    /** The workspace this object was pinned to, or null before the first call that names one. */
+    workspaceId() {
+      return meta("workspaceId");
+    },
     /** The workspace this object belongs to: pinned on the first call that names one, refused on any other. */
     pinWorkspace(workspaceId) {
       if (!text(workspaceId, 64)) throw new WorkspaceRowRefused("a call names its workspace");

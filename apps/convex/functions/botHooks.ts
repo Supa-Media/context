@@ -10,9 +10,13 @@
  *   - `botHookList`: what Settings and the area panel show. Never the address
  *     or a secret: the host, the header's last four characters, who set it and
  *     how the last call went.
- *   - `testBotHook` and `pingBot`: the signed-in person asks for one call, an
- *     internal mutation checks them and writes the audit line, and
- *     `callBotHook` opens the sealed values for that one signed call.
+ *   - `testBotHook`: the signed-in person asks for one call, an internal
+ *     mutation checks them, and `callBotHook` opens the sealed values for that
+ *     one signed call, writing the audit line.
+ *   - `/gateway/bots/mail`: the workspace object that saved a new line in an
+ *     area's mail tells the control plane (`apps/mcp/src/workspaceStore/botMail.js`),
+ *     so mail written anywhere reaches the bot, and `authorizeObjectMail`
+ *     clears it before the same call.
  *
  * A call says that mail arrived and where: the workspace, the area, the note
  * and who wrote. Never the message itself. The bot reads it through its own
@@ -244,6 +248,35 @@ export const authorizeBotCall = internalMutation({
   },
 });
 
+/** Calls the workspace's own object may start for one bot in an hour. */
+export const BOT_MAIL_PER_HOUR = 120;
+const NAME = /^[a-z0-9][a-z0-9-]{0,23}$/;
+const WHO = /^@?[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/;
+
+/**
+ * Mail the workspace object noticed: a bot with a webhook in that workspace,
+ * a path that is an area's mail note, within the bot's hourly allowance.
+ * Answers the workspace's handle, or null to do nothing.
+ */
+export const authorizeObjectMail = internalMutation({
+  args: { workspaceId: v.string(), bot: v.string(), area: v.string(), note: v.string(), from: v.string() },
+  returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces"), workspace: v.string() })),
+  handler: async (ctx, args) => {
+    const workspaceId = ctx.db.normalizeId("workspaces", args.workspaceId);
+    if (workspaceId === null || !NAME.test(args.bot) || !WHO.test(args.from)) return null;
+    if (args.area.length > 512 || !args.note.startsWith(`${args.area}/mail/`) || args.note.length > 512) return null;
+    const row = await ctx.db
+      .query("botHooks")
+      .withIndex("by_workspace_bot", (q) => q.eq("workspaceId", workspaceId).eq("bot", args.bot))
+      .unique();
+    if (row === null) return null;
+    if (!(await tryConsumeRateLimit(ctx, { key: `bot.mail:${workspaceId}:${args.bot}`, limit: BOT_MAIL_PER_HOUR, windowMs: HOUR_MS }))) return null;
+    const workspace = await ctx.db.get(workspaceId);
+    if (workspace === null) return null;
+    return { workspaceId, workspace: `@${workspace.slug}` };
+  },
+});
+
 export const hookForCall = internalQuery({
   args: { workspaceId: v.id("workspaces"), bot: v.string() },
   returns: v.union(
@@ -261,7 +294,7 @@ export const hookForCall = internalQuery({
 });
 
 export const noteBotCall = internalMutation({
-  args: { hookId: v.id("botHooks"), actorUserId: v.id("users"), kind: v.string(), ok: v.boolean(), status: v.number() },
+  args: { hookId: v.id("botHooks"), actorUserId: v.optional(v.id("users")), kind: v.string(), ok: v.boolean(), status: v.number() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.hookId);
@@ -295,15 +328,16 @@ async function post(url: string, init: RequestInit): Promise<number> {
  * THE BARRIER: opens one bot's sealed address, header and signing key, makes
  * one signed POST (and one retry when the bot could not be reached or failed),
  * and answers only whether it landed and the HTTP status. Its callers are
- * `testBotHook` and `pingBot`, which check the person with
- * `authorizeBotCall` first. Redirects are never followed, and the address is
+ * `testBotHook`, which checks the person with `authorizeBotCall` first, and
+ * `/gateway/bots/mail`, which `authorizeObjectMail` clears. Redirects are never followed, and the address is
  * checked against DNS again before each call.
  */
 export const callBotHook = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     bot: v.string(),
-    actorUserId: v.id("users"),
+    /** Who asked for a test; absent for mail, which the workspace's own object noticed. */
+    actorUserId: v.optional(v.id("users")),
     payload: v.object({
       type: v.union(v.literal("test"), v.literal("mail")),
       workspace: v.string(),
@@ -367,25 +401,6 @@ export const testBotHook = action({
       bot,
       actorUserId: userId,
       payload: { type: "test", workspace: cleared.workspace, bot, from: cleared.from },
-    });
-  },
-});
-
-/** Tell a bot that mail arrived for it: which area and note, and who wrote. Never the message. */
-export const pingBot = action({
-  args: { workspaceId: v.id("workspaces"), bot: v.string(), area: v.string(), note: v.string() },
-  returns: outcome,
-  handler: async (ctx, args): Promise<Outcome> => {
-    if (args.area.length > 512 || args.note.length > 512) return { ok: false, status: 0 };
-    const userId = await requireActor(ctx);
-    const bot = mailJoinName(args.bot);
-    const cleared = await ctx.runMutation(internal.functions.botHooks.authorizeBotCall, { workspaceId: args.workspaceId, userId, bot, kind: "mail" });
-    if (cleared === null) return { ok: false, status: 0 };
-    return await ctx.runAction(internal.functions.botHooks.callBotHook, {
-      workspaceId: args.workspaceId,
-      bot,
-      actorUserId: userId,
-      payload: { type: "mail", workspace: cleared.workspace, bot, from: cleared.from, area: args.area, note: args.note },
     });
   },
 });

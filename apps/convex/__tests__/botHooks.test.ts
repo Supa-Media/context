@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
-import { addMember, asUser, captureError, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
+import { addMember, asUser, captureError, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 import { signHook } from "@context/shared/src/botHooks.cjs";
 
 /**
@@ -100,16 +100,15 @@ describe("a bot's webhook", () => {
   });
 
   /** Sabotage: drop the signature header or sign another string, and the check here fails. */
-  test("a ping is signed, says where mail arrived and who wrote, and never carries the message", async () => {
+  test("mail the workspace noticed is a signed call that says where and who, never the message", async () => {
     const seen = stubNet();
-    const { t, ana, kim, supa } = await world();
+    const { t, ana, supa } = await world();
     await asUser(t, ana).action(api.functions.botHooks.setBotHook, {
       workspaceId: supa, bot: "Finance", address: HOOK, headerLine: "Authorization: Bearer grok-abc-1234", signingKey: KEY,
     });
-    const result = await asUser(t, kim).action(api.functions.botHooks.pingBot, {
-      workspaceId: supa, bot: "Finance", area: "areas/finance", note: "areas/finance/mail/kim.md",
-    });
-    expect(result).toEqual({ ok: true, status: 200 });
+    const mail = { workspaceId: supa, bot: "finance", area: "areas/finance", note: "areas/finance/mail/kim.md", from: "@kim" };
+    const response = await gatewayPost(t, "/gateway/bots/mail", mail);
+    expect(await response.json()).toEqual({ ok: true, status: 200 });
     expect(seen).toHaveLength(1);
     const call = seen[0]!;
     expect(call.url).toBe(HOOK);
@@ -118,25 +117,36 @@ describe("a bot's webhook", () => {
     expect(call.headers.get("x-context-signature")).toBe(`v1=${await signHook(KEY, at, call.body)}`);
     const body = JSON.parse(call.body);
     expect(Object.keys(body).sort()).toEqual(["area", "at", "bot", "from", "note", "type", "workspace"]);
-    expect(body).toMatchObject({ type: "mail", workspace: "@supa-bots", bot: "finance", area: "areas/finance", note: "areas/finance/mail/kim.md" });
+    expect(body).toMatchObject({ type: "mail", workspace: "@supa-bots", bot: "finance", from: "@kim", area: "areas/finance", note: "areas/finance/mail/kim.md" });
     const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
-    const called = audit.find((event) => event.action === "bot_hook.called");
-    expect(called?.actorUserId).toBe(kim);
+    expect(audit.some((event) => event.action === "bot_hook.called")).toBe(true);
     expect(JSON.stringify(audit)).not.toContain("s3cret-path");
   });
 
-  test("a bot that fails is retried once and its status shown; an outsider's ping reaches nobody", async () => {
+  test("the mail door needs the gateway's secret, a bot with a webhook, and a path in that area's mail", async () => {
+    const seen = stubNet();
+    const { t, ana, supa } = await world();
+    await asUser(t, ana).action(api.functions.botHooks.setBotHook, { workspaceId: supa, bot: "finance", address: HOOK, signingKey: KEY });
+    const mail = { workspaceId: supa, bot: "finance", area: "areas/finance", note: "areas/finance/mail/kim.md", from: "@kim" };
+    expect((await gatewayPost(t, "/gateway/bots/mail", mail, { secret: "wrong-secret-0000000000" })).status).toBe(401);
+    for (const odd of [{ bot: "payroll" }, { note: "areas/other/mail/kim.md" }, { note: "areas/finance/budget.md" }, { workspaceId: "nope" }]) {
+      expect(await (await gatewayPost(t, "/gateway/bots/mail", { ...mail, ...odd })).json(), JSON.stringify(odd)).toEqual({ ok: false, status: 0 });
+    }
+    expect(seen).toHaveLength(0);
+  });
+
+  test("a bot that fails is retried once and its status shown; an outsider's test reaches nobody", async () => {
     const seen = stubNet(503);
     const { t, ana, outsider, supa } = await world();
     await asUser(t, ana).action(api.functions.botHooks.setBotHook, { workspaceId: supa, bot: "finance", address: HOOK, signingKey: KEY });
     expect(await asUser(t, ana).action(api.functions.botHooks.testBotHook, { workspaceId: supa, bot: "finance" })).toEqual({ ok: false, status: 503 });
     expect(seen).toHaveLength(2);
     expect((await asUser(t, ana).query(api.functions.botHooks.botHookList, { workspaceId: supa }))[0]).toMatchObject({ lastCallOk: false, lastCallStatus: 503 });
-    expect(await asUser(t, outsider).action(api.functions.botHooks.pingBot, { workspaceId: supa, bot: "finance", area: "areas/finance", note: "areas/finance/mail/x.md" })).toEqual({ ok: false, status: 0 });
+    expect(await asUser(t, outsider).action(api.functions.botHooks.testBotHook, { workspaceId: supa, bot: "finance" })).toEqual({ ok: false, status: 0 });
     expect(seen).toHaveLength(2);
   });
 
-  test("a member may ping but not send a test", async () => {
+  test("a member may not send a test", async () => {
     const seen = stubNet();
     const { t, ana, kim, supa } = await world();
     await asUser(t, ana).action(api.functions.botHooks.setBotHook, { workspaceId: supa, bot: "finance", address: HOOK, signingKey: KEY });
