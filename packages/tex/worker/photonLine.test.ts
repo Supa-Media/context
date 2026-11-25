@@ -288,7 +288,7 @@ describe("Photon stickers in a 1:1 (photonLine.ts)", () => {
   it("sticks a sticker on the person's message in the chat", async () => {
     const b = bridge();
     await lineFor(deps(b.photon), DM).stick!(DM, "msg-1", { attachment: "att-2" });
-    expect(b.calls).toEqual([{ op: "sticker", body: { line: "+15550000001", chat: DM_GUID, guid: "msg-1", sticker: "att-2" } }]);
+    expect(b.calls).toEqual([{ op: "sticker", body: { line: "+15550000001", chat: DM_GUID, guid: "msg-1", sticker: "att-2", send: true } }]);
   });
 
   it("a line without stickers has no stick at all", () => {
@@ -360,8 +360,8 @@ describe("Photon group line (photonLine.ts, groupLine.ts dispatch)", () => {
     await app.stick!(place, "msg-4", { attachment: "att-7" });
     await app.stick!(place, "msg-5", { name: "party.png", mimeType: "image/png", url: "https://example.com/party.png" });
     expect(b.calls).toEqual([
-      { op: "sticker", body: { line: "+15550000001", chat: "iMessage;+;chat123", guid: "msg-4", sticker: "att-7" } },
-      { op: "sticker", body: { line: "+15550000001", chat: "iMessage;+;chat123", guid: "msg-5", sticker: { name: "party.png", mimeType: "image/png", url: "https://example.com/party.png" } } },
+      { op: "sticker", body: { line: "+15550000001", chat: "iMessage;+;chat123", guid: "msg-4", sticker: "att-7", send: true } },
+      { op: "sticker", body: { line: "+15550000001", chat: "iMessage;+;chat123", guid: "msg-5", sticker: { name: "party.png", mimeType: "image/png", url: "https://example.com/party.png" }, send: true } },
     ]);
   });
 

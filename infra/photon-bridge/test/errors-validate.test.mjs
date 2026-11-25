@@ -82,8 +82,9 @@ test("every op parses a well-formed body into its arguments", () => {
 test("a sticker goes on a message: an attachment on the line, or an image to upload, placed centered by default", () => {
   assert.deepEqual(OPS.sticker.parse({ line: LINE, chat: CHAT, guid: "msg-1", sticker: "att-1" }), {
     line: LINE, chat: CHAT, guid: "msg-1", sticker: { attachment: "att-1" }, part: undefined,
-    placement: { x: 0.5, y: 0.5, scale: 0.45, rotation: 0, width: 96 },
+    placement: { x: 0.5, y: 0.5, scale: 0.45, rotation: 0, width: 96 }, send: undefined,
   });
+  assert.equal(OPS.sticker.parse({ line: LINE, chat: CHAT, guid: "msg-1", sticker: "att-1", send: true }).send, true, "send: the sticker goes as an image of its own");
   const uploaded = OPS.sticker.parse({
     line: LINE, chat: CHAT, guid: "msg-1", part: 1,
     sticker: { name: "s.png", mimeType: "image/png", url: "https://example.com/s.png" },
