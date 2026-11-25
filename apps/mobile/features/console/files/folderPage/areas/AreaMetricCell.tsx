@@ -1,39 +1,35 @@
 /**
  * An area's one metric as the Areas List draws it (the data sources board,
- * 06): its name and, for a workspace metric, the sources it reads and when
- * their newest row is from; then the trend, the latest value in green or
- * amber (muted when Hidden or still being worked out) and the target in
- * symbols; with no value yet, just the target, and no placeholder (the owner,
- * 2026-11-25). On a phone the sources line goes under the value. An area with no
- * metric says so, with "+ Pick a metric" for someone who can pick one.
+ * 06; the area metric rows board, 2026-11-25): its name and a small tag for
+ * the time range the number covers ("7d", "MTD", "today"); then the trend,
+ * the latest value in green or amber (muted when Hidden or still being worked
+ * out) and the target in symbols; with no value yet, just the target, and no
+ * placeholder (the owner, 2026-11-25). The sources a workspace metric reads
+ * and how fresh they are stay off the row, in its hover tip and on the
+ * metric's page. An area with no metric says so, with "+ Pick a metric" for
+ * someone who can pick one.
  */
 
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { useRef } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Path, Svg } from "react-native-svg";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
+import { useHoverTitle } from "../../../../design/useHoverTitle";
 import { areasType, pointerType, radii } from "../../../../design/tokens";
 import type { Headline } from "./headline";
 import { Trend } from "./Trend";
 import { areaTitle, type Seat } from "./seat";
 
-/** A web hover title; none on a phone. */
-function hoverTitle(text: string): { readonly title?: string } {
-  return Platform.OS === "web" && text !== "" ? { title: text } : {};
-}
-
 /** The headline metric on a pointer: its label line, then the trend, the value and the target on one line. */
 export function MetricCell({ headline }: { headline: Headline }) {
   const styles = useThemedStyles(makeStyles);
-  const tip = `${headline.label}${headline.source === "" ? "" : ` · ${headline.source}`}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
+  const ref = useRef<View>(null);
+  const tip = `${headline.label}${headline.period === "" ? "" : ` (${headline.period})`}${headline.source === "" ? "" : ` · ${headline.source}`}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
+  useHoverTitle(ref, tip);
   return (
-    <View style={styles.metric} testID="area-metric" {...hoverTitle(tip)}>
-      <Text variant="treeMeta" style={styles.metricLabel} numberOfLines={1}>
-        {headline.label}
-        {headline.source === "" ? null : (
-          <Text variant="treeMeta" style={styles.metricSource} testID="area-metric-source">{` · ${headline.source}`}</Text>
-        )}
-      </Text>
+    <View ref={ref} style={styles.metric} testID="area-metric">
+      <Label headline={headline} />
       {headline.value === null ? (
         headline.target === "" ? null : (
           <Text variant="tree" style={styles.noData} numberOfLines={1} testID="area-row-target">
@@ -53,14 +49,12 @@ export function MetricCell({ headline }: { headline: Headline }) {
   );
 }
 
-/** The headline metric in a phone's block: the label, the value line, then the sources line. */
+/** The headline metric in a phone's block: the label and its period, then the value line. */
 export function PhoneMetric({ headline }: { headline: Headline }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.phone} testID="area-metric">
-      <Text variant="treeMeta" style={styles.metricLabel} numberOfLines={1}>
-        {headline.label}
-      </Text>
+      <Label headline={headline} />
       {headline.value === null ? (
         headline.target === "" ? null : (
           <Text variant="tree" style={styles.noDataPhone} numberOfLines={1} testID="area-row-target">
@@ -78,9 +72,21 @@ export function PhoneMetric({ headline }: { headline: Headline }) {
           </Text>
         </View>
       )}
-      {headline.source === "" ? null : (
-        <Text variant="treeMeta" style={styles.metricSourceLine} numberOfLines={1} testID="area-metric-source">
-          {headline.source}
+    </View>
+  );
+}
+
+/** The metric's name, cut short when it must be, then its period tag, which is never cut. */
+function Label({ headline }: { headline: Headline }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.labelLine}>
+      <Text variant="treeMeta" style={[styles.metricLabel, styles.labelName]} numberOfLines={1}>
+        {headline.label}
+      </Text>
+      {headline.period === "" ? null : (
+        <Text variant="treeMeta" style={styles.period} numberOfLines={1} testID="area-metric-period">
+          {headline.period}
         </Text>
       )}
     </View>
@@ -143,8 +149,9 @@ const makeStyles = (colors: Colors) =>
     metric: { minWidth: 0 },
     phone: { gap: 1, minWidth: 0 },
     metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },
-    metricSource: { color: colors.chromeMuted },
-    metricSourceLine: { fontSize: pointerType.meta, lineHeight: 15, color: colors.chromeMuted },
+    labelLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+    labelName: { flexShrink: 1, minWidth: 0 },
+    period: { flexShrink: 0, fontSize: pointerType.label, lineHeight: 15, fontWeight: "600", paddingHorizontal: 5, borderRadius: radii.sm, overflow: "hidden", backgroundColor: colors.accentDim, color: colors.accentText },
     valueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
     valueLinePhone: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
     value: { fontWeight: "600", flexShrink: 0 },
