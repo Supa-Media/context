@@ -72,16 +72,31 @@ export function rememberGoogleCompletionSecret(state: string, secret: string): b
   }
 }
 
-export function takeGoogleCompletionSecret(state: string): string | null {
+/*
+  The completion secret binds the flow to the browser tab that started it (RFC
+  6749 §10.12); leaveForGoogle.web.ts leaves in the same tab, so session
+  storage survives the round trip. The callback reads it with `peek` and
+  forgets it only once the completion call has settled, so a remount of the
+  callback screen while the call is in flight cannot lose it (the old
+  read-and-delete turned such a remount into "Google did not connect").
+*/
+export function peekGoogleCompletionSecret(state: string): string | null {
   const store = storage();
   if (store === null || state.length === 0) return null;
-  const key = `${GOOGLE_COMPLETION_PREFIX}${state}`;
   try {
-    const value = store.getItem(key);
-    store.removeItem(key);
-    return value;
+    return store.getItem(`${GOOGLE_COMPLETION_PREFIX}${state}`);
   } catch {
     return null;
+  }
+}
+
+export function forgetGoogleCompletionSecret(state: string): void {
+  const store = storage();
+  if (store === null || state.length === 0) return;
+  try {
+    store.removeItem(`${GOOGLE_COMPLETION_PREFIX}${state}`);
+  } catch {
+    // Nothing kept to forget.
   }
 }
 

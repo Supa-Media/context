@@ -9,8 +9,13 @@ import { Text } from "../../design/components/Text";
 import { clamp, fonts, leading, pointerType as t } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
-import { completeGoogleCallback } from "./completeGoogleCallback";
-import { googleE2ECompletionSecret, parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
+import { completeGoogleCallbackOnce, joinGoogleCallback } from "./completeGoogleCallback";
+import {
+  forgetGoogleCompletionSecret,
+  googleE2ECompletionSecret,
+  parseGoogleCallback,
+  peekGoogleCompletionSecret,
+} from "./google";
 import { GmailDone } from "../../auth/gmailFirst/GmailDone";
 import { forgetGmailFirst, readGmailFirst } from "../../auth/gmailFirst/gmailFirst";
 
@@ -43,19 +48,28 @@ export function GoogleCallbackScreen() {
   useEffect(() => {
     if (started.current || callback.kind !== "ready") return;
     started.current = true;
-    const completionSecret = takeGoogleCompletionSecret(callback.state) ?? googleE2ECompletionSecret(params);
-    if (completionSecret === null) {
-      setStatus("failed");
-      return;
-    }
-    void (async () => {
-      try {
-        await completeGoogleCallback({ state: callback.state, code: callback.code, completionSecret });
-        setStatus("done");
-      } catch {
+    const { state, code } = callback;
+    /*
+      A remount of this screen (same URL, same state) joins the completion the
+      first mount started instead of failing: the secret is read without being
+      removed, and forgotten only once the call has settled. The server spends
+      the attempt on its first use, so a second call could only be refused.
+    */
+    let completion = joinGoogleCallback(state);
+    if (completion === null) {
+      const completionSecret = peekGoogleCompletionSecret(state) ?? googleE2ECompletionSecret(params);
+      if (completionSecret === null) {
         setStatus("failed");
+        return;
       }
-    })();
+      completion = completeGoogleCallbackOnce({ state, code, completionSecret });
+    }
+    void completion
+      .then(
+        () => setStatus("done"),
+        () => setStatus("failed"),
+      )
+      .finally(() => forgetGoogleCompletionSecret(state));
   }, [callback, params]);
 
   const headline =

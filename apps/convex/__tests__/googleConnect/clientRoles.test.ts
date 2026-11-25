@@ -247,6 +247,8 @@ describe("allowing AI access", () => {
   test("the shared callback binds the agent grant to that connection, beside the standard one", async () => {
     const { t, connectionId, workspaceId, done } = await consent();
     expect(done.workspaceId).toBe(workspaceId);
+    // The app continues to the second consent on this answer (`ai: true` only for the agent's).
+    expect(done.ai).toBe(true);
     const row = await t.run((ctx) => ctx.db.get(connectionId));
     expect(row?.agentGrant?.encryptedRefreshToken).toBeTruthy();
     expect(row?.encryptedAccessToken).toBeTruthy();
@@ -311,6 +313,29 @@ describe("allowing AI access", () => {
       await ctx.db.patch(connectionId, { agentGrant: grant });
     });
     expect(await ask()).toBe("granted");
+  });
+});
+
+describe("a standard connect", () => {
+  test("completes with ai: false, so the app does not go on to AI access by itself", async () => {
+    configure({ active: false });
+    vi.stubEnv("MAIL_CONNECT_ENABLED", "true");
+    vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
+    tokenEndpoint();
+    const { t, owner, workspaceId } = await personalScenario();
+    const started = await withSession(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+      workspaceId,
+      redirectUri: CALLBACK,
+      syncServices: { gmail: true, calendar: true, chat: true },
+    });
+    const state = new URL(started.authorizeUrl).searchParams.get("state") as string;
+    const done = await t.action(api.functions.googleConnect.completeGoogleConnect, {
+      state,
+      code: "standard-code",
+      completionSecret: started.completionSecret,
+    });
+    await drainScheduled(t);
+    expect(done).toEqual({ workspaceId, ai: false });
   });
 });
 
