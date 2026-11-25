@@ -355,5 +355,7 @@ export const workspaceTables = {
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
-    .index("by_workspace_user", ["workspaceId", "userId"]),
+    .index("by_workspace_user", ["workspaceId", "userId"])
+    // The owners of a workspace, however many members it has (`lib/workspaces/primaryOwner.ts`).
+    .index("by_workspace_role", ["workspaceId", "role"]),
 };
