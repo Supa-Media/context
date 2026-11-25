@@ -38,10 +38,12 @@ async function world(notes = {}) {
     request.ask === "jobs" ? { served: true, jobs: { areas: "areas", projects: "projects" }, roots: ["areas", "projects"] } : served(request);
   store.treeEntries = async () => (await base.list({})).objects;
   const hookCalls = [];
+  Object.defineProperty(store, "botHookUrl", { value: "https://mcp.example.com/api/bot-hook", configurable: true });
   store.botHooks = async (request) => {
     hookCalls.push(request);
     if (request.action === "set") return { host: "bot.example.com", headerEnds: request.header ? "1234" : null, keyMade: !request.signingKey };
     if (request.action === "test") return { ok: true, status: 200 };
+    if (request.action === "ticket") return { ticket: "tkt_abcdefghijklmnop0123", minutes: 10 };
     return { error: "unknown" };
   };
   const text = async (key) => (await (await base.get(key))?.text()) ?? null;
@@ -165,6 +167,19 @@ test("a webhook without a signing key says Context made one nobody can see", asy
   const { store } = await world({ "areas/finance/about.md": FINANCE });
   const result = await run(store, { area: "areas/finance", webhook: { bot: "Finance", address: "https://bot.example.com/hook" } });
   assert.match(said(result), /made its signing key/);
+});
+
+test("a bot that can't see its secret gets a one-time command to send the header from its shell", async () => {
+  const { store, hookCalls } = await world({ "areas/finance/about.md": FINANCE });
+  const result = await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization" } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.deepEqual(hookCalls.at(-1), { action: "ticket", bot: "Pipeline", address: "https://bot.example.com/hook", headerName: "Authorization" });
+  const answer = said(result);
+  assert.match(answer, /curl -sS --fail-with-body -X PUT -H 'Authorization: Bearer tkt_abcdefghijklmnop0123' --data-binary "Bearer \$WEBHOOK_SECRET" https:\/\/mcp\.example\.com\/api\/bot-hook/);
+  assert.match(answer, /test_webhook: "Pipeline"/);
+  // Never both: a header typed in the call is the thing this is for avoiding.
+  assert.equal((await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization", header: "Authorization: Bearer x" } })).isError, true);
+  assert.equal((await run(store, { area: "areas/finance", webhook: { bot: "Pipeline", address: "https://bot.example.com/hook", header_from_shell: "Authorization: Bearer x" } })).isError, true);
 });
 
 test("nothing to change is said so", async () => {

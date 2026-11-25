@@ -12,7 +12,8 @@
 
 import { useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { areaPrompt, botLabel, delegatePrompt } from "@context/shared/src/areaBots.cjs";
+import { botLabel, delegatePrompt, setupPrompt, type OwnedArea } from "@context/shared/src/areaBots.cjs";
+import { MCP_ENDPOINT } from "../../../placeholderData";
 import { writeClipboard } from "../../../../design/clipboard";
 import { Menu } from "../../../../design/components/Menu";
 import { Text } from "../../../../design/components/Text";
@@ -22,7 +23,7 @@ import { useColors, useThemedStyles, type Colors } from "../../../../design/them
 import type { MenuItem } from "../../menuItem";
 import { agentName } from "../agents";
 import { pickSquarePhoto } from "../../../settings/panels/pickSquarePhoto";
-import { areaTitle, type Card, type Seat } from "./seat";
+import type { Card } from "./seat";
 
 /** The words a bot is shown with in a menu: "@seyi's Grok bot". */
 export function botDetail(card: Card, label: (owner: string) => string): string {
@@ -30,18 +31,16 @@ export function botDetail(card: Card, label: (owner: string) => string): string 
   return card.belongsTo.trim() === "" ? kind : `${label(card.belongsTo)}'s ${kind}`;
 }
 
-/** The prompt for the bot holding `seat`. */
-export function seatPrompt(seat: Seat, card: Card, workspace: string | undefined, cardNote?: string): string {
-  return areaPrompt({
+/** The one prompt a bot sets itself up from, covering every area it owns. */
+export function botSetupPrompt(card: Card, areas: readonly OwnedArea[], workspace: string | undefined, cardNote?: string): string {
+  return setupPrompt({
     bot: card.holder,
     kind: card.bot,
     whose: card.belongsTo,
     ...(workspace === undefined ? {} : { workspace }),
-    area: seat.folder,
-    title: areaTitle(seat.name),
-    modes: seat.modes,
+    areas,
     reach: card.reach,
-    // A bot with no logo yet is told to put its own on its card.
+    endpoint: MCP_ENDPOINT,
     ...(cardNote === undefined || card.avatar !== "" ? {} : { card: cardNote }),
   });
 }
@@ -142,7 +141,7 @@ export function AddBotForm({
  * A prompt to paste into a bot, with its Copy button, folded to its first line
  * until opened so the panel stays short. Copy says whether it worked.
  */
-export function PromptBox({ title, text, testID }: { title: string; text: string; testID: string }) {
+export function PromptBox({ title, text, testID, copyWord = "Copy prompt" }: { title: string; text: string; testID: string; copyWord?: string }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
@@ -154,7 +153,7 @@ export function PromptBox({ title, text, testID }: { title: string; text: string
           <Text variant="treeMeta" style={styles.heading}>{title}</Text>
         </Pressable>
         <Pressable role="button" onPress={() => void copy()} style={styles.primary} testID={`${testID}-copy`}>
-          <Text variant="treeMeta" style={styles.primaryWord}>{said === "Copied" ? "Copied" : "Copy prompt"}</Text>
+          <Text variant="treeMeta" style={styles.primaryWord}>{said === "Copied" ? "Copied" : copyWord}</Text>
         </Pressable>
       </View>
       {said !== null && said !== "Copied" ? <Text variant="treeMeta" role="alert" style={styles.problem}>{said}</Text> : null}

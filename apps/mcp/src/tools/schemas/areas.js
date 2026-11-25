@@ -52,6 +52,7 @@ export function areaToolDefinitions() {
               address: { type: "string", description: "A public https address." },
               header: { type: "string", description: "One header to send, as Name: value." },
               signing_key: { type: "string", description: "ctxbot_ and 64 hex characters from a random source; Context makes one nobody sees when left out." },
+              header_from_shell: { type: "string", description: "A header's name (Authorization): you get a one-time curl command that sends its value from your shell, so you never see the secret." },
             },
             required: ["address"],
             additionalProperties: false,

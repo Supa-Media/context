@@ -157,6 +157,21 @@ export function AreasView(props: AreasViewProps) {
     },
     [agents, faceOf],
   );
+  // Every area a holder names itself the owner of, from the Areas folder down: a bot's setup prompt covers them all.
+  const ownedAreas = useCallback(
+    (holder: string) => {
+      const out: { folder: string; title: string; modes: readonly string[] }[] = [];
+      const walk = (node: AreaNode) => {
+        if (node.seat.ownOwner !== null && node.seat.ownOwner.trim().toLowerCase() === holder.trim().toLowerCase()) {
+          out.push({ folder: node.seat.folder, title: areaTitle(node.seat.name), modes: node.seat.modes });
+        }
+        for (const child of node.areas) walk(child);
+      };
+      walk(areaTree(root, root, notes));
+      return out;
+    },
+    [root, notes],
+  );
   const reach = useCallback(
     (owner: string) => reachLine(cardFor(owner, isAgent(owner) ? "agent" : "person")),
     [cardFor, isAgent],
@@ -257,7 +272,7 @@ export function AreasView(props: AreasViewProps) {
             open: onSelect,
             faceOf: senderFace,
           },
-          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder), ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
+          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);

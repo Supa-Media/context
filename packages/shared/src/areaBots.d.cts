@@ -27,3 +27,22 @@ export declare function areaPrompt(input: {
   card?: string;
 }): string;
 export declare function delegatePrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string; card?: string }): string;
+
+export interface OwnedArea {
+  folder: string;
+  title?: string;
+  modes?: readonly string[];
+}
+export declare function areasPrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string; areas: readonly OwnedArea[]; reach?: ReachKind }): string;
+export declare function setupPrompt(input: {
+  bot: string;
+  kind?: string;
+  whose?: string;
+  workspace?: string;
+  areas: readonly OwnedArea[];
+  reach?: ReachKind;
+  /** The bot's card, when it has no logo yet: it is told to put its own there. */
+  card?: string;
+  /** The MCP address, https://mcp.context.lc/mcp by default. */
+  endpoint?: string;
+}): string;

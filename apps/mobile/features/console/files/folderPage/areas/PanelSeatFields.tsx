@@ -26,9 +26,10 @@ import type { OwnerSearch } from "../../owners";
 import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
-import { AddBotForm, PromptBox, UploadLogo, botDetail, personPrompt, seatPrompt } from "./PanelBotFields";
+import type { OwnedArea } from "@context/shared/src/areaBots.cjs";
+import { AddBotForm, PromptBox, UploadLogo, botDetail, botSetupPrompt, personPrompt } from "./PanelBotFields";
 import { BotHookFields } from "./PanelBotHook";
-import { MODES, MODE_TIPS, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
+import { MODES, MODE_TIPS, areaTitle, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
 /** What the panel needs to edit an owner where it is drawn. */
 export interface PanelSeatTools {
@@ -43,6 +44,8 @@ export interface PanelSeatTools {
   workspace?: string;
   /** The workspace's id, where a bot's webhook is saved; absent where none can be. */
   workspaceId?: string;
+  /** Every area `holder` owns, named in its setup prompt (a bot can own several). */
+  ownedAreas?: (holder: string) => readonly OwnedArea[];
   /** Where a holder's card is, named in a bot's prompt so it puts its logo there. */
   cardPath?: (holder: string) => string;
   /** Stores a picture (a bot's logo); absent where the reader may not write. */
@@ -89,7 +92,7 @@ export function PanelOwnerRows({
   write: PanelWrite;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const { people, agents, isAgent, cardFor, label, addAgent, workspace, workspaceId, storePicture, cardPath } = tools;
+  const { people, agents, isAgent, cardFor, label, addAgent, workspace, workspaceId, storePicture, cardPath, ownedAreas } = tools;
   const same = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
   const [menu, setMenu] = useState<{ which: "owner" | "helper" | "delegate"; anchor: Anchor } | null>(null);
   const [addingBot, setAddingBot] = useState(false);
@@ -228,7 +231,14 @@ export function PanelOwnerRows({
             </View>
           </Row>
           {card.reach === "webhook" && workspaceId !== undefined ? <BotHookFields workspaceId={workspaceId} bot={owner} canEdit={canEdit} /> : null}
-          <PromptBox title={`Prompt for ${label(owner)}`} text={seatPrompt(seat, card, workspace, cardPath?.(card.holder))} testID="area-panel-prompt" />
+          {/* One prompt the bot sets itself up from: connect, sign in, its webhook, its logo, then its memory (the owner, 2026-11-25). */}
+          <PromptBox
+            title={`Set up ${label(owner)}`}
+            text={botSetupPrompt(card, ownedAreas?.(owner) ?? [{ folder: seat.folder, title: areaTitle(seat.name), modes: seat.modes }], workspace, cardPath?.(card.holder))}
+            copyWord="Copy setup prompt"
+            testID="area-panel-prompt"
+          />
+          <Text variant="treeMeta" style={styles.muted}>{`Paste it into ${label(owner)}. It connects Context, asks you to sign in, and does the rest.`}</Text>
         </>
       ) : ownerIsAgent ? (
         <>

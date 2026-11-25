@@ -152,18 +152,18 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     if (args.metric === null || args.metric?.name === null || args.metric?.name === "") {
       seat.push(["metrics", null], ["metric", null], ["target", null]);
     } else {
-      const name = typeof args.metric?.name === "string" ? args.metric.name.trim() : "";
-      if (name === "") return toolError("invalid: metric is { name, target? }. Pass the name of a metric in the data folder's metrics/.");
-      const known = await metricNames(store, scope, rules, overrides);
-      const match = known?.find((existing) => metricKey(existing) === metricKey(name));
-      if (known !== null && match === undefined) {
-        return toolError(
-          known.length === 0
-            ? `no metric named "${name}": this workspace has no metrics yet; write one in the data folder's metrics/ first`
-            : `no metric named "${name}"; the metrics here are: ${known.join(", ")}`,
-        );
-      }
-      seat.push(["metrics", [metricLine(match ?? name, args.metric.target)]], ["metric", null], ["target", null]);
+        const name = typeof args.metric?.name === "string" ? args.metric.name.trim() : "";
+        if (name === "") return toolError("invalid: metric is { name, target? }. Pass the name of a metric in the data folder's metrics/.");
+        const known = await metricNames(store, scope, rules, overrides);
+        const match = known?.find((existing) => metricKey(existing) === metricKey(name));
+        if (known !== null && match === undefined) {
+          return toolError(
+            known.length === 0
+              ? `no metric named "${name}": this workspace has no metrics yet; write one in the data folder's metrics/ first`
+              : `no metric named "${name}"; the metrics here are: ${known.join(", ")}`,
+          );
+        }
+        seat.push(["metrics", [metricLine(match ?? name, args.metric.target)]], ["metric", null], ["target", null]);
     }
   }
   if (seat.length > 0) {
@@ -230,16 +230,31 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   if (args.webhook !== undefined) {
     const hook = args.webhook ?? {};
     if (typeof hook.address !== "string") return toolError("invalid: webhook is { address, header?, signing_key? }. Pass the bot's https address.");
-    const answer = await store
-      .botHooks({ action: "set", bot: hookBot, address: hook.address, ...(hook.header ? { header: String(hook.header) } : {}), ...(hook.signing_key ? { signingKey: String(hook.signing_key) } : {}) })
-      .catch(() => ({ error: "the control plane could not be reached; try again" }));
-    if (answer?.error) return toolError(`webhook not saved: ${answer.error} Fix that, then try again.`);
-    done.push(
-      `${hookBot}: webhook saved sealed for ${answer.host}${answer.headerEnds ? ` (header ends ${answer.headerEnds})` : ""}. ` +
-        (answer.keyMade
-          ? "Context made its signing key, which nobody can see: to let the bot check signatures, set one with webhook.signing_key (ctxbot_ and 64 hex characters from a random source) or press Replace on the area panel."
-          : "Calls are signed with the key you passed."),
-    );
+    if (hook.header_from_shell !== undefined) {
+      // The bot sends the header's value itself, from its shell, so no model or chat sees it (`http/botHookUpload.js`).
+      const headerName = String(hook.header_from_shell).trim();
+      if (hook.header || hook.signing_key) return toolError("invalid: header_from_shell replaces header and signing_key. Pass only the header's name, like Authorization.");
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(headerName)) return toolError("invalid: header_from_shell is the header's name, like Authorization. Pass just the name, then try again.");
+      if (typeof store.botHookUrl !== "string") return toolError("sending a header from a shell isn't available on this connection. Ask the person to set it in the Context app's area panel, under the bot's Reach.");
+      const minted = await store.botHooks({ action: "ticket", bot: hookBot, address: hook.address, headerName }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try again." }));
+      if (minted?.error || typeof minted?.ticket !== "string") return toolError(`webhook not saved: ${minted?.error ?? "no command was made."} Fix that, then try again.`);
+      done.push(
+        `${hookBot}: nothing saved yet. Run this once in your shell within ${minted.minutes ?? 10} minutes, with $WEBHOOK_SECRET replaced by the environment variable that holds your secret (keep the double quotes, and never print it):\n` +
+          `  curl -sS --fail-with-body -X PUT -H 'Authorization: Bearer ${minted.ticket}' --data-binary "Bearer $WEBHOOK_SECRET" ${store.botHookUrl}\n` +
+          `It sends ${headerName}: Bearer <your secret> straight to Context, which seals it; drop "Bearer " if your webhook takes the bare secret. Then call manage area with test_webhook: "${hookBot}".`,
+      );
+    } else {
+      const answer = await store
+        .botHooks({ action: "set", bot: hookBot, address: hook.address, ...(hook.header ? { header: String(hook.header) } : {}), ...(hook.signing_key ? { signingKey: String(hook.signing_key) } : {}) })
+        .catch(() => ({ error: "the control plane could not be reached; try again" }));
+      if (answer?.error) return toolError(`webhook not saved: ${answer.error} Fix that, then try again.`);
+      done.push(
+        `${hookBot}: webhook saved sealed for ${answer.host}${answer.headerEnds ? ` (header ends ${answer.headerEnds})` : ""}. ` +
+          (answer.keyMade
+            ? "Context made its signing key, which nobody can see: to let the bot check signatures, set one with webhook.signing_key (ctxbot_ and 64 hex characters from a random source) or press Replace on the area panel."
+            : "Calls are signed with the key you passed."),
+      );
+    }
   }
   if (args.test_webhook !== undefined) {
     const answer = await store.botHooks({ action: "test", bot: hookBot }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try test_webhook again." }));
