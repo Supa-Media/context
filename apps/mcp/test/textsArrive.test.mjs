@@ -121,6 +121,18 @@ test("bad bodies are refused 400 before anything is forwarded", async () => {
   assert.equal(placements.length, 0);
 });
 
+test("a members change arrives with no message, exactly as the texting Worker sends it, and is forwarded", async () => {
+  // 2026-11-25: the Worker sends a members change as `message: null` (`toChat(env, "members", name, null)`,
+  // packages/tex/worker/photonEvents.ts and index.ts; pinned in handOver.test.ts). This route refused it 400, the Worker
+  // answered the Photon bridge 503, and the bridge retried that one event forever, holding every later text on the line.
+  const { namespace, placements } = chatNamespace();
+  const { result } = await logged(() => arriveForTexts(post({ kind: "members", inbox: "photon-group:abc", message: null }), { TEX_CHAT: namespace }));
+  assert.equal(result.status, 200);
+  assert.equal(placements.length, 1);
+  const { result: other } = await logged(() => arriveForTexts(post({ kind: "group", inbox: "photon-group:abc", message: null }), { TEX_CHAT: namespace }));
+  assert.equal(other.status, 400, "only a members change may arrive with no message");
+});
+
 test("a body over 256 KiB is refused 413 and nothing is forwarded", async () => {
   const { namespace, placements } = chatNamespace();
   const big = arrival({ message: { text: "x".repeat(MAX_ARRIVE_BYTES) } });
