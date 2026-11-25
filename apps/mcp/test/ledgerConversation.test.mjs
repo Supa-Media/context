@@ -6,6 +6,7 @@
 //  2. `tainted` from the Tex text instead of the reply's `clean` → "an answer is tainted unless its reply says clean" fails.
 //  3. Dropping the pairing of told copies (showing both) → "the Worker's and the gateway's copy of a fixed text show once" fails.
 //  4. (2026-11-25) Dropping the branch for the Worker's own fixed lines → "a fixed line the Worker sent is shown as said" fails.
+//  5. (2026-11-25) Dropping `tainted` from a fixed line's turn → "a fixed line the Worker sent keeps its own mark" fails.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -121,5 +122,20 @@ test("a fixed line the Worker sent is shown as said; an unsent or empty one is n
     { role: "user", text: TOLD_QUESTION, id: `ev${T + 2_000}000003`, at: T + 2_000 },
     { role: "assistant", text: "Done. I invited 1 person here to @studio as editors." },
   ]);
+  assert.equal(turns.length, 4);
+});
+
+// A fixed line's own mark, not the next turn's trust: `showsOutsideWords` (`texEntryPoint/sendTheReply.js`) taints a
+// turn from an assistant turn's `tainted`, so a fixed line whose words came from outside must not read as clean. The
+// `told` branch beside this one is safe by its fixed catalogue; a free-text line has only this mark.
+test("a fixed line the Worker sent keeps its own mark", () => {
+  const line = (ms, n, text, extra = {}) => eventEntry({ id: `${T + ms}-${String(n).padStart(6, "0")}`, at: T + ms, from: { kind: "system" }, kind: "text", text, ...extra });
+  const turns = conversationFromLedger(at([
+    person(0, 1, "what did the shop say"),
+    line(1_000, 2, "I couldn't reach the shop just now."),
+    line(2_000, 3, "The shop's page says to email them.", { tainted: true }),
+  ]));
+  assert.deepEqual(turns[1], { role: "assistant", text: "I couldn't reach the shop just now." }, "a line of the gateway's own words is clean");
+  assert.deepEqual(turns[3], { role: "assistant", text: "The shop's page says to email them.", tainted: true }, "a line marked by its writer stays marked");
   assert.equal(turns.length, 4);
 });
