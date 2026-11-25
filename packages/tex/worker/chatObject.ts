@@ -40,6 +40,7 @@ import { acceptGroup, acceptGroupRoutine, askControlPlane, drainGroup, keepGroup
 import { membersChanged } from "./groupMembers";
 import { flushWithReader } from "./chatRead";
 import { crossTimeouts, takeCrossAnswer, takeCrossAsk } from "./crossChat";
+import { acceptJoined, joinedOf } from "./groupJoined";
 import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE_KEPT_KEY } from "./groupRoutines";
 import { isBound, sha256Hex } from "./groupChat";
 import { warmOnRead } from "./warmStep";
@@ -203,7 +204,13 @@ export class SenderInbox implements DurableObject {
       await this.keepOrigin(request);
       // Only this Worker's cron queues a routine's run (`/group-routine`); a webhook's message never names one.
       // Nor its `heard`: only this object sets that, from the recording itself (`groupVoice.ts`); nor `edited` (`editStep.ts`); nor `channel`, which only the simulator's route sets (`simulatorGroup.ts`).
-      const { routine: _routine, heard: _heard, edited: _edited, channel: _channel, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
+      const { routine: _routine, heard: _heard, edited: _edited, channel: _channel, event: _event, provider: brought, ...sent } = (await request.json()) as GroupMessage & { provider?: unknown };
+      // A group's first message ever, to an object that never kept where it is: a group just made with Tex in it, so its
+      // hello goes first, asked by whoever brought Tex in (`groupJoined.ts`; nothing while the config has no node `joined`).
+      if (!sent.sms && sent.reaction === undefined && (await this.state.storage.get(WHERE_KEPT_KEY)) === undefined) {
+        const joined = joinedOf({ groupId: sent.groupId, line: sent.line, by: sent.from, participants: sent.participants });
+        if (joined !== null) await acceptJoined(this.state.storage, joined, Date.now(), this.env.TEX_GRAPH);
+      }
       await this.keepWhere(sent);
       const message = await heardInGroup(sent, { fetch: this.out, gateway: this.env.GATEWAY_TEXTS });
       const outcome = await acceptGroup(this.state.storage, message, Date.now(), this.groupApp(message.groupId));
@@ -223,6 +230,12 @@ export class SenderInbox implements DurableObject {
     if (path === "/group-members-changed") {
       if (request.method !== "POST") return new Response(null, { status: 405 });
       return Response.json({ marked: await membersChanged(this.state.storage, Date.now()) });
+    }
+    // Tex's own number added to this group (`photonEvents.ts` groupChange, or a Lab test chat's "Tex added"): its hello, once.
+    if (path === "/group-joined") {
+      const joined = joinedOf(await request.json().catch(() => null));
+      if (joined === null) return new Response(null, { status: 400 });
+      return Response.json({ outcome: await acceptJoined(this.state.storage, joined, Date.now(), this.env.TEX_GRAPH) });
     }
     if (path === "/group-routine") {
       const run = chatRoutineRunOf(await request.json());

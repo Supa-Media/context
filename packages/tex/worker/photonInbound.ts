@@ -347,7 +347,7 @@ export function photonGroupNameOf(body: unknown): string | null {
 }
 
 /** A group's change as the bridge reads it (`group.changed`): a new name, or somebody added, removed or left. */
-export type PhotonGroupChange = { groupId: string; line: string; from?: string; change: "renamed"; name: string } | { groupId: string; line: string; from?: string; change: "members" };
+export type PhotonGroupChange = { groupId: string; line: string; from?: string; change: "renamed"; name: string } | { groupId: string; line: string; from?: string; change: "members"; texAdded?: true };
 
 /** The change a `group.changed` event names, or null for any other event, or one this Worker does not read. */
 export function photonGroupChange(body: unknown): PhotonGroupChange | null {
@@ -361,7 +361,9 @@ export function photonGroupChange(body: unknown): PhotonGroupChange | null {
     return name === null ? null : { groupId: env.where.groupId, line: env.line, ...from, change: "renamed", name };
   }
   if (group?.change === "participantAdded" || group?.change === "participantRemoved" || group?.change === "participantLeft") {
-    return { groupId: env.where.groupId, line: env.line, ...from, change: "members" };
+    // Tex's own number added, by someone else: Tex is new here, and says hello once (`groupJoined.ts`).
+    const texAdded = group.change === "participantAdded" && group.address === env.line && from.from !== undefined && from.from !== env.line;
+    return { groupId: env.where.groupId, line: env.line, ...from, change: "members", ...(texAdded ? { texAdded: true as const } : {}) };
   }
   return null;
 }

@@ -5,6 +5,7 @@ export function arrive(stubs: (name: string) => { fetch(request: Request): Promi
 export function remoteLine(rpc: unknown, inbox: string, chatId: string): unknown;
 export function remoteGroupLine(rpc: unknown, inbox: string, groupId: string): unknown;
 export function setChatBound(storage: unknown, bound: unknown | null, muted?: boolean): Promise<void>;
+export const INTRO_KEY: string;
 export function appLine(storage: unknown, now?: () => number): unknown;
 export function isAppChat(chatId: unknown): boolean;
 export function appUserOf(chatId: string): string | null;
