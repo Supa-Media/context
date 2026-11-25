@@ -17,7 +17,9 @@ const PROPS = {
     lede: "Keeps the company's spending in check.",
   },
   "areas/finance/payroll/about.md": { properties: { metrics: ["Payroll on time"] } },
-  "areas/engineering/about.md": { properties: { owner: "@seyi", modes: ["Visionary"] } },
+  "areas/engineering/about.md": { properties: { owner: "@seyi", delegate: "Pipeline", modes: ["Visionary"], approvals: ["Merging to main"] } },
+  // An old helper line under a bot owner names nobody: a bot owns outright.
+  "areas/support/about.md": { properties: { owner: "Finance", helper: "Pipeline" } },
   "areas/secret/about.md": { properties: { owner: "@seyi" } },
   "projects/budget-2027/about.md": { properties: { area: "areas/finance", status: "In progress", owner: "@seyi" } },
   "projects/payroll-run/about.md": { properties: { area: "Areas/Finance/Payroll/", status: "Not started" } },
@@ -36,6 +38,7 @@ const ENTRIES = [
   ["areas/finance/mail/seyi.md", 2],
   ["areas/finance/mail/pipeline.md", 3],
   ["areas/engineering/about.md", 40],
+  ["areas/support/about.md", 40],
   ["areas/secret/about.md", 40],
   ["areas/secret/plan.md", 40],
   ["projects/budget-2027/about.md", 10],
@@ -126,6 +129,17 @@ test("orient for lists every area a person holds, with modes, and never one the 
   const bot = text(await toolOrient(store(), "team", RULES, OVERRIDES, { for: "Finance" }));
   assert.match(bot, /## Finance \(`areas\/finance\/`\) — owner/);
   assert.doesNotMatch(bot, /Payroll/);
+});
+
+test("an area's one delegate acts for its person owner, and orient for the bot lists it as delegate", async () => {
+  // The owner, 2026-11-25: "1 delegate per area please"; a bot-owned area has none.
+  const area = text(await toolOrient(store(), "team", RULES, OVERRIDES, { area: "areas/engineering" }));
+  assert.match(area, /- Delegate: Pipeline \(acts for @seyi here/);
+  const bot = text(await toolOrient(store(), "team", RULES, OVERRIDES, { for: "Pipeline" }));
+  assert.match(bot, /## Engineering \(`areas\/engineering\/`\) — delegate, acting for @seyi/);
+  assert.match(bot, /Needs @seyi's approval first: Merging to main/);
+  assert.doesNotMatch(bot, /Support/);
+  assert.doesNotMatch(text(await toolOrient(store(), "team", RULES, OVERRIDES, { area: "areas/support" })), /Delegate/);
 });
 
 test("an app that drops new arguments can ask the same with about", async () => {

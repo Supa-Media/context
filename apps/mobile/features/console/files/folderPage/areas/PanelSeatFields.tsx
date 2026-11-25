@@ -1,11 +1,12 @@
 /**
  * The side panel's editable rows, drawn as the owner's prototype draws them
  * (the owner, 2026-11-24: "why cant I make changes inline? wth is the point of
- * a side panel if its just going to link to this ugly pop up"): Owner and
- * Helper as values that drop a menu, the modes as chips, and the holder's
- * card (phone, email, who answers for them: Tex, a bot or nobody; or an
- * agent's access and vault item; or a bot's person and its prompt) as fields
- * typed where they are drawn. Then the approval rules,
+ * a side panel if its just going to link to this ugly pop up"): Owner and,
+ * for a person owner, the area's one Delegate (a bot or Tex that acts for
+ * them here; the owner, 2026-11-25: "1 delegate per area", and a person is
+ * never one) as values that drop a menu, the modes as chips, and the holder's
+ * card (phone and email; or an agent's access and vault item; or a bot's
+ * person and its prompt) as fields typed where they are drawn. Then the approval rules,
  * one line each, and the area's notes.
  *
  * Every choice is written as it is made, through the same save the seat
@@ -27,7 +28,7 @@ import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
 import type { OwnedArea } from "@context/shared/src/areaBots.cjs";
-import { AddBotForm, PromptBox, UploadLogo, botDetail, botSetupPrompt, personPrompt } from "./PanelBotFields";
+import { AddBotForm, PromptBox, UploadLogo, botDetail, botSetupPrompt } from "./PanelBotFields";
 import { BotHookFields } from "./PanelBotHook";
 import { MODES, MODE_TIPS, areaTitle, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
@@ -74,7 +75,7 @@ function usePeopleList(search: OwnerSearch, asking: boolean): readonly string[] 
   return people;
 }
 
-/** Owner, helper, modes and how to reach the holder, as label and value rows. */
+/** Owner, delegate, modes and how to reach the holder, as label and value rows. */
 export function PanelOwnerRows({
   seat,
   tools,
@@ -94,17 +95,17 @@ export function PanelOwnerRows({
   const styles = useThemedStyles(makeStyles);
   const { people, agents, isAgent, cardFor, label, addAgent, workspace, workspaceId, storePicture, cardPath, ownedAreas } = tools;
   const same = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
-  const [menu, setMenu] = useState<{ which: "owner" | "helper" | "delegate"; anchor: Anchor } | null>(null);
+  const [menu, setMenu] = useState<{ which: "owner" | "delegate"; anchor: Anchor } | null>(null);
   const [addingBot, setAddingBot] = useState(false);
   const known = usePeopleList(people, menu?.which === "owner" || addingBot);
   const bots = agents.filter((agent) => cardFor(agent, "agent").bot !== "");
   const plain = agents.filter((agent) => !bots.includes(agent));
   const owner = seat.owner;
   const ownerIsAgent = owner !== null && isAgent(owner);
-  const helper = seat.helper;
   const card = owner === null ? null : cardFor(owner, ownerIsAgent ? "agent" : "person");
-  const delegate = card === null || card.kind !== "person" ? null : card.delegation.trim();
-  const delegateBot = delegate === null || delegate === "" ? null : bots.find((bot) => same(bot, delegate)) ?? null;
+  // An area a bot owns has no delegate; a person owner has at most one here.
+  const delegate = owner === null || ownerIsAgent ? null : seat.delegate;
+  const delegateBot = delegate === null ? null : bots.find((bot) => same(bot, delegate)) ?? null;
   const writeCard = (patch: Partial<Card>) => {
     if (card === null) return;
     const next = { ...card, ...patch };
@@ -118,7 +119,7 @@ export function PanelOwnerRows({
     }
     const bot: Card = { ...cardFor(name, "agent"), holder: name, kind: "agent", bot: "grok", belongsTo: whose, reach: "mail" };
     setAddingBot(false);
-    write({ owner: name, helper: null }, [bot]);
+    write({ owner: name, delegate: null }, [bot]);
     return null;
   };
   const toggleMode = (mode: Mode) => write({ modes: seat.modes.includes(mode) ? seat.modes.filter((each) => each !== mode) : [...seat.modes, mode] });
@@ -133,26 +134,21 @@ export function PanelOwnerRows({
           ...plain.map((agent, at) => ({ id: agent, label: label(agent), detail: "Agent", checked: same(owner, agent), ...(at === 0 ? { separatorBefore: true } : {}) })),
           { id: NOBODY, label: "Nobody", checked: owner === null, separatorBefore: true },
         ]
-      : menu?.which === "delegate"
-        ? [
-            { id: NOBODY, label: "Nobody", checked: delegate === null || delegate === "" },
-            { id: "Tex", label: "Tex", checked: delegate !== null && same(delegate, "Tex") },
-            ...bots.map((bot, at) => ({ id: bot, label: label(bot), detail: botDetail(cardFor(bot, "agent"), label), checked: delegate !== null && same(delegate, bot), ...(at === 0 ? { separatorBefore: true } : {}) })),
-            ...plain.map((agent, at) => ({ id: agent, label: label(agent), detail: "Agent", checked: delegate !== null && same(delegate, agent), ...(at === 0 ? { separatorBefore: true } : {}) })),
-          ]
       : [
-          { id: NOBODY, label: "None", checked: helper === null },
-          ...agents.map((agent) => ({ id: agent, label: label(agent), checked: same(helper, agent) })),
+          // Bots and Tex only: a person is never a delegate (the owner, 2026-11-25).
+          { id: NOBODY, label: "Nobody", checked: delegate === null },
+          { id: "Tex", label: "Tex", checked: same(delegate, "Tex") },
+          ...bots.map((bot, at) => ({ id: bot, label: label(bot), detail: botDetail(cardFor(bot, "agent"), label), checked: same(delegate, bot), ...(at === 0 ? { separatorBefore: true } : {}) })),
+          ...plain.map((agent, at) => ({ id: agent, label: label(agent), detail: "Agent", checked: same(delegate, agent), ...(at === 0 ? { separatorBefore: true } : {}) })),
         ];
   const choose = (id: string) => {
     const which = menu?.which;
     setMenu(null);
     if (id === ADD_BOT) return setAddingBot(true);
     const word = id === NOBODY ? null : id;
-    if (which === "delegate") return writeCard({ delegation: word ?? "" });
-    // An agent holding the seat has no helper of its own.
-    if (which === "owner") write({ owner: word, ...(word !== null && isAgent(word) ? { helper: null } : {}) });
-    else write({ helper: word });
+    // A bot taking the area holds it outright, with no delegate.
+    if (which === "owner") write({ owner: word, ...(word !== null && isAgent(word) ? { delegate: null } : {}) });
+    else write({ delegate: word });
   };
 
   return (
@@ -173,14 +169,20 @@ export function PanelOwnerRows({
       </Row>
       {inherited === null ? null : <Text variant="treeMeta" style={[styles.muted, styles.under]}>{inherited}</Text>}
       {addingBot ? <AddBotForm people={known} label={label} onAdd={addBot} onCancel={() => setAddingBot(false)} /> : null}
-      {ownerIsAgent ? null : (
-        <Row label="Helper">
-          <DropValue editable={canEdit} label="Change helper" onOpen={(anchor) => setMenu({ which: "helper", anchor })} testID="area-panel-helper">
-            <Text variant="tree" style={[styles.value, helper === null && styles.muted]} numberOfLines={1}>
-              {helper === null ? "None" : label(helper)}
-            </Text>
-          </DropValue>
-        </Row>
+      {owner === null || ownerIsAgent ? null : (
+        <>
+          <Row label="Delegate">
+            <DropValue editable={canEdit} label="Change delegate" onOpen={(anchor) => setMenu({ which: "delegate", anchor })} testID="area-panel-delegate">
+              {delegate === null ? null : <OwnerFace face={faceOf(delegate)} size={18} />}
+              <Text variant="tree" style={[styles.value, delegate === null && styles.muted]} numberOfLines={1}>
+                {delegate === null ? "Nobody" : label(delegate)}
+              </Text>
+            </DropValue>
+          </Row>
+          {delegate === null ? null : (
+            <Text variant="treeMeta" style={[styles.muted, styles.under]}>{`Acts for ${label(owner)} here, with this area's modes and rules.`}</Text>
+          )}
+        </>
       )}
       <Row label="Modes">
         <View style={styles.modes} role="group" aria-label="Modes">
@@ -257,15 +259,18 @@ export function PanelOwnerRows({
           <Row label="Email">
             <InlineField value={card.email} label="Email" placeholder={canEdit ? "Add an email" : "Not set"} editable={canEdit} onCommit={(email) => writeCard({ email })} style={styles.field} keyboard="email-address" testID="area-panel-email" />
           </Row>
-          <Row label="Delegate">
-            <DropValue editable={canEdit} label="Who answers for them" onOpen={(anchor) => setMenu({ which: "delegate", anchor })} testID="area-panel-delegate">
-              <Text variant="tree" style={[styles.value, (delegate ?? "") === "" && styles.muted]} numberOfLines={1}>
-                {(delegate ?? "") === "" ? "Nobody" : `${label(delegate ?? "")} answers for ${label(owner)}`}
-              </Text>
-            </DropValue>
-          </Row>
           {delegateBot === null ? null : (
-            <PromptBox title={`Prompt for ${label(delegateBot)}`} text={personPrompt(owner, cardFor(delegateBot, "agent"), workspace, cardPath?.(delegateBot))} testID="area-panel-delegate-prompt" />
+            <PromptBox
+              title={`Set up ${label(delegateBot)}`}
+              text={botSetupPrompt(
+                cardFor(delegateBot, "agent"),
+                ownedAreas?.(delegateBot) ?? [{ folder: seat.folder, title: areaTitle(seat.name), modes: seat.modes, actsFor: owner }],
+                workspace,
+                cardPath?.(delegateBot),
+              )}
+              copyWord="Copy setup prompt"
+              testID="area-panel-delegate-prompt"
+            />
           )}
         </>
       )}
@@ -276,7 +281,7 @@ export function PanelOwnerRows({
         <Menu<string>
           items={ownerItems}
           {...(menu.anchor === null ? {} : { anchor: menu.anchor })}
-          title={menu.which === "owner" ? "Owner" : menu.which === "delegate" ? "Answers for them" : "Helper"}
+          title={menu.which === "owner" ? "Owner" : "Delegate"}
           onSelect={choose}
           onDismiss={() => setMenu(null)}
         />

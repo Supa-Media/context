@@ -112,14 +112,16 @@ function logoLine(card, workspace) {
   return `The first time, put your logo on your card, so people see the face you have in your own app: write { ${contextArg(workspace)}path: ${quoted(card)}, args: { edits: [{ old: "kind: agent", new: "kind: agent\\navatar: logo.png" }], images: [{ name: "logo.png", url: "<your logo's https address>" }] } } (or data: its base64 in place of url). Skip it once the card has an avatar: line.`;
 }
 
-function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, card }) {
+function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, card, actsFor }) {
   const name = nameOf(bot) || "the bot";
   const label = botLabel(kind) || "bot";
   const person = nameOf(whose);
+  // The area's person owner, when this bot is the area's delegate rather than its owner (the owner, 2026-11-25).
+  const owner = nameOf(actsFor);
   const where = `${inside(area)}`;
   const lines = [];
   lines.push(
-    `You are ${name}${person ? `, ${person}'s ${label}` : `, a ${label}`}. You own the area ${quoted(title || area)} (${area}) in the Context workspace${workspace ? ` ${workspace.startsWith("@") ? workspace : `@${workspace}`}` : ""}.`,
+    `You are ${name}${person ? `, ${person}'s ${label}` : `, a ${label}`}. ${owner ? `You act for ${owner} in the area` : "You own the area"} ${quoted(title || area)} (${area}) in the Context workspace${workspace ? ` ${workspace.startsWith("@") ? workspace : `@${workspace}`}` : ""}${owner ? `: ${owner} owns it and you are its delegate` : ""}.`,
   );
   lines.push("");
   lines.push(
@@ -135,30 +137,30 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, ca
   );
   lines.push("");
   lines.push(mailText(where, name, reach));
-  const modeText = modeLines(modes, person);
+  const modeText = modeLines(modes, owner || person);
   if (modeText.length > 0) {
     lines.push("");
     lines.push("Your modes here:");
     lines.push(...modeText);
   }
   lines.push("");
-  lines.push(`Ask ${person || "the area's owner"} before anything this area's approval rules name.`);
+  lines.push(`Ask ${owner || person || "the area's owner"} before anything this area's approval rules name.`);
   return lines.join("\n");
 }
 
 /**
- * The prompt for a bot a person delegates to: it acts for them in every area
- * they hold, each with that area's modes. `orient for` lists them live.
+ * The prompt for a bot that holds no area yet: `orient for` lists the areas it
+ * owns or is the delegate of once somebody names it on one.
  */
 function delegatePrompt({ bot, kind, whose, workspace, card }) {
   const name = nameOf(bot) || "the bot";
   const label = botLabel(kind) || "bot";
-  const person = nameOf(whose) || "your person";
+  const person = nameOf(whose);
   const lines = [];
-  lines.push(`You are ${name}, ${person}'s ${label}. You act for ${person}${workspace ? ` in the Context workspace ${workspace.startsWith("@") ? workspace : `@${workspace}`}` : ""}.`);
+  lines.push(`You are ${name}${person ? `, ${person}'s ${label}` : `, a ${label}`}, in the Context workspace${workspace ? ` ${workspace.startsWith("@") ? workspace : `@${workspace}`}` : ""}.`);
   lines.push("");
   lines.push(
-    `Start every session with: orient { ${contextArg(workspace)}for: ${quoted(person)} }. It lists every area ${person} holds, their modes in each, each area's metric and rules, and the mail waiting. If your app drops the for argument, ask orient { ${contextArg(workspace)}about: ${quoted(`for ${person}`)} } instead.`,
+    `Start every session with: orient { ${contextArg(workspace)}for: ${quoted(name)} }. It lists every area you own or act in for its owner, with each one's modes, metric and rules, and the mail waiting. If your app drops the for argument, ask orient { ${contextArg(workspace)}about: ${quoted(`for ${name}`)} } instead.`,
   );
   const logo = logoLine(card, workspace);
   if (logo) lines.push("", logo);
@@ -168,7 +170,7 @@ function delegatePrompt({ bot, kind, whose, workspace, card }) {
   lines.push("");
   lines.push("Keep what you learn about an area in that area's folder. Projects live in the Projects folder; give each one you start an area: line naming the area it serves.");
   lines.push("");
-  lines.push(`Ask ${person} before anything an area's approval rules name.`);
+  lines.push(`Ask an area's owner${person ? ` (or ${person})` : ""} before anything its approval rules name.`);
   return lines.join("\n");
 }
 
@@ -183,11 +185,11 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
   const person = nameOf(whose);
   const lines = [];
   lines.push(
-    `You are ${name}${person ? `, ${person}'s ${label}` : `, a ${label}`}. You own these areas in the Context workspace${workspace ? ` ${workspace.startsWith("@") ? workspace : `@${workspace}`}` : ""}: ${areas.map((area) => `${quoted(area.title || area.folder)} (${area.folder})`).join(", ")}.`,
+    `You are ${name}${person ? `, ${person}'s ${label}` : `, a ${label}`}. You hold these areas in the Context workspace${workspace ? ` ${workspace.startsWith("@") ? workspace : `@${workspace}`}` : ""}: ${areas.map((area) => `${quoted(area.title || area.folder)} (${area.folder}${nameOf(area.actsFor) ? `, for ${nameOf(area.actsFor)}, who owns it` : ""})`).join(", ")}. Where an area says "for" someone, you are its delegate: you act for its owner there.`,
   );
   lines.push("");
   lines.push(
-    `Start every session with: orient { ${contextArg(workspace)}for: ${quoted(name)} }. It lists every area you own, with each one's goal, metric and target, approval rules, modes and the mail waiting for you. If your app drops the for argument, ask orient { ${contextArg(workspace)}about: ${quoted(`for ${name}`)} } instead.`,
+    `Start every session with: orient { ${contextArg(workspace)}for: ${quoted(name)} }. It lists every area you own or act in, with each one's goal, metric and target, approval rules, modes and the mail waiting for you. If your app drops the for argument, ask orient { ${contextArg(workspace)}about: ${quoted(`for ${name}`)} } instead.`,
   );
   lines.push("");
   lines.push("Keep what you want to remember about an area, your notes, goals and decisions, in that area's folder.");
@@ -199,7 +201,7 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
   lines.push("In each area, work as its modes say:");
   for (const mode of MODE_ORDER) lines.push(`- ${mode}: ${MODE_MEANINGS[mode]}`);
   lines.push("");
-  lines.push(`Ask ${person || "the area's owner"} before anything an area's approval rules name.`);
+  lines.push(`Ask each area's owner${person ? ` (${person} where you own it)` : ""} before anything its approval rules name.`);
   return lines.join("\n");
 }
 
@@ -209,7 +211,8 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
  * should be in every instruction"): connect Context and wait for the person to
  * sign in; hand Context its webhook from its own shell, so no chat sees the
  * secret; put its logo on its card; then keep the rest in memory. `areas` is
- * every area the bot owns; `endpoint` the MCP address; `card` its card's path
+ * every area the bot owns or is the delegate of (`actsFor` names that area's
+ * owner); `endpoint` the MCP address; `card` its card's path
  * when it has no logo yet.
  */
 function setupPrompt({ bot, kind, whose, workspace, areas, reach, card, endpoint }) {
@@ -235,7 +238,7 @@ function setupPrompt({ bot, kind, whose, workspace, areas, reach, card, endpoint
     owned.length > 1
       ? areasPrompt({ bot: name, kind, whose: person, workspace, areas: owned, reach })
       : owned.length === 1
-        ? areaPrompt({ bot: name, kind, whose: person, workspace, area: owned[0].folder, title: owned[0].title, modes: owned[0].modes, reach })
+        ? areaPrompt({ bot: name, kind, whose: person, workspace, area: owned[0].folder, title: owned[0].title, modes: owned[0].modes, reach, actsFor: owned[0].actsFor })
         : delegatePrompt({ bot: name, kind, whose: person, workspace });
   return [
     `Set yourself up as ${name}${person ? `, ${person}'s ${label}` : ""}, in Context. Do these in order:`,

@@ -12,7 +12,7 @@
  * "2 sub-areas · Subscriptions, Payroll" foot.
  *
  * An area's box says: its owner's face and name, who holds it (and the
- * helper), its one headline metric (label, trend, value, target, and whether
+ * delegate), its one headline metric (label, trend, value, target, and whether
  * it is on target, in words and a shape as well as colour), and a foot with
  * how it is run and what else is in the folder. A sub-area's compact box
  * says its face, name and the metric's line. An empty seat is a dashed box
@@ -248,7 +248,7 @@ function More({ seat, ctx, shown, onHover, style }: { seat: Seat; ctx: Ctx; show
 
 function ownerLine(seat: Seat, ctx: Ctx): string {
   if (seat.owner === null) return "No owner";
-  return `${ctx.label(seat.owner)}${seat.helper === null ? "" : ` + ${seat.helper}`}`;
+  return `${ctx.label(seat.owner)}${seat.delegate === null ? "" : ` + ${seat.delegate}`}`;
 }
 
 /** The open folder's box: its name, who holds it, and how many of its areas need a look. Pressing it opens the seat options. */

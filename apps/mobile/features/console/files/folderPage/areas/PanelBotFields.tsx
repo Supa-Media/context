@@ -12,7 +12,7 @@
 
 import { useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { botLabel, delegatePrompt, setupPrompt, type OwnedArea } from "@context/shared/src/areaBots.cjs";
+import { botLabel, setupPrompt, type OwnedArea } from "@context/shared/src/areaBots.cjs";
 import { MCP_ENDPOINT } from "../../../placeholderData";
 import { writeClipboard } from "../../../../design/clipboard";
 import { Menu } from "../../../../design/components/Menu";
@@ -42,17 +42,6 @@ export function botSetupPrompt(card: Card, areas: readonly OwnedArea[], workspac
     reach: card.reach,
     endpoint: MCP_ENDPOINT,
     ...(cardNote === undefined || card.avatar !== "" ? {} : { card: cardNote }),
-  });
-}
-
-/** The prompt for the bot a person delegates to. */
-export function personPrompt(person: string, bot: Card, workspace: string | undefined, cardNote?: string): string {
-  return delegatePrompt({
-    bot: bot.holder,
-    kind: bot.bot,
-    whose: person,
-    ...(workspace === undefined ? {} : { workspace }),
-    ...(cardNote === undefined || bot.avatar !== "" ? {} : { card: cardNote }),
   });
 }
 

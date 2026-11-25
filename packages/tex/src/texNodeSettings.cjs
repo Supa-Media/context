@@ -68,7 +68,7 @@ const STEP_SETTINGS = Object.freeze({
   tapback: Object.freeze({
     stickers: Object.freeze({
       type: "boolean",
-      default: false,
+      default: true,
       label: "Chat stickers",
       tip: "Let the tapback stick a sticker someone used in this chat instead, by its id; the emoji goes where it can't (Photon only, stickers.ts).",
     }),

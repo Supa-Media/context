@@ -25,6 +25,8 @@ export declare function areaPrompt(input: {
   reach?: ReachKind;
   /** The bot's card, `areas/people/pipeline.md`: the prompt then has it put its logo there. */
   card?: string;
+  /** The area's person owner, when the bot is the area's delegate rather than its owner. */
+  actsFor?: string;
 }): string;
 export declare function delegatePrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string; card?: string }): string;
 
@@ -32,6 +34,8 @@ export interface OwnedArea {
   folder: string;
   title?: string;
   modes?: readonly string[];
+  /** The area's person owner, when the bot is its delegate. */
+  actsFor?: string;
 }
 export declare function areasPrompt(input: { bot: string; kind?: string; whose?: string; workspace?: string; areas: readonly OwnedArea[]; reach?: ReachKind }): string;
 export declare function setupPrompt(input: {

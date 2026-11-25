@@ -1,7 +1,7 @@
 /**
  * What the seat menu says, shared by the popover (`SeatMenu.web.tsx`) and the
  * sheet (`SeatMenu.tsx`): a head naming the area and who holds it, how to
- * reach the holder and the helper, then the actions, each with its icon.
+ * reach the holder and the delegate, then the actions, each with its icon.
  *
  * The approved prototype draws it this way (the owner, 2026-11-23: "do these
  * 2 things look alike?" of a plain four-line menu). How to reach whoever holds
@@ -42,14 +42,11 @@ export interface SeatMenuModel {
 }
 
 /** The lines of one holder's card, as the menu lists them. */
-export function reachLines(card: Card, name: string): ReachLine[] {
+export function reachLines(card: Card, _name: string): ReachLine[] {
   const out: ReachLine[] = [];
   if (card.kind === "person") {
     if (card.phone !== "") out.push({ icon: "phone", text: card.phone, copy: card.phone });
     if (card.email !== "") out.push({ icon: "mail", text: card.email, copy: card.email });
-    const deleg = card.delegation.trim();
-    if (deleg.toLowerCase() === "tex") out.push({ icon: "tex", text: `Delegates to Tex: text Tex and it answers for ${name}` });
-    else if (deleg !== "") out.push({ icon: "robot", text: `Delegates to ${deleg}${card.delegationHow === "" ? "" : `. ${card.delegationHow}`}` });
     if (out.length === 0) out.push({ icon: "more", text: "No contact yet" });
   } else {
     out.push({ icon: "robot", text: card.access === "" ? "No access notes yet" : card.access });
@@ -81,10 +78,10 @@ export function seatMenuModel(input: SeatMenuInputs): SeatMenuModel {
   const reach: ReachBlock[] = [];
   if (owner !== null) {
     const ownerCard = card(owner, isAgent(owner) ? "agent" : "person");
-    reach.push({ title: `${seat.helper === null ? "" : "Owner · "}Reach ${ownerName}`, lines: reachLines(ownerCard, ownerName) });
+    reach.push({ title: `${seat.delegate === null ? "" : "Owner · "}Reach ${ownerName}`, lines: reachLines(ownerCard, ownerName) });
   }
-  if (seat.helper !== null) {
-    reach.push({ title: `Helper · Reach ${seat.helper}`, lines: reachLines(card(seat.helper, "agent"), seat.helper) });
+  if (seat.delegate !== null && (owner === null || !isAgent(owner))) {
+    reach.push({ title: `Delegate · Reach ${seat.delegate}`, lines: reachLines(card(seat.delegate, "agent"), seat.delegate) });
   }
   const items: MenuItem<SeatMenuId>[] = [];
   const glyph = (name: IconName) => <MenuGlyph name={name} />;

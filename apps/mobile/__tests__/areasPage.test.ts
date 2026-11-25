@@ -40,7 +40,7 @@ const AREAS: ListNote[] = [
   { path: "areas/finance/about.md", properties: { owner: "@seyi", modes: ["Visionary", "Manager"], metrics: ["Monthly cost, target under $600"] } },
   { path: "areas/finance/budget.md", properties: {} },
   { path: "areas/finance/payroll/about.md", properties: { metrics: ["Payroll run on time"] } },
-  { path: "areas/engineering/about.md", properties: { owner: "@sayo", helper: "Claude", modes: ["Doer"] } },
+  { path: "areas/engineering/about.md", properties: { owner: "@sayo", delegate: "Claude", modes: ["Doer"] } },
   { path: "areas/engineering/on-call.md", properties: {} },
   { path: "areas/design/brand.md", properties: {} },
   { path: "areas/people/about.md", properties: { area: "false" } },
@@ -164,7 +164,7 @@ describe("the Areas folder", () => {
     expect(strip(one("seat-menu-holder", menu).textContent)).toContain("Doer");
     const reach = all("seat-menu-reach", menu).map((block) => strip(block.textContent));
     expect(reach.join(" ")).toContain("+1 555 010 0177");
-    expect(reach.join(" ")).toContain("Helper");
+    expect(reach.join(" ")).toContain("Delegate");
     const labels = Array.from(menu.querySelectorAll<HTMLElement>('[data-testid^="menu-item-"]')).map((node) => strip(node.textContent).trim());
     expect(labels).toEqual(expect.arrayContaining(["Edit seat…", "Add a sub-area…", "Change owner…", "Pick a metric…", "Open about.md"]));
     expect(labels.some((label) => label.startsWith("Edit how to reach"))).toBe(true);
@@ -261,7 +261,9 @@ describe("the Areas folder", () => {
     expect(seatLines).toContainEqual(["modes", ["Doer"]]);
     const card = writes.filter(([path]) => path === "areas/people/sayo.md").map(([, key, value]) => [key, value]);
     expect(card).toContainEqual(["phone", "+1 555 010 0199"]);
-    expect(card).toContainEqual(["delegation", "Tex"]);
+    // The card's old "delegates to" line goes: a delegate is per area now (the owner, 2026-11-25).
+    expect(card).toContainEqual(["delegation", null]);
+    expect(seatLines).toContainEqual(["delegate", "Claude"]);
     // Credentials never land in a card.
     expect(card.map(([key]) => key).some((key) => /password|secret|token|login/i.test(String(key)))).toBe(false);
   });
@@ -287,14 +289,15 @@ describe("the Areas folder", () => {
 
     const sayo = all("seat-person").find((node) => strip(node.textContent).includes("@sayo"))!;
     await press(sayo);
-    const claude = all("seat-helper-input-chip").find((node) => strip(node.textContent).trim() === "Claude");
+    const claude = all("seat-delegate-input-chip").find((node) => strip(node.textContent).trim() === "Claude");
     expect(claude).toBeDefined();
     await press(claude!);
     await press(one("seat-save"));
     await act(async () => {});
     const lines = writes.filter(([path]) => path === "areas/finance/about.md").map(([, key, value]) => [key, value]);
     expect(lines).toContainEqual(["owner", "@sayo"]);
-    expect(lines).toContainEqual(["helper", "Claude"]);
+    expect(lines).toContainEqual(["delegate", "Claude"]);
+    expect(lines).toContainEqual(["helper", null]);
   });
 
   test("an agent can hold a seat alone, picked from the workspace's agents", async () => {
@@ -315,8 +318,8 @@ describe("the Areas folder", () => {
     await act(async () => {});
     const lines = writes.filter(([path]) => path === "areas/engineering/about.md").map(([, key, value]) => [key, value]);
     expect(lines).toContainEqual(["owner", "Codex"]);
-    // An agent owner has no agent of its own: engineering's helper is cleared.
-    expect(lines.some(([key, value]) => key === "helper" && value !== null)).toBe(false);
+    // An agent owner has no delegate: engineering's is cleared.
+    expect(lines.some(([key, value]) => (key === "delegate" || key === "helper") && value !== null)).toBe(false);
   });
 
   test("saving a seat without touching a card writes no card", async () => {

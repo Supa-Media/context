@@ -30,6 +30,8 @@ import { skip, noteId, NOW, SECRET, world, send, dataObject, roleOf } from "./da
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs1", format: "pem" } });
 const CLIENT_ID = "Iv1.testclient";
+const CLIENT_SECRET = "client-secret-for-tests";
+const CALLBACK = "https://context.lc/data/github/callback";
 const USER_TOKEN = "ghu_userTokenForTestsOnly0000";
 const INSTALL_TOKEN = "ghs_installTokenForTestsOnly00";
 const CODE = "oneTimeCode123";
@@ -38,7 +40,7 @@ const ABOUT = "data/github/about.md";
 const ABOUT_TEXT = (source = "github") => `---\nsource: ${source}\nname: "GitHub"\n---\n\nConnected by an owner.\n`;
 
 function withGithubApp(w) {
-  Object.assign(w.env, { GH_DATA_APP_ID: "4242", GH_DATA_PRIVATE_KEY: privateKey, GH_DATA_APP_SLUG: "context-data", GH_DATA_CLIENT_ID: CLIENT_ID, GH_DATA_CLIENT_SECRET: "client-secret-for-tests" });
+  Object.assign(w.env, { GH_DATA_APP_ID: "4242", GH_DATA_PRIVATE_KEY: privateKey, GH_DATA_APP_SLUG: "context-data", GH_DATA_CLIENT_ID: CLIENT_ID, GH_DATA_CLIENT_SECRET: CLIENT_SECRET, APP_ORIGIN: "https://context.lc" });
 }
 
 /** A github/ source folder with its about.md and its three empty sheets. */
@@ -59,13 +61,16 @@ async function withSource(w, who, source = "github") {
 const pr = (number, opened, merged, updated = merged ?? opened) => ({ number, title: `Change ${number}`, createdAt: opened, mergedAt: merged, updatedAt: updated, additions: 10 * number, deletions: number, author: { login: "dev" } });
 
 /** GitHub as it answers, recording each call's host, path and the authorization it carried. */
-function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"] } = {}) {
+function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], trade = null } = {}) {
   const seen = [];
   const auth = (init) => String(new Headers(init?.headers ?? {}).get("authorization") ?? "");
   w.net.answers.set("github.com", (url, init) => {
-    seen.push({ host: "github.com", path: new URL(url).pathname, auth: auth(init) });
     const body = JSON.parse(init.body);
-    return Response.json(body.code === CODE && body.client_id === CLIENT_ID ? { access_token: USER_TOKEN } : { error: "bad_verification_code" });
+    seen.push({ host: "github.com", path: new URL(url).pathname, auth: auth(init), body });
+    if (trade !== null) return trade(body);
+    // GitHub answers a refused exchange 200, with its reason in the body and no token.
+    const good = body.code === CODE && body.client_id === CLIENT_ID && body.client_secret === CLIENT_SECRET && body.redirect_uri === CALLBACK;
+    return Response.json(good ? { access_token: USER_TOKEN } : { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." });
   });
   w.net.answers.set("api.github.com", (url, init) => {
     const { pathname, searchParams } = new URL(url);
@@ -223,6 +228,55 @@ test("an installation the owner can't reach is refused, and nothing is kept", { 
   assert.ok(seen.some((call) => call.method === "DELETE"), "the owner's token was revoked anyway");
   assert.equal(seen.some((call) => call.path.endsWith("/access_tokens")), false);
   assert.equal(dataObject(w, "pAlice").storage.map.get("connections"), undefined);
+});
+
+// Sabotage: drop `redirect_uri` from the exchange and the first assertion fails; drop `tradeRefusal`'s reason and the
+// message assertions fail.
+test("a refused code exchange binds nothing and says GitHub's reason, never a secret", { skip }, async () => {
+  const w = await world();
+  const { seen, state } = await installed(w);
+  const { result: done, lines } = await logsOf(() => finish(w, w.alice, state, { code: "staleCode999" }));
+  const traded = seen.find((call) => call.host === "github.com");
+  assert.equal(traded.body.redirect_uri, CALLBACK);
+  assert.equal(done.status, 400);
+  assert.match(done.body.message, /didn't confirm who approved it \(bad_verification_code: The code passed is incorrect or expired\); connect it again/);
+  for (const secret of [CLIENT_SECRET, "staleCode999", "PRIVATE KEY"]) {
+    assert.equal(JSON.stringify(done.body).includes(secret), false, `${secret} reached the answer`);
+    assert.equal(lines.some((line) => line.includes(secret)), false, `${secret} reached a log`);
+  }
+  assert.equal(seen.some((call) => call.host === "api.github.com"), false, "nothing was asked with no token");
+  assert.equal(dataObject(w, "pAlice").storage.map.get("connections"), undefined);
+});
+
+test("a token endpoint that fails outright, or echoes a secret, is named without it", { skip }, async () => {
+  const w = await world();
+  withGithubApp(w);
+  await withSource(w, w.alice);
+  github(w, { trade: () => new Response("oops", { status: 502 }) });
+  const failed = await finish(w, w.alice, stateOf(await start(w, w.alice)));
+  assert.equal(failed.status, 400);
+  assert.match(failed.body.message, /\(GitHub answered 502\)/);
+
+  const v = await world();
+  withGithubApp(v);
+  await withSource(v, v.alice);
+  github(v, { trade: (body) => Response.json({ error: "incorrect_client_credentials", error_description: `secret ${body.client_secret} is wrong`, access_token: 7 }) });
+  const echoed = await finish(v, v.alice, stateOf(await start(v, v.alice)));
+  assert.equal(echoed.status, 400);
+  assert.match(echoed.body.message, /\(incorrect_client_credentials\); connect it again/);
+  assert.equal(JSON.stringify(echoed.body).includes(CLIENT_SECRET), false);
+  assert.equal(dataObject(v, "pAlice").storage.map.get("connections"), undefined);
+});
+
+test("with no https origin the exchange leaves redirect_uri out, and GitHub defaults it", { skip }, async () => {
+  const w = await world();
+  withGithubApp(w);
+  delete w.env.APP_ORIGIN;
+  await withSource(w, w.alice);
+  const seen = github(w, { trade: (body) => Response.json(body.code === CODE && !("redirect_uri" in body) ? { access_token: USER_TOKEN } : { error: "redirect_uri_mismatch" }) });
+  const done = await finish(w, w.alice, stateOf(await start(w, w.alice)));
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.equal("redirect_uri" in seen.find((call) => call.host === "github.com").body, false);
 });
 
 test("only an owner starts or finishes it; a pasted key and a source that isn't GitHub are refused", { skip }, async () => {

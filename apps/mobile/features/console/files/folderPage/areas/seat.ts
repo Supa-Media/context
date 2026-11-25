@@ -7,7 +7,7 @@
  * read, so a person, Tex or any agent edits them as text:
  *
  *     owner: "@dev2"
- *     helper: Claude Code
+ *     delegate: Claude Code
  *     modes: [Manager, Doer]
  *     metrics:
  *       - PR time to ship, target 2 days
@@ -44,7 +44,8 @@ export const MODE_TIPS: Readonly<Record<Mode, string>> = {
 };
 
 /** The lines that make a deeper folder an area. */
-export const SEAT_KEYS = ["owner", "helper", "modes", "metrics", "metric", "approvals"] as const;
+/** `helper` is the old name of `delegate`, still read (the owner, 2026-11-25: one delegate per area, no helpers). */
+export const SEAT_KEYS = ["owner", "delegate", "helper", "modes", "metrics", "metric", "approvals"] as const;
 /** Says outright whether a folder is an area: `area: false` keeps a folder in the Areas folder plain. */
 export const AREA_KEY = "area";
 /** The folder in the Areas folder that holds the how-to-reach cards. */
@@ -69,7 +70,12 @@ export interface Seat {
   readonly owner: string | null;
   /** The area the owner comes from when it is not this one; null when it is its own or nobody's. */
   readonly ownerFrom: string | null;
-  readonly helper: string | null;
+  /**
+   * The one bot (or Tex) that acts for this area's person owner here, with the
+   * area's modes and approval rules (the owner, 2026-11-25: "1 delegate per
+   * area"). A person is never one, and an area a bot owns has none.
+   */
+  readonly delegate: string | null;
   readonly modes: readonly Mode[];
   readonly metrics: readonly Metric[];
   readonly approvals: readonly string[];
@@ -90,10 +96,6 @@ export interface Card {
   readonly kind: "person" | "agent";
   readonly phone: string;
   readonly email: string;
-  /** A person's delegation agent: `Tex`, another bot's name, or "" for none. */
-  readonly delegation: string;
-  /** How to reach that other bot, when it is not Tex. */
-  readonly delegationHow: string;
   /** An agent's own access notes: where and how it is reached. */
   readonly access: string;
   /** The vault item holding an agent's login: a name only, never the login. */
@@ -230,7 +232,7 @@ export function seatOf(folder: string, root: string, notes: readonly ListNote[])
     ownOwner,
     owner,
     ownerFrom,
-    helper: text(props.helper) || null,
+    delegate: text(props.delegate) || text(props.helper) || null,
     modes: modesOf(props.modes),
     metrics: metricsOf(props),
     approvals: list(props.approvals),
@@ -320,7 +322,7 @@ export function notesUnder(folder: string, notes: readonly ListNote[]): number {
 /** The edits a seat pop-up saves. */
 export interface SeatEdit {
   readonly owner: string | null;
-  readonly helper: string | null;
+  readonly delegate: string | null;
   readonly modes: readonly Mode[];
   readonly metrics: readonly Metric[];
   readonly approvals: readonly string[];
@@ -336,7 +338,9 @@ export function seatChanges(edit: SeatEdit): Change[] {
   };
   return [
     ["owner", edit.owner?.trim() || null],
-    ["helper", edit.helper?.trim() || null],
+    ["delegate", edit.delegate?.trim() || null],
+    // The old name of the line, cleared so it never says something else.
+    ["helper", null],
     ["modes", edit.modes.length === 0 ? null : MODES.filter((mode) => edit.modes.includes(mode))],
     ["metrics", lines(edit.metrics.filter((metric) => metric.name.trim() !== "").map(metricLine))],
     // The `metrics:` line now says the metric; a hand-written `metric:` and `target:` would win over it (`metricsOf`).
@@ -378,8 +382,6 @@ export function cardOf(holder: string, kind: Card["kind"], root: string, notes: 
     kind: said === "person" || said === "agent" ? said : kind,
     phone: text(props.phone),
     email: text(props.email),
-    delegation: text(props.delegation),
-    delegationHow: text(props.delegation_how),
     access: text(props.access),
     vault: text(props.vault),
     bot: botKind(text(props.bot)),
@@ -394,14 +396,14 @@ export function cardOf(holder: string, kind: Card["kind"], root: string, notes: 
 export function cardChanges(card: Card): Change[] {
   const v = (value: string) => (value.trim() === "" ? null : value.trim());
   const person = card.kind === "person";
-  const other = person && card.delegation.trim() !== "" && card.delegation.trim().toLowerCase() !== "tex";
   return [
     ["holder", card.holder.trim()],
     ["kind", card.kind],
     ["phone", person ? v(card.phone) : null],
     ["email", person ? v(card.email) : null],
-    ["delegation", person ? v(card.delegation) : null],
-    ["delegation_how", other ? v(card.delegationHow) : null],
+    // Who acts for a person is each area's delegate now (the owner, 2026-11-25); the card's old lines go.
+    ["delegation", null],
+    ["delegation_how", null],
     ["access", person ? null : v(card.access)],
     ["vault", person ? null : v(card.vault)],
     // A bot's own lines; a plain agent and a person have none.
@@ -421,8 +423,6 @@ export function reachLine(card: Card): string {
   if (card.kind === "person") {
     if (card.phone !== "") out.push(card.phone);
     if (card.email !== "") out.push(card.email);
-    const deleg = card.delegation.trim();
-    if (deleg !== "") out.push(`delegates to ${deleg}${deleg.toLowerCase() !== "tex" && card.delegationHow !== "" ? ` (${card.delegationHow})` : ""}`);
   } else {
     if (card.bot !== "") out.push(card.belongsTo === "" ? botLabel(card.bot) : `${card.belongsTo}'s ${botLabel(card.bot)}`);
     if (card.access !== "") out.push(card.access);

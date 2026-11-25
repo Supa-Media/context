@@ -1,20 +1,20 @@
-/** An area's settings, metric, bots and a person's delegate (`manage area`). See `tools/notes/setArea.js`. */
+/** An area's settings (owner and delegate among them), metric and bots (`manage area`). See `tools/notes/setArea.js`. */
 export function areaToolDefinitions() {
   return [
     {
       name: "set_area",
       title: "Set up an area",
       description:
-        "Change an area's settings, as the app's area panel does: owner and helper (@handle or bot name), modes, approval rules and its one " +
-        "metric (a metric note's name in the data folder's metrics/, with a target). bot makes or changes a bot's card; delegate says who " +
-        "answers for a person; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call; " +
+        "Change an area's settings, as the app's area panel does: owner (@handle or bot name), delegate (the one bot or Tex acting for a " +
+        "person owner in this area), modes, approval rules and its one metric (a metric note's name in the data folder's metrics/, with a " +
+        "target). bot makes or changes a bot's card; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call; " +
         "attach and detach say which projects serve the area.",
       inputSchema: {
         type: "object",
         properties: {
           area: { type: "string", description: 'The area\'s folder, like "areas/finance".' },
           owner: { type: ["string", "null"], description: "@handle or bot name; null clears it." },
-          helper: { type: ["string", "null"], description: "@handle or bot name; null clears it." },
+          delegate: { type: ["string", "null"], description: "The one bot's name (or Tex) that acts for this area's person owner here; never a person, none when a bot owns it; null clears it." },
           modes: { type: "array", items: { type: "string" }, description: "Any of Visionary, Manager, Doer; [] clears them." },
           approvals: { type: "array", items: { type: "string" }, description: "One-line rules that need the owner's approval first; [] clears them." },
           metric: {
@@ -38,12 +38,6 @@ export function areaToolDefinitions() {
               },
             },
             required: ["name"],
-            additionalProperties: false,
-          },
-          delegate: {
-            type: "object",
-            properties: { person: { type: "string" }, to: { type: ["string", "null"] } },
-            required: ["person"],
             additionalProperties: false,
           },
           webhook: {

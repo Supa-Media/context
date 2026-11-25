@@ -174,7 +174,15 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   in as the owner, finishes it: the gateway refuses a state that isn't that
   owner's own for that workspace, trades the code for the owner's GitHub
   token, keeps the installation only if GitHub lists it among the ones that
-  person can reach, and then revokes that token. An installation id from
+  person can reach, and then revokes that token. The exchange sends
+  `redirect_uri` as `<APP_ORIGIN>/data/github/callback` (left out when the
+  deployment names no https origin, so GitHub defaults to the first Callback
+  URL), and a refused exchange says GitHub's own error code (and its
+  description, when plain and free of anything sent) so the next failure is
+  diagnosable; never a secret, the code or the token endpoint's body. The
+  callback's `?code=` is GitHub's, so the app's sign-in provider is told not
+  to redeem it (`shouldHandleAuthCode` skips `/data/github/`): redeemed, it
+  signed the owner out on the way back (2026-11-25). An installation id from
   somebody else's link binds nothing. Pasting a key for GitHub is refused.
 - **What is kept**, sealed in the sync object like an app key: the
   installation id and the repositories picked (none picked reads every one the

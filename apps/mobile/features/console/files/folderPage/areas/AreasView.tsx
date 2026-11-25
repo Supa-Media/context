@@ -164,17 +164,19 @@ export function AreasView(props: AreasViewProps) {
   // Every area a holder names itself the owner of, from the Areas folder down: a bot's setup prompt covers them all.
   const ownedAreas = useCallback(
     (holder: string) => {
-      const out: { folder: string; title: string; modes: readonly string[] }[] = [];
+      const out: { folder: string; title: string; modes: readonly string[]; actsFor?: string }[] = [];
+      const same = (word: string | null) => word !== null && word.trim().toLowerCase() === holder.trim().toLowerCase();
       const walk = (node: AreaNode) => {
-        if (node.seat.ownOwner !== null && node.seat.ownOwner.trim().toLowerCase() === holder.trim().toLowerCase()) {
-          out.push({ folder: node.seat.folder, title: areaTitle(node.seat.name), modes: node.seat.modes });
-        }
+        const { seat } = node;
+        if (same(seat.ownOwner)) out.push({ folder: seat.folder, title: areaTitle(seat.name), modes: seat.modes });
+        // The area's delegate acts for its person owner there (the owner, 2026-11-25: one delegate per area).
+        else if (same(seat.delegate) && seat.owner !== null && !isAgent(seat.owner)) out.push({ folder: seat.folder, title: areaTitle(seat.name), modes: seat.modes, actsFor: seat.owner });
         for (const child of node.areas) walk(child);
       };
       walk(areaTree(root, root, notes));
       return out;
     },
-    [root, notes],
+    [root, notes, isAgent],
   );
   const reach = useCallback(
     (owner: string) => reachLine(cardFor(owner, isAgent(owner) ? "agent" : "person")),

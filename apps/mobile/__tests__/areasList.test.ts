@@ -34,7 +34,7 @@ const AREAS: ListNote[] = [
   { path: "areas/finance/about.md", properties: { owner: "@seyi", modes: ["Visionary", "Manager"], metrics: ["Monthly cost, target under $600"] } },
   { path: "areas/finance/budget.md", properties: {} },
   { path: "areas/finance/payroll/about.md", properties: { metrics: ["Payroll run on time"] } },
-  { path: "areas/engineering/about.md", properties: { owner: "@sayo", helper: "Claude", modes: ["Doer"] } },
+  { path: "areas/engineering/about.md", properties: { owner: "@sayo", delegate: "Claude", modes: ["Doer"] } },
   { path: "areas/engineering/on-call.md", properties: {} },
   { path: "areas/design/brand.md", properties: {} },
   { path: "areas/people/about.md", properties: { area: "false" } },
