@@ -193,8 +193,11 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
 - **Three sheets**: `pull-requests.csv` (kept 400 days; recent ones by
   update, history carried back toward 90 days a slice a run through search),
   `deploys.csv` (production deployments only, kept 90 days) and
-  `workflow-runs.csv` (finished runs on the default branch, kept 30 days,
-  because a busy repository runs thousands a week). `deployed` is when the
+  `workflow-runs.csv` (finished runs on the default branch plus every run of
+  the production deploy workflow (`deploy-production.yml`) on any branch,
+  since Promote to Production dispatches it on a `prod-deploy/<sha>` branch;
+  each read keeps its own catch-up window; kept 30 days, because a busy
+  repository runs thousands a week). `deployed` is when the
   first successful production deployment that started at or after the merge
   finished, filled in by a later run when the deploy comes after. No body,
   review, comment, commit message or file is read.
