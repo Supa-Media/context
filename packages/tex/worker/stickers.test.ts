@@ -116,7 +116,7 @@ describe("a Photon 1:1, end to end in the chat object", () => {
     const storage = new MemoryStorage();
     await react(storage, { kind: "reaction", eventId: "photon:r1", chatId: CHAT, from: PHONE, messageId: "tex-1", reaction: STICKER }, 1_000);
     const id = stickerId("at_0_ABC-123");
-    const lines = (await keptEvents(storage, CHAT)).filter((event) => event.kind === "reaction" || event.kind === "message").map((event) => event.text);
+    const lines = (await keptEvents(storage, CHAT)).map((event) => ("text" in event ? event.text : undefined));
     expect(lines.some((text) => text?.startsWith(`sticker ${id} on Tex's message`))).toBe(true);
     await accept(storage, message("photon:m2"), 2_000);
     const ops: Op[] = [];
