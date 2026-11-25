@@ -17,7 +17,8 @@
  * in). A group never asks another group, a guest has no Tex, and a run started by an ask has no `ask_chat` (one hop).
  */
 
-import { personalTexTool } from "./askPersonalTex.js";
+import { personalTexTool, PERSONAL_TEX_LINE } from "./askPersonalTex.js";
+import { NO_NOTES_LINE, NO_OTHER_NOTES_LINE } from "./groupMail.js";
 import { offerTarget } from "../../../../apps/mcp/src/tools/offerFor.js";
 
 export const ASK_CHAT = "ask_chat";
@@ -257,6 +258,23 @@ export const CROSS_CHAT_GROUP_LINE =
   "When a form, booking or sign-in someone here asked for needs their own name, phone number or email, get them with send action ask_chat and contact true " +
   "(their personal Tex knows them) rather than asking; for anything else only their personal Tex knows, or to have it do something for them, send ask_chat too; " +
   "for somebody else here, pass as and they OK it first. ";
+
+// Dev, 2026-11-24: "ideally I just want Tex to have context of everything ... if not then it should ask the user for more
+// information". A group turn was told to send people off to text it on their own for their notes, so "pick up the list I
+// made with you in our 1:1" got "text me 1:1" though ask_chat could fetch it. No one use is named: anything of theirs.
+export const CROSS_CHAT_NOTES_LINE =
+  "Their notes, lists, plans and chats with you aren't open here, but their personal Tex has them: when someone points at something of theirs " +
+  "(something they made, saved or told you on their own), get it with send action ask_chat, saying what they mean in their own words, and use or share " +
+  "what comes back; if you can't tell what they mean, ask them one short question first. Never tell them to text you on their own for it. " +
+  "For somebody else's, pass as and they OK it first; saved logins stay in their own chat. ";
+
+/** A group turn's prompt when cross-chat asks are wired: ask the person's own Tex rather than send them away. */
+export function crossChatGroupPrompt(prompt) {
+  return String(prompt ?? "")
+    .replace(PERSONAL_TEX_LINE, CROSS_CHAT_GROUP_LINE)
+    .replace(NO_NOTES_LINE, CROSS_CHAT_NOTES_LINE)
+    .replace(NO_OTHER_NOTES_LINE, CROSS_CHAT_NOTES_LINE);
+}
 
 /** The ask-run's answer, shaped for the chat that asked (node `chatAnswer`'s input). */
 export function crossBackInput(event, draft, post) {
