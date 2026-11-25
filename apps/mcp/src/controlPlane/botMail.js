@@ -12,5 +12,11 @@ export function createBotMailMethods({ post }) {
     async botMail(workspaceId, { bot, area, note, from }) {
       return await post("/gateway/bots/mail", { workspaceId, bot, area, note, from }, { timeoutMs: BOT_MAIL_TIMEOUT_MS });
     },
+
+    /** An agent's `manage area` webhook step, cleared with the person's own token: list, set or test. Never a secret back. */
+    async botHook(accessToken, expectedWorkspaceId, request) {
+      const parsed = await post("/gateway/bots/hook", { accessToken, expectedWorkspaceId, ...request }, { timeoutMs: BOT_MAIL_TIMEOUT_MS });
+      return parsed && typeof parsed === "object" ? parsed : { error: "the control plane gave no answer" };
+    },
   };
 }

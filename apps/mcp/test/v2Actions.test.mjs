@@ -188,6 +188,7 @@ const MANAGE = [
   ["connect", "connect_app", { app: "slack" }],
   ["dream_now", "dream_now", {}],
   ["fill_dates", "fill_dates", { after: "a.md" }],
+  ["area", "set_area", { area: "areas/finance", owner: "Finance", bot: { name: "Finance", whose: "@seyi", reach: "webhook" } }],
   ["pair_device", "pair_device", { code: "KQ7-4MP" }],
   ["run_model", "run_model", { model: "@cf/cloudflare/clef", input: { state: "x" } }],
 ];

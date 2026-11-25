@@ -143,6 +143,13 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A bot's webhook (`tools/notes/setArea.js`): saved sealed, tested or listed by the control plane, cleared as this person.
+  Object.defineProperty(store, "botHooks", {
+    value: (request) => controlPlane.botHook(session.accessToken, session.workspaceId, request),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),

@@ -24,13 +24,14 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { action, internalAction, internalQuery, query } from "../_generated/server";
+import { action, internalAction, internalQuery, query, type ActionCtx, type QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import { requireActor } from "./lib/googleConnect/config";
+import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { getMembership } from "./lib/workspaceAuth";
 import { handleForUser } from "./lib/identities";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
@@ -114,47 +115,77 @@ export const storeBotHook = internalMutation({
   },
 });
 
+/** What saving a webhook takes, from the app or from an agent through the gateway. */
+const hookInput = {
+  workspaceId: v.id("workspaces"),
+  bot: v.string(),
+  address: v.string(),
+  /** `Name: value`, or empty for none. */
+  headerLine: v.optional(v.string()),
+  signingKey: v.string(),
+};
+
+/** Checks the address, header and key, seals all three to the workspace, and stores them as `userId`. */
+async function sealHook(
+  ctx: Pick<ActionCtx, "runMutation">,
+  userId: Id<"users">,
+  args: { workspaceId: Id<"workspaces">; bot: string; address: string; headerLine?: string; signingKey: string },
+): Promise<{ host: string; headerEnds: string | null }> {
+  const bot = botName(args.bot);
+  const url = publicHttps(args.address);
+  if (url === null) refuse("BOT_HOOK_ADDRESS", "Use a public https address, like https://bot.example.com/context.");
+  if (args.address.length > 2048) refuse("BOT_HOOK_ADDRESS", "That address is too long.");
+  const header = args.headerLine === undefined || args.headerLine.trim() === "" ? null : headerLine(args.headerLine);
+  if (header === null && args.headerLine !== undefined && args.headerLine.trim() !== "") {
+    refuse("BOT_HOOK_HEADER", "Write the header as Name: value, like Authorization: Bearer abc.");
+  }
+  if (!signingKeyShaped(args.signingKey)) refuse("BOT_HOOK_KEY", "A signing key is ctxbot_ and 64 hex characters.");
+  if (!(await hostIsPublic(url.hostname))) refuse("BOT_HOOK_ADDRESS", "That address does not point at a public server.");
+  const keyset = requireKeyset();
+  const bound = { workspaceId: args.workspaceId as string };
+  await ctx.runMutation(internal.functions.botHooks.storeBotHook, {
+    workspaceId: args.workspaceId,
+    userId,
+    bot,
+    host: url.hostname,
+    encryptedUrl: await encryptSecret(url.href, keyset, bound),
+    encryptedHeader: header === null ? undefined : await encryptSecret(`${header.name}: ${header.value}`, keyset, bound),
+    headerEnds: header === null ? undefined : header.value.slice(-4),
+    encryptedSigningKey: await encryptSecret(args.signingKey, keyset, bound),
+  });
+  return { host: url.hostname, headerEnds: header === null ? null : header.value.slice(-4) };
+}
+
 /**
  * Save a bot's webhook. The app made the signing key and showed it to the
  * person before sending it here, so nothing secret is ever answered back.
  */
 export const setBotHook = action({
-  args: {
-    workspaceId: v.id("workspaces"),
-    bot: v.string(),
-    address: v.string(),
-    /** `Name: value`, or empty for none. */
-    headerLine: v.optional(v.string()),
-    signingKey: v.string(),
-  },
+  args: hookInput,
   returns: v.object({ host: v.string() }),
   handler: async (ctx, args): Promise<{ host: string }> => {
     const userId = await requireActor(ctx);
-    const bot = botName(args.bot);
-    const url = publicHttps(args.address);
-    if (url === null) refuse("BOT_HOOK_ADDRESS", "Use a public https address, like https://bot.example.com/context.");
-    if (args.address.length > 2048) refuse("BOT_HOOK_ADDRESS", "That address is too long.");
-    const header = args.headerLine === undefined || args.headerLine.trim() === "" ? null : headerLine(args.headerLine);
-    if (header === null && args.headerLine !== undefined && args.headerLine.trim() !== "") {
-      refuse("BOT_HOOK_HEADER", "Write the header as Name: value, like Authorization: Bearer abc.");
-    }
-    if (!signingKeyShaped(args.signingKey)) refuse("BOT_HOOK_KEY", "The signing key is not one Context made.");
-    if (!(await hostIsPublic(url.hostname))) refuse("BOT_HOOK_ADDRESS", "That address does not point at a public server.");
-    const keyset = requireKeyset();
-    const bound = { workspaceId: args.workspaceId as string };
-    await ctx.runMutation(internal.functions.botHooks.storeBotHook, {
-      workspaceId: args.workspaceId,
-      userId,
-      bot,
-      host: url.hostname,
-      encryptedUrl: await encryptSecret(url.href, keyset, bound),
-      encryptedHeader: header === null ? undefined : await encryptSecret(`${header.name}: ${header.value}`, keyset, bound),
-      headerEnds: header === null ? undefined : header.value.slice(-4),
-      encryptedSigningKey: await encryptSecret(args.signingKey, keyset, bound),
-    });
-    return { host: url.hostname };
+    const { host } = await sealHook(ctx, userId, args);
+    return { host };
   },
 });
+
+/**
+ * The same save for an agent (`manage area`, through `/gateway/bots/hook`):
+ * the person comes off the cleared grant, never the request. When the agent
+ * passes no key, one is made here that nobody sees; the answer says so.
+ */
+export const setBotHookFor = internalAction({
+  args: { ...hookInput, signingKey: v.optional(v.string()), userId: v.id("users") },
+  returns: v.object({ host: v.string(), headerEnds: v.union(v.string(), v.null()), keyMade: v.boolean() }),
+  handler: async (ctx, args): Promise<{ host: string; headerEnds: string | null; keyMade: boolean }> => {
+    const { userId, signingKey, ...rest } = args;
+    const keyMade = signingKey === undefined || signingKey === "";
+    const saved = await sealHook(ctx, userId, { ...rest, signingKey: keyMade ? `ctxbot_${randomOpaqueToken(32)}` : signingKey });
+    return { ...saved, keyMade };
+  },
+});
+
 
 export const removeBotHook = mutation({
   args: { workspaceId: v.id("workspaces"), bot: v.string() },
@@ -191,34 +222,42 @@ const hookRow = v.object({
   canReplace: v.boolean(),
 });
 
+async function hookRows(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
+  const membership = await getMembership(ctx, workspaceId, userId);
+  if (membership === null) return [];
+  const rows = await ctx.db
+    .query("botHooks")
+    .withIndex("by_workspace_bot", (q) => q.eq("workspaceId", workspaceId))
+    .take(100);
+  const out = [];
+  for (const row of rows) {
+    out.push({
+      bot: row.bot,
+      host: row.host,
+      headerEnds: row.headerEnds ?? null,
+      setByName: (await handleForUser(ctx, row.setBy)) ?? "",
+      setAt: row.setAt,
+      lastCallAt: row.lastCallAt ?? null,
+      lastCallOk: row.lastCallOk ?? null,
+      lastCallStatus: row.lastCallStatus ?? null,
+      canReplace: row.setBy === userId || membership.role === "owner",
+    });
+  }
+  return out;
+}
+
 /** A workspace's bot webhooks, for its members. Never an address or a secret. */
 export const botHookList = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.array(hookRow),
-  handler: async (ctx, args) => {
-    const userId = await requireActor(ctx);
-    const membership = await getMembership(ctx, args.workspaceId, userId);
-    if (membership === null) return [];
-    const rows = await ctx.db
-      .query("botHooks")
-      .withIndex("by_workspace_bot", (q) => q.eq("workspaceId", args.workspaceId))
-      .take(100);
-    const out = [];
-    for (const row of rows) {
-      out.push({
-        bot: row.bot,
-        host: row.host,
-        headerEnds: row.headerEnds ?? null,
-        setByName: (await handleForUser(ctx, row.setBy)) ?? "",
-        setAt: row.setAt,
-        lastCallAt: row.lastCallAt ?? null,
-        lastCallOk: row.lastCallOk ?? null,
-        lastCallStatus: row.lastCallStatus ?? null,
-        canReplace: row.setBy === userId || membership.role === "owner",
-      });
-    }
-    return out;
-  },
+  handler: async (ctx, args) => await hookRows(ctx, args.workspaceId, await requireActor(ctx)),
+});
+
+/** The same list `botHookList` answers, for the person a gateway call cleared. */
+export const botHookListFor = internalQuery({
+  args: { workspaceId: v.id("workspaces"), userId: v.id("users") },
+  returns: v.array(hookRow),
+  handler: async (ctx, args) => await hookRows(ctx, args.workspaceId, args.userId),
 });
 
 /* ------------------------------------------------------------- calling -- */
