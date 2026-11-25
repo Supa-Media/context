@@ -102,7 +102,7 @@ test("an owner of the named workspace arms it, and its five sheets fill, by pers
   const activity = await w.usage.sheet("activity");
   const byId = new Map(activity.rows.map((row) => [row.id, row]));
   assert.deepEqual({ ...byId.get(`2026-11-25:${bea}`) }, { id: `2026-11-25:${bea}`, day: "2026-11-25", person: bea, texted: "1", wrote: "0", called: "0", active: "1", returning: "0" });
-  assert.deepEqual({ ...byId.get("2026-11-25:aaaaaaaaaaaaaaaa") }, { id: "2026-11-25:aaaaaaaaaaaaaaaa", day: "2026-11-25", person: "aaaaaaaaaaaaaaaa", texted: "0", wrote: "0", called: "1", active: "0", returning: "1" });
+  assert.deepEqual({ ...byId.get("2026-11-25:aaaaaaaaaaaaaaaa") }, { id: "2026-11-25:aaaaaaaaaaaaaaaa", day: "2026-11-25", person: "aaaaaaaaaaaaaaaa", texted: "0", wrote: "0", called: "1", active: "0", returning: "0" });
   const signups = await w.usage.sheet("signups");
   assert.deepEqual(signups.rows.map((row) => ({ ...row })), [{ person: bea, day: "2026-11-25", channel: "", day1_active: "1" }]);
   const replies = await w.usage.sheet("replies");
@@ -225,10 +225,28 @@ test("returning means active on another day in the 7 before; a day-1 mark is nev
     },
     { key: KEY, held, now: NOW },
   );
-  const of = (day) => rows.activity.find((row) => row.day === day);
+  const of = (day) => rows.activity.find((row) => row.day === day && row.person === "bbbbbbbbbbbbbbbb");
   assert.equal(of("2026-11-17").returning, "0");
   assert.equal(of("2026-11-24").returning, "1");
   assert.equal(of("2026-11-25").returning, "1");
+
+  // A day with only an AI client's call is not active, so it neither returns nor makes a later day return: the share
+  // Returning users reads never passes 100% (it read 150% when a call-only day counted as returning).
+  const calls = await usageRows(
+    {
+      activity: [
+        { day: "2026-11-25", person: "dddddddddddddddd", wrote: false, called: true },
+        { day: "2026-11-25", person: "eeeeeeeeeeeeeeee", wrote: true, called: false },
+        { day: "2026-11-24", person: "eeeeeeeeeeeeeeee", wrote: false, called: true },
+      ],
+    },
+    { key: KEY, held: { activity: new Map([["2026-11-20:dddddddddddddddd", { id: "2026-11-20:dddddddddddddddd", day: "2026-11-20", person: "dddddddddddddddd", texted: "1", wrote: "0", called: "0" }]]), signups: new Map() }, now: NOW },
+  );
+  const on = (day, person) => calls.activity.find((row) => row.day === day && row.person === person);
+  assert.equal(on("2026-11-25", "dddddddddddddddd").returning, "0");
+  assert.equal(on("2026-11-25", "eeeeeeeeeeeeeeee").returning, "0");
+  const today = calls.activity.filter((row) => row.day === "2026-11-25");
+  assert.ok(today.filter((row) => row.returning === "1").length <= today.filter((row) => row.active === "1").length);
   assert.equal(rows.activity.some((row) => row.person === "not-a-mac"), false);
   const old = await usageRows({ signups: [{ at: Date.parse("2026-01-01T10:00:00Z"), userId: "uOld" }] }, { key: KEY, held: { activity: new Map(), signups: new Map([[await usagePersonId(KEY, "uOld"), { day1_active: "1", channel: "invite" }]]) }, now: NOW });
   assert.deepEqual({ ...old.signups[0], person: "x" }, { person: "x", day: "2026-01-01", channel: "invite", day1_active: "1" });

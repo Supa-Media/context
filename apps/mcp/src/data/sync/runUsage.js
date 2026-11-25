@@ -35,7 +35,7 @@ const DAY_MS = 86_400_000;
 /** A run reads back this far once its sheets have rows, and this far the first time (the export keeps 30 days of texts). */
 const SINCE_MS = 2 * DAY_MS;
 const FIRST_SINCE_MS = 30 * DAY_MS;
-/** What "returning" looks back over: active today and on another day in the 7 before. */
+/** What "returning" looks back over: active today and active on another day in the 7 before. */
 const RETURNING_DAYS = 7;
 
 /** The five sheets: their file, key, date column, columns and how long each keeps its rows. */
@@ -183,16 +183,21 @@ export async function usageRows(exported, { key, held, now }) {
     // An answered text is in the replies' timings already; one that wasn't answered is only here.
     if (text.outcome !== "answered") replies.push({ id: `unanswered:${text.at}:${person}`, at: instant(text.at), kind: "one", seconds: "", answered: "0" });
   }
-  const byPerson = new Map();
+  // Returning counts the same people Returning users divides by: active (texted or wrote) that day and on another day
+  // in the 7 before. A day with only an AI client's call is neither, or the share passes 100% (it read 150% on
+  // 2026-11-25: one person whose client called today, and who texted last week, was counted over two active).
+  const activeDays = new Map();
   for (const entry of days.values()) {
     entry.active = entry.texted === "1" || entry.wrote === "1" ? "1" : "0";
-    const list = byPerson.get(entry.person) ?? [];
+    if (entry.active !== "1") continue;
+    const list = activeDays.get(entry.person) ?? [];
     list.push(Date.parse(`${entry.day}T00:00:00Z`));
-    byPerson.set(entry.person, list);
+    activeDays.set(entry.person, list);
   }
   for (const entry of days.values()) {
     const at = Date.parse(`${entry.day}T00:00:00Z`);
-    entry.returning = byPerson.get(entry.person).some((other) => other < at && other >= at - RETURNING_DAYS * DAY_MS) ? "1" : "0";
+    const before = entry.active === "1" ? activeDays.get(entry.person) : [];
+    entry.returning = before.some((other) => other < at && other >= at - RETURNING_DAYS * DAY_MS) ? "1" : "0";
   }
 
   // Sign-ups: one row per person, active on their sign-up day or the day after.
