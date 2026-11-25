@@ -696,6 +696,7 @@ test/weekHistory.test.mjs
 test/agentProvisional.test.mjs
 test/sharedFolderDefault.test.mjs
 test/groupChats.test.mjs
+test/chatSearch.test.mjs
 test/moveJudge.test.mjs
 test/crossChat.test.mjs
 test/texJoined.test.mjs
@@ -797,4 +798,7 @@ test/orientArea.test.mjs
 test/botMail.test.mjs
 test/dataSyncApps.test.mjs
 test/dataSyncStripe.test.mjs
+test/attachProjects.test.mjs
+test/areaLines.test.mjs
 test/dataSyncGithub.test.mjs
+test/dataSyncUsage.test.mjs

@@ -74,6 +74,11 @@ describe("cross-chat asks", () => {
     const [asked] = await queued(w.at(ME));
     expect(asked).toMatchObject({ kind: "message", chatId: "chat-1", event: "chat_ask" });
     expect(asked.crossChat).toMatchObject({ from: "a group chat they're in", reply: "sendblue-group:grp-1" });
+    // Dev2, 2026-11-25: a group whose people don't all share a workspace marks its ask, and the 1:1 hears it.
+    await sendCrossAsks(group, w.deps, { kind: "group", message: { groupId: "grp-1", line: "+15555550199", from: ME } }, readCrossAsks([{ ...toMe, id: "xdddddddddd", strangers: true }]));
+    const marked = (await queued(w.at(ME))).find((entry) => (entry.crossChat as { id?: string }).id === "xdddddddddd");
+    expect(marked?.crossChat).toMatchObject({ kind: "ask", strangers: true });
+    expect(readCrossAsks([{ ...toMe, strangers: "yes" }])[0].strangers).toBeUndefined();
   });
 
   it("a group nobody has heard from is refused at once", async () => {

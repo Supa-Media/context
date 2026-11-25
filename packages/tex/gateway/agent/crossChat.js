@@ -71,7 +71,7 @@ export function crossChatOf(body, { chatTurn, job }) {
   if (from === "" || what === "") return null;
   if (body.event === CHAT_ASK_EVENT) {
     const who = line(value.who, MAX_LABEL);
-    return { kind: "ask", id: value.id, from, what, do: value.do === true, ...(who ? { who } : {}) };
+    return { kind: "ask", id: value.id, from, what, do: value.do === true, ...(who ? { who } : {}), ...(value.strangers === true ? { strangers: true } : {}) };
   }
   if (!STATES.has(value.state)) return null;
   const texts = (Array.isArray(value.texts) ? value.texts : [])
@@ -90,6 +90,14 @@ export function crossChatQuestion(event) {
   return `(Not a text from them. Tex in ${event.from} answered the ask you sent it ("${event.what}"); nothing from it has reached them yet.)`;
 }
 
+/**
+ * Told to a 1:1 answering a group whose people don't all share a workspace with them (Dev2, 2026-11-25: relationships
+ * are shared workspaces; anyone who shares none is a stranger to Tex). What they pointed at is theirs to share there.
+ */
+export const STRANGERS_LINE =
+  "Some people in that group don't share a workspace with them, so to you they are strangers: send back exactly what they pointed at, " +
+  "and nothing else private about them or anyone (health, money, relationships, where they live or are, contact details) unless that is the very thing they asked to share. ";
+
 /** What the run is told, apart from its question. */
 export function crossChatPrompt(event, { group = null } = {}) {
   if (event === null) return "";
@@ -100,7 +108,8 @@ export function crossChatPrompt(event, { group = null } = {}) {
       "never into this one, so write it to that Tex: the answer itself in a few lines, with links and note paths exactly, or why you can't.\n" +
       (group !== null
         ? "Answer only what anyone in this group could ask you here, from this chat's own words, notes and settings. Never pass on a phone number, an email or a saved login. "
-        : "This is their own chat with you. Answer only the fact asked for, nothing else from their notes, mail, calendar or other chats, because a whole group reads the answer. ") +
+        : "This is their own chat with you. Answer only the fact asked for, nothing else from their notes, mail, calendar or other chats, because a whole group reads the answer. " +
+          (event.strangers ? STRANGERS_LINE : "")) +
       (event.do
         ? group !== null
           ? `They asked you to do something here: do it as if ${event.who ?? "they"} had tagged you in this group, with this chat's own tools and logins. ` +
@@ -224,6 +233,7 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
         what,
         do: args?.do === true,
         guest: group !== null && (group.guestTagger === true || !group.from),
+        strangers: group !== null && group.homeOnly === true,
         counts,
       });
       if (verdict?.to !== "ask") return text(`Not asked: ${verdict?.why ?? "the cross-chat gate refused it"}.`, true);

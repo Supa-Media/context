@@ -14,7 +14,7 @@ import type { ListNote, PropertyValue } from "../listBlock/model";
 import type { FolderListing } from "../types";
 import { ABOUT_NOTE, baseName } from "../paths";
 
-export type SourceKind = "github" | "cloudflare" | "stripe" | "context" | "push" | "fetch" | "other";
+export type SourceKind = "github" | "cloudflare" | "stripe" | "context" | "usage" | "push" | "fetch" | "other";
 
 /** The apps a workspace connects once, by the name the board draws. */
 const KIND_NAMES: Readonly<Record<SourceKind, string | null>> = {
@@ -22,10 +22,17 @@ const KIND_NAMES: Readonly<Record<SourceKind, string | null>> = {
   cloudflare: "Cloudflare",
   stripe: "Stripe",
   context: "Context",
+  usage: "Context usage",
   push: null,
   fetch: null,
   other: null,
 };
+
+/**
+ * The Context usage source's sheets (`apps/mcp/src/data/sync/runUsage.js`): Context-wide activity, kept up to date
+ * every hour in the one workspace the deployment names, owners only.
+ */
+export const USAGE_SHEETS = ["activity", "sign-ups", "tex-replies", "calls"] as const;
 
 /** The built-in Context source's datasets, worked out from notes when read (`contextSource.ts`). */
 export const CONTEXT_DATASETS = ["notes-by-status", "time-to-answered"] as const;
@@ -71,7 +78,7 @@ export function listOf(value: PropertyValue | undefined): string[] {
 
 export function sourceKindOf(value: PropertyValue | undefined): SourceKind {
   const word = textOf(value).toLowerCase();
-  if (word === "github" || word === "cloudflare" || word === "stripe" || word === "context" || word === "push" || word === "fetch") return word;
+  if (word === "github" || word === "cloudflare" || word === "stripe" || word === "context" || word === "usage" || word === "push" || word === "fetch") return word;
   // "Fetch from a URL" writes `source: url` (`dataWrites.ts`), as the sync object reads it.
   if (word === "url") return "fetch";
   // "Send from your code", as the connect dialog calls it.

@@ -16,6 +16,7 @@
 
 import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import { FRONT_NOTES } from "../lists/grammar.js";
+import { resolveStatusList, statusGroupOf } from "../lists/statuses.js";
 import { normalizePath } from "../notes/paths.js";
 import { factJobs, factProps } from "../tree/facts.js";
 import { toolError, toolText } from "../tools/results.js";
@@ -106,19 +107,54 @@ function seatLines(seat, inheritedFrom) {
   return lines;
 }
 
-/** The projects whose front note says `area:` this folder. */
-async function attachedProjects(store, entries, projectsRoot, area) {
+/** An area line as compared: no `@`, no slashes at either end, any case (the app's `areaKey`). */
+const areaKey = (value) => String(value ?? "").trim().replace(/^@+/, "").replace(/^\/+|\/+$/g, "").toLowerCase();
+
+/** The order projects are listed in, and the words their groups are said in. */
+const GROUP_ORDER = ["in-progress", "not-started", "unplaced", "done"];
+const GROUP_WORDS = { "in-progress": "in progress", "not-started": "not started", unplaced: "with a status no group holds", done: "done" };
+
+/**
+ * The projects whose front note says `area:` this folder or one inside it (a sub-area's projects are its area's too,
+ * as the app counts them), each with its status group in its own folder's status list. Only front notes this
+ * connection can see are read, so a project it cannot see is never counted.
+ */
+export async function attachedProjects(store, entries, projectsRoot, area) {
   if (!projectsRoot) return [];
   const fronts = entries
     .map(({ key }) => key)
     .filter((key) => key.startsWith(`${projectsRoot}/`) && FRONT_NOTES.includes(key.slice(key.lastIndexOf("/") + 1)));
   const props = await propsOf(store, fronts);
-  const found = [];
+  const notes = [...props].map(([path, value]) => ({ path, properties: value.properties ?? {} }));
+  const key = areaKey(area);
+  const byFolder = new Map();
   for (const [path, value] of props) {
-    const said = text(value.properties?.area).replace(/\/+$/, "");
-    if (said !== "" && same(said, area)) found.push(path.slice(0, path.lastIndexOf("/")));
+    const said = text(value.properties?.area).replace(/^\/+|\/+$/g, "");
+    if (said === "" || /^(true|false)$/i.test(said)) continue;
+    const saidKey = areaKey(said);
+    if (saidKey !== key && !saidKey.startsWith(`${key}/`)) continue;
+    const folder = path.slice(0, path.lastIndexOf("/"));
+    // A folder's first front note speaks for it, as everywhere else.
+    const rank = FRONT_NOTES.indexOf(path.slice(path.lastIndexOf("/") + 1));
+    if (byFolder.has(folder) && byFolder.get(folder).rank <= rank) continue;
+    const status = text(value.properties?.status);
+    const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
+    const group = status.toLowerCase() === "note" ? "unplaced" : (statusGroupOf(status, resolveStatusList(parent, notes).list) ?? "unplaced");
+    byFolder.set(folder, { folder, rank, status, group, owner: text(value.properties?.owner), serves: saidKey === key ? null : said });
   }
-  return [...new Set(found)].sort();
+  return [...byFolder.values()].sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group) || a.folder.localeCompare(b.folder));
+}
+
+/** "2 in progress, 1 not started, 1 done", then one line per project. */
+function projectLines(projects) {
+  if (projects.length === 0) return ["None yet."];
+  const counts = GROUP_ORDER.map((group) => [group, projects.filter((project) => project.group === group).length]).filter(([, n]) => n > 0);
+  const lines = [`${counts.map(([group, n]) => `${n} ${GROUP_WORDS[group]}`).join(", ")}.`];
+  for (const project of projects) {
+    const facts = [project.status || "no status", ...(project.owner ? [project.owner] : []), ...(project.serves ? [`serves ${project.serves}`] : [])];
+    lines.push(`- ${project.folder}/ — ${facts.join(", ")}`);
+  }
+  return lines;
 }
 
 /**
@@ -190,8 +226,11 @@ export async function areaAnswer(store, scope, rules, overrides, rawArea) {
   );
   parts.push(
     `## Projects attached to this area\n` +
-      (projects.length ? projects.map((path) => `- ${path}/`).join("\n") : "None yet.") +
-      (projectsRoot ? `\nA project lives in \`${projectsRoot}/\`; it is attached here by an \`area: ${area}\` line in its about.md.` : ""),
+      projectLines(projects).join("\n") +
+      (projectsRoot
+        ? `\nA project lives in \`${projectsRoot}/\`; it is attached here by an \`area: ${area}\` line in its about.md. ` +
+          `Attach or detach one with manage { action: "area", args: { area: "${area}", attach: "${projectsRoot}/<name>" } } (or detach).`
+        : ""),
   );
   parts.push(
     "## Where to write\n" +

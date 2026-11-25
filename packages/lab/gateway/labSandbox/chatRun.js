@@ -192,6 +192,9 @@ export function chatStepsOf(entries, { own = null, since = 0 } = {}) {
   return [...worker, ...queued, ...graph].sort((a, b) => a.at - b.at).map(({ step }) => step);
 }
 
+/** What a test chat shows when Tex sticks a sticker on a text. */
+export const STUCK_WORDS = "Tex stuck a sticker on a message.";
+
 /** What Messages shows for Tex running the group, or null for an action it does not know. */
 export function groupRunWords(action) {
   if (action?.kind === "name" && typeof action.name === "string") return `Tex named the conversation “${action.name}”.`;
@@ -227,6 +230,11 @@ export function keepingLine(phones, prefix = "lab", { onText = null, onPicture =
     if (method === "runGroup") {
       const words = groupRunWords(args[0]);
       if (words !== null && onText !== null) onText(words);
+      return null;
+    }
+    // A sticker Tex stuck on a text (`stickers.ts`): drawn as Messages tells it, an event line (`texSends.ts` `texEventOf`).
+    if (method === "stick") {
+      if (onText !== null) onText(STUCK_WORDS);
       return null;
     }
     if (method === "readMembers") return [...phones.values()];
@@ -337,7 +345,9 @@ export function inboundOf({ about, row, rows, address, sentHandles }) {
   const target = typeof row.on === "string" ? (rows ?? []).find((r) => r.id === row.on) : undefined;
   if (row.kind === "reaction") {
     const onTex = target !== undefined && (target.who === "Tex" || target.reply !== undefined);
-    const reaction = { how: TAPBACKS[row.emoji] ?? "Liked", ...(onTex ? { words: String(target.text ?? "").trim().slice(0, MAX_QUOTED), onTex: true } : { words: "", onOther: true, ...(target !== undefined && String(target.text ?? "").trim() !== "" ? { otherWords: String(target.text).trim().slice(0, MAX_QUOTED) } : {}) }) };
+    // A sticker row is a placed sticker, its made-up attachment kept by the chat object for Tex (`stickers.ts`).
+    const kind = row.emoji === "sticker" && typeof row.sticker === "string" ? { how: "Reacted", emoji: "with a sticker", sticker: row.sticker } : { how: TAPBACKS[row.emoji] ?? "Liked" };
+    const reaction = { ...kind, ...(onTex ? { words: String(target.text ?? "").trim().slice(0, MAX_QUOTED), onTex: true } : { words: "", onOther: true, ...(target !== undefined && String(target.text ?? "").trim() !== "" ? { otherWords: String(target.text).trim().slice(0, MAX_QUOTED) } : {}) }) };
     if (!group) return { path: "/react", body: { kind: "reaction", eventId, chatId: address.chatId, from, messageId: eventId, reaction } };
     return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: eventId, text: "", reaction } };
   }
@@ -522,8 +532,6 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       // Already introduced, as a real chat Tex answers in is (`groupJoined.ts`): only an `added` row says hello here.
       if (row.kind !== "joined") await storage.put(INTRO_KEY, row.at ?? started);
     }
-    // Tex added again in the same test chat: a hello each time it is tried.
-    if (row.kind === "joined") await storage.delete(INTRO_KEY);
     // Its provider is the line's: the lag the `text` step shows is the line's hold.
     const provider = { name: line.name === "photon" ? "photon" : "lab", providerAt: row.at ?? started, receivedAt: now() };
     const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify(inbound === null ? { ...message, provider } : message) }));

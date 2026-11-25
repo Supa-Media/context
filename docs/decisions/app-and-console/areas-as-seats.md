@@ -174,5 +174,15 @@ cannot see never adds to their count. No body is read and nothing new is
 stored (`areas/areaProjects.ts`; `areaProjects.test.ts` fails if a sibling
 sharing a prefix is counted or a not-in-progress project is).
 
+**It follows the area.** The line is a reference, so it follows what it
+points at, as a link does: moving or renaming an area's folder points every
+project's `area:` line at the new folder, in both move engines, at the mover's
+clearance and never at a name the project's own readers cannot open
+(`apps/mcp/src/moves/areaLines.js`; `areaLines.test.mjs` and
+`linkRepair.test.ts` fail if it stops). The area counts as moved when its front
+note moved and kept its name; one note moved out of the folder is not the area
+moving. An AI client attaches and detaches with `manage { action: "area",
+args: { attach, detach } }`, which writes the same line.
+
 **Not built yet.** Tex previewing a change on the Chart as it
 is typed. Tex already sets a seat or a card by writing the note.

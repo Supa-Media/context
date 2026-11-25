@@ -41,15 +41,19 @@ const encoder = new TextEncoder();
  * its own: the gateway's crypto stays HMAC and digest calls. The empty salt is HashLen zeros, which HMAC pads to
  * the same key, so this is the WebCrypto HKDF with no salt, byte for byte (`__tests__` checks it against one).
  *
+ * `hkdfInfo` names what the key is for, so one root gives the search log and the Context usage source
+ * (`usage/person.js`) keys that never match each other.
+ *
  * @param {string | null | undefined} root
+ * @param {string} [hkdfInfo]
  * @returns {Promise<CryptoKey | null>}
  */
-export async function deriveSearchQualityKey(root) {
+export async function deriveSearchQualityKey(root, hkdfInfo = HKDF_INFO) {
   if (typeof root !== "string" || root.length < 16) return null;
   const extract = await crypto.subtle.importKey("raw", new Uint8Array(32), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const prkBytes = new Uint8Array(await crypto.subtle.sign("HMAC", extract, encoder.encode(root)));
   const expand = await crypto.subtle.importKey("raw", prkBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const info = encoder.encode(HKDF_INFO);
+  const info = encoder.encode(hkdfInfo);
   const block = new Uint8Array(info.length + 1);
   block.set(info);
   block[info.length] = 1;

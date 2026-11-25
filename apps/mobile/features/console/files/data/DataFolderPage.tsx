@@ -98,10 +98,10 @@ export function DataFolderPage({
         metrics={metrics.filter((metric) => metric.reads.includes(source.folder))}
         compact={compact}
         now={now}
-        {...(source.kind === "fetch" || app !== null ? { sync: making.syncOf(source.folder) ?? { known: false } } : {})}
+        {...(source.kind === "fetch" || source.kind === "usage" || app !== null ? { sync: making.syncOf(source.folder) ?? { known: false } } : {})}
         endpoint={sheetRowsEndpoint()}
         actions={{
-          ...(source.kind === "fetch" && making.syncNow !== undefined ? { syncNow: () => making.syncNow?.(source) } : {}),
+          ...((source.kind === "fetch" || source.kind === "usage") && making.syncNow !== undefined ? { syncNow: () => making.syncNow?.(source) } : {}),
           ...(app !== null && making.reconnect !== undefined && (app !== "github" || making.githubRepos !== undefined) ? { reconnect: () => making.reconnect?.(app) } : {}),
           ...(app === "github" && making.githubRepos !== undefined ? { repositories: making.githubRepos } : {}),
           ...(app !== null && making.disconnect !== undefined ? { disconnect: () => making.disconnect?.(app) } : {}),

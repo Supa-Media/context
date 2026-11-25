@@ -7,7 +7,8 @@ export function areaToolDefinitions() {
       description:
         "Change an area's settings, as the app's area panel does: owner (@handle or bot name), delegate (the one bot or Tex acting for a " +
         "person owner in this area), modes, approval rules and its one metric (a metric note's name in the data folder's metrics/, with a " +
-        "target). bot makes or changes a bot's card; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call.",
+        "target). bot makes or changes a bot's card; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call; " +
+        "attach and detach say which projects serve the area.",
       inputSchema: {
         type: "object",
         properties: {
@@ -53,6 +54,16 @@ export function areaToolDefinitions() {
           },
           test_webhook: { type: "string", description: "A bot's name: send its webhook a signed test call." },
           create: { type: "boolean", description: "Make the area's about.md when it is not there yet." },
+          attach: {
+            type: ["string", "array"],
+            items: { type: "string" },
+            description: 'A project\'s folder, or a list, like "projects/website": writes area: <this area> in its front note. A project serves one area, so this moves one that serves another.',
+          },
+          detach: {
+            type: ["string", "array"],
+            items: { type: "string" },
+            description: "A project's folder, or a list: removes its area line, only when it names this area or one inside it.",
+          },
         },
         required: ["area"],
         additionalProperties: false,

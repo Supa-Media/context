@@ -27,7 +27,7 @@ import { failed, gone, noteAndDataFolder, noteText, openStoreFor, readSheet, she
 const LATER = "it will try again within the hour";
 
 /** The owner who connected it, still an owner, by the object's own member row. Or `{result}`. */
-async function ownerReader(client, userId) {
+export async function ownerReader(client, userId) {
   let member;
   try {
     member = (await client.members.get(userId))?.member ?? null;

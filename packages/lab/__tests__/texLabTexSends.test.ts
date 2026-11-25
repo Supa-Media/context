@@ -47,6 +47,7 @@ describe("texEventOf", () => {
     expect(texEventOf("Tex named the conversation “Lisbon trip”.")).toEqual({ text: "Tex named the conversation “Lisbon trip”.", photo: false });
     expect(texEventOf("Tex changed the group photo.")).toEqual({ text: "Tex changed the group photo.", photo: true });
     expect(texEventOf("Tex added +15550100123 to the conversation.")?.photo).toBe(false);
+    expect(texEventOf("Tex stuck a sticker on a message.")).toEqual({ text: "Tex stuck a sticker on a message.", photo: false });
     expect(texEventOf("I named it Lisbon trip")).toBeNull();
   });
 });

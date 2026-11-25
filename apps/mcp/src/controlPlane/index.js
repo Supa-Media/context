@@ -2,6 +2,7 @@ import { createTransport, ControlPlaneError, controlPlaneErrorCode, sha256Hex, i
 import { createSessionMethods } from "./session.js";
 import { createGrantMethods } from "./grants.js";
 import { createReportingMethods } from "./reporting.js";
+import { createUsageExportMethods } from "./usageExport.js";
 import { createJobMethods } from "./jobs.js";
 import { createLinkMethods } from "./links.js";
 import { createFeedbackMethods } from "./feedback.js";
@@ -50,6 +51,7 @@ export function createControlPlane(env, options = {}) {
     ...createSessionMethods({ post, required, env, sessionObjects: options.sessionObjects }),
     ...createGrantMethods({ post, required }),
     ...createReportingMethods({ post, required }),
+    ...createUsageExportMethods({ post }),
     ...createJobMethods({ post, required }),
     ...createLinkMethods({ post, required }),
     ...createFeedbackMethods({ post }),

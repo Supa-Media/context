@@ -97,6 +97,7 @@ import * as noteMail from "./functions/lib/gatewayRoutes/noteMail";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
 import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
+import { gatewayUsageExportHandler } from "./functions/lib/gatewayRoutes/usageExport";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
 import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
 import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIdsRemovedHandler, gatewayNoteIdsResolveHandler, gatewayNoteIdsWroteHandler } from "./functions/lib/noteIds/http";
@@ -709,6 +710,8 @@ export const sheetRows = sheetSourceRoute(sheetRowsHandler);
 http.route({ path: "/api/sheets/rows", method: "POST", handler: sheetRows });
 
 export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
+/** The hourly Context usage run's read (`functions/usagePeople.ts`). */
+export const gatewayUsageExport = gatewayRoute(gatewayUsageExportHandler);
 export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTimingHandler);
 export const gatewaySearchOpen = gatewayRoute(searchOpen.gatewaySearchOpenHandler);
 
@@ -888,6 +891,7 @@ http.route({ path: "/gateway/mail-health/raised", method: "POST", handler: gatew
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
 http.route({ path: "/gateway/site", method: "POST", handler: gatewaySite });
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
+http.route({ path: "/gateway/usage/export", method: "POST", handler: gatewayUsageExport });
 http.route({ path: "/gateway/search-timing", method: "POST", handler: gatewaySearchTiming });
 http.route({ path: "/gateway/search-open", method: "POST", handler: gatewaySearchOpen });
 

@@ -21,6 +21,7 @@
  * note or an earlier turn that names `write_note` still works.
  */
 
+import { HISTORY_SEARCH_LINE, historySearchCall, SEARCH_CHAT } from "./chatSearch.js";
 import { ACTIONS } from "../../../../apps/mcp/src/tools/v2/actions.js";
 import { translateV2Params } from "../../../../apps/mcp/src/tools/v2/translate.js";
 import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
@@ -302,7 +303,7 @@ const SHORT_LINES = {
   job_status: "How a background job is going; title exactly as your jobs list shows it.",
   email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
-  tapback: "Answer their text with only a tapback, and end your turn.",
+  tapback: "Only a tapback or chat sticker, no words; ends turn.",
   forward_rule: "Keep forwarding one kind of their mail to one address, once they 👍 it.",
   restart_job: "Pick stopped background jobs back up where they stopped.",
   advisor: "Ask your advisor, a stronger model, for judgment, before a task is done, or when stuck.",
@@ -396,9 +397,8 @@ const SEARCH_SCOPE =
 /** `search`, saying how to reach their texts where the turn holds them. */
 function searchTool(base, held) {
   const head = `${base.description}\n\n${SEARCH_SCOPE}`;
-  const groups = held.has("group_chats")
-    ? "\n\nThe group chats they are in with you: search with args { groups: true, chat, since }, every chat or the one named; each hit names its chat, day, time and who said it."
-    : "";
+  // This chat's own history (`chatSearch.js`), then the group chats they are in with you (`groupChats.js`).
+  const groups = (held.has(SEARCH_CHAT) ? HISTORY_SEARCH_LINE : "") + (held.has("group_chats") ? "\n\nThe group chats they are in with you: search with args { groups: true, chat, since }, every chat or the one named; each hit names its chat, day, time and who said it." : "");
   // Google Chat has no search here, only reads (`fetch chat:`), so a search that found nothing in notes and mail was
   // taken for the whole record: "you can see the feedback we sent right?" was answered from Gmail while the feedback
   // sat in a Chat message (Training trial-hire, 2026-11-19).
@@ -457,7 +457,7 @@ function searchWorkspace(context, scope) {
 
 /** Whether a search's args are a notes search: not their texts, their email, or their group chats (each has its own reader). */
 function isNotesSearch(args) {
-  return args.texts !== true && args.email !== true && args.groups !== true;
+  return args.texts !== true && args.email !== true && args.groups !== true && args.history !== true;
 }
 
 /**
@@ -588,6 +588,7 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
     }
     const call = hoistNestedContext(name, args && typeof args === "object" && !Array.isArray(args) ? args : {});
     if (name === "orient") return { name, args: call };
+    if (name === "search" && held.has(SEARCH_CHAT) && call.args?.history === true) return historySearchCall(call); // `chatSearch.js`
     // Their group chats, searched all at once (`groupChats.js`): `search { query, args: { groups: true } }`.
     if (name === "search" && held.has("group_chats") && call.args && typeof call.args === "object" && call.args.groups === true) {
       const { chat, since } = call.args;

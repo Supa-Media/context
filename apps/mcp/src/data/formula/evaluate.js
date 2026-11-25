@@ -171,6 +171,8 @@ function evalAggregate(node, env) {
   const conds = (node.where ?? []).map((cond) => ({ column: columnIn(sheet, cond.column, where), op: cond.op, value: String(cond.value) }));
   const values = [];
   let count = 0;
+  // count(distinct …): each filled value once, by its text.
+  const seen = node.distinct === true ? new Set() : null;
   const { from, to, current } = env.window ?? {};
   for (const row of sheet.rows) {
     if (placeBy !== null) {
@@ -178,6 +180,12 @@ function evalAggregate(node, env) {
       if (Number.isNaN(t) || t < from || (current ? t > to : t >= to)) continue;
     }
     if (!conds.every((c) => sameValue(cell(row, c.column), c.value) === (c.op === "="))) continue;
+    if (seen !== null) {
+      const v = node.expr.type === "ref" ? cell(row, columns.get(node.expr)).trim() : rowValue(node.expr, row, columns);
+      if (v === EMPTY || v === "") continue;
+      seen.add(typeof v === "object" ? `date:${v.date}` : String(v));
+      continue;
+    }
     // count(column) counts the filled cells, whatever they hold.
     if (node.fn === "count" && node.expr.type === "ref") {
       if (cell(row, columns.get(node.expr)) !== "") count += 1;
@@ -190,7 +198,7 @@ function evalAggregate(node, env) {
     if (typeof v === "object") throw new Stop(`${v.column} is a date: subtract another date from it to get minutes`);
     values.push(v);
   }
-  return aggregate(node.fn, values, count);
+  return aggregate(node.fn, values, seen !== null ? seen.size : count);
 }
 
 function sameValue(text, want) {
@@ -211,7 +219,13 @@ function evalNode(node, env) {
     case "binary": {
       const left = evalNode(node.left, env);
       const right = evalNode(node.right, env);
-      if (left === null || right === null) return null;
+      if (left === null && right === null) return null;
+      // A sum or count beside another, in + or -: a period with no rows on one side adds nothing (bills this
+      // month with no AI spend yet is the bills). * and / keep no data, since 0 there would change the answer.
+      if (left === null || right === null) {
+        if (node.op !== "+" && node.op !== "-") return null;
+        return arithmetic(node.op, left ?? 0, right ?? 0);
+      }
       return arithmetic(node.op, left, right);
     }
     default:

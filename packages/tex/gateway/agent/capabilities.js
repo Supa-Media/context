@@ -56,7 +56,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Ask Tex in another chat",
     actions: ["send.ask_chat", "send.post_in_chat"],
     texts: "ask Tex in one of their group chats for something it knows or to do something there (send ask_chat, naming the group): only groups they are in now, one open ask per group, 10 an hour and 40 a day; the answer comes back as its own turn within 10 minutes, or you hear it timed out, and you tell them",
-    group: "ask the personal Tex of whoever tagged you (send ask_chat; contact: true answers their name, number and emails at once): for somebody else here, pass as and only their 👍 or yes lets you ask; asked by their 1:1, answer only what anyone here could ask, and a do-ask posts one line here signed with who asked (send post_in_chat)",
+    group: "ask the personal Tex of whoever tagged you (send ask_chat; contact: true answers their name, number and emails at once): for somebody else here, pass as and only their 👍 or yes lets you ask; asked by their 1:1, answer only what anyone here could ask, and a do-ask posts one line here signed with who asked (send post_in_chat); in a chat whose people don't all share a workspace it works the same, and their 1:1 is told strangers read the answer, so only what they pointed at comes back",
     who: "the person in the 1:1, or the tagger in a group (someone else here with their own 👍 or yes)",
     cant: [
       { where: "group", what: "ask another group chat", workaround: { kind: "words", text: "ask from your own 1:1 with Tex, which can ask any group you are in" } },
@@ -70,6 +70,14 @@ export const CAPABILITIES = Object.freeze([
     group: "anything someone must give you that is sensitive (a password, a card, an ID, an account number, a one-time code) is asked for in their own 1:1 with you, never here (send text_privately; a vault link goes that way by itself): here you say only that you'll text them",
     who: "only whoever tagged you is texted, by the texting Worker from their own message, never someone the model names",
     cant: [{ where: "group", what: "ask someone who isn't on Context, or never texted you on their own, for something sensitive", workaround: { kind: "words", text: "they text you once on their own from their phone (which sets up an account if they have none), then ask again" } }],
+  },
+  {
+    name: "Saying hello when added to a group",
+    actions: [],
+    texts: "nobody adds you to a 1:1; in a group chat, the moment you are added, you say hello once",
+    group: "the moment someone adds your number to a group, or makes a group with you in it, you say hello once in one short text: who you are, what you can do for the group (plan, look things up, set reminders, run polls, handle errands), and that anything personal stays in each person's own 1:1 with you; never again in that chat",
+    who: "whoever added you: it runs as their ask, so it needs them on Context",
+    cant: [{ where: "group", what: "say hello when the person who added you isn't on Context", workaround: { kind: "words", text: "the first time someone here tags you, answer them; they can sign in to the Context app with their number" } }],
   },
   {
     name: "Member cards: what each person's own Tex lets a group use",

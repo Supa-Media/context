@@ -19,7 +19,7 @@
  *   list_meetings, read_calendar, list_channel_days, list_contacts, read_activity,
  *   list_changes, list_links, vault_list, list_plugins, scope_info, list_texts,
  *   read_texts, read_google_chat, read_skill, read_learned_skill, earlier_texts,
- *   earlier_chat, read_back, read_day, read_thread
+ *   earlier_chat, read_back, read_day, search_chat, read_thread
  * web:
  *   search_web — `send` action search_web (`computer.js`). The search API,
  *   not the browser.
@@ -73,6 +73,7 @@ export const PARALLEL_READS = new Set([
   "earlier_chat",
   "read_back",
   "read_day",
+  "search_chat",
   "read_thread",
   "search_web",
 ]);

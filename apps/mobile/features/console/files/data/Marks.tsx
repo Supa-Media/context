@@ -138,6 +138,7 @@ function KindGlyph({ kind, size, color }: { kind: SourceKind; size: number; colo
         </Glyph>
       );
     case "context":
+    case "usage":
       return (
         <Glyph size={size} color={color} width={1.7}>
           <Path d="M12.5 8a4.5 4.5 0 1 1-1.4-3.3M11.5 2.5v2.5H9" />

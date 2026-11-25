@@ -48,6 +48,13 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-25",
     text:
+      "manage action area takes attach and detach (a project's folder, or a list, like \"projects/website\"): attach writes area: <the area> in " +
+      "the project's front note, detach removes it when it names that area; orient { area } now lists its projects with their status and counts, " +
+      "sub-areas' included.",
+  },
+  {
+    date: "2026-11-25",
+    text:
       "manage action area (args { area, owner?, helper?, modes?, approvals?, metric?: { name, target? }, bot?: { name, whose?, reach? }, " +
       "delegate?: { person, to }, webhook?: { address, header?, signing_key? }, test_webhook? }) sets an area up in one call: who holds it, its " +
       "modes and rules, its one metric, a Grok bot's card, who answers for a person, and a bot's webhook, saved sealed and never shown again.",
@@ -516,7 +523,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "969bb6aa";
+export const TOOL_SHAPE = "55767918";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

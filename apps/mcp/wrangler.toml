@@ -100,6 +100,13 @@ ALLOWED_ORIGINS = "https://context.lc https://tex.lc"
 APP_ORIGIN = "https://context.lc"
 # Self-hosting: put your own console origin here, not that one.
 
+# The one workspace that receives Context-wide usage rows (the Context usage
+# source, docs/decisions/data-and-metrics.md): a slug, without "@". Only an
+# owner of that workspace can turn the source on, and its sheets must stay owners
+# only. Unset means no workspace can (decided by the owner, 2026-11-25).
+# Self-hosting: name your own workspace, or leave it out.
+USAGE_WORKSPACE = "supa"
+
 # Store operations one search may spend (index sync + conditional write +
 # snippet reads). Set ONLY on a worker verifiably on the paid plan: the code's
 # default of 40 fits the free tier's 50-subrequest ceiling, and a raised value

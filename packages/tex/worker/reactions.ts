@@ -43,8 +43,9 @@ export type Tapback = "Loved" | "Liked" | "Disliked" | "Laughed at" | "Emphasize
  * hold Tex's own text, because a yes is matched on `words` (`thumbs.ts`); these
  * are only shown, so a vote by tapback names what it voted on (Dev2,
  * 2026-11-19: Tex said "there's no poll" to a thumbs-up/thumbs-down poll).
+ * `sticker`: a sticker stuck on a message, its attachment on Photon's line, kept for Tex to stick again (`stickers.ts`).
  */
-export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true; onTex?: true; emoji?: string; otherWords?: string };
+export type Reaction = { how: Tapback; words: string; removed?: true; onOther?: true; onTex?: true; emoji?: string; otherWords?: string; sticker?: string };
 type Kept = Reaction & { at: number };
 
 const NAMES: [RegExp, Tapback][] = [
