@@ -20,6 +20,7 @@ export function areaToolDefinitions() {
             type: ["object", "null"],
             description: "The area's one metric; null clears it.",
             properties: { name: { type: "string" }, target: { type: "string", description: 'What good looks like, like "over $5" or "under 2 days".' } },
+            additionalProperties: false,
           },
           bot: {
             type: "object",
@@ -30,11 +31,13 @@ export function areaToolDefinitions() {
               reach: { type: "string", enum: ["webhook", "mail"], description: "webhook: Context calls it; mail: it checks its mail on a timer." },
             },
             required: ["name"],
+            additionalProperties: false,
           },
           delegate: {
             type: "object",
             properties: { person: { type: "string" }, to: { type: ["string", "null"] } },
             required: ["person"],
+            additionalProperties: false,
           },
           webhook: {
             type: "object",
@@ -45,6 +48,7 @@ export function areaToolDefinitions() {
               signing_key: { type: "string", description: "ctxbot_ and 64 hex characters from a random source; Context makes one nobody sees when left out." },
             },
             required: ["address"],
+            additionalProperties: false,
           },
           test_webhook: { type: "string", description: "A bot's name: send its webhook a signed test call." },
           create: { type: "boolean", description: "Make the area's about.md when it is not there yet." },
