@@ -172,6 +172,71 @@ test("reading a chat's history file marks the turn: every word in one is somebod
   assert.equal(plain.untrusted, false, "a note of their own with that name");
 });
 
+test("a message anchor on the path does not clear the turn: the read drops it, so the ledger must too", () => {
+  /*
+    A search of mail answers `<day>.md#msg-<hex>`, and that key is what an agent's next `read_note` arrives with:
+    `toolReadNote` splits the anchor off and reads the day (`tools/notes/read.js`, `search/commsIndex.js`
+    `splitMessageAnchor`). Judging the key with its anchor still on it left the canonical outside read — a day of
+    somebody else's email — marking nothing, so a turn that had read one still counted as clean and Tex vouched for a
+    delegated message from it (`agent/delegate.js`). The ledger has to drop the anchor exactly where the read does.
+  */
+  const content = { content: [{ type: "text", text: "From: a stranger" }] };
+  const ANCHOR = "#msg-0123456789abcdef";
+  const day = "0-inbox/email/me-at-example-com/2026-10-01.md";
+  const anchored = [
+    ["read_note", { path: `${day}${ANCHOR}` }],
+    ["fetch", { id: `${day}${ANCHOR}` }],
+    ["read_notes", { paths: ["3-resources/x.md", `${day}${ANCHOR}`] }],
+    ["read_note", { path: `3-resources/data/charges.csv${ANCHOR}` }],
+  ];
+  for (const [name, args] of anchored) {
+    const read = newLedger();
+    recordRead(read, { name, args, result: content });
+    assert.equal(read.untrusted, true, `${name} ${JSON.stringify(args)}`);
+    assert.equal(read.outside, true, `${name} outside`);
+  }
+  // Only a trailing, well-formed anchor is one: a hash anywhere else is an ordinary character in their own note's name.
+  const hashInName = newLedger();
+  recordRead(hashInName, { name: "read_note", args: { path: "3-resources/scales#sharp.md" }, result: content });
+  assert.equal(hashInName.untrusted, false, "a note whose name has a hash in it");
+  const notAnAnchor = newLedger();
+  recordRead(notAnAnchor, { name: "read_note", args: { path: "3-resources/plan.md#somewhere" }, result: content });
+  assert.equal(notAnAnchor.untrusted, false, "a hash suffix that is no anchor");
+});
+
+test("a sheet read as a note marks the turn: its rows are not the person's writing", () => {
+  /*
+    `read_sheet` is in `UNTRUSTED_READS` because a sheet's rows are filled by a source key held by an outside service
+    (`apps/convex/functions/sheetSources.ts`) or by a public address a source fetches (`src/data/fetch/url.js`), not
+    typed by a member. `read_note` reads any path, so the same rows read by path have to mark the same turn: the taint
+    follows the path, exactly as the chat history file's does above. The app chat's screen reads the open file with
+    `read_note` through the turn's own dispatcher and pastes it into the turn's note
+    (`packages/tex/gateway/agent/screen.js`), and since 2026-11-24 that file may be a sheet, so an open `.csv` is this
+    read.
+  */
+  const rows = { content: [{ type: "text", text: "charge,amount\nch_1,5.00" }] };
+  for (const path of ["3-resources/data/charges.csv", "@supa/3-resources/data/charges.csv", "Budget.CSV"]) {
+    const read = newLedger();
+    recordRead(read, { name: "read_note", args: { path }, result: rows });
+    assert.equal(read.untrusted, true, `read_note ${path}`);
+    assert.equal(read.outside, true, `read_note outside ${path}`);
+    const fetched = newLedger();
+    recordRead(fetched, { name: "fetch", args: { id: path }, result: rows });
+    assert.equal(fetched.untrusted, true, `fetch ${path}`);
+    const many = newLedger();
+    recordRead(many, { name: "read_notes", args: { paths: ["3-resources/x.md", path] }, result: rows });
+    assert.equal(many.untrusted, true, `read_notes ${path}`);
+  }
+  // Their own Markdown still marks nothing: this is about rows a source writes, not about every file.
+  const plain = newLedger();
+  recordRead(plain, { name: "read_note", args: { path: "3-resources/notes.md" }, result: rows });
+  assert.equal(plain.untrusted, false, "a note of their own");
+  // A write to a sheet answers in the gateway's own words, as a write to any note does (`recordRead`'s writing rule).
+  const wrote = newLedger();
+  recordRead(wrote, { name: "write_note", writing: true, args: { path: "3-resources/data/charges.csv" }, result: { content: [{ type: "text", text: "Saved." }] } });
+  assert.equal(wrote.untrusted, false, "a sheet written");
+});
+
 test("the history file's one predicate refuses the write it always refused", () => {
   // `historyWriteRefusal` and the egress mark share `isChatHistoryPath`, so the shared predicate must keep the
   // refusal's own reach: a `tex/` folder anywhere, not only at the root (its regex opened with `(?:^|/)`).
