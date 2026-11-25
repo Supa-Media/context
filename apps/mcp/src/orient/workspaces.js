@@ -81,7 +81,7 @@ const noteCount = (count) => (count === 1 ? "1 note" : `${count} notes`);
  * hand. A front page this caller may not see reads the same as one that does
  * not exist: no page is said of it either way.
  */
-function bodyOf({ page, survey, connected = false }) {
+function bodyOf({ page, survey, connected = false, areaSeats = "" }) {
   const lines = [];
   lines.push(survey.unreadable ? `Map not drawn: ${survey.unreadable}` : `${noteCount(survey.total)} visible to this connection.`);
   lines.push(
@@ -100,16 +100,17 @@ function bodyOf({ page, survey, connected = false }) {
   }
   const systemFolders = systemFoldersSection(survey);
   if (systemFolders) lines.push(systemFolders);
+  if (areaSeats) lines.push(areaSeats);
   if (hasWebsiteFolder(survey)) lines.push('Has a website/ folder: orient about "website" is how to build it.');
   return lines.join("\n");
 }
 
 /** The connected workspace's block: its own store, no reach to report. */
-export function connectedBlock({ entry, page, survey }) {
+export function connectedBlock({ entry, page, survey, areaSeats = "" }) {
   const head = entry
     ? `### ${entry.name} — ${accessSentence(entry)} (the one this connection opens by default)`
     : "### This workspace (the one this connection opens by default)";
-  return `${head}\n${bodyOf({ page, survey, connected: true })}`;
+  return `${head}\n${bodyOf({ page, survey, connected: true, areaSeats })}`;
 }
 
 /**
