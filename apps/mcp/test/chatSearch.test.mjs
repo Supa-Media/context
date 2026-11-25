@@ -3,7 +3,7 @@
  * chat's last days and open a day by date, but could not find a line by what was said).
  *
  * Sabotage record (2026-11-25), each applied, this file run, named test failing, reverted:
- *  1. `chatSearchOn` always true → "off on main, on where a draft's front door lists chatSearch" fails.
+ *  1. `chatSearchOn` always false → "on where the front door's ctx lists chatSearch…" fails.
  *  2. the `history: true` route dropped from `sixTools.js` → "search { args: { history: true } } reaches search_chat" fails.
  *  3. `who` filter ignored → "who narrows to one speaker" fails.
  *  4. reading `ledger.read(other chat)` → "never another chat's texts" fails.
@@ -16,7 +16,7 @@ import { chatSearchOn, chatSearchTool, CHAT_SEARCH_MODULE, readsChatSearch, SEAR
 import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
 import { eventEntry } from "../../../packages/tex/gateway/agent/ledger.js";
 import { texLedger } from "../../../packages/tex/gateway/texStore/ledger.js";
-import { midnightOf, weekTurn } from "../../../packages/tex/gateway/agent/weekHistory.js";
+import { midnightOf } from "../../../packages/tex/gateway/agent/weekHistory.js";
 import { TEX_CONFIG, texStep, withDraft } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { durableSql } from "./texStoreFixture.mjs";
 
@@ -44,11 +44,11 @@ async function ledger() {
   return l;
 }
 
-test("off on main, on where a draft's front door lists chatSearch", () => {
-  assert.equal(readsChatSearch(texStep("fd")), false, "ships on the shelf: main's front door does not list it");
-  assert.equal(chatSearchOn({}), false);
-  const on = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: [...texStep("fd").ctx, CHAT_SEARCH_MODULE] }] });
-  assert.equal(readsChatSearch(texStep("fd", on)), true);
+test("on where the front door's ctx lists chatSearch, as main's does since 2026-11-25, and off where a draft takes it out", () => {
+  assert.equal(readsChatSearch(texStep("fd")), true, "promoted 2026-11-25 (Lab draft \"Search own chat history\")");
+  assert.equal(chatSearchOn({}), true);
+  const off = withDraft(TEX_CONFIG, { nodes: [{ id: "fd", ctx: texStep("fd").ctx.filter((m) => m !== CHAT_SEARCH_MODULE) }] });
+  assert.equal(readsChatSearch(texStep("fd", off)), false);
   assert.equal(readsChatSearch(null), false);
 });
 
@@ -81,12 +81,6 @@ test("who narrows to one speaker; since and until to days", async () => {
   assert.match(text(await tool.call({ words: "puttery", since: "2026-10-01", until: "2026-10-31" })), /Puttery/);
   assert.match(text(await tool.call({ words: "atlanta", since: "2026-10-01" })), /No text in this chat since 2026-10-01/);
   assert.match(text(await tool.call({ words: "puttery", until: "2026-10-14" })), /No text/);
-});
-
-test("weekTurn hands it beside read_day, on the same chat", async () => {
-  const built = await weekTurn({ ledger: await ledger(), chat: ME, now: at("2026-11-25", 6), timeZone: ZONE, log: () => {} });
-  assert.equal(built.search_chat.tool.name, SEARCH_CHAT);
-  assert.match(text(await built.search_chat.call({ words: "puttery" })), /Puttery/);
 });
 
 test("search { args: { history: true } } reaches search_chat, with who, since and until", () => {

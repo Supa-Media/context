@@ -1,5 +1,6 @@
 /** Hears voice messages, keeps sent files, and reads the chat's history and the tools offered. One step of Tex's turn (`../texEntryPoint.js`). */
 
+import { chatSearchOn, chatSearchTool } from "../chatSearch.js";
 import { transcriptionForwarder } from "../../../../../apps/mcp/src/ingestion/transcription.js";
 import { markChatWords, markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
 import { carryCounts } from "../stretch.js";
@@ -45,6 +46,9 @@ export async function readTheHistory(t) {
   // The chat's history (`weekHistory.js`): when the front door reads the `chat:` and `summaries:` modules, every chat, one-to-one or group, is shown its chat word for word over the days the config names after each earlier day's summary, with its pictures.
   const reads = chatTurn && job === null && place !== null && typeof store?.texLedger === "function" ? historyReadsOf(env) : null;
   const week = reads !== null ? { reads, grant: carryKey(session), readPicture: pictureReader(group, dispatch) } : null;
+  // This chat's own history, searched by its words (`chatSearch.js`): its own ledger, whichever way the turn's history was read,
+  // in every kind of turn of the chat (a text, a check-in, a routine, a job), so each is shown the same tools (`sixToolsFixed.js`).
+  const chatSearch = place !== null && typeof store?.texLedger === "function" && chatSearchOn(env) ? chatSearchTool({ ledger: store.texLedger(place.owner.chat ?? null), chat: place.chat, timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE, grant: carryKey(session) }) : null;
   // The threaded turn carries the history modules even with conversation threads off (then it sorts nothing).
   const threading = threadsOn(env);
   const threadsRun = chatTurn && job === null && !runner && logged !== null && place !== null && (threading || week !== null) && typeof store?.texLedger === "function"
@@ -84,7 +88,7 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, mailRead, groupsRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, week: weekMoment ? { read_day: weekMoment.read_day, search_chat: weekMoment.search_chat } : null });
+  Object.assign(t, { attachments, background, computersRead, mailRead, groupsRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, chatSearch, week: weekMoment ? { read_day: weekMoment.read_day } : null });
 }
 // TEX ENTRY POINT: end
 

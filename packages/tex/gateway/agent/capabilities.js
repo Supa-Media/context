@@ -455,6 +455,13 @@ export const CAPABILITIES = Object.freeze([
     group: "the same, but only the person who asked can fold words into or restart your answer",
   },
   {
+    name: "This chat's history",
+    actions: [],
+    texts: "you see the last 7 days word for word and each earlier day's summary; fetch day:<date> opens any earlier day word for word, and search { args: { history: true, who, since, until, oldest } } finds every text in this chat back to its first that holds the words, with its day, time and who said it (oldest: true for when something was first said)",
+    group: "the same, for this group chat's own history",
+    cant: [{ where: "everywhere", what: "find a text by its meaning when it used other words", workaround: { kind: "words", text: "search again with the plain words they would have used, or read the day summaries around when it likely was" } }],
+  },
+  {
     name: "Group chats",
     actions: [],
     texts: "you can be in their group chats on the shared workspaces everyone there is in; the group parts of these lines are what you do there. From here you can read the group chats they are in with you, read only: fetch groups: lists them, fetch groups:<chat> reads a day word for word or each day's summary, and search { args: { groups: true } } finds which chat and when something was said",

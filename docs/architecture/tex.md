@@ -234,7 +234,7 @@ every wire, from the same config.
 | Quick door | fdQuick | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
 | Read door | fdRead | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
 | Act door | fdAct | tools-subagents | on | Haiku 5.5 | medium |  |  | graph/nodes/doors.js · doorTools.js · doorTurn.js |
-| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:72000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask, screen | turn.js runTurn · texEntryPoint/runTheModel.js · builtin.js |
+| Front door | fd |  | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:72000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask, screen, chatSearch | turn.js runTurn · texEntryPoint/runTheModel.js · builtin.js |
 | Tools | tools | tools-subagents | on | code |  |  |  | callToolForSession |
 | Advisor | advisor | tools-subagents | on | Sonnet 5.5 | high | 40 s | own, train:advisor, caps, about, ask, ledger, hist, date, tools | advisor.js · advisorRoles/chat.js |
 | Mail checker | mail | tools-subagents | on | Haiku 5.5 | low |  | own, train:mail, draft, ask | mailChecker.js |
@@ -436,6 +436,7 @@ planner, each off.
 
 ## Change log
 Newest first. One line per pull request that changed the drawing.
+- 2026-11-25: every chat can search its own history (Dev2 chose word search; [chat-search](../decisions/texting-assistant/chat-search.md)). The Front door reads the context module `chatSearch`, which offers `search_chat` (`search { args: { history: true, who, since, until, oldest } }`): whole words over every text the chat's ledger keeps, back to its first, each hit with its day, time, speaker and the `day:` fetch that opens it. Lab test chat on Dev2's 1:1: the first YC mention found in 112 ms. Replay case `finds-old-line`. Tests: `apps/mcp/test/chatSearch.test.mjs`.
 
 - 2026-11-23: before the Worker's SenderInbox class is deleted, each box still holding data that no name leads to is copied whole into a sealed gateway archive (`intake { workerIds, archive: true }` → `TexRoutines.archive` → `TexTexts` `/texts/worker-archive` → a `TexChat` object `archive:<worker id>`, `texChat/workerArchive.js`). It is kept once and never replaced, and nothing reads it back; it answers only that it was kept and how many keys (Dev2, 2026-11-23). No node or wire changes. Tests: `apps/mcp/test/texChatWorkerArchive.test.mjs`, `packages/tex/worker/workerCensus.test.ts`, `apps/mcp/test/labSandboxIntake.test.mjs`.
 - 2026-11-22: a Worker 1:1 object named by an iMessage sender's email address works out that name too (`workerCensus.ts` `selfNames` tries every part of its chat's id), so the census copies it in; the gateway takes a phone or an email address. No node or wire changes. Tests: `packages/tex/worker/workerCensus.test.ts`, `apps/mcp/test/labSandboxIntake.test.mjs`.

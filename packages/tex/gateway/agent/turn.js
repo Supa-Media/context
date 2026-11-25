@@ -32,6 +32,7 @@
  * engine decides, rather than being handed something the clamp never saw.
  */
 
+import { chatSearchOn, SEARCH_CHAT_DEFINITION } from "./chatSearch.js";
 import { sandboxPrecheck, sandboxedTool } from "../../../../apps/mcp/src/labSandbox/policy.js";
 import { datedTurns, stamped } from "./localNow.js";
 import { attachmentsLine } from "./attachments.js";
@@ -356,7 +357,7 @@ export async function runTurn(options) {
   */
   // Loaded only when asked for: the catalogue reads every tool's module, and a static import here closed an import cycle
   // (`texDesk.js` read `JOBS_PATH` before `background.js` had set it).
-  const fixed = fixedTools === "one" || fixedTools === "group" ? (await import("./sixToolsFixed.js")).fixedCarriers(fixedTools, { readSkill: tools.find((tool) => tool?.name === "read_skill") ?? null, chatSearch: tools.find((tool) => tool?.name === "search_chat") ?? null }) : null;
+  const fixed = fixedTools === "one" || fixedTools === "group" ? (await import("./sixToolsFixed.js")).fixedCarriers(fixedTools, { readSkill: tools.find((tool) => tool?.name === "read_skill") ?? null, chatSearch: chatSearchOn(env) ? SEARCH_CHAT_DEFINITION : null }) : null;
   const six = sixToolsOver(tools, grants, fixed ? { shown: fixed } : {});
   // A slow tool (a browser step, a held email) names its own limit, cut to end 30 s past the budget so the answer still fits.
   // A move's own is in `slowMoves.js`, under whatever the caller set.
