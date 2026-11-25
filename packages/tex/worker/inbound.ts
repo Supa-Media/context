@@ -68,6 +68,8 @@ export type Inbound =
       left?: number;
       /** Absent on a text with no files, and on messages queued before files were read. */
       attachments?: InboundAttachment[];
+      /** Photon: the line's attachment guids of stickers sent as this message, kept then dropped on accept (`stickers.ts` `keepSentStickers`). */
+      stickers?: string[];
       /** Sendblue: the handle of the message an inline reply answers. Resolved to `quoted`, then dropped, before queueing. */
       replyTo?: string;
       /** Sendblue: the handle of the message that started the thread the reply was typed in. Dropped with `replyTo`. */

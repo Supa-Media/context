@@ -71,6 +71,8 @@ export type GroupMessage = {
    * A link's preview card is not one (`isLinkPreview`).
    */
   attachments?: InboundAttachment[];
+  /** Photon: the line's attachment guids of stickers sent as this message, kept then dropped on accept (`stickers.ts` `keepSentStickers`). */
+  stickers?: string[];
   /** An edit of an earlier message, queued by the chat's `edit` step (`editStep.ts`), never by a webhook: `text` is the new words. */
   edited?: Edited;
   /** What a voice-only message says, heard before the chat decides whether it is for Tex (`groupVoice.ts`); never a webhook's. */

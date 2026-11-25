@@ -103,6 +103,8 @@ function attachment(raw) {
     name: raw.fileName,
     mimeType: raw.mimeType,
     size: Number.isFinite(raw.totalBytes) ? raw.totalBytes : null,
+    // A sticker sent as its own message (not stuck on a text): the agent keeps it to stick back (`stickers.ts`).
+    sticker: raw.isSticker === true ? true : undefined,
   });
 }
 

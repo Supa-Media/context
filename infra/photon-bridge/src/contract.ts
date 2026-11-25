@@ -36,7 +36,7 @@ export type PhotonEvent = {
     replyToText?: string;
     replyToFromMe?: boolean;
     threadRoot?: string;
-    attachments?: { guid: string; name: string; mimeType: string; size: number | null }[];
+    attachments?: { guid: string; name: string; mimeType: string; size: number | null; /** Apple marks it a sticker (sent as its own message). */ sticker?: true }[];
     balloonBundleId?: string;
     appUrl?: string;
     /** Another app's card, as its words (`map.mjs` `appOf`). */

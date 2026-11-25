@@ -5,6 +5,7 @@
  *  1. `stickerOf` answering any kept guid without matching the id → "an id this chat never kept sends the emoji" fails.
  *  2. `inbox.ts` `react` not keeping the sticker → "a sticker stuck in a Photon 1:1 is kept ..." fails.
  *  3. `tapback()` sticking without `stickerOf` → "an id this chat never kept sends the emoji" fails.
+ *  4. `inbox.ts` `accept` not calling `keepSentStickers` → "a sticker sent as its own text ..." fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -14,7 +15,7 @@ import { accept, drain, react, type InboxDeps } from "./inbox";
 import { keptEvents, unwritten } from "./events";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
-import { keepSticker, MAX_STICKERS, stickerId, stickerOf, STICKERS_KEY } from "./stickers";
+import { keepSentStickers, keepSticker, MAX_STICKERS, stickerId, stickerOf, STICKERS_KEY } from "./stickers";
 import { tapback } from "./stepEvents";
 import type { Reaction } from "./reactions";
 
@@ -133,5 +134,18 @@ describe("a Photon 1:1, end to end in the chat object", () => {
     await drain(storage, deps(stickerId("from-another-chat"), ops));
     expect(ops.some((call) => call.op === "sticker")).toBe(false);
     expect(ops.find((call) => call.op === "react")?.body).toMatchObject({ guid: "photon:m3", kind: "laugh", on: true });
+  });
+
+  it("a sticker sent as its own text is kept and read by its id after the words, and its guid goes no further", async () => {
+    const storage = new MemoryStorage();
+    const id = stickerId("at_st_9");
+    await accept(storage, { kind: "message", eventId: "photon:s1", chatId: CHAT, from: PHONE, messageId: "s1", text: "", stickers: ["at_st_9"] }, 1_000);
+    expect(await stickerOf(storage, id)).toBe("at_st_9");
+    const lines = (await keptEvents(storage, CHAT)).map((event) => ("text" in event ? event.text : undefined));
+    expect(lines).toContain(`[sticker ${id}]`);
+    expect(JSON.stringify(lines)).not.toContain("at_st_9");
+    const said = await keepSentStickers(storage, { text: "this one", stickers: ["at_st_9", ""] }, 2_000);
+    expect(said).toEqual({ text: `this one [sticker ${id}]` });
+    expect(await keepSentStickers(storage, { text: "plain" }, 3_000)).toEqual({ text: "plain" });
   });
 });
