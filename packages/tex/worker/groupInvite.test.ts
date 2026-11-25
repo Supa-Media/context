@@ -4,7 +4,7 @@
  * answer has gone (`groupInvite.ts`).
  *
  * Sabotage (temporary local edits, reverted): `groupModelTurn.ts` never calling `inviteEveryone` fails the first test;
- * `readInvite` taking any slug fails the second.
+ * `readInvite` taking any slug fails the second; `inviteEveryone` not calling `dropKept` fails the third.
  */
 
 import { describe, expect, it } from "vitest";
@@ -41,5 +41,19 @@ describe("a workspace shared with everyone here, in any words", () => {
     await drainGroup(storage, w.deps);
     expect(w.texts.at(-1)).toBe("Hm.");
     expect(w.control.filter(isInvite)).toHaveLength(1);
+  });
+
+  it("drops the kept token, so the next tag mints one that reaches the workspace", async () => {
+    const storage = new MemoryStorage();
+    const w = setup(groupId, {
+      controlFor: (body) => (isInvite(body) ? { status: "invited", slug: "studio", count: 1, role: "member" } : undefined),
+      agent: (body) => (String(body.question).includes("share") ? { answer: "Adding everyone.", invite: { slug: "studio", role: "member" } } : { answer: "Here it is." }),
+    });
+    await acceptGroup(storage, w.message("Tex share @studio with everyone here"), 0);
+    await drainGroup(storage, w.deps);
+    const before = w.control.length;
+    await acceptGroup(storage, w.message("Tex what are the priorities"), 0);
+    await drainGroup(storage, w.deps);
+    expect(w.control.slice(before).filter((body) => !isInvite(body))[0]).toEqual(expect.objectContaining({ mint: true }));
   });
 });
