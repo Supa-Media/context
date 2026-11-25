@@ -21,7 +21,7 @@ import { sourceBySlug, type DataSource } from "../../data/sources";
 import { metricView } from "../../data/views";
 import { ago, lastRowAt, periodTag } from "../../data/words";
 import { HIDDEN, inputsOf, stateOf, targetOnScale, trendOf, type Sheet, type Worked } from "../../data/workOut";
-import { readingFor, targetNumber, targetState, type Reading, type Readings, type TargetState } from "./readings";
+import { directedTarget, readingFor, targetNumber, targetState, type Reading, type Readings, type TargetState } from "./readings";
 import { metricKey, type Metric, type Seat, type SeatEdit } from "./seat";
 
 /** What the Areas page knows of the workspace's metrics, all at the reader's own clearance. */
@@ -172,7 +172,7 @@ const OVER = /^\s*(over|above|more than|at least|>=?|≥)\s*/i;
 
 /** A target as written, `under 30 min`, as the picker's two halves; a target in no direction reads as Over. */
 export function splitTarget(target: string | null): { mode: TargetMode; value: string } {
-  const said = target?.trim() ?? "";
+  const said = directedTarget(target?.trim() ?? "");
   if (UNDER.test(said)) return { mode: "under", value: said.replace(UNDER, "").trim() };
   return { mode: "over", value: said.replace(OVER, "").trim() };
 }
