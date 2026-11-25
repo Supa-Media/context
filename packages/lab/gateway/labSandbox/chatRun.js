@@ -341,6 +341,8 @@ export function inboundOf({ about, row, rows, address, sentHandles }) {
     if (!group) return { path: "/react", body: { kind: "reaction", eventId, chatId: address.chatId, from, messageId: eventId, reaction } };
     return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: eventId, text: "", reaction } };
   }
+  // Tex's number added to the group by whoever the row is from (`route.js` `added`), as Photon's `participantAdded` is handed over.
+  if (row.kind === "joined") return { path: "/group-joined", body: { groupId: address.groupId, line: address.line, by: from, participants: people } };
   if (row.kind === "edit" || row.kind === "unsend") {
     const where = group ? { groupId: address.groupId, participants: people } : { chatId: address.chatId };
     const before = target ? wordsNow(rows, target, row.id) : "";
@@ -481,7 +483,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       if (path.startsWith("/texts/job-call/")) return Response.json({ error: "no_job_home" }, { status: 501 });
       return routes(request);
     };
-    const { SenderInbox, remoteLine, remoteGroupLine, setChatBound } = await import("../../../tex/worker/gatewayChat.js");
+    const { SenderInbox, remoteLine, remoteGroupLine, setChatBound, INTRO_KEY } = await import("../../../tex/worker/gatewayChat.js");
     const inboxName = about.kind === "group" ? `group:${address.groupId}` : address.phones.values().next().value ?? "lab";
     const chatLine = { line: (chatId) => remoteLine(kept.rpc, inboxName, chatId), groupLine: (groupId) => remoteGroupLine(kept.rpc, inboxName, groupId) };
     const work = [];
@@ -515,7 +517,13 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const { path, body: message } = inbound === null ? inboundOf({ about, row, rows, address, sentHandles }) : inbound(address);
     // A test chat is one Tex already answers in (its grant is what the Lab opened it with): its object starts set up for
     // the people here, as the real chat's is after Tex's first turn there (`groupChat.ts` `setChatBound`).
-    if (about.kind === "group" && fresh && (!isWorld || about.world?.introduced === true)) await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from ?? message.asker, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
+    if (about.kind === "group" && fresh && (!isWorld || about.world?.introduced === true)) {
+      await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from ?? message.by ?? message.asker, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
+      // Already introduced, as a real chat Tex answers in is (`groupJoined.ts`): only an `added` row says hello here.
+      if (row.kind !== "joined") await storage.put(INTRO_KEY, row.at ?? started);
+    }
+    // Tex added again in the same test chat: a hello each time it is tried.
+    if (row.kind === "joined") await storage.delete(INTRO_KEY);
     // Its provider is the line's: the lag the `text` step shows is the line's hold.
     const provider = { name: line.name === "photon" ? "photon" : "lab", providerAt: row.at ?? started, receivedAt: now() };
     const accepted = await inbox.fetch(new Request(`https://inbox${path}`, { method: "POST", body: JSON.stringify(inbound === null ? { ...message, provider } : message) }));

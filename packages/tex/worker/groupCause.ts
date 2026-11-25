@@ -7,7 +7,8 @@
  * - `job_report`: work Tex started reported back; `cross_chat`: another of the person's Tex chats asked this one;
  *   `vault_saved`: someone saved the login Tex asked for; `browser_handed_back`: someone pressed Done on the browser
  *   Tex handed them. Each is queued as a routine's turn is (`jobTexts.ts`, `crossChat.ts`, `vaultWatch.ts`,
- *   `handbackWatch.ts` all set `routine`), so they are named before it.
+ *   `handbackWatch.ts` all set `routine`), so they are named before it. `joined`: Tex was just added to this chat
+ *   (`groupJoined.ts`), an event too.
  * - `check_in`: the chat's own check-in (`groupRoutines.ts` `CHAT_LOOK_PATH`); `routine`: one of its routines.
  * - `reaction`: a tapback on one of Tex's texts.
  * - `tagged`: a text here says "@Tex"; `named`: a text here names Tex ("Tex" or "Context", `groupWords.ts`).
@@ -17,7 +18,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import { CHAT_LOOK_PATH } from "./groupRoutines";
 import { namesTex, tagsTex } from "./groupWords";
 
-export type TurnCause = "check_in" | "routine" | "job_report" | "cross_chat" | "vault_saved" | "browser_handed_back" | "reaction" | "tagged" | "named" | "judged";
+export type TurnCause = "check_in" | "routine" | "job_report" | "cross_chat" | "vault_saved" | "browser_handed_back" | "joined" | "reaction" | "tagged" | "named" | "judged";
 
 export function turnCause(message: Pick<GroupMessage, "routine" | "jobReport" | "crossChat" | "event" | "reaction" | "answersTapback">, covered: { text?: string; heard?: string }[]): TurnCause {
   if (message.jobReport !== undefined) return "job_report";

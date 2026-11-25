@@ -498,6 +498,7 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
       case "react":
       case "edit":
       case "unsend":
+      case "added":
       case "retry":
         return needId(args) ?? (await runAndWait(op, args));
       case "wait":

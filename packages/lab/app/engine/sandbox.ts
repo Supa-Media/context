@@ -128,7 +128,7 @@ export type SandboxState = {
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
 export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSource; versionId: string; openedBy: string; lastBy: string; at: number; ai: boolean; texts: number; running: boolean };
 
-export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page" | "nightly" | "join" | "leave";
+export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page" | "nightly" | "join" | "leave" | "added";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
 export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null };
@@ -621,6 +621,7 @@ export const sendText = (text: string, extra: { pics?: string[]; replyTo?: strin
 /** A tapback on a text, as whoever the composer sends as: Tex sees it as it would a real one. */
 export const reactTo = (msgId: string, emoji: string) => run("react", { as: asHandle(), msgId, emoji });
 
+export const addTex = () => run("added", { as: asHandle() }); // Tex's number added to a group test chat, by whoever the composer sends as (`labSandbox/added.js`)
 /** Whoever sent a text, as the gateway knows them: an edit or an unsend is only ever its sender's. */
 const senderOf = (msgId: string) => {
   const who = sandbox.rows.find((r) => r.id === msgId)?.who ?? "";

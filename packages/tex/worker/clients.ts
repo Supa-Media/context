@@ -341,7 +341,7 @@ export async function askAgent(
     /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
     onStep?: (text: string, how?: StepHow) => Promise<void>;
     /** A turn with no text of theirs: a login Tex asked for was saved (`vaultWatch.ts`). */
-    event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer";
+    event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer" | "joined";
     /** Another chat's ask, or the answer to this chat's own (`crossChat.ts` `crossFields`); and what this chat holds of its asks, for the Cross-chat gate. */
     crossChat?: Omit<CrossEvent, "reply">;
     crossCounts?: { hour: number; day: number; open: string[] };

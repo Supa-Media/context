@@ -697,6 +697,7 @@ test/sharedFolderDefault.test.mjs
 test/groupChats.test.mjs
 test/moveJudge.test.mjs
 test/crossChat.test.mjs
+test/texJoined.test.mjs
 test/workspaceConventions.test.mjs
 test/workspaceConventionsTurn.test.mjs
 test/checkInTraining.test.mjs

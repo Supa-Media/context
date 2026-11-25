@@ -21,6 +21,7 @@ Every section title of [the texting assistant](../texting-assistant.md) and its 
 - [An edited or unsent text is kept beside the one it changes, and Decide judges an edit from examples (2026-11-16)](./edits-and-unsends.md)
 - [A Provisional run starts a step before the steps that decide whether it should run (2026-11-17)](./provisional-run.md)
 - [A retried turn goes on from what its last try did (2026-11-17)](./turn-resume.md)
+- [Tex says hello once when it is added to a group (2026-11-25)](./group-hello.md)
 - [Tex asks Tex across chats, and a "Starts a new run" wire (2026-11-17)](./cross-chat-asks.md); [A group chat's Tex uses what each person's own Tex lets it, and never says why (2026-11-24)](./member-cards.md)
 - [One list of what Tex can do, and where (2026-11-08)](./capabilities.md)
 - [Four rules for Tex's tools, held in CI and watched in the Lab (2026-11-20)](./tool-rules.md)

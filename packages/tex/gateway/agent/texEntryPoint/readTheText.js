@@ -17,6 +17,7 @@ import { handedBackQuestion } from "../handback.js";
 import { warmTurn } from "../warmCopy.js";
 import { chatLedger, reportEntry } from "../workEntries.js";
 import { CHAT_ASK_EVENT, CHAT_ANSWER_EVENT } from "../crossChat.js";
+import { JOINED_EVENT } from "../joined.js";
 import { gatewayGraph } from "../graph/gatewayGraph.js";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
@@ -79,7 +80,10 @@ export async function readTheText(t) {
   // Another chat's ask, or the answer to this chat's own (`crossChat.js`): node "Another chat asks" reads it, a run of its own.
   const crossChat = await tex.step("chat_ask", () => crossChatEvent(body, { chatTurn, job, group, env, writer: store.ledger }));
   if (crossChat?.refused) return json(crossChat.refused);
-  let question = vaultSavedQuestion(body, chatEvent) ?? handedBackQuestion(body, chatEvent) ?? (report !== null ? jobReportQuestion(report) : null) ?? crossChat?.question ?? (typeof body.question === "string" ? body.question.trim() : "");
+  // Tex just added to a group (`../joined.js`): node "Tex added" gives its hello its line, a run of its own.
+  const joined = await tex.step("joined", () => joinedEvent(body, { chatTurn, job, group, env, writer: store.ledger }));
+  if (joined?.refused) return json(joined.refused);
+  let question = vaultSavedQuestion(body, chatEvent) ?? handedBackQuestion(body, chatEvent) ?? (report !== null ? jobReportQuestion(report) : null) ?? crossChat?.question ?? joined?.question ?? (typeof body.question === "string" ? body.question.trim() : "");
   Object.assign(t, { body, chatTurn, crossChat: crossChat?.event ?? null, crossPrompt: crossChat?.prompt ?? "", dispatch, group, hot, job, question, received, report, routine, runner, runs, setupRead, supervision });
 }
 // TEX ENTRY POINT: end
@@ -113,3 +117,18 @@ async function crossChatEvent(body, { chatTurn, job, group, env, writer }) {
   return { event: output.event, question: output.question, prompt: output.prompt };
 }
 
+/**
+ * A group's hello, the run the texting Worker starts when Tex is added (`body.event` "joined",
+ * `packages/tex/worker/groupJoined.ts`), read by node `joined` over the turn's graph, so the run is logged:
+ * `{ question }`, `{ refused }` (said nothing) when this chat's config has no such node or the node refuses it, or null
+ * on any other turn.
+ */
+async function joinedEvent(body, { chatTurn, job, group, env, writer }) {
+  if (!chatTurn || job !== null || body?.event !== JOINED_EVENT) return null;
+  const quiet = { answer: "", quiet: true };
+  const config = texConfigOf(env);
+  if (!config.nodes.some((node) => node.id === "joined" && node.on !== false)) return { refused: quiet };
+  const graph = gatewayGraph({ env, writer, turn: typeof body.turn === "string" ? body.turn : null, config });
+  const { output } = await graph.runNode("joined", { event: body.event, group: group !== null }, {}, "readTheText");
+  return output?.to === "intro" ? { question: output.question } : { refused: quiet };
+}

@@ -24,7 +24,7 @@ export const CAUSE_NOT_KNOWN =
   "Why this turn runs is not known: it may be a text, the chat's own check-in or a follow-up. Never say anyone tagged you, asked you or why you're answering; if nothing in the newest texts is for you, call send with action say_nothing.";
 
 /** Why a group turn runs, as the Worker names it (`packages/tex/worker/groupCause.ts`). */
-export const TURN_CAUSES = Object.freeze(["check_in", "routine", "job_report", "cross_chat", "vault_saved", "browser_handed_back", "reaction", "tagged", "named", "judged"]);
+export const TURN_CAUSES = Object.freeze(["check_in", "routine", "job_report", "cross_chat", "vault_saved", "browser_handed_back", "joined", "reaction", "tagged", "named", "judged"]);
 
 /**
  * Who tagged Tex this time, said in their turn (`turnPrompt.js` preamble), never the cached system prompt: it
@@ -41,6 +41,7 @@ export function taggedLine(group) {
   if (cause === "job_report") return "Nobody texted you: work you started for this chat reported back.";
   if (cause === "cross_chat") return "Nobody here texted you: another of your chats with these people asked this one something.";
   if (cause === "vault_saved") return "Nobody texted you: someone here saved the login you asked for in the vault.";
+  if (cause === "joined") return "Nobody texted you: you were just added to this chat, and this is your hello.";
   if (cause === "browser_handed_back") return "Nobody texted you: someone here pressed Done on the browser you handed them.";
   const who = group.from ? taggerLabel(group) : group.asker ? shownWho(group, group.asker).replace(/^@/, "") : "";
   if (cause === "reaction") return who ? `${who} reacted to one of your texts.` : "Someone reacted to one of your texts; who is not known.";

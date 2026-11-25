@@ -18,7 +18,7 @@ import { taggedLine, TURN_CAUSES } from "../../../packages/tex/gateway/agent/gro
 const KEY = "c3".repeat(32);
 const MEMBERS = "d4".repeat(32);
 const NAMES_TEX = new Set(["tagged", "named"]);
-const NOBODY_TEXTED = new Set(["check_in", "routine", "job_report", "cross_chat", "vault_saved", "browser_handed_back"]);
+const NOBODY_TEXTED = new Set(["check_in", "routine", "job_report", "cross_chat", "vault_saved", "browser_handed_back", "joined"]);
 
 /**
  * Every shape a group reaches `taggedLine` in, as `groupOf` leaves it: a member who texted, an invited person with no
