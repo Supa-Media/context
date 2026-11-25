@@ -79,6 +79,17 @@ describe("parsePhotonEvent: messages in a 1:1 chat", () => {
     expect(parsePhotonEvent(body)).toMatchObject({ kind: "ignored", reason: "empty" });
   });
 
+  it("carries a sticker sent as its own message by its guid on the line, in a 1:1 and a group, and none for a plain picture or an SMS", () => {
+    const sent = (attachments: unknown[], service = "iMessage") => ({ message: { guid: "msg-st", text: "", service, attachments } });
+    const url = { attachmentUrl: (guid: string) => GENERIC_ADDRESS(guid) };
+    const sticker = { guid: "at_st_1", name: "sticker.heic", mimeType: "image/heic", size: 10, sticker: true };
+    const photo = { guid: "at_ph_1", name: "p.png", mimeType: "image/png", size: 10 };
+    expect(parsePhotonEvent(event(sent([sticker, photo])), url)).toMatchObject({ kind: "message", stickers: ["at_st_1"] });
+    expect(parsePhotonEvent(groupEvent(sent([sticker])), url)).toMatchObject({ kind: "group-message", stickers: ["at_st_1"] });
+    expect(parsePhotonEvent(event(sent([photo])), url)).not.toHaveProperty("stickers");
+    expect(parsePhotonEvent(groupEvent(sent([sticker], "SMS")), url)).not.toHaveProperty("stickers");
+  });
+
   it("marks a reply as threaded, and carries the words it answers as quoted", () => {
     const parsed = parsePhotonEvent(event({ message: { guid: "msg-r", text: "yes", service: "iMessage", replyTo: "msg-tex-1", replyToText: "Book it?", replyToFromMe: true } }));
     expect(parsed).toMatchObject({ kind: "message", threaded: true, quoted: "Book it?" });
