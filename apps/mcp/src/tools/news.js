@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-25",
+    text:
+      'orient takes area: "<an area\'s folder>" for that one area (its owner, modes and what they ask, metric, rules, notes, mail and ' +
+      'attached projects, and where to write), and for: "@who" for every area a person or bot holds. If your app drops them, pass ' +
+      'about: "area <folder>" or about: "for @who" instead.',
+  },
+  {
     date: "2026-11-23",
     text:
       "a sheet is a .csv whose header gives each column's type after a colon (date:date,value:number,by:person): save one " +
@@ -496,7 +503,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "c79feb3a";
+export const TOOL_SHAPE = "92a03d86";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
