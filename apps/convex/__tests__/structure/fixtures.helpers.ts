@@ -271,6 +271,12 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // `revokeToken`, scheduled after a disconnect, a reconnect or a workspace's
   // deletion. Both internal; no public function reaches either.
   "functions/connections.ts",
+  // A BOT'S WEBHOOK (the owner, 2026-11-25: Grok bots as area owners;
+  // `docs/decisions/app-and-console/area-bots.md`). The address, header and
+  // signing key a person saved are sealed to the workspace and opened by
+  // `callBotHook`, the barrier, for one signed call that says mail arrived.
+  // It answers only whether the call landed and the status.
+  "functions/botHooks.ts",
   // The same connectors past Slack (the owner, 2026-10-21: "connect through
   // the official mcp"). `connectionApps.ts` opens a connection's token, and
   // its refresh token, for one MCP tool call or one of our API tools, in the
