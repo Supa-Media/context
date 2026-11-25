@@ -35,6 +35,7 @@ import { ColumnMenu } from "./ColumnMenu";
 import { FilterBar } from "./FilterBar";
 import { FilterMenu } from "./FilterMenu";
 import { SheetHead } from "./SheetHead";
+import { SyncedBanner } from "./SyncedBanner";
 import { SheetSourcesButton } from "./SheetSources";
 import { measureNode, type Anchor } from "./Popover";
 import { SheetGrid, type GridEditing, type RowMark } from "./SheetGrid";
@@ -83,6 +84,7 @@ export type SheetViewProps = {
   say?: (message: string) => void; // the console's toast; without it a notice shows above the grid
   compact?: boolean; // a phone, whose page already shows the name as its title
   onChangeText: (next: string) => void; // called with the whole new file text after every committed change
+  keptBy?: { name: string; onOpenSource?: () => void }; // a source that syncs this sheet: read-only, under its lock line
 };
 
 type Menu =
@@ -95,13 +97,14 @@ type Menu =
 const DOUBLE_PRESS_MS = 400;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
 
-export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText }: SheetViewProps): JSX.Element {
+export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText, keptBy }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
   const parsed = useMemo(() => parseSheet(text), [text]);
   // Text the grid would lose cells of on its next rewrite: shown, never changed here.
   const lossy = useMemo(() => (parsed.errors as { lossy?: boolean }[]).some((e) => e.lossy === true), [parsed]);
-  const readOnly = canNotEdit || lossy;
+  // A sheet a source keeps is read-only here: its next sync would replace any edit (`data/syncedSheet.ts`).
+  const readOnly = canNotEdit || lossy || keptBy !== undefined;
   const sheet: SheetData = useMemo(
     () => ({ columns: parsed.columns as SheetColumn[], rows: parsed.rows as Record<string, string>[] }),
     [parsed],
@@ -454,6 +457,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
         <SheetHead path={path} visibility={visibility} compact={compact} />
         {readOnly ? null : <SheetSourcesButton path={path} columns={sheet.columns.map((column) => column.name)} />}
       </View>
+      {keptBy === undefined ? null : <SyncedBanner name={keptBy.name} compact={compact} {...(keptBy.onOpenSource === undefined ? {} : { onOpenSource: keptBy.onOpenSource })} />}
       {problems.length === 0 ? null : (
         <View style={styles.problems} testID="sheet-problems">
           <Text variant="meta" style={styles.notice}>
