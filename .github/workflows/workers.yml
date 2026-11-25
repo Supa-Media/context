@@ -262,6 +262,7 @@ jobs:
             packages/tex/src/**
             packages/tex/worker/**
             packages/tex/gateway/texChat/arrival.js
+            packages/tex/gateway/texChat/arrival.d.ts
 
       - name: Install (Agent)
         if: ${{ !cancelled() && steps.agent.outputs.affected == 'true' }}
