@@ -41,3 +41,22 @@ draft would put one chat's words in front of people who never asked. Tests: `app
 `packages/tex/worker/crossChat.test.ts`, `apps/mcp/test/texGraph.test.mjs` (generator wires) and the replay case
 `apps/mcp/test/replay/cases/routine-sees-chat.mjs` (its cross-chat part). Wired into the config by the Lab draft "Cross-chat asks" (promoted
 2026-11-17); unwiring `tools -> crossChatGate` in a draft turns it all off again, and `ask_personal_tex` comes back.
+
+## A group with strangers in it asks too (2026-11-25)
+
+Dev2, 2026-11-25: relationships are **shared workspaces**, not a map Tex keeps ("keeping track of relationships is a
+risky slope"): two people in one workspace get its privacy model, and anyone who shares none with a person is a stranger
+to Tex for them (design: @supa `projects/tex-best-friend-memory/contextual-privacy-model.md`). With guest mode retired
+([one-group-tex](./one-group-tex.md)), a group whose people don't all share a workspace offers `ask_chat` like any
+group, and Dev2 approved ("sounds good") what it may do there:
+
+- **Only the sender's own Tex, for their own things.** A guest's tag is refused by the gate (`guest: true`); someone
+  else's Tex is offered to them and asked only after their own 👍 or yes, as everywhere.
+- **The answer knows strangers read it.** The gate marks the ask `strangers` when the chat reads only its home; the
+  Worker carries the mark to the 1:1, whose run is told (`STRANGERS_LINE`) to send back exactly what was pointed at
+  and nothing else private about them or anyone. A chat whose people share a workspace is not marked.
+
+**What a simplification would cost:** dropping the mark lets the 1:1 answer a room of strangers as it would a room of
+colleagues; letting the model set it lets a group unmark itself. Tests: `apps/mcp/test/oneGroupPrompt.test.mjs`
+("ask_chat reaches only the sender's own Tex ...", "an ask from a group with strangers ..."),
+`packages/tex/worker/crossChat.test.ts`, and the replay case `ask-from-strangers-group`.

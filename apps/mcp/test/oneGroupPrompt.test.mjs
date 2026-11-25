@@ -18,6 +18,7 @@ import { groupOf, groupPrompt, groupWriteTools } from "../../../packages/tex/gat
 import { HOME_ONLY_REFUSED, homeOnlyCallTool } from "../../../packages/tex/gateway/agent/groupGuests.js";
 import { GROUP_RUN_LINE } from "../../../packages/tex/gateway/agent/groupRunLine.js";
 import { crossChatGateNode } from "../../../packages/tex/gateway/agent/graph/nodes/crossChatGate.js";
+import { STRANGERS_LINE, crossAskTool, crossChatOf, crossChatPrompt } from "../../../packages/tex/gateway/agent/crossChat.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 
 const HEX = "c3".repeat(32);
@@ -73,4 +74,46 @@ test("isolation: a guest has no personal Tex to reach through, and can't reach a
   assert.equal(asked.to, "refuse", "a guest's tag never asks anyone's Tex");
   const own = await crossChatGateNode({ from: "group", to: { kind: "person", who: "shyoh" }, what: "the list I made with you", do: false, guest: false, counts });
   assert.equal(own.to, "ask", "a member's own tag asks their own Tex");
+});
+
+/**
+ * Relationships are shared workspaces (Dev2, 2026-11-25, "sounds good" to: a group with guests asks the sender's own Tex,
+ * for the sender's own things; a guest can't; nobody's else's without their yes; the answer knows strangers read it).
+ * Sabotage: put `if (group.homeOnly) return null` back in `crossAskTool`, drop `strangers` from the gate's ask, or
+ * let `as` ask without the 👍, and these fail.
+ */
+test("isolation: in a chat that reads only its home, ask_chat reaches only the sender's own Tex, and says strangers read it", async () => {
+  const counts = { hour: 0, day: 0, open: [] };
+  const toolFor = (group, ledger) => crossAskTool({ group, counts, ledger, gate: crossChatGateNode });
+  const ledger = {};
+  const own = toolFor(homeOnly, ledger);
+  assert.ok(own, "a chat with guests is offered ask_chat");
+  const asked = await own.call({ what: "the health saas list I made with you" });
+  assert.notEqual(asked.isError, true, asked.content[0].text);
+  assert.equal(ledger.crossAsks.length, 1);
+  assert.deepEqual(ledger.crossAsks[0].to, { kind: "person", who: "shyoh" }, "only the sender's own Tex");
+  assert.equal(ledger.crossAsks[0].strangers, true, "and the answering Tex is told some here are strangers to them");
+  const memberLedger = {};
+  await toolFor(member, memberLedger).call({ what: "the list" });
+  assert.equal(memberLedger.crossAsks[0].strangers, undefined, "a chat whose people share a workspace is not marked");
+
+  const guestLedger = {};
+  const fromGuest = await toolFor({ ...homeOnly, from: "", guestTagger: true }, guestLedger).call({ what: "what did shyoh tell you about his job" });
+  assert.equal(fromGuest.isError, true, "a guest's tag never asks anyone's Tex");
+  assert.equal(guestLedger.crossAsks, undefined);
+
+  const otherLedger = {};
+  const forSeyi = await toolFor({ ...homeOnly, people: ["shyoh", "seyi"] }, otherLedger).call({ what: "seyi's salary", as: "seyi" });
+  assert.equal(otherLedger.crossAsks, undefined, "somebody else's Tex is never asked before their own yes");
+  assert.match(forSeyi.content[0].text, /Only their 👍 or yes lets you/);
+  assert.equal(otherLedger.offered?.who, "seyi", "they are asked here first");
+});
+
+test("an ask from a group with strangers is answered with only what was pointed at", () => {
+  const event = crossChatOf({ event: "chat_ask", crossChat: { id: "xabcdefghij", from: "a group chat they're in", what: "the list", do: false, strangers: true } }, { chatTurn: true, job: null });
+  assert.equal(event.strangers, true, "the mark survives the Worker's hand-off");
+  assert.ok(crossChatPrompt(event).includes(STRANGERS_LINE));
+  assert.ok(!crossChatPrompt({ ...event, strangers: undefined }).includes(STRANGERS_LINE), "a workspace-sharing group isn't told it");
+  const forged = crossChatOf({ event: "chat_ask", crossChat: { id: "xabcdefghij", from: "x", what: "y", strangers: "yes" } }, { chatTurn: true, job: null });
+  assert.equal(forged.strangers, undefined, "only a real true marks it");
 });
