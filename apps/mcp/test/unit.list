@@ -662,12 +662,16 @@ test/simWorld.test.mjs
 test/simFixtures.test.mjs
 test/simFixturesFiles.test.mjs
 test/texLabRunWorld.test.mjs
+test/texLabParity.test.mjs
+test/texLabSandboxRows.test.mjs
+test/texLabSandboxDriver.test.mjs
 test/setsRun.test.mjs
 bench/test/nodeCases.test.mjs
 bench/test/nodeCases.test.mjs
 test/texTraining.test.mjs
 test/texTestSet.test.mjs
 test/labSandbox.test.mjs
+test/labSandboxBench.test.mjs
 test/labSandboxNightly.test.mjs
 test/labSandboxCheckIn.test.mjs
 test/labSandboxSearch.test.mjs

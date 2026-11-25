@@ -145,6 +145,12 @@ export const texLabTables = {
      * made before repeats: those ran once. The score is the mean over the repeats with its min..max band.
      */
     repeats: v.optional(v.number()),
+    /**
+     * Who ran it. Unset means the GitHub workflow ran it; "sandbox" means the Lab sandbox's bench driver
+     * (`scripts/tex-lab-sandbox-bench.mjs`) ran it in the gateway's Lab sandbox: real Tex turns on Training or Dev
+     * conversation copies, with no record/replay of the simulated world. A report tells the two apart by this.
+     */
+    source: v.optional(v.literal("sandbox")),
     stage: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("failed")),
     ghRunUrl: v.optional(v.string()),
     /** A gate run's pull request. */

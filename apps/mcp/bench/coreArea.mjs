@@ -8,7 +8,7 @@
  * and the tests edited in Context are pulled into each tree first (`pnpm ai pull texting-assistant`).
  */
 import { execFile } from "node:child_process";
-import { fallbacksIn } from "./fallbacks.mjs";
+import { answersFallbacks } from "./rowAccounting.mjs";
 import { handoffTotals } from "./handoffTotals.mjs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { DEFAULT_JUDGE, labJudge } from "./judge.mjs";
@@ -108,7 +108,7 @@ export function coreCases({ test, testRaw, resultRaw, keyRaw, setup = SETUP }) {
     // Each texted turn's route (`report.mjs`): one list per run, read for the Lab's route summary, never a score.
     const routes = answers.filter((a) => runIds.includes(a.id) && (a.routes ?? []).length > 0).map((a) => a.routes);
     // Calls its runs answered with the fallback model (`fallbacks.mjs`): a Lab run with any is not Tex's score.
-    const fallbacks = answers.filter((a) => runIds.includes(a.id)).reduce((n, a) => n + fallbacksIn(a.tools), 0);
+    const fallbacks = answersFallbacks(answers.filter((a) => runIds.includes(a.id)));
     // What the turn did (`turnSteps.mjs`): the first answered run's steps line, shown on the row beside its rounds, never a score.
     const steps = answers.find((a) => runIds.includes(a.id) && typeof a.steps === "string" && a.steps !== "")?.steps ?? null;
     // Each failed tool's own error on its runs (`toolErrors.mjs`): why a tool failed, shown on the row, never a score.
