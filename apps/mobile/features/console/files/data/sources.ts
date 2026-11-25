@@ -151,3 +151,23 @@ export function cardColumns<T extends { datasets: readonly unknown[] }>(cards: r
   }
   return columns;
 }
+
+/**
+ * The sources a reader's notes of the data folder name, where no listing is
+ * at hand (a metric note opened on its own): each `<data>/<folder>/about.md`.
+ * Their sheets are not known from notes; a formula names the ones it reads.
+ */
+export function sourcesFromNotes(dataFolder: string, notes: readonly ListNote[]): DataSource[] {
+  const prefix = inside(dataFolder);
+  const metrics = metricsFolderOf(dataFolder);
+  const out: DataSource[] = [];
+  for (const note of notes) {
+    if (!note.path.startsWith(prefix)) continue;
+    const rest = note.path.slice(prefix.length).split("/");
+    if (rest.length !== 2 || rest[1] !== ABOUT_NOTE) continue;
+    const folder = `${prefix}${rest[0]}`;
+    if (folder === metrics) continue;
+    out.push(sourceOf(folder, undefined, notes));
+  }
+  return out;
+}

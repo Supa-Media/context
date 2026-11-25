@@ -155,3 +155,12 @@ export function settingsOf(source: DataSource): Setting[] {
   if (signsIn(source.kind)) out.push({ key: "sign-in", values: ["Kept in the workspace vault, never in this file"], code: false, signIn: true });
   return out;
 }
+
+/** A period as the readings chart names it: "Jun" for a month, "Nov 17" for a week or a day, its last day for N days. */
+export function periodLabel(period: { from: string; to: string }, every: string, current = false): string {
+  const unit = every.trim().toLowerCase();
+  const from = Date.parse(period.from);
+  const label =
+    unit === "month" ? MONTHS[new Date(from).getUTCMonth()]! : unit === "week" || unit === "day" ? monthDay(from) : monthDay(Date.parse(period.to));
+  return current ? `${label}, so far` : label;
+}

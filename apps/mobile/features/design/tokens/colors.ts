@@ -275,6 +275,19 @@ export const darkColors = {
   /** Syntax tints in the note preview. */
   codeKey: "#A3B0F5",
 
+  /**
+   * The marks of the apps a workspace connects as data sources (the data
+   * sources boards): plain glyphs, not the companies' logos, each on a tile
+   * of its own tint so a formula's chips say at a glance where a number
+   * comes from. Context's own is the accent; a source of your own is a chip.
+   */
+  markGithub: "#EDE8E0",
+  markGithubInk: "#1A1714",
+  markCloudflare: "rgba(223,140,80,0.16)",
+  markCloudflareInk: "#F0B183",
+  markStripe: "rgba(160,150,240,0.16)",
+  markStripeInk: "#C3BCF7",
+
   /* ------------------------------------------------------------------ *
    * Floating chrome.
    *
@@ -502,6 +515,12 @@ export const lightColors: Colors = {
 
   /** Syntax tints in the note preview. */
   codeKey: "#22389F",
+  markGithub: "#1A1714",
+  markGithubInk: "#FFFDF9",
+  markCloudflare: "#F2E3D3",
+  markCloudflareInk: "#A4511A",
+  markStripe: "#E5E3F7",
+  markStripeInk: "#4B42B0",
 
   /**
    * Floating chrome. A floating object in a light world is white and reads as

@@ -93,6 +93,7 @@ import { densityFor } from "../../app/frame";
 import { documentMargin } from "../panes/browsePane/DocumentPage";
 import type { DragModifier } from "./dnd";
 import { FolderPage, type FolderPageHost } from "./folderPage/FolderPage";
+import { DataFolderPage, isDataPage } from "./data/DataFolderPage";
 import { areaTitle } from "./folderPage/areas/seat";
 import { phoneSections, type PhoneRows } from "../home/folderRows";
 import { FolderRow } from "./FolderRow";
@@ -404,6 +405,22 @@ export function FolderView({
           Who can read what is said where somebody goes looking for it, in
           Share. A phone keeps its own line under the title (`phoneHead`).
         */}
+        {page !== undefined && nesting !== undefined && isDataPage(entry.path) ? (
+          /*
+            The data folder and the folders in it are drawn as the Data page,
+            a source's page and the metrics page (`data/`), found by the
+            folder's job like the Areas folder's seats.
+          */
+          <DataFolderPage
+            folder={entry.path}
+            host={page}
+            nesting={nesting}
+            compact={compact}
+            pageWidth={pageWidth}
+            onSelect={onSelect}
+            {...(menu === undefined ? {} : { onMore: (anchor: { x: number; y: number }) => void menu.onBackground(anchor) })}
+          />
+        ) : (
         <FolderPage
           folder={entry.path}
           rows={rows}
@@ -542,6 +559,7 @@ export function FolderView({
             </>
           }
         />
+        )}
 
         {/*
           The context's own caption, under its listing.
