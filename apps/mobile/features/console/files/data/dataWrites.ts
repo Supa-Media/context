@@ -1,7 +1,8 @@
 /**
- * What the Data page's two buttons write: a metric note from a template, and
- * a push source's folder (its about.md and its one dataset). Pure: the text
- * and the paths, never a write.
+ * What the Data page's two buttons write: a metric note from a template, a
+ * push source's folder (its about.md and its one dataset), and a url source's
+ * (its about.md and its empty dataset). Pure: the text and the paths, never a
+ * write.
  *
  * Nothing written here carries a value or a credential. A metric note's body
  * is a plain reading for a person to fill in; a push source's key is made
@@ -105,5 +106,65 @@ export function pushSourceFiles(dataFolder: string, name: string, dataset: strin
       ].join("\n"),
     },
     sheet: { path: `${folder}/${sheetSlug}.csv`, text: datasetHeader(columns) },
+  };
+}
+
+export interface UrlSourceFiles {
+  readonly folder: string;
+  readonly about: { readonly path: string; readonly text: string };
+  /** Empty: the first sync writes its header and rows (`apps/mcp/src/data/sync/run.js`). */
+  readonly sheet: { readonly path: string; readonly text: string };
+}
+
+/**
+ * The address a person typed, as the sync object will take it: https on a public name, no port or login, and no
+ * IP address (`apps/mcp/src/data/fetch/url.js` `publicHttps`, which decides on every run; this only says so early).
+ */
+export function publicAddress(typed: string): URL | null {
+  let url: URL;
+  try {
+    url = new URL(typed.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "") return null;
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (!host.includes(".") || host.startsWith("[") || /^[\d.]+$/.test(host) || /^0x/i.test(host)) return null;
+  if (/(?:^|\.)(?:localhost|local|internal|localdomain|home\.arpa|intranet|lan|corp)$/.test(host)) return null;
+  return url;
+}
+
+/**
+ * A Fetch from a URL source's folder: `<data>/<host>/about.md` saying `source: url`, its address and dataset, and the
+ * dataset's empty sheet beside it, named for the host (`status-example-com`), or `-2` and on when that is taken.
+ */
+export function urlSourceFiles(dataFolder: string, address: string, dataset: string, taken: ReadonlySet<string>): UrlSourceFiles | string {
+  const url = publicAddress(address);
+  if (url === null) return "Give an https address on a public name, with no port, login or IP address.";
+  const sheetSlug = slugOf(dataset);
+  if (sheetSlug === "") return "Give the dataset a name with a letter or a number in it.";
+  const host = url.hostname.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+  const base = slugOf(host) || "url";
+  const free = (name: string) => ![...taken].some((path) => path === `${dataFolder}/${name}` || path.startsWith(`${dataFolder}/${name}/`));
+  let slug = base === "metrics" ? "metrics-url" : base;
+  for (let n = 2; !free(slug) && n < 1000; n += 1) slug = `${base}-${n}`;
+  const folder = `${dataFolder}/${slug}`;
+  return {
+    folder,
+    about: {
+      path: `${folder}/about.md`,
+      text: [
+        "---",
+        "source: url",
+        `name: ${JSON.stringify(host)}`,
+        `url: ${JSON.stringify(url.href)}`,
+        `dataset: ${sheetSlug}`,
+        "---",
+        "",
+        "Context reads this address every hour and keeps what it answers in the sheet beside this note. Add key: with the column that tells rows apart when the answer has several rows, and date: with the column a row is dated by.",
+        "",
+      ].join("\n"),
+    },
+    sheet: { path: `${folder}/${sheetSlug}.csv`, text: "" },
   };
 }

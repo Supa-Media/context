@@ -29,15 +29,17 @@ import { ago, columnsWords, lastRowAt, lastRowWords, monthDay, rowsWords, settin
 const ABOUT_LINE: Readonly<Record<string, string>> = {
   push: "Settings: the sheet's columns and who can make keys",
   context: "Which folders to count",
+  fetch: "Settings: the address and the dataset",
 };
 
 const LEDE: Readonly<Record<string, string>> = {
   push: "Rows sent from your code. Anything with a key can add rows here; nothing can read them back with it.",
   context: "Context counts its own notes into these sheets. Which folders it counts is set in about.md.",
+  fetch: "Context reads this address every hour and keeps what it answers in the sheet. It sends no key and no sign-in.",
 };
 
 export interface SourcePageActions {
-  /** Sync now: the sync object's (stage E). Absent until there is one, and not drawn. */
+  /** Sync now: a url source's, for an owner or editor (`dataSync.ts`); absent for anyone else, and not drawn. */
   readonly syncNow?: () => void;
   /** New key, for a push source: absent for someone who may not make one. */
   readonly newKey?: () => void;
@@ -123,7 +125,9 @@ export function SourcePage({
       ? "Built in · counted as you read · nothing to connect"
       : source.kind === "push"
         ? `${status.text} · send from your code`
-        : [status.text, every === "" ? "" : `every ${every}`, "read-only"].filter((part) => part !== "").join(" · ");
+        : source.kind === "fetch"
+          ? `${status.text} · every hour · read-only`
+          : [status.text, every === "" ? "" : `every ${every}`, "read-only"].filter((part) => part !== "").join(" · ");
   const files: FileLine[] = [
     {
       name: "about.md",
@@ -186,6 +190,7 @@ export function SourcePage({
         </>
       ) : null}
       {source.kind === "context" ? <ContextCounts source={source} sheets={sheets} compact={compact} openAbout={openAbout} /> : null}
+      {source.kind === "fetch" ? <UrlSync source={source} status={status.text} sync={sync} now={now} compact={compact} openAbout={openAbout} /> : null}
       {metrics.length === 0 && source.kind === "context" ? null : (
         <>
           <SectionHead title="Metrics that read these" compact={compact} />
@@ -196,13 +201,46 @@ export function SourcePage({
           )}
         </>
       )}
-      {source.kind === "push" || source.kind === "context" ? null : (
+      {source.kind === "push" || source.kind === "context" || source.kind === "fetch" ? null : (
         <>
           <SectionHead title="Settings" right={openAbout} compact={compact} />
           <SettingsGrid settings={settingsOf(source)} compact={compact} />
         </>
       )}
     </View>
+  );
+}
+
+/**
+ * A url source's address, its dataset and how its last run went, as its about.md and its sync object say: the
+ * run's own sentence when it failed or stopped, never anything the address answered.
+ */
+export function urlSyncLine(status: string, sync: SyncState | undefined, now: number): string {
+  if (sync?.said !== undefined && (sync.stopped === true || (sync.failedAt !== undefined && (sync.syncedAt === undefined || sync.failedAt >= sync.syncedAt)))) return sync.said;
+  if (sync?.syncedAt !== undefined) return [`Synced ${ago(sync.syncedAt, now)}`, sync.rows === undefined ? "" : rowsWords(sync.rows)].filter((part) => part !== "").join(" · ");
+  return sync?.known === true ? "Not synced yet. Press Sync now to run it." : status;
+}
+
+function UrlSync({ source, status, sync, now, compact, openAbout }: { source: DataSource; status: string; sync: SyncState | undefined; now: number; compact: boolean; openAbout: ReactNode }) {
+  const url = textOf(source.about?.properties.url);
+  const dataset = textOf(source.about?.properties.dataset);
+  const key = textOf(source.about?.properties.key);
+  const date = textOf(source.about?.properties.date);
+  return (
+    <>
+      <SectionHead title="Sync" right={openAbout} compact={compact} />
+      <PropsGrid
+        compact={compact}
+        rows={[
+          { key: "address", value: url === "" ? <Words text="No address yet: add url: to about.md" quiet /> : <Code text={url} long /> },
+          { key: "dataset", value: dataset === "" ? <Words text="No dataset yet: add dataset: to about.md" quiet /> : <Code text={`${dataset}.csv`} /> },
+          ...(key === "" ? [] : [{ key: "key", value: <Code text={key} /> }]),
+          ...(date === "" ? [] : [{ key: "date", value: <Code text={date} /> }]),
+          { key: "every", value: <Words text="hour" /> },
+          { key: "last sync", value: <Words text={urlSyncLine(status, sync, now)} quiet={sync?.syncedAt === undefined && sync?.failedAt === undefined} /> },
+        ]}
+      />
+    </>
   );
 }
 

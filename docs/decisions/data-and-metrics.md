@@ -116,12 +116,13 @@ the metrics page (11) and a metric note (12),
   readings. Test: `apps/mobile/__tests__/dataSources.test.ts` (a hidden
   input and a missing one give identical results, and the result never names
   the sheet).
-- **Status lines say only what is known.** There is no sync object yet
-  (stage E), so a source says "Last row 2h ago" from its newest dated row, or
+- **Status lines say only what is known.** Stage B had no sync object, so a
+  source other than a url one (whose line is its sync's, below) says "Last row 2h ago" from its newest dated row, or
   "Not synced yet" / "No rows yet", never "Synced 5 min ago"; a period is
   "worked out as you read", not "every hour". `readings.csv` is shown when it
   exists and not yet written.
-- **Connect a source offers "Send from your code" only.** It writes the
+- **Connect a source offered "Send from your code" only** (Fetch from a URL
+  joined it with the sync object, below). It writes the
   source's `about.md` (`source: push`) and its first sheet as the person's
   own notes, then opens the existing key dialog. GitHub, Cloudflare and
   Stripe need the owner's connection and wait for their stage. A key is
@@ -211,7 +212,8 @@ synced sheet says it is kept up to date (08),
   are replaced at the next sync." with a link to the source's page (left off
   on a phone, as the board draws it), and the grid cannot be edited. A push
   source's sheet only gains rows and the Context source's are counted when
-  read, so neither carries it; a fetch source waits for its own stage.
+  read, so neither carries it; a url source's does, kept up to date by its
+  sync (below).
 - **Where the pages part from their boards, on purpose.** The phone picker
   gives the target's value the room beside Over and Under that the board
   takes from "Under", which it clips, and puts the green-when line under
@@ -223,3 +225,78 @@ synced sheet says it is kept up to date (08),
   picker's footer says "Connecting makes a data folder…" only to someone who
   can connect one; anyone else is told who can. "Connect a source" from the
   Areas page keeps the Areas page open under the new source's key dialog.
+
+## The sync object, and Fetch from a URL
+
+*2026-11-25: `apps/mcp/src/data/sync/` (`object.js`, `run.js`, `route.js`,
+`about.js`) and, in the app, `ConnectSource.tsx`, `useSourceSync.ts` and
+`dataSync.ts` under `apps/mobile/features/console/files/data/`.*
+
+- **One object per workspace, `data:<workspaceId>`**, SQLite-backed, placed
+  with the `enam` hint like every object of ours (`DATA_SYNC`, migration
+  `v12-data-sync`). It keeps only which sources are armed (by the about.md's
+  note id), who armed each and when, and the last run's time and outcome; it
+  keeps no note text, no rows and no credential. The first workspace to call
+  it pins it, and it refuses any other. One alarm serves every source: set
+  only when none is set, re-set after a run only while a source is still
+  running, deleted when none is. A self-hosted gateway without the binding
+  answers the route 501 and its url sources say "Not synced yet".
+- **Arming is an app step by an owner or editor.** Connect a source → Fetch
+  from a URL writes the source's `about.md` (`source: url`, `url:`,
+  `dataset:`, and optionally `key:` and `date:`) and the dataset's empty sheet
+  as the person's own notes, then calls `POST /@<slug>/files/data-sync`
+  (`files` is a reserved first segment, so the address is never read as a
+  workspace named `data`) with the console grant. The route takes only the
+  console client and a write grant, the workspace named in the body must be
+  the session's, the role must be owner or editor, the about.md is read at
+  the caller's own clearance (one held back answers as missing), and it must
+  sit directly in a source folder of the folder doing the Data job and say
+  `source: url` with an address the fetch lock allows. Sync now on the
+  source's page arms it again, which runs it at once. Tex can write the
+  about.md; arming waits for a person in the app (a `cant` in
+  `capabilities.js`).
+- **Every run re-checks everything, by note id.** The armer must still be an
+  owner or editor of the workspace; the about.md must still exist (deleted, the
+  source stops and is forgotten), still sit in a source folder of the Data
+  folder (renamed or moved within it, it is followed; moved out, it stops),
+  still say `source: url`, and its address is re-read and re-checked by the
+  fetch lock each run, so one edited to a private address after arming is
+  refused then. The sheet is always `<source folder>/<dataset>.csv`, so two
+  sources never write one dataset.
+- **A run opens the workspace's storage on the armer's live membership, with
+  no token.** It asks the workspace object for the sealed binding as the
+  person who armed it, at `team` scope with no groups, as a request of theirs
+  would; there is no request, so there is no grant to check. This extends the
+  second proof given up in
+  [credential-basics](./storage-and-credentials/credential-basics.md) to a
+  scheduled run: the live membership checked by the object is the whole
+  proof. Removing the person, or their edit role, stops the source at its next
+  run. Decided by the owner, 2026-11-24.
+- **A write is a non-person writer's, audited.** The sheet is written with a
+  conditional put on the etag it read, as client `context_data_sync`
+  ("Data sync") acting for the armer, and the audit records `data_sync` with
+  both. A run that fails anywhere (refused address, unreadable answer, no key,
+  past the bounds, a sheet changed by hand, a lost race) writes nothing, and
+  its sentence is what the page shows.
+- **Rows from an answer.** The date column is `date:`, else a column named
+  `date`, else a `fetched` column holding the run's hour, so an address that
+  answers one value makes one row an hour (a second run in the hour replaces
+  it). The key is `key:`, else the date when the answer is one row; an
+  unkeyed list is refused and says to add `key:`. New columns are appended.
+- **The status line is the sync's.** A url source says "Synced 5 min ago",
+  the refusal in its own words, "Stopped …" or "Not synced yet", never "Last
+  row …" from a row's date; its sheet opens read-only, kept up to date by its
+  source. A source is run at most once a minute however often it is armed,
+  and a workspace syncs at most 25 addresses. A url source sends nothing that
+  signs in, so this stage keeps no vault key for one.
+
+**What a simplification would cost.** Keeping the address read at arming
+lets an edited about.md reach a private network; re-setting the alarm
+unconditionally keeps a deleted source's object waking forever; setting a new
+alarm per arm stacks them; letting any member arm lets a reader make the
+gateway fetch on their behalf; an unpinned object lets one workspace's id
+drive another's runs. Tests: `apps/mcp/test/dataSyncObject.test.mjs` (arm
+auth, tenant isolation, the refused and over-cap runs, a deleted source
+stopping the alarm, the recorded run, repeated arms, rename and move, a
+removed member) and `apps/mobile/__tests__/dataSyncSource.test.ts` (the form,
+the status line, the read-only sheet).

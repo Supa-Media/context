@@ -30,9 +30,12 @@ const KIND_NAMES: Readonly<Record<SourceKind, string | null>> = {
 /** The built-in Context source's datasets, worked out from notes when read (`contextSource.ts`). */
 export const CONTEXT_DATASETS = ["notes-by-status", "time-to-answered"] as const;
 
-/** A source that signs in somewhere: its settings say where the sign-in is kept. */
+/**
+ * A source that signs in somewhere: its settings say where the sign-in is kept. A url source sends no
+ * credential (`apps/mcp/src/data/fetch/url.js`), so it signs in nowhere.
+ */
 export function signsIn(kind: SourceKind): boolean {
-  return kind === "github" || kind === "cloudflare" || kind === "stripe" || kind === "fetch";
+  return kind === "github" || kind === "cloudflare" || kind === "stripe";
 }
 
 export interface Dataset {
@@ -69,6 +72,8 @@ export function listOf(value: PropertyValue | undefined): string[] {
 export function sourceKindOf(value: PropertyValue | undefined): SourceKind {
   const word = textOf(value).toLowerCase();
   if (word === "github" || word === "cloudflare" || word === "stripe" || word === "context" || word === "push" || word === "fetch") return word;
+  // "Fetch from a URL" writes `source: url` (`dataWrites.ts`), as the sync object reads it.
+  if (word === "url") return "fetch";
   // "Send from your code", as the connect dialog calls it.
   if (word === "code" || word === "send") return "push";
   return "other";
