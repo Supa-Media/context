@@ -34,6 +34,7 @@ import { frontMatterFields, urlSourceOf } from "./about.js";
 import { callDataSync, dataSyncStub } from "./object.js";
 import { sourceFolderOf } from "./run.js";
 import { keptSheetOf } from "./snap.js";
+import { isUsageAbout, usageWorkspaceOf } from "./runUsage.js";
 import { parseFormula } from "../formula/index.js";
 import { CONNECT_OPS, handleConnect, mayConnect, parseConnect } from "../connect/route.js";
 
@@ -154,10 +155,31 @@ export async function handleDataSync(request, store, session, _path, env) {
   const text = row.body?.text;
   if (typeof text !== "string") return json({ error: "unavailable" }, 503);
   if (asked.kind === "metric") return await armMetric(stub, session, row, text);
+  if (isUsageAbout(text)) return await armUsage(stub, session, row, env);
   const settings = urlSourceOf(text);
   if (!settings.ok) return json({ error: "not_a_url_source", message: `This source can't sync: ${settings.said}.` }, 400);
   if (publicHttps(settings.url) === null) return json({ error: "refused", message: "The address must be https on a public name, with no port, login or IP address." }, 400);
   const answered = await callDataSync(stub, "arm", { workspaceId: session.workspaceId, noteId: row.noteId, armedBy: session.actorUserId });
+  if (answered.status !== 200 || answered.body?.error) {
+    const said = typeof answered.body?.said === "string" ? answered.body.said : null;
+    return json({ error: answered.body?.error ?? "unavailable", ...(said ? { message: said } : {}) }, answered.body?.error === "too_many" ? 409 : 503);
+  }
+  return json({ about: row.path, armed: answered.body.armed === true, last: answered.body.last ?? null });
+}
+
+/**
+ * Arming the Context usage source: Context-wide rows, so only in the one workspace this deployment's config names
+ * (`USAGE_WORKSPACE`), and only by an owner there (decided by the owner, 2026-11-25). Anywhere else it answers as a
+ * source that can't sync, naming nothing about which workspace may.
+ */
+async function armUsage(stub, session, row, env) {
+  const named = usageWorkspaceOf(env);
+  const slug = typeof session.workspaceSlug === "string" ? session.workspaceSlug.toLowerCase() : null;
+  if (named === null || slug !== named) {
+    return json({ error: "not_a_url_source", message: "This source can't sync here: Context usage is kept only in the workspace this deployment names." }, 400);
+  }
+  if (session.role !== "owner") return json({ error: "forbidden", message: "Only a workspace's owners can sync Context usage." }, 403);
+  const answered = await callDataSync(stub, "arm", { workspaceId: session.workspaceId, noteId: row.noteId, armedBy: session.actorUserId, kind: "usage" });
   if (answered.status !== 200 || answered.body?.error) {
     const said = typeof answered.body?.said === "string" ? answered.body.said : null;
     return json({ error: answered.body?.error ?? "unavailable", ...(said ? { message: said } : {}) }, answered.body?.error === "too_many" ? 409 : 503);

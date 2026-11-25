@@ -22,7 +22,7 @@ import { MetricRows } from "./MetricRows";
 import { PageHead } from "./PageHead";
 import { DataButton, SectionHead, SectionLink } from "./Parts";
 import { Code, CodeBlock, CodeCommand, CodeString, FileRows, MiniTable, PropsGrid, SettingsGrid, Words, type FileLine } from "./SourceParts";
-import { textOf, type DataSource } from "./sources";
+import { textOf, USAGE_SHEETS, type DataSource } from "./sources";
 import type { MetricView } from "./views";
 import type { Sheet } from "./workOut";
 import { ago, columnsWords, lastRowAt, lastRowWords, monthDay, rowsWords, settingsOf, sourceStatus, type SyncState } from "./words";
@@ -134,6 +134,8 @@ export function SourcePage({
         ? `${status.text} · send from your code`
         : source.kind === "fetch"
           ? `${status.text} · every hour · read-only`
+          : source.kind === "usage"
+            ? `${status.text} · every hour · owners only`
           : [status.text, every === "" ? (source.kind === "cloudflare" || source.kind === "stripe" || source.kind === "github" ? "every hour" : "") : `every ${every}`, "read-only"].filter((part) => part !== "").join(" · ");
   const files: FileLine[] = [
     {
@@ -203,6 +205,7 @@ export function SourcePage({
       ) : null}
       {source.kind === "context" ? <ContextCounts source={source} sheets={sheets} compact={compact} openAbout={openAbout} /> : null}
       {source.kind === "fetch" ? <UrlSync source={source} status={status.text} sync={sync} now={now} compact={compact} openAbout={openAbout} /> : null}
+      {source.kind === "usage" ? <UsageSync status={status.text} sync={sync} now={now} compact={compact} openAbout={openAbout} /> : null}
       {metrics.length === 0 && source.kind === "context" ? null : (
         <>
           <SectionHead title="Metrics that read these" compact={compact} />
@@ -213,7 +216,7 @@ export function SourcePage({
           )}
         </>
       )}
-      {source.kind === "push" || source.kind === "context" || source.kind === "fetch" ? null : (
+      {source.kind === "push" || source.kind === "context" || source.kind === "fetch" || source.kind === "usage" ? null : (
         <>
           <SectionHead title="Settings" right={openAbout} compact={compact} />
           <SettingsGrid settings={settingsOf(source, sync === undefined ? undefined : urlSyncLine(status.text, sync, now).replace("Press Sync now to run it.", "An owner connects it from Connect a source."))} compact={compact} />
@@ -248,6 +251,25 @@ function UrlSync({ source, status, sync, now, compact, openAbout }: { source: Da
           { key: "dataset", value: dataset === "" ? <Words text="No dataset yet: add dataset: to about.md" quiet /> : <Code text={`${dataset}.csv`} /> },
           ...(key === "" ? [] : [{ key: "key", value: <Code text={key} /> }]),
           ...(date === "" ? [] : [{ key: "date", value: <Code text={date} /> }]),
+          { key: "every", value: <Words text="hour" /> },
+          { key: "last sync", value: <Words text={urlSyncLine(status, sync, now)} quiet={sync?.syncedAt === undefined && sync?.failedAt === undefined} /> },
+        ]}
+      />
+    </>
+  );
+}
+
+/** The usage source's sync: its four sheets, every hour, and its last run in the url source's words. */
+function UsageSync({ status, sync, now, compact, openAbout }: { status: string; sync: SyncState | undefined; now: number; compact: boolean; openAbout: ReactNode }) {
+  return (
+    <>
+      <SectionHead title="Sync" right={openAbout} compact={compact} />
+      <PropsGrid
+        compact={compact}
+        rows={[
+          { key: "reads", value: <Words text="All of Context: who texted, wrote or called each day, by an id that names no one" /> },
+          { key: "sheets", value: <>{USAGE_SHEETS.map((name) => <Code key={name} text={`${name}.csv`} />)}</> },
+          { key: "who sees it", value: <Words text="Owners only. A sheet anyone else can open stops the sync." /> },
           { key: "every", value: <Words text="hour" /> },
           { key: "last sync", value: <Words text={urlSyncLine(status, sync, now)} quiet={sync?.syncedAt === undefined && sync?.failedAt === undefined} /> },
         ]}

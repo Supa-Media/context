@@ -34,8 +34,8 @@ export interface SourceSyncs {
   readonly refresh: () => void;
 }
 
-/** The sources whose runs the sync object keeps: a url source's, and an app's an owner connected. */
-const SYNCED = new Set(["fetch", "stripe", "cloudflare", "github"]);
+/** The sources whose runs the sync object keeps: a url source's, the usage source's, and an app's an owner connected. */
+const SYNCED = new Set(["fetch", "usage", "stripe", "cloudflare", "github"]);
 
 export function useSourceSyncs(sources: readonly DataSource[]): SourceSyncs {
   const data = useOptionalConsoleData();

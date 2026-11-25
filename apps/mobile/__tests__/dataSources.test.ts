@@ -76,6 +76,7 @@ describe("sources", () => {
   test("an unknown source word is other, never a guess", () => {
     expect(sourceKindOf("GitHub")).toBe("github");
     expect(sourceKindOf("salesforce")).toBe("other");
+    expect(sourceKindOf("usage")).toBe("usage");
     expect(sourceKindOf(undefined)).toBe("other");
   });
 

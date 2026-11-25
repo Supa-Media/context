@@ -112,7 +112,7 @@ export function sourceStatus(source: DataSource, sheets: ReadonlyMap<string, She
     return { tone: "ok", text: `Synced ${when}`, short: when };
   }
   // A url source says only what its sync object says: a row's own date is the source's, not when it was fetched.
-  if (source.kind === "fetch") return { tone: "quiet", text: "Not synced yet", short: "not synced yet" };
+  if (source.kind === "fetch" || source.kind === "usage") return { tone: "quiet", text: "Not synced yet", short: "not synced yet" };
   const last = sourceLastRow(source, sheets);
   if (last === null) return { tone: "quiet", text: source.kind === "push" ? "No rows yet" : "Not synced yet", short: source.kind === "push" ? "no rows yet" : "not synced yet" };
   const when = ago(last, now);
@@ -123,6 +123,7 @@ export function sourceStatus(source: DataSource, sheets: ReadonlyMap<string, She
 export function kindLine(kind: SourceKind): string | null {
   if (kind === "push") return "Send from your code";
   if (kind === "fetch") return "Fetch from a URL";
+  if (kind === "usage") return "Built in · all of Context";
   return null;
 }
 
@@ -143,6 +144,7 @@ const KIND_WORDS: Readonly<Record<SourceKind, string>> = {
   cloudflare: "Cloudflare",
   stripe: "Stripe",
   context: "Context",
+  usage: "Context usage",
   push: "Send from your code",
   fetch: "Fetch from a URL",
   other: "Other",

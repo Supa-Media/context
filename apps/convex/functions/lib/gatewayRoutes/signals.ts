@@ -13,6 +13,7 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { countField, json, nullableStringField, stringField } from "../gatewayAuth";
+import { peopleMarks } from "../../usagePeople";
 
 /**
  * The gateway telling us how far its projection has got.
@@ -322,7 +323,9 @@ export async function gatewayUsageHandler(
   }
 
   const hourly = hourlyEvents(body.hourly);
-  if (events.length === 0 && hourly.length === 0) return json({ applied: 0 });
+  // The Context usage source's person-days: a gateway MAC and a kind, shape-checked again by `usagePeople.mark`.
+  const people = peopleMarks(body.people);
+  if (events.length === 0 && hourly.length === 0 && people.length === 0) return json({ applied: 0 });
 
   try {
     let applied = 0;
@@ -331,6 +334,10 @@ export async function gatewayUsageHandler(
         events,
         surface: "mcp",
       });
+      applied += result.applied;
+    }
+    if (people.length > 0) {
+      const result = await ctx.runMutation(internal.functions.usagePeople.mark, { people });
       applied += result.applied;
     }
     if (hourly.length > 0) {

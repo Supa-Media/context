@@ -252,7 +252,12 @@ describe("a sheet a source keeps up to date", () => {
     note("data/stripe/about.md", { source: "stripe", name: "Payments" }),
     note("data/eval-ci/about.md", { source: "push", name: "Eval CI" }),
     note("data/context/about.md", { source: "context" }),
+    note("data/usage/about.md", { source: "usage" }),
   ];
+
+  test("the Context usage source's sheets are kept up to date by it", () => {
+    expect(keptBy("data/usage/activity.csv", "data", notes)).toEqual({ name: "Context usage", folder: "data/usage" });
+  });
 
   test("GitHub, Cloudflare and Stripe sheets are kept up to date, named as their source is", () => {
     expect(keptBy("data/github/pull-requests.csv", "data", notes)).toEqual({ name: "GitHub", folder: "data/github" });
