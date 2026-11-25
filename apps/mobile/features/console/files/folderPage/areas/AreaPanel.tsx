@@ -27,6 +27,7 @@ import { OwnerFace, type Face } from "../Glyphs";
 import { headlineOf } from "./headline";
 import { InlineField, PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
 import type { Reading } from "./readings";
+import { readingSource, type AreaReading } from "./areaMetric";
 import { areaTitle, type AreaNode, type Card, type Seat, type SeatEdit } from "./seat";
 import type { TrendGeometry } from "./Trend";
 
@@ -38,7 +39,9 @@ export interface AreaPanelProps {
   width: number;
   canEdit: boolean;
   faceOf: (owner: string | null) => Face;
-  readingOf: (seat: Seat) => Reading | undefined;
+  readingOf: (seat: Seat) => Reading | AreaReading | undefined;
+  /** Opens the metric picker for this area; absent for a reader. */
+  onPick?: (seat: Seat) => void;
   /** Writes the seat's lines and any changed cards; resolves a problem sentence, or null when saved. */
   onSave: (seat: Seat, edit: SeatEdit, cards: readonly Card[]) => Promise<string | null>;
   /** The owner pickers' people, agents and cards. */
@@ -55,7 +58,7 @@ function editOf(seat: Seat, patch: Partial<SeatEdit>): SeatEdit {
   return { owner: seat.ownOwner, helper: seat.helper, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
 }
 
-export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave, tools, onPeek, onOpen, onClose }: AreaPanelProps) {
+export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, onPeek, onOpen, onClose }: AreaPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
@@ -64,10 +67,9 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave
   const metric = seat.metrics[0];
   const [problem, setProblem] = useState<string | null>(null);
   const write = async (patch: Partial<SeatEdit>, cards: readonly Card[] = []) => setProblem(await onSave(seat, editOf(seat, patch), cards));
-  const setMetric = (name: string, target: string) => {
-    const was = metric ?? { name: "", target: null };
-    if (name.trim() === was.name && (target.trim() || null) === was.target) return;
-    void write({ metrics: name.trim() === "" ? [] : [{ name: name.trim(), target: target.trim() === "" ? null : target.trim() }, ...seat.metrics.slice(1)] });
+  const setGoal = (target: string) => {
+    if (metric === undefined || (target.trim() || null) === metric.target) return;
+    void write({ metrics: [{ name: metric.name, target: target.trim() === "" ? null : target.trim() }, ...seat.metrics.slice(1)] });
   };
 
   useEffect(() => {
@@ -80,7 +82,8 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave
     return () => doc?.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const ink = headline?.state === "met" ? colors.okText : headline?.state === "missed" ? colors.warnText : colors.text;
+  const quiet = headline?.status === "hidden" || headline?.status === "loading";
+  const ink = quiet ? colors.muted : headline?.state === "met" ? colors.okText : headline?.state === "missed" ? colors.warnText : colors.text;
   const owner = seat.owner;
   const trail = seat.folder.split("/").slice(0, -1).map(folderLabel).join(" / ");
   return (
@@ -111,15 +114,16 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave
       )}
 
       <Section title="Metric">
-        <InlineField
-          value={metric?.name ?? ""}
-          label="Metric name"
-          placeholder={canEdit ? "Name what this area measures" : "No metric yet"}
-          editable={canEdit}
-          onCommit={(name) => setMetric(name, metric?.target ?? "")}
-          style={styles.metricName}
-          testID="area-panel-metric"
-        />
+        <View style={styles.metricHead}>
+          <Text variant="tree" style={[styles.metricName, metric === undefined && styles.muted]} numberOfLines={2} testID="area-panel-metric">
+            {metric?.name ?? (onPick === undefined ? "No metric yet" : "No metric")}
+          </Text>
+          {onPick === undefined ? null : (
+            <Pressable onPress={() => onPick(seat)} role="button" accessibilityLabel={metric === undefined ? "Pick a metric" : "Change metric"} style={styles.pick} testID="area-panel-pick">
+              <Text variant="treeMeta" style={styles.pickWord}>{metric === undefined ? "Pick a metric" : "Change"}</Text>
+            </Pressable>
+          )}
+        </View>
         {metric === undefined ? null : (
           <View style={styles.valueLine}>
             {headline?.value != null ? (
@@ -136,7 +140,7 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave
                 label="Goal"
                 placeholder={canEdit ? "Set one" : "None"}
                 editable={canEdit}
-                onCommit={(target) => setMetric(metric.name, target)}
+                onCommit={setGoal}
                 style={styles.goalField}
                 testID="area-panel-goal"
               />
@@ -153,7 +157,9 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave
         )}
         {metric === undefined ? null : (
           <Text variant="treeMeta" style={styles.muted}>
-            {headline?.date ? `Latest ${headline.date}. ` : ""}Readings come from this area's metrics.csv.
+            {headline?.date ? `Latest ${headline.date}. ` : ""}
+            {readingSource(metric, fromWorkspace(reading))}
+            {headline?.source ? sourceSentence(headline.source) : ""}
           </Text>
         )}
       </Section>
@@ -197,6 +203,16 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onSave
       )}
     </View>
   );
+}
+
+function fromWorkspace(reading: Reading | AreaReading | undefined): AreaReading | undefined {
+  return reading !== undefined && "from" in reading ? reading : undefined;
+}
+
+/** The when of "Stripe + Cloudflare · last row 1h ago", as a sentence after the panel's: its sources are said before it. */
+function sourceSentence(source: string): string {
+  const when = source.split(" · ").find((part) => part.startsWith("last row "));
+  return when === undefined ? "" : ` ${when.charAt(0).toUpperCase()}${when.slice(1)}.`;
 }
 
 /**
@@ -252,7 +268,10 @@ const makeStyles = (colors: Colors) =>
     sectionTitle: { color: colors.muted },
     muted: { color: colors.muted },
     trail: { marginLeft: 30, marginTop: -space.x2 },
-    metricName: { fontSize: pointerType.ui, fontWeight: "600" },
+    metricHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    metricName: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, fontWeight: "600", color: colors.text },
+    pick: { paddingVertical: 2, paddingHorizontal: space.x2, borderRadius: radii.sm, backgroundColor: colors.accentDim },
+    pickWord: { color: colors.accentText, fontWeight: "600" },
     noData: { color: colors.muted },
     valueLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     value: { fontFamily: fonts.body, fontSize: touchType.h3, lineHeight: 26, fontWeight: "600" },

@@ -27,8 +27,13 @@ import { AreasList } from "./AreasList";
 import { SeatDialog } from "./SeatDialog";
 import { SeatMenu } from "./SeatMenu";
 import { seatMenuModel, type SeatMenuId } from "./seatMenuParts";
-import { readingFor } from "./readings";
+import type { Listings } from "../../data/useDataWorkspace";
+import { useDataMaking } from "../../data/useDataMaking";
+import type { FolderPageHost } from "../useFolderPage";
+import { areaReading, metricOptions, pickedEdit, workspaceMetricFor } from "./areaMetric";
+import { MetricPicker } from "./MetricPicker";
 import { useReadings, type ReadBody } from "./useReadings";
+import { useWorkspaceMetrics } from "./useWorkspaceMetrics";
 import {
   AREA_KEY,
   areaTree,
@@ -76,6 +81,14 @@ export interface AreasViewProps {
    * press opens the area as it always has.
    */
   onPanel?: (panel: ((width: number) => ReactNode) | null) => void;
+  /**
+   * The file browser's listings, which find the data folder's sources and
+   * metrics, and the page's host, whose source reads them and whose create
+   * makes a metric or a source. Without them every area reads its own
+   * `metrics.csv`, as before there were workspace metrics.
+   */
+  listings?: Listings;
+  host?: FolderPageHost;
 }
 
 /** Two presses on one area this close together are a double click: they open it. */
@@ -84,13 +97,19 @@ export const DOUBLE_PRESS_MS = 400;
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, chooseMany, onSelect, readBody, onPanel } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf, label, isAgent, people, agents, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
+  // The workspace's metrics, worked out as they are read; an area naming one reads it, any other its metrics.csv.
+  const { metrics: workspace, ws } = useWorkspaceMetrics(host?.source, listings);
   const readingOf = useCallback(
-    (seat: Seat) => (seat.metrics[0] === undefined ? undefined : readingFor(readings.get(seat.folder), seat.metrics[0])),
-    [readings],
+    (seat: Seat) => areaReading(seat.metrics[0], workspace, readings.get(seat.folder)),
+    [readings, workspace],
   );
+  const [picking, setPicking] = useState<Seat | null>(null);
+  const options = useMemo(() => metricOptions(workspace), [workspace]);
+  const making = useDataMaking({ host, listings, ws, compact, open: onSelect, stay: true });
+  const pick = useCallback((seat: Seat) => setPicking(seat), []);
   const [menu, setMenu] = useState<{ seat: Seat; at: { x: number; y: number } | undefined } | null>(null);
   const [editing, setEditing] = useState<{ seat: Seat; start?: "metric" } | null>(null);
   const [adding, setAdding] = useState<Seat | null>(null);
@@ -146,7 +165,7 @@ export function AreasView(props: AreasViewProps) {
     if (id === "open") onSelect(seat.folder);
     else if (id === "up") onSelect(parentOf(folder));
     else if (id === "edit" || id === "owner" || id === "reach") setEditing({ seat });
-    else if (id === "metric") setEditing({ seat, start: "metric" });
+    else if (id === "metric") setPicking(seat);
     else if (id === "add") setAdding(seat);
     else if (id === "about") onSelect(seat.about.target);
   };
@@ -190,6 +209,7 @@ export function AreasView(props: AreasViewProps) {
           canEdit,
           faceOf,
           readingOf,
+          ...(canEdit ? { onPick: pick } : {}),
           onSave: save,
           tools: { people, agents, isAgent, cardFor, label },
           onPeek: setPeek,
@@ -207,6 +227,7 @@ export function AreasView(props: AreasViewProps) {
   useEffect(() => () => onPanel?.(null), [onPanel]);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
   const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf };
+  const pickingTitle = picking === null ? "" : picking.folder === folder ? rootTitle : areaTitle(picking.name);
   return (
     <View testID="areas-view">
       {problem !== null ? (
@@ -223,7 +244,7 @@ export function AreasView(props: AreasViewProps) {
           onAssign={canEdit ? (seat) => setEditing({ seat }) : null}
         />
       ) : (
-        <AreasList {...shared} onOpen={onSelect} onArea={onArea} selected={peek} rootPeeks={onPanel !== undefined} />
+        <AreasList {...shared} onOpen={onSelect} onArea={onArea} selected={peek} rootPeeks={onPanel !== undefined} {...(canEdit ? { onPick: pick } : {})} />
       )}
       {menu !== null ? (
         <SeatMenu
@@ -258,6 +279,43 @@ export function AreasView(props: AreasViewProps) {
           onClose={() => setEditing(null)}
         />
       ) : null}
+      {picking !== null ? (
+        <MetricPicker
+          area={pickingTitle}
+          face={faceOf(picking.owner)}
+          owner={picking.owner === null ? null : label(picking.owner)}
+          aboutPath={picking.about.target}
+          options={options}
+          known={workspace.known}
+          current={picking.metrics[0] === undefined ? null : (workspaceMetricFor(picking.metrics[0].name, workspace.metrics)?.path ?? null)}
+          target={picking.metrics[0]?.target ?? null}
+          sheet={compact}
+          {...(making.newMetric === undefined
+            ? {}
+            : {
+                onNewMetric: () => {
+                  setPicking(null);
+                  making.newMetric?.();
+                },
+              })}
+          {...(making.connect === undefined
+            ? {}
+            : {
+                onConnect: () => {
+                  setPicking(null);
+                  making.connect?.();
+                },
+              })}
+          onSave={async (option, mode, value) => {
+            const seat = picking;
+            const why = await save(seat, pickedEdit(seat, option.name, mode, value), []);
+            if (why === null) host?.tasks?.say(`${pickingTitle} now tracks ${option.name}.`);
+            return why;
+          }}
+          onClose={() => setPicking(null)}
+        />
+      ) : null}
+      {making.dialogs}
       {adding !== null ? (
         <AddArea
           parent={adding}

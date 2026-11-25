@@ -24,15 +24,15 @@ import { Path, Svg } from "react-native-svg";
 import { Icon, type IconName } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import { areasType, pointerType } from "../../../../design/tokens";
+import { areasType, pointerType, radii } from "../../../../design/tokens";
 import { displayName, folderLabel } from "../../paths";
 import type { ItemEntry } from "../model";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
 import type { Reading } from "./readings";
-import { headlineOf, type Headline } from "./headline";
-import { Trend } from "./Trend";
+import { headlineOf } from "./headline";
+import { MetricCell, NoMetric, PhoneMetric } from "./AreaMetricCell";
 import { areaTitle, fileKind, type AreaNode, type Seat } from "./seat";
 
 export { shortTarget } from "./shortTarget";
@@ -70,8 +70,10 @@ export interface AreasListProps {
   rootPeeks?: boolean;
   /** Right-click on an area row, or its ⋯ button (`at` null). */
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
-  /** The latest reading of a seat's headline metric, from its `metrics.csv`; undefined when there is none. */
+  /** The latest reading of a seat's headline metric, a workspace metric's or its `metrics.csv`'s; undefined when there is none. */
   readingOf: (seat: Seat) => Reading | undefined;
+  /** Opens the metric picker for an area with none: "+ Pick a metric". Absent for a reader, who sees "No metric yet". */
+  onPick?: (seat: Seat) => void;
 }
 
 /** The pointer state a web Pressable reports, which react-native-web adds to RN's. */
@@ -105,7 +107,7 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, onPick }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
@@ -121,6 +123,7 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
     rootPeeks,
     onMenu,
     readingOf,
+    ...(onPick === undefined ? {} : { onPick }),
     closed,
     toggle: (folder) => setClosed((previous) => flip(previous, folder)),
     shown,
@@ -193,7 +196,7 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
               </Text>
             </View>
             <View style={styles.metricCell}>
-              {headline === null ? null : <MetricCell headline={headline} />}
+              {headline !== null ? <MetricCell headline={headline} /> : root ? null : <NoMetric seat={seat} compact={false} onPick={shared.onPick} />}
             </View>
             <View style={styles.notesCell}>
               <NotesButton node={node} shared={shared} />
@@ -239,44 +242,6 @@ function Chevron({ node, open, size, shared, phone = false }: { node: AreaNode; 
         </Svg>
       </View>
     </Pressable>
-  );
-}
-
-/** The headline metric on a pointer: its label, then the trend, the value and the target on one line. */
-function MetricCell({ headline }: { headline: Headline }) {
-  const styles = useThemedStyles(makeStyles);
-  const tip = `${headline.label}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
-  return (
-    <View style={styles.metric} testID="area-metric" {...hoverTitle(tip)}>
-      <Text variant="treeMeta" style={styles.metricLabel} numberOfLines={1}>
-        {headline.label}
-      </Text>
-      {headline.value === null ? (
-        <Text variant="tree" style={styles.noData} numberOfLines={1} testID="area-row-value">
-          No data yet{headline.target === "" ? null : <Text variant="tree" style={styles.noDataTarget}>{` · target ${headline.target}`}</Text>}
-        </Text>
-      ) : (
-        <View style={styles.valueLine}>
-          {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={56} height={16} stroke={1.4} dot={2.2} />}
-          <Value headline={headline} size={pointerType.ui} />
-          <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
-            {headline.target}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
-/** The latest value, green on target and amber off it. */
-function Value({ headline, size }: { headline: Headline; size: number }) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const ink = headline.state === "met" ? colors.okText : headline.state === "missed" ? colors.warnText : colors.text;
-  return (
-    <Text variant="tree" style={[styles.value, { fontSize: size, lineHeight: size + 5, color: ink }]} numberOfLines={1} testID="area-row-value">
-      {headline.value}
-    </Text>
   );
 }
 
@@ -430,28 +395,9 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
           </Text>
           <NotesButton node={node} shared={shared} phone />
         </View>
-        {headline === null ? null : (
-          <View style={styles.blockMetric} testID="area-metric">
-            <Text variant="treeMeta" style={styles.metricLabel} numberOfLines={1}>
-              {headline.label}
-            </Text>
-            {headline.value === null ? (
-              <Text variant="tree" style={styles.noDataPhone} numberOfLines={1} testID="area-row-value">
-                {headline.target === "" ? "No data" : `No data · ${headline.target}`}
-              </Text>
-            ) : (
-              <View style={styles.valueLinePhone}>
-                {headline.trend === null ? null : (
-                  <Trend geometry={headline.trend} state={headline.state} width={56} height={18} stroke={1.8} dash="3 3" dashWidth={1.2} dot={2.8} />
-                )}
-                <Value headline={headline} size={areasType.value} />
-                <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
-                  {headline.target}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
+        <View style={styles.blockMetric}>
+          {headline === null ? <NoMetric seat={seat} compact onPick={shared.onPick} /> : <PhoneMetric headline={headline} />}
+        </View>
       </Pressable>
       <FileRows node={node} depth={depth} shared={shared} />
       {open ? node.areas.map((sub) => <PhoneBranch key={sub.seat.folder} node={sub} depth={depth + 1} first={false} shared={shared} />) : null}
@@ -489,13 +435,6 @@ const makeStyles = (colors: Colors) =>
     notesCell: { width: 52, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" },
     more: { position: "absolute", right: -28, top: "50%", marginTop: -12, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6 },
 
-    metric: { minWidth: 0 },
-    metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },
-    valueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-    value: { fontWeight: "600", flexShrink: 0 },
-    target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
-    noData: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
-    noDataTarget: { fontSize: pointerType.meta, color: colors.muted },
 
     notes: { flexDirection: "row", alignItems: "center", gap: 4, height: 24, paddingHorizontal: 8, borderRadius: 6 },
     notesHover: { backgroundColor: colors.chipFill },
@@ -525,6 +464,4 @@ const makeStyles = (colors: Colors) =>
     blockName: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
     blockTitle: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600", color: colors.text },
     blockMetric: { paddingLeft: 26, gap: 1, minWidth: 0 },
-    valueLinePhone: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
-    noDataPhone: { fontSize: pointerType.ui, lineHeight: 20, color: colors.muted },
   });

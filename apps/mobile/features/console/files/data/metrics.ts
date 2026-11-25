@@ -11,7 +11,7 @@
 import { parseFormula } from "../../../../../mcp/src/data/formula/index.js";
 import type { ListNote } from "../listBlock/model";
 import { ABOUT_NOTE, baseName } from "../paths";
-import { areaTitle, parseMetric, PEOPLE_FOLDER } from "../folderPage/areas/seat";
+import { areaTitle, metricKey, metricsOf, PEOPLE_FOLDER } from "../folderPage/areas/seat";
 import { textOf } from "./sources";
 
 /** A parsed formula's tree, as `parse.js` builds it. */
@@ -102,9 +102,10 @@ export interface Use {
 }
 
 /**
- * Which areas use which metric, by name, lower-cased: an area's `about.md`
- * names one with `metric: Revenue per AI dollar, target over $5`, or among
- * its `metrics:` lines. Read from the reader's own notes of the Areas folder.
+ * Which areas use which metric, by name as `metricKey` matches it: an area's `about.md`
+ * names one in its `metrics:` line (`Revenue per AI dollar · target over $5`),
+ * or with `metric:` and `target:` (`seat.ts`, `metricsOf`). Read from the
+ * reader's own notes of the Areas folder.
  */
 export function usesByMetric(areasFolder: string, notes: readonly ListNote[]): ReadonlyMap<string, readonly Use[]> {
   const out = new Map<string, Use[]>();
@@ -114,15 +115,10 @@ export function usesByMetric(areasFolder: string, notes: readonly ListNote[]): R
     if (!note.path.startsWith(prefix) || note.path.startsWith(people) || baseName(note.path) !== ABOUT_NOTE) continue;
     const folder = note.path.slice(0, -ABOUT_NOTE.length - 1);
     if (folder === areasFolder || folder === "") continue;
-    // `metric:` is one line, its comma before the target its own; each `metrics:` item is one line too.
-    const single = textOf(note.properties.metric);
-    const many = note.properties.metrics;
-    const parsed = [
-      ...(single === "" ? [] : [parseMetric(single)]),
-      ...(Array.isArray(many) ? many.map(parseMetric) : textOf(many) === "" ? [] : [parseMetric(textOf(many))]),
-    ];
+    // The seat's own reading: `metrics:` items, and a `metric:` with its `target:` first (`seat.ts`).
+    const parsed = metricsOf(note.properties);
     for (const metric of parsed) {
-      const key = metric.name.trim().toLowerCase();
+      const key = metricKey(metric.name);
       if (key === "") continue;
       const list = out.get(key) ?? [];
       if (!list.some((use) => use.folder === folder)) list.push({ area: areaTitle(baseName(folder)), folder, target: metric.target });
