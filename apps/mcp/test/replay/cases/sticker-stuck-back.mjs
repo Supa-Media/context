@@ -94,7 +94,7 @@ export default {
     const place = { line: LINE, groupId: GROUP };
     const sent = await tapback(storage, { chat: GROUP, now: () => 2_000, by: "tex", asked: "🎉" }, "LETS GOOO", (emoji) => line.react(place, "friend-2", emoji), { id, stick: (guid) => line.stick(place, "friend-2", { attachment: guid }) });
     assert.equal(sent, `sticker ${id}`);
-    assert.deepEqual(calls, [{ op: "sticker", body: { line: LINE, chat: CHAT_GUID, guid: "friend-2", sticker: "at_0_PARTY-CAT" } }]);
+    assert.deepEqual(calls, [{ op: "sticker", body: { line: LINE, chat: CHAT_GUID, guid: "friend-2", sticker: "at_0_PARTY-CAT", send: true } }]);
 
     // A 1:1 served from the gateway asks its far line, whatever the chat's id: a Lab test chat's is no photon: id, and
     // its sticker went as the emoji, sticker_no_line (2026-11-25).

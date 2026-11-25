@@ -295,6 +295,11 @@ export function createRuntime({
           const sticker = args.sticker.attachment !== undefined
             ? await uploadStickerFrom(client, args.sticker.attachment)
             : await uploadFile(client, args.sticker.file);
+          if (args.send === true) {
+            const sent = await client.messages.sendAttachment(args.chat, sticker);
+            watch(args, sent);
+            return { ok: true, guid: sent.guid, attachment: sticker };
+          }
           const placed = await client.messages.placeSticker(args.chat, args.guid, sticker, args.placement, compact({ partIndex: args.part }));
           return { ok: true, guid: placed.guid, attachment: sticker };
         }

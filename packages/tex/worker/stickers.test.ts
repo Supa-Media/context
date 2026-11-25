@@ -123,7 +123,7 @@ describe("a Photon 1:1, end to end in the chat object", () => {
     const ops: Op[] = [];
     await drain(storage, deps(id, ops));
     const stuck = ops.filter((call) => call.op === "sticker");
-    expect(stuck).toEqual([{ op: "sticker", body: { line: LINE, chat: `any;-;${PHONE}`, guid: "photon:m2", sticker: "at_0_ABC-123" } }]);
+    expect(stuck).toEqual([{ op: "sticker", body: { line: LINE, chat: `any;-;${PHONE}`, guid: "photon:m2", sticker: "at_0_ABC-123", send: true } }]);
     expect(ops.some((call) => call.op === "react")).toBe(false);
   });
 
