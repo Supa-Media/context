@@ -45,18 +45,42 @@ export const stickerWords = (id: string): string => `sticker ${id}`;
  * sticker's id. A reaction with no sticker, a taken-back one, or one whose keeping failed is answered as it came.
  */
 export async function keepSticker(storage: InboxStorage, reaction: Reaction, now: number): Promise<Reaction> {
-  const guid = reaction.sticker;
-  if (reaction.removed || typeof guid !== "string" || guid === "" || guid.length > MAX_GUID) return reaction;
+  if (reaction.removed) return reaction;
+  const id = await keepGuid(storage, reaction.sticker, now);
+  // A sticker not kept is still read as a sticker, only never stuck again.
+  return id === null ? reaction : { ...reaction, emoji: stickerWords(id) };
+}
+
+/** Keep one sticker by its attachment guid on the line; its id, or null when there is none or keeping it failed. */
+async function keepGuid(storage: InboxStorage, guid: unknown, now: number): Promise<string | null> {
+  if (typeof guid !== "string" || guid === "" || guid.length > MAX_GUID) return null;
   const id = stickerId(guid);
   try {
     const kept = (await storage.get<Kept[]>(STICKERS_KEY)) ?? [];
     const rest = kept.filter((item) => item.id !== id);
     await storage.put<Kept[]>(STICKERS_KEY, [...rest, { id, guid, at: now }].slice(-MAX_STICKERS));
   } catch {
-    // A sticker not kept is still read as a sticker, only never stuck again.
-    return reaction;
+    return null;
   }
-  return { ...reaction, emoji: stickerWords(id) };
+  return id;
+}
+
+/**
+ * Keep the stickers sent as a message of their own (Photon's `stickers`, Apple's `isSticker`), as a stuck one is, and
+ * answer the message with each one's id after its words ("[sticker s1a2b3c]"), so Tex can name it on its tapback.
+ * The guids never go further than this chat's object: the message comes back without them.
+ */
+export async function keepSentStickers<M extends { text: string; stickers?: string[] }>(storage: InboxStorage, message: M, now: number): Promise<M> {
+  const { stickers, ...rest } = message;
+  if (stickers === undefined) return message;
+  const ids: string[] = [];
+  for (const guid of stickers.slice(0, 4)) {
+    const id = await keepGuid(storage, guid, now);
+    if (id !== null) ids.push(id);
+  }
+  if (ids.length === 0) return rest as M;
+  const words = ids.map((id) => `[${stickerWords(id)}]`).join(" ");
+  return { ...rest, text: rest.text === "" ? words : `${rest.text} ${words}` } as M;
 }
 
 /** The attachment guid of a sticker this chat kept, by its id; null for any id this chat never kept. */

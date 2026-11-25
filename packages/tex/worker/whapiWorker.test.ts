@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withGateway } from "./gatewayOver.testing";
 import worker, { type Env } from "./index";
 import { WHAPI_SECRET_HEADER } from "./whapi";
 
@@ -22,7 +23,7 @@ function env(): { env: Env; routed: { to: string; body: Record<string, unknown>;
   } as unknown as DurableObjectNamespace;
   return {
     routed,
-    env: {
+    env: withGateway({
       SENDER_INBOX: namespace,
       LINQ_WEBHOOK_SECRET: "",
       LINQ_API_KEY: "k",
@@ -32,7 +33,7 @@ function env(): { env: Env; routed: { to: string; body: Record<string, unknown>;
       WHAPI_TOKEN: "token",
       WHAPI_LINE: LINE,
       WHAPI_WEBHOOK_SECRET: SECRET,
-    },
+    }),
   };
 }
 

@@ -40,13 +40,16 @@ gateway and passes every later call to the gateway's copy
 Worker's object busy leaves that object answering, and the hand-over falls
 back to it. The copy keeps the id the object had in the Worker, so the
 addresses it minted for pictures and pages, and its counts, still name it.
+(Ended 2026-11-25: a chat is born in the gateway, and the Worker's class is
+deleted; see the last two sections.)
 
 **Which chats came was the Worker's `INTAKE` var**, `worker` on both
 deployments until the staging proof; nothing moved while it was. The var is
 gone since 2026-11-22 (part C of the runtime simplification): the Worker hands
 every text over whenever `GATEWAY_TEXTS` is bound, and falls back to its
 SenderInbox only when the hand-over fails or the binding is absent
-(self-hosting without the gateway's entrypoint).
+(self-hosting without the gateway's entrypoint). Since 2026-11-25 there is no
+fallback: a failed hand-over answers the webhook 503 so it is sent again.
 
 **Production moves one chat at a time first** (Dev2, 2026-11-21, approving the
 runtime simplification: "test on your chat first, then Tex Devs, then
@@ -126,3 +129,16 @@ from the texting Worker and nothing there is asked, a group's directory entry in
 every Worker box either moved or archived. A simplification that put the copy-in back would make a new chat leave a
 moved tombstone in a class being deleted. `apps/mcp/test/texChatMove.test.mjs` fails if a chat asks the Worker or keeps
 no id of its own; `apps/mcp/test/texChatDirectory.test.mjs` fails if an entry reads the Worker's.
+
+## The Worker's chat class is deleted
+
+Decided by the owner, 2026-11-22 ("sweep, then delete") and 2026-11-23 (archive first; delete after the keep window).
+On 2026-11-25, after the census and the archive, the texting Worker's `SenderInbox` class went with a `deleted_classes`
+migration (`apps/agent/wrangler.jsonc`, tag `v2-sender-inbox-deleted`), and with it every way back into it: the
+hand-over's fallback (a failed hand-over answers the webhook 503, and the provider sends the text again; the chat drops
+a repeat by its event id), the forwarding of a moved box, the gateway's copy-in and the Worker's `chatMove`, `inboxFetch`,
+`inboxId`, `census` and `archive` RPCs, and the by-id fallback for picture and page addresses. The Worker reaches every
+chat through the gateway's `TexTexts` (`packages/tex/worker/gatewayChats.ts`), which it therefore needs, self-hosting
+included. The 29 archived boxes stay in the gateway (`archive:<id>`). A simplification that put a fallback back would
+have nothing to fall back to. `packages/tex/worker/handOver.test.ts` fails if a failed hand-over answers 200, and
+`packages/tex/worker/gatewayChats.test.ts` if a chat is looked for anywhere but the gateway.

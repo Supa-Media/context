@@ -7,7 +7,7 @@
  *       ├─▶ control plane: whose check-in is due? (each with its own grant and phones)
  *       ├─▶ gateway /agent {heartbeat}: look, as that person; a text or nothing
  *       │     (or, flagged `attention`, the pings their agents asked for, as they are)
- *       ├─▶ SenderInbox for each of their phones: text it, in the chat it last texted from,
+ *       ├─▶ the chat for each of their phones: text it, in the chat it last texted from,
  *       │     under the earlier text the look said it continues, when that one is found
  *       └─▶ control plane: the outcome, as a code
  *

@@ -98,6 +98,25 @@ test("attachments keep name, mime type and size", () => {
   ]);
 });
 
+test("a sticker sent as its own message is marked, and a plain picture is not", () => {
+  const mapped = mapEvent(
+    received({}, {
+      content: {
+        text: "",
+        attachments: [
+          { guid: "at-st-1", fileName: "sticker.heic", mimeType: "image/heic", totalBytes: 10, isSticker: true },
+          { guid: "at-ph-1", fileName: "p.png", mimeType: "image/png", totalBytes: 10, isSticker: false },
+        ],
+        formatting: [],
+        mentions: [],
+      },
+    }),
+    LINE,
+  );
+  assert.equal(mapped.message.attachments[0].sticker, true);
+  assert.equal("sticker" in mapped.message.attachments[1], false);
+});
+
 test("an edit carries the new words and the previous ones when the bridge had them", () => {
   const event = {
     type: "message.edited",
