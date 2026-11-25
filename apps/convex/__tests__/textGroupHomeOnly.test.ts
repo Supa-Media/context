@@ -98,8 +98,9 @@ async function homeOf(w: PinnedWorld) {
   return { folder, token };
 }
 
+/** The newest chat grant: each asker's turn mints on a grant of their own (`asker-reach.md`). */
 async function grantOf(t: T) {
-  return await t.run(async (ctx) => (await ctx.db.query("oauthGrants").collect()).find((grant) => grant.texGroup !== undefined) ?? null);
+  return await t.run(async (ctx) => (await ctx.db.query("oauthGrants").collect()).filter((grant) => grant.texGroup !== undefined).sort((a, b) => b._creationTime - a._creationTime)[0] ?? null);
 }
 
 /** The rules the gateway holds for a session's one row, read as that chat reads. */
@@ -192,7 +193,8 @@ describe("every turn of a chat runs on its home and its reach, whatever started 
 describe("what a home-only grant reads", () => {
   test("its own home, and nothing else of the pin: the rules it reads by open the home and close every other note", async () => {
     const w = await world();
-    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE]);
+    // A run nobody asked for, with a guest here, reads the home alone (a text reads its asker's: `textGroupAskerReach.test.ts`).
+    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE], { routine: true });
     const session = await resolves(w.t, answer.accessToken as string);
     expect(session?.workspaces).toHaveLength(1);
     const [row] = session!.workspaces;
@@ -226,13 +228,16 @@ describe("what a home-only grant reads", () => {
     expect(held.folders.find((rule) => rule.prefix === other)?.visibility).toBe("private");
   });
 
-  test("no other workspace: neither the chat's people's own workspaces nor the one they share", async () => {
+  test("no other workspace: neither the chat's people's own workspaces nor, on a run nobody asked for, the one they share", async () => {
     const w = await world();
-    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE]);
+    const answer = await turn(w.t, ADA, [ADA, BO, GUEST, LINE], { routine: true });
     const session = await resolves(w.t, answer.accessToken as string);
     const slugs = session!.workspaces.map((entry) => entry.slug);
     expect(slugs).toEqual(["context-lc"]);
     expect(session!.workspaces.map((entry) => entry.workspaceId)).not.toContain(String(w.studio));
+    // Ada's own ask reads her shared workspace, guest or not, and still nobody's personal one.
+    const asked = await resolves(w.t, (await turn(w.t, ADA, [ADA, BO, GUEST, LINE])).accessToken as string);
+    expect(asked!.workspaces.map((entry) => entry.slug)).toEqual(["context-lc", "studio"]);
   });
 
   test("it is not an ordinary pin reader: under any other client the grant resolves to nothing", async () => {

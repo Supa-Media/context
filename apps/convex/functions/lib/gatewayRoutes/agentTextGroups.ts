@@ -82,6 +82,8 @@ export async function agentTextsGroupHandler(ctx: ActionCtx, body: Record<string
     ...(command !== undefined ? { command } : {}),
     mint,
     ...(body.routine === true ? { routine: true } : {}),
+    // A routine somebody asked for (their job's report, their ask from another chat) reads their reach, as a text does.
+    ...(body.routine === true && body.asked === true ? { asked: true } : {}),
     hashedAccessToken: await hashToken(accessToken),
     // The hash of a value nobody was given: this grant has no refresh token.
     hashedRefreshToken: await hashToken(`unissued_${randomOpaqueToken(32)}`),

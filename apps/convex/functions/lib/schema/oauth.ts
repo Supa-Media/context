@@ -223,15 +223,23 @@ export const oauthTables = {
         taggerId: v.optional(v.id("users")),
         guestPhone: v.optional(v.string()),
         /**
-         * A group chat's reach (`lib/textGroupReach.ts`, decided by the owner, 2026-10-31): the shared workspaces every
-         * account holder in the chat is a member of, as of the turn that minted this grant, and those account holders.
+         * A group chat's turn's reach (`lib/textGroupReach.ts`, decided by the owner, 2026-10-31; the asker's since
+         * 2026-11-25): the shared workspaces it read as of the turn that minted this grant, and the account holders it was
+         * worked out for.
          * Only a snapshot of what to re-check: the rows a request is given are the ones that still hold for every one
-         * of `reachPeople` and the sponsor (`grant.userId`), and for every number in `reachGuests` (people with no
+         * of `reachPeople` and the holder (`grant.userId`), and for every number in `reachGuests` (people with no
          * account) still invited by phone there, re-read per request. Absent or empty: the home alone.
          */
         reach: v.optional(v.array(v.id("workspaces"))),
         reachPeople: v.optional(v.array(v.id("users"))),
         reachGuests: v.optional(v.array(v.string())),
+        /**
+         * Whose reach this grant carries (Dev2, 2026-11-25, `docs/decisions/texting-assistant/asker-reach.md`): `asker`,
+         * the shared workspaces of the person who asked (held by them, or by the sponsor for a guest's ask), with
+         * `reachPeople` that one person; `chat`, the chat's reach, for a turn nobody asked for. Absent on a grant
+         * minted before, which is never reused.
+         */
+        reachFor: v.optional(v.union(v.literal("asker"), v.literal("chat"))),
       }),
     ),
     workspaceId: v.id("workspaces"),

@@ -62,13 +62,16 @@ export function hereNow(about) {
 }
 
 /**
- * The session a made-up chat's text runs on here: the Lab user's own, narrowed to what these people's chat reaches.
- * Asked again on every text, so a join or a leave changes it. Answers as the `session` action does, with what the chat
+ * The session a made-up chat's text runs on here: the Lab user's own, narrowed to what its sender, `who` (a handle or a
+ * name), reaches in these people's chat. Asked again on every text, so a join or a leave changes it. Answers as the `session` action does, with what the chat
  * reached kept on `chat.world` for the reply row.
  */
-export async function localSession(controlPlane, token, about) {
+export async function localSession(controlPlane, token, about, who) {
+  // The text's sender reads their own reach (`textGroupReach.ts` `askerReach`), named by the person here they are.
+  const left = new Set(about.world?.left ?? []);
+  const asker = typeof who === "string" ? (about.world?.people ?? []).find((p) => !left.has(p.name) && (p.handle === who || p.name === who))?.name : undefined;
   // The chat's own group id: the control plane works its key out from it (the same as `localGroupKey`), never from us.
-  const answer = await controlPlane.labSandbox(token, "worldReach", { chat: about.world?.groupId, people: hereNow(about) });
+  const answer = await controlPlane.labSandbox(token, "worldReach", { chat: about.world?.groupId, people: hereNow(about), ...(asker ? { asker } : {}) });
   if (answer === null) return { status: "unavailable", error: "the control plane did not answer" };
   if (answer.status !== "ok") return answer;
   return { status: "ok", session: answer.session, chat: { world: { reach: answer.reach ?? [], blocked: answer.blocked ?? [] } } };

@@ -541,6 +541,8 @@ The person who brought Tex into a chat is its sponsor: the first account holder 
 
 ## A chat reaches the workspaces its people share (the owner, 2026-10-31)
 
+> **Superseded in part (Dev2, 2026-11-25, [asker-reach](./asker-reach.md)):** a turn somebody asked for reads the asker's own shared workspaces, on a grant of their own; what follows is now what a routine, a check-in or the hello reads, and what the chat's single-workspace readers use.
+
 Decided by the owner in the Tex Devs meeting of 2026-10-30 and the day after: a group chat is not tied to one workspace. Binding a chat to "the one workspace" (above) made it pick, made the pick stale the moment people joined or left, and left everything in the other workspaces its people share out of reach.
 
 - **Reach is worked out on the fly.** The chat reaches every *shared* workspace that all of its people with accounts are live members of (`lib/textGroupReach.ts`, `reachOf`). It is never a personal workspace, never the pinned workspace (`@context-lc`: a chat's access to that is its home), and **empty when anyone in the chat has no account** (a guest, a number not linked by code, or texting paused). *Superseded in part (Dev2, 2026-11-16, [below](#one-list-of-numbers-and-reach-by-membership-dev2-2026-11-16)): a number confirmed at the app's phone sign-in is an account too, and someone with no account keeps out only the workspaces their number isn't invited to.* A chat with no reach has its home alone, as in [chat-homes](./chat-homes.md#chats-with-people-who-arent-all-here-2026-10-31).
