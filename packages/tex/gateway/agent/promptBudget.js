@@ -25,7 +25,11 @@
  * about a step more. See docs/decisions/texting-assistant/week-history.md.
  */
 
-/** The billed-token ceiling: a call whose estimate is here bills at or under it on 9 rounds in 10, and under the 100k cliff (and the `clear_tool_uses` trigger in `aiGateway.js`) on all logged ones. */
+/**
+ * The billed-token ceiling. A call estimated here bills at or under it on 9 rounds in 10, and under
+ * the 100k cliff (also the `clear_tool_uses` trigger in `aiGateway.js`) on 361 of the 368 logged
+ * rounds whose ratio is known (see `TEXT_CHARS_PER_TOKEN`).
+ */
 export const HAIKU_INPUT_BUDGET = 96_000;
 
 /**

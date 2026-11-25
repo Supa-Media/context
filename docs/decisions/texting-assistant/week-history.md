@@ -97,7 +97,7 @@ trimmed rounds (the estimate is only logged when a round is trimmed; the 135 unt
 agree, bounded at 1.08 to 1.35), so 206 trimmed calls and 87 untrimmed ones still billed over 100,000, past the cliff
 and past the `clear_tool_uses` trigger in `aiGateway.js`, which rewrites the prefix itself. `TEXT_CHARS_PER_TOKEN` is
 now 2.68 (3.5 / 1.302, rounded down), so a call estimated at the 96,000 budget bills at or under it at p90 and under
-100,000 on every logged ratio; `HAIKU_INPUT_BUDGET` stays the billed-token ceiling. A text document is counted by its
+100,000 on 361 of the 368 logged ratios; `HAIKU_INPUT_BUDGET` stays the billed-token ceiling. A text document is counted by its
 words, no longer as one picture. And the cut was worked out afresh every round from the untrimmed body: as a chat grew
 by a text, the stub line moved by a message and everything after it was written to the cache again (368 of 1,047
 rounds; trimmed round-1 cache writes p50 2.5K tokens 1:1 and 28K group, 0.8 to 2.3 s more model time). Now a body
