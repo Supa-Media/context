@@ -93,6 +93,9 @@ export function memoryStorage() {
     async put(key, value) {
       map.set(key, structuredClone(value));
     },
+    async delete(key) {
+      return map.delete(key);
+    },
     async getAlarm() {
       return storage.alarm;
     },

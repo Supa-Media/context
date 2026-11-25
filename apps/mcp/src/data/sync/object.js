@@ -20,11 +20,21 @@
  * - **The alarm**, hourly: runs every armed source one after another (`run.js`), each asking again whether its
  *   person, its `about.md` and its address are still good. A source that stops is dropped and its last word kept
  *   for its page; the alarm is set again only while a source is left to run.
+ * - **Two locks.** The state lock (`serially`) covers the short reads and writes of the stored keys. The run lock
+ *   (`oneRun`) covers one source's run, so two runs never write one sheet at once. A run holds only the run lock, and
+ *   the alarm re-reads the sources before it writes each result, so a disconnect or re-arm that lands during a run is
+ *   kept, not overwritten; reads and disconnects answer while a run is in flight.
+ * - **Background runs.** A run an owner's Connect or a repository pick asks for is not run inside that answer: its
+ *   note id joins `soon`, and an alarm is set to now. Once it has run, the alarm goes back to the hourly time that was
+ *   set aside in `hourly`.
  * - **Status** (`op: "status"`): the last run of each source asked, by note id, for a reader the gateway has
  *   already judged able to read that source's `about.md`.
  * - **Connect** (`op: "connect"`, only through the gateway's route, which has checked the caller is an owner): checks
  *   the pasted key with the app itself (`connect/apps.js`), seals it, keeps it in place of any earlier one, and arms
- *   the app's source by its `about.md`, run at once. A key the app refuses is not kept.
+ *   the app's source by its `about.md`, run at once. A key the app refuses is not kept. An installed app (GitHub) is
+ *   connected with GitHub's one-time code instead: its connect answers at once and its first run is a background run.
+ * - **Repositories** (`op: "repos"`): GitHub's list is read without the state lock, so it answers while a run is in
+ *   flight. A pick is stored and its source queued as a background run.
  * - **Disconnect** (`op: "disconnect"`, owners too): forgets the app's key and stops its sources.
  *
  * Self-hosting on the free tier: leave the `DATA_SYNC` binding out, and `POST /data/sync` answers 501.
@@ -101,8 +111,10 @@ export function dataSyncClass(deps = {}) {
       this.state = state;
       this.env = env;
       this.storage = state.storage;
-      /** Runs one at a time: an arm's run and the alarm's never write one sheet at once. */
+      /** The state lock's chain: short reads and writes of the stored keys, one at a time. */
       this.tail = Promise.resolve();
+      /** The run lock's chain: one source's run at a time, so two runs never write one sheet at once. */
+      this.runTail = Promise.resolve();
     }
 
     now() {
@@ -133,6 +145,13 @@ export function dataSyncClass(deps = {}) {
       return run;
     }
 
+    /** The run lock. Code holding it never waits for the state lock, so the two cannot deadlock. */
+    oneRun(work) {
+      const run = this.runTail.then(work, work);
+      this.runTail = run.catch(() => {});
+      return run;
+    }
+
     async fetch(request) {
       let fields;
       try {
@@ -146,7 +165,8 @@ export function dataSyncClass(deps = {}) {
       if (fields.op === "status") return answer(await this.status(fields));
       if (fields.op === "connect") return answer(await this.serially(() => this.connect(fields)));
       if (fields.op === "disconnect") return answer(await this.serially(() => this.disconnect(fields)));
-      if (fields.op === "repos") return answer(await this.serially(() => this.repos(fields)));
+      // A list (no `set`) reads only the connection and GitHub, so it never waits behind a state change or a run.
+      if (fields.op === "repos") return answer(fields.set === undefined ? await this.repos(fields) : await this.serially(() => this.repos(fields)));
       return answer({ error: "bad_call" }, 400);
     }
 
@@ -167,7 +187,7 @@ export function dataSyncClass(deps = {}) {
       // Run now unless it ran under a minute ago and was not stopped: arming again never hammers an address.
       const recent = old !== null && old.stopped !== true && old.last && now - old.last.at < RERUN_AFTER_MS;
       if (!recent) {
-        const { gone: _gone, ...outcome } = await this.runOne(workspaceId, source, now);
+        const { gone: _gone, ...outcome } = await this.oneRun(() => this.runOne(workspaceId, source, now));
         source.last = { at: now, ...outcome };
         if (outcome.outcome === "stopped") source.stopped = true;
       }
@@ -207,8 +227,19 @@ export function dataSyncClass(deps = {}) {
       connections[app] = { sealed, by: armedBy, at: now };
       await this.storage.put("connections", connections);
       console.log(JSON.stringify({ event: "data_app_connected", workspaceId, app }));
+      if (installed) {
+        // GitHub's first run is not waited for: the alarm runs it, so this answers at once. A stopped source's last word
+        // is not carried over, so the page never reads "stopped" for a source that is starting again.
+        const source = { noteId, armedBy, armedAt: now, last: old !== null && old.stopped !== true ? (old.last ?? null) : null, kind: "app", app };
+        const current = (await this.storage.get("sources")) ?? {};
+        current[noteId] = source;
+        await this.storage.put("sources", current);
+        await this.ensureAlarm(current);
+        await this.runSoon(noteId);
+        return { armed: true, last: lastOf(source) };
+      }
       const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, kind: "app", app };
-      const { gone: _gone, ...outcome } = await this.runOne(workspaceId, source, now);
+      const { gone: _gone, ...outcome } = await this.oneRun(() => this.runOne(workspaceId, source, now));
       source.last = { at: now, ...outcome };
       if (outcome.outcome === "stopped") source.stopped = true;
       sources[noteId] = source;
@@ -240,7 +271,8 @@ export function dataSyncClass(deps = {}) {
 
     /**
      * An owner's GitHub repositories: every one the installation was given, and which the source reads. With `set`, the
-     * owner's pick (each one the installation has), sealed in place of the last, and the source run now.
+     * owner's pick (each one the installation has), sealed in place of the last, and each live source queued for a
+     * background run (`runSoon`), never run inside this answer.
      */
     async repos({ workspaceId, set }) {
       const app = "github";
@@ -263,16 +295,10 @@ export function dataSyncClass(deps = {}) {
       connections[app] = { ...held, sealed: await sealConnection({ ...kept, repos: picked }, { secret: this.env?.GATEWAY_SECRET, workspaceId, app }) };
       await this.storage.put("connections", connections);
       const { sources } = await this.held();
-      const now = this.now();
       for (const [noteId, source] of Object.entries(sources)) {
         if (kindOf(source) !== "app" || source.app !== app || source.stopped === true) continue;
-        const { gone: _gone, ...outcome } = await this.runOne(workspaceId, source, now);
-        source.last = { at: now, ...outcome };
-        if (outcome.outcome === "stopped") source.stopped = true;
-        sources[noteId] = source;
+        await this.runSoon(noteId);
       }
-      await this.storage.put("sources", sources);
-      await this.ensureAlarm(sources);
       return { repos: listed.repos, picked };
     }
 
@@ -306,41 +332,101 @@ export function dataSyncClass(deps = {}) {
       }
     }
 
-    /** The alarm stays at most one: set when a source is left to run and none is set, cleared when none is left. */
+    /**
+     * Asks for one source's run in the background (call it only under the state lock). The note id joins `soon`, and
+     * the alarm is set to now. An alarm rather than unawaited work: an alarm is durable (it survives eviction and a
+     * restart, and the runtime retries it), while work left running after the object answers can be cut off. It keeps
+     * one alarm, so the hourly time it displaces is kept in `hourly` until the run-soon alarm has run.
+     */
+    async runSoon(noteId) {
+      const now = this.now();
+      const soon = new Set((await this.storage.get("soon")) ?? []);
+      soon.add(noteId);
+      await this.storage.put("soon", [...soon]);
+      if ((await this.storage.get("hourly")) === undefined) {
+        const set = await this.storage.getAlarm();
+        await this.storage.put("hourly", set !== null && set > now ? set : now + SYNC_EVERY_MS);
+      }
+      await this.storage.setAlarm(now);
+    }
+
+    /**
+     * The alarm stays at most one: set when a source is left to run and none is set, cleared when none is left (and
+     * then the background queue and its displaced hourly time are forgotten too).
+     */
     async ensureAlarm(sources) {
       const running = Object.values(sources).some((source) => source.stopped !== true);
       const set = await this.storage.getAlarm();
       if (!running) {
         if (set !== null) await this.storage.deleteAlarm();
+        await this.storage.delete("soon");
+        await this.storage.delete("hourly");
         return;
       }
       if (set === null) await this.storage.setAlarm(this.now() + SYNC_EVERY_MS);
     }
 
+    /**
+     * The alarm, which takes the state lock and the run lock one after the other, never nested. It claims what it runs
+     * under the state lock, runs each source under the run lock alone, and before it writes a result it reads the
+     * sources again: a source disconnected, stopped or re-armed as something else meanwhile keeps what landed.
+     */
     async alarm() {
-      await this.serially(async () => {
-        const { workspaceId, sources } = await this.held();
-        if (workspaceId === null) return;
-        const now = this.now();
-        for (const noteId of Object.keys(sources)) {
-          const source = sources[noteId];
-          if (source.stopped === true) {
+      const workspaceId = (await this.storage.get("workspace")) ?? null;
+      if (workspaceId === null) return;
+      const now = this.now();
+      const { early, todo } = await this.serially(async () => {
+        const hourly = (await this.storage.get("hourly")) ?? null;
+        // A run-soon alarm comes before the hourly time it displaced: it runs only the sources waiting for one.
+        const early = hourly !== null && now < hourly;
+        const soon = (await this.storage.get("soon")) ?? [];
+        const sources = (await this.storage.get("sources")) ?? {};
+        if (!early) {
+          for (const noteId of Object.keys(sources)) {
             // A stopped source's last word is kept a while for its page, then forgotten.
-            if (!source.last || now - source.last.at > STOPPED_KEPT_MS) delete sources[noteId];
-            continue;
+            const source = sources[noteId];
+            if (source.stopped === true && (!source.last || now - source.last.at > STOPPED_KEPT_MS)) delete sources[noteId];
           }
-          const { gone, ...outcome } = await this.runOne(workspaceId, source, now);
-          source.last = { at: now, ...outcome };
-          if (outcome.outcome === "stopped") source.stopped = true;
+          await this.storage.put("sources", sources);
+          await this.storage.delete("hourly");
+        }
+        await this.storage.delete("soon");
+        return { early, todo: early ? soon : Object.keys(sources) };
+      });
+      for (const noteId of todo) {
+        const source = ((await this.storage.get("sources")) ?? {})[noteId];
+        if (!source || source.stopped === true) continue;
+        const { gone, ...outcome } = await this.oneRun(() => this.runOne(workspaceId, source, now));
+        await this.serially(async () => {
+          const sources = (await this.storage.get("sources")) ?? {};
+          const fresh = sources[noteId];
+          // Changed while it ran (disconnected, stopped, re-armed as something else): keep what landed, not this run.
+          if (!fresh || fresh.stopped === true || kindOf(fresh) !== kindOf(source)) return;
           // Its about.md is gone: nobody can ask its page about it again, so nothing is kept.
           if (gone === true) delete sources[noteId];
+          else sources[noteId] = { ...fresh, last: { at: now, ...outcome }, ...(outcome.outcome === "stopped" ? { stopped: true } : {}) };
           await this.storage.put("sources", sources);
-        }
-        await this.storage.put("sources", sources);
-        // The alarm that called this has fired: set the next one only while a source is left to run.
+        });
+      }
+      // Set the next alarm from what is stored now, which may have changed while the runs ran.
+      await this.serially(async () => {
+        const sources = (await this.storage.get("sources")) ?? {};
         const running = Object.values(sources).some((source) => source.stopped !== true);
-        if (running) await this.storage.setAlarm(this.now() + SYNC_EVERY_MS);
-        else if ((await this.storage.getAlarm()) !== null) await this.storage.deleteAlarm();
+        const soon = (await this.storage.get("soon")) ?? [];
+        const hourly = (await this.storage.get("hourly")) ?? null;
+        if (!running) {
+          if ((await this.storage.getAlarm()) !== null) await this.storage.deleteAlarm();
+          await this.storage.delete("soon");
+          await this.storage.delete("hourly");
+          return;
+        }
+        // A connect or pick landed during this run: its run-soon alarm comes now.
+        if (soon.length > 0) await this.storage.setAlarm(this.now());
+        // Otherwise the hourly time a run-soon alarm displaced.
+        else if (hourly !== null) {
+          await this.storage.setAlarm(hourly);
+          await this.storage.delete("hourly");
+        } else await this.storage.setAlarm(this.now() + SYNC_EVERY_MS);
       });
     }
   };
