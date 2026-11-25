@@ -135,6 +135,7 @@ test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs
 test/readFailure.test.mjs
 test/remember.test.mjs
+test/setArea.test.mjs
 test/reportProblem.test.mjs
 test/routineSignal.test.mjs
 test/routines.test.mjs
@@ -696,6 +697,7 @@ test/sharedFolderDefault.test.mjs
 test/groupChats.test.mjs
 test/moveJudge.test.mjs
 test/crossChat.test.mjs
+test/texJoined.test.mjs
 test/workspaceConventions.test.mjs
 test/workspaceConventionsTurn.test.mjs
 test/checkInTraining.test.mjs

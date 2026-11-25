@@ -139,6 +139,41 @@ function parseFile(body, field = "attachment") {
   return { name, mimeType, url: parseHttpsUrl(body.url, "url") };
 }
 
+/** A number within [min, max], or the fallback when absent. */
+function num(body, key, { min, max, fallback }) {
+  const value = body[key];
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) fail(`invalid_${key}`);
+  return value;
+}
+
+/**
+ * Where a sticker sits on its bubble, in Photon's bubble space (0.5, 0.5 is roughly the center; rotation is a small
+ * tilt such as 0.08; width is the display width, passed so a large image never covers the text). Defaults as Photon's
+ * own example: centered, scale 0.45, width 96.
+ */
+export const STICKER_PLACEMENT = Object.freeze({ x: 0.5, y: 0.5, scale: 0.45, rotation: 0, width: 96 });
+
+function parsePlacement(value) {
+  const body = value === undefined || value === null ? {} : requireObject(value);
+  return {
+    x: num(body, "x", { min: 0, max: 1, fallback: STICKER_PLACEMENT.x }),
+    y: num(body, "y", { min: 0, max: 1, fallback: STICKER_PLACEMENT.y }),
+    scale: num(body, "scale", { min: 0.05, max: 2, fallback: STICKER_PLACEMENT.scale }),
+    rotation: num(body, "rotation", { min: -3.15, max: 3.15, fallback: STICKER_PLACEMENT.rotation }),
+    width: num(body, "width", { min: 16, max: 400, fallback: STICKER_PLACEMENT.width }),
+  };
+}
+
+/** The sticker: an attachment already on the line (its guid), or an image to upload (bytes or an https URL). */
+function parseSticker(value) {
+  if (typeof value === "string") return { attachment: parseGuid(value, "sticker") };
+  if (!isObject(value)) fail("missing_sticker");
+  const file = parseFile(value, "sticker");
+  if (!file.mimeType.startsWith("image/")) fail("invalid_mimeType");
+  return { file };
+}
+
 function parseAddress(value) {
   if (typeof value !== "string") fail("invalid_address");
   if (E164.test(value)) return value;
@@ -250,6 +285,21 @@ export const OPS = Object.freeze({
         kind,
         emoji,
         on: bool(body, "on"),
+      };
+    },
+  },
+  // Stick a sticker on a message (the SDK's `messages.placeSticker`): Photon places an image on a bubble; there is no
+  // sticker-only send. `part` picks one bubble of a multipart message (zero-based; the first when absent).
+  sticker: {
+    method: "POST",
+    parse(body) {
+      requireObject(body);
+      return {
+        ...parseLineAndChat(body),
+        guid: parseGuid(body.guid),
+        sticker: parseSticker(body.sticker),
+        part: int(body, "part", { min: 0, max: MAX_PARTS - 1, optional: true }),
+        placement: parsePlacement(body.placement),
       };
     },
   },

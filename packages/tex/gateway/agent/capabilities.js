@@ -497,6 +497,21 @@ export const CAPABILITIES = Object.freeze([
     group: null,
   },
   {
+    // Areas as seats (`docs/decisions/app-and-console/areas-as-seats.md`, `area-bots.md`): the same front matter the
+    // app's area panel writes, and a bot's webhook sealed by the control plane (Dev2, 2026-11-25).
+    name: "Areas and their bots",
+    actions: ["manage.area"],
+    texts: "set up an area with manage action area: its owner, helper, modes, approval rules, one metric with a target, a Grok bot's card and webhook, and who answers for a person",
+    group: "the same, for a shared workspace this chat can reach",
+    cant: [
+      {
+        where: "everywhere",
+        what: "show a saved webhook's address or key",
+        workaround: { kind: "app_path", text: "Replace under the bot's Reach in the app's area panel" },
+      },
+    ],
+  },
+  {
     name: "Date properties",
     actions: ["manage.fill_dates"],
     texts: "a note's date created and date modified (and created, modified, updated and the like) fill themselves on every save once the note has the key, in the note's own date format and their time zone; you can fill the empty ones across their whole workspace once from each note's history (the owner only), and say how many were filled",

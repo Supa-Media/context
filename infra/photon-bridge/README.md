@@ -29,6 +29,11 @@ Photon sends.
   threaded text again plain); a send still not delivered at the last read is
   `undelivered`, shown on the send step only. These events carry no sequence
   and move no checkpoint; a container restart loses the checks still waiting.
+- Tex sticks a sticker on a message with the `sticker` op (the SDK's
+  `placeSticker`): an image already on the line (its attachment guid) or one
+  uploaded with the call, placed on the bubble in Photon's bubble space
+  (centered, scale 0.45, width 96 unless the call says otherwise). Photon has
+  no sticker-only send: a sticker always goes on a message.
 - Stickers stuck on a message map to a `sticker` reaction, and poll changes
   (started, option added, voted, vote taken back) to a message in words.
   Any event the bridge does not map is counted by type in the minute

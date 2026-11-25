@@ -60,6 +60,7 @@ test("every op parses a well-formed body into its arguments", () => {
     edit: { line: LINE, chat: CHAT, guid: "msg-1", text: "new" },
     unsend: { line: LINE, chat: CHAT, guid: "msg-1" },
     react: { line: LINE, chat: CHAT, guid: "msg-1", kind: "love", on: true },
+    sticker: { line: LINE, chat: CHAT, guid: "msg-1", sticker: "att-1" },
     typing: { line: LINE, chat: CHAT, on: false },
     read: { line: LINE, chat: CHAT },
     contact: { line: LINE, chat: CHAT },
@@ -76,6 +77,34 @@ test("every op parses a well-formed body into its arguments", () => {
     const parsed = OPS[name].parse(body);
     assert.equal(parsed.line, LINE, name);
   }
+});
+
+test("a sticker goes on a message: an attachment on the line, or an image to upload, placed centered by default", () => {
+  assert.deepEqual(OPS.sticker.parse({ line: LINE, chat: CHAT, guid: "msg-1", sticker: "att-1" }), {
+    line: LINE, chat: CHAT, guid: "msg-1", sticker: { attachment: "att-1" }, part: undefined,
+    placement: { x: 0.5, y: 0.5, scale: 0.45, rotation: 0, width: 96 },
+  });
+  const uploaded = OPS.sticker.parse({
+    line: LINE, chat: CHAT, guid: "msg-1", part: 1,
+    sticker: { name: "s.png", mimeType: "image/png", url: "https://example.com/s.png" },
+    placement: { x: 0.8, y: 0.2, rotation: -0.08 },
+  });
+  assert.deepEqual(uploaded.sticker, { file: { name: "s.png", mimeType: "image/png", url: "https://example.com/s.png" } });
+  assert.deepEqual(uploaded.placement, { x: 0.8, y: 0.2, scale: 0.45, rotation: -0.08, width: 96 });
+  assert.equal(uploaded.part, 1);
+});
+
+test("a sticker needs a target and an image, and its placement stays in the bubble", () => {
+  const base = { line: LINE, chat: CHAT, guid: "msg-1", sticker: "att-1" };
+  assert.throws(() => OPS.sticker.parse({ ...base, guid: undefined }), { code: "invalid_guid" });
+  assert.throws(() => OPS.sticker.parse({ ...base, sticker: undefined }), { code: "missing_sticker" });
+  assert.throws(() => OPS.sticker.parse({ ...base, sticker: "https://example.com/x.png" }), { code: "invalid_sticker" });
+  assert.throws(() => OPS.sticker.parse({ ...base, sticker: { name: "a.pdf", mimeType: "application/pdf", data: "AAAA" } }), { code: "invalid_mimeType" });
+  assert.throws(() => OPS.sticker.parse({ ...base, sticker: { name: "a.png", mimeType: "image/png", url: "http://example.com/a.png" } }), { code: "invalid_url" });
+  // Pixel-like values are what Photon's docs warn against.
+  assert.throws(() => OPS.sticker.parse({ ...base, placement: { x: 120, y: 90 } }), { code: "invalid_x" });
+  assert.throws(() => OPS.sticker.parse({ ...base, placement: { rotation: 8 } }), { code: "invalid_rotation" });
+  assert.throws(() => OPS.sticker.parse({ ...base, part: -1 }), { code: "invalid_part" });
 });
 
 test("poll/create takes a title and two to twelve choices of words", () => {

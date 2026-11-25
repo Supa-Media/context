@@ -276,4 +276,21 @@ export function foldAround(graph: LabGraph, focusId: string | null, groups: Grou
  * A version saved under an older shape of the config reads in the current one: the schema's migrations, the same ones
  * Promote runs (`texConfigSchema.cjs`; the first renamed the "behind" wire "background", Dev2, 2026-11-14).
  */
-export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G => migrateGraph(g);
+export const withCurrentModes = <G extends { edges?: Array<{ mode: string }> },>(g: G): G => withStepDefaults(migrateGraph(g));
+
+/**
+ * The fields every canvas step has, as `N` (`data/graph.ts`) gives main's: a draft made outside the Lab (`tex_dev
+ * create`) keeps another architecture's steps as their config writes them, with no `ctx` or `areas`, and the Lab read
+ * `n.ctx.filter` on them and crashed (Dev2, 2026-11-25). Only a missing field is filled; a step's own value stays.
+ */
+const STEP_DEFAULTS = { goal: "", log: false, on: true, rounds: 1, out: 300, ctx: [] as string[], ms: 0, timeoutS: 0, areas: [] as string[], file: "", note: "", icon: "judge" };
+export function withStepDefaults<G>(g: G): G {
+  const nodes = (g as { nodes?: unknown }).nodes;
+  if (!Array.isArray(nodes)) return g;
+  const filled = nodes.map((n) => {
+    if (n === null || typeof n !== "object") return n;
+    const missing = Object.entries(STEP_DEFAULTS).filter(([k]) => (n as Record<string, unknown>)[k] === undefined);
+    return missing.length === 0 ? n : { ...n, ...Object.fromEntries(missing.map(([k, v]) => [k, Array.isArray(v) ? [] : v])) };
+  });
+  return { ...g, nodes: filled } as G;
+}

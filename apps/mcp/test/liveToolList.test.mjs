@@ -106,7 +106,9 @@ test("the full list stays compact", () => {
   // @context-lc's AI setup): the list stood at 16,357 with 76.
   // Raised to 17,000 on 2026-11-23 for read_note's outline, section, lines and full and write_note's section,
   // insert, edits and replace (part reads and writes): the list stood at 16,637 with 76.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 17_000);
+  // Raised to 17,600 on 2026-11-25 for set_area (`manage area`: an area's settings, metric, bots, delegate and
+  // webhook in one call, asked for by the owner): the list stood at 17,376 with 78.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 17_600);
 });
 
 /* -------------------------------------------------------------------------- */

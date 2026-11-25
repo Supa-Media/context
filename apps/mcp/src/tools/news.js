@@ -42,6 +42,13 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-11-25",
     text:
+      "manage action area (args { area, owner?, helper?, modes?, approvals?, metric?: { name, target? }, bot?: { name, whose?, reach? }, " +
+      "delegate?: { person, to }, webhook?: { address, header?, signing_key? }, test_webhook? }) sets an area up in one call: who holds it, its " +
+      "modes and rules, its one metric, a Grok bot's card, who answers for a person, and a bot's webhook, saved sealed and never shown again.",
+  },
+  {
+    date: "2026-11-25",
+    text:
       'orient takes area: "<an area\'s folder>" for that one area (its owner, modes and what they ask, metric, rules, notes, mail and ' +
       'attached projects, and where to write), and for: "@who" for every area a person or bot holds. If your app drops them, pass ' +
       'about: "area <folder>" or about: "for @who" instead.',
@@ -503,7 +510,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "92a03d86";
+export const TOOL_SHAPE = "1b1edf38";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

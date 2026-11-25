@@ -43,6 +43,7 @@ import {
 
 import type { SendTag } from "./groupTags";
 import type { GroupAction } from "./groupRun";
+import type { PhotonSticker } from "./photonClient";
 
 /** Where in a group a message goes: Tex's line in it and the group's id. */
 export type GroupPlace = { line: string; groupId: string };
@@ -61,6 +62,8 @@ export interface GroupLine {
    * cannot. Throws when the app refused or failed.
    */
   runGroup?(place: GroupPlace, action: GroupAction): Promise<void>;
+  /** A sticker stuck on a message in the group (Photon's line only; absent on any other). Throws when refused or failed. */
+  stick?(place: GroupPlace, messageId: string, sticker: PhotonSticker): Promise<void>;
   /** A reaction on a message in the group. Never throws. */
   react(place: GroupPlace, messageId: string, emoji: string): Promise<void>;
   /** Everyone in the group, as phones (or entries that count as someone unknown); null when it could not be read. */
@@ -162,6 +165,12 @@ function movableGroupLine(deps: GroupLineDeps, old: GroupLine): GroupLine {
       const moved = await where(place);
       if (moved === null || now.runGroup === undefined) throw new Error("this group's line cannot run the group");
       await now.runGroup(moved, action);
+    },
+    // Only once the group is on Tex's new line: the old Sendblue number has no stickers.
+    stick: async (place, messageId, sticker) => {
+      const moved = await where(place);
+      if (moved === null || now.stick === undefined) throw new Error("this group's line cannot stick a sticker");
+      await now.stick(moved, messageId, sticker);
     },
     sendMedia: async (place, url, replyTo) => {
       const moved = await where(place);

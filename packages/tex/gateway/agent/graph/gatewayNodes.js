@@ -67,6 +67,7 @@ import chatDays from "./nodes/chatDays.js";
 import moveJudge from "./nodes/moveJudge.js";
 import { crossChatGateNode } from "./nodes/crossChatGate.js";
 import { chatAskNode } from "./nodes/chatAsk.js";
+import { joinedNode } from "./nodes/joined.js";
 import { chatAnswerNode } from "./nodes/chatAnswer.js";
 import { tapbackNode } from "./nodes/tapback.js";
 import { decideWhyNode } from "./nodes/decideWhy.js";
@@ -180,6 +181,8 @@ export const GATEWAY_NODES = {
   // run (and the asking chat's run for its answer), and the step that sends an ask-run's answer back.
   get crossChatGate() { return crossChatGateNode; },
   get chatAsk() { return chatAskNode; },
+  // Tex added to a group, a run of its own: its hello's fixed line (`nodes/joined.js`, `../joined.js`; the shelf until wired).
+  get joined() { return joinedNode; },
   get chatAnswer() { return chatAnswerNode; },
   // A tapback as the whole answer: whether the front door may end the turn with one, and which emoji (`nodes/tapback.js`, `../tapbackEnding.js`).
   get tapback() { return tapbackNode; },

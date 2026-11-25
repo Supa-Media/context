@@ -123,6 +123,17 @@ export async function reactPhoton(photon: Fetcher, place: PhotonPlace, guid: str
   await photonCall(photon, "react", { ...place, guid, kind, on });
 }
 
+/** A sticker: an image already on the line (its attachment guid), or one to upload with the call. */
+export type PhotonSticker = { attachment: string } | PhotonAttachment;
+
+/**
+ * `sticker`: stick a sticker on a message (Photon's `placeSticker`; there is no sticker-only send). `part` picks one
+ * bubble of a multipart message; the bridge centers it on the bubble at Photon's example size unless told otherwise.
+ */
+export async function stickPhoton(photon: Fetcher, place: PhotonPlace, guid: string, sticker: PhotonSticker, part?: number): Promise<void> {
+  await photonCall(photon, "sticker", { ...place, guid, sticker: "mimeType" in sticker ? sticker : sticker.attachment, ...(part !== undefined ? { part } : {}) });
+}
+
 /** `typing`: the "…" bubble on or off. */
 export async function typingPhoton(photon: Fetcher, place: PhotonPlace, on: boolean): Promise<void> {
   await photonCall(photon, "typing", { ...place, on });

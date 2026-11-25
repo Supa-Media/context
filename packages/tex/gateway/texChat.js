@@ -34,7 +34,7 @@ import { BY_ID_PATH, indexChat, isByIdName, serveById } from "./texChat/byId.js"
 import { ARCHIVE_PATH, isArchiveName, serveArchive } from "./texChat/workerArchive.js";
 
 /** Where the Worker's chat object answers each kind of arrival (`packages/tex/worker/index.ts`). */
-const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit" });
+const ARRIVAL_PATHS = Object.freeze({ one: "/accept", react: "/react", group: "/group-accept", members: "/group-members-changed", edit: "/edit", joined: "/group-joined" });
 /** The header the Worker's object names itself with (`inboxMove.ts` `INBOX_NAME_HEADER`). */
 export const INBOX_NAME_HEADER = "x-inbox-name";
 /** Set on every answer this object gives a passed-on call: the chat answered in the gateway. */
