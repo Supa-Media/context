@@ -146,7 +146,7 @@
     {"id":"m138","tex":true,"text":"$2,310 on cards, about $500 more than a normal Saturday. Breakfast was $640 of that.","who":"Tex"},
     {"id":"m139","text":"we're so back","who":"Priya"},
     {"id":"m140","text":"🎉","who":"Kofi"},
-    {"id":"m140a","labels":{"fd":{"must":["answer with only a tapback, and make it the sticker this chat already used (sk0f1t3), not an emoji"],"never":["a text congratulating them","ask whether to use a sticker"],"star":true},"router":{"route":"quick","star":true}},"text":"Tex we actually pulled it off","who":"John"},
+    {"id":"m140a","labels":{"fd":{"must":["answer with only a tapback, and make it the sticker this chat already used (sk0f1t3), not an emoji"],"never":["a text congratulating them","ask whether to use a sticker"],"star":true},"router":{"route":"quick","star":true}},"text":"tex we did it","who":"John"},
     {"id":"m140b","kind":"react","tex":true,"text":"sticker sk0f1t3","to":"m140a","who":"Tex"},
     {"at":"Sun 10:05","id":"m141","text":"Tex what does the farmers market charge for a stall now","who":"Priya"},
     {"id":"m142","tex":true,"text":"Their fee page needs a login, so I couldn't see the price.","who":"Tex"},
