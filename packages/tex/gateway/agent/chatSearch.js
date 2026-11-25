@@ -69,6 +69,16 @@ export function bestHits(found, want) {
   return { all, shown };
 }
 
+/** What the six's `search` says of it when the turn holds it (`sixTools.js` `searchTool`). */
+export const HISTORY_SEARCH_LINE =
+  "\n\nThis chat's own history, every text back to its first: search with args { history: true, who, since, until } when they ask when or whether something was said here, or before asking them what the chat may already hold; each hit names its day, time and who said it.";
+
+/** `search { query, args: { history: true, who, since, until } }` as the `search_chat` call it is. */
+export function historySearchCall(call) {
+  const { who, since, until } = call.args;
+  return { name: SEARCH_CHAT, args: { words: call.query, ...(who !== undefined ? { who } : {}), ...(since !== undefined ? { since } : {}), ...(until !== undefined ? { until } : {}) } };
+}
+
 const answer = (text, isError = false) => ({ content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) });
 const dayArg = (value) => (typeof value === "string" && DAY_ID.test(value.trim()) ? value.trim() : null);
 
