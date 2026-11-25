@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { TEX_CONFIG } from "../../../../../packages/tex/gateway/agent/texConfig.js";
 import { finishNode } from "../../../../../packages/tex/gateway/agent/graph/nodes/finish.js";
 import { LAB_SANDBOX_KEY } from "../../../src/labSandbox/policy.js";
+import { checkShape } from "../../../../../packages/tex/src/texGraph.cjs";
 
 const LINE = "Want me to see your calendar? Then I can tell you when you're free.";
 
@@ -30,6 +31,8 @@ export default {
     const on = await finished("Dinner Saturday at 8 is saved.", { to: "offer", sent: true, line: LINE }, draft);
     assert.equal(on.asked, 1);
     assert.equal(on.sent, `Dinner Saturday at 8 is saved.\n\n${LINE}`, "a draft with the Nudge on adds its one line after the answer");
+    // 2026-11-25, a Lab test chat: Finish the text's row said "nudged", its schema did not, and the turn failed and ran again.
+    assert.doesNotThrow(() => checkShape("finish", "output", on.out, draft.nodes.find((n) => n.id === "finish").outSchema), "the row fits Finish the text's schema");
     const none = await finished("Dinner Saturday at 8 is saved.", { to: "none", sent: false, why: "no moment" }, draft);
     assert.equal(none.sent, "Dinner Saturday at 8 is saved.", "no offer, no line");
   },

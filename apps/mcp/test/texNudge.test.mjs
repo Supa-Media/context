@@ -7,6 +7,7 @@
  *   nodes/finish.js adding the line whatever `sent` says           "a shadow run adds nothing" fails
  *   nodes/nudgeOffer.js turnGate letting a group through            "a group chat is never nudged" fails
  *   texConfig.json nudgeOffer "on": true                            "off on main" fails
+ *   texConfig.json finish outSchema without "nudged"               "Finish the text's row with the line added fits its schema" fails
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -16,8 +17,9 @@ import { stepSettings } from "../../../packages/tex/src/texNodeSettings.cjs";
 import { finishNode, withNudgeLine } from "../../../packages/tex/gateway/agent/graph/nodes/finish.js";
 import nudgeOffer, { turnGate } from "../../../packages/tex/gateway/agent/graph/nodes/nudgeOffer.js";
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
-import { NUDGES_PATH, OFFERABLE, checkedVerdict, gateOf, nudgePoints, parseState, settlePending } from "../../../packages/tex/gateway/agent/nudges.js";
+import { NUDGES_PATH, OFFERABLE, checkedVerdict, gateOf, nudgePoints, nudgeQuestion, parseState, settlePending, toolsUsed } from "../../../packages/tex/gateway/agent/nudges.js";
 import { LAB_SANDBOX_KEY } from "../src/labSandbox/policy.js";
+import { checkShape } from "../../../packages/tex/src/texGraph.cjs";
 
 const node = (id) => TEX_CONFIG.nodes.find((n) => n.id === id);
 const DAY = 86_400_000;
@@ -187,4 +189,15 @@ test("a point carries names and counts only", () => {
   const [point] = nudgePoints({ workspace: "ws_1", event: "none", sent: true, state: { firstAt: NOW - 3 * DAY, texts: 12, offers: [] }, now: NOW, modelMs: 420 });
   assert.deepEqual(point.blobs, ["none", "", "", "sent"]);
   assert.deepEqual(point.doubles, [12, 3, 420, -1]);
+});
+
+test("Finish the text's row with the line added fits its schema (a Lab test chat's turn failed on \"nudged\", 2026-11-25)", () => {
+  assert.doesNotThrow(() => checkShape("finish", "output", { when: ["finished"], chars: 40, asked: 0, silent: false, nudged: true }, node("finish").outSchema));
+});
+
+test("the model is told which tools the turn used, so it never offers what they already have", () => {
+  const used = toolsUsed([{ tool: "calendar_event", ok: true }, { tool: "read_calendar" }, { name: "send", action: "email" }, { tool: "calendar_event" }]);
+  assert.deepEqual(used, ["calendar_event", "read_calendar", "send.email"]);
+  const words = nudgeQuestion({ question: "dinner sat 8", answer: "Added.", recent: [], tainted: false, offered: [], pending: null, offerOpen: true, used });
+  assert.match(words, /<used>\ncalendar_event, read_calendar, send.email\n<\/used>/);
 });
