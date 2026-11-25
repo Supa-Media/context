@@ -40,10 +40,26 @@ export async function recordChange(store, action, actorScope, paths, details = {
     entry.workspace_id = store.actor.workspaceId;
   }
   await keepBookkeeping(store, `${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, entry, { action, paths, details, at });
+  markWriter(store, action);
   announceTreeChange(store, action, paths, details);
   announceWebsiteChange(store, action, paths);
   announceRoutineChange(store, paths);
   await indexChangedNotes(store, action, paths, details);
+}
+
+/** A person's own note saves in the app: what the Context usage source counts as `wrote` (`usage/mark.js`). */
+const WROTE_ACTIONS = new Set(["update_note", "create_note"]);
+const CONSOLE_CLIENT_ID = "context_console";
+
+/** Mark the person as having written today, when this change is their own save in the app; never an agent's. */
+function markWriter(store, action) {
+  if (!WROTE_ACTIONS.has(action) || store?.actor?.clientId !== CONSOLE_CLIENT_ID) return;
+  if (typeof store.markPersonActive !== "function") return;
+  try {
+    store.markPersonActive("wrote");
+  } catch {
+    // A mark may not fail a save by any route.
+  }
 }
 
 /**

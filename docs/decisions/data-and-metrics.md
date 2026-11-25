@@ -479,3 +479,58 @@ step required would let a missing key block every Tex change. Tests:
 `node scripts/metric-rows.mjs --self-test` (counts-only rows, no key sends
 nothing, key only in the header, batches of 100) and
 `infra/tex-eval/src/testSet.test.ts` (by kind, gate unchanged).
+
+## The Context usage source
+
+*Decided by the owner, 2026-11-25: the area metrics plan (Active humans,
+Returning users, Weekly texters, writers and callers, New actives, Day-1
+active, First text p95, Texts answered, Orient p50, Fetch p50, Request
+errors, Search p95, Call success), "we should get started on these metrics
+asap", and, on where the rows go, "Only @supa, named in gateway config".*
+
+- **Context-wide, into one workspace.** These metrics count every person
+  using Context, so the rows come from all of Context and land in the one
+  workspace the gateway's config names (`USAGE_WORKSPACE`, a slug, in
+  `apps/mcp/wrangler.toml`; unset means none). Arming it (Sync now on its
+  page) is refused in any other workspace, and by anyone but an owner there.
+  It is a source folder like any other (`data/usage/`, `source: usage`).
+- **Owners only, checked every run.** Its four sheets must be `private`, by
+  both the member and the guest rendering, and under no sealed folder. A sheet
+  or folder loosened later stops the source before anything is read, so a
+  wider setting never publishes a row.
+- **Nobody can tell who a row is.** A person is 16 hex of HMAC-SHA-256 over
+  their account id, under a key derived from the root the gateway's
+  `SEARCH_QUALITY_KEY` object keeps (`apps/mcp/src/usage/person.js`), never
+  `GATEWAY_SECRET`, which the control plane holds. The control plane keeps the
+  MAC, not the account (`usagePeopleDaily`, one row per person per day, 90
+  days); the account ids it hands the gateway for texts and sign-ups are
+  MAC'd before anything is written. Deleting that object rotates every id.
+- **What each sheet holds.** `activity.csv` (one row per person-day: texted,
+  wrote, called, `active` = texted or wrote, `returning` = active on another
+  day in the 7 before; 90 days), `sign-ups.csv` (one row per person: day,
+  channel, `day1_active` = active that day or the next; 400 days),
+  `tex-replies.csv` (one row per answered text with the seconds to its first
+  bubble, and one per text a turn failed to answer; 30 days) and `calls.csv`
+  (one row per sampled MCP tool call: tool, ms, ok, the client's product name
+  and Analytics Engine's sample weight; **14 days, not the plan's 30**: about
+  2,600 calls on a busy day would take 30 days past a sheet's 50,000 rows).
+- **Where each fact comes from, and nothing new where something exists.**
+  Texted: a person's own 1:1 texts, already `agentTurnMarks` in their personal
+  workspace (a group's turn runs on its sponsor's grant, so it can't say who
+  texted). Wrote: the app's own saves (`update_note`, `create_note` by the
+  console), marked behind the response. Called: any tool call by a client that
+  is not the app or Tex. Calls and replies: the gateway's Analytics Engine
+  points, read by the control plane with the staff stats' token. `ok` is the
+  request answering without a server failure; a tool that answers with an
+  error still reads ok.
+- **What the first week could and could not fill.** Texted, Tex replies and
+  calls go back as far as those records do (30 days of turns). Wrote and
+  called start the day this shipped: rebuilding them would mean reading every
+  customer's editing history, which the usage source never does.
+
+**What a simplification would cost.** Keying a row by account id, or by a MAC
+under `GATEWAY_SECRET`, lets the control plane or a sheet reader name the
+person. Checking visibility only when armed lets a later setting publish the
+rows. Letting any owner arm it gives every workspace everyone's activity.
+Tests: `apps/mcp/test/dataSyncUsage.test.mjs`,
+`apps/convex/__tests__/usagePeople.test.ts`.

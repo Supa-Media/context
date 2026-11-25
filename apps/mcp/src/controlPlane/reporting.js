@@ -29,15 +29,28 @@ export function createReportingMethods({ post }) {
      *
      * @param {{metric: string, workspaceId?: string, count?: number}[]} events
      */
-    async reportUsage(events, hourly = []) {
+    /**
+     * The Context usage run's read (`data/sync/runUsage.js`, `apps/convex/functions/lib/gatewayRoutes/usageExport.ts`):
+     * person-days, account ids that texted or signed up, and call and reply timings since `since`. Unlike the
+     * reports around it, its failure is the run's: the run says so and writes nothing.
+     */
+    async usageExport(since) {
+      return await post("/gateway/usage/export", { since }, { timeoutMs: 30_000, maxBytes: 16 * 1024 * 1024 });
+    },
+
+    async reportUsage(events, hourly = [], people = []) {
       const counted = Array.isArray(events) ? events : [];
       const breakdown = Array.isArray(hourly) ? hourly : [];
-      if (counted.length === 0 && breakdown.length === 0) return { applied: 0 };
+      // `people` is the Context usage source's person-days: `{person, kind}`, a MAC the control plane can't reverse
+      // and `wrote` or `called` (`usage/person.js`, `apps/convex/functions/usagePeople.ts`).
+      const marks = Array.isArray(people) ? people : [];
+      if (counted.length === 0 && breakdown.length === 0 && marks.length === 0) return { applied: 0 };
       // `hourly` is the Premium breakdown (`reportBoundaryUsage`): ids, a model
       // string, a method word and counts, under the same rule as `events`.
       return await post("/gateway/usage", {
         events: counted,
         ...(breakdown.length > 0 ? { hourly: breakdown } : {}),
+        ...(marks.length > 0 ? { people: marks } : {}),
       });
     },
 

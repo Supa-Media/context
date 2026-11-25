@@ -35,6 +35,7 @@ import { workspaceClient } from "../../workspaceStore/api.js";
 import { runUrlSource } from "./run.js";
 import { runAppSource } from "./runApp.js";
 import { runMetricSnap } from "./snap.js";
+import { runUsageSource } from "./runUsage.js";
 import { APPS, appNamed } from "../connect/apps.js";
 import { openConnection, sealConnection } from "../connect/seal.js";
 import { listGithubRepos } from "../connect/githubApp.js";
@@ -47,8 +48,8 @@ export const RERUN_AFTER_MS = 60 * 1000;
 /** The most sources one workspace may arm, and the most right-now metrics it may keep: an hour's runs stay inside one alarm. */
 export const MAX_SOURCES = 25;
 /** What an armed entry is: a Fetch from a URL source or an app's (by its about.md), or a right-now metric (by its note). */
-const KINDS = new Set(["url", "metric", "app"]);
-const kindOf = (entry) => (entry?.kind === "metric" ? "metric" : entry?.kind === "app" ? "app" : "url");
+const KINDS = new Set(["url", "metric", "app", "usage"]);
+const kindOf = (entry) => (entry?.kind === "metric" ? "metric" : entry?.kind === "app" ? "app" : entry?.kind === "usage" ? "usage" : "url");
 /** The longest key one app takes, as pasted. */
 const MAX_KEY = 512;
 /** How long a stopped source's last word is kept for its page. */
@@ -162,7 +163,7 @@ export function dataSyncClass(deps = {}) {
       if ((old === null || old.stopped === true) && live >= MAX_SOURCES) {
         return { error: "too_many", said: kind === "metric" ? `A workspace keeps at most ${MAX_SOURCES} right-now metrics.` : `A workspace syncs at most ${MAX_SOURCES} addresses.` };
       }
-      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, ...(kind === "metric" ? { kind } : {}) };
+      const source = { noteId, armedBy, armedAt: now, last: old?.last ?? null, ...(kind === "metric" || kind === "usage" ? { kind } : {}) };
       // Run now unless it ran under a minute ago and was not stopped: arming again never hammers an address.
       const recent = old !== null && old.stopped !== true && old.last && now - old.last.at < RERUN_AFTER_MS;
       if (!recent) {
@@ -292,7 +293,7 @@ export function dataSyncClass(deps = {}) {
       if (client === null) return { outcome: "failed", said: "This deployment has no workspace objects." };
       try {
         const kind = kindOf(source);
-        const run = kind === "metric" ? runMetricSnap : kind === "app" ? runAppSource : runUrlSource;
+        const run = kind === "metric" ? runMetricSnap : kind === "app" ? runAppSource : kind === "usage" ? runUsageSource : runUrlSource;
         // An app's run alone is handed its sealed key, and only its own app's.
         const sealed = kind === "app" ? ((await this.storage.get("connections")) ?? {})[source.app]?.sealed ?? null : undefined;
         const done = await run({ ...deps, env: this.env, client, workspaceId, source, now: () => now, ...(kind === "app" ? { sealed } : {}) });

@@ -16,7 +16,7 @@ import type { ListNote } from "../listBlock/model";
 import { metricsFolderOf, sourceAt, type SourceKind } from "./sources";
 
 /** The sources whose sync replaces a sheet's rows. */
-const SYNCED: ReadonlySet<SourceKind> = new Set<SourceKind>(["github", "cloudflare", "stripe", "fetch"]);
+const SYNCED: ReadonlySet<SourceKind> = new Set<SourceKind>(["github", "cloudflare", "stripe", "fetch", "usage"]);
 
 /** `<data>/<source>` for a CSV directly in a source folder of the data folder; null for any other path. */
 export function sourceFolderOfSheet(path: string | null, dataFolder: string): string | null {

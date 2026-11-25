@@ -4,6 +4,7 @@
  */
 
 import { countTokens, requestText, responseParts } from "./tokens.js";
+import { TEX_CLIENTS } from "../search/quality.js";
 
 /**
  * The metrics one tool call is worth.
@@ -58,7 +59,26 @@ export function reportToolsListed(store) {
   }
 }
 
+/** Clients whose tool calls are not a person's AI client calling: the app itself, and Tex (counted as texting). */
+const NOT_A_CALLER = new Set(["context_console", ...TEX_CLIENTS]);
+
+/**
+ * That this call was a person's own AI client calling a tool, for the Context usage source's `called`
+ * (`usage/mark.js`). The app and Tex are not callers; a legacy shared-token session has no person.
+ */
+export function markCaller(store) {
+  const clientId = store?.actor?.clientId;
+  if (typeof clientId !== "string" || clientId === "" || NOT_A_CALLER.has(clientId)) return;
+  if (typeof store.markPersonActive !== "function") return;
+  try {
+    store.markPersonActive("called");
+  } catch {
+    // A mark may not fail a tool call by any route.
+  }
+}
+
 export function reportToolUsage(store, toolName, workspaceId) {
+  markCaller(store);
   if (typeof store?.reportUsage !== "function") return;
   if (typeof workspaceId !== "string" || workspaceId === "") return;
   const events = [{ metric: "mcp.tool_call", workspaceId }];

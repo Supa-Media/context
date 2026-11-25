@@ -26,7 +26,7 @@ import { githubSourceFiles, slugOf, startingFormula, type AppSourceFiles, type C
 import type { GithubFlow } from "./GithubConnect";
 import { openGithubInstall } from "./githubSync";
 import { MetricBuilderDialog } from "./MetricBuilder";
-import { metricsFolderOf, textOf, type DataSource } from "./sources";
+import { metricsFolderOf, textOf, USAGE_SHEETS, type DataSource } from "./sources";
 import { useSourceSyncs } from "./useSourceSync";
 import type { SyncState } from "./words";
 import type { DataWorkspace, Listings } from "./useDataWorkspace";
@@ -257,9 +257,10 @@ export function useDataMaking({
             void (async () => {
               // A sheet deleted by hand is made again, empty, before the sync is asked to fill it.
               const dataset = textOf(source.about?.properties.dataset);
-              const sheetPath = `${source.folder}/${slugOf(dataset)}.csv`;
-              if (io !== undefined && slugOf(dataset) !== "" && !source.datasets.some((each) => each.path === sheetPath)) {
-                await io.create(sheetPath, "").catch(() => undefined);
+              const wanted = source.kind === "usage" ? USAGE_SHEETS.map((name) => `${source.folder}/${name}.csv`) : slugOf(dataset) === "" ? [] : [`${source.folder}/${slugOf(dataset)}.csv`];
+              const missing = wanted.filter((sheetPath) => !source.datasets.some((each) => each.path === sheetPath));
+              if (io !== undefined && missing.length > 0) {
+                for (const sheetPath of missing) await io.create(sheetPath, "").catch(() => undefined);
                 host?.tasks?.refresh([source.folder]);
               }
               const why = await armSync(source.aboutPath);

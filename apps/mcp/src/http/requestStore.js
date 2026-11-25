@@ -8,6 +8,7 @@
 
 import { attachLinkCalls } from "./routing.js";
 import { attachChangeReporters } from "../controlPlane/changeReporters.js";
+import { markPersonActive } from "../usage/mark.js";
 import { deferredWork } from "../mcp/usage.js";
 import { textsCleared } from "../communications/messagesBackup.js";
 import { searchBudgetFor } from "../search/budget.js";
@@ -128,6 +129,14 @@ export function decorateRequestStore(store, { session, env, controlPlane, ctx, r
       // A host whose `waitUntil` refuses the work simply does not report.
     }
   };
+
+  /**
+   * That this connection's person did something the Context usage source counts today: `wrote` (a note saved in
+   * the app) or `called` (an AI client of theirs called a tool). Behind the response, under `reportUsage`'s rule:
+   * a mark nobody records changes nothing about the answer. What crosses is the person's MAC (`usage/person.js`)
+   * and the word, never the account, the tool or the note; the day is the control plane's.
+   */
+  store.markPersonActive = (kind) => markPersonActive(store, session, env, controlPlane, kind);
 
   /**
    * How far this context's search projection has got.

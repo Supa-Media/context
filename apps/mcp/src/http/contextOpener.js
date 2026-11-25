@@ -207,6 +207,8 @@ export function attachContextOpener(store, session, { env, controlPlane, origin,
     // The one other name an addressed store may open, and only to read the
     // Context.LC-wide note orient shows first. See `orient/globalNote.js`.
     targetStore.openPinnedContext = store.openPinnedContext;
+    // The same person, whichever workspace the call reached: the usage source counts people, not workspaces.
+    targetStore.markPersonActive = store.markPersonActive;
     return { session: target, store: targetStore };
   };
 
