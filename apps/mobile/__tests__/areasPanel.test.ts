@@ -229,6 +229,29 @@ describe("the Areas side panel", () => {
     expect(text).toContain('for: "@seyi"');
   });
 
+  test("an area's mail is a folder with one note per sender: listed in the panel, and a first message starts your own", async () => {
+    // The owner, 2026-11-25: "mail is a folder and then per person it's one note, or per, not just per person, per AI".
+    windowOf(1440);
+    const writes: Write[] = [];
+    const files: string[] = [];
+    const notes: ListNote[] = [...AREAS, { path: "areas/finance/mail/pipeline.md", properties: {} }];
+    const bodies = { "areas/finance/mail/pipeline.md": "# Mail with Finance\n\n```mail\n- 2026-11-25T03:00:00.000Z pipeline (Grok) to everyone: CI is red again.\n```\n" };
+    const { selected } = await mount(host(writes, { notes, files, bodies }), LISTING);
+    await press(one("area-row-areas/finance"));
+    await settle();
+    // The mail folder is the Mail section, never a plain folder in the area's notes.
+    expect(all("area-panel-note-areas/finance/mail")).toHaveLength(0);
+    expect(strip(one("area-panel-mail-pipeline").textContent)).toContain("pipeline: CI is red again.");
+    await typeInto(one("area-panel-mail-input"), "Why did spend jump on Friday?");
+    await press(one("area-panel-mail-send"));
+    await settle();
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^create areas\/finance\/mail\/seyi\.md\n# Mail with @seyi\n\n```mail\n- \S+ @seyi to everyone: Why did spend jump on Friday\?\n```\n$/);
+    expect(all("area-panel-mail-input")).toHaveLength(0);
+    await press(one("area-panel-mail-pipeline"));
+    expect(selected).toEqual(["areas/finance/mail/pipeline.md"]);
+  });
+
   test("in a console the area goes in the right panel, where Meetings is, not in the page", async () => {
     windowOf(1440);
     const { selected } = await mount(host([], { notes: AREAS }), LISTING, undefined, undefined, true);

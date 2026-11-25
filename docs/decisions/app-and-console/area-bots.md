@@ -48,7 +48,12 @@ keeps its notes there and knows what its modes ask of it.
 - **Mail is a folder, one note per sender** (the owner, 2026-11-25: "mail is a
   folder and then per person it's one note, or per, not just per person, per
   AI"): `<area>/mail/<sender>.md`, so a busy area's conversations never pile
-  into its `about.md`.
+  into its `about.md`. The area panel's Mail lists each conversation with
+  its newest message, and "Write to <owner>…" starts the reader's own note
+  with the first message as note mail; the note's own mail box answers after
+  that. A bot joins each note under its name (lowercase, as mail names are)
+  and answers in it. The `mail/` folder is never a plain folder or a sub-area
+  on the List, the Chart or in `orient`.
 
 **What a simplification would cost.** A bot kept in a table of its own would
 be invisible to agents reading notes and to Download as folders. A webhook
@@ -62,5 +67,5 @@ dropdown, and that no secret-like key is ever written to a card),
 by area and for a holder, and no oracle for an area the caller cannot see).
 
 **Not built yet.** The webhook (a sealed address and secret, signed calls,
-Send a test, replies written back as mail) and the panel's Mail section
-follow in their own pull requests.
+Send a test, replies written back as mail) follows in its own pull request;
+until then a bot checks its area's mail on a timer.

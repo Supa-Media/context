@@ -248,6 +248,8 @@ export function areaTree(folder: string, root: string, notes: readonly ListNote[
     if (entry.kind === "folder" && isArea(entry.path, root, notes)) areas.push(areaTree(entry.path, root, notes));
     else if (entry.kind === "file" && entry.name === ABOUT_NOTE) continue;
     else if (entry.kind === "folder" && entry.path === `${inside(root)}${PEOPLE_FOLDER}`) continue;
+    // An area's mail folder is its Mail, shown on its own (`areaMail.ts`), never a plain folder or a sub-area.
+    else if (entry.kind === "folder" && entry.path === `${inside(folder)}mail` && folder !== root) continue;
     else files.push(entry);
   }
   areas.sort((a, b) => a.seat.name.localeCompare(b.seat.name));

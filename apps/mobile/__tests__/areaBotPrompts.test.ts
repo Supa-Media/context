@@ -30,7 +30,7 @@ describe("an area bot's prompt", () => {
   test("mail is one note per sender in the area's mail folder", () => {
     const text = areaPrompt(AREA);
     expect(text).toContain("areas/operations/finance/mail/<sender>.md");
-    expect(text).toContain('args: { join: "Finance" }');
+    expect(text).toContain('args: { join: "finance" }');
   });
 
   test("a webhook bot is told mail also reaches its webhook; one without checks on a timer", () => {
@@ -79,6 +79,7 @@ describe("a delegate's prompt", () => {
 });
 
 test("a bot joins mail under a name mail accepts", () => {
-  expect(mailJoinName("Chief of staff")).toBe("Chief-of-staff");
+  expect(mailJoinName("Chief of staff")).toBe("chief-of-staff");
+  expect(mailJoinName("A very long bot name that goes on and on")).toBe("a-very-long-bot-name-tha");
   expect(mailJoinName("  ")).toBe("bot");
 });

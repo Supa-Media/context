@@ -69,9 +69,9 @@ function modeLines(modes, ownerWord) {
   return lines;
 }
 
-/** The name a bot joins a note's mail under: letters, digits and dashes only (`mail.cjs`'s `mailName`). */
+/** The name a bot joins a note's mail under: lowercase letters, digits and dashes, at most 24 (`mail.cjs`'s `NAME`). */
 function mailJoinName(bot) {
-  const word = String(bot ?? "").trim().replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  const word = String(bot ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, 24).replace(/-+$/, "");
   return word === "" ? "bot" : word;
 }
 

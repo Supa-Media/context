@@ -51,6 +51,7 @@ import {
   type Seat,
   type SeatEdit,
 } from "./seat";
+import { mailNotesOf } from "./areaMail";
 
 export type AreasPageView = "list" | "chart";
 
@@ -118,6 +119,17 @@ export function AreasView(props: AreasViewProps) {
   const [editing, setEditing] = useState<{ seat: Seat; start?: "metric" } | null>(null);
   const [adding, setAdding] = useState<Seat | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // Who a new conversation in an area's mail is from: the reader's own @handle, as the owner search knows them.
+  const [myHandle, setMyHandle] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    people("", [])
+      .then((found) => live && setMyHandle(found.people.find((person) => person.isMe && person.value.startsWith("@"))?.value))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [people]);
 
   const cardFor = useCallback(
     (holder: string, kind: Card["kind"]) => cardOf(holder, kind, root, notes),
@@ -215,6 +227,13 @@ export function AreasView(props: AreasViewProps) {
           readingOf,
           ...(canEdit ? { onPick: pick } : {}),
           onSave: save,
+          mail: {
+            notesIn: (area: string) => mailNotesOf(area, notes),
+            ...(readBody === undefined ? {} : { read: readBody }),
+            ...(canEdit && host?.tasks !== undefined ? { create: (path: string, text: string) => host.tasks!.io.create(path, text) } : {}),
+            ...(myHandle === undefined ? {} : { me: myHandle }),
+            open: onSelect,
+          },
           tools: { people, agents, isAgent, cardFor, label, ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }) },
           onPeek: setPeek,
           onOpen: (area) => {
