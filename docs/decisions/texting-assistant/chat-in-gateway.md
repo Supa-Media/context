@@ -116,3 +116,13 @@ answers its values; it lives where the moved chats live, in the gateway's own ob
 the archive and a census show nothing left that is neither moved nor archived. A simplification that deletes without
 the archive loses what the census could only see by key name. `apps/mcp/test/texChatWorkerArchive.test.mjs` fails if an
 archive can be replaced or read.
+
+## Chats are born in the gateway
+
+Decided by the owner, 2026-11-22 ("sweep, then delete") and 2026-11-23 (archive first). Since 2026-11-25 a chat the
+gateway has never held is placed there on its first call (`texChat.js` `placeChat`): its name, and as its sender id its
+own `TexChat` object's id, which its picture and page addresses carry and its `byid:<id>` index finds. Nothing is copied
+from the texting Worker and nothing there is asked, a group's directory entry included: the 2026-11-25 census found
+every Worker box either moved or archived. A simplification that put the copy-in back would make a new chat leave a
+moved tombstone in a class being deleted. `apps/mcp/test/texChatMove.test.mjs` fails if a chat asks the Worker or keeps
+no id of its own; `apps/mcp/test/texChatDirectory.test.mjs` fails if an entry reads the Worker's.
