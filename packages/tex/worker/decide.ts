@@ -62,6 +62,8 @@ export type DecideAsk = {
   settle?: true;
   /** The stickers this chat kept, by id, newest last (`stickers.ts` `keptStickers`): Decide may react with one. */
   stickers?: string[];
+  /** Each of those stickers' words from its look (`stickerLook.ts`), for those looked at. */
+  stickerWords?: Record<string, string>;
 };
 
 /** `texts`: the gateway's binding, where decide asks Clef itself (`decideGateway.ts`); without it, the control plane's route. */

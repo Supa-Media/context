@@ -34,7 +34,7 @@ import { restartTurn, runningTurn, steerInto } from "./steer";
 import { PICTURE_LINE } from "./groupLines";
 import { reactionLine, type Tapback } from "./reactions";
 import { onTexText } from "./thumbs";
-import { keptStickers } from "./stickers";
+import { stickersAsk } from "./stickers";
 import type { SendPart } from "./outgoing";
 import type { InboxStorage } from "./inbox";
 import type { ReplyPlace } from "./clients";
@@ -145,7 +145,7 @@ async function ask(storage: InboxStorage, deps: ControlDeps & { now: () => numbe
     waitingAsks: asks,
     newest: candidates.at(-1) ?? "",
     // The stickers people used here, which Decide may react with.
-    ...(await keptStickers(storage).catch(() => []).then((ids) => (ids.length > 0 ? { stickers: ids } : {}))),
+    ...(await stickersAsk(storage)),
   };
   // Idle, the person is watching the bubble: a slow decide falls back rather than keep them waiting.
   const decision = await decide(deps, asked, running ? RUNNING_DECIDE_MS : IDLE_DECIDE_MS);

@@ -1,6 +1,14 @@
 {
   "about": "Nodes whose code is merged into packages/tex/gateway/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
   "nodes": {
+    "stickerLook": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/stickerLook.js",
+        "packages/tex/gateway/agent/textsSticker.js",
+        "packages/tex/worker/stickerLook.ts"
+      ],
+      "why": "A sticker a group chat keeps, looked at once (Dev2, 2026-11-25: stickers dropped in a chat \"for start\", used \"in relevant situations\"). A model says in a few words what it shows and the moment it fits as a reaction; the chat object keeps those words beside the sticker and Decide reads them in its sticker choices, where an id alone said nothing. Wired, the chat object asks /texts/sticker-look for each kept sticker with no words yet; unwired, the route answers off and stickers are offered by id as before."
+    },
     "examples": {
       "files": [
         "packages/tex/gateway/agent/graph/nodes/examples.js",

@@ -42,8 +42,10 @@ export interface DecideBody {
   ledger?: string;
   /** A wait that was not held, or ran out, judged again with no wait to choose: quiet or respond. */
   settle?: true;
-  /** The stickers this chat kept (ids, newest last, at most 8) that Decide may react with instead of the emoji. */
+  /** The stickers this chat kept (ids, newest last, at most 30) that Decide may react with instead of the emoji. */
   stickers?: string[];
+  /** Each offered sticker's words from its look (node `stickerLook`): what it shows and when it fits. */
+  stickerWords?: Record<string, string>;
 }
 
 export type DecideResult =
