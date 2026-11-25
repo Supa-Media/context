@@ -30,6 +30,7 @@ import { toolDreamNow } from "./dreamNow.js";
 import { toolRunModel } from "./runModel.js";
 import { toolTexDev } from "../../../../packages/lab/gateway/texDev/tool.js";
 import { toolFillDates } from "./fillDates.js";
+import { toolSetArea } from "./notes/setArea.js";
 import { toolPairDevice } from "./pairDevice.js";
 import { toolNotifyMe } from "./attention.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
@@ -334,6 +335,8 @@ async function runTool(name, args, store, scope, options = {}) {
       return toolTexDev(store, args);
     case "fill_dates":
       return toolFillDates(store, scope, args);
+    case "set_area":
+      return toolSetArea(store, scope, rules, overrides, args);
     case "pair_device":
       return toolPairDevice(store, args);
     case "notify_me":

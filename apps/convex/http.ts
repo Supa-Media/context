@@ -92,7 +92,7 @@ import {
 } from "./functions/lib/stripe";
 import * as sessions from "./functions/lib/gatewayRoutes/sessions";
 import * as connections from "./functions/lib/gatewayRoutes/connections";
-import { gatewayBotMailHandler } from "./functions/lib/gatewayRoutes/botMail";
+import { gatewayBotHookHandler, gatewayBotMailHandler } from "./functions/lib/gatewayRoutes/botMail";
 import * as noteMail from "./functions/lib/gatewayRoutes/noteMail";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
 import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
@@ -798,6 +798,8 @@ http.route({ path: "/gateway/connect/request", method: "POST", handler: gatewayC
 http.route({ path: "/gateway/connect/call", method: "POST", handler: gatewayConnectCall });
 export const gatewayBotMail = gatewayRoute(gatewayBotMailHandler); // a workspace object telling an area's bot mail arrived (`functions/botHooks.ts`)
 http.route({ path: "/gateway/bots/mail", method: "POST", handler: gatewayBotMail });
+export const gatewayBotHook = gatewayRoute(gatewayBotHookHandler); // an agent setting, testing or listing a bot's webhook (`manage area`)
+http.route({ path: "/gateway/bots/hook", method: "POST", handler: gatewayBotHook });
 http.route({ path: "/gateway/connect/apps", method: "POST", handler: gatewayConnectApps });
 
 // One email, as the token's person, after they said yes to its exact copy.

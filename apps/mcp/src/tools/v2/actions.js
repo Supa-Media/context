@@ -151,6 +151,11 @@ export const ACTIONS = {
       summary: "Run one Workers AI model for the Architecture Lab (clef or glm-4.7-flash) on a JSON input; staff only, not for Tex.",
       take: plain,
     },
+    area: {
+      tool: "set_area",
+      summary: "Set an area's owner, helper, modes, approval rules or metric, a bot's card or webhook, or who answers for a person.",
+      take: plain,
+    },
     fill_dates: { tool: "fill_dates", summary: "Fill every empty date created / date modified from each note's history, once (owner only).", take: plain },
     pair_device: {
       tool: "pair_device",

@@ -174,6 +174,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/connect/request": "gatewayConnectRequest",
     "/gateway/connect/call": "gatewayConnectCall",
     "/gateway/bots/mail": "gatewayBotMail",
+    "/gateway/bots/hook": "gatewayBotHook",
     "/gateway/connect/apps": "gatewayConnectApps",
     "/gateway/email/send": "gatewayPersonEmail",
     "/gateway/email/draft": "gatewayPersonEmailDraft",

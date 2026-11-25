@@ -81,6 +81,20 @@ keeps its notes there and knows what its modes ask of it.
   clearance, so the control plane never carries a note's body. A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.
+- **Everything the panel sets, an agent sets too** (the owner, 2026-11-25:
+  "someone should be able to make updates to the areas, the area settings,
+  assign metrics, update bot configs easily through tex or through the mcp").
+  It is `manage` action `area` (`set_area`, `apps/mcp/src/tools/notes/setArea.js`),
+  not a new tool: owner, helper, modes, approvals, the area's one metric, a
+  bot's card, a person's delegate, and a bot's webhook. It writes the same
+  front matter the panel writes, at the connection's own clearance, with the
+  version it read. A metric must be one the workspace has in its data
+  folder's `metrics/`, matched ignoring case; a wrong name is refused with the
+  names there are. A webhook goes to `/gateway/bots/hook`, which takes both
+  proofs (the gateway's secret and the person's own token, cleared as an
+  editor). Its answer is the host and the header's last four characters. When
+  the agent passes no signing key, Context makes one nobody can see, and the
+  answer says how to set a known one.
 
 **What a simplification would cost.** A bot kept in a table of its own would
 be invisible to agents reading notes and to Download as folders. A webhook
@@ -96,7 +110,9 @@ by area and for a holder, and no oracle for an area the caller cannot see),
 owner-only replace, the mail door's limits), `apps/mcp/test/botMail.test.mjs`
 (told once per new line, never its own reply) and
 `apps/mobile/__tests__/areaBotHook.test.ts` (the key shown once, the address
-never shown again).
+never shown again), `apps/mcp/test/setArea.test.mjs` (`manage area`'s front
+matter, the metric match and its refusal, no secret in the answer) and the
+agents' door test in `botHooks.test.ts`.
 
 **Not built yet.** A bot's answer in the webhook's reply body is not written
 back as mail: the bot answers in the note through its own connection.

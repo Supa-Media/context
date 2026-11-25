@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { addMember, asUser, captureError, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 import { signHook } from "@context/shared/src/botHooks.cjs";
+import { registerClient, seedConnectedClient, token } from "./controlPlane/fixtures.helpers";
 
 /**
  * A bot's webhook (`functions/botHooks.ts`): sealed where nobody reads it
@@ -152,5 +153,42 @@ describe("a bot's webhook", () => {
     await asUser(t, ana).action(api.functions.botHooks.setBotHook, { workspaceId: supa, bot: "finance", address: HOOK, signingKey: KEY });
     expect(await asUser(t, kim).action(api.functions.botHooks.testBotHook, { workspaceId: supa, bot: "finance" })).toEqual({ ok: false, status: 0 });
     expect(seen).toHaveLength(0);
+  });
+
+  /** `manage area` from an AI client or Tex: both proofs, an editor's grant, and never a secret in the answer. */
+  test("the agents' door sets, lists and tests a webhook for an editor's grant, and answers no secret", async () => {
+    const seen = stubNet();
+    const { t, ana, kim, supa } = await world();
+    await registerClient(t, "mcp_client_bots");
+    const ANA = token("bots_ana");
+    const KIM = token("bots_kim");
+    await seedConnectedClient(t, { workspaceId: supa, userId: ana, clientId: "mcp_client_bots", accessToken: ANA });
+    await seedConnectedClient(t, { workspaceId: supa, userId: kim, clientId: "mcp_client_bots", accessToken: KIM });
+    const door = async (accessToken: string, body: Record<string, unknown>, secret?: string) =>
+      await gatewayPost(t, "/gateway/bots/hook", { accessToken, expectedWorkspaceId: String(supa), ...body }, secret === undefined ? {} : { secret });
+    const set = { action: "set", bot: "Finance", address: HOOK, header: "Authorization: Bearer grok-abc-1234" };
+
+    expect((await door(ANA, set, "wrong-secret-0000000000")).status).toBe(401);
+    expect(await (await door(KIM, set)).json()).toEqual({ error: expect.stringContaining("owner or editor") });
+    expect(await (await door(token("bots_nobody"), set)).json()).toEqual({ error: expect.any(String) });
+    expect(await t.run((ctx) => ctx.db.query("botHooks").collect())).toHaveLength(0);
+
+    const saved = await (await door(ANA, set)).json();
+    expect(saved).toEqual({ host: "bot.example.com", headerEnds: "1234", keyMade: true });
+    const listed = await (await door(ANA, { action: "list" })).json();
+    expect(listed.hooks).toEqual([expect.objectContaining({ bot: "finance", host: "bot.example.com" })]);
+    for (const bot of ["Finance", "Pipeline"]) {
+      expect(await (await door(ANA, { action: "set", bot, address: "https://10.0.0.1/x" })).json(), bot).toEqual({ error: expect.any(String) });
+    }
+    expect(await t.run((ctx) => ctx.db.query("botHooks").collect())).toEqual([expect.objectContaining({ host: "bot.example.com" })]);
+    expect(await (await door(ANA, { action: "test", bot: "Finance" })).json()).toEqual({ ok: true, status: 200 });
+    expect(seen).toHaveLength(1);
+    const body = JSON.parse(seen[0]!.body);
+    expect(body).toMatchObject({ type: "test", bot: "finance", workspace: "@supa-bots" });
+
+    const answers = JSON.stringify([saved, listed]);
+    expect(answers).not.toMatch(/s3cret|grok-abc|ctxbot_/);
+    // The key Context made is sealed like one typed in the app: the call is signed with something.
+    expect(seen[0]!.headers.get("x-context-signature")).toMatch(/^v1=[0-9a-f]{64}$/);
   });
 });
