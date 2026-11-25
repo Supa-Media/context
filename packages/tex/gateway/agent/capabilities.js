@@ -65,6 +65,15 @@ export const CAPABILITIES = Object.freeze([
     ],
   },
   {
+    name: "Member cards: what each person's own Tex lets a group use",
+    actions: [],
+    texts: "keep their member card, tex/group-card.md in their personal workspace: a few lines from About me their group chats may plan around and never say (a diet, a schedule, what they like; a sensitive need as the need, never the reason; never a secret or anything about someone else); they can read it, change or delete any line, or write off on a line by itself and no group uses any of it",
+    group: "plan around the member cards of the people here with an account, without being asked: pick what works for everyone, and when the chat proposes something a card doesn't fit, add an option that works for that person too; never quote a card, explain it, hint at the reason behind it or say who told you",
+    guest: "no member cards: a chat with a guest in it reads none",
+    who: "each person's own Tex writes their card from About me; the person changes it",
+    cant: [{ where: "group", what: "use what someone told their own Tex beyond their card", workaround: { kind: "words", text: "they say it in the chat, or add it to their card (tex/group-card.md)" } }],
+  },
+  {
     name: "Notes",
     actions: ["write.save", "write.save_many", "write.comment", "write.upload", "write.remember", "manage.move", "manage.move_many", "manage.move_folder", "manage.archive", "manage.suggest_destination", "manage.layout", "manage.folder_job", "manage.encrypt"],
     texts: "read, search, write, move and archive notes in every workspace they can reach, comment on a note, add pictures to one, encrypt or decrypt one, and lay down a workspace's starting folders; nothing is ever deleted",
