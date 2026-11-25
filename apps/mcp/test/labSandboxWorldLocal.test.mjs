@@ -9,6 +9,7 @@
 //   localControl not keeping the introduction       -> "Tex introduces itself once" fails
 //   localPeople skipping the collision check         -> "handles nobody else here has" fails
 //   chatRun calling worldControl for a local chat     -> "no control plane is reached" fails
+//   (2026-11-25) setupAsLabUser passing the options on -> "Tex's setup door asks as the Lab user" fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,7 +18,7 @@ import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/objec
 import { MemoryStorage, runChatTurn } from "../../../packages/lab/gateway/labSandbox/chatRun.js";
 import { changePeople, speakerKey, worldAbout, worldInput } from "../../../packages/lab/gateway/labSandbox/world.js";
 import { sandboxGate } from "../../../packages/lab/gateway/labSandbox/harness.js";
-import { controlPlaneFor, hereNow, localControl, localGroupKey, localPeople, localSession, worldPlace } from "../../../packages/lab/gateway/labSandbox/worldLocal.js";
+import { controlPlaneFor, hereNow, setupAsLabUser, localControl, localGroupKey, localPeople, localSession, worldPlace } from "../../../packages/lab/gateway/labSandbox/worldLocal.js";
 import { normalizeSession } from "../src/sessionPayload.js";
 import { sessionFromPayload } from "../src/session.js";
 import { handleChat } from "../../../packages/tex/gateway/agent/textingRoutes.js";
@@ -203,4 +204,16 @@ test("a made-up chat reads the pin as the chat: none of its team notes, whatever
   assert.deepEqual(cp.privacyAuthority({ accessToken: "t" }, "ws", member).rules, member);
   // Tex's setup door (no chat names) is opened with the real control plane.
   assert.equal(controlPlaneFor({ ...session, chatNames: null }, real), real);
+});
+
+test("Tex's setup door asks as the Lab user: the same token and workspace, never a setup read the control plane refuses that token", async () => {
+  const asked = [];
+  const controlPlane = {
+    getStorageBinding: async (...args) => (asked.push(args), { binding: null }),
+    labSandbox: () => "kept",
+  };
+  const door = setupAsLabUser(controlPlane);
+  await door.getStorageBinding("tok", "pin-ws", undefined, { setupRead: true });
+  assert.deepEqual(asked, [["tok", "pin-ws", undefined]]);
+  assert.equal(door.labSandbox(), "kept"); // every other call is the control plane's own
 });

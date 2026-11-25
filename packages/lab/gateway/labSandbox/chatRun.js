@@ -29,7 +29,7 @@ import { handleAgent } from "../fromGateway/agent_route.js";
 import { TEXTING_ROUTES } from "../fromGateway/agent_textingRoutes.js";
 import { streamTurn, wantsProgress } from "../fromGateway/agent_progress.js";
 import { WORLD_SOURCE, worldAddress, worldControl, worldGrant, worldRoutes, worldSession } from "./world.js";
-import { controlPlaneFor, localControl } from "./worldLocal.js";
+import { controlPlaneFor, localControl, setupAsLabUser } from "./worldLocal.js";
 import { chatForTexts, decideForTexts, eventsForTexts, TEXTS_CHAT_PATH, TEXTS_DECIDE_PATH, TEXTS_EVENTS_PATH, TEXTS_RECHECK_PATH } from "../fromGateway/agent_textsDecide.js";
 import { oldLineForTexts, TEXTS_OLD_LINE_PATH } from "../fromGateway/agent_textsOldLine.js";
 import { editForTexts, TEXTS_EDIT_PATH } from "../fromGateway/agent_textsEdit.js";
@@ -478,7 +478,9 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
         decorateRequestStore(store, { session, env: sandboxEnv, controlPlane, ctx, request, origin });
         const openOnce = onceEach((target) => storeForSession(target, sandboxEnv, cpFor(target)));
         attachContextOpener(store, session, { env: sandboxEnv, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
-        attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, cpFor(sibling)), (o, sibling) => attachLinkCalls(o, sibling, controlPlane, sandboxEnv));
+        // On the Lab user's own token, Tex's setup is read as them (`worldLocal.js` `setupAsLabUser`); a preview's made-up chat holds a real grant.
+        const doorCp = (sibling) => (sibling.setupRead === true && !(isWorld && !about.world?.local) ? setupAsLabUser(cpFor(sibling)) : cpFor(sibling));
+        attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, doorCp(sibling)), (o, sibling) => attachLinkCalls(o, sibling, controlPlane, sandboxEnv));
         return { store, session };
       })());
     const agent = (isWorld ? (route) => worldRoutes(grant, route) : (route) => route)(agentRoute ?? gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate }));

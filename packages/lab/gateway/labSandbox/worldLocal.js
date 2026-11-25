@@ -120,3 +120,19 @@ export function controlPlaneFor(session, controlPlane) {
   };
   return asChat;
 }
+
+/**
+ * The control plane Tex's setup door (`http/pinnedDoors.js`) opens the pin with in a test chat on main. A real turn's
+ * token is a Tex client's, which the control plane answers a setup read for (`lib/texSetupRead.ts`); a test chat here
+ * runs on the Lab user's own token, which it refuses, so the door missed. A 1:1 then read the setup through the
+ * person's own reach, but a group chat reads the pin only as the chat and found nothing: every group test chat ran
+ * without Tex's setup, a cut-down prompt with none of the production words (found 2026-11-25: asked to share a
+ * workspace with everyone, Tex in a made-up group never knew it could). So the door asks as the Lab user, at their own
+ * access and no more, which is what the control plane would give this token anyway. A preview's made-up chat runs on
+ * a real group grant and keeps the setup read.
+ */
+export function setupAsLabUser(controlPlane) {
+  const asUser = Object.create(controlPlane);
+  asUser.getStorageBinding = (accessToken, expectedWorkspaceId, rotationRequest) => controlPlane.getStorageBinding(accessToken, expectedWorkspaceId, rotationRequest);
+  return asUser;
+}
