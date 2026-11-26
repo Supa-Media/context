@@ -5,8 +5,9 @@ them, **drawn from Tex's config**, `packages/tex/src/texConfig.json`, which
 is what runs (Dev2, 2026-11-14: the connections between nodes are config, never
 code). Nothing in sections 1 and 2 is hand-drawn: change the config (by hand,
 or with the Tex Architecture Lab's Promote) and run
-`node scripts/tex-architecture.mjs`, and this page and what every Tex agent is
-told about its own structure follow. `scripts/tex-diagram-check.mjs` enforces
+`node scripts/tex-architecture.mjs`, and this page and the map in words
+(`texArchitecture.generated.js`, which no node's prompt reads since 2026-11-26)
+follow. `scripts/tex-diagram-check.mjs` enforces
 it in CI; see [the rule](#the-rule). How the config works, field by field, is
 [the config graph decision](../decisions/texting-assistant/config-graph.md).
 What changed, and when, is the [change log](#change-log) and this file's
@@ -455,6 +456,8 @@ planner, each off.
 
 ## Change log
 Newest first. One line per pull request that changed the drawing.
+
+- 2026-11-26: the Front door and Background job no longer read `map` (the architecture map in words), and the Front door reads `train:fd:all:30000`, down from 100,000 characters of Training (Lab draft fd-lean-prompt; Dev2: "the map seems useless", "keep cost down"). The Front door's system prompt was about 216,000 characters, so `promptBudget.js` clipped its head (tools, rules, the reminders module) on later rounds; `tests/fd-completion.md` case 6 refused a reminder because of it. The map stays generated for the Lab. Regression check: the sealed Test set on this pull request.
 - 2026-11-25: a group turn somebody asked for reads the asker's own shared workspaces, on a grant of the asker's own, instead of only the ones everyone in the chat shares (rulebook rule 2; [asker-reach](../decisions/texting-assistant/asker-reach.md)). The asker is the verified sender only; a routine, a check-in and the hello still read the chat's reach (`asked` beside `routine`, `packages/tex/worker/groupControl.ts`). Nobody's personal workspace is ever in reach. The group prompt says whose access it is, and the turn is told who here can't open each of the asker's workspaces (`groupGuests.js` `blockedLine`); what is said of it stays the model's judgment. No node or wire changes. Tests: `apps/convex/__tests__/textGroupAskerReach.test.ts`, `packages/tex/worker/groupAskedRuns.test.ts`, `apps/mcp/test/chatBlockers.test.mjs`, `chatReach.test.mjs`.
 - 2026-11-25: every chat can search its own history (Dev2 chose word search; [chat-search](../decisions/texting-assistant/chat-search.md)). The Front door reads the context module `chatSearch`, which offers `search_chat` (`search { args: { history: true, who, since, until, oldest } }`): whole words over every text the chat's ledger keeps, back to its first, each hit with its day, time, speaker and the `day:` fetch that opens it. Lab test chat on Dev2's 1:1: the first YC mention found in 112 ms. Replay case `finds-old-line`. Tests: `apps/mcp/test/chatSearch.test.mjs`.
 

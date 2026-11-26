@@ -213,7 +213,8 @@ its *plumbing* freely; changing its *semantics* is a decision for
 every wire Tex runs; nodes are code, wires are config (decided by the owner,
 2026-11-14; [config-graph](./docs/decisions/texting-assistant/config-graph.md)).
 Its drawing, [`docs/architecture/tex.md`](./docs/architecture/tex.md), and the
-map every Tex agent is told (`texArchitecture.generated.js`) are generated from
+map in words (`texArchitecture.generated.js`, for the Lab and for any node whose
+`ctx` names `map`; no node does since 2026-11-26) are generated from
 it by `node scripts/tex-architecture.mjs`, so an architecture change is a
 config change in the same pull request
 ([architecture-diagram](./docs/decisions/texting-assistant/architecture-diagram.md));

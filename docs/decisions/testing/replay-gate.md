@@ -251,7 +251,7 @@ model's answer through the whole Worker).
 
 ## The jobs area is examinable too (decided by the owner, 2026-11-14)
 
-Since Tex's drawing and what every Tex agent is told about itself are generated
+Since Tex's drawing and its agents' prompts are generated
 from `packages/tex/src/texConfig.json`
 ([config-graph](../texting-assistant/config-graph.md)), every config change
 reaches every area's prompts, the background jobs' included, and jobs was the
