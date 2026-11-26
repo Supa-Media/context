@@ -45,6 +45,8 @@ import { useAnnounceOpenNote } from "../../map/live/announce";
 import { MapPage } from "../../map/live/ui/MapPage";
 import { TrashPage } from "../../trash/TrashPage";
 import { useTrashRoute } from "../../trash/TrashRouteContext";
+import { useMailRoute } from "../../mailPage/MailRouteContext";
+import { MailPage } from "../../mailPage/MailPage";
 import { useVaultPage } from "../../vault/VaultPage";
 import { PhoneInbox } from "../../home/PhoneInbox";
 import { useDownloadRows, useSteadyDownloadRow } from "../../files/Downloads";
@@ -254,6 +256,7 @@ export function BrowseDocument({
   */
   const mapRoute = useMapRoute();
   const trashRoute = useTrashRoute();
+  const mailRoute = useMailRoute();
   const vaultPage = useVaultPage();
   // The phone's first page is Inbox, and All opens Folders (`home/homeView.ts`).
   const homeView = useHomeView();
@@ -389,6 +392,20 @@ export function BrowseDocument({
           onClose={trashRoute.closeTrash}
         />
       </DocumentPage>
+    ) : mailRoute?.open ? (
+      /*
+        The Mail page (`?mail=1`), where a note would be, filling the slot as the map does: the tree stays beside it,
+        and opening a conversation's note leaves it, as choosing one in the tree does.
+      */
+      <MailPage
+        route={mailRoute}
+        compact={compact}
+        onOpen={(path) => {
+          mailRoute.closeMail();
+          files.select(path);
+        }}
+        onClose={mailRoute.closeMail}
+      />
     ) : mapRoute?.open && current !== null && current !== undefined ? (
       /*
         The live map (`?map=1`), where a note would be, filling the slot: the

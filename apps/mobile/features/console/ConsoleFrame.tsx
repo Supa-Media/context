@@ -87,6 +87,7 @@ import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
 import { ChaosSheet } from "../chaos/ChaosPopover";
 import { MapRouteAndSideProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteContext";
+import { MailRouteProvider, useConsoleMailRoute } from "./mailPage/MailRouteContext";
 import { useHomeView } from "./home/homeView";
 import { usePreviousPage } from "./home/phoneHistory";
 import { useSyncSheetRequests } from "./files/syncSheetRequest";
@@ -130,6 +131,8 @@ export function ConsoleFrame({
     mapOpen?: boolean;
     /** `?trash=1`: the Trash page is open over Browse. */
     trashOpen?: boolean;
+    /** `?mail=1`: the Mail page is open over Browse. */
+    mailOpen?: boolean;
     meetingsOpen?: MeetingsPanelAsk; vaultOpen?: boolean; // `?meetings=`, `?vault=1`: the right panel's tab, once
   };
   /** The pane: the route's `<Slot/>`, or the homepage's `BrowsePane`. */
@@ -312,6 +315,12 @@ export function ConsoleFrame({
     workspaceId: data.selectedContextId,
     selectedPath: data.files.selectedPath,
   });
+  const mailRoute = useConsoleMailRoute(router, params.mailOpen === true, { // `?mail=1`, in the same slot
+    available: !data.demo && visitor === undefined,
+    workspaceId: data.selectedContextId,
+    selectedPath: data.files.selectedPath,
+    ...(data.viewer.name.startsWith("@") ? { me: data.viewer.name } : {}),
+  });
 
   const { selectedEntry } = noteTargetsFor({ data });
   const reading = useReadMode();
@@ -447,7 +456,7 @@ export function ConsoleFrame({
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>
       <MapRouteAndSideProvider value={mapRoute}>
-      <TrashRouteProvider value={trashRoute}><VaultRouteProvider value={vaultRoute}>
+      <TrashRouteProvider value={trashRoute}><MailRouteProvider value={mailRoute}><VaultRouteProvider value={vaultRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {/*
@@ -676,7 +685,7 @@ export function ConsoleFrame({
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
-      </VaultRouteProvider></TrashRouteProvider>
+      </VaultRouteProvider></MailRouteProvider></TrashRouteProvider>
       </MapRouteAndSideProvider>
       </ChaosProvider>
     </ConsoleDataProvider>
