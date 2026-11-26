@@ -101,7 +101,9 @@ describe("the Areas side panel", () => {
     // The metric is picked from the workspace's metrics (stage C); its goal is still a field, edited where it is drawn.
     expect(strip(one("area-panel-metric").textContent)).toBe("Monthly cost");
     expect(all("area-panel-pick")).toHaveLength(1);
-    expect((one("area-panel-goal") as HTMLInputElement).value).toBe("under $600");
+    // The goal's shape is picked from a dropdown beside its number, never typed (the owner, 2026-11-26).
+    expect(strip(one("area-panel-goal-shape").textContent)).toBe("Less than");
+    expect((one("area-panel-goal") as HTMLInputElement).value).toBe("$600");
     expect(one("area-row-areas/finance").getAttribute("aria-selected")).toBe("true");
     // Another area replaces it; the panel's own sub-area row shows that one.
     await press(one("area-panel-sub-areas/finance/payroll"));
@@ -131,10 +133,16 @@ describe("the Areas side panel", () => {
     const writes: Write[] = [];
     await mount(host(writes, { notes: AREAS }), LISTING);
     await press(one("area-row-areas/finance"));
-    await typeInto(one("area-panel-goal"), "under $500");
+    await typeInto(one("area-panel-goal"), "$500");
     await blur(one("area-panel-goal"));
-    const metric = writes.filter(([path, key]) => path === "areas/finance/about.md" && key === "metrics").map(([, , value]) => value);
-    expect(metric).toEqual([["Monthly cost · target under $500"]]);
+    const metric = () => writes.filter(([path, key]) => path === "areas/finance/about.md" && key === "metrics").map(([, , value]) => value);
+    expect(metric()).toEqual([["Monthly cost · target less than $500"]]);
+    // Picking another shape writes it with the same number.
+    await press(one("area-panel-goal-shape"));
+    expect(all("area-panel-goal-at-most")).toHaveLength(1);
+    expect(all("area-panel-goal-more-than")).toHaveLength(1);
+    await press(one("area-panel-goal-at-most"));
+    expect(metric().at(-1)).toEqual(["Monthly cost · target at most $500"]);
     await press(one("area-panel-mode-Doer"));
     const modes = writes.filter(([path, key]) => path === "areas/finance/about.md" && key === "modes").map(([, , value]) => value);
     expect(modes.at(-1)).toEqual(["Manager", "Doer"]);

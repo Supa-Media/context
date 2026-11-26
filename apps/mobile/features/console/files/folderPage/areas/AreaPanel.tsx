@@ -27,7 +27,8 @@ import { OwnerFace, type Face } from "../Glyphs";
 import { headlineOf } from "./headline";
 import { PanelMail, type PanelMailTools } from "./PanelMail";
 import { PanelProjects, type PanelProjectsTools } from "./PanelProjects";
-import { InlineField, PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
+import { PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
+import { PanelGoal } from "./PanelGoal";
 import type { Reading } from "./readings";
 import { readingSource, type AreaReading } from "./areaMetric";
 import { areaTitle, type AreaNode, type Card, type Seat, type SeatEdit } from "./seat";
@@ -73,9 +74,9 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
   const metric = seat.metrics[0];
   const [problem, setProblem] = useState<string | null>(null);
   const write = async (patch: Partial<SeatEdit>, cards: readonly Card[] = []) => setProblem(await onSave(seat, editOf(seat, patch), cards));
-  const setGoal = (target: string) => {
-    if (metric === undefined || (target.trim() || null) === metric.target) return;
-    void write({ metrics: [{ name: metric.name, target: target.trim() === "" ? null : target.trim() }, ...seat.metrics.slice(1)] });
+  const setGoal = (target: string | null) => {
+    if (metric === undefined || target === metric.target) return;
+    void write({ metrics: [{ name: metric.name, target }, ...seat.metrics.slice(1)] });
   };
 
   useEffect(() => {
@@ -139,18 +140,7 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
             ) : (
               <Text variant="tree" style={styles.noData}>No data yet</Text>
             )}
-            <View style={styles.goal}>
-              <Text variant="treeMeta" style={styles.muted}>Goal</Text>
-              <InlineField
-                value={metric.target ?? ""}
-                label="Goal"
-                placeholder={canEdit ? "Set one" : "None"}
-                editable={canEdit}
-                onCommit={setGoal}
-                style={styles.goalField}
-                testID="area-panel-goal"
-              />
-            </View>
+            <PanelGoal target={metric.target} canEdit={canEdit} onSave={setGoal} />
             {headline?.verdict == null || headline.value == null ? null : (
               <View style={[styles.state, headline.verdict.good ? styles.stateMet : styles.stateMissed]} testID="area-panel-verdict">
                 <Text variant="treeMeta" style={{ color: ink }}>{headline.verdict.words}</Text>
@@ -312,8 +302,6 @@ const makeStyles = (colors: Colors) =>
     state: { paddingHorizontal: space.x2, paddingVertical: 1, borderRadius: radii.pill },
     stateMet: { backgroundColor: colors.okWash },
     stateMissed: { backgroundColor: colors.warnWash },
-    goal: { flexDirection: "row", alignItems: "center", gap: space.x1, paddingLeft: space.x2, paddingRight: space.x1, borderRadius: radii.pill, backgroundColor: colors.chipFill },
-    goalField: { fontSize: pointerType.meta, minWidth: 80, marginLeft: 0 },
     subMet: { color: colors.okText },
     subMissed: { color: colors.warnText },
     sub: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 30, paddingHorizontal: space.x1, marginHorizontal: -space.x1, borderRadius: radii.sm },
