@@ -11,7 +11,8 @@
  * loses nothing.
  *
  * `{ask: "mail"}` answers the notes the reader may see that hold mail, newest message first, each `{path, count,
- * joined, last}` where `last` is `{at, from, to, used, text}` with its text cut to `LAST_TEXT`. A note the reader may
+ * joined, apps, last}` where `last` is `{at, from, to, used, text}` with its text cut to `LAST_TEXT` and `apps` is the
+ * app each sender signed with, by name (`builder` → `Claude Code · @seyi`), for its face on the list. A note the reader may
  * not see is never read for them. `complete: false` when more notes changed than one ask reads; the next ask reads on.
  */
 
@@ -43,9 +44,13 @@ export function mailSummaryOf(text) {
   const messages = events.filter((event) => event.kind === "mail");
   const joined = [...new Set(events.map((event) => event.from))].slice(0, JOINED_CAP);
   const newest = messages[messages.length - 1];
+  // Each sender's newest app, so the list can draw an agent by its app (Claude's logo, and whose Claude it is).
+  const apps = {};
+  for (const event of events) if (event.app && joined.includes(event.from)) apps[event.from] = event.app;
   return {
     count: messages.length,
     joined,
+    apps,
     last:
       newest === undefined
         ? null
@@ -101,7 +106,8 @@ export function workspaceMailIndex(sql, objects) {
         // Judged before it is read, so a note the reader may not see is never read for them.
         if (!sees(note.path)) continue;
         let summary = note.summary;
-        if (note.indexed !== note.etag) {
+        // A summary from before `apps` was kept is read again once, so the list's faces need no edit to the note.
+        if (note.indexed !== note.etag || (typeof summary === "string" && !summary.includes('"apps":'))) {
           if (left === 0) {
             complete = false;
             continue;

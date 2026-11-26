@@ -194,6 +194,9 @@ export function workspaceClient(env, workspaceId) {
     mail: {
       since: async (fields) => await ask("ws.mail.since", fields),
       wait: async (fields) => await ask("ws.mail.wait", fields),
+      // Read receipts (`workspaceStore/mailReads.js`): one read recorded, and a note's readers.
+      read: async (fields) => await ask("ws.mail.read", fields),
+      reads: async (fields) => await ask("ws.mail.reads", fields),
     },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),

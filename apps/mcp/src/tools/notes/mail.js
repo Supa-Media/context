@@ -40,9 +40,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** How many entries one read returns at most, newest kept. */
 const READ_LIMIT = 100;
 
-/** The app a message is signed with: the connection's client name. */
+/** The app a message is signed with: the connection's client name, and the `@handle` of the person whose it is. */
 function appFor(actor) {
-  return mail.appName(actor?.client) ?? "agent";
+  return mail.appWithOwner(actor?.client, actor?.name) ?? "agent";
 }
 
 /** A sender name for a connection that has not joined: its app, as a name. */

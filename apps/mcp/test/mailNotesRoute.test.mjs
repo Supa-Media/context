@@ -193,7 +193,7 @@ test("a note's mail is summed up: how many, who joined, and the newest, cut shor
   assert.equal(mailSummaryOf("# Plain\n"), null);
   assert.equal(mailSummaryOf("Says ```mail but has no block.\n"), null);
   const summary = mailSummaryOf(ALICE_NOTES["products/plan.md"]);
-  assert.deepEqual(summary, { count: 1, joined: ["builder"], last: { at: "2026-11-25T18:02:00.000Z", from: "builder", to: "reviewer", used: null, text: "Can you check the cold path?" } });
+  assert.deepEqual(summary, { count: 1, joined: ["builder"], apps: { builder: "Claude" }, last: { at: "2026-11-25T18:02:00.000Z", from: "builder", to: "reviewer", used: null, text: "Can you check the cold path?" } });
   const long = mailSummaryOf(`# Long${mailBlock(`- 2026-11-25T18:02:00.000Z builder to everyone: ${"x".repeat(1000)}`)}`);
   assert.equal(long.last.text.length, LAST_TEXT);
 });
@@ -207,8 +207,18 @@ test("every note with mail comes back, newest message first, from the object", {
   assert.equal(body.complete, true);
   assert.deepEqual(paths(body), ["areas/secret.md", "areas/finance/mail/seyi.md", "bots/grok-bot/mail/seyi.md", "products/plan.md"]);
   const finance = body.notes.find((note) => note.path === "areas/finance/mail/seyi.md");
-  assert.deepEqual(finance, { path: "areas/finance/mail/seyi.md", count: 2, joined: ["@seyi", "finance"], last: { at: "2026-11-25T20:01:00.000Z", from: "finance", to: "everyone", used: 2, text: "$512 so far." } });
+  assert.deepEqual(finance, { path: "areas/finance/mail/seyi.md", count: 2, joined: ["@seyi", "finance"], apps: { finance: "Grok" }, last: { at: "2026-11-25T20:01:00.000Z", from: "finance", to: "everyone", used: 2, text: "$512 so far." } });
   assert.ok(w.ns.ops.includes("ws.facts"), w.ns.ops.join(", "));
+});
+
+test("a summary kept before senders' apps were is read again, once", { skip }, async () => {
+  const w = await world();
+  await ask(w, w.alice, {});
+  const sql = w.alice.object.store.sql;
+  const old = JSON.stringify({ count: 1, joined: ["builder"], last: null });
+  sql.exec("UPDATE ws_mail_index SET summary = ? WHERE key = ?", old, `notes/${id(4)}.md`);
+  const { body } = await ask(w, w.alice, {});
+  assert.deepEqual(body.notes.find((note) => note.path === "products/plan.md").apps, { builder: "Claude" });
 });
 
 test("a new message is read again, and a note whose mail is gone drops out", { skip }, async () => {
@@ -293,4 +303,55 @@ test("a request that is not one is refused", { skip }, async () => {
   const w = await world();
   const answer = await ask(w, w.alice, { folder: "areas" });
   assert.equal(answer.status, 400);
+});
+
+// Read receipts (Dev, 2026-11-26: "show read receipts whenever an agent reads a mail", "whenever a mail is read").
+// Sabotage, confirmed (applied, run, named case failing, reverted):
+//  3. `canSee` dropped from `receipts` and `judge.sees` from `mailOps.js` `visibleNote` (both judge it, as for the
+//     list) → "a member never learns who read a private note's mail" fails.
+//  4. `hasMailBlock` check dropped from `ws.mail.read` → "a note without mail keeps no receipts" fails.
+test("opening a conversation keeps the reader's read and answers who has read it", { skip }, async () => {
+  const w = await world();
+  const { status, body } = await ask(w, w.alice, { read: "bots/grok-bot/mail/seyi.md" });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.kind, "mailReads");
+  assert.equal(body.path, "bots/grok-bot/mail/seyi.md");
+  assert.equal(body.reads.length, 1);
+  assert.deepEqual({ ...body.reads[0], at: undefined }, { name: "@alice", by: "person", clientName: null, at: undefined });
+  assert.ok(Number.isFinite(Date.parse(body.reads[0].at)));
+  // A second open moves the same reader's read, never adds a reader.
+  const again = await ask(w, w.alice, { read: "bots/grok-bot/mail/seyi.md" });
+  assert.equal(again.body.reads.length, 1);
+});
+
+test("a note without mail keeps no receipts", { skip }, async () => {
+  const w = await world();
+  const { status, body } = await ask(w, w.alice, { read: "todo.md" });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.deepEqual(body.reads, []);
+});
+
+test("a member never learns who read a private note's mail, nor leaves a read on it", { skip }, async () => {
+  const w = await world();
+  await ask(w, w.alice, { read: "areas/secret.md" });
+  w.alice.object.store.members.put("members", [{ userId: w.alice.user, personalWorkspaceId: w.alice.pwid, role: "member", groups: [], at: 1 }]);
+  await workspaceClient(w.env, w.alice.pwid).access.reach.put([{ workspaceId: w.alice.pwid, slug: "alice", kind: "personal", role: "member", groups: [], at: 1 }]);
+  const { status, body } = await ask(w, w.alice, { read: "areas/secret.md" });
+  assert.equal(status, 404, JSON.stringify(body));
+  assert.ok(!JSON.stringify(body).includes("@alice"));
+});
+
+test("one person's token never reads another person's receipts", { skip }, async () => {
+  const w = await world();
+  await ask(w, w.alice, { read: "products/plan.md" });
+  const bob = await workspace(w.ns, w.env, { pwid: "pBob", user: "uBob", slug: "bob", notes: { "products/bobs.md": `# Bob${mailBlock("- 2026-11-25T18:00:00.000Z bob to everyone: hi")}` } });
+  for (const prefix of ["/@alice", ""]) {
+    const { body } = await ask(w, bob, { read: "products/plan.md" }, prefix);
+    assert.ok(!JSON.stringify(body).includes("@alice"), `${prefix}: ${JSON.stringify(body)}`);
+  }
+});
+
+test("a receipts ask that is not one is refused", { skip }, async () => {
+  const w = await world();
+  for (const body of [{ read: 3 }, { read: "a.md", more: 1 }, { read: "x".repeat(2000) }]) assert.equal((await ask(w, w.alice, body)).status, 400, JSON.stringify(body));
 });

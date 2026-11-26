@@ -12,8 +12,11 @@
  * - `ws.mail.wait {path, from, to, since, timeoutMs}` → `{served, found, answers?}`: held here until a line from `to`
  *   back to `from` (or to everyone) lands on the note, or the time is up. The object looks at its own copy's version
  *   (a local SQLite read) and parses the note only when that moves, so a waiting ask costs the gateway one call.
+ * - `ws.mail.read {path, reader, name, by, clientName}` → `{served, recorded}`: one read of the note's mail, kept only when
+ *   the note has a mail block (`mailReads.js`, read receipts).
+ * - `ws.mail.reads {path}` → `{served, found, reads?}`: who has read the note's mail and when, for its receipts.
  *
- * Both are judged as a read is (`judgeFor`): a reader who may not see the note gets `found: false`, the same as a
+ * All are judged as a read is (`judgeFor`): a reader who may not see the note gets `found: false`, the same as a
  * note that is not there. Served only in a workspace whose notes live here; elsewhere `{served: false}` and the
  * gateway reads the note as before.
  */
@@ -21,10 +24,11 @@
 import mail from "../../../../packages/shared/src/mail.cjs";
 import { HOMES, isWorkspaceObjectKey } from "./api.js";
 import { liveRowByPath } from "./rowsByPath.js";
+import { hasMailBlock, mailReads } from "./mailReads.js";
 
 const { EVERYONE, newFor, parseMail } = mail;
 
-export const MAIL_OPS = Object.freeze({ SINCE: "ws.mail.since", WAIT: "ws.mail.wait" });
+export const MAIL_OPS = Object.freeze({ SINCE: "ws.mail.since", WAIT: "ws.mail.wait", READ: "ws.mail.read", READS: "ws.mail.reads" });
 const OPS = new Set(Object.values(MAIL_OPS));
 
 /** The longest one wait is held, as `MAX_ASK_WAIT_S` in `tools/notes/mail.js`. */
@@ -86,6 +90,15 @@ export async function serveMail(store, op, fields, judge, { now = Date.now, wait
   if (store.rows.home() !== HOMES.OBJECT || !store.sql) return { served: false };
   if (!text(fields.path, 1024)) throw new MailAskRefused("a mail ask names its note's path");
   const note = visibleNote(store, judge, fields.path);
+  if (op === MAIL_OPS.READ || op === MAIL_OPS.READS) {
+    if (note === null) return op === MAIL_OPS.READ ? { served: true, recorded: false } : { served: true, found: false };
+    const reads = (store.mailReads ??= mailReads(store.sql));
+    if (op === MAIL_OPS.READS) return { served: true, found: true, path: note.row.path, reads: reads.of(note.row.id) };
+    const held = heldText(store, note.key);
+    if (held === null || !hasMailBlock(held.text)) return { served: true, recorded: false };
+    const { reader, name = null, by, clientName = null } = fields;
+    return { served: true, recorded: reads.record(note.row.id, { reader, name, by, clientName }) };
+  }
   if (op === MAIL_OPS.SINCE) {
     if (typeof fields.name !== "string" || !NAME.test(fields.name)) throw new MailAskRefused("a mail ask names its mailbox's name");
     if (note === null) return { served: true, found: false };

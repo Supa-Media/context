@@ -28,6 +28,8 @@ export interface MailNoteRow {
   readonly path: string;
   readonly count: number;
   readonly joined: readonly string[];
+  /** The app each sender signed with, by name (`builder` → `Claude Code · @seyi`), for its face on the list. */
+  readonly apps?: Readonly<Record<string, string>>;
   readonly last: MailLast | null;
 }
 

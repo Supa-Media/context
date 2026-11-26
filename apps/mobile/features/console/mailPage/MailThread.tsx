@@ -9,14 +9,17 @@
  * a bot by its own logo from its card, and links the note; it never shows the file's path.
  */
 
-import { appendMail, parseMail, type MailEvent } from "@context/shared/src/mail.cjs";
+import { appendMail, parseMail, splitApp, type MailEvent } from "@context/shared/src/mail.cjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "../../design/components/Text";
 import { useFieldFont } from "../../design/fieldFont";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { OwnerFace, type Face } from "../files/folderPage/Glyphs";
+import { OwnerFace } from "../files/folderPage/Glyphs";
+import { AccessoryGlyph } from "../files/AccessoryGlyph";
+import type { FaceOf } from "./useBotFaces";
+import { readByWords, receiptsFor, type MailRead, type Receipt } from "./receipts";
 import { cardSlug } from "../files/folderPage/areas/seat";
 import { clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, usedThisWeek, type Conversation } from "./model";
 
@@ -28,6 +31,18 @@ export interface MailNoteIO {
   picture?(notePath: string, leaf: string): Promise<string | null>;
   /** The picture's cache key: the stored picture's name is a hash of its bytes. */
   pictureKey?(leaf: string): string;
+  /** Keeps the reader's read of the note's mail and answers who has read it; absent, or null, where it can't. */
+  reads?(path: string): Promise<readonly MailRead[] | null>;
+}
+
+/** How often an open conversation asks again who has read it. */
+export const READS_REFRESH_MS = 60_000;
+
+/** `Claude Code · @seyi` as a line's header says it: "@seyi's Claude Code"; an app signed alone, as it is. */
+export function appWords(signed: string | null | undefined): string | null {
+  const { app, owner } = splitApp(signed ?? null);
+  if (app === null) return null;
+  return owner === null ? app : `${owner}'s ${app}`;
 }
 
 /** `text` with `entry` appended to its mail block, or the reason it cannot be. */
@@ -62,8 +77,8 @@ export function MailThread({
 }: {
   conversation: Conversation;
   io: MailNoteIO;
-  /** The face for a name in this mail: the page's, shared with its list (`useBotFaces`). */
-  faceOf: (name: string) => Face;
+  /** The face for a name in this mail, and the app its line was signed with: the page's, shared with its list (`useBotFaces`). */
+  faceOf: FaceOf;
   me?: string;
   onOpenNote: (path: string) => void;
   onSent: () => void;
@@ -93,6 +108,21 @@ export function MailThread({
   useEffect(() => {
     void load();
   }, [load, conversation.last?.at]);
+
+  // Who has read this mail: opening it keeps this reader's read too, and it is asked again while it stays open.
+  const [reads, setReads] = useState<readonly MailRead[]>([]);
+  useEffect(() => {
+    setReads([]);
+    if (io.reads === undefined) return;
+    let live = true;
+    const ask = () => void io.reads?.(path).then((answer) => live && answer !== null && setReads(answer)).catch(() => undefined);
+    ask();
+    const timer = setInterval(ask, READS_REFRESH_MS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [io, path, conversation.last?.at]);
 
   const send = async () => {
     if (me === undefined || sending || words.trim() === "") return;
@@ -127,6 +157,9 @@ export function MailThread({
 
   const messages = useMemo(() => (read.status === "read" ? read.events.filter((event) => event.kind === "mail") : []), [read]);
   const lines = useMemo(() => messageLines(messages), [messages]);
+  const receipts = useMemo(() => receiptsFor(messages, reads, me), [messages, reads, me]);
+  // A name's app in this mail, its newest line's, for its face in the head.
+  const appOf = useCallback((name: string) => [...messages].reverse().find((event) => event.from === name)?.app ?? conversation.apps?.[name] ?? null, [messages, conversation.apps]);
   // What the agents here said they used, on every line and added up for this week (Dev2, 2026-11-26: "crucial").
   const weekUsed = useMemo(() => usedThisWeek(messages), [messages]);
   const inMailFolder = conversation.place.kind !== "note";
@@ -152,7 +185,7 @@ export function MailThread({
         <View style={styles.faces} aria-hidden>
           {people.slice(0, 3).map((name, at) => (
             <View key={name} style={at === 0 ? undefined : styles.faceBehind}>
-              <OwnerFace face={faceOf(name)} size={at === 0 ? 34 : 24} />
+              <OwnerFace face={faceOf(name, appOf(name))} size={at === 0 ? 34 : 24} />
             </View>
           ))}
         </View>
@@ -187,7 +220,7 @@ export function MailThread({
         {read.status === "reading" ? <Text variant="treeMeta" style={[styles.muted, styles.notice]}>Reading…</Text> : null}
         {read.status === "failed" ? <Text variant="treeMeta" style={[styles.muted, styles.notice]}>This mail couldn't be read just now.</Text> : null}
         {read.status === "sealed" ? <Text variant="treeMeta" style={[styles.muted, styles.notice]}>This note is encrypted: open it to read its mail.</Text> : null}
-        {lines.map(({ event, header, day }) => (
+        {lines.map(({ event, header, day }, index) => (
           <View key={`${event.at}|${event.from}|${event.start}`}>
             {day !== null ? (
               <View style={styles.day} testID="mail-day">
@@ -199,14 +232,14 @@ export function MailThread({
               </View>
             ) : null}
             <View style={[styles.message, header && styles.messageFirst]} testID="mail-message">
-              <View style={styles.gutter}>{header ? <OwnerFace face={faceOf(event.from)} size={32} /> : null}</View>
+              <View style={styles.gutter}>{header ? <OwnerFace face={faceOf(event.from, event.app)} size={32} /> : null}</View>
               <View style={styles.body}>
                 {header ? (
                   <View style={styles.sender}>
                     <Text variant="tree" style={styles.name}>
                       {isMe(event.from, me) ? "You" : nameOf(event.from)}
                     </Text>
-                    {event.app ? <Text variant="treeMeta" style={styles.muted}>{event.app}</Text> : null}
+                    {event.app ? <Text variant="treeMeta" style={styles.muted}>{appWords(event.app)}</Text> : null}
                     <Text variant="treeMeta" style={styles.muted}>
                       {clockLabel(event.at)}
                       {event.to && event.to !== "everyone" ? ` · to ${nameOf(event.to)}` : ""}
@@ -227,6 +260,7 @@ export function MailThread({
                 </Text>
               </View>
             </View>
+            <ReadReceipt receipt={receipts.get(index)} faceOf={faceOf} />
           </View>
         ))}
       </ScrollView>
@@ -243,20 +277,19 @@ export function MailThread({
             accessibilityLabel={`Write to ${conversation.other}`}
             placeholder={canWrite ? `Write to ${conversation.other}…` : "You can read this mail but not write in it."}
             placeholderTextColor={colors.muted}
-            style={[styles.input, fieldFont]}
+            style={[styles.input, fieldFont, sending && styles.inputSending]}
             testID="mail-input"
           />
           <Pressable
             onPress={() => void send()}
             disabled={cantSend}
             accessibilityRole="button"
-            accessibilityLabel="Send mail"
-            style={[styles.send, cantSend && styles.sendOff]}
+            accessibilityLabel={sending ? "Sending mail" : "Send mail"}
+            accessibilityState={{ disabled: cantSend, busy: sending }}
+            style={[styles.send, cantSend && !sending && styles.sendOff]}
             testID="mail-send"
           >
-            <Text variant="treeMeta" style={styles.sendWord}>
-              {sending ? "Sending…" : "Send"}
-            </Text>
+            {sending ? <ActivityIndicator size="small" color={colors.ground} testID="mail-sending" /> : <AccessoryGlyph name="mail" size={20} color={colors.ground} />}
           </Pressable>
         </View>
         {problem !== null ? (
@@ -300,9 +333,13 @@ const makeStyles = (colors: Colors) =>
     box: { paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x3, gap: space.x1 },
     field: { flexDirection: "row", alignItems: "flex-end", gap: space.x2, borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, paddingLeft: space.x3, paddingRight: space.x2, paddingVertical: space.x2 },
     input: { flex: 1, minHeight: 28, maxHeight: 160, paddingVertical: space.x1, color: colors.text },
-    send: { paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.sm, backgroundColor: colors.accent },
+    // A square key with the mail mark (Dev, 2026-11-26: "replace the send icon with a mail icon"); bigger on a phone.
+    send: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: radii.sm, backgroundColor: colors.accent },
     sendOff: { opacity: 0.4 },
-    sendWord: { color: colors.ground, fontWeight: "600" },
+    inputSending: { color: colors.muted },
+    receipt: { flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: space.x4 + 32 + space.x3, paddingRight: space.x4, paddingTop: 4, paddingBottom: space.x2 },
+    receiptFaces: { flexDirection: "row" },
+    receiptFaceBehind: { marginLeft: -5, borderRadius: 999, borderWidth: 1.5, borderColor: colors.pageSurface },
     problem: { color: colors.warnText },
     usage: { paddingHorizontal: space.x2, paddingVertical: 1, borderRadius: radii.pill, backgroundColor: colors.chrome },
     usageWord: { color: colors.text, fontWeight: "600" },
@@ -311,3 +348,35 @@ const makeStyles = (colors: Colors) =>
     weekUsed: { alignItems: "flex-end" },
     weekUsedNumber: { color: colors.text, fontWeight: "700", fontSize: pointerType.body },
   });
+
+/**
+ * Under a message: who had read it last, by face and name, and when the newest of them did; or, under the reader's own
+ * newest word, that nobody has yet (`receipts.ts`, the boards Dev approved on 2026-11-26). Read as one sentence.
+ */
+function ReadReceipt({ receipt, faceOf }: { receipt: Receipt | "unread" | undefined; faceOf: FaceOf }) {
+  const styles = useThemedStyles(makeStyles);
+  if (receipt === undefined) return null;
+  if (receipt === "unread") {
+    return (
+      <View style={styles.receipt} accessible accessibilityLabel="Not read yet" testID="mail-not-read">
+        <Text variant="treeMeta" style={styles.muted}>
+          Not read yet
+        </Text>
+      </View>
+    );
+  }
+  const words = readByWords(receipt.readers);
+  const time = clockLabel(new Date(receipt.at).toISOString());
+  return (
+    <View style={styles.receipt} accessible accessibilityLabel={`${words}, ${time}`} testID="mail-read">
+      <View style={styles.receiptFaces} aria-hidden>
+        {receipt.readers.slice(0, 3).map((reader, at) => (
+          <View key={`${reader.label}|${at}`} style={at === 0 ? undefined : styles.receiptFaceBehind}>
+            <OwnerFace face={faceOf(reader.face.name, reader.face.app)} size={16} />
+          </View>
+        ))}
+      </View>
+      <Text variant="treeMeta" style={styles.muted}>{`${words} · ${time}`}</Text>
+    </View>
+  );
+}

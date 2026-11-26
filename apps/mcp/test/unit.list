@@ -574,6 +574,8 @@ test/dateStamp.test.mjs
 test/agentCheckInTexts.test.mjs
 test/folderNotesRoute.test.mjs
 test/mailNotesRoute.test.mjs
+test/mailReads.test.mjs
+test/mailOwner.test.mjs
 test/noteReadRoute.test.mjs
 test/noteWriteRoute.test.mjs
 test/toldFacts.test.mjs

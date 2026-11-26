@@ -160,6 +160,30 @@ function appName(raw) {
   return cleaned || null;
 }
 
+/** Between an app and the `@handle` of the person whose app it is, in a sender's brackets: `builder (Claude Code · @seyi)`. */
+const OWNER_MARK = " · ";
+const OWNER_RE = /^(.*) · (@[a-z0-9][a-z0-9-]{0,63})$/;
+
+/**
+ * The app a line is signed with, and whose it is: `Claude Code · @seyi`, the app cut short so the person always fits
+ * in the 40 characters an app may take (Dev, 2026-11-26: mail from Claude should say whose Claude it is). With no
+ * person, the app alone, as every line before this was signed.
+ */
+function appWithOwner(raw, owner) {
+  const app = appName(raw);
+  if (app === null) return null;
+  if (typeof owner !== "string" || !/^@[a-z0-9][a-z0-9-]{0,63}$/.test(owner) || owner.length > 30) return app;
+  const room = 40 - OWNER_MARK.length - owner.length;
+  return `${app.slice(0, room).trim()}${OWNER_MARK}${owner}`;
+}
+
+/** `{app, owner}` from a signed app; `owner` is null on a line signed without one. */
+function splitApp(signed) {
+  if (typeof signed !== "string" || signed === "") return { app: null, owner: null };
+  const match = OWNER_RE.exec(signed);
+  return match ? { app: match[1], owner: match[2] } : { app: signed, owner: null };
+}
+
 /** A message as log lines: the first after the colon, the rest indented. */
 function formatText(text) {
   const rows = String(text ?? "")
@@ -328,6 +352,8 @@ module.exports = {
   parseMail,
   mailName,
   appName,
+  appWithOwner,
+  splitApp,
   appendMail,
   stripMail,
   keepMailBlock,

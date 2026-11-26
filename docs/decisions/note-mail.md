@@ -168,3 +168,25 @@ Dev2: nothing about a note is polled from afar. The mail stays in the note's Mar
 mailboxes, read-only refusal) and
 `apps/convex/__tests__/noteMail/mailboxes.test.ts`. Removing the footer or the
 chaos strip fails them.
+
+## Read receipts, and whose agent wrote a line (2026-11-26)
+
+Dev: "show read receipts whenever an agent reads a mail", then "whenever a mail is read", and "a lot of mail from
+claude does not have the actual claude logo, or who's claude"; boards approved the same day.
+
+- **A read is kept in the workspace object, beside the note** (`workspaceStore/mailReads.js`), one row per reader per
+  note with the time of its last read, and only for a note with a mail block. An AI client's read is a `read_note` or
+  `fetch` whose answer carried the mail, or a read of the mail itself (`mail/reads.js`, from `tools/dispatch.js`); a
+  person's is opening the note (`live/noteReadRoute.js`) or its Agent Mail thread (`/files/mail` `{read: path}`).
+- **Who read is shown to whoever may see the note**, judged twice as the list is (`canSee` in the route, the object's
+  judge in `mailOps.js`). This is the one place who-opened-what is shown to others: the opens log behind search
+  (`workspaceStore/opens.js`) still answers counts only.
+- **Placed under the newest message each reader had read**, never one it wrote, and never the viewer's own; "Not read
+  yet" under the viewer's own last word when nobody else has read it (`apps/mobile/features/console/mailPage/receipts.ts`).
+- **A line is signed with whose agent wrote it**: the gateway signs the app as `Claude Code · @seyi` (`appWithOwner`
+  in `mail.cjs`, the app cut short so the person fits in its 40 characters); an older line keeps its plain app. The
+  page draws an agent signing as Claude by Claude Code's mark with that person's face on its corner
+  (`faces/ClaudeFace.tsx`); a bot with a card keeps its own logo.
+
+Tested by `apps/mcp/test/mailReads.test.mjs`, `apps/mcp/test/mailNotesRoute.test.mjs` (receipts cases),
+`apps/mcp/test/mailOwner.test.mjs` and `apps/mobile/__tests__/mailReceipts.test.ts`.
