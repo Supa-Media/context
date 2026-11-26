@@ -63,8 +63,13 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
 - **A job's ending** (B3): a job that failed, paused, was turned down or missed a late change reports how it ended as
   facts (`jobs.ts` `JobEnd`, `{ action: "job", status, why?, ... }`) beside its own texts, never a line the Worker
   wrote; the chat's turn and its reply judge see them as data (`jobReport.js`). The outage line
-  (`jobReportRefused`) still goes when the report's turn cannot run. A computer's refusals come next. Tests:
+  (`jobReportRefused`) still goes when the report's turn cannot run. Tests:
   `packages/tex/worker/jobEnd.test.ts`, `apps/mcp/test/texDid.test.mjs`.
+- **A computer's refusal** (B4): a part the person's computer won't take or refuses ends the job with
+  `{ action: "job", status: "refused", why: <the gateway's code>, computer, signed_out?, fix_at? }`, and one that
+  fails before its first step with `{ status: "failed", why: "computer_error", computer, said }` (`machineTurn.ts`
+  `refusedEnd`, `failedEnd`). What each means and what picks it back up is Training (`running-the-shop`), never a line.
+  Test: `packages/tex/worker/machineTurn.test.ts`.
 - **People with no account yet** get texts Tex writes too (Dev2, 2026-11-25: Context is free, so nothing is billed);
   a per-number daily cap only keeps a spam number from running up model calls.
 

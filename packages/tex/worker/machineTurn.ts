@@ -19,7 +19,7 @@
 import { post, ServiceError, type Fetch } from "./clients";
 import { openPersonSession } from "./personSession";
 import { textsFromAnswer } from "./format";
-import type { JobAsk, JobRun, JobVerdict, StepHow } from "./jobs";
+import type { JobAsk, JobEnd, JobRun, JobVerdict, StepHow } from "./jobs";
 
 /** One part's length on a machine; the advisor's check comes between parts. */
 export const MACHINE_PART_MS = 15 * 60 * 1000;
@@ -50,7 +50,7 @@ export type MachineOutcome =
   | { kind: "answer"; texts: string[]; exhausted: boolean; status: string; steered: string[]; check?: MachineCheck }
   | { kind: "retry" }
   | { kind: "broken" }
-  | { kind: "stop"; text?: string };
+  | { kind: "stop"; end?: JobEnd };
 
 /** The advisor's check of an ended part (`/agent/machine/check`, `packages/tex/gateway/agent/jobCheck.js`), as a cloud part's answer carries it. */
 export type MachineCheck = { verdict?: JobVerdict; advice?: string; unfinished?: true; untrusted?: true; idle?: true };
@@ -81,41 +81,31 @@ export function passing(error: ServiceError): boolean {
   return error.status === null || error.status === 429 || error.status >= 500;
 }
 
-/** Words a refusal is told to them in: the job ends, and "pick it back up" starts it again once fixed. */
-export function refusedText(title: string, name: string, code: string, fix: { why?: unknown; fixAt?: unknown } = {}): string {
-  const where = `"${title}" on ${name}`;
+/** A refusal code as a fact's value: the gateway's own short names, anything else "unknown". */
+const CODE = /^[a-z_]{1,32}$/;
+
+/**
+ * How a part the computer refused ended, as facts for the chat's turn (docs/decisions/texting-assistant/no-scripted-wording.md):
+ * which computer, the refusal's code, whether Claude Code is signed out there and the computer's own page to sign it
+ * back in. Tex says what it means and what picks it back up, taught by Training; the job ends either way.
+ */
+export function refusedEnd(name: string, code: string, fix: { why?: unknown; fixAt?: unknown } = {}): JobEnd {
   // The computer's own page on their hub, where they sign it back in (the gateway names it only in its owner's texts).
-  const page = typeof fix.fixAt === "string" && /^https:\/\/[^\s]+$/.test(fix.fixAt) && fix.fixAt.length <= 300 ? fix.fixAt : null;
-  if (code === "not_ready" && fix.why === "signed_out" && page !== null) {
-    return `Claude Code is signed out on ${name}, so I couldn't start "${title}". Sign it back in at ${page} and text me to pick it back up.`;
-  }
-  switch (code) {
-    case "offline":
-      return `I couldn't start ${where}: it's offline. Open it, then text me to pick it back up.`;
-    case "not_ready":
-    case "tool":
-      return `I couldn't start ${where}: it isn't ready to run the coding tool. Check it's signed in, then text me to pick it back up.`;
-    case "plan_limit":
-      return `I paused ${where}: your plan's limit is nearly used up there. Text me once it resets and I'll pick it back up.`;
-    case "busy":
-      return `I couldn't start ${where}: every slot on it is taken. Text me once one finishes.`;
-    case "limit_day":
-    case "limit_week":
-    case "limit_others":
-      return `I paused ${where}: it has used the time you allowed Tex there. You can raise it in Tex's settings, then text me to pick it back up.`;
-    case "folder":
-      return `I couldn't start ${where}: that folder isn't on it, or Tex isn't allowed there. Fix the folder on its page, or clear it so Tex works in its own folder there, then text me to pick it back up.`;
-    case "memory":
-      return `I couldn't start ${where}: it's short on free memory right now. Text me to try again once it has some room.`;
-    case "rule":
-      return `I couldn't start ${where}: its owner hasn't let this chat use it.`;
-    case "ask_first":
-      return `I couldn't start ${where}: its owner hasn't said yes yet. Text me to try again once they have.`;
-    case "declined":
-      return `I didn't start ${where}: its owner said no this time.`;
-    default:
-      return `I couldn't start ${where}. Text me to try again.`;
-  }
+  const page = typeof fix.fixAt === "string" && /^https:\/\/[^\s]+$/.test(fix.fixAt) && fix.fixAt.length <= 200 ? fix.fixAt : null;
+  const signedOut = code === "not_ready" && fix.why === "signed_out";
+  return {
+    action: "job",
+    status: "refused",
+    why: CODE.test(code) ? code : "unknown",
+    computer: name.slice(0, 200),
+    ...(signedOut ? { signed_out: true } : {}),
+    ...(signedOut && page !== null ? { fix_at: page } : {}),
+  };
+}
+
+/** A part that failed on the computer before its first step, as facts: the computer's own reason, cut short. */
+export function failedEnd(name: string, said: string): JobEnd {
+  return { action: "job", status: "failed", why: "computer_error", computer: name.slice(0, 200), said: said.slice(0, 200) };
 }
 
 function stepText(step: RunRead["steps"][number]): string {
@@ -216,7 +206,7 @@ export async function machineTurn(
       answer = await assign();
     }
     if (answer.ok !== true || typeof answer.runId !== "string") {
-      return { kind: "stop", text: refusedText(run.title, machine.name, typeof answer.code === "string" ? answer.code : "", { why: answer.why, fixAt: answer.fixAt }) };
+      return { kind: "stop", end: refusedEnd(machine.name, typeof answer.code === "string" ? answer.code : "", { why: answer.why, fixAt: answer.fixAt }) };
     }
     current = { runId: answer.runId, part: run.attempt, deadline: typeof answer.deadline === "number" ? Math.min(answer.deadline, partEnds) : partEnds };
     run.machineRun = current;
@@ -288,10 +278,10 @@ export async function machineTurn(
             return { kind: "stop" };
           default: {
             // The computer refused the part: trying again gets the same refusal, so the job stops and says why (owner, 2026-11-05).
-            if (typeof read.result.refused === "string" && read.result.refused !== "") return { kind: "stop", text: refusedText(run.title, machine.name, read.result.refused) };
+            if (typeof read.result.refused === "string" && read.result.refused !== "") return { kind: "stop", end: refusedEnd(machine.name, read.result.refused) };
             // Failed before it took a single step: the next part would fail the same way, so stop with the computer's own reason.
             const why = typeof read.result.error === "string" ? read.result.error.replace(/\s+/g, " ").trim().slice(0, 300) : "";
-            if (read.result.outcome === "failed" && read.steps.length === 0 && why !== "") return { kind: "stop", text: `I couldn't run "${run.title}" on ${machine.name}: it said "${why}". Text me to try again once that's fixed.` };
+            if (read.result.outcome === "failed" && read.steps.length === 0 && why !== "") return { kind: "stop", end: failedEnd(machine.name, why) };
             // Failed or lost partway: the next part resumes the session if the tool named one.
             return { kind: "broken" };
           }
