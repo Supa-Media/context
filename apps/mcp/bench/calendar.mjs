@@ -31,13 +31,36 @@ export function calendarWrites(days) {
  * an empty one that reads and takes their own changes when the fixture holds no days.
  */
 export function benchCalendar(days, connectedFor = null) {
-  const flags = { calendarDays: calendarAnswer(days), ...calendarWrites(days) };
+  const flags = { calendarDays: calendarAnswer(days), ...calendarWrites(days), calendarGuestsFor: eventGuests(days) };
   if (connectedFor === null) return flags;
   // Connected with a fixture's days: their own calendar takes their changes too. Without this a fixture whose days
   // name no guests could be read but not changed, and every add was refused as no calendar connected.
   if (days.length > 0) return { calendarAddress: days[0].address, ...flags };
   const address = `${String(connectedFor).toLowerCase().replace(/[^a-z0-9]/g, "") || "person"}@calendar.bench.invalid`;
   return { ...flags, calendarDays: () => ({ ok: true, days: [] }), calendarAddress: address };
+}
+
+/**
+ * The guests of the one fixture event a change names, by its title and the day its `start` falls on (2026-11-26,
+ * `tests/fd-completion.md`): with every event's guests, moving Friday's haircut, which has none, would be refused as
+ * "has guests" because Austin and Sarah are on October 20, and put to Maya for a 👍 Google would never need. The
+ * person's own address is not a guest. Null when no fixture event has that title, so the stub falls back to every event's guests.
+ */
+export function eventGuests(days) {
+  const events = days.flatMap((day) =>
+    day.text.split(/^(?=### )/m).filter((part) => part.startsWith("### ")).map((part) => {
+      const title = /^### [^·\n]*·\s*(.+?)(?:\s*\{#[^}]*\})?\s*$/m.exec(part)?.[1] ?? "";
+      const listed = /^\*\*Attendees:\*\* (.+)$/m.exec(part)?.[1] ?? "";
+      const guests = (listed.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []).filter((guest) => guest !== day.address);
+      return { date: day.date, title: title.trim().toLowerCase(), guests };
+    }),
+  );
+  return (change) => {
+    const title = String(change?.title ?? "").trim().toLowerCase();
+    const on = String(change?.start ?? "").slice(0, 10);
+    const named = events.filter((event) => event.title === title && (!/^\d{4}-\d{2}-\d{2}$/.test(on) || event.date === on));
+    return named.length === 0 ? null : [...new Set(named.flatMap((event) => event.guests))];
+  };
 }
 
 /** The calendar days a range from `date` for `days` holds, as ISO dates. */

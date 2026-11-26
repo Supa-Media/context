@@ -590,6 +590,23 @@ test("a calendar with guests may be changed, and its moves tell the guests", asy
   assert.deepEqual(calendarWrites([{ date: "2026-10-08", address: "a@example.invalid", text: "### 07:00 · Pilates" }]), {}, "no guests, no calendar to change");
 });
 
+test("a calendar change names the guests of its own event, so a move of an event with none needs no yes", async () => {
+  const { benchCalendar } = await import("../calendar.mjs");
+  const bench = await readBenchFolder(new URL("../ai", import.meta.url).pathname);
+  const flags = benchCalendar(bench.workspaces.maya.calendar, "Maya");
+  assert.deepEqual(flags.calendarGuestsFor({ title: "Haircut with Lena", start: "2026-10-09T11:00:00-04:00" }), []);
+  assert.deepEqual(flags.calendarGuestsFor({ title: "Sarah / Maya", start: "2026-10-20T18:30:00-04:00" }), ["sarah@example.invalid"]);
+  // The right title on another day, or a title no event has, falls back to every event's guests (the stub's `calendarGuests`).
+  assert.equal(flags.calendarGuestsFor({ title: "Haircut with Lena", start: "2026-10-12T11:00:00-04:00" }), null);
+  assert.equal(flags.calendarGuestsFor({ title: "Nothing like it" }), null);
+  // The stub's route moves the guest-free event at once, and still refuses one with guests without notify_guests.
+  const { createCalendarRoute } = await import("../../test/controlPlaneStub/calendar.mjs");
+  const route = createCalendarRoute(async () => true, flags);
+  const move = (title, start) => route.handle("/gateway/calendar/event", { change: { action: "move", title, start, new_start: start } });
+  assert.equal((await move("Haircut with Lena", "2026-10-09T11:00:00-04:00")).ok, true);
+  assert.equal((await move("Sarah / Maya", "2026-10-20T18:30:00-04:00")).refused, "has_guests");
+});
+
 test("a group test's other members' lines are read with the text they come before", () => {
   const { questions } = parseTest('---\njob: texting-assistant\ngroup: band\n---\n\n## 1. Ask\n\n- person starts: "tex hi"\n- @priya before text 2: "I can do Tuesday"\n');
   assert.deepEqual(questions[0].others, [{ from: "priya", before: 2, text: "I can do Tuesday" }]);

@@ -89,6 +89,12 @@ this folder: it is public, like the rest of the repository.
   `- @<member> before text <n>: "..."` posts another member's text to the
   chat before the person's nth. The turn reads the threaded history and the
   stretch's carried turns as a production group turn does.
+- `tests/fd-completion.md` (Dev2, 2026-11-26): six invented asks the front
+  door must finish in one pass (a calendar move, an email draft, a note
+  correction, a carry-on from a shared folder, the next source before "I
+  don't know", a three-part ask). Its lines end with `[metrics: <id>, ...]`
+  (`bench/metrics.mjs`), and `pnpm ai score` prints each metric's rate by its
+  id under the scores. Any test may tag its must, must not and record lines.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which
