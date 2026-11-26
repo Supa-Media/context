@@ -146,13 +146,13 @@ test("each conversation's tests run in its own folder with its world, on its own
 test("a held-out conversation is gone from every step's examples, and nothing else is", () => {
   assert.equal(heldOutOf(GENERATED, {}), GENERATED, "production sets no such variable");
   assert.equal(heldOutOf(GENERATED, { [HOLD_OUT_ENV]: " " }), GENERATED);
-  const held = heldOutOf(GENERATED, { [HOLD_OUT_ENV]: "loose-ends" });
+  const held = heldOutOf(GENERATED, { [HOLD_OUT_ENV]: "redo-the-draft" });
   const chatsIn = (g) => [...new Set([...Object.values(g.nodes ?? {}), ...Object.values(g.chats ?? {})].flat().map((item) => item.chat))].sort();
-  assert.ok(chatsIn(GENERATED).includes("loose-ends"));
-  assert.deepEqual(chatsIn(held), chatsIn(GENERATED).filter((chat) => chat !== "loose-ends"));
+  assert.ok(chatsIn(GENERATED).includes("redo-the-draft"));
+  assert.deepEqual(chatsIn(held), chatsIn(GENERATED).filter((chat) => chat !== "redo-the-draft"));
   const all = trainingText({ ctx: ["train:fd:all:60000"] }, GENERATED);
   const less = trainingText({ ctx: ["train:fd:all:60000"] }, held);
-  assert.match(all, /Mailbird/);
-  assert.doesNotMatch(less, /Mailbird/, "its words are in no example the Front door reads");
+  assert.match(all, /Spokeline/);
+  assert.doesNotMatch(less, /Spokeline/, "its words are in no example the Front door reads");
   assert.deepEqual([holdOutOn("on"), holdOutOn("ON"), holdOutOn(""), holdOutOn(undefined), holdOutOn("off")], [true, true, false, false, false]);
 });
