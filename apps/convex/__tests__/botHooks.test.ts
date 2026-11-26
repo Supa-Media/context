@@ -117,8 +117,11 @@ describe("a bot's webhook", () => {
     const at = call.headers.get("x-context-timestamp")!;
     expect(call.headers.get("x-context-signature")).toBe(`v1=${await signHook(KEY, at, call.body)}`);
     const body = JSON.parse(call.body);
-    expect(Object.keys(body).sort()).toEqual(["area", "at", "bot", "from", "note", "type", "workspace"]);
+    expect(Object.keys(body).sort()).toEqual(["area", "at", "bot", "from", "instructions", "note", "type", "workspace"]);
     expect(body).toMatchObject({ type: "mail", workspace: "@supa-bots", bot: "finance", from: "@kim", area: "areas/finance", note: "areas/finance/mail/kim.md" });
+    // Dev, 2026-11-26: a bot answered in its own app's chat, where nobody looked. The call says to answer in the note.
+    expect(body.instructions).toContain('write { context: "@supa-bots", action: "mail", path: "areas/finance/mail/kim.md"');
+    expect(body.instructions).toContain("Never answer only in your own app's chat");
     const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
     expect(audit.some((event) => event.action === "bot_hook.called")).toBe(true);
     expect(JSON.stringify(audit)).not.toContain("s3cret-path");
@@ -143,7 +146,9 @@ describe("a bot's webhook", () => {
     await asUser(t, ana).action(api.functions.botHooks.setBotHook, { workspaceId: supa, bot: "finance", address: HOOK, signingKey: KEY });
     const routine = { workspaceId: supa, bot: "finance", area: "areas/finance", note: "areas/finance/routines/weekly/close.md", from: "context", type: "routine" };
     expect(await (await gatewayPost(t, "/gateway/bots/mail", routine)).json()).toEqual({ ok: true, status: 200 });
-    expect(JSON.parse(seen[0]!.body)).toMatchObject({ type: "routine", area: "areas/finance", note: "areas/finance/routines/weekly/close.md", from: "context" });
+    const sent = JSON.parse(seen[0]!.body);
+    expect(sent).toMatchObject({ type: "routine", area: "areas/finance", note: "areas/finance/routines/weekly/close.md", from: "context" });
+    expect(sent.instructions).toContain('path: "areas/finance/mail/finance.md"');
     // A routine type naming a mail note, mail naming a routine note, or a path that climbs out: nobody is called.
     for (const odd of [
       { note: "areas/finance/mail/kim.md" },

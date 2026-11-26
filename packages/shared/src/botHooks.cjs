@@ -12,7 +12,14 @@
  *
  * The body says mail arrived and where, never what it says:
  *   {"type":"mail","workspace":"@supa","bot":"finance","from":"@seyi",
- *    "area":"areas/finance","note":"areas/finance/mail/seyi.md","at":"…"}
+ *    "area":"areas/finance","note":"areas/finance/mail/seyi.md","at":"…",
+ *    "instructions":"New mail for you … answer in that same note …"}
+ *
+ * `instructions` is fixed wording built from those same fields: how to read the
+ * mail and that the answer goes back in the note, through the bot's own Context
+ * connection, never only in its own app. A bot whose webhook starts a chat in its
+ * own app answered there, where the person never looked (Dev, 2026-11-26: "why
+ * are the bots responding here instead of in mail?").
  *
  * An area's routine that came due says which routine, never its words; the bot
  * reads the note and answers in the area's mail:
@@ -52,6 +59,38 @@ function headerLine(raw) {
   return { name, value: match[2] };
 }
 
+/** `{ context: "@supa", ` for a call's arguments, or `{ ` when the workspace is not known. */
+function openArgs(workspace) {
+  const handle = workspace.trim();
+  if (handle === "") return "{ ";
+  return `{ context: ${JSON.stringify(handle.startsWith("@") ? handle : `@${handle}`)}, `;
+}
+
+/**
+ * What the bot is told to do with a call, built only from the call's own fields: where to read, and that the answer
+ * goes back through Context mail. Never the message.
+ */
+function hookInstructions({ type, workspace, bot, from, area, note }) {
+  const args = openArgs(workspace);
+  const never = "Never answer only in your own app's chat: the person reads answers in Context's Agent Mail and never sees what you say only in your app.";
+  const used = "used: <whole percent of your week it took>";
+  if (type === "test") {
+    return `This is a test call from Context to check your webhook works; there is nothing to answer. When real mail comes, read it through your Context connection and answer in that same mail note. ${never}`;
+  }
+  if (type === "routine") {
+    const reply = `${area}/mail/${bot}.md`;
+    return (
+      `The routine ${JSON.stringify(note)} is due. Read it through your Context connection: fetch ${args}id: ${JSON.stringify(note)} }. ` +
+      `Do the job, then answer in the area's mail: write ${args}action: "mail", path: ${JSON.stringify(reply)}, args: { text: "<your answer>", ${used} } }. ${never}`
+    );
+  }
+  return (
+    `New mail for you from ${from} in ${JSON.stringify(note)}. Read it through your Context connection: fetch ${args}id: ${JSON.stringify(note)} }. ` +
+    `Always answer in that same note: write ${args}action: "mail", path: ${JSON.stringify(note)}, args: { text: "<your answer>", ${used} } }. ${never} ` +
+    "Answer there even when the answer is short, or to say you need more time."
+  );
+}
+
 /** The body a call carries, with only the fields it may: no message, no address, nothing else. */
 function hookPayload(input) {
   const type = input.type === "mail" || input.type === "routine" ? input.type : "test";
@@ -61,6 +100,7 @@ function hookPayload(input) {
     out.note = String(input.note ?? "");
   }
   out.at = new Date(input.at ?? Date.now()).toISOString();
+  out.instructions = hookInstructions(out);
   return out;
 }
 
@@ -75,4 +115,4 @@ async function signHook(key, timestamp, body) {
   return toHex(await crypto.subtle.sign("HMAC", imported, encoder.encode(`${timestamp}.${body}`)));
 }
 
-module.exports = { HOOK_TIMEOUT_MS, makeSigningKey, signingKeyShaped, headerLine, hookPayload, signHook };
+module.exports = { HOOK_TIMEOUT_MS, makeSigningKey, signingKeyShaped, headerLine, hookInstructions, hookPayload, signHook };
