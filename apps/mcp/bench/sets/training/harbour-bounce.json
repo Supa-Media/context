@@ -7,7 +7,7 @@
   "title": "Nia and Tex: the harbour booking",
   "msgs": [
     {"at":"Mon 08:40","id":"g1","who":"Context","via":"did","text":"{\"from\":\"context\",\"did\":{\"action\":\"gmail\",\"status\":\"connected\",\"address\":\"nia@studio.example\",\"main\":true}}","labels":{"fd":{"must":["say nia@studio.example is her main email now and that it's reading it to get to know her","ask if she has other Gmails it should read too, for work or a side project"],"never":["paste the facts or their field names","say it was told or handed anything"],"star":true}}},
-    {"id":"g2","who":"Tex","tex":true,"text":"Got it, nia@studio.example is your main email now. I'm reading through it to get to know you. Any other Gmails I should read too, like one for work or a side project?"},
+    {"id":"g2","who":"Tex","tex":true,"text":"Got it, nia@studio.example is your main email now. I'm reading through it to get to know you. Any other Gmail accounts I should read too, like one for work or a side project?"},
     {"id":"g3","who":"Nia","text":"nope just that one"},
     {"id":"g4","who":"Tex","tex":true,"kind":"react","to":"g3","text":"👍"},
     {"id":"m1","labels":{"fd":{"must":["the forecast in one line"]},"router":{"route":"quick","star":true}},"text":"what's the weather for the open day saturday","who":"Nia"},
