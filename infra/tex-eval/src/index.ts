@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { Refused, verify, githubKeys, type Door, type KeySource } from "./oidc";
-import type { Conversation, Result } from "./rules";
+import type { Attempts, Conversation } from "./rules";
 import type { SearchCase, SearchResult } from "./searchRules";
 import { TestSet } from "./testSet";
 
@@ -13,7 +13,8 @@ export { TestSet };
  *  - HTTP (`/tex-eval/*` on the gateway, passed here untouched): main's Test Set workflows only, by GitHub OIDC.
  *      GET  /counts             counts, no words (the Lab's ratio bar, the ratio guard in CI)
  *      POST /v1/runs            { pr, sha, base, change? } -> { run, conversations } within the caps, else 429 { error }
- *      POST /v1/runs/result     { run, branch: Result[], main: Result[] } -> { verdict } (pass/fail, counts by node)
+ *      POST /v1/runs/result     { run, branch, main } -> { verdict } (pass/fail, counts by node); branch and main are each
+ *                               Result[] (one attempt) or Result[][] (attempts, the same count on both sides, at most 5)
  *      POST /v1/seed            { conversations } -> { kept, skipped } (the held-out cases moved in; never overwrites)
  *      GET  /search/counts      the Search Test's counts, no words
  *      POST /v1/search/runs     { pr, sha, base, change? } -> { run, cases } within the caps, else 429 { error }
@@ -86,9 +87,10 @@ export async function handle(request: Request, env: Env, keys: KeySource = githu
     return started.ok ? json({ run: started.run, conversations: started.conversations }) : json({ error: started.why }, 429);
   }
   if (path === "/v1/runs/result") {
-    const b = await body<{ run?: string; branch?: Result[]; main?: Result[] }>(request);
+    const b = await body<{ run?: string; branch?: Attempts; main?: Attempts }>(request);
     const done = await one(env).finishRun(String(b?.run ?? ""), ghRun, b?.branch ?? [], b?.main ?? []);
-    return done.ok ? json({ verdict: done.verdict }) : json({ error: done.why }, 404);
+    if (done.ok) return json({ verdict: done.verdict });
+    return json({ error: done.why }, /attempts/.test(done.why) ? 400 : 404);
   }
   const b = await body<{ conversations?: Conversation[] }>(request);
   return json(await one(env).seed(b?.conversations ?? [], ghRun));

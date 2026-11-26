@@ -31,7 +31,13 @@ plan in [test-sets](./test-sets.md), piece 4.
   gets its own run back and spends nothing.
 - **Answers pass or fail and counts by node.** The service scores the run's
   answers itself, against the unit tests it handed out at the start (a missing
-  answer is wrong), and passes when no node gets fewer right than main.
+  answer is wrong). A first answer that scores no node below main passes on one
+  attempt, at no extra cost. Otherwise both trees answer twice more and the
+  service scores all three attempts: with k attempts a node is worse only when
+  the change's right answers, summed over the attempts, are below main's by at
+  least k (on average one whole test fewer), so a test broken every time still
+  fails while one model coin flip does not. Counts shown are the mean per
+  attempt. Caps are unchanged: 1 run a commit.
 - **People only.** `/tex-test-set` answers the app's own client
   (`context_console`, never registrable) for owners and editors of
   `@context-lc`; writes are checked against the live config with
@@ -52,11 +58,22 @@ with ref main and the pull request's number; that run takes the Test Set from
 the service, runs it with main's harness on the change's nodes and on main's
 (`apps/mcp/bench/setsRun.mjs --tree`, output to /dev/null), has the service
 score it, marks the commit and re-runs the check. The pass rule is the same
-either way: a successful status, and no budget or threshold moves. The full replay
+either way: a successful status, no budget moves, and "worse" is the test under
+Repeats below. The full replay
 (`tex-replay.yml`) no longer gates and no longer starts by itself; Training and
 Dev never slow CI. The held-out cases that lived in `@context-lc ai/held-out/`
 are moved in once by `tex-test-set-seed.yml` (same OIDC rule, seed door), which
 then empties and archives those notes.
+
+### Repeats (decided 2026-11-26)
+
+The reviewer node is a model, and main's own score swung between 5/8 and 6/8
+on the same harness. 15 of the last 38 runs failed, every one "reviewer 5/8
+(main 6/8)", including a pull request that changed only training-set JSON. So
+the repeat above is the rule, not a retry: a first answer that scores a node
+below main is answered twice more on both trees (`tex-test-set.yml`,
+`repeat-needed`), and the service's "worse" is the sum test, never one run's
+count. The one-attempt pass stays free; the cap stays one run a commit.
 
 ## What a "simplification" would cost
 

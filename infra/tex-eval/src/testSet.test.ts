@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sqlStorage } from "../test/sql";
-import { CAPS, counts, mayRun, problemWith, unitTests, verdict, type Conversation } from "./rules";
+import { CAPS, attemptsOf, counts, mayRun, problemWith, unitTests, verdict, type Conversation, type Result } from "./rules";
 import { TestSet } from "./testSet";
 import type { SearchCase } from "./searchRules";
 
@@ -72,10 +72,77 @@ describe("the rules", () => {
     // fd better, decide worse: one node worse is a fail, whatever the total.
     const worse = verdict(tests, [r("1", "fd", true, "b")], [r("1", "decide", true)]);
     expect(worse.pass).toBe(false);
-    expect(worse.byNode.decide).toEqual({ total: 2, right: 0, main: 1 });
+    expect(worse.byNode.decide).toEqual({ total: 2, right: 0, main: 1, worse: true });
     // An answer for a test the run was not handed scores nothing.
     expect(verdict(tests, [r("9", "decide", true)], []).right).toBe(0);
     expect(verdict([], [], [])).toMatchObject({ pass: true, total: 0 });
+  });
+
+  it("with one attempt, scores as it always did, plus the attempt count and the node's worse flag", () => {
+    const tests = [
+      { chat: "a", msg: "1", node: "decide" },
+      { chat: "a", msg: "2", node: "decide" },
+    ];
+    const r = (msg: string, right: boolean): Result => ({ chat: "a", msg, node: "decide", right });
+    const worse = verdict(tests, [r("1", true), r("2", false)], [r("1", true), r("2", true)]);
+    expect(worse).toMatchObject({ pass: false, attempts: 1 });
+    expect(worse.byNode.decide).toEqual({ total: 2, right: 1, main: 2, worse: true });
+    const equal = verdict(tests, [r("1", true), r("2", true)], [r("1", true), r("2", true)]);
+    expect(equal).toMatchObject({ pass: true, attempts: 1 });
+    expect(equal.byNode.decide).toEqual({ total: 2, right: 2, main: 2, worse: false });
+  });
+
+  describe("several attempts", () => {
+    // Eight reviewer tests in one chat: reviewer-0 .. reviewer-7.
+    const reviewer = unitTests(conv("a", { reviewer: 8 }));
+    /** One attempt's answers: right on the tests at these positions, no answer for the rest (a missing answer is wrong). */
+    const attempt = (right: number[]): Result[] => reviewer.filter((_, i) => right.includes(i)).map((t) => ({ chat: t.chat, msg: t.msg, node: t.node, right: true }));
+    const first6 = [0, 1, 2, 3, 4, 5];
+    const first5 = [0, 1, 2, 3, 4];
+
+    it("passes a change one test behind main in sum when the gap is under one test per attempt", () => {
+      // Main right on six tests every time (18). The change: the same five always, and a sixth in one attempt of three (16).
+      const branch = [attempt([...first5, 5]), attempt(first5), attempt(first5)];
+      const main = [attempt(first6), attempt(first6), attempt(first6)];
+      const v = verdict(reviewer, branch, main);
+      expect(v).toMatchObject({ pass: true, attempts: 3, total: 8 });
+      expect(v.byNode.reviewer).toEqual({ total: 8, right: 5, main: 6, worse: false });
+    });
+
+    it("passes main's own flaky run the other way round (6, 6, 5 against 5, 5, 6)", () => {
+      const branch = [attempt(first5), attempt(first5), attempt([...first5, 5])];
+      const main = [attempt(first6), attempt(first6), attempt(first5)];
+      const v = verdict(reviewer, branch, main);
+      expect(v).toMatchObject({ pass: true, attempts: 3 });
+      expect(v.byNode.reviewer.worse).toBe(false);
+    });
+
+    it("fails a change that loses one test in every attempt", () => {
+      // The change right on five every time (15) against main's six (18): a gap of three, one test per attempt.
+      const branch = [attempt(first5), attempt(first5), attempt(first5)];
+      const main = [attempt(first6), attempt(first6), attempt(first6)];
+      const v = verdict(reviewer, branch, main);
+      expect(v).toMatchObject({ pass: false, attempts: 3 });
+      expect(v.byNode.reviewer).toEqual({ total: 8, right: 5, main: 6, worse: true });
+    });
+
+    it("counts a missing answer in an attempt as wrong", () => {
+      const branch = [[], [], []];
+      const main = [attempt(first6), attempt(first6), attempt(first6)];
+      expect(verdict(reviewer, branch, main)).toMatchObject({ pass: false, attempts: 3, right: 0, main: 6 });
+    });
+
+    it("refuses shapes it cannot read, and attempt counts that differ", () => {
+      const r: Result = { chat: "a", msg: "reviewer-0", node: "reviewer", right: true };
+      expect(attemptsOf([[r], r])).toBeNull();
+      expect(attemptsOf(Array.from({ length: 6 }, () => [r]))).toBeNull();
+      expect(attemptsOf(Array.from({ length: 5 }, () => [r]))).toHaveLength(5);
+      expect(attemptsOf([r])).toEqual([[r]]);
+      expect(attemptsOf([])).toEqual([[]]);
+      expect(attemptsOf(undefined)).toEqual([[]]);
+      expect(() => verdict(reviewer, [[r], [r], [r]], [[r]])).toThrow("send the same number of attempts, at most 5, for the change and main");
+      expect(() => verdict(reviewer, [[r], r] as unknown as Result[][], [[r], [r]])).toThrow("send the same number of attempts, at most 5, for the change and main");
+    });
   });
 });
 
@@ -170,6 +237,23 @@ describe("the Test Set object", () => {
     // A second answer changes nothing.
     expect(s.finishRun(started.run, "1", [], [])).toMatchObject({ verdict: { right: 1 } });
     expect(s.runs()[0]).toMatchObject({ pr: 7, verdict: { pass: false } });
+  });
+
+  it("scores attempts sent as lists of lists on both sides, and refuses a mismatch without storing a verdict", () => {
+    const s = set();
+    s.put(conv("lease", { decide: 2 }), "user_1");
+    const started = s.startRun({ pr: 7, sha: sha("a"), base: sha("f"), ghRun: "1" });
+    if (!started.ok) throw new Error("no run");
+    const hit = (msg: string) => ({ chat: "lease", msg, node: "decide", right: true });
+    // Three attempts on the change against one on main: refused, and the run is still open.
+    expect(s.finishRun(started.run, "1", [[hit("decide-0")], [hit("decide-0")], [hit("decide-0")]], [hit("decide-0")])).toEqual({ ok: false, why: "send the same number of attempts, at most 5, for the change and main" });
+    expect(s.runs()[0].verdict).toBeNull();
+    // Three attempts each side: the later answer scores.
+    const branch = [[hit("decide-0"), hit("decide-1")], [hit("decide-0"), hit("decide-1")], [hit("decide-0"), hit("decide-1")]];
+    const main = [[hit("decide-0")], [hit("decide-0")], [hit("decide-0")]];
+    expect(s.finishRun(started.run, "1", branch, main)).toMatchObject({ ok: true, verdict: { pass: true, attempts: 3, total: 2, right: 2, main: 1, byNode: { decide: { total: 2, right: 2, main: 1, worse: false } } } });
+    // Once scored, a second answer changes nothing.
+    expect(s.finishRun(started.run, "1", [[]], [[]])).toMatchObject({ ok: true, verdict: { attempts: 3 } });
   });
 
   it("seeds the held-out cases without overwriting one a person wrote", () => {

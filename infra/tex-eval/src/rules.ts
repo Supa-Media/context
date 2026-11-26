@@ -109,12 +109,16 @@ export interface NodeScore {
   total: number;
   right: number;
   main: number;
+  /** Set on byNode entries: true when this node counts as fewer right than main under the noise rule (see verdict). */
+  worse?: boolean;
 }
 export interface Verdict {
   pass: boolean;
   total: number;
   right: number;
   main: number;
+  /** How many times each tree answered: 1 is the original rule; up to MAX_ATTEMPTS, the same on both sides. */
+  attempts: number;
   byNode: Record<string, NodeScore>;
   /**
    * The same counts by conversation kind ("one" or "group"), for the Group chats area's metric
@@ -124,29 +128,86 @@ export interface Verdict {
   byKind: Record<string, NodeScore>;
 }
 
+/** The most attempts a run may send for each side. */
+export const MAX_ATTEMPTS = 5;
+/** One tree's answers (one attempt), or several attempts, each a tree's answers. */
+export type Attempts = Result[] | Result[][];
+export const ATTEMPTS_MISMATCH = "send the same number of attempts, at most 5, for the change and main";
+
+const objectsOnly = (rows: unknown[]): Result[] => rows.filter((r): r is Result => !!r && typeof r === "object");
+
+/**
+ * The attempts a run sent, normalised to one list of answers per attempt. A plain list is one attempt; an empty
+ * list is one attempt with no answers; a list of lists is that many attempts. Anything mixed, or more than
+ * MAX_ATTEMPTS lists, is null.
+ */
+export function attemptsOf(x: unknown): Result[][] | null {
+  if (!Array.isArray(x) || x.length === 0) return [[]];
+  const lists = x.filter((e) => Array.isArray(e));
+  if (lists.length === x.length) return lists.length > MAX_ATTEMPTS ? null : lists.map(objectsOnly);
+  if (lists.length > 0) return null;
+  return [objectsOnly(x)];
+}
+
 /**
  * The gate: every unit test the run was handed, scored on the change and on main. A test with no answer is wrong.
- * It passes when no node gets fewer right on the change than on main (Dev2: "no worse than main"); an empty Test
- * Set passes, and says so by its total.
+ *
+ * With one attempt it passes when no node gets fewer right on the change than on main (Dev2: "no worse than main").
+ * With several attempts (the same count on both sides, at most MAX_ATTEMPTS), each test's rights are summed over the
+ * attempts, and a node is worse when main's sum beats the change's by at least the attempt count, that is by one
+ * whole test in every attempt. Why: main's own reviewer score swung 5/8 vs 6/8 between runs on the same harness;
+ * 15 of 38 gate runs failed on that one test. A single coin flip no longer decides the gate, a steady loss still does.
+ *
+ * Reported counts are per attempt (the sums divided by the attempt count, rounded). An empty Test Set passes, and
+ * says so by its total. Throws when the attempt counts differ or are not a valid shape; the caller checks first.
  */
-export function verdict(tests: Test[], branch: Result[], main: Result[]): Verdict {
-  const rightIn = (rows: Result[]) => new Set(rows.filter((r) => r && r.right === true).map((r) => keyOf(r)));
-  const b = rightIn(branch);
-  const m = rightIn(main);
-  const byNode: Record<string, NodeScore> = {};
-  const byKind: Record<string, NodeScore> = {};
+export function verdict(tests: Test[], branch: Attempts, main: Attempts): Verdict {
+  const b = attemptsOf(branch);
+  const m = attemptsOf(main);
+  if (!b || !m || b.length !== m.length) throw new Error(ATTEMPTS_MISMATCH);
+  const k = b.length;
+  const rightIn = (rows: Result[]) => new Set(rows.filter((r) => r.right === true).map((r) => keyOf(r)));
+  const bSets = b.map(rightIn);
+  const mSets = m.map(rightIn);
+  const nodes: Record<string, Tally> = {};
+  const kinds: Record<string, Tally> = {};
   for (const t of tests) {
     const kind = t.kind === "group" ? "group" : "one";
-    for (const s of [(byNode[t.node] ??= { total: 0, right: 0, main: 0 }), (byKind[kind] ??= { total: 0, right: 0, main: 0 })]) {
+    const key = keyOf(t);
+    const rightSum = bSets.filter((s) => s.has(key)).length;
+    const mainSum = mSets.filter((s) => s.has(key)).length;
+    for (const s of [(nodes[t.node] ??= tally()), (kinds[kind] ??= tally())]) {
       s.total += 1;
-      if (b.has(keyOf(t))) s.right += 1;
-      if (m.has(keyOf(t))) s.main += 1;
+      s.rightSum += rightSum;
+      s.mainSum += mainSum;
     }
   }
-  const scores = Object.values(byNode);
-  const sum = (f: (s: NodeScore) => number) => scores.reduce((a, s) => a + f(s), 0);
-  return { pass: scores.every((s) => s.right >= s.main), total: tests.length, right: sum((s) => s.right), main: sum((s) => s.main), byNode, byKind };
+  const isWorse = (s: Tally) => (k === 1 ? s.rightSum < s.mainSum : s.mainSum - s.rightSum >= k);
+  const perAttempt = (sum: number) => Math.round(sum / k);
+  const byNode: Record<string, NodeScore> = {};
+  for (const [node, s] of Object.entries(nodes)) byNode[node] = { total: s.total, right: perAttempt(s.rightSum), main: perAttempt(s.mainSum), worse: isWorse(s) };
+  const byKind: Record<string, NodeScore> = {};
+  for (const [kind, s] of Object.entries(kinds)) byKind[kind] = { total: s.total, right: perAttempt(s.rightSum), main: perAttempt(s.mainSum) };
+  const all = Object.values(nodes);
+  const sum = (f: (s: Tally) => number) => all.reduce((a, s) => a + f(s), 0);
+  return {
+    pass: !Object.values(byNode).some((s) => s.worse),
+    total: tests.length,
+    right: perAttempt(sum((s) => s.rightSum)),
+    main: perAttempt(sum((s) => s.mainSum)),
+    attempts: k,
+    byNode,
+    byKind,
+  };
 }
+
+/** A node's sums over the attempts (one attempt: its count). */
+interface Tally {
+  total: number;
+  rightSum: number;
+  mainSum: number;
+}
+const tally = (): Tally => ({ total: 0, rightSum: 0, mainSum: 0 });
 
 /** The UTC day a time falls on, as the day cap counts. */
 export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);

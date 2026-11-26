@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { SHA, counts, dayOf, mayRun, problemWith, unitTests, verdict, type Conversation, type Result, type Test, type Verdict } from "./rules";
+import { ATTEMPTS_MISMATCH, SHA, attemptsOf, counts, dayOf, mayRun, problemWith, unitTests, verdict, type Attempts, type Conversation, type Test, type Verdict } from "./rules";
 import { searchCounts as countSearchCases, searchProblemWith, type SearchCase, type SearchResult } from "./searchRules";
 import { allCases, caseList, caseOf, createSearchTables, deleteCase, finishSearch, searchRunRows, seedCases, startSearch, upsertCase, type SearchRunRow } from "./searchStore";
 
@@ -165,11 +165,15 @@ export class TestSet extends DurableObject {
   }
 
   /** The run's answers come back: scored here, against the tests it was handed, once. */
-  finishRun(run: string, ghRun: string, branch: Result[], main: Result[]) {
+  finishRun(run: string, ghRun: string, branch: Attempts, main: Attempts) {
     const row = this.sql.exec<{ tests: string; gh_run: string; verdict: string | null }>(`SELECT tests, gh_run, verdict FROM runs WHERE id = ?`, run).toArray()[0];
     if (!row || row.gh_run !== ghRun) return { ok: false as const, why: "no such run for this workflow run" };
     if (row.verdict) return { ok: true as const, verdict: JSON.parse(row.verdict) as Verdict };
-    const v = verdict(JSON.parse(row.tests) as Test[], Array.isArray(branch) ? branch : [], Array.isArray(main) ? main : []);
+    // Checked before scoring, and nothing is stored on a refusal: the run can be answered again.
+    const b = attemptsOf(branch);
+    const m = attemptsOf(main);
+    if (!b || !m || b.length !== m.length) return { ok: false as const, why: ATTEMPTS_MISMATCH };
+    const v = verdict(JSON.parse(row.tests) as Test[], b, m);
     this.sql.exec(`UPDATE runs SET verdict = ? WHERE id = ?`, JSON.stringify(v), run);
     return { ok: true as const, verdict: v };
   }
