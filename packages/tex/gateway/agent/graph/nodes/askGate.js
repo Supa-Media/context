@@ -12,7 +12,7 @@
  * Output `to`: "pass" (no ask), "bypass" (an ask only they can answer), "back" with the notice, or "job" with why.
  */
 import { MAX_DECISION_STATE_CHARS } from "../../decide.js";
-import { askRequest, ladderNotice, questionsIn, readAsk, selectorOf, termsOf, untriedFast } from "../../lookupLadder.js";
+import { askRequest, ladderNotice, questionsIn, readAsk, selectorOf, termsOf, untriedFast, withoutAsk } from "../../lookupLadder.js";
 import { DEFAULT_TIME_ZONE, nowLine, readTimeZone } from "../../localNow.js";
 import { routerContextText } from "../../routerContext.js";
 import { TRAINING, texConfigOf, texModel, texStep, texTimeoutMs } from "../../texConfig.js";
@@ -92,6 +92,8 @@ export async function askGateNode(input, io) {
   const draft = typeof input?.draft === "string" ? input.draft : String(t.drafts?.waiting?.draft ?? "");
   const questions = questionsIn(draft);
   if (questions.length === 0) return { to: "pass", why: "no question in the draft", when: ["clear"] };
+  // A check-in is Tex looking on its own (`../../heartbeat.js`): nobody asked, so there is nobody to ask back.
+  if (typeof t.finishCheckIn === "function" || io?.ctx?.checkin) return { to: "pass", why: "a check-in: nobody asked", when: ["clear"] };
   const { model, ctx, ms, climbAt } = gateSetup(t.env);
   const engine = io?.engine ? async (state, questions) => ({ answers: await io.engine(state, questions), fault: null }) : askEngine(t.env?.AI, model);
   if (typeof engine !== "function") return { to: "pass", why: "no decision model here", model, when: ["clear"] };
@@ -118,14 +120,17 @@ export async function askGateNode(input, io) {
     has(io, "rungTools") ? Promise.resolve(io.use.rungTools({})).catch(() => null) : null,
   ]);
   const tried = new Set(Array.isArray(tools?.tried) ? tools.tried : []);
+  // A group chat reaches mail and calendars only when someone shared theirs with it (`../../groupMail.js`).
+  const group = t.group ?? null;
+  const apps = group === null || group?.mail?.length > 0 || group?.calendar?.length > 0;
   const notice = ladderNotice({
     questions,
-    knows: Array.isArray(knows?.found) ? knows.found : [],
+    knows: withoutAsk(Array.isArray(knows?.found) ? knows.found : [], ask),
     notes: Array.isArray(notes?.found) ? notes.found : [],
-    untried: tools === null ? [] : untriedFast(tried),
+    untried: tools === null ? [] : untriedFast(tried, { apps }),
     failedApps: Array.isArray(tools?.failedApps) ? tools.failedApps : [],
   });
-  const climbed = { knows: knows?.found?.length ?? null, notes: notes?.found?.length ?? null, tried: [...tried] };
+  const climbed = { knows: knows === null ? null : withoutAsk(knows.found ?? [], ask).length, notes: notes?.found?.length ?? null, tried: [...tried] };
   if (notice === null) return { to: "job", why: "the quick rungs found nothing and all were tried", ...base, climbed, when: ["climbOn"] };
   t.ladderSentBack = true;
   return { to: "back", notice, ...base, climbed, when: ["tryNext"] };

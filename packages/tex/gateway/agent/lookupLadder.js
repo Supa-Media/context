@@ -117,7 +117,8 @@ export function linesWith(text, terms, { max = 5, need = null } = {}) {
   return scored.sort((a, b) => b.hits - a.hits).slice(0, max).map((s) => s.line);
 }
 
-const APP_IDS = /^(?:email:|calendar:|chat:|meetings:|messages:|contacts:|apps:)/;
+const CHAT_IDS = /^(?:chat:|day:)/;
+const APP_IDS = /^(?:email:|calendar:|meetings:|messages:|contacts:|apps:)/;
 const APP_TOOLS = /^(?:read_email|search_email|read_calendar|read_thread|group_chats|read_texts|list_texts|search_texts)$|^(?:gmail|google|calendar|drive|slack|notion)_/;
 const NOTE_TOOLS = /^(?:search|fetch|orient|search_notes|read_note|read_notes|read_file|read_image)$/;
 
@@ -127,9 +128,12 @@ export function rungOf(name, args = {}) {
   if (tool === "search_web") return "web";
   if (tool === "open_page" || tool.startsWith("browse")) return "browser";
   if (tool === "ask_advisor") return "advisor";
-  if (tool === "read_back" || tool === "read_day" || tool === "search_chat") return "knows";
+  if (tool === "read_back" || tool === "read_day" || tool === "search_chat" || tool === "earlier_chat") return "knows";
+  // A fetch of the chat's own history ("chat:", "day:<date>") reads what was said here, not a connected app.
+  if (tool === "fetch" && CHAT_IDS.test(String(args?.id ?? ""))) return "knows";
   if (APP_TOOLS.test(tool)) return "apps";
-  if (tool === "search" && args?.email === true) return "apps";
+  // The front door's search_email reaches the turn as `search` with `{ args: { email: true } }` (`sixTools.js`).
+  if (tool === "search" && (args?.email === true || args?.args?.email === true)) return "apps";
   if (tool === "fetch" && APP_IDS.test(String(args?.id ?? ""))) return "apps";
   if (NOTE_TOOLS.test(tool)) return "notes";
   return null;
@@ -154,8 +158,18 @@ export function triedRungs(messages) {
   return { tried, failedApps };
 }
 
-/** The fast rungs the turn has not tried, cheapest first. */
-export const untriedFast = (tried) => ["apps", "web"].filter((rung) => !tried.has(rung));
+/**
+ * The fast rungs the turn has not tried, cheapest first. `apps: false` when this chat has no connected app to try (a
+ * group chat nobody shared mail or a calendar with), so the send-back never names a tool the front door lacks.
+ */
+export const untriedFast = (tried, { apps = true } = {}) => ["apps", "web"].filter((rung) => !tried.has(rung) && (rung !== "apps" || apps));
+
+/** The lines of the chat's history that are their own ask itself, said back: never a find (2026-11-26 ask gate audit). */
+export function withoutAsk(lines, ask) {
+  const key = String(ask ?? "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 60);
+  if (key.length < 8) return Array.isArray(lines) ? lines : [];
+  return (Array.isArray(lines) ? lines : []).filter((line) => !String(line).toLowerCase().replace(/\s+/g, " ").includes(key));
+}
 
 const RUNG_WORDS = { apps: "their connected apps (mail, calendar, Google Chat)", web: "a web search" };
 
