@@ -673,7 +673,9 @@ async function prepareConvo(units, { tree, scratch, env, mode = "replay", compar
     const person = senderOf(c, u.at, people, group);
     const today = dayOf(c, u.at, year, from);
     const clock = timeOf(c, u.at);
-    const key = JSON.stringify([person, today, clock]);
+    // A repeat is a test of its own: its cases are the same as the first copy's, and one test runs its cases one after
+    // another, so three repeats in one test tripled the longest lane (Dev set run of 2026-11-26: 16 minutes at 24 lanes).
+    const key = JSON.stringify([person, today, clock, u.row.rep ?? 0]);
     if (!batches.has(key)) batches.set(key, { person, today, clock, units: [] });
     batches.get(key).units.push(u);
   }
