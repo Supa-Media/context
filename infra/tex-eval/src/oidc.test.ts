@@ -79,7 +79,7 @@ describe("the HTTP doors", () => {
     expect(conversations.map((c) => c.id)).toEqual(["lease"]);
     const answers = [{ chat: "lease", msg: "m1", node: "fd", right: true }];
     const scored = await handle(post("/v1/runs/result", { run, branch: answers, main: answers }, await sign()), env, keys);
-    expect(await scored.json()).toEqual({ verdict: { pass: true, total: 1, right: 1, main: 1, byNode: { fd: { total: 1, right: 1, main: 1 } }, byKind: { one: { total: 1, right: 1, main: 1 } } } });
+    expect(await scored.json()).toEqual({ verdict: { pass: true, total: 1, right: 1, main: 1, attempts: 1, byNode: { fd: { total: 1, right: 1, main: 1, worse: false } }, byKind: { one: { total: 1, right: 1, main: 1 } } } });
     // The next run on the same commit, from another GitHub run, is capped.
     expect((await handle(post("/v1/runs", start, await sign({ run_id: "5" })), env, keys)).status).toBe(429);
   });
