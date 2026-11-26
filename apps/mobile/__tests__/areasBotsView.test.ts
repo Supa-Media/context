@@ -131,7 +131,13 @@ describe("The bots folder", () => {
     await press(one("bot-panel-refresh"));
     await settle();
     expect(files.some((line) => line.startsWith("create bots/grok-bot/mail/seyi.md\n# Mail with Grok Bot"))).toBe(true);
-    expect(files.join("\n")).toContain("if your name or your logo has changed");
+    // Refresh sends Context's current setup too (Dev, 2026-11-26): the relay routine's one prompt and the bound login.
+    expect(files.join("\n")).toContain("If your name or logo changed");
+    expect(files.join("\n")).toContain("Never write to Context, reply, or send anything from this run.");
+    expect(files.join("\n")).toMatch(/bind_bot: .?"Grok Bot/);
+    // It stays on the bot's page, and says it sent.
+    expect(all("bot-panel")).toHaveLength(1);
+    expect(strip(one("bot-panel-refresh").textContent)).toBe("Sent");
   });
 
   test("a bot is added from the bots folder's page: whose it is and its name, with its card in its own folder", async () => {

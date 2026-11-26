@@ -8,11 +8,12 @@ export function areaToolDefinitions() {
         "Change an area's settings, as the app's area panel does: owner (@handle or bot name), delegate (the one bot or Tex acting for a " +
         "person owner in this area), modes, approval rules and its one metric (a metric note's name in the data folder's metrics/, with a " +
         "target). bot makes or changes a bot's card; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call; " +
-        "attach and detach say which projects serve the area.",
+        "bind_bot says this connection is that bot (a bot's own main chat, during its setup); " +
+        "attach and detach say which projects serve the area. area is needed for everything but bind_bot.",
       inputSchema: {
         type: "object",
         properties: {
-          area: { type: "string", description: 'The area\'s folder, like "areas/finance".' },
+          area: { type: "string", description: 'The area\'s folder, like "areas/finance". Needed for everything but bind_bot.' },
           owner: { type: ["string", "null"], description: "@handle or bot name; null clears it." },
           delegate: { type: ["string", "null"], description: "The one bot's name (or Tex) that acts for this area's person owner here; never a person, none when a bot owns it; null clears it." },
           modes: { type: "array", items: { type: "string" }, description: "Any of Visionary, Manager, Doer; [] clears them." },
@@ -58,6 +59,11 @@ export function areaToolDefinitions() {
             additionalProperties: false,
           },
           test_webhook: { type: "string", description: "A bot's name: send its webhook a signed test call." },
+          bind_bot: {
+            type: "string",
+            description:
+              "Your own bot name, said from your main chat: this connection is that bot here from now on, so what it writes is signed by the bot, and Context mails you a check to answer within 5 minutes. Needs no area.",
+          },
           create: { type: "boolean", description: "Make the area's about.md when it is not there yet." },
           attach: {
             type: ["string", "array"],
@@ -70,7 +76,6 @@ export function areaToolDefinitions() {
             description: "A project's folder, or a list: removes its area line, only when it names this area or one inside it.",
           },
         },
-        required: ["area"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },

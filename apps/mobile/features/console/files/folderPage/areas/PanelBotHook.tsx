@@ -33,10 +33,14 @@ export interface HookRow {
   lastCallOk: boolean | null;
   lastCallStatus: number | null;
   canReplace: boolean;
+  /** Whether the bot answered the check its login got when bound (`functions/botLogins.ts`); null before one. */
+  health?: "answering" | "checking" | "not answering" | null;
 }
 
 /** What the last call says, in a few words. */
 export function lastCallLine(row: HookRow): string {
+  // A webhook that answers but a bot that never writes back is still broken (Dev, 2026-11-26).
+  if (row.health === "not answering") return "Not answering: no reply from the bot's own login to its setup check.";
   if (row.lastCallAt === null) return "Not called yet.";
   if (row.lastCallOk === true) return `Last call answered (${row.lastCallStatus}).`;
   return row.lastCallStatus === 0 || row.lastCallStatus === null ? "Last call didn't reach it." : `Last call failed (${row.lastCallStatus}).`;

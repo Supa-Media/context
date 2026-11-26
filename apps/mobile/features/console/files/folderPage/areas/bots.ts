@@ -12,6 +12,7 @@
  */
 
 import { areaRoutineOf, parseWorksIn } from "@context/shared/src/areaRoutines.cjs";
+import { refreshAsk } from "@context/shared/src/botRelay.cjs";
 import { isNotePath } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote, PropertyValue } from "../../listBlock/model";
 import { areaTitle, areaTree, botsFolder, botsFolderOfBot, cardOf, cardSlug, isBotCardPath, peopleFolder, type AreaNode, type Card } from "./seat";
@@ -175,5 +176,11 @@ export function botMailNote(bot: Bot, me: string): string {
 }
 
 /** What Refresh asks: the bot sends its name and logo again, and its card changes where they differ. */
-export const REFRESH_ASK =
-  "Please check your card here: if your name or your logo has changed in your own app, send the new ones to your card now, the same way you put your logo there the first time.";
+/**
+ * What Refresh mails a bot: its name and logo again, and Context's current setup, the relay routine and its bound
+ * login (`packages/shared/src/botRelay.cjs`; Dev, 2026-11-26: "make sure that the refresh button here sends these new
+ * instructions").
+ */
+export function refreshAskFor(name: string, workspace?: string): string {
+  return refreshAsk(name, workspace);
+}

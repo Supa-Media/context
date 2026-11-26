@@ -15,6 +15,7 @@
  */
 
 const { mailOnlyText, routinesText } = require("./areaRoutines.cjs");
+const { bindStep, relayMemory, relayStep } = require("./botRelay.cjs");
 
 /** The kinds of bot a card can say it is. Grok is the first; others follow by adding a word. */
 const BOT_KINDS = Object.freeze(["grok"]);
@@ -97,7 +98,7 @@ function contextArg(workspace) {
 function mailText(where, name, reach) {
   return `People and other bots talk to you in ${where}mail/, one note per sender (${where}mail/<sender>.md). Join each one once as ${quoted(mailJoinName(name))} with write { action: "mail", path: "<that note>", args: { join: ${quoted(mailJoinName(name))} } }, pass the mailbox it gives you on every call, read with fetch { id: "<that note>", args: { mail: true } }, and answer in the same note with write { action: "mail", path: "<that note>", args: { text } }.${
     reach === "webhook"
-      ? " New mail also reaches your webhook as a POST that names the note and who wrote, never the message: read the note and answer in it."
+      ? ` New mail also reaches your webhook as a POST that names the note and who wrote, never the message. ${relayMemory()}`
       : " Check your mail on a timer that survives your session restarting."
   }`;
 }
@@ -250,9 +251,12 @@ function setupPrompt({ bot, kind, whose, workspace, areas, reach, card, endpoint
       `Give Context your webhook, so new mail reaches you. If your webhook checks a secret, call manage area { ${ctx}area: ${quoted(first)}, bot: { name: ${quoted(name)}${person ? `, whose: ${quoted(person)}` : ""}, reach: "webhook" }, webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>", header_from_shell: "Authorization" } }. It answers with a one-time curl command: run it in your shell with your secret's environment variable, so the secret goes straight to Context and never into this chat. If your webhook takes no secret, pass webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>" } instead. Then call manage area { ${ctx}area: ${quoted(first)}, test_webhook: ${quoted(name)} } and tell me how the test went.`,
     );
   }
+  if (reach === "webhook") steps.push(relayStep());
   const logo = card ? logoLine(card, workspace) : null;
   if (logo) steps.push(logo.replace(/^The first time, put/, "Put"));
   steps.push("Save everything below the line to your memory, and follow it every session.");
+  // Last, as the bot's own main chat: its login is bound to its card and Context mails it a check (Dev, 2026-11-26).
+  steps.push(bindStep(name, workspace));
   const memory =
     owned.length > 1
       ? areasPrompt({ bot: name, kind, whose: person, workspace, areas: owned, reach })

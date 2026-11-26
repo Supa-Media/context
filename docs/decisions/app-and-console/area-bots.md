@@ -117,13 +117,28 @@ keeps its notes there and knows what its modes ask of it.
   `x-context-signature: v1=<HMAC-SHA256(key, "<timestamp>.<body>")>`, and its body
   is the workspace, the bot, the area, the note's path and who wrote it. The bot reads
   the message and answers through its own Context connection, at its own
-  clearance, so the control plane never carries a note's body. Every call also
-  carries `instructions`, fixed wording built from those fields: the `fetch`
-  that reads the note and the `write { action: "mail" }` that answers in it,
-  and never only in the bot's own app chat. A Grok bot whose webhook started a
-  chat in its own app answered there, where nobody looked (Dev, 2026-11-26:
-  "why are the bots responding here instead of in mail?";
-  `packages/shared/src/botHooks.cjs`, `apps/convex/__tests__/botHooks.test.ts`). A call is
+  clearance, so the control plane never carries a note's body.
+- **The webhook only wakes the bot; its main chat answers, as itself** (Dev,
+  2026-11-26: "Make the webhook routine a pure relay that wakes the main bot,
+  never a responder, and have Context set it up that way for everyone").
+  A routine that answered the webhook itself replied in its own app, or as
+  "Cursor" without the facts its main chat had. Now
+  (`packages/shared/src/botRelay.cjs`), said the same way in the setup
+  prompt, the app's Refresh mail and every call's `instructions`:
+  1. The bot's webhook routine runs one fixed prompt, `RELAY_PROMPT`: read the
+     note, wake the main chat with its exact text, sender, time and path, and
+     never write, reply or send from that run.
+  2. The main chat binds its login: `manage area { bind_bot }`
+     (`apps/mcp/src/tools/notes/botBind.js`) keeps the bot on the grant
+     (`oauthGrants.bots`, `apps/convex/functions/botLogins.ts`), cleared as an
+     owner or editor and, for a card with `belongs_to:`, only by that person
+     or an owner. Every mail line that login writes there is signed by the
+     bot and its reads say the bot; it joins only as the bot; and another
+     connection joining or sending under a bot's name is refused.
+  3. Binding mails the bot a check (`<card folder>/mail/context.md`). Its card
+     says "not answering" when its own login sends no mail within 5 minutes
+     of the check (`botHealth`, worked out when read), shown on the bot's page
+     and its webhook row. A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.
 - **Everything the panel sets, an agent sets too** (the owner, 2026-11-25:

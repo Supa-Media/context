@@ -370,6 +370,8 @@ export function AreasView(props: AreasViewProps) {
           open={onSelect}
           {...(onPanel === undefined ? {} : { onPanel })}
           {...(canEdit && addAgent !== undefined ? { people, addBot } : {})}
+          {...(host === undefined ? {} : { workspaceId: host.workspaceId })}
+          {...(handle === undefined ? {} : { workspace: handle })}
         />
       ) : view === "chart" ? (
         <AreasChart
