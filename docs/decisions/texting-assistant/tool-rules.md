@@ -79,7 +79,7 @@ actions (email, messages, calendar edits) "has to be part and parcel" of it,
 and it gets more budget. So:
 
 - **Every send action's line carries its args again.** `familyTool` in
-  `sixTools.js` does this, within send's own budget of 8,000 characters
+  `sixTools.js` does this, within send's own budget of 8,500 characters
   (`TOOL_CHAR_LIMITS` in `toolRules.cjs`).
 - **The email lines name the reply rule.**
 - **Every other tool keeps 4,000.** write and manage keep their short lines
@@ -88,6 +88,10 @@ and it gets more budget. So:
 
 `sixToolsFixed.test.mjs` fails when a tool goes over its own limit, or when
 send's email line loses its args.
+
+On 2026-11-26 send's budget went from 8,000 to 8,500 characters. Main sat at
+7,996, so a new action (`send_sticker`, which the owner chose that day) could
+not join without dropping another action's args.
 
 ## A failed call brings its action's manual back (2026-11-20)
 

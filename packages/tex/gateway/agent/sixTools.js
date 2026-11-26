@@ -303,7 +303,7 @@ const SHORT_LINES = {
   email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
   who_can_open: "Who holds a workspace.",
-  tapback: "Only a tapback or chat sticker, no words; ends turn.",
+  tapback: "Only a tapback or chat sticker, no words; ends turn.", send_sticker: "Send a kept sticker.",
   forward_rule: "Keep forwarding one kind of their mail to one address, once they 👍 it.",
   restart_job: "Pick stopped background jobs back up where they stopped.",
   advisor: "Ask your advisor, a stronger model, for judgment, before a task is done, or when stuck.",
