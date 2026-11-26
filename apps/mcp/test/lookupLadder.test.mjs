@@ -24,6 +24,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import graphLib from "../../../packages/tex/src/texGraph.cjs";
+import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 import { draftBridge } from "../../../packages/tex/gateway/agent/graph/draftBridge.js";
 import { answerCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js";
 import { askEngine, askGateNode, climbBarOf } from "../../../packages/tex/gateway/agent/graph/nodes/askGate.js";
@@ -34,6 +35,7 @@ import { QUIET_ACK } from "../../../packages/tex/gateway/agent/background.js";
 import { ladderNotice, linesWith, questionsIn, readAsk, rungOf, selectorOf, termsOf, triedRungs, untriedFast, withoutAsk } from "../../../packages/tex/gateway/agent/lookupLadder.js";
 
 const { createGraph } = graphLib;
+const askGateFields = new Set(TEX_CONFIG.nodes.find((node) => node.id === "askGate").outSchema.map((field) => field.name));
 
 test("questions are the sentences that end in a question mark", () => {
   assert.deepEqual(questionsIn("Done. What's your flight number? Also, which day?"), ["What's your flight number?", "Also, which day?"]);
@@ -201,6 +203,8 @@ test("an ask only they could answer goes back when the chat or their notes alrea
     const out = await askGateNode({ ask: "send the invite to Priya", draft: "What's Priya's address?" }, { ctx: { turn }, use: use(["[Mon] @ada: Priya's address is 12 Elm St"]) });
     assert.equal(out.to, "back", kind);
     assert.match(out.notice, /12 Elm St/);
+    // 2026-11-26: this send-back carried `found`, which the step's outSchema does not name, so the graph failed the step.
+    assert.deepEqual(Object.keys(out).filter((key) => key !== "when" && !askGateFields.has(key)), [], `${kind}: every field is in askGate's outSchema`);
     const again = await askGateNode({ ask: "send the invite to Priya", draft: "Which address should I use for Priya?" }, { ctx: { turn }, use: use(["[Mon] @ada: Priya's address is 12 Elm St"]) });
     assert.equal(again.to, "bypass", "asked again after seeing it, the ask is theirs");
   }
