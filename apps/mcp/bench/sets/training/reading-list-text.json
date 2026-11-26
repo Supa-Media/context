@@ -7,6 +7,6 @@
   "setting": "Maya texts Tex over iMessage. Tex has her Context notes across her workspaces.",
   "msgs": [
     {"id":"m1","who":"Maya","text":"can you remind me what's on the kiln guild reading list","labels":{"fd":{"must":["search all her workspaces; find resources/books/mentor-reading-list.md in her own","list the books on it"],"never":["say there is no reading list, or claim a search it never ran","offer another note's further-reading section as the list"],"star":true}}},
-    {"id":"m2","who":"Tex","tex":true,"text":"It's resources/books/mentor-reading-list.md: The Goal, Deep Work, Clay Body Chemistry, Show Your Work, Making Things Last."}
+    {"id":"m2","who":"Tex","tex":true,"text":"it's resources/books/mentor-reading-list.md: The Goal, Deep Work, Clay Body Chemistry, Show Your Work, Making Things Last"}
   ]
 }
