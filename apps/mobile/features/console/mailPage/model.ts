@@ -222,3 +222,28 @@ export function clockLabel(at: string): string {
   const time = Date.parse(at);
   return Number.isNaN(time) ? "" : new Date(time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
+
+/** Monday 00:00 of the week `now` is in, local time: a bot's week starts there, as its budget does. */
+export function weekStart(now: number = Date.now()): number {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  day.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+  return day.getTime();
+}
+
+/**
+ * The share of their weekly usage the agents in this mail said they used this week, added up from each line's
+ * `[used N%]` (Dev2, 2026-11-26: "make sure you log how much usage its used and showing it for sure, this is
+ * crucial"). Null when no agent line this week says one.
+ */
+export function usedThisWeek(events: readonly { readonly from: string; readonly at: string; readonly used: number | null }[], now: number = Date.now()): number | null {
+  const since = weekStart(now);
+  let total: number | null = null;
+  for (const event of events) {
+    if (isPersonName(event.from) || event.used === null) continue;
+    const at = Date.parse(event.at);
+    if (Number.isNaN(at) || at < since) continue;
+    total = (total ?? 0) + event.used;
+  }
+  return total;
+}

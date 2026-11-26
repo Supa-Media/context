@@ -18,7 +18,7 @@ import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { OwnerFace, type Face, type FacePicture } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
-import { avatarOf, botCardOf, clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, type Conversation } from "./model";
+import { avatarOf, botCardOf, clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, usedThisWeek, type Conversation } from "./model";
 
 /** How the page reads a note and writes it back: the app's own note reads and saves (`useMailIO`). */
 export interface MailNoteIO {
@@ -154,6 +154,9 @@ export function MailThread({
 
   const messages = useMemo(() => (read.status === "read" ? read.events.filter((event) => event.kind === "mail") : []), [read]);
   const lines = useMemo(() => messageLines(messages), [messages]);
+  // What the agents here said they used, on every line and added up for this week (Dev2, 2026-11-26: "crucial").
+  const weekUsed = useMemo(() => usedThisWeek(messages), [messages]);
+  const inMailFolder = conversation.place.kind !== "note";
   // Who is in this mail: the names that joined, else whoever wrote; the bot first, the reader last.
   const people = useMemo(() => {
     const names = conversation.joined.length > 0 ? [...conversation.joined] : [...new Set(messages.map((event) => event.from))];
@@ -188,6 +191,14 @@ export function MailThread({
             {listedNames(people.map((name) => sideName(name, me)))}
           </Text>
         </View>
+        {weekUsed !== null ? (
+          <View style={styles.weekUsed} testID="mail-week-used">
+            <Text variant="treeMeta" style={styles.weekUsedNumber}>{`${weekUsed}%`}</Text>
+            <Text variant="treeMeta" style={styles.muted}>
+              used this week
+            </Text>
+          </View>
+        ) : null}
         <Pressable onPress={() => onOpenNote(path)} accessibilityRole="link" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.openNote, hovered && styles.hover]} testID="mail-open-note">
           <Text variant="treeMeta">Open note</Text>
         </Pressable>
@@ -226,8 +237,16 @@ export function MailThread({
                     <Text variant="treeMeta" style={styles.muted}>
                       {clockLabel(event.at)}
                       {event.to && event.to !== "everyone" ? ` · to ${nameOf(event.to)}` : ""}
-                      {event.used !== null ? ` · used ${event.used}%` : ""}
                     </Text>
+                    {event.used !== null ? (
+                      <View style={styles.usage} testID="mail-used">
+                        <Text variant="treeMeta" style={styles.usageWord}>{`used ${event.used}% of its week`}</Text>
+                      </View>
+                    ) : !isPersonName(event.from) && inMailFolder ? (
+                      <View style={[styles.usage, styles.usageMissing]} testID="mail-used-missing">
+                        <Text variant="treeMeta" style={styles.usageMissingWord}>usage not said</Text>
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
                 <Text variant="tree" style={styles.words} selectable>
@@ -312,4 +331,10 @@ const makeStyles = (colors: Colors) =>
     sendOff: { opacity: 0.4 },
     sendWord: { color: colors.ground, fontWeight: "600" },
     problem: { color: colors.warnText },
+    usage: { paddingHorizontal: space.x2, paddingVertical: 1, borderRadius: radii.pill, backgroundColor: colors.chrome },
+    usageWord: { color: colors.text, fontWeight: "600" },
+    usageMissing: { backgroundColor: "transparent", borderWidth: 1, borderColor: colors.line },
+    usageMissingWord: { color: colors.warnText },
+    weekUsed: { alignItems: "flex-end" },
+    weekUsedNumber: { color: colors.text, fontWeight: "700", fontSize: 16 },
   });

@@ -26,6 +26,9 @@ import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { MACHINE_RUN_CLIENT_ID } from "../machineRun.js";
 
+/** A note in a bot's or an area's mail folder, where every agent line says what it used. */
+const MAIL_FOLDER_NOTE = /(^|\/)mail\/[^/]+$/;
+
 const { EVERYONE, MAX_ASK_DEPTH, MAX_PER_PAIR_PER_HOUR, MAX_USED, appendMail, askDepth, describeEntry, mailName, newFor, pairCount, parseMail } = mail;
 
 /** The longest an ask's sender may wait for its answer in one call, in seconds. */
@@ -168,6 +171,12 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
               (names.length ? ` or one of: ${names.join(", ")}` : "")
           );
         }
+      }
+      // In a bot's or an area's mail (`<folder>/mail/<sender>.md`) an agent says what each answer used, every time, so
+      // the week is logged and shown on every line (Dev2, 2026-11-26: "make sure you log how much usage its used and
+      // showing it for sure, this is crucial"). A person's own lines carry none.
+      if (used === null && !from.startsWith("@") && MAIL_FOLDER_NOTE.test(path)) {
+        return toolError(`mail.used is required in this mail: say the share of your weekly usage this work took, a whole percent from 0 to ${MAX_USED} (0 when it took next to none), then send again`);
       }
       const refused = mailGuard({ events, from, to, mailKind, role: store.mailTurn?.role ?? null, now: Date.now() });
       if (refused) return toolError(refused);

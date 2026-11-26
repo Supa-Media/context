@@ -51,7 +51,7 @@ jest.mock("../features/console/files/useWriteNote", () => ({
 import { routeMap } from "../features/console/map/live/route";
 import { routeTrash } from "../features/console/trash/TrashRouteContext";
 import { mailFromQuery, mailTabLabel, routeMail, wantThread, type MailRoute } from "../features/console/mailPage/MailRouteContext";
-import { avatarOf, botCardOf, conversationsOf, groupsFor, messageLines, placeOf, SINCE, type MailNoteRow } from "../features/console/mailPage/model";
+import { avatarOf, botCardOf, conversationsOf, groupsFor, messageLines, placeOf, SINCE, usedThisWeek, type MailNoteRow } from "../features/console/mailPage/model";
 import { withMail } from "../features/console/mailPage/MailThread";
 import { consoleCreateButton } from "../features/console/layout/createButton";
 import { MailPage } from "../features/console/mailPage/MailPage";
@@ -145,6 +145,24 @@ describe("the thread reads Slack style", () => {
     expect(lines[4]!.day).toBe("Today");
   });
 
+  test("what the agents said they used is added up for this week, from Monday, and a person's lines never count", () => {
+    const NOW_WED = Date.parse("2026-11-26T15:00:00.000Z");
+    const line = (iso: string, from: string, used: number | null) => ({ at: iso, from, used });
+    expect(
+      usedThisWeek(
+        [
+          line("2026-11-20T12:00:00.000Z", "grok-bot", 9), // last week
+          line("2026-11-24T12:00:00.000Z", "grok-bot", 2),
+          line("2026-11-25T12:00:00.000Z", "@seyi", 50),
+          line("2026-11-26T12:00:00.000Z", "grok-bot", 3),
+          line("2026-11-26T13:00:00.000Z", "grok-bot", null),
+        ],
+        NOW_WED,
+      ),
+    ).toBe(5);
+    expect(usedThisWeek([line("2026-11-26T12:00:00.000Z", "grok-bot", null)], NOW_WED)).toBeNull();
+  });
+
   test("a bot's logo is read through its card's avatar line, and only a bot's own mail has a card", () => {
     expect(avatarOf("---\nkind: agent\navatar: logo-3f2a.png\n---\n# Grok Bot\n")).toBe("logo-3f2a.png");
     expect(avatarOf("---\navatar: \"logo.png\"\n---\n")).toBe("logo.png");
@@ -223,6 +241,8 @@ describe("the page", () => {
     expect(strip(one("mail-thread").textContent)).not.toContain("areas/finance/mail/seyi.md");
     expect(strip(one("mail-people").textContent)).toContain("You");
     expect(strip(one("mail-open-note").textContent)).toBe("Open note");
+    // What the bot said it used is on its line, and this week's total is in the head (Dev2, 2026-11-26: "crucial").
+    expect(strip(one("mail-used").textContent)).toBe("used 2% of its week");
     const input = one("mail-input") as HTMLTextAreaElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Thanks!");
