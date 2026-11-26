@@ -19,6 +19,8 @@
  * Records 1, 2, 3, 5, 6 and 7 tested `addressesTex` and `decideBeside`, both
  * deleted on 2026-11-11.
  * 10. (2026-11-11) `judgeDownAnswer` without `callsTex` → "judge down: ... \"Tex make a poster\"" fails.
+ * 11. (2026-11-26) `groupTurn` dropping the tapback that went instead of keeping it as Tex's line → "a quiet answer
+ *     with the classifier's react…" fails.
  */
 
 import { describe, expect, it, vi, afterEach } from "vitest";
@@ -26,6 +28,7 @@ import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { answerAll, fakeJudge, LINES, setup, silent } from "./groupWorld.testing";
 import { SENT_KEY } from "./groupSay";
+import { recentEvents } from "./events";
 
 const answers = (texts: string[]) => texts.filter((text) => text.startsWith("answer to"));
 const logged = (logs: ReturnType<typeof vi.spyOn>) => logs.mock.calls.flat().join("\n");
@@ -173,6 +176,9 @@ for (const { name, groupId } of LINES) {
       expect(w.texts).toEqual([]);
       expect(w.reactions.at(-1)).toBe("🎉");
       expect(logged(logs)).toContain('"outcome":"reacted"');
+      // Kept as Tex's line, so the next turn reads what went (a sticker as "sticker s…", `stickers.ts` `stickerWords`).
+      const mine = [...w.posted(), ...(await recentEvents(storage, groupId))].filter((event) => event.from.kind === "tex");
+      expect(mine.at(-1)).toMatchObject({ kind: "reaction", text: "🎉", delivered: true });
     });
 
     it("an answer the classifier placed plain goes straight into the chat; any other goes under the message", async () => {
