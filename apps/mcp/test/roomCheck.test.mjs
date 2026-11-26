@@ -11,11 +11,13 @@
  *   (i)   roomCheck.js `roomVerdict`: the `pointedAt` skip removed. "an ask that points at the workspace is never held" fails.
  *   (ii)  roomCheck.js `roomVerdict`: `!seen.has(token)` removed. "names the room already said don't count" fails.
  *   (iii) answerCheck.js `letGo`: the room check skipped. "a held draft goes back with the facts" fails.
+ *   (iv)  roomCheck.js `wrap`: the `hitsBySlug` loop removed. "a search that names no closed workspace still keeps its hits" fails.
+ *   (v)   roomCheck.js `ARG_KEYS`: "id" removed. "a read by an @slug/ id is kept" fails.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { MAX_CALL_CHARS, cantOpen, heldFacts, pointedAt, roomReads, roomSlugs, roomVerdict, slugsCalled, tokensOf } from "../../../packages/tex/gateway/agent/roomCheck.js";
+import { MAX_CALL_CHARS, cantOpen, heldFacts, hitsBySlug, pointedAt, roomReads, roomSlugs, roomVerdict, slugsCalled, tokensOf } from "../../../packages/tex/gateway/agent/roomCheck.js";
 import { roomCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/roomCheck.js";
 import { answerCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js";
 import { holdForAsker } from "../../../packages/tex/gateway/agent/privateAside.js";
@@ -75,6 +77,45 @@ test("only what a call read from a closed workspace is kept, and an error keeps 
   await call("read", { context: "@events-team", path: "inbox/meetings/a.md" });
   assert.deepEqual(reads.slugs(), ["events-team"]);
   assert.match(reads.text("events-team"), /Field Day/);
+});
+
+// Audit, 2026-11-26: a search runs in every workspace the person reaches whatever `context` it names, so a search with
+// none, or naming the chat's home, came back with a closed workspace's hits and kept nothing for the check.
+const HITS = `2 matching notes
+
+tex/groups/x/notes/plans.md
+    Picnic at noon
+
+@events-team/inbox/meetings/a.md
+    ${MEETING.split("\n").join("\n    ")}
+
+A path that starts with @name/ is in that workspace: pass context: "@name" with its path to read_note.
+
+Searched: @context-lc, @events-team.`;
+
+test("a search that names no closed workspace still keeps its hits from one", async () => {
+  for (const args of [{ query: "action items" }, { query: "action items", context: "@context-lc" }]) {
+    const reads = roomReads(GROUP);
+    await reads.wrap(async () => ok(HITS))("search", args);
+    assert.deepEqual(reads.slugs(), ["events-team"], JSON.stringify(args));
+    assert.match(reads.text("events-team"), /Field Day/);
+    assert.doesNotMatch(reads.text("events-team"), /Picnic/, "the home's own hit is not counted as the closed workspace's");
+    assert.ok(roomVerdict({ draft: TAKEAWAYS, reads, group: GROUP, question: "@tex summarize the action items for them" }), "and its takeaways are held");
+  }
+});
+
+test("a read by an @slug/ id is kept", async () => {
+  for (const args of [{ id: "@events-team/inbox/meetings/a.md" }, { ids: ["@events-team/n1"] }]) {
+    const reads = roomReads(GROUP);
+    await reads.wrap(async () => ok(MEETING))("fetch", args);
+    assert.deepEqual(reads.slugs(), ["events-team"], JSON.stringify(args));
+  }
+});
+
+test("hits are split by the workspace each names", () => {
+  const hits = hitsBySlug(HITS);
+  assert.deepEqual([...hits.keys()], ["events-team"]);
+  assert.doesNotMatch(hits.get("events-team"), /Searched:|Picnic/);
 });
 
 test("a draft carrying a closed meeting's names and figures is held, with who can't open it", () => {
