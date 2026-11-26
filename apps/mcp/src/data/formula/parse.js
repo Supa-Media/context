@@ -10,6 +10,8 @@
  *   ref     := source "/" dataset "." column  |  column
  *   where   := "where" cond ("and" cond)*
  *   cond    := column ("=" | "≠" | "!=") value   value: a bare word or words, a number, or quoted text
+ *            | colexpr ("<" | "≤" | "<=" | ">" | "≥" | ">=") ["-"] NUMBER   per row, in the expression's
+ *              units (a date minus a date is minutes): `where deployed - opened < 1440` keeps the rows under a day
  *
  * A column is the sheet's header name, written as words (`lines added`) or in
  * quotes (`"time (ms)"`); `lines_added`, `Lines Added` and `lines added` all
@@ -22,7 +24,9 @@
  * (op `+ - * /`), `{ type: "agg", fn, source, dataset, expr, where }` (a
  * `count(distinct …)` carries `distinct: true`, and no other node has the key),
  * `{ type: "ref", source, dataset, column }`, and where conditions
- * `{ column, op: "=" | "!=", value }`.
+ * `{ column, op: "=" | "!=", value }`, or a comparison
+ * `{ column, expr, op: "<" | "<=" | ">" | ">=", value }` whose `column` is the expression read as words and
+ * `value` a number.
  *
  * A formula is someone's text run on every reader's data, so it is bounded:
  * 2 KB, 8 aggregates, 32 parts, 16 brackets deep, and `__proto__`,
@@ -30,7 +34,7 @@
  */
 
 import { lex } from "./lex.js";
-import { toText } from "./render.js";
+import { exprWords, toText } from "./render.js";
 
 export const FUNCTIONS = Object.freeze(["sum", "count", "average", "median", "p90", "p95", "min", "max"]);
 export const MAX_FORMULA_BYTES = 2048;
@@ -40,7 +44,8 @@ export const MAX_DEPTH = 16;
 
 const FUNCTION_SET = new Set(FUNCTIONS);
 const RESERVED = new Set(["__proto__", "constructor", "prototype"]);
-const SHOW = new Map([["+", "+"], ["-", "−"], ["*", "×"], ["/", "÷"], ["!=", "≠"]]);
+const SHOW = new Map([["+", "+"], ["-", "−"], ["*", "×"], ["/", "÷"], ["!=", "≠"], ["<=", "≤"], [">=", "≥"]]);
+const COMPARE = new Set(["<", "<=", ">", ">="]);
 
 /** The name a column is matched by: case, underscores and runs of spaces do not matter. */
 export function columnKey(name) {
@@ -273,13 +278,15 @@ class Parser {
   }
 
   condition() {
+    const start = this.i;
     const column = this.columnName(false);
-    if (!column.name) throw new Refusal(`After "where", name a column.`, column.at);
-    this.checkName(column.name, column.at, "column");
     const op = this.peek();
     if (!isOp(op, "=") && !isOp(op, "!=")) {
-      throw new Refusal(op ? `expected = or ≠ after ${column.name}, not "${shown(op)}".` : `expected = or ≠ after ${column.name}.`, op?.at ?? this.length);
+      this.i = start;
+      return this.comparison();
     }
+    if (!column.name) throw new Refusal(`After "where", name a column.`, column.at);
+    this.checkName(column.name, column.at, "column");
     this.next();
     const first = this.peek();
     let value;
@@ -291,5 +298,24 @@ class Parser {
       if (!value) throw new Refusal(`After "${column.name} ${SHOW.get(op.value) ?? op.value}", give a value.`, first?.at ?? this.length);
     }
     return this.node({ column: column.name, op: op.value, value }, column.at);
+  }
+
+  /** A per-row expression of the aggregate's own dataset against a number: `deployed - opened < 1440`. */
+  comparison() {
+    const at = this.peek()?.at ?? this.length;
+    if (!this.peek() || isOp(this.peek(), ")")) throw new Refusal(`After "where", name a column.`, at);
+    const expr = this.formula(true);
+    const op = this.peek();
+    if (op?.type !== "op" || !COMPARE.has(op.value)) {
+      const what = expr.type === "ref" ? expr.column : "that";
+      throw new Refusal(op ? `expected =, ≠, <, ≤, > or ≥ after ${what}, not "${shown(op)}".` : `expected =, ≠, <, ≤, > or ≥ after ${what}.`, op?.at ?? this.length);
+    }
+    this.next();
+    const minus = isOp(this.peek(), "-");
+    if (minus) this.next();
+    const number = this.peek();
+    if (number?.type !== "num") throw new Refusal(`After "${SHOW.get(op.value) ?? op.value}", give a number.`, number?.at ?? this.length);
+    this.next();
+    return this.node({ column: exprWords(expr), expr, op: op.value, value: minus ? -number.value : number.value }, at);
   }
 }

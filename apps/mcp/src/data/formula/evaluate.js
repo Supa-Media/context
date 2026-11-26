@@ -170,7 +170,11 @@ function evalAggregate(node, env) {
   const placeBy = env.whole ? null : env.on ? columnIn(sheet, env.on, where) : sheet.firstDate;
   if (!env.whole && !placeBy) throw new Stop(`${where} has no date column to place its rows in time`);
   const columns = new Map(refsIn(node.expr).map((ref) => [ref, columnIn(sheet, ref.column, where)]));
-  const conds = (node.where ?? []).map((cond) => ({ column: columnIn(sheet, cond.column, where), op: cond.op, value: String(cond.value) }));
+  const conds = (node.where ?? []).map((cond) => {
+    if (!cond.expr) return { column: columnIn(sheet, cond.column, where), op: cond.op, value: String(cond.value) };
+    for (const ref of refsIn(cond.expr)) columns.set(ref, columnIn(sheet, ref.column, where));
+    return { expr: cond.expr, op: cond.op, value: Number(cond.value) };
+  });
   // Picking rows by a column nobody has filled in yet (a sign-up's channel before it was recorded) says
   // nothing: no data, never a 0 that reads as a real count.
   if (conds.some((c) => c.op === "=" && !sheet.rows.some((row) => cell(row, c.column).trim() !== ""))) return null;
@@ -193,7 +197,7 @@ function evalAggregate(node, env) {
       const t = dateMs(cell(row, placeBy));
       if (Number.isNaN(t) || t < from || (current ? t > to : t >= to)) continue;
     }
-    if (!conds.every((c) => sameValue(cell(row, c.column), c.value) === (c.op === "="))) continue;
+    if (!conds.every((c) => (c.expr ? compares(rowValue(c.expr, row, columns), c.op, c.value) : sameValue(cell(row, c.column), c.value) === (c.op === "=")))) continue;
     if (seen !== null) {
       const v = node.expr.type === "ref" ? cell(row, columns.get(node.expr)).trim() : rowValue(node.expr, row, columns);
       if (v === EMPTY || v === "") continue;
@@ -213,6 +217,13 @@ function evalAggregate(node, env) {
     values.push(v);
   }
   return aggregate(node.fn, values, seen !== null ? seen.size : count);
+}
+
+/** A comparison condition: a row whose value is empty is left out, and a bare date is a mistake. */
+function compares(value, op, limit) {
+  if (value === EMPTY) return false;
+  if (typeof value === "object") throw new Stop(`${value.column} is a date: subtract another date from it to get minutes`);
+  return op === "<" ? value < limit : op === "<=" ? value <= limit : op === ">" ? value > limit : value >= limit;
 }
 
 function sameValue(text, want) {

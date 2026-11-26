@@ -58,9 +58,13 @@ function rowText(node, state) {
   return binary(node, (child) => rowText(child, state));
 }
 
+const COMPARE_SIGN = new Map([["<", "<"], ["<=", "≤"], [">", ">"], [">=", "≥"]]);
+const COMPARE_READ = new Map([["<", "under"], ["<=", "at most"], [">", "over"], [">=", "at least"]]);
+
 function whereText(where, read) {
   if (!where?.length) return "";
   const conds = where.map((c) => {
+    if (c.expr) return `${read ? readRow(c.expr) : rowText(c.expr, { full: true })} ${(read ? COMPARE_READ : COMPARE_SIGN).get(c.op)} ${numberText(c.value)}`;
     const op = c.op === "=" ? (read ? "is" : "=") : read ? "is not" : "≠";
     const value = read ? c.value : c.value === "" ? '""' : words(c.value, { numberFirst: true });
     return `${read ? c.column : words(c.column, { numberFirst: false })} ${op} ${value}`;
@@ -82,6 +86,11 @@ function readRow(node) {
   if (node.type === "number") return numberText(node.value);
   if (node.type === "ref") return node.column;
   return binary(node, readRow);
+}
+
+/** A per-row expression as words, its columns bare: a comparison's `column`. */
+export function exprWords(node) {
+  return readRow(node);
 }
 
 /** "Sum of usd in stripe/revenue ÷ sum of usd in cloudflare/ai-spend, each month". */
