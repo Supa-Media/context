@@ -117,7 +117,13 @@ keeps its notes there and knows what its modes ask of it.
   `x-context-signature: v1=<HMAC-SHA256(key, "<timestamp>.<body>")>`, and its body
   is the workspace, the bot, the area, the note's path and who wrote it. The bot reads
   the message and answers through its own Context connection, at its own
-  clearance, so the control plane never carries a note's body. A call is
+  clearance, so the control plane never carries a note's body. Every call also
+  carries `instructions`, fixed wording built from those fields: the `fetch`
+  that reads the note and the `write { action: "mail" }` that answers in it,
+  and never only in the bot's own app chat. A Grok bot whose webhook started a
+  chat in its own app answered there, where nobody looked (Dev, 2026-11-26:
+  "why are the bots responding here instead of in mail?";
+  `packages/shared/src/botHooks.cjs`, `apps/convex/__tests__/botHooks.test.ts`). A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.
 - **Everything the panel sets, an agent sets too** (the owner, 2026-11-25:
