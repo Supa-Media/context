@@ -15,6 +15,7 @@ import { callSandbox } from "./object.js";
 import { READ_TOOLS, toolSummary } from "../fromGateway/labSandbox_policy.js";
 import { fitSteps, stepBook } from "./steps.js";
 import { askOf, SANDBOX_EVENT_CHAT } from "./inbound.js";
+import { THREADS_SUFFIX } from "../fromGateway/agent_threadsFold.js";
 
 export { SANDBOX_EVENT_CHAT };
 /** A turn that has not answered by then is stopped and said so on its row. */
@@ -140,14 +141,17 @@ export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Dat
     async kvList(obj, prefix) {
       return (await call("kv.list", { obj, prefix })).keys ?? [];
     },
+    // The test chat's ledger, and its conversation threads' beside it: both the test chat's own, copied as they stood at
+    // the text it starts at (`realChat.js`), so a turn never reads threads summed up from texts after it.
     ledger(obj, chat) {
-      if (!ours(obj) || chat !== about.ledgerChat) return null;
+      const threads = chat === `${about.ledgerChat}${THREADS_SUFFIX}`;
+      if (!ours(obj) || (chat !== about.ledgerChat && !threads)) return null;
       return {
         read: (options) => call("ledger.read", { chat, options }),
         oldest: async () => (await call("ledger.oldest", { chat })).oldest ?? null,
         append: (entries) => {
-          logged(entries);
-          return call("ledger.append", { entries, by: rowId });
+          if (!threads) logged(entries);
+          return call("ledger.append", { entries, by: rowId, ...(threads ? { threads: true } : {}) });
         },
       };
     },
