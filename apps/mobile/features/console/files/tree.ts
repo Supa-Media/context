@@ -37,7 +37,7 @@
  */
 
 import { listingSortOf, sortEntries, type ListingSort } from "@context/shared/src/listingSort.cjs";
-import { aboutNoteName, baseName, displayName, isMarkdown, isUnlistedFile, parentPath } from "./paths";
+import { aboutNoteName, baseName, displayName, isUnlistedFile, opensAsDocument, parentPath } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
 export interface TreeRow {
@@ -473,7 +473,7 @@ export function targetFolder(
     folder a new note lands in cannot disagree.
   */
   const entry = findEntry(listings, selectedPath);
-  const isFolder = entry === null ? !isMarkdown(selectedPath) : entry.kind === "folder";
+  const isFolder = entry === null ? !opensAsDocument(selectedPath) : entry.kind === "folder";
   if (isFolder) return selectedPath;
   const slash = selectedPath.lastIndexOf("/");
   return slash < 0 ? "" : selectedPath.slice(0, slash);
