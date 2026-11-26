@@ -58,6 +58,11 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
   turn never starts another (its own refusal goes as the old line), so nothing loops. **"Stop" and the once-per-mute
   reply stay fixed lines**: a muted chat runs no model by design (its grant is refused, `liveGrants.ts`), so the
   mute holds even with every model down. Test: `packages/tex/worker/groupDid.test.ts`.
+- **A job's ending** (B3): a job that failed, paused, was turned down or missed a late change reports how it ended as
+  facts (`jobs.ts` `JobEnd`, `{ action: "job", status, why?, ... }`) beside its own texts, never a line the Worker
+  wrote; the chat's turn and its reply judge see them as data (`jobReport.js`). The outage line
+  (`jobReportRefused`) still goes when the report's turn cannot run. A computer's refusals come next. Tests:
+  `packages/tex/worker/jobEnd.test.ts`, `apps/mcp/test/texDid.test.mjs`.
 - **People with no account yet** get texts Tex writes too (Dev2, 2026-11-25: Context is free, so nothing is billed);
   a per-number daily cap only keeps a spam number from running up model calls.
 

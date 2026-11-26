@@ -403,6 +403,7 @@ describe("a part on a computer while Context is briefly unreachable (2026-11-06)
     const last = reports.at(-1)!;
     expect(last.state).toBe("failed");
     expect(last.status).toBe("Stopped: Context didn't answer 3 times in a row (error 503)");
-    expect(last.texts).toEqual([`I couldn't finish "Fix the flaky test": Context didn't answer 3 times in a row (error 503). Text me if you want me to try again.`]);
+    expect(last.texts).toEqual([]);
+    expect(last.end).toEqual({ action: "job", status: "failed", why: "Context didn't answer 3 times in a row (error 503)" });
   });
 });
