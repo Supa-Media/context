@@ -487,7 +487,8 @@ const PERSON_SYSTEM =
   "You are playing a person texting their notes assistant, in a test. Reply as that person would text: short and plain. " +
   "Follow the brief exactly. Answer only what the assistant asked, using the brief's lines; never volunteer new requests. " +
   "An instruction to open a link, sign in, save something or text back counts as being asked. " +
-  "If the assistant has finished and asks nothing, or the brief has nothing for what it asked, reply with exactly DONE.";
+  "If the assistant has finished and asks nothing, or the brief has nothing for what it asked, reply with exactly DONE. " +
+  "Write only the text you send: never your reasoning about the brief.";
 
 /**
  * The person's next text, or null when they have nothing more to say.
@@ -510,5 +511,15 @@ export async function playPerson(who, brief, conversation) {
   if (!response.ok) throw new Error(`played person status ${response.status}`);
   const body = await response.json();
   const text = (body.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-  return text === "" || text === "DONE" ? null : text;
+  return personText(text);
+}
+
+/**
+ * The played person's reply as a text, or null for DONE. A reply that reasons about the brief before its DONE (gh-216,
+ * 2026-11-26: "...the brief has no further lines. So per the instructions, reply with exactly DONE. DONE") is DONE too:
+ * that reasoning was never a text the person would send.
+ */
+export function personText(text) {
+  const said = String(text ?? "").trim();
+  return said === "" || /\bDONE[.!]?$/.test(said) ? null : said;
 }
