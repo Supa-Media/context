@@ -94,6 +94,8 @@ export function createControlPlaneStub(options = {}) {
     /** Who may send email (several: `emailSenders`), or a refusal for every send (`email.mjs`). */
     emailSender: null,
     emailSenders: null,
+    /** A send-as address → the mailbox it is accepted on (`email.mjs`). */
+    emailSendAs: null,
     emailRefusal: null,
     /** Which calendar may be changed, or a refusal for every change (`calendar.mjs`). */
     calendarAddress: null,
