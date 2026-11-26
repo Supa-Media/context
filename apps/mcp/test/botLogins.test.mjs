@@ -6,7 +6,8 @@
  * ## Sabotage record
  *
  * Signing a bound login's line with its app's name again failed "a bound login's mail is signed by its bot". Dropping
- * the card check from the join failed "another connection can't join under a bot's name".
+ * the card check from the join failed "another connection can't join under a bot's name". Letting an unnamed card be
+ * bound by anybody (2026-11-26) failed "bind_bot is refused on a card that names nobody".
  */
 
 import assert from "node:assert/strict";
@@ -23,9 +24,9 @@ import { withServedTree } from "./servedTree.mjs";
 const RULES = [{ prefix: "areas", vis: "team" }, { prefix: "bots", vis: "team" }];
 const CARD = "---\nholder: Grok Bot\nkind: agent\nbot: grok\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n\n# Grok Bot\n";
 
-async function world(actor) {
+async function world(actor, card = CARD) {
   const base = createMemoryStore();
-  await base.put("bots/grok-bot/about.md", CARD);
+  await base.put("bots/grok-bot/about.md", card);
   await base.put("bots/grok-bot/mail/seyi.md", "# Mail with Grok Bot\n");
   const store = withPrivacyAuthority(withServedTree(base), {
     rules: { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "areas", visibility: "team" }, { prefix: "bots", visibility: "team" }], notes: [] },
@@ -74,6 +75,22 @@ test("bind_bot is refused for a bot with no card, or one that is somebody else's
   assert.equal(theirs.isError, true);
   assert.match(said(theirs), /@seyi's bot/);
   assert.deepEqual([...none.calls, ...other.calls], []);
+});
+
+// A card that names nobody left `whose` empty, and the check short-circuits on that, so any connection that could see
+// the card bound itself as the bot: its mail is then signed by the bot, its reads say the bot, and its answer marks the
+// bot answering. Binding is an identity, so an unnamed card is an owner's to bind.
+test("bind_bot is refused on a card that names nobody, unless an owner's connection asks", async () => {
+  const unnamed = "---\nholder: Grok Bot\nkind: agent\nbot: grok\nreach: webhook\n---\n\n# Grok Bot\n";
+  const anyone = await world({ role: "editor", name: "@kim" }, unnamed);
+  const tried = await toolSetArea(anyone.store, "team", RULES, new PrivacyOverrides(), { bind_bot: "Grok Bot" });
+  assert.equal(tried.isError, true, said(tried));
+  assert.match(said(tried), /names nobody/);
+  assert.deepEqual(anyone.calls, [], "nothing is bound");
+  const owner = await world({ role: "owner", name: "@seyi" }, unnamed);
+  const bound = await toolSetArea(owner.store, "team", RULES, new PrivacyOverrides(), { bind_bot: "Grok Bot" });
+  assert.equal(bound.isError, undefined, said(bound));
+  assert.deepEqual(owner.calls, [{ action: "bind", bot: "grok-bot", name: "Grok Bot" }]);
 });
 
 test("a bound login's mail is signed by its bot, and tells the control plane it answered", async () => {
