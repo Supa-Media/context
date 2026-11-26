@@ -36,13 +36,7 @@ export function routeMail(
   me?: string,
 ): MailRoute {
   const openMail = () =>
-    router.setParams({
-      mail: "1",
-      map: undefined,
-      trash: undefined,
-      settings: undefined,
-      vault: undefined,
-    });
+    router.setParams({ mail: "1", map: undefined, trash: undefined, settings: undefined, vault: undefined });
   const closeMail = () => router.setParams({ mail: undefined });
   return {
     open,
