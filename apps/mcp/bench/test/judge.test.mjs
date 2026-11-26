@@ -465,6 +465,40 @@ test("the test's every_answer lines reach the judge as trailing judge lines on e
   }
 });
 
+test("a busy judge (429) is waited out and asked again; a 400 is not retried", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const good = judging(allPass);
+    let calls = 0;
+    const waits = [];
+    const busy = async (body) => {
+      calls += 1;
+      if (calls === 1) return json({ error: { message: "Number of concurrent requests has exceeded your limit" } }, 429);
+      return good(body);
+    };
+    busy.route = "fake";
+    busy.wait = async (ms) => { waits.push(ms); };
+    const result = await judgeFile({ votes: 1, path, dir, send: busy, concurrency: 1, date: "2026-10-09" });
+    assert.equal(result.judged, 4, "every answer judged after the wait");
+    assert.equal(calls, 3, "the busy question asked twice");
+    assert.equal(waits.length, 1, "one wait before the second try");
+
+    const { dir: dir2, path: path2, cleanup: cleanup2 } = await folder();
+    try {
+      let tries = 0;
+      const bad = async () => { tries += 1; return json({ error: { message: "bad request" } }, 400); };
+      bad.route = "fake";
+      bad.wait = async () => {};
+      await assert.rejects(judgeFile({ votes: 1, path: path2, dir: dir2, send: bad, concurrency: 1 }), /status 400/);
+      assert.equal(tries, 1, "a 400 is not asked again");
+    } finally {
+      await cleanup2();
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
 test("a reply that is not JSON is asked for again, and given up on after three tries", async () => {
   const { dir, path, cleanup } = await folder();
   try {
