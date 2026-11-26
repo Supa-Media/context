@@ -210,6 +210,12 @@ export async function runTheModel(t, via) {
   // a job's report brings what its job read there, its words as what was read.
   t.roomReads = group !== null ? roomReads(group) : null;
   if (t.roomReads !== null && report !== null && Array.isArray(report.roomRead)) t.roomReads.add(report.roomRead, report.texts);
+  // A group's progress line is read by the Room check before it goes, when the config wires it (`graph/nodes/roomCheck.js`).
+  if (t.roomReads !== null && typeof via?.roomCheck === "function" && typeof channel?.holdWith === "function") channel.holdWith(async (text) => {
+    t.roomProgress = text;
+    const out = await tex.step("room_check_progress", () => via.roomCheck({ at: "progress", draftChars: text.length }), null).catch(() => null);
+    return out?.to === "hold" ? t.roomNotice : null;
+  });
   const crossTools = crossWired ? [crossAskTool({ event: t.crossChat ?? null, group, groups: t.groups ?? null, counts: crossCountsOf(body.crossCounts), ledger, gate: (input) => drawn.fire("tools", "crossChatGate", input, { env }), identity: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }), postInChatTool({ event: t.crossChat ?? null, group, ledger })].filter(Boolean) : [];
   // The group's prompt says to ask a person's own Tex only when ask_chat is offered: a chat with guests has none
   // (`crossAskTool`), and telling it to ask got "ask_chat isn't available on this turn" (Tex Devs, 2026-11-24).
@@ -288,8 +294,6 @@ export async function runTheModel(t, via) {
     // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
     // per-call scope refusal. An agent that reached past it would be a second, untested authority.
     onModel: (model) => void (store.usageModel = model),
-    // A group turn's tool start goes down the stream as a step line: the Worker taps the asked message once on the first (`groupModelTurn.ts`).
-    ...(group !== null && job === null && typeof step === "function" ? { onToolStart: (name) => void Promise.resolve(step(name)).catch(() => {}) } : {}),
     answerCheck: t.answerChecks === null ? null : withJobDrafts(job, step, via.answerCheck), silences: judge?.silences ?? null,endsTurn: eitherEnds(background?.endsTurn ?? null, tapping?.endsTurn ?? null), sayNothing: job === null, mustAnswer: group?.tagged === true, scheduled: runner === true, roundNote: background?.roundNote ?? null, // a job's start answers at once (`background.js`); a routine's run may say nothing too, as its prompt tells it (`routine.js`; 2026-11-07: offered none, it texted why)
     // Each draft is checked by the nodes the config wires after the front door (`../graph/draftBridge.js`): Answer checks, then the Reply reviewer.
     // A job's turn streams each draft first, so a part that dies in its checks hands it on (`jobSaved.js`).
