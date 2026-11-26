@@ -27,7 +27,10 @@ who to ask and what is not covered. No new concept: an area is the seat.
 - **The page.** The Areas folder and every area in it offers **List** (the
   default, an outline of areas with their notes, sheets and plain folders) and
   **Chart** (the open area on top, its sub-areas below), remembered per
-  viewer like a projects folder's List and Board. A right-click or ⋯ on a row
+  viewer like a projects folder's List and Board. Which areas a viewer has
+  unfolded is remembered too, per viewer, workspace, folder and view, List
+  and Chart apart (the owner, 2026-11-26: "dont want to have to keep
+  reopening"; `areas/foldMemory.ts`, `areasList.test.ts`). A right-click or ⋯ on a row
   or box opens the seat menu; Edit seat opens the pop-up that writes the
   lines; Add a sub-area writes a new folder's `about.md`.
 - **Both views draw the approved prototype, not an approximation of it**
@@ -107,6 +110,19 @@ who to ask and what is not covered. No new concept: an area is the seat.
   2026-11-24 rows above where they differ. `areaVerdict.test.ts` fails if a
   verdict's direction, equality or pace arithmetic changes;
   `areasList.test.ts` if a count or trend comes back onto a row.
+- **Every Chart box names its metric, and colour is the verdict** (the
+  owner, 2026-11-26, pinned on the Chart: "why the heck would we show 7 of
+  50", "metric names need time?", "no need to show under target? colors
+  already do that"). Every box, a sub-area's included, says its metric's
+  name over its value; the time the number covers follows the name
+  ("New actives · this week") unless the name already says it ("Weekly
+  deploys", `periodBeside` in `headline.ts`), which brings the time-range
+  tag back onto the boxes. The verdict's words left the boxes: the value's
+  colour says it, and the words stay on the hover tip and in what a screen
+  reader hears. A sub-area with sub-areas of its own folds them under the
+  same "inside" line, as deep as the tree goes. `areasList.test.ts` fails if
+  a sub-area's box loses its metric's name, the words come back, or a
+  deeper fold stops opening.
 - **Projects where the verdict words were** (the owner, 2026-11-26, after a
   cofounder preferred the live page to a reworked mock: "instead of exceeds
   targets etc, just show x projects", in "the green and yellow colors"). A

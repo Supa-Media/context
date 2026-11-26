@@ -13,17 +13,20 @@
  *
  * Trimmed for people who do not live in the numbers (the owner, 2026-11-26,
  * the simplified Areas page): an area's box says its owner's face and name,
- * who holds it, and its one metric (its name, the value with the goal in
- * words, and one verdict from `verdict.ts` in words and a mark). Its
- * sub-areas are folded on every screen under an "6 inside · 1 needs a look"
- * line; open, each is a compact box with its name and value. The trend, how
+ * who holds it, and its one metric: its name with the time it covers, and
+ * the value with the goal in words, the value coloured by the verdict from
+ * `verdict.ts`, whose words are on its hover tip and read to a screen reader
+ * (the owner, 2026-11-26: "colors already do that"). Its sub-areas are folded
+ * on every screen under an "6 inside · 1 needs a look" line; open, each is a
+ * compact box with its name, its metric's name and its value, and one with
+ * sub-areas of its own folds them the same way (the owner, 2026-11-26). The trend, how
  * the area is run, its projects and its notes are in the side panel. An empty seat is a dashed box
  * with Assign owner. A box opens its area; the top box, a ⋯ and a right-click
  * open the seat options. The page keeps the data; this file only draws it,
  * so it takes every lookup and action as a prop.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Path, Svg } from "react-native-svg";
 import { Icon } from "../../../../design/components/Icon";
@@ -34,10 +37,12 @@ import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
 import type { Reading } from "./readings";
-import { headlineOf, type Headline } from "./headline";
-import { VerdictMark } from "./AreaMetricCell";
+import { headlineOf, periodBeside, type Headline } from "./headline";
+import { metricTip } from "./AreaMetricCell";
+import { useHoverTitle } from "../../../../design/useHoverTitle";
 import { areaTitle, needLook, type AreaNode, type Seat } from "./seat";
 import type { AreaProjects } from "./areaProjects";
+import { useFolds, type FoldHome } from "./foldMemory";
 
 export interface AreasChartProps {
   /** Rooted at the open folder. */
@@ -65,6 +70,8 @@ export interface AreasChartProps {
   onAssign: ((seat: Seat) => void) | null;
   /** The projects that serve an area or its sub-areas; absent where the Projects folder is not read. */
   projectsOf?: (folder: string) => AreasProjectsCount;
+  /** Where the folds are kept for this viewer (`foldMemory.ts`); absent, they last while the page is open. */
+  remember?: FoldHome;
 }
 
 type AreasProjectsCount = Pick<AreaProjects, "inProgress">;
@@ -98,15 +105,9 @@ const SUB_ELBOW = 17;
 export function AreasChart(props: AreasChartProps) {
   const { tree, rootTitle, compact } = props;
   const styles = useThemedStyles(makeStyles);
-  // Every area's sub-areas start folded, on a wide screen as on a phone (the owner, 2026-11-26).
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const toggle = (folder: string) =>
-    setOpen((previous) => {
-      const next = new Set(previous);
-      if (next.has(folder)) next.delete(folder);
-      else next.add(folder);
-      return next;
-    });
+  // Every area's sub-areas start folded, on a wide screen as on a phone (the owner, 2026-11-26),
+  // and what a viewer unfolds is kept for them (the owner, 2026-11-26).
+  const [open, toggle] = useFolds(props.remember === undefined ? undefined : { ...props.remember, view: "chart" });
   const ctx: Ctx = { ...props, onArea: props.onArea ?? props.onOpen, isOpen: (folder) => open.has(folder), toggle };
   return (
     <View style={styles.chart} testID="areas-chart">
@@ -142,13 +143,7 @@ function OrgChart({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string;
               {tree.areas.map((child, at) => (
                 <Column key={child.seat.folder} at={at} of={columns}>
                   <AreaBox node={child} level={1} ctx={ctx} fold={child.areas.length > 0 ? { open: ctx.isOpen(child.seat.folder), toggle: () => ctx.toggle(child.seat.folder) } : undefined} />
-                  {(ctx.isOpen(child.seat.folder) ? child.areas : []).map((grand, index) => (
-                    <View key={grand.seat.folder} style={styles.sub}>
-                      <View style={[styles.subSpine, index === child.areas.length - 1 ? styles.subSpineLast : styles.subSpineOn]} testID="area-line" />
-                      <View style={styles.subElbow} />
-                      <SubBox node={grand} ctx={ctx} />
-                    </View>
-                  ))}
+                  <SubBranches node={child} ctx={ctx} />
                 </Column>
               ))}
               {ctx.onAdd === null ? null : (
@@ -168,6 +163,24 @@ function OrgChart({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string;
         </>
       )}
     </View>
+  );
+}
+
+/** A box's sub-areas while it is unfolded, each on the spine under it, and theirs under them in turn. */
+function SubBranches({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
+  const styles = useThemedStyles(makeStyles);
+  if (!ctx.isOpen(node.seat.folder)) return null;
+  return (
+    <>
+      {node.areas.map((sub, index) => (
+        <View key={sub.seat.folder} style={styles.sub}>
+          <View style={[styles.subSpine, index === node.areas.length - 1 ? styles.subSpineLast : styles.subSpineOn]} testID="area-line" />
+          <View style={styles.subElbow} />
+          <SubBox node={sub} ctx={ctx} fold={sub.areas.length > 0 ? { open: ctx.isOpen(sub.seat.folder), toggle: () => ctx.toggle(sub.seat.folder) } : undefined} />
+          <SubBranches node={sub} ctx={ctx} />
+        </View>
+      ))}
+    </>
   );
 }
 
@@ -384,44 +397,77 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
   );
 }
 
-/** An area box's metric: its name, the value with the goal in words, then the verdict in words and a mark. */
-function BoxMetric({ headline }: { headline: Headline }) {
+/** A metric's name, with the time it covers unless the name says it: "New actives · this week". */
+function MetricName({ headline, style }: { headline: Headline; style: object }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
+  const period = periodBeside(headline);
   return (
-    <View style={styles.boxMetric} testID="area-metric" {...hoverTitle(headline.date)}>
-      <Text variant="treeMeta" style={styles.small} numberOfLines={2}>
-        {headline.label}
+    <Text variant="treeMeta" style={[styles.small, style]} numberOfLines={1} testID="area-metric-name">
+      {headline.label}
+      {period === "" ? null : <Text variant="treeMeta" style={styles.small} testID="area-metric-period">{` · ${period}`}</Text>}
+    </Text>
+  );
+}
+
+/** What a screen reader says of a box's metric: the verdict in words, which the box shows only in colour (its hover tip is `metricTip`). */
+function metricWords(headline: Headline): string {
+  const value = headline.value === null ? "No readings yet" : `${headline.value} ${headline.goal}`.trim();
+  return `${headline.label}: ${value}${headline.verdict === null ? "" : `, ${headline.verdict.words}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
+}
+
+/** No readings yet, in the value's place, then the goal. */
+function NoReadings({ headline, big }: { headline: Headline; big: boolean }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={[styles.valueLine, styles.wraps]}>
+      <Text variant="tree" style={[styles.noReadings, big ? styles.noReadingsBig : null]} numberOfLines={1} testID="area-metric-value">
+        No readings yet
       </Text>
-      {headline.value === null ? (
-        <Text variant="tree" style={styles.noReadings} testID="area-metric-value">
-          {headline.goal === "" ? "No readings yet" : `No readings yet · ${headline.goal}`}
+      {headline.goal === "" ? null : (
+        <Text variant="treeMeta" style={[styles.target, styles.keep]} numberOfLines={1}>
+          {headline.goal}
         </Text>
-      ) : (
-        <>
-          <View style={styles.valueLine}>
-            <Text variant="tree" style={[styles.bigValue, { color: valueInk(colors, headline) }]} numberOfLines={1} testID="area-metric-value">
-              {headline.value}
-            </Text>
-            <Text variant="treeMeta" style={styles.target} numberOfLines={1} testID="area-metric-target">
-              {headline.goal}
-            </Text>
-          </View>
-          {headline.verdict === null ? null : <VerdictMark verdict={headline.verdict} />}
-        </>
       )}
     </View>
   );
 }
 
-/** A sub-area's compact box: face and name, then the metric's one line. */
-function SubBox({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
+/** An area box's metric: its name, then the value with the goal in words, coloured by the verdict. */
+function BoxMetric({ headline }: { headline: Headline }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const ref = useRef<View>(null);
+  useHoverTitle(ref, metricTip(headline));
+  return (
+    <View ref={ref} style={styles.boxMetric} testID="area-metric" accessibilityLabel={metricWords(headline)}>
+      <MetricName headline={headline} style={styles.metricName} />
+      {headline.value === null ? (
+        <NoReadings headline={headline} big />
+      ) : (
+        <View style={styles.valueLine}>
+          <Text variant="tree" style={[styles.bigValue, { color: valueInk(colors, headline) }]} numberOfLines={1} testID="area-metric-value">
+            {headline.value}
+          </Text>
+          <Text variant="treeMeta" style={styles.target} numberOfLines={1} testID="area-metric-target">
+            {headline.goal}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** A sub-area's compact box: face and name, its metric's name, then its value; and the fold of its own sub-areas when it has some. */
+function SubBox({ node, ctx, fold }: { node: AreaNode; ctx: Ctx; fold?: { open: boolean; toggle: () => void } }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [hovered, setHovered] = useState(false);
   const { seat } = node;
   const title = areaTitle(seat.name);
   const headline = headlineOf(seat, ctx.readingOf(seat));
+  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.verdict?.good === false);
+  const metricRef = useRef<View>(null);
+  useHoverTitle(metricRef, headline === null ? null : metricTip(headline));
   const reachText = seat.owner === null ? "" : `${ctx.label(seat.owner)}${ctx.reach(seat.owner) === "" ? "" : ` · ${ctx.reach(seat.owner)}`}`;
   const menuClick = useRightClick((at) => {
     ctx.onMenu(seat, at);
@@ -445,26 +491,37 @@ function SubBox({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
             {title}
           </Text>
         </View>
-        {headline === null ? null : headline.value === null ? (
-          <Text variant="treeMeta" style={[styles.small, styles.subLine]} numberOfLines={1} testID="area-metric">
-            {headline.label}
+        {headline === null ? (
+          <Text variant="treeMeta" style={[styles.small, styles.subLine]} numberOfLines={1}>
+            No metric yet
           </Text>
         ) : (
-          <View
-            style={[styles.subValueLine, styles.subLine]}
-            testID="area-metric"
-            accessibilityLabel={`${headline.label}: ${headline.value} ${headline.goal}${headline.verdict === null ? "" : `, ${headline.verdict.words}`}`}
-            {...hoverTitle(`${headline.label}${headline.verdict === null ? "" : ` · ${headline.verdict.words}`}${headline.date === "" ? "" : `, ${headline.date}`}`)}
-          >
-            <Text variant="tree" style={[styles.value, { color: valueInk(colors, headline) }]} numberOfLines={1} testID="area-metric-value">
-              {headline.value}
-            </Text>
-            <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
-              {headline.goal}
-            </Text>
+          <View ref={metricRef} style={[styles.subMetric, styles.subLine]} testID="area-metric" accessibilityLabel={metricWords(headline)}>
+            <MetricName headline={headline} style={styles.metricName} />
+            {headline.value === null ? (
+              <NoReadings headline={headline} big={false} />
+            ) : (
+              <View style={styles.subValueLine}>
+                <Text variant="tree" style={[styles.value, { color: valueInk(colors, headline) }]} numberOfLines={1} testID="area-metric-value">
+                  {headline.value}
+                </Text>
+                <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
+                  {headline.goal}
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </Pressable>
+      {fold === undefined ? null : (
+        <Pressable onPress={fold.toggle} role="button" aria-expanded={fold.open} accessibilityLabel={`${fold.open ? "Hide" : "Show"} the areas in ${title}`} style={[styles.fold, styles.subFold]} testID={`area-fold-${seat.folder}`}>
+          <Text variant="treeMeta" numberOfLines={1} style={[styles.small, styles.foldText]}>
+            {insideWords(node.areas.length, 0)}
+            {look === 0 ? null : <Text variant="treeMeta" style={styles.look}>{` · ${look} need${look === 1 ? "s" : ""} a look`}</Text>}
+          </Text>
+          <Icon name={fold.open ? "chevronUp" : "chevronDown"} size={12} color={colors.muted} />
+        </Pressable>
+      )}
       <More seat={seat} ctx={ctx} shown={hovered} onHover={() => setHovered(true)} style={styles.subMore} />
     </View>
   );
@@ -561,7 +618,11 @@ const makeStyles = (colors: Colors) =>
     value: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", flexShrink: 0 },
     bigValue: { fontSize: areasType.value + 4, lineHeight: areasType.value + 10, fontWeight: "700", flexShrink: 0 },
     target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
-    noReadings: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
+    noReadings: { fontSize: pointerType.ui, lineHeight: 18, color: colors.muted, flexShrink: 0 },
+    noReadingsBig: { lineHeight: areasType.value + 10 },
+    metricName: { minWidth: 0 },
+    wraps: { flexWrap: "wrap" },
+    keep: { flexShrink: 0 },
     fold: {
       flexDirection: "row",
       alignItems: "center",
@@ -580,7 +641,9 @@ const makeStyles = (colors: Colors) =>
     subNameRow: { paddingRight: 18 },
     subName: { flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text },
     subLine: { paddingLeft: 24 },
-    subValueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+    subValueLine: { flexDirection: "row", alignItems: "baseline", gap: 6, minWidth: 0 },
+    subMetric: { gap: 1, minWidth: 0 },
+    subFold: { paddingVertical: 7, paddingLeft: 34, paddingRight: 12 },
     subMore: { position: "absolute", top: 7, right: 8 },
 
     empty: { borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, gap: 8 },

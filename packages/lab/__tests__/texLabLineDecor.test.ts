@@ -106,7 +106,7 @@ describe("the line, drawn", () => {
     sandbox.line = { name: "photon" };
     const [i, o] = lineNodes(G());
     const text = drawnFor(G(), "text")!;
-    const send = G().nodes.find((n) => n.id === "send")!;
+    const send = drawnFor(G(), "send")!;
     expect([i.id, i.label, i.x < text.x, i.y]).toEqual(["lineIn", "Photon line in", true, text.y]);
     expect([o.id, o.label, o.x > send.x, o.y]).toEqual(["lineOut", "Photon line out", true, send.y]);
     expect(G().nodes.some((n) => n.id === "lineIn" || n.id === "lineOut")).toBe(false);

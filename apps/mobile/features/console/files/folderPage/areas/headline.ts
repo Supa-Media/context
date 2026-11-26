@@ -93,3 +93,14 @@ export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefine
     verdict,
   };
 }
+
+/**
+ * The time range written after a metric's name on a card, "" where there is
+ * none or the name already says it, so "Weekly deploys" never reads
+ * "Weekly deploys · this week" (the owner, 2026-11-26: "metric names need time?").
+ */
+export function periodBeside(headline: Pick<Headline, "label" | "period">): string {
+  if (headline.period === "") return "";
+  const named = /\b(hourly|daily|weekly|monthly|yearly|annual|today|this (hour|week|month|year)|per (hour|day|week|month))\b/i;
+  return named.test(headline.label) ? "" : headline.period;
+}

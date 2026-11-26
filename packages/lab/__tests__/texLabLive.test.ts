@@ -17,6 +17,9 @@ import { unfoldGroups } from "@context/lab/app/engine/groups";
 import type { LabGraph } from "@context/lab/app/types";
 
 const base = (): LabGraph => unfoldGroups(clone(mainGraph()));
+// Steps that stay steps when the graph is folded (no group), so an index means the same step folded or not.
+const PLAIN = base().nodes.filter((n) => !n.group && n.graph !== "search").map((n) => n.id);
+const at = (g: LabGraph, i: number) => g.nodes.find((n) => n.id === PLAIN[i])!;
 const firstId = (g: LabGraph) => g.nodes.find((n) => n.model === "sonnet" || n.effort)?.id ?? g.nodes[1].id;
 
 let sent: Array<{ baseRev: number; ops: Array<{ op: string; node?: string; field?: string; value?: unknown }> }>;
@@ -64,7 +67,7 @@ describe("live mode", () => {
   });
 
   test("ok: the draft moves to the answered revision and nothing is pending", async () => {
-    lab.cur.graph.nodes[1].y += 25;
+    at(lab.cur.graph, 1).y += 25;
     lab.dirty = true;
     await flush();
     expect(live.rev).toBe(6);
@@ -75,12 +78,12 @@ describe("live mode", () => {
   test("one request at a time; edits made meanwhile go in the next batch", async () => {
     let release!: (a: Answer) => void;
     answer = () => new Promise<Answer>((r) => (release = r));
-    lab.cur.graph.nodes[1].y += 25;
+    at(lab.cur.graph, 1).y += 25;
     lab.dirty = true;
     const first = flush();
     const second = flush();
     expect(sent).toHaveLength(1);
-    lab.cur.graph.nodes[2].y += 10;
+    at(lab.cur.graph, 2).y += 10;
     release({ status: "ok", rev: 6, said: [], others: [] });
     await first;
     await second;
@@ -94,9 +97,9 @@ describe("live mode", () => {
   });
 
   test("conflict: tells who changed it first and takes the server's graph, lighting what changed", async () => {
-    const n = lab.cur.graph.nodes[1];
+    const n = at(lab.cur.graph, 1);
     const theirs = clone(base());
-    theirs.nodes[1].x += 90;
+    at(theirs, 1).x += 90;
     setFeed({ rev: 6, live: { client: "Claude Code", who: "dev", at: Date.now() }, changes: [{ rev: 6, who: "dev", via: "Claude Code", said: ["moved"], at: Date.now() }] });
     n.x += 5;
     lab.dirty = true;
@@ -107,13 +110,13 @@ describe("live mode", () => {
     expect(sent).toHaveLength(1);
     onRemote("v1", 6, theirs);
     expect(live.stale).toBe(false);
-    expect(lab.cur.graph.nodes.find((x) => x.id === n.id)!.x).toBe(theirs.nodes[1].x);
+    expect(lab.cur.graph.nodes.find((x) => x.id === n.id)!.x).toBe(at(theirs, 1).x);
     expect(lab.dirty).toBe(false);
     expect(hlClass(n.id)).toContain("hl-ai");
   });
 
   test("bad request: toasts the error and goes back to the draft", async () => {
-    lab.cur.graph.nodes[1].y += 25;
+    at(lab.cur.graph, 1).y += 25;
     lab.dirty = true;
     answer = { status: "bad_request", error: "that step does not exist" };
     await flush();
@@ -124,30 +127,30 @@ describe("live mode", () => {
 
   test("a newer revision is taken at once when nothing is unsent, and lights the steps it changed", () => {
     const theirs = clone(base());
-    theirs.nodes[2].on = !theirs.nodes[2].on;
+    at(theirs, 2).on = !at(theirs, 2).on;
     onRemote("v1", 6, theirs);
     expect(live.rev).toBe(6);
-    expect(lab.cur.graph.nodes[2].on).toBe(theirs.nodes[2].on);
-    expect(hlClass(theirs.nodes[2].id)).toContain(" hl hl-lab");
-    expect(hlClass(theirs.nodes[3].id)).toBe("");
+    expect(at(lab.cur.graph, 2).on).toBe(at(theirs, 2).on);
+    expect(hlClass(at(theirs, 2).id)).toContain(" hl hl-lab");
+    expect(hlClass(at(theirs, 3).id)).toBe("");
   });
 
   test("an older or same revision changes nothing", () => {
     const theirs = clone(base());
-    theirs.nodes[2].on = !theirs.nodes[2].on;
+    at(theirs, 2).on = !at(theirs, 2).on;
     onRemote("v1", 5, theirs);
     expect(live.rev).toBe(5);
-    expect(lab.cur.graph.nodes[2].on).not.toBe(theirs.nodes[2].on);
+    expect(at(lab.cur.graph, 2).on).not.toBe(at(theirs, 2).on);
   });
 
   test("keeps unsent edits on top of a newer revision", () => {
-    lab.cur.graph.nodes[1].y += 25;
+    at(lab.cur.graph, 1).y += 25;
     lab.dirty = true;
     const theirs = clone(base());
-    theirs.nodes[2].x += 70;
+    at(theirs, 2).x += 70;
     onRemote("v1", 6, theirs);
-    expect(lab.cur.graph.nodes[2].x).toBe(theirs.nodes[2].x);
-    expect(lab.cur.graph.nodes[1].y).toBe(base().nodes[1].y + 25);
+    expect(at(lab.cur.graph, 2).x).toBe(at(theirs, 2).x);
+    expect(at(lab.cur.graph, 1).y).toBe(at(base(), 1).y + 25);
     expect(lab.dirty).toBe(true);
     expect(pendingOps(live.synced!, lab.cur.graph).map((o) => o.op)).toEqual(["move"]);
   });
@@ -155,19 +158,19 @@ describe("live mode", () => {
   test("waits for the request, then takes what the server merged", async () => {
     let release!: (a: Answer) => void;
     answer = () => new Promise<Answer>((r) => (release = r));
-    lab.cur.graph.nodes[1].y += 25;
+    at(lab.cur.graph, 1).y += 25;
     lab.dirty = true;
     const p = flush();
     const theirs = clone(base());
-    theirs.nodes[1].y += 25;
-    theirs.nodes[2].x += 70;
+    at(theirs, 1).y += 25;
+    at(theirs, 2).x += 70;
     onRemote("v1", 7, theirs);
     expect(live.rev).toBe(5);
-    expect(lab.cur.graph.nodes[2].x).toBe(base().nodes[2].x);
+    expect(at(lab.cur.graph, 2).x).toBe(at(base(), 2).x);
     release({ status: "ok", rev: 7, said: [], others: [{}] });
     await p;
     expect(live.rev).toBe(7);
-    expect(lab.cur.graph.nodes[2].x).toBe(theirs.nodes[2].x);
+    expect(at(lab.cur.graph, 2).x).toBe(at(theirs, 2).x);
     expect(lab.dirty).toBe(false);
     expect(live.stale).toBe(false);
   });
@@ -247,7 +250,7 @@ describe("what the bar and list say", () => {
       setups.push(picks);
       return { status: "ok", rev: 7 };
     });
-    lab.cur.graph.nodes[1].y += 25;
+    at(lab.cur.graph, 1).y += 25;
     lab.cur.picks = { mail: [] };
     lab.dirty = true;
     await flush();

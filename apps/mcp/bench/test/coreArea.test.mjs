@@ -80,7 +80,11 @@ test("the core area answers in the tree's own code, as production alone, and rea
   assert.match(first.rows[0].steps ?? "", /^tools .*\| outcome: replied$/, "the steps line reaches the row");
   assert.equal(first.bars.core.goodEnough, true, "a target is reported, never held to the bar");
 
-  const again = await runTests(TREE, ["core"], { dir, fake: true, scratch, tag: "branch-2", only: ["core/q2"], runs: 2 });
+  const times = {};
+  const again = await runTests(TREE, ["core"], { dir, fake: true, scratch, tag: "branch-2", only: ["core/q2"], runs: 2, times });
+  // Where the test's time went, read from its own run (`splitOf`), for the Dev run's timing line.
+  assert.deepEqual(Object.keys(times), ["answerMs", "judgeMs", "turnS", "jobs", "parts"]);
+  assert.ok(times.answerMs > 0 && times.judgeMs >= 0 && times.jobs === 0, "the answer and judge are timed apart");
   assert.deepEqual(again.rows.map((row) => [row.id, row.results]), [["core/q2", [false, false]]], "only the named cases run again");
 });
 

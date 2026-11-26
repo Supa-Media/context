@@ -39,6 +39,7 @@ import { MetricCell, PhoneMetric } from "./AreaMetricCell";
 import { ProjectRows, ProjectsButton } from "./AreaProjectCount";
 import type { AreaProjects } from "./areaProjects";
 import { areaTitle, type AreaNode, type Seat } from "./seat";
+import { useFolds, type FoldHome } from "./foldMemory";
 
 export { shortTarget } from "./shortTarget";
 
@@ -71,6 +72,8 @@ export interface AreasListProps {
   readingOf: (seat: Seat) => Reading | undefined;
   /** The projects that serve an area, grouped by status; absent while the Projects folder is unread. */
   projectsOf?: (folder: string) => AreaProjects;
+  /** Where the folds are kept for this viewer (`foldMemory.ts`); absent, they last while the page is open. */
+  remember?: FoldHome;
 }
 
 /** The pointer state a web Pressable reports, which react-native-web adds to RN's. */
@@ -106,11 +109,12 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, projectsOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, projectsOf, remember }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   // Folders pressed away from their default: the top row starts open, every area under it starts
   // folded (the owner, 2026-11-25: "collapse the items not on the 1st level, by default on page open").
-  const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
+  // What a viewer presses is kept for them (the owner, 2026-11-26).
+  const [flipped, flipFolder] = useFolds(remember === undefined ? undefined : { ...remember, view: "list" });
   const [projectsShown, setProjectsShown] = useState<ReadonlySet<string>>(() => new Set());
   const shared: Shared = {
     compact,
@@ -124,7 +128,7 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, onOp
     onMenu,
     readingOf,
     isOpen: (folder) => (folder === tree.seat.folder) !== flipped.has(folder),
-    toggle: (folder) => setFlipped((previous) => flip(previous, folder)),
+    toggle: flipFolder,
     projectsOf: (folder) => (projectsOf === undefined || folder === tree.seat.folder ? null : projectsOf(folder)),
     projectsOpen: (folder) => projectsShown.has(folder),
     toggleProjects: (folder) => setProjectsShown((previous) => flip(previous, folder)),

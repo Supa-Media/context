@@ -74,8 +74,9 @@ const wireText = (w: { from: LabNode; to: LabNode; mode: string }) => `${w.from.
 export function labMarks(input: LabIn, base: DraftIn, vs: string) {
   return withLab(input, () => {
     const cur = G();
-    const m = computeMarks(cur, asVersion(base).graph, "marks", vs);
+    // Step by step, never by the folded boxes the canvas draws: a change inside a group names its step.
     const now = unfoldGroups(cur);
+    const m = computeMarks(now, unfoldGroups(asVersion(base).graph), "marks", vs);
     const changed = Object.entries(m.nodes).filter(([, x]) => x.kind === "changed");
     return {
       vs,

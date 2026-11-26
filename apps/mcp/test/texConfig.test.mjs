@@ -106,8 +106,10 @@ test("the advisor runs on Sonnet 5.5 at effort high (Finance, approved 2026-11-1
   assert.deepEqual([texModel("advisor"), texStep("advisor").effort], ["anthropic/claude-sonnet-5-5", "high"]);
 });
 
-test("the router is on as a logged signal only: no door and no hand-off reads it (Dev2, 2026-11-20)", () => {
-  assert.equal(texStep("router").on, true);
+test("the router and its doors are off on main (Dev2's 11-26 cleanup draft), and no door or hand-off reads it", () => {
+  // On as a logged signal only from 2026-11-20 until the 11-26 cleanup turned it and the specialist doors off.
+  assert.equal(texStep("router").on, false);
+  for (const id of ["fdQuick", "fdRead", "fdAct"]) assert.equal(texStep(id).on, false, id);
   assert.ok(!TEX_CONFIG.edges.some((e) => (e.from === "fd" && ["fdQuick", "fdRead", "fdAct"].includes(e.to)) || (e.from === "router" && e.to === "handoff")));
 });
 

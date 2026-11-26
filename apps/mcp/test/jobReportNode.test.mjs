@@ -47,7 +47,9 @@ test("wired in the config (off the shelf); a config without it keeps the code's 
   assert.ok(!SHELF.nodes.jobReport, "off the shelf once promoted");
   assert.equal(GATEWAY_NODES.jobReport, jobReportNode);
   assert.ok(TEX_CONFIG.nodes.some((n) => n.id === "jobReport" && n.kind === "input" && n.on !== false), "an input node in the config");
-  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "job" && e.to === "jobReport" && e.mode === "generator"), "the job -> jobReport generator wire");
+  // Since New run (2026-11-26) the job's report goes through the run step reportRun, whose generator wire starts jobReport.
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "job" && e.to === "reportRun" && e.mode === "wait"), "the job -> reportRun wire");
+  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "reportRun" && e.to === "jobReport" && e.mode === "generator"), "the reportRun -> jobReport generator wire");
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "jobReport" && e.to === "lanes" && e.mode === "wait" && e.when.includes("report")), "jobReport -> lanes");
   const unwired = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.filter((n) => n.id !== "jobReport"), edges: TEX_CONFIG.edges.filter((e) => e.from !== "jobReport" && e.to !== "jobReport") };
   const writer = ledger(), b = body(REPORT), read = code(b);
@@ -58,8 +60,10 @@ test("wired in the config (off the shelf); a config without it keeps the code's 
 test("once the config has it, the run reads the report through the node, logged", async () => {
   const writer = ledger(), b = body(REPORT);
   assert.deepEqual(await jobReportEvent(b, code(b), { config: wired, writer }), code(b));
-  assert.equal(writer.entries.length, 1);
-  assert.match(JSON.stringify(writer.entries[0]), /jobReport/);
+  // reportRun logs where the run started, then jobReport reads the report.
+  assert.equal(writer.entries.length, 2);
+  assert.match(JSON.stringify(writer.entries[0]), /reportRun/);
+  assert.match(JSON.stringify(writer.entries[1]), /jobReport/);
 });
 
 test("the node's refusal is the run's", async () => {
@@ -78,9 +82,9 @@ test("in a Lab test chat, a node run outside the turn's graph shows on the run c
   const env = { [LAB_SANDBOX_KEY]: { record() {}, onStart: (run) => started.push(run.node), onNode: (run) => ended.push(run.node) } };
   const writer = ledger(), b = body(REPORT);
   await jobReportEvent(b, code(b), { env, config: wired, writer });
-  assert.deepEqual(started, ["jobReport"]);
-  assert.deepEqual(ended, ["jobReport"]);
-  assert.equal(writer.entries.length, 1, "still kept in the chat's ledger");
+  assert.deepEqual(started, ["reportRun", "jobReport"]);
+  assert.deepEqual(ended, ["reportRun", "jobReport"]);
+  assert.equal(writer.entries.length, 2, "still kept in the chat's ledger");
 });
 
 test("every graph a turn's steps make passes the request's env, so a Lab card misses none of its nodes", () => {

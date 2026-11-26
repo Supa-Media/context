@@ -168,7 +168,7 @@ export async function keepJudged(keep, name, { result, key, test, units = null }
  * (a Training conversation cut at its moment, `setsFd.mjs`). `keep`, a folder, keeps each judged test's three notes
  * under `keepPrefix` + the test's name (`keepJudged`), with `keepUnits` as its units.json when given.
  */
-export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null, exec = run, keep = null, keepPrefix = "", keepUnits = null }) {
+export async function runTests(tree, tests, { only = null, runs = 1, fake = false, scratch, tag, dir = null, parallel = 1, env = process.env, envOf = null, exec = run, keep = null, keepPrefix = "", keepUnits = null, times = null }) {
   const folder = dir ?? join(tree, "apps/mcp/bench/ai");
   const script = join(tree, "apps/mcp/bench/run.mjs");
   // Each test is its own run and judge process writing its own files, so `parallel` of them can go at once (a Lab
@@ -189,10 +189,13 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     if (numbers) args.push("--questions", numbers.join(","));
     if (fake) args.push("--fake");
     const own = envOf?.(test) ?? env;
+    const began = Date.now();
     await step("answer", exec, [script, ...args], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
+    const answered = Date.now();
     // A Lab judge is Haiku, always (`judge.mjs` labJudge): a test's own judge line is never read here.
     await step("judge", exec, [script, "judge", out, "--dir", folder, "--max-usd", "1", ...(fake ? ["--fake"] : ["--judge", labJudge(DEFAULT_JUDGE)])], { cwd: tree, maxBuffer: 64 * 1024 * 1024, env: own });
     const resultRaw = await readFile(out, "utf8");
+    if (times) Object.assign(times, splitOf(resultRaw, { answerMs: answered - began, judgeMs: Date.now() - answered }));
     const keyPath = join(dirname(out), frontMatter(resultRaw).key);
     const keyRaw = await readFile(keyPath, "utf8");
     if (keep) await keepJudged(keep, `${keepPrefix}${test}`, { result: out, key: keyPath, test: testPath, units: keepUnits });
@@ -219,6 +222,18 @@ export async function runTests(tree, tests, { only = null, runs = 1, fake = fals
     bars[test] = a.cases.bar;
   });
   return { rows, usd, bars, missing };
+}
+
+/**
+ * Where one test's time went, for the Dev run's timing line (`setsPool.mjs` timesLine; Dev runs past 10 min with the
+ * runner's CPU mostly idle, 2026-11-26): the answer and judge processes' wall times, the turns' own seconds, and the
+ * background jobs the turns started and the bench ran (`jobDelivery.mjs`), with their parts.
+ */
+export function splitOf(resultRaw, { answerMs, judgeMs }) {
+  const answers = parseResult(resultRaw).answers;
+  const turnS = answers.reduce((sum, a) => sum + (a.time?.seconds ?? 0), 0);
+  const ran = answers.flatMap((a) => a.delivered ?? []).filter((d) => d.state !== "not run");
+  return { answerMs, judgeMs, turnS, jobs: ran.length, parts: ran.reduce((n, d) => n + (Number(d.parts) || 0), 0) };
 }
 
 /** `numbers` and the mirror question each of them counts on, in order, each once. */

@@ -372,7 +372,7 @@ describe("/lab: the Tests, Run, Compare and Workspace views", () => {
     fork.id = "v-model";
     fork.name = "Sonnet front door";
     fork.authorId = null;
-    fork.graph.nodes.find((n) => n.id === "fd")!.model = "sonnet-5-5";
+    node("fd", fork.graph)!.model = "sonnet-5-5";
     lab.cur = fork;
     lab.dirty = true;
     emit();

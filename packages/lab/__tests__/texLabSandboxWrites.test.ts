@@ -148,7 +148,8 @@ test("a run's finished step is drawn done; the step running keeps its ring; with
   const html = renderGraphHtml(G(), s, [], null, new Map([["triage", 1], ["fd", 0.4]]));
   // Triage sits in the folded Intake box: its box is drawn done for it.
   expect(cls(html, "intake")).toMatch(/ lit done$/);
-  expect(cls(html, "fd")).toMatch(/ lit run$/);
+  // The Front door sits in its own box now (11-26 cleanup): its box keeps the ring.
+  expect(cls(html, "frontDoor")).toMatch(/ lit run$/);
   // Lit by a test case (a set, not a run's progress): as before, never done.
   const plain = renderGraphHtml(G(), s, [], null, new Set(["triage"]));
   expect(cls(plain, "intake")).toMatch(/ lit$/);

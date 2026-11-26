@@ -29,6 +29,9 @@ import type { ListNote } from "../features/console/files/listBlock/model";
 import { AreasList, type AreasListProps } from "../features/console/files/folderPage/areas/AreasList";
 import { areaTree } from "../features/console/files/folderPage/areas/seat";
 import type { AreaProject, AreaProjects } from "../features/console/files/folderPage/areas/areaProjects";
+import { AreasChart, type AreasChartProps } from "../features/console/files/folderPage/areas/AreasChart";
+import { forgetFolds } from "../features/console/files/folderPage/areas/foldMemory";
+import { periodBeside } from "../features/console/files/folderPage/areas/headline";
 import { all, one, press, strip, unmountAll } from "./projectPage/fixtures";
 
 const ROOT = "areas";
@@ -87,6 +90,8 @@ async function render(overrides: Partial<AreasListProps> = {}, notes: ListNote[]
 beforeEach(() => {
   mounted = null;
   container = null;
+  forgetFolds();
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -251,6 +256,153 @@ describe("the Areas List", () => {
     await press(one("area-toggle-areas/finance"));
     expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
     expect(all("area-row-areas/finance")).toHaveLength(1);
+  });
+
+  describe("what a viewer unfolds is kept for them (the owner, 2026-11-26)", () => {
+    const remember = { workspaceId: "ws_test", folder: ROOT };
+    const remount = async (overrides: Partial<AreasListProps>) => {
+      act(() => mounted!.unmount());
+      container?.remove();
+      await render(overrides);
+    };
+
+    test("an area unfolded in the List is still unfolded after the page is opened again", async () => {
+      await render({ remember });
+      await press(one("area-toggle-areas/finance"));
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
+      // Folding it again is kept too.
+      await press(one("area-toggle-areas/finance"));
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
+
+    test("it survives a reload, kept per workspace and folder", async () => {
+      await render({ remember });
+      await press(one("area-toggle-areas/finance"));
+      forgetFolds();
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
+      await remount({ remember: { workspaceId: "ws_other", folder: ROOT } });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
+
+    test("without a place to keep it, a fresh page starts folded as before", async () => {
+      await render();
+      await press(one("area-toggle-areas/finance"));
+      await remount({});
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
+
+    test("the Chart keeps its own unfolded areas, apart from the List's", async () => {
+      const chartProps: AreasChartProps = {
+        tree: areaTree(ROOT, ROOT, NOTES),
+        rootTitle: "Supa",
+        compact: false,
+        faceOf: () => ({ kind: "nobody" }) as never,
+        label: (owner) => owner,
+        reach: () => "",
+        onOpen: () => {},
+        readingOf: () => undefined,
+        onMenu: () => {},
+        onAdd: null,
+        onAssign: null,
+        remember,
+      };
+      const chart = async () => {
+        if (mounted !== null) act(() => mounted!.unmount());
+        container?.remove();
+        container = document.createElement("div");
+        document.body.appendChild(container);
+        mounted = createRoot(container);
+        await act(async () => mounted!.render(createElement(AreasChart, chartProps)));
+      };
+      await chart();
+      expect(all("area-box-areas/finance/payroll")).toHaveLength(0);
+      await press(one("area-fold-areas/finance"));
+      await chart();
+      expect(all("area-box-areas/finance/payroll")).toHaveLength(1);
+      // The List was never unfolded, so it still opens folded.
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
+  });
+
+  describe("the Chart's cards (the owner, 2026-11-26)", () => {
+    const DEEP: ListNote[] = [
+      ...NOTES,
+      { path: "areas/finance/payroll/taxes/about.md", properties: { owner: "@seyi", metrics: ["Late filings, target 0"] } },
+    ];
+    const chartOf = async (notes: ListNote[], overrides: Partial<AreasChartProps> = {}) => {
+      if (mounted !== null) act(() => mounted!.unmount());
+      container?.remove();
+      const props: AreasChartProps = {
+        tree: areaTree(ROOT, ROOT, notes),
+        rootTitle: "Supa",
+        compact: false,
+        faceOf: (owner) => (owner === null ? { kind: "nobody" } : ({ kind: "person", name: owner } as never)),
+        label: (owner) => owner,
+        reach: () => "",
+        onOpen: () => {},
+        readingOf: () => undefined,
+        onMenu: () => {},
+        onAdd: null,
+        onAssign: null,
+        ...overrides,
+      };
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      mounted = createRoot(container);
+      await act(async () => mounted!.render(createElement(AreasChart, props)));
+    };
+    const withSeyi = DEEP.map((note) => (note.path === "areas/finance/payroll/about.md" ? { ...note, properties: { ...note.properties, owner: "@seyi" } } : note));
+
+    test("a sub-area's box names its metric beside the value, so a bare 7 of 50 never stands alone", async () => {
+      await chartOf(withSeyi, { readingOf: (seat) => (seat.folder === "areas/finance/payroll" ? { value: "7", date: "2026-11-23", series: [7] } : undefined) });
+      await press(one("area-fold-areas/finance"));
+      const payroll = one("area-box-areas/finance/payroll");
+      expect(strip(one("area-metric-name", payroll).textContent)).toBe("Payroll run on time");
+      expect(strip(one("area-metric-value", payroll).textContent)).toBe("7");
+    });
+
+    test("the verdict is the value's colour, its words only on the hover tip and to a screen reader", async () => {
+      await chartOf(withSeyi, { readingOf: (seat) => (seat.folder === "areas/finance" ? { value: "$640", date: "2026-11-23", series: [480, 640] } : undefined) });
+      const finance = one("area-box-areas/finance");
+      expect(strip(finance.textContent)).toContain("$640");
+      expect(strip(one("area-metric", finance).textContent)).not.toContain("Needs a look");
+      expect(all("area-verdict-over", finance)).toHaveLength(0);
+      expect(one("area-metric", finance).getAttribute("title")).toContain("Needs a look");
+      expect(one("area-metric", finance).getAttribute("aria-label")).toContain("Needs a look");
+    });
+
+    test("no reading yet sits in the value's place, with the goal", async () => {
+      await chartOf(withSeyi);
+      const finance = one("area-box-areas/finance");
+      expect(strip(one("area-metric-value", finance).textContent)).toBe("No readings yet");
+      expect(strip(finance.textContent)).toContain("under $600");
+    });
+
+    test("a sub-area with sub-areas of its own folds them, and what is unfolded is kept", async () => {
+      const remember = { workspaceId: "ws_test", folder: ROOT };
+      await chartOf(withSeyi, { remember });
+      await press(one("area-fold-areas/finance"));
+      expect(all("area-box-areas/finance/payroll/taxes")).toHaveLength(0);
+      expect(strip(one("area-fold-areas/finance/payroll").textContent)).toContain("1 inside");
+      await press(one("area-fold-areas/finance/payroll"));
+      expect(all("area-box-areas/finance/payroll/taxes")).toHaveLength(1);
+      await chartOf(withSeyi, { remember });
+      expect(all("area-box-areas/finance/payroll/taxes")).toHaveLength(1);
+      // A sub-area with none of its own has no fold.
+      expect(all("area-fold-areas/finance/payroll/taxes")).toHaveLength(0);
+    });
+
+    test("the time a metric covers follows its name, unless the name already says it", () => {
+      expect(periodBeside({ label: "New actives", period: "this week" })).toBe("this week");
+      expect(periodBeside({ label: "Net burn", period: "MTD" })).toBe("MTD");
+      expect(periodBeside({ label: "Weekly deploys", period: "this week" })).toBe("");
+      expect(periodBeside({ label: "Deploys per week", period: "7d" })).toBe("");
+      expect(periodBeside({ label: "Returning users", period: "" })).toBe("");
+    });
   });
 
   test("the top row's chevron folds everything under it", async () => {

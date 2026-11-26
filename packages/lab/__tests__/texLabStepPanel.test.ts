@@ -42,7 +42,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { groupsOf } from "@context/lab/app/data/graph";
 import { TexLab } from "@context/lab/app/TexLab.web";
-import { clone, edit, G, lab, MAIN, set } from "@context/lab/app/engine/state";
+import { clone, edit, focusOn, G, lab, MAIN, set } from "@context/lab/app/engine/state";
 import { computeMarks, currentMarks, markCounts } from "@context/lab/app/engine/changeMarks";
 import { sandbox, rowOf } from "@context/lab/app/engine/sandbox";
 import { pickStep, resetPlay } from "@context/lab/app/engine/sandboxPlay";
@@ -100,6 +100,8 @@ describe("a draft's change marks", () => {
 
   test("a changed step is outlined and nothing else fades", () => {
     mount();
+    // Texting's page is all group boxes since the 11-26 cleanup; the Nightly page draws its steps.
+    act(() => set({ graphPage: "nightly" }));
     const id = first().id;
     act(() =>
       edit(() => {
@@ -195,6 +197,7 @@ describe("the step panel's cards", () => {
   test("Run details is first once a text has run: tiles, decided, wrote, why, details and the calls", () => {
     mount();
     ran();
+    act(() => focusOn("fd"));
     act(() => set({ sel: { t: "node", id: "fd" }, pin: true }));
     expect(q("#cardRun")!.getAttribute("aria-pressed")).toBe("true");
     const t = q("#props")!.textContent!;
@@ -270,6 +273,7 @@ describe("the step panel's cards", () => {
   test("Settings is the editable card; a field changed from main is outlined yellow with what main had, and the switch has a dot", () => {
     mount();
     ran();
+    act(() => focusOn("fd"));
     act(() => set({ sel: { t: "node", id: "fd" }, pin: true }));
     expect(q("#cardDot")).toBeNull();
     click("#cardSet");
@@ -309,6 +313,7 @@ describe("the step panel's cards", () => {
 describe("a code step's own settings", () => {
   test("Settings draws what the step's code declares; a change is outlined with main's value, and a number out of bounds is not saved", () => {
     mount();
+    act(() => focusOn("finish"));
     act(() => set({ sel: { t: "node", id: "finish" }, pin: true }));
     click("#cardSet");
     expect(q(".stepsec")?.textContent).toBe("Settingsfrom the code");
