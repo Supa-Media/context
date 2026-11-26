@@ -610,7 +610,9 @@ a stale skill; ignoring `ai/tests/` makes the app's test editor a page whose
 edits never run. Tests (`bench/test/context.test.mjs`): "pullSetups runs the
 live setup as production, beside the setups being tried", "pullSetups takes
 the live skills over a setup's copy, and keeps a skill only a setup has",
-"pullSetups puts the tests edited in Context over the repository's copies",
+"pullSetups keeps the repository's tests, pulls only tests Context alone has,
+and names each copy that drifted" (since 2026-11-26,
+[repo-tests-canonical](./repo-tests-canonical.md)),
 "the scores note heads with the live setup's score, so a list of results can
 show it".
 

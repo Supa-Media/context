@@ -6,7 +6,7 @@ time_zone: America/New_York
 calendar: connected
 judge: claude-haiku-5-5
 played_by: claude-sonnet-5-5
-runs: 1
+runs: 3
 web: scripted
 good_enough:
   score: 100%

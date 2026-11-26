@@ -40,6 +40,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import { MODULE_FOLDER } from "../../../packages/tex/gateway/agent/promptModules.js";
+import { parseTest } from "./load.mjs";
 import { repliesName } from "./replies.mjs";
 import { section, summaryMarkdown } from "./summary.mjs";
 
@@ -244,9 +245,12 @@ export function splitNote(text) {
  *    setup reads. A skill only in `ai/setups/<job>/skills/` is added beside
  *    them for a setup trying something new; a copy there of a live skill is
  *    ignored, because a round must never grade a stale copy as the live one.
- *  - `ai/tests/*.md` into `tests/`: each replaces the repository's test of the
- *    same name, so a test edited in the app is the one that runs. The
- *    repository's copies stay, for a run with no connection.
+ *  - `ai/tests/*.md` into `tests/`, only for a test the repository does not
+ *    have. The repository's copy is canonical (Dev2, 2026-11-26): a Context
+ *    copy of a test the repository has is never run, so an edit in the app
+ *    can't silently change what main's code is graded on. Each such copy that
+ *    differs comes back in `drifted`, with both case counts, so a run can
+ *    say so; to change a test, change the repository's file in a pull request.
  */
 export async function pullSetups({ job, dir, connection, fetchImpl = fetch }) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(job)) throw new Error(`not a job name: ${job}`);
@@ -291,12 +295,35 @@ export async function pullSetups({ job, dir, connection, fetchImpl = fetch }) {
     skills.push(name);
   }
   const tests = [];
+  const drifted = [];
   for (const path of (await listPaths(connection, TESTS_FOLDER, fetchImpl)).filter((p) => dirname(p) === TESTS_FOLDER && basename(p) !== "about.md")) {
-    await mkdir(join(dir, "tests"), { recursive: true });
-    await writeFile(join(dir, "tests", basename(path)), await readContent(connection, path, fetchImpl));
-    tests.push(basename(path, ".md"));
+    const local = join(dir, "tests", basename(path));
+    const theirs = await readContent(connection, path, fetchImpl);
+    const ours = await readFile(local, "utf8").catch(() => null);
+    if (ours === null) {
+      await mkdir(join(dir, "tests"), { recursive: true });
+      await writeFile(local, theirs);
+      tests.push(basename(path, ".md"));
+    } else if (ours !== theirs) {
+      drifted.push({ test: basename(path, ".md"), repoCases: caseCount(ours), contextCases: caseCount(theirs) });
+    }
   }
-  return { folder, names, skills, tests };
+  return { folder, names, skills, tests, drifted };
+}
+
+/** How many cases a test file holds, or null when it does not parse. */
+export function caseCount(raw) {
+  try {
+    return parseTest(raw).questions.length;
+  } catch {
+    return null;
+  }
+}
+
+/** One line for a Context copy that differs from the repository's test it shadows. */
+export function driftLine({ test, repoCases, contextCases }) {
+  const counts = repoCases === contextCases ? `both ${repoCases ?? "unparsed"} cases, different words` : `repository ${repoCases ?? "unparsed"} cases, Context ${contextCases ?? "unparsed"}`;
+  return `@context-lc ${TESTS_FOLDER}/${test}.md differs from the repository's tests/${test}.md (${counts}); the repository's copy runs`;
 }
 
 /** The note paths under `prefix`, at any depth. A folder that is not there is empty. */
@@ -569,10 +596,13 @@ export async function signInCommand(options) {
 export async function pullCommand(options, dir) {
   if (!options.job) throw new Error("usage: pnpm ai pull <job> [--dir <benchmarks folder>]");
   const connection = await signIn({ env: process.env });
-  const { folder, names, skills, tests } = await pullSetups({ job: options.job, dir, connection });
+  const { folder, names, skills, tests, drifted } = await pullSetups({ job: options.job, dir, connection });
   process.stderr.write(`pulled ${names.length} setup${names.length === 1 ? "" : "s"} into ${folder}: ${names.join(", ")}\n`);
   if (skills.length) process.stderr.write(`pulled ${skills.length} skill${skills.length === 1 ? "" : "s"}: ${skills.join(", ")}\n`);
-  if (tests.length) process.stderr.write(`pulled ${tests.length} test${tests.length === 1 ? "" : "s"}: ${tests.join(", ")}\n`);
+  if (tests.length) process.stderr.write(`pulled ${tests.length} test${tests.length === 1 ? "" : "s"} only Context has: ${tests.join(", ")}\n`);
+  // A GitHub Actions warning names each on the run's page; elsewhere it reads as a plain line.
+  const warn = process.env.GITHUB_ACTIONS === "true" ? "::warning title=Context test copy ignored::" : "";
+  for (const row of drifted) process.stderr.write(`${warn}${driftLine(row)}\n`);
 }
 
 /** `pnpm ai publish <result file> [--run-url <url>]`: the result's scores note into Context. */

@@ -312,3 +312,41 @@ Priya is a member of the brand, and `people/john.md` is held back from members (
 
 - as: Priya
 - expect: @band/gigs/velvet-anchor-oct.md
+
+## 60. what should I bring when I go to get my teeth cleaned
+
+- expect: @maya/health/dentist.md
+
+## 61. what have we already decided for the wedding
+
+- as: Priya
+- expect: @wedding-planning/decisions/log.md
+
+## 62. why do the lights in my garage keep flickering and how do I fix them
+
+- as: John
+- expect: @john/home/garage-lights.md
+
+## 63. how is my shoulder doing and when do I see the physio again
+
+- as: John
+- expect: @john/health/shoulder-physio.md
+
+## 64. how much more will I pay for my apartment next year
+
+- as: Priya
+- expect: @priya/home/lease-renewal.md
+
+## 65. what do I need to bring to band practice
+
+- expect: @band/rehearsal/schedule.md
+
+## 66. what is still left to do before the big day
+
+- as: Priya
+- expect: @wedding-planning/timeline/checklist.md
+
+## 67. how am I getting on with my language lessons
+
+- as: Priya
+- expect: @priya/projects/learn-spanish.md

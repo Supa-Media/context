@@ -137,9 +137,14 @@ did not have to leave a case behind.
 6. **Each night runs its rotation.** `tex-nightly.yml` (`pnpm ai nightly`,
    `bench/nightly.mjs`) runs the night's areas as the live setup, three times
    each (the job tasks once: a whole job each), held-out cases included.
-   Which areas is `NIGHTLY_ROTATION`, beside the area list: web-facts,
-   respond and review every night; core also on Monday, Wednesday and
-   Friday; groups (`groups.md` and `cross-chat.md`) on Thursday; on Sunday, tasks in an even ISO week and jobs in an odd one.
+   Which areas is `NIGHTLY_ROTATION`, beside the area list: respond and
+   review every night; core also on Monday, Wednesday and Friday; everyday
+   (`everyday.md` and `everyday-groups.md`) on Tuesday; groups (`groups.md`
+   and `cross-chat.md`) on Thursday; fd-completion on Tuesday and Thursday;
+   on Sunday, tasks in an even ISO week and jobs in an odd one. web-facts
+   is an area but out of the rotation until `web-facts.md` is on main (PR
+   #3184): a scheduled area with no test file only ever read "not on main
+   yet". An area's tests run at once (`parallel`), for the 10-minute rule.
    The weekday and the week are the America/New_York civil date, the same
    zone as the spend caps. A manual run's `areas` input (comma-separated,
    or `all`) replaces that list. That override does not touch the budget
@@ -221,8 +226,10 @@ page edit that never saved has no page);
 every run passed; a target is never held to the bar);
 `apps/mcp/bench/test/nightly.test.mjs` (a quiet day is too few to tell; a hand
 edit to the live prompt is outside the gate; held-out cases by cause alone);
-`apps/mcp/bench/test/nightlyRotation.test.mjs` (Tuesday is the three cheap
-areas; Monday, Wednesday and Friday add core; Thursday adds groups; an even ISO week runs tasks
+`apps/mcp/bench/test/nightlyRotation.test.mjs` (every night is the two cheap
+areas; Monday, Wednesday and Friday add core; Tuesday adds everyday and
+fd-completion; Thursday adds groups and fd-completion; every scheduled area's
+test files are on main; an even ISO week runs tasks
 and an odd week runs jobs, including week 52 on 1 January; 04:30 UTC on a
 Monday in winter is still Sunday in New York);
 `apps/mcp/bench/test/promptFingerprint.test.mjs` and

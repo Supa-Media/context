@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { callTool, connect, connectCommand, labSlotSecretNames, liveScoreRow, notePaths, parseLabSlot, publishSetup, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
+import { callTool, caseCount, connect, connectCommand, driftLine, labSlotSecretNames, liveScoreRow, notePaths, parseLabSlot, publishSetup, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
 
 const ENDPOINT = "https://mcp.context.test/@context-lc/mcp";
 
@@ -211,23 +211,35 @@ test("pullSetups takes the live skills over a setup's copy, and keeps a skill on
   assert.equal(await readFile(join(skills, "draft-only.md"), "utf8"), "New skill being tried.\n");
 });
 
-test("pullSetups puts the tests edited in Context over the repository's copies", async () => {
+test("pullSetups keeps the repository's tests, pulls only tests Context alone has, and names each copy that drifted", async () => {
   const notes = {
     "ai/setups/search/one.md": "---\njob: search\n---\n\nOne.\n",
     "ai/tests/about.md": "What tests are.\n",
     "ai/tests/core.md": "---\njob: texting-assistant\n---\n\n# Core, edited in the app\n",
+    "ai/tests/same.md": "the same words\n",
+    "ai/tests/attention.md": "---\njob: texting-assistant\n---\n\n# Only in Context\n",
     "ai/tests/old/retired.md": "Not a test list.\n",
   };
   const { fetchImpl } = fakeGateway({ notes });
   const dir = await mkdtemp(join(tmpdir(), "bench-pull-tests-"));
   await mkdir(join(dir, "tests"), { recursive: true });
   await writeFile(join(dir, "tests", "core.md"), "the repository's copy\n");
+  await writeFile(join(dir, "tests", "same.md"), "the same words\n");
   await writeFile(join(dir, "tests", "search.md"), "only in the repository\n");
   const pulled = await pullSetups({ job: "search", dir, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl });
-  assert.deepEqual(pulled.tests, ["core"]);
-  assert.equal(await readFile(join(dir, "tests", "core.md"), "utf8"), notes["ai/tests/core.md"]);
+  assert.deepEqual(pulled.tests, ["attention"]);
+  assert.equal(await readFile(join(dir, "tests", "core.md"), "utf8"), "the repository's copy\n", "the repository's copy is canonical");
+  assert.equal(await readFile(join(dir, "tests", "attention.md"), "utf8"), notes["ai/tests/attention.md"]);
   assert.equal(await readFile(join(dir, "tests", "search.md"), "utf8"), "only in the repository\n", "a test not in Context is left as it is");
-  assert.deepEqual((await readdir(join(dir, "tests"))).sort(), ["core.md", "search.md"]);
+  assert.deepEqual(pulled.drifted.map((row) => row.test), ["core"], "an identical copy is no drift");
+  assert.deepEqual((await readdir(join(dir, "tests"))).sort(), ["attention.md", "core.md", "same.md", "search.md"]);
+});
+
+test("a drifted copy names both case counts", () => {
+  const two = "---\njob: texting-assistant\n---\n\n# T\n\n## 1. One\n\n- person starts: \"a\"\n- must: b\n\n## 2. Two\n\n- person starts: \"c\"\n- must: d\n";
+  assert.equal(caseCount(two), 2);
+  assert.match(driftLine({ test: "core", repoCases: 20, contextCases: 18 }), /repository 20 cases, Context 18\); the repository's copy runs/);
+  assert.match(driftLine({ test: "core", repoCases: 20, contextCases: 20 }), /both 20 cases, different words/);
 });
 
 const SCORED = [

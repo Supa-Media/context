@@ -5,7 +5,7 @@
  *
  * It runs `pnpm ai run` and `pnpm ai judge` in the tree it is given (the change's, or main's beside it), so each
  * tree answers with its own code; the scoring is read here, the same way `score.mjs` reads it. The production setup
- * and the tests edited in Context are pulled into each tree first (`pnpm ai pull texting-assistant`).
+ * and the tests only Context has are pulled into each tree first (the repository's own win) (`pnpm ai pull texting-assistant`).
  */
 import { execFile } from "node:child_process";
 import { fallbacksIn } from "./fallbacks.mjs";

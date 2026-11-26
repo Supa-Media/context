@@ -93,3 +93,67 @@ _The summary will appear here when the meeting has been transcribed._
 - must include: Priya
 - must not include: Texas
 - must not include: No one was named
+
+## 3. Says the decision it lists, and doesn't call the meeting undecided
+
+- input:
+
+```markdown
+---
+type: "meeting"
+started: "2026-10-08T16:00:00.000Z"
+duration: "9 min"
+attendees: ["Priya", "Sam"]
+status: "complete"
+---
+
+# Studio check-in
+
+## Summary
+
+_The summary will appear here when the meeting has been transcribed._
+
+## My notes
+
+## Transcript
+
+**[00:00:04] Priya** — Quick one. Do we move the pop-up to the Elm Street space or stay at the market?
+**[00:00:18] Sam** — Elm Street. The rent is lower and it has the window.
+**[00:00:30] Priya** — Agreed, we're moving the pop-up to Elm Street. That's decided.
+**[00:00:44] Sam** — Still open: do we hire a second person for weekends? And should we keep the Sunday hours?
+**[00:01:02] Priya** — Not sure on either yet. And the newsletter, monthly or every two weeks? Let's think about all three.
+```
+
+- must include: Elm Street
+- must not include: no decisions | no final decisions | nothing was decided | nothing decided
+
+## 4. Keeps the tasks a single speaker said need doing
+
+- input:
+
+```markdown
+---
+type: "meeting"
+started: "2026-10-08T17:00:00.000Z"
+duration: "6 min"
+status: "complete"
+---
+
+# Planning notes
+
+## Summary
+
+_The summary will appear here when the meeting has been transcribed._
+
+## My notes
+
+## Transcript
+
+**[00:00:03] Speaker** — Okay, a few things for this week. I need to remove the approvals step from checkout, it's slowing everyone down.
+**[00:00:21] Speaker** — We can get rid of the number prefix on the folder names too.
+**[00:00:37] Speaker** — And I'm going to make recents only track what a person did themselves, not what the assistant did.
+```
+
+- must include: approvals
+- must include: prefix
+- must include: recents

@@ -14,7 +14,7 @@ good_enough:
 
 # Group stretch bench
 
-One group chat, several texts minutes apart, so a turn reads the chat's threaded history and the carried tool turns of the stretch as production does (Dev2, 2026-11-11: group replies spent 10 to 127 s resending that history uncached). The run is graded on the answers; the speed and cache reads per text are read from the result's steps table (`pnpm ai steps`). The chat is the band workspace's, with Maya tagging Tex and Priya texting between her asks. The names and notes are invented. The repo copy is `apps/mcp/bench/ai/tests/group-stretch.md`; the AI Benchmark Action reads the Context copy (`@context-lc ai/tests/group-stretch.md`), so change both together.
+One group chat, several texts minutes apart, so a turn reads the chat's threaded history and the carried tool turns of the stretch as production does (Dev2, 2026-11-11: group replies spent 10 to 127 s resending that history uncached). The run is graded on the answers; the speed and cache reads per text are read from the result's steps table (`pnpm ai steps`). The chat is the band workspace's, with Maya tagging Tex and Priya texting between her asks. The names and notes are invented. The repo copy is `apps/mcp/bench/ai/tests/group-stretch.md`; this repository file is canonical: `pnpm ai pull` runs it over any Context copy (2026-11-26).
 
 ## 1. Planning rehearsal and the open mic in the band chat
 

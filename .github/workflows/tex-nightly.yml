@@ -2,9 +2,11 @@
 # failed benchmarks, I guess, or passing benchmarks if it's truly passing").
 # The night's areas (three runs each, held-out cases included) come from
 # NIGHTLY_ROTATION in apps/mcp/bench/nightly.mjs, on the America/New_York
-# civil date: web-facts, respond and review every night; core on Monday,
-# Wednesday and Friday; on Sunday, tasks on an even ISO week and jobs on an
-# odd one. A workflow_dispatch `areas` input (comma-separated, or all)
+# civil date: respond and review every night; core on Monday, Wednesday and
+# Friday; everyday and fd-completion on Tuesday; groups and fd-completion on
+# Thursday; on Sunday, tasks on an even ISO week and jobs on an odd one.
+# web-facts waits for its test file (PR #3184). A workflow_dispatch `areas`
+# input (comma-separated, or all)
 # replaces that list. The budget check still applies. Each selected area is
 # checked against the spend cap in
 # `@context-lc ai/results/spend.md` first and refused past it; what it spent is
@@ -28,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       areas:
-        description: "Override the weekday rotation: comma-separated areas (core, tasks, web-facts, respond, review, jobs), or all. Empty uses NIGHTLY_ROTATION in America/New_York."
+        description: "Override the weekday rotation: comma-separated areas (core, tasks, web-facts, respond, review, jobs, groups, everyday, fd-completion), or all. Empty uses NIGHTLY_ROTATION in America/New_York."
         required: false
         default: ""
       fake:
@@ -126,7 +128,7 @@ jobs:
           echo "::error::The benchmark runner could not sign in, so nothing ran and no scoreboard was written. If the log says the grant was revoked (invalid_grant), a person must run pnpm ai connect and set the two secrets it prints."
           echo "**No scoreboard tonight:** the benchmark runner could not sign in. If the grant was revoked (invalid_grant), a person must run \`pnpm ai connect\` and set the two secrets it prints." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fetch the live setup and the tests edited in Context
+      - name: Fetch the live setup and the tests only Context has
         run: pnpm --silent ai pull texting-assistant
 
       - name: Pull the held-out cases (never written to the repository or the log)
