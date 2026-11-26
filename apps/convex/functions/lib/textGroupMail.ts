@@ -233,6 +233,30 @@ export async function mailSharesNamed(
 }
 
 /**
+ * The chat's shared mailboxes with, for each, which of `people` (those in the chat) have it connected themselves
+ * (`ownSender`): for a Lab test chat, whose texts are asked by any of them and answered without the control plane
+ * (`packages/lab/gateway/labSandbox/controlSwitch.js` marks `askerSends` for each text's own asker, as `mailSharesNamed`
+ * does for a real turn).
+ */
+export async function mailSharesWithSenders(
+  ctx: QueryCtx,
+  group: Doc<"textGroups">,
+  people: Id<"users">[],
+): Promise<{ handle: string; address: string; senders: Id<"users">[] }[]> {
+  const here: Id<"users">[] = [];
+  for (const userId of people) if (await inChat(ctx, group, userId)) here.push(userId);
+  const rows: { handle: string; address: string; senders: Id<"users">[] }[] = [];
+  for (const { share } of await liveMailShares(ctx, group)) {
+    const personal = await personalWorkspaceOf(ctx, share.userId);
+    if (personal === null) continue;
+    const senders: Id<"users">[] = [];
+    for (const userId of here) if (await ownSender(ctx, userId, share.address)) senders.push(userId);
+    rows.push({ handle: personal.slug, address: share.address, senders });
+  }
+  return rows;
+}
+
+/**
  * The shared mailboxes a group chat's grant may read now, for a live read of
  * the person's mail (`functions/personMail.ts`), or null when this is no chat's
  * grant. Any workspace the grant itself covers (its home in the pin, or one
