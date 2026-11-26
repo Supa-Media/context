@@ -107,6 +107,18 @@ who to ask and what is not covered. No new concept: an area is the seat.
   2026-11-24 rows above where they differ. `areaVerdict.test.ts` fails if a
   verdict's direction, equality or pace arithmetic changes;
   `areasList.test.ts` if a count or trend comes back onto a row.
+- **Projects where the verdict words were** (the owner, 2026-11-26, after a
+  cofounder preferred the live page to a reworked mock: "instead of exceeds
+  targets etc, just show x projects", in "the green and yellow colors"). A
+  List row's last column is how many of the area's projects are in
+  progress, `◐ 3 projects ›`, in the verdict's colour: green when the
+  number is past or at its target or on pace, yellow when it is short or
+  over a limit, muted with no verdict. A press unfolds those projects under
+  the row with one muted line for the rest. The number keeps its green or
+  yellow, and the verdict's words stay on the metric's hover tip, the
+  count's spoken label, the side panel and the Chart's boxes, so colour is
+  never the only sign. `areasList.test.ts` fails if the count loses the
+  verdict's colour or stops unfolding.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as

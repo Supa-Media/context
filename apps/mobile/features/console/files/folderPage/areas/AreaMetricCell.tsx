@@ -20,9 +20,9 @@ import { areasType, pointerType } from "../../../../design/tokens";
 import type { Headline } from "./headline";
 import type { Verdict } from "./verdict";
 
-/** The words a hover tip says about a metric: its name, time range, sources, target and date. */
+/** The words a hover tip says about a metric: its verdict, name, time range, sources, target and date. */
 export function metricTip(headline: Headline): string {
-  return `${headline.label}${headline.period === "" ? "" : ` (${headline.period})`}${headline.source === "" ? "" : ` · ${headline.source}`}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
+  return `${headline.verdict === null ? "" : `${headline.verdict.words}: `}${headline.label}${headline.period === "" ? "" : ` (${headline.period})`}${headline.source === "" ? "" : ` · ${headline.source}`}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
 }
 
 /** The headline metric on a pointer: value, goal and name on one line. */

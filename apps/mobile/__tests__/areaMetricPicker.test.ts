@@ -158,7 +158,8 @@ describe("an area's metric on the Areas page", () => {
     const row = strip(finance.textContent);
     expect(row).toContain("$9.40");
     expect(row).toContain("over $5");
-    expect(row).toContain("Exceeds target");
+    // The verdict is on the hover tip; the projects count took its place on the row (the owner, 2026-11-26).
+    expect(one("area-metric", finance).getAttribute("title")).toContain("Exceeds target");
     // The time-range tag left the row for people who do not read "MTD" (the owner, 2026-11-26).
     expect(all("area-metric-period", finance)).toHaveLength(0);
     expect(one("area-metric", finance).getAttribute("title")).toContain("(MTD)");
