@@ -45,6 +45,12 @@ decides.
   and week (Monday to Sunday, New York). Once an area's share is spent its
   routines and mail pings are held until Monday: the mail still lands in the
   note, nothing is lost, and the routine's last outcome says "held".
+  Saying it is required: in any note in a `mail/` folder (a bot's own mail or
+  an area's), an agent's mail line without `used` is refused, so no answer
+  goes unlogged, and Agent Mail shows it on every line and this week's total
+  in the thread's head (decided by the owner, 2026-11-26: "make sure you log
+  how much usage its used and showing it for sure, this is crucial";
+  `apps/mcp/test/noteMail.test.mjs`).
 - **Bots talk only in Context mail.** Every bot prompt
   (`packages/shared/src/areaBots.cjs`, `mailOnlyText`) and `orient` say so:
   to reach another area or bot, write in that area's mail; never your own

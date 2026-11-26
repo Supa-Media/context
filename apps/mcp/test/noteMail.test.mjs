@@ -354,3 +354,20 @@ test("a whole-note save cannot write mail itself: a line nobody sent never lands
   assert.ok(!trimmed.isError, trimmed.text);
   assert.deepEqual(mail.parseMail(bucket.get(PLAN).body).events.length, lines.length, "every line is still there");
 });
+
+test("in a bot's or an area's mail an agent says what each answer used, and the line shows it (2026-11-26)", async () => {
+  // Dev2, 2026-11-26: "make sure you log how much usage its used and showing it for sure, this is crucial".
+  const BOX = "1-projects/launch/mail/seyi.md";
+  const made = await call(TOKEN_LEAD, "write_note", { path: BOX, content: "# Mail with Launch\n" });
+  assert.ok(!made.isError, made.text);
+  const missing = await call(TOKEN_LEAD, "write_note", { path: BOX, mail: { text: "Numbers are in." } });
+  assert.ok(missing.isError);
+  assert.match(missing.text, /^mail\.used is required in this mail: say the share of your weekly usage this work took/);
+  assert.doesNotMatch(bucket.get(BOX).body, /Numbers are in\./, "nothing lands without its usage");
+  const said = await call(TOKEN_LEAD, "write_note", { path: BOX, mail: { text: "Numbers are in.", used: 2 } });
+  assert.ok(!said.isError, said.text);
+  assert.match(bucket.get(BOX).body, / to everyone \[used 2%\]: Numbers are in\./);
+  // Any other note's mail carries usage only when the sender says it.
+  const plain = await call(TOKEN_LEAD, "write_note", { path: PLAN, mail: { text: "No usage needed here." } });
+  assert.ok(!plain.isError, plain.text);
+});

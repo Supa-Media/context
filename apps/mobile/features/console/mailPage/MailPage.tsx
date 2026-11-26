@@ -16,8 +16,8 @@ import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { agoLabel } from "../files/mail/model";
 import { MAIL_VIEWS, groupsFor, sideName, type Conversation, type MailView } from "./model";
-import type { MailRoute } from "./MailRouteContext";
-import { MailThread, type MailNoteIO } from "./MailThread";
+import { onWantedThread, takeWantedThread, type MailRoute } from "./MailRouteContext";
+import { MAIL_BAR, MailThread, type MailNoteIO } from "./MailThread";
 import { useConversations } from "./useConversations";
 import { useMailIO } from "./useMailIO";
 import type { MailNoteRow } from "./model";
@@ -41,7 +41,17 @@ export function MailPage({
   const appIO = useMailIO(route.workspaceId);
   const io = fixture?.io ?? appIO;
   const [view, setView] = useState<MailView>("all");
-  const [selected, setSelected] = useState<string | null>(null);
+  // A conversation asked for from outside (a bot panel's "Open your mail with …") opens first, and a later ask switches.
+  const [selected, setSelected] = useState<string | null>(() => takeWantedThread());
+  useEffect(
+    () =>
+      onWantedThread((path) => {
+        takeWantedThread();
+        setView("all");
+        setSelected(path);
+      }),
+    [],
+  );
   // Asked again as the page opens, so it never shows a two-minute-old list.
   useEffect(() => refresh(), [refresh]);
   const groups = useMemo(() => groupsFor(view, conversations), [view, conversations]);
@@ -61,7 +71,7 @@ export function MailPage({
         {...(route.me === undefined ? {} : { me: route.me })}
         onOpenNote={onOpen}
         onSent={refresh}
-        {...(compact ? { onBack: () => setSelected(null) } : {})}
+        {...(compact ? { onBack: () => setSelected(null) } : { onClose })}
       />
     );
   if (compact && thread !== null) return <View style={styles.page}>{thread}</View>;
@@ -101,43 +111,71 @@ export function MailPage({
     </View>
   );
 
-  return (
-    <View style={styles.page} testID="mail-page">
-      <View style={styles.head}>
-        <Text variant="paneTitle">Agent Mail</Text>
-        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close Agent Mail" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.close, hovered && styles.closeHover]} testID="mail-close">
-          <Text variant="treeMeta" style={styles.muted}>
-            Close
+  const close = (
+    <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close Agent Mail" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.close, hovered && styles.closeHover]} testID="mail-close">
+      <Text variant="treeMeta" style={styles.muted}>
+        Close
+      </Text>
+    </Pressable>
+  );
+  const views = (
+    <View style={styles.views} role="tablist">
+      {MAIL_VIEWS.map((each) => (
+        <Pressable
+          key={each.id}
+          role="tab"
+          aria-selected={view === each.id}
+          onPress={() => {
+            setView(each.id);
+            setSelected(null);
+          }}
+          style={[styles.view, view === each.id && styles.viewOn]}
+          testID={`mail-view-${each.id}`}
+        >
+          <Text variant="treeMeta" style={view === each.id ? styles.viewWordOn : styles.muted}>
+            {each.label}
           </Text>
         </Pressable>
-      </View>
-      <View style={styles.views} role="tablist">
-        {MAIL_VIEWS.map((each) => (
-          <Pressable
-            key={each.id}
-            role="tab"
-            aria-selected={view === each.id}
-            onPress={() => {
-              setView(each.id);
-              setSelected(null);
-            }}
-            style={[styles.view, view === each.id && styles.viewOn]}
-            testID={`mail-view-${each.id}`}
-          >
-            <Text variant="treeMeta" style={view === each.id ? styles.viewWordOn : styles.muted}>
-              {each.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      {compact ? (
-        <ScrollView>{list}</ScrollView>
-      ) : (
-        <View style={styles.split}>
-          <ScrollView style={styles.listScroll}>{list}</ScrollView>
-          <View style={styles.reading}>{thread ?? <Text variant="treeMeta" style={styles.muted}>Pick a conversation.</Text>}</View>
+      ))}
+    </View>
+  );
+
+  if (compact) {
+    return (
+      <View style={[styles.page, styles.pagePhone]} testID="mail-page">
+        <View style={styles.head}>
+          <Text variant="paneTitle">Agent Mail</Text>
+          {close}
         </View>
-      )}
+        <View style={styles.viewsPhone}>{views}</View>
+        <ScrollView>{list}</ScrollView>
+      </View>
+    );
+  }
+  /*
+    One header row across the page (Dev2, 2026-11-26: "fix the headers on the page to be more integrated and united"):
+    the list's head (the page's name and its views) and the thread's head (who the mail is with, Open note, Close) are
+    the same height on one line, rather than a page title above a second header inside the thread.
+  */
+  return (
+    <View style={styles.page} testID="mail-page">
+      <View style={styles.column}>
+        <View style={[styles.bar, styles.listHead]}>
+          <Text variant="paneTitle">Agent Mail</Text>
+          {views}
+        </View>
+        <ScrollView style={styles.listScroll}>{list}</ScrollView>
+      </View>
+      <View style={styles.reading}>
+        {thread ?? (
+          <View style={[styles.bar, styles.emptyHead]}>
+            <Text variant="treeMeta" style={[styles.muted, styles.grow]}>
+              Pick a conversation.
+            </Text>
+            {close}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -174,17 +212,22 @@ function MailRow({ conversation, selected, me, onPress }: { conversation: Conver
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    page: { flex: 1, gap: space.x2, paddingTop: space.x2 },
+    page: { flex: 1, flexDirection: "row", minHeight: 0 },
+    pagePhone: { flexDirection: "column", gap: space.x2, paddingTop: space.x2 },
+    column: { width: 360, flexShrink: 0, minHeight: 0, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.line },
+    bar: { height: MAIL_BAR, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, paddingHorizontal: space.x4 },
+    listHead: { justifyContent: "center", gap: space.x2 },
+    emptyHead: { flexDirection: "row", alignItems: "center" },
     head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: space.x4 },
     close: { paddingVertical: space.x1, paddingHorizontal: space.x2, borderRadius: radii.control },
     closeHover: { backgroundColor: colors.chrome },
     muted: { color: colors.muted },
-    views: { flexDirection: "row", gap: space.x1, paddingHorizontal: space.x4 },
+    views: { flexDirection: "row", gap: space.x1 },
+    viewsPhone: { paddingHorizontal: space.x4 },
     view: { paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.line },
     viewOn: { backgroundColor: colors.text, borderColor: colors.text },
     viewWordOn: { color: colors.surface, fontWeight: "600" },
-    split: { flex: 1, flexDirection: "row", minHeight: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-    listScroll: { width: 360, flexGrow: 0, flexShrink: 0, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.line },
+    listScroll: { flex: 1 },
     list: { paddingHorizontal: space.x4, paddingVertical: space.x2, gap: 2 },
     reading: { flex: 1, minWidth: 0 },
     group: { gap: 2, marginBottom: space.x2 },

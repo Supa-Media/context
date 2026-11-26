@@ -18,7 +18,7 @@ import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { OwnerFace, type Face, type FacePicture } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
-import { avatarOf, botCardOf, clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, type Conversation } from "./model";
+import { avatarOf, botCardOf, clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, usedThisWeek, type Conversation } from "./model";
 
 /** How the page reads a note and writes it back: the app's own note reads and saves (`useMailIO`). */
 export interface MailNoteIO {
@@ -61,6 +61,15 @@ function useBotPicture(conversation: Conversation, io: MailNoteIO): FacePicture 
   return picture;
 }
 
+/** The height of the page's one header row: the list's head on the left, the thread's on the right (`MailPage`). */
+export const MAIL_BAR = 92;
+
+/** "You and Grok Bot", "@shyoh, Finance and You". */
+function listedNames(names: readonly string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 type Read = { status: "reading" } | { status: "failed" } | { status: "sealed" } | { status: "read"; events: readonly MailEvent[]; readOnly: boolean };
 
 export function MailThread({
@@ -70,6 +79,7 @@ export function MailThread({
   onOpenNote,
   onSent,
   onBack,
+  onClose,
 }: {
   conversation: Conversation;
   io: MailNoteIO;
@@ -77,6 +87,8 @@ export function MailThread({
   onOpenNote: (path: string) => void;
   onSent: () => void;
   onBack?: () => void;
+  /** On a wide page the thread's head is the page's header row on the right, and Close sits in it. */
+  onClose?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -142,6 +154,9 @@ export function MailThread({
 
   const messages = useMemo(() => (read.status === "read" ? read.events.filter((event) => event.kind === "mail") : []), [read]);
   const lines = useMemo(() => messageLines(messages), [messages]);
+  // What the agents here said they used, on every line and added up for this week (Dev2, 2026-11-26: "crucial").
+  const weekUsed = useMemo(() => usedThisWeek(messages), [messages]);
+  const inMailFolder = conversation.place.kind !== "note";
   // Who is in this mail: the names that joined, else whoever wrote; the bot first, the reader last.
   const people = useMemo(() => {
     const names = conversation.joined.length > 0 ? [...conversation.joined] : [...new Set(messages.map((event) => event.from))];
@@ -153,36 +168,47 @@ export function MailThread({
   const cantSend = !canWrite || sending || words.trim() === "";
   return (
     <View style={styles.thread} testID="mail-thread">
-      <View style={styles.head}>
-        {onBack !== undefined ? (
-          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to Agent Mail" style={styles.back} testID="mail-back">
-            <Text variant="treeMeta" style={styles.link}>
-              ‹ Agent Mail
+      {onBack !== undefined ? (
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to Agent Mail" style={styles.back} testID="mail-back">
+          <Text variant="treeMeta" style={styles.link}>
+            ‹ Agent Mail
+          </Text>
+        </Pressable>
+      ) : null}
+      <View style={[styles.head, onClose !== undefined && styles.headBar]}>
+        <View style={styles.faces} aria-hidden>
+          {people.slice(0, 3).map((name, at) => (
+            <View key={name} style={at === 0 ? undefined : styles.faceBehind}>
+              <OwnerFace face={faceOf(name)} size={at === 0 ? 34 : 24} />
+            </View>
+          ))}
+        </View>
+        <View style={styles.grow}>
+          <Text variant="tree" style={styles.title} numberOfLines={1}>
+            {conversation.other === "everyone on this note" ? conversation.title : conversation.other}
+          </Text>
+          <Text variant="treeMeta" style={styles.muted} numberOfLines={1} testID="mail-people">
+            {listedNames(people.map((name) => sideName(name, me)))}
+          </Text>
+        </View>
+        {weekUsed !== null ? (
+          <View style={styles.weekUsed} testID="mail-week-used">
+            <Text variant="treeMeta" style={styles.weekUsedNumber}>{`${weekUsed}%`}</Text>
+            <Text variant="treeMeta" style={styles.muted}>
+              used this week
+            </Text>
+          </View>
+        ) : null}
+        <Pressable onPress={() => onOpenNote(path)} accessibilityRole="link" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.openNote, hovered && styles.hover]} testID="mail-open-note">
+          <Text variant="treeMeta">Open note</Text>
+        </Pressable>
+        {onClose !== undefined ? (
+          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close Agent Mail" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.close, hovered && styles.hover]} testID="mail-close">
+            <Text variant="treeMeta" style={styles.muted}>
+              Close
             </Text>
           </Pressable>
         ) : null}
-        <View style={styles.headRow}>
-          <View style={styles.grow}>
-            <Text variant="tree" style={styles.title} numberOfLines={1}>
-              {conversation.title}
-            </Text>
-            <View style={styles.people} testID="mail-people">
-              {people.map((name) => (
-                <View key={name} style={styles.person}>
-                  <OwnerFace face={faceOf(name)} size={18} />
-                  <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
-                    {sideName(name, me)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-          <Pressable onPress={() => onOpenNote(path)} accessibilityRole="link" style={styles.openNote} testID="mail-open-note">
-            <Text variant="treeMeta" style={styles.link}>
-              Open note
-            </Text>
-          </Pressable>
-        </View>
       </View>
       <ScrollView style={styles.messages} contentContainerStyle={styles.messagesInner}>
         {read.status === "reading" ? <Text variant="treeMeta" style={[styles.muted, styles.notice]}>Reading…</Text> : null}
@@ -211,8 +237,16 @@ export function MailThread({
                     <Text variant="treeMeta" style={styles.muted}>
                       {clockLabel(event.at)}
                       {event.to && event.to !== "everyone" ? ` · to ${nameOf(event.to)}` : ""}
-                      {event.used !== null ? ` · used ${event.used}%` : ""}
                     </Text>
+                    {event.used !== null ? (
+                      <View style={styles.usage} testID="mail-used">
+                        <Text variant="treeMeta" style={styles.usageWord}>{`used ${event.used}% of its week`}</Text>
+                      </View>
+                    ) : !isPersonName(event.from) && inMailFolder ? (
+                      <View style={[styles.usage, styles.usageMissing]} testID="mail-used-missing">
+                        <Text variant="treeMeta" style={styles.usageMissingWord}>usage not said</Text>
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
                 <Text variant="tree" style={styles.words} selectable>
@@ -265,16 +299,18 @@ export function MailThread({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     thread: { flex: 1, minHeight: 0 },
-    head: { paddingHorizontal: space.x4, paddingVertical: space.x2, gap: 2, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-    headRow: { flexDirection: "row", alignItems: "center", gap: space.x3 },
-    back: { paddingVertical: space.x1 },
+    head: { flexDirection: "row", alignItems: "center", gap: space.x3, paddingHorizontal: space.x4, paddingVertical: space.x2, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+    headBar: { height: MAIL_BAR, paddingVertical: 0 },
+    faces: { flexDirection: "row", alignItems: "flex-end" },
+    faceBehind: { marginLeft: -10, borderRadius: 999, borderWidth: 2, borderColor: colors.pageSurface },
+    back: { paddingHorizontal: space.x4, paddingTop: space.x2 },
+    hover: { backgroundColor: colors.chrome },
+    close: { paddingVertical: space.x1, paddingHorizontal: space.x2, borderRadius: radii.control },
     link: { color: colors.accent },
-    title: { fontWeight: "600" },
+    title: { fontWeight: "600", fontSize: pointerType.body },
     muted: { color: colors.muted },
-    grow: { flexGrow: 1, flexShrink: 1, gap: space.x1 },
-    people: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.x3, rowGap: space.x1 },
-    person: { flexDirection: "row", alignItems: "center", gap: space.x1 },
-    openNote: { paddingVertical: space.x1, paddingHorizontal: space.x2 },
+    grow: { flexGrow: 1, flexShrink: 1, gap: 2 },
+    openNote: { paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
     messages: { flex: 1 },
     messagesInner: { paddingVertical: space.x3 },
     notice: { paddingHorizontal: space.x4 },
@@ -295,4 +331,10 @@ const makeStyles = (colors: Colors) =>
     sendOff: { opacity: 0.4 },
     sendWord: { color: colors.ground, fontWeight: "600" },
     problem: { color: colors.warnText },
+    usage: { paddingHorizontal: space.x2, paddingVertical: 1, borderRadius: radii.pill, backgroundColor: colors.chrome },
+    usageWord: { color: colors.text, fontWeight: "600" },
+    usageMissing: { backgroundColor: "transparent", borderWidth: 1, borderColor: colors.line },
+    usageMissingWord: { color: colors.warnText },
+    weekUsed: { alignItems: "flex-end" },
+    weekUsedNumber: { color: colors.text, fontWeight: "700", fontSize: pointerType.body },
   });

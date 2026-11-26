@@ -207,7 +207,7 @@ export function noteWriteToolDefinitions() {
               used: {
                 type: "number",
                 description:
-                  "send: the share of your weekly usage the work you are answering took, a whole percent from 0 to 100. A bot in an area with a budget says it on every answer.",
+                  "send: the share of your weekly usage the work you are answering took, a whole percent from 0 to 100. Required on every line an agent sends in a bot's or an area's mail (a note in a mail/ folder): it is logged and shown beside the line; 0 when it took next to none.",
               },
             },
             additionalProperties: false,

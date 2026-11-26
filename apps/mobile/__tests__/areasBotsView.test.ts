@@ -98,7 +98,9 @@ describe("The bots folder", () => {
     await press(one("areas-bot-Grok Bot"));
     await settle();
     expect(strip(one("bot-panel-whose").textContent)).toBe("Yours: only you change where it works and its caps");
-    expect(strip(one("bot-panel-mail-note").textContent)).toContain("Mail, not a chat: goes to bots/grok-bot/mail/seyi.md");
+    // No file path in the panel (Dev2, 2026-11-26: "no need to show the full path").
+    expect(strip(one("bot-panel-mail-note").textContent)).toContain("Mail, not a chat.");
+    expect(strip(one("bot-panel-mail-note").textContent)).not.toContain("mail/seyi.md");
     // Its activity is what it wrote in Context mail.
     expect(strip(one("bot-panel").textContent)).toContain("Thanks, scored it.");
     // Where it works, with its cap, which its person sets.
@@ -114,7 +116,7 @@ describe("The bots folder", () => {
     await press(one("areas-bot-Socials"));
     await settle();
     expect(strip(one("bot-panel-whose").textContent)).toBe("Only @shyoh changes where it works and its caps");
-    expect(strip(one("bot-panel-mail-note").textContent)).toContain("goes to areas/bots/socials/mail/seyi.md");
+    expect(strip(one("bot-panel-mail-note").textContent)).not.toContain("socials/mail/seyi.md");
     await press(one("bot-panel-tab-works"));
     expect(all("bot-panel-cap-Weekly cap for Growth")).toHaveLength(0);
   });

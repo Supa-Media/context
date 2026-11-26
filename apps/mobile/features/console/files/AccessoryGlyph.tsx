@@ -47,15 +47,17 @@ const MAIL: readonly Stroke[] = [
 ];
 
 /**
- * Agent Mail: the bots folder's robot head with an envelope's flap for a mouth, so the rail's button reads as mail
- * with agents rather than email (Dev2, 2026-11-26: "mail icon can be misleading, add robot icon to show agent").
+ * Agent Mail: an envelope with a robot's head over its corner, so the rail's button reads as mail with agents
+ * (Dev2, 2026-11-26: "mail icon can be misleading, add robot icon to show agent", then "icon should be a bot and mail,
+ * not just a bot").
  */
 const AGENT_MAIL: readonly Stroke[] = [
-  [[50, 10], [50, 24]],
-  [[16, 26], [84, 26], [84, 84], [16, 84], [16, 24]],
-  [[36, 40], [36, 50]],
-  [[64, 40], [64, 50]],
-  [[18, 60], [50, 80], [82, 60]],
+  [[8, 42], [72, 42], [72, 88], [8, 88], [8, 40]],
+  [[10, 44], [40, 66], [70, 44]],
+  [[76, 6], [76, 14]],
+  [[58, 16], [94, 16], [94, 40], [58, 40], [58, 14]],
+  [[69, 25], [69, 31]],
+  [[83, 25], [83, 31]],
 ];
 
 /*
