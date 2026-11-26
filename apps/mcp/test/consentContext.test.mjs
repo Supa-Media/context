@@ -111,6 +111,10 @@ test("the judge is told the sender's own Gmail accounts, so \"share my gmail her
   assert.equal((text.match(/<\/accounts>/g) ?? []).length, 1, "the accounts line cannot close its own fence");
   assert.equal((text.match(/<person_said>/g) ?? []).length, 1);
   assert.match(JSON.stringify(seen[0].system), /\\"my gmail\\"/);
+  // gh-225: with allow first, the judge wrote allow:false and then reasoned to "so it does cover the action".
+  const verdict = (seen[0].tools ?? []).find((tool) => tool.name === "verdict");
+  const schema = verdict?.input_schema ?? verdict?.inputSchema;
+  assert.deepEqual(Object.keys(schema.properties), ["reason", "allow"], "the judge reasons before its verdict");
 });
 
 test("a refusal carries the judge's reason, so Tex says what was unclear instead of guessing", async () => {

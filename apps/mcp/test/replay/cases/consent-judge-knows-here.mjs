@@ -97,6 +97,9 @@ export default {
       const judgedMail = mail.requests.find((request) => /<person_said>/.test(firstText(request)));
       assert.ok(judgedMail, "the mail share is judged");
       assert.match(firstText(judgedMail), /<accounts>\{"sender":"@bo","senders_own_connected_gmail":\["bo@example\.com"\]\}<\/accounts>/, "and the judge knows whose inbox \"my gmail\" is");
+      // gh-225: shown that, it still refused, writing allow:false before reasoning "so it does cover the action".
+      const verdictTool = (judgedMail.tools ?? []).find((tool) => tool.name === "verdict");
+      assert.deepEqual(Object.keys((verdictTool?.input_schema ?? verdictTool?.inputSchema ?? {}).properties ?? {}), ["reason", "allow"], "and it reasons before its verdict");
     } finally {
       globalThis.fetch = previous;
       chat.restore();
