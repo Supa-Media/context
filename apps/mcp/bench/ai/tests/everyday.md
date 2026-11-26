@@ -87,7 +87,7 @@ From the reviews' "partial work" family: an ask with two parts gets both done.
 - kind: task
 - person starts: "what's on my calendar monday?"
 - must call: read_calendar
-- must: say she has the dentist at 10 am on Monday, November 16
+- must: say she has the dentist at 10 am on Monday
 - must not: say it can't see or reach her calendar
 
 ## 8. A reminder with two things in it
@@ -101,7 +101,7 @@ From the reviews' "partial work" family: an ask with two parts gets both done.
 ## 9. Two reminders in one text
 
 - kind: task
-- person starts: "remind me to call mum at 6 and to take the bins out at 9"
+- person starts: "remind me to call mum at 6 and to take the bins out at 9 tonight"
 - must write: lena/tex/routines/once/ with at: 2026-11-12 6:00 pm
 - must write: lena/tex/routines/once/ with at: 2026-11-12 9:00 pm
 

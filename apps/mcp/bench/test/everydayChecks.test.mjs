@@ -44,7 +44,7 @@ test("a calendar check reads its verb, title words and new start, and refuses an
 });
 
 const calls = [
-  { change: { action: "move", title: "Dinner with Ana", start: "2026-10-21T19:00:00-04:00" }, check: false, answer: { ok: true } },
+  { change: { action: "move", title: "Dinner with Ana", start: "2026-10-21T18:00:00-04:00", new_start: "2026-10-21T19:00:00-04:00" }, check: false, answer: { ok: true } },
   { change: { action: "create", title: "Haircut", start: "2026-10-22T10:30:00-04:00" }, check: false, answer: { ok: true } },
   { change: { action: "cancel", title: "Gym" }, check: true, answer: { ok: true } },
   { change: { action: "cancel", title: "Yoga" }, check: false, answer: { ok: false, refused: "has_guests" } },

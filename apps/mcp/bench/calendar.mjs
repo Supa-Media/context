@@ -106,7 +106,10 @@ export function calendarChanges(calls) {
   return calls
     .filter((entry) => entry.check !== true && entry.answer?.ok === true && VERBS[entry.change?.action])
     .map(({ change }) => {
-      const when = change.start ? (change.action === "move" ? ` to ${change.start}` : change.action === "create" ? ` at ${change.start}` : "") : "";
+      // A move names the event by its time now (`start`) and its new time (`new_start`, `calendarWrite.js`): the row says
+      // where it went, and where it was. An older move with no `new_start` reads as before.
+      const moved = change.action === "move" ? (change.new_start ? `${change.start ? ` from ${change.start}` : ""} to ${change.new_start}` : change.start ? ` to ${change.start}` : "") : "";
+      const when = change.action === "move" ? moved : change.start && change.action === "create" ? ` at ${change.start}` : "";
       return { workspace: "calendar", path: "calendar", kind: change.action, detail: `${VERBS[change.action]} "${change.title ?? ""}"${when}` };
     });
 }

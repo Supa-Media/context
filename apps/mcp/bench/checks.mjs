@@ -188,7 +188,7 @@ function changedCalendar({ verb, title, day, time }, changes) {
     // A live change object, or a result note's line read back: `- move calendar/calendar: moved "…" to …`.
     const detail = typeof change === "string" ? (/^-\s+\S+\s+calendar\/calendar:\s?(.*)$/.exec(change)?.[1] ?? null) : change?.workspace === "calendar" ? change.detail : null;
     if (typeof detail !== "string") return false;
-    const m = detail.match(/^(\w+) "(.*)"(?: (?:to|at) (\S+))?$/);
+    const m = detail.match(/^(\w+) "(.*)"(?: from \S+)?(?: (?:to|at) (\S+))?$/);
     if (!m || m[1] !== CALENDAR_VERBS[verb] || !m[2].toLowerCase().includes(title)) return false;
     if (day === null) return true;
     const start = m[3] ?? "";
