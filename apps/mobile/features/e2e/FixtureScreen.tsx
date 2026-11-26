@@ -5,6 +5,8 @@ import { AiLibraryFixture } from "./AiLibraryFixture";
 import { FeaturesFixture } from "./FeaturesFixture";
 import { DomainFixture } from "./DomainFixture";
 import { MailFixture } from "./MailFixture";
+import { MailPageFixture } from "./MailPageFixture";
+import { BotsPageFixture } from "./BotsPageFixture";
 import { AppFrameVisualFixture, fixtureTabs } from "./AppFrameVisualFixture";
 import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
@@ -112,6 +114,9 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "cast-studio-pages") return <CastStudioFixture pages />;
   if (first(params.screen) === "cast-studio-folders") return <CastStudioFixture folders />;
   if (first(params.screen) === "mail") return <MailFixture />;
+  // The Mail page beside the rail's Mail button, on long, real-shaped mail. See its own header.
+  if (first(params.screen) === "mail-page") return <MailPageFixture />;
+  if (first(params.screen) === "bots-page") return <BotsPageFixture />;
   // The notice band's lines for a move into another workspace. See its own header.
   if (first(params.screen) === "move-notice") return <MoveNoticeFixture at={first(params.at)} />;
   if (first(params.screen) === "meeting-join") return <MeetingJoinFixture view={first(params.at)} />;

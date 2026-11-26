@@ -123,6 +123,8 @@ export const groupAnswerValidator = v.union(
     reach: v.optional(v.array(v.string())),
     /** Who keeps the chat from each shared workspace its asker and sponsor share, and why (`lib/textGroupBlockers.ts`). */
     blocked: v.optional(v.array(v.object({ slug: v.string(), who: v.string(), why: v.union(v.literal("not_member"), v.literal("no_account")) }))),
+    /** The asker's workspaces this turn reads that the whole chat does not share (`lib/textGroupHomeOnly.ts`). */
+    unshared: v.optional(v.array(v.string())),
     timeZone: v.string(),
     /** The tagger's handle (their personal workspace's slug), so the answer can say who asked; "" when none. */
     handle: v.string(),
@@ -167,6 +169,7 @@ export type GroupAnswer =
       bound: boolean;
       reach?: string[];
       blocked?: { slug: string; who: string; why: "not_member" | "no_account" }[];
+      unshared?: string[];
       timeZone: string;
       handle: string;
       minted: boolean;
@@ -325,10 +328,13 @@ async function homeAnswer(
   others: string[],
 ): Promise<GroupAnswer | null> {
   // Somebody asked for every turn but a routine's, a check-in's or the hello's (rulebook rule 2, Dev2 2026-11-25).
-  const turn = await homeOnlyTurn(ctx, { ...args, asked: args.routine !== true || args.asked === true }, chat, senderUser, others);
+  const asked = args.routine !== true || args.asked === true;
+  const turn = await homeOnlyTurn(ctx, { ...args, asked }, chat, senderUser, others);
   if (turn === null) return null;
+  // An account holder's ask also reads their own calendars, on their own grant (`lib/textGroupCalendar.ts` `askerCalendars`).
+  const asker = asked && senderUser !== null ? senderUser : null;
   // Read again: the turn may have named this chat's people on its home just now.
-  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)), ...(await calendarSharesNamed(ctx, chat._id)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
+  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)), ...(await calendarSharesNamed(ctx, chat._id, asker)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
 }
 
 /**

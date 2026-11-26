@@ -158,6 +158,15 @@ export async function runAgentVaultSavedChecks(check) {
     const turns = conversationTurns(bucket);
     check("...kept in the history as that line, not as words of theirs", turns.at(-2)?.text === VAULT_SAVED_QUESTION);
 
+    /* ---------------- what code did, in the person's own chat (node did) ---------------- */
+
+    model.install([{ text: "Your Gmail's connected, I can read it now." }]);
+    const didAt = model.requests.length;
+    const gmail = { action: "gmail", status: "connected", address: "ada@example.com", main: true };
+    const told = await eventTurn(env, TOKEN_TEXTS, { question: "", event: "did", did: gmail, conversation: "texts" }); // as `didOne.ts` queues it
+    check("a 1:1 did turn is answered in Tex's own words", told.status === 200 && /Gmail's connected/.test(told.body?.answer ?? ""));
+    check("...asked with the facts as data, never a line", JSON.stringify(model.requests[didAt]?.messages?.at(-1) ?? null).includes(JSON.stringify(JSON.stringify({ from: "context", did: gmail })).slice(1, -1)));
+
     const before = model.requests.length;
     const app = await post(env, TOKEN_APP, { question: "", event: "vault_saved" });
     check("another client cannot name the event", app.status === 400 && model.requests.length === before);

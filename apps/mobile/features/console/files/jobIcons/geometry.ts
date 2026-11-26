@@ -106,6 +106,14 @@ const DRAWINGS: Readonly<Record<DrawnJob, readonly Stroke[]>> = {
     arc(50, 50, 31, 11, 0, 180, 8),
     arc(50, 75, 31, 11, 0, 180, 8),
   ],
+  // A robot's head: its antenna, its face, two eyes and a mouth.
+  bots: [
+    [[50, 14], [50, 26]],
+    [[20, 28], [80, 28], [80, 78], [20, 78], [20, 26]],
+    [[38, 42], [38, 52]],
+    [[62, 42], [62, 52]],
+    [[36, 65], [64, 65]],
+  ],
   // A microphone.
   meetings: [
     [[38, 30], [38, 50], [62, 50], [62, 30]],

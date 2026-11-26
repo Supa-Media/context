@@ -6,7 +6,7 @@
  *
  *   - the area's `about.md`: owner, delegate, modes, approvals and its one metric (`metrics: [<name> · target <x>]`,
  *     with any older `metric:` and `target:` lines taken away, since they would win over it);
- *   - a bot's card, `bots/<bot>/about.md` in the Areas folder (or its older `people/<bot>.md`, changed where it is): its `bot`,
+ *   - a bot's card, `bots/<bot>/about.md` beside the Areas folder (or in it, where bots lived first, or its older `people/<bot>.md`, changed where it is): its `bot`,
  *     `belongs_to`, `reach`, `avatar` and `works_in`, the areas its person lets it work in with each one's cap on its
  *     week (`docs/decisions/app-and-console/area-routines.md`);
  *   - the areas' own `about.md` `agents:` list, for a bot named for the first time.
@@ -258,13 +258,17 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
       works = worksIn.lines;
       card.push(["works_in", works.length === 0 ? null : works]);
     }
-    // A bot's card is `bots/<bot>/about.md` (the owner, 2026-11-25); one still in `people/` is changed where it is.
-    const [inBots, inPeople] = botCardPaths(root, name);
-    const found = await factProps(store, [inBots, inPeople]);
-    const cardAt = found?.get(inBots)?.props || !found?.get(inPeople)?.props ? inBots : inPeople;
-    const cardsFolder = cardAt.slice(0, cardAt === inBots ? -`/${cardSlug(name)}/about.md`.length : -`/${cardSlug(name)}.md`.length);
-    const folderAbout = await openNote(store, scope, rules, overrides, `${cardsFolder}/about.md`);
-    if (folderAbout.missing) await change(store, scope, rules, overrides, `${cardsFolder}/about.md`, [["area", "false"]], { create: true });
+    // A bot's card is `bots/<bot>/about.md` beside the Areas folder (the owner, 2026-11-25: "top level bots yes"); one
+    // still in the Areas folder's `bots/` or `people/` is changed where it is.
+    const paths = botCardPaths(root, name);
+    const found = await factProps(store, paths);
+    const cardAt = paths.slice(1).find((path) => found?.get(path)?.props) ?? paths[0];
+    // A cards folder inside the Areas folder says `area: false`, so it is never drawn as an area; the one beside it needs none.
+    if (cardAt !== paths[0]) {
+      const cardsFolder = cardAt.slice(0, cardAt === paths[1] ? -`/${cardSlug(name)}/about.md`.length : -`/${cardSlug(name)}.md`.length);
+      const folderAbout = await openNote(store, scope, rules, overrides, `${cardsFolder}/about.md`);
+      if (folderAbout.missing) await change(store, scope, rules, overrides, `${cardsFolder}/about.md`, [["area", "false"]], { create: true });
+    }
     const wrote = await change(store, scope, rules, overrides, cardAt, card, { create: true, images });
     if (wrote.error) return toolError(wrote.error);
     const listing = await openNote(store, scope, rules, overrides, `${root}/about.md`);

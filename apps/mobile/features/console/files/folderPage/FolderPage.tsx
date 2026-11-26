@@ -47,12 +47,13 @@ import { rowExtras, RowExtrasProvider, type RowEdit } from "./rowExtras";
 import { faceFor } from "./taskFace";
 import { useTaskOwners } from "./useTaskOwners";
 import { estimateOf } from "./taskProps";
-import { AREA_VIEWS, AREAS_ROOT_VIEWS, FolderHead, PropertyLine, ViewSwitch } from "./Head";
+import { AREA_VIEWS, FolderHead, PropertyLine, ViewSwitch } from "./Head";
 import { AreasView } from "./areas/AreasView";
 import { areaTree } from "./areas/seat";
 import { areasFolderNow, inAreasNow, projectsFolderNow } from "../jobIcons/jobFoldersNow";
 import { projectAreaTag } from "./areas/areaProjects";
 import { useAreaChoices } from "./areas/useAreaChoices";
+import { botsShelfOf, useBotsFolderNotes } from "./areas/useBotsFolder";
 import type { LedeEditing } from "./LedeEditor";
 import { AboutBlock } from "./AboutBlock";
 import { AboutSheet } from "./AboutSheet";
@@ -237,8 +238,12 @@ export function FolderPage({
   const me = isProjectsFolder(folder) ? host?.me : undefined;
   const ownerWords = useMemo(() => [...inUse, ...siblingsInUse, ...(me ?? [])], [inUse, siblingsInUse, me]);
   const resolved = useOwnerLabels(host?.source.resolveOwners, ownerWords);
-  // Agents are the workspace's own short list, and somebody may add to it here (`agents.ts`).
-  const agents = useAgents(loaded, folder, notes, searchOwners);
+  // The bots folder beside the Areas folder, and each bot's folder in it, is drawn as the bots (`areas/useBotsFolder.ts`).
+  const botsShelf = host === undefined || host.personal === true || isProjectsFolder(folder) ? null : botsShelfOf(areasFolderNow(), folder);
+  const botsNotes = useBotsFolderNotes(host?.source, areasFolderNow(), botsShelf !== null, notes);
+  // Agents are the workspace's own short list, and somebody may add to it here (`agents.ts`). The bots folder's page
+  // reads and adds to the Areas folder's list, where every area's owner picker finds its bots.
+  const agents = useAgents(loaded, botsShelf !== null ? areasFolderNow() : folder, botsShelf !== null ? botsNotes : notes, searchOwners);
   const agentList = agents.list;
   // An agent that claimed work notes its thread in brackets; the column shows the agent, the note is for hovering.
   const label = useCallback(
@@ -335,13 +340,12 @@ export function FolderPage({
   // empty, under its switch. A device whose notes have not come by `SETTLE_AFTER` gets the plain
   // listing rather than a blank page.
   // A personal workspace has one owner for every area, so its Areas folder is the plain listing.
-  const areasHere = !tracks && host.personal !== true && inAreasNow(folder);
-  const seats = areasHere && notes !== null;
-  const seatsWaiting = areasHere && notes === null && gaveUp !== folder;
-  // The Areas folder itself also shows its Bots and the Mail between them; an area below it, only List and Chart.
-  const areasRoot = areasHere && folder === areasFolderNow();
-  const seatView = picked === "chart" || (areasRoot && (picked === "bots" || picked === "talks")) ? picked : "list";
-  const view: FolderPageView = tracks ? (picked === "chart" || picked === "bots" || picked === "talks" ? "list" : (picked ?? "list")) : seats || seatsWaiting ? seatView : "list";
+  const botsHere = botsShelf !== null;
+  const areasHere = !tracks && host.personal !== true && inAreasNow(folder) && !botsHere;
+  const seats = (areasHere && notes !== null) || (botsHere && botsNotes !== null);
+  const seatsWaiting = ((areasHere && notes === null) || (botsHere && botsNotes === null)) && gaveUp !== folder;
+  const seatView = botsHere ? "bots" : picked === "chart" ? picked : "list";
+  const view: FolderPageView = tracks ? (picked === "chart" || picked === "bots" ? "list" : (picked ?? "list")) : seats || seatsWaiting ? seatView : "list";
   // Until the notes can say which group each item is in, a Board holds its place, empty, rather
   // than drawing every card under No status first. The List is the listing, drawn at once.
   const waiting = view === "board" && !loaded.settled;
@@ -471,8 +475,8 @@ export function FolderPage({
         switcher={
           tracks ? (
             <ViewSwitch view={view} onChange={choose} compact={compact} />
-          ) : seats || seatsWaiting ? (
-            <ViewSwitch view={view} onChange={choose} compact={compact} views={areasRoot ? AREAS_ROOT_VIEWS : AREA_VIEWS} />
+          ) : (seats || seatsWaiting) && !botsHere ? (
+            <ViewSwitch view={view} onChange={choose} compact={compact} views={AREA_VIEWS} />
           ) : null
         }
         actions={
@@ -538,11 +542,12 @@ export function FolderPage({
         ) : seats ? (
           <View style={wideAreas === null || beside !== null ? undefined : [styles.wide, { width: wideAreas }]}>
           <AreasView
-            folder={folder}
+            folder={botsHere ? areasFolderNow() : folder}
             root={areasFolderNow()}
             rootName={workspaceName}
-            notes={notes ?? NO_NOTES}
-            view={view === "chart" || view === "bots" || view === "talks" ? view : "list"}
+            notes={(botsHere ? botsNotes : notes) ?? NO_NOTES}
+            view={view === "chart" || view === "bots" ? view : "list"}
+            {...(botsShelf?.bot == null ? {} : { bot: botsShelf.bot })}
             compact={compact}
             canEdit={loaded.canEdit}
             faceOf={(owner) => faceFor({ faceOf, owners }, owner ?? undefined)}

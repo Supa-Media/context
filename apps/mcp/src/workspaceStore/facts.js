@@ -29,6 +29,7 @@ import { isWorkspaceObjectKey } from "./api.js";
 import { chaosExtraOf } from "../tree/chaosExtra.js";
 import { folderJobsAnswer } from "./jobsAnswer.js";
 import { dateFactAsks } from "./dateFacts.js";
+import { workspaceMailIndex } from "./mailIndex.js";
 
 /** Paths one props ask names (the control plane's `PROPS_AT_PATHS`). */
 export const PROPS_ASK_PATHS = 100;
@@ -176,6 +177,8 @@ export function workspaceFacts(sql, objects) {
   return {
     // `dates` and `dateGaps`: what a note's date properties are filled from (`dateFacts.js`).
     ...dateFactAsks({ sql, key: KEY, notes, current, catchUp, parsed, stale, read }),
+    // `mail`: every note the reader may see that holds mail, for the app's Mail page (`mailIndex.js`).
+    ...workspaceMailIndex(sql, objects),
 
     /**
      * Unfiltered rows for the control plane's readers (`OBJECT_FACT_ROW_ASKS`).
@@ -339,7 +342,7 @@ export function workspaceFacts(sql, objects) {
  * The asks a workspace object answers itself. Every other ask is the control plane's. `forwarding` is answered from
  * the ledger copy beside these (`forwardingRows.js`), not from the notes.
  */
-export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs", "forwarding", "dates", "dateGaps", "rememberZone"]);
+export const OBJECT_FACT_ASKS = new Set(["props", "links", "neighbors", "jobs", "forwarding", "dates", "dateGaps", "rememberZone", "mail"]);
 
 /**
  * The asks the control plane's own readers make through the door (`ws.facts.rows`): unfiltered, like the control

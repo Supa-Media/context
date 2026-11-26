@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { LINES, setup } from "./groupWorld.testing";
+import { LINES, setup, WITHOUT_DID } from "./groupWorld.testing";
 import { answerHanded, handedTurns, turnKey, type HandedTurn } from "./groupTurnRun";
 
 afterEach(() => vi.restoreAllMocks());
@@ -32,6 +32,7 @@ describe("a group reply's timing", () => {
     const storage = new MemoryStorage();
     // The control plane's check is the slow part here: four minutes, less the rest.
     const w = setup(groupId, { controlFor: () => void (t += 230_000) });
+    w.deps.texGraph = WITHOUT_DID; // the old line, as sent while node did is not wired
     const deps = { ...w.deps, now: () => t, startTurn: async () => {} };
     const spy = vi.spyOn(console, "log");
     await acceptGroup(storage, w.message("Tex, what can you see"), 0);

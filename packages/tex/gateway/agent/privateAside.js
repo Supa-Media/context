@@ -38,6 +38,8 @@ export const PRIVATE_LINK_TOOLS = Object.freeze(["vault_add_link", "vault_view_l
 export const MAX_ASIDES = 2;
 const MAX_WHAT = 300;
 const MAX_TEXT = 1_200;
+/** A held answer's draft, as long as a cross-chat answer's text (`crossChat.js`). */
+const MAX_HELD = 4_000;
 
 const clip = (value, max) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
@@ -65,6 +67,17 @@ function keep(ledger, aside) {
   if (asides.length >= MAX_ASIDES) return false;
   asides.push(aside);
   return true;
+}
+
+/**
+ * An answer held from the group (`roomCheck.js`): its draft goes to the tagger alone, with the facts of why, as a held
+ * aside their own Tex texts them. False when they have no chat of their own, or this turn already sent its asides.
+ */
+export function holdForAsker(ledger, group, draft, facts) {
+  if (!canAside(group) || ledger === null || ledger === undefined) return false;
+  const words = typeof draft === "string" ? draft.trim().slice(0, MAX_HELD) : "";
+  if (words === "") return false;
+  return keep(ledger, { what: clip(facts, MAX_WHAT), texts: [words], held: true });
 }
 
 /**

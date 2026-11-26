@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { GROUP_LINES } from "./groupLines";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { fakeJudge, LINES, setup } from "./groupWorld.testing";
+import { fakeJudge, LINES, setup, WITHOUT_DID } from "./groupWorld.testing";
 
 const { groupId } = LINES[0];
 
@@ -47,6 +47,7 @@ describe("a muted group chat is never silent about it", () => {
       decide: fakeJudge,
       controlFor: (body) => (body.command ? ((muted = false), { status: "started" }) : muted ? { status: "muted" } : undefined),
     });
+    w.deps.texGraph = WITHOUT_DID; // "Tex, start" answered with its old line, as while node did is not wired
     // Muted by the control plane, as Nov Babies was: the chat's first ask is judged, then hears the way back.
     expect(await acceptGroup(storage, w.message("Tex can you email puttery about a cake"), 0)).toBe("queued");
     await drainGroup(storage, w.deps);

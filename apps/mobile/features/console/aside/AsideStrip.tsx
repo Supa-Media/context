@@ -7,6 +7,8 @@ import { Tex } from "../../chaos/Tex";
 import { Text } from "../../design/components/Text";
 import { ASIDE_TABS, type AsideTab } from "./tabs";
 import { useMapRoute } from "../map/live/MapRouteContext";
+import { useMailRoute, type MailRoute } from "../mailPage/MailRouteContext";
+import { useConversations } from "../mailPage/useConversations";
 
 /**
  * The rail's drawing for each tab that has one; Tex draws its own figure
@@ -67,6 +69,8 @@ export function AsideStrip({
   const colors = useColors();
   // The live map, where the console provides its route; its button moved here from the file tree's toolbar.
   const mapRoute = useMapRoute();
+  // Mail, under the map, where the console provides its route (the owner's boards, 2026-11-25).
+  const mailRoute = useMailRoute();
   return (
     <View style={[styles.strip, open && styles.stripBeside]} testID="aside-strip" accessibilityRole={open ? "tablist" : undefined}>
       <Pressable
@@ -107,7 +111,8 @@ export function AsideStrip({
           <AccessoryGlyph name="links" size={GLYPH} color={colors.accent} />
         </Pressable>
       ) : null}
-      {onSearch !== null || mapRoute !== undefined ? <View style={styles.rule} /> : null}
+      {mailRoute !== undefined ? <MailButton mailRoute={mailRoute} /> : null}
+      {onSearch !== null || mapRoute !== undefined || mailRoute !== undefined ? <View style={styles.rule} /> : null}
       {ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => (
         <Pressable
           key={tab.key}
@@ -152,6 +157,33 @@ export function AsideStrip({
         </Pressable>
       ))}
     </View>
+  );
+}
+
+/**
+ * The Mail button, with a green dot while something new waits. Its own component so the mail it counts is asked
+ * for only where the console provides the Mail route, never in a rail drawn without one.
+ */
+function MailButton({ mailRoute }: { mailRoute: MailRoute }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const { fresh } = useConversations(mailRoute);
+  return (
+    <Pressable
+      onPress={mailRoute.toggle}
+      accessibilityRole="button"
+      accessibilityLabel={mailRoute.open ? "Close Mail" : fresh > 0 ? `Mail, ${fresh} new` : "Mail"}
+      accessibilityState={{ selected: mailRoute.open }}
+      style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, mailRoute.open && styles.current, hovered && styles.hover]}
+      testID="aside-strip-mail"
+    >
+      <AccessoryGlyph name="mail" size={GLYPH} color={colors.accent} />
+      {fresh > 0 && !mailRoute.open ? (
+        <View style={styles.dot} testID="aside-strip-mail-dot">
+          <Dot tone="ok" />
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 

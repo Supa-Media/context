@@ -18,6 +18,7 @@ import {
   kindCounts,
   needLook,
   isArea,
+  isBotCardPath,
   metricLine,
   parseMetric,
   reachLine,
@@ -339,12 +340,12 @@ describe("seatChanges", () => {
 });
 
 describe("cardSlug and cardPath", () => {
-  test("a person's new card goes in people/, a bot's in bots/<bot>/about.md", () => {
+  test("a person's new card goes in people/, a bot's in bots/<bot>/about.md beside the Areas folder", () => {
     // The owner, 2026-11-25: "areas/bots should replace areas/people, as a place to configure everything about the
-    // available bots".
+    // available bots", then "top level bots yes".
     expect(cardSlug("@dev2")).toBe("dev2");
     expect(cardPath(ROOT, "@dev2", [], "person")).toBe("areas/people/dev2.md");
-    expect(cardPath(ROOT, "Finance Bot")).toBe("areas/bots/finance-bot/about.md");
+    expect(cardPath(ROOT, "Finance Bot")).toBe("bots/finance-bot/about.md");
   });
 
   test("a card already written is found where it is, in bots/ first", () => {
@@ -354,6 +355,11 @@ describe("cardSlug and cardPath", () => {
     const both = [...old, note("areas/bots/claude-code/about.md", { kind: "agent" })];
     expect(cardPath(ROOT, "Claude Code", both)).toBe("areas/bots/claude-code/about.md");
     expect(cardOf("Claude Code", "agent", ROOT, both).path).toBe("areas/bots/claude-code/about.md");
+    const moved = [...both, note("bots/claude-code/about.md", { kind: "agent" })];
+    expect(cardPath(ROOT, "Claude Code", moved)).toBe("bots/claude-code/about.md");
+    expect(isBotCardPath(ROOT, "bots/claude-code/about.md")).toBe(true);
+    expect(isBotCardPath(ROOT, "areas/bots/claude-code/about.md")).toBe(true);
+    expect(isBotCardPath(ROOT, "bots/claude-code/mail/seyi.md")).toBe(false);
   });
 
   test("the bots folder and each bot's folder are never areas", () => {

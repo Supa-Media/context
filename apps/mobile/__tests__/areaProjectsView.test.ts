@@ -5,10 +5,9 @@
 /**
  * AN AREA SHOWS ITS PROJECTS IN PROGRESS, AND ITS PANEL ATTACHES AND DETACHES THEM.
  *
- * The owner approved, 2026-11-25 ("Projects in areas" boards): on the Areas
- * List each area row ends in a count of its projects in progress, beside the
- * notes count, which unfolds them under the row; the top row has none. The
- * area panel lists them, folds the rest into one line, and "Attach a project"
+ * The owner approved, 2026-11-25 ("Projects in areas" boards), and moved them
+ * off the Areas List's rows on 2026-11-26 (the simplified Areas page): the
+ * area panel lists an area's projects in progress, folds the rest into one line, and "Attach a project"
  * writes the project's `area:` line, while × removes it. A reader gets
  * neither. The properties with teeth: the count is the in-progress group only,
  * a parent counts its sub-areas', a project serving a sub-area says which, and
@@ -26,7 +25,7 @@ import { AreasList, type AreasListProps } from "../features/console/files/folder
 import { PanelProjects } from "../features/console/files/folderPage/areas/PanelProjects";
 import { areaTree } from "../features/console/files/folderPage/areas/seat";
 import { attachChoices, groupedProjects, projectsUnder, type AreaProject } from "../features/console/files/folderPage/areas/areaProjects";
-import { all, one, press, strip, unmountAll } from "./projectPage/fixtures";
+import { all, one, press, unmountAll } from "./projectPage/fixtures";
 
 const AREAS: ListNote[] = [
   { path: "areas/about.md", properties: {} },
@@ -75,41 +74,21 @@ function list(overrides: Partial<AreasListProps> = {}) {
     label: (owner) => owner,
     reach: () => "",
     rootTitle: "Supa",
-    notesUnder: () => 0,
     readingOf: () => undefined,
     onOpen: () => {},
     onMenu: () => {},
-    projectsOf: (folder) => groupedProjects(folder, projects),
     ...overrides,
   };
   return createElement(AreasList, props);
 }
 
-describe("the Areas List's projects count", () => {
-  test("counts an area's projects in progress, its sub-areas' included, and the top row and an area with none draw no count", async () => {
+describe("the Areas List's rows", () => {
+  // The owner, 2026-11-26 (the simplified Areas page, option A): projects and notes left the rows for the side panel.
+  test("draw no projects or notes count: an area's projects are in its panel", async () => {
     await mount(list());
-    expect(strip(one("area-projects-areas/finance").textContent)).toContain("2");
-    expect(one("area-projects-areas/finance").getAttribute("aria-label")).toBe("Show 2 projects in progress for finance");
-    expect(all("area-projects-areas/design")).toHaveLength(0);
-    expect(all("area-projects-areas")).toHaveLength(0);
-  });
-
-  test("hidden until pressed; then the projects in progress unfold, say a sub-area's name, open the project, and the rest is one line", async () => {
-    const opened: string[] = [];
-    await mount(list({ onOpen: (path) => opened.push(path) }));
-    expect(all("area-project-projects/stripe-sync")).toHaveLength(0);
-    await press(one("area-projects-areas/finance"));
-    expect(all("area-project-projects/stripe-sync")).toHaveLength(1);
-    expect(strip(one("area-project-projects/run-payroll").textContent)).toContain("Payroll");
-    expect(all("area-project-projects/budget")).toHaveLength(0);
-    expect(strip(one("area-projects-rest-areas/finance").textContent)).toBe("1 not started · 1 done");
-    await press(one("area-project-projects/stripe-sync"));
-    expect(opened).toEqual(["projects/stripe-sync"]);
-  });
-
-  test("with no Projects folder read, no row draws a count", async () => {
-    await mount(list({ projectsOf: undefined }));
     expect(all("area-projects-areas/finance")).toHaveLength(0);
+    expect(all("area-notes-areas/design")).toHaveLength(0);
+    expect(all("area-row-areas/finance")).toHaveLength(1);
   });
 });
 

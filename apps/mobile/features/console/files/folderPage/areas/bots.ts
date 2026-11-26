@@ -14,7 +14,7 @@
 import { areaRoutineOf, parseWorksIn } from "@context/shared/src/areaRoutines.cjs";
 import { isNotePath } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote, PropertyValue } from "../../listBlock/model";
-import { areaTitle, areaTree, botsFolder, cardOf, cardSlug, isBotCardPath, peopleFolder, type AreaNode, type Card } from "./seat";
+import { areaTitle, areaTree, botsFolder, botsFolderOfBot, cardOf, cardSlug, isBotCardPath, peopleFolder, type AreaNode, type Card } from "./seat";
 import { senderOf } from "./areaMail";
 
 export interface BotArea {
@@ -91,12 +91,17 @@ export function botsOf(root: string, notes: readonly ListNote[], me: string | un
       for (const child of node.areas) walk(child);
     };
     walk(tree);
-    out.push({ name, card, whose: card.belongsTo, mine: me !== undefined && same(card.belongsTo, me), areas, mailFolder: `${botsFolder(root)}/${cardSlug(name)}/mail` });
+    out.push({ name, card, whose: card.belongsTo, mine: me !== undefined && same(card.belongsTo, me), areas, mailFolder: mailFolderOf(root, card.path, name) });
   }
   return out.sort((a, b) => Number(b.mine) - Number(a.mine) || a.whose.localeCompare(b.whose) || a.name.localeCompare(b.name));
 }
 
-/** Every mail note under the Areas folder the reader can see, each with who is on either side. */
+/** A bot's mail folder: beside its card where that is in a bots folder, else in the bots folder beside the Areas folder. */
+function mailFolderOf(root: string, cardAt: string, name: string): string {
+  return isBotCardPath(root, cardAt) ? `${cardAt.slice(0, -"/about.md".length)}/mail` : `${botsFolder(root)}/${cardSlug(name)}/mail`;
+}
+
+/** Every mail note in the Areas folder and the bots folders the reader can see, each with who is on either side. */
 export function conversationsOf(root: string, notes: readonly ListNote[], bots: readonly Bot[], me: string | undefined): Conversation[] {
   const prefix = root === "" ? "" : `${root}/`;
   const tree = areaTree(root, root, notes);
@@ -111,12 +116,13 @@ export function conversationsOf(root: string, notes: readonly ListNote[], bots: 
   const isBot = (who: string | null) => who !== null && bots.some((bot) => cardSlug(bot.name) === cardSlug(who));
   const out: Conversation[] = [];
   for (const note of notes) {
-    if (!note.path.startsWith(prefix) || !isNotePath(note.path)) continue;
+    if (!isNotePath(note.path)) continue;
     const match = /^(.+)\/mail\/([^/]+)$/.exec(note.path);
     if (match === null) continue;
     const place = match[1]!;
-    const botFolder = place.startsWith(`${botsFolder(root)}/`) && !place.slice(botsFolder(root).length + 1).includes("/");
-    const bot = botFolder ? bots.find((each) => `${botsFolder(root)}/${cardSlug(each.name)}` === place) : undefined;
+    const botFolder = botsFolderOfBot(root, place) !== null;
+    if (!botFolder && !note.path.startsWith(prefix)) continue;
+    const bot = botFolder ? bots.find((each) => each.mailFolder === `${place}/mail`) : undefined;
     if (botFolder && bot === undefined) continue;
     if (!botFolder && !holderOf.has(place)) continue;
     const sender = senderOf(note.path);

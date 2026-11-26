@@ -21,7 +21,7 @@ import { sourceBySlug, type DataSource } from "../../data/sources";
 import { metricView } from "../../data/views";
 import { ago, lastRowAt, periodTag } from "../../data/words";
 import { HIDDEN, inputsOf, stateOf, targetOnScale, trendOf, type Sheet, type Worked } from "../../data/workOut";
-import { directedTarget, readingFor, targetNumber, targetState, type Reading, type Readings, type TargetState } from "./readings";
+import { directedTarget, leadingNumber, readingFor, targetNumber, targetState, type Reading, type Readings, type TargetState } from "./readings";
 import { metricKey, type Metric, type Seat, type SeatEdit } from "./seat";
 
 /** What the Areas page knows of the workspace's metrics, all at the reader's own clearance. */
@@ -84,6 +84,21 @@ function newestRow(metric: MetricNote, ws: WorkspaceMetrics): number | null {
   return latest;
 }
 
+/**
+ * The oldest period with a value, as the shown value's scale reads it, for a
+ * goal's pace line: a worked value of 0.16 shown as "16%" starts the line at 16.
+ */
+function startOf(worked: Worked): { value: number; at: number } | null {
+  const first = worked.periods.find((p) => p.status === "ok" && p.value !== null);
+  if (first === undefined || first.value === null) return null;
+  const at = Date.parse(first.from);
+  if (Number.isNaN(at)) return null;
+  const shown = leadingNumber(worked.shown);
+  const raw = worked.latest.value;
+  const scale = shown === null || raw === null || raw === 0 ? 1 : shown / raw;
+  return { value: first.value * scale, at };
+}
+
 /** What one workspace metric reads as for an area with `target`. */
 export function workspaceReading(metric: MetricNote, ws: WorkspaceMetrics, target: string | null): AreaReading {
   const worked = ws.worked.get(metric.path);
@@ -103,7 +118,7 @@ export function workspaceReading(metric: MetricNote, ws: WorkspaceMetrics, targe
   }
   if (status === "hidden") return { ...base, status: "hidden", value: HIDDEN, series: [], state: "unknown", limit: null };
   if (status !== "ok") return { ...base, status: "none", value: "", series: [], state: "unknown", limit: null };
-  return { ...base, status: "ok", value: worked.shown, series: trendOf(worked), state: stateOf(worked, target), limit: targetOnScale(worked, target) };
+  return { ...base, status: "ok", value: worked.shown, series: trendOf(worked), start: startOf(worked), state: stateOf(worked, target), limit: targetOnScale(worked, target) };
 }
 
 /**

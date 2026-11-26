@@ -82,10 +82,9 @@ describe("the Areas folder", () => {
     expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
     await press(one("area-toggle-areas/finance"));
     expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
-    // Notes and folders wait behind the area's count (the owner, 2026-11-24).
+    // Notes and folders left the rows for the side panel (the owner, 2026-11-26).
+    expect(all("area-notes-areas/finance")).toHaveLength(0);
     expect(all("area-file-areas/finance/budget.md")).toHaveLength(0);
-    await press(one("area-notes-areas/finance"));
-    expect(all("area-file-areas/finance/budget.md")).toHaveLength(1);
   });
 
   test("Chart draws the open folder's areas as boxes", async () => {
@@ -104,10 +103,13 @@ describe("the Areas folder", () => {
     expect(strip(top.textContent)).toContain("3 areas");
     expect(strip(top.textContent)).toContain("1 needs a look");
     expect(all("area-line").length).toBeGreaterThan(2);
-    // Payroll is drawn inside Finance's column, under its box.
+    // Payroll is folded under Finance's box until its "1 inside" line is pressed, then drawn in Finance's column.
+    expect(all("area-box-areas/finance/payroll")).toHaveLength(0);
+    expect(strip(one("area-fold-areas/finance").textContent)).toBe("1 inside");
+    await press(one("area-fold-areas/finance"));
     expect(all("area-box-areas/finance/payroll")).toHaveLength(1);
-    // Files are counted by kind, the seat's about.md is not one of them.
-    expect(strip(one("area-box-areas/engineering").textContent)).toContain("1 note");
+    // How it is run and what files it holds are in the side panel, not on the box (the owner, 2026-11-26).
+    expect(strip(one("area-box-areas/engineering").textContent)).not.toContain("1 note");
   });
 
   test("an empty seat is a dashed box that offers Assign owner, which opens the seat", async () => {
@@ -207,10 +209,11 @@ describe("the Areas folder", () => {
     expect(asked.filter((path) => path.endsWith(".csv")).sort()).toEqual([sheet, "areas/finance/payroll/metrics.csv"]);
     const where = one(mode === "chart" ? "area-box-areas/finance" : "area-row-areas/finance");
     expect(strip(where.textContent)).toContain("$512");
-    // Against its target, so a number says whether it is good (the owner, 2026-11-24).
-    expect(strip(where.textContent)).toContain("< $600");
-    if (mode === "chart") expect(strip(where.textContent)).toContain("On target");
-    expect(all("area-trend", where)).toHaveLength(1);
+    // Against its goal in words, with one verdict, so a number says whether it is good (the owner, 2026-11-24 and 2026-11-26).
+    expect(strip(where.textContent)).toContain("under $600");
+    expect(strip(where.textContent)).toContain("Exceeds target");
+    // The trend is in the side panel, not on the row or the box.
+    expect(all("area-trend", where)).toHaveLength(0);
   });
 
   // Stage C: an area picks one of the workspace's metrics; with none to pick, the picker says so.

@@ -1,15 +1,16 @@
 /**
- * The List view of an Areas folder, as the owner approved it on 2026-11-24
- * (the Areas redesign board, "E Trend"): one row per area, nested under the
- * open folder's own row. A row reads, left to right: a chevron when it has
- * sub-areas, its owner's face, its name; then its one headline metric (its
- * label over a small trend, the latest value in green or amber, and the
- * target); then a count of the notes and folders in it, which shows them
- * under the row; then ⋯ for the seat menu. Notes and folders are hidden until
- * that count is pressed (the owner: "maybe we just hide it? with a button to
- * show them").
+ * The List view of an Areas folder, trimmed for people who do not live in the
+ * numbers (the owner, 2026-11-26, option A of the simplified Areas page; the
+ * row's first shape was the Areas redesign board's "E Trend", 2026-11-24):
+ * one row per area, nested under the open folder's own row, with sub-areas
+ * folded until their chevron is pressed. A row reads, left to right: the
+ * chevron and how many areas are inside, its owner's face, its name; then its
+ * one metric as `186 aim 100+ · Weekly deploys`; then one verdict in words
+ * (`verdict.ts`); then ⋯ on hover for the seat menu. The trend, the time
+ * range, the projects and the notes are in the area's side panel, not on the
+ * row.
  *
- * On a phone each area is a block: the name line with its count at the end,
+ * On a phone each area is a block: the name line with its verdict at the end,
  * and the metric on a second line under it; the open folder is a small
  * heading over the list.
  *
@@ -21,38 +22,26 @@
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, View, type GestureResponderEvent, type ViewProps } from "react-native";
 import { Path, Svg } from "react-native-svg";
-import { Icon, type IconName } from "../../../../design/components/Icon";
+import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { areasType, pointerType } from "../../../../design/tokens";
-import { displayName, folderLabel } from "../../paths";
-import type { ItemEntry } from "../model";
+import { folderLabel } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
 import type { Reading } from "./readings";
 import { headlineOf } from "./headline";
-import { MetricCell, PhoneMetric } from "./AreaMetricCell";
-import { areaTitle, fileKind, type AreaNode, type Seat } from "./seat";
-import type { AreaProjects } from "./areaProjects";
-import { ProjectsButton, ProjectRows } from "./AreaProjectRows";
+import { MetricCell, PhoneMetric, VerdictMark } from "./AreaMetricCell";
+import { areaTitle, type AreaNode, type Seat } from "./seat";
 
 export { shortTarget } from "./shortTarget";
 
-/** A web hover title; none on a phone. */
-function hoverTitle(text: string): { readonly title?: string } {
-  return Platform.OS === "web" && text !== "" ? { title: text } : {};
-}
-
-/** The counts column: the notes count alone, or the projects count beside it. */
-const COUNTS = 52;
-const COUNTS_WIDE = 100;
-/** How far each level sits in from its parent: 20 on a pointer, 16 on a phone. */
+/** The verdict column: wide enough for "Exceeds target" and "Needs a look". */
+const VERDICT = 132;
+/** How far each level sits in from its parent. */
 const INDENT = 16;
 const INDENT_PHONE = 16;
-/** A file row sits under its area's name: the chevron and face columns past the area's own inset. */
-const FILE_INSET = 52;
-const FILE_INSET_PHONE = 26;
 
 export interface AreasListProps {
   tree: AreaNode;
@@ -63,9 +52,7 @@ export interface AreasListProps {
   reach: (owner: string) => string;
   /** The name drawn on the top row: the workspace's name when the open folder is the Areas folder, else the area's own title. */
   rootTitle: string;
-  /** How many notes a plain folder holds, at any depth. */
-  notesUnder: (folder: string) => number;
-  /** A file row opens the note; an area row opens that area's own page; a plain folder row opens the folder. */
+  /** An area row opens that area's own page (a phone's press). */
   onOpen: (path: string) => void;
   /** An area row pressed: the side panel on a desktop (a second press opens it), else its page. Defaults to `onOpen`. */
   onArea?: (folder: string) => void;
@@ -77,8 +64,6 @@ export interface AreasListProps {
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
   /** The latest reading of a seat's headline metric, a workspace metric's or its `metrics.csv`'s; undefined when there is none. */
   readingOf: (seat: Seat) => Reading | undefined;
-  /** The projects that serve an area or its sub-areas (`areaProjects.ts`); absent where the Projects folder is not read. */
-  projectsOf?: (folder: string) => AreaProjects;
 }
 
 /** The pointer state a web Pressable reports, which react-native-web adds to RN's. */
@@ -93,23 +78,13 @@ function depthProps(depth: number): ViewProps {
 }
 
 /** Everything a row needs from the list, passed down once. */
-interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected" | "rootPeeks" | "projectsOf"> {
+interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected" | "rootPeeks"> {
   readonly rootPeeks: boolean;
   readonly onArea: (folder: string) => void;
   readonly selected: string | null;
   /** Whether an area's sub-areas are showing: the top row's are on open, every other area's are folded until its chevron is pressed. */
   readonly isOpen: (folder: string) => boolean;
   readonly toggle: (folder: string) => void;
-  /** Areas whose notes and folders are showing. */
-  readonly shown: ReadonlySet<string>;
-  readonly toggleNotes: (folder: string) => void;
-  /** An area's projects, none where they are not read. */
-  readonly projectsOf: (folder: string) => AreaProjects | null;
-  /** Areas whose projects in progress are showing. */
-  readonly shownProjects: ReadonlySet<string>;
-  readonly toggleProjects: (folder: string) => void;
-  /** The counts column: wider when some row has projects to count beside its notes. */
-  readonly countsWidth: number;
 }
 
 const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
@@ -119,20 +94,16 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, notesUnder, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, projectsOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   // Folders pressed away from their default: the top row starts open, every area under it starts
   // folded (the owner, 2026-11-25: "collapse the items not on the 1st level, by default on page open").
   const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
-  const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
-  const [shownProjects, setShownProjects] = useState<ReadonlySet<string>>(() => new Set());
-  const anyProjects = projectsOf !== undefined && someProjects(tree, projectsOf);
   const shared: Shared = {
     compact,
     faceOf,
     label,
     reach,
-    notesUnder,
     onOpen,
     onArea: onArea ?? onOpen,
     selected,
@@ -141,25 +112,14 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
     readingOf,
     isOpen: (folder) => (folder === tree.seat.folder) !== flipped.has(folder),
     toggle: (folder) => setFlipped((previous) => flip(previous, folder)),
-    shown,
-    toggleNotes: (folder) => setShown((previous) => flip(previous, folder)),
-    projectsOf: (folder) => (projectsOf === undefined || folder === tree.seat.folder ? null : projectsOf(folder)),
-    shownProjects,
-    toggleProjects: (folder) => setShownProjects((previous) => flip(previous, folder)),
-    countsWidth: anyProjects ? COUNTS_WIDE : COUNTS,
   };
-  const empty = tree.areas.length === 0 && tree.files.length === 0;
+  const empty = tree.areas.length === 0;
   return (
     <View style={compact ? styles.listPhone : styles.list} testID="areas-list">
       {compact ? <PhoneHead seat={tree.seat} title={rootTitle} shared={shared} /> : null}
       {empty ? <Text variant="meta" style={styles.empty}>No areas here yet.</Text> : null}
       {compact ? (
-        <>
-          {tree.areas.map((sub, at) => (
-            <PhoneBranch key={sub.seat.folder} node={sub} depth={1} first={at === 0} shared={shared} />
-          ))}
-          <FileRows node={tree} depth={0} shared={shared} />
-        </>
+        tree.areas.map((sub, at) => <PhoneBranch key={sub.seat.folder} node={sub} depth={1} first={at === 0} shared={shared} />)
       ) : (
         <AreaBranch node={tree} depth={0} rootTitle={rootTitle} firstTop shared={shared} />
       )}
@@ -169,14 +129,12 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, note
 
 /* ------------------------------ pointer: rows ------------------------------ */
 
-/** An area row, then its notes and folders when they are showing, then its sub-areas unless folded. Depth 0 is the open folder. */
+/** An area row, then its sub-areas unless folded. Depth 0 is the open folder. */
 function AreaBranch({ node, depth, rootTitle, firstTop, shared }: { node: AreaNode; depth: number; rootTitle?: string; firstTop: boolean; shared: Shared }) {
   const open = shared.isOpen(node.seat.folder);
   return (
     <>
       <AreaRow node={node} depth={depth} title={rootTitle} open={open} divided={depth === 1 && !firstTop} shared={shared} />
-      <AreaProjectRows node={node} depth={depth} shared={shared} />
-      <FileRows node={node} depth={depth} shared={shared} />
       {open
         ? node.areas.map((sub, at) => <AreaBranch key={sub.seat.folder} node={sub} depth={depth + 1} firstTop={at === 0} shared={shared} />)
         : null}
@@ -214,13 +172,13 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
               <Text variant="tree" style={[styles.areaName, root && styles.rootName, seat.owner === null && styles.unownedName]} numberOfLines={1}>
                 {name}
               </Text>
+              <InsideCount node={node} />
             </View>
             <View style={styles.metricCell}>
               {headline === null ? null : <MetricCell headline={headline} />}
             </View>
-            <View style={[styles.notesCell, { width: shared.countsWidth }]}>
-              <AreaProjectsButton node={node} shared={shared} />
-              <NotesButton node={node} shared={shared} />
+            <View style={styles.verdictCell}>
+              {headline?.verdict == null ? null : <VerdictMark verdict={headline.verdict} />}
             </View>
             {/* In the margin past the row's right edge, on hover only, so it takes no room from the
                 row (the owner, 2026-11-24: "remove the deadspace"). The top row's own press opens the menu. */}
@@ -242,33 +200,15 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
   );
 }
 
-/** Whether any area under the top row has a project in progress, which widens the counts column for all of them. */
-function someProjects(node: AreaNode, projectsOf: (folder: string) => AreaProjects): boolean {
-  return node.areas.some((sub) => projectsOf(sub.seat.folder).inProgress.length > 0 || someProjects(sub, projectsOf));
-}
-
-/** The count of an area's projects in progress, which shows them under its row; nothing when there are none. */
-function AreaProjectsButton({ node, shared, phone = false }: { node: AreaNode; shared: Shared; phone?: boolean }) {
-  const projects = shared.projectsOf(node.seat.folder);
-  if (projects === null) return null;
+/** How many areas are inside, beside the name, muted; nothing when there are none. */
+function InsideCount({ node }: { node: AreaNode }) {
+  const styles = useThemedStyles(makeStyles);
+  if (node.areas.length === 0) return null;
   return (
-    <ProjectsButton
-      count={projects.inProgress.length}
-      area={folderLabel(node.seat.name)}
-      folder={node.seat.folder}
-      open={shared.shownProjects.has(node.seat.folder)}
-      phone={phone}
-      onPress={() => shared.toggleProjects(node.seat.folder)}
-    />
+    <Text variant="treeMeta" style={styles.inside} testID={`area-inside-${node.seat.folder}`} accessibilityLabel={`${node.areas.length} areas inside`}>
+      {String(node.areas.length)}
+    </Text>
   );
-}
-
-/** An area's projects in progress, when its count has been pressed, and a line saying how many more there are. */
-function AreaProjectRows({ node, depth, shared }: { node: AreaNode; depth: number; shared: Shared }) {
-  const projects = shared.projectsOf(node.seat.folder);
-  if (projects === null || !shared.shownProjects.has(node.seat.folder)) return null;
-  const inset = shared.compact ? Math.max(depth - 1, 0) * INDENT_PHONE + FILE_INSET_PHONE : depth * INDENT + 4 + FILE_INSET;
-  return <ProjectRows area={node.seat.folder} projects={projects} inset={inset} phone={shared.compact} faceOf={shared.faceOf} onOpen={shared.onOpen} />;
 }
 
 /** The chevron that folds an area's sub-areas, or the same width of nothing when it has none. */
@@ -295,40 +235,6 @@ function Chevron({ node, open, size, shared, phone = false }: { node: AreaNode; 
   );
 }
 
-/** How many notes and folders sit in an area, which shows them under its row; nothing when there are none. */
-function NotesButton({ node, shared, phone = false }: { node: AreaNode; shared: Shared; phone?: boolean }) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const count = node.files.length;
-  if (count === 0) return null;
-  const { seat } = node;
-  const open = shared.shown.has(seat.folder);
-  const words = `${open ? "Hide" : "Show"} notes in ${folderLabel(seat.name)}`;
-  return (
-    <Pressable
-      onPress={() => shared.toggleNotes(seat.folder)}
-      accessibilityLabel={words}
-      aria-expanded={open}
-      hitSlop={4}
-      style={({ hovered }: HoverState) => [phone ? styles.notesPhone : styles.notes, hovered && styles.notesHover]}
-      testID={`area-notes-${seat.folder}`}
-      {...hoverTitle(words)}
-    >
-      <Svg width={13} height={13} viewBox="0 0 12 12" aria-hidden>
-        <Path d="M3 1.5h4l2 2v7H3z" fill="none" stroke={colors.muted} strokeWidth={1.2} strokeLinejoin="round" />
-      </Svg>
-      <Text variant="treeMeta" style={phone ? styles.notesCountPhone : styles.notesCount}>
-        {String(count)}
-      </Text>
-      <View style={{ transform: [{ rotate: open ? "90deg" : "0deg" }] }}>
-        <Svg width={10} height={10} viewBox="0 0 14 14" aria-hidden>
-          <Path d="M5 3l4 4-4 4" fill="none" stroke={colors.muted} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-        </Svg>
-      </View>
-    </Pressable>
-  );
-}
-
 /** The owner's face, with the owner's name and how to reach them on hover and to a screen reader. */
 function OwnerMark({ owner, size, shared }: { owner: string | null; size: number; shared: Shared }) {
   const hint = owner === null ? "" : shared.reach(owner);
@@ -343,59 +249,6 @@ function OwnerMark({ owner, size, shared }: { owner: string | null; size: number
     >
       <OwnerFace face={shared.faceOf(owner)} size={size} />
     </View>
-  );
-}
-
-/** The icon a file row draws, by what the entry is. */
-const KIND_ICON: Record<ReturnType<typeof fileKind>, IconName> = {
-  folder: "folder",
-  note: "file",
-  page: "file",
-  sheet: "grid",
-  file: "file",
-};
-
-/** An area's notes and folders, when its count has been pressed. */
-function FileRows({ node, depth, shared }: { node: AreaNode; depth: number; shared: Shared }) {
-  if (!shared.shown.has(node.seat.folder)) return null;
-  return (
-    <>
-      {node.files.map((file) => (
-        <FileRow key={file.path} entry={file} depth={depth} shared={shared} />
-      ))}
-    </>
-  );
-}
-
-function FileRow({ entry, depth, shared }: { entry: ItemEntry; depth: number; shared: Shared }) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const kind = fileKind(entry);
-  const folder = kind === "folder";
-  const name = displayName(entry.name).replace(/\.page$/, "");
-  const notes = folder ? shared.notesUnder(entry.path) : 0;
-  const meta = kind === "sheet" ? "CSV" : kind === "page" ? "Page" : notes > 0 ? `${notes} ${notes === 1 ? "note" : "notes"}` : "";
-  const inset = shared.compact ? Math.max(depth - 1, 0) * INDENT_PHONE + FILE_INSET_PHONE : depth * INDENT + 4 + FILE_INSET;
-  return (
-    <Pressable
-      onPress={() => shared.onOpen(entry.path)}
-      accessibilityLabel={folder ? `${name}, folder` : name}
-      testID={`area-file-${entry.path}`}
-      {...depthProps(depth + 1)}
-      style={({ hovered }: HoverState) => [shared.compact ? styles.fileRowPhone : styles.fileRow, { paddingLeft: inset }, hovered && styles.hover]}
-    >
-      <View style={styles.fileIcon}>
-        <Icon name={KIND_ICON[kind]} size={15} color={colors.muted} />
-      </View>
-      <Text variant="tree" style={[styles.fileName, shared.compact && styles.fileNamePhone]} numberOfLines={1}>
-        {name}
-      </Text>
-      {meta === "" ? null : (
-        <Text variant="treeMeta" style={styles.fileMeta} numberOfLines={1}>
-          {meta}
-        </Text>
-      )}
-    </Pressable>
   );
 }
 
@@ -443,15 +296,15 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
           <Text variant="treeTouch" style={[styles.blockTitle, seat.owner === null && styles.unownedName]} numberOfLines={1}>
             {areaTitle(seat.name)}
           </Text>
-          <AreaProjectsButton node={node} shared={shared} phone />
-          <NotesButton node={node} shared={shared} phone />
+          <InsideCount node={node} />
+          <View style={styles.blockVerdict}>{headline?.verdict == null ? null : <VerdictMark verdict={headline.verdict} size={pointerType.ui - 1} />}</View>
         </View>
-        <View style={styles.blockMetric}>
-          {headline === null ? null : <PhoneMetric headline={headline} />}
-        </View>
+        {headline === null ? null : (
+          <View style={styles.blockMetric}>
+            <PhoneMetric headline={headline} />
+          </View>
+        )}
       </Pressable>
-      <AreaProjectRows node={node} depth={depth} shared={shared} />
-      <FileRows node={node} depth={depth} shared={shared} />
       {open ? node.areas.map((sub) => <PhoneBranch key={sub.seat.folder} node={sub} depth={depth + 1} first={false} shared={shared} />) : null}
     </>
   );
@@ -466,40 +319,27 @@ const makeStyles = (colors: Colors) =>
     // The area shown in the side panel.
     selected: { backgroundColor: colors.accentDim },
 
-    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, 220 of metric and 52 of count, 16 apart; the ⋯ floats past the right edge.
+    // A row on the app's own scale (the owner, 2026-11-24: the board's 60-high rows read "way too big" in the app): name, metric and verdict, 16 apart; the ⋯ floats past the right edge.
     areaRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: 16,
-      minHeight: 40,
-      paddingVertical: 4,
+      minHeight: 44,
+      paddingVertical: 6,
       paddingRight: 12,
       borderRadius: 8,
     },
     divided: { borderTopWidth: 1, borderTopColor: colors.line, borderRadius: 0 },
-    nameCell: { flexDirection: "row", alignItems: "center", gap: 8, flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
+    nameCell: { flexDirection: "row", alignItems: "center", gap: 8, flexGrow: 2, flexShrink: 1, flexBasis: 0, minWidth: 0 },
     chevron: { alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 },
     chevronPhone: { marginTop: -8, marginBottom: -8, marginLeft: -6, marginRight: -4 },
     areaName: { flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", color: colors.text },
     rootName: { fontSize: areasType.value },
     unownedName: { color: colors.muted },
-    metricCell: { width: 220, flexShrink: 0, minWidth: 0 },
-    notesCell: { flexShrink: 0, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" },
+    inside: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 0 },
+    metricCell: { flexGrow: 3, flexShrink: 1, flexBasis: 0, minWidth: 0 },
+    verdictCell: { width: VERDICT, flexShrink: 0, minWidth: 0 },
     more: { position: "absolute", right: -28, top: "50%", marginTop: -12, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6 },
-
-
-    notes: { flexDirection: "row", alignItems: "center", gap: 4, height: 24, paddingHorizontal: 8, borderRadius: 6 },
-    notesHover: { backgroundColor: colors.chipFill },
-    notesCount: { fontSize: pointerType.meta, lineHeight: 16, fontWeight: "500", color: colors.muted },
-    notesPhone: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, height: 28, minWidth: 44, paddingHorizontal: 10, borderRadius: 999, flexShrink: 0 },
-    notesCountPhone: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "500", color: colors.muted },
-
-    fileRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28, paddingRight: 12, borderRadius: 8 },
-    fileRowPhone: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 },
-    fileIcon: { width: 16, alignItems: "center", flexShrink: 0 },
-    fileName: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text2 },
-    fileNamePhone: { fontSize: areasType.value, lineHeight: 20 },
-    fileMeta: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 0 },
 
     phoneHead: {
       flexDirection: "row",
@@ -512,8 +352,9 @@ const makeStyles = (colors: Colors) =>
       borderBottomColor: colors.line,
     },
     phoneHeadName: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase", color: colors.muted },
-    block: { paddingVertical: 8, gap: 4 },
+    block: { paddingVertical: 10, gap: 4 },
     blockName: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
-    blockTitle: { flexGrow: 1, flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600", color: colors.text },
+    blockTitle: { flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600", color: colors.text },
+    blockVerdict: { marginLeft: "auto", flexShrink: 0, paddingLeft: 8 },
     blockMetric: { paddingLeft: 26, gap: 1, minWidth: 0 },
   });
