@@ -205,7 +205,8 @@ export function formulaParts(ast: FormulaTree, kindOf: (source: string) => Sourc
       };
       row(node.expr, 0);
       if (node.where.length > 0) {
-        const words = node.where.map((c) => `${c.column} ${c.op === "=" ? "=" : "≠"} ${c.value}`).join(" and ");
+        const sign: Record<string, string> = { "=": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥" };
+        const words = node.where.map((c) => `${c.column} ${sign[c.op] ?? c.op} ${c.value}`).join(" and ");
         out.push({ t: "filter", text: `where ${words}` });
       }
       last = here;

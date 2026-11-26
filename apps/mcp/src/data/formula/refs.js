@@ -14,7 +14,10 @@ function walk(node, visit) {
       return;
     case "agg":
       walk(node.expr, visit);
-      for (const cond of node.where ?? []) visit({ source: node.source, dataset: node.dataset, column: cond.column });
+      for (const cond of node.where ?? []) {
+        if (cond.expr) walk(cond.expr, visit);
+        else visit({ source: node.source, dataset: node.dataset, column: cond.column });
+      }
       return;
     case "ref":
       visit({ source: node.source, dataset: node.dataset, column: node.column });

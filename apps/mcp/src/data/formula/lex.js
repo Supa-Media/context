@@ -7,8 +7,8 @@
  *   `2026-runs`). A `-` with a space beside it is a minus.
  * - `num`: digits, with one optional `.digits` part; `value` is the number.
  * - `str`: text in "double" or 'single' quotes, no escapes; `value` is the text.
- * - `op`: `( ) . / + - * = !=`, with `value` the canonical sign; `−` reads as
- *   `-`, `×` as `*`, `÷` as `/` and `≠` as `!=`.
+ * - `op`: `( ) . / + - * = != < <= > >=`, with `value` the canonical sign; `−`
+ *   reads as `-`, `×` as `*`, `÷` as `/`, `≠` as `!=`, `≤` as `<=` and `≥` as `>=`.
  * `space` is whether whitespace comes right before the token, which is how
  * `github/pull-requests.usd` (a reference) differs from `a / b` (a division).
  *
@@ -17,7 +17,7 @@
 
 const SIGNS = new Map([
   ["(", "("], [")", ")"], [".", "."], ["/", "/"], ["÷", "/"], ["+", "+"], ["-", "-"], ["−", "-"],
-  ["*", "*"], ["×", "*"], ["=", "="], ["≠", "!="],
+  ["*", "*"], ["×", "*"], ["=", "="], ["≠", "!="], ["<", "<"], [">", ">"], ["≤", "<="], ["≥", ">="],
 ]);
 const SPACE = new Set([" ", "\t", "\n", "\r"]);
 const QUOTES = new Set(['"', "'"]);
@@ -50,8 +50,8 @@ export function lex(text) {
       if (close < 0) return fail(`The quote that starts here is never closed.`, at);
       tokens.push({ type: "str", value: src.slice(i + 1, close), raw: src.slice(i, close + 1), at, end: close + 1, space });
       i = close + 1;
-    } else if (ch === "!" && src[i + 1] === "=") {
-      tokens.push({ type: "op", value: "!=", raw: "!=", at, end: i + 2, space });
+    } else if ((ch === "!" || ch === "<" || ch === ">") && src[i + 1] === "=") {
+      tokens.push({ type: "op", value: `${ch}=`, raw: `${ch}=`, at, end: i + 2, space });
       i += 2;
     } else if (SIGNS.has(ch)) {
       tokens.push({ type: "op", value: SIGNS.get(ch), raw: ch, at, end: i + 1, space });
