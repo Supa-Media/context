@@ -367,11 +367,13 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       const notStarted = answer.jobs ? await deps.onJobs?.(answer.jobs, answer) : undefined;
       const notResumed = answer.steers ? await deps.onSteers?.(answer.steers, answer) : undefined;
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
-      if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures, answer.choices ?? []);
+      // A did turn's link and picture go after Tex's own words, sent by code: no model sees them (`didOne.ts`).
+      const pictures = [...answer.pictures, ...(message.event === "did" ? (message.didAfter?.pictures ?? []) : [])];
+      if (pictures.length > 0) deps.onPictures?.(pictures, answer.choices ?? []);
       if (answer.offers) deps.onOffers?.(answer.offers, answer.hub);
       if (answer.place) deps.onPlace?.(answer.place);
       if (answer.react !== undefined) deps.onReact?.(answer.react, answer.sticker);
-      const after = [notStarted, notResumed].filter((line): line is string => typeof line === "string" && line !== "");
+      const after = [notStarted, notResumed, ...(message.event === "did" ? (message.didAfter?.texts ?? []) : [])].filter((line): line is string => typeof line === "string" && line !== "");
       // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
       // Read off the whole answer, before it is cut into bubbles: reasoning that ends in the quiet word is not a text either (`outboundGuard.ts`).
       if (!answer.text || answer.quiet || !maySend(answer.text, "one_answer")) return after;
@@ -384,7 +386,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
     if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
     // What code did for them, when its turn could not run: the old line, once, logged (`didFacts.ts` `didUnsaidOne`).
-    if (message.event === "did") return didUnsaidOne(message, answer.kind);
+    if (message.event === "did") return didUnsaidOne(message, answer.kind, deps.onPictures);
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
     if (message.event !== undefined) return [];
     if (answer.kind === "no_model") return COPY.noModel;
@@ -393,7 +395,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     return COPY.unavailable;
   } catch (error) {
     if (error instanceof ServiceError && deps.retry) throw new TryLater();
-    if (error instanceof ServiceError) return message.event === "did" ? didUnsaidOne(message, "unavailable") : message.event !== undefined ? [] : COPY.unavailable;
+    if (error instanceof ServiceError) return message.event === "did" ? didUnsaidOne(message, "unavailable", deps.onPictures) : message.event !== undefined ? [] : COPY.unavailable;
     throw error;
   }
 }

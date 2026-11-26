@@ -73,7 +73,9 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
 - **A person's own chat too** (B5): code that did something for one person queues their 1:1 chat's own `did` turn
   (`packages/tex/worker/didOne.ts` `tellTexOne`, `inbox.ts` `queueByCode`), first when their Gmail connects
   (`gmailWatch.ts`: `{ action: "gmail", status: "connected", address, main }`). When the turn can't run (no model, the
-  daily limit, the gateway down on every try) the old line goes once, logged as `one_did` `unsaid_<why>`. Tests:
+  daily limit, the gateway down on every try) the old line goes once, logged as `one_did` `unsaid_<why>`. The notes-ready
+  text (`ready.ts`) is the second: Tex writes it from `{ action: "notes", status: "ready" | "late", ... }`, and the
+  sign-in link and the picture of Google's screens follow it, sent by code (`didAfter`), so no model sees the link. Tests:
   `packages/tex/worker/oneDid.test.ts`, `apps/mcp/test/agentVaultSavedRoute.test.mjs`.
 - **People with no account yet** get texts Tex writes too (Dev2, 2026-11-25: Context is free, so nothing is billed);
   a per-number daily cap only keeps a spam number from running up model calls.

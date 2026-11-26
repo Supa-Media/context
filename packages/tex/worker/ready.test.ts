@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WITHOUT_DID } from "./groupWorld.testing";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
 import {
@@ -43,7 +44,7 @@ function deps(opts: { ready: () => unknown; status?: () => number; linqStatus?: 
     }
     throw new Error(`unexpected ${path}`);
   }) as unknown as Fetch;
-  return { fetch: fetcher, controlPlaneOrigin: "https://cp.example", workerSecret: "s", linqApiKey: "k", now: opts.now };
+  return { fetch: fetcher, controlPlaneOrigin: "https://cp.example", workerSecret: "s", linqApiKey: "k", now: opts.now, texGraph: WITHOUT_DID };
 }
 
 describe("the ready text", () => {

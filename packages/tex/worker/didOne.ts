@@ -17,26 +17,32 @@ import type { InboxStorage } from "./inbox";
 import type { Message } from "./reply";
 
 /** The person's own chat's turn for `did`, under no text of theirs: keyed by `key`, so it is queued once. */
-export function didOneMessage(chat: { chatId: string; phone: string; channel?: "simulator" }, did: Did, key: string, fallback: string): Message {
-  return { kind: "message", eventId: `did:${key}`, chatId: chat.chatId, from: chat.phone, messageId: "", text: "", event: DID_EVENT, did, didFallback: fallback, ...(chat.channel ? { channel: chat.channel } : {}) };
+export function didOneMessage(chat: { chatId: string; phone: string; channel?: "simulator" }, did: Did, key: string, fallback: string | string[], after?: DidAfter): Message {
+  return { kind: "message", eventId: `did:${key}`, chatId: chat.chatId, from: chat.phone, messageId: "", text: "", event: DID_EVENT, did, didFallback: fallback, ...(after ? { didAfter: after } : {}), ...(chat.channel ? { channel: chat.channel } : {}) };
 }
+
+/** What code sends after the turn's words, either way, and no model sees: a link that signs them in, a picture. */
+export type DidAfter = { texts?: string[]; pictures?: { url: string }[] };
 
 /**
  * Tell the person's own chat what code did: "queued" (a turn of its own), "off" (node `did` isn't wired: the caller
  * sends its old line, as before) or "dropped" (facts unreadable, or that turn was queued already).
  */
-export async function tellTexOne(storage: InboxStorage, chat: { chatId: string; phone: string; channel?: "simulator" }, did: Did, key: string, fallback: string, { now, graph }: { now: number; graph?: unknown }): Promise<"queued" | "off" | "dropped"> {
+export async function tellTexOne(storage: InboxStorage, chat: { chatId: string; phone: string; channel?: "simulator" }, did: Did, key: string, fallback: string | string[], { now, graph, after }: { now: number; graph?: unknown; after?: DidAfter }): Promise<"queued" | "off" | "dropped"> {
   const facts = didOf(did);
   if (facts === null) return log("unreadable", did), "dropped";
   if (!didWired(graph)) return log("off", facts), "off";
-  if (!(await queueByCode(storage, didOneMessage(chat, facts, key, fallback), now))) return log("duplicate", facts), "dropped";
+  if (!(await queueByCode(storage, didOneMessage(chat, facts, key, fallback, after), now))) return log("duplicate", facts), "dropped";
   return log("queued", facts), "queued";
 }
 
-/** A `did` turn that could not run: its old line, once, never silence. */
-export function didUnsaidOne(message: Message, why: string): string[] {
+/** A `did` turn that could not run: its old line, once, never silence (the line carries its own link), then the picture. */
+export function didUnsaidOne(message: Message, why: string, onPictures?: (pictures: { url: string }[], choices: []) => void): string[] {
   log(`unsaid_${why}`, message.did ?? {});
-  return message.didFallback ? [message.didFallback] : [];
+  const pictures = message.didAfter?.pictures ?? [];
+  if (pictures.length > 0) onPictures?.(pictures, []);
+  const fallback = message.didFallback === undefined ? [] : Array.isArray(message.didFallback) ? message.didFallback : [message.didFallback];
+  return fallback;
 }
 
 function log(outcome: string, did: Partial<Did>): void {
