@@ -5,8 +5,11 @@
  * the bot's own identity within a few minutes").
  *
  *   - `bindBotLogin`: the bot's own connection says which bot it is in one workspace (`manage area { bind_bot }`),
- *     cleared as an owner or editor there. It is kept on the grant (`oauthGrants.bots`), so revoking the connection
- *     unbinds it, and the check starts: `checkSentAt` now, no answer yet.
+ *     cleared as an owner or editor there. It is kept in `botLogins` by grant, never on the grant row itself: a grant
+ *     is an access row, and a person whose connections live in their object refuses a write to it here
+ *     (`lib/accessHandOff/flush.ts`, the "control plane couldn't be reached" every bot hit on 2026-11-26). Revoking the
+ *     connection unbinds it, since every read resolves the live grant first. The check starts: `checkSentAt` now.
+ *   - `boundBotFor`: which bot this connection is here, if any; the gateway asks when it signs or reads mail.
  *   - `botAnswered`: the gateway saw that bound login send mail in that workspace (`apps/mcp/src/tools/notes/mail.js`).
  *   - `botHealthOf`: answering, checking, or not answering, worked out when read.
  *
@@ -37,6 +40,13 @@ export function healthOf(row: { checkSentAt: number; answeredAt?: number } | nul
   return now - row.checkSentAt < BOT_CHECK_MS ? "checking" : "not answering";
 }
 
+async function bindingOf(ctx: QueryCtx, grantId: Id<"oauthGrants">, workspaceId: Id<"workspaces">) {
+  return await ctx.db
+    .query("botLogins")
+    .withIndex("by_grant_workspace", (q) => q.eq("grantId", grantId).eq("workspaceId", workspaceId))
+    .unique();
+}
+
 async function healthRow(ctx: QueryCtx, workspaceId: Id<"workspaces">, bot: string) {
   return await ctx.db
     .query("botHealth")
@@ -57,10 +67,17 @@ export const bindBotLogin = internalMutation({
     const bot = mailJoinName(args.bot);
     const name = args.name.trim().slice(0, 64);
     if (!/[a-z0-9]/.test(bot) || name === "") return { error: "Name the bot as its card names it." };
-    const others = (live.grant.bots ?? []).filter((entry) => entry.workspaceId !== workspaceId);
-    if (others.length >= MAX_BOUND) return { error: "This connection is already a bot in too many workspaces." };
-    await ctx.db.patch(live.grant._id, { bots: [...others, { workspaceId, bot, name }] });
     const now = Date.now();
+    const held = await bindingOf(ctx, live.grant._id, workspaceId);
+    if (held !== null) await ctx.db.patch(held._id, { bot, name, at: now });
+    else {
+      const all = await ctx.db
+        .query("botLogins")
+        .withIndex("by_grant_workspace", (q) => q.eq("grantId", live.grant._id))
+        .take(MAX_BOUND);
+      if (all.length >= MAX_BOUND) return { error: "This connection is already a bot in too many workspaces." };
+      await ctx.db.insert("botLogins", { grantId: live.grant._id, workspaceId, bot, name, at: now });
+    }
     const row = await healthRow(ctx, workspaceId, bot);
     if (row === null) await ctx.db.insert("botHealth", { workspaceId, bot, checkSentAt: now });
     else await ctx.db.patch(row._id, { checkSentAt: now, answeredAt: undefined });
@@ -84,9 +101,8 @@ export const botAnswered = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return null;
-    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
-    const bound = live?.grant.bots?.find((entry) => entry.workspaceId === args.expectedWorkspaceId);
-    if (live === null || bound === undefined) return null;
+    const bound = await boundOf(ctx, args.hashedAccessToken, args.expectedWorkspaceId);
+    if (bound === null) return null;
     const workspaceId = bound.workspaceId;
     const row = await healthRow(ctx, workspaceId, bound.bot);
     if (row === null) return null;
@@ -94,6 +110,27 @@ export const botAnswered = internalMutation({
     if (row.answeredAt !== undefined && row.answeredAt >= row.checkSentAt) return null;
     await ctx.db.patch(row._id, { answeredAt: Date.now() });
     return null;
+  },
+});
+
+/** The binding this live token's connection has in one workspace, or null. */
+async function boundOf(ctx: QueryCtx, hashedAccessToken: string, expectedWorkspaceId: string) {
+  if (!TOKEN_HASH_PATTERN.test(hashedAccessToken)) return null;
+  const live = await resolveLiveGrant(ctx, hashedAccessToken);
+  if (live === null || live.grant.texGroup !== undefined) return null;
+  // The workspace comes from what the grant reaches, compared with the expected one, never looked up by it.
+  const reached = (await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === expectedWorkspaceId);
+  if (reached === undefined) return null;
+  return await bindingOf(ctx, live.grant._id, reached.workspaceId);
+}
+
+/** Which bot this connection is in this workspace: `{ bot, name }`, or `{ bot: null }`. Its own token is the proof. */
+export const boundBotFor = internalQuery({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(v.object({ bot: v.string(), name: v.string() }), v.object({ bot: v.null() })),
+  handler: async (ctx, args) => {
+    const bound = await boundOf(ctx, args.hashedAccessToken, args.expectedWorkspaceId);
+    return bound === null ? { bot: null } : { bot: bound.bot, name: bound.name };
   },
 });
 

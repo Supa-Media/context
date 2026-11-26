@@ -7,9 +7,11 @@ import { BOT_CHECK_MS, healthOf } from "../functions/botLogins";
 /**
  * A bot's login bound to its card (`functions/botLogins.ts`; Dev, 2026-11-26: "bind the bot's connector login to its
  * bot card" and "marks the connection healthy only when the reply comes from the bot's own identity within a few
- * minutes"). The binding lives on the grant and comes back on every session; only that grant marks the bot answering.
+ * minutes"). The binding is its own row by grant, never on the grant (an access row a person's object takes first);
+ * the connection asks which bot it is, and only that grant marks the bot answering.
  *
- * Sabotage: letting `answered` move health for any grant failed "only the bound login marks its bot answering".
+ * Sabotage: letting `answered` move health for any grant failed "only the bound login marks its bot answering";
+ * writing the binding on the grant again failed "binds when the person's connections live in their object".
  */
 
 afterEach(() => {
@@ -45,18 +47,29 @@ describe("a bot's login", () => {
     expect(healthOf({ checkSentAt: 1000, answeredAt: 1500 }, 1000 + BOT_CHECK_MS * 10)).toBe("answering");
   });
 
-  test("an owner's or editor's own connection binds as a bot, and every session says so", async () => {
+  test("an owner's or editor's own connection binds as a bot, and asks which bot it is", async () => {
     const { t, supa, GROK, KIM, door } = await world();
     expect(await door(KIM, { action: "bind", bot: "Grok Bot", name: "Grok Bot" })).toEqual({ error: expect.stringContaining("owner or editor") });
+    expect(await door(GROK, { action: "bound" })).toEqual({ bot: null });
     expect(await door(GROK, { action: "bind", bot: "Grok Bot", name: "Grok Bot" })).toEqual({ ok: true, workspaceId: supa, bot: "grok-bot" });
-    const session = await (await gatewayPost(t, "/gateway/session", { accessToken: GROK })).json();
-    expect(session.session.bots).toEqual([{ workspaceId: supa, bot: "grok-bot", name: "Grok Bot" }]);
-    const other = await (await gatewayPost(t, "/gateway/session", { accessToken: KIM })).json();
-    expect(other.session.bots).toBeUndefined();
-    // Binding again keeps one entry for the workspace.
+    expect(await door(GROK, { action: "bound" })).toEqual({ bot: "grok-bot", name: "Grok Bot" });
+    expect(await door(KIM, { action: "bound" })).toEqual({ bot: null });
+    // Binding again keeps one row for the workspace.
     await door(GROK, { action: "bind", bot: "Grok Bot", name: "Grok" });
-    const again = await (await gatewayPost(t, "/gateway/session", { accessToken: GROK })).json();
-    expect(again.session.bots).toEqual([{ workspaceId: supa, bot: "grok-bot", name: "Grok" }]);
+    expect(await door(GROK, { action: "bound" })).toEqual({ bot: "grok-bot", name: "Grok" });
+    expect(await t.run((ctx) => ctx.db.query("botLogins").collect())).toHaveLength(1);
+  });
+
+  test("binds when the person's connections live in their object", async () => {
+    // Production, 2026-11-26: every bot's bind came back "the control plane could not be reached", because the binding
+    // was patched onto the grant, which a person whose connections are in their object refuses here.
+    const { t, seyi, supa, GROK, door } = await world();
+    const personal = await createWorkspace(t, seyi, "seyi-logins-home");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaceObjectHomes", { workspaceId: personal, home: "bucket", since: 0, access: "object", personAccess: "object" });
+    });
+    expect(await door(GROK, { action: "bind", bot: "Grok Bot", name: "Grok Bot" })).toEqual({ ok: true, workspaceId: supa, bot: "grok-bot" });
+    expect(await door(GROK, { action: "bound" })).toEqual({ bot: "grok-bot", name: "Grok Bot" });
   });
 
   test("only the bound login marks its bot answering", async () => {

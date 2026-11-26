@@ -26,6 +26,7 @@ import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { MACHINE_RUN_CLIENT_ID } from "../machineRun.js";
 import { botCardOf } from "./botBind.js";
+import { boundBotOf } from "../../mail/boundBot.js";
 
 /** A note in a bot's or an area's mail folder, where every agent line says what it used. */
 const MAIL_FOLDER_NOTE = /(^|\/)mail\/[^/]+$/;
@@ -47,21 +48,13 @@ function appFor(actor) {
 }
 
 /** A sender name for a connection that has not joined: the bot it is bound as, or else its app, as a name. */
-function unjoinedName(actor) {
-  return boundBot(actor) ?? mailName(actor?.client) ?? "agent";
-}
-
-/**
- * The bot this connection is here, when its login was bound (`botBind.js`, Dev, 2026-11-26: "anything that login
- * writes shows as Grok Bot ... instead of Cursor"): every line it writes is signed by the bot, whatever it joined as.
- */
-function boundBot(actor) {
-  return typeof actor?.bot === "string" && actor.bot !== "" ? actor.bot : null;
+function unjoinedName(actor, bound) {
+  return bound?.bot ?? mailName(actor?.client) ?? "agent";
 }
 
 /** Tells the control plane a bound bot answered, behind the response (`functions/botLogins.ts`): its check passes. */
-function noteAnswered(store) {
-  if (boundBot(store.actor) === null || typeof store.botHooks !== "function") return;
+function noteAnswered(store, bound) {
+  if (bound === null || typeof store.botHooks !== "function") return;
   const work = store.botHooks({ action: "answered" }).catch(() => null);
   if (typeof store.defer === "function") store.defer(work);
 }
@@ -146,14 +139,16 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     const text = parsed.body;
     const { events } = parseMail(text);
     const app = appFor(store.actor);
+    // The bot this connection is here, when its login was bound (`botBind.js`, Dev, 2026-11-26: "anything that login
+    // writes shows as Grok Bot ... instead of Cursor"): every line it writes is signed by the bot, whatever it joined as.
+    const bound = await boundBotOf(store);
     let entry;
     let joined = null;
 
     if (joining) {
       const name = mailName(request.join);
       if (!name) return toolError(`mail.join must be a short name of letters, digits and dashes, and not "${EVERYONE}"`);
-      const bound = boundBot(store.actor);
-      if (bound !== null && name !== bound) return toolError(`refused: this connection is ${store.actor.botName ?? bound} here, so it joins only as "${bound}". Pass join: "${bound}", then try again`);
+      if (bound !== null && name !== bound.bot) return toolError(`refused: this connection is ${bound.name} here, so it joins only as "${bound.bot}". Pass join: "${bound.bot}", then try again`);
       // A bot's name is its own login's alone: another connection posing as it is refused, so no run posts as a bot
       // without being it (Dev, 2026-11-26: "Any write that isn't bound gets rejected").
       if (bound === null && (await botCardOf(store, name).catch(() => null)) !== null) {
@@ -183,9 +178,9 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     } else {
       const found = await mailboxFor(store, args, path);
       if (found.error) return toolError(found.error);
-      const from = boundBot(store.actor) ?? found.mailbox?.name ?? unjoinedName(store.actor);
+      const from = bound?.bot ?? found.mailbox?.name ?? unjoinedName(store.actor, bound);
       // A mailbox joined under a bot's name before logins were bound speaks as that bot only once it is bound.
-      if (boundBot(store.actor) === null && found.mailbox?.name !== undefined && (await botCardOf(store, from).catch(() => null)) !== null) {
+      if (bound === null && found.mailbox?.name !== undefined && (await botCardOf(store, from).catch(() => null)) !== null) {
         return toolError(`refused: "${from}" is a bot's name here, and this connection isn't bound as that bot. If you are that bot, run manage area { bind_bot: "<your name>" } from your main chat, then send again`);
       }
       let to = EVERYONE;
@@ -228,7 +223,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     if (conflicted && attempt === 0) continue;
     if (written?.isError) return written;
     if (joined) return toolText(`${written.content[0].text}\n${joinedText(path, joined, events, false, store.mailTurn?.job, device)}`);
-    noteAnswered(store);
+    noteAnswered(store, bound);
     const delivered = typeof store.mail?.deliver === "function" ? await store.mail.deliver({ path, at, from: entry.from, app, to: entry.to, mailKind, text: request.text }).catch(() => []) : [];
     const sent = `${written.content[0].text}\nmail: sent${mailKind === "note" ? "" : ` (${mailKind})`} to ${entry.to} as ${entry.from} (${app})` + (delivered.length ? `; delivered at once to ${delivered.join(", ")}` : "");
     if (wait > 0) return toolText(`${sent}\n${await waitForAnswer(store, scope, rules, overrides, path, entry.from, entry.to, at, wait)}`);

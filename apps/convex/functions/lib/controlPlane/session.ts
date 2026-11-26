@@ -144,8 +144,6 @@ export const resolveGrantByAccessTokenReturns = v.union(
     texChatId: v.optional(v.string()),
     /** The account whose own tag this turn is, in that chat (`textGroups.ts` `ownTagToken`): logins they saved for themselves count. */
     texTaggerId: v.optional(v.id("users")),
-    /** The bot this connection is, in each workspace it bound itself in (`oauthGrants.bots`, `functions/botLogins.ts`). */
-    bots: v.optional(v.array(v.object({ workspaceId: v.id("workspaces"), bot: v.string(), name: v.string() }))),
     workspaceId: v.id("workspaces"),
     slug: v.string(),
     role: v.string(),
@@ -240,7 +238,6 @@ async function resolveGrant(ctx: QueryCtx, args: ObjectType<typeof resolveGrantB
       ...(chatId === null ? {} : { texChatId: chatId }),
       ...ownTagOf(live, chatId, args.hashedAccessToken),
       // A run's token acts as Tex on a computer, never as a bot its parent grant bound.
-      ...(live.run || !live.grant.bots?.length ? {} : { bots: live.grant.bots }),
       workspaceId: live.grant.workspaceId,
       slug: live.workspace.slug,
       role: live.role,

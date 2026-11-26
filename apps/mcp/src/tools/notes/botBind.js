@@ -7,7 +7,7 @@
  *   - The card must be there (`bots/<bot>/about.md`, or where bots lived before), and a card that names whose bot it
  *     is (`belongs_to:`) is bound only by that person's own connection, or an owner's.
  *   - The control plane keeps the binding on this connection's grant (`/gateway/bots/hook` `bind`,
- *     `apps/convex/functions/botLogins.ts`), cleared as an owner or editor, and starts the check.
+ *     `apps/convex/functions/botLogins.ts`), by grant and never on the grant itself, cleared as an owner or editor, and starts the check.
  *   - The check is a mail line from `context` in `<card folder>/mail/context.md`, which the workspace object tells
  *     the bot's webhook like any other (`workspaceStore/botMail.js`). The bot's first answer from this login marks it
  *     answering (`mail.js`).
@@ -21,6 +21,7 @@ import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import comments from "../../../../../packages/shared/src/comments.cjs";
+import { rememberBound } from "../../mail/boundBot.js";
 
 const { mailJoinName } = areaBots;
 const { botCardPaths } = areaRoutines;
@@ -99,6 +100,7 @@ export async function toolBindBot(store, scope, rules, overrides, raw) {
   const bot = mailJoinName(name);
   const answer = await store.botHooks({ action: "bind", bot, name: holder }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try again." }));
   if (answer?.error || answer?.ok !== true) return toolError(`not bound: ${answer?.error ?? "no answer"}. Fix that, then try again.`);
+  rememberBound(store, { bot, name: holder });
   // A card in a folder (`bots/<bot>/about.md`) has its mail beside it; an old one-note card has none, so no check.
   const folder = card.path.endsWith("/about.md") ? card.path.slice(0, -"/about.md".length) : null;
   if (folder === null) return toolText(`- ${holder}: this connection is now ${holder} here; what it writes is signed ${holder}.`);
