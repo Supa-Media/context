@@ -153,6 +153,8 @@
     {"id":"m143","kind":"reply","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"john didn't they email you about it","to":"m142","who":"Kofi"},
     {"id":"m144","text":"somewhere, i'll look","who":"John"},
     {"id":"m145","kind":"reply","text":"try the city's events page instead","to":"m142","who":"Priya"},
-    {"id":"m146","tex":true,"text":"The city's page lists summer stalls at $45 a day.","who":"Tex"}
+    {"id":"m146","tex":true,"text":"The city's page lists summer stalls at $45 a day.","who":"Tex"},
+    {"at":"Sun 13:30","id":"m147","labels":{"fd":{"must":["send one of the stickers this chat already used (sk0f1t3) through the tapback's sticker, no words"],"never":["draw or make a picture of a sticker","say it has no stickers to send"],"star":true},"router":{"route":"quick","star":true}},"text":"tex send us a sticker","who":"Kofi"},
+    {"id":"m148","kind":"react","tex":true,"text":"sticker sk0f1t3","to":"m147","who":"Tex"}
   ]
 }

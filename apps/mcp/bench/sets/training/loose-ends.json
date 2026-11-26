@@ -92,14 +92,16 @@
     {"id":"st3","kind":"react","text":"sticker sm4y4a1","to":"st2","who":"Maya"},
     {"id":"st4","labels":{"fd":{"must":["answer with only a tapback, the sticker Maya used here before (sm4y4a1), no words"],"never":["a congratulations text","ask her anything"],"star":true},"router":{"route":"quick","star":true}},"text":"session went amazing, jo loved the mix","who":"Maya"},
     {"id":"st5","kind":"react","tex":true,"text":"sticker sm4y4a1","to":"st4","who":"Tex"},
-    {"id":"pr1","at":"Fri 09:15","who":"Maya","text":"tex what is context anyway","labels":{"fd":{"must":["one plain line on what Context is, then one or two examples from her own last few weeks (the clay prices, the kiln repair shops)"],"never":["describe her folders or note setup as what Context is","name another app, a folder method, an AI model, a tool or an @handle"],"star":true}}},
-    {"id":"pr2","who":"Tex","tex":true,"text":"It's a memory that's yours: what you tell me and what I find for you stays, and I'm the part you text. That's why I still have Mile High at $32 a bag and the kiln repair shops whenever you need them."},
-    {"id":"pr3","who":"Maya","text":"and what can u do","labels":{"fd":{"must":["say what it does for her as things she'd hand an assistant, with examples from the studio and the league, not a tool list"],"never":["list tools or settings","send the reply as two bubbles that read out of order"],"star":true}}},
-    {"id":"pr4","who":"Tex","tex":true,"text":"Most things you'd hand an assistant: price out suppliers, chase emails, keep the studio calendar, remind you about league dues, fill in forms on the web. What's next on your list?"},
-    {"id":"pr5","who":"Maya","text":"compare those kiln shops on price and reviews and put it in a note"},
-    {"id":"pr6","who":"Tex","tex":true,"text":"On it, I'll text you when the note's up."},
-    {"id":"pr7","who":"Background job","via":"job","state":"failed","text":"Couldn't finish the kiln shop comparison: the step that reads the review sites didn't answer, twice. Nothing was saved."},
-    {"id":"pr8","who":"Maya","text":"is it done?","labels":{"fd":{"must":["own it in a line and say what happens next (trying again now, will text)"],"never":["blame the AI model or say a model didn't answer","read out what broke"],"star":true}}},
-    {"id":"pr9","who":"Tex","tex":true,"text":"Not yet, that one didn't go through. Trying again now, and I'll text you when the note's up."}
+    {"id":"st6","labels":{"fd":{"must":["send the sticker she used here (sm4y4a1) through the tapback's sticker, no words"],"never":["draw or make a new picture","say it can't send stickers"],"star":true},"router":{"route":"quick","star":true}},"text":"haha send me another sticker","who":"Maya"},
+    {"id":"st7","kind":"react","tex":true,"text":"sticker sm4y4a1","to":"st6","who":"Tex"},
+    {"at":"Fri 09:15","id":"pr1","labels":{"fd":{"must":["one plain line on what Context is, then one or two examples from her own last few weeks (the clay prices, the kiln repair shops)"],"never":["describe her folders or note setup as what Context is","name another app, a folder method, an AI model, a tool or an @handle"],"star":true}},"text":"tex what is context anyway","who":"Maya"},
+    {"id":"pr2","tex":true,"text":"It's a memory that's yours: what you tell me and what I find for you stays, and I'm the part you text. That's why I still have Mile High at $32 a bag and the kiln repair shops whenever you need them.","who":"Tex"},
+    {"id":"pr3","labels":{"fd":{"must":["say what it does for her as things she'd hand an assistant, with examples from the studio and the league, not a tool list"],"never":["list tools or settings","send the reply as two bubbles that read out of order"],"star":true}},"text":"and what can u do","who":"Maya"},
+    {"id":"pr4","tex":true,"text":"Most things you'd hand an assistant: price out suppliers, chase emails, keep the studio calendar, remind you about league dues, fill in forms on the web. What's next on your list?","who":"Tex"},
+    {"id":"pr5","text":"compare those kiln shops on price and reviews and put it in a note","who":"Maya"},
+    {"id":"pr6","tex":true,"text":"On it, I'll text you when the note's up.","who":"Tex"},
+    {"id":"pr7","state":"failed","text":"Couldn't finish the kiln shop comparison: the step that reads the review sites didn't answer, twice. Nothing was saved.","via":"job","who":"Background job"},
+    {"id":"pr8","labels":{"fd":{"must":["own it in a line and say what happens next (trying again now, will text)"],"never":["blame the AI model or say a model didn't answer","read out what broke"],"star":true}},"text":"is it done?","who":"Maya"},
+    {"id":"pr9","tex":true,"text":"Not yet, that one didn't go through. Trying again now, and I'll text you when the note's up.","who":"Tex"}
   ]
 }
