@@ -213,7 +213,7 @@ export async function runTheModel(t, via) {
   // A group's progress line is read by the Room check before it goes, when the config wires it (`graph/nodes/roomCheck.js`).
   if (t.roomReads !== null && typeof via?.roomCheck === "function" && typeof channel?.holdWith === "function") channel.holdWith(async (text) => {
     t.roomProgress = text;
-    const out = await via.roomCheck({ at: "progress", draftChars: text.length }).catch(() => null);
+    const out = await tex.step("room_check_progress", () => via.roomCheck({ at: "progress", draftChars: text.length }), null).catch(() => null);
     return out?.to === "hold" ? t.roomNotice : null;
   });
   const crossTools = crossWired ? [crossAskTool({ event: t.crossChat ?? null, group, groups: t.groups ?? null, counts: crossCountsOf(body.crossCounts), ledger, gate: (input) => drawn.fire("tools", "crossChatGate", input, { env }), identity: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }), postInChatTool({ event: t.crossChat ?? null, group, ledger })].filter(Boolean) : [];
