@@ -237,10 +237,10 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 6,
       borderRadius: radii.sm,
     },
-    glyph: { color: colors.chromeMuted, width: 18, textAlign: "center" },
+    glyph: { color: colors.chromeMuted, width: 16, textAlign: "center" },
     typeLabel: { color: colors.text, flexShrink: 1 },
     // Out of the row's flow, in its right padding, so "Multi-select ✓" fits half the menu on one line.
-    check: { position: "absolute", right: 4, color: colors.accentText },
+    check: { position: "absolute", right: 1, color: colors.accentText },
     rule: { height: 1, backgroundColor: colors.line, marginVertical: space.x1 },
     item: { height: 30, justifyContent: "center", paddingHorizontal: space.x2, borderRadius: radii.sm },
     itemText: { color: colors.text },
