@@ -20,7 +20,7 @@ import { bubblesUnder } from "./bubblesUnder";
 import type { InboxStorage } from "./inbox";
 import { groupLineFor, groupLineSeam } from "./groupLine";
 import { membersBeforeSend } from "./groupMembers";
-import { deliveryStep, logStep, tapback } from "./stepEvents";
+import { deliveryStep, logStep, sendKeptSticker, tapback } from "./stepEvents";
 import { chatBefore, dropChatLines, isBound, notePeople, peopleHash, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { watchConversation } from "./reviewWatch";
@@ -279,8 +279,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid });
       await tapback(storage, { chat: message.groupId, now: deps.now, by: answer.react ? "tex" : "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => line.react(place, message.messageId, sent), sticker !== undefined ? { id: sticker, stick } : undefined).catch(() => {});
     }
+    if (answer.sendSticker !== undefined) await sendGroupSticker(storage, deps, message, answer.sendSticker, meta.turn);
     await handOff();
-    return log(answer.react !== undefined ? "reacted" : "silent");
+    return log(answer.react !== undefined ? "reacted" : answer.sendSticker !== undefined ? "sticker" : "silent");
   }
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
@@ -346,6 +347,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       went += 1;
     }
     for (const picture of checkIn ? [] : answer.pictures) (await sendPicture(storage, deps, message, picture, meta), (went += 1)); // After the words, as in a 1:1.
+    if (!routine && answer.sendSticker !== undefined) await sendGroupSticker(storage, deps, message, answer.sendSticker, meta.turn); // a kept sticker after the words, as its own picture
     if (ran?.told) await tellTex(storage, deps, message, { action: "run_group", status: ran.why ?? "failed" }, ran.told);
     for (const action of ran?.done ?? []) await logOut(storage, deps, message.groupId, { kind: "text", text: groupRunDoneWords(action), delivered: true }, meta); // kept, so the next turn knows it was done
   } catch (error) {
@@ -429,4 +431,14 @@ export function withIntro(texts: string[], intro: string | null, exact: readonly
   const last = texts.at(-1)!;
   // A bare link keeps its preview, and an exact text its words: the intro goes after either as its own text.
   return /^https?:\/\/\S+$/.test(last.trim()) || exact.some((part) => part.trim() === last.trim()) ? [...texts, intro] : [...texts.slice(0, -1), `${last}\n\n${intro}`];
+}
+
+/** A kept sticker, sent as its own picture (`packages/tex/gateway/agent/stickerSend.js`), and kept as Tex's line in the chat. */
+async function sendGroupSticker(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, id: string, turn: string | undefined): Promise<void> {
+  if (message.sms) return;
+  const line = groupLineFor(groupLineSeam(deps), message.groupId);
+  const place = { line: message.line, groupId: message.groupId };
+  const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid });
+  const went = await sendKeptSticker(storage, { chat: message.groupId, now: deps.now, ...(turn ? { turn } : {}) }, id, stick).catch(() => null);
+  if (went !== null) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: "reaction", text: went, delivered: true, ...(turn ? { turn } : {}) }).catch(() => {});
 }

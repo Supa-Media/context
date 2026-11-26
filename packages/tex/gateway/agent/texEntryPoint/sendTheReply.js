@@ -117,6 +117,7 @@ export async function sendTheReply(t) {
     ...startedJobs(background, ledger.untrusted === true, { heard: heardWords(attachments), sent: sentLine(attachments, attached), asked: openAskBefore(history, question, { now: Date.now() }) }), // the Worker runs these (`background.js`), asked their words, voice and files included (`heardWords.js`)
     ...(pictures.length > 0 ? { pictures, ...(choices.length > 0 ? { choices } : {}) } : {}), ...(offers.length > 0 ? { offers, ...hubField(offers, chatHubUrl(env, session, group)) } : {}), // choices, offers: `outgoingPictures.js`; `hub`: where "what I'm working on" points (`hubLinks.js`)
     ...(ledger.chatMuted === true ? { muted: true } : {}), // the chat was muted: the Worker says so in fixed words, whatever this turn texted (`commandTools.js`)
+    ...(typeof ledger.chatSticker === "string" && !(hushed && sent === "") ? { sendSticker: ledger.chatSticker } : {}), // a kept sticker, sent after the words as its own picture (`stickerSend.js`)
     ...(ledger.chatInvite ? { invite: ledger.chatInvite } : {}), // the Worker invites this chat's people, as its asker, after the answer (`settingsTools.js`)
     ...(ledger.vaultLink === true ? { vaultWatch: true, ...(ledger.vaultLinks?.length ? { vaultLinks: ledger.vaultLinks } : {}) } : {}), // the Worker watches for the save, in a group too, on the links this chat texted (`vaultSaved.js`)
     ...(await tex.step("handback_watch", () => handbackField(opened))), // the browser it handed over, whose Done carries the task on (`handback.js`)

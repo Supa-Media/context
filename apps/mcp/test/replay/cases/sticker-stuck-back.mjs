@@ -9,6 +9,8 @@ import { remoteLine } from "../../../../../packages/tex/worker/remoteLine.ts";
 import { tapbackEnding, tapbackStickerOf, TAPBACK_TOOL } from "../../../../../packages/tex/gateway/agent/tapbackEnding.js";
 import { tapbackNode } from "../../../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
 import { fixedCarriers } from "../../../../../packages/tex/gateway/agent/sixToolsFixed.js";
+import { groupChat } from "../chats.mjs";
+import { keptStickerIds, stickerSending, SEND_STICKER_TOOL } from "../../../../../packages/tex/gateway/agent/stickerSend.js";
 
 const LINE = "+15555550199";
 const FRIEND = "+15555550100";
@@ -41,10 +43,14 @@ const alone = {
   message: { guid: "st-1", text: "", service: "iMessage", attachments: [{ guid: "at_0_SIDE-EYE", name: "sticker.heic", mimeType: "image/heic", size: 900, sticker: true }] },
 };
 
+const ROBOT = "s0a1b2c";
+const CAT = "s3d4e5f";
+const KEPT_STICKERS = { stickers: [ROBOT, CAT], stickerWords: { [ROBOT]: "robot waving; fits a friendly hello" } };
+
 export default {
   id: "sticker-stuck-back",
-  incident: "2026-11-25: Dev2 asked whether Tex can send stickers through Photon. Tex could read a sticker stuck on a text only as \"with a sticker\", and could never stick one. Then someone sent a sticker as its own text and asked Tex to use it; Tex said it couldn't reuse it.",
-  cause: "The bridge dropped the placed sticker's attachment, the chat kept nothing to stick again, and Tex's tapback could only be one of 64 emoji; then the fixed tool list showed the tapback without its sticker choice, and a 1:1 served from the gateway offered no stick unless its id was Photon's. A sticker sent as its own message came in as a plain picture, with no id Tex could name.",
+  incident: "2026-11-25: Dev2 asked whether Tex can send stickers through Photon. Tex could read a sticker stuck on a text only as \"with a sticker\", and could never stick one. Then someone sent a sticker as its own text and asked Tex to use it; Tex said it couldn't reuse it. On 2026-11-26 a named ask, \"hey tex could u send me a sticker\", got a drawn robot.",
+  cause: "The bridge dropped the placed sticker's attachment, the chat kept nothing to stick again, and Tex's tapback could only be one of 64 emoji; then the fixed tool list showed the tapback without its sticker choice, and a 1:1 served from the gateway offered no stick unless its id was Photon's. A sticker sent as its own message came in as a plain picture, with no id Tex could name. A named or tagged text refuses the tapback, so a direct ask for a sticker had no way to send one.",
   path: "group text",
   // Sabotage (2026-11-25): drop `sticker` in photonInbound.ts reactionOf, or the stickerOf check in stepEvents.ts
   // tapback, and the sticker is never kept, or an id from another chat is stuck; drop `sticker` from TAPBACK_DEFINITION
@@ -107,5 +113,42 @@ export default {
     calls.length = 0;
     await tapback(storage, { chat: GROUP, now: () => 3_000, by: "tex", asked: "🎉" }, "again", (emoji) => line.react(place, "friend-3", emoji), { id: "s000000", stick: (guid) => line.stick(place, "friend-3", { attachment: guid }) });
     assert.deepEqual(calls.map((call) => call.op), ["react"]);
+
+    // 2026-11-26, a Lab copy of Battle of the Bots carrying its 7 stickers: "hey tex could u send me a sticker" got a drawn
+    // robot. Tex thought "Tex can't send stickers", rightly: the tapback was its only way, refused when someone names
+    // Tex. Its own send action, `send_sticker`, sends a kept one after the words, named or not.
+    // Sabotage: drop `stickering` from runTheModel.js's local tools, or `sendSticker` in sendTheReply.js, and this fails.
+    // Only an id the chat kept goes; another is refused with the chat's own ids as data.
+    let chosen = null;
+    const local = stickerSending({ kept: keptStickerIds(KEPT_STICKERS), onChosen: (id) => void (chosen = id) });
+    assert.equal(local.tool.name, SEND_STICKER_TOOL);
+    const refused = await local.call({ id: "s9z9z9z" });
+    assert.equal(refused.isError, true);
+    assert.deepEqual(JSON.parse(refused.content[0].text).chatStickers, [ROBOT, CAT]);
+    assert.equal(chosen, null);
+    assert.notEqual((await local.call({ id: `sticker ${ROBOT}` })).isError, true);
+    assert.equal(chosen, ROBOT);
+
+    const chat = await groupChat();
+    try {
+      const asked = await chat.tag("ada", "hey tex could u send me a sticker", [{ toolCalls: [{ name: "send_sticker", args: { id: ROBOT } }] }, { text: "here you go" }], [], {
+        tagged: true,
+        group: { people: ["ada", "bo"], cause: "tagged" },
+        body: { ...KEPT_STICKERS, running: [] },
+      });
+      assert.equal(asked.body.sendSticker, ROBOT, "the Worker is told to send the kept sticker after the words");
+      assert.equal(asked.answer, "here you go");
+      assert.match(asked.shown, /chatStickers.{0,40}s0a1b2c.{0,40}robot waving; fits a friendly hello/, "the turn is handed the kept stickers as data");
+
+      // A chat with no kept stickers is offered none, and a call names nothing the Worker sends.
+      const none = await chat.tag("ada", "tex send a sticker", [{ toolCalls: [{ name: "send_sticker", args: { id: ROBOT } }] }, { text: "I don't have any of this chat's stickers yet." }], [], {
+        tagged: true,
+        group: { people: ["ada", "bo"], cause: "tagged" },
+        body: { running: [] },
+      });
+      assert.equal(none.body.sendSticker, undefined, "nothing to send where the chat kept none");
+    } finally {
+      chat.restore();
+    }
   },
 };

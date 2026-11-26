@@ -265,7 +265,7 @@ export type AgentAnswer =
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; sticker?: string; place?: ReplyPlace; under?: UnderPart[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; handbackWatch?: string; invite?: ChatInvite; muted?: true; askFor?: string; askIds?: string[]; roomRead?: string[]; warm?: string; heard?: string; sent?: string; crossAsks?: CrossAsk[]; crossBack?: CrossBack; crossPost?: string; asides?: Aside[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; sticker?: string; sendSticker?: string; place?: ReplyPlace; under?: UnderPart[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; handbackWatch?: string; invite?: ChatInvite; muted?: true; askFor?: string; askIds?: string[]; roomRead?: string[]; warm?: string; heard?: string; sent?: string; crossAsks?: CrossAsk[]; crossBack?: CrossBack; crossPost?: string; asides?: Aside[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -438,7 +438,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
   if (status === 200 && body.cancelled === true) return { kind: "cancelled" };
   const pictures = readPictures(body.pictures);
-  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0 || body.quiet === true)) { // `quiet`: a turn with nothing to text, as a flag (`packages/tex/gateway/agent/jobReport.js`)
+  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0 || body.quiet === true || isStickerId(body.sendSticker))) { // `quiet`: a turn with nothing to text, as a flag (`packages/tex/gateway/agent/jobReport.js`)
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
     const jobs = readStartedJobs(body.jobs);
@@ -453,7 +453,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(readChoices(body.choices).length > 0 ? { choices: readChoices(body.choices) } : {}),
       ...(readOffers(body.offers).length > 0 ? { offers: readOffers(body.offers), ...(readHub(body.hub) !== null ? { hub: readHub(body.hub)! } : {}) } : {}), // `hub`: the chat's Tex page the view points to (`jobs.ts` `readHub`)
       ...(verbatim.length > 0 ? { verbatim } : {}), ...(body.quiet === true ? { quiet: true as const } : {}),
-      ...(body.quiet === true && typeof body.react === "string" && body.react.length <= 8 ? { react: body.react } : {}), ...(body.quiet === true && typeof body.react === "string" && isStickerId(body.sticker) ? { sticker: body.sticker } : {}), ...(body.place === "under" || body.place === "plain" ? { place: body.place } : {}), ...(readUnder(body.under, body.answer).length > 0 ? { under: readUnder(body.under, body.answer) } : {}), // the classifier's tapback instead of a text (checked again in `reactEmoji.ts`), and where a reply goes (`packages/tex/gateway/agent/respond.js`)
+      ...(body.quiet === true && typeof body.react === "string" && body.react.length <= 8 ? { react: body.react } : {}), ...(body.quiet === true && typeof body.react === "string" && isStickerId(body.sticker) ? { sticker: body.sticker } : {}), ...(isStickerId(body.sendSticker) ? { sendSticker: body.sendSticker } : {}), ...(body.place === "under" || body.place === "plain" ? { place: body.place } : {}), ...(readUnder(body.under, body.answer).length > 0 ? { under: readUnder(body.under, body.answer) } : {}), // the classifier's tapback instead of a text (checked again in `reactEmoji.ts`), and where a reply goes (`packages/tex/gateway/agent/respond.js`)
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
       ...(steers.length > 0 ? { steers } : {}),

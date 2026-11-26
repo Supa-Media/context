@@ -15,8 +15,9 @@
 /** Rule 2's limit: a tool's description plus its JSON schema, in characters. */
 const TOOL_CHAR_LIMIT = 4000;
 
-/** Tools with a budget of their own (Dev2, 2026-11-20): send carries every outside action, each with its args shown. */
-const TOOL_CHAR_LIMITS = { send: 8000 };
+/** Tools with a budget of their own (Dev2, 2026-11-20): send carries every outside action, each with its args shown.
+ *  8,500 since 2026-11-26: main sat at 7,996 of 8,000, so send_sticker could not join without dropping another action. */
+const TOOL_CHAR_LIMITS = { send: 8500 };
 
 /** Rule 2's limit for one tool by name. */
 function limitOf(name) {

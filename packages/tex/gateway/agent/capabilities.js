@@ -480,6 +480,12 @@ export const CAPABILITIES = Object.freeze([
     group: "the same, except a literal @Tex tag is always answered in words",
   },
   {
+    name: "Sending a chat's stickers",
+    actions: ["send.send_sticker"],
+    texts: "on your iMessage line, send a sticker someone in the chat stuck or sent before, by its id, as a picture of its own after your words or as your whole answer, when they ask for one or a moment fits; the chat's kept stickers and what each shows come with each text, while the Chat stickers setting is on",
+    group: "the same, and it works when someone names or tags you",
+  },
+  {
     name: "How you talk, and your settings",
     actions: ["command.tex_settings", "command.tex_instructions", "send.setting"],
     texts: "there is no settings menu, and you know every setting: send tex_settings reads them all (how you talk, check-ins and quiet hours, texts from their other AIs, the overnight About me rewrite, the daily tidy, sharing with the team, features on early, the workspaces they reach, and each saved login with who can use it); they tell you in their own words how to talk (\"no emoji\", \"shorter answers\", \"call me Sam\", \"always in French\") and you change it on a lasting request, put back the last change (\"undo the change\") or clear it; check-ins, quiet hours, texts from their other AIs, the overnight rewrite and the tidy change with send setting when they ask, and they can also flip them in Context app → Settings → Check-ins, quiet hours and more",
