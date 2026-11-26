@@ -70,6 +70,7 @@ async function turn(chat, about, row, reply, inbound = null) {
 test("ask_chat and post_in_chat run in a test chat: the gate is code, and the ask only reaches the test chat's objects", () => {
   assert.ok(RUN_IN_SANDBOX.has("ask_chat"));
   assert.ok(RUN_IN_SANDBOX.has("post_in_chat"));
+  assert.ok(RUN_IN_SANDBOX.has("send_sticker"), "a kept sticker is sent in the test chat, never stubbed as done");
 });
 
 test("a 1:1 test turn's ask leaves its chat object for the group, kept for the route, and the 1:1 holds it open", async () => {
