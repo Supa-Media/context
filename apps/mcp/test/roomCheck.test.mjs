@@ -147,7 +147,11 @@ test("the node holds once a turn: one aside, the facts on the turn, and a rewrit
   await roomCheckNode({ at: "answer" }, { ctx: { turn: t } });
   assert.equal(t.roomHush, true, "the last answer goes to nobody in the group");
   const clean = turnOf({ drafts: { waiting: { draft: "I sent you the action items on the side, Ada." } } });
-  assert.equal((await roomCheckNode({ at: "draft" }, { ctx: { turn: clean } })).to, "pass");
+  const passed = await roomCheckNode({ at: "draft" }, { ctx: { turn: clean } });
+  assert.equal(passed.to, "pass");
+  assert.ok(passed.chars > 0, "a pass says how much it read, so a Lab run shows an empty read");
+  assert.equal(passed.pointed, 0);
+  assert.ok(passed.carried < 2);
   assert.equal((await roomCheckNode({ at: "draft" }, { ctx: { turn: { ...clean, roomReads: null } } })).to, "skipped");
   assert.equal((await roomCheckNode({ at: "draft" }, { ctx: { turn: { ...clean, job: { id: "j" } } } })).to, "skipped", "a job's own turn reports, and its report is checked");
 });

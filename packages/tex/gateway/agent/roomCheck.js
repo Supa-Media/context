@@ -139,6 +139,24 @@ export function seenInRoom({ history = [], question = "", group = null }) {
 }
 
 /**
+ * How a draft measures against what was read, as counts for the step's log: the text read from closed workspaces, how
+ * many of them the asker pointed at, and the most names and figures the draft shares with one of the others.
+ */
+export function roomTally({ draft, reads, group, question = "", history = [] }) {
+  if (reads === null || reads === undefined) return { chars: 0, pointed: 0, carried: 0 };
+  const seen = seenInRoom({ history, question, group });
+  const said = tokensOf(draft);
+  let chars = 0, pointed = 0, carried = 0;
+  for (const slug of reads.slugs()) {
+    chars += reads.text(slug).trim().length;
+    if (pointedAt(question, slug)) { pointed += 1; continue; }
+    const there = tokensOf(reads.text(slug));
+    carried = Math.max(carried, [...said].filter((token) => there.has(token) && !seen.has(token)).length);
+  }
+  return { chars, pointed, carried };
+}
+
+/**
  * Whether a draft carries what was read from a workspace the room can't all open, and the asker didn't point at.
  * Null when it doesn't; otherwise the facts: which workspaces, who can't open them, and how many names it shares.
  */
