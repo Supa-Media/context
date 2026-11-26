@@ -177,6 +177,7 @@ export function routeRight(label, pick) {
 const ROUTER_MODULE = "packages/tex/gateway/agent/specialistRoute.js";
 /** The tree's config, Training code and Training module, for the router's context modules. */
 const TREE_CONFIG = "packages/tex/src/texConfig.cjs";
+const TREE_SHELF = "packages/tex/src/texNodeShelf.json";
 const TREE_TRAINING = "packages/tex/src/texTraining.cjs";
 const TREE_GENERATED = "packages/tex/src/texTraining.generated.json";
 
@@ -266,7 +267,9 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
     }
     const { routeRequest, readRoute } = await mod(ROUTER_MODULE);
     // The router's context modules as the tree's config names them, with the tree's own Training module.
-    const ctx = existsSync(join(tree, TREE_CONFIG)) ? (require(join(tree, TREE_CONFIG)).TEX_CONFIG?.nodes?.find((n) => n.id === "router")?.ctx ?? []) : [];
+    // A router retired to the shelf (2026-11-26) is benched as its last definition there.
+    const shelfRouter = existsSync(join(tree, TREE_SHELF)) ? JSON.parse(await readFile(join(tree, TREE_SHELF), "utf8")).nodes?.router?.node : null;
+    const ctx = (existsSync(join(tree, TREE_CONFIG)) ? require(join(tree, TREE_CONFIG)).TEX_CONFIG?.nodes?.find((n) => n.id === "router")?.ctx : null) ?? shelfRouter?.ctx ?? [];
     const training = existsSync(join(tree, TREE_TRAINING)) ? require(join(tree, TREE_TRAINING)) : null;
     const generated = existsSync(join(tree, TREE_GENERATED)) ? JSON.parse(await readFile(join(tree, TREE_GENERATED), "utf8")) : null;
     // Without the Clef credentials the engine answers nothing, which would score every row wrong rather than not run.
