@@ -6,7 +6,8 @@
  *
  * Hovering (or tapping) along it shows the nearest point's value and date
  * above it (the owner, 2026-11-26: "when hovering over the timeline we should
- * see the value and the date please").
+ * see the value and the date please"). Every point owns the strip of the
+ * chart nearest it, its full height, so anywhere over the chart picks one.
  */
 
 import { useState } from "react";
@@ -19,6 +20,19 @@ import type { TrendGeometry } from "./Trend";
 import type { TrendPoint } from "./trendPoints";
 
 const TIP_WIDTH = 132;
+
+/**
+ * Each point's hover strip, `{ left, width }`: from halfway to the point
+ * before it to halfway to the one after, the first from the chart's left edge
+ * and the last to its right, so the strips tile the whole width.
+ */
+export function hitStrips(xs: readonly number[], width: number): { left: number; width: number }[] {
+  return xs.map((x, i) => {
+    const left = i === 0 ? 0 : (xs[i - 1]! + x) / 2;
+    const right = i === xs.length - 1 ? width : (x + xs[i + 1]!) / 2;
+    return { left, width: Math.max(0, right - left) };
+  });
+}
 
 export function PanelTrend({ geometry, points, ink, width, height }: { geometry: TrendGeometry; points: readonly TrendPoint[]; ink: string; width: number; height: number }) {
   const styles = useThemedStyles(makeStyles);
@@ -35,8 +49,7 @@ export function PanelTrend({ geometry, points, ink, width, height }: { geometry:
   const hoverable = points.length === at.length && at.length > 1;
   const spot = picked === null || !hoverable ? null : at[picked];
   const tip = picked === null || !hoverable ? null : points[picked];
-  // Each point owns the strip of the line nearest it.
-  const strip = hoverable ? (at[1]!.x - at[0]!.x) : 0;
+  const strips = hoverable ? hitStrips(at.map((p) => p.x), width) : [];
   return (
     <View style={{ width, height }} testID="area-panel-trend-box">
       <Svg width={width} height={height} aria-hidden testID="area-panel-trend">
@@ -50,14 +63,14 @@ export function PanelTrend({ geometry, points, ink, width, height }: { geometry:
       </Svg>
       {!hoverable
         ? null
-        : at.map((p, i) => (
+        : strips.map((strip, i) => (
             <Pressable
               key={i}
               onHoverIn={() => setPicked(i)}
               onHoverOut={() => setPicked((now) => (now === i ? null : now))}
               onPress={() => setPicked((now) => (now === i ? null : i))}
               accessibilityLabel={`${points[i]!.value}${points[i]!.date === "" ? "" : `, ${points[i]!.date}`}`}
-              style={[styles.hit, { left: Math.max(0, p.x - strip / 2), width: Math.min(strip, p.x + strip / 2) - Math.max(0, p.x - strip / 2), height }]}
+              style={[styles.hit, { left: strip.left, width: strip.width, height }]}
               testID={`area-panel-trend-point-${i}`}
             />
           ))}

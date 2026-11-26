@@ -269,8 +269,9 @@ const makeStyles = (colors: Colors) =>
     pick: { paddingVertical: 2, paddingHorizontal: space.x2, borderRadius: radii.sm, backgroundColor: colors.accentDim },
     pickWord: { color: colors.accentText, fontWeight: "600" },
     noData: { color: colors.muted },
-    valueLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    value: { fontFamily: fonts.body, fontSize: touchType.h3, lineHeight: 26, fontWeight: "600" },
+    // The verdict wraps under the value and goal in a narrow panel instead of running off its edge.
+    valueLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2 },
+    value: { flexShrink: 0, fontFamily: fonts.body, fontSize: touchType.h3, lineHeight: 26, fontWeight: "600" },
     state: { paddingHorizontal: space.x2, paddingVertical: 1, borderRadius: radii.pill },
     stateMet: { backgroundColor: colors.okWash },
     stateMissed: { backgroundColor: colors.warnWash },

@@ -13,7 +13,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { PanelTrend } from "../features/console/files/folderPage/areas/PanelTrend";
+import { hitStrips, PanelTrend } from "../features/console/files/folderPage/areas/PanelTrend";
 import { trendGeometry } from "../features/console/files/folderPage/areas/Trend";
 import { periodDateWords, rowDateWords } from "../features/console/files/folderPage/areas/trendPoints";
 
@@ -65,6 +65,33 @@ describe("the panel's trend", () => {
       find("area-panel-trend-point-1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(find("area-panel-trend-tip")).toBeNull();
+  });
+
+  test("the hover strips tile the whole chart, so every point past the second can be pointed at", () => {
+    // Dev, 2026-11-26: hovering stopped after the first two points; each later strip had no width.
+    const xs = [10, 80, 150, 220, 290];
+    const strips = hitStrips(xs, 300);
+    expect(strips.map((s) => s.width > 0)).toEqual([true, true, true, true, true]);
+    expect(strips[0]!.left).toBe(0);
+    expect(strips[4]!.left + strips[4]!.width).toBe(300);
+    strips.slice(1).forEach((s, i) => expect(s.left).toBe(strips[i]!.left + strips[i]!.width));
+    strips.forEach((s, i) => expect(xs[i]! >= s.left && xs[i]! <= s.left + s.width).toBe(true));
+  });
+
+  test("pointing at the last point of five shows it", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const points = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), date: `Nov ${n}` }));
+    act(() => root.render(createElement(PanelTrend, { geometry: trendGeometry([1, 2, 3, 4, 5], null)!, points, ink: "#000", width: 300, height: 64 })));
+    live.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    act(() => {
+      document.body.querySelector<HTMLElement>('[data-testid="area-panel-trend-point-4"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.body.querySelector('[data-testid="area-panel-trend-tip"]')?.textContent).toBe("5Nov 5");
   });
 
   test("with no words for every point, nothing is offered to point at", () => {
