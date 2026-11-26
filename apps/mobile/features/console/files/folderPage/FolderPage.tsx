@@ -238,8 +238,12 @@ export function FolderPage({
   const me = isProjectsFolder(folder) ? host?.me : undefined;
   const ownerWords = useMemo(() => [...inUse, ...siblingsInUse, ...(me ?? [])], [inUse, siblingsInUse, me]);
   const resolved = useOwnerLabels(host?.source.resolveOwners, ownerWords);
-  // Agents are the workspace's own short list, and somebody may add to it here (`agents.ts`).
-  const agents = useAgents(loaded, folder, notes, searchOwners);
+  // The bots folder beside the Areas folder, and each bot's folder in it, is drawn as the bots (`areas/useBotsFolder.ts`).
+  const botsShelf = host === undefined || host.personal === true || isProjectsFolder(folder) ? null : botsShelfOf(areasFolderNow(), folder);
+  const botsNotes = useBotsFolderNotes(host?.source, areasFolderNow(), botsShelf !== null, notes);
+  // Agents are the workspace's own short list, and somebody may add to it here (`agents.ts`). The bots folder's page
+  // reads and adds to the Areas folder's list, where every area's owner picker finds its bots.
+  const agents = useAgents(loaded, botsShelf !== null ? areasFolderNow() : folder, botsShelf !== null ? botsNotes : notes, searchOwners);
   const agentList = agents.list;
   // An agent that claimed work notes its thread in brackets; the column shows the agent, the note is for hovering.
   const label = useCallback(
@@ -316,9 +320,6 @@ export function FolderPage({
   );
   // A project's own page offers the areas it can serve.
   const areaChoices = useAreaChoices(host, areasFolderNow(), projectPage);
-  // The bots folder beside the Areas folder, and each bot's folder in it, is drawn as the bots (`areas/useBotsFolder.ts`).
-  const botsShelf = host === undefined || host.personal === true || isProjectsFolder(folder) ? null : botsShelfOf(areasFolderNow(), folder);
-  const botsNotes = useBotsFolderNotes(host?.source, areasFolderNow(), botsShelf !== null, notes);
 
   if (host === undefined) {
     return (

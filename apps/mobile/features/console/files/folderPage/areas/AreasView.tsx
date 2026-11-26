@@ -218,6 +218,24 @@ export function AreasView(props: AreasViewProps) {
     [chooseMany, root, withCards],
   );
 
+  // A bot added from the bots folder's page: its name joins the workspace's agents, and its card is written in its own
+  // folder (`bots/<bot>/about.md`). It holds no area until an area's Owner menu gives it one.
+  const addBot = useCallback(
+    async (name: string, whose: string): Promise<string | null> => {
+      if (addAgent === undefined) return "Bots can’t be added here.";
+      const same = (agent: string) => agent.trim().toLowerCase() === name.trim().toLowerCase();
+      if (!agents.some(same)) {
+        const why = await addAgent(name);
+        if (why !== null) return why;
+      }
+      const was = cardOf(name, "agent", root, withCards);
+      if (!was.creates && was.bot !== "") return `${name} is already a bot here.`;
+      const card: Card = { ...was, holder: name, kind: "agent", bot: "grok", belongsTo: whose, reach: "mail" };
+      return chooseMany(was.path, cardChanges(card), was.creates);
+    },
+    [addAgent, agents, chooseMany, root, withCards],
+  );
+
   const addArea = useCallback(
     async (parent: Seat, name: string): Promise<string | null> => {
       const slug = cardSlug(name);
@@ -343,6 +361,7 @@ export function AreasView(props: AreasViewProps) {
           chooseMany={chooseMany}
           open={onSelect}
           {...(onPanel === undefined ? {} : { onPanel })}
+          {...(canEdit && addAgent !== undefined ? { people, addBot } : {})}
         />
       ) : view === "chart" ? (
         <AreasChart
