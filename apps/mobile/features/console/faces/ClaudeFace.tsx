@@ -10,9 +10,6 @@ import { Rect, Svg } from "react-native-svg";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { PersonFace } from "./PersonFace";
 
-/** Claude Code's mark. */
-export const CLAUDE_ORANGE = "#D97757";
-
 /** Whether a mail line's app is Claude (Claude Code, Claude, claude.ai), so its sender is drawn as Claude. */
 export function isClaudeApp(app: string | null | undefined): boolean {
   return typeof app === "string" && /\bclaude\b/i.test(app);
@@ -29,10 +26,10 @@ export function ClaudeFace({ owner, size }: { owner: string | null; size: number
     <View style={{ width: size, height: size }} testID="owner-face-claude" aria-hidden>
       <View style={[styles.tile, { width: size, height: size, borderRadius: Math.min(7, Math.round(size / 4)) }]}>
         <Svg width={size * 0.74} height={size * 0.74} viewBox="0 0 447 447">
-          <Rect x={56} y={93} width={334} height={225} fill={CLAUDE_ORANGE} />
-          <Rect x={0} y={205} width={447} height={57} fill={CLAUDE_ORANGE} />
+          <Rect x={56} y={93} width={334} height={225} fill={colors.claudeMark} />
+          <Rect x={0} y={205} width={447} height={57} fill={colors.claudeMark} />
           {[84, 140, 280, 336].map((x) => (
-            <Rect key={x} x={x} y={318} width={27} height={54} fill={CLAUDE_ORANGE} />
+            <Rect key={x} x={x} y={318} width={27} height={54} fill={colors.claudeMark} />
           ))}
           <Rect x={112} y={150} width={27} height={53} fill={colors.claudeTile} />
           <Rect x={308} y={150} width={27} height={53} fill={colors.claudeTile} />

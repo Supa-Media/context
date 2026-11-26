@@ -142,7 +142,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/webview/styles.ts": "045f8be2a2029ebe57ada70c61a5910e3d983e4b695b5fcf1cb19709f7ecd745",
   "apps/mobile/features/console/files/wrapOnType.ts": "330245256c685a25d2bd4728e6cf0c70ed8d45109deffa28332284a9a1d5f578",
   "apps/mobile/features/console/presence/agentName.ts": "10578c78a2c1d5c31046a5f6d076d1827699fdbbbe061ceecaaa7ca761604bf9",
-  "apps/mobile/features/design/tokens/colors.ts": "484b52616b15e2b3703a52d29fb35e449e78a01c536620b4f65d9032c9aec4e2",
+  "apps/mobile/features/design/tokens/colors.ts": "a5e7fa166ef2937938ac18c4adcdfc61da5cb4c51226f15dae14f894467246b3",
   "apps/mobile/features/design/tokens/landingColors.ts": "3f6be04006721f30b3e47991834d41b2277ef697dc86950cbec32323bf957f5c",
   "apps/mobile/features/voice/dictation.ts": "29495a2188a79f0eaa8d2b64d862eca0892f1edd4da6394474015d66d2223e6b",
   "packages/drawings/src/collab.js": "6407da8b4407ffddcc1cf0e584979d4ab08f3ac883dfb06b010459fef2f753c7",
