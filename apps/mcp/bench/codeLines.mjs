@@ -68,6 +68,16 @@ export function wordsSent(answer) {
     });
 }
 
+// Any word that could claim something was done; broad on purpose, so only a text plainly free of claims skips the model.
+const CLAIM_WORDS = /\b(sent|send|saved|save|added|add|set|moved|move|noted|wrote|written|put|booked|booking|scheduled|updated|changed|created|made|done|did|emailed|texted|shared|invited|drafted|draft|removed|deleted|marked|logged|filed|posted|replied|asked|told|got it|on it|will do|i'll|i've|i'm)\b/i;
+
+/** Whether any of Tex's texts uses a word that could claim something done. */
+export function claimsDone(answer) {
+  return (answer?.conversation ?? [])
+    .filter((turn) => turn.from === "assistant" && turn.silent !== true)
+    .some((turn) => CLAIM_WORDS.test(String(turn.text ?? "").replace(/’/g, "'")));
+}
+
 /**
  * The emoji of each tapback Tex sent, from all assistant turns; "" for a tapback that named none.
  * WHY: the record is the only proof of a reaction, and it names the emoji only when one was given.
@@ -307,6 +317,11 @@ export function codeVerdict(check, answer) {
   // capable friend").
   if (check?.kind === "judge" && norm(check.line).startsWith("reads like") && !wordsSent(answer)) {
     return { does: true, reason: "checked from the run's record: Tex sent no words, so no text to read" };
+  }
+  // An "every claim it makes to have sent ..." line holds for an answer whose texts claim nothing: the judge wrote
+  // "makes no claim" and voted false on 2 of 3 (gh-233 q2). Words that might be a claim stay with the model.
+  if (check?.kind === "judge" && norm(check.line).startsWith("every claim it makes") && !claimsDone(answer)) {
+    return { does: true, reason: "checked from the run's record: Tex's texts claim nothing done" };
   }
   const rules = matching(check);
   if (rules.length === 0) return null;

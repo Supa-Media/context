@@ -39,6 +39,15 @@ test("a reads-like line on a turn that sent no words passes from the record; wit
   assert.equal(codeVerdict({ kind: "judge", line: "never says it sent something it did not" }, answer({})), null, "only reads-like lines");
 });
 
+test("an every-claim line passes from the record when Tex's texts claim nothing, and goes to the model otherwise", () => {
+  const proof = { kind: "judge", line: "every claim it makes to have sent, saved, added or set something matches what its tools did" };
+  assert.equal(verdictOf(proof, answer({ text: ["It's $25 a head, ingredients and drinks together."] })), true, "gh-233 q2: no claim");
+  assert.equal(verdictOf(proof, answer({})), true, "silence claims nothing");
+  for (const text of ["Noted, dessert is yours.", "Added.", "Done, I sent it.", "I’ll ask Omar."]) {
+    assert.equal(codeVerdict(proof, answer({ text: [text] })), null, `may be a claim: ${text}`);
+  }
+});
+
 test("a line no rule names is left to the model", () => {
   assert.equal(codeRule(must("check the bank balance")), null);
   assert.equal(codeVerdict(must("check the bank balance"), answer({ text: [WORDS] })), null);
