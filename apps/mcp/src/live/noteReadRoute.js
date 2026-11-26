@@ -27,6 +27,8 @@ import { hasScope, SCOPE_READ } from "../session.js";
 import { normalizePath } from "../notes/paths.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { countPersonOpen } from "../search/opens.js";
+import { countPersonMailRead } from "../mail/reads.js";
+import { personalNameFor } from "../context/identity.js";
 
 export const NOTE_READ_PATH = "/files/read";
 
@@ -99,6 +101,8 @@ export async function handleNoteRead(request, store, session) {
   const inherited = visibilityOf(path, rules);
   // One open by this person, for search to rank by (`search/opens.js`).
   if (!peek) countPersonOpen(store, path);
+  // And, for a note with mail, this person's read receipt (`mail/reads.js`).
+  if (!peek) countPersonMailRead(store, path, { userId: session.actorUserId, name: personalNameFor(session), text: markdown.text });
   return json({
     kind: "file",
     path,

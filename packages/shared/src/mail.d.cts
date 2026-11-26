@@ -33,6 +33,8 @@ export declare function findMailBlock(text: string): CommentsBlock | null;
 export declare function parseMail(text: string): { block: CommentsBlock | null; events: MailEvent[] };
 export declare function mailName(raw: unknown): string | null;
 export declare function appName(raw: unknown): string | null;
+export declare function appWithOwner(raw: unknown, owner: unknown): string | null;
+export declare function splitApp(signed: unknown): { app: string | null; owner: string | null };
 export declare function appendMail(
   text: string,
   entry: { at?: string; from: string; app?: string | null; kind: "joined" | "mail"; to?: string; text?: string; mailKind?: MailKind; used?: number | null },

@@ -16,9 +16,9 @@ import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { agoLabel } from "../files/mail/model";
 import { MAIL_VIEWS, groupsFor, isMe, sideName, type Conversation, type MailView } from "./model";
-import { OwnerFace, type Face } from "../files/folderPage/Glyphs";
+import { OwnerFace } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
-import { useBotFaces } from "./useBotFaces";
+import { useBotFaces, type FaceOf } from "./useBotFaces";
 import { onWantedThread, takeWantedThread, type MailRoute } from "./MailRouteContext";
 import { MAIL_BAR, MailThread, type MailNoteIO } from "./MailThread";
 import { useConversations } from "./useConversations";
@@ -195,7 +195,7 @@ function MailRow({
   conversation: Conversation;
   selected: boolean;
   me: string | undefined;
-  faceOf: (name: string) => Face;
+  faceOf: FaceOf;
   onPress: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -212,10 +212,10 @@ function MailRow({
       testID={`mail-row-${conversation.path}`}
     >
       <View style={styles.rowFaces} aria-hidden testID={`mail-row-face-${conversation.path}`}>
-        {first !== undefined ? <OwnerFace face={faceOf(first)} size={ROW_FACE} /> : null}
+        {first !== undefined ? <OwnerFace face={faceOf(first, conversation.apps?.[first])} size={ROW_FACE} /> : null}
         {second !== undefined ? (
           <View style={styles.rowFaceSecond}>
-            <OwnerFace face={faceOf(second)} size={ROW_FACE_SECOND} />
+            <OwnerFace face={faceOf(second, conversation.apps?.[second])} size={ROW_FACE_SECOND} />
           </View>
         ) : null}
       </View>

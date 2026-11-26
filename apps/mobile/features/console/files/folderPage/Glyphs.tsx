@@ -29,6 +29,7 @@ import { toneColor } from "./StatusPill";
 import { priorityWord, type Priority } from "./taskProps";
 import { PersonFace } from "../../faces/PersonFace";
 import { readPicture, shownPicture, type FacePicture } from "../../faces/botPictures";
+import { ClaudeFace } from "../../faces/ClaudeFace";
 
 const GLYPH = 16;
 
@@ -66,6 +67,8 @@ export type { FacePicture };
 export type Face =
   | { readonly kind: "person"; readonly name: string }
   | { readonly kind: "agent"; readonly picture?: FacePicture }
+  /** An agent that signs as Claude, and the `@handle` of the person whose Claude it is (`faces/ClaudeFace.tsx`). */
+  | { readonly kind: "claude"; readonly owner: string | null }
   | { readonly kind: "nobody" };
 
 /**
@@ -117,6 +120,7 @@ export function OwnerFace({ face, size = 24 }: { face: Face; size?: number }) {
   const colors = useColors();
   const { src: logo, waiting } = usePicture(face.kind === "agent" ? face.picture : undefined);
   const box = { width: size, height: size };
+  if (face.kind === "claude") return <ClaudeFace owner={face.owner} size={size} />;
   if (face.kind === "nobody") {
     return (
       <View style={[styles.face, styles.nobody, box]} testID="owner-face-nobody" aria-hidden>

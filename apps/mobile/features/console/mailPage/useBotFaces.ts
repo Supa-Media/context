@@ -10,6 +10,8 @@ import { knownAvatar, readAvatar, readPicture, type FacePicture } from "../faces
 import type { Face } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
 import { avatarOf, botCardOf, isPersonName, type Conversation } from "./model";
+import { isClaudeApp } from "../faces/ClaudeFace";
+import { splitApp } from "@context/shared/src/mail.cjs";
 import type { MailNoteIO } from "./MailThread";
 
 /** Each bot this mail is with, by its mail name, and its card: `grok-bot` → `bots/grok-bot/about.md`. */
@@ -22,7 +24,13 @@ export function botCardsOf(conversations: readonly Pick<Conversation, "path" | "
   return cards;
 }
 
-export function useBotFaces(conversations: readonly Conversation[], io: MailNoteIO, workspaceId: string): (name: string) => Face {
+/**
+ * `name`'s face, and `app` the app its line was signed with (`Claude Code · @seyi`): a bot with a card is drawn by its
+ * own logo; any other agent signing as Claude by Claude Code's mark with its person's face (Dev, 2026-11-26).
+ */
+export type FaceOf = (name: string, app?: string | null) => Face;
+
+export function useBotFaces(conversations: readonly Conversation[], io: MailNoteIO, workspaceId: string): FaceOf {
   const cards = useMemo(() => botCardsOf(conversations), [conversations]);
   const cardsKey = [...cards].map(([bot, card]) => `${bot}=${card}`).join("\n");
   const cardKey = useCallback((card: string) => `${workspaceId}|${card}`, [workspaceId]);
@@ -49,9 +57,11 @@ export function useBotFaces(conversations: readonly Conversation[], io: MailNote
   }, [cardsKey, cardKey, readLeaf]);
 
   return useCallback(
-    (name: string): Face => {
+    (name: string, app?: string | null): Face => {
       if (isPersonName(name)) return { kind: "person", name };
       const card = cards.get(cardSlug(name));
+      const signed = splitApp(app ?? null);
+      if (card === undefined && isClaudeApp(signed.app)) return { kind: "claude", owner: signed.owner };
       const read = io.picture;
       if (card === undefined || read === undefined) return { kind: "agent" };
       const leaf = knownAvatar(cardKey(card));

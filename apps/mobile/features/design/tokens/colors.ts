@@ -233,6 +233,8 @@ export const darkColors = {
    */
   chromeSurface: "#191715",
   pageSurface: "#201E1B",
+  /** The tile behind Claude Code's mark on a mail face (`console/faces/ClaudeFace.tsx`). */
+  claudeTile: "#3A2A23",
   /**
    * The fill of a card or floating control lying on a screen: Home's tiles and
    * lists, the folder card, the search capsule, the round buttons. On a pointer
@@ -489,6 +491,8 @@ export const lightColors: Colors = {
   /** See `darkColors.chromeSurface`: the page stays lighter than its chrome. */
   chromeSurface: "#F4F1EA",
   pageSurface: "#FFFDF9",
+  /** The tile behind Claude Code's mark on a mail face (`console/faces/ClaudeFace.tsx`). */
+  claudeTile: "#F6E7DF",
   cardSurface: "#FFFDF9",
   menuSurface: "#FFFDF9",
   rootSurface: "#F7F4ED",

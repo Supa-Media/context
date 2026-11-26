@@ -12,6 +12,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { MCP_ENDPOINT } from "../placeholderData";
 import { SINCE, type MailNoteRow, type Seen } from "./model";
+import type { MailRead } from "./receipts";
 
 /** How often an open console asks again for the mail. */
 export const MAIL_REFRESH_MS = 2 * 60_000;
@@ -29,6 +30,29 @@ export function mailNotesUrl(mcpEndpoint: string): string | null {
   }
 }
 
+/** Each sender's signed app, the strings only. */
+function appsOf(raw: unknown): Record<string, string> {
+  const apps: Record<string, string> = {};
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return apps;
+  for (const [name, app] of Object.entries(raw as Record<string, unknown>)) if (typeof app === "string") apps[name] = app;
+  return apps;
+}
+
+/** One conversation's receipts as `/files/mail` `{read}` answers them, or null for a body this build cannot read. */
+export function mailReadsAnswer(body: unknown): MailRead[] | null {
+  if (!body || typeof body !== "object") return null;
+  const { kind, reads } = body as Record<string, unknown>;
+  if (kind !== "mailReads" || !Array.isArray(reads)) return null;
+  const out: MailRead[] = [];
+  for (const read of reads) {
+    if (!read || typeof read !== "object") continue;
+    const { name, by, clientName, at } = read as Record<string, unknown>;
+    if ((by !== "person" && by !== "ai") || typeof at !== "string") continue;
+    out.push({ name: typeof name === "string" ? name : null, by, clientName: typeof clientName === "string" ? clientName : null, at });
+  }
+  return out;
+}
+
 /** The answer's rows, or null for a body this build cannot read. */
 export function mailNotesAnswer(body: unknown): { notes: MailNoteRow[]; complete: boolean } | null {
   if (!body || typeof body !== "object") return null;
@@ -37,13 +61,14 @@ export function mailNotesAnswer(body: unknown): { notes: MailNoteRow[]; complete
   const rows: MailNoteRow[] = [];
   for (const note of notes) {
     if (!note || typeof note !== "object") return null;
-    const { path, count, joined, last } = note as Record<string, unknown>;
+    const { path, count, joined, apps, last } = note as Record<string, unknown>;
     if (typeof path !== "string" || typeof count !== "number") return null;
     const said = last && typeof last === "object" ? (last as Record<string, unknown>) : null;
     rows.push({
       path,
       count,
       joined: Array.isArray(joined) ? joined.filter((name): name is string => typeof name === "string") : [],
+      apps: appsOf(apps),
       last:
         said !== null && typeof said.at === "string" && typeof said.from === "string"
           ? { at: said.at, from: said.from, to: typeof said.to === "string" ? said.to : null, used: typeof said.used === "number" ? said.used : null, text: typeof said.text === "string" ? said.text : "" }
@@ -53,12 +78,23 @@ export function mailNotesAnswer(body: unknown): { notes: MailNoteRow[]; complete
   return { notes: rows, complete: complete === true };
 }
 
-/** One ask with the console grant: refused once, re-minted once, never a loop. */
+/** The Mail page's notes: one ask of `/files/mail` with the console grant. */
 export async function mailNotesThroughGateway(options: {
   url: string;
   token: (refresh: false | { rejected: string }) => Promise<string>;
   fetchImpl?: typeof fetch;
 }): Promise<{ notes: MailNoteRow[]; complete: boolean } | null> {
+  const body = await askMailGateway({ ...options, body: {} });
+  return body === null ? null : mailNotesAnswer(body);
+}
+
+/** One ask of `/files/mail` with the console grant, its 200 answer's body or null: refused once, re-minted once, never a loop. */
+export async function askMailGateway(options: {
+  url: string;
+  token: (refresh: false | { rejected: string }) => Promise<string>;
+  body: Record<string, unknown>;
+  fetchImpl?: typeof fetch;
+}): Promise<unknown | null> {
   const doFetch = options.fetchImpl ?? globalThis.fetch;
   if (typeof doFetch !== "function") return null;
   const send = async (token: string) => {
@@ -68,7 +104,7 @@ export async function mailNotesThroughGateway(options: {
       const response = await doFetch(options.url, {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify(options.body),
         ...(abort === null ? {} : { signal: abort.signal }),
       });
       return { status: response.status, body: await response.json().catch(() => null) };
@@ -93,7 +129,7 @@ export async function mailNotesThroughGateway(options: {
     }
     answer = await send(token);
   }
-  return answer?.status === 200 ? mailNotesAnswer(answer.body) : null;
+  return answer?.status === 200 ? answer.body : null;
 }
 
 export type MailState = { readonly status: "loading" } | { readonly status: "unavailable" } | { readonly status: "ready"; readonly notes: readonly MailNoteRow[]; readonly complete: boolean };
