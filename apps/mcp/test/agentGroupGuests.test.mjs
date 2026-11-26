@@ -331,14 +331,12 @@ test("a guest chat reads the mail its owner shared with it, and watches it like 
   assert.equal(world.controlPlane.mailReadCalls.at(-1)?.path, "/gateway/email/search");
 });
 
-test("a member's tag in a chat with guests asks their own Tex like any group, and keeps the chat's limits", async () => {
-  // Tex Devs, 2026-11-24: a chat with guests was told to fetch a person's list with ask_chat, which it then didn't have.
-  // Since 2026-11-25 (Dev2: no capability split) it has it: a member's tag asks their own Tex, a guest's is refused by the gate.
+test("a member's tag in a chat with guests keeps the chat's limits, and is never told to ask anyone's personal Tex", async () => {
+  // Dev2, 2026-11-26: "grouptex asking personal tex is not a node i want".
   world.model.install([{ text: "Share it with the chat and I'll read it." }]);
   const asked = await tagged("ada", "Tex can you grab the list I made with you?", { crossCounts: { hour: 0, day: 0, open: [] } });
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   const told = JSON.stringify([world.model.requests[0].system, world.model.requests[0].messages]);
   assert.match(told, /Nothing else there exists for you/, "it keeps the chat's own limits");
-  // This world wires no Cross-chat gate, so the turn holds ask_personal_tex; with the gate wired it is ask_chat (`group-asks-own-tex`).
-  assert.match(told, /send action ask_personal_tex|their personal Tex has them/, "and is told to ask the tagger's own Tex, which it now has");
+  assert.doesNotMatch(told, /ask_personal_tex|their personal Tex has them/, "and is never told to ask someone's personal Tex");
 });

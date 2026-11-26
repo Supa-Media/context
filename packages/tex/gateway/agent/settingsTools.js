@@ -274,8 +274,7 @@ export function settingsTools({ session, controlPlane, group, dispatch, words = 
 }
 
 /**
- * Their own name on their account (`functions/accountName.ts`): what a group gets when someone there asks for it
- * (`askPersonalTex.js`), and what people see beside their notes. Their own chat only; the answer is facts, never words.
+ * Their own name on their account (`functions/accountName.ts`): what people see beside their notes. Their own chat only; the answer is facts, never words.
  */
 function accountNameTool(session, controlPlane) {
   return {

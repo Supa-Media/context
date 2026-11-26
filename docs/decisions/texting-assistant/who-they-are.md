@@ -1,5 +1,7 @@
 # Tex always knows who is texting it (2026-10-23)
 
+> Since 2026-11-26 a group chat no longer asks anyone's personal Tex (`ask_personal_tex` is deleted; [cross-chat-asks](./cross-chat-asks.md)). The 1:1 half below stands.
+
 Signing the owner in to Partiful, Tex texted "your number isn't anywhere in
 your notes. What's the number on your Partiful account?", to the number it was
 texting. A phone number, a name and an email are account facts held by the

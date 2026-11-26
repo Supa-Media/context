@@ -261,7 +261,7 @@ const TOOL_KINDS = [
   [/email|forward_rule/, "Email"],
   [/calendar/, "Calendar"],
   [/remember|write_note|save_context|archive|move|fill_dates|apply_layout|dream_now|suggest_destination|encryption|storage_layout|write$/, "Note"],
-  [/google_chat|notify|text_progress|slack|ask_personal_tex|chat_add_everyone|mail_agent/, "Chat"],
+  [/google_chat|notify|text_progress|slack|chat_add_everyone|mail_agent/, "Chat"],
   [/background|delegate|plan_big_ask|steer|restart|computers|machine/, "Job"],
   [/browse|fill_login|make_login|fill_card|sign_out_browser/, "Browser"],
   [/visibility|link|vault|share|invite|create_workspace|site|review_sharing/, "Sharing"],

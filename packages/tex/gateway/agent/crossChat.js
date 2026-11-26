@@ -12,15 +12,11 @@
  *   3. The answer starts a run in the asking chat (node `chatAsk` again, kind "answer"), which texts the person.
  *
  * Who may ask whom: a 1:1 asks only a group its person is in now (the `groups` list, read on their own grant; the
- * group's run is re-checked as their tag); a group asks only the personal Tex of whoever tagged it, or of somebody
- * else here once their 👍 or yes makes it their own tag (`offerFor.js`, as `ask_personal_tex` did, which this folds
- * in). A group never asks another group, a guest has no Tex, and a run started by an ask has no `ask_chat` (one hop).
+ * group's run is re-checked as their tag). A group never asks anyone's personal Tex (Dev2, 2026-11-26: "grouptex
+ * asking personal tex is not a node i want"), nor another group, and a run started by an ask has no `ask_chat` (one hop).
  */
 
-import { personalTexTool, PERSONAL_TEX_LINE } from "./askPersonalTex.js";
 import { PRIVATE_ASIDE_SEND_ACTIONS } from "./privateAside.js";
-import { NO_NOTES_LINE, NO_OTHER_NOTES_LINE } from "./groupMail.js";
-import { offerTarget } from "../../../../apps/mcp/src/tools/offerFor.js";
 
 export const ASK_CHAT = "ask_chat";
 export const POST_IN_CHAT = "post_in_chat";
@@ -32,7 +28,7 @@ export const CROSS_CHAT_SEND_ACTIONS = {
   ask_chat: {
     tool: ASK_CHAT,
     summary:
-      "Ask Tex in another chat they share with you (a group of theirs from a 1:1; their own 1:1 from a group) for something it knows or to do something there; the answer comes back later as its own turn.",
+      "From a 1:1, ask Tex in one of their group chats for something it knows or to do something there; the answer comes back later as its own turn.",
   },
   post_in_chat: { tool: POST_IN_CHAT, summary: "Answering another chat's ask to do something here: post one line in this group, signed with who asked." },
   share_held: { tool: SHARE_HELD, summary: "Share with a group an answer you held from it, when the person who asked says so in their own words." },
@@ -74,7 +70,7 @@ export function crossChatOf(body, { chatTurn, job }) {
   if (from === "" || what === "") return null;
   if (body.event === CHAT_ASK_EVENT) {
     const who = line(value.who, MAX_LABEL);
-    return { kind: "ask", id: value.id, from, what, do: value.do === true, ...(who ? { who } : {}), ...(value.strangers === true ? { strangers: true } : {}) };
+    return { kind: "ask", id: value.id, from, what, do: value.do === true, ...(who ? { who } : {}) };
   }
   if (!STATES.has(value.state)) return null;
   const texts = (Array.isArray(value.texts) ? value.texts : [])
@@ -96,14 +92,6 @@ export function crossChatQuestion(event) {
   return `(Not a text from them. Tex in ${event.from} answered the ask you sent it ("${event.what}"); nothing from it has reached them yet.)`;
 }
 
-/**
- * Told to a 1:1 answering a group whose people don't all share a workspace with them (Dev2, 2026-11-25: relationships
- * are shared workspaces; anyone who shares none is a stranger to Tex). What they pointed at is theirs to share there.
- */
-export const STRANGERS_LINE =
-  "Some people in that group don't share a workspace with them, so to you they are strangers: send back exactly what they pointed at, " +
-  "and nothing else private about them or anyone (health, money, relationships, where they live or are, contact details) unless that is the very thing they asked to share. ";
-
 /** What the run is told, apart from its question. */
 export function crossChatPrompt(event, { group = null } = {}) {
   if (event === null) return "";
@@ -114,8 +102,7 @@ export function crossChatPrompt(event, { group = null } = {}) {
       "never into this one, so write it to that Tex: the answer itself in a few lines, with links and note paths exactly, or why you can't.\n" +
       (group !== null
         ? "Answer only what anyone in this group could ask you here, from this chat's own words, notes and settings. Never pass on a phone number, an email or a saved login. "
-        : "This is their own chat with you. Answer only the fact asked for, nothing else from their notes, mail, calendar or other chats, because a whole group reads the answer. " +
-          (event.strangers ? STRANGERS_LINE : "")) +
+        : "This is their own chat with you. Answer only the fact asked for, nothing else from their notes, mail, calendar or other chats, because a whole group reads the answer. ") +
       (event.do
         ? group !== null
           ? `They asked you to do something here: do it as if ${event.who ?? "they"} had tagged you in this group, with this chat's own tools and logins. ` +
@@ -195,41 +182,28 @@ export function crossCountsOf(value) {
 }
 
 /**
- * The `ask_chat` tool for one chat turn, or null when this turn can't ask: a run an ask started (one hop), a job's or a
- * routine's turn, a Worker that sent no counts, a 1:1 with no list of groups. `gate(input)` is the
- * Cross-chat gate (node `crossChatGate`), over its config wire; an ask it lets go is pushed to `ledger.crossAsks`.
- * In a group, `contact: true` (the tagger's own name, phone or email) still answers at once from their account, as
- * `ask_personal_tex` did, only the facts the ask needs; `identity` is that tool's `asker`.
+ * The `ask_chat` tool for one 1:1 turn, or null when this turn can't ask: a group chat's turn (a group never asks
+ * anyone's personal Tex: Dev2, 2026-11-26), a run an ask started (one hop), a job's or a routine's turn, a Worker that
+ * sent no counts, a 1:1 with no list of groups. `gate(input)` is the Cross-chat gate (node `crossChatGate`), over its
+ * config wire; an ask it lets go is pushed to `ledger.crossAsks`.
  */
-export function crossAskTool({ event = null, group = null, groups = null, counts = null, ledger, gate, identity = null }) {
+export function crossAskTool({ event = null, group = null, groups = null, counts = null, ledger, gate }) {
   if (event !== null || counts === null || typeof gate !== "function" || ledger === null || ledger === undefined) return null;
-  if (group === null && !Array.isArray(groups)) return null;
-  const facts = group !== null ? personalTexTool({ group, ledger, asker: identity }) : null;
+  if (group !== null || !Array.isArray(groups)) return null;
   return {
     tool: {
       name: ASK_CHAT,
       description:
-        group === null
-          ? "Ask Tex in one of their group chats for something it knows (its notes, settings, logins, what was decided there) or to do something there for them. " +
-            "To read what was said in a group, use the group's words directly instead; this is for what isn't in the words, or for getting something done there. " +
-            "chat: the group, by name or key. what: the ask, in their words. do: true when it should act, not just answer. The answer comes back later as its own turn, so tell them in a few words that you asked." +
-            groupNames(groups)
-          : "Ask the personal Tex of whoever tagged you (their own 1:1 with you) for something only it knows about them, or to do something for them there. " +
-            "contact: true for their name, phone or email (say which in what): answered at once, never ask them in the chat for these. " +
-            "For somebody else here, pass as with their handle: they are asked here first, and only their 👍 or yes lets you. " +
-            "Anything else comes back later as its own turn, so tell them in a few words that you asked.",
+        "Ask Tex in one of their group chats for something it knows (its notes, settings, logins, what was decided there) or to do something there for them. " +
+        "To read what was said in a group, use the group's words directly instead; this is for what isn't in the words, or for getting something done there. " +
+        "chat: the group, by name or key. what: the ask, in their words. do: true when it should act, not just answer. The answer comes back later as its own turn, so tell them in a few words that you asked." +
+        groupNames(groups),
       inputSchema: {
         type: "object",
         properties: {
-          ...(group === null ? { chat: { type: "string", description: "The group chat, by its name or key." } } : {}),
+          chat: { type: "string", description: "The group chat, by its name or key." },
           what: { type: "string", description: "The ask, in a sentence, with what it is for." },
           do: { type: "boolean", description: "true when the other Tex should do something, not only answer." },
-          ...(group !== null
-            ? {
-                contact: { type: "boolean", description: "true for their name, phone or email, answered at once." },
-                as: { type: "string", description: "The handle of someone else in this chat, asked here first." },
-              }
-            : {}),
         },
         required: ["what"],
       },
@@ -237,30 +211,16 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
     call: async (args) => {
       const what = line(args?.what, MAX_WHAT);
       if (what === "") return text("Not asked: say what you need, in a sentence.", true);
-      if (group !== null && args?.contact === true && facts !== null) return facts.call({ what, ...(args?.as ? { as: args.as } : {}) });
-      if (group !== null) {
-        const target = offerTarget({ egress: { group } }, args ?? {}, "ask");
-        if (target?.error) return text(target.error, true);
-        if (target !== null) return offerAsk(ledger, target.who, what);
-      }
-      const to = group === null ? chatNamed(groups, args?.chat) : null;
-      if (group === null && to === null) {
+      const to = chatNamed(groups, args?.chat);
+      if (to === null) {
         const names = groups.map((chat) => chat.name).filter(Boolean).slice(0, 20);
         return text(`Not asked: no one group of theirs is called that. Their groups: ${names.join(", ") || "(none)"}.`, true);
       }
-      const verdict = await gate({
-        from: group === null ? "one" : "group",
-        to: group === null ? { kind: "group", key: to.key, name: String(to.name ?? "").slice(0, MAX_LABEL) } : { kind: "person", who: group.from || "" },
-        what,
-        do: args?.do === true,
-        guest: group !== null && (group.guestTagger === true || !group.from),
-        strangers: group !== null && group.homeOnly === true,
-        counts,
-      });
+      const verdict = await gate({ from: "one", to: { kind: "group", key: to.key, name: String(to.name ?? "").slice(0, MAX_LABEL) }, what, do: args?.do === true, guest: false, counts });
       if (verdict?.to !== "ask") return text(`Not asked: ${verdict?.why ?? "the cross-chat gate refused it"}.`, true);
       ledger.crossAsks = [...(ledger.crossAsks ?? []), verdict.ask];
       return text(
-        `Asked ${group === null ? `Tex in ${verdict.ask.to.name || "that group"}` : `@${group.from}'s personal Tex`}. ` +
+        `Asked Tex in ${verdict.ask.to.name || "that group"}. ` +
           "Its answer comes back later as a turn of its own here, and you text them then; for now tell them in a few words that you asked, and don't guess the answer.",
       );
     },
@@ -271,17 +231,6 @@ export function crossAskTool({ event = null, group = null, groups = null, counts
 function groupNames(groups) {
   const names = (Array.isArray(groups) ? groups : []).map((chat) => String(chat?.name ?? "").trim()).filter(Boolean).slice(0, 30);
   return names.length > 0 ? ` Their groups: ${names.join(", ")}.` : " They are in no group chat with you yet.";
-}
-
-/** Somebody else's personal Tex: offered to them, never asked until their own 👍 or yes (`offerFor.js`). */
-function offerAsk(ledger, who, what) {
-  if (ledger.offered) return text(`Not offered: this answer already offers one thing to @${ledger.offered.who}. Offer this after they answer.`, true);
-  if (Array.isArray(ledger.asked) && ledger.asked.length > 0) return text("Not offered: this answer already asks for a yes. Offer this after it is answered.", true);
-  ledger.offered = { who, tool: ASK_CHAT, detail: what };
-  return text(
-    `Not asked yet, and nothing failed: right after your answer @${who} is asked here whether you may ask their personal Tex: ${what}. ` +
-      `Only their 👍 or yes lets you; then make this same call without as.`,
-  );
 }
 
 /**
@@ -304,30 +253,6 @@ export function postInChatTool({ event, group, ledger }) {
       return text("Posted here, signed with who asked. Now write your answer back to the other chat.");
     },
   };
-}
-
-/** The group line that replaces `ask_personal_tex`'s once the cross-chat gate is wired (`groupTurn.js` `groupPrompt`). */
-export const CROSS_CHAT_GROUP_LINE =
-  "When a form, booking or sign-in someone here asked for needs their own name, phone number or email, get them with send action ask_chat and contact true " +
-  "(their personal Tex knows them) rather than asking; for anything else only their personal Tex knows, or to have it do something for them, send ask_chat too; " +
-  "for somebody else here, pass as and they OK it first. ";
-
-// Dev, 2026-11-24: "ideally I just want Tex to have context of everything ... if not then it should ask the user for more
-// information". A group turn was told to send people off to text it on their own for their notes, so "pick up the list I
-// made with you in our 1:1" got "text me 1:1" though ask_chat could fetch it. No one use is named: anything of theirs.
-export const CROSS_CHAT_NOTES_LINE =
-  "Their notes, lists, plans and chats with you aren't open here, but their personal Tex has them: when someone points at something of theirs " +
-  "(something they made, saved or told you on their own), get it with send action ask_chat, saying what they mean in their own words, and use or share " +
-  "what comes back; if you can't tell what they mean, ask them one short question first. Opening it yourself from here fails, even when a search names it, " +
-  "so never fetch it and never ask them to share or paste it: ask their personal Tex. Never tell them to text you on their own for it. " +
-  "For somebody else's, pass as and they OK it first; saved logins stay in their own chat. ";
-
-/** A group turn's prompt when cross-chat asks are wired: ask the person's own Tex rather than send them away. */
-export function crossChatGroupPrompt(prompt) {
-  return String(prompt ?? "")
-    .replace(PERSONAL_TEX_LINE, CROSS_CHAT_GROUP_LINE)
-    .replace(NO_NOTES_LINE, CROSS_CHAT_NOTES_LINE)
-    .replace(NO_OTHER_NOTES_LINE, CROSS_CHAT_NOTES_LINE);
 }
 
 /** The ask-run's answer, shaped for the chat that asked (node `chatAnswer`'s input). */
