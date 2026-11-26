@@ -33,6 +33,7 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FolderListing } from "../features/console/files/types";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
+import { firstMailNote, threadOf } from "../features/console/files/folderPage/areas/areaMail";
 import { all, entry, host, mount, one, press, strip, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
 
 const NOTES: ListNote[] = [
@@ -135,9 +136,19 @@ describe("The bots folder", () => {
     expect(files.join("\n")).toContain("If your name or logo changed");
     expect(files.join("\n")).toContain("Never write to Context, reply, or send anything from this run.");
     expect(files.join("\n")).toMatch(/bind_bot: .?"Grok Bot/);
-    // It stays on the bot's page, and says it sent.
+    // It stays on the bot's page, says when it last went, and can go again (Dev, 2026-11-26).
     expect(all("bot-panel")).toHaveLength(1);
-    expect(strip(one("bot-panel-refresh").textContent)).toBe("Sent");
+    expect(strip(one("bot-panel-refresh").textContent)).toBe("Refresh");
+    expect(strip(one("bot-panel-refreshed").textContent)).toMatch(/^Refreshed \d{1,2}:\d{2}/);
+  });
+
+  test("a mail note says when Refresh last went in it", () => {
+    const first = firstMailNote("Grok Bot", "seyi", "Please refresh your Context setup, from your main chat:", "2026-11-26T20:44:00.000Z");
+    if ("error" in first) throw new Error(first.error);
+    expect(threadOf(first.text).refreshedAt).toBe("2026-11-26T20:44:00.000Z");
+    const plain = firstMailNote("Grok Bot", "seyi", "tell me a joke", "2026-11-26T20:44:00.000Z");
+    if ("error" in plain) throw new Error(plain.error);
+    expect(threadOf(plain.text).refreshedAt).toBeNull();
   });
 
   test("a bot is added from the bots folder's page: whose it is and its name, with its card in its own folder", async () => {

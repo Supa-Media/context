@@ -55,10 +55,16 @@ export function firstMailNote(holder: string, sender: string, text: string, at?:
 export interface Thread {
   readonly count: number;
   readonly last: MailEvent | null;
+  /** When a bot's Refresh was last sent in this note (`refreshAsk`, or the older name-and-logo ask), or null. */
+  readonly refreshedAt?: string | null;
 }
 
-/** How many messages a mail note holds, and its newest. */
+/** How a Refresh mail starts, now and before the relay setup (2026-11-26), so the panel can say when it last went. */
+const REFRESH_STARTS = ["Please refresh your Context setup", "Please check your card here"];
+
+/** How many messages a mail note holds, its newest, and when Refresh last went in it. */
 export function threadOf(text: string): Thread {
   const messages = parseMail(text).events.filter((event) => event.kind === "mail");
-  return { count: messages.length, last: messages[messages.length - 1] ?? null };
+  const refreshes = messages.filter((event) => REFRESH_STARTS.some((start) => (event.text ?? "").startsWith(start)));
+  return { count: messages.length, last: messages[messages.length - 1] ?? null, refreshedAt: refreshes[refreshes.length - 1]?.at ?? null };
 }
