@@ -10,8 +10,11 @@
  * signs them in and asks for their personal Gmail (`textSignIn.ts` in Convex),
  * then watches for it to connect (`gmailWatch.ts`).
  *
- * No model writes this text or sees the link, and nothing else is kept: the
- * phone (this object is already named after it), the chat id, and times.
+ * Tex writes this text from facts (node `did`, `didOne.ts`); the link and the
+ * picture of Google's screens follow it, sent by code, so no model sees the
+ * link. The old lines go until the node is wired, or when that turn can't run.
+ * Nothing else is kept: the phone (this object is already named after it), the
+ * chat id, and times; the link only in that queued turn, until it is sent.
  * Tex only texts people who texted it first, on the line they texted, and they did.
  */
 
@@ -21,6 +24,8 @@ import { lineFor, lineSeam, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { noteTold } from "./told";
 import { watchForGmail } from "./gmailWatch";
+import { tellTexOne } from "./didOne";
+import type { Did } from "./factsOf";
 
 export const READY_KEY = "ready";
 /** The first look, about when a new bucket usually answers. */
@@ -50,6 +55,8 @@ export type ReadyDeps = LineDeps & {
   controlPlaneOrigin: string;
   workerSecret: string;
   now: () => number;
+  /** This chat's config graph, when not the bundled one (tests): whether node `did` is wired. */
+  texGraph?: unknown;
 };
 
 /** Called when setup started a bucket: owe this chat the ready text. */
@@ -87,6 +94,18 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
     const nextAt = now + READY_EVERY_MS;
     await storage.put<Owed>(READY_KEY, { ...owed, nextAt });
     await armBy(storage, nextAt);
+    return;
+  }
+  // With node `did` wired, Tex writes the text from facts (`didOne.ts`); the link and the picture follow it, sent by
+  // code, so no model sees the link. The old lines only until the node is wired, or when that turn can't run.
+  const facts: Did = answer.status === "ready"
+    ? { action: "notes", status: "ready", next: "connect_gmail", link_follows: true, picture_follows: true }
+    : { action: "notes", status: "late" };
+  const fallback = answer.status === "ready" ? [READY_COPY.ready, answer.url, READY_COPY.guide] : [READY_COPY.late];
+  const after = answer.status === "ready" ? { texts: [answer.url], pictures: [{ url: guideUrl(answer.url) }] } : undefined;
+  if ((owed.sent ?? 0) === 0 && (await tellTexOne(storage, owed, facts, `ready:${owed.since}`, fallback, { now, graph: deps.texGraph, ...(after ? { after } : {}) })) !== "off") {
+    await storage.delete(READY_KEY);
+    if (answer.status === "ready") await watchForGmail(storage, { phone: owed.phone, chatId: owed.chatId, ...(owed.channel ? { channel: owed.channel } : {}) }, now);
     return;
   }
   const parts: Array<string | { url: string }> =

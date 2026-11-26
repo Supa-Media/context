@@ -103,7 +103,12 @@ export type Inbound =
       /** With `event` "did": what code did for this chat, as data (`didFacts.ts` `tellTexOne`). Never from a webhook. */
       did?: Did;
       /** With `event` "did": what is sent if its turn can't run at all, never silence. Never from a webhook. */
-      didFallback?: string;
+      didFallback?: string | string[];
+      /**
+       * With `event` "did": what code sends after the turn's own words, either way, and no model sees: a link that signs
+       * them in, and a picture (`ready.ts`). Never from a webhook.
+       */
+      didAfter?: { texts?: string[]; pictures?: { url: string }[] };
       /** On `event: "chat_ask"` or `"chat_answer"`: another chat's ask, or the answer to this chat's own (`crossChat.ts`). Never from a webhook. */
       crossChat?: CrossEvent;
       /** On `event: "job_report"`: what a background job would have said, handed to this chat's own turn (`jobTexts.ts`). Never from a webhook. */
