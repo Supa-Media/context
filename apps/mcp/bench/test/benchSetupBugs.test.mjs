@@ -120,6 +120,11 @@ test("a refused model call says what the provider said, not only its status", ()
   assert.deepEqual(modelFailuresIn([anthropic], isFrontDoor), ["a model call failed (status 400: invalid_request_error: prompt is too long: 210000 tokens > 200000 maximum)"]);
   assert.equal(refusalOf({ errors: [{ code: 2003, message: "Rate limited" }] }), "2003: Rate limited");
   assert.equal(refusalOf("upstream timed out"), "upstream timed out");
+  const edits = { status: 400, answer: { content: null, error: { type: "invalid_request_error", message: "context_management: Extra inputs are not permitted" } } };
+  const ok = { status: 200, answer: { content: [{ type: "text", text: "hi" }] } };
+  assert.deepEqual(modelFailuresIn([edits, ok], isFrontDoor), [], "the gateway resends without context editing, and that went through");
+  assert.equal(modelFailuresIn([edits], isFrontDoor).length, 1, "no resend that went through: still a failure");
+  assert.equal(modelFailuresIn([anthropic, ok], isFrontDoor).length, 1, "a refusal the gateway does not resend still counts");
   assert.equal(refusalOf({ content: null }), "");
 });
 

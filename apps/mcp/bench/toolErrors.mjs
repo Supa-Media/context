@@ -73,6 +73,13 @@ export function refusalOf(answer) {
 }
 
 /**
+ * A refusal the gateway answers by sending the same call again without the field it names (`aiGateway.js`: context
+ * editing, one-hour cache marks). Followed by a 200, the turn went on as production's would: no failure (Dev runs of
+ * 2026-11-26: 21 rows a run read "context_management: Extra inputs are not permitted" and were dropped as bench errors).
+ */
+const RESENT = /context_management|context-management|cache_control|\bttl\b/i;
+
+/**
  * What went wrong with the model itself in a turn, as gap lines (`benchGaps.mjs`): a call that failed (no 200), and a
  * Front door answer that came back with no words and no tool call. Production's model does not hand Tex an empty
  * answer to send; on the bench it is the answerer (Claude Code in cc, the gateway in gw) failing, so the row is a
@@ -80,9 +87,11 @@ export function refusalOf(answer) {
  */
 export function modelFailuresIn(calls, isFrontDoor) {
   const out = [];
-  for (const call of Array.isArray(calls) ? calls : []) {
+  const list = Array.isArray(calls) ? calls : [];
+  for (const [i, call] of list.entries()) {
     if (typeof call?.status === "number" && call.status !== 200) {
       const said = refusalOf(call.answer);
+      if (RESENT.test(said) && list[i + 1]?.status === 200) continue; // the gateway sent it again without that field, and it went through
       out.push(`a model call failed (status ${call.status}${said ? `: ${said}` : ""})`);
       continue;
     }
