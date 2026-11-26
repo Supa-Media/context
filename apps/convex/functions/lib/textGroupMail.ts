@@ -281,6 +281,25 @@ export async function chatMailClearance(
   return await liveMailShares(ctx, group);
 }
 
+/**
+ * The mail shared with a group chat, for a Lab test chat copied from it (2026-11-26: a copy said nobody's mail was
+ * shared, then could not read it, so no test chat could show what Tex does with a shared mailbox). Only for the token's
+ * own person while they are in that chat, so it reads what they could have Tex read there and never more; each read is
+ * still narrowed by its share and counted against the sharer's hourly reads (`functions/personMail.ts`). Null otherwise.
+ */
+export async function labChatMailClearance(
+  ctx: QueryCtx,
+  args: { hashedAccessToken: string; groupKey: string },
+): Promise<LiveMailShare[] | null> {
+  if (!/^[0-9a-f]{64}$/.test(args.groupKey)) return null;
+  const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+  if (live === null) return null;
+  const group = await ctx.db.query("textGroups").withIndex("by_key", (q) => q.eq("groupKey", args.groupKey)).unique();
+  if (group === null || !(group.homeUsers ?? []).includes(live.grant.userId)) return null;
+  if (!(await inChat(ctx, group, live.grant.userId))) return null;
+  return await liveMailShares(ctx, group);
+}
+
 /** The workspaces, by slug, that the group chats a person's own mailbox is shared with now reach. */
 export async function chatsWatching(ctx: QueryCtx, userId: Id<"users">, address: string): Promise<string[]> {
   const shares = (await ctx.db.query("chatMailShares").withIndex("by_user", (q) => q.eq("userId", userId)).take(50)).filter(

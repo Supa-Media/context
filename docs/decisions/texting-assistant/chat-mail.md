@@ -82,11 +82,14 @@ control plane with no model (`textGroups.applyGroupTurn`,
   Otherwise it is offered for the sharer's yes, a reply in its thread
   included (`emailGate.js`); a forward or an attachment still goes only from
   its owner's own ask. Why: on 2026-11-25 Tex, told only that the mailbox was
-  the sharer's, offered a reply for the sharer's yes, which the gate refused,
-  though the asker had sent the same kind of reply on 11-20 from their own
-  connection. Reversing it fails `textGroupMail.test.ts` "an asker who has the
+  the sharer's, offered a reply for the sharer's yes, which the gate refused.
+  (The same kind of reply had gone on 11-20 on the asker's 👍 because a chat's
+  grant was then its sponsor's, the sharer here, so it sent from the sharer's
+  own connection; since #4248, 2026-11-25, an ask runs on the asker's own grant.)
+  Reversing it fails `textGroupMail.test.ts` "an asker who has the
   shared mailbox connected" and `agentGroupOffer.test.mjs` "a reply from
   someone else's mailbox".
+- **A Lab test chat of the chat reads its shared mail too** (2026-11-26). A copy of a real group chat runs on the Lab user's own token; each of its mail reads names the chat, and the control plane answers it as the chat's own read, narrowed by the share and counted against the sharer's hourly reads, only while that person is in the chat (`labChatMailClearance` in `lib/textGroupMail.ts`). It reads nothing a person in the chat could not have Tex read there. Test: `textGroupMail.test.ts` "a Lab copy of the chat reads its shared mail".
 
 ## The chat checks in on its own
 

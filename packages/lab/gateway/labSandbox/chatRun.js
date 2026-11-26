@@ -54,6 +54,7 @@ import { boxStub, openRun } from "./jobBox.js";
 import { assetId, assetUrl } from "../fromGateway/labSandbox_sandboxTools.js";
 import { fitSteps } from "./steps.js";
 import { controlPlaneSwitch } from "./controlSwitch.js";
+import { labChatMail } from "./chatMail.js";
 
 /** The made-up addresses the chat object calls; no request to either leaves this file. */
 export const LAB_GATEWAY = "https://lab-gateway.invalid";
@@ -475,15 +476,17 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
         const session = isWorld && !about.world?.local ? await worldSession(env, grant) : sessionFromPayload(payload, null, token);
         Object.defineProperty(session, "labSandbox", { value: gate, enumerable: false });
         // A made-up chat on main reads its pin as the chat (`worldLocal.js` `controlPlaneFor`); every other store as before.
-        const cpFor = (target) => (isWorld && about.world?.local ? controlPlaneFor(target, controlPlane) : controlPlane);
+        // A copy of a real group chat reads the mail shared there (`chatMail.js`).
+        const chatCp = !isWorld && about.kind === "group" ? labChatMail(controlPlane, about.chatKey) : controlPlane;
+        const cpFor = (target) => (isWorld && about.world?.local ? controlPlaneFor(target, controlPlane) : chatCp);
         const store = await storeForSession(session, sandboxEnv, cpFor(session));
         const request = new Request(`${origin}/agent`, { method: "POST" });
-        decorateRequestStore(store, { session, env: sandboxEnv, controlPlane, ctx, request, origin });
+        decorateRequestStore(store, { session, env: sandboxEnv, controlPlane: chatCp, ctx, request, origin });
         const openOnce = onceEach((target) => storeForSession(target, sandboxEnv, cpFor(target)));
-        attachContextOpener(store, session, { env: sandboxEnv, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
+        attachContextOpener(store, session, { env: sandboxEnv, controlPlane: chatCp, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
         // On the Lab user's own token, Tex's setup is read as them (`worldLocal.js` `setupAsLabUser`); a preview's made-up chat holds a real grant.
         const doorCp = (sibling) => (sibling.setupRead === true && !(isWorld && !about.world?.local) ? setupAsLabUser(cpFor(sibling)) : cpFor(sibling));
-        attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, doorCp(sibling)), (o, sibling) => attachLinkCalls(o, sibling, controlPlane, sandboxEnv));
+        attachPinnedDoors(store, session, (sibling) => storeForSession(sibling, sandboxEnv, doorCp(sibling)), (o, sibling) => attachLinkCalls(o, sibling, chatCp, sandboxEnv));
         return { store, session };
       })());
     const agent = (isWorld ? (route) => worldRoutes(grant, route) : (route) => route)(agentRoute ?? gatewayRoutes({ storeOf, sandboxEnv, controlPlane, ctx, gate }));
