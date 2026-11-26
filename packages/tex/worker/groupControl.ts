@@ -30,7 +30,8 @@ export type ControlAnswer =
       names?: { phone: string; handle: string; name?: string }[];
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
-      mail?: { handle: string; address: string }[];
+      /** `askerSends`: the turn's asker has this mailbox connected themselves, so it can go from them (`lib/textGroupMail.ts`). */
+      mail?: { handle: string; address: string; askerSends?: true }[];
       /** Calendars shared with this chat: the turn is told whose and which. */
       calendar?: { handle: string; address: string }[];
       /** Whether this chat is shared with the developers who build Tex, by handle (`lib/texLabShared.ts` `devShareOf`). */
@@ -137,7 +138,9 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
           typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],
         ),
         mail: (Array.isArray(body.mail) ? body.mail : []).slice(0, 10).map(record).flatMap((entry) =>
-          slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address) ? [{ handle: entry.handle as string, address: entry.address }] : [],
+          slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address)
+            ? [{ handle: entry.handle as string, address: entry.address, ...(entry.askerSends === true ? { askerSends: true as const } : {}) }]
+            : [],
         ),
         calendar: (Array.isArray(body.calendar) ? body.calendar : []).slice(0, 10).map(record).flatMap((entry) =>
           slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address) ? [{ handle: entry.handle as string, address: entry.address }] : [],

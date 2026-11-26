@@ -143,7 +143,7 @@ export const groupAnswerValidator = v.union(
     instructions: v.optional(v.string()),
     updates: v.optional(texUpdatesValidator),
     /** Mailboxes shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupMail.ts`). */
-    mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
+    mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string(), askerSends: v.optional(v.literal(true)) }))),
     /** Calendars shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupCalendar.ts`). */
     calendar: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
     /** Whether this chat is shared with the developers who build Tex, who said yes and who hasn't (`lib/texLabShared.ts`). */
@@ -331,7 +331,7 @@ async function homeAnswer(
   // An account holder's ask also reads their own calendars, on their own grant (`lib/textGroupCalendar.ts` `askerCalendars`).
   const asker = asked && senderUser !== null ? senderUser : null;
   // Read again: the turn may have named this chat's people on its home just now.
-  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)), ...(await calendarSharesNamed(ctx, chat._id, asker)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
+  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id, asker)), ...(await calendarSharesNamed(ctx, chat._id, asker)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
 }
 
 /**
@@ -385,7 +385,7 @@ async function singleWorkspaceTurn(
   for (const [userId, phone] of phones) names.push(await chatPerson(ctx, phone, userId));
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, senderUser));
   const handle = await handleOf(ctx, senderUser);
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id)), ...(await calendarSharesNamed(ctx, group._id)), ...(await devShareOf(ctx, group)) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id, senderUser)), ...(await calendarSharesNamed(ctx, group._id)), ...(await devShareOf(ctx, group)) };
 }
 
 /** A slug as a command said it: no "@", lowercase, bounded. */
@@ -445,7 +445,7 @@ async function invitedTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
   const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)), ...(await calendarSharesNamed(ctx, chat._id)), ...(await devShareOf(ctx, chat)) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id, taggerUser)), ...(await calendarSharesNamed(ctx, chat._id)), ...(await devShareOf(ctx, chat)) };
 }
 
 async function groupRow(ctx: MutationCtx, groupKey: string, now: number, touch: boolean): Promise<Doc<"textGroups">> {
