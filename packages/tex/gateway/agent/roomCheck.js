@@ -11,8 +11,9 @@
  *
  *  - which workspaces the room can't all open (`roomSlugs`): the asker's workspaces the whole chat does not share
  *    (`group.unshared`, from the control plane) and every workspace somebody is named as kept out of (`group.blocked`);
- *  - what this turn read from them (`roomReads`): each call that named one by `context` or by an `@slug/` path, and
- *    what it gave back. A job reports the ones it read (`roomRead`), and its report's words count as read from them;
+ *  - what this turn read from them (`roomReads`): each call that named one by `context`, an `@slug/` path or id, and
+ *    what it gave back, and each hit a result names as theirs (`@slug/` lines: a search reaches every workspace).
+ *    A job reports the ones it read (`roomRead`), and its report's words count as read from them;
  *  - whether the asker pointed at it (`pointedAt`): a workspace their own text names (`@slug`, or a link into it) is
  *    theirs to share, and is never held;
  *  - whether the draft carries it (`roomVerdict`): names and figures the draft shares with what was read there, that
@@ -32,7 +33,11 @@ export const MAX_CALL_CHARS = 30_000;
 /** Shared names and figures it takes to hold a draft: one alone is too often a word anybody could say. */
 export const HOLD_AT = 2;
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
-const ARG_KEYS = ["context", "path", "paths", "note", "notes", "from", "to", "folder", "url"];
+const ARG_KEYS = ["context", "path", "paths", "note", "notes", "id", "ids", "from", "to", "folder", "url"];
+/** A hit in a search or listing that names another workspace starts its own line with `@slug/` (`tools/search.js`). */
+const HIT_LINE = /^@([a-z0-9][a-z0-9-]{0,63})\/\S/i;
+/** A hit in the workspace the call ran in: its path alone on its line, with no `@slug/` in front. */
+const HOME_HIT = /^[a-z0-9_.-][^\s@]*\/[^\s]*\.[a-z0-9]{1,8}$/i;
 /** Capitalised words that start sentences and name nothing, never counted as a name. */
 const COMMON = /^(?:about|action|after|all|also|and|any|april|august|before|but|com|context|december|done|each|eight|every|february|first|five|for|four|friday|from|hello|here|hey|hi|how|http|https|i|if|ill|im|into|it|item|items|its|ive|january|july|june|just|last|lc|march|may|meeting|meetings|monday|new|next|nine|no|not|note|notes|november|october|okay|one|or|our|over|please|saturday|september|seven|six|so|some|summary|sunday|sure|ten|tex|than|thank|thanks|that|the|their|them|then|there|these|they|this|those|three|thursday|today|tomorrow|tonight|tuesday|two|under|we|wednesday|what|when|where|which|while|who|whom|whose|why|with|without|www|yeah|yes|yesterday|you|your)$/;
 
@@ -81,6 +86,24 @@ function resultText(result) {
 }
 
 /**
+ * What a result gave back from each workspace its hits name, by slug: every block that starts on a `@slug/` line, up to
+ * the next one. A search runs in every workspace the person reaches whatever `context` it names (`search everywhere`,
+ * `apps/mcp/src/search/config/nodes.js`), so its args alone never say where its hits came from (audit, 2026-11-26: a
+ * search naming the chat's home answered with another workspace's notes, and nothing was kept for the check).
+ */
+export function hitsBySlug(text) {
+  const out = new Map();
+  let slug = null;
+  for (const line of String(text ?? "").split("\n")) {
+    const at = HIT_LINE.exec(line);
+    if (at) slug = at[1].toLowerCase();
+    else if (HOME_HIT.test(line) || /^(?:Searched:|A path that starts with @)/.test(line)) slug = null;
+    if (slug !== null) out.set(slug, `${out.get(slug) ?? ""}\n${line}`);
+  }
+  return out;
+}
+
+/**
  * One turn's record of what it read from the room's closed workspaces. `wrap(callTool)` keeps each call that named one
  * and came back; `add(slugs, texts)` adds what a job read there (its report's words). Null for a turn with none.
  */
@@ -101,7 +124,12 @@ export function roomReads(group) {
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
-        if (result?.isError !== true) for (const slug of slugsCalled(args)) keep(slug, resultText(result));
+        if (result?.isError !== true) {
+          const text = resultText(result);
+          const called = slugsCalled(args);
+          for (const slug of called) keep(slug, text);
+          for (const [slug, hits] of hitsBySlug(text)) if (!called.has(slug)) keep(slug, hits);
+        }
         return result;
       };
     },
