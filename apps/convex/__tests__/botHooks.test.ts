@@ -122,6 +122,8 @@ describe("a bot's webhook", () => {
     // Dev, 2026-11-26: a bot answered in its own app's chat, where nobody looked. The call says to answer in the note.
     expect(body.instructions).toContain('write { context: "@supa-bots", action: "mail", path: "areas/finance/mail/kim.md"');
     expect(body.instructions).toContain("Never answer only in your own app's chat");
+    // Dev, 2026-11-26: its line was signed "Cursor", the app its connection is named after. It joins as itself first.
+    expect(body.instructions).toContain('args: { join: "finance" }');
     const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
     expect(audit.some((event) => event.action === "bot_hook.called")).toBe(true);
     expect(JSON.stringify(audit)).not.toContain("s3cret-path");

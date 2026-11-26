@@ -74,20 +74,26 @@ function hookInstructions({ type, workspace, bot, from, area, note }) {
   const args = openArgs(workspace);
   const never = "Never answer only in your own app's chat: the person reads answers in Context's Agent Mail and never sees what you say only in your app.";
   const used = "used: <whole percent of your week it took>";
+  const work = "Do what it asks with your own tools, as you would in your own app (look things up, work it out), and answer with the result, not a promise or a question you could answer yourself.";
+  // Joined under the bot's own name, a line is signed by the bot, not by the app its connection is named after
+  // (Dev, 2026-11-26: "why is it showing as read by cursor and not grok bot"). Joining again from the same connection
+  // hands back the same mailbox.
+  const join = (path) =>
+    `First join that note's mail as yourself: write ${args}action: "mail", path: ${JSON.stringify(path)}, args: { join: ${JSON.stringify(bot)} } }, and pass the mailbox id it gives as mailbox on the calls below.`;
   if (type === "test") {
-    return `This is a test call from Context to check your webhook works; there is nothing to answer. When real mail comes, read it through your Context connection and answer in that same mail note. ${never}`;
+    return `This is a test call from Context to check your webhook works; there is nothing to answer. When real mail comes, join the note's mail as ${JSON.stringify(bot)}, read it through your Context connection and answer in that same mail note. ${never}`;
   }
   if (type === "routine") {
     const reply = `${area}/mail/${bot}.md`;
     return (
-      `The routine ${JSON.stringify(note)} is due. Read it through your Context connection: fetch ${args}id: ${JSON.stringify(note)} }. ` +
-      `Do the job, then answer in the area's mail: write ${args}action: "mail", path: ${JSON.stringify(reply)}, args: { text: "<your answer>", ${used} } }. ${never}`
+      `The routine ${JSON.stringify(note)} is due. Read it through your Context connection: fetch ${args}id: ${JSON.stringify(note)} }. ${work} ` +
+      `Then answer in the area's mail. ${join(reply)} write ${args}action: "mail", path: ${JSON.stringify(reply)}, mailbox: "<that id>", args: { text: "<your answer>", ${used} } }. ${never}`
     );
   }
   return (
-    `New mail for you from ${from} in ${JSON.stringify(note)}. Read it through your Context connection: fetch ${args}id: ${JSON.stringify(note)} }. ` +
-    `Always answer in that same note: write ${args}action: "mail", path: ${JSON.stringify(note)}, args: { text: "<your answer>", ${used} } }. ${never} ` +
-    "Answer there even when the answer is short, or to say you need more time."
+    `New mail for you from ${from} in ${JSON.stringify(note)}. ${join(note)} ` +
+    `Read the whole note: fetch ${args}id: ${JSON.stringify(note)}, mailbox: "<that id>" }; answer what is new and anything still unanswered there. ${work} ` +
+    `Always answer in that same note: write ${args}action: "mail", path: ${JSON.stringify(note)}, mailbox: "<that id>", args: { text: "<your answer>", ${used} } }. ${never}`
   );
 }
 

@@ -123,7 +123,12 @@ keeps its notes there and knows what its modes ask of it.
   and never only in the bot's own app chat. A Grok bot whose webhook started a
   chat in its own app answered there, where nobody looked (Dev, 2026-11-26:
   "why are the bots responding here instead of in mail?";
-  `packages/shared/src/botHooks.cjs`, `apps/convex/__tests__/botHooks.test.ts`). A call is
+  `packages/shared/src/botHooks.cjs`, `apps/convex/__tests__/botHooks.test.ts`).
+  They also say to join the note's mail as the bot's own name first, so its
+  line and read mark say the bot and not the app its connection is named
+  after ("Cursor"), and to do the asked work before answering: the webhook
+  starts a fresh session that knows only the note (Dev, 2026-11-26: "why is it
+  showing as read by cursor and not grok bot"). A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.
 - **Everything the panel sets, an agent sets too** (the owner, 2026-11-25:
