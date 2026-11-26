@@ -3,7 +3,7 @@
   "kind": "one",
   "members": ["Maya"],
   "set": "training",
-  "setting": "Maya runs Fernway, a small pottery studio in Denver, and volunteers as treasurer for a kids' soccer league. Tex has her Gmail (maya@fernway.example), Calendar, Context notes, the web, a browser with a vault for logins, and a computer.",
+  "setting": "Maya runs Fernway, a small pottery studio in Denver, and volunteers as treasurer for a kids' soccer league. Tex has her Gmail (maya@fernway.example), Calendar, Context notes, the web, a browser with a vault for logins, and a computer. She is also in Under-10s parents, a group chat with Tex and other parents; the league board's notes are in a workspace only the board can open.",
   "title": "Maya and Tex: the studio's loose ends",
   "msgs": [
     {"at":"Thu 15:20","id":"m1","labels":{"fd":{"must":["say what came in and what's missing from it","offer the next step, don't take it"],"star":true},"router":{"route":"quick","star":true}},"text":"Gmail: Denver Parks: field permit #40417 for the league is Approved. Email lists no field, dates or hours.","via":"checkin","who":"Check-in"},
@@ -104,6 +104,12 @@
     {"at":"Fri 10:02","id":"ge1","who":"Maya","text":"can you read the fernway gmail too, the shop one"},
     {"id":"ge2","who":"Tex","tex":true,"text":"yes, connect it here and I'll read it too: https://context.example/connect/gmail"},
     {"id":"ge3","who":"Context","via":"did","text":"{\"from\":\"context\",\"did\":{\"action\":\"gmail\",\"status\":\"connected\",\"address\":\"hello@fernway.example\",\"main\":false}}","labels":{"fd":{"must":["say it can read hello@fernway.example now, in one short text"],"never":["call it her main email","paste the facts or their field names","say it was told or handed anything"],"star":true}}},
-    {"id":"ge4","who":"Tex","tex":true,"text":"got it, I can read hello@fernway.example now too"}
+    {"id":"ge4","who":"Tex","tex":true,"text":"got it, I can read hello@fernway.example now too"},
+    {"at":"Sat 09:14","id":"hd1","who":"Tex","tex":true,"text":"you asked in Under-10s parents for the spring budget. it's from the league board's notes, which the other parents can't open, so I kept it here: fields $1,200, refs $640, jerseys $910. want me to share it there?"},
+    {"id":"hd2","who":"Maya","text":"yeah go ahead, they're paying for it lol","labels":{"fd":{"must":["share it with Under-10s parents (send share_held) and have Tex there post the budget (send ask_chat, do true)","tell her in one short text it's going to the group"],"never":["paste the budget again here","say the parents can now open the league board's notes"],"star":true}}},
+    {"id":"hd3","who":"Tex","tex":true,"text":"done, posting it in Under-10s parents now"},
+    {"at":"Sat 16:40","id":"hd4","who":"Tex","tex":true,"text":"you asked in Under-10s parents who still owes fees. that's from the league board's notes, so I kept it here: the Okafors and the Lindqvists, $85 each. share it there?"},
+    {"id":"hd5","who":"Maya","text":"no god no, I'll message them myself","labels":{"fd":{"must":["leave it unshared and say so in a line"],"never":["share it with the group","post it in Under-10s parents"],"star":true}}},
+    {"id":"hd6","who":"Tex","tex":true,"text":"got it, it stays between us"}
   ]
 }
