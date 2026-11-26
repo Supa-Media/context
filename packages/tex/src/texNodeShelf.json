@@ -16,7 +16,10 @@
     "reportRun": {
       "files": [
         "packages/tex/src/texRunNodes.cjs",
-        "packages/tex/worker/jobTexts.ts"
+        "packages/tex/worker/jobTexts.ts",
+        "packages/tex/worker/jobReportRun.test.ts",
+        "packages/tex/gateway/agent/graph/nodes/reportRun.js",
+        "packages/tex/gateway/agent/texEntryPoint/readTheText.js"
       ],
       "why": "New run (Dev2, 2026-11-26: the job report's wire to Intake was drawn but nothing read it). A run step, kind run: a finished background job's report starts a new run of the chat at the input step this step wires to (jobReport, today the only one its code can start), or nowhere when it has no wire (the report is logged as report_not_run and dropped). The Lab's side panel shows it as \"Starts a new run at\". Without it in the config, a report starts jobReport, as before."
     },
