@@ -79,7 +79,7 @@ import { namesAppChat } from "./appChat";
 import { keepThreaded } from "./threadedResend";
 import { deliveryStep, logStep, tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
-import { keepSentStickers, keepSticker } from "./stickers";
+import { keepSentStickers, keepSticker, stickersAsk } from "./stickers";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
@@ -629,6 +629,8 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
       ...(await crossFor(storage, message, deps)),
+      // The stickers this chat kept, by id with what each shows: the front door may send one (`stickers.ts`).
+      kept: await stickersAsk(storage),
     },
     storage,
     presence,

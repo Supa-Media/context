@@ -5,6 +5,7 @@
  * only while it still answers its asker's newest words (`groupRecheck.ts`).
  */
 
+import { stickersAsk } from "./stickers";
 import { didUnsaid, tellTex } from "./didFacts";
 import { canRedraft, chatEvent, readChatState } from "./chatState";
 import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clients";
@@ -177,6 +178,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
         ...(asked.instructions ? { instructions: asked.instructions } : {}), ...(asked.updates ? { updates: asked.updates } : {}), ...(message.jobReport ? { event: "job_report", jobReport: message.jobReport } : message.crossChat ? crossFields(message.crossChat) : message.event !== undefined ? { event: message.event, ...(message.did ? { did: message.did } : {}) } : {}), ...(crossOn ? { crossCounts: await crossCounts(storage, deps.now()) } : {}), // a job reporting to this chat's turn (`jobTexts.ts`), or a login it asked for saved (`vaultWatch.ts`)
         ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now(), { results: true }) } : {}),
+        ...(await stickersAsk(storage)), // the stickers this chat kept, by id with what each shows: the front door may send one (`stickers.ts`)
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
           : quoted !== null

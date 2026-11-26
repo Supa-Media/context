@@ -60,7 +60,7 @@
 
 import { createControlPlane } from "../fromGateway/controlPlane.js";
 import { ONE_TO_ONE_CHAT } from "../fromGateway/agent_ledger.js";
-import { loggedSteps, oneRowPerText, realLedgerAt, realRow, realThreads } from "./realChat.js";
+import { loggedSteps, oneRowPerText, realLedgerAt, realRow, realThreads, stickersFor } from "./realChat.js";
 import { saidTexts } from "../fromGateway/agent_sentOnItsOwn.js";
 import { bearerToken } from "../fromGateway/session.js";
 import { json } from "../fromGateway/http_responses.js";
@@ -216,7 +216,7 @@ export async function open(env, controlPlane, token, who, input, origin) {
     ...(source === "shared" ? { shared: true } : {}),
     ...(group ? { chatKey: owner.chat, members: await sha256Hex(`lab:${chat}:${people.map((p) => p.handle).sort().join(",")}`) } : {}),
     people,
-    ...(conv !== null ? { convId: conv.id } : {}),
+    ...(conv !== null ? { convId: conv.id } : await stickersFor(env, who, { group, source, chatKey: owner.chat })), // the real chat's kept stickers
   };
   return await startChat(env, who, input, drafted, about, rows, history, threads);
 }
@@ -533,7 +533,7 @@ function aboutOf(state) {
     chat: about.chat,
     versionId: about.versionId ?? "main",
     ...(about.convId ? { convId: about.convId } : {}),
-    people: about.people ?? [],
+    people: about.people ?? [], ...(Array.isArray(about.stickers) ? { stickers: about.stickers.length } : {}), // and how many kept stickers it started with
     rows: rows.length,
     testRows: rows.filter((row) => !row.prod).length,
     // Whether its texts run the draft as drawn, or main's code for steps the draft adds, removes or changes (`draftFit`).

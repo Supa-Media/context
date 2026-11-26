@@ -24,6 +24,7 @@
  * home are found by, are the real ones, put back on the turn's body at the `/agent` hop.
  */
 
+import { seedStickers } from "./realChat.js";
 import { JOB_PART_END_PATH, handleJobPartEnd } from "../fromGateway/agent_jobPartEndRoute.js";
 import { handleAgent } from "../fromGateway/agent_route.js";
 import { TEXTING_ROUTES } from "../fromGateway/agent_textingRoutes.js";
@@ -465,6 +466,8 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const storage = MemoryStorage.from(state.meta?.chatObject, rows, onEvent);
     const grant = await worldGrant(storage); // a made-up chat's, minted by the preview's control plane
     const fresh = storage.data.size === 0;
+    // A fresh chat object starts with the stickers the real chat kept (`realChat.js` `realStickers`), as its own storage holds them.
+    if (fresh) await seedStickers(storage, about);
     const kept = keepingLine(address.phones, row.id, { onText, onPicture });
     // The chat's session and store, opened when the chat object first reaches the gateway, as a real text's are.
     let opened = null;

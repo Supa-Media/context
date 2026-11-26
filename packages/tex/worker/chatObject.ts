@@ -44,6 +44,7 @@ import { CHAT_WHERE_KEY, chatDirectoryName, chatRoutineRunOf, chatWhereOf, WHERE
 import { isBound, sha256Hex } from "./groupChat";
 import { warmOnRead } from "./warmStep";
 import { lookAtStickers } from "./stickerLook";
+import { STICKERS_KEY } from "./stickers";
 import { photonAttachmentUrl } from "./photon";
 import { textsSessionDeps } from "./gatewaySession";
 import { checkReview } from "./reviewWatch";
@@ -224,6 +225,8 @@ export class SenderInbox implements DurableObject {
       if (run === null) return new Response(null, { status: 400 });
       return Response.json({ outcome: await acceptGroupRoutine(this.state.storage, run, Date.now()) });
     }
+    // The stickers this chat kept, read only: a Lab test chat of it starts with them (`labSandbox/realChat.js` `realStickers`).
+    if (path === "/stickers" && request.method === "GET") return Response.json((await this.state.storage.get(STICKERS_KEY)) ?? []);
     // A chat's directory entry (`groupRoutines.ts`): where the chat with this object's key is.
     if (path === "/chat-where") {
       if (request.method === "GET") return Response.json((await this.state.storage.get(CHAT_WHERE_KEY)) ?? null);

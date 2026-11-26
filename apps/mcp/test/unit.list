@@ -676,6 +676,7 @@ test/labSandboxNightly.test.mjs
 test/labSandboxCheckIn.test.mjs
 test/labSandboxSearch.test.mjs
 test/labChatMail.test.mjs
+test/labStickers.test.mjs
 test/labSandboxChat.test.mjs
 test/labSandboxChatMail.test.mjs
 test/labSandboxCross.test.mjs

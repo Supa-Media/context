@@ -13,6 +13,7 @@
  *  7. `groupModelTurn` ending a capped report as a routine → "and out of today's turns, it is not tried again but still not silent".
  *  8. `groupModelTurn` returning on a quiet answer before `handOff` (2026-11-11) → "a job's start texts nothing: the ask gets a tapback and the job still runs".
  *  9. `cannotRun` back to `routineDone` for a report (2026-11-12) → "a report whose turn the chat can't run says there is news".
+ * 10. `groupModelTurn` not handing `stickersAsk` (2026-11-26) → "the chat's turn is handed the stickers this chat kept, by id with what each shows".
  */
 
 import { describe, expect, it } from "vitest";
@@ -94,6 +95,16 @@ const groupRun = (): JobRun => ({
 });
 
 describe("background jobs in a group chat", () => {
+  it("the chat's turn is handed the stickers this chat kept, by id with what each shows", async () => {
+    const storage = new MemoryStorage();
+    await storage.put("stickers", [{ id: "s0a1b2c", guid: "at_0_ROBOT", at: 1, words: "robot waving; fits a friendly hello" }]);
+    const world: World = { sends: [], asks: [], members: [[ADA, BO]] };
+    await acceptGroup(storage, { ...tagged, text: "Tex, send us a sticker" }, NOW);
+    await drainGroup(storage, deps(world, { answer: "here" }));
+    expect(world.asks[0].stickers).toEqual(["s0a1b2c"]);
+    expect(world.asks[0].stickerWords).toEqual({ s0a1b2c: "robot waving; fits a friendly hello" });
+  });
+
   it("a tagged message can start a job beside the chat", async () => {
     const storage = new MemoryStorage();
     const world: World = { sends: [], asks: [], members: [[ADA, BO]] };

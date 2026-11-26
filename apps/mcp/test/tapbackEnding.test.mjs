@@ -24,10 +24,12 @@
  *     → "through /agent: never offered where the Worker can't react, as on their own tapback" fails.
  * 10. `tapbackEnding` honouring `sticker` while "Chat stickers" is off.
  *     → "a chat sticker rides with the tapback only while Chat stickers is on" fails.
+ * 11. `stickersLine` handing the stickers while "Chat stickers" is off (`on` ignored).
+ *     → "the front door is handed the chat's kept stickers as data, only while Chat stickers is on" fails.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TAPBACK_DEFINITION, TAPBACK_TOOL, eitherEnds, lastCallFailed, stickerIdOf, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine, tapbackStickerOf } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
+import { TAPBACK_DEFINITION, TAPBACK_TOOL, eitherEnds, lastCallFailed, stickerIdOf, stickersLine, tapbackAnswer, tapbackEmoji, tapbackEnding, tapbackOf, tapbackSaidLine, tapbackStickerOf } from "../../../packages/tex/gateway/agent/tapbackEnding.js";
 import { tapbackNode } from "../../../packages/tex/gateway/agent/graph/nodes/tapback.js";
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
@@ -259,4 +261,16 @@ test("through /agent: never offered where the Worker can't react, as on their ow
   } finally {
     chat.restore?.();
   }
+});
+
+test("the front door is handed the chat's kept stickers as data, only while Chat stickers is on", () => {
+  const body = { stickers: ["s0a1b2c", "nope", "s3d4e5f"], stickerWords: { s0a1b2c: "robot waving; fits a friendly hello" } };
+  assert.deepEqual(JSON.parse(stickersLine(body, true)), { from: "context", chatStickers: [{ id: "s0a1b2c", shows: "robot waving; fits a friendly hello" }, { id: "s3d4e5f" }] });
+  assert.equal(stickersLine(body, false), "");
+  assert.equal(stickersLine({}, true), "");
+  assert.equal(stickersLine({ stickers: ["nope"] }, true), "");
+  const many = { stickers: Array.from({ length: 30 }, (_, i) => `s${String(i).padStart(6, "0")}`) };
+  const kept = JSON.parse(stickersLine(many, true)).chatStickers;
+  assert.equal(kept.length, 24);
+  assert.equal(kept[0].id, "s000006"); // the newest
 });
