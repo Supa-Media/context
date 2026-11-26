@@ -18,20 +18,21 @@ const LOGOS: Record<string, string> = {
   "socials": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAyklEQVR4nO2XMQ7DIBAEwUqZPMmF83AXzpPygXQRovDeHtg+rJ3OEpyG1QnOeVueKRLT1QI1EkJICCEhRDihR3uJef2Wn5/3q6VabrmpK5USt5ZTaEelxKHl6SGjDbXyT7impoXYQ7PrB0/I0RPsrsETOgEJITgh34NA7Ro8ocSHxK4fP6HEHNrRc3eZh0oCTYxHcIumPhTrX4dv8KiwtJcpoS42xjpYqJeNsVq4HpIQAgs13rxsNVNCvZwsdfR0ICSEkBBCQohwQj9U0zfHYsl8DAAAAABJRU5ErkJggg==",
 };
 
-const CARDS: [string, string, string, string, string | null][] = [
-  ["architect", "Architect", "@seyi", "webhook", null],
-  ["capabilities", "Capabilities", "@seyi", "webhook", null],
-  ["finance", "Finance", "@seyi", "webhook", "#2f7d4f"],
-  ["grok-bot", "Grok Bot", "@seyi", "webhook", "#1d1d1f"],
-  ["pipeline", "Pipeline", "@seyi", "webhook", null],
-  ["socials", "Socials", "@shyoh", "mail", "#c2410c"],
+/** Each bot: its folder, its name, whose it is, how it is reached, and whether its card names a logo. */
+const CARDS: [string, string, string, string, boolean][] = [
+  ["architect", "Architect", "@seyi", "webhook", false],
+  ["capabilities", "Capabilities", "@seyi", "webhook", false],
+  ["finance", "Finance", "@seyi", "webhook", true],
+  ["grok-bot", "Grok Bot", "@seyi", "webhook", true],
+  ["pipeline", "Pipeline", "@seyi", "webhook", false],
+  ["socials", "Socials", "@shyoh", "mail", true],
 ];
 
 const NOTES: ListNote[] = [
   { path: "areas/about.md", properties: { agents: CARDS.map(([, name]) => name) } },
   ...CARDS.map(([slug, name, whose, reach, logo]) => ({
     path: `bots/${slug}/about.md`,
-    properties: { holder: name, kind: "agent", bot: "grok", belongs_to: whose, reach, ...(logo === null ? {} : { avatar: `upload-${slug}.png` }) },
+    properties: { holder: name, kind: "agent", bot: "grok", belongs_to: whose, reach, ...(!logo ? {} : { avatar: `upload-${slug}.png` }) },
   })),
   { path: "areas/finance/about.md", properties: { owner: "Finance", works: "true" } },
   { path: "areas/scorecard/about.md", properties: { owner: "Grok Bot" } },
@@ -39,8 +40,8 @@ const NOTES: ListNote[] = [
   { path: "areas/growth/about.md", properties: { owner: "@shyoh", delegate: "Socials" } },
 ];
 
-const entry = (kind: "file" | "folder", path: string): FileEntry => ({ kind, path, name: path.split("/").pop()!, visibility: "team", inherited: "team", exception: false, readOnly: false });
-const LISTING: FolderListing = { path: "bots", folderDefault: "team", entries: CARDS.map(([slug]) => entry("folder", `bots/${slug}`)), truncated: false, manifestUsable: true };
+const entry = (kind: "file" | "folder", path: string, name: string): FileEntry => ({ kind, path, name, visibility: "team", inherited: "team", exception: false, readOnly: false });
+const LISTING: FolderListing = { path: "bots", folderDefault: "team", entries: CARDS.map(([slug]) => entry("folder", `bots/${slug}`, slug)), truncated: false, manifestUsable: true };
 
 export function BotsPageFixture() {
   const colors = useColors();
@@ -72,7 +73,7 @@ export function BotsPageFixture() {
   return (
     <ScrollView style={[styles.page, { backgroundColor: colors.surface }]} contentContainerStyle={{ padding: width < 700 ? 16 : 48 }}>
       <View style={styles.inner}>
-        <FolderView entry={entry("folder", "bots")} listing={LISTING} canSetVisibility contextLabel="@supa" onSelect={() => {}} page={host} />
+        <FolderView entry={entry("folder", "bots", "bots")} listing={LISTING} canSetVisibility contextLabel="@supa" onSelect={() => {}} page={host} />
       </View>
     </ScrollView>
   );
