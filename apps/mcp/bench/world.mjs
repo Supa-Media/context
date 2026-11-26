@@ -389,8 +389,6 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     gaps: () => gaps.list(), // what the bench's own stand-ins could not answer this conversation (`benchGaps.mjs`)
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
     async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null, posted = false } = {}) {
-      // Mail shared with the chat on an earlier turn is named on this one, as the Worker does (`group.mail`).
-      const chatMail = groupMail ?? (stand.sharedMail().length > 0 ? stand.sharedMail() : null);
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -429,7 +427,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`packages/tex/worker/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`packages/tex/worker/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does. A group's `people` are its handles, as `groupModelTurn.ts` names them (whose member cards a turn may read).
-          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...(chatMail ? { mail: chatMail } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}) } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...((groupMail ?? stand.sharedMail()) ? { mail: groupMail ?? stand.sharedMail() } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}) } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,
