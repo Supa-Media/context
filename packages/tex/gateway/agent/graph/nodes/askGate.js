@@ -3,8 +3,10 @@
  * until a Lab draft wires `answerCheck -> askGate`). The Answer check asks it about a draft it would let go.
  *
  * A draft with no question mark goes on with no model. Otherwise a decision model (the step's own: Clef, Clef Flash or
- * Jev) reads what the draft asks of them. Nothing, an approval or something only they can answer goes on as it is. A
- * fact Tex could find climbs: the first time, rungs 1 to 4 (`rungKnows`, `rungNotes`, `rungTools`, each its own step
+ * Jev) reads what the draft asks of them. Nothing or an approval goes on as it is. Something only they can answer, or a
+ * fact it is unsure of, goes on unless rungs 1 and 2 (the chat and their notes, by code) already hold it, which sends
+ * the draft back with what they found (Dev2, 2026-11-26). A fact Tex could find climbs: the first time, rungs 1 to 4
+ * (`rungKnows`, `rungNotes`, `rungTools`, each its own step
  * over this step's `uses` wires, so Replay shows each one and what it found) and a send-back with what they found or
  * which fast rung is untried; with nothing to send back, or a second asking draft after a send-back, the slow rungs go
  * to a background job (`askGate -> handoff`).
@@ -81,6 +83,15 @@ const has = (io, id) => {
   }
 };
 
+/** Rungs 1 to 4 at once, each over its own wire (absent when unwired); none ever throws. */
+function climb(io, ask, questions, terms) {
+  return Promise.all([
+    has(io, "rungKnows") ? Promise.resolve(io.use.rungKnows({ terms })).catch(() => null) : null,
+    has(io, "rungNotes") ? Promise.resolve(io.use.rungNotes({ query: [ask, questions[0]].filter(Boolean).join(" ").slice(0, 300), terms })).catch(() => null) : null,
+    has(io, "rungTools") ? Promise.resolve(io.use.rungTools({})).catch(() => null) : null,
+  ]).then(([knows, notes, tools]) => ({ knows, notes, tools }));
+}
+
 /**
  * @param {{ ask?: string, draft?: string, askChars?: number, draftChars?: number }} input their text and the draft the
  * Answer check would let go. In a turn the wire carries only their lengths and the words are read from the turn, so the
@@ -100,6 +111,10 @@ export async function askGateNode(input, io) {
   const at = Number.isFinite(t.received) ? t.received : Date.now();
   const context = ctx.length > 0 ? routerContextText(ctx, { training: TRAINING, today: nowLine(at, readTimeZone(t?.body?.timeZone) ?? DEFAULT_TIME_ZONE) }) : "";
   const asked = askRequest({ ask, draft, context });
+  // The words come from their text as well as the draft's questions: the draft asks in Tex's words ("an old email or
+  // a shipping receipt?"), while what they want is in theirs ("my sister's address"), and the draft's words alone
+  // matched every note that says "email".
+  const terms = termsOf([ask, ...questions], 8);
   const started = Date.now();
   const got = await within(() => engine(asked.state, asked.questions), ms);
   const modelMs = Date.now() - started;
@@ -107,21 +122,27 @@ export async function askGateNode(input, io) {
   if (read === null) return { to: "pass", why: got === null ? "the model was not back in time" : got.fault ?? "the model named no kind", model, modelMs, when: ["clear"] };
   const base = { kind: read.kind, sure: read.sure, model, modelMs, asks: questions.length };
   if (read.kind === "none") return { to: "pass", ...base, when: ["clear"] };
-  if (read.kind !== "fact" || read.sure < climbAt) return { to: "bypass", ...base, when: ["bypass"] };
+  // An approval asks for their yes, not a fact: whatever the chat says about it, the yes is theirs to give.
+  if (read.kind === "approval") return { to: "bypass", ...base, when: ["bypass"] };
+  const group = t.group ?? null;
+  if (read.kind !== "fact" || read.sure < climbAt) {
+    // Not a fact the model is sure of: it goes on as drafted, unless the chat or their notes already hold what it asks.
+    // Code looks before it lets the ask go (Dev2, 2026-11-26, "Check the chat first, in code"): the model sees no chat
+    // history (its context is the ask, the draft and the date), so on its own it let "what's the address?" go when the
+    // chat held the address. Once the ladder sent a draft back, it does not look again.
+    if (t.ladderSentBack === true) return { to: "bypass", ...base, when: ["bypass"] };
+    const { knows, notes } = await climb(io, ask, questions, terms);
+    const found = { knows: withoutAsk(Array.isArray(knows?.found) ? knows.found : [], ask), notes: Array.isArray(notes?.found) ? notes.found : [] };
+    const climbed = { knows: knows === null ? null : found.knows.length, notes: notes === null ? null : found.notes.length, tried: [] };
+    if (found.knows.length === 0 && found.notes.length === 0) return { to: "bypass", ...base, climbed, when: ["bypass"] };
+    t.ladderSentBack = true;
+    return { to: "back", notice: ladderNotice({ questions, knows: found.knows, notes: found.notes, untried: [], failedApps: [] }), found: true, ...base, climbed, when: ["tryNext"] };
+  }
   // A second asking draft after the ladder sent one back: the quick rungs had their go, so the slow ones are a job's.
   if (t.ladderSentBack === true) return { to: "job", why: "still asking after the quick rungs", ...base, when: ["climbOn"] };
-  // The words come from their text as well as the draft's questions: the draft asks in Tex's words ("an old email or
-  // a shipping receipt?"), while what they want is in theirs ("my sister's address"), and the draft's words alone
-  // matched every note that says "email".
-  const terms = termsOf([ask, ...questions], 8);
-  const [knows, notes, tools] = await Promise.all([
-    has(io, "rungKnows") ? Promise.resolve(io.use.rungKnows({ terms })).catch(() => null) : null,
-    has(io, "rungNotes") ? Promise.resolve(io.use.rungNotes({ query: [ask, questions[0]].filter(Boolean).join(" ").slice(0, 300), terms })).catch(() => null) : null,
-    has(io, "rungTools") ? Promise.resolve(io.use.rungTools({})).catch(() => null) : null,
-  ]);
+  const { knows, notes, tools } = await climb(io, ask, questions, terms);
   const tried = new Set(Array.isArray(tools?.tried) ? tools.tried : []);
   // A group chat reaches mail and calendars only when someone shared theirs with it (`../../groupMail.js`).
-  const group = t.group ?? null;
   const apps = group === null || group?.mail?.length > 0 || group?.calendar?.length > 0;
   const notice = ladderNotice({
     questions,

@@ -187,6 +187,33 @@ test("their own ask said back by the chat's history is no find, and a group with
   assert.deepEqual(withoutAsk(["@sam: lunch is at noon", `@sam: ${ask}`], ask), ["@sam: lunch is at noon"]);
 });
 
+// Dev2, 2026-11-26, "Check the chat first, in code": the gate's model sees no chat, so "what's the address?" went to
+// them with the address in the chat. Sabotage: drop the `climb` before the bypass in askGate.js and these fail.
+test("an ask only they could answer goes back when the chat or their notes already hold it, and only once", async () => {
+  const calls = [];
+  const use = (knows, notes = []) => ({
+    rungKnows: async () => (calls.push("knows"), { found: knows }),
+    rungNotes: async () => (calls.push("notes"), { found: notes }),
+    rungTools: async () => ({ tried: [], failedApps: [] }),
+  });
+  for (const [kind, sure] of [["person", 0.9], ["fact", 0.1]]) {
+    const turn = { env: { AI: fakeAi(kind, sure) } };
+    const out = await askGateNode({ ask: "send the invite to Priya", draft: "What's Priya's address?" }, { ctx: { turn }, use: use(["[Mon] @ada: Priya's address is 12 Elm St"]) });
+    assert.equal(out.to, "back", kind);
+    assert.match(out.notice, /12 Elm St/);
+    const again = await askGateNode({ ask: "send the invite to Priya", draft: "Which address should I use for Priya?" }, { ctx: { turn }, use: use(["[Mon] @ada: Priya's address is 12 Elm St"]) });
+    assert.equal(again.to, "bypass", "asked again after seeing it, the ask is theirs");
+  }
+  const notes = await askGateNode({ ask: "book the dentist", draft: "Who is your dentist?" }, { ctx: { turn: { env: { AI: fakeAi("person", 0.9) } } }, use: use([], ["dentist: Dr. Okafor, Smile Dental"]) });
+  assert.equal(notes.to, "back");
+  const none = await askGateNode({ ask: "pick a gift", draft: "What does she like?" }, { ctx: { turn: { env: { AI: fakeAi("person", 0.9) } } }, use: use([]) });
+  assert.equal(none.to, "bypass", "nothing found: the ask goes on");
+  calls.length = 0;
+  const approval = await askGateNode({ ask: "email Priya", draft: "Send it to Priya now?" }, { ctx: { turn: { env: { AI: fakeAi("approval", 0.9) } } }, use: use(["@ada: Priya's email is p@x.y"]) });
+  assert.equal(approval.to, "bypass", "an approval is theirs whatever the chat says");
+  assert.deepEqual(calls, [], "and nothing is looked up for it");
+});
+
 test("the climb bar is the step's own whole percent, or none", () => {
   assert.equal(climbBarOf({ limits: { climbAt: 40 } }), 0.4);
   for (const bad of [{}, { limits: {} }, { limits: { climbAt: 0.4 } }, { limits: { climbAt: 140 } }, { limits: { climbAt: "40" } }, null]) assert.equal(climbBarOf(bad), 0);
@@ -288,6 +315,12 @@ test("nothing found with every fast rung tried goes straight to a job", async ()
   assert.equal(handed, 1);
   assert.equal(drafted.length, 1);
   assert.deepEqual(ended, [["handed", "On it."]]);
+});
+
+test("an ask only they could answer, sent back with what the chat holds, goes out when asked again", async () => {
+  const { ended, drafted } = await runLadder({ drafts: ["What's your seat on the Denver flight?", "Window or aisle on the Denver flight?"], kind: "person", knows: ["Fri: Denver seat 14C"], ladderHandOff: async () => "On it." });
+  assert.equal(drafted.length, 2);
+  assert.deepEqual(ended, [["sent", "Window or aisle on the Denver flight?"]], "never handed to a job");
 });
 
 test("an approval goes out as drafted, and unwired nothing changes", async () => {

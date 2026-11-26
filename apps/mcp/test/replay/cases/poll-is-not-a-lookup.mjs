@@ -11,6 +11,8 @@ export default {
   // The same step's other false send-backs (2026-11-26 audit, all 7 of the week's wrong, each under 27% sure): in a
   // new group someone asked Tex to sum up the action items with nothing said yet; it found only their own ask in the
   // history, named connected apps the group lacked, and climbed at 22% sure. Check-ins had it too, with nobody to ask.
+  // And the other way (2026-11-26 Dev bench, 1 of 4): asks the chat already answered went to the person, because the
+  // step's model sees no chat; now code looks in the chat and notes before an ask goes on.
   async run() {
     const asked = [];
     const engine = async (state, questions) => (asked.push({ state, questions }), { kind: { choice: "fact", confidence: 0.2 } });
@@ -24,6 +26,7 @@ export default {
     assert.equal(asked.length, 1);
     assert.equal(beside.asks, 1, "and only it: the poll's title is not counted");
     await falseSendBacks();
+    await answeredInChat();
   },
 };
 
@@ -49,3 +52,18 @@ async function falseSendBacks() {
     const checkin = await askGateNode({ ask: "(check-in)", draft: "Which mail do you mean?" }, { ctx: { turn: { env: {}, finishCheckIn: async () => null } }, use, engine: sure });
     assert.equal(checkin.to, "pass", "a check-in has nobody to ask");
   }
+
+async function answeredInChat() {
+  const person = async () => ({ kind: { choice: "person", confidence: 0.8 } });
+  const use = {
+    rungKnows: async () => ({ found: ["[Tue 4:12 PM] @robin: the party's at 48 Linden Ave"] }),
+    rungNotes: async () => ({ found: [] }),
+    rungTools: async () => ({ tried: [], failedApps: [] }),
+  };
+  const turn = { env: {} };
+  const back = await askGateNode({ ask: "Tex send everyone the party address", draft: "What's the party address?" }, { ctx: { turn }, use, engine: person });
+  assert.equal(back.to, "back", "the chat holds the address, so it goes back with it");
+  assert.match(back.notice, /48 Linden Ave/);
+  const again = await askGateNode({ ask: "Tex send everyone the party address", draft: "Is it still 48 Linden Ave?" }, { ctx: { turn }, use, engine: person });
+  assert.equal(again.to, "bypass", "asked again, it goes to them, never to a job");
+}
