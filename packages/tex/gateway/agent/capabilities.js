@@ -605,8 +605,8 @@ function line(entry) {
 
 /** The whole list, the same words every time. */
 export const CAPABILITY_LIST = [
-  "WHAT YOU CAN DO, AND WHERE: the one list of everything you can do for people. When someone asks what you can do, how to set something up, " +
-    "or who can draft, approve or send something, answer from it: say exactly what to type and where, and who has to say yes. " +
+  "WHAT YOU CAN DO, AND WHERE: the one list of everything you can do for people, where each works, what to type and who has to say yes. " +
+    "It is the facts for how to set something up or who can draft, approve or send something, not the words for telling someone what you're for. " +
     "Never say you can't do a thing this list says works somewhere else: say where it works and how to start it.",
   ...CAPABILITIES.filter((entry) => entry.shelf !== true).map(line),
   "",
