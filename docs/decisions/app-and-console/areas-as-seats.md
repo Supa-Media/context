@@ -120,7 +120,10 @@ who to ask and what is not covered. No new concept: an area is the seat.
   tag back onto the boxes. The verdict's words left the boxes: the value's
   colour says it, and the words stay on the hover tip and in what a screen
   reader hears. A sub-area with sub-areas of its own folds them under the
-  same "inside" line, as deep as the tree goes. `areasList.test.ts` fails if
+  same line, as deep as the tree goes. That line says only "4 sub-areas":
+  the "inside" wording and the count of sub-areas that "need a look", on
+  boxes and the top box alike, left on the owner's word (2026-11-26: "lets
+  remove the needs a look language completely"), since colour says it. `areasList.test.ts` fails if
   a sub-area's box loses its metric's name, the words come back, or a
   deeper fold stops opening.
 - **Projects where the verdict words were** (the owner, 2026-11-26, after a

@@ -101,11 +101,12 @@ describe("the Areas folder", () => {
     await press(view("chart"));
     const top = one("area-box-areas");
     expect(strip(top.textContent)).toContain("3 areas");
-    expect(strip(top.textContent)).toContain("1 needs a look");
+    // No "needs a look" count: the colours say it (the owner, 2026-11-26).
+    expect(strip(top.textContent)).not.toContain("a look");
     expect(all("area-line").length).toBeGreaterThan(2);
-    // Payroll is folded under Finance's box until its "1 inside" line is pressed, then drawn in Finance's column.
+    // Payroll is folded under Finance's box until its "1 sub-area" line is pressed, then drawn in Finance's column.
     expect(all("area-box-areas/finance/payroll")).toHaveLength(0);
-    expect(strip(one("area-fold-areas/finance").textContent)).toBe("1 inside");
+    expect(strip(one("area-fold-areas/finance").textContent)).toBe("1 sub-area");
     await press(one("area-fold-areas/finance"));
     expect(all("area-box-areas/finance/payroll")).toHaveLength(1);
     // How it is run and what files it holds are in the side panel, not on the box (the owner, 2026-11-26).

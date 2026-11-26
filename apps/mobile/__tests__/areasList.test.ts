@@ -387,7 +387,10 @@ describe("the Areas List", () => {
       await chartOf(withSeyi, { remember });
       await press(one("area-fold-areas/finance"));
       expect(all("area-box-areas/finance/payroll/taxes")).toHaveLength(0);
-      expect(strip(one("area-fold-areas/finance/payroll").textContent)).toContain("1 inside");
+      // "1 sub-area", never "inside" or a count of what needs a look (the owner, 2026-11-26).
+      expect(strip(one("area-fold-areas/finance/payroll").textContent)).toBe("1 sub-area");
+      expect(strip(one("area-fold-areas/finance").textContent)).toBe("1 sub-area");
+      expect(strip(document.body.textContent).toLowerCase()).not.toContain("a look");
       await press(one("area-fold-areas/finance/payroll"));
       expect(all("area-box-areas/finance/payroll/taxes")).toHaveLength(1);
       await chartOf(withSeyi, { remember });
