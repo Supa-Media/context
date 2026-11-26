@@ -39,8 +39,8 @@ export const MAX_TRY = 4;
 const OUT_CUT = 240;
 const TEXT_CUT = 600;
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
-/** Steps that start a run of their own (a check-in, a routine, Send through Tex, an edit, a move, the night): not "didn't run" for a text. */
-const TRIGGERS = new Set(["checkin", "routine", "notify", "edit", "moveChat", "nightly"]);
+/** Steps that start a run of their own (a check-in, a routine, Send through Tex, an edit, a move, the night, Tex added, Tex did): not "didn't run" for a text. */
+const TRIGGERS = new Set(["checkin", "routine", "notify", "edit", "moveChat", "nightly", "joined", "did"]);
 /** The night's steps and a job's: only ever run from their own trigger. */
 const ELSEWHERE = new Set(["dream", "daysum", "housekeep"]);
 

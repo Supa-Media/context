@@ -7,7 +7,7 @@ export type Message = {
   labels?: Record<string, Label>; rec?: Record<string, Record<string, unknown>>;
   pics?: Pic[];
   /** A trigger row's input (a check-in, a routine, Send through Tex, a background job's report); its `who` is that input's name. */
-  via?: "checkin" | "routine" | "notify" | "job";
+  via?: "checkin" | "routine" | "notify" | "job" | "did";
   /** A job row's state as the job reported it; absent is done. */
   state?: "done" | "running" | "failed" | "waiting" | "stuck";
   /** An optional time line ("Tue 9:20", or "Tue Oct 13 10:14" to anchor the days). */
