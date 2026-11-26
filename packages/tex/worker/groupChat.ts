@@ -188,6 +188,33 @@ export async function setChatBound(storage: InboxStorage, bound: GroupMessage | 
   await dropChatLines(storage, [...(await storage.list<ChatLine>({ prefix: CHAT_PREFIX })).keys()]);
 }
 
+/** Set in the chat's object once its hello is queued (`groupJoined.ts`): a group is introduced once. */
+export const INTRO_KEY = "gintro";
+/** The event a group's hello turn names (`groupJoined.ts`), read by the gateway's node of the same name. */
+export const JOINED_EVENT = "joined";
+/** Set once a chat was bound because Tex was added to it (`bindAtJoin`): never a second time. */
+const JOIN_BOUND_KEY = "gjoinbound";
+
+/**
+ * A group Tex was just added to keeps what is said from then on, not from the first time somebody tags Tex (Dev2,
+ * 2026-11-26: "Tex should be able to read from the point when it gets added"). The link a person shared right before
+ * "Tex, summarize the action items for them" was thrown away unread, because the chat was not bound yet and the
+ * judge, shown it alone, did not answer it; Tex then guessed another meeting. Binds once, on the first message after
+ * the hello was queued: never an SMS (its sender vouches for nothing), never a chat already bound, muted, or that a
+ * turn unbound since (nobody there shares a workspace), which stay as their own turns left them. The hello turn checks
+ * whoever added Tex with the control plane; if the chat can't run (they are not on Context, nobody shares anything),
+ * that turn unbinds it again and the lines kept go with it (`groupInbox.ts` `answerGroup`).
+ */
+export async function bindAtJoin(storage: InboxStorage, message: GroupMessage): Promise<boolean> {
+  if (message.sms === true || message.reaction !== undefined) return false;
+  if ((await storage.get<number>(INTRO_KEY)) === undefined) return false;
+  if ((await storage.get<number>(JOIN_BOUND_KEY)) !== undefined) return false;
+  if ((await storage.get<string>(BOUND_KEY)) !== undefined || (await isMuted(storage))) return false;
+  await storage.put(JOIN_BOUND_KEY, 1);
+  await setChatBound(storage, message);
+  return true;
+}
+
 async function pruneChat(storage: InboxStorage, now: number): Promise<void> {
   const kept = [...(await storage.list<ChatLine>({ prefix: CHAT_PREFIX }))];
   const over = kept.length - MAX_CHAT_LINES;
