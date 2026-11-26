@@ -8,7 +8,11 @@ import assert from "node:assert/strict";
 import { hasMailBlock, mailReads } from "../src/workspaceStore/mailReads.js";
 import { mailBots } from "../src/workspaceStore/mailBots.js";
 import { MAIL_OPS, serveMail } from "../src/workspaceStore/mailOps.js";
-import { HOMES } from "../src/workspaceStore/api.js";
+import { HOMES, workspaceClient } from "../src/workspaceStore/api.js";
+import { serveWorkspaceStore } from "../src/workspaceStore/serve.js";
+import { workspaceRows } from "../src/workspaceStore/rows.js";
+import { workspaceMembers } from "../src/workspaceStore/members.js";
+import { texObjects } from "../../../packages/tex/gateway/texStore/objects.js";
 import { countAiMailRead, countPersonMailRead } from "../src/mail/reads.js";
 
 let DatabaseSync = null;
@@ -150,4 +154,20 @@ test("a store whose notes are not in an object keeps nothing and never throws", 
   store.objectReading.home = "bucket";
   countAiMailRead("read_note", { path: "plan.md" }, store, answer("```mail\n"));
   assert.deepEqual(kept, []);
+});
+
+// 2026-11-26 (Dev): the test above called `serveMail` itself, so it passed while every real bind failed "the workspace
+// could not be reached": the object's dispatch judged the bind as a read and refused it for naming no scope. This one
+// goes the way a gateway call does, through the workspace client into `serveWorkspaceStore`.
+test("a connection binds its bot through the object's own dispatch, with no scope named", { skip }, async () => {
+  const sql = sqlOf();
+  const store = { sql, objects: texObjects(sql), rows: workspaceRows(sql), members: workspaceMembers(sql) };
+  const env = { WORKSPACE_STORE: { idFromName: (name) => ({ name }), get: () => ({ fetch: (request) => serveWorkspaceStore(store, request) }) } };
+  const ws = workspaceClient(env, "ws_bots");
+  await ws.setHome(HOMES.OBJECT);
+  assert.deepEqual(await ws.mail.bound({ grantId: "g1" }), { served: true, bound: null });
+  assert.deepEqual(await ws.mail.bind({ grantId: "g1", bot: "grok-bot", name: "Grok Bot" }), { served: true, ok: true });
+  assert.deepEqual(await ws.mail.bound({ grantId: "g1" }), { served: true, bound: { bot: "grok-bot", name: "Grok Bot" } });
+  // With the reader's details too, as the gateway sends them (`mail/boundBot.js`).
+  assert.deepEqual(await ws.mail.bound({ grantId: "g1", scope: "team", groups: [], audience: "member", userId: "u1" }), { served: true, bound: { bot: "grok-bot", name: "Grok Bot" } });
 });

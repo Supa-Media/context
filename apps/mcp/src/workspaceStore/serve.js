@@ -37,7 +37,7 @@ import { OpensRefused } from "./opens.js";
 import { folderPathOf, folderVisibleAtScope, listFolderFromRows } from "./listing.js";
 import { withLookupBody } from "./lookupBody.js";
 import { restampRowVersions } from "./rowVersions.js";
-import { isMailOp, MailAskRefused, serveMail } from "./mailOps.js";
+import { isMailOp, MAIL_OPS, MailAskRefused, serveMail } from "./mailOps.js";
 
 const CALL = "x-tex-call";
 
@@ -269,7 +269,12 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
     const access = accessCall(store, op, fields);
     if (access !== null) return access;
     // A note's mail, judged as a read is (`mailOps.js`).
-    if (isMailOp(op)) return Response.json(await serveMail(store, op, fields, judgeFor(rows, fields, store.members ?? null)));
+    // Binding a connection to its bot reads no note, so it is not judged as a read is: it names no scope (2026-11-26,
+    // Dev: "the workspace could not be reached" on every bind, because the read judge refused a call with no scope).
+    if (isMailOp(op)) {
+      const judge = op === MAIL_OPS.BIND || op === MAIL_OPS.BOUND ? null : judgeFor(rows, fields, store.members ?? null);
+      return Response.json(await serveMail(store, op, fields, judge));
+    }
     // An area's routines and its bots' week (`areaRoutines.js`), each path judged as a read is.
     if (op === "ws.bots.state") {
       if (store.areaRoutines === undefined || rows.home() !== HOMES.OBJECT) return Response.json({ served: false });

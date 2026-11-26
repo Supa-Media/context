@@ -12,7 +12,14 @@ const asked = new WeakMap();
 function mailClientOf(store) {
   try {
     const reader = objectReader(store?.objectReading ?? {});
-    return reader !== null && typeof reader.client?.mail?.bound === "function" ? reader.client.mail : null;
+    if (reader === null || typeof reader.client?.mail?.bound !== "function") return null;
+    // The reader's scope and audience go with each call, as every other object call carries them.
+    const mail = reader.client.mail;
+    const judged = reader.judged ?? {};
+    return {
+      bound: (fields) => mail.bound({ ...judged, ...fields }),
+      bind: typeof mail.bind === "function" ? (fields) => mail.bind({ ...judged, ...fields }) : undefined,
+    };
   } catch {
     return null;
   }
