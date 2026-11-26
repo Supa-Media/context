@@ -275,7 +275,7 @@ export async function converse(world, question, person, mode = null, background 
     message =
       personAnswers(turn, question) ??
       handOffAnswer(turn, question, world.browser().slice(seen)) ??
-      (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
+      (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.brief ?? question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;
   }
   // The reply's texts: a job's later report is not one.

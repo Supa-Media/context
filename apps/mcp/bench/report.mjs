@@ -433,7 +433,7 @@ export function keyMarkdown(result) {
   ].join("\n");
 }
 
-/** One saved or sent email as the result note keeps it (`resultNote.mjs` reads it back): no body. */
+/** One saved or sent email as the result note keeps it (`resultNote.mjs` reads it back): its body cut short, for `containing` checks on the bench's invented mail. */
 export function emailLine(email) {
   const list = (value) => [].concat(value ?? []).map(String);
   return {
@@ -443,6 +443,7 @@ export function emailLine(email) {
     ...(email.replyTo ? { replyTo: String(email.replyTo) } : {}),
     ...(email.forward ? { forward: String(email.forward) } : {}),
     ...(Array.isArray(email.files) && email.files.length > 0 ? { files: email.files.map((file) => ({ filename: String(file?.filename ?? "") })) } : {}),
+    ...(typeof email.body === "string" && email.body !== "" ? { body: email.body.replace(/\s+/g, " ").trim().slice(0, 600) } : {}),
     draft: email.draft === true,
   };
 }

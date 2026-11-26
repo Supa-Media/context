@@ -62,5 +62,15 @@ export function chatShares({ group, shares = [], flags, mailbox = null }) {
   return { calendar: calendar.length > 0 ? calendar : null, mail: mail.length > 0 ? mail : null };
 }
 
+/**
+ * The asker's own connected Gmail not yet shared with the chat, as the control plane names it on the group's ready
+ * answer (`askerMail`, `apps/convex/functions/lib/textGroupMail.ts`): the bench's one mailbox is the test person's,
+ * so only their own texts carry it. `null` when there is none to name.
+ */
+export function askerMailOf({ group, asker, mailbox = null, shared = null }) {
+  if (!group || !asker || !mailbox) return null;
+  return (shared ?? []).some((row) => row.address === mailbox) ? null : [mailbox];
+}
+
 /** A group chat's member cards, seeded where production keeps them (`memberCards.mjs`). */
 export { seedMemberCards } from "./memberCards.mjs";
