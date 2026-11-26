@@ -5,12 +5,14 @@
  * one row per area, nested under the open folder's own row, with sub-areas
  * folded until their chevron is pressed. A row reads, left to right: the
  * chevron and how many areas are inside, its owner's face, its name; then its
- * one metric as `186 aim 100+ · Weekly deploys`; then one verdict in words
- * (`verdict.ts`); then ⋯ on hover for the seat menu. The trend, the time
- * range, the projects and the notes are in the area's side panel, not on the
- * row.
+ * one metric as `186 aim 100+ · Weekly deploys`, the number green or yellow by
+ * its verdict (`verdict.ts`); then how many of its projects are in progress,
+ * in the same green or yellow, which unfolds them under the row (the owner,
+ * 2026-11-26: "instead of exceeds targets etc, just show x projects"); then
+ * ⋯ on hover for the seat menu. The verdict's words are on the hover tip, the
+ * count's spoken label and the side panel, with the trend and time range.
  *
- * On a phone each area is a block: the name line with its verdict at the end,
+ * On a phone each area is a block: the name line with its projects at the end,
  * and the metric on a second line under it; the open folder is a small
  * heading over the list.
  *
@@ -31,14 +33,17 @@ import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
 import type { Reading } from "./readings";
+import type { Verdict } from "./verdict";
 import { headlineOf } from "./headline";
-import { MetricCell, PhoneMetric, VerdictMark } from "./AreaMetricCell";
+import { MetricCell, PhoneMetric } from "./AreaMetricCell";
+import { ProjectRows, ProjectsButton } from "./AreaProjectCount";
+import type { AreaProjects } from "./areaProjects";
 import { areaTitle, type AreaNode, type Seat } from "./seat";
 
 export { shortTarget } from "./shortTarget";
 
-/** The verdict column: wide enough for "Exceeds target" and "Needs a look". */
-const VERDICT = 132;
+/** The projects column: wide enough for "12 projects" and its chevron. */
+const PROJECTS = 132;
 /** How far each level sits in from its parent. */
 const INDENT = 16;
 const INDENT_PHONE = 16;
@@ -64,6 +69,8 @@ export interface AreasListProps {
   onMenu: (seat: Seat, at: { x: number; y: number } | null) => void;
   /** The latest reading of a seat's headline metric, a workspace metric's or its `metrics.csv`'s; undefined when there is none. */
   readingOf: (seat: Seat) => Reading | undefined;
+  /** The projects that serve an area, grouped by status; absent while the Projects folder is unread. */
+  projectsOf?: (folder: string) => AreaProjects;
 }
 
 /** The pointer state a web Pressable reports, which react-native-web adds to RN's. */
@@ -78,13 +85,18 @@ function depthProps(depth: number): ViewProps {
 }
 
 /** Everything a row needs from the list, passed down once. */
-interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected" | "rootPeeks"> {
+interface Shared extends Omit<AreasListProps, "tree" | "rootTitle" | "onArea" | "selected" | "rootPeeks" | "projectsOf"> {
   readonly rootPeeks: boolean;
   readonly onArea: (folder: string) => void;
   readonly selected: string | null;
   /** Whether an area's sub-areas are showing: the top row's are on open, every other area's are folded until its chevron is pressed. */
   readonly isOpen: (folder: string) => boolean;
   readonly toggle: (folder: string) => void;
+  /** An area's projects; null for the top row and while unread. */
+  readonly projectsOf: (folder: string) => AreaProjects | null;
+  /** Whether an area's projects are unfolded under its row, and the press that flips it. */
+  readonly projectsOpen: (folder: string) => boolean;
+  readonly toggleProjects: (folder: string) => void;
 }
 
 const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
@@ -94,11 +106,12 @@ const flip = (set: ReadonlySet<string>, key: string): ReadonlySet<string> => {
   return next;
 };
 
-export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf }: AreasListProps) {
+export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, onOpen, onArea, selected = null, rootPeeks = false, onMenu, readingOf, projectsOf }: AreasListProps) {
   const styles = useThemedStyles(makeStyles);
   // Folders pressed away from their default: the top row starts open, every area under it starts
   // folded (the owner, 2026-11-25: "collapse the items not on the 1st level, by default on page open").
   const [flipped, setFlipped] = useState<ReadonlySet<string>>(() => new Set());
+  const [projectsShown, setProjectsShown] = useState<ReadonlySet<string>>(() => new Set());
   const shared: Shared = {
     compact,
     faceOf,
@@ -112,6 +125,9 @@ export function AreasList({ tree, compact, faceOf, label, reach, rootTitle, onOp
     readingOf,
     isOpen: (folder) => (folder === tree.seat.folder) !== flipped.has(folder),
     toggle: (folder) => setFlipped((previous) => flip(previous, folder)),
+    projectsOf: (folder) => (projectsOf === undefined || folder === tree.seat.folder ? null : projectsOf(folder)),
+    projectsOpen: (folder) => projectsShown.has(folder),
+    toggleProjects: (folder) => setProjectsShown((previous) => flip(previous, folder)),
   };
   const empty = tree.areas.length === 0;
   return (
@@ -135,6 +151,7 @@ function AreaBranch({ node, depth, rootTitle, firstTop, shared }: { node: AreaNo
   return (
     <>
       <AreaRow node={node} depth={depth} title={rootTitle} open={open} divided={depth === 1 && !firstTop} shared={shared} />
+      <UnfoldedProjects node={node} inset={(depth + 1) * INDENT + 30} phone={false} shared={shared} />
       {open
         ? node.areas.map((sub, at) => <AreaBranch key={sub.seat.folder} node={sub} depth={depth + 1} firstTop={at === 0} shared={shared} />)
         : null}
@@ -177,8 +194,8 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
             <View style={styles.metricCell}>
               {headline === null ? null : <MetricCell headline={headline} />}
             </View>
-            <View style={styles.verdictCell}>
-              {headline?.verdict == null ? null : <VerdictMark verdict={headline.verdict} />}
+            <View style={styles.projectsCell}>
+              <AreaProjectsCount node={node} verdict={headline?.verdict ?? null} phone={false} shared={shared} />
             </View>
             {/* In the margin past the row's right edge, on hover only, so it takes no room from the
                 row (the owner, 2026-11-24: "remove the deadspace"). The top row's own press opens the menu. */}
@@ -198,6 +215,32 @@ function AreaRow({ node, depth, title, open, divided, shared }: { node: AreaNode
       </Pressable>
     </View>
   );
+}
+
+/** How many of an area's projects are in progress, in its verdict's colour; nothing when none are or they are unread. */
+function AreaProjectsCount({ node, verdict, phone, shared }: { node: AreaNode; verdict: Verdict | null; phone: boolean; shared: Shared }) {
+  const { seat } = node;
+  const projects = shared.projectsOf(seat.folder);
+  if (projects === null) return null;
+  return (
+    <ProjectsButton
+      count={projects.inProgress.length}
+      area={folderLabel(seat.name)}
+      folder={seat.folder}
+      verdict={verdict}
+      open={shared.projectsOpen(seat.folder)}
+      phone={phone}
+      onPress={() => shared.toggleProjects(seat.folder)}
+    />
+  );
+}
+
+/** An area's projects in progress under its row, while its count is pressed open. */
+function UnfoldedProjects({ node, inset, phone, shared }: { node: AreaNode; inset: number; phone: boolean; shared: Shared }) {
+  const { seat } = node;
+  const projects = shared.projectsOf(seat.folder);
+  if (projects === null || !shared.projectsOpen(seat.folder) || projects.inProgress.length === 0) return null;
+  return <ProjectRows area={seat.folder} projects={projects} inset={inset} phone={phone} faceOf={shared.faceOf} onOpen={shared.onOpen} />;
 }
 
 /** How many areas are inside, beside the name, muted; nothing when there are none. */
@@ -297,7 +340,9 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
             {areaTitle(seat.name)}
           </Text>
           <InsideCount node={node} />
-          <View style={styles.blockVerdict}>{headline?.verdict == null ? null : <VerdictMark verdict={headline.verdict} size={pointerType.ui - 1} />}</View>
+          <View style={styles.blockProjects}>
+            <AreaProjectsCount node={node} verdict={headline?.verdict ?? null} phone shared={shared} />
+          </View>
         </View>
         {headline === null ? null : (
           <View style={styles.blockMetric}>
@@ -305,6 +350,7 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
           </View>
         )}
       </Pressable>
+      <UnfoldedProjects node={node} inset={(depth - 1) * INDENT_PHONE + 18} phone shared={shared} />
       {open ? node.areas.map((sub) => <PhoneBranch key={sub.seat.folder} node={sub} depth={depth + 1} first={false} shared={shared} />) : null}
     </>
   );
@@ -338,7 +384,7 @@ const makeStyles = (colors: Colors) =>
     unownedName: { color: colors.muted },
     inside: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, flexShrink: 0 },
     metricCell: { flexGrow: 3, flexShrink: 1, flexBasis: 0, minWidth: 0 },
-    verdictCell: { width: VERDICT, flexShrink: 0, minWidth: 0 },
+    projectsCell: { width: PROJECTS, flexShrink: 0, minWidth: 0 },
     more: { position: "absolute", right: -28, top: "50%", marginTop: -12, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6 },
 
     phoneHead: {
@@ -355,6 +401,6 @@ const makeStyles = (colors: Colors) =>
     block: { paddingVertical: 10, gap: 4 },
     blockName: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
     blockTitle: { flexShrink: 1, minWidth: 0, fontSize: pointerType.lede, lineHeight: 20, fontWeight: "600", color: colors.text },
-    blockVerdict: { marginLeft: "auto", flexShrink: 0, paddingLeft: 8 },
+    blockProjects: { marginLeft: "auto", flexShrink: 0, paddingLeft: 8 },
     blockMetric: { paddingLeft: 26, gap: 1, minWidth: 0 },
   });

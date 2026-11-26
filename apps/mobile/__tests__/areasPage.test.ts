@@ -211,7 +211,9 @@ describe("the Areas folder", () => {
     expect(strip(where.textContent)).toContain("$512");
     // Against its goal in words, with one verdict, so a number says whether it is good (the owner, 2026-11-24 and 2026-11-26).
     expect(strip(where.textContent)).toContain("under $600");
-    expect(strip(where.textContent)).toContain("Exceeds target");
+    // The chart box says the verdict in words; the list row says it in colour, with the words on its hover tip (the owner, 2026-11-26).
+    if (mode === "chart") expect(strip(where.textContent)).toContain("Exceeds target");
+    else expect(one("area-metric", where).getAttribute("title")).toContain("Exceeds target");
     // The trend is in the side panel, not on the row or the box.
     expect(all("area-trend", where)).toHaveLength(0);
   });

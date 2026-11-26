@@ -118,7 +118,17 @@ interface World {
 function world(kind: "full" | "unpicked" | "empty"): World {
   const data = kind !== "empty";
   const areas = areaNotes(true).map((each) => (kind === "unpicked" && each.path === "areas/finance/about.md" ? note(each.path, { owner: "@dev" }) : each));
-  const notes = [...(data ? NOTES.filter((each) => !each.path.startsWith("areas/")) : []), ...(kind === "empty" ? areaNotes(false) : areas)];
+  // Projects that serve areas, so a row's projects count has something to count and unfold.
+  const projects = data
+    ? [
+        note("projects/stripe-sync/about.md", { status: "In progress", area: "areas/finance", owner: "@dev" }),
+        note("projects/search-revamp/about.md", { status: "In progress", area: "areas/engineering/search-quality", owner: "@gus" }),
+        note("projects/sandbox/about.md", { status: "In progress", area: "areas/engineering/velocity" }),
+        note("projects/on-call-rota/about.md", { status: "In progress", area: "areas/engineering" }),
+        note("projects/incident-review/about.md", { status: "Not started", area: "areas/engineering/reliability" }),
+      ]
+    : [];
+  const notes = [...(data ? NOTES.filter((each) => !each.path.startsWith("areas/")) : []), ...projects, ...(kind === "empty" ? areaNotes(false) : areas)];
   const bodies: Record<string, string> = { ...(data ? SHEETS : {}), "areas/engineering/reliability/metrics.csv": RELIABILITY_CSV };
   return {
     notes,
@@ -402,6 +412,8 @@ async function shoot(board: Board, name: string, scheme: Scheme, phone: boolean)
     await click("menu-item-metric");
   }
   if (board === "06" && !phone) await click("area-row-areas/finance");
+  // Engineering's projects count, pressed: its projects in progress unfold under the row.
+  if (board === "06") await click("area-projects-areas/engineering");
   if (board === "06c") {
     // The Chart view, with Finance's sub-areas unfolded under its "inside" line.
     await click("area-fold-areas/finance");
