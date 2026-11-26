@@ -48,11 +48,13 @@ const VERDICT_TOOL = {
   description: "Say whether the person's words ask for the action.",
   inputSchema: {
     type: "object",
+    // The reason comes first, so the verdict follows it (everyday-groups gh-225, 2026-11-26: with `allow` first, Haiku
+    // wrote allow:false and then reasoned its way to "so it does cover the action", three times out of three).
     properties: {
-      allow: { type: "boolean", description: "true only when the words clearly ask for or agree to this action." },
-      reason: { type: "string", description: "One short sentence, in plain words, saying why." },
+      reason: { type: "string", description: "First, one short sentence in plain words: what the words ask for, and whether that covers the action." },
+      allow: { type: "boolean", description: "Then the verdict that reason reached: true only when the words clearly ask for or agree to this action." },
     },
-    required: ["allow", "reason"],
+    required: ["reason", "allow"],
   },
 };
 

@@ -575,7 +575,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       for (const note of notes) {
         const cut = note.indexOf("/");
         const workspace = note.slice(0, cut);
-        const found = await this.readThrough(note.slice(cut + 1), workspace);
+        // A shared workspace the person reads through a group chat's grant is not readable on their own client's
+        // (gh-225: three right grocery writes failed their file checks); its bench bucket holds the note as written.
+        const path = note.slice(cut + 1);
+        const stored = before.has(workspace) ? snapshot(s3.bucketFor(`bench-${workspace}`)).get(path) : undefined;
+        const found = (await this.readThrough(path, workspace)) ?? (typeof stored === "string" ? { path, body: stored } : null);
         out[note] = found ? { at: `${workspace}/${found.path}`, front: frontOf(found.body), text: found.body.slice(0, MAX_FILED_TEXT) } : null;
       }
       return out;
