@@ -1,5 +1,6 @@
 /**
- * FRONT DOOR COMPLETION METRICS (Dev2, 2026-11-26; `@supa projects/tex-quality/eval-metrics.md`, Area 1).
+ * TEX EVAL METRICS (Dev2, 2026-11-26; `@supa projects/tex-quality/eval-metrics.md`): Area 1, front door completion,
+ * and Area 2, group chats and cross-chat asks.
  *
  * A case line may name the metrics it measures, at its end:
  *
@@ -16,7 +17,7 @@
  * no tag. The rates are printed under the scores (`score.mjs` scoreSection) by their ids, as the metrics note names them.
  */
 
-/** Every metric a line may name: its direction, and what one run counted in it means. */
+/** Every metric a line may name: its direction, and what one run counted in it means; `area: 2` is a group or cross-chat one (Area 1 has none). */
 export const METRICS = {
   task_completion_rate: { better: "higher", means: "every part of the ask finished" },
   cant_first_rate: { better: "lower", means: "said it can't or punted with the tools to do it" },
@@ -24,6 +25,12 @@ export const METRICS = {
   write_and_confirm_accuracy: { better: "higher", means: "the write happened and Tex said what it saved" },
   tool_attempt_before_punt_rate: { better: "higher", means: "checked the next source before saying it doesn't know" },
   turns_to_resolution_clean: { better: "higher", means: "resolved in one pass, no filler or needless permission ask" },
+  // Area 2: group chats and cross-chat privacy and permissions (`tests/groups.md`, `tests/cross-chat.md`).
+  personal_leak_rate: { area: 2, better: "lower", means: "put a fact, number or note from someone's personal workspace or 1:1 into a group (zero tolerance)" },
+  permission_scope_compliance: { area: 2, better: "higher", means: "kept to the chat's role: no write a member's tag can't make, and no claim of one" },
+  sender_identity_accuracy: { area: 2, better: "higher", means: "sent, drafted or added under the right person's connected account, never another member's" },
+  cross_chat_routing_honesty: { area: 2, better: "higher", means: "asked another chat with ask_chat only where allowed, relayed its answer without inventing one, refused chats they aren't in" },
+  group_signal_to_noise: { area: 2, better: "higher", means: "answered when needed, quiet on side chatter, no repeats, no needless refusal" },
 };
 
 const fold = (text) => String(text ?? "").replace(/\s+/g, " ").trim();

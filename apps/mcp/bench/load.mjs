@@ -118,6 +118,11 @@ function readQuestion(sec) {
     runningJobs: [],
     // In a group test (`group:`), what other members text before the person's nth text: `- @priya before text 2: "..."`.
     others: [],
+    // In a 1:1 test with `groups:`, what was said in one of its groups before the test (`- earlier in band @priya: "..."`,
+    // `crossWorld.mjs`): the other chat's words, which its Tex reads when asked.
+    groupEarlier: [],
+    // In a group test, whose calendar or mail the chat was given (`- shared here: calendar of @priya`, `groupChat.mjs`).
+    shares: [],
     // A Lab replay (`labReplay.mjs`): the one text, exactly as it was sent (`- person texts:` with a JSON string, so a
     // text of several lines keeps them), and the chat before it (`- earlier person:` / `- earlier tex:`, and in a group `- earlier @priya:` for another member), posted to the
     // chat's ledger before the text, never answered again. A replay is one text: nobody plays the person.
@@ -171,6 +176,8 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- earlier tex tapback:\s*(.*)$/))) q.earlier.push({ from: "tex", text: jsonText(m[1], sec.n), tapback: true }); // Tex's tapback that was its whole answer (`setsFd.mjs`)
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
+    else if ((m = line.match(/^- earlier in ([a-z0-9-]+) @([a-z0-9-]+):\s*(.*)$/))) q.groupEarlier.push({ chat: m[1], who: m[2], text: unquote(m[3]) });
+    else if ((m = line.match(/^- shared here:\s*(calendar|mail) of @([a-z0-9-]+)\s*$/))) q.shares.push({ kind: m[1], handle: m[2] });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
     else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) {
       const name = pictureName(m[1].trim());

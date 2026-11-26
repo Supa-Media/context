@@ -19,6 +19,7 @@
  * once would cross their wires.
  */
 
+import { carryInto } from "./crossWorld.mjs";
 import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -220,6 +221,8 @@ export async function converse(world, question, person, mode = null, background 
   // A Lab replay's chat before its text goes into the ledger first, as it was (`labReplay.mjs`); a job's report as the case's text has the page it says it wrote written first (`earlierNotes.mjs`).
   const also = question.jobReport ? [String(question.jobReport.text ?? "")] : [];
   if ((question.earlier ?? []).length > 0 || also.length > 0) await world.earlier(question.earlier ?? [], { checkIn: Boolean(question.checkinMail || question.checkinCalendar), also });
+  // What was said in the 1:1's groups before the test (`- earlier in band @priya:`, `crossWorld.mjs`).
+  if ((question.groupEarlier ?? []).length > 0) await world.groupEarlier(question.groupEarlier);
   // A group's routine or check-in, or a job's report: one turn the Worker queues itself (`byCode.mjs`).
   const byCode = await byCodeStart(world, question, { running });
   if (byCode === null && (question.checkinMail || question.checkinCalendar || question.routine)) return await startedBy(world, question);
@@ -232,7 +235,7 @@ export async function converse(world, question, person, mode = null, background 
     const seen = world.browser().length;
     const others = (question.others ?? []).filter((line) => line.before === texts + 1); // a group's other members, before this text (`load.mjs`)
     for (const line of others) conversation.push({ from: "person", text: `@${line.from}: ${line.text}` });
-    const text = () => world.text(message, pictures, { running: byCode?.running ?? running, others, ...(byCode?.options ?? {}) });
+    const text = () => world.text(message, pictures, { running: byCode?.running ?? running, others, shares: question.shares ?? [], ...(byCode?.options ?? {}) });
     // A group's check-in looks at the fixtures' mail and calendar only, as a one-to-one check-in does (`world.checkIn`).
     const turn = byCode?.options?.cause === "check_in" ? await world.closedForNew(text) : await text();
     totals.ms += turn.ms;
@@ -261,6 +264,9 @@ export async function converse(world, question, person, mode = null, background 
     // A job this text's turn started runs, and its report is texted, as the Worker does (`jobDelivery.mjs`), before the
     // person texts again: the person's later text, in the order they would have had it.
     if (background && byCode === null && (turn.jobs ?? []).length > 0) await deliverInto(world, turn.jobs.map((job) => ({ ...job, asked: message })), { conversation, totals, running });
+    // An ask this turn sent to one of the person's groups runs there, and its answer is texted, as the Worker carries it
+    // (`crossWorld.mjs`), before the person texts again.
+    if ((turn.crossAsks ?? []).length > 0 && typeof world.crossAsk === "function") await carryInto(world, turn.crossAsks, { conversation, totals });
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     // Nobody texted it, so nobody answers back.
@@ -407,6 +413,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   models.computer = readComputer(test.front.computer);
   // A group test (`group: <shared workspace>`) texts as the group grant, in that workspace's chat (`world.mjs`).
   models.group = test.front.group ?? null;
+  // A 1:1 test's `groups: band`: the group chats the person's 1:1 is in, which it can ask (`crossWorld.mjs`).
+  models.groups = test.front.groups ?? null;
   // A test whose person has a calendar connected and nothing on it (`calendar: connected`, `calendar.mjs` benchCalendar).
   models.calendar = test.front.calendar ?? null;
   // A test whose person has Google Chat connected (`chat: connected`, a setting that names it; `chat.mjs` connectChat).
