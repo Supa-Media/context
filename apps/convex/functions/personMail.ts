@@ -14,7 +14,7 @@ import { v } from "convex/values";
 import { type MutationCtx } from "../_generated/server";
 import { internalMutation } from "./lib/rowWatch/mutations";
 import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
-import { chatMailClearance, chatsWatching } from "./lib/textGroupMail";
+import { chatMailClearance, chatsWatching, labChatMailClearance, type LiveMailShare } from "./lib/textGroupMail";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { aiAccessNeeded, aiScopesOf, canReadProduct } from "./lib/googleConnect/aiScopes";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
@@ -47,6 +47,11 @@ export const claimPersonMailRead = internalMutation({
     expectedWorkspaceId: v.string(),
     /** One mailbox by its lowercased address, or null for every one. */
     address: v.union(v.string(), v.null()),
+    /**
+     * A Lab test chat copied from this group chat (its key): the mail shared with that chat, read for the token's own
+     * person only while they are in it (`labChatMailClearance`). Set only by the gateway's Lab (`labSandbox/chatRun.js`).
+     */
+    labChat: v.optional(v.string()),
   },
   returns: v.union(
     v.object({ ok: v.literal(true), mailboxes: v.array(mailbox), reconnect: v.array(named), aiAccess: v.optional(v.array(v.string())) }),
@@ -62,6 +67,7 @@ export const claimPersonMailRead = internalMutation({
     }),
   ),
   handler: async (ctx, args) => {
+    if (args.labChat !== undefined) return await sharedMailRead(ctx, await labChatMailClearance(ctx, { hashedAccessToken: args.hashedAccessToken, groupKey: args.labChat }), args.address);
     const cleared = await personalOwnerReadClearance(ctx, args);
     if (cleared === null) return await chatMailRead(ctx, args);
     const { workspace, userId } = cleared;
@@ -134,8 +140,12 @@ async function chatMailRead(
   ctx: MutationCtx,
   args: { hashedAccessToken: string; expectedWorkspaceId: string; address: string | null },
 ) {
-  const shares = await chatMailClearance(ctx, args);
-  const wanted = (shares ?? []).filter(({ share }) => args.address === null || share.address === args.address);
+  return await sharedMailRead(ctx, await chatMailClearance(ctx, args), args.address);
+}
+
+/** The mailboxes of `shares` a read may ask Gmail, as a group chat's own read of them is answered. */
+async function sharedMailRead(ctx: MutationCtx, shares: LiveMailShare[] | null, address: string | null) {
+  const wanted = (shares ?? []).filter(({ share }) => address === null || share.address === address);
   if (wanted.length === 0) return { ok: false as const, refused: "not_allowed" as const };
   const usable = wanted.filter(({ connection }) => connection.health !== "reconnect_required");
   const reconnect = wanted
