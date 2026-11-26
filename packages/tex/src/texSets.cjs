@@ -79,7 +79,14 @@ function labelFields(node, opts = {}) {
   return { picks, texts, lines: false };
 }
 
-const nodeOf = (config, id) => (config.nodes || []).find((n) => n.id === id);
+// A step retired to the shelf keeps the labels its conversations hold, checked against its last definition, so
+// putting it back brings its Training and Dev labels with it (the router and its doors, retired 2026-11-26).
+const SHELF = require("./texNodeShelf.json");
+const retired = (id) => {
+  const e = SHELF.nodes?.[id];
+  return e?.retired && e.node ? { ...e.node, id } : undefined;
+};
+const nodeOf = (config, id) => (config.nodes || []).find((n) => n.id === id) ?? retired(id);
 
 /** Every problem with a conversation, as sentences; empty when it is sound. */
 function check(c, config, opts = {}) {

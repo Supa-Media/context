@@ -31,8 +31,8 @@ const intakeOnly = () => {
 const folded = () => foldGroups({ nodes: JSON.parse(JSON.stringify(TEX_CONFIG.nodes)), edges: JSON.parse(JSON.stringify(TEX_CONFIG.edges)) }, GROUPS);
 
 describe("folding the config's intake group", () => {
-  test("the config has thirteen intake steps, and the folded graph shows one intake box in their place", () => {
-    expect(MEMBERS).toEqual(["text", "edit", "triage", "decide", "decideWhy", "lanes", "router", "react", "doorStep", "bypass", "chatAsk", "warm", "stickerLook"]);
+  test("the config has twelve intake steps, and the folded graph shows one intake box in their place", () => {
+    expect(MEMBERS).toEqual(["text", "edit", "triage", "decide", "decideWhy", "lanes", "react", "doorStep", "bypass", "chatAsk", "warm", "stickerLook"]);
     const g = folded();
     const box = g.nodes.find((n) => n.id === "intake") as LabNode;
     expect(box).toBeDefined();
@@ -121,13 +121,13 @@ describe("unfolding puts the config back", () => {
 });
 
 describe("focus on the intake box", () => {
-  test("Focus opens all thirteen steps, and each one is in the canvas with its own wires", () => {
+  test("Focus opens all twelve steps, and each one is in the canvas with its own wires", () => {
     const opened = foldAround(folded(), "intake", GROUPS);
     const shown = stepsShownFor(opened, "intake");
     expect(shown.map((n) => n.id).sort()).toEqual([...MEMBERS].sort());
     expect(opened.nodes.find((n) => n.id === "intake")).toBeUndefined();
     const chain = opened.edges.filter((e) => MEMBERS.includes(e.from) && MEMBERS.includes(e.to));
-    expect(chain).toHaveLength(13);
+    expect(chain).toHaveLength(12);
     // Decide's reason and Confirmations & refusals now sit inside Intake (11-26 cleanup).
     expect(opened.edges.filter((e) => MEMBERS.includes(e.from) && !MEMBERS.includes(e.to))).toEqual([
       { from: "doorStep", to: "frontDoor", mode: "wait", when: ["next"] },
@@ -142,7 +142,7 @@ describe("focus on the intake box", () => {
     const { items, inner, ins, outs } = groupParts(opened, "intake", GROUPS);
     // The nested Check-in and Starts groups are drawn as boxes inside it.
     expect(items.map((n) => n.id).sort()).toEqual([...MEMBERS, "checkInLook", "starts"].sort());
-    expect(inner).toHaveLength(15);
+    expect(inner).toHaveLength(14);
     const inside = [...MEMBERS, "checkInLook", "starts"];
     expect(inner.every((i) => inside.includes(opened.edges[i].from) && inside.includes(opened.edges[i].to))).toBe(true);
     // Wires that leave the group are pills naming the thing outside, never steps drawn beside it.

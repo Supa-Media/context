@@ -196,6 +196,46 @@
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
       "node": {"label":"Reflect","goal":"After a hard or corrected turn, write down what worked as a learned skill for next time.","log":true,"on":false,"rounds":4,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"reflect.js","note":"","icon":"star","model":"haiku-5-5","effort":"off","id":"reflect","inSchema":[{"name":"question","type":"text"},{"name":"tainted","type":"yesno"},{"name":"ownText","type":"yesno"},{"name":"canWrite","type":"yesno"}],"outSchema":[{"name":"outcome","type":"text"},{"name":"reason","type":"text","optional":true},{"name":"where","type":"text","optional":true},{"name":"error","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"model","type":"text","optional":true}]}
+    },
+    "router": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/router.js",
+        "packages/tex/gateway/agent/specialistRoute.js",
+        "packages/tex/gateway/agent/doorTools.js"
+      ],
+      "why": "Retired from the config on 2026-11-26 (Dev2: delete the router in a follow-up to the cleaner graph). It ran as a logged signal only from 2026-11-20 and nothing read its route; off since the 11-26 cleanup. Its code stays, unwired; `node` keeps its last definition.",
+      "retired": true,
+      "node": {"label":"Router","goal":"Beside the Door, Clef picks the specialist front door for this turn, fed the Shape gate's read and the context modules its config names (its Training examples, the chat's history, what Tex is doing now, the date): quick (no tools), read (read-only tools), act (write tools and the yes-code confirm), or job (long work, to the Hand-off). Not sure, or a door that reaches past its tools: today's Front door answers.","log":true,"on":false,"rounds":1,"out":20,"ctx":["train:router","recent","groupBrief","date"],"ms":0,"timeoutS":3,"areas":["core"],"file":"graph/nodes/router.js · specialistRoute.js · doorTools.js","note":"On as a logged signal only (Dev2, 2026-11-20): no door or hand-off reads it, so the turn never waits on it; scored against what each turn did.","icon":"router","model":"clef","id":"router","inSchema":[{"name":"question","type":"text"},{"name":"group","type":"yesno"},{"name":"trigger","optional":true,"options":"text, checkin, routine","type":"choice"},{"name":"shape","optional":true,"type":"object"}],"outSchema":[{"name":"route","options":"quick, read, act, job, none","type":"choice"},{"name":"sure","optional":true,"type":"number"}]}
+    },
+    "fdQuick": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/doors.js",
+        "packages/tex/gateway/agent/doorTools.js",
+        "packages/tex/gateway/agent/doorTurn.js"
+      ],
+      "why": "Retired from the config on 2026-11-26 (Dev2: delete the specialist doors with the router). Only the router could pick it, and no draft wired it. Its code stays, unwired; `node` keeps its last definition.",
+      "retired": true,
+      "node": {"label":"Quick door","goal":"Answer from the chat and the trigger alone, no tools. Any tool call hands the turn to the full Front door.","log":true,"on":false,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":["core"],"note":"Runs only when the router (off) picks it (Dev2, 2026-11-18).","icon":"door","model":"haiku-5-5","effort":"medium","file":"graph/nodes/doors.js · doorTools.js · doorTurn.js","id":"fdQuick"}
+    },
+    "fdRead": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/doors.js",
+        "packages/tex/gateway/agent/doorTools.js",
+        "packages/tex/gateway/agent/doorTurn.js"
+      ],
+      "why": "Retired from the config on 2026-11-26 (Dev2: delete the specialist doors with the router). Only the router could pick it, and no draft wired it. Its code stays, unwired; `node` keeps its last definition.",
+      "retired": true,
+      "node": {"label":"Read door","goal":"Read notes, mail, calendar, web and records, then answer; read-only tools only. A write hands the turn to the full Front door.","log":true,"on":false,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":["core"],"note":"Runs only when the router (off) picks it (Dev2, 2026-11-18).","icon":"door","model":"haiku-5-5","effort":"medium","file":"graph/nodes/doors.js · doorTools.js · doorTurn.js","id":"fdRead"}
+    },
+    "fdAct": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/doors.js",
+        "packages/tex/gateway/agent/doorTools.js",
+        "packages/tex/gateway/agent/doorTurn.js"
+      ],
+      "why": "Retired from the config on 2026-11-26 (Dev2: delete the specialist doors with the router). Only the router could pick it, and no draft wired it. Its code stays, unwired; `node` keeps its last definition.",
+      "retired": true,
+      "node": {"label":"Act door","goal":"Make the change: every tool, the Front door's own chain, the yes-code confirm path untouched.","log":true,"on":false,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":["core"],"note":"Runs only when the router (off) picks it (Dev2, 2026-11-18).","icon":"door","model":"haiku-5-5","effort":"medium","file":"graph/nodes/doors.js · doorTools.js · doorTurn.js","id":"fdAct"}
     }
   }
 }
