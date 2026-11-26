@@ -46,6 +46,18 @@
  *                                    optionally `with status: finished` (front
  *                                    matter; `review: *` means any value) and
  *                                    `containing <words>` (in its text)
+ *   - must email: jo@example.com replying to 19a2f0c4
+ *                                    an email saved as a draft or sent with that
+ *                                    address in To or Cc; optionally answering the
+ *                                    Gmail message with that id (in its thread)
+ *   - must send email: jo@example.com  the same, but only an email really sent
+ *   - must calendar: move "Dinner with Ana" to 2026-10-21 19:00
+ *                                    a change to the person's calendar that went
+ *                                    through (`calendar.mjs` `calendarChanges`):
+ *                                    add, move, edit, cancel or rsvp, an event
+ *                                    whose title holds the quoted words, and for
+ *                                    add and move optionally its new start (a day,
+ *                                    or a day and a time)
  *
  * Each also takes `must not`. A verdict is a "must" or "must not" line like
  * the judge's, so a failed check fails its question, and on a task, the gate.
@@ -53,7 +65,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link|email|send email|calendar):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -63,6 +75,8 @@ export function readCheck(line) {
   if (m[2] === "write") writeTarget(m[3].trim());
   if (m[2] === "file") fileTarget(m[3].trim());
   if (m[2] === "start") startTarget(m[3].trim());
+  if (m[2] === "email" || m[2] === "send email") emailTarget(m[3].trim());
+  if (m[2] === "calendar") calendarTarget(m[3].trim());
   return { kind: m[1], what: m[2], value: m[3].trim(), line: `${m[2]} ${m[3].trim()}` };
 }
 
@@ -127,9 +141,59 @@ function happened(check, answer) {
       return filed(check.value, answer.where ?? {});
     case "start":
       return startedAsNamed(startTarget(check.value), answer.jobs ?? []);
+    case "email":
+      return emailed(emailTarget(check.value), answer.emails ?? [], false);
+    case "send email":
+      return emailed(emailTarget(check.value), answer.emails ?? [], true);
+    case "calendar":
+      return changedCalendar(calendarTarget(check.value), answer.changes ?? []);
     default:
       return false;
   }
+}
+
+/** An `email` or `send email` check's target: `{ to, replyTo }`; a line that isn't one throws when the test is read. */
+export function emailTarget(value) {
+  const m = value.match(/^(\S+@\S+?)(?:\s+replying to\s+(\S+))?$/);
+  if (!m) throw new Error(`email check: "${value}" is not "<address>", optionally "replying to <Gmail id>"`);
+  return { to: m[1].toLowerCase(), replyTo: m[2] ?? null };
+}
+
+/** Whether a draft or (with `sentOnly`) a sent email went to the address, in the thread named when one is. */
+function emailed({ to, replyTo }, emails, sentOnly) {
+  return emails.some((email) => {
+    if (sentOnly && email.draft === true) return false;
+    const people = [...[].concat(email.to ?? []), ...[].concat(email.cc ?? [])].map((who) => String(who).toLowerCase());
+    if (!people.some((who) => who === to || who.includes(`<${to}>`))) return false;
+    return replyTo === null || email.replyTo === replyTo;
+  });
+}
+
+const CALENDAR_VERBS = { add: "added", move: "moved", edit: "edited", cancel: "cancelled", rsvp: "answered" };
+
+/** A `calendar` check's target: `{ verb, title, day, time }`; a line that isn't one throws when the test is read. */
+export function calendarTarget(value) {
+  const m = value.match(/^(add|move|edit|cancel|rsvp) "([^"]+)"(?: (?:to|at) (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?)?$/);
+  if (!m) throw new Error(`calendar check: "${value}" is not 'add|move|edit|cancel|rsvp "<title words>"', optionally 'to <YYYY-MM-DD> [HH:MM]'`);
+  return { verb: m[1], title: m[2].toLowerCase(), day: m[3] ?? null, time: m[4] ?? null };
+}
+
+/**
+ * Whether the calendar took the change: a row `calendarChanges` made from a change that went through, e.g.
+ * `moved "Dinner with Ana" to 2026-10-21T19:00:00-04:00`, live or as a result note's line. The start is read as
+ * written (the event's own clock).
+ */
+function changedCalendar({ verb, title, day, time }, changes) {
+  return changes.some((change) => {
+    // A live change object, or a result note's line read back: `- move calendar/calendar: moved "…" to …`.
+    const detail = typeof change === "string" ? (/^-\s+\S+\s+calendar\/calendar:\s?(.*)$/.exec(change)?.[1] ?? null) : change?.workspace === "calendar" ? change.detail : null;
+    if (typeof detail !== "string") return false;
+    const m = detail.match(/^(\w+) "(.*)"(?: (?:to|at) (\S+))?$/);
+    if (!m || m[1] !== CALENDAR_VERBS[verb] || !m[2].toLowerCase().includes(title)) return false;
+    if (day === null) return true;
+    const start = m[3] ?? "";
+    return start.startsWith(day) && (time === null || start.slice(11, 16) === time);
+  });
 }
 
 /** A `start` check's target: `{ least, exact, shared }`; a line that isn't one throws when the test is read. */

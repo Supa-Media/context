@@ -103,6 +103,8 @@ function readBlock(id, lines) {
   const filedLine = tail.find((line) => line.startsWith("Filed: "));
   // The background jobs it started (`checks.mjs` `start`).
   const jobsLine = tail.find((line) => line.startsWith("Jobs: "));
+  // The emails it saved or sent (`report.mjs` `emailLine`), for the email, forward and attach checks.
+  const emailsLine = tail.find((line) => line.startsWith("Emails: "));
   // The jobs that ran and reported (`jobDelivery.mjs`), with their advisor calls and spend.
   const deliveredLine = tail.find((line) => line.startsWith("Delivered: "));
   // Each texted turn's rounds of its bound (`report.mjs`).
@@ -139,6 +141,7 @@ function readBlock(id, lines) {
     mail: mailLine ? mailLine.slice("Mail: ".length).split(" | ").filter(Boolean) : [],
     where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     jobs: jobsLine ? readJobsLine(jobsLine.slice("Jobs: ".length)) : [],
+    emails: emailsLine ? readJobsLine(emailsLine.slice("Emails: ".length)) : [],
     delivered,
     rounds: roundsLine ? readJobsLine(roundsLine.slice("Rounds: ".length)) : [],
     routes: routeLine ? readJobsLine(routeLine.slice("Route: ".length)) : [],
