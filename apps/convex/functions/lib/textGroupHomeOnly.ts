@@ -32,6 +32,7 @@ import { personalWorkspaceOf } from "../textLinks";
 import { askerReach, liveReach, reachOf } from "./textGroupReach";
 import { reachBlockers, type Blocker } from "./textGroupBlockers";
 import { speaksUpOf } from "./texChatRules";
+import { peopleHashes, unlockedSlugs } from "./groupHoldPeople";
 
 /** The client every group grant is minted for, and its name (`functions/textGroups.ts` holds the same two). */
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -124,7 +125,11 @@ export async function homeOnlyTurn(
   const own = args.asked ? await askerReach(ctx, chat, senderUser, sponsor, senderUser === null ? args.sender : null) : null;
   const reach = own?.rows ?? chatReach;
   const reachIds = reach.map((row) => row.workspace._id);
-  const blocked = await reachBlockers(ctx, { asker: senderUser, people: named, guests, chatReach: chatReachIds });
+  // A held answer the asker shared here opens its workspaces to the people present then, and only while nobody else is
+  // here (`functions/groupHolds.ts`, rulebook rule 4): those are no longer the room's closed workspaces.
+  const present = (await peopleHashes(others)) ?? [];
+  const opened = unlockedSlugs(chat.holds, present);
+  const blocked = (await reachBlockers(ctx, { asker: senderUser, people: named, guests, chatReach: chatReachIds })).filter((entry) => !opened.has(entry.slug));
   const intro = chat.introducedAt === undefined;
   const minted = args.mint && args.command === undefined;
   if (minted) {
@@ -145,6 +150,7 @@ export async function homeOnlyTurn(
       hashedRefreshToken: args.hashedRefreshToken,
       expiresAt: args.expiresAt,
       participants: others.length,
+      present,
     });
     if (!ok) return null;
     // The numbers of the people with no account, kept so a guest's code can open the home (`functions/guestPass.ts`).
@@ -166,7 +172,7 @@ export async function homeOnlyTurn(
     blocked,
     // The asker's workspaces this turn reads that the whole chat does not share: someone here can't open what it reads
     // there, so the gateway holds an answer carrying it for the asker (`packages/tex/gateway/agent/roomCheck.js`).
-    ...(own !== null ? { unshared: reach.filter((row) => !chatReachIds.includes(row.workspace._id)).map((row) => row.workspace.slug) } : {}),
+    ...(own !== null ? { unshared: reach.filter((row) => !chatReachIds.includes(row.workspace._id)).map((row) => row.workspace.slug).filter((slug) => !opened.has(slug)) } : {}),
     ...(senderUser === null ? { guestTagger: await guestLabel(args.groupKey, args.sender) } : {}),
   };
 }
@@ -201,6 +207,7 @@ async function mintHomeOnlyGrant(
     hashedRefreshToken: string;
     expiresAt: number;
     participants: number;
+    present: string[];
   },
 ): Promise<boolean> {
   const meterWorkspace = (await phoneSignInPaused(ctx, input.sponsor)) ? null : await personalWorkspaceOf(ctx, input.sponsor);
@@ -219,7 +226,7 @@ async function mintHomeOnlyGrant(
     reach: input.reach,
     reachPeople: input.reachPeople,
     reachGuests: input.reachGuests,
-    ...(input.tagger === null ? {} : { taggerId: input.tagger, ownTagToken: input.hashedAccessToken }),
+    ...(input.tagger === null ? {} : { taggerId: input.tagger, ownTagToken: input.hashedAccessToken, ...(input.present.length > 0 ? { ownTagPresent: input.present } : {}) }),
     ...(input.guestPhone === undefined ? {} : { guestPhone: input.guestPhone }),
   };
   const token = {

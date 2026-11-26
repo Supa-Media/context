@@ -118,6 +118,25 @@ export const textGroupTables = {
     lookClaimedAt: v.optional(v.number()),
     /** When mail last reached the chat's own address (`lib/groupMailIngest.ts`): a look after it reads its mail folder. */
     mailAt: v.optional(v.number()),
+    /**
+     * Answers held from this chat because someone here couldn't open what they carried (`functions/groupHolds.ts`;
+     * Dev2, 2026-11-26), and the asker's yes that shared one. Ids, workspace slugs, the asker and times, and the people
+     * here when it was held as keyed hashes of their numbers (`lib/guestPhones.ts`), never a number or a word of the
+     * answer. A shared hold lets its workspaces be said here while everyone present is one of those people; a newcomer
+     * locks them again.
+     */
+    holds: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          slugs: v.array(v.string()),
+          people: v.array(v.string()),
+          by: v.id("users"),
+          at: v.number(),
+          sharedAt: v.optional(v.number()),
+        }),
+      ),
+    ),
   })
     .index("by_key", ["groupKey"])
     .index("by_workspace", ["workspaceId"])

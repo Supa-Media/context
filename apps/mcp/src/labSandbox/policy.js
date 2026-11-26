@@ -196,6 +196,15 @@ export function controlPlaneAnswer(path, body, gate) {
     gate.record({ kind: "Setting", summary: "set their name on the account (not sent: test chat)" });
     return { answer: { status: "done", name: typeof body.name === "string" ? body.name.trim() : "" } };
   }
+  // An answer held from a test group, and the asker's yes to it: answered and kept in the test's writes, never the real chat's.
+  if (route === "/gateway/group/hold") {
+    gate.record({ kind: "Setting", summary: "recorded a held answer for the asker (not sent: test chat)" });
+    return { answer: { status: "held" } };
+  }
+  if (route === "/gateway/group/share") {
+    gate.record({ kind: "Setting", summary: "shared a held answer with its group (not sent: test chat)" });
+    return { answer: { status: "shared", slugs: [] } };
+  }
   const answered = ANSWERED[route];
   if (answered) {
     if (route === "/gateway/builtin-model/usage" && typeof gate.usage === "function") {
