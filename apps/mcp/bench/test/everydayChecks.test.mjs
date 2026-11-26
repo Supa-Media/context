@@ -135,4 +135,6 @@ test("a played person's DONE ends the conversation even after reasoning, and not
   assert.equal(personText(""), null);
   assert.equal(personText("yes go ahead"), "yes go ahead");
   assert.equal(personText("is it DONE yet?"), "is it DONE yet?");
+  assert.equal(personText("The assistant asked which time. The brief has no line for it. <text>yes</text>"), "yes");
+  assert.equal(personText("Nothing more to say. <text>DONE</text>"), null);
 });
