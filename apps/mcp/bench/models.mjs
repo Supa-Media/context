@@ -20,7 +20,8 @@
  * checked with no key and no spend.
  */
 
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 import { createHash } from "node:crypto";
 
 import { MEANING_DIMENSIONS, MEANING_MODEL } from "../src/search/meaning/embed.js";
@@ -353,12 +354,30 @@ export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms
   */
   const keyOf = (text) => createHash("sha256").update(text).digest("hex");
   const onDisk = new Map();
-  if (file && existsSync(file)) {
+  /*
+    Several processes share one file (a Lab Dev run's answer processes, `tex-lab-run.yml` BENCH_EMBED_CACHE, 2026-11-26:
+    each warmed every workspace with real embeddings, so 240 warm passes went at Workers AI at once and a test's answer
+    took ~300 s for ~30 s of turns). So a miss first reads what the others appended since the last read. A line is kept
+    only whole and the right size: one a crash or a racing append cut is skipped, never a wrong vector.
+  */
+  let readTo = 0;
+  const readNew = () => {
+    if (!file || !existsSync(file)) return;
+    const size = statSync(file).size;
+    if (size <= readTo) return;
+    // Only what was appended since the last read; a turn's every new query is a miss.
+    const bytes = Buffer.alloc(size - readTo);
+    const fd = openSync(file, "r");
+    try {
+      readSync(fd, bytes, 0, bytes.length, readTo);
+    } finally {
+      closeSync(fd);
+    }
+    const last = bytes.lastIndexOf(10);
+    if (last === -1) return;
     // Cut at each newline as bytes: a 10,000-note corpus's vectors are larger than the longest string V8 holds.
-    const bytes = readFileSync(file);
-    for (let start = 0; start < bytes.length; ) {
-      let end = bytes.indexOf(10, start);
-      if (end === -1) end = bytes.length;
+    for (let start = 0; start <= last; ) {
+      const end = bytes.indexOf(10, start);
       const line = bytes.toString("latin1", start, end);
       start = end + 1;
       const [key, b64] = line.split(" ");
@@ -367,10 +386,13 @@ export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms
       if (buf.length !== MEANING_DIMENSIONS * 8) continue;
       onDisk.set(key, Array.from(new Float64Array(buf.buffer, buf.byteOffset, MEANING_DIMENSIONS)));
     }
-  }
+    readTo += last + 1;
+  };
+  readNew();
   const remember = (texts, vectors) => {
     if (!file) return;
     const lines = texts.map((text, i) => `${keyOf(text)} ${Buffer.from(Float64Array.from(vectors[i]).buffer).toString("base64")}\n`);
+    mkdirSync(dirname(file), { recursive: true });
     appendFileSync(file, lines.join(""));
   };
   /*
@@ -401,12 +423,17 @@ export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms
     async run(model, input, options) {
       if (model !== MEANING_MODEL) return ai.run(model, input, options);
       const texts = Array.isArray(input?.text) ? input.text : [];
-      if (onDisk.size > 0) {
+      const fromDisk = () => {
         for (const text of texts) {
           if (known.has(text)) continue;
           const vector = onDisk.get(keyOf(text));
           if (vector) known.set(text, vector);
         }
+      };
+      fromDisk();
+      if (file && texts.some((text) => !known.has(text))) {
+        readNew();
+        fromDisk();
       }
       const missing = [...new Set(texts.filter((text) => !known.has(text)))];
       if (missing.length > 0) {

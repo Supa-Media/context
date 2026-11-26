@@ -86,6 +86,7 @@ jobs:
       set: ${{ steps.job.outputs.set }}
       repeats: ${{ steps.job.outputs.repeats }}
       sha: ${{ steps.code.outputs.sha }}
+      main: ${{ steps.code.outputs.main }}
       why: ${{ steps.why.outputs.why }}
     steps:
       - name: The run id is a Convex id
@@ -183,6 +184,7 @@ jobs:
           fi
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || say "the code's commit could not be read"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ -z "$code" ]; then echo "main=true" >> "$GITHUB_OUTPUT"; else echo "main=false" >> "$GITHUB_OUTPUT"; fi
           npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg sha "$sha" '{runId: $id, stage: "running", commit: $sha}')" > /dev/null 2>&1
 
       - uses: actions/upload-artifact@v4
@@ -516,8 +518,18 @@ jobs:
         if: needs.prep.outputs.models == 'cc'
         run: npm install -g @anthropic-ai/claude-code@2.1.325
 
+      # The bench's embeddings (BENCH_EMBED_CACHE, Training examples), shared by this run's processes; each warmed every
+      # workspace itself (~300 s of a test's ~330, 2026-11-26). Only a run on main's code saves them (prep's `main`).
+      - name: The bench's embeddings from earlier runs
+        uses: actions/cache/restore@v4
+        with:
+          path: apps/mcp/bench/.cache
+          key: tex-lab-embeddings-${{ github.run_id }}
+          restore-keys: tex-lab-embeddings-
+
       - name: Run the Dev set's unit tests
         env:
+          BENCH_EMBED_CACHE: ${{ github.workspace }}/apps/mcp/bench/.cache/bench-embeddings.txt
           MODELS: ${{ needs.prep.outputs.models }}
           NODE_ID: ${{ needs.prep.outputs.node }}
           SET: ${{ needs.prep.outputs.set }}
@@ -544,10 +556,8 @@ jobs:
             ( while kill -0 "$answerer" 2>/dev/null; do sleep 5; done; [ -f "$RUNNER_TEMP/run-done" ] || pkill -f "bench/run.mjs sets run" || true ) &
           fi
           started=$(date +%s%3N)
-          # Replay runs the handed-in conversations and warns on each simulated call with no fixture (`--world-strict warn`).
-          # Record and refresh run the set itself (`--set`, the Dev or Training set the prep step checked), since they write
-          # fixtures and never run on a file handed in. 24 Front door tests at once inside this one job (`setsRun.mjs`; 8 at once took 12 minutes on 2026-11-26):
-          # no more GitHub jobs, so CI keeps its runners.
+          # Replay runs the handed-in conversations, warning on a simulated call with no fixture; record and refresh run the
+          # checked set itself (`--set`), as they write fixtures. 24 Front door tests at once in this one job (`setsRun.mjs`).
           if [ "$WORLD" = "replay" ]; then
             scope=(--conversations "$RUNNER_TEMP/lab/convs.json" --world replay --world-strict warn)
           else
@@ -555,8 +565,7 @@ jobs:
           fi
           args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel 24 --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
           if [ -n "$NODE_ID" ]; then args+=(--node "$NODE_ID"); fi
-          # Where a slow run's time goes (2026-11-26: 8 lanes took 12 min, 24 took 15): the load each minute, and the CPU
-          # the run's processes used, so a run held by this machine's CPU reads differently from one waiting on the network.
+          # Where a slow run's time goes: the load each minute and the run's CPU (CPU-bound vs waiting, 2026-11-26).
           ( while sleep 60; do echo "load $(nproc) cores: $(cut -d' ' -f1-3 /proc/loadavg)"; done ) & sampler=$!
           node apps/mcp/bench/run.mjs sets run "${scope[@]}" "${args[@]}"
           code=$?
@@ -608,6 +617,13 @@ jobs:
           path: apps/mcp/bench/sets/sim/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Keep the bench's embeddings for later runs
+        if: always() && needs.prep.outputs.main == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: apps/mcp/bench/.cache
+          key: tex-lab-embeddings-${{ github.run_id }}
 
       - name: The results
         env:
