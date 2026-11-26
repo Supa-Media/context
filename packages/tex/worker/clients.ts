@@ -324,6 +324,8 @@ export async function askAgent(
     jobReport,
     crossChat,
     crossCounts,
+    stickers,
+    stickerWords,
     covers,
     chat,
     told = [],
@@ -351,6 +353,9 @@ export async function askAgent(
     /** Another chat's ask, or the answer to this chat's own (`crossChat.ts` `crossFields`); and what this chat holds of its asks, for the Cross-chat gate. */
     crossChat?: Omit<CrossEvent, "reply">;
     crossCounts?: { hour: number; day: number; open: string[] };
+    /** The stickers this chat kept, by id, and what each shows (`stickers.ts` `stickersAsk`): facts for the front door. */
+    stickers?: string[];
+    stickerWords?: Record<string, string>;
     /** A background job's report to this chat's own turn, which decides what they get (`jobTexts.ts`). */
     jobReport?: JobReport;
     /** The chat's event ids this turn answers (`events.ts`), and the chat key those events carry. */
@@ -392,6 +397,7 @@ export async function askAgent(
     ...(jobReport ? { jobReport } : {}),
     ...(crossChat ? { crossChat } : {}),
     ...(crossCounts ? { crossCounts } : {}),
+    ...(stickers && stickers.length > 0 ? { stickers, ...(stickerWords ? { stickerWords } : {}) } : {}),
     ...(covers && covers.length > 0 && chat ? { covers, chat } : {}),
     ...(told.length > 0 ? { told } : {}),
     ...settings,

@@ -50,6 +50,16 @@ describe("inbox", () => {
     expect(bodies[0].arrivedAt).toBe(1_000);
   });
 
+  it("hands the turn the stickers this chat kept, by id with what each shows", async () => {
+    const storage = new MemoryStorage();
+    await storage.put("stickers", [{ id: "s0a1b2c", guid: "at_0_ROBOT", at: 1, words: "robot waving; fits a friendly hello" }]);
+    await accept(storage, msg("e1", "send me a sticker"), 1_000);
+    const bodies: Record<string, unknown>[] = [];
+    await drain(storage, deps({ bodies, now: 241_000 }));
+    expect(bodies[0].stickers).toEqual(["s0a1b2c"]);
+    expect(bodies[0].stickerWords).toEqual({ s0a1b2c: "robot waving; fits a friendly hello" });
+  });
+
   it("forgets seen ids after a day, but only then", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1"), 1_000);

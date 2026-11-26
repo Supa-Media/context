@@ -5,6 +5,7 @@
 
 import { ledgerFor } from "../fromGateway/agent_ledger.js";
 import { LEDGER_KINDS } from "../fromGateway/texStore_ledger.js";
+import { objectByName } from "../fromGateway/objectPlace.js";
 
 /** One read of a real chat's texts; a chat is read whole, page after page, up to `MAX_PAGES` (a million texts). */
 const PAGE_TEXTS = 5_000;
@@ -66,4 +67,37 @@ export function oneRowPerText(entries) {
 export function realRow(entry, kind) {
   const who = entry.from?.kind === "tex" ? "Tex" : typeof entry.from?.name === "string" && entry.from.name !== "" ? entry.from.name : kind === "group" ? "Someone" : "You";
   return { id: entry.eid, eid: entry.eid, who, text: entry.text, at: entry.at, prod: true };
+}
+
+/** What a test chat copies of the real chat's kept stickers (`packages/tex/worker/stickers.ts` `MAX_STICKERS`). */
+const MAX_STICKERS = 30;
+const STICKER_ID = /^s[0-9a-z]{6}$/;
+
+/**
+ * The stickers a real chat kept, read from its chat object by its inbox name (`intake.js` `inboxNameOf`), so a test chat
+ * of it can send them back as the real one would. Read only; none when the chat cannot be named or read.
+ */
+export async function realStickers(env, inboxName) {
+  if (env?.TEX_CHAT === undefined || typeof inboxName !== "string" || inboxName === "") return [];
+  const answer = await objectByName(env.TEX_CHAT, `chat:${inboxName}`)
+    .fetch("https://chat/chat-call/stickers", { method: "GET", headers: { "x-inbox-name": inboxName } })
+    .catch(() => null);
+  if (!answer?.ok) return [];
+  const kept = await answer.json().catch(() => null);
+  return keptStickers(kept);
+}
+
+/** Only well-formed kept stickers, the newest `MAX_STICKERS`. */
+export function keptStickers(kept) {
+  if (!Array.isArray(kept)) return [];
+  return kept
+    .filter((s) => s && typeof s === "object" && STICKER_ID.test(s.id ?? "") && typeof s.guid === "string" && s.guid !== "" && s.guid.length <= 200 && Number.isFinite(s.at))
+    .map((s) => ({ id: s.id, guid: s.guid, at: s.at, ...(typeof s.words === "string" && s.words !== "" ? { words: s.words.slice(0, 400) } : {}), ...(Number.isFinite(s.lookedAt) ? { lookedAt: s.lookedAt } : {}) }))
+    .slice(-MAX_STICKERS);
+}
+
+/** A fresh test chat object's storage, given the real chat's kept stickers under the key the chat object reads (`stickers.ts` `STICKERS_KEY`). */
+export async function seedStickers(storage, about) {
+  const kept = keptStickers(about?.stickers);
+  if (kept.length > 0) await storage.put("stickers", kept);
 }

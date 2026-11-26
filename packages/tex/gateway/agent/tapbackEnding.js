@@ -73,6 +73,28 @@ export const TAPBACK_DEFINITION = {
   },
 };
 
+/** At most this many of a chat's kept stickers are handed to a turn (the chat keeps a few dozen, `stickers.ts`). */
+const MAX_TURN_STICKERS = 24;
+/** At most this much of what one sticker shows. */
+const MAX_SHOWS = 160;
+
+/**
+ * The stickers this chat kept, as facts for the front door (`body.stickers`, `body.stickerWords` from
+ * `packages/tex/worker/stickers.ts` `stickersAsk`): each one's id and, once looked at, what it shows. Data, never a
+ * sentence (no scripted wording, Dev2 2026-11-25): the Training examples teach when one fits. "" when there are none,
+ * or while the chat's "Chat stickers" setting is off.
+ */
+export function stickersLine(body, on) {
+  if (on !== true || !Array.isArray(body?.stickers)) return "";
+  const words = body.stickerWords !== null && typeof body.stickerWords === "object" ? body.stickerWords : {};
+  const kept = body.stickers
+    .map(stickerIdOf)
+    .filter((id) => id !== null)
+    .slice(-MAX_TURN_STICKERS)
+    .map((id) => (typeof words[id] === "string" && words[id] !== "" ? { id, shows: words[id].slice(0, MAX_SHOWS) } : { id }));
+  return kept.length === 0 ? "" : JSON.stringify({ from: "context", chatStickers: kept });
+}
+
 /** The answer a turn that ended in a tapback hands on, read back by `tapbackOf` (never texted: `sendTheReply.js`). */
 const MARK = /^\[\[tex:tapback:([^\]\s|]{1,8})(?:\|(s[0-9a-z]{6}))?\]\]$/u;
 export const tapbackAnswer = (emoji, sticker = null) => `[[tex:tapback:${emoji}${sticker ? `|${sticker}` : ""}]]`;

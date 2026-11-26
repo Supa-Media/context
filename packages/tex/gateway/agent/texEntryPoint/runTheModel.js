@@ -41,7 +41,7 @@ import { settingsSnapshot, settingsTools } from "../settingsTools.js";
 import { heldShareTool } from "../heldShare.js";
 import { personalTexTool } from "../askPersonalTex.js";
 import { ASK_CHAT, crossChatGroupPrompt, crossAskTool, crossCountsOf, postInChatTool } from "../crossChat.js";
-import { eitherEnds, tapbackEnding } from "../tapbackEnding.js";
+import { eitherEnds, stickersLine, tapbackEnding } from "../tapbackEnding.js";
 import { texComputerTool } from "../texComputerSandbox.js";
 import { browserOwner, groupBrowserOwner } from "../browserProviders.js";
 
@@ -324,7 +324,7 @@ export async function runTheModel(t, via) {
     web: via.web(steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb), // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: threaded?.history ? [...threaded.history, ...(logged?.carried ?? [])] : logged?.history ?? shown, // the stretch's turns after it (`stretch.js`)
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online, and a job's per-part lines and a report (both changed nearly every text above the history: cache audit, 2026-11-20).
-    turnNote: [group !== null ? taggedLine(group) : "", job === null ? underNote(logged?.covered, { group: group !== null, speaker }) : "", shapeNote(shape), threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning, own: ownComputerWired }) : "", jobPartPrompt(job), carriedLine(rounds?.from), jobReportPrompt(report), screenNote(screen ?? {}), style].map((part) => part.trim()).filter(Boolean).join("\n\n"),
+    turnNote: [group !== null ? taggedLine(group) : "", job === null ? underNote(logged?.covered, { group: group !== null, speaker }) : "", shapeNote(shape), threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning, own: ownComputerWired }) : "", jobPartPrompt(job), carriedLine(rounds?.from), jobReportPrompt(report), screenNote(screen ?? {}), tapping ? stickersLine(body, settingsOf(env, "tapback").stickers === true) : "", style].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     // In parts, so the prompt's manifest names which one changed between two texts (a cache miss, 2026-11-14); sent as one block.
     threadNote: [["group", group !== null ? (canAskChat ? crossChatGroupPrompt(groupPrompt(group, home)) : groupPrompt(group, home)) : ""], [CARDS_PART, cards], ["cross", t.crossPrompt ?? ""], ["learned", learnedSkillsLine(learned)], ["background", background?.prompt ?? ""], ["plan", planning ? PLAN_HINT : ""], ["hub", chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : ""], ["job", jobBriefPrompt(job)], ["jobAdvisor", jobAdvisorLine(job, advising)], ["instructions", chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""]], steer,
     routeLocal: via.local, // say_nothing, which the loop adds itself, over the same `fd -> tools` wire (`turn.js`)
