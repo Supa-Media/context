@@ -39,6 +39,7 @@ import { SAY_NOTHING_DEFINITION } from "./sayNothing.js";
 import { settingsTools } from "./settingsTools.js";
 import { mailAgentSession } from "./supervise.js";
 import { TAPBACK_DEFINITION } from "./tapbackEnding.js";
+import { SEND_STICKER_DEFINITION } from "./stickerSend.js";
 import { TRAVEL_TIME_DEFINITION } from "./travelTime.js";
 import { VISUAL_DEFINITION } from "./visuals/index.js";
 import { readDayTool } from "./weekHistory.js";
@@ -91,7 +92,7 @@ function build(kind) {
     ADVISOR_DEFINITION, RESTART_TOOL, STATUS_TOOL, STEER_TOOL, START_JOB_DEFINITION, BROWSE_DEFINITION,
     OPEN_PAGE_DEFINITION, SEARCH_WEB_DEFINITION, EARLIER_TEXTS_DEFINITION, FILL_CARD_DEFINITION, FILL_LOGIN_DEFINITION,
     MAKE_LOGIN_DEFINITION, DRAW_DEFINITION, MAKE_DEFINITION, PLAN_DEFINITION, PROGRESS_TOOL_DEFINITION,
-    SAY_NOTHING_DEFINITION, TAPBACK_DEFINITION, TRAVEL_TIME_DEFINITION, VISUAL_DEFINITION,
+    SAY_NOTHING_DEFINITION, SEND_STICKER_DEFINITION, TAPBACK_DEFINITION, TRAVEL_TIME_DEFINITION, VISUAL_DEFINITION,
   ];
   const all = new Map();
   for (const tool of [...constants, ...factories.flatMap(definitionsFrom)]) if (!all.has(tool.name)) all.set(tool.name, tool);

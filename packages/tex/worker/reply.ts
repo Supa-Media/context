@@ -117,6 +117,8 @@ export type ReplyDeps = {
   onPlace?: (place: ReplyPlace) => void;
   /** `sticker`: a sticker this chat kept, by its id, for the tapback's place (`stickers.ts`). */
   onReact?: (emoji: string, sticker?: string) => void;
+  /** A kept sticker the front door sends after its words, as its own picture (`packages/tex/gateway/agent/stickerSend.js`). */
+  onSticker?: (id: string) => void;
   /**
    * Not the last try (`inbox.ts`): a turn that could not be started (the
    * control plane unreachable, or the gateway answering 503 before the turn
@@ -375,6 +377,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       if (answer.offers) deps.onOffers?.(answer.offers, answer.hub);
       if (answer.place) deps.onPlace?.(answer.place);
       if (answer.react !== undefined) deps.onReact?.(answer.react, answer.sticker);
+      if (answer.sendSticker !== undefined) deps.onSticker?.(answer.sendSticker);
       const after = [notStarted, notResumed, ...(message.event === "did" ? (message.didAfter?.texts ?? []) : [])].filter((line): line is string => typeof line === "string" && line !== "");
       // A job's report the coordinator found nothing new in is said to nobody (`jobTexts.ts`): the gateway's flag, never a word; a bare control word is never a text either.
       // Read off the whole answer, before it is cut into bubbles: reasoning that ends in the quiet word is not a text either (`outboundGuard.ts`).

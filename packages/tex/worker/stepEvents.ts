@@ -140,6 +140,35 @@ export function triageStep(candidates: string[], to: "tex" | "judge" | "running"
 }
 
 /**
+ * A sticker this chat kept, sent as a picture of its own after Tex's words (the front door's `send_sticker`,
+ * `packages/tex/gateway/agent/stickerSend.js`): the line's `stick`, kept as a `react` step by `fd`. Answers the words its
+ * line reads as (`stickerWords`), or null when the chat never kept that id, the line has no stickers, or the stick
+ * failed; no emoji goes in its place, since the words already went.
+ */
+export async function sendKeptSticker(
+  storage: InboxStorage,
+  where: { chat: string; now: () => number; turn?: string },
+  id: string,
+  stick: ((guid: string) => Promise<void>) | undefined,
+): Promise<string | null> {
+  const began = Date.now();
+  const input = { by: "fd", sticker: id };
+  const guid = await stickerOf(storage, id);
+  let missed = guid === null ? "sticker_unknown" : stick === undefined ? "sticker_no_line" : undefined;
+  if (guid !== null && stick !== undefined) {
+    try {
+      await stick(guid);
+      await logStep(storage, where.chat, { name: "react", of: "fd", ok: true, ms: Date.now() - began, input, output: { sticker: id } }, where.now(), where.turn);
+      return stickerWords(id);
+    } catch (error) {
+      missed = `sticker_failed:${error instanceof Error ? error.name : "error"}`;
+    }
+  }
+  await logStep(storage, where.chat, { name: "react", of: "fd", ok: false, ms: Date.now() - began, input, output: { instead: missed } }, where.now(), where.turn);
+  return null;
+}
+
+/**
  * Send a tapback on a text and keep it as a step: who chose it (`by`: the
  * judge, the classifier, a tool starting), the emoji it asked for (sent when
  * it is one of the 64, else one picked from the text's words: `reactionFor`,

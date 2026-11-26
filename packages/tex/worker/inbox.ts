@@ -77,7 +77,7 @@ import { rememberText } from "./threads";
 import { noteHandle } from "./replyQuote";
 import { namesAppChat } from "./appChat";
 import { keepThreaded } from "./threadedResend";
-import { deliveryStep, logStep, tapback } from "./stepEvents";
+import { deliveryStep, logStep, sendKeptSticker, tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
 import { keepSentStickers, keepSticker, stickersAsk } from "./stickers";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
@@ -428,7 +428,7 @@ async function answerTurn(storage: InboxStorage, deps: InboxDeps, entries: Entry
   for (const [other] of entries.slice(0, -1)) await storage.delete(other);
   // One of the Worker's own texts (a failure, a limit, setup) is the system's: no turn the gateway recorded wrote it.
   const by = turn.fixed ? { system: true as const } : { covers: covers.slice(-MAX_CANDIDATES), turn: turn.turn };
-  const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks, askText: turn.askText } : {}), ...(turn.place ? { place: turn.place } : {}) };
+  const ready: Pending = { message, reply, attempts: 0, ...by, ...(turn.asks.length > 0 ? { asks: turn.asks, askText: turn.askText } : {}), ...(turn.place ? { place: turn.place } : {}), ...(turn.sticker ? { sticker: turn.sticker } : {}) };
   await storage.put<Pending>(key, ready);
   return await sendReply(storage, deps, [key, ready], timing);
 }
@@ -517,6 +517,12 @@ async function sendReply(storage: InboxStorage, deps: InboxDeps, [key, item]: En
     }
     if (timing) timing.sendEnd = deps.now();
     await delivered(delivering, sent);
+    // A kept sticker after the words, as its own picture (`stickerSend.js`), once: a retry of the words never sends it again.
+    if (item.sticker && item.message.channel !== "simulator" && item.message.messageId) {
+      const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(item.message.chatId, item.message.messageId!, { attachment: guid });
+      const went = await sendKeptSticker(storage, { chat: item.message.chatId, now: deps.now, turn: item.turn }, item.sticker, stick).catch(() => null);
+      if (went !== null) await out({ kind: "reaction", text: went, delivered: true });
+    }
     // One ask event per approval the turn armed, after the words that ask it.
     for (const record of item.asks ?? []) {
       await logAsk(storage, { at: deps.now(), chat: item.message.chatId, from: { kind: "tex" }, ...(item.turn ? { turn: item.turn } : {}) }, record, await sha256Hex(item.message.from), item.askText ?? "");
@@ -569,7 +575,7 @@ export { TYPING_AGAIN_MS, TYPING_REFRESH_MS } from "./presence";
  * `fixed`: the reply is one of the Worker's own texts (a failure, a limit,
  * setup), never the model's: the gateway recorded no turn for it.
  */
-type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean; token?: string; place?: ReplyPlace };
+type Answered = { parts: SendPart[]; turn: string; cancelled: boolean; asks: string[]; askText: string; fixed: boolean; token?: string; place?: ReplyPlace; sticker?: string };
 
 async function answering(message: Message, work: string, deps: InboxDeps, storage: InboxStorage, covers: string[], presence: Presence | undefined, timing: TurnTiming): Promise<Answered> {
   let pictures: OutgoingPicture[] = [];
@@ -578,7 +584,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   let asks: string[] = [];
   let askText = "";
   let modelWrote = false;
-  let place: ReplyPlace | undefined, react: string | undefined, stickTo: string | undefined;
+  let place: ReplyPlace | undefined, react: string | undefined, stickTo: string | undefined, sticker: string | undefined;
   // The fixed texts sent since the last turn, named to this one for today's history too (`told.ts`); read before the session writes the events.
   const told = await owedTold(storage);
   // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
@@ -624,7 +630,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
       onOffers: (offered, named) => void ((offers = offered), (hub = named)),
       onAsks: (armed, text) => void ((asks = armed), (askText = text)),
       onPlace: (placed) => void (place = placed),
-      onReact: (emoji, sticker) => void ((react = emoji), (stickTo = sticker)), // a hushed turn's tapback, sent once its answer is in (`packages/tex/gateway/agent/respond.js`)
+      onReact: (emoji, stuck) => void ((react = emoji), (stickTo = stuck)), onSticker: (id) => void (sticker = id), // a hushed turn's tapback, sent once its answer is in (`packages/tex/gateway/agent/respond.js`)
       warm: warmDeps(storage, deps.now), // the gateway's sealed copy (`warm.ts`)
       onShared: () => watchShared(storage, message.from, deps.now()),
       ...(await jobsFor(storage, message, deps)),
@@ -636,7 +642,7 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
     presence,
     timing,
   ).finally(async () => (end(), await run?.end()));
-  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote, token: live.accessToken, ...(place ? { place } : {}) });
+  const done = (parts: SendPart[]): Answered => ({ parts, turn: steer.turn, cancelled: live.cancelled === true, asks, askText, fixed: !modelWrote, token: live.accessToken, ...(place ? { place } : {}), ...(sticker ? { sticker } : {}) });
   if (live.cancelled) {
     // Cancelled here though its answer came: what it armed is never left armed and unseen.
     if (asks.length > 0 && live.accessToken !== undefined) await staleAsks(deps, live.accessToken, asks);

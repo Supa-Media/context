@@ -49,6 +49,8 @@ import type { ReplyPlace } from "./clients";
 export type Pending = {
   message: Message;
   reply?: SendPart[] | string;
+  /** A kept sticker sent after the reply, as its own picture (`stepEvents.ts` `sendKeptSticker`). */
+  sticker?: string;
   attempts: number;
   tries?: number;
   sent?: number;
