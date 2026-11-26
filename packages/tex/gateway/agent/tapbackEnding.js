@@ -92,7 +92,7 @@ export function tapbackOf(turn) {
 
 /** What the chat keeps as said, in place of a text (`ledgerConversation.js` reads it like any said line). */
 export const tapbackSaidLine = (emoji, sticker = null) =>
-  sticker ? `(You texted them nothing and sent sticker ${sticker} after their text, or reacted ${emoji} if it couldn't go.)` : `(You texted them nothing and reacted ${emoji} to their text.)`;
+  sticker ? `(You texted them nothing and stuck sticker ${sticker} on their text, or reacted ${emoji} if it couldn't go.)` : `(You texted them nothing and reacted ${emoji} to their text.)`;
 
 /**
  * Whether the last call this turn made before the tapback failed: then they are told in words, never with a tapback.
@@ -124,7 +124,7 @@ export function tapbackEnding({ gate, tagged = false, stickers = false }) {
       chosen = tapbackEmoji(out.emoji);
       stuck = stickers === true ? stickerIdOf(out.sticker) : null;
       const off = stickers !== true && stickerIdOf(args.sticker) !== null ? " (stickers are off in this chat, so the emoji went)" : "";
-      const seen = stuck ? `sticker ${stuck} sent after their text (or ${chosen} if it can't go)` : `${chosen} on their text${off}`;
+      const seen = stuck ? `sticker ${stuck} on their text (or ${chosen} if it can't go)` : `${chosen} on their text${off}`;
       return { content: [{ type: "text", text: `They see ${seen} and nothing else, unless a call beside it failed. Your turn ends here.` }] };
     },
   };
