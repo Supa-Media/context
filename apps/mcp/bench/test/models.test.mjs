@@ -272,4 +272,7 @@ test("embedders sharing a file read what another appended since they started, an
   assert.deepEqual(again.data[0], vector(6));
   await second.run(MEANING_MODEL, { text: ["other"] });
   assert.equal(calls, 2, "a text nobody embedded yet is asked for once");
+  await first.run(MEANING_MODEL, { text: ["late one"] });
+  assert.deepEqual((await second.run(MEANING_MODEL, { text: ["late one"] })).data[0], vector(8), "a later read starts where the last stopped");
+  assert.equal(calls, 3);
 });

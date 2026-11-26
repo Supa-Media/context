@@ -20,7 +20,7 @@
  * checked with no key and no spend.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -363,11 +363,20 @@ export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms
   let readTo = 0;
   const readNew = () => {
     if (!file || !existsSync(file)) return;
-    const bytes = readFileSync(file);
+    const size = statSync(file).size;
+    if (size <= readTo) return;
+    // Only what was appended since the last read; a turn's every new query is a miss.
+    const bytes = Buffer.alloc(size - readTo);
+    const fd = openSync(file, "r");
+    try {
+      readSync(fd, bytes, 0, bytes.length, readTo);
+    } finally {
+      closeSync(fd);
+    }
     const last = bytes.lastIndexOf(10);
-    if (last < readTo) return;
+    if (last === -1) return;
     // Cut at each newline as bytes: a 10,000-note corpus's vectors are larger than the longest string V8 holds.
-    for (let start = readTo; start <= last; ) {
+    for (let start = 0; start <= last; ) {
       const end = bytes.indexOf(10, start);
       const line = bytes.toString("latin1", start, end);
       start = end + 1;
@@ -377,7 +386,7 @@ export function cachedEmbeddings(ai, { waits = EMBED_RETRY_WAITS_MS, sleep = (ms
       if (buf.length !== MEANING_DIMENSIONS * 8) continue;
       onDisk.set(key, Array.from(new Float64Array(buf.buffer, buf.byteOffset, MEANING_DIMENSIONS)));
     }
-    readTo = last + 1;
+    readTo += last + 1;
   };
   readNew();
   const remember = (texts, vectors) => {
