@@ -31,7 +31,7 @@ import { rungToolsNode } from "../../../packages/tex/gateway/agent/graph/nodes/r
 import { handoffNode } from "../../../packages/tex/gateway/agent/graph/nodes/handoff.js";
 import { causeOf, handoffHook } from "../../../packages/tex/gateway/agent/handoff.js";
 import { QUIET_ACK } from "../../../packages/tex/gateway/agent/background.js";
-import { ladderNotice, linesWith, questionsIn, readAsk, rungOf, selectorOf, termsOf, triedRungs, untriedFast } from "../../../packages/tex/gateway/agent/lookupLadder.js";
+import { ladderNotice, linesWith, questionsIn, readAsk, rungOf, selectorOf, termsOf, triedRungs, untriedFast, withoutAsk } from "../../../packages/tex/gateway/agent/lookupLadder.js";
 
 const { createGraph } = graphLib;
 
@@ -76,6 +76,10 @@ test("each lookup is its rung", () => {
   assert.equal(rungOf("fetch", { id: "projects/a.md" }), "notes");
   assert.equal(rungOf("search", { query: "x" }), "notes");
   assert.equal(rungOf("read_day"), "knows");
+  assert.equal(rungOf("earlier_chat"), "knows");
+  assert.equal(rungOf("fetch", { id: "chat:" }), "knows", "the chat's own history is not a connected app");
+  assert.equal(rungOf("fetch", { id: "day:2026-11-25" }), "knows");
+  assert.equal(rungOf("search", { query: "x", args: { email: true } }), "apps", "search_email as the turn records it");
   assert.equal(rungOf("ask_advisor"), "advisor");
   assert.equal(rungOf("write"), null);
   const messages = [
@@ -150,8 +154,37 @@ test("an approval or what only they can answer goes on; so does no real ask", as
     const out = await askGateNode({ ask: "email Sam", draft: "Send it to Sam now?" }, { ctx: { turn: { env: { AI: fakeAi(kind) } } }, use: {} });
     assert.equal(out.to, to, kind);
   }
+  // The step's bar (texConfig.json askGate limits.climbAt 30, 2026-11-26): every wrong climb in the week's audit was
+  // under 0.27 sure, so an unsure fact goes on as drafted and a sure one climbs.
   const unsure = await askGateNode({ ask: "x", draft: "Which one?" }, { ctx: { turn: { env: { AI: fakeAi("fact", 0.2) } } }, use: {} });
-  assert.equal(unsure.to, "job", "with no bar set, the choice alone decides: an unsure fact still climbs");
+  assert.equal(unsure.to, "bypass", "under the bar, an unsure fact goes on");
+  const sure = await askGateNode({ ask: "x", draft: "Which one?" }, { ctx: { turn: { env: { AI: fakeAi("fact", 0.8) } } }, use: {} });
+  assert.equal(sure.to, "job", "over the bar it climbs");
+});
+
+test("a check-in's draft is never sent back: nobody asked", async () => {
+  const ai = fakeAi("fact", 0.9);
+  const out = await askGateNode({ ask: "(check-in)", draft: "Which mail do you mean?" }, { ctx: { turn: { env: { AI: ai }, finishCheckIn: async () => null } }, use: {} });
+  assert.equal(out.to, "pass");
+  assert.equal(ai.calls, 0);
+});
+
+test("their own ask said back by the chat's history is no find, and a group with no shared app is not told to try one", async () => {
+  const ask = "Tex, summarize the action items for them";
+  const use = {
+    rungKnows: async () => ({ found: [`[11:01 PM] @sam: ${ask}   (not answered)`] }),
+    rungNotes: async () => ({ found: [] }),
+    rungTools: async () => ({ tried: ["notes"], failedApps: [] }),
+  };
+  const turn = { env: { AI: fakeAi("fact", 0.9) }, group: { mail: [], calendar: [] } };
+  const out = await askGateNode({ ask, draft: "Which meeting do you mean?" }, { ctx: { turn }, use });
+  assert.equal(out.climbed.knows, 0, "the echo is dropped");
+  assert.ok(!/connected apps/.test(out.notice ?? ""), out.notice);
+  assert.match(out.notice, /web search/);
+  // With mail shared, the group is told to look there.
+  const shared = await askGateNode({ ask, draft: "Which meeting do you mean?" }, { ctx: { turn: { env: { AI: fakeAi("fact", 0.9) }, group: { mail: [{ email: "a@b.c" }] } } }, use });
+  assert.match(shared.notice, /connected apps/);
+  assert.deepEqual(withoutAsk(["@sam: lunch is at noon", `@sam: ${ask}`], ask), ["@sam: lunch is at noon"]);
 });
 
 test("the climb bar is the step's own whole percent, or none", () => {
