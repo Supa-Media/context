@@ -223,7 +223,7 @@ step or model call the config has no node for.
 **Tex's code never writes what Tex says** (a hard rule for every writer, decided by the owner, 2026-11-25;
 [no-scripted-wording](./docs/decisions/texting-assistant/no-scripted-wording.md)). Code hands Tex facts as data;
 behaviour is taught by Training conversations or a Lab prompt module; Tex writes every text, except a named outage
-line for when no model can run. For each sentence ask: a fact (pass it as data), a policy (Training or a module, in
+line for when no model can run and the setup texts to a phone with no account yet (no model runs before one). For each sentence ask: a fact (pass it as data), a policy (Training or a module, in
 general words, never a prompt wall), or a missing tool (build it)? A wording fix may be hiding a logic bug: find it.
 `scripts/tex-wording-check.mjs` holds the count in `packages/tex/wording.json`, and it only shrinks.
 

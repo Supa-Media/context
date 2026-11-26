@@ -69,7 +69,7 @@ for (const { name, groupId } of LINES) {
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight?", "answer to Tex make a poster"]);
     }, 15_000);
 
-    it("Tex, what can you see runs beside another turn, and Tex says it after that turn answers (node did)", async () => {
+    it("Tex, what can you see runs beside another turn, and Tex's own words about it go beside that turn too (node did)", async () => {
       const { storage, w, deps, run } = handed(groupId, { hold: true, decide: untaggedSilent });
       await acceptGroup(storage, w.message("Tex make a poster"), 0);
       await drainGroup(storage, deps);
@@ -81,15 +81,16 @@ for (const { name, groupId } of LINES) {
       expect(w.control.at(-1)).toMatchObject({ sender: BO });
       expect(w.control.at(-1)!.mint).toBeUndefined();
       expect(w.texts).toEqual([]);
-      w.release();
-      expect(await turn).toBe("done");
-      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a poster"]);
-      // What it did waits in the chat's own queue as a turn of its own, after the poster's.
+      // What it did is a turn of its own, started beside the poster's (turns run side by side, one per asker): it
+      // never waits for the poster to finish.
       await drainGroup(storage, deps);
-      const said = run();
-      expect(await said).toBe("done");
+      expect(await handedTurns(storage)).toHaveLength(2);
+      await w.running;
+      w.release();
+      expect(await run()).toBe("done");
       expect(w.asks.map((ask) => ask.event ?? ask.question)).toEqual(["Tex make a poster", "did"]);
       expect(w.asks.at(-1)?.did).toMatchObject({ action: "what_tex_sees", status: "read" });
+      expect(await turn).toBe("done");
     });
 
     it("a fixed line sent beside a turn is never taken for that turn's part: a retry of the turn still sends its answer", async () => {
