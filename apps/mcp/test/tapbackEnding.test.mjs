@@ -17,8 +17,7 @@
  *     → "only this turn's last call before it counts as failed" fails.
  *  6. `turn.js` settling without `roundFailed`.
  *     → "through the turn: a save that fails in the same round, after the tapback, keeps the turn going to words" fails.
- *  7. `turn.js` telling the Worker a tool started on `tapback`.
- *     → "through the turn: a tapback after a save ends it at once, ... with no early tapback of the Worker's" fails.
+ *  7. (Retired 2026-11-26: the Worker no longer taps on a tool start, so there is no start to tell.)
  *  8. The config's wire `tools -> tapback` dropped.
  *     → "wired on main: off the shelf, a send action, and a chat turn is offered it" fails.
  *  9. `runTheModel.js` offering it on their own tapback (`reactable` always true).
@@ -197,7 +196,6 @@ async function tapTurn(replies, { writeFails = false } = {}) {
   const { BUILTIN_PROVIDER } = await import("../../../packages/tex/gateway/agent/builtin.js");
   const ai = scripted(replies);
   const ending = tapbackEnding({ gate: gateOf });
-  const started = [];
   const result = await runTurn({
     question: "add dinner with Sam on Friday",
     history: [],
@@ -210,21 +208,19 @@ async function tapTurn(replies, { writeFails = false } = {}) {
     sayNothing: true,
     endsTurn: eitherEnds(null, ending.endsTurn),
     local: [ending.local],
-    onToolStart: (name) => started.push(name),
     callTool: async () => (writeFails ? { isError: true, content: [{ type: "text", text: "could not save" }] } : { content: [{ type: "text", text: "saved" }] }),
   });
-  return { ai, result, started };
+  return { ai, result };
 }
 
 const tap = (emoji) => ({ name: "send", args: { action: "tapback", args: { emoji, why: "added it" } } });
 const save = { name: "write", args: { path: "plans/friday.md", content: "Dinner with Sam" } };
 
-test("through the turn: a tapback after a save ends it at once, settled by the tapback, with no early tapback of the Worker's", async () => {
-  const { ai, result, started } = await tapTurn([{ calls: [save] }, { calls: [tap("📅")] }]);
+test("through the turn: a tapback after a save ends it at once, settled by the tapback", async () => {
+  const { ai, result } = await tapTurn([{ calls: [save] }, { calls: [tap("📅")] }]);
   assert.equal(result.settled, TAPBACK_TOOL);
   assert.equal(tapbackOf(result), "📅");
   assert.equal(ai.calls.length, 2, "no model round after it");
-  assert.equal(started.includes(TAPBACK_TOOL), false, "the model's own tapback is not a tool start the Worker taps for");
   assert.match(JSON.stringify(ai.calls[0].tools), /tapback: Answer their text with only a tapback/, "offered as a send action when the turn holds it");
 });
 

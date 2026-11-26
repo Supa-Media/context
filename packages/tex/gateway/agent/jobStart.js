@@ -25,8 +25,7 @@ export const SAY_FIELD = {
   type: "string",
   description:
     "What to text them as this starts, in your own words, one or two short plain sentences: what they'll get, where it lands and about when, " +
-    "and any assumption you made. Leave it out when a tapback says enough: words that only say you've started or what you'll look at " +
-    "(\"On it\", \"checking their sites now\") are what the tapback says. Judge it from the job-start examples; no link, no title read back.",
+    "and any assumption you made. Judge it from the job-start examples; no link, no title read back.",
 };
 
 /** A `say` as it is texted: one line, trimmed, never a control marker, cut at a sentence past `MAX_START_LINE`. Empty means a tapback. */
@@ -52,12 +51,10 @@ export const JOB_START_EXAMPLES = [
   '- 1:1: "get started on an a16z application". Say: "On it. I\'ll draft it from your notes on Context and Tex and send you the link when ' +
     "it's ready, about 10 minutes.\" Saying what it's built from lets them correct it early.",
   "- A job's report turn where you restart a stopped job yourself, nobody asking just now: nothing. They already heard you were on it.",
-  '- 1:1: "restart the jobs that stopped". A tapback only: they asked for exactly that.',
   '- 1:1: "no rush, but can you find me a dentist near work who takes Aetna". Say: "Will do. I\'ll check which ones near Union Square take ' +
     'Aetna and text you a short list." No rush is not silence, and naming the place you assumed lets them correct it.',
   '- Group: "Tex can you make a packing list page for the cabin trip". Say: "On it, taking the cabin as the Catskills one from last week. ' +
     'Page here shortly." When you assumed something, the start line is the cheapest place to say so.',
-  '- 1:1, right after a job came back: "add the prices to that page too". A tapback only: a small follow-up, and the change shows up soon.',
   '- Never: "Searching NYC karaoke spots that take groups of 20…" (it narrates a search) or "On it: Birthday dinner and karaoke." (a title read ' +
     "back). A good line says what they'll get, where it lands and about when.",
 ].join("\n");

@@ -496,9 +496,9 @@ test("only a find or search tapback starts a job: a 👍 or a 🔎 beside Tex's 
 });
 
 // The Front door label sits on the job's report row (Dev, 2026-11-18: production delivers a result as its own turn, so
-// the gold reply is that turn's). The report names John's ask at m39, the message the 🔎 tapback reacted to, not
+// the gold reply is that turn's). The report names John's ask at m39, the message Tex's on-it line replied under, not
 // Priya's line in between. Sabotage: fall back to the last person text, and `asked` becomes Priya's line and this fails.
-test("the truck-crew job report row names John's ask, the one its 🔎 tapback reacted to", async () => {
+test("the truck-crew job report row names John's ask, the one Tex's on-it line replied under", async () => {
   const raw = JSON.parse(await readFile(new URL("../bench/sets/training/truck-crew.json", import.meta.url), "utf8"));
   const at = raw.msgs.findIndex((m) => m.id === "m42j");
   assert.ok(at > 0, "the labelled job report row is in the conversation");

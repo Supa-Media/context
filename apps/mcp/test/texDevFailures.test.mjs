@@ -75,8 +75,8 @@ test("the view: the failed fd row's ask, reply, tools, gold and judge reasons; a
     results: {
       score: { mean: 0.5 }, pass: 4, total: 8,
       rows: [
-        { convId: "build-crew", msgIndex: 54, node: "fd", ok: false, runs: 3, passes: 0, detail: EXAMPLE },
-        { convId: "build-crew", msgIndex: 54, node: "decide", ok: true, runs: 3, passes: 2, got: "read", want: "quick" },
+        { convId: "build-crew", msgIndex: 53, node: "fd", ok: false, runs: 3, passes: 0, detail: EXAMPLE },
+        { convId: "build-crew", msgIndex: 53, node: "decide", ok: true, runs: 3, passes: 2, got: "read", want: "quick" },
       ],
       ambiguous: [{ convId: "x", msgIndex: 0, node: "fd", why: "gold reply fails" }],
     },
@@ -91,7 +91,7 @@ test("the view: the failed fd row's ask, reply, tools, gold and judge reasons; a
   assert.equal(fd.passes, "0/3");
   assert.equal(fd.ask.who, "Check-in");
   assert.equal(fd.ask.via, "checkin");
-  assert.equal(fd.ask.text, repoConversation("build-crew").msgs[54].text);
+  assert.equal(fd.ask.text, repoConversation("build-crew").msgs[53].text);
   assert.match(fd.reply, /^Kenji's flight is delayed/);
   assert.equal(fd.tools, "search_email, send_email ✗, connect_google");
   assert.equal(fd.outcome, "quiet (send say_nothing)");
@@ -107,7 +107,7 @@ test("the view: the failed fd row's ask, reply, tools, gold and judge reasons; a
 });
 
 test("node, conv and limit narrow the view; count is every failing row the filters keep", () => {
-  const rows = Array.from({ length: 5 }, (_, i) => ({ convId: "build-crew", msgIndex: 54 + i, node: "fd", ok: false, detail: "" }));
+  const rows = Array.from({ length: 5 }, (_, i) => ({ convId: "build-crew", msgIndex: 53 + i, node: "fd", ok: false, detail: "" }));
   rows.push({ convId: "other", msgIndex: 1, node: "router", ok: false, want: "quick", got: "read" });
   const run = { id: "k", results: { rows } };
   assert.equal(failureView(run, () => null).count, 6);
@@ -126,13 +126,13 @@ test("an ask longer than 300 characters is cut with an ellipsis", () => {
 });
 
 test("the action: a run's failing rows in one call; a missing or malformed id is refused", async () => {
-  const run = { id: "k1", stage: "done", results: { score: null, pass: 0, total: 1, rows: [{ convId: "build-crew", msgIndex: 54, node: "fd", ok: false, runs: 1, passes: 0, detail: EXAMPLE }] } };
+  const run = { id: "k1", stage: "done", results: { score: null, pass: 0, total: 1, rows: [{ convId: "build-crew", msgIndex: 53, node: "fd", ok: false, runs: 1, passes: 0, detail: EXAMPLE }] } };
   const { calls, call } = tool({ runs: { status: "ok", run } });
   const view = jsonOf(await call("failures", { id: "k1", limit: 5 }));
   assert.deepEqual(calls, [{ action: "runs", args: { id: "k1" } }]);
   assert.equal(view.count, 1);
   assert.equal(view.rows[0].conv, "build-crew");
-  assert.equal(view.rows[0].msg, 54);
+  assert.equal(view.rows[0].msg, 53);
   assert.equal((await call("failures", {})).isError, true);
   assert.equal((await call("failures", { id: "../x" })).isError, true);
   assert.equal(calls.length, 1, "a refused id never reaches the control plane");

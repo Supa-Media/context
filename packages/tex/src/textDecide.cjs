@@ -250,7 +250,7 @@ function decideRequest(body, { facts = [] } = {}) {
     also_react: {
       type: "noul",
       instructions:
-        "Separately from whether Tex writes anything: should Tex put one emoji reaction on the newest message, as a friend in the chat would (news, a win, a feeling, a plan, thanks, a joke, or an ask Tex is taking on)? The examples' <also_react> shows where one fits, beside a reply or instead of one.",
+        "Separately from whether Tex writes anything: should Tex put one emoji reaction on the newest message, as a friend in the chat would (news, a win, a feeling, a plan, thanks, a joke)? The examples' <also_react> shows where one fits, beside a reply or instead of one.",
       criteria: { true: "yes, one emoji reaction fits", false: "no reaction" },
     },
     ...(body.settle ? {} : { wait_seconds: {
