@@ -61,7 +61,7 @@ flowchart LR
   n_friendCheck["Friend check<br/>Haiku 5.5 · effort low<br/>graph/nodes/friendCheck.js · friendCheck.js"]:::model
   n_joined(["Tex added<br/>code<br/>graph/nodes/joined.js · joined.js · groupJoined.ts"]):::start
   n_did(["Tex did<br/>code<br/>graph/nodes/did.js · did.js · didFacts.ts"]):::start
-  n_roomCheck["Room check<br/>code<br/>graph/nodes/roomCheck.js · roomCheck.js"]:::code
+  n_roomCheck["Room check<br/>code<br/>graph/nodes/roomCheck.js · roomCheck.js · progress.js"]:::code
   subgraph n_group_checkInLook["Check-in"]
     n_checkin(["Check-in<br/>code<br/>graph/nodes/checkin.js · heartbeat.js · checkInLook.js"]):::start
     n_quietCheck["Quiet check<br/>Haiku 5.5 · effort low<br/>graph/nodes/quietCheck.js"]:::model
@@ -292,7 +292,7 @@ every wire, from the same config.
 | Friend check | friendCheck |  | on | Haiku 5.5 | low | 4 s |  | graph/nodes/friendCheck.js · friendCheck.js |
 | Tex added | joined |  | on | code |  |  |  | graph/nodes/joined.js · joined.js · groupJoined.ts |
 | Tex did | did |  | on | code |  |  |  | graph/nodes/did.js · did.js · didFacts.ts |
-| Room check | roomCheck |  | on | code |  |  |  | graph/nodes/roomCheck.js · roomCheck.js |
+| Room check | roomCheck |  | on | code |  |  |  | graph/nodes/roomCheck.js · roomCheck.js · progress.js |
 | Nightly | nightly |  | on | code |  |  |  | dream.js · housekeeping.js |
 | Dream | dream |  | on | Haiku 5.5 | low |  |  | dream.js |
 | Day summaries | daysum |  | on | Haiku 5.5 | low |  |  | daySummaries.js |
