@@ -11,7 +11,7 @@ const firstText = (request) => {
 export default {
   id: "consent-judge-knows-here",
   incident: "2026-11-19 and 2026-11-22: in group chats, \"Tex, share my calendar here too\" and a new member's first asks to share their calendar were refused as not their own words; one went through only on a later try, and Tex guessed the calendar address was the problem.",
-  cause: "The consent judge was shown only the one text and a one-line action, so it never knew \"here\" was the group chat the text was sent in, and the turn was never told the judge's reason; a bare yes to Tex's own offer never reached the judge, stopped by the code word check.",
+  cause: "The consent judge was shown only the one text and a one-line action, so it never knew \"here\" was the group chat the text was sent in, and the turn was never told the judge's reason; a bare yes to Tex's own offer never reached the judge, stopped by the code word check. And (2026-11-26) the judge was never told whose Gmail \"my gmail\" is, so a member's own share was refused as not the inbox owner's.",
   path: "group tag",
   async run() {
     const chat = await groupChat();
@@ -80,6 +80,23 @@ export default {
       assert.ok(judgedYes, "a yes to Tex's own offer reaches the judge, though it names no calendar");
       assert.match(firstText(judgedYes), /<assistant_said>Want me to share your calendar with this chat\? Say yes\.<\/assistant_said>/, "with the offer it answers");
       assert.deepEqual(sent.at(-1), { kind: "share_calendar" }, "and the share goes through");
+
+      // 2026-11-26, everyday-groups bench (the Puttery ask): "share my gmail here" from @lena was refused as "the words
+      // are from @lena, not the inbox owner". The judge is now told the sender's own connected Gmails.
+      const mail = await chat.tag(
+        "bo",
+        "Tex share my gmail here",
+        [
+          { toolCalls: [{ name: "chat_share_mail", args: { address: "bo@example.com" } }] },
+          { toolCalls: [{ name: "verdict", args: { allow: true, reason: "asks to share their own Gmail with this chat" } }] },
+          { text: "Shared bo@example.com here." },
+        ],
+        [],
+        { group: { people: ["ada", "bo"], askerMail: ["bo@example.com"] } },
+      );
+      const judgedMail = mail.requests.find((request) => /<person_said>/.test(firstText(request)));
+      assert.ok(judgedMail, "the mail share is judged");
+      assert.match(firstText(judgedMail), /<accounts>\{"sender":"@bo","senders_own_connected_gmail":\["bo@example\.com"\]\}<\/accounts>/, "and the judge knows whose inbox \"my gmail\" is");
     } finally {
       globalThis.fetch = previous;
       chat.restore();
