@@ -206,6 +206,8 @@ export interface FolderListSource {
    * (`readNoteImage`): null when this reader can't see a note naming it.
    */
   readPicture?(notePath: string, leaf: string): Promise<string | null>;
+  /** This device's copy of such a picture, drawn while the server is asked (the phone and desktop apps); null in a browser. */
+  keptPicture?(leaf: string): Promise<string | null>;
   /** Stores a picture in the workspace and answers with its name, or a sentence saying why not. Absent where the reader may not write. */
   storePicture?(picture: { bytes: ArrayBuffer; contentType: string }): Promise<{ leaf: string } | { error: string }>;
 }

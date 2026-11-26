@@ -73,6 +73,24 @@ export function botOfArea(propsJson) {
 }
 
 /**
+ * A bot's own folder (`bots/<bot>/`) names the bot by the folder, not by its card's `holder:` words: a card may say
+ * "Tex Quality · Tex reply quality", and its webhook is saved under `tex-quality`, so the words' name would reach no
+ * webhook (Dev2, 2026-11-26: "whenever I send the refresh message its like the bot never gets it"). Null for an area.
+ */
+export function cardFolderBot(area, propsJson) {
+  let properties;
+  try {
+    properties = JSON.parse(propsJson ?? "null")?.properties ?? {};
+  } catch {
+    return null;
+  }
+  const said = (value) => typeof value === "string" && value.trim() !== "";
+  if (!said(properties.bot) || !said(properties.holder) || said(properties.owner)) return null;
+  const slug = mailJoinName(area.slice(area.lastIndexOf("/") + 1));
+  return /[a-z0-9]/.test(slug) ? slug : null;
+}
+
+/**
  * `{noted(key, change), drain()}`. `noted` is the object's `onPut` and only remembers which notes changed, since it
  * runs inside the write; `drain` reads them once the write has landed and hands each new line to `tell`.
  *
@@ -102,7 +120,7 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     const about = facts.props({ paths: [`${area}/about.md`] }, () => true).props?.[0];
     const holder = botOfArea(about?.props);
     if (holder === null || about?.sealed) return;
-    const bot = mailJoinName(holder);
+    const bot = cardFolderBot(area, about?.props) ?? mailJoinName(holder);
     // What the bot said it used, and the routines it answered (`areaRoutines.js`).
     routines?.recordMail(noteId, area, holder);
     if (newest.from.toLowerCase() === bot) return;

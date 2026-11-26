@@ -57,6 +57,8 @@ import { consoleCreateButton } from "../features/console/layout/createButton";
 import { MailPage } from "../features/console/mailPage/MailPage";
 import { forgetMail, mailNotesAnswer } from "../features/console/mailPage/useMailNotes";
 import { all, one, press, strip, windowOf } from "./projectPage/fixtures";
+import { rowFaces } from "../features/console/mailPage/MailPage";
+import { noteAvatar, resetBotPictures } from "../features/console/faces/botPictures";
 
 const ROWS: MailNoteRow[] = [
   { path: "areas/finance/mail/seyi.md", count: 2, joined: ["@seyi", "finance"], last: { at: "2026-11-25T20:01:00.000Z", from: "finance", to: "everyone", used: 2, text: "$512 so far." } },
@@ -273,6 +275,98 @@ describe("the page", () => {
     await mountPage(false);
     expect(all("mail-close")).toHaveLength(1);
     expect(one("mail-thread").contains(one("mail-close"))).toBe(true);
+  });
+
+  test("each row leads with who the mail is with: the bot first, never the reader beside others", () => {
+    const list = conversationsOf(ROWS, "areas", "@seyi");
+    expect(rowFaces(list[2]!, "@seyi")).toEqual(["grok-bot"]);
+    expect(rowFaces(list[1]!, "@seyi")).toEqual(["grok-bot", "finance"]);
+    expect(rowFaces(list[3]!, "@seyi")).toEqual(["builder", "reviewer"]);
+    // The reader alone in the mail is drawn rather than nothing.
+    expect(rowFaces(list[4]!, "@seyi")).toEqual(["@seyi"]);
+  });
+
+  test("a bot's logo is on its rows and in its thread, read once, and at once for a bot already drawn", async () => {
+    // Dev2, 2026-11-26: "it takes some time for the bot image to load up, can we have it be instant? ... also for mail
+    // we should show the images on the left".
+    windowOf(1440);
+    resetBotPictures();
+    const cardReads: string[] = [];
+    const pictureReads: string[] = [];
+    const io = {
+      read: async (path: string) => {
+        if (path.endsWith("about.md")) cardReads.push(path);
+        const text = path === "bots/grok-bot/about.md" ? "---\nholder: Grok Bot\nbot: grok\navatar: upload-0123456789abcdef.png\n---\n" : mockNoteText[path] ?? "# Empty\n";
+        return { text, etag: "e", readOnly: false };
+      },
+      write: async () => ({}),
+      picture: async (note: string, leaf: string) => {
+        pictureReads.push(`${note} ${leaf}`);
+        return "data:image/png;base64,AAAA";
+      },
+      pictureKey: (leaf: string) => `ws-test|${leaf}`,
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    const route: MailRoute = { open: true, workspaceId: "ws-test", me: "@seyi", openMail: () => {}, openThread: () => {}, closeMail: () => {}, toggle: () => {} };
+    const fixture = { load: async () => ({ notes: ROWS, complete: true }), io };
+    const draw = async () => {
+      await act(async () => {
+        root.render(createElement(MailPage, { route, compact: false, onOpen: () => {}, onClose: () => {}, fixture }));
+      });
+      for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+    };
+    await draw();
+    expect(one("mail-row-face-bots/grok-bot/mail/seyi.md").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
+    expect(one("mail-row-face-areas/finance/mail/grok-bot.md").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
+    expect(cardReads).toEqual(["bots/grok-bot/about.md"]);
+    expect(pictureReads).toEqual(["bots/grok-bot/about.md upload-0123456789abcdef.png"]);
+    // Drawn again (the page reopened), the logo is there on the first frame: no card read, no picture read, no robot.
+    act(() => root.unmount());
+    const again = createRoot(container);
+    roots.push(() => act(() => again.unmount()));
+    await act(async () => {
+      again.render(createElement(MailPage, { route, compact: false, onOpen: () => {}, onClose: () => {}, fixture }));
+    });
+    expect(one("mail-row-face-bots/grok-bot/mail/seyi.md").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
+    expect(all("owner-face-waiting")).toHaveLength(0);
+    expect(cardReads).toHaveLength(1);
+    expect(pictureReads).toHaveLength(1);
+  });
+
+  test("a bot the Areas page already drew needs no card read in Agent Mail", async () => {
+    windowOf(1440);
+    resetBotPictures();
+    noteAvatar("ws-test|bots/grok-bot/about.md", "upload-0123456789abcdef.png");
+    const cardReads: string[] = [];
+    const io = {
+      read: async (path: string) => {
+        if (path.endsWith("about.md")) cardReads.push(path);
+        return { text: mockNoteText[path] ?? "# Empty\n", etag: "e", readOnly: false };
+      },
+      write: async () => ({}),
+      picture: async () => "data:image/png;base64,AAAA",
+      pictureKey: (leaf: string) => `ws-test|${leaf}`,
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    const route: MailRoute = { open: true, workspaceId: "ws-test", me: "@seyi", openMail: () => {}, openThread: () => {}, closeMail: () => {}, toggle: () => {} };
+    await act(async () => {
+      root.render(createElement(MailPage, { route, compact: false, onOpen: () => {}, onClose: () => {}, fixture: { load: async () => ({ notes: ROWS, complete: true }), io } }));
+    });
+    for (let i = 0; i < 4; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+    expect(cardReads).toEqual([]);
+    expect(one("mail-row-face-bots/grok-bot/mail/seyi.md").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
   });
 
   test("on a phone the list is the page, and a conversation takes the whole screen with a way back", async () => {
