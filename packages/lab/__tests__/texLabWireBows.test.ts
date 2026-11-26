@@ -79,7 +79,7 @@ describe("folded boxes", () => {
 });
 
 describe("a wire behind another card", () => {
-  test("arcs clear of it: going back right to left over the row, going on under it", () => {
+  test("arcs clear of it like send back: going back right to left over the row, going on under it", () => {
     const bows = wireBows(
       [
         { from: "checkFinish", to: "intake", mode: "generator" },
@@ -88,11 +88,15 @@ describe("a wire behind another card", () => {
       ],
       centre,
     );
-    const back = bows.get(0)!.mid,
-      on = bows.get(1)!.mid;
-    // The middle of a cubic comes three quarters of the way to its handles: past the card's half height.
-    expect(back.y * 0.75).toBeLessThan(-32 - 20);
-    expect(on.y * 0.75).toBeGreaterThan(32 + 20);
+    const back = bows.get(0)!.arc!,
+      on = bows.get(1)!.arc!;
+    expect(back).toBeLessThan(0);
+    expect(on).toBeGreaterThan(0);
+    // Drawn as send back is: from the top of one card to the top of the other, its handles past both (Dev: "can the
+    // bow be smoother? I like the sendback bow").
+    const d = wirePath(at.checkFinish!, at.intake!, "generator", 180, 180, bows.get(0)).d;
+    expect(d).toBe(`M890,0 C890,${back} 90,${back} 90,0`);
+    expect(wirePath(at.intake!, at.checkFinish!, "wait", 180, 180, bows.get(1)).d).toBe(`M90,64 C90,${64 + on} 890,${64 + on} 890,64`);
     // The neighbours' own wire has nothing behind it and stays straight.
     expect(bows.has(2)).toBe(false);
   });

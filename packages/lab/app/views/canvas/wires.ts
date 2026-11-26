@@ -25,13 +25,25 @@ export function wirePath(
     const { mid: m, ends: e } = bow;
     const r = (n: number) => Math.round(n * 10) / 10;
     return `M${r(x1 + e.x)},${r(y1 + e.y)} C${r(c1x + m.x)},${r(c1y + m.y)} ${r(c2x + m.x)},${r(c2y + m.y)} ${r(x2 + e.x)},${r(y2 + e.y)}`;
-  };  if (mode === "loop") {
+  };
+  if (mode === "loop") {
     const bot = Math.max(a.y, b.y) + H + 70;
     return {
       d: `M${a.x + W / 2},${a.y + H} C${a.x + W / 2},${bot} ${b.x + W / 2},${bot} ${b.x + W / 2},${b.y + H}`,
       lx: (a.x + b.x + W) / 2,
       ly: bot - 12,
     };
+  }
+  // An arc over or under the row, drawn as send back is (Dev, 2026-11-26: "can the bow be smoother? I like the sendback
+  // bow"): out of the middle of one card's top or bottom, round, and into the middle of the other's.
+  if (bow.arc) {
+    const sx = a.x + aw / 2,
+      ex = b.x + bw / 2;
+    const under = bow.arc > 0;
+    const y1 = under ? a.y + H : a.y,
+      y2 = under ? b.y + H : b.y;
+    const by = (under ? Math.max(y1, y2) : Math.min(y1, y2)) + bow.arc;
+    return { d: `M${sx},${y1} C${sx},${by} ${ex},${by} ${ex},${y2}` };
   }
   let x1 = a.x + aw,
     y1 = a.y + H / 2,
@@ -53,8 +65,11 @@ export function wirePath(
   return { d: bowed ? curve(x1, y1, mx, y1, mx, y2, x2, y2) : `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}` };
 }
 
-/** How a wire bends off its straight line (`wirePath`, `wireBows`). */
-export type WireBow = { mid: Pt; ends: Pt };
+/**
+ * How a wire bends off its straight line (`wirePath`, `wireBows`). `arc`: instead, how far past the cards' bottoms (more
+ * than 0) or tops (less than 0) its handles reach, drawn as send back is.
+ */
+export type WireBow = { mid: Pt; ends: Pt; arc?: number };
 const NO_BOW: WireBow = { mid: { x: 0, y: 0 }, ends: { x: 0, y: 0 } };
 /** How far apart the wires between one pair of steps bow at their middles. */
 const LANE = 48;
@@ -86,8 +101,9 @@ function crosses(p: Pt, q: Pt, r: Box): boolean {
 /**
  * Each wire's bow (`wirePath`), so no two wires draw one line (Dev, 2026-11-26):
  * - A wire whose straight line runs behind another card (Check & finish back to Intake, behind Front door) arcs clear of
- *   it, to its own left: a wire going back right to left arcs over the row, one going on arcs under it, the longer the
- *   higher, so it never lies on the wires between the cards it skips.
+ *   it, to its own left: a wire going back right to left arcs over the row, one going on arcs under it, card top to card
+ *   top or bottom to bottom as send back does, the longer the further out, so it never lies on the wires between the
+ *   cards it skips.
  * - Wires that join the same two ends, whichever way they run, take lanes either side of the line, one lane for each way
  *   and kind of wire (several steps folded into one box share theirs), measured across the line from the end whose id
  *   sorts first, so a wire and its return part. A pair with one lane stays straight. The ends part a third as far.
@@ -99,7 +115,7 @@ export function wireBows(edges: { from: string; to: string; mode: string }[], bo
   const out = new Map<number, WireBow>();
   const add = (i: number, mid: Pt, ends: Pt) => {
     const o = out.get(i) ?? { mid: { x: 0, y: 0 }, ends: { x: 0, y: 0 } };
-    out.set(i, { mid: { x: o.mid.x + mid.x, y: o.mid.y + mid.y }, ends: { x: o.ends.x + ends.x, y: o.ends.y + ends.y } });
+    out.set(i, { ...o, mid: { x: o.mid.x + mid.x, y: o.mid.y + mid.y }, ends: { x: o.ends.x + ends.x, y: o.ends.y + ends.y } });
   };
   const pairs = new Map<string, number[]>();
   edges.forEach((e, i) => {
@@ -120,12 +136,18 @@ export function wireBows(edges: { from: string; to: string; mode: string }[], bo
     const dx = b.x - a.x,
       dy = b.y - a.y,
       len = Math.hypot(dx, dy) || 1;
-    // It leaves and meets its cards near the corner on its side, and its middle (three quarters of the way to its
-    // handles) clears the cards it passes.
-    const half = Math.max(ra.h, rb.h) / 2;
-    const lift = (half + 30 - (half - 10) / 4) / 0.75 + len * 0.06;
     const nx = -dy / len,
       ny = dx / len;
+    // Along a row it is an arc like send back's, from card top to card top or bottom to bottom: back over, on under,
+    // reaching further the further it goes, so arcs of different lengths nest instead of meeting.
+    if (Math.abs(dx) > Math.abs(dy)) {
+      out.set(i, { ...(out.get(i) ?? NO_BOW), arc: Math.sign(ny) * (44 + len * 0.07) });
+      return;
+    }
+    // Otherwise it bows to its own left: it leaves and meets its cards near the corner on that side, and its middle
+    // (three quarters of the way to its handles) clears the cards it passes.
+    const half = Math.max(ra.h, rb.h) / 2;
+    const lift = (half + 30 - (half - 10) / 4) / 0.75 + len * 0.06;
     add(i, { x: nx * lift, y: ny * lift }, { x: nx * (half - 10), y: ny * (half - 10) });
   });
   for (const [k, all] of pairs) {
