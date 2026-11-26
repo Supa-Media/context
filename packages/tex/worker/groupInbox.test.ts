@@ -659,6 +659,15 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example", askerSends: true }]);
   });
 
+  it("names the asker's own connected Gmails to the turn, dropping any malformed entry (Dev2, 2026-11-26)", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex email them from my gmail"), 0);
+    const ready = { status: "ready", slug: "crystal-care", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" };
+    await drainGroup(storage, deps(w, { control: { ...ready, askerMail: ["ada@home.example", "not an address", 7] } }));
+    expect((w.asks[0]?.group as { askerMail?: unknown }).askerMail).toEqual(["ada@home.example"]);
+  });
+
   it("names the shared calendars to the turn the same way, dropping any malformed entry", async () => {
     const storage = new MemoryStorage();
     const w = world();

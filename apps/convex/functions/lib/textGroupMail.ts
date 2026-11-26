@@ -207,6 +207,31 @@ async function ownSender(ctx: QueryCtx, userId: Id<"users">, address: string): P
   );
 }
 
+/**
+ * The asker's own connected Gmails not shared with this chat yet, for the chat's turn to be told as facts: `{ askerMail }`
+ * or `{}` (Dev2, 2026-11-26, the Puttery ask: asked to email from her Gmail, Tex asked her which address was hers, or
+ * sent her to a one-to-one chat). Only their own, in a chat they are in, through a connection that `ownGmail` would
+ * share; sharing one still takes their own words (`chat_share_mail`).
+ */
+export async function askerMailNamed(ctx: QueryCtx, groupId: Id<"textGroups">, asker: Id<"users"> | null): Promise<{ askerMail?: string[] }> {
+  if (asker === null) return {};
+  const group = await ctx.db.get(groupId);
+  if (group === null || !(await inChat(ctx, group, asker))) return {};
+  const personal = await personalWorkspaceOf(ctx, asker);
+  if (personal === null || personal.createdBy !== asker) return {};
+  const shared = new Set((await liveMailShares(ctx, group)).map(({ share }) => share.address.toLowerCase()));
+  const rows = await ctx.db
+    .query("googleConnections")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))
+    .take(20);
+  const askerMail = rows
+    .filter((row) => row.disconnectedAt === undefined && row.products.includes("gmail") && row.gmail !== undefined)
+    .map((row) => row.address.toLowerCase())
+    .filter((address) => !shared.has(address))
+    .slice(0, 10);
+  return askerMail.length > 0 ? { askerMail } : {};
+}
+
 /** One shared mailbox as the chat's turn is told it: whose share, and whether the asker can send from it as their own. */
 export type NamedMailShare = { handle: string; address: string; askerSends?: true; sendsAs?: string[] };
 

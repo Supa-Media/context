@@ -19,6 +19,7 @@ import { after, before, test } from "node:test";
 
 import { createEgressWorld, request, toolReplies } from "./agentEgressFixtures.mjs";
 import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { askerMailOf, chatMailPrompt, mailOnShare } from "../../../packages/tex/gateway/agent/groupMail.js";
 
 const TOKEN_CHAT = `cat_group_mail_chat_${"0".repeat(16)}`;
 const KEY = "b".repeat(64);
@@ -132,4 +133,58 @@ test("a check-in marks its person's mail a group chat also watches, and is told 
   assert.doesNotMatch(mail[1].line, /also watched/);
   assert.match(newMailSection(mail), /only when it needs them personally rather than the group/);
   assert.doesNotMatch(newMailSection([mail[1]]), /rather than the group/);
+});
+
+// Dev2, 2026-11-26 (the Puttery ask): Tex shared the asker's Gmail and then had no tool to search it that turn, so it
+// sent them to a one-to-one chat. A share made in a turn grants its reads to that same turn.
+test("mail shared partway through a turn is searched in that same turn", async () => {
+  const below = globalThis.fetch;
+  const commands = [];
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (new URL(url).pathname === "/gateway/tex/command") {
+      const { command } = JSON.parse(init.body);
+      commands.push(command);
+      return Response.json({ status: "done", address: command.address });
+    }
+    return below(input, init);
+  };
+  try {
+    const before = world.controlPlane.mailReadCalls.length;
+    world.model.install([
+      { toolCalls: [{ name: "send", args: { action: "chat_share_mail", args: { address: "seyi@work.example" } } }] },
+      { toolCalls: [{ name: "verdict", args: { allow: true, reason: "they asked to share their mail here" } }] }, // the own-words judge (`privacy/judge.js`)
+      { toolCalls: [{ name: "search", args: { query: "invoice", args: { email: true, account: "seyi@work.example" } } }] },
+      { text: "Acme's invoice 1042 is overdue." },
+    ]);
+    const asked = await tagged("Tex share my mail here and check it for the invoice");
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.equal(commands.at(-1)?.kind, "share_mail", "the share ran");
+    const replies = toolReplies(world.model.requests.at(-1));
+    assert.match(replies.at(-1), /Invoice 1042 overdue/, replies.join(" | "));
+    assert.equal(world.controlPlane.mailReadCalls.length, before + 1, "the control plane was asked, on the chat's grant");
+  } finally {
+    globalThis.fetch = below;
+  }
+});
+
+test("the asker's own connected Gmails are told as facts, and a share made mid-turn moves one into the chat's mail", () => {
+  const group = { from: "lena", askerMail: askerMailOf(["Lena@Example.invalid", "seyi@work.example", "bad"], SHARED) };
+  assert.deepEqual(group.askerMail, ["lena@example.invalid"], "never one already shared, never a malformed one");
+  assert.match(chatMailPrompt(group), /"askers_own_gmail_not_shared_here":\{"asker":"@lena","addresses":\["lena@example\.invalid"\]\}/);
+  assert.doesNotMatch(chatMailPrompt({ from: "lena" }), /askers_own_gmail/);
+  const later = mailOnShare(group, []);
+  assert.equal(later.shared("lena@example.invalid"), true);
+  assert.deepEqual(group.mail, [{ handle: "lena", address: "lena@example.invalid", askerSends: true }]);
+  assert.deepEqual(group.askerMail, []);
+  assert.deepEqual(later.take().map((tool) => tool.name).sort(), ["read_email", "search_email"]);
+  assert.deepEqual(later.take(), [], "taken once");
+  assert.equal(mailOnShare({ from: "" }, []).shared("a@b.example"), false, "no asker handle, nothing named");
+});
+
+test("the Worker's askerMail reaches the turn's prompt (`groupTurn.js` `groupOf`)", async () => {
+  world.model.install([{ text: "Want me to share seyi@home.example here?" }]);
+  const asked = await request(world.env, TOKEN_CHAT, "/agent", { question: "Tex email them from my gmail", group: { key: KEY, members: MEMBERS, from: "seyi", people: ["seyi"], askerMail: ["seyi@home.example"] }, timeZone: "UTC" });
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  assert.match(JSON.stringify(world.model.requests.at(-1).system), /askers_own_gmail_not_shared_here/);
 });
