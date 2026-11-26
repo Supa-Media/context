@@ -315,7 +315,7 @@ Adding or removing an alias needs `gmail.settings.sharing`, a restricted
 scope Context does not ask for: Tex hands the Gmail settings link instead
 (capability list). Cost of reverting: an email asked for "from reception" goes
 from the person's own address, or is refused. Tests: `personEmail.test.ts`
-"sending as one of a mailbox's Send mail as addresses", `emailSendAs.test.mjs`.
+"sending as one of a mailbox's Send mail as addresses", `emailSendAs.test.mjs`, replay `told-its-mailboxes`.
 
 ### What is deliberately not built
 
