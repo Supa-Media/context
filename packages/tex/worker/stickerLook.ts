@@ -63,6 +63,8 @@ async function askOne(sticker: { id: string; guid: string }, chat: string, deps:
     // The node off: nothing is looked at until a draft turns it on, and the stickers wait as they are.
     if (Array.isArray(answer?.when) && answer.when.includes("skip") && answer.why === "off") return { kind: "off", id };
     if (typeof answer?.words === "string" && answer.words !== "") return { kind: "words", id, words: answer.words };
+    // The gateway's own step failed before a model saw the picture: not a look, so the sticker is asked again next time.
+    if (Array.isArray(answer?.when) && answer.when.includes("skip") && answer.why === "failed") return { kind: "refused", id, why: "failed", mediaType: picture.mediaType };
     return { kind: "none", id, why: typeof answer?.why === "string" ? answer.why.slice(0, 120) : "no words", mediaType: picture.mediaType };
   } catch (error) {
     return { kind: "none", id, why: `threw ${String((error as Error)?.name ?? "error").slice(0, 40)}` };
@@ -92,8 +94,9 @@ export async function lookAtStickers(storage: InboxStorage, place: { line: strin
           await storage.put(OFF_KEY, deps.now());
           return done("off", looked);
         }
-        // Tried now, whatever came back but "off": a sticker that cannot be read waits `LOOK_AGAIN_MS` before it is tried again.
-        if (answer.kind !== "no_address") await noteLooked(storage, answer.id, deps.now(), answer.kind === "words" ? answer.words : undefined);
+        // Tried now when a picture reached the look: a sticker that cannot be read waits `LOOK_AGAIN_MS` before it is tried
+        // again. No address, and a gateway that refused or failed before any model saw it, are no try: asked again next message.
+        if (answer.kind !== "no_address" && answer.kind !== "refused") await noteLooked(storage, answer.id, deps.now(), answer.kind === "words" ? answer.words : undefined);
         if (answer.kind === "words") looked += 1;
         // Each sticker that got no words says why, so a look that reads nothing is never a silent count of 0.
         else console.log(JSON.stringify({ event: "sticker_look_one", sticker: answer.id, outcome: answer.kind, ...("why" in answer ? { why: answer.why } : {}), ...("mediaType" in answer && answer.mediaType ? { mediaType: answer.mediaType } : {}) }));
