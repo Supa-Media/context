@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { inMailbox, settingMailbox } from "../mailbox.mjs";
-import { modelFailuresIn, safeError, toolErrorsIn, MAX_ERRORS } from "../toolErrors.mjs";
+import { modelFailuresIn, refusalOf, safeError, toolErrorsIn, MAX_ERRORS } from "../toolErrors.mjs";
 import { benchFailed } from "../setsFdRows.mjs";
 import { detailOf } from "../../../../scripts/tex-lab-run.mjs";
 
@@ -112,6 +112,15 @@ test("a failed model call, and a front-door answer with no words and no tool cal
   assert.deepEqual(modelFailuresIn([{ status: 200, front: true, answer: { content: [{ type: "text", text: "hi" }] } }], isFrontDoor), []);
   assert.deepEqual(modelFailuresIn([{ status: 200, front: true, answer: { content: [{ type: "tool_use", id: "x", name: "n", input: {} }] } }], isFrontDoor), []);
   assert.deepEqual(modelFailuresIn([{ status: 200, front: false, answer: { content: [{ type: "text", text: "  " }] } }], isFrontDoor), [], "not the front door");
+});
+
+test("a refused model call says what the provider said, not only its status", () => {
+  const isFrontDoor = () => true;
+  const anthropic = { status: 400, answer: { content: null, error: { type: "invalid_request_error", message: "prompt is too long: 210000 tokens > 200000 maximum" } } };
+  assert.deepEqual(modelFailuresIn([anthropic], isFrontDoor), ["a model call failed (status 400: invalid_request_error: prompt is too long: 210000 tokens > 200000 maximum)"]);
+  assert.equal(refusalOf({ errors: [{ code: 2003, message: "Rate limited" }] }), "2003: Rate limited");
+  assert.equal(refusalOf("upstream timed out"), "upstream timed out");
+  assert.equal(refusalOf({ content: null }), "");
 });
 
 test("a row's detail puts the errors line right after the steps line", () => {

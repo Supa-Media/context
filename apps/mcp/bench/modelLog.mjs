@@ -98,7 +98,7 @@ export function modelLog(inner, { now = realNow } = {}) {
           ...(continues ? {} : { restarted: true }),
           tools: Array.isArray(body?.tools) ? body.tools.map((tool) => tool?.name).filter(Boolean) : [],
           messages: fresh,
-          answer: answer && typeof answer === "object" ? { content: answer.content ?? null, stop_reason: answer.stop_reason ?? null, usage: answer.usage ?? null } : answer,
+          answer: answer && typeof answer === "object" ? { content: answer.content ?? null, stop_reason: answer.stop_reason ?? null, usage: answer.usage ?? null, ...(response.status !== 200 ? { error: answer.error ?? answer.errors ?? null } : {}) } : answer,
         });
         lastSystem = system;
       } catch {
