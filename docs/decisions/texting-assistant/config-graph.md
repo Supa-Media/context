@@ -233,9 +233,18 @@ nobody edits them by hand:
    as a subgraph, an arrow per wire drawn by its mode), and the steps table in
    the same page.
 2. `packages/tex/gateway/agent/texArchitecture.generated.js`, which holds `TEX_MAP`: the
-   same graph in words. `texArchitecture.js` puts it ahead of every Tex agent's
-   prompt, with the one line naming the node that agent is. Its `ROLES` are keyed
-   by node id.
+   same graph in words. `texArchitecture.js` puts it in an agent's prompt, with
+   the one line naming the node that agent is, only when that node's `ctx` names
+   `map`. Its `ROLES` are keyed by node id. Since 2026-11-26 no node names it
+   (Dev2: "the map seems useless. i wouldnt imagine an agent needs to know about
+   its underlying architecture"): the Front door and Background job dropped it,
+   with the capability list saying what Tex can do, and the Front door's Training
+   cap went from 100,000 to 70,000 characters, with two of its twelve Training
+   chats (`loose-ends`, `stall-rota`) moved to the Dev set, where they still
+   test, so every chat left fits whole (Dev2 kept the two Lantern chats for
+   their "go look before you ask" labels). Together they take about 45,000
+   characters off the Front door's system prompt (about 216,000 before), so the
+   trimmer has less to cut from the head of the rules.
 3. The page's steps table (see 1).
 
 **What a simplification would cost:** a drawing kept by hand drifts from the code

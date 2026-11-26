@@ -2,7 +2,7 @@
   "id": "loose-ends",
   "kind": "one",
   "members": ["Maya"],
-  "set": "training",
+  "set": "dev",
   "setting": "Maya runs Fernway, a small pottery studio in Denver, and volunteers as treasurer for a kids' soccer league. Tex has her Gmail (maya@fernway.example), Calendar, Context notes, the web, a browser with a vault for logins, and a computer. She is also in Under-10s parents, a group chat with Tex and other parents; the league board's notes are in a workspace only the board can open.",
   "title": "Maya and Tex: the studio's loose ends",
   "msgs": [

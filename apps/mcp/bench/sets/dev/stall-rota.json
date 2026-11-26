@@ -2,7 +2,7 @@
   "id": "stall-rota",
   "kind": "group",
   "members": ["Maya","John","Priya"],
-  "set": "training",
+  "set": "dev",
   "setting": "Maya, John and Priya sell the fashion brand's shirts and totes at a weekend street market, and use this group to plan the stall. Maya and John run the label; Priya helps on the stall. Priya and Maya also play in a band, which John isn't part of. Each of them texts Tex on their own too, and has told it things there the others may not know. Tex is in the group with the brand's notes, the shared calendar, the web and the label's inbox (hello@label.example), which John shared with the group and Maya has connected on her own account too, and answers only when someone asks it; most of the chat is the three of them.",
   "title": "The stall crew",
   "msgs": [

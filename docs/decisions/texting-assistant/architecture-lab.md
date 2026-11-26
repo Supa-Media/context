@@ -44,7 +44,7 @@ before the next: the file and the Lab reading it; the gateway reading models, ef
 it, with the per-file constants and the setup note's model lines deleted; prompt modules and their order; a
 `tex.md` steps table generated from it; and the Lab's Promote opening the pull request that changes it, gated by the
 replay gate like any Tex change. The wires are the file's too: since 2026-11-14 one runner reads them and the nodes are
-code ([config-graph](./config-graph.md)), so a new step from the Lab ships as the file and its node's code together. `docs/architecture/tex.md` carries the drawing and steps table generated from the file by `scripts/tex-architecture.mjs`, and the map every Tex agent is told is generated from the same file;
+code ([config-graph](./config-graph.md)), so a new step from the Lab ships as the file and its node's code together. `docs/architecture/tex.md` carries the drawing and steps table generated from the file by `scripts/tex-architecture.mjs`, and the map in words (read by a node only when its `ctx` names `map`, which none does since 2026-11-26) is generated from the same file;
 `tex-diagram-check.mjs` fails when either is stale.
 
 **Promote** (the button beside Save) records an ask (`apps/convex/functions/texLabPromote.ts`); the Tex Lab promote
