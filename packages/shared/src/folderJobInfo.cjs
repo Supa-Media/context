@@ -13,7 +13,7 @@
  *
  *  - **needed**: Inbox, Projects, Areas, Resources, Archive. Every workspace
  *    has one of each. Each can be given to another folder, never taken away.
- *  - **made**: Tex, Website and Data, made by Context the first time the
+ *  - **made**: Tex, Website, Data and Bots, made by Context the first time the
  *    feature is used. All three can be renamed and nested anywhere (Website
  *    since 2026-10-21); Website's job stays with its own folder, which its
  *    site is published from. Data's folder holds a workspace's data sources,
@@ -26,10 +26,10 @@
  * (`tex/routines/`), so they are part of Tex's line.
  */
 
-const { DATA_FOLDER, DEFAULT_FOLDER, JOB_LABEL, MAIN_ROLES, EXTRA_ROLES, NO_JOB, ROW_ROLES, TEX_FOLDER, WEBSITE_FOLDER } = require("./folderRoles.cjs");
+const { BOTS_FOLDER, DATA_FOLDER, DEFAULT_FOLDER, JOB_LABEL, MAIN_ROLES, EXTRA_ROLES, NO_JOB, ROW_ROLES, TEX_FOLDER, WEBSITE_FOLDER } = require("./folderRoles.cjs");
 
 /** The jobs shown as lines, in the order they are drawn. */
-const SHOWN_JOBS = Object.freeze([...MAIN_ROLES, "tex", "website", "data", ...EXTRA_ROLES]);
+const SHOWN_JOBS = Object.freeze([...MAIN_ROLES, "tex", "website", "data", "bots", ...EXTRA_ROLES]);
 
 const JOB_GROUP = Object.freeze({
   inbox: "needed",
@@ -40,6 +40,7 @@ const JOB_GROUP = Object.freeze({
   tex: "made",
   website: "made",
   data: "made",
+  bots: "made",
   meetings: "made",
   clients: "optional",
   teams: "optional",
@@ -58,6 +59,7 @@ const JOB_LINE = Object.freeze({
   tex: "What Tex remembers about you, its routines and its daily notes.",
   website: "Pages here are published to your site.",
   data: "Data sources and metrics: synced sheets and the formulas worked out from them.",
+  bots: "One folder per bot: its card, its mail and where it works.",
   meetings: "Recordings and transcripts are saved here.",
   clients: "One folder per client: who they are and what was promised.",
   teams: "One folder per team: what it owns and how it runs.",
@@ -265,6 +267,7 @@ function defaultFolderName(job) {
   if (job === "website") return WEBSITE_FOLDER;
   if (job === "tex") return TEX_FOLDER;
   if (job === "data") return DATA_FOLDER;
+  if (job === "bots") return BOTS_FOLDER;
   return DEFAULT_FOLDER[job] ?? null;
 }
 
