@@ -42,6 +42,10 @@ export async function gatewayBotHookHandler(ctx: ActionCtx, body: Record<string,
   const accessToken = stringField(body, "accessToken");
   const expected = stringField(body, "expectedWorkspaceId");
   if (accessToken === null || expected === null) return json({ error: "refused" });
+  // A bot login bound here before bindings moved to the workspace's object, carried there once (`botLoginsCarry.ts`).
+  if (stringField(body, "action") === "carried") {
+    return json(await ctx.runQuery(internal.functions.botLoginsCarry.carriedBotFor, { hashedAccessToken: await hashToken(accessToken), expectedWorkspaceId: expected }));
+  }
   const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId: expected,

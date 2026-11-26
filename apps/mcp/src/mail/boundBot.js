@@ -20,6 +20,20 @@ function mailClientOf(store) {
 
 const grantOf = (store) => (typeof store?.actor?.grantId === "string" && store.actor.grantId !== "" ? store.actor.grantId : null);
 
+/**
+ * A login bound before bindings moved here (kept for a day in the control plane, `botLoginsCarry.ts`), copied into
+ * this workspace's object once, so no bot binds twice. Null when there is none.
+ */
+async function carried(store, client, grantId) {
+  if (typeof store.botHooks !== "function") return null;
+  const answer = await store.botHooks({ action: "carried" }).catch(() => null);
+  const bot = typeof answer?.bot === "string" ? answer.bot : "";
+  if (bot === "") return null;
+  const name = typeof answer.name === "string" && answer.name !== "" ? answer.name : bot;
+  const copied = await client.bind({ grantId, bot, name }).catch(() => null);
+  return copied?.ok === true ? { bot, name } : null;
+}
+
 export function boundBotOf(store) {
   const actor = store?.actor;
   if (actor === null || typeof actor !== "object") return Promise.resolve(null);
@@ -32,11 +46,11 @@ export function boundBotOf(store) {
       ? Promise.resolve(null)
       : Promise.resolve()
           .then(() => client.bound({ grantId }))
-          .then((answer) => {
+          .then(async (answer) => {
             const bound = answer?.served === true ? answer.bound : null;
             const bot = typeof bound?.bot === "string" ? bound.bot : "";
-            if (bot === "") return null;
-            return { bot, name: typeof bound.name === "string" && bound.name !== "" ? bound.name : bot };
+            if (bot !== "") return { bot, name: typeof bound.name === "string" && bound.name !== "" ? bound.name : bot };
+            return answer?.served === true ? await carried(store, client, grantId) : null;
           })
           .catch(() => null);
   asked.set(actor, work);

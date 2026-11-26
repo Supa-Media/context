@@ -25,7 +25,7 @@ import { withServedTree } from "./servedTree.mjs";
 const RULES = [{ prefix: "areas", vis: "team" }, { prefix: "bots", vis: "team" }];
 const CARD = "---\nholder: Grok Bot\nkind: agent\nbot: grok\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n\n# Grok Bot\n";
 
-async function world({ bot, botName, ...actor }, card = CARD) {
+async function world({ bot, botName, carried = null, ...actor }, card = CARD) {
   const base = createMemoryStore();
   await base.put("bots/grok-bot/about.md", card);
   await base.put("bots/grok-bot/mail/seyi.md", "# Mail with Grok Bot\n");
@@ -56,12 +56,14 @@ async function world({ bot, botName, ...actor }, card = CARD) {
     },
   };
   store.objectReading = { client: { mail: mailClient }, home: "object", behind: false, scope: "team", names: [], workspaceId: "ws-test", userId: "u1" };
+  // A login bound before bindings moved to the object (`apps/convex/functions/botLoginsCarry.ts`), carried once.
   store.botHooks = async (request) => {
+    if (request.action === "carried") return carried ?? { bot: null };
     calls.push(request);
     return { error: "the control plane is not asked about bots' logins" };
   };
   const text = async (key) => (await (await base.get(key))?.text()) ?? null;
-  return { store, calls, asks, text };
+  return { store, calls, asks, held, text };
 }
 
 const said = (result) => result.content.map((part) => part.text).join("\n");
@@ -128,6 +130,15 @@ test("only an owner's or editor's connection binds a bot", async () => {
   assert.equal(result.isError, true);
   assert.match(said(result), /only an owner or editor/);
   assert.deepEqual(calls, []);
+});
+
+test("a login bound before bindings moved to the object is carried there once, and signs as its bot", async () => {
+  const { store, calls, held, text } = await world({ role: "editor", name: "@seyi", carried: { bot: "grok-bot", name: "Grok Bot" } });
+  const result = await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: "bots/grok-bot/mail/seyi.md", mail: { text: "Here.", used: 0 } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.equal((await mailOf(text, "bots/grok-bot/mail/seyi.md")).at(-1).from, "grok-bot");
+  assert.deepEqual(held.get("grant-1"), { bot: "grok-bot", name: "Grok Bot" });
+  assert.deepEqual(calls, [{ action: "bind", grantId: "grant-1", bot: "grok-bot", name: "Grok Bot" }]);
 });
 
 test("a bound login joins only as its bot", async () => {

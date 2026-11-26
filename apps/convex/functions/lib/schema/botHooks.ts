@@ -30,7 +30,7 @@ export const botHookTables = {
     lastCallStatus: v.optional(v.number()),
   }).index("by_workspace_bot", ["workspaceId", "bot"]),
   /**
-   * Retired (2026-11-26), never read or written: a bot's binding is kept in its workspace's object
+   * Retired (2026-11-26), never written, read only to carry a binding into its object once (`botLoginsCarry.ts`): a bot's binding is kept in its workspace's object
    * (`apps/mcp/src/workspaceStore/mailBots.js`) and its health read from its check mail, since the control plane keeps
    * sign-in and little else (Dev, 2026-11-26). Kept defined only until emptied: a push that drops a table still
    * holding rows is refused. Same for `botHealth` below.
