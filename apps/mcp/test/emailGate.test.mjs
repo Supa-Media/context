@@ -435,8 +435,8 @@ export async function runEmailGateChecks(check) {
       gone.status === 200 && pending().length === pendingBeforeGone && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("no longer has the email to forward"),
     );
     check(
-      "a forward goes from the mailbox it is in, and is never also a reply",
-      /goes from the mailbox the email is in/.test(readEmail({ ...FORWARD, from: "other@example.com" }).error ?? "") &&
+      "a forward goes through the mailbox it is in (another from is a send-as address of it, checked by the control plane), and is never also a reply",
+      readEmail({ ...FORWARD, from: "other@example.com" }).email?.mailbox === "seyi@gmail.example" &&
         /not both/.test(readEmail({ ...FORWARD, in_reply_to: "email:seyi@gmail.example/18x" }).error ?? "") &&
         readEmail(FORWARD).email?.forward === "18rcpt" && readEmail(FORWARD).email?.from === "seyi@gmail.example",
     );
@@ -671,10 +671,10 @@ export async function runEmailGateChecks(check) {
       readEmail(EMAIL).email?.replyTo === undefined,
   );
   check(
-    "...and a reply id that is not one, or a different sender, is refused before anything",
+    "...and a reply id that is not one is refused before anything; a different sender goes as a send-as address through its mailbox",
     readEmail({ ...EMAIL, in_reply_to: "18cafe" }).error !== undefined &&
       readEmail({ ...EMAIL, in_reply_to: "email:me@example.com/../x" }).error !== undefined &&
-      readEmail({ ...EMAIL, from: "other@example.com", in_reply_to: "email:me@example.com/18cafe" }).error?.includes("me@example.com") === true,
+      readEmail({ ...EMAIL, from: "other@example.com", in_reply_to: "email:me@example.com/18cafe" }).email?.mailbox === "me@example.com",
   );
   check(
     "...and the person is told it is a reply in the thread",

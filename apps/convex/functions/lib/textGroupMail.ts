@@ -36,6 +36,7 @@
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { recordAudit } from "./audit";
+import { sendingAddressesOf } from "./gmailSendAs";
 import { contextsForGrant, resolveLiveGrant } from "./controlPlane/liveGrants";
 import { chatWorkspace } from "./textGroupReach";
 import { writingRole } from "./routines/access";
@@ -185,7 +186,7 @@ export async function liveMailShares(ctx: QueryCtx, group: Doc<"textGroups">): P
 }
 
 /**
- * Whether `userId` can send from `address` as their own: a Gmail connected to their own personal workspace, with
+ * Whether `userId` can send from `address` as their own: a Gmail connected to their own personal workspace (or one of its accepted "Send mail as" addresses), with
  * sending granted to AI and its sign-in working, the connection `claimPersonEmail` (`functions/personEmail.ts`) would
  * send it from on their own grant.
  */
@@ -202,12 +203,22 @@ async function ownSender(ctx: QueryCtx, userId: Id<"users">, address: string): P
       row.products.includes("gmail") &&
       canSendEmail(aiScopesOf(row)) &&
       row.health !== "reconnect_required" &&
-      row.address.toLowerCase() === address,
+      sendingAddressesOf(row).includes(address),
   );
 }
 
 /** One shared mailbox as the chat's turn is told it: whose share, and whether the asker can send from it as their own. */
-export type NamedMailShare = { handle: string; address: string; askerSends?: true };
+export type NamedMailShare = { handle: string; address: string; askerSends?: true; sendsAs?: string[] };
+
+/** The sharer's accepted "Send mail as" addresses for a shared mailbox (`lib/gmailSendAs.ts`), as facts for the turn. */
+async function sendsAsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, address: string): Promise<string[]> {
+  const rows = await ctx.db
+    .query("googleConnections")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .take(20);
+  const row = rows.find((entry) => entry.disconnectedAt === undefined && entry.address.toLowerCase() === address.toLowerCase());
+  return (row?.gmailSendAs?.aliases ?? []).map((alias) => alias.address);
+}
 
 /**
  * Who shares which mailbox here, by handle, for the chat's turn to be told: `{ mail }` on a turn's answer, or `{}`.
@@ -227,7 +238,8 @@ export async function mailSharesNamed(
     const personal = await personalWorkspaceOf(ctx, share.userId);
     if (personal === null) continue;
     const askerSends = askerHere && asker !== null && (await ownSender(ctx, asker, share.address));
-    named.push({ handle: personal.slug, address: share.address, ...(askerSends ? { askerSends: true as const } : {}) });
+    const sendsAs = await sendsAsOf(ctx, personal._id, share.address);
+    named.push({ handle: personal.slug, address: share.address, ...(askerSends ? { askerSends: true as const } : {}), ...(sendsAs.length > 0 ? { sendsAs } : {}) });
   }
   return named.length > 0 ? { mail: named } : {};
 }
@@ -242,16 +254,17 @@ export async function mailSharesWithSenders(
   ctx: QueryCtx,
   group: Doc<"textGroups">,
   people: Id<"users">[],
-): Promise<{ handle: string; address: string; senders: Id<"users">[] }[]> {
+): Promise<{ handle: string; address: string; senders: Id<"users">[]; sendsAs?: string[] }[]> {
   const here: Id<"users">[] = [];
   for (const userId of people) if (await inChat(ctx, group, userId)) here.push(userId);
-  const rows: { handle: string; address: string; senders: Id<"users">[] }[] = [];
+  const rows: { handle: string; address: string; senders: Id<"users">[]; sendsAs?: string[] }[] = [];
   for (const { share } of await liveMailShares(ctx, group)) {
     const personal = await personalWorkspaceOf(ctx, share.userId);
     if (personal === null) continue;
     const senders: Id<"users">[] = [];
     for (const userId of here) if (await ownSender(ctx, userId, share.address)) senders.push(userId);
-    rows.push({ handle: personal.slug, address: share.address, senders });
+    const sendsAs = await sendsAsOf(ctx, personal._id, share.address);
+    rows.push({ handle: personal.slug, address: share.address, senders, ...(sendsAs.length > 0 ? { sendsAs } : {}) });
   }
   return rows;
 }

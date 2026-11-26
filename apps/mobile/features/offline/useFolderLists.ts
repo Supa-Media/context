@@ -14,6 +14,7 @@ import { folderListSource, type ListWriteBack } from "./folderListSource";
 import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 import { openStore } from "./store";
+import { keepLogo, keptLogo } from "./keptLogos";
 import { useReachability } from "./reachability";
 import { deviceFirst } from "./deviceFirst";
 import { READ_TIMEOUT_MS, withTimeout } from "./useMirrorSync";
@@ -131,19 +132,25 @@ export function useFolderLists(
     const resolveOwners = (words: readonly string[]) =>
       convex.query(api.functions.owners.resolveOwners, { workspaceId: id, words: [...words] });
     // A bot's logo, named on its card: read through the card, which is its gate, as any picture in a note.
+    // Kept on this device too, and drawn from there at once next time (`keptLogos.ts`); offline, the kept copy answers.
     const readPicture = async (notePath: string, leaf: string) => {
+      if (offline.current) return keptLogo(tier, workspaceId, leaf);
       try {
         const read = await convex.action(api.functions.files.readNoteImage, { workspaceId: id, notePath, leaf });
-        return dataUrlFor(read.bytes, read.contentType);
+        const src = dataUrlFor(read.bytes, read.contentType);
+        keepLogo(tier, workspaceId, leaf, src);
+        return src;
       } catch {
         return null;
       }
     };
-    if (!canEdit) return { ...source, resolveOwners, readPicture };
+    const keptPicture = (leaf: string) => keptLogo(tier, workspaceId, leaf);
+    if (!canEdit) return { ...source, resolveOwners, readPicture, keptPicture };
     return {
       ...source,
       resolveOwners,
       readPicture,
+      keptPicture,
       storePicture: async (picture: { bytes: ArrayBuffer; contentType: string }) => {
         try {
           return await convex.action(api.functions.files.storeNoteImage, { workspaceId: id, ...picture });

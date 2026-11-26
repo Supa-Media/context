@@ -29,7 +29,15 @@ import { aiScopesOf } from "../googleConnect/aiScopes";
  * now. `readOnly`: connected before every connect asked to send (2026-10-23),
  * so Tex can read it and not send from it until one reconnect.
  */
-export type MailboxHealth = { address: string; state: MailboxState; lastSyncedAt: number | null; tell: boolean; readOnly: boolean };
+export type MailboxHealth = {
+  address: string;
+  state: MailboxState;
+  lastSyncedAt: number | null;
+  tell: boolean;
+  readOnly: boolean;
+  /** Its accepted "Send mail as" addresses besides its own (`lib/gmailSendAs.ts`); empty for a read-only one. */
+  sendsAs: string[];
+};
 
 /** More than anyone connects; the read stays bounded. */
 const MAX_CONNECTIONS = 50;
@@ -66,8 +74,9 @@ async function mailboxesOf(ctx: QueryCtx, cleared: Cleared, now: number) {
   for (const row of rows) {
     const health = mailboxState(row, now);
     if (health === null) continue;
+    const readOnly = !canSendEmail(aiScopesOf(row));
     const tell = TELLABLE.has(health.state) && !toldRecently(notices, row._id, health.state, now);
-    found.push({ connectionId: row._id, address: row.address, ...health, tell, readOnly: !canSendEmail(aiScopesOf(row)) });
+    found.push({ connectionId: row._id, address: row.address, ...health, tell, readOnly, sendsAs: readOnly ? [] : (row.gmailSendAs?.aliases ?? []).map((alias) => alias.address) });
   }
   return found.sort((a, b) => a.address.localeCompare(b.address));
 }

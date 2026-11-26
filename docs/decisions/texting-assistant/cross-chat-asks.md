@@ -1,5 +1,19 @@
 # Tex asks Tex across chats, and a "Starts a new run" wire (2026-11-17)
 
+> **A group asks no one (Dev2, 2026-11-26), superseding the group half below.** Asked what the "ask personal Tex" path
+> was: "I don't want grouptex asking personal tex for things", then "right now lets just remove group to personal tex.
+> will revisit this later if needed. but grouptex asking personal tex is not a node i want". A group turn gets no
+> `ask_chat` (`crossChat.js` `crossAskTool` returns null for a group), the Cross-chat gate refuses any ask that isn't
+> from a 1:1 to one of its person's groups, and `ask_personal_tex` (`askPersonalTex.js`, its contact facts from the
+> tagger's account) is deleted, so unwiring the gate no longer brings anything back. A form a group fills asks the
+> chat for what it needs. What still crosses: a 1:1 asks its person's groups; a group's sensitive ask and an answer the
+> Room check held go to the asker's own 1:1 (`privateAside.js`, `heldShare.js`), and that 1:1 passes back with
+> `ask_chat`. What Dev2 described wanting instead, group Tex checking with the person in their 1:1 before it answers
+> the group, is not built. **What a simplification would cost:** giving a group `ask_chat` back puts someone's personal
+> Tex behind any tag in a group. Tests: `apps/mcp/test/crossChat.test.mjs` "a group chat has no ask_chat",
+> `apps/mcp/test/oneGroupPrompt.test.mjs` "no group reaches anyone's personal Tex", replay case
+> `group-asks-no-personal-tex`.
+
 Dev2, 2026-11-17: "design a way where 1:1 tex can message a group tex for info, and ask it to do things, and vice
 versa". The design (https://claude.ai/artifact/N3ZawPjhhgYcNfHm7xWa37) was approved with every recommended choice,
 and Dev2 chose to keep building it while the "friend test" judgment on top of it is designed.
@@ -59,7 +73,7 @@ group, and Dev2 approved ("sounds good") what it may do there:
 **What a simplification would cost:** dropping the mark lets the 1:1 answer a room of strangers as it would a room of
 colleagues; letting the model set it lets a group unmark itself. Tests: `apps/mcp/test/oneGroupPrompt.test.mjs`
 ("ask_chat reaches only the sender's own Tex ...", "an ask from a group with strangers ..."),
-`packages/tex/worker/crossChat.test.ts`, and the replay case `ask-from-strangers-group`.
+`packages/tex/worker/crossChat.test.ts`, and the replay case `ask-from-strangers-group` (since 2026-11-26 `group-asks-no-personal-tex`).
 
 ## A contact ask answers only what it asks for (2026-11-25)
 

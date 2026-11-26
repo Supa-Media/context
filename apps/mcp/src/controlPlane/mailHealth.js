@@ -13,7 +13,7 @@ const MAIL_HEALTH_TIMEOUT_MS = 3_000;
 export function createMailHealthMethods({ post }) {
   return {
     /**
-     * `[{ address, state, lastSyncedAt, tell, readOnly }]` for the owner of this personal
+     * `[{ address, state, lastSyncedAt, tell, readOnly, sendsAs }]` for the owner of this personal
      * workspace, or null for anyone else. A mailbox in a state this gateway
      * does not know is left out.
      */
@@ -32,6 +32,8 @@ export function createMailHealthMethods({ post }) {
           lastSyncedAt: typeof mailbox.lastSyncedAt === "number" ? mailbox.lastSyncedAt : null,
           tell: mailbox.tell === true,
           readOnly: mailbox.readOnly === true,
+          // Its "Send mail as" addresses, which send_email may name as from (`apps/convex/functions/lib/gmailSendAs.ts`).
+          sendsAs: Array.isArray(mailbox.sendsAs) ? mailbox.sendsAs.filter((address) => typeof address === "string" && address.length <= 254).slice(0, 30) : [],
         }));
     },
 

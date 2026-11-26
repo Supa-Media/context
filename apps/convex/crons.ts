@@ -91,6 +91,16 @@ crons.interval("stamp share links with their note's id", { hours: 24 }, internal
  */
 crons.interval("re-check revoked Google grants", { hours: 24 }, internal.functions.googleReconnect.recheckRevokedGrants, {});
 
+/**
+ * Each connected Gmail's "Send mail as" list, read again once it is six hours
+ * old (`functions/gmailSendAs.ts`). It calls Google on the person's grant, so
+ * it owes the two paragraphs above: it holds no decision (it only records what
+ * Gmail lists, which a send checks again at the moment it sends), and it
+ * re-asks at the moment it acts that the row is live, readable and not
+ * waiting on a reconnect. One settings GET per mailbox; no mail is read.
+ */
+crons.interval("read Gmail send-as addresses", { hours: 1 }, internal.functions.gmailSendAs.refreshDue, {});
+
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
 /**

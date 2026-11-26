@@ -55,9 +55,9 @@ export async function pictureLeaf(bytes: ArrayBuffer, contentType: string): Prom
   return pasteImageLeafOf(await sha256Hex(bytes), contentType);
 }
 
-/** A leaf this module will file: what the control plane names, and nothing else. */
+/** A leaf this module will file: what the control plane names (a paste, or an agent's upload such as a bot's logo), and nothing else. */
 function isPictureLeaf(leaf: string): boolean {
-  return /^paste-[a-f0-9]{8,16}\.[a-z]+$/.test(leaf);
+  return /^(paste-[a-f0-9]{8,16}|upload-[a-f0-9]{8,64})\.[a-z]+$/.test(leaf);
 }
 
 function isPictureSrc(src: string): boolean {

@@ -5,7 +5,7 @@
 
 /** The chat's shared mailboxes as a turn of `asker`'s is told them: `askerSends` on each one they have connected too. */
 export function mailFor(mail, asker) {
-  return mail.map(({ handle, address, senders }) => ({ handle, address, ...(asker && Array.isArray(senders) && senders.includes(asker) ? { askerSends: true } : {}) }));
+  return mail.map(({ handle, address, senders, sendsAs }) => ({ handle, address, ...(asker && Array.isArray(senders) && senders.includes(asker) ? { askerSends: true } : {}), ...(Array.isArray(sendsAs) && sendsAs.length > 0 ? { sendsAs } : {}) }));
 }
 
 /**

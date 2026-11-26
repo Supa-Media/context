@@ -241,11 +241,13 @@ export const READ_TOOLS = Object.freeze(
  * test chat's line; an ask of Tex in another chat goes through the Cross-chat gate and runs in a linked test chat of
  * that chat (`crossRuns.js`), and a do-ask's post lands in that test chat; a tapback as the whole answer ends the turn and
  * reacts in the test chat (`tapbackEnding.js`; answered as a write it never ended the turn, and Tex texted "Heart sent.");
+ * a kept sticker sent after the words goes on the test chat's line (`stickerSend.js`; stubbed, Tex said "Sent you one."
+ * and nothing went, 2026-11-26);
  * a mute mutes the test chat (`controlPlaneAnswer`), and the chat object then reads it as a muted chat does.
  * Tex's own computer (`tex_computer`) runs for real on the test chat's own computer, never the person's
  * (`sandboxComputer`). Their note writes and calls pass the fences like any other.
  */
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "chat_mute", "tex_computer"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the
@@ -259,7 +261,7 @@ const TOOL_KINDS = [
   [/email|forward_rule/, "Email"],
   [/calendar/, "Calendar"],
   [/remember|write_note|save_context|archive|move|fill_dates|apply_layout|dream_now|suggest_destination|encryption|storage_layout|write$/, "Note"],
-  [/google_chat|notify|text_progress|slack|ask_personal_tex|chat_add_everyone|mail_agent/, "Chat"],
+  [/google_chat|notify|text_progress|slack|chat_add_everyone|mail_agent/, "Chat"],
   [/background|delegate|plan_big_ask|steer|restart|computers|machine/, "Job"],
   [/browse|fill_login|make_login|fill_card|sign_out_browser/, "Browser"],
   [/visibility|link|vault|share|invite|create_workspace|site|review_sharing/, "Sharing"],

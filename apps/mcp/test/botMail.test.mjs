@@ -125,3 +125,30 @@ test("mail in a bot's own folder tells that bot, named by its card", { skip }, (
   watch.drain();
   assert.deepEqual(told, [{ bot: "grok-bot", area: "areas/bots/grok-bot", note: "areas/bots/grok-bot/mail/seyi.md", from: "@seyi" }]);
 });
+
+test("a bot's own folder names the bot by its folder, whatever its card's holder words say", { skip }, () => {
+  // Dev2, 2026-11-26: Refresh to Tex Quality never reached it. Its card said "Tex Quality · Tex reply quality", whose
+  // mail name is not the `tex-quality` its webhook is saved under.
+  const notes = new Map();
+  const told = [];
+  const card = { holder: "Tex Quality · Tex reply quality", kind: "agent", bot: "grok", belongs_to: "@seyi" };
+  const watch = botMailWatch(durableSql(), {
+    rows: { byNoteId: (id) => (notes.has(id) ? { path: notes.get(id).path } : null) },
+    objects: { get: (key) => {
+      const id = /^notes\/(.+)\.md$/.exec(key)?.[1];
+      return notes.has(id) ? { body: new TextEncoder().encode(notes.get(id).text) } : null;
+    } },
+    facts: { props: ({ paths }) => ({ served: true, props: paths.filter((p) => p === "bots/tex-quality/about.md").map((path) => ({ path, sealed: false, props: JSON.stringify({ properties: card }) })) }) },
+    tell: (message) => told.push(message),
+    defer: () => {},
+  });
+  notes.set("n1", { path: "bots/tex-quality/mail/seyi.md", text: withMail("", { from: "@seyi", text: "Please check your card", at: "2026-11-26T15:47:34.182Z" }) });
+  watch.noted("notes/n1.md", { changed: true });
+  watch.drain();
+  assert.deepEqual(told, [{ bot: "tex-quality", area: "bots/tex-quality", note: "bots/tex-quality/mail/seyi.md", from: "@seyi" }]);
+  // Its own reply, signed with the folder's name, tells nobody.
+  notes.set("n1", { path: "bots/tex-quality/mail/seyi.md", text: withMail(notes.get("n1").text, { from: "tex-quality", text: "Done", at: "2026-11-26T15:50:00.000Z" }) });
+  watch.noted("notes/n1.md", { changed: true });
+  watch.drain();
+  assert.equal(told.length, 1);
+});

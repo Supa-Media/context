@@ -3,8 +3,6 @@
  * `groupPrompt`), kept beside each other.
  */
 
-import { PERSONAL_TEX_LINE } from "./askPersonalTex.js";
-
 /*
   A sign-in with an email and a one-time code (the owner, 2026-10-24: Tex
   refused to sign in to a site that has no password, asking for a vault login
@@ -27,5 +25,5 @@ export const GROUP_SENSITIVE_LINE =
   "and say here only that you'll text them (\"Sure thing, I'll text you for the login\"). Someone who isn't on Context has no chat of their own with you yet: " +
   "tell them in a line to text you on their own to set up an account first. ";
 
-/** All three, in the order the group's words say them. */
-export const GROUP_SIGN_IN_LINES = GROUP_SENSITIVE_LINE + GROUP_CODE_SIGN_IN_LINE + PERSONAL_TEX_LINE;
+/** Both, in the order the group's words say them. */
+export const GROUP_SIGN_IN_LINES = GROUP_SENSITIVE_LINE + GROUP_CODE_SIGN_IN_LINE;

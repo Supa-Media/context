@@ -144,7 +144,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
                   {last ? agoLabel(last.at) : ""}
                 </Text>
                 <View style={styles.lineText}>
-                  <Text variant="tree" numberOfLines={1}>{`${last?.from === bot.name.toLowerCase().replace(/\s+/g, "-") ? "Wrote" : "Got mail"} in ${each.placeTitle}`}</Text>
+                  <Text variant="tree" numberOfLines={1}>{`${last?.from === bot.slug || last?.from === bot.name.toLowerCase().replace(/\s+/g, "-") ? "Wrote" : "Got mail"} in ${each.placeTitle}`}</Text>
                   <Text variant="treeMeta" style={styles.muted} numberOfLines={2}>
                     {last?.text ?? ""}
                   </Text>

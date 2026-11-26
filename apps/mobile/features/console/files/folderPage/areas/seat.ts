@@ -426,9 +426,12 @@ export function cardsFolderOf(root: string, path: string): string | null {
   return null;
 }
 
-/** `holder`'s card, or an empty one of `kind` when nobody has written it yet. */
-export function cardOf(holder: string, kind: Card["kind"], root: string, notes: readonly ListNote[]): Card & { readonly creates: boolean; readonly path: string } {
-  const path = cardPath(root, holder, notes, kind);
+/**
+ * `holder`'s card, or an empty one of `kind` when nobody has written it yet. `at` is the card's own path where the
+ * caller already found it: a card whose `holder:` words are longer than its folder's name is still that card.
+ */
+export function cardOf(holder: string, kind: Card["kind"], root: string, notes: readonly ListNote[], at?: string): Card & { readonly creates: boolean; readonly path: string } {
+  const path = at ?? cardPath(root, holder, notes, kind);
   const note = notes.find((each) => each.path === path) ?? null;
   const props = note?.properties ?? {};
   const said = text(props.kind);

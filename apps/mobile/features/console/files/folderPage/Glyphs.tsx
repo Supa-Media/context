@@ -12,7 +12,7 @@
  *   helper's rounded square with a robot — never "AI" in letters, which
  *   reads as somebody's initials. A bot whose card names its logo
  *   (`avatar:`) is that logo instead, the face it has in its own app (the
- *   owner, 2026-11-25); the robot shows until it loads, and if it can't.
+ *   owner, 2026-11-25); drawn at once once read this session or kept on this device, plain while it loads, and the robot if it can't.
  *   Nobody is a dashed "?".
  * - **A subtask's dot** is its status group: an empty ring for Not started,
  *   half filled for In progress, full for Done.
@@ -28,6 +28,7 @@ import type { StatusTone } from "./StatusPill";
 import { toneColor } from "./StatusPill";
 import { priorityWord, type Priority } from "./taskProps";
 import { PersonFace } from "../../faces/PersonFace";
+import { readPicture, shownPicture, type FacePicture } from "../../faces/botPictures";
 
 const GLYPH = 16;
 
@@ -60,48 +61,61 @@ export function PriorityGlyph({ priority }: { priority: Priority | null }) {
   );
 }
 
-/** A bot's logo: `key` names the bytes (the stored picture's name is a hash of them), `read` fetches them as a `src`. */
-export interface FacePicture {
-  readonly key: string;
-  readonly read: () => Promise<string | null>;
-}
+export type { FacePicture };
 
 export type Face =
   | { readonly kind: "person"; readonly name: string }
   | { readonly kind: "agent"; readonly picture?: FacePicture }
   | { readonly kind: "nobody" };
 
-/** Read once a session for every face drawing it: the key is the bytes' own hash, so it never goes stale. */
-const pictures = new Map<string, Promise<string | null>>();
-
-function usePicture(picture: FacePicture | undefined): string | null {
-  const [src, setSrc] = useState<string | null>(null);
+/**
+ * The logo to draw now: one read this session is there on the first frame; this device's copy is drawn while the
+ * server is asked; `waiting` while neither has answered, so the face is drawn plain rather than as a robot that then
+ * turns into the logo (`botPictures.ts`).
+ */
+function usePicture(picture: FacePicture | undefined): { src: string | null; waiting: boolean } {
   const key = picture?.key ?? null;
+  const [state, setState] = useState(() => {
+    const now = key === null ? undefined : shownPicture(key);
+    return { key, src: now ?? null, settled: key === null || now !== undefined };
+  });
   useEffect(() => {
-    setSrc(null);
-    if (picture === undefined) return;
-    let live = true;
-    let found = pictures.get(picture.key);
-    if (found === undefined) {
-      found = picture.read().catch(() => null);
-      pictures.set(picture.key, found);
-      // A failed read is asked again next time, not remembered as missing.
-      void found.then((read) => read === null && pictures.delete(picture.key));
+    if (picture === undefined) {
+      setState({ key: null, src: null, settled: true });
+      return;
     }
-    void found.then((read) => live && setSrc(read));
+    const now = shownPicture(picture.key);
+    if (now !== undefined) {
+      setState({ key: picture.key, src: now, settled: true });
+      return;
+    }
+    setState({ key: picture.key, src: null, settled: false });
+    let live = true;
+    void picture
+      .kept?.()
+      .then((kept) => {
+        if (live && kept !== null) setState((was) => (was.key === picture.key && !was.settled ? { ...was, src: kept } : was));
+      })
+      .catch(() => undefined);
+    void readPicture(picture).then((src) => live && setState({ key: picture.key, src, settled: true }));
     return () => {
       live = false;
     };
     // `key` stands for `picture`, which is a new object on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return src;
+  if (state.key !== key) {
+    // The face changed this render: what this session already holds, before the effect catches up.
+    const now = key === null ? undefined : shownPicture(key);
+    return { src: now ?? null, waiting: key !== null && now === undefined };
+  }
+  return { src: state.src, waiting: !state.settled && state.src === null };
 }
 
 export function OwnerFace({ face, size = 24 }: { face: Face; size?: number }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const logo = usePicture(face.kind === "agent" ? face.picture : undefined);
+  const { src: logo, waiting } = usePicture(face.kind === "agent" ? face.picture : undefined);
   const box = { width: size, height: size };
   if (face.kind === "nobody") {
     return (
@@ -114,6 +128,9 @@ export function OwnerFace({ face, size = 24 }: { face: Face; size?: number }) {
   }
   if (face.kind === "agent" && logo !== null) {
     return <Image source={{ uri: logo }} style={[styles.face, styles.logo, box]} testID="owner-face-logo" aria-hidden />;
+  }
+  if (face.kind === "agent" && waiting) {
+    return <View style={[styles.face, styles.agent, box]} testID="owner-face-waiting" aria-hidden />;
   }
   if (face.kind === "agent") {
     return (

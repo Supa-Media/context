@@ -203,7 +203,7 @@ describe("sending an email as the person", () => {
     const { t, alice, aliceWs } = await connected();
     await connectGmail(t, aliceWs, alice, { address: "alice@work.example" });
     expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: "Alice@Work.example" } })).toEqual({ ok: true, from: "alice@work.example" });
-    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: "ceo@bank.example" } })).toEqual({ ok: false, refused: "no_sender" });
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: "ceo@bank.example" } })).toEqual({ ok: false, refused: "not_their_address" });
     expect(sent.map((mail) => mail.message.split("\r\n")[0])).toEqual(["From: alice@work.example"]);
   });
 
@@ -423,9 +423,81 @@ describe("sending an email as the person", () => {
   });
 });
 
+/*
+  "Send mail as" (Dev2, 2026-11-26): a work mailbox sends as the practice's reception address. Sabotage: match `from`
+  against `row.address` alone in `claimPersonEmail` and "it goes from an accepted alias" fails; drop the retry in the
+  route and "an alias added in Gmail since" fails; drop the `mailbox` check and "a reply goes through the mailbox" fails.
+*/
+describe("sending as one of a mailbox's Send mail as addresses", () => {
+  const ALIAS = "reception@practice.example";
+  const SEND_AS = { sendAs: [
+    { sendAsEmail: FROM, isPrimary: true, displayName: "Alice" },
+    { sendAsEmail: "Reception@Practice.example", displayName: 'Front "Desk" <x>', verificationStatus: "accepted" },
+    { sendAsEmail: "pending@practice.example", verificationStatus: "pending" },
+  ] };
+  async function withAlias() {
+    const tenants = await twoConnectedTenants();
+    const id = await connectGmail(tenants.t, tenants.aliceWs, tenants.alice);
+    await tenants.t.run((ctx) => ctx.db.patch(id, { gmailSendAs: { aliases: [{ address: ALIAS, name: "Front Desk" }], checkedAt: Date.now() } }));
+    return { ...tenants, id };
+  }
+
+  test("it goes from an accepted alias, through its mailbox, with Gmail's name for it", async () => {
+    const sent = gmail();
+    const { t, aliceWs } = await withAlias();
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: ALIAS }, check: true })).toEqual({ ok: true, from: ALIAS, mailbox: FROM });
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: ALIAS } })).toEqual({ ok: true, from: ALIAS, mailbox: FROM });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.auth).toBe("Bearer ya29.fake-access-token");
+    expect(sent[0]!.message.split("\r\n")[0]).toBe(`From: "Front Desk" <${ALIAS}>`);
+    // Its own address still goes as it did, bare.
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM } })).toEqual({ ok: true, from: FROM });
+    expect(sent[1]!.message.split("\r\n")[0]).toBe(`From: ${FROM}`);
+  });
+
+  test("a reply goes through the mailbox holding its email, from the alias, and only that mailbox's alias", async () => {
+    const sent = gmail();
+    const { t, alice, aliceWs } = await withAlias();
+    await connectGmail(t, aliceWs, alice, { address: "alice@other.example" });
+    const reply = { ...EMAIL, subject: "Re: Welcome", from: ALIAS, mailbox: FROM, replyTo: ANSWERED.id };
+    expect(await send(t, ACCESS_A, aliceWs, { email: reply })).toEqual({ ok: true, from: ALIAS, mailbox: FROM });
+    expect(sent[0]!.threadId).toBe(ANSWERED.threadId);
+    expect(sent[0]!.message).toContain(`From: "Front Desk" <${ALIAS}>`);
+    // The same alias named beside a mailbox it is not on is refused, and nothing goes.
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...reply, mailbox: "alice@other.example" } })).toEqual({ ok: false, refused: "not_their_address" });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("an alias added in Gmail since the last read is read then and sends; one Gmail never accepted is refused", async () => {
+    const sent = gmail(200, { [ANSWERED.id]: ANSWERED, sendAs: SEND_AS });
+    const { t, aliceWs, id } = await withAlias();
+    await t.run((ctx) => ctx.db.patch(id, { gmailSendAs: { aliases: [], checkedAt: 0 } }));
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: ALIAS } })).toEqual({ ok: true, from: ALIAS, mailbox: FROM });
+    const kept = await t.run(async (ctx) => (await ctx.db.get(id))?.gmailSendAs?.aliases);
+    // Quotes and angle brackets never reach a header; the pending one and the mailbox's own are not kept.
+    expect(kept).toEqual([{ address: ALIAS, name: "Front Desk x" }]);
+    expect(sent[0]!.message.split("\r\n")[0]).toBe(`From: "Front Desk x" <${ALIAS}>`);
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: "pending@practice.example" } })).toEqual({ ok: false, refused: "not_their_address" });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("another person's token never sends as Alice's alias", async () => {
+    const sent = gmail();
+    const { t, aliceWs, bobWs } = await withAlias();
+    expect(await send(t, ACCESS_B, aliceWs, { email: { ...EMAIL, from: ALIAS } })).toEqual({ ok: false, refused: "not_allowed" });
+    expect(await send(t, ACCESS_B, bobWs, { email: { ...EMAIL, from: ALIAS } })).toEqual({ ok: false, refused: "not_their_address" });
+    expect(sent).toHaveLength(0);
+  });
+});
+
 describe("what an email may be", () => {
   test("anything that could add a header or a hidden recipient is refused", () => {
-    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, cc: [], replyTo: null, forward: null, files: [] });
+    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, mailbox: null, cc: [], replyTo: null, forward: null, files: [] });
+    // A mailbox is named only beside a send-as From of the reply or forward it holds.
+    expect(readPersonEmail({ ...EMAIL, from: "desk@work.example", mailbox: FROM })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, from: FROM, mailbox: FROM, replyTo: "18cafe" })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, from: "desk@work.example", mailbox: "a@x.example\r\nBcc: y@x.example", replyTo: "18cafe" })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, from: "desk@work.example", mailbox: FROM, replyTo: "18cafe" })?.mailbox).toBe(FROM);
     expect(readPersonEmail({ ...EMAIL, subject: "Hi\nBcc: everyone@example.invalid" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["jo@example.invalid, sam@example.invalid"] })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["Jo <jo@example.invalid>"] })).toBeNull();

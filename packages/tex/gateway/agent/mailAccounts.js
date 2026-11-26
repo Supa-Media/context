@@ -29,7 +29,8 @@ function listed(mailboxes) {
     const address = typeof mailbox?.address === "string" ? mailbox.address.trim().toLowerCase() : "";
     if (!ADDRESS.test(address) || seen.has(address)) continue;
     seen.add(address);
-    out.push({ address, state: typeof mailbox.state === "string" ? mailbox.state : "ok", readOnly: mailbox.readOnly === true });
+    const sendsAs = Array.isArray(mailbox.sendsAs) ? mailbox.sendsAs.filter((alias) => typeof alias === "string" && ADDRESS.test(alias)).map((alias) => alias.toLowerCase()) : [];
+    out.push({ address, state: typeof mailbox.state === "string" ? mailbox.state : "ok", readOnly: mailbox.readOnly === true, sendsAs });
   }
   return out.slice(0, MAX_LISTED_MAILBOXES);
 }
@@ -38,7 +39,9 @@ function listed(mailboxes) {
 export function mailAccountsPrompt(mailboxes) {
   const list = listed(mailboxes);
   if (list.length === 0) return "";
-  const names = list.map((mailbox) => `${mailbox.address}${mailbox.readOnly ? " (read only: you can't send from it)" : ""}`).join(", ");
+  // Its "Send mail as" addresses are a fact, given as data: send_email may name any of them as from (Dev2, 2026-11-26).
+  const sendAs = (mailbox) => (mailbox.sendsAs.length > 0 ? ` [send as: ${mailbox.sendsAs.join(", ")}]` : "");
+  const names = list.map((mailbox) => `${mailbox.address}${mailbox.readOnly ? " (read only: you can't send from it)" : sendAs(mailbox)}`).join(", ");
   return (
     `\n\nTheir connected mailboxes: ${names}. ` +
     "search with args { email: true } and no account searches every one of them at once; to search one, add account with its address exactly as written here. " +

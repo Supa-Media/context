@@ -15,7 +15,10 @@ import { Text } from "../../design/components/Text";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { agoLabel } from "../files/mail/model";
-import { MAIL_VIEWS, groupsFor, sideName, type Conversation, type MailView } from "./model";
+import { MAIL_VIEWS, groupsFor, isMe, sideName, type Conversation, type MailView } from "./model";
+import { OwnerFace, type Face } from "../files/folderPage/Glyphs";
+import { cardSlug } from "../files/folderPage/areas/seat";
+import { useBotFaces } from "./useBotFaces";
 import { onWantedThread, takeWantedThread, type MailRoute } from "./MailRouteContext";
 import { MAIL_BAR, MailThread, type MailNoteIO } from "./MailThread";
 import { useConversations } from "./useConversations";
@@ -40,6 +43,7 @@ export function MailPage({
   const { state, conversations, refresh, markSeen } = useConversations(route, fixture?.load);
   const appIO = useMailIO(route.workspaceId);
   const io = fixture?.io ?? appIO;
+  const faceOf = useBotFaces(conversations, io, route.workspaceId);
   const [view, setView] = useState<MailView>("all");
   // A conversation asked for from outside (a bot panel's "Open your mail with …") opens first, and a later ask switches.
   const [selected, setSelected] = useState<string | null>(() => takeWantedThread());
@@ -71,6 +75,7 @@ export function MailPage({
         {...(route.me === undefined ? {} : { me: route.me })}
         onOpenNote={onOpen}
         onSent={refresh}
+        faceOf={faceOf}
         {...(compact ? { onBack: () => setSelected(null) } : { onClose })}
       />
     );
@@ -99,7 +104,7 @@ export function MailPage({
             </Text>
           ) : null}
           {group.conversations.map((each) => (
-            <MailRow key={`${group.key}:${each.path}`} conversation={each} selected={open?.path === each.path} me={route.me} onPress={() => setSelected(each.path)} />
+            <MailRow key={`${group.key}:${each.path}`} conversation={each} selected={open?.path === each.path} me={route.me} faceOf={faceOf} onPress={() => setSelected(each.path)} />
           ))}
         </View>
       ))}
@@ -180,10 +185,24 @@ export function MailPage({
   );
 }
 
-function MailRow({ conversation, selected, me, onPress }: { conversation: Conversation; selected: boolean; me: string | undefined; onPress: () => void }) {
+function MailRow({
+  conversation,
+  selected,
+  me,
+  faceOf,
+  onPress,
+}: {
+  conversation: Conversation;
+  selected: boolean;
+  me: string | undefined;
+  faceOf: (name: string) => Face;
+  onPress: () => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { last } = conversation;
+  // Who the mail is with, on the left as a messages list draws it (Dev2, 2026-11-26): the bot, else the others in it.
+  const [first, second] = rowFaces(conversation, me);
   return (
     <Pressable
       onPress={onPress}
@@ -192,7 +211,15 @@ function MailRow({ conversation, selected, me, onPress }: { conversation: Conver
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.row, (hovered || selected) && styles.rowOn]}
       testID={`mail-row-${conversation.path}`}
     >
-      <View style={styles.rowText}>
+      <View style={styles.rowFaces} aria-hidden testID={`mail-row-face-${conversation.path}`}>
+        {first !== undefined ? <OwnerFace face={faceOf(first)} size={ROW_FACE} /> : null}
+        {second !== undefined ? (
+          <View style={styles.rowFaceSecond}>
+            <OwnerFace face={faceOf(second)} size={ROW_FACE_SECOND} />
+          </View>
+        ) : null}
+      </View>
+      <View style={[styles.rowText, styles.grow]}>
         <View style={styles.rowTop}>
           <Text variant="tree" numberOfLines={1} style={[styles.name, styles.grow]}>
             {conversation.title}
@@ -208,6 +235,21 @@ function MailRow({ conversation, selected, me, onPress }: { conversation: Conver
       </View>
     </Pressable>
   );
+}
+
+const ROW_FACE = 36;
+const ROW_FACE_SECOND = 18;
+
+/** The faces a row leads with: the bot first, then whoever else is in the mail, never the reader unless alone. */
+export function rowFaces(conversation: Pick<Conversation, "place" | "joined" | "last">, me: string | undefined): string[] {
+  const names = [...conversation.joined];
+  if (conversation.last !== null && !names.includes(conversation.last.from)) names.push(conversation.last.from);
+  const others = names.filter((name) => !isMe(name, me));
+  if (conversation.place.kind === "bot") {
+    const bot = conversation.place.bot;
+    return [bot, ...others.filter((name) => cardSlug(name) !== bot)].slice(0, 2);
+  }
+  return (others.length > 0 ? others : names).slice(0, 2);
 }
 
 const makeStyles = (colors: Colors) =>
@@ -232,7 +274,9 @@ const makeStyles = (colors: Colors) =>
     reading: { flex: 1, minWidth: 0 },
     group: { gap: 2, marginBottom: space.x2 },
     groupTitle: { color: colors.muted, textTransform: "uppercase", letterSpacing: 0.4, fontSize: pointerType.meta, marginVertical: space.x1 },
-    row: { paddingVertical: space.x2, paddingHorizontal: space.x2, marginHorizontal: -space.x2, borderRadius: radii.sm },
+    row: { flexDirection: "row", alignItems: "center", gap: space.x3, paddingVertical: space.x2, paddingHorizontal: space.x2, marginHorizontal: -space.x2, borderRadius: radii.sm },
+    rowFaces: { width: ROW_FACE, height: ROW_FACE },
+    rowFaceSecond: { position: "absolute", right: -4, bottom: -4, borderRadius: radii.pill, borderWidth: 2, borderColor: colors.ground },
     rowOn: { backgroundColor: colors.rowSelected },
     rowText: { gap: 2, minWidth: 0 },
     rowTop: { flexDirection: "row", alignItems: "center", gap: space.x2 },

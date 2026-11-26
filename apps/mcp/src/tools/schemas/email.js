@@ -25,7 +25,7 @@ export function emailToolDefinitions() {
           body: { type: "string", description: "The email's plain text, as it will be sent." },
           from: {
             type: "string",
-            description: "Which of the person's connected Gmail addresses sends it. Needed when more than one can send; left out, their only one.",
+            description: "Which of the person's connected Gmail addresses sends it, or one of its send-as addresses listed beside it (a reply too). Needed when more than one can send; left out, their only one.",
           },
           in_reply_to: {
             type: "string",

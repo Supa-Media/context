@@ -30,6 +30,7 @@ export const mailHealth = internalQuery({
         lastSyncedAt: v.union(v.number(), v.null()),
         tell: v.boolean(),
         readOnly: v.boolean(),
+        sendsAs: v.array(v.string()),
       }),
     ),
   ),

@@ -8,6 +8,11 @@
  * Without it, a subject starting "Re:" joins the newest thread in that
  * mailbox with the same subject and one of its recipients
  * (`lib/personEmailThread.ts`), or goes as a new email.
+ * `from` may be one of a mailbox's accepted "Send mail as" addresses
+ * (`lib/gmailSendAs.ts`): it goes through that mailbox with that From, and a
+ * reply or forward then names the mailbox holding its message as `mailbox`.
+ * A From on no list on record has the lists read again once before it is
+ * refused (`not_their_address`).
  * `forward` is the Gmail id of a message in the `from` mailbox: it goes below
  * the person's words with all of its attachments (`lib/personEmailForward.ts`),
  * sent through Gmail's upload endpoint, which takes a message that size.
@@ -34,17 +39,23 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
-import { gmailRaw, headerText, readPersonEmail, recipientLimitKey, recipientsOf, replyHeadersOf, type PersonEmail, type ReplyThread } from "../personEmail";
+import { fromHeader, gmailRaw, headerText, readPersonEmail, recipientLimitKey, recipientsOf, replyHeadersOf, type PersonEmail, type ReplyThread } from "../personEmail";
 import { getReplyHeaders } from "../../../../mcp/src/communications/gmailSync.js";
 import { timeoutFetch } from "../filesFns/forwardSyncSupport";
 import { findReplyThread } from "../personEmailThread";
 import { attachedInGmail } from "../personEmailCheck";
+import { refreshSendAs } from "../../gmailSendAs";
 import { forwardBody, forwardHeaders, forwardMime, newBoundary, readForwarded } from "../personEmailForward";
 
 const GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 const GMAIL_DRAFTS_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/drafts";
 const GMAIL_SEND_UPLOAD = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media";
 const GMAIL_DRAFTS_UPLOAD = "https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media";
+
+/** `mailbox` on an answer only when the email went from one of its "Send mail as" addresses rather than the mailbox itself. */
+function throughOf(from: string, mailbox: string): { mailbox?: string } {
+  return from.toLowerCase() === mailbox.toLowerCase() ? {} : { mailbox };
+}
 
 function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "person_email", ...fields }));
@@ -68,19 +79,31 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
 
   const mailboxes = [...new Set(recipientsOf(email).map(recipientLimitKey))];
   const recipientHashes = await Promise.all(mailboxes.map((mailbox) => hashToken(mailbox)));
-  const claimed = await ctx.runMutation(internal.functions.personEmail.claimPersonEmail, {
-    hashedAccessToken: await hashToken(accessToken),
-    expectedWorkspaceId: expected,
-    recipientHashes,
-    from: email.from,
-    spend: !check,
-    draft,
-  });
+  const hashedAccessToken = await hashToken(accessToken);
+  const claim = () =>
+    ctx.runMutation(internal.functions.personEmail.claimPersonEmail, {
+      hashedAccessToken,
+      expectedWorkspaceId: expected,
+      recipientHashes,
+      from: email.from,
+      ...(email.mailbox !== null ? { mailbox: email.mailbox } : {}),
+      spend: !check,
+      draft,
+    });
+  let claimed = await claim();
+  // A From on no mailbox or "Send mail as" list on record may be an alias added in Gmail since the last read:
+  // read their lists now and ask once more (`functions/gmailSendAs.ts`).
+  if (!claimed.ok && claimed.refused === "not_their_address") {
+    const rows = await ctx.runQuery(internal.functions.gmailSendAs.rowsForToken, { hashedAccessToken, expectedWorkspaceId: expected });
+    for (const connectionId of rows) await refreshSendAs(ctx, connectionId);
+    if (rows.length > 0) claimed = await claim();
+  }
   if (!claimed.ok) {
     log({ outcome: "refused", reason: claimed.refused, check, draft });
     return json({ ok: false, refused: claimed.refused, ...("senders" in claimed ? { senders: claimed.senders } : {}) });
   }
-  if (check) return json({ ok: true, from: claimed.from });
+  if (check) return json({ ok: true, from: claimed.from, ...throughOf(claimed.from, claimed.mailbox) });
+  const fromLine = fromHeader(claimed.from, claimed.fromName);
 
   // Spent before it is sent: a send that fails after Google accepted it still
   // counted, which is the safe direction for a limit against spam.
@@ -92,7 +115,7 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
     return json({ ok: false, refused: "unavailable" });
   }
   // A forward reads the message from the sending mailbox itself, so it can only ever pass on the person's own mail.
-  if (email.forward !== null) return await sendForward(minted.accessToken, email, claimed.from, draft, recipientHashes.length);
+  if (email.forward !== null) return await sendForward(minted.accessToken, email, claimed.from, fromLine, claimed.mailbox, draft, recipientHashes.length);
   // A reply joins the thread of the message it answers, read from the sending
   // mailbox itself, so it can only ever answer the person's own mail.
   let thread: ReplyThread | null = null;
@@ -111,9 +134,9 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
     thread = await findReplyThread(timeoutFetch, minted.accessToken, email);
     if (thread !== null) log({ outcome: "thread_found", draft });
   }
-  if (email.files.length > 0) return await sendWithFiles(minted.accessToken, email, claimed.from, thread, draft, recipientHashes.length);
+  if (email.files.length > 0) return await sendWithFiles(minted.accessToken, email, claimed.from, fromLine, claimed.mailbox, thread, draft, recipientHashes.length);
   try {
-    const raw = gmailRaw(email, claimed.from, thread);
+    const raw = gmailRaw(email, fromLine, thread);
     const message = thread ? { raw, threadId: thread.threadId } : { raw };
     // Bounded, inside the gateway's own wait, so a send never completes
     // after the AI was told it failed and asks again (2026-10-20).
@@ -128,18 +151,18 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
     log({ outcome: "transport_error", draft });
     return json({ ok: false, refused: "unavailable" });
   }
-  return json({ ok: true, from: claimed.from });
+  return json({ ok: true, from: claimed.from, ...throughOf(claimed.from, claimed.mailbox) });
 }
 
 /** A forward, attachments and all, sent (or saved as a draft) as one `message/rfc822` upload. */
-async function sendForward(accessToken: string, email: PersonEmail, from: string, draft: boolean, recipients: number): Promise<Response> {
+async function sendForward(accessToken: string, email: PersonEmail, from: string, fromLine: string, mailbox: string, draft: boolean, recipients: number): Promise<Response> {
   const read = await readForwarded(timeoutFetch, accessToken, email.forward!);
   if (!read.ok) {
     log({ outcome: read.refused, draft, forward: true });
     return json({ ok: false, refused: read.refused });
   }
   const mime = forwardMime(
-    forwardHeaders(email, from, headerText(email.subject)),
+    forwardHeaders(email, fromLine, headerText(email.subject)),
     forwardBody(email.body, read.forwarded),
     // Files the person's AI downloaded go after the forwarded email's own.
     [...read.forwarded.files, ...email.files],
@@ -157,7 +180,7 @@ async function sendForward(accessToken: string, email: PersonEmail, from: string
     log({ outcome: "transport_error", draft, forward: true });
     return json({ ok: false, refused: "unavailable" });
   }
-  return json({ ok: true, from });
+  return json({ ok: true, from, ...throughOf(from, mailbox) });
 }
 
 /**
@@ -166,9 +189,9 @@ async function sendForward(accessToken: string, email: PersonEmail, from: string
  * endpoint, which carries a thread id and a message up to Gmail's 5 MB there;
  * anything else goes through the upload endpoint, as a forward does.
  */
-async function sendWithFiles(accessToken: string, email: PersonEmail, from: string, thread: ReplyThread | null, draft: boolean, recipients: number): Promise<Response> {
+async function sendWithFiles(accessToken: string, email: PersonEmail, from: string, fromLine: string, mailbox: string, thread: ReplyThread | null, draft: boolean, recipients: number): Promise<Response> {
   const headers = [
-    ...forwardHeaders(email, from, headerText(email.subject)),
+    ...forwardHeaders(email, fromLine, headerText(email.subject)),
     ...(thread ? [`In-Reply-To: ${thread.inReplyTo}`, `References: ${thread.references.join(" ")}`] : []),
   ];
   const mime = forwardMime(headers, email.body, email.files, newBoundary());
@@ -203,7 +226,7 @@ async function sendWithFiles(accessToken: string, email: PersonEmail, from: stri
   // What Gmail holds, read back, so the AI says "attached" from Gmail's answer (`personEmailCheck.ts`).
   const attached = await attachedInGmail(accessToken, created, draft);
   if (attached !== null && attached.length < email.files.length) log({ outcome: "attachments_missing", draft, files: email.files.length, held: attached.length });
-  return json({ ok: true, from, ...(attached !== null ? { attached } : {}) });
+  return json({ ok: true, from, ...throughOf(from, mailbox), ...(attached !== null ? { attached } : {}) });
 }
 
 /** Under the 5 MB Gmail's JSON send takes, once base64url has grown the message by a third. */

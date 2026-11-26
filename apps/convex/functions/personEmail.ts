@@ -23,10 +23,13 @@ import { GMAIL_COMPOSE_SCOPE, canSendEmail, personEmailDraftPolicies, personEmai
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { aiAccessNeeded, aiScopesOf } from "./lib/googleConnect/aiScopes";
+import { aliasOf, sendingAddressesOf } from "./lib/gmailSendAs";
 
 const refusal = v.union(
   v.literal("not_allowed"),
   v.literal("no_sender"),
+  // The From is none of their connected Gmails and no accepted "Send mail as" address of one (`lib/gmailSendAs.ts`).
+  v.literal("not_their_address"),
   v.literal("ai_access_needed"),
   v.literal("reconnect_required"),
   v.literal("hourly_limit"),
@@ -52,12 +55,25 @@ export const claimPersonEmail = internalMutation({
     recipientHashes: v.array(v.string()),
     /** The connected address to send from, lowercased; null when only one can (several answer `choose_sender`). */
     from: v.union(v.string(), v.null()),
+    /**
+     * The connected address that holds the message a reply or forward names, when `from` is a "Send mail as" address
+     * of it rather than the mailbox itself; the email goes through that mailbox, from `from`.
+     */
+    mailbox: v.optional(v.string()),
     spend: v.boolean(),
     /** Save it as a draft in their Gmail rather than send it. */
     draft: v.optional(v.boolean()),
   },
   returns: v.union(
-    v.object({ ok: v.literal(true), from: v.string(), connectionId: v.id("googleConnections") }),
+    v.object({
+      ok: v.literal(true),
+      from: v.string(),
+      /** Gmail's display name for a send-as address it goes from; absent for the mailbox's own. */
+      fromName: v.optional(v.string()),
+      /** The connected mailbox it goes through, which is `from` unless that is a send-as address. */
+      mailbox: v.string(),
+      connectionId: v.id("googleConnections"),
+    }),
     v.object({ ok: v.literal(false), refused: refusal }),
     // More than one Gmail could send and the email named none: the AI names one (`from`), never the oldest by default.
     v.object({ ok: v.literal(false), refused: v.literal("choose_sender"), senders: v.array(v.string()) }),
@@ -80,13 +96,16 @@ export const claimPersonEmail = internalMutation({
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))
       .take(20);
-    const able = connections.filter(
-      (row) =>
-        row.disconnectedAt === undefined &&
-        row.products.includes("gmail") &&
-        granted(aiScopesOf(row)) &&
-        (args.from === null || row.address.toLowerCase() === args.from),
-    );
+    /*
+      The From names the mailbox itself or one of its accepted "Send mail as" addresses (Dev2, 2026-11-26: seyi@… sends
+      as reception@…). A reply or forward names the mailbox holding its message too, and the From must be that one's.
+    */
+    const mailbox = args.mailbox?.toLowerCase();
+    const sendsAs = (row: (typeof connections)[number]) =>
+      (mailbox === undefined || row.address.toLowerCase() === mailbox) && (args.from === null || sendingAddressesOf(row).includes(args.from));
+    const live = connections.filter((row) => row.disconnectedAt === undefined && row.products.includes("gmail"));
+    if (args.from !== null && !live.some(sendsAs)) return { ok: false as const, refused: "not_their_address" as const };
+    const able = live.filter((row) => granted(aiScopesOf(row)) && sendsAs(row));
     // A mailbox whose Google sign-in stopped working cannot send: another one
     // that can is chosen, or the person is told to reconnect it (2026-10-20).
     const healthy = able.filter((row) => row.health !== "reconnect_required");
@@ -102,13 +121,7 @@ export const claimPersonEmail = internalMutation({
     if (sender === undefined) {
       if (able.length > 0) return { ok: false as const, refused: "reconnect_required" as const };
       // A Gmail AI may not use until its owner allows AI access: a reconnect would not let it send (`aiAccessNeeded`).
-      const waiting = connections.some(
-        (row) =>
-          row.disconnectedAt === undefined &&
-          row.products.includes("gmail") &&
-          (args.from === null || row.address.toLowerCase() === args.from) &&
-          aiAccessNeeded(row),
-      );
+      const waiting = live.some((row) => sendsAs(row) && aiAccessNeeded(row));
       return { ok: false as const, refused: waiting ? ("ai_access_needed" as const) : ("no_sender" as const) };
     }
     const hashes = [...new Set(args.recipientHashes)];
@@ -119,7 +132,14 @@ export const claimPersonEmail = internalMutation({
     for (const policy of policies) {
       if (!(await hasRoom(ctx, policy))) return { ok: false as const, refused: policy.refusal };
     }
-    const sent = { ok: true as const, from: sender.address, connectionId: sender._id };
+    const alias = args.from === null ? null : aliasOf(sender, args.from);
+    const sent = {
+      ok: true as const,
+      from: alias?.address ?? sender.address,
+      ...(alias?.name ? { fromName: alias.name } : {}),
+      mailbox: sender.address,
+      connectionId: sender._id,
+    };
     if (!args.spend) return sent;
     for (const policy of policies) {
       // Every one was checked above in this same transaction, so none refuses here.
