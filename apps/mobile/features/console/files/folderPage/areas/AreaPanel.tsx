@@ -17,7 +17,6 @@
 
 import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
-import { Circle, Line, Polyline, Svg } from "react-native-svg";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { fonts, pointerType, radii, space, touchType } from "../../../../design/tokens";
@@ -29,10 +28,10 @@ import { PanelMail, type PanelMailTools } from "./PanelMail";
 import { PanelProjects, type PanelProjectsTools } from "./PanelProjects";
 import { PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
 import { PanelGoal } from "./PanelGoal";
+import { PanelTrend } from "./PanelTrend";
 import type { Reading } from "./readings";
 import { readingSource, type AreaReading } from "./areaMetric";
 import { areaTitle, type AreaNode, type Card, type Seat, type SeatEdit } from "./seat";
-import type { TrendGeometry } from "./Trend";
 
 export interface AreaPanelProps {
   node: AreaNode;
@@ -149,7 +148,7 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
           </View>
         )}
         {headline?.trend == null ? null : (
-          <PanelTrend geometry={headline.trend} ink={headline.state === "met" ? colors.ok : headline.state === "missed" ? colors.warn : colors.muted} width={Math.max(160, width)} height={64} />
+          <PanelTrend geometry={headline.trend} points={headline.points} ink={headline.state === "met" ? colors.ok : headline.state === "missed" ? colors.warn : colors.muted} width={Math.max(160, width)} height={64} />
         )}
         {headline?.verdict?.pace ? (
           <Text variant="treeMeta" style={styles.muted} testID="area-panel-pace">
@@ -237,33 +236,6 @@ export function periodWords(period: string): string {
   if (hours !== null) return `the last ${hours[1]} hours`;
   const known: Record<string, string> = { mtd: "this month so far", now: "right now", today: "today" };
   return known[period.toLowerCase()] ?? period;
-}
-
-/**
- * The trend at the panel's width. `Trend` stretches its small box to the size
- * asked for, which is right for the list's 56 but would smear the line, the
- * dashes and the dot across a panel; this lays the same points out in the
- * panel's own pixels instead.
- */
-function PanelTrend({ geometry, ink, width, height }: { geometry: TrendGeometry; ink: string; width: number; height: number }) {
-  const colors = useColors();
-  // `Trend`'s box: 56×20 seen through a viewBox 3 wider each side.
-  const x = (value: number) => ((value + 3) / 62) * width;
-  const y = (value: number) => ((value + 3) / 26) * height;
-  const points = geometry.points
-    .split(" ")
-    .map((pair) => pair.split(",").map(Number))
-    .map(([px, py]) => `${x(px ?? 0).toFixed(1)},${y(py ?? 0).toFixed(1)}`)
-    .join(" ");
-  return (
-    <Svg width={width} height={height} aria-hidden testID="area-panel-trend">
-      {geometry.targetY === null ? null : (
-        <Line x1={0} x2={width} y1={y(geometry.targetY)} y2={y(geometry.targetY)} stroke={colors.muted} strokeWidth={1} strokeDasharray="4 4" />
-      )}
-      <Polyline points={points} fill="none" stroke={ink} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-      <Circle cx={x(geometry.lastX)} cy={y(geometry.lastY)} r={3.5} fill={ink} />
-    </Svg>
-  );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

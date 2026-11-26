@@ -12,6 +12,7 @@ import type { AreaReading, ReadingStatus } from "./areaMetric";
 import { shortTarget } from "./shortTarget";
 import { targetNumber, targetState, type Reading, type TargetState } from "./readings";
 import { trendGeometry, type TrendGeometry } from "./Trend";
+import type { TrendPoint } from "./trendPoints";
 import type { Seat } from "./seat";
 import { goalWords, verdictOf, type Verdict } from "./verdict";
 
@@ -24,6 +25,8 @@ export interface Headline {
   readonly date: string;
   readonly state: TargetState;
   readonly trend: TrendGeometry | null;
+  /** What hovering each point of the trend says, in its order; empty when nothing is known. */
+  readonly points: readonly TrendPoint[];
   /** "Stripe + Cloudflare · last row 1h ago" for a workspace metric; "" for `metrics.csv`. */
   readonly source: string;
   /** "7d", "MTD": the time range the value covers, tagged beside the label; "" when nothing says. */
@@ -46,6 +49,11 @@ function fromArea(reading: Reading | AreaReading | undefined): reading is AreaRe
   return reading !== undefined && "from" in reading;
 }
 
+/** The hover words, only when there is one for every number the trend draws. */
+function pointsFor(reading: Reading): readonly TrendPoint[] {
+  return reading.points !== undefined && reading.points.length === reading.series.length ? reading.points : [];
+}
+
 /** Null when the area names no metric. */
 export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefined, now: number = Date.now()): Headline | null {
   const metric = seat.metrics[0];
@@ -61,6 +69,7 @@ export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefine
       date: reading.date,
       state: metric.target === null ? "unknown" : stateFrom(verdict, reading.state),
       trend: reading.status === "ok" ? trendGeometry(reading.series, reading.limit) : null,
+      points: reading.status === "ok" ? pointsFor(reading) : [],
       source: [reading.inputs, reading.when].filter((part) => part !== "").join(" · "),
       period: reading.period,
       status: reading.status,
@@ -76,6 +85,7 @@ export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefine
     date: reading?.date ?? "",
     state: metric.target === null ? "unknown" : stateFrom(verdict, targetState(reading, metric.target)),
     trend: reading === undefined ? null : trendGeometry(reading.series, targetNumber(reading, metric.target)),
+    points: reading === undefined ? [] : pointsFor(reading),
     source: "",
     period: "",
     status: reading === undefined ? "none" : "ok",

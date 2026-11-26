@@ -17,8 +17,9 @@ describe("a goal's direction and bar", () => {
   test("a written direction is split from its bar, in the words it used", () => {
     expect(goalParts("at most 2")).toEqual({ word: "At most", bar: "2" });
     expect(goalParts("at least 100 by Dec 31")).toEqual({ word: "At least", bar: "100 by Dec 31" });
-    expect(goalParts("under $600")).toEqual({ word: "Less than", bar: "$600" });
-    expect(goalParts("over 5")).toEqual({ word: "More than", bar: "5" });
+    // A strict word reads as its inclusive shape (the owner, 2026-11-26: "at least sounds like its the same as more than").
+    expect(goalParts("under $600")).toEqual({ word: "At most", bar: "$600" });
+    expect(goalParts("over 5")).toEqual({ word: "At least", bar: "5" });
     expect(goalParts("10 or more")).toEqual({ word: "At least", bar: "10" });
     expect(goalParts("4 or less")).toEqual({ word: "At most", bar: "4" });
   });
@@ -31,14 +32,14 @@ describe("a goal's direction and bar", () => {
 
   test("the dropdown offers every shape, each one the verdict reads", () => {
     const now = Date.UTC(2026, 10, 26);
-    expect(GOAL_SHAPES.map((shape) => shape.word)).toEqual(["At least", "At most", "More than", "Less than"]);
+    expect(GOAL_SHAPES.map((shape) => shape.word)).toEqual(["At least", "At most"]);
     const kinds = GOAL_SHAPES.map((shape) => verdictOf("3", goalTarget(shape.word, "3"), null, now)?.words);
-    expect(kinds).toEqual(["On target", "On target", "Under target", "Needs a look"]);
+    expect(kinds).toEqual(["On target", "On target"]);
   });
 
   test("a direction and a bar write one line; a bar with its own word is taken as typed; empty is no goal", () => {
     expect(goalTarget("At most", "2")).toBe("at most 2");
-    expect(goalTarget("Less than", "$500")).toBe("less than $500");
+    expect(goalTarget("At most", "$500")).toBe("at most $500");
     expect(goalTarget("At least", "100 by Dec 31")).toBe("at least 100 by Dec 31");
     expect(goalTarget("At most", "at least 3")).toBe("at least 3");
     expect(goalTarget("At most", "3 or more")).toBe("3 or more");

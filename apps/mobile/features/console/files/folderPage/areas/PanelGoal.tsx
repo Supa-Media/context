@@ -1,6 +1,6 @@
 /**
  * An area metric's goal in the side panel: its shape picked from a dropdown
- * (At least, At most, More than, Less than) and its number in a field beside
+ * (At least or At most) and its number in a field beside
  * it, so no direction word is ever typed (the owner, 2026-11-26: "there
  * should just be a dropdown for the different shapes a metric can take", "it
  * shouldnt be typed out"). A goal written in words with no number keeps the
