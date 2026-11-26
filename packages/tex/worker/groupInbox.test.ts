@@ -5,7 +5,7 @@ import { parseSendblueInbound } from "./sendblue";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
 import type { Fetch } from "./clients";
-import type { Decide } from "./groupWorld.testing";
+import { WITHOUT_DID, type Decide } from "./groupWorld.testing";
 import { commandTo } from "./groupWords";
 import { unwritten } from "./events";
 import { LINE, ADA, BO, CY, GROUP, PICTURE, message, deps, world } from "./groupInboxWorld.testing";
@@ -365,7 +365,8 @@ describe("a group's queue", () => {
       const storage = new MemoryStorage();
       const w = world();
       await acceptGroup(storage, message(text), 0);
-      await drainGroup(storage, deps(w, { control }));
+      // The old lines, as sent when node did is not wired (`didFacts.ts`): the fallback every did turn keeps.
+      await drainGroup(storage, { ...deps(w, { control }), texGraph: WITHOUT_DID });
       expect(w.sends.map((sent) => sent.content)).toEqual([said]);
       expect(w.asks).toEqual([]);
     }
@@ -591,7 +592,7 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex what can you see?", { eventId: "sendblue:status", messageId: "status" }), 10);
-    await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", reach: ["band"] } }));
+    await drainGroup(storage, { ...deps(w, { control: { ...ready, handle: "ada", reach: ["band"] } }), texGraph: WITHOUT_DID });
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.status(["band"])]);
   });
 
