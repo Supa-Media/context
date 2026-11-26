@@ -18,6 +18,9 @@
  *   3. The approved replay sends it. Only that replay reads the texts, off
  *      the person's own conversation file, never from anything the model
  *      wrote: the model can say whether they go, never what they say.
+ *   5. A report filed by a turn that read words from outside waits for their
+ *      yes all the same: the body is the model's prose, and the one gate on
+ *      their own words reaching the team is this one.
  *   4. A report with none of their texts is sent at once, and nobody is
  *      shown it or asked: nothing of theirs goes with it (the owner,
  *      2026-10-21, for a report they had asked for; widened 2026-11-26 to
@@ -107,12 +110,16 @@ export async function reportGate(supplied, { store, session }) {
     );
   }
 
+  const ledger = session.egress?.ledger ?? null;
   // None of their texts go: sent now, shown to nobody and asked of nobody (4. above). Only their texts are theirs to
   // hand over; a report of what broke is not (Dev2, 2026-11-26, after a group was shown a report that blamed the wrong
   // step, with "Only @seyi can OK it", for a page save that failed).
-  if (!shareTexts) return await sendReport(store, message, undefined);
+  //
+  // Except on a turn that read words from outside (5. above): the report's body is the model's own prose, so an email
+  // or a page that asks for a bug report would otherwise put the person's words in it and send them to the team with
+  // nobody shown it. Such a report waits for their yes like one that carries the texts.
+  if (!shareTexts && ledger?.untrusted !== true) return await sendReport(store, message, undefined);
 
-  const ledger = session.egress?.ledger ?? null;
   if (ledger?.asked.some((asked) => asked.tool === REPORT_TOOL && asked.key !== callKey(REPORT_TOOL, supplied))) {
     return toolError("Not sent: one bug report at a time by text. Ask about this one after the person answers.");
   }
