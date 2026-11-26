@@ -212,6 +212,11 @@ export const oauthTables = {
          * counts as its person's own (`lib/controlPlane/session.ts` `texOwnTag`).
          */
         ownTagToken: v.optional(v.string()),
+        /**
+         * Who was in the chat on that newest own tag, as keyed hashes of their numbers (`lib/groupHoldPeople.ts`): what an
+         * answer held on that tag is recorded with (`functions/groupHolds.ts`), never a number a caller names.
+         */
+        ownTagPresent: v.optional(v.array(v.string())),
         invitedTaggerRole: v.optional(v.union(v.literal("editor"), v.literal("member"))),
         /**
          * A home-only grant (`lib/textGroupHomeOnly.ts`, decided by the owner, 2026-10-31): minted on the pinned

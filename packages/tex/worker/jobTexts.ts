@@ -36,7 +36,7 @@ export const JOB_REPORT_PATH = "(job report)";
 export function reportOf(entry: JobEntry, update: JobUpdate): JobReport | null {
   const texts = (update.texts ?? []).filter((text) => text.trim() !== "");
   // How it ended goes as facts (`jobs.ts` `JobEnd`), and the chat's turn says it: a report of only that still reports.
-  return texts.length === 0 && update.end === undefined ? null : { id: update.id, title: entry.title, state: update.state, texts, ...(update.end ? { end: update.end } : {}), ...(update.ask ? { ask: update.ask } : {}), ...(entry.unasked ? { unasked: true as const } : {}) };
+  return texts.length === 0 && update.end === undefined ? null : { id: update.id, title: entry.title, state: update.state, texts, ...(update.end ? { end: update.end } : {}), ...(update.ask ? { ask: update.ask } : {}), ...(entry.unasked ? { unasked: true as const } : {}), ...(update.roomRead?.length ? { roomRead: update.roomRead } : {}) };
 }
 
 /** `POST /job-update`: false only when the job is not this chat's. Throws when the report could not be queued, so the job offers it again. */

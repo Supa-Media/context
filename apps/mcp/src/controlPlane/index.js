@@ -33,6 +33,7 @@ import { createLabSandboxMethods } from "./texLabSandbox.js";
 import { createTexChatHomeMethods } from "./texChatHome.js";
 import { createTexMachineMethods } from "./texMachines.js";
 import { createTimeZoneMethods } from "./timeZone.js";
+import { createGroupHoldMethods } from "./groupHolds.js";
 
 export { ControlPlaneError, controlPlaneErrorCode, sha256Hex, isLoopbackHost };
 
@@ -82,5 +83,6 @@ export function createControlPlane(env, options = {}) {
     ...createTexChatHomeMethods({ post }),
     ...createTexMachineMethods({ post }),
     ...createTimeZoneMethods({ post }),
+    ...createGroupHoldMethods({ post }),
   };
 }

@@ -69,7 +69,7 @@ export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: tru
  * Read as strictly as node `did`'s facts (`didFacts.ts` `didOf`).
  */
 export type JobEnd = { action: "job"; status: string; [field: string]: string | number | boolean };
-export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; end?: JobEnd; ask?: string; unasked?: true };
+export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; end?: JobEnd; ask?: string; unasked?: true; /** Workspaces it read that someone in its group can't open (`roomCheck.js`). */ roomRead?: string[] };
 /** `waiting`: it needs something only they can give; `stuck`: no way forward, or out of time (`jobRun.ts`). */
 export type JobState = "running" | "done" | "failed" | "waiting" | "stuck";
 
@@ -80,7 +80,7 @@ export type JobOrigin =
 
 /** Everything a job's object needs to run it. */
 /** `note`: the job's note and who it is on its mail (`jobNote.ts`); `noteAsked`: the note was asked for once, made or not. */
-export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; /** One line per part carried on (`jobRun.ts` `partLine`), for the last word of a job that ends short. */ parts?: string[]; /** The steps of the last part, when it was cut off before it answered (`jobRun.ts`). */ cutOff?: string[]; /** What its parts got, saved as it returned (`jobProgress.ts`), and how each part ended. */ saved?: JobSaved; ends?: PartEnd[]; unfinished?: true; advice?: string; resumes?: number; /** The part it goes on from, when the part before was cut off (`jobPartResume.ts`), and the part whose try was handed saved rounds. */ carryFrom?: number; resumedTry?: number; idle?: true; /** Fingerprints of results read so far, and parts in a row that found nothing new (`jobProgress.ts` `freshness`). */ seen?: string[]; stale?: number; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true };
+export type JobRun = StartedJob & { id: string; inbox: string; origin: JobOrigin; attempt: number; tries: number; startedAt: number; draft?: string; /** One line per part carried on (`jobRun.ts` `partLine`), for the last word of a job that ends short. */ parts?: string[]; /** The steps of the last part, when it was cut off before it answered (`jobRun.ts`). */ cutOff?: string[]; /** What its parts got, saved as it returned (`jobProgress.ts`), and how each part ended. */ saved?: JobSaved; ends?: PartEnd[]; unfinished?: true; advice?: string; resumes?: number; /** The part it goes on from, when the part before was cut off (`jobPartResume.ts`), and the part whose try was handed saved rounds. */ carryFrom?: number; resumedTry?: number; idle?: true; /** Fingerprints of results read so far, and parts in a row that found nothing new (`jobProgress.ts` `freshness`). */ seen?: string[]; stale?: number; machineRun?: MachineRunRef; machineSession?: string; note?: JobNote; noteAsked?: true; /** Workspaces its parts read that someone in its group can't open. */ roomRead?: string[] };
 /** The part running on the machine now, kept so a pass that restarts reads the same run instead of assigning another. */
 export type MachineRunRef = { runId: string; part: number; deadline: number };
 
@@ -93,7 +93,7 @@ export type JobEntry = RunningJob & { unasked?: true; chatId?: string; messageId
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number; part?: number; ends?: PartEnd[]; end?: JobEnd };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number; part?: number; ends?: PartEnd[]; end?: JobEnd; roomRead?: string[] };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -534,7 +534,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt, part, ends, end } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt, part, ends, end, roomRead } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -556,7 +556,7 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(Number.isInteger(part) && (part as number) > 0 && (part as number) < 1_000 ? { part: part as number } : {}),
     ...(readEnds(ends).length > 0 ? { ends: readEnds(ends) } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
-    ...(jobEndOf(end) ? { end: jobEndOf(end)! } : {}),
+    ...(jobEndOf(end) ? { end: jobEndOf(end)! } : {}), ...(Array.isArray(roomRead) && roomRead.length > 0 ? { roomRead: [...new Set(roomRead.filter((slug): slug is string => typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)))].slice(0, 24) } : {}), // `roomRead.ts`
   };
 }
 

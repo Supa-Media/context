@@ -106,7 +106,7 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; vaultLinks?: string[]; verdict?: JobVerdict; advice?: string; idle?: true }
+  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; vaultLinks?: string[]; verdict?: JobVerdict; advice?: string; idle?: true; roomRead?: string[] }
   /** Nothing ran (or the model was down): try the same turn again later. `why` is kept for the job's last word if no try is left. */
   | { kind: "retry"; why?: string; cause?: "model_down" }
   /** It ran and broke: carry on in a new turn, if one is left. `cause`: why, when it is known (`jobProgress.ts`). */
@@ -250,12 +250,14 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     return { kind: "after", ms: OVERLAP_WAIT_MS, overlap: true };
   }
   let sent = run.sent ?? 0;
+  // The workspaces its parts read that someone in its group can't open (`packages/tex/gateway/agent/roomCheck.js`): its report carries them.
+  let roomRead = run.roomRead ?? [];
   // An owed update keeps the pass that wrote it, so the inbox takes it as that pass's word again.
   const pass = run.owed?.pass ?? crypto.randomUUID();
   const tell = async (update: Omit<JobUpdate, "id" | "first">): Promise<boolean> => {
     // Words for the chat go to its own turn with who asked and what, so that turn can start the job again (`jobTexts.ts`).
     const asked = update.texts?.length ? { asked: run.origin.kind === "phone" ? { from: run.origin.phone, text: run.origin.question } : { from: run.origin.message.from, text: run.origin.message.text } } : {};
-    const ok = await deps.report(run.inbox, { id: run.id, pass, ...asked, ...update, first: sent }).catch(() => false);
+    const ok = await deps.report(run.inbox, { id: run.id, pass, ...asked, ...update, ...(roomRead.length > 0 && update.texts?.length ? { roomRead } : {}), first: sent }).catch(() => false);
     const count = (update.pictures?.length ?? 0) + (update.texts?.length ?? 0);
     // Counted only while this pass holds the job: a pass overtaken never writes the run back.
     if (ok && count > 0 && (await storage.get<string>(PASS_KEY)) === pass) {
@@ -326,6 +328,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   } finally {
     if (live.get(storage) === turn) live.delete(storage);
   }
+  if (outcome.kind === "answer" && outcome.roomRead?.length) roomRead = [...new Set([...roomRead, ...outcome.roomRead])].slice(0, 24);
   // Another pass took the job meanwhile, or already finished it: that one's word is the only one the chat gets.
   if ((await storage.get<string>(PASS_KEY)) !== pass) {
     log("stale_pass", run.id);
@@ -397,7 +400,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     // a cloud reviewer's tenth part answered a screenshot, and that alone became its report: "nothing from it is built").
     const said = outcome.kind === "answer" ? partLine(run.attempt, outcome.texts, outcome.status) : null;
     const parts = said === null ? run.parts : [...(run.parts ?? []), said].slice(-MAX_PARTS_KEPT);
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...carryPatch(run, outcome), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, ...(roomRead.length > 0 ? { roomRead } : {}), attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...carryPatch(run, outcome), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
     await tell({
       state: "running",
       part: run.attempt + 1,
@@ -591,6 +594,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       ...(answer.vaultWatch ? { vaultWatch: true as const, ...(answer.vaultLinks ? { vaultLinks: answer.vaultLinks } : {}) } : {}),
       ...(answer.verdict ? { verdict: answer.verdict, ...(answer.advice ? { advice: answer.advice } : {}) } : {}),
       ...(answer.idle ? { idle: true as const } : {}),
+      ...(answer.roomRead?.length ? { roomRead: answer.roomRead } : {}),
     };
   }
   if (answer.kind === "not_started") return { kind: "retry" };
@@ -673,6 +677,8 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
     // And the calendars shared with it (Dev2, 2026-11-25: a check-in's job was told none were, read the wrong ones first).
     ...(asked.calendar?.length ? { calendar: asked.calendar } : {}),
+    // Who here can't open which of the asker's workspaces, so the job's reads from them go with its report (`roomCheck.js`).
+    ...(asked.blocked?.length ? { blocked: asked.blocked } : {}), ...(asked.unshared?.length ? { unshared: asked.unshared } : {}),
     chat: [],
   };
   // Streamed, so its steps reach the chat as it takes them; a group's turn texts no progress of its own.
