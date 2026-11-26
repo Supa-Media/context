@@ -277,7 +277,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
       const line = groupLineFor(groupLineSeam(deps), message.groupId);
       const place = { line: message.line, groupId: message.groupId };
       const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid });
-      await tapback(storage, { chat: message.groupId, now: deps.now, by: answer.react ? "tex" : "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => line.react(place, message.messageId, sent), sticker !== undefined ? { id: sticker, stick } : undefined).catch(() => {});
+      const sent = await tapback(storage, { chat: message.groupId, now: deps.now, by: answer.react ? "tex" : "classifier", asked: answer.react || undefined, turn: steer.turn }, message.text, (sent) => line.react(place, message.messageId, sent), sticker !== undefined ? { id: sticker, stick } : undefined).catch(() => null);
+      // Kept as Tex's line, as a 1:1's is (`inbox.ts`): the next turn reads what went ("sticker s…" or the emoji), so a
+      // later "that sticker" names it. Dropped, the chat kept only the people's tapbacks on Tex's "￼" (Dev2, 2026-11-26).
+      if (sent) await addEvent(storage, { at: deps.now(), chat: message.groupId, from: { kind: "tex" }, kind: "reaction", text: sent, delivered: true, turn: steer.turn, covers }).catch(() => {});
     }
     if (answer.sendSticker !== undefined) await sendGroupSticker(storage, deps, message, answer.sendSticker, meta.turn);
     await handOff();
