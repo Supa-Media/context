@@ -20,7 +20,8 @@ import { usedByWords } from "../../data/metrics";
 import { sourceBySlug, type DataSource } from "../../data/sources";
 import { metricView } from "../../data/views";
 import { ago, lastRowAt, periodTag } from "../../data/words";
-import { HIDDEN, inputsOf, stateOf, targetOnScale, trendOf, type Sheet, type Worked } from "../../data/workOut";
+import { HIDDEN, inputsOf, shownValue, stateOf, targetOnScale, trendOf, type Sheet, type Worked } from "../../data/workOut";
+import { periodDateWords, type TrendPoint } from "./trendPoints";
 import { directedTarget, leadingNumber, readingFor, targetNumber, targetState, type Reading, type Readings, type TargetState } from "./readings";
 import { metricKey, type Metric, type Seat, type SeatEdit } from "./seat";
 
@@ -99,6 +100,13 @@ function startOf(worked: Worked): { value: number; at: number } | null {
   return { value: first.value * scale, at };
 }
 
+/** What hovering each number the trend draws says: the period's value as the metric shows it, and its dates. */
+function pointsOf(worked: Worked, format: string): TrendPoint[] {
+  return worked.periods
+    .filter((p) => p.status === "ok" && p.value !== null)
+    .map((p) => ({ value: shownValue({ value: p.value, status: "ok" }, format), date: periodDateWords(p.from, p.to) }));
+}
+
 /** What one workspace metric reads as for an area with `target`. */
 export function workspaceReading(metric: MetricNote, ws: WorkspaceMetrics, target: string | null): AreaReading {
   const worked = ws.worked.get(metric.path);
@@ -118,7 +126,7 @@ export function workspaceReading(metric: MetricNote, ws: WorkspaceMetrics, targe
   }
   if (status === "hidden") return { ...base, status: "hidden", value: HIDDEN, series: [], state: "unknown", limit: null };
   if (status !== "ok") return { ...base, status: "none", value: "", series: [], state: "unknown", limit: null };
-  return { ...base, status: "ok", value: worked.shown, series: trendOf(worked), start: startOf(worked), state: stateOf(worked, target), limit: targetOnScale(worked, target) };
+  return { ...base, status: "ok", value: worked.shown, series: trendOf(worked), points: pointsOf(worked, metric.format), start: startOf(worked), state: stateOf(worked, target), limit: targetOnScale(worked, target) };
 }
 
 /**

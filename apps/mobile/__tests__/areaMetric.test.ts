@@ -119,6 +119,9 @@ describe("an area's metric is a workspace metric by name", () => {
     // The time range the number covers, from the note's own `every`: a month so far.
     expect(reading.period).toBe("MTD");
     expect(reading.series).toEqual([6.1, 9.4]);
+    // Hovering the trend says each point's value as the metric shows it, and its dates (the owner, 2026-11-26).
+    expect(reading.points?.map((point) => point.value)).toEqual(["$6.10", "$9.40"]);
+    expect(reading.points?.every((point) => point.date !== "")).toBe(true);
     expect(areaReading({ name: "Revenue per AI dollar", target: "over $10" }, workspace(), undefined)!.state).toBe("missed");
   });
 
@@ -128,6 +131,7 @@ describe("an area's metric is a workspace metric by name", () => {
     expect(reading.from).toBe("sheet");
     expect(reading.value).toBe("$512");
     expect(reading.series).toEqual([540, 512]);
+    expect(reading.points).toEqual([{ value: "$540", date: "Nov 2" }, { value: "$512", date: "Nov 23" }]);
     expect(reading.state).toBe("met");
     expect(reading.inputs).toBe("");
     // A metrics.csv line names no period, so it gets no tag rather than a guessed one.

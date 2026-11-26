@@ -13,6 +13,7 @@
 
 import { dateMs, parseSheet } from "../../../../../../mcp/src/sheets/csv.js";
 import type { Metric } from "./seat";
+import { rowDateWords, type TrendPoint } from "./trendPoints";
 
 export const METRICS_SHEET = "metrics.csv";
 
@@ -25,6 +26,8 @@ export interface Reading {
   readonly series: readonly number[];
   /** The oldest dated reading with a number, where a goal's pace line starts; absent when none says when. */
   readonly start?: { readonly value: number; readonly at: number } | null;
+  /** What hovering each number of `series` says, in the same order (`trendPoints.ts`); absent where none is known. */
+  readonly points?: readonly TrendPoint[];
 }
 
 /** Readings by metric name, lower-cased. */
@@ -77,7 +80,9 @@ export function readingsOf(text: string): Readings {
       return a.at - b.at;
     });
     const last = ordered[ordered.length - 1]!;
-    const series = ordered.map((r) => leadingNumber(r.value)).filter((n): n is number => n !== null);
+    const numbered = ordered.filter((r) => leadingNumber(r.value) !== null);
+    const series = numbered.map((r) => leadingNumber(r.value) as number);
+    const points = numbered.map((r) => ({ value: r.value, date: rowDateWords(r.date) }));
     let start: { value: number; at: number } | null = null;
     for (const row of ordered) {
       const at = when(row.date);
@@ -87,7 +92,7 @@ export function readingsOf(text: string): Readings {
         break;
       }
     }
-    out.set(name, { value: last.value, date: last.date, series, start });
+    out.set(name, { value: last.value, date: last.date, series, start, points });
   }
   return out;
 }
