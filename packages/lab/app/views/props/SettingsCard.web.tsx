@@ -15,6 +15,7 @@ import { onCommit } from "./change";
 import { pickModel, setNode } from "./nodeEdit";
 import { EFFORTS } from "@context/tex/src/texConfigSchema.cjs";
 import { StepSettings } from "./StepSettings.web";
+import { RunTarget } from "./RunTarget.web";
 
 /**
  * One of a search step's numbers: a number box bounded by the schema, outlined yellow with "was X on main" when this
@@ -162,6 +163,7 @@ export function SettingsCard({ n }: { n: LabNode }) {
         </>
       ) : null}
       <StepSettings n={n} />
+      <RunTarget n={n} />
     </div>
   );
 }

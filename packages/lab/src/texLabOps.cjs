@@ -282,10 +282,10 @@ function applyOps(graph, ops) {
         }
         case "group": {
           if (typeof op.id !== "string" || !ID.test(op.id)) throw at("id is not a group id");
-          if (op.value === undefined || (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value)))) throw at("value must be the group's box { label, goal?, icon?, x?, y?, parent? }, or null");
+          if (op.value === undefined || (op.value !== null && (typeof op.value !== "object" || Array.isArray(op.value)))) throw at("value must be the group's box { label, goal?, icon?, x?, y?, parent?, component? }, or null");
           if (op.value !== null) {
             if (typeof op.value.label !== "string" || !op.value.label.trim()) throw at("a group needs a label");
-            for (const k of Object.keys(op.value)) if (!["label", "goal", "icon", "x", "y", "parent"].includes(k)) throw at(`a group has no field ${k}`);
+            for (const k of Object.keys(op.value)) if (!["label", "goal", "icon", "x", "y", "parent", "component"].includes(k)) throw at(`a group has no field ${k}`);
             if (g.nodes.some((n) => n.id === op.id)) throw at(`${op.id} is a step's id; a group needs an id of its own`);
             // Groups nest (Dev2, 2026-11-16): `parent` is the group this one sits in, never itself or one inside it.
             if (op.value.parent !== undefined) {
@@ -296,6 +296,7 @@ function applyOps(graph, ops) {
             }
             for (const k of ["goal", "icon"]) if (op.value[k] !== undefined && typeof op.value[k] !== "string") throw at(`${k} must be words`);
             for (const k of ["x", "y"]) if (op.value[k] !== undefined && !Number.isFinite(op.value[k])) throw at(`${k} must be a number`);
+            if (op.value.component !== undefined && typeof op.value.component !== "boolean") throw at("component must be true or false");
           }
           g.groups = { ...(g.groups ?? {}) };
           const had = g.groups[op.id];

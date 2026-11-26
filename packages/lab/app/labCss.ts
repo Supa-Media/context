@@ -13,7 +13,7 @@ export const LAB_CSS = String.raw`.tl{position:fixed;inset:0;overflow:hidden}
   --chrome:#F4F1EA; --page:#FFFDF9; --s2:#F7F4ED; --s3:#F0ECE3; --chip:rgba(26,23,20,0.05); --row:#E6E1D6;
   --line:rgba(26,23,20,0.09); --line2:rgba(26,23,20,0.18);
   --text:#1A1714; --text2:#4A443C; --muted:#635C52; --dim:#7A7264;
-  --accent:#2A45CF; --accent-dim:rgba(42,69,207,0.10); --team:#6A46B8;
+  --accent:#2A45CF; --accent-dim:rgba(42,69,207,0.10); --team:#6A46B8; --comp:#1F8A7E;
   --chg:#B98900; --chg-wash:rgba(232,183,24,0.22); --ok:#3E7A4E; --ok-wash:rgba(62,122,78,0.10); --warn:#96600A; --warn-wash:rgba(150,96,10,0.12); --bad:#B23A32; --bad-wash:rgba(178,58,50,0.10);
   --m-haiku:#2F8F83; --m-sonnet:#B4527F; --m-opus:#6A46B8; --m-api:#96600A; --m-code:#7A7264;
   --grid:rgba(26,23,20,0.10); --shadow:0 1px 2px rgba(26,23,20,.06),0 8px 24px rgba(26,23,20,.08);
@@ -23,7 +23,7 @@ export const LAB_CSS = String.raw`.tl{position:fixed;inset:0;overflow:hidden}
   --chrome:#191715; --page:#201E1B; --s2:#201E1B; --s3:#2B2825; --chip:rgba(237,232,224,0.05); --row:#2B2825;
   --line:rgba(237,232,224,0.07); --line2:rgba(237,232,224,0.14);
   --text:#EDE8E0; --text2:#C3BCB2; --muted:#A79F95; --dim:#8D857B;
-  --accent:#8A9BF2; --accent-dim:rgba(138,155,242,0.13); --team:#B9A3F2;
+  --accent:#8A9BF2; --accent-dim:rgba(138,155,242,0.13); --team:#B9A3F2; --comp:#5CC7B8;
   --chg:#F2C94C; --chg-wash:rgba(242,201,76,0.18); --ok:#82C98E; --ok-wash:rgba(130,201,142,0.10); --warn:#DFAC52; --warn-wash:rgba(223,172,82,0.10); --bad:#E5847D; --bad-wash:rgba(229,132,125,0.12);
   --m-haiku:#5CC7B8; --m-sonnet:#E58AB4; --m-opus:#B9A3F2; --m-api:#DFAC52; --m-code:#A79F95;
   --grid:rgba(237,232,224,0.09); --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}}
@@ -31,7 +31,7 @@ export const LAB_CSS = String.raw`.tl{position:fixed;inset:0;overflow:hidden}
   --chrome:#191715; --page:#201E1B; --s2:#201E1B; --s3:#2B2825; --chip:rgba(237,232,224,0.05); --row:#2B2825;
   --line:rgba(237,232,224,0.07); --line2:rgba(237,232,224,0.14);
   --text:#EDE8E0; --text2:#C3BCB2; --muted:#A79F95; --dim:#8D857B;
-  --accent:#8A9BF2; --accent-dim:rgba(138,155,242,0.13); --team:#B9A3F2;
+  --accent:#8A9BF2; --accent-dim:rgba(138,155,242,0.13); --team:#B9A3F2; --comp:#5CC7B8;
   --chg:#F2C94C; --chg-wash:rgba(242,201,76,0.18); --ok:#82C98E; --ok-wash:rgba(130,201,142,0.10); --warn:#DFAC52; --warn-wash:rgba(223,172,82,0.10); --bad:#E5847D; --bad-wash:rgba(229,132,125,0.12);
   --m-haiku:#5CC7B8; --m-sonnet:#E58AB4; --m-opus:#B9A3F2; --m-api:#DFAC52; --m-code:#A79F95;
   --grid:rgba(237,232,224,0.09); --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}
@@ -229,6 +229,7 @@ label.num.chg{outline:2px solid var(--accent);border-radius:10px}
 .gopen{cursor:pointer}.gopen rect{fill:transparent}.gopen:hover rect{fill:var(--chip)}.gopen path{stroke:var(--team)}
 .gframe{fill:color-mix(in srgb,var(--team) 6%,transparent);stroke:color-mix(in srgb,var(--team) 45%,transparent);stroke-dasharray:6 5;pointer-events:none}
 .gft{font-size:13px;font-weight:600;fill:var(--team)}.gfg{font-size:12px;fill:var(--muted)}
+.gref{cursor:pointer}.gref rect{fill:color-mix(in srgb,var(--comp) 8%,var(--page));stroke:var(--comp);stroke-dasharray:5 4;stroke-width:1.3}.gref:hover rect{stroke-dasharray:none;stroke-width:1.8}.gref text{font-size:12px;font-weight:600;fill:var(--comp)}.nd.runnd .card{stroke:var(--comp);stroke-width:1.4}.nd.runnd .sub{fill:var(--comp)}.nd.grp.comp .gcard{stroke:var(--comp);stroke-dasharray:6 4}
 .gport{cursor:pointer}.gport rect{fill:var(--page);stroke:var(--line2);stroke-dasharray:3 3}.gport:hover rect{stroke:var(--accent);stroke-dasharray:none}.gport text{font-size:12px;font-weight:500;fill:var(--text2)}.gport text.k{font-size:10px;font-weight:400;fill:var(--dim)}
 .fpath{display:flex;align-items:center;gap:4px;position:relative}.fpath .crumb,.fpath .cur{font:inherit;color:var(--muted);background:none;border:0;border-radius:6px;padding:3px 8px;cursor:pointer;display:flex;gap:6px;align-items:center}.fpath button.cur{color:var(--text)}.fpath .crumb:hover,.fpath button.cur:hover{background:var(--chip)}.fpath b.cur{color:var(--text);cursor:default}.fpath .sep{color:var(--dim)}.fstep{display:flex;align-items:center;gap:4px}
 .fpick{position:relative}.fmenu{top:34px;bottom:auto;left:0;transform:none;min-width:220px}.fmenu button{justify-content:space-between}.fmenu button[aria-current="true"]{background:var(--chip)}

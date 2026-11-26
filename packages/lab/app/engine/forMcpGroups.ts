@@ -6,6 +6,7 @@
  */
 import { groupsOf } from "../data/graph";
 import { groupParts } from "./groupLayout";
+import { componentUses, isComponent } from "./components";
 import { foldAround, groupChain, unfoldGroups } from "./groups";
 import type { LabGraph } from "../types";
 
@@ -14,6 +15,7 @@ export function groupsReference(graph: LabGraph, only?: string | null) {
   const groups = groupsOf(graph);
   const ids = [...new Set([...Object.keys(groups), ...steps.nodes.flatMap((n) => (n.group ? [n.group] : []))])];
   if (only && !ids.includes(only)) throw new Error(`There is no group called "${only}". Groups: ${ids.join(", ")}.`);
+  const uses = componentUses(steps, groups);
   const holds = (id: string) => steps.nodes.filter((n) => n.group && groupChain(groups, n.group).includes(id)).length;
   return (only ? [only] : ids).map((id) => {
     const open = foldAround(steps, id, groups);
@@ -29,12 +31,15 @@ export function groupsReference(graph: LabGraph, only?: string | null) {
       label: groups[id]?.label ?? id,
       ...(groups[id]?.goal ? { goal: groups[id].goal } : {}),
       ...(groups[id]?.parent ? { parent: groups[id].parent } : {}),
+      // A component (Dev2, 2026-11-26): where it is used, as the sidebar's Components list counts it.
+      ...(isComponent(groups, id) ? { component: true, usedBy: uses[id] ?? [] } : {}),
       steps: items.filter((n) => !open.folded?.[n.id]).map((n) => n.id),
       groups: items.filter((n) => open.folded?.[n.id]).map((n) => n.id),
       holds: holds(id),
       inside: inner.map(wire),
       from: ins.map((p) => ({ outside: p.other, name: name(p.other), is: kind(p.other), to: p.item, mode: p.mode, when: p.when })),
-      to: outs.map((p) => ({ from: p.item, outside: p.other, name: name(p.other), is: kind(p.other), mode: p.mode, when: p.when })),
+      // A wire out to a component is drawn as a reference card under its step, not a pill (`as: "card"`).
+      to: outs.map((p) => ({ from: p.item, outside: p.other, name: name(p.other), is: kind(p.other), mode: p.mode, when: p.when, ...(isComponent(groups, p.other) ? { as: "card" } : {}) })),
     };
   });
 }

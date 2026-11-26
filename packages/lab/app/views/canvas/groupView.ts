@@ -5,6 +5,10 @@
  * left and "to" on the right, naming the thing outside as the canvas draws it (a step, or a group's card with ⤢);
  * clicking a pill goes there (`data-gport`, `useStageInput.web.ts`).
  *
+ * A wire out to a component (`components.ts`; Dev2, 2026-11-26) is not a pill: it is a dashed teal reference card in a
+ * row under the group's steps, below the step that calls it ("◇ Jobs · 2 uses ⤢"), with a short wire down from that
+ * step. One card per step and component, whatever kinds of wire join them; clicking it opens the component.
+ *
  * The steps and wires inside are drawn by the canvas's own `renderGraphHtml`, so picking, moving, wiring, running
  * rings, change marks and case chips work as on the whole graph. Pure strings and numbers.
  */
@@ -14,6 +18,7 @@ import type { GroupDefs } from "../../engine/groups";
 import type { Sim } from "../../engine/sim";
 import type { LabGraph, Selection } from "../../types";
 import type { Marks } from "../../engine/changeMarks";
+import { componentUses, isComponent } from "../../engine/components";
 import { esc, H, renderGraphHtml, W, type Bounds } from "./render";
 import { CARD_DX, CARD_W } from "./groupCard";
 
@@ -34,14 +39,24 @@ type Draw = {
   marks: Marks | null;
 };
 
+const RH = 40;
+const RGAP = 30;
+
 export function renderGroupFocusHtml(g: LabGraph, sim: Sim, id: string, groups: GroupDefs, d: Draw): { html: string; fBounds: Bounds } {
-  const { items, ins, outs } = groupParts(g, id, groups);
+  const parts = groupParts(g, id, groups);
+  const { items, ins } = parts;
+  const outs = parts.outs.filter((p) => !isComponent(groups, p.other));
+  const refs: GroupPort[] = [];
+  for (const p of parts.outs) if (isComponent(groups, p.other) && !refs.some((r) => r.item === p.item && r.other === p.other)) refs.push(p);
   const info = groups[id] ?? { label: id };
   const boxes = items.map((n) => boxOf(g, n));
   const x0 = boxes.length ? Math.min(...boxes.map((b) => b.x)) : 0;
   const y0 = boxes.length ? Math.min(...boxes.map((b) => b.y)) : 0;
   const x1 = boxes.length ? Math.max(...boxes.map((b) => b.x + b.w)) : W;
-  const y1 = boxes.length ? Math.max(...boxes.map((b) => b.y + b.h)) : H;
+  const yb = boxes.length ? Math.max(...boxes.map((b) => b.y + b.h)) : H;
+  // The reference cards' row sits under the steps, inside the frame.
+  const ry = yb + RGAP;
+  const y1 = refs.length ? ry + RH : yb;
   const fx = x0 - PAD,
     fy = y0 - TOP,
     fw = Math.max(x1 - x0 + PAD * 2, 360),
@@ -81,6 +96,23 @@ export function renderGroupFocusHtml(g: LabGraph, sim: Sim, id: string, groups: 
       over += pill(p, x, y, dir);
       under += dir === "in" ? wire({ x: x + PW, y: y + PH / 2 }, { x: leftOf(p.item).x - 2, y: leftOf(p.item).y }, p.mode) : wire(rightOf(p.item), { x: x - 2, y: y + PH / 2 }, p.mode);
     });
+  // Reference cards: under their step, moved right past the card before them when two would overlap.
+  if (refs.length) {
+    const uses = componentUses(g, groups);
+    const placed: number[] = [];
+    for (const p of [...refs].sort((a, b) => leftOf(a.item).x - leftOf(b.item).x)) {
+      const n = at.get(p.item)!;
+      const box = boxOf(g, n);
+      let x = box.x;
+      for (const px of placed) if (x < px + W + 12) x = px + W + 12;
+      placed.push(x);
+      const o = g.nodes.find((m) => m.id === p.other);
+      const count = uses[p.other]?.length ?? 0;
+      const from = { x: box.x + box.w / 2, y: box.y + box.h };
+      under += `<path class="wire" d="M${from.x},${from.y} C${from.x},${ry - 8} ${x + W / 2},${from.y + 8} ${x + W / 2},${ry - 2}" stroke="var(--comp)" stroke-dasharray="4 4" fill="none"/>`;
+      over += `<g class="gref" data-gport="${esc(p.other)}" transform="translate(${x},${ry})"><title>${esc(o?.label ?? p.other)}, a component used in ${count} place${count === 1 ? "" : "s"}: open it</title><rect width="${W}" height="${RH}" rx="10"/><text x="14" y="25">◇ ${esc(clip(o?.label ?? p.other, 14))} · ${count} use${count === 1 ? "" : "s"}  ⤢</text></g>`;
+    }
+  }
   const inX = fx - SIDE - PW,
     outX = fx + fw + SIDE;
   column(ins, inX, "in");

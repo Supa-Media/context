@@ -19,7 +19,8 @@ import { migrateGraph } from "@context/tex/src/texConfigSchema.cjs";
 import type { LabEdge, LabGraph, LabNode } from "../types";
 
 /** `parent`: the group this one sits inside (Dev2, 2026-11-16: "make sure that groups can be nested"). */
-export type GroupInfo = { label: string; goal?: string; icon?: string; x?: number; y?: number; parent?: string };
+/** `component`: drawn as a reference card inside each group that uses it (`components.ts`; Dev2, 2026-11-26). */
+export type GroupInfo = { label: string; goal?: string; icon?: string; x?: number; y?: number; parent?: string; component?: boolean };
 export type GroupDefs = Record<string, GroupInfo>;
 /** `at`: where each step stood in the graph's order when folded, so a save puts it back there (the config's own order). */
 export type FoldedGroup = { nodes: LabNode[]; edges: LabEdge[]; at?: number[] };
