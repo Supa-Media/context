@@ -145,4 +145,8 @@ test("a played person's DONE ends the conversation even after reasoning, and not
   assert.equal(personText("is it DONE yet?"), "is it DONE yet?");
   assert.equal(personText("The assistant asked which time. The brief has no line for it. <text>yes</text>"), "yes");
   assert.equal(personText("Nothing more to say. <text>DONE</text>"), null);
+  // gh-227: the reasoning has its own field and is never sent.
+  assert.equal(personText(JSON.stringify({ why: "The brief says yes to the offer.", text: "yes please" })), "yes please");
+  assert.equal(personText(JSON.stringify({ why: "Nothing asked.", text: "DONE" })), null);
+  assert.equal(personText(JSON.stringify({ why: "x", text: "is it DONE yet?" })), "is it DONE yet?");
 });
