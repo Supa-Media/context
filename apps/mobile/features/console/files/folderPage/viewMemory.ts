@@ -14,7 +14,7 @@
 import type { FolderPageView } from "./model";
 
 const PREFIX = "context.folderView";
-const VIEWS: readonly FolderPageView[] = ["list", "board", "chart", "bots", "talks"];
+const VIEWS: readonly FolderPageView[] = ["list", "board", "chart"];
 const memory = new Map<string, FolderPageView>();
 
 function keyOf(workspaceId: string, folder: string): string {

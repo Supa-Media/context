@@ -58,7 +58,7 @@ import { useAreaProjects } from "./useAreaProjects";
 import { useAreaCards } from "./useAreaCards";
 import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
 
-export type AreasPageView = "list" | "chart" | "bots" | "talks";
+export type AreasPageView = "list" | "chart" | "bots";
 
 export interface AreasViewProps {
   folder: string;
@@ -99,6 +99,8 @@ export interface AreasViewProps {
    */
   listings?: Listings;
   host?: FolderPageHost;
+  /** On a bot's own folder page (`bots/<bot>/`), that bot's slug: the page is that bot. */
+  bot?: string;
 }
 
 /** Two presses on one area this close together are a double click: they open it. */
@@ -107,7 +109,7 @@ export const DOUBLE_PRESS_MS = 400;
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 export function AreasView(props: AreasViewProps) {
-  const { folder, root, rootName, notes, view, compact, canEdit, faceOf: plainFace, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host } = props;
+  const { folder, root, rootName, notes, view, compact, canEdit, faceOf: plainFace, label, isAgent, people, agents, addAgent, workspace: handle, chooseMany, onSelect, readBody, onPanel, listings, host, bot } = props;
   const tree = useMemo(() => areaTree(folder, root, notes), [folder, root, notes]);
   const readings = useReadings(tree, notes, readBody);
   // The projects that serve each area: the Projects folder's own read, front matter only.
@@ -199,13 +201,15 @@ export function AreasView(props: AreasViewProps) {
       const marked = new Set<string>();
       for (const card of changed) {
         const was = cardOf(card.holder, card.kind, root, withCards);
-        // The cards' folder says it is not an area before its first card is written (`bots/` or `people/`).
-        const folderAbout = `${cardsFolderOf(root, was.path)}/about.md`;
-        if (!marked.has(folderAbout) && !withCards.some((note) => note.path === folderAbout)) {
+        // A cards' folder in the Areas folder (`people/`, or the old `bots/`) says it is not an area before its first
+        // card is written there; the bots folder beside the Areas folder needs nothing.
+        const cardsFolder = cardsFolderOf(root, was.path);
+        const folderAbout = cardsFolder === null ? null : `${cardsFolder}/about.md`;
+        if (folderAbout !== null && !marked.has(folderAbout) && !withCards.some((note) => note.path === folderAbout)) {
           const made = await chooseMany(folderAbout, PEOPLE_ABOUT, true);
           if (made !== null) return made;
         }
-        marked.add(folderAbout);
+        if (folderAbout !== null) marked.add(folderAbout);
         const problemSaving = await chooseMany(was.path, cardChanges(card), was.creates);
         if (problemSaving !== null) return problemSaving;
       }
@@ -305,8 +309,8 @@ export function AreasView(props: AreasViewProps) {
           onClose: closePeek,
         };
   useEffect(() => slot.set(panelProps));
-  // The Bots and Mail views keep the side panel for a bot (`BotsPage.tsx`); an area's panel stays out of their way.
-  const botsView = view === "bots" || view === "talks";
+  // The bots folder's page keeps the side panel for a bot (`BotsPage.tsx`); an area's panel stays out of its way.
+  const botsView = view === "bots";
   const peekOpen = peekNode !== undefined && !botsView;
   useEffect(() => {
     if (botsView) return;
@@ -325,8 +329,8 @@ export function AreasView(props: AreasViewProps) {
       ) : null}
       {botsView ? (
         <BotsPage
-          view={view}
           root={root}
+          {...(bot === undefined ? {} : { only: bot })}
           notes={withCards}
           compact={compact}
           canEdit={canEdit}
