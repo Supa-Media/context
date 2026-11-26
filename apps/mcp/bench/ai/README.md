@@ -96,13 +96,26 @@ this folder: it is public, like the rest of the repository.
   workspace is a member, the test's person tags Tex, and
   `- @<member> before text <n>: "..."` posts another member's text to the
   chat before the person's nth. The turn reads the threaded history and the
-  stretch's carried turns as a production group turn does.
+  stretch's carried turns as a production group turn does. The group grant
+  holds the tagger's own role there (`bench/groupChat.mjs`), so a member's
+  tag is read-only, as production's asker reach is.
+- `tests/groups.md` and `tests/cross-chat.md` (2026-11-17, harness
+  2026-11-26): whole group turns, and Tex asking Tex across chats.
+  `- shared here: calendar of @<member>` (or `mail of`) gives a group case's
+  chat that member's calendar or mail. `groups: <workspace>, ...` gives a 1:1
+  test's person those group chats (`bench/crossWorld.mjs`): the control plane
+  names them on the 1:1 grant, an `ask_chat` the gate lets go runs in the
+  group's own turn, and its answer starts the 1:1's run, as the texting Worker
+  carries an ask. The conversation shows the other chat's answer as a silent
+  marker, then what Tex texted. `- earlier in <workspace> @<member>: "..."`
+  is what was said in that group before the test.
 - `tests/fd-completion.md` (Dev2, 2026-11-26): six invented asks the front
   door must finish in one pass (a calendar move, an email draft, a note
   correction, a carry-on from a shared folder, the next source before "I
   don't know", a three-part ask). Its lines end with `[metrics: <id>, ...]`
   (`bench/metrics.mjs`), and `pnpm ai score` prints each metric's rate by its
-  id under the scores. Any test may tag its must, must not and record lines.
+  id under the scores. Any test may tag its must, must not and record lines;
+  `groups.md` and `cross-chat.md` use the Area 2 ids.
 - `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
   2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
   messy workspace, graded by `must file: <note> under <folder>/` lines, which

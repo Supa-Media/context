@@ -35,7 +35,9 @@ import { rmSync } from "node:fs";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
-import { benchGroup, benchHome, seedMemberCards } from "./groupChat.mjs";
+import { benchGroup, benchHome, chatShares, seedMemberCards } from "./groupChat.mjs";
+import { crossChats, groupNames, oneToOneGroups } from "./crossWorld.mjs";
+import { spentSince } from "./benchSpend.mjs";
 import { seedHandles } from "./benchHandles.mjs";
 import { bodyText, snapshot } from "./bucketSnapshot.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, createD1Backend } from "../test/searchProjection/fixtures.mjs";
@@ -262,7 +264,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // Another job's setup under test (the dream's, `check.mjs`) sits beside the texting one, where production reads it.
   const pinnedNotes = models.pinnedNotes ?? [];
   pinned.set("privacy.md", {
-    body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH, ...pinnedNotes.map((note) => note.path), ...(models.group ? [`${benchHome(models.group)}/about.md`] : [])] }),
+    body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH, ...pinnedNotes.map((note) => note.path), ...(models.group ? [`${benchHome(models.group)}/about.md`] : []), ...(models.group ? [] : groupNames(models.groups)).map((name) => `${benchHome(name)}/about.md`)] }),
     etag: "p0",
     lastModified: modified(baseMs),
   });
@@ -292,6 +294,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   // A group chat (`models.group`): its grant, hashes and token (`groupChat.mjs`).
   const { group, tagger, chatToken } = await benchGroup({ name: models.group, bench, person, rows, ids, own, controlPlane, token });
+  const groupChats = await oneToOneGroups({ names: models.group ? [] : groupNames(models.groups), bench, person, rows, ids, own, controlPlane, token }); // a 1:1 test's `groups:` (`crossWorld.mjs`)
 
   // Tex's housekeeping (`src/agent/housekeeping.js`) has its own client, over
   // the person's own workspace, plus the pinned one every account reaches,
@@ -356,25 +359,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   const routerSaid = (entry) =>
     typeof entry.confidence !== "number" ? "" : entry.tier === "think" ? ` (${entry.confidence.toFixed(2)})` : ` (think ${entry.confidence.toFixed(2)})`;
-  /**
-   * What one turn spent, from the meter reports it made: one per model it ran
-   * on, the answering model last (`src/agent/modelPlan.js` `meterParts`).
-   * `usage` is the sum, `usageByModel` the split, `model` the answering one.
-   */
-  const spentSince = (from) => {
-    const reports = controlPlane.builtinReports.slice(from);
-    const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-    const usageByModel = {};
-    for (const report of reports) {
-      const spent = { input: report.inputTokens ?? 0, output: report.outputTokens ?? 0, cacheRead: report.cacheReadTokens ?? 0, cacheWrite: report.cacheWriteTokens ?? 0 };
-      for (const key of Object.keys(usage)) usage[key] += spent[key];
-      if (typeof report.model !== "string") continue;
-      const into = (usageByModel[report.model] ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-      for (const key of Object.keys(into)) into[key] += spent[key];
-    }
-    return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
-  };
+  const spent = (from) => spentSince(controlPlane.builtinReports, from); // what a turn spent (`benchSpend.mjs`)
   const { textedEvent, postEvents } = workerEvents({ env, token: chatToken, group });
+  const cross = crossChats({ env, chats: groupChats, text: (...args) => world.text(...args), spent, reports: () => controlPlane.builtinReports.length }); // asks to the 1:1's groups (`crossWorld.mjs`)
   // The chat before its text, and what a turn the Worker queues itself reads of it (`worldChat.mjs`).
   const chat = worldChat({ env, token, group, tagger, textedEvent, postEvents, workspaceId: () => ids.get(own.workspace), timeZone: models.timeZone ?? "UTC", mailbox: () => mail[0]?.address ?? null, mailArrives: (email) => world.mailArrives(email) });
   const world = {
@@ -386,9 +373,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       homeBefore = homeNotes();
       stand.mark();
     },
+    groupEarlier: (lines) => cross.earlier(lines), // what was said in the 1:1's groups before the test, and an ask carried to one (`crossWorld.mjs`)
+    crossAsk: (ask) => cross.carry(ask),
     gaps: () => gaps.list(), // what the bench's own stand-ins could not answer this conversation (`benchGaps.mjs`)
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
-    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null, posted = false } = {}) {
+    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null, posted = false, shares = [] } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -415,8 +404,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const said = textedEvent(message, sender);
       if (!byCode && !posted && (job === null || job.attempt === 1)) await postEvents([said]); // `posted`: a job the test's own turn started, whose ask the chat holds (`jobDelivery.mjs`)
       const covers = byCode ? [] : [...before.map((event) => event.id), said.id];
-      // A group whose setting gives Tex the calendar has it shared with the chat, as production names it (`groupCalendar.js`).
-      const groupCalendar = group && models.calendar === "connected" && controlPlane.flags.calendarAddress ? [{ handle: tagger.handle, address: controlPlane.flags.calendarAddress }] : null;
+      // A group whose setting gives Tex the calendar has it shared with the chat, as production names it (`groupCalendar.js`), or a case's `- shared here:` names whose (`groupChat.mjs` chatShares).
+      const shared = chatShares({ group, shares, flags: controlPlane.flags, mailbox: mail[0]?.address ?? null });
+      const groupCalendar = shared.calendar ?? (group && models.calendar === "connected" && controlPlane.flags.calendarAddress ? [{ handle: tagger.handle, address: controlPlane.flags.calendarAddress }] : null);
+      if (shared.mail) groupMail = [...(groupMail ?? []), ...shared.mail];
       // Asked for as a stream, as the texting Worker asks (`packages/tex/worker/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
@@ -427,7 +418,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`packages/tex/worker/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`packages/tex/worker/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does. A group's `people` are its handles, as `groupModelTurn.ts` names them (whose member cards a turn may read).
-          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...((groupMail ?? stand.sharedMail()) ? { mail: groupMail ?? stand.sharedMail() } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}) } } : { conversation: "texts" }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...((groupMail ?? stand.sharedMail()) ? { mail: groupMail ?? stand.sharedMail() } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}) } } : { conversation: "texts", ...cross.counts() }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,
@@ -437,7 +428,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       await settle();
       if (job === null && typeof body?.answer === "string" && body.answer !== "") await postEvents([{ ...textedEvent(body.answer), from: { kind: "tex" }, turn: said.turn, covers, delivered: true }]); // Tex's answer, as the Worker posts it once sent
       const turn = controlPlane.turnReports.at(-1) ?? {};
-      const spent = spentSince(reportsBefore);
+      const spentNow = spent(reportsBefore);
       const turnCalls = modelCalls.calls().slice(callsBefore); // a failed call or empty Front door answer is the bench's (`toolErrors.mjs`)
       for (const line of modelFailuresIn(turnCalls, isFrontDoorCall)) gaps.add(line);
       return {
@@ -452,6 +443,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         ...(body?.answer === "" ? { quietWhy: lastWords(quietCallsOf(modelCalls.calls().slice(callsBefore))) } : {}),
         ...(job ? { verdict: typeof body?.verdict === "string" ? body.verdict : null, advice: typeof body?.advice === "string" ? body.advice : "", unfinished: body?.unfinished === true, exhausted: body?.exhausted === true } : {}),
         react: typeof body?.react === "string" ? body.react : null,
+        crossAsks: Array.isArray(body?.crossAsks) ? body.crossAsks : [], // asks the Cross-chat gate let go (`crossChat.js`), carried by `run.mjs` (`crossWorld.mjs`)
         // Lines the turn texted while it worked: each is a text the person got,
         // sent before the answer, as the texting Worker sends them (`packages/tex/worker/inbox.ts`).
         progress,
@@ -466,7 +458,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
             ? null
             : `${String(body?.error ?? `status ${response.status}`)}${failedStatus(turn.trace) === null ? "" : ` (status ${failedStatus(turn.trace)})`}`,
         ms,
-        model: spent.model ?? body?.model ?? null,
+        model: spentNow.model ?? body?.model ?? null,
         // Each call with whether it succeeded: a result note that hides failed calls
         // reads like a model that could not find anything.
         // The router's pick first, when the setup has one (`src/agent/router.js`):
@@ -495,9 +487,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
                       { tool: `${entry.tool} (held for OK)`, ok: true }
                     : { tool: entry.tool, ok: entry.ok !== false },
           ),
-        usage: spent.usage,
+        usage: spentNow.usage,
         // What each model spent and how many rounds it ran: a planned turn is priced model by model.
-        usageByModel: spent.usageByModel,
+        usageByModel: spentNow.usageByModel,
         rounds: roundsOf(turn.trace), ...(body?.rounds && typeof body.rounds === "object" ? { turnRounds: body.rounds } : {}), ...(body?.route && typeof body.route === "object" ? { turnRoute: body.route } : {}), // its rounds of its bound (`lastRound.js` roundsField) and the reply's route
         trace: turn.trace ?? [],
         // What the turn did, short (`turnSteps.mjs`): tools, the reviewer's verdicts and the outcome, for a Lab row.

@@ -137,7 +137,7 @@ test("tests/fd-completion.md reads, every case names metrics, and every Area 1 m
     assert.ok(q.checks.length > 0, `case ${q.n} has a record check`);
   }
   const named = new Set(questions.flatMap((q) => q.metrics.flatMap((tag) => tag.ids)));
-  assert.deepEqual([...named].sort(), Object.keys(METRICS).sort());
+  assert.deepEqual([...named].sort(), Object.keys(METRICS).filter((id) => METRICS[id].area !== 2).sort(), "every Area 1 metric (Area 2's are groups.md and cross-chat.md's)");
   // Each metric is backed by at least one record check somewhere, except the judge-only rubric ones.
   const checked = new Set(questions.flatMap((q) => q.metrics.filter((tag) => q.checks.some((c) => c.line === tag.line)).flatMap((tag) => tag.ids)));
   for (const id of ["task_completion_rate", "cant_first_rate", "write_and_confirm_accuracy", "tool_attempt_before_punt_rate"]) assert.ok(checked.has(id), `${id} has a record check`);
