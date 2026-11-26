@@ -16,9 +16,9 @@ import { Text } from "../../design/components/Text";
 import { useFieldFont } from "../../design/fieldFont";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { OwnerFace, type Face, type FacePicture } from "../files/folderPage/Glyphs";
+import { OwnerFace, type Face } from "../files/folderPage/Glyphs";
 import { cardSlug } from "../files/folderPage/areas/seat";
-import { avatarOf, botCardOf, clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, usedThisWeek, type Conversation } from "./model";
+import { clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, usedThisWeek, type Conversation } from "./model";
 
 /** How the page reads a note and writes it back: the app's own note reads and saves (`useMailIO`). */
 export interface MailNoteIO {
@@ -37,28 +37,6 @@ export function withMail(text: string, from: string, words: string): { text: str
   let out = text;
   for (const change of [...result.changes].sort((a, b) => b.from - a.from)) out = out.slice(0, change.from) + change.insert + out.slice(change.to);
   return { text: out };
-}
-
-/** The conversation's bot logo, read through its card's `avatar:` line; undefined until read, or when there is none. */
-function useBotPicture(conversation: Conversation, io: MailNoteIO): FacePicture | undefined {
-  const card = botCardOf(conversation);
-  const [picture, setPicture] = useState<FacePicture | undefined>(undefined);
-  useEffect(() => {
-    setPicture(undefined);
-    const read = io.picture;
-    if (card === null || read === undefined) return;
-    let live = true;
-    io.read(card)
-      .then((note) => {
-        const leaf = note.encrypted === true ? "" : avatarOf(note.text);
-        if (live && leaf !== "") setPicture({ key: io.pictureKey?.(leaf) ?? `${card}|${leaf}`, read: () => read(card, leaf) });
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [card, io]);
-  return picture;
 }
 
 /** The height of the page's one header row: the list's head on the left, the thread's on the right (`MailPage`). */
@@ -80,9 +58,12 @@ export function MailThread({
   onSent,
   onBack,
   onClose,
+  faceOf,
 }: {
   conversation: Conversation;
   io: MailNoteIO;
+  /** The face for a name in this mail: the page's, shared with its list (`useBotFaces`). */
+  faceOf: (name: string) => Face;
   me?: string;
   onOpenNote: (path: string) => void;
   onSent: () => void;
@@ -98,15 +79,7 @@ export function MailThread({
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const path = conversation.path;
-  const botPicture = useBotPicture(conversation, io);
   const bot = conversation.place.kind === "bot" ? conversation.place.bot : null;
-  const faceOf = useCallback(
-    (name: string): Face => {
-      if (isPersonName(name)) return { kind: "person", name };
-      return bot !== null && cardSlug(name) === bot && botPicture !== undefined ? { kind: "agent", picture: botPicture } : { kind: "agent" };
-    },
-    [bot, botPicture],
-  );
 
   const load = useCallback(async () => {
     try {

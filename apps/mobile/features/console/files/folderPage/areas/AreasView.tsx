@@ -57,6 +57,7 @@ import { BotsPage } from "./BotsPage";
 import { useAreaProjects } from "./useAreaProjects";
 import { useAreaCards } from "./useAreaCards";
 import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
+import { noteAvatar } from "../../../faces/botPictures";
 
 export type AreasPageView = "list" | "chart" | "bots";
 
@@ -148,6 +149,7 @@ export function AreasView(props: AreasViewProps) {
   );
   // A bot whose card names its logo is drawn as that logo, read through its card (the owner, 2026-11-25).
   const readPicture = host?.source.readPicture;
+  const keptPicture = host?.source.keptPicture;
   const faceOf = useCallback(
     (owner: string | null): Face => {
       const face = plainFace(owner);
@@ -155,9 +157,15 @@ export function AreasView(props: AreasViewProps) {
       const avatar = cardFor(owner, "agent").avatar;
       if (avatar === "") return face;
       const card = cardPath(root, owner, withCards);
-      return { kind: "agent", picture: { key: `${host?.workspaceId ?? ""}|${avatar}`, read: () => readPicture(card, avatar) } };
+      const workspace = host?.workspaceId ?? "";
+      // Agent Mail draws this bot from here without reading its card again (`botPictures.ts`).
+      noteAvatar(`${workspace}|${card}`, avatar);
+      return {
+        kind: "agent",
+        picture: { key: `${workspace}|${avatar}`, read: () => readPicture(card, avatar), ...(keptPicture === undefined ? {} : { kept: () => keptPicture(avatar) }) },
+      };
     },
-    [plainFace, readPicture, cardFor, root, withCards, host?.workspaceId],
+    [plainFace, readPicture, keptPicture, cardFor, root, withCards, host?.workspaceId],
   );
   // A mail note is named for its sender (`pipeline`): a bot's is drawn with its face.
   const senderFace = useCallback(
