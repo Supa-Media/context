@@ -499,7 +499,17 @@ const PERSON_SYSTEM =
   "Follow the brief exactly. Answer only what the assistant asked, using the brief's lines; never volunteer new requests. " +
   "An instruction to open a link, sign in, save something or text back counts as being asked. " +
   "If the assistant has finished and asks nothing, or the brief has nothing for what it asked, reply with exactly DONE. " +
-  "Put the text you send, or DONE, inside <text></text>: anything outside it is never sent.";
+  "Reply as JSON: why is your reasoning about the brief, never sent; text is exactly the text you send, or DONE.";
+
+// Reasoning gets a field of its own: with only a <text> tag asked for, Haiku still put its reasoning in the text, or ran
+// out of room before closing the tag, and the reasoning went out as the person's text (gh-227: five turns began "The
+// brief says ..."). `why` comes first so the reasoning is written before the text.
+const PERSON_SCHEMA = {
+  type: "object",
+  properties: { why: { type: "string" }, text: { type: "string" } },
+  required: ["why", "text"],
+  additionalProperties: false,
+};
 
 /**
  * The person's next text, or null when they have nothing more to say.
@@ -514,9 +524,10 @@ export async function playPerson(who, brief, conversation) {
   const response = await who.send(
     JSON.stringify({
       model: who.model,
-      max_tokens: 300,
+      max_tokens: 600,
       system: PERSON_SYSTEM,
       messages: [{ role: "user", content: `Brief:\n${brief}\n\nConversation so far:\n${transcript}\n\nYour next text:` }],
+      output_config: { format: { type: "json_schema", schema: PERSON_SCHEMA } },
     }),
   );
   if (!response.ok) throw new Error(`played person status ${response.status}`);
@@ -531,9 +542,21 @@ export async function playPerson(who, brief, conversation) {
  * that reasoning was never a text the person would send.
  */
 export function personText(text) {
+  const reply = jsonReply(text);
+  if (reply !== undefined) return reply === "" || /^DONE[.!]?$/.test(reply) ? null : reply;
   // Only what is inside <text></text> is sent: Haiku reasoned about the brief in its reply and all of it went out as
   // the person's text (gh-219, 2026-11-26), the "only the text" rule notwithstanding. A reply with no tag is sent whole.
   const tagged = String(text ?? "").match(/<text>([\s\S]*?)<\/text>/);
   const said = (tagged ? tagged[1] : String(text ?? "")).trim();
   return said === "" || /\bDONE[.!]?$/.test(said) ? null : said;
+}
+
+/** The `text` of a played person's JSON reply, trimmed; undefined when the reply is not that JSON. */
+function jsonReply(text) {
+  try {
+    const parsed = JSON.parse(String(text ?? ""));
+    return parsed && typeof parsed.text === "string" ? parsed.text.trim() : undefined;
+  } catch {
+    return undefined;
+  }
 }
