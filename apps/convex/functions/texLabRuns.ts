@@ -28,6 +28,7 @@ import { DEFAULT_REPEATS, fidelityOf, repeatsOf } from "@context/lab/src/texRunB
 import { compareRuns, runStats } from "@context/lab/src/texRunStats.cjs";
 import { FAILURE_TAGS } from "@context/lab/src/texFailures.cjs";
 import { handleForUser } from "./lib/identities";
+import { KEY_WORDS, keyOf } from "./lib/aiKeyPick";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 
 /**
@@ -226,6 +227,7 @@ const shown = async (ctx: QueryCtx, r: Run, names = new Map<string, string>()) =
     // Old runs ran once (no repeats stored); a run's fidelity follows its models (`texRunBand.cjs` fidelityOf).
     repeats: r.repeats ?? 1,
     fidelity: fidelityOf(r.models),
+    key: r.key ?? null,
     stage: r.stage,
     ghRunUrl: r.ghRunUrl ?? null,
     pr: r.pr ?? null,
@@ -332,6 +334,8 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
   const target = targetOf(a.target);
   if (target === undefined) return { status: "bad_request", error: "target is pr<N> (a pull request's preview, its number) or unset" };
   if (target === "staging") return { status: "bad_request", error: "a run aims at a pull request's preview (pr<N>) or nothing: staging runs are not wired" };
+  const key = keyOf(a.key); // whose Anthropic key pays first (lib/aiKeyPick.ts)
+  if (key === undefined) return { status: "bad_request", error: KEY_WORDS };
   let code = a.code === undefined ? null : codeOf(a.code);
   if (code === undefined) return { status: "bad_request", error: CODE_WORDS };
   if (versionId !== "main") {
@@ -366,6 +370,7 @@ export async function startRun(ctx: MutationCtx, who: Who, a: Record<string, unk
     // The target is not stored yet: the run table (functions/lib/schema/texLab.ts) has no field for it. It travels with
     // the scheduled dispatch instead, so a preview run is aimed at its preview and recorded with its code.
     repeats: target ? PREVIEW_REPEATS : repeats,
+    ...(key ? { key } : {}),
     ...(code ? { code } : {}),
     stage: "queued",
     by: who.userId,
@@ -421,7 +426,7 @@ export async function promoteAnswered(ctx: MutationCtx, versionId: string, pr: s
 // ── The Lab's door ────────────────────────────────────────────────────────
 
 export const start = mutation({
-  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), repeats: v.optional(v.number()), code: v.optional(v.string()), set: v.optional(v.string()), target: v.optional(v.string()) },
+  args: { versionId: v.string(), kind: v.string(), convId: v.optional(v.string()), nodeId: v.optional(v.string()), models: v.optional(v.string()), repeats: v.optional(v.number()), code: v.optional(v.string()), set: v.optional(v.string()), target: v.optional(v.string()), key: v.optional(v.string()) },
   returns: v.object({ runId: v.id("texLabRuns") }),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
@@ -493,7 +498,7 @@ export const get = query({
 /** `tex_dev` `run` and `runs`; null for any other action. */
 export async function runAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
   if (action === "run") {
-    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set, target: a.target }, now);
+    const answer = await startRun(ctx, who, { versionId: a.draft, kind: a.kind, convId: a.conv, nodeId: a.node, models: a.models, repeats: a.repeats, code: a.code, set: a.set, target: a.target, key: a.key }, now);
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : answer.status === "not_found" ? { status: "not_found" } : { status: "bad_request", error: answer.error };
   }
   if (action === "code") return await setDraftCode(ctx, a.draft, a.code, now);
@@ -542,7 +547,7 @@ export const job = internalQuery({
     // Every draft conversation: a Dev draft is run in place of its repo copy; a repo Dev conversation moved to
     // Training or removed in the Lab is left out. Training drafts carry only their id and set.
     const drafts = (await ctx.db.query("texSetConvos").collect()).map((d) => ({ id: d.convoId, set: d.set, removed: d.removed, ...(d.set === "dev" && !d.removed ? { conv: d.data } : {}) }));
-    return { id: r._id, versionId: r.versionId, kind: r.kind, set: r.set ?? "dev", convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, repeats: r.repeats ?? DEFAULT_REPEATS, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
+    return { id: r._id, versionId: r.versionId, kind: r.kind, set: r.set ?? "dev", convId: r.convId ?? null, nodeId: r.nodeId ?? null, models: r.models, repeats: r.repeats ?? DEFAULT_REPEATS, key: r.key ?? null, code: r.code ?? null, graph: draft?.graph ?? null, drafts };
   },
 });
 

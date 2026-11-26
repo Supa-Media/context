@@ -178,8 +178,6 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PREVIEW_STARTED_AT: ${{ needs.resolve.outputs.started_at }}
       PREVIEW_PUSHED_AT: ${{ needs.resolve.outputs.pushed_at }}
-      # Read by the gateway's secret step. Names on the gateway's Provider Keys page, not secrets.
-      AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits
     steps:
       - uses: actions/checkout@v5
         with:
@@ -333,7 +331,9 @@ jobs:
           AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
         run: |
           set -euo pipefail
-          node scripts/worker-secrets.mjs CONTROL_PLANE_URL=PREVIEW_CONTROL_PLANE_URL GATEWAY_SECRET '?TRANSCRIBE_WORKER_SECRET' '?TRANSCRIBE_WORKER_URL' '!BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_GATEWAY_KEY_ALIASES' '?ANTHROPIC_CREDIT_KEY' '?AGENT_WORKER_SECRET' \
+          # Whose Anthropic keys the preview spends: packages/tex/src/aiKeys.json's prod list.
+          export AI_KEY_USE=prod
+          node scripts/worker-secrets.mjs CONTROL_PLANE_URL=PREVIEW_CONTROL_PLANE_URL GATEWAY_SECRET '?TRANSCRIBE_WORKER_SECRET' '?TRANSCRIBE_WORKER_URL' '!BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_KEY_USE' '?ANTHROPIC_CREDIT_KEY' '?AGENT_WORKER_SECRET' \
             | pnpm --dir apps/mcp exec wrangler secret bulk --config wrangler.preview.toml --name "context-mcp-pr$PR"
 
       - name: Deploy the texting assistant

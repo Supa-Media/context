@@ -111,6 +111,17 @@ test("stored keys are named by alias in order, then the credit key; a spent one 
   assert.equal(calls.length, 3, "the next call sends nothing: every payer is resting");
 });
 
+test("a key past its usage limit rests and the next pays; the run counts whose key paid", async () => {
+  const limit = [400, { error: { message: "You have reached your specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC." } }];
+  const { calls, fetchImpl } = recorder(limit, [200, { content: [] }], [200, { content: [] }]);
+  const send = claudeTransport({ ...GATEWAY, AI_GATEWAY_KEY_ALIASES: "limited-credits,second-credits" }, fetchImpl);
+  assert.equal((await send(BODY)).status, 200);
+  assert.equal((await send(BODY)).status, 200);
+  assert.equal(calls.length, 3, "the limited key is not asked again");
+  assert.equal(calls[2].headers["cf-aig-byok-alias"], "second-credits");
+  assert.deepEqual(send.paidBy, { "alias:second-credits": 2 });
+});
+
 test("the gateway with no key at all does not call Unified Billing", async () => {
   const { calls, fetchImpl } = recorder();
   const response = await claudeTransport(GATEWAY, fetchImpl)(BODY);

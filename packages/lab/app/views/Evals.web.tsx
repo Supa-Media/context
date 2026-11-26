@@ -16,6 +16,7 @@ import { ago, codeLink, commitLink, stageWords } from "../engine/labRuns";
 import { toast } from "../engine/state";
 import { Ic } from "./ic";
 import { PageHead } from "./parts";
+import { AI_KEYS, keyState } from "@context/tex/src/aiKeys.cjs";
 
 type Share = { n: number; correct: number; pct: number | null };
 /** The Search suite's scores (`apps/mcp/bench/evals/searchSuite.mjs`): right note first, top 5, MRR and time. */
@@ -426,6 +427,8 @@ export function Evals({ visible = true }: { visible?: boolean }) {
   const [n, setN] = useState(50);
   const [models, setModels] = useState<"gw" | "cc">("gw");
   const [code, setCode] = useState("");
+  // Whose Anthropic key pays first (`packages/tex/src/aiKeys.json`); "" is that file's evals order.
+  const [key, setKey] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const shown = picked ?? runs[0]?.id ?? null;
   const choices: Bench[] = benches.length ? benches : [{ id: "longmemeval-s", title: "LongMemEval", variant: "S", total: 500, about: "", search: false }];
@@ -446,7 +449,7 @@ export function Evals({ visible = true }: { visible?: boolean }) {
 
   const run = async () => {
     try {
-      const { runId } = await start({ bench, n, models: isSearch ? "gw" : models, ...(code.trim() ? { code: code.trim() } : {}) });
+      const { runId } = await start({ bench, n, models: isSearch ? "gw" : models, ...(!isSearch && models === "gw" && key ? { key } : {}), ...(code.trim() ? { code: code.trim() } : {}) });
       setPicked(runId);
       toast("Started on GitHub");
     } catch (e) {
@@ -493,6 +496,16 @@ export function Evals({ visible = true }: { visible?: boolean }) {
             <select id="evModels" className="search" style={{ maxWidth: 200 }} value={models} onChange={(e) => setModels(e.target.value as "gw" | "cc")}>
               <option value="gw">AI gateway</option>
               <option value="cc">Claude Code (subscription)</option>
+            </select>
+          )}
+          {isSearch || models !== "gw" ? null : (
+            <select id="evKey" className="search" style={{ maxWidth: 220 }} title="Whose Anthropic key pays first; one that can't pay falls back to the default order" value={key} onChange={(e) => setKey(e.target.value)}>
+              <option value="">Default key order</option>
+              {AI_KEYS.map((k) => (
+                <option key={k.alias} value={k.alias}>
+                  {k.owner}'s key first{keyState(k) ? ` (${keyState(k)})` : ""}
+                </option>
+              ))}
             </select>
           )}
           <input id="evCode" className="search" placeholder="main, #PR or branch" value={code} style={{ maxWidth: 200 }} onChange={(e) => setCode(e.target.value)} />

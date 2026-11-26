@@ -14,6 +14,7 @@ import { CONFIG_STAMP, draftFit, TEX_CONFIG, withDraft } from "../fromGateway/ag
 import { toolError } from "../fromGateway/tools_results.js";
 import { draftProblems, draftVsMain } from "./check.js";
 import { ACTIONS, guideText } from "./guide.js";
+import { keysReport } from "../../../tex/src/aiKeys.cjs";
 import { caseRoom, labAction, labWording, putBackOps, snapshotSim } from "./lab.js";
 import { chatsOf, entriesOf, openChat, turnsOf } from "./probe.js";
 import { failedSearchesOf } from "./failedSearches.js";
@@ -268,7 +269,7 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const draft = args.draft ?? "main";
         if (draft !== "main" && needDraft({ draft })) return needDraft({ draft });
         const kind = args.kind ?? "dev";
-        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw", ...(args.repeats !== undefined ? { repeats: args.repeats } : {}), ...(args.code !== undefined ? { code: args.code } : {}), ...(args.set !== undefined ? { set: args.set } : {}), ...(args.target !== undefined ? { target: args.target } : {}) });
+        const { answer, error } = await plane("run", { draft, kind, conv: args.conv, node: args.node, models: args.models ?? "gw", ...(args.repeats !== undefined ? { repeats: args.repeats } : {}), ...(args.code !== undefined ? { code: args.code } : {}), ...(args.set !== undefined ? { set: args.set } : {}), ...(args.target !== undefined ? { target: args.target } : {}), ...(args.key !== undefined ? { key: args.key } : {}) });
         return error ?? json({ run: answer.id, stage: "queued", ...(args.target !== undefined ? { target: args.target } : {}), then: `A GitHub run starts within a minute and runs the ${args.set === "training" ? "Training" : "Dev"} set's unit tests on ${args.target !== undefined ? `pull request ${String(args.target).replace(/^pr/, "#")}'s code, replay only, one repeat per Front door test` : "the draft's code (main unless code names a pull request or branch)"}; runs { id } shows its stage, the commit that ran and, when done, every test's verdict. The Lab's Runs panel shows the same run.` });
       }
       // The code a draft runs on (Dev2, 2026-11-16: "when we run things it should run on the PRs code instead of main").
@@ -290,13 +291,16 @@ export function createTexDev({ env, session, controlPlane, defer = null, sleep =
         const byRoute = run?.results && Array.isArray(run.results.rows) ? routeSummary(run.results.rows, repoGoldRoute()) : null;
         return error ?? json(args.id ? (byRoute ? { ...run, byRoute } : run) : { runs: answer.runs });
       }
+      // Whose Anthropic keys exist and the order each use tries them (packages/tex/src/aiKeys.json; Dev2, 2026-11-26).
+      case "keys":
+        return json({ ...keysReport(), then: 'run and eval_run take key: an owner ("segun"), "Segun\'s key" or an alias, tried first for that run; edit packages/tex/src/aiKeys.json (expires, usedUsd, retiredUntil) to change the standing order.' });
       // The Evals tab (Dev2, 2026-11-20): public benchmarks of Context as a memory, run on GitHub (`labEvals.ts`).
       case "evals": {
         const { answer, error } = await plane("evals", args.id !== undefined ? { id: args.id } : {});
         return error ?? json(args.id !== undefined ? answer.run : { benches: answer.benches, runs: answer.runs });
       }
       case "eval_run": {
-        const { answer, error } = await plane("eval_run", { bench: args.bench, n: args.n, models: args.models ?? "gw", ...(args.code !== undefined ? { code: args.code } : {}) });
+        const { answer, error } = await plane("eval_run", { bench: args.bench, n: args.n, models: args.models ?? "gw", ...(args.code !== undefined ? { code: args.code } : {}), ...(args.key !== undefined ? { key: args.key } : {}) });
         return error ?? json({ run: answer.id, stage: "queued", then: "A GitHub run starts within a minute. A memory run: each question gets an empty workspace, its sessions saved raw and filed, and a fresh reader answers; evals { id } shows its stage, the commit that ran and, when done, the scores per skill and every question's answer and verdict. A search run (any run evals {} marks search: true): embeddings only, and evals { id } shows its scores (right note first %, top 5 %, MRR, p50 time, Recall@5 for retrieval, nDCG@10 beside BM25's for NanoBEIR, nDCG@10 per question type for HERB) and each query's rank and first hits. The Lab's Evals tab shows the same run." });
       }
       case "eval_remove": {

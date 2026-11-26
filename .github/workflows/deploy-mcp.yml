@@ -326,7 +326,6 @@ jobs:
           AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
           AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
-          AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
           ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
           AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
           GH_DATA_APP_ID: ${{ secrets.GH_DATA_APP_ID }}
@@ -365,9 +364,10 @@ jobs:
           #   ANTHROPIC_CREDIT_KEY: model routing through Cloudflare AI Gateway
           #   (src/agent/aiGateway.js); with any of the first three missing the
           #   gateway keeps using Workers AI.
-          # - AI_GATEWAY_KEY_ALIASES: keys stored on the gateway's Provider Keys
-          #   page, by alias, tried before ANTHROPIC_CREDIT_KEY. The names are
-          #   written in this workflow (not secret; the keys stay in Cloudflare).
+          # - AI_KEY_USE: which list in packages/tex/src/aiKeys.json the gateway
+          #   tries (prod), by alias, before ANTHROPIC_CREDIT_KEY. Not secret;
+          #   the keys stay on the gateway's Provider Keys page, and an older
+          #   AI_GATEWAY_KEY_ALIASES left on the Worker is ignored beside it.
           # - AGENT_WORKER_SECRET: the texting Worker's key to the control
           #   plane's /agent-texts/* routes, used by a chat's object once it runs
           #   here (src/texChat.js); without it a moved chat reaches none of them.
@@ -375,7 +375,8 @@ jobs:
           #   data source (src/data/connect/githubApp.js); without all five,
           #   connecting GitHub answers 501. Set in GitHub by the owner, not
           #   synced from the vault (scripts/check-secrets-allowlist.mjs).
-          node ../../scripts/worker-secrets.mjs GATEWAY_SECRET CONTROL_PLANE_URL '?TRANSCRIBE_WORKER_URL' '?TRANSCRIBE_WORKER_SECRET' '?BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_GATEWAY_KEY_ALIASES' '?ANTHROPIC_CREDIT_KEY' '?AGENT_WORKER_SECRET' '?GH_DATA_APP_ID' '?GH_DATA_APP_SLUG' '?GH_DATA_CLIENT_ID' '?GH_DATA_CLIENT_SECRET' '?GH_DATA_PRIVATE_KEY' \
+          export AI_KEY_USE=prod
+          node ../../scripts/worker-secrets.mjs GATEWAY_SECRET CONTROL_PLANE_URL '?TRANSCRIBE_WORKER_URL' '?TRANSCRIBE_WORKER_SECRET' '?BRAVE_SEARCH_API_KEY' '?GOOGLE_MAPS_KEY' '?AI_GATEWAY_ACCOUNT_ID' '?AI_GATEWAY_ID' '?AI_GATEWAY_TOKEN' '?AI_KEY_USE' '?ANTHROPIC_CREDIT_KEY' '?AGENT_WORKER_SECRET' '?GH_DATA_APP_ID' '?GH_DATA_APP_SLUG' '?GH_DATA_CLIENT_ID' '?GH_DATA_CLIENT_SECRET' '?GH_DATA_PRIVATE_KEY' \
             | pnpm exec wrangler secret bulk --config "$MCP_WRANGLER_CONFIG"
           echo "OK — the Worker's secrets match this repository's."
 

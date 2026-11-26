@@ -11,6 +11,7 @@
  *   cleanRow keeping every field                "rows come in batches ..." fails
  */
 
+import { AI_KEYS } from "@context/tex/src/aiKeys.cjs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api, internal } from "../../_generated/api";
@@ -97,7 +98,17 @@ describe("starting an eval run", () => {
     expect(calls[0].url).toBe("https://api.github.com/repos/Supa-Media/context/actions/workflows/lab-eval-run.yml/dispatches");
     expect(calls[0].body).toMatchObject({ ref: "main", inputs: { run_id: runId } });
     expect(await w.lab.query(api.functions.labEvals.get, { id: runId })).toMatchObject({ bench: "longmemeval-s", n: DEFAULT_N, models: "gw", stage: "queued", ghRunUrl: RUN_URL, via: "lab", questions: [] });
-    expect(await w.t.query(internal.functions.labEvals.job, { runId })).toEqual({ id: runId, bench: "longmemeval-s", n: DEFAULT_N, models: "gw", code: null });
+    expect(await w.t.query(internal.functions.labEvals.job, { runId })).toEqual({ id: runId, bench: "longmemeval-s", n: DEFAULT_N, models: "gw", key: null, code: null });
+  });
+
+  test("an eval run keeps whose key pays first (an aiKeys.json alias); another alias is refused", async () => {
+    const { door, t } = await world();
+    const alias = AI_KEYS[AI_KEYS.length - 1].alias;
+    const ran = await door("eval_run", { bench: "longmemeval-oracle", n: 5, key: alias });
+    expect(ran).toMatchObject({ status: "ok" });
+    expect(await t.query(internal.functions.labEvals.job, { runId: ran.id })).toMatchObject({ key: alias });
+    expect(await door("eval_run", { n: 5, key: "not-a-listed-key" })).toMatchObject({ status: "bad_request" });
+    await drainScheduled(t);
   });
 
   test("tex_dev eval_run takes a bench, a slice, models and code, and refuses what is not one", async () => {

@@ -14,6 +14,11 @@ export const labEvalTables = {
     /** How many questions the slice holds (the same n is the same slice every time). */
     n: v.number(),
     models: v.union(v.literal("gw"), v.literal("cc")),
+    /**
+     * Whose Anthropic key the run asked to pay first: an alias from `packages/tex/src/aiKeys.json` (Dev2, 2026-11-26:
+     * "need to be able to choose whose we are using"). Unset uses that file's list for the run's use.
+     */
+    key: v.optional(v.string()),
     /** `#<pull request>` or a branch; unset is main. */
     code: v.optional(v.string()),
     /** The commit the workflow checked out and ran. */

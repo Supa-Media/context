@@ -13,6 +13,7 @@
  *   followGate ignoring the status state         "Promote makes a gate run ..." fails
  */
 
+import { AI_KEYS } from "@context/tex/src/aiKeys.cjs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api, internal } from "../../_generated/api";
@@ -69,6 +70,25 @@ async function world(role: "editor" | "member" = "editor") {
 }
 
 const runsOf = async (t: Awaited<ReturnType<typeof world>>["t"]) => await t.run(async (ctx) => await ctx.db.query("texLabRuns").collect());
+
+describe("whose Anthropic key a run spends first (aiKeys.json; Dev2, 2026-11-26)", () => {
+  test("a run keeps a listed key and hands it to the workflow; an unlisted alias is refused; unset keeps none", async () => {
+    const { lab, door, t } = await world();
+    const alias = AI_KEYS[AI_KEYS.length - 1].alias;
+    await expect(lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", key: "someone-elses-key" })).rejects.toThrow(/key names one of/);
+    expect(await runsOf(t)).toHaveLength(0);
+    const { runId } = await lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev", key: alias });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId })).toMatchObject({ key: alias });
+    // By owner, as a person says it ("use Segun's key"), not only by alias.
+    const viaMcp = await door("run", { draft: "main", kind: "dev", key: `${AI_KEYS[AI_KEYS.length - 1].owner}'s key` });
+    expect(viaMcp).toMatchObject({ status: "ok" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: viaMcp.id })).toMatchObject({ key: alias });
+    expect(await door("run", { draft: "main", kind: "dev", key: "Bad Key" })).toMatchObject({ status: "bad_request" });
+    const plain = await lab.mutation(api.functions.texLabRuns.start, { versionId: "main", kind: "dev" });
+    expect(await t.query(internal.functions.texLabRuns.job, { runId: plain.runId })).toMatchObject({ key: null });
+    await drainScheduled(t);
+  });
+});
 
 describe("aiming a run at a pull request's preview", () => {
   test("the target is pr<N> or unset: prod, pr0, pr01 and a bare number are refused, pr42 and an absent target are accepted", async () => {
