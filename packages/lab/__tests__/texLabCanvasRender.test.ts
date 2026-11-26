@@ -22,6 +22,12 @@ jest.mock("@context/lab/app/labData.generated", () => {
   const kept = Object.fromEntries(Object.entries(real.MODTEXT).filter(([key]) => !key.startsWith("p-")));
   return { ...real, MODTEXT: { ...kept, map: "m".repeat(6995), caps: "c".repeat(33350) } };
 });
+// The artifact drew every wire straight between its ends; wires bowing apart where two would draw one line (Dev,
+// 2026-11-26) is the Lab's own, checked in texLabWireBows.test.ts, so the golden is drawn without it.
+jest.mock("@context/lab/app/views/canvas/wires", () => ({
+  ...jest.requireActual<typeof import("@context/lab/app/views/canvas/wires")>("@context/lab/app/views/canvas/wires"),
+  wireBows: () => new Map(),
+}));
 import golden from "./fixtures/texLabCanvasGolden.json";
 import { allCases } from "@context/lab/app/engine/diff";
 import { simulate } from "@context/lab/app/engine/sim";

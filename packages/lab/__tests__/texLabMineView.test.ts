@@ -244,6 +244,36 @@ describe("the Lab with your own texts", () => {
     expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
   });
 
+  // Dev, 2026-11-26: "please make sure we are properly updating urls so that the back button works in browser".
+  // Sabotage record (temporary local edit, reverted): the popstate handler writing the address while it puts the Lab
+  // back (no `applying` guard) pushes the entry Back left again, and "Forward" below finds nothing to go to.
+  test("opening a nested group is in the address, and Back and Forward step out of it and in again", async () => {
+    const tick = () => act(async () => void (await new Promise((r) => setTimeout(r, 20))));
+    window.history.replaceState(null, "", "/lab");
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    act(() => focusOn("intake"));
+    expect(new URLSearchParams(window.location.search).get("focus")).toBe("intake");
+    act(() => focusOn("checkInLook"));
+    expect(new URLSearchParams(window.location.search).get("focus")).toBe("checkInLook");
+    expect(q("#fbar")?.textContent).toMatch(/Whole graph.*Intake.*Check-in/);
+    window.history.back();
+    await tick();
+    expect(lab.cfocus).toBe("intake");
+    expect(new URLSearchParams(window.location.search).get("focus")).toBe("intake");
+    window.history.forward();
+    await tick();
+    expect(lab.cfocus).toBe("checkInLook");
+    window.history.back();
+    await tick();
+    window.history.back();
+    await tick();
+    expect(lab.cfocus).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("focus")).toBeNull();
+  });
+
   test("a text from one of their group chats traces the group path, whatever its words say", async () => {
     await asYou();
     act(() => {
