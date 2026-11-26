@@ -248,14 +248,14 @@ every wire, from the same config.
 | Decide | decide | intake | on | Clef |  |  | train:decide, recent, groupBrief, date | textsDecide.js · textDecide.cjs |
 | Decide's reason | decideWhy | intake | on | Clef |  |  |  | graph/nodes/decideWhy.js · textDecide.cjs |
 | Queue | lanes | intake | on | code |  |  |  | apps/agent inbox.ts · groupTurn.ts |
-| Front door | fd | frontDoor | on | Haiku 5.5 | medium |  | tools, skills, map, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:100000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask, screen, chatSearch | turn.js runTurn · router.js pickTier · texEntryPoint/runTheModel.js · builtin.js |
+| Front door | fd | frontDoor | on | Haiku 5.5 | medium |  | tools, skills, p-about-tex, p-rules, p-tools, p-working, p-sound-like-a-person, p-pictures, p-how-you-talk, train:fd:all:30000, caps, groups, devShare, summaries:all:30000, chat:7:130000, threads, about, date, ask, screen, chatSearch | turn.js runTurn · router.js pickTier · texEntryPoint/runTheModel.js · builtin.js |
 | Tools | tools | tools-subagents | on | code |  |  |  | callToolForSession |
 | Advisor | advisor | tools-subagents | on | Sonnet 5.5 | high | 40 s | own, train:advisor, caps, about, ask, ledger, hist, date, tools | advisor.js · advisorRoles/chat.js |
 | Mail checker | mail | tools-subagents | on | Haiku 5.5 | low |  | own, train:mail, draft, ask | mailChecker.js |
 | Card check | card | tools-subagents | on | Haiku 5.5 | medium |  | own, train:card, draft | cardCheck.js |
 | Text them | send | textThem | on | code |  |  |  | sendTheReply · sendOne.ts · recoverFromFailure.js |
 | React | react | intake | on | code |  |  |  | decide.ts reactionFor · reactions.ts |
-| Background job | job | jobs | on | Haiku 5.5 | medium |  | tools, map, p-about-tex, p-rules, p-tools, p-working, train:job, brief, ask, date | graph/nodes/job.js · texJob.js · apps/agent jobRun.ts |
+| Background job | job | jobs | on | Haiku 5.5 | medium |  | tools, p-about-tex, p-rules, p-tools, p-working, train:job, brief, ask, date | graph/nodes/job.js · texJob.js · apps/agent jobRun.ts |
 | Hand-back judge | handback | jobs | on | Haiku 5.5 | low |  | own, train:handback, brief, draft | graph/nodes/handback.js · handbackJudge.js · claimCheck.js |
 | Egress judge | egress | tools-subagents | on | Haiku 5.5 | low |  |  | privacy/judge.js |
 | Picture maker | picture | tools-subagents | on | google/gemini-2.5-flash-image | off |  |  | pictureMaker.js |
