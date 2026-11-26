@@ -25,10 +25,18 @@ const PLAIN = "(Tex reacted to their text)";
 const CHECK = "(Tex reacted ✅ to their text about the bank)";
 const verdictOf = (check, a) => codeVerdict(check, a)?.does;
 
-test("a judge line is never code-graded", () => {
+test("a judge line about what Tex did is never code-graded", () => {
   assert.equal(codeRule({ kind: "judge", line: "stay quiet" }), null);
   assert.equal(codeVerdict({ kind: "judge", line: "stay quiet" }, answer({})), null);
   assert.equal(codeOnly({ kind: "judge", line: "stay quiet" }), false);
+});
+
+test("a reads-like line on a turn that sent no words passes from the record; with words it is the model's", () => {
+  const style = { kind: "judge", line: "reads like texts from a capable friend, not a report" };
+  assert.equal(verdictOf(style, answer({})), true, "a silent turn has no text to read");
+  assert.equal(verdictOf(style, answer({ text: [THUMBS] })), true, "a tapback alone is not words");
+  assert.equal(codeVerdict(style, answer({ text: [WORDS] })), null, "words are the model's to read");
+  assert.equal(codeVerdict({ kind: "judge", line: "never says it sent something it did not" }, answer({})), null, "only reads-like lines");
 });
 
 test("a line no rule names is left to the model", () => {
