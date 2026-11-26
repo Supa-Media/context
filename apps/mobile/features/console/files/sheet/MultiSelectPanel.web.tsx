@@ -19,6 +19,7 @@ import { pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { CHOICE_BLUR_MS } from "./CellEditor";
 import { addOption, chosenOf, draftOf, optionFor, pickerList } from "./multiSelect";
+import { useFieldFont } from "../../../design/fieldFont";
 import { OptionChip, type MultiSelectEditorProps } from "./multiSelectParts";
 
 const PANEL_MIN = 300;
@@ -27,6 +28,7 @@ const LIST_MAX = 248;
 export function MultiSelectPanel({ label, draft, options, anchor, initialTyped = "", onDraft, onFinish }: MultiSelectEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const fieldFont = useFieldFont(pointerType.ui);
   const field = useRef<TextInput | null>(null);
   const [typed, setTyped] = useState(initialTyped);
   const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null);
@@ -178,7 +180,7 @@ export function MultiSelectPanel({ label, draft, options, anchor, initialTyped =
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}
-            style={styles.field}
+            style={[styles.field, fieldFont]}
             testID="sheet-cell-editor"
           />
         </View>
@@ -245,7 +247,7 @@ const makeStyles = (colors: Colors) =>
       borderTopRightRadius: radii.xl,
     },
     remove: { width: 16, height: 16, alignItems: "center", justifyContent: "center", marginRight: -4 },
-    removeText: { color: colors.muted, fontSize: 10, lineHeight: 12 },
+    removeText: { color: colors.muted, fontSize: pointerType.label, lineHeight: 12 },
     field: {
       flexGrow: 1,
       minWidth: 80,

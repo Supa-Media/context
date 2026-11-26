@@ -14,6 +14,7 @@ import { radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { Popover } from "./Popover";
 import { addOption, chosenOf, draftOf, optionFor, sheetList, toggleOption } from "./multiSelect";
+import { useFieldFont } from "../../../design/fieldFont";
 import { OptionChip, type MultiSelectEditorProps } from "./multiSelectParts";
 
 export function MultiSelectSheet({
@@ -26,6 +27,7 @@ export function MultiSelectSheet({
 }: Omit<MultiSelectEditorProps, "anchor"> & { rowLabel: string }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const fieldFont = useFieldFont(16);
   const [typed, setTyped] = useState("");
   const chosen = chosenOf(draft);
   const list = sheetList(options, chosen, typed);
@@ -66,7 +68,7 @@ export function MultiSelectSheet({
         accessibilityLabel={`Find or create a ${label} option`}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.field}
+        style={[styles.field, fieldFont]}
         testID="sheet-cell-editor"
       />
       <View style={styles.group}>
@@ -123,7 +125,6 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.control,
       color: colors.text,
       backgroundColor: colors.ground,
-      fontSize: 16,
       marginBottom: space.x3,
     } as object,
     group: { borderRadius: 14, backgroundColor: colors.ground, borderWidth: 1, borderColor: colors.line, overflow: "hidden" },
