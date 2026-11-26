@@ -22,7 +22,8 @@ describe("metric readings from metrics.csv", () => {
   test("the latest row per metric wins, matched by name in any case, with its series in date order", () => {
     const readings = readingsOf(SHEET);
     const cost = readingFor(readings, { name: "monthly COST", target: "under $600" });
-    expect(cost).toEqual({ value: "$512", date: "2026-11-23", series: [540, 1020, 512] });
+    // The oldest dated row is where a goal's pace line starts (`verdict.ts`).
+    expect(cost).toEqual({ value: "$512", date: "2026-11-23", series: [540, 1020, 512], start: { value: 540, at: Date.UTC(2026, 10, 2) } });
     expect(readingFor(readings, { name: "PR time to ship", target: null })?.value).toBe("2.4 days");
     expect(readings.size).toBe(2);
   });

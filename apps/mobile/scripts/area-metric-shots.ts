@@ -230,7 +230,7 @@ function PhoneFrame({ children }: { children?: ReactNode }) {
 // The boards.
 // ---------------------------------------------------------------------------
 
-type Board = "05" | "06" | "13b" | "08";
+type Board = "05" | "06" | "06c" | "13b" | "08";
 
 function host(w: World): FolderPageHost {
   return {
@@ -242,14 +242,27 @@ function host(w: World): FolderPageHost {
 }
 
 function AreasBoard({ board, compact, w }: { board: Board; compact: boolean; w: World }) {
-  const areaNotes = w.notes.filter((each) => each.path.startsWith("areas/"));
+  // The Chart draws an area with no owner as an empty seat, so its board gives each one a holder.
+  const owners = ["@seyi", "@dev", "@gus", "@claude"];
+  const held = (each: (typeof w.notes)[number], at: number) =>
+    board === "06c" && each.path.endsWith("/about.md") ? { ...each, properties: { owner: owners[at % owners.length]!, ...each.properties } } : each;
+  const areaNotes = [
+    ...w.notes.filter((each) => each.path.startsWith("areas/")).map(held),
+    // Two sub-areas under Finance, so the Chart's "inside" fold has something to unfold.
+    ...(board === "06c"
+      ? [
+          { path: "areas/finance/payroll/about.md", properties: { owner: "@seyi", metric: "PRs merged / week · target over 10" } },
+          { path: "areas/finance/pricing/about.md", properties: { owner: "@gus", metric: "Error rate · target under 1%" } },
+        ]
+      : []),
+  ];
   return h(
     View as never,
     null,
     h(PageHead, {
       tile: h(JobIcon, { job: "areas", size: 36, tile: true }),
       title: "areas",
-      actions: h(ViewSwitch, { view: "list", onChange: () => {}, compact, views: AREA_VIEWS }),
+      actions: h(ViewSwitch, { view: board === "06c" ? "chart" : "list", onChange: () => {}, compact, views: AREA_VIEWS }),
       lede: compact ? null : "Who holds what, and how each area is doing.",
       compact,
     }),
@@ -258,7 +271,7 @@ function AreasBoard({ board, compact, w }: { board: Board; compact: boolean; w: 
       root: "areas",
       rootName: "Supa",
       notes: areaNotes,
-      view: "list",
+      view: board === "06c" ? "chart" : "list",
       compact,
       canEdit: true,
       faceOf: (owner: string | null) => (owner === null ? { kind: "nobody" as const } : { kind: "person" as const, name: FACES[owner] ?? owner }),
@@ -389,6 +402,10 @@ async function shoot(board: Board, name: string, scheme: Scheme, phone: boolean)
     await click("menu-item-metric");
   }
   if (board === "06" && !phone) await click("area-row-areas/finance");
+  if (board === "06c") {
+    // The Chart view, with Finance's sub-areas unfolded under its "inside" line.
+    await click("area-fold-areas/finance");
+  }
   await settle(4);
   const injected = [...document.head.querySelectorAll("style")].map((style) => style.textContent ?? "").join("\n");
   const css = `${StyleSheet.getSheet().textContent}\n${injected}`;
@@ -401,6 +418,7 @@ describe("area metric shots", () => {
   const boards: [Board, string][] = [
     ["05", "05-area-metric"],
     ["06", "06-areas-list"],
+    ["06c", "06c-areas-chart"],
     ["13b", "13b-empty-picker"],
     ["08", "08-pull-requests-sheet"],
   ];

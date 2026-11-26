@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { WITHOUT_DID } from "./groupWorld.testing";
 import type { Fetch } from "./clients";
 import { accept, CARD_KEY, cardOfferedKey, cardSentKey, CHAT_KEY, drain, NEW_LINE_TEXT, type InboxDeps } from "./inbox";
 import { afterRepliesSettled } from "./afterReply";
@@ -616,6 +617,7 @@ describe("sendblue sending", () => {
       linqApiKey: "linq-key",
       sendblue: KEYS,
       now: () => now,
+      texGraph: WITHOUT_DID,
     });
     await checkReady(storage, readyDeps(1_000 + READY_FIRST_MS));
     await checkReady(storage, readyDeps(1_000 + READY_FIRST_MS + 60_000));

@@ -45,6 +45,7 @@ import { useAnnounceOpenNote } from "../../map/live/announce";
 import { MapPage } from "../../map/live/ui/MapPage";
 import { TrashPage } from "../../trash/TrashPage";
 import { useTrashRoute } from "../../trash/TrashRouteContext";
+import { useMailSlot } from "../../mailPage/MailSlot";
 import { useVaultPage } from "../../vault/VaultPage";
 import { PhoneInbox } from "../../home/PhoneInbox";
 import { useDownloadRows, useSteadyDownloadRow } from "../../files/Downloads";
@@ -254,6 +255,7 @@ export function BrowseDocument({
   */
   const mapRoute = useMapRoute();
   const trashRoute = useTrashRoute();
+  const mailSlot = useMailSlot(compact, files.select); // `?mail=1`: the Mail page, in this slot
   const vaultPage = useVaultPage();
   // The phone's first page is Inbox, and All opens Folders (`home/homeView.ts`).
   const homeView = useHomeView();
@@ -389,7 +391,7 @@ export function BrowseDocument({
           onClose={trashRoute.closeTrash}
         />
       </DocumentPage>
-    ) : mapRoute?.open && current !== null && current !== undefined ? (
+    ) : mailSlot !== null ? mailSlot : mapRoute?.open && current !== null && current !== undefined ? (
       /*
         The live map (`?map=1`), where a note would be, filling the slot: the
         tree stays beside it. A note in this workspace opens as the tree opens

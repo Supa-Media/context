@@ -36,7 +36,7 @@ import type { SendblueKeys } from "./sendblue";
 import type { WhapiKeys } from "./whapi";
 import type { InboxStorage } from "./inbox";
 import { machineTurn, type MachineLive, type MachineOutcome } from "./machineTurn";
-import { JOB_SHOWN_MS, jobAsked, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS, RUN_KEY, type JobAsk, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
+import { JOB_SHOWN_MS, jobAsked, JOB_LINES, PICKED_UP, jobPictures, log, MAX_JOB_ATTEMPTS, MAX_JOB_PICTURES, MAX_JOB_TRIES, MAX_MACHINE_JOB_ATTEMPTS, RUN_KEY, type JobAsk, type JobEnd, type JobMail, type JobRun, type JobSteer, type JobUpdate, type JobVerdict, type StepHow } from "./jobs";
 import { shrinkPicture, type OutgoingPicture } from "./outgoing";
 import type { ImagesLike } from "./attachments";
 import { limitResetAt } from "./jobPause";
@@ -106,13 +106,13 @@ type Live = { turn: string; accessToken?: string; fetch: Fetch; gatewayOrigin: s
 const live = new WeakMap<InboxStorage, Live>();
 
 type Outcome =
-  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; vaultLinks?: string[]; verdict?: JobVerdict; advice?: string; idle?: true }
+  | { kind: "answer"; texts: string[]; pictures: OutgoingPicture[]; exhausted: boolean; unfinished: boolean; status: string; steered: string[]; untrusted?: true; vaultWatch?: true; vaultLinks?: string[]; verdict?: JobVerdict; advice?: string; idle?: true; roomRead?: string[] }
   /** Nothing ran (or the model was down): try the same turn again later. `why` is kept for the job's last word if no try is left. */
   | { kind: "retry"; why?: string; cause?: "model_down" }
   /** It ran and broke: carry on in a new turn, if one is left. `cause`: why, when it is known (`jobProgress.ts`). */
   | { kind: "broken"; cause: "check_limit" | "timeout" | "crash" }
   /** Ends here, with this to say, or silently. `status`: why, kept on the chat's entry for `job_status` and the Lab, never texted. */
-  | { kind: "stop"; text?: string; status?: string }
+  | { kind: "stop"; end?: JobEnd; text?: string; status?: string }
   /** The gateway refused to run it (`daily_limit`, `no_model`): it waits on them, and says why. */
   | { kind: "refused"; why: "daily_limit" | "no_model" }
   /** The gateway turned the part down before anything ran (`clients.ts` `refused`): the same ask is turned down again, so it ends here and says why. */
@@ -151,7 +151,7 @@ export async function failJob(storage: InboxStorage, deps: JobDeps): Promise<Job
   const run = await storage.get<Stored>(RUN_KEY);
   if (run === undefined) return { kind: "done" };
   const tell = (update: Omit<JobUpdate, "id" | "first">) => deps.report(run.inbox, { id: run.id, ...update, first: run.sent ?? 0 }).catch(() => false);
-  return await finish(storage, run, { state: "failed", texts: [JOB_LINES.failed(run.title)] }, tell, deps.now());
+  return await finish(storage, run, { state: "failed", texts: [], end: { action: "job", status: "failed", why: "every_try_failed" } }, tell, deps.now());
 }
 
 /**
@@ -250,12 +250,14 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     return { kind: "after", ms: OVERLAP_WAIT_MS, overlap: true };
   }
   let sent = run.sent ?? 0;
+  // The workspaces its parts read that someone in its group can't open (`packages/tex/gateway/agent/roomCheck.js`): its report carries them.
+  let roomRead = run.roomRead ?? [];
   // An owed update keeps the pass that wrote it, so the inbox takes it as that pass's word again.
   const pass = run.owed?.pass ?? crypto.randomUUID();
   const tell = async (update: Omit<JobUpdate, "id" | "first">): Promise<boolean> => {
     // Words for the chat go to its own turn with who asked and what, so that turn can start the job again (`jobTexts.ts`).
     const asked = update.texts?.length ? { asked: run.origin.kind === "phone" ? { from: run.origin.phone, text: run.origin.question } : { from: run.origin.message.from, text: run.origin.message.text } } : {};
-    const ok = await deps.report(run.inbox, { id: run.id, pass, ...asked, ...update, first: sent }).catch(() => false);
+    const ok = await deps.report(run.inbox, { id: run.id, pass, ...asked, ...update, ...(roomRead.length > 0 && update.texts?.length ? { roomRead } : {}), first: sent }).catch(() => false);
     const count = (update.pictures?.length ?? 0) + (update.texts?.length ?? 0);
     // Counted only while this pass holds the job: a pass overtaken never writes the run back.
     if (ok && count > 0 && (await storage.get<string>(PASS_KEY)) === pass) {
@@ -326,6 +328,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
   } finally {
     if (live.get(storage) === turn) live.delete(storage);
   }
+  if (outcome.kind === "answer" && outcome.roomRead?.length) roomRead = [...new Set([...roomRead, ...outcome.roomRead])].slice(0, 24);
   // Another pass took the job meanwhile, or already finished it: that one's word is the only one the chat gets.
   if ((await storage.get<string>(PASS_KEY)) !== pass) {
     log("stale_pass", run.id);
@@ -397,7 +400,7 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
     // a cloud reviewer's tenth part answered a screenshot, and that alone became its report: "nothing from it is built").
     const said = outcome.kind === "answer" ? partLine(run.attempt, outcome.texts, outcome.status) : null;
     const parts = said === null ? run.parts : [...(run.parts ?? []), said].slice(-MAX_PARTS_KEPT);
-    await storage.put<Stored>(RUN_KEY, { ...kept, sent, attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...carryPatch(run, outcome), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
+    await storage.put<Stored>(RUN_KEY, { ...kept, sent, ...(roomRead.length > 0 ? { roomRead } : {}), attempt: run.attempt + 1, tries: 0, ...(parts?.length ? { parts } : {}), ...(draft ? { draft } : {}), ...(unfinished ? { unfinished: true as const } : {}), ...(advice && !changed ? { advice } : {}), ...carryPatch(run, outcome), ...(idle ? { idle: true as const } : {}), ...((outcome.kind === "answer" && outcome.untrusted) || readOutside(run.saved) ? { tainted: true as const } : {}) });
     await tell({
       state: "running",
       part: run.attempt + 1,
@@ -430,19 +433,20 @@ export async function runJob(storage: InboxStorage, deps: JobDeps): Promise<JobN
           status: ended === "done" ? outcome.status : `${why}${advice || outcome.status}`.slice(0, 280),
           // A page's cover goes first, in place of the link's name card (`jobTexts.ts`); not with an answer a later text changed.
           ...(changed ? {} : await sendable(outcome.pictures, deps.images)),
-          texts: changed && !mailed ? [...outcome.texts, JOB_LINES.missed] : ended !== "done" && run.parts?.length ? [...outcome.texts, earlierParts(run.parts)] : outcome.texts,
+          texts: !(changed && !mailed) && ended !== "done" && run.parts?.length ? [...outcome.texts, earlierParts(run.parts)] : outcome.texts,
+          ...(changed && !mailed ? { end: { action: "job", status: ended, change_missed: true } } : {}),
           ...watch,
         }
       : outcome.kind === "refused"
-        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [JOB_LINES.refused(run.title, outcome.why)], ...(outcome.why === "daily_limit" ? { resumeAt: choice?.resumeAt ?? limitResetAt(deps.now()) } : {}) } // starts again by itself (`jobPause.ts`), when Part end says
+        ? { state: "waiting", status: JOB_LINES.refusedStatus[outcome.why], texts: [], end: { action: "job", status: "paused", why: outcome.why, resumes_by_itself: outcome.why === "daily_limit" }, ...(outcome.why === "daily_limit" ? { resumeAt: choice?.resumeAt ?? limitResetAt(deps.now()) } : {}) } // starts again by itself (`jobPause.ts`), when Part end says
         : outcome.kind === "rejected"
-          ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [JOB_LINES.rejected(run.title, outcome.why)] }
+          ? { state: "failed", status: `Stopped: turned down before it ran (${outcome.why})`.slice(0, 280), texts: [], end: { action: "job", status: "turned_down", why: outcome.why.slice(0, 200) } }
         : outcome.kind === "stop"
-          ? { state: "failed", ...(outcome.status ? { status: outcome.status.slice(0, 280) } : {}), ...(outcome.text ? { texts: [outcome.text] } : {}) }
+          ? { state: "failed", ...(outcome.status ? { status: outcome.status.slice(0, 280) } : {}), ...(outcome.text ? { texts: [outcome.text] } : {}), ...(outcome.end ? { end: outcome.end } : {}) }
           : outcome.kind === "retry" && outcome.why
             ? // Out of tries at a service that didn't answer: said, so neither Tex nor the person is left guessing (2026-11-06).
-              { state: "failed", status: `Stopped: ${outcome.why}`.slice(0, 280), texts: [JOB_LINES.failed(run.title, outcome.why)] }
-            : { state: "failed", ...(outcome.kind === "broken" ? { status: `Stopped: part ${run.attempt} ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280) } : {}), texts: [JOB_LINES.failed(run.title)] };
+              { state: "failed", status: `Stopped: ${outcome.why}`.slice(0, 280), texts: [], end: { action: "job", status: "failed", why: outcome.why.slice(0, 200) } }
+            : { state: "failed", ...(outcome.kind === "broken" ? { status: `Stopped: part ${run.attempt} ${CAUSE_WORDS[outcome.cause]}`.slice(0, 280) } : {}), texts: [], end: { action: "job", status: "failed", ...(outcome.kind === "broken" ? { why: outcome.cause } : {}) } };
   update.part = run.attempt;
   update.ends = ends;
   // What it had got to is what a restart starts on (`resumeJob`).
@@ -590,6 +594,7 @@ function outcomeOf(answer: AgentAnswer, texts: (text: string) => string[]): Outc
       ...(answer.vaultWatch ? { vaultWatch: true as const, ...(answer.vaultLinks ? { vaultLinks: answer.vaultLinks } : {}) } : {}),
       ...(answer.verdict ? { verdict: answer.verdict, ...(answer.advice ? { advice: answer.advice } : {}) } : {}),
       ...(answer.idle ? { idle: true as const } : {}),
+      ...(answer.roomRead?.length ? { roomRead: answer.roomRead } : {}),
     };
   }
   if (answer.kind === "not_started") return { kind: "retry" };
@@ -629,7 +634,7 @@ async function phoneTurn(
     { job, turn: turn.turn, onStep },
   );
   const outcome = outcomeOf(answer, (text) => textsWithExact(text, answer.kind === "answer" ? answer.verbatim : []));
-  if (outcome.kind === "stop") return { kind: "stop", text: JOB_LINES.failed(run.title) };
+  if (outcome.kind === "stop") return { kind: "stop", end: { action: "job", status: "failed" } };
   return outcome;
 }
 
@@ -672,6 +677,8 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
     // And the calendars shared with it (Dev2, 2026-11-25: a check-in's job was told none were, read the wrong ones first).
     ...(asked.calendar?.length ? { calendar: asked.calendar } : {}),
+    // Who here can't open which of the asker's workspaces, so the job's reads from them go with its report (`roomCheck.js`).
+    ...(asked.blocked?.length ? { blocked: asked.blocked } : {}), ...(asked.unshared?.length ? { unshared: asked.unshared } : {}),
     chat: [],
   };
   // Streamed, so its steps reach the chat as it takes them; a group's turn texts no progress of its own.
@@ -687,7 +694,7 @@ async function groupTurn(run: JobRun, job: JobAsk, turn: Live, deps: JobDeps, on
   if (outcome.kind !== "answer") return outcome;
   // Sent only to the people it was written for, as a group's answer is (`groupInbox.ts`).
   const now = await app.readMembers(place);
-  if (now === null) return { kind: "stop", text: GROUP_LINES.failed };
-  if (now.some((phone) => phone !== message.line && !people.includes(phone))) return { kind: "stop", text: GROUP_LINES.joined };
+  if (now === null) return { kind: "stop", end: { action: "job", status: "failed", why: "members_unread" } };
+  if (now.some((phone) => phone !== message.line && !people.includes(phone))) return { kind: "stop", end: { action: "job", status: "stopped", why: "someone_joined" } };
   return outcome;
 }

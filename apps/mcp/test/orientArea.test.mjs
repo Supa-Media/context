@@ -183,14 +183,14 @@ test("orient area lists the area's routines, its bot's budget, the other bots, a
   // talk to each other only in Context mail.
   const props = {
     ...PROPS,
-    "areas/bots/finance/about.md": { properties: { bot: "grok", holder: "Finance", belongs_to: "@seyi", works_in: ["areas/finance · 20%"] } },
+    "bots/finance/about.md": { properties: { bot: "grok", holder: "Finance", belongs_to: "@seyi", works_in: ["areas/finance · 20%"] } },
     "areas/bots/pipeline/about.md": { properties: { bot: "grok", holder: "Pipeline", belongs_to: "@kim" } },
   };
   const entries = [
     ...ENTRIES,
     { key: "areas/finance/routines/weekly/close-the-books.md", uploaded: at(1) },
     { key: "areas/finance/routines/someday/maybe.md", uploaded: at(1) },
-    { key: "areas/bots/finance/about.md", uploaded: at(1) },
+    { key: "bots/finance/about.md", uploaded: at(1) },
     { key: "areas/bots/pipeline/about.md", uploaded: at(1) },
   ];
   const base = store();
@@ -223,5 +223,5 @@ test("orient area lists the area's routines, its bot's budget, the other bots, a
   assert.match(held, /Budget: 20% of your week; 12% used this week/);
   assert.match(held, /## Other bots here\n- Pipeline \(@kim's\)/);
   assert.doesNotMatch(held, /## Other bots here\n[^#]*- Finance \(/);
-  assert.match(held, /Mail written to you outside any area is in `areas\/bots\/finance\/mail\/`/);
+  assert.match(held, /Mail written to you outside any area is in `bots\/finance\/mail\/`/);
 });

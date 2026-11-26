@@ -49,8 +49,11 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
 - **Never silent.** A `did` turn that can't run (the chat can't run one now, no model, the daily limit, every retry
   failed, the queue full) sends the action's old line once, logged as `group_did` `unsaid_<why>`
   (`didFacts.ts` `didUnsaid`). A retry re-sends the facts and never repeats the action.
-- **Config, not code.** The node merged on the shelf; until a Lab draft wires it (`did` to `fd`, when `tell`), the old
-  line is sent exactly as before. First user: adding everyone in a group to a workspace (`groupInvite.ts`). Tests:
+- **Config, not code.** The node merged on the shelf, then Lab draft `vmwwsr5uflmq6` wired it (`did` to `fd`, when
+  `tell`, 2026-11-26), tried in a group test chat first. Config without the node sends the old line exactly as before.
+  A command still runs at once beside a running turn, by code, and what Tex says about it is a turn of its own that
+  starts beside that one too (turns run side by side, one per asker), never waiting for it to finish
+  (`groupFast.test.ts`). First user: adding everyone in a group to a workspace (`groupInvite.ts`). Tests:
   `apps/mcp/test/texDid.test.mjs`, `packages/tex/worker/groupInvite.test.ts` (with the node wired: the facts reach the
   turn, the model out or the gateway down on every try sends the old line once, and the invite runs once).
 - **Group commands next** (B2): the start, invite, mail-sharing and "what can you see" answers, a group run's
@@ -58,8 +61,26 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
   turn never starts another (its own refusal goes as the old line), so nothing loops. **"Stop" and the once-per-mute
   reply stay fixed lines**: a muted chat runs no model by design (its grant is refused, `liveGrants.ts`), so the
   mute holds even with every model down. Test: `packages/tex/worker/groupDid.test.ts`.
-- **People with no account yet** get texts Tex writes too (Dev2, 2026-11-25: Context is free, so nothing is billed);
-  a per-number daily cap only keeps a spam number from running up model calls.
+- **A job's ending** (B3): a job that failed, paused, was turned down or missed a late change reports how it ended as
+  facts (`jobs.ts` `JobEnd`, `{ action: "job", status, why?, ... }`) beside its own texts, never a line the Worker
+  wrote; the chat's turn and its reply judge see them as data (`jobReport.js`). The outage line
+  (`jobReportRefused`) still goes when the report's turn cannot run. Tests:
+  `packages/tex/worker/jobEnd.test.ts`, `apps/mcp/test/texDid.test.mjs`.
+- **A computer's refusal** (B4): a part the person's computer won't take or refuses ends the job with
+  `{ action: "job", status: "refused", why: <the gateway's code>, computer, signed_out?, fix_at? }`, and one that
+  fails before its first step with `{ status: "failed", why: "computer_error", computer, said }` (`machineTurn.ts`
+  `refusedEnd`, `failedEnd`). What each means and what picks it back up is Training (`running-the-shop`), never a line.
+  Test: `packages/tex/worker/machineTurn.test.ts`.
+- **A person's own chat too** (B5): code that did something for one person queues their 1:1 chat's own `did` turn
+  (`packages/tex/worker/didOne.ts` `tellTexOne`, `inbox.ts` `queueByCode`), first when their Gmail connects
+  (`gmailWatch.ts`: `{ action: "gmail", status: "connected", address, main }`). When the turn can't run (no model, the
+  daily limit, the gateway down on every try) the old line goes once, logged as `one_did` `unsaid_<why>`. The notes-ready
+  text (`ready.ts`) is the second: Tex writes it from `{ action: "notes", status: "ready" | "late", ... }`, and the
+  sign-in link and the picture of Google's screens follow it, sent by code (`didAfter`), so no model sees the link. Tests:
+  `packages/tex/worker/oneDid.test.ts`, `apps/mcp/test/agentVaultSavedRoute.test.mjs`.
+- **People with no account yet keep fixed setup texts** (Dev2, 2026-11-26: "no model should run"). Before a phone
+  is linked, no model runs at all (`setup.ts`): the handle exchange is code's, and nothing a stranger texts can steer
+  Tex. These texts, like the outage lines, are kept on purpose and are not moved to facts.
 
 ## What a "simplification" would cost
 

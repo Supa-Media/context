@@ -101,6 +101,10 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     if (!about || about.sealed) return null;
     const bot = botOfArea(about.props);
     if (bot === null) return null;
+    // A bot's own folder (`bots/<bot>/`, its card the folder's about.md) is mail to the bot, not work in an area: no
+    // area's share is spent there, so it is never held.
+    const said = propsOf(about.props);
+    if (typeof said.owner !== "string" || said.owner.trim() === "") return null;
     const root = areasRoot();
     const { allowed, cap } = root === null ? { allowed: true, cap: null } : botAllowedIn(cardOf(bot, root).works, area);
     const name = mailJoinName(bot);

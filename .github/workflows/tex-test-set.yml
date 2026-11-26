@@ -111,8 +111,11 @@ jobs:
           set -euo pipefail
           umask 077
           for tree in change main; do
+            # The reply reviewer is one Haiku call. One sample of it is 5/8 or 6/8 on unchanged code, so it runs three
+            # times and the service fails it only on a steady regression (infra/tex-eval/src/rules.ts `verdict`).
             node apps/mcp/bench/run.mjs sets run --conversations "$RUNNER_TEMP/sealed/conversations.json" \
-              --tree "$RUNNER_TEMP/$tree" --out "$RUNNER_TEMP/sealed/$( [ "$tree" = change ] && echo branch || echo main ).json" > /dev/null 2>&1 \
+              --tree "$RUNNER_TEMP/$tree" --repeat 3 --repeat-nodes reviewer \
+              --out "$RUNNER_TEMP/sealed/$( [ "$tree" = change ] && echo branch || echo main ).json" > /dev/null 2>&1 \
               || echo "::warning::the $tree tree's run ended with an error; its unanswered tests count as wrong"
           done
 

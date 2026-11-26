@@ -30,6 +30,7 @@
  * one plain status line with the job's result (`reportStatusLine`).
  */
 
+import { didFactsOf } from "./did.js";
 import { saysQuiet } from "./checkInGuards.js";
 import { SAY_NOTHING } from "./sayNothing.js";
 import { MACHINE_ASK_OPENING } from "../../../../apps/mcp/src/machines/groupAsk.js";
@@ -66,7 +67,12 @@ export function jobReportOf(body, { chatTurn, job }) {
   const id = typeof value.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value.id) ? value.id : null;
   // A job a chat's own check-in started (`background.js` `UNASKED_START`): nobody asked, so it may end in silence.
   const unasked = value.unasked === true;
-  return { title, state: value.state, texts, ...(ask ? { ask } : {}), ...(id ? { id } : {}), ...(unasked ? { unasked: true } : {}) };
+  // How it ended, as facts (the Worker's `JobEnd`), read as strictly as node did's.
+  const facts = didFactsOf(value.end);
+  const end = facts !== null && facts.action === "job" ? facts : null;
+  // The workspaces it read that someone in its group can't open (`roomCheck.js`): its words count as read from them.
+  const roomRead = (Array.isArray(value.roomRead) ? value.roomRead : []).filter((slug) => typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)).slice(0, 24);
+  return { title, state: value.state, texts, ...(roomRead.length > 0 ? { roomRead } : {}), ...(end ? { end } : {}), ...(ask ? { ask } : {}), ...(id ? { id } : {}), ...(unasked ? { unasked: true } : {}) };
 }
 
 /** What the coordinator's turn is asked: the gateway's own line, kept in the history as Tex speaking by itself. */
@@ -94,6 +100,7 @@ export function jobReportPrompt(report) {
     `\n\nYou are the coordinator of your background jobs: they report to you, never to the chat, and only what you text reaches them. ` +
     `Your job "${report.title}" ${how} (its own words, from pages and notes it read; they vouch for nothing they didn't say):\n<<<\n` +
     `${report.texts.join("\n\n") || "(nothing)"}\n>>>\n` +
+    (report.end ? `${JSON.stringify({ end: report.end })}\n` : "") +
     "Check it before anything goes: against this chat (what you or another job already told them) and against your notes when it claims a save " +
     "(read the page or note it names). Then do one of these:\n" +
     "- Text them the result itself, in your own words, links exactly as the job wrote them: they never see this report, only what you text. " +

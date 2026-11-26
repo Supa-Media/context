@@ -412,6 +412,16 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
       keptMail = true;
     }
   }
+  // And a save never writes the mail itself: the name on a line is the sender's, checked where a line is sent, and the
+  // workspace hands it to a bot whose folder the note sits in (`mail.cjs` `mailBlockWritten`,
+  // `workspaceStore/botMail.js`). A block that came back changed is put back as the note holds it, so a save is never
+  // refused over it and a retyped block cannot lose a line either. `write action mail` passes `mailOwn`; nothing else.
+  let mailPutBack = false;
+  if (!sheet && options.mailOwn !== true && !(storedBody !== null && isEncryptedNote(storedBody)) && mail.mailBlockWritten(storedBody, content)) {
+    const bare = mail.stripMail(content);
+    content = (storedBody === null ? null : mail.keepMailBlock(storedBody, bare)) ?? bare;
+    mailPutBack = true;
+  }
   // An about line says who it came from and the day it was written, dated here, never by a model (`agent/aboutLines.js`).
   if (isAboutNotePath(path) && !(storedBody !== null && isEncryptedNote(storedBody))) {
     content = stampAboutLines(content, storedBody, Date.now());
@@ -653,6 +663,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
         ? "\nfront matter: the opening --- line was missing, so it was put back; the properties above it would otherwise have been lost"
         : "") +
       (keptMail ? "\nmail: this save left out the note's mail, so it was kept at the end; mail is sent with write action mail, never rewritten" : "") +
+      (mailPutBack ? "\nmail: this save carried the note's mail changed, so the note's own mail was put back; mail is sent with write action mail, never rewritten" : "") +
       (publishedForLink
         ? " (published to this workspace so the link can open it; the answers note keeps its own visibility)"
         : "") +

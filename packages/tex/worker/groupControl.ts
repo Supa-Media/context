@@ -23,6 +23,8 @@ export type ControlAnswer =
       reach?: string[];
       /** Who keeps the chat from each shared workspace its asker and sponsor share, and why (`lib/textGroupBlockers.ts`). */
       blocked?: { slug: string; who: string; why: "not_member" | "no_account" }[];
+      /** The asker's workspaces this turn reads that the whole chat does not share (`lib/textGroupHomeOnly.ts`): what someone here can't open. */
+      unshared?: string[];
       intro: boolean;
       timeZone?: string;
       handle?: string;
@@ -30,7 +32,8 @@ export type ControlAnswer =
       names?: { phone: string; handle: string; name?: string }[];
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
-      mail?: { handle: string; address: string }[];
+      /** `askerSends`: the turn's asker has this mailbox connected themselves, so it can go from them (`lib/textGroupMail.ts`). */
+      mail?: { handle: string; address: string; askerSends?: true }[];
       /** Calendars shared with this chat: the turn is told whose and which. */
       calendar?: { handle: string; address: string }[];
       /** Whether this chat is shared with the developers who build Tex, by handle (`lib/texLabShared.ts` `devShareOf`). */
@@ -123,6 +126,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         slug: body.slug as string,
         ...(Array.isArray(body.reach) ? { reach: (body.reach.filter(slug) as string[]).slice(0, 12) } : {}),
         ...blockedOf(body.blocked),
+        ...(Array.isArray(body.unshared) && body.unshared.some(slug) ? { unshared: (body.unshared.filter(slug) as string[]).slice(0, 24) } : {}),
         ...devShareOf(body.devShare),
         intro: body.intro === true,
         ...(typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {}),
@@ -137,7 +141,9 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
           typeof entry.phone === "string" && typeof entry.label === "string" && LABEL.test(entry.label) ? [{ phone: entry.phone, label: entry.label }] : [],
         ),
         mail: (Array.isArray(body.mail) ? body.mail : []).slice(0, 10).map(record).flatMap((entry) =>
-          slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address) ? [{ handle: entry.handle as string, address: entry.address }] : [],
+          slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address)
+            ? [{ handle: entry.handle as string, address: entry.address, ...(entry.askerSends === true ? { askerSends: true as const } : {}) }]
+            : [],
         ),
         calendar: (Array.isArray(body.calendar) ? body.calendar : []).slice(0, 10).map(record).flatMap((entry) =>
           slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address) ? [{ handle: entry.handle as string, address: entry.address }] : [],

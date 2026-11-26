@@ -28,7 +28,7 @@ import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
 import type { OwnedArea } from "@context/shared/src/areaBots.cjs";
-import { AddBotForm, PromptBox, UploadLogo, botDetail, botSetupPrompt } from "./PanelBotFields";
+import { AddBotForm, PromptBox, UploadLogo, botDetail, botSetupPrompt, usePeopleList } from "./PanelBotFields";
 import { BotHookFields } from "./PanelBotHook";
 import { MODES, MODE_TIPS, areaTitle, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
@@ -58,22 +58,6 @@ export type PanelWrite = (patch: Partial<SeatEdit>, cards?: readonly Card[]) => 
 type Anchor = { x: number; y: number } | null;
 const NOBODY = "__nobody__";
 const ADD_BOT = "__add_bot__";
-
-/** The workspace's people, asked once when a menu opens. */
-function usePeopleList(search: OwnerSearch, asking: boolean): readonly string[] {
-  const [people, setPeople] = useState<readonly string[]>([]);
-  useEffect(() => {
-    if (!asking) return;
-    let live = true;
-    search("", [])
-      .then((found) => live && setPeople(found.people.map((person) => person.value)))
-      .catch(() => live && setPeople([]));
-    return () => {
-      live = false;
-    };
-  }, [search, asking]);
-  return people;
-}
 
 /** Owner, delegate, modes and how to reach the holder, as label and value rows. */
 export function PanelOwnerRows({

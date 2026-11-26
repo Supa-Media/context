@@ -73,6 +73,7 @@
     }
   ],
   "reviewed": {
+    "apps/mobile/features/console/ConsoleFrame.tsx": "The console's one frame, which turns each query-param page into a route and provides it, at the 700-line review threshold before this change; it grew by two lines only (an import and one hook call) to route the Mail page (?mail=1, mailPage/MailRouteContext.tsx) beside the map and Trash, with the facts it needs gathered in mailRouteFacts.",
     "apps/mcp/wrangler.toml": "The gateway Worker's one deploy config: production, staging and preview each list every binding, so a new Analytics Engine dataset adds a block to all three (the Nudge's tex_nudges, 2026-11-24). Splitting it would split one Worker's bindings across files wrangler reads as one.",
     "packages/tex/gateway/agent/turn.js": "The model loop's one tool funnel, at the 700-line review threshold before this change; it grew by one import line only so a Lab test chat's turn answers every non-read tool as done there (labSandbox/policy.js sandboxedTool), the one place Tex's local, web and MCP tools all pass.",
     "packages/tex/worker/inbox.ts": "The chat queue's one drain and reply path, at the 700-line review threshold before this change; it grew by two lines only to hand the chat's remote line to lineDeps (the step 3 line seam, lineCalls.ts and remoteLine.ts), and it moves out with the rest of the head.",

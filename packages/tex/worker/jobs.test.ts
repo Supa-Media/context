@@ -373,7 +373,7 @@ describe("background jobs", () => {
     expect(await runJob(storage, deps)).toMatchObject({ kind: "after" });
     await runJob(storage, deps);
     await runJob(storage, deps);
-    expect(reports.at(-1)).toMatchObject({ state: "failed", texts: [JOB_LINES.failed("Competitor research")] });
+    expect(reports.at(-1)).toMatchObject({ state: "failed", texts: [], end: { action: "job", status: "failed" } });
   });
 
   it("a part the gateway refused ends waiting and says why, never failing silently", async () => {
@@ -383,11 +383,9 @@ describe("background jobs", () => {
       await acceptJob(storage, run(), NOW);
       const { deps, reports } = jobDeps([{ status, body: { error: why } }]);
       expect(await runJob(storage, deps)).toEqual({ kind: "done" });
-      expect(reports.at(-1)).toMatchObject({ state: "waiting", status: JOB_LINES.refusedStatus[why], texts: [JOB_LINES.refused("Competitor research", why)] });
+      expect(reports.at(-1)).toMatchObject({ state: "waiting", status: JOB_LINES.refusedStatus[why], texts: [], end: { action: "job", status: "paused", why, resumes_by_itself: why === "daily_limit" } });
       expect(await storage.get(RUN_KEY)).toBeUndefined();
     }
-    expect(JOB_LINES.refused("Competitor research", "daily_limit")).toMatch(/"Competitor research".*today's limit/);
-    expect(JOB_LINES.refused("Competitor research", "no_model")).toMatch(/can't reach my model/);
   });
 
   it("ends silently for a phone that was unlinked meanwhile", async () => {

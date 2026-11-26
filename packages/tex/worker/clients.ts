@@ -16,6 +16,7 @@
  * quote the request, and the request is somebody's message.
  */
 
+import { roomReadOf } from "./roomRead";
 import type { Did } from "./didFacts";
 import { readUnder, type UnderPart } from "./bubblesUnder";
 import type { GatewayAttachment } from "./attachments";
@@ -264,7 +265,7 @@ export type AgentAnswer =
   /** `askIds`: the approval records the turn armed, one ask event each (`events.ts`). */
   /** `warm`: the gateway's sealed copy of what this turn read, handed back with the next text (`warm.ts`). */
   /** `heard`, `sent`: what the person said aloud this turn, and the gateway's line naming the files they sent: jobs it starts, changes or restarts get them beside their typed words (`jobs.ts` `jobQuestion`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; sticker?: string; place?: ReplyPlace; under?: UnderPart[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; handbackWatch?: string; invite?: ChatInvite; muted?: true; askFor?: string; askIds?: string[]; warm?: string; heard?: string; sent?: string; crossAsks?: CrossAsk[]; crossBack?: CrossBack; crossPost?: string; asides?: Aside[] }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; choices?: Choice[]; offers?: Offer[]; hub?: string; verbatim?: string[]; quiet?: true; react?: string; sticker?: string; place?: ReplyPlace; under?: UnderPart[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true; unfinished?: true; untrusted?: true; idle?: true; verdict?: JobVerdict; advice?: string; vaultWatch?: true; vaultLinks?: string[]; handbackWatch?: string; invite?: ChatInvite; muted?: true; askFor?: string; askIds?: string[]; roomRead?: string[]; warm?: string; heard?: string; sent?: string; crossAsks?: CrossAsk[]; crossBack?: CrossBack; crossPost?: string; asides?: Aside[] }
   /** The turn was cancelled (`POST /agent/cancel`, a restart): nothing of it is sent. */
   | { kind: "cancelled" }
   | { kind: "no_model" }
@@ -457,6 +458,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(body.vaultWatch === true ? { vaultWatch: true as const, ...(watchedLinks(body.vaultLinks).length > 0 ? { vaultLinks: watchedLinks(body.vaultLinks) } : {}) } : {}),
       ...(watchedBrowser(body.handbackWatch) !== null ? { handbackWatch: watchedBrowser(body.handbackWatch)! } : {}), // a take-over link went: its Done carries the task on (`handbackWatch.ts`)
       ...(askIds.length > 0 ? { askIds } : {}),
+      ...(roomReadOf(body.roomRead).length > 0 ? { roomRead: roomReadOf(body.roomRead) } : {}), // a group job's reads from a workspace someone there can't open (`packages/tex/gateway/agent/roomCheck.js`)
       ...(typeof body.askFor === "string" && /^[a-z0-9](?:[a-z0-9-]{0,63})$/.test(body.askFor) ? { askFor: body.askFor } : {}),
       ...(typeof body.warm === "string" && body.warm.length <= MAX_WARM_CHARS ? { warm: body.warm } : {}),
       ...(readAsides(body.asides).length > 0 ? { asides: readAsides(body.asides) } : {}), // a group turn's sensitive asks for its tagger alone (`crossChat.ts` `sendAsides`)
@@ -633,3 +635,4 @@ export async function unlinkPhone(
 
 /** The words an ask showed: the parts texted exactly as written (the ask itself), or the whole answer. */
 export const askLine = (answer: { text: string; verbatim?: string[] }): string => answer.verbatim?.join("\n") || answer.text;
+

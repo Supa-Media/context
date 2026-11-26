@@ -19,6 +19,7 @@
  */
 
 import { TEX_CONFIG as bundled } from "../../../packages/tex/src/texConfig.cjs";
+import { INTRO_KEY, JOINED_EVENT } from "./groupChat";
 import { queueGroupByCode } from "./groupInbox";
 import type { InboxStorage } from "./inbox";
 import type { GroupMessage } from "./sendblueGroups";
@@ -26,11 +27,11 @@ import type { GroupMessage } from "./sendblueGroups";
 /** The node's id in the config. */
 export const JOINED_NODE = "joined";
 /** The event the chat's turn names, read by the gateway's node of the same name. */
-export const JOINED_EVENT = "joined";
+export { JOINED_EVENT } from "./groupChat";
 /** The routine path its turn runs under, as a saved login's does (`vaultWatch.ts` `VAULT_SAVED_PATH`): no note. */
 export const JOINED_PATH = "(joined)";
-/** Set in the chat's object once its hello is queued: a group is introduced once. */
-export const INTRO_KEY = "gintro";
+/** Set in the chat's object once its hello is queued: a group is introduced once (kept in `groupChat.ts`, which binds by it). */
+export { INTRO_KEY } from "./groupChat";
 /** What the turn's own row reads as in the chat's queue; the gateway asks the model its own line, never this. */
 export const JOINED_TEXT = "(Tex was added to this chat)";
 

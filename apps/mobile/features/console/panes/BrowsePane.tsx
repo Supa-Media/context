@@ -42,6 +42,7 @@ import { FOLDERS_PAGE, useHomeView } from "../home/homeView";
 import { usePhoneHistory } from "../home/phoneHistory";
 import { goToLevel, HOME_LABEL } from "../home/phoneBack";
 import { useMapRoute } from "../map/live/MapRouteContext";
+import { useMailRoute } from "../mailPage/MailRouteContext";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -358,6 +359,8 @@ export function BrowsePane({
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
   // The live map draws where the document would, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
+  // The Mail page fills the slot too (`?mail=1`, `mailPage/MailPage.tsx`).
+  const mailPage = useMailRoute()?.open === true;
   /*
     An Excalidraw note open in the editor fills the region the way the map
     does: no reading margin around the canvas (owner, 2026-10-30). Only once
@@ -374,7 +377,7 @@ export function BrowsePane({
   // Inbox or Folders, when nothing is open on a phone (`home/homeView.ts`).
   const homeView = useHomeView();
   // Every page a phone shows, in order, so ‹ goes back to the one before (`phoneHistory.ts`).
-  usePhoneHistory(compact && !mapPage ? (selected?.path ?? (homeView === "folders" ? FOLDERS_PAGE : "")) : null, files.contextId ?? null);
+  usePhoneHistory(compact && !mapPage && !mailPage ? (selected?.path ?? (homeView === "folders" ? FOLDERS_PAGE : "")) : null, files.contextId ?? null);
 
   const openDocument = (
     <BrowseDocument
@@ -445,7 +448,7 @@ export function BrowsePane({
         it before is gone, and `pathBar` below is only who else is in the note.
       */}
       {/* Not over the map: it names the note under it, which is not on screen. */}
-      {selected !== null && settled && !compact && !mapPage ? (
+      {selected !== null && settled && !compact && !mapPage && !mailPage ? (
         <BrowseNoteHead
           files={files}
           selected={selected}
@@ -528,7 +531,7 @@ export function BrowsePane({
         openDocument={openDocument}
         notices={notices}
         pathBar={pathBar}
-        fill={mapPage || drawingPage}
+        fill={mapPage || mailPage || drawingPage}
         topPage={homeView === "folders" ? FOLDERS_PAGE : ""}
         onSwipeHome={selected !== null || homeView === "folders" ? () => goToLevel({ folder: null, label: HOME_LABEL, view: "inbox" }, files) : undefined}
       />

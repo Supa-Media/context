@@ -88,12 +88,31 @@ who to ask and what is not covered. No new concept: an area is the seat.
   the seat pop-up's own save. A phone has no panel: a press opens the area.
   `areasPanel.test.ts` fails if a single press opens the area on a page with
   room, or if the owner, delegate, card or rules need the pop-up.
+- **Trimmed for people who do not live in the numbers** (the owner,
+  2026-11-26: cofounders found the page "just a wall of text"; option A of
+  the simplified Areas page, then two comments on its working mock). A List
+  row is the name with how many areas are inside, one line of metric as
+  `186 aim 100+ · Weekly deploys`, and one verdict in words with a mark
+  (`verdict.ts`): **Exceeds target** past the bar, **On target** exactly at
+  an inclusive one, **Needs a look** for a broken limit, and for a goal
+  still being climbed toward, **Under target**, or **On pace** when its
+  target names a date (`100 by Dec 31`) and the value is at or above a
+  straight line from the trend's first reading to that date. A bare number
+  is a goal to reach and a bare `0` a limit. The trend, the time-range tag
+  ("7d", "MTD"), the projects count and the notes count left the rows and
+  the boxes for the side panel, which says the time range and the pace line
+  in words; a Chart box is the owner, the metric's name, the value and goal,
+  and the verdict, and every area's sub-areas fold under a "6 inside · 1
+  needs a look" line on a wide screen as on a phone. This replaces the
+  2026-11-24 rows above where they differ. `areaVerdict.test.ts` fails if a
+  verdict's direction, equality or pace arithmetic changes;
+  `areasList.test.ts` if a count or trend comes back onto a row.
 
 **What a simplification would cost.** Keeping seats in a table of their own
 would hide them from every agent that reads notes and from Download as
 folders. Enforcing modes would turn labels people try on into rules they fight.
 
-**Tests.** `apps/mobile/__tests__/areasSeat.test.ts`, `areasPage.test.ts`, `areasList.test.ts`.
+**Tests.** `apps/mobile/__tests__/areasSeat.test.ts`, `areasPage.test.ts`, `areasList.test.ts`, `areaVerdict.test.ts`.
 
 ## How to reach a holder is a card per workspace that everyone in it sees
 

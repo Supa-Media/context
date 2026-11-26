@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup, GROUP_LINES } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
-import { ADA, BO, LINES, setup } from "./groupWorld.testing";
+import { ADA, BO, LINES, setup, WITHOUT_DID } from "./groupWorld.testing";
 
 const { groupId } = LINES[0];
 const isInvite = (body: Record<string, unknown>) => (body.command as { kind?: string } | undefined)?.kind === "invite";
@@ -23,6 +23,7 @@ describe("a workspace shared with everyone here, in any words", () => {
       controlFor: (body) => (isInvite(body) ? { status: "invited", slug: "studio", count: 1, role: "member" } : undefined),
       agent: () => ({ answer: "Adding everyone here to @studio.", invite: { slug: "studio", role: "member" } }),
     });
+    w.deps.texGraph = WITHOUT_DID; // the old line, as sent while node did is not wired
     await acceptGroup(storage, w.message("Tex can you share @studio with everyone here, read only"), 0);
     await drainGroup(storage, w.deps);
     expect(w.texts).toEqual(["Adding everyone here to @studio.", GROUP_LINES.invited("studio", 1, "member")]);
@@ -35,6 +36,7 @@ describe("a workspace shared with everyone here, in any words", () => {
       controlFor: (body) => (isInvite(body) ? { status: "not_allowed", slug: "studio" } : undefined),
       agent: (body) => (String(body.question).includes("@studio") ? { answer: "On it.", invite: { slug: "studio" } } : { answer: "Hm.", invite: { slug: "../evil" } }),
     });
+    w.deps.texGraph = WITHOUT_DID; // the old line, as sent while node did is not wired
     await acceptGroup(storage, w.message("Tex share @studio with everyone", { from: BO }), 0);
     await drainGroup(storage, w.deps);
     expect(w.texts).toEqual(["On it.", GROUP_LINES.notOwner("studio")]);

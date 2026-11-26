@@ -24,6 +24,13 @@ show it" said by the third person about one of the other two.
 - **Never anyone's 1:1 memory.** A personal workspace (a person's mail, calendar, vault, About me and their 1:1 with
   Tex) is never in reach, the asker's own included, nor is the pinned workspace except as the chat's home row. Tier
   stays `team` with no granted names and never `context:private`.
+- **The asker's own calendar is the one exception** (Dev2, 2026-11-26). "Tex what was my meeting today about" in a
+  group went through the asker's own 1:1 Tex and back, two texts and a minute, because a group turn read no one's
+  calendar. Now a turn an account holder asked for also reads every Google calendar they connected, live, on their own
+  grant only (`reachFor: "asker"` held by them, no guest or invited person acting through it), while they are one of
+  the chat's people (`apps/convex/functions/lib/textGroupCalendar.ts` `askerCalendars`); the turn is told whose
+  (`calendar`). A turn nobody asked for, a guest's ask and anyone else's tag read none of it, and nothing is stored as
+  a share. Their mail, vault, About me and 1:1 stay out. What is said from it in front of the room is Training's.
 - **Someone with no account** asks on the sponsor's standing and reads only a workspace their number is invited to that
   the sponsor is a member of, at the lower role; with no invitation, the chat's home alone. Never the sponsor's own.
 - **One grant per asker** (`textGroupHomeOnly.ts` `mintHomeOnlyGrant`). An account holder's ask is minted on a grant
@@ -69,7 +76,10 @@ never feigned ignorance. A code floor comes only if Training keeps oversharing.
   workspaces.
 - Taking the asker from the words, or from anything but the sender's number: anyone in the chat borrows anyone's
   access by naming them.
-- Letting a personal workspace count: a group turn reads someone's 1:1 memory, mail and calendar.
+- Letting a personal workspace count: a group turn reads someone's 1:1 memory and mail.
+- Reading the asker's calendar on any grant but their own ask's: a routine, a check-in or someone else's tag reads it
+  (`textGroupCalendar.test.ts` "a turn nobody asked for reads none of the asker's own", "someone else's tag never reads
+  it").
 - Handing every turn the list of everyone's workspaces instead of a lookup for a named one: the room learns which
   workspaces each person is in without anyone asking.
 

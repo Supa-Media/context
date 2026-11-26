@@ -9,7 +9,7 @@
  *  1. (2026-11-11, one judge) `firstLook` answering without the judge's
  *     verdict → "a named message is judged first" fails.
  *  2. `drainOnce` returning on a handed turn without `answerBesideTurn` →
- *     "Tex, what can you see is answered while another turn runs" fails.
+ *     "Tex, what can you see runs beside another turn" fails.
  *  3. `answeredByCode` true for anything `byCode` → "a yes, a 👍, a
  *     routine's run…" fails.
  *  4. `once` in `groupSay.ts` scoping every part to the handed turn, as
@@ -28,7 +28,7 @@
 import { describe, expect, it } from "vitest";
 import { acceptGroup, drainGroup } from "./groupInbox";
 import { MemoryStorage } from "./memoryStorage.testing";
-import { answerAll, BO, LINES, setup, untaggedSilent, type Answer, type Decide } from "./groupWorld.testing";
+import { answerAll, BO, LINES, setup, untaggedSilent, WITHOUT_DID, type Answer, type Decide } from "./groupWorld.testing";
 import { answerHanded, failHanded, handedTurns, turnKey } from "./groupTurnRun";
 import { runGroupTurn, type InboxCall } from "./groupTurnDrive.testing";
 import { answeredByCode } from "./groupBeside";
@@ -69,7 +69,7 @@ for (const { name, groupId } of LINES) {
       expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex what's on tonight?", "answer to Tex make a poster"]);
     }, 15_000);
 
-    it("Tex, what can you see is answered while another turn runs, and that turn still answers after", async () => {
+    it("Tex, what can you see runs beside another turn, and Tex's own words about it go beside that turn too (node did)", async () => {
       const { storage, w, deps, run } = handed(groupId, { hold: true, decide: untaggedSilent });
       await acceptGroup(storage, w.message("Tex make a poster"), 0);
       await drainGroup(storage, deps);
@@ -77,16 +77,20 @@ for (const { name, groupId } of LINES) {
       await w.running;
       expect(await acceptGroup(storage, w.message("tex, what can you see", { from: BO }), 10)).toBe("queued");
       await drainGroup(storage, deps);
-      // The fixed line went while the poster turn is still held, and only the poster went to the model.
-      expect(w.texts.length).toBeGreaterThan(0);
-      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual([]);
+      // The command ran beside the held poster turn, by code, as its asker, with no model and no line of code's own.
       expect(w.control.at(-1)).toMatchObject({ sender: BO });
       expect(w.control.at(-1)!.mint).toBeUndefined();
+      expect(w.texts).toEqual([]);
+      // What it did is a turn of its own, started beside the poster's (turns run side by side, one per asker): it
+      // never waits for the poster to finish.
+      await drainGroup(storage, deps);
+      expect(await handedTurns(storage)).toHaveLength(2);
+      await w.running;
       w.release();
+      expect(await run()).toBe("done");
+      expect(w.asks.map((ask) => ask.event ?? ask.question)).toEqual(["Tex make a poster", "did"]);
+      expect(w.asks.at(-1)?.did).toMatchObject({ action: "what_tex_sees", status: "read" });
       expect(await turn).toBe("done");
-      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex make a poster"]);
-      expect(w.texts.filter((text) => text.startsWith("answer to"))).toEqual(["answer to Tex make a poster"]);
-      expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
     });
 
     it("a fixed line sent beside a turn is never taken for that turn's part: a retry of the turn still sends its answer", async () => {
@@ -99,6 +103,7 @@ for (const { name, groupId } of LINES) {
           return { answer: `answer to ${body.question}` };
         },
       });
+      deps.texGraph = WITHOUT_DID; // a fixed line: the old one, as sent while node did is not wired
       await acceptGroup(storage, w.message("Tex make a poster"), 0);
       await drainGroup(storage, deps);
       const turn = run();

@@ -80,8 +80,10 @@ import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
 import { memberCardsNode } from "./nodes/memberCards.js";
+import { chatStyleNode } from "./nodes/chatStyle.js";
 import { groupCardNode } from "./nodes/groupCard.js";
 import { friendCheckNode } from "./nodes/friendCheck.js";
+import { roomCheckNode } from "./nodes/roomCheck.js";
 import { askGateNode } from "./nodes/askGate.js";
 import quietCheck from "./nodes/quietCheck.js";
 import checkinResearch from "./nodes/checkinResearch.js";
@@ -213,7 +215,11 @@ export const GATEWAY_NODES = {
   // fd -> memberCards), and a draft that used one is read for anything said or hinted (`nodes/friendCheck.js`).
   get groupCard() { return groupCardNode; },
   get memberCards() { return memberCardsNode; },
+  // How this chat's people text, counted for the front door's facts (`nodes/chatStyle.js`); on the shelf until a Lab draft wires fd -> chatStyle.
+  get chatStyle() { return chatStyleNode; },
   get friendCheck() { return friendCheckNode; },
+  // What someone in a group can't open never goes to the group unasked (`nodes/roomCheck.js`); on the shelf until a Lab draft wires answerCheck -> roomCheck and finish -> roomCheck.
+  get roomCheck() { return roomCheckNode; },
   // The lookup ladder, on the shelf: before Tex asks them a fact it could find, its Before-asking step and its quick
   // rungs, each its own step (`nodes/askGate.js`, `../lookupLadder.js`); a Lab draft wires answerCheck -> askGate.
   get askGate() { return askGateNode; },

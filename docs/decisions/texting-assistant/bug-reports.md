@@ -1,4 +1,4 @@
-# A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)
+# A bug filed by text carries the person's texts only on their YES (2026-10-17; reports without texts go at once since 2026-11-26)
 
 From the leadership meeting of 2026-10-17: people "usually just tell us, yo,
 you're wrong on this", so filing a bug should be a text away, but "sometimes
@@ -82,3 +82,16 @@ that text is the yes. Read from the person's own message for this turn
 (`session.egress.turn.question`), never from anything the model wrote. A report
 that would carry their texts still waits for a yes to the copy that says so.
 Tests: `apps/mcp/test/reportGate.test.mjs` (sabotage 4).
+
+## A report without their texts is never shown or asked (Dev2, 2026-11-26)
+
+In a new group chat, a page save failed while Tex summarised a meeting. Tex filed a report that wrongly blamed
+the note read, and the group was shown the whole report with "@seyi, give it a 👍 and I'll send it. Only @seyi can
+OK it; anyone can ask me for changes first." That was plumbing read out to people who had asked for none of it, in
+fixed words no model wrote. Dev2: "i thought we were removing plumbing and tool calls being stated in messages".
+
+The yes existed to guard the person's own texts, which are theirs to hand over. A report of what broke, with none of
+their texts, carries nothing of theirs, so it is now sent at once, in a 1:1 or a group, whether or not their text
+asked for one: nobody is shown the copy and nobody is asked. `asksToFile` stays for the claim check that a turn which
+was asked to file a bug did so. A report that would carry their texts still waits for a yes to the copy that says
+so, and a group's report never carries texts. Tests: `apps/mcp/test/reportGate.test.mjs` (sabotage 5).
