@@ -111,6 +111,7 @@ import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as vaultText from "./functions/lib/gatewayRoutes/vaultText";
 import * as accountName from "./functions/lib/gatewayRoutes/accountName";
+import * as groupHolds from "./functions/lib/gatewayRoutes/groupHolds";
 import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
 import * as personMail from "./functions/lib/gatewayRoutes/personMail";
 import * as personCalendar from "./functions/lib/gatewayRoutes/personCalendar";
@@ -793,6 +794,11 @@ export const gatewayVaultText = gatewayRoute(vaultText.gatewayVaultTextHandler);
 http.route({ path: "/gateway/vault/text", method: "POST", handler: gatewayVaultText });
 export const gatewayAccountName = gatewayRoute(accountName.gatewayAccountNameHandler); // their own name, from their own chat with Tex (`accountName.ts`)
 http.route({ path: "/gateway/account/name", method: "POST", handler: gatewayAccountName });
+// An answer held from a group chat, and the asker's yes that shares it (`groupHolds.ts`).
+export const gatewayGroupHold = gatewayRoute(groupHolds.gatewayGroupHoldHandler);
+http.route({ path: "/gateway/group/hold", method: "POST", handler: gatewayGroupHold });
+export const gatewayGroupShare = gatewayRoute(groupHolds.gatewayGroupShareHandler);
+http.route({ path: "/gateway/group/share", method: "POST", handler: gatewayGroupShare });
 for (const [path, handler] of vault.BROWSER_GATEWAY_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // a browser's profile, and "Done" on its take-over screen
 
 // A connector: a link for the person to connect an app, and one call through it.

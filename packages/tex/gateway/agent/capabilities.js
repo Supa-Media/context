@@ -486,6 +486,12 @@ export const CAPABILITIES = Object.freeze([
     group: "the same for how you talk in this chat, anyone here may change it, and you say who did; send tex_settings here reads this chat's instructions, whose mail is shared here, the workspaces it reaches and the saved logins that work here",
   },
   {
+    name: "An answer held from a group",
+    actions: ["send.share_held"],
+    texts: "an answer you held from one of their groups because someone there can't open the workspace it came from comes to them here; on their own yes, share it there (send share_held, naming the chat), then post it (send ask_chat, do true): it stays open in that chat for the people there then, and anyone new closes it again",
+    group: "not here: held answers are only ever shared from the asker's own chat with you, so nobody here can open one for them",
+  },
+  {
     name: "Their name on their account",
     actions: ["send.account_name"],
     texts: "read or change their own name on their Context account (\"my full name is Ada Lovelace\"), the name a group chat is told when someone there asks for it; also Context app → Settings → Profile → Name",

@@ -815,3 +815,4 @@ test/blankFields.test.mjs
 test/explainContext.test.mjs
 test/chatStyle.test.mjs
 test/roomCheck.test.mjs
+test/heldShare.test.mjs
