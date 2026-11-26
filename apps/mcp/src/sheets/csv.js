@@ -5,7 +5,9 @@
  * colon (`renews:date`), and a header with no known type after a colon is
  * plain text, so `time: 10:30` stays a column called `time: 10:30`. There is
  * no sidecar file: the owner rejected a YAML beside every CSV (2026-11-23).
- * Select options are the values already in the column.
+ * Select options are the values already in the column. A multiselect cell
+ * holds several options joined with ", " (as Notion and Airtable export them),
+ * so one option never contains a comma.
  *
  * Pure and dependency-free: the gateway's fetch and write tools and the app's
  * grid import the same functions, so every surface reads a sheet the same way.
@@ -16,7 +18,7 @@
 import { isSheetPath as isSheetKind } from "../../../../packages/shared/src/fileKinds.cjs";
 
 export const SHEET_EXTENSION = ".csv";
-export const COLUMN_TYPES = Object.freeze(["text", "number", "usd", "date", "person", "select", "checkbox", "link"]);
+export const COLUMN_TYPES = Object.freeze(["text", "number", "usd", "date", "person", "select", "multiselect", "checkbox", "link"]);
 /** A sheet past either bound is held back and named, never cut short. */
 export const MAX_SHEET_BYTES = 5 * 1024 * 1024;
 export const MAX_SHEET_ROWS = 50_000;
@@ -193,20 +195,36 @@ export function serializeSheet({ columns, rows }) {
   return `${lines.join("\n")}\n`;
 }
 
-/** Values already in a select column, in first-seen order. */
+/** A multiselect cell's options, in the order written: split on commas, trimmed, blanks and repeats dropped. */
+export function splitOptions(value) {
+  const out = [];
+  for (const part of cellText(value).split(",")) {
+    const v = part.trim();
+    if (v && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+/** Options as a multiselect cell stores them. */
+export function joinOptions(options) {
+  return splitOptions((options ?? []).join(",")).join(", ");
+}
+
+/** Values already in a select or multiselect column, each option once, in first-seen order. */
 export function selectOptions(sheet, name) {
   const out = [];
   const seen = new Set();
+  const multi = findColumn(sheet, name)?.type === "multiselect";
   for (const row of sheet.rows) {
-    const v = cellText(row[name]).trim();
-    if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+    const values = multi ? splitOptions(row[name]) : [cellText(row[name]).trim()];
+    for (const v of values) if (v && !seen.has(v)) { seen.add(v); out.push(v); }
   }
   return out;
 }
 
 /* ------------------------------- querying -------------------------------- */
 
-export const FILTER_OPS = Object.freeze(["is", "is not", "contains", ">", "<", ">=", "<=", "after", "before", "is empty", "is not empty"]);
+export const FILTER_OPS = Object.freeze(["is", "is not", "has", "has not", "contains", ">", "<", ">=", "<=", "after", "before", "is empty", "is not empty"]);
 
 function findColumn(sheet, name) {
   const key = String(name ?? "").trim().toLowerCase();
@@ -226,6 +244,19 @@ function compare(type, a, b) {
   return cellText(a).localeCompare(cellText(b), undefined, { numeric: true });
 }
 
+function hasOption(column, value, want) {
+  const options = column.type === "multiselect" ? splitOptions(value) : [value];
+  return options.some((o) => o.toLowerCase() === want.toLowerCase());
+}
+
+/** A value as its column stores it: a number plain, a multiselect's options tidied, the rest trimmed. */
+function storedText(type, text, problem) {
+  if (text === "" || problem) return text;
+  if (type === "usd" || type === "number") return String(typedValue(type, text));
+  if (type === "multiselect") return joinOptions([text]);
+  return text;
+}
+
 export function rowMatches(sheet, row, filter) {
   const column = findColumn(sheet, filter.column);
   if (!column) return false;
@@ -235,6 +266,9 @@ export function rowMatches(sheet, row, filter) {
     case "is": return value.toLowerCase() === want.toLowerCase();
     case "is not": return value.toLowerCase() !== want.toLowerCase();
     case "contains": return value.toLowerCase().includes(want.toLowerCase());
+    // One of the cell's options: a multiselect's, split on commas, or any other cell's whole value.
+    case "has": return hasOption(column, value, want);
+    case "has not": return !hasOption(column, value, want);
     case ">": case "after": return value !== "" && compare(column.type, value, want) > 0;
     case "<": case "before": return value !== "" && compare(column.type, value, want) < 0;
     case ">=": return value !== "" && compare(column.type, value, want) >= 0;
@@ -307,7 +341,7 @@ function normaliseRow(sheet, input, errors, where) {
     const text = key === undefined ? "" : cellText(input[key]).trim();
     const problem = cellProblem(c.type, text);
     if (problem) errors.push(`${where}: ${c.name} "${text}" is ${problem}`);
-    row[c.name] = c.type === "usd" || c.type === "number" ? (text === "" || problem ? text : String(typedValue(c.type, text))) : text;
+    row[c.name] = storedText(c.type, text, problem);
   }
   return row;
 }
@@ -355,7 +389,7 @@ function normaliseRowPartial(sheet, set, errors) {
     const text = cellText(v).trim();
     const problem = cellProblem(c.type, text);
     if (problem) errors.push(`set: ${c.name} "${text}" is ${problem}`);
-    out[c.name] = text;
+    out[c.name] = c.type === "multiselect" ? storedText(c.type, text, problem) : text;
   }
   return out;
 }

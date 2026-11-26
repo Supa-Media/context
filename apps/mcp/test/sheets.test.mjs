@@ -18,7 +18,7 @@ import { test } from "node:test";
 import {
   addColumn, cellProblem, changeRows, dateMs, deleteColumn, isSheetPath, latestByGroup, MAX_SHEET_ROWS,
   moveColumn, newSheetText, parseCsvRecords, parseHeaderCell, parseSheet, querySheet, queryProblems,
-  renameColumn, selectOptions, serializeSheet, setColumnType, typedValue,
+  joinOptions, renameColumn, selectOptions, serializeSheet, setColumnType, splitOptions, typedValue,
 } from "../src/sheets/csv.js";
 
 const METRICS = [
@@ -110,6 +110,46 @@ test("each type says when a value does not fit", () => {
 
 test("select options are the values already in the column", () => {
   assert.deepEqual(selectOptions(parseSheet(METRICS), "metric"), ["Monthly cost", "Subscriptions"]);
+});
+
+const TASKS = [
+  "task,tags:multiselect,stage:select",
+  'Rent,"home, money",Doing',
+  "Gym,health,Done",
+  'Taxes,"money,urgent ,money",Doing',
+  "Nap,,Done",
+  "",
+].join("\n");
+
+test("a multiselect column keeps its options comma-joined in one cell, and its header names the type", () => {
+  const sheet = parseSheet(TASKS);
+  assert.deepEqual(sheet.columns[1], { name: "tags", type: "multiselect" });
+  assert.deepEqual(splitOptions(sheet.rows[2].tags), ["money", "urgent"]);
+  assert.equal(joinOptions(["a", " b ", "a", ""]), "a, b");
+  assert.deepEqual(selectOptions(sheet, "tags"), ["home", "money", "health", "urgent"]);
+  // A single select's option is the whole cell, commas and all.
+  assert.deepEqual(selectOptions(parseSheet('x:select\n"a, b"\n'), "x"), ["a, b"]);
+  assert.equal(serializeSheet(sheet).split("\n")[1], 'Rent,"home, money",Doing');
+});
+
+test("has and has not match one option of a multiselect cell, never part of one", () => {
+  const sheet = parseSheet(TASKS);
+  const has = (value) => querySheet(sheet, { where: [{ column: "tags", op: "has", value }] }).rows.map((r) => r.task);
+  assert.deepEqual(has("money"), ["Rent", "Taxes"]);
+  assert.deepEqual(has("Urgent"), ["Taxes"]);
+  assert.deepEqual(has("mon"), []);
+  assert.deepEqual(querySheet(sheet, { where: [{ column: "tags", op: "has not", value: "money" }] }).rows.map((r) => r.task), ["Gym", "Nap"]);
+  // On any other column, has is the whole value.
+  assert.deepEqual(querySheet(sheet, { where: [{ column: "stage", op: "has", value: "done" }] }).rows.map((r) => r.task), ["Gym", "Nap"]);
+  assert.equal(queryProblems(sheet, { where: [{ column: "tags", op: "has not", value: "x" }] }).length, 0);
+});
+
+test("a multiselect value written by an agent is stored tidy", () => {
+  const sheet = parseSheet(TASKS);
+  const added = changeRows(sheet, { append: [{ task: "Call", tags: " phone ,urgent,phone" }] });
+  assert.equal(added.sheet.rows.at(-1).tags, "phone, urgent");
+  const set = changeRows(sheet, { update: { match: { task: "Gym" }, set: { tags: "health,,morning" } } });
+  assert.equal(set.sheet.rows[1].tags, "health, morning");
 });
 
 test("querying filters, sorts and keeps the last rows, with line numbers", () => {

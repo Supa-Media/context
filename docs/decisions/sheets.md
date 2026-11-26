@@ -9,10 +9,18 @@ live: in a sheet in the workspace, not in a backend database.
 
 Each column's type rides in its header cell after the last colon:
 `date:date,metric:select,value:number,source,by:person`. The types are
-`text`, `number`, `usd`, `date` (YYYY-MM-DD), `person`, `select`, `checkbox`
-and `link`. A header with no known type after its last colon is text, and its
+`text`, `number`, `usd`, `date` (YYYY-MM-DD), `person`, `select`,
+`multiselect`, `checkbox` and `link`. A header with no known type after its last colon is text, and its
 whole cell is the name, so `starts: 10:30` stays a text column with that name.
 A select column's options are the distinct values already in it.
+
+A `multiselect` cell holds several options joined with ", ", the way Notion and
+Airtable export them, so any spreadsheet shows the cell as readable text and an
+option never contains a comma (a single `select` option may). The filters
+`has` and `has not` match one whole option of the cell, never part of one;
+`is` still compares the whole cell. Asked for by the owner, 2026-11-26.
+`sheets.test.mjs` fails if `has` matches a substring or a written value is not
+stored tidy.
 
 The file is the whole truth: no sidecar, no YAML, no database beside it. The
 owner turned a sidecar down ("a YAML and a CSV, that feels like a lot"). Any
