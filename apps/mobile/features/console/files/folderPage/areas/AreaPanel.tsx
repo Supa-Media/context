@@ -140,11 +140,6 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
               <Text variant="tree" style={styles.noData}>No data yet</Text>
             )}
             <PanelGoal target={metric.target} canEdit={canEdit} onSave={setGoal} />
-            {headline?.verdict == null || headline.value == null ? null : (
-              <View style={[styles.state, headline.verdict.good ? styles.stateMet : styles.stateMissed]} testID="area-panel-verdict">
-                <Text variant="treeMeta" style={{ color: ink }}>{headline.verdict.words}</Text>
-              </View>
-            )}
           </View>
         )}
         {headline?.trend == null ? null : (
@@ -269,11 +264,9 @@ const makeStyles = (colors: Colors) =>
     pick: { paddingVertical: 2, paddingHorizontal: space.x2, borderRadius: radii.sm, backgroundColor: colors.accentDim },
     pickWord: { color: colors.accentText, fontWeight: "600" },
     noData: { color: colors.muted },
-    valueLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    value: { fontFamily: fonts.body, fontSize: touchType.h3, lineHeight: 26, fontWeight: "600" },
-    state: { paddingHorizontal: space.x2, paddingVertical: 1, borderRadius: radii.pill },
-    stateMet: { backgroundColor: colors.okWash },
-    stateMissed: { backgroundColor: colors.warnWash },
+    // Wraps the goal under the value in a narrow panel instead of running off its edge.
+    valueLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2 },
+    value: { flexShrink: 0, fontFamily: fonts.body, fontSize: touchType.h3, lineHeight: 26, fontWeight: "600" },
     subMet: { color: colors.okText },
     subMissed: { color: colors.warnText },
     sub: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 30, paddingHorizontal: space.x1, marginHorizontal: -space.x1, borderRadius: radii.sm },
