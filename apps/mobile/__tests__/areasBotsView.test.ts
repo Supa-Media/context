@@ -33,7 +33,7 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FolderListing } from "../features/console/files/types";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
-import { all, entry, host, mount, one, press, strip, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
+import { all, entry, host, mount, one, press, strip, unmountAll, windowOf } from "./projectPage/fixtures";
 
 const NOTES: ListNote[] = [
   { path: "areas/about.md", properties: { agents: ["Grok Bot", "Socials"] } },
