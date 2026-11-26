@@ -60,7 +60,7 @@
 
 import { createControlPlane } from "../fromGateway/controlPlane.js";
 import { ONE_TO_ONE_CHAT } from "../fromGateway/agent_ledger.js";
-import { loggedSteps, oneRowPerText, realLedger, realRow, realStickers } from "./realChat.js";
+import { loggedSteps, oneRowPerText, realLedger, realRow, stickersFor } from "./realChat.js";
 import { saidTexts } from "../fromGateway/agent_sentOnItsOwn.js";
 import { bearerToken } from "../fromGateway/session.js";
 import { json } from "../fromGateway/http_responses.js";
@@ -71,7 +71,7 @@ import { chatStepsOf, runTestText } from "./chatRun.js";
 import { carryFrom, carryInObject, objectCarry, objectRun, runInObject } from "./crossRuns.js"; // a test chat's asks of other chats
 import { draftFit, TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
 import { sharedChatOf, sharedLedger, sharedList } from "./shared.js";
-import { inboxNameOf, intake } from "./intake.js";
+import { intake } from "./intake.js";
 import { richText } from "./rich.js";
 import { inboundEvent, picsOf, reactionOf, STICKER_ROW, TAPBACK_OF, targetOf } from "./inbound.js";
 import { lineOf, measuredLine, rowLine } from "./line.js";
@@ -192,7 +192,6 @@ export async function open(env, controlPlane, token, who, input, origin) {
   let rows;
   let history;
   let people;
-  let stickers = [];
   if (conv !== null) {
     ({ rows, history } = conversationStart(conv, kind, input.base));
     people = group ? (conv.members ?? []).map((name) => ({ handle: handleOf(name), name: String(name) })) : [{ handle: "", name: "You" }];
@@ -201,9 +200,6 @@ export async function open(env, controlPlane, token, who, input, origin) {
     rows = oneRowPerText(saidTexts(entries)).map((entry) => realRow(entry, kind)); // a text never said is no row
     history = entries.map(({ seq: _seq, ...entry }) => entry);
     people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
-    // The stickers the real chat kept, so Tex can send them back here as there: a group's, or the caller's own 1:1's
-    // (a shared 1:1 is someone else's, and the caller's phone would name the caller's own chat).
-    if (group || source !== "shared") stickers = await realStickers(env, await inboxNameOf(env, who, group ? { kind: "group", chatId: owner.chat } : { kind: "1:1" }).catch(() => null));
   }
   const sandboxId = randomId();
   // The line every text here goes over: Photon, its delays measured from the real chat's own logged deliveries.
@@ -220,8 +216,7 @@ export async function open(env, controlPlane, token, who, input, origin) {
     ...(source === "shared" ? { shared: true } : {}),
     ...(group ? { chatKey: owner.chat, members: await sha256Hex(`lab:${chat}:${people.map((p) => p.handle).sort().join(",")}`) } : {}),
     people,
-    ...(conv !== null ? { convId: conv.id } : {}),
-    ...(stickers.length > 0 ? { stickers } : {}),
+    ...(conv !== null ? { convId: conv.id } : await stickersFor(env, who, { group, source, chatKey: owner.chat })), // the real chat's kept stickers
   };
   return await startChat(env, who, input, drafted, about, rows, history);
 }
@@ -538,9 +533,7 @@ function aboutOf(state) {
     chat: about.chat,
     versionId: about.versionId ?? "main",
     ...(about.convId ? { convId: about.convId } : {}),
-    people: about.people ?? [],
-    // How many of the real chat's kept stickers it started with (`realChat.js` `realStickers`).
-    ...(Array.isArray(about.stickers) ? { stickers: about.stickers.length } : {}),
+    people: about.people ?? [], ...(Array.isArray(about.stickers) ? { stickers: about.stickers.length } : {}), // and how many kept stickers it started with
     rows: rows.length,
     testRows: rows.filter((row) => !row.prod).length,
     // Whether its texts run the draft as drawn, or main's code for steps the draft adds, removes or changes (`draftFit`).

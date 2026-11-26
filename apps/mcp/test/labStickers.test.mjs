@@ -12,10 +12,12 @@
  *     → "only well-formed stickers are copied, the newest thirty" fails.
  *  3. `seedStickers` writing under another key.
  *     → "a fresh test chat object starts with them under the chat's own key" fails.
+ *  4. `stickersFor` reading a shared 1:1 by the caller's phone.
+ *     → "a group's stickers are found by its directory entry; a shared 1:1's are never read" fails.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { keptStickers, realStickers, seedStickers } from "../../../packages/lab/gateway/labSandbox/realChat.js";
+import { keptStickers, realStickers, seedStickers, stickersFor } from "../../../packages/lab/gateway/labSandbox/realChat.js";
 
 const KEPT = [
   { id: "s0a1b2c", guid: "at_0_ROBOT", at: 1, words: "robot waving; fits a friendly hello", lookedAt: 2 },
@@ -66,4 +68,25 @@ test("a fresh test chat object starts with them under the chat's own key", async
   const none = new Map();
   await seedStickers({ put: async (key, value) => void none.set(key, value) }, {});
   assert.equal(none.size, 0);
+});
+
+test("a group's stickers are found by its directory entry; a shared 1:1's are never read", async () => {
+  const KEY = "a".repeat(64);
+  const calls = [];
+  const stub = {
+    fetch: async (url, init = {}) => {
+      const inbox = new Headers(init.headers).get("x-inbox-name");
+      calls.push(`${new URL(String(url)).pathname} ${inbox}`);
+      if (String(url).endsWith("/chat-where")) return Response.json({ groupId: "grp-1", line: "+15555550199" });
+      return Response.json(KEPT);
+    },
+  };
+  const env = { TEX_CHAT: { idFromName: (name) => name, get: () => stub } };
+  assert.deepEqual(await stickersFor(env, {}, { group: true, source: "shared", chatKey: KEY }), { stickers: KEPT });
+  assert.deepEqual(calls, [`/chat-call/chat-where group-key:${KEY}`, "/chat-call/stickers sendblue-group:grp-1"]);
+  calls.length = 0;
+  assert.deepEqual(await stickersFor(env, { phone: "+15555550101" }, { group: false, source: "shared", chatKey: null }), {});
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await stickersFor(env, { phone: "+15555550101" }, { group: false, source: "mine", chatKey: null }), { stickers: KEPT });
+  assert.deepEqual(calls, ["/chat-call/stickers +15555550101"]);
 });

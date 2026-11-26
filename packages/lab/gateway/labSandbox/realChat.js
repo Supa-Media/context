@@ -6,6 +6,7 @@
 import { ledgerFor } from "../fromGateway/agent_ledger.js";
 import { LEDGER_KINDS } from "../fromGateway/texStore_ledger.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
+import { inboxNameOf } from "./intake.js";
 
 /** One read of a real chat's texts; a chat is read whole, page after page, up to `MAX_PAGES` (a million texts). */
 const PAGE_TEXTS = 5_000;
@@ -100,4 +101,15 @@ export function keptStickers(kept) {
 export async function seedStickers(storage, about) {
   const kept = keptStickers(about?.stickers);
   if (kept.length > 0) await storage.put("stickers", kept);
+}
+
+/**
+ * A test chat's `stickers` at open: the real chat's kept stickers, so Tex can send them back there as here. A group's,
+ * or the caller's own 1:1's; never a shared 1:1, which is someone else's while the caller's phone names the caller's own.
+ */
+export async function stickersFor(env, who, { group, source, chatKey }) {
+  if (!group && source === "shared") return {};
+  const name = await inboxNameOf(env, who, group ? { kind: "group", chatId: chatKey } : { kind: "1:1" }).catch(() => null);
+  const stickers = await realStickers(env, name);
+  return stickers.length > 0 ? { stickers } : {};
 }
