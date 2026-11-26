@@ -39,14 +39,14 @@
       "key": "segun",
       "alias": "segun-claude-credits",
       "owner": "Segun",
-      "capUsd": null,
+      "capUsd": 200,
       "usedUsd": null,
       "usedAsOf": null,
       "since": "2026-11-26T21:00:00Z",
-      "expires": null,
+      "expires": "2026-11-28T04:59:00Z",
       "resets": null,
       "retiredUntil": null,
-      "note": "Added 2026-11-26; credit amount and expiry not recorded yet.",
+      "note": "$200 credit expiring 2026-11-27 (end of day US Eastern), per Dev2 2026-11-26.",
       "uses": ["prod", "lab", "evals"]
     }
   ]
