@@ -72,4 +72,29 @@ describe("bots", () => {
     expect(byPath.get("areas/growth/mail/grok-bot.md")).toMatchObject({ with: "Socials", botToBot: true });
     expect(byPath.get("areas/bots/grok-bot/mail/seyi.md")).toMatchObject({ with: "Grok Bot", botToBot: false, mine: true, placeTitle: "Grok Bot's mail" });
   });
+
+  /**
+   * A BOT WHOSE CARD SAYS LONGER WORDS THAN ITS FOLDER IS STILL ITS PERSON'S, AND STILL HOLDS ITS AREAS.
+   *
+   * The owner, 2026-11-26: "can you fix this issue where there is an orphaned bot". Tex Quality answered the refresh
+   * ask by writing "Tex Quality · Tex reply quality" on `bots/tex-quality/about.md`; the page looked its card up again
+   * by those words, found none, and drew it as nobody's, mail-reached, holding no area. The folder names the bot, as
+   * the gateway's mail watch already reads it (`cardFolderBot`).
+   */
+  test("a card's holder words that differ from its folder keep its person, reach and areas", () => {
+    const notes = [
+      ...NOTES,
+      note("bots/tex-quality/about.md", { holder: "Tex Quality · Tex reply quality", kind: "agent", bot: "grok", belongs_to: "@seyi", reach: "webhook" }),
+      note("areas/answer-quality/about.md", { owner: "@shyoh", delegate: "Tex Quality" }),
+      note("bots/tex-quality/mail/seyi.md"),
+      note("areas/answer-quality/mail/seyi.md"),
+    ];
+    const all = botsOf("areas", notes, "@seyi");
+    const tq = all.find((bot) => bot.slug === "tex-quality")!;
+    expect(tq).toMatchObject({ name: "Tex Quality · Tex reply quality", whose: "@seyi", mine: true, mailFolder: "bots/tex-quality/mail" });
+    expect(tq.card).toMatchObject({ path: "bots/tex-quality/about.md", reach: "webhook", belongsTo: "@seyi" });
+    expect(tq.areas.map((area) => [area.folder, area.role])).toEqual([["areas/answer-quality", "delegate"]]);
+    const talks = conversationsOf("areas", notes, all, "@seyi");
+    expect(mailOfBot(tq, talks).map((each) => each.path).sort()).toEqual(["areas/answer-quality/mail/seyi.md", "bots/tex-quality/mail/seyi.md"]);
+  });
 });
