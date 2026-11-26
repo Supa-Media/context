@@ -27,7 +27,8 @@ export type FormulaTree =
       readonly source: string;
       readonly dataset: string;
       readonly expr: FormulaTree;
-      readonly where: readonly { readonly column: string; readonly op: "=" | "!="; readonly value: string }[];
+      /** An equality on a column, or a comparison of a per-row `expr` with a number (`column` is it read as words). */
+      readonly where: readonly { readonly column: string; readonly op: "=" | "!=" | "<" | "<=" | ">" | ">="; readonly value: string | number; readonly expr?: FormulaTree }[];
     }
   | { readonly type: "ref"; readonly source: string; readonly dataset: string; readonly column: string };
 

@@ -37,7 +37,10 @@ with Download as folders, and every agent reads it with `fetch`
   column `source/dataset.column`, and `count(distinct …)`, which counts each
   filled value once (people active, not their rows; added 2026-11-25 for the
   Context usage source), with per-row `+ − × ÷` inside
-  (`deployed - opened`), an optional `where col = value` joined by `and`, and
+  (`deployed - opened`), an optional `where col = value` joined by `and` (or a
+  per-row comparison with a number, `where deployed - opened < 1440`, in the
+  expression's units; added 2026-11-26 so Open to live leaves out forgotten
+  pull requests over a day), and
   `+ − × ÷` between aggregates. In `+` and `−`, a side whose period has no
   rows adds nothing when the other side has rows (bills this month with no AI
   spend yet is the bills); both empty is no data, `×` and `÷` keep no data,

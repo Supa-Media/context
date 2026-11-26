@@ -802,6 +802,7 @@ test/privateAside.test.mjs
 test/benchMemberCards.test.mjs
 test/dataSheetLinks.test.mjs
 test/dataFormula.test.mjs
+test/dataFormulaCompare.test.mjs
 test/dataFormulaNoData.test.mjs
 test/dataSync.test.mjs
 test/dataSyncObject.test.mjs
