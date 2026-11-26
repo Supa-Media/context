@@ -75,6 +75,15 @@ const TEX_SETTINGS = Object.freeze([
     via: "setting",
   },
   {
+    key: "name",
+    label: "Your name",
+    description: "Your name on your account, full name included: what people see beside your notes, and what Tex tells a group that asks.",
+    section: "Profile",
+    where: ["1:1"],
+    byText: true,
+    via: "account_name",
+  },
+  {
     key: "review_sharing",
     label: "Share my chats with the Context team",
     description: "Lets the team that builds Tex read your finished conversations to improve it.",

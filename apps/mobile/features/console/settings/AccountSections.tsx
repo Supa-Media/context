@@ -28,6 +28,7 @@ import { SpellingSettings } from "./panels/SpellingSettings";
 import { TexHabits } from "./panels/TexHabits";
 import { TexSettings } from "./panels/TexSettings";
 import { YourPicture } from "./panels/YourPicture";
+import { YourNameField } from "./panels/YourNameField";
 import { UsernameRows } from "./panels/UsernameRows";
 import { MessagesPanel } from "./panels/MessagesPanel";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
@@ -173,6 +174,9 @@ export function AccountSection({
 
       {/* The person's own picture; a photo here is saved with the account. */}
       <YourPicture />
+
+      {/* Their own name on the account, full name included; Tex changes it by text too (Dev2, 2026-11-25). */}
+      <YourNameField />
 
       <Card style={styles.spaced}>
         {/* A username can be changed twice, and the old one stays theirs (Dev2, 2026-11-22). Not in the demo. */}

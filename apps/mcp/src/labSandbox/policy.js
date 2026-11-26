@@ -115,6 +115,7 @@ function readByBody(path, body) {
   if (path === "/gateway/tex-review") return body?.mode === "tier";
   if (path === "/gateway/tex/dev") return ["page", "list", "get"].includes(body?.action);
   if (path === "/gateway/vault/text") return body?.op === "list";
+  if (path === "/gateway/account/name") return body?.name === undefined;
   return false;
 }
 
@@ -189,6 +190,11 @@ export function controlPlaneAnswer(path, body, gate) {
   if (route === "/gateway/tex/command" && body?.command?.kind === "mute") {
     gate.record({ kind: "Setting", summary: "muted Tex in this test chat" });
     return { answer: { status: "done" } };
+  }
+  // Their own name, set from a test chat: answered as done and kept in the test's writes, never the real account's.
+  if (route === "/gateway/account/name" && body?.name !== undefined) {
+    gate.record({ kind: "Setting", summary: "set their name on the account (not sent: test chat)" });
+    return { answer: { status: "done", name: typeof body.name === "string" ? body.name.trim() : "" } };
   }
   const answered = ANSWERED[route];
   if (answered) {

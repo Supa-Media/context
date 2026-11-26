@@ -47,6 +47,13 @@ Tex could not say which a login had, nor change it.
   same command as "Tex, add everyone here to @studio" as the asker once the
   answer has gone (`packages/tex/worker/groupInvite.ts`); only an owner there
   invites anyone, and the chat hears how it went either way.
+- Their own name on their account (2026-11-25, after a group asked Tex for
+  someone's last name and the account held only the first name typed at
+  sign-up, with no way to change it): `send account_name` reads or sets
+  `users.name` from their own chat only (`functions/accountName.ts`, the person
+  taken off the turn's own texting grant; a group chat's token is refused, so
+  nobody there can rename anyone), and Settings › Profile › Name sets it in the
+  app. A Lab test chat's rename is answered as done and never sent.
 - Still app-only, each named on its row: deleting a saved login, cutting off one
   particular AI, disconnecting an app, and early features (the Context team's).
 
@@ -55,4 +62,5 @@ Tex could not say which a login had, nor change it.
 Settings scattered across tools drift: Tex says "saved" for a change it can't
 make, or sends people to a page for a switch it holds. The tests above, and
 `apps/convex/__tests__/vaultByText.test.ts` (only the saver, only on their own
-tag, never another workspace), fail first.
+tag, never another workspace) and `apps/convex/__tests__/accountName.test.ts`
+(never from a group chat), fail first.

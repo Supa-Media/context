@@ -16,6 +16,15 @@ export function createIdentityMethods({ post }) {
     },
 
     /**
+     * The person's own name on their account, from their own chat with Tex (`gatewayRoutes/accountName.ts`): with
+     * `name`, set it. `{ status, name }`, or null when nothing answered; a group chat's token is always refused.
+     */
+    async accountName(accessToken, name) {
+      const parsed = await post("/gateway/account/name", { accessToken, ...(name === undefined ? {} : { name }) });
+      return parsed && typeof parsed === "object" && typeof parsed.status === "string" ? parsed : null;
+    },
+
+    /**
      * Who tagged Tex in a group chat, for their own ask of their personal Tex (`agent/askPersonalTex.js`): the same
      * facts, only on the token minted for that person's own tag, else `null`.
      */
