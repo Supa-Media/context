@@ -11,6 +11,7 @@ import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import type { MutationCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
+import { internal } from "../../../_generated/api";
 import { recordAudit } from "../audit";
 import { refreshTexting } from "../textingRefresh";
 import { grantedScopesFor } from "../googleOAuth";
@@ -201,5 +202,7 @@ export async function applyGmailConnectionBindingHandler(
   });
   // Tex is told every turn which Google accounts they have connected (`lib/texIdentity/identity.ts`): their person object hears now.
   await refreshTexting(ctx, args.boundBy);
+  // Its "Send mail as" addresses, read once the grant is in place (`functions/gmailSendAs.ts`); the hourly sweep retries.
+  await ctx.scheduler.runAfter(30_000, internal.functions.gmailSendAs.refreshOne, { connectionId });
   return connectionId;
 }

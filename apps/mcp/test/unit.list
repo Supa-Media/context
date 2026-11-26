@@ -104,6 +104,7 @@ test/logicalDelete.test.mjs
 test/logicalDeleteListing.test.mjs
 test/managedEncryption.test.mjs
 test/mailAccounts.test.mjs
+test/emailSendAs.test.mjs
 test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningFromObjectGate.test.mjs

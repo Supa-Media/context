@@ -289,6 +289,34 @@ held as before. Cost of reverting: "send" to a shown email asks for a second
 👍, or is refused for a rewrite nobody asked for. Tests:
 `emailShownCopy.test.mjs`.
 
+### From a Gmail "Send mail as" address (Dev2, 2026-11-26)
+
+A work mailbox (seyi@…) sends as the practice's reception@… group address,
+which Gmail lists under Settings → Accounts → "Send mail as". Each connected
+Gmail's list is read from `users.settings.sendAs.list`, which the Gmail read
+scope every connection already holds allows, so nobody reconnects; only an
+address Gmail itself accepted (`verificationStatus: "accepted"`) is kept,
+because Gmail rewrites any other From to the mailbox's own and the person
+would be shown one sender and the email go from another. The list lives on
+the connection row (`gmailSendAs`: addresses and Gmail's display name, never
+mail) and is read 30 seconds after a Gmail connects, hourly for any list six
+hours old (`crons.ts`), and at send time when the From is on no list on record,
+so an alias added a minute ago sends (`functions/gmailSendAs.ts`).
+
+`claimPersonEmail` takes `from` as the mailbox or one of its aliases; a reply
+or forward also names the mailbox holding its email (`mailbox`), and the alias
+must be that mailbox's. A From on no list is `not_their_address`, never a
+quiet send from another address. The From header carries Gmail's display name
+for the alias, stripped of quotes, backslashes and angle brackets. Tex is told
+each mailbox's aliases as data beside it (`mailAccounts.js`, and a group
+chat's shared mailboxes in `groupMail.js`), never as wording.
+
+Adding or removing an alias needs `gmail.settings.sharing`, a restricted
+scope Context does not ask for: Tex hands the Gmail settings link instead
+(capability list). Cost of reverting: an email asked for "from reception" goes
+from the person's own address, or is refused. Tests: `personEmail.test.ts`
+"sending as one of a mailbox's Send mail as addresses", `emailSendAs.test.mjs`.
+
 ### What is deliberately not built
 
 Attaching a file that is not already on an email (a note's PDF, a picture),

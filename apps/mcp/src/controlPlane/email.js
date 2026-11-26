@@ -42,19 +42,24 @@ function attachedOf(answer) {
   return { attached };
 }
 
-const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required", "ai_access_needed", "choose_sender"]);
+/** The mailbox it went through, when the control plane names it: `from` unless that is one of its send-as addresses. */
+function mailboxOf(answer) {
+  return typeof answer?.mailbox === "string" && answer.mailbox.length <= 320 ? { mailbox: answer.mailbox } : {};
+}
+
+const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required", "ai_access_needed", "choose_sender", "not_their_address"]);
 
 export function createEmailMethods({ post }) {
   return {
     async sendPersonEmail(accessToken, expectedWorkspaceId, email, { check = false } = {}) {
       const answer = await post("/gateway/email/send", { accessToken, expectedWorkspaceId, email, check }, { timeoutMs: SEND_TIMEOUT_MS });
-      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...attachedOf(answer) };
+      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...mailboxOf(answer), ...attachedOf(answer) };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable", ...sendersOf(answer) };
     },
     /** The same email saved as a draft in their Gmail, sent to nobody (`tools/email.js`). */
     async savePersonEmailDraft(accessToken, expectedWorkspaceId, email) {
       const answer = await post("/gateway/email/draft", { accessToken, expectedWorkspaceId, email }, { timeoutMs: SEND_TIMEOUT_MS });
-      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...attachedOf(answer) };
+      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from, ...mailboxOf(answer), ...attachedOf(answer) };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable", ...sendersOf(answer) };
     },
     /** The person's own mail, read live for what their notes do not hold (`tools/emailRead.js`). */

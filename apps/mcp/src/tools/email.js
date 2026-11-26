@@ -115,7 +115,7 @@ export function readEmail(args) {
   const from = addresses(args?.from, "from");
   const cc = addresses(args?.cc, "cc");
   for (const part of [from, to, cc]) if (part.error) return { error: part.error };
-  if (from.list.length > 1) return { error: "from takes one address. Pick one of the person's own connected Gmail addresses, or leave from out." };
+  if (from.list.length > 1) return { error: "from takes one address. Pick one of the person's own connected Gmail addresses or one of their send-as addresses, or leave from out." };
   if (to.list.length === 0) return { error: "to is empty. Add at least one address; if you don't know it, search their mail or notes for it, or ask the person." };
   const all = [...to.list, ...cc.list];
   if (all.length > MAX_RECIPIENTS) return { error: `One email goes to at most ${MAX_RECIPIENTS} addresses, to and cc together. Drop some, or split it into separate emails.` };
@@ -133,9 +133,6 @@ export function readEmail(args) {
   if (args?.in_reply_to !== undefined) {
     reply = parseEmailId(typeof args.in_reply_to === "string" ? args.in_reply_to.trim() : "");
     if (reply === null) return { error: wholeIdRefusal("in_reply_to", args.in_reply_to, from.list[0]) };
-    if (from.list.length === 1 && from.list[0] !== reply.address) {
-      return { error: `A reply goes from the mailbox the email is in: leave from out, or make it ${reply.address}.` };
-    }
   }
   // A forward names the email it passes on, the same way, and goes from that email's mailbox too.
   let forward = null;
@@ -143,9 +140,6 @@ export function readEmail(args) {
     forward = parseEmailId(typeof args.forward === "string" ? args.forward.trim() : "");
     if (forward === null) return { error: wholeIdRefusal("forward", args.forward, from.list[0]) };
     if (reply !== null) return { error: "An email either answers one (in_reply_to) or forwards one (forward), not both. Drop one of them." };
-    if (from.list.length === 1 && from.list[0] !== forward.address) {
-      return { error: `A forward goes from the mailbox the email is in: leave from out, or make it ${forward.address}.` };
-    }
   }
   /*
     A "Re:" email names the email it answers (Dev2, 2026-11-05). Tex sent
@@ -159,10 +153,18 @@ export function readEmail(args) {
   const attach = readAttach(args?.attach);
   if (attach.error) return { error: attach.error };
   if (forward === null && attach.list.length === 0 && passesSomethingOn(subject, body)) return { error: PASSES_ON_ERROR };
-  const sender = reply ? reply.address : forward ? forward.address : from.list[0];
+  /*
+    A reply or forward goes through the mailbox its email is in. A from other than that mailbox is one of its "Send mail
+    as" addresses (Dev2, 2026-11-26: seyi@… answering as reception@…), which the control plane checks against the
+    list Gmail keeps for it (`apps/convex/functions/lib/gmailSendAs.ts`) and refuses as not_their_address otherwise.
+  */
+  const held = reply ? reply.address : forward ? forward.address : null;
+  const sender = from.list[0] ?? held;
+  const mailbox = held !== null && sender !== held ? held : null;
   return {
     email: {
       ...(sender ? { from: sender } : {}),
+      ...(mailbox ? { mailbox } : {}),
       to: to.list,
       cc: cc.list,
       subject,
@@ -269,6 +271,8 @@ export const REFUSED = {
   reply_not_found: "Not sent: Gmail no longer has the email this replies to, or it has no thread to reply in. Search for it again.",
   forward_not_found: "Not sent: Gmail no longer has the email to forward, or one of its attachments. Search for it again.",
   too_large: "Not sent: the email is too big to send (over 20 MB of attachments, or more than 20 files).",
+  not_their_address:
+    "Not sent: the from address is none of their connected Gmails, nor a Send mail as address Gmail lists for one, so Gmail would send it from another. Use one of their mailboxes or its send-as addresses, or leave from out.",
   reconnect_required:
     "Not sent: the Gmail it would go from needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not sent: Gmail did not take the email just now. Nothing was sent; it can be asked for again.",
@@ -327,6 +331,8 @@ export const DRAFT_REFUSED = {
   reply_not_found: "Not saved: Gmail no longer has the email this replies to. Search for it again.",
   forward_not_found: "Not saved: Gmail no longer has the email to forward, or one of its attachments. Search for it again.",
   too_large: "Not saved: the email is too big (over 20 MB of attachments, or more than 20 files).",
+  not_their_address:
+    "Not saved: the from address is none of their connected Gmails, nor a Send mail as address Gmail lists for one. Use one of their mailboxes or its send-as addresses, or leave from out.",
   reconnect_required:
     "Not saved: that Gmail needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not saved: Gmail did not take the draft just now. It can be tried again.",
@@ -346,7 +352,7 @@ export async function toolSaveEmailDraft(store, args) {
   }
   if (answer?.ok === true) {
     return toolText(
-      `Saved as a draft in ${answer.from}'s Gmail, to ${[...read.email.to, ...read.email.cc].join(", ")}. Nothing was sent; they send it from Gmail when they are ready.` +
+      `Saved as a draft in ${answer.mailbox ?? answer.from}'s Gmail${answer.mailbox && answer.mailbox !== answer.from ? `, from ${answer.from}` : ""}, to ${[...read.email.to, ...read.email.cc].join(", ")}. Nothing was sent; they send it from Gmail when they are ready.` +
         attachedWords(ready.email.files, answer.attached, { draft: true }),
     );
   }
