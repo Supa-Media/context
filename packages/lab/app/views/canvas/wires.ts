@@ -34,16 +34,31 @@ export function wirePath(
       ly: bot - 12,
     };
   }
-  // An arc over or under the row, drawn as send back is (Dev, 2026-11-26: "can the bow be smoother? I like the sendback
-  // bow"): out of the middle of one card's top or bottom, round, and into the middle of the other's.
+  // Every bend is a circular arc, so it curves evenly end to end (Dev, 2026-11-26: "I was expecting a more uniform
+  // curve"): an arc from (x1, y1) to (x2, y2) whose middle stands s off the straight line's middle, toward (nx, ny).
+  const circ = (x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, s: number) => {
+    const c = Math.hypot(x2 - x1, y2 - y1);
+    const r = (c * c) / 4 / (2 * s) + s / 2;
+    const mx = (x1 + x2) / 2 + nx * s,
+      my = (y1 + y2) / 2 + ny * s;
+    const sweep = (mx - x1) * (y2 - my) - (my - y1) * (x2 - mx) > 0 ? 1 : 0;
+    const k = (n: number) => Math.round(n * 10) / 10;
+    return `M${k(x1)},${k(y1)} A${k(r)},${k(r)} 0 0 ${sweep} ${k(x2)},${k(y2)}`;
+  };
+  // A wire round the cards it skips: out of the middle of one card's top or bottom and into the other's, standing out
+  // a sixth of the distance, so longer ones stand further out and nest rather than meet.
   if (bow.arc) {
+    const under = bow.arc > 0;
     const sx = a.x + aw / 2,
       ex = b.x + bw / 2;
-    const under = bow.arc > 0;
-    const y1 = under ? a.y + H : a.y,
-      y2 = under ? b.y + H : b.y;
-    const by = (under ? Math.max(y1, y2) : Math.min(y1, y2)) + bow.arc;
-    return { d: `M${sx},${y1} C${sx},${by} ${ex},${by} ${ex},${y2}` };
+    return { d: circ(sx, under ? a.y + H : a.y, ex, under ? b.y + H : b.y, 0, under ? 1 : -1, Math.max(40, Math.abs(ex - sx) * 0.16)) };
+  }
+  // Wires sharing a pair of cards along a row part as shallow arcs, side to side, either side of the line.
+  const mid = Math.hypot(bow.mid.x, bow.mid.y);
+  if (mid && Math.abs(a.x - b.x) >= W) {
+    const fw = b.x > a.x;
+    const n = { x: bow.mid.x / mid, y: bow.mid.y / mid };
+    return { d: circ(fw ? a.x + aw : a.x, a.y + H / 2 + bow.ends.y, fw ? b.x : b.x + bw, b.y + H / 2 + bow.ends.y, n.x, n.y, mid * 0.6) };
   }
   let x1 = a.x + aw,
     y1 = a.y + H / 2,
@@ -66,8 +81,8 @@ export function wirePath(
 }
 
 /**
- * How a wire bends off its straight line (`wirePath`, `wireBows`). `arc`: instead, how far past the cards' bottoms (more
- * than 0) or tops (less than 0) its handles reach, drawn as send back is.
+ * How a wire bends off its straight line (`wirePath`, `wireBows`). `arc`: instead, it goes round the row, under it (1)
+ * or over it (-1), from card bottom to bottom or top to top.
  */
 export type WireBow = { mid: Pt; ends: Pt; arc?: number };
 const NO_BOW: WireBow = { mid: { x: 0, y: 0 }, ends: { x: 0, y: 0 } };
@@ -102,7 +117,7 @@ function crosses(p: Pt, q: Pt, r: Box): boolean {
  * Each wire's bow (`wirePath`), so no two wires draw one line (Dev, 2026-11-26):
  * - A wire whose straight line runs behind another card (Check & finish back to Intake, behind Front door) arcs clear of
  *   it, to its own left: a wire going back right to left arcs over the row, one going on arcs under it, card top to card
- *   top or bottom to bottom as send back does, the longer the further out, so it never lies on the wires between the
+ *   top or bottom to bottom in an even circular arc, the longer the further out, so it never lies on the wires between the
  *   cards it skips.
  * - Wires that join the same two ends, whichever way they run, take lanes either side of the line, one lane for each way
  *   and kind of wire (several steps folded into one box share theirs), measured across the line from the end whose id
@@ -138,10 +153,10 @@ export function wireBows(edges: { from: string; to: string; mode: string }[], bo
       len = Math.hypot(dx, dy) || 1;
     const nx = -dy / len,
       ny = dx / len;
-    // Along a row it is an arc like send back's, from card top to card top or bottom to bottom: back over, on under,
-    // reaching further the further it goes, so arcs of different lengths nest instead of meeting.
+    // Along a row it goes round, from card top to card top or bottom to bottom: back over, on under,
+    // standing further out the further it goes (`wirePath`), so arcs of different lengths nest instead of meeting.
     if (Math.abs(dx) > Math.abs(dy)) {
-      out.set(i, { ...(out.get(i) ?? NO_BOW), arc: Math.sign(ny) * (44 + len * 0.07) });
+      out.set(i, { ...(out.get(i) ?? NO_BOW), arc: Math.sign(ny) });
       return;
     }
     // Otherwise it bows to its own left: it leaves and meets its cards near the corner on that side, and its middle

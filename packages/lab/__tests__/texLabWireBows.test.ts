@@ -49,9 +49,12 @@ describe("wires between the same two steps", () => {
     const a = { x: 0, y: 0 },
       b = { x: 400, y: 0 };
     expect(wirePath(a, b, "wait").d).toBe("M180,32 C290,32 290,32 400,32");
-    const d = wirePath(a, b, "wait", undefined, undefined, { mid: { x: 0, y: -24 }, ends: { x: 0, y: -8 } }).d;
-    const ys = [...d.matchAll(/-?\d+(?:\.\d+)?,(-?\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
-    expect(Math.min(...ys)).toBeLessThan(32 - 20);
+    // An even circular arc, its middle standing 0.6 of the bow off the line, ends parted as asked.
+    const d = wirePath(a, b, "wait", undefined, undefined, { mid: { x: 0, y: -40 }, ends: { x: 0, y: -8 } }).d;
+    expect(d).toMatch(/^M180,24 A[\d.]+,[\d.]+ 0 0 [01] 400,24$/);
+    const r = Number(/A([\d.]+),/.exec(d)![1]);
+    // Chord 220, sagitta 24: r = 220²/(8·24) + 24/2.
+    expect(r).toBeCloseTo((220 * 220) / (8 * 24) + 12, 0);
   });
 });
 
@@ -92,11 +95,11 @@ describe("a wire behind another card", () => {
       on = bows.get(1)!.arc!;
     expect(back).toBeLessThan(0);
     expect(on).toBeGreaterThan(0);
-    // Drawn as send back is: from the top of one card to the top of the other, its handles past both (Dev: "can the
-    // bow be smoother? I like the sendback bow").
-    const d = wirePath(at.checkFinish!, at.intake!, "generator", 180, 180, bows.get(0)).d;
-    expect(d).toBe(`M890,0 C890,${back} 90,${back} 90,0`);
-    expect(wirePath(at.intake!, at.checkFinish!, "wait", 180, 180, bows.get(1)).d).toBe(`M90,64 C90,${64 + on} 890,${64 + on} 890,64`);
+    // An even circular arc from the middle of one card's top to the other's (bottoms going on), standing out a sixth of
+    // the distance (Dev: "can the bow be smoother? I like the sendback bow", then "a more uniform curve").
+    const r = (800 * 800) / (8 * 128) + 64;
+    expect(wirePath(at.checkFinish!, at.intake!, "generator", 180, 180, bows.get(0)).d).toBe(`M890,0 A${r},${r} 0 0 0 90,0`);
+    expect(wirePath(at.intake!, at.checkFinish!, "wait", 180, 180, bows.get(1)).d).toBe(`M90,64 A${r},${r} 0 0 0 890,64`);
     // The neighbours' own wire has nothing behind it and stays straight.
     expect(bows.has(2)).toBe(false);
   });
