@@ -34,6 +34,7 @@ export type ControlAnswer =
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       /** `askerSends`: the turn's asker has this mailbox connected themselves, so it can go from them (`lib/textGroupMail.ts`). */
       mail?: { handle: string; address: string; askerSends?: true; sendsAs?: string[] }[];
+      askerMail?: string[];
       /** Calendars shared with this chat: the turn is told whose and which. */
       calendar?: { handle: string; address: string }[];
       /** Whether this chat is shared with the developers who build Tex, by handle (`lib/texLabShared.ts` `devShareOf`). */
@@ -150,6 +151,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
             ? [{ handle: entry.handle as string, address: entry.address, ...(entry.askerSends === true ? { askerSends: true as const } : {}), ...sendsAsOf(entry.sendsAs) }]
             : [],
         ),
+        ...(Array.isArray(body.askerMail) && body.askerMail.some((entry) => typeof entry === "string" && MAIL_ADDRESS.test(entry)) ? { askerMail: (body.askerMail.filter((entry) => typeof entry === "string" && MAIL_ADDRESS.test(entry)) as string[]).slice(0, 10) } : {}),
         calendar: (Array.isArray(body.calendar) ? body.calendar : []).slice(0, 10).map(record).flatMap((entry) =>
           slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address) ? [{ handle: entry.handle as string, address: entry.address }] : [],
         ),

@@ -105,6 +105,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     cause: turnCause(message, covered),
     // Mailboxes shared with this chat, named for the turn; the control plane decides every read (`chat-mail.md`).
     ...(asked.mail?.length ? { mail: asked.mail } : {}),
+    // The asker's own connected Gmails not shared here yet, so Tex can offer to share one by its address (Dev2, 2026-11-26).
+    ...(asked.askerMail?.length ? { askerMail: asked.askerMail } : {}),
     // Calendars shared with this chat, named for the turn; the control plane decides every read (Dev2, 2026-11-19).
     ...(asked.calendar?.length ? { calendar: asked.calendar } : {}),
     // Who keeps the chat from a workspace its asker and sponsor share (`lib/textGroupBlockers.ts`), so the turn logs it

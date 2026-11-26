@@ -673,7 +673,8 @@ export function sixToolsOver(granted, grants = null, { shown = null } = {}) {
     return { error: `${name} is not one of your tools; you have ${SIX_TOOLS.join(", ")}. Call one of the actions your tools list instead.`, cause: "older_name" };
   }
 
-  return { tools, resolve, manualOnFailure, olderName };
+  // `hold`: a tool granted partway through the turn (mail shared here mid-turn, `groupMail.js` `mailOnShare`), callable from now on.
+  return { tools, resolve, manualOnFailure, olderName, hold: (tool) => void (typeof tool?.name === "string" && held.set(tool.name, tool)) };
 }
 
 /**

@@ -139,7 +139,7 @@ const saidText = (result) => (typeof result.instructions === "string" && result.
  *
  * @param {{ run: (command: object) => Promise<object|null>, group: object|null, consent?: (kind: string) => Promise<boolean>, onMute?: (() => void)|null }} options
  */
-export function commandTools({ run, group, consent = async () => false, snapshot = null, onMute = null }) {
+export function commandTools({ run, group, consent = async () => false, snapshot = null, onMute = null, onShareMail = null }) {
   if (typeof run !== "function") return [];
   const asked = async (kind) => {
     try {
@@ -262,9 +262,11 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       inputSchema: { type: "object", properties: { address: { type: "string" }, query: { type: "string" } }, required: ["address"] },
     },
     call: async (args) =>
-      !(await asked("share_mail")) ? text(refusedWords(consent, "share_mail"), true) : await call({ kind: "share_mail", address: args?.address, ...(args?.query ? { query: args.query } : {}) }, (result) =>
-        `Shared ${result.address} with this chat${result.narrowed ? ", narrowed by its search" : ""}. Replies go from it only when they say yes.`,
-      )(),
+      !(await asked("share_mail")) ? text(refusedWords(consent, "share_mail"), true) : await call({ kind: "share_mail", address: args?.address, ...(args?.query ? { query: args.query } : {}) }, (result) => {
+        // Its reads are this turn's from now on (`groupMail.js` `mailOnShare`), so the ask that wanted it goes on here.
+        const now = typeof onShareMail === "function" && onShareMail(result.address) === true;
+        return `Shared ${result.address} with this chat${result.narrowed ? ", narrowed by its search" : ""}. Replies go from it only when they say yes.${now ? ` ${JSON.stringify({ readable_this_turn: { search: { email: true, account: result.address }, fetch: `email:${result.address}/<id>` } })}` : ""}`;
+      })(),
   };
   const unshareMail = {
     tool: {

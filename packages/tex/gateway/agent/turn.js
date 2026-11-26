@@ -269,6 +269,7 @@ export async function runTurn(options) {
     toolTimeouts = {},
     grants = null,
     local: localTools = [],
+    later = null, // `{ take() }`: tools granted partway through the turn, held before each call (`groupMail.js` `mailOnShare`)
     // `(entries) => entries`: how the tools this loop adds itself (say_nothing and its holds) are called, so a Front
     // door node routes them over its `fd -> tools` wire like the rest (`graph/nodes/fd.js`, `checkInLook.js`; Dev2,
     // 2026-11-14: every step logs). Absent, they are called here as before.
@@ -733,6 +734,7 @@ export async function runTurn(options) {
     // `timing.toolMs` only when the round is serial.
     const runOne = async (made) => {
       const effects = [];
+      for (const tool of later?.take() ?? []) if (!offeredNames.has(tool.name)) { offeredNames.add(tool.name); tools.push(tool); six.hold(tool); }
       // One of the six, as the granted tool that carries it; an older name the model was not shown is refused, naming its six call (`sixTools.js` `olderName`).
       const resolved = six.olderName(made.name, made.args) ?? six.resolve(made.name, made.args);
       if (resolved.error) {

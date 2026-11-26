@@ -58,7 +58,7 @@ import { TURN_CAUSES } from "./groupTurnCause.js";
 export { INVITED_TAGGER_LINE, TURN_CAUSES, taggedLine } from "./groupTurnCause.js";
 import { GROUP_SELF_LINE, blockedLine, blockedOf, hasGuests, homeOnlyCallTool, homeOnlyLines, isHomeOnlyChat, noAccountSendLine } from "./groupGuests.js";
 import { chatRoutinePrompt, chatRoutineRefusal } from "./groupRoutines.js";
-import { chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
+import { askerMailOf, chatMailOf, chatMailPrompt, chatMailTools } from "./groupMail.js";
 import { chatCalendarOf, chatCalendarPrompt } from "./groupCalendar.js";
 import { toolError } from "../../../../apps/mcp/src/tools/results.js";
 import { readChatMemoryRecord, writeChatMemoryRecord } from "./chatMemoryRecord.js";
@@ -133,6 +133,7 @@ export function groupOf(body, session = null) {
   if (!HEX64.test(group.key ?? "") || !HEX64.test(group.members ?? "")) return null;
   const from = typeof group.from === "string" && HANDLE.test(group.from) ? group.from : "";
   const mail = chatMailOf(group.mail);
+  const askerMail = askerMailOf(group.askerMail, mail); // the asker's own connected Gmails not shared here yet (`groupMail.js`)
   const calendar = chatCalendarOf(group.calendar); // calendars shared with this chat (`groupCalendar.js`)
   const reach = reachOf(session);
   const people = peopleOf(group.people, from);
@@ -145,7 +146,7 @@ export function groupOf(body, session = null) {
   const unshared = (Array.isArray(group.unshared) ? group.unshared : []).filter((slug) => typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)).slice(0, 24); // the asker's workspaces someone here can't open (`roomCheck.js`)
   const cause = TURN_CAUSES.includes(group.cause) ? group.cause : null; // why this turn runs, from the Worker (`packages/tex/worker/groupCause.ts`)
   const devShare = devShareOf(group.devShare); // whether the developers can read this chat in their Lab (`devShare.js`)
-  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(calendar.length > 0 ? { calendar } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}), ...(unshared.length > 0 ? { unshared } : {}), ...(devShare !== null ? { devShare } : {}), ...(cause !== null ? { cause } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
+  const kept = { key: group.key, members: group.members, from, people, chat: chatOf(group.chat), ...(names.length > 0 ? { names } : {}), ...(guests.length > 0 ? { guests } : {}), ...(numbers.length > 0 ? { numbers } : {}), ...(asker ? { asker } : {}), ...(size !== null ? { size } : {}), ...(mail.length > 0 ? { mail } : {}), ...(askerMail.length > 0 ? { askerMail } : {}), ...(calendar.length > 0 ? { calendar } : {}), ...(reach.length > 0 ? { reach } : {}), ...(group.tagged === true ? { tagged: true } : {}), ...(blocked.length > 0 ? { blocked } : {}), ...(unshared.length > 0 ? { unshared } : {}), ...(devShare !== null ? { devShare } : {}), ...(cause !== null ? { cause } : {}) }; // tagged: a literal "@Tex", always answered (`sendTheReply.js`)
   // A chat that reaches shared workspaces (every person here has an account and shares them) is an ordinary group turn
   // whose home is its memory; only a chat with people who aren't all here (no reach) is narrowed to its home.
   if (reach.length > 0 || !isHomeOnlyChat(session)) return from === "" ? { ...kept, guestTagger: true } : kept;

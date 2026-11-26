@@ -181,6 +181,20 @@ describe("sharing a mailbox with the chat", () => {
     expect((await turn(t, DAD)).mail).toEqual([{ handle: "seyi", address: WORK }]);
   });
 
+  // 2026-11-26, the Puttery ask: asked to email from her own Gmail, Tex asked which address was hers. Sabotage: return
+  // `{}` from `askerMailNamed`, or drop its call from a ready answer.
+  test("the asker is told their own connected Gmails not shared here yet, and never anyone else's", async () => {
+    gmail();
+    const t = setupTest();
+    await family(t);
+    expect((await turn(t, SEYI)).askerMail).toEqual([WORK]);
+    // Dad has none of his own: nothing is said, and Seyi's never is.
+    expect((await turn(t, DAD)).askerMail).toBeUndefined();
+    // Once shared, it is named as a share instead.
+    expect((await turn(t, SEYI, share(WORK))).status).toBe("mail_shared");
+    expect((await turn(t, SEYI)).askerMail).toBeUndefined();
+  });
+
   // A Lab test chat of this chat is told the same shares, with who has each connected, so each test text's asker is
   // marked as a real turn's is (`packages/lab/gateway/labSandbox/controlSwitch.js` `mailFor`).
   test("a Lab copy of the chat reads its shares with who can send from each", async () => {
