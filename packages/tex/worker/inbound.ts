@@ -1,3 +1,4 @@
+import type { Did } from "./factsOf";
 import type { CrossEvent } from "./crossChat";
 /**
  * The one shape of Linq's webhook this Worker acts on: a `message.received`
@@ -98,7 +99,11 @@ export type Inbound =
        * saved (`vaultWatch.ts`). It has no words, and the gateway asks its
        * own fixed question for it. Never set from a webhook.
        */
-      event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer" | "joined";
+      event?: "vault_saved" | "job_report" | "browser_handed_back" | "chat_ask" | "chat_answer" | "joined" | "did";
+      /** With `event` "did": what code did for this chat, as data (`didFacts.ts` `tellTexOne`). Never from a webhook. */
+      did?: Did;
+      /** With `event` "did": what is sent if its turn can't run at all, never silence. Never from a webhook. */
+      didFallback?: string;
       /** On `event: "chat_ask"` or `"chat_answer"`: another chat's ask, or the answer to this chat's own (`crossChat.ts`). Never from a webhook. */
       crossChat?: CrossEvent;
       /** On `event: "job_report"`: what a background job would have said, handed to this chat's own turn (`jobTexts.ts`). Never from a webhook. */

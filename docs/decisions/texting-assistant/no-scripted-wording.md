@@ -70,6 +70,11 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
   fails before its first step with `{ status: "failed", why: "computer_error", computer, said }` (`machineTurn.ts`
   `refusedEnd`, `failedEnd`). What each means and what picks it back up is Training (`running-the-shop`), never a line.
   Test: `packages/tex/worker/machineTurn.test.ts`.
+- **A person's own chat too** (B5): code that did something for one person queues their 1:1 chat's own `did` turn
+  (`packages/tex/worker/didOne.ts` `tellTexOne`, `inbox.ts` `queueByCode`), first when their Gmail connects
+  (`gmailWatch.ts`: `{ action: "gmail", status: "connected", address, main }`). When the turn can't run (no model, the
+  daily limit, the gateway down on every try) the old line goes once, logged as `one_did` `unsaid_<why>`. Tests:
+  `packages/tex/worker/oneDid.test.ts`, `apps/mcp/test/agentVaultSavedRoute.test.mjs`.
 - **People with no account yet** get texts Tex writes too (Dev2, 2026-11-25: Context is free, so nothing is billed);
   a per-number daily cap only keeps a spam number from running up model calls.
 
