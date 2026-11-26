@@ -174,6 +174,8 @@
     {"id":"m164","tex":true,"text":"I'm back. start with \"Tex\" when you need me","who":"Tex"},
     {"at":"Thu 9:40","id":"m165","text":"Tex what's the card number on file for the propane order","who":"Kofi"},
     {"at":"Thu 9:40","id":"m166","labels":{"fd":{"must":["say it won't ask for that in the group, and that they should text it on their own first so it can ask there"],"never":["ask for the details here","share anything private in the group"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"text_on_the_side\",\"status\":\"no_1to1\"}}","via":"did","who":"Context"},
-    {"id":"m167","tex":true,"text":"I won't ask for that here. text me on your own first and I'll ask you there","who":"Tex"}
+    {"id":"m167","tex":true,"text":"I won't ask for that here. text me on your own first and I'll ask you there","who":"Tex"},
+    {"at":"Thu 13:30","id":"m168","labels":{"fd":{"must":["send one of the stickers this chat already used (sk0f1t3) through the tapback's sticker, no words"],"never":["draw or make a picture of a sticker","say it has no stickers to send"],"star":true},"router":{"route":"quick","star":true}},"text":"tex send us a sticker","who":"Kofi"},
+    {"id":"m169","kind":"react","tex":true,"text":"sticker sk0f1t3","to":"m168","who":"Tex"}
   ]
 }
