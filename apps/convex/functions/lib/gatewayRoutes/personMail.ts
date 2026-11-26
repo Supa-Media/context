@@ -89,12 +89,18 @@ function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "person_mail", ...fields }));
 }
 
-async function claim(ctx: ActionCtx, accessToken: string, expectedWorkspaceId: string, address: string | null) {
+async function claim(ctx: ActionCtx, accessToken: string, expectedWorkspaceId: string, address: string | null, labChat: string | undefined) {
   return await ctx.runMutation(internal.functions.personMail.claimPersonMailRead, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId,
     address,
+    ...(labChat === undefined ? {} : { labChat }),
   });
+}
+
+/** A Lab test chat's group key (`labSandbox/chatRun.js`), or undefined; anything else is no key, and reads nothing shared. */
+function labChatField(body: Record<string, unknown>): string | undefined {
+  return typeof body.labChat === "string" ? body.labChat : undefined;
 }
 
 async function tokenFor(ctx: ActionCtx, mailbox: Mailbox): Promise<string | null> {
@@ -172,7 +178,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
   if (accessToken === null || expected === null) return json({ ok: false, refused: "not_allowed" });
   if (query === "" || query.length > MAX_MAIL_QUERY || address === undefined) return json({ ok: false, refused: "invalid" });
 
-  const claimed = await claim(ctx, accessToken, expected, address);
+  const claimed = await claim(ctx, accessToken, expected, address, labChatField(body));
   if (!claimed.ok) {
     log({ route: "search", outcome: "refused", reason: claimed.refused });
     return json({
@@ -273,7 +279,7 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
     return json({ ok: false, refused: "invalid" });
   }
 
-  const claimed = await claim(ctx, accessToken, expected, address);
+  const claimed = await claim(ctx, accessToken, expected, address, labChatField(body));
   if (!claimed.ok) {
     log({ route: "read", outcome: "refused", reason: claimed.refused });
     return json({ ok: false, refused: claimed.refused });
