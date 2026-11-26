@@ -673,7 +673,7 @@ async function prepareConvo(units, { tree, scratch, env, mode = "replay", compar
     const person = senderOf(c, u.at, people, group);
     const today = dayOf(c, u.at, year, from);
     const clock = timeOf(c, u.at);
-    const key = JSON.stringify([person, today, clock]);
+    const key = JSON.stringify([person, today, clock, u.row.rep ?? 0]); // a repeat apart: a test runs its cases in turn
     if (!batches.has(key)) batches.set(key, { person, today, clock, units: [] });
     batches.get(key).units.push(u);
   }
