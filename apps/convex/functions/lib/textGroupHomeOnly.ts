@@ -68,6 +68,8 @@ export interface HomeOnlyReady {
   reach: string[];
   /** Who here is not in each of the asker's workspaces the whole chat doesn't share, so the turn logs it and Tex can judge the room (`lib/textGroupBlockers.ts`). */
   blocked: Blocker[];
+  /** The asker's workspaces this turn reads that the whole chat does not share: someone here can't open them. */
+  unshared?: string[];
 }
 
 /**
@@ -162,6 +164,9 @@ export async function homeOnlyTurn(
     guests: [...guests, ...unnamed],
     reach: reach.map((row) => row.workspace.slug),
     blocked,
+    // The asker's workspaces this turn reads that the whole chat does not share: someone here can't open what it reads
+    // there, so the gateway holds an answer carrying it for the asker (`packages/tex/gateway/agent/roomCheck.js`).
+    ...(own !== null ? { unshared: reach.filter((row) => !chatReachIds.includes(row.workspace._id)).map((row) => row.workspace.slug) } : {}),
     ...(senderUser === null ? { guestTagger: await guestLabel(args.groupKey, args.sender) } : {}),
   };
 }

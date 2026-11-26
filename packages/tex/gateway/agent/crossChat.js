@@ -80,11 +80,14 @@ export function crossChatOf(body, { chatTurn, job }) {
     .map((said) => said.trim().slice(0, MAX_TEXT));
   const why = line(value.why, 300);
   const key = typeof value.key === "string" && KEY.test(value.key) ? value.key : "";
-  return { kind: "answer", id: value.id, from, what, state: value.state, texts, ...(why ? { why } : {}), ...(key ? { key } : {}) };
+  // An answer held from a group (`roomCheck.js`): its draft, for the asker alone.
+  const held = value.state === "aside" && value.held === true;
+  return { kind: "answer", id: value.id, from, what, state: value.state, texts, ...(why ? { why } : {}), ...(key ? { key } : {}), ...(held ? { held: true } : {}) };
 }
 
 /** The question an ask's or an answer's run is asked: the gateway's own line, kept in the history as Tex by itself. */
 export function crossChatQuestion(event) {
+  if (event.kind === "answer" && event.held === true) return `(${JSON.stringify({ event: "held_from_group", group: event.from })})`;
   if (event.kind === "answer" && event.state === "aside") return `(Not a text from them. Tex in ${event.from} needs this from them here, not in front of the group: "${event.what}")`;
   if (event.kind === "ask") return `(Not a text from anyone here. Tex in ${event.from} asks you${event.do ? " to do something" : ""}: "${event.what}")`;
   return `(Not a text from them. Tex in ${event.from} answered the ask you sent it ("${event.what}"); nothing from it has reached them yet.)`;
@@ -119,6 +122,7 @@ export function crossChatPrompt(event, { group = null } = {}) {
       "You can't ask another chat from here."
     );
   }
+  if (event.state === "aside" && event.held === true) return heldPrompt(event);
   if (event.state === "aside") return asidePrompt(event);
   const how =
     event.state === "answered"
@@ -147,6 +151,20 @@ function asidePrompt(event) {
     ` When they answer here with what the group's task needs (a code, a detail), pass it on with send action ask_chat, do true, ${back}, saying what it is for, so Tex there carries on; ` +
     "a login or card they save on the link carries the group on by itself, with nothing to pass."
   );
+}
+
+/**
+ * An answer held from a group because someone there can't open what it carries (`roomCheck.js`; Dev2, 2026-11-26), in
+ * the asker's own 1:1: the facts and the draft, as data. What to text them is the model's own, taught by Training.
+ */
+function heldPrompt(event) {
+  let facts = event.what;
+  try {
+    facts = JSON.parse(event.what);
+  } catch {
+    facts = event.what;
+  }
+  return `\n\n${JSON.stringify({ held_from_group: { group: event.from, ...(event.key ? { chat: event.key } : {}), facts, draft: event.texts } })}`;
 }
 
 /** A chat named by its group key or its name, from the person's groups (`{ key, name }`); null when none or several fit. */

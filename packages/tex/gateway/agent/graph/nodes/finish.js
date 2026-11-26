@@ -21,6 +21,9 @@ export function withNudgeLine(finished, line) {
 export async function finishNode(_input, io) {
   const t = io.ctx.turn;
   if (typeof t.finishCheckIn === "function" || t.drafts === undefined || t.response !== undefined || t.runner) return { when: ["as-is"] };
+  // The Room check reads the answer once more before it goes, when the config wires `finish -> roomCheck` (`roomCheck.js`):
+  // one that still carries what someone here can't open went to the asker alone, and nothing goes to the group.
+  if (io.use && "roomCheck" in io.use && t.roomReads) await io.use.roomCheck({ at: "answer", draftChars: String(t.turn?.answer ?? "").length }).catch(() => null);
   t.finished = await finishTheText(t);
   let nudged = false;
   if (typeof io.on === "function" && io.on("nudgeOffer") && io.use && "nudgeOffer" in io.use) {
@@ -30,5 +33,5 @@ export async function finishNode(_input, io) {
       nudged = true;
     }
   }
-  return { when: ["finished"], chars: t.finished.sent.length, asked: t.ledger?.asked?.length ?? 0, silent: t.finished.silent === true, ...(nudged ? { nudged: true } : {}) };
+  return { when: ["finished"], chars: t.finished.sent.length, asked: t.ledger?.asked?.length ?? 0, silent: t.finished.silent === true, ...(t.roomHush === true ? { held: true } : {}), ...(nudged ? { nudged: true } : {}) };
 }

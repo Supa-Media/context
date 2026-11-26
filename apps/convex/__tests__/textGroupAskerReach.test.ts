@@ -117,6 +117,8 @@ describe("a group ask runs on the asker's own access", () => {
     const w = await world();
     const answer = await turn(w.t, SOL);
     expect(answer.blocked).toEqual([{ slug: "harbor-care", who: "jo", why: "not_member" }]);
+    // Every workspace this turn reads that the whole room does not share, uncapped, for the gateway's Room check (Dev2, 2026-11-26).
+    expect(answer.unshared).toEqual(["harbor-care"]);
     // Jo's own ask names nothing of @harbor-care: a workspace the asker isn't in is never named.
     expect(JSON.stringify(await turn(w.t, JO))).not.toContain("harbor-care");
   });
@@ -179,11 +181,13 @@ describe("a group ask runs on the asker's own access", () => {
     const w = await world();
     const routine = await turn(w.t, SAM, EVERYONE, { routine: true });
     expect(routine).toMatchObject({ status: "ready", reach: ["studio-co"] });
+    expect(routine.unshared).toBeUndefined();
     expect(slugsOf(await resolves(w.t, routine.accessToken))).toEqual(["context-lc", "studio-co"]);
     // A routine at the lowest role in the room: Jo only views @studio-co.
     expect((await resolves(w.t, routine.accessToken))?.workspaces.find((row) => row.slug === "studio-co")).toMatchObject({ role: "member" });
     const report = await turn(w.t, SAM, EVERYONE, { routine: true, asked: true });
     expect(report).toMatchObject({ reach: ["harbor-care", "studio-co"] });
+    expect(report.unshared).toEqual(["harbor-care"]);
     // The routine's token never becomes Sam's own reach.
     expect(slugsOf(await resolves(w.t, routine.accessToken))).not.toContain("harbor-care");
     // `asked` means nothing without `routine`: a text is always asked.

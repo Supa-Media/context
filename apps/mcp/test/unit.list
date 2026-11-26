@@ -814,3 +814,4 @@ test/stickerLook.test.mjs
 test/blankFields.test.mjs
 test/explainContext.test.mjs
 test/chatStyle.test.mjs
+test/roomCheck.test.mjs
