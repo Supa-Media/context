@@ -172,12 +172,12 @@ function MailButton({ mailRoute }: { mailRoute: MailRoute }) {
     <Pressable
       onPress={mailRoute.toggle}
       accessibilityRole="button"
-      accessibilityLabel={mailRoute.open ? "Close Mail" : fresh > 0 ? `Mail, ${fresh} new` : "Mail"}
+      accessibilityLabel={mailRoute.open ? "Close Agent Mail" : fresh > 0 ? `Agent Mail, ${fresh} new` : "Agent Mail"}
       accessibilityState={{ selected: mailRoute.open }}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, mailRoute.open && styles.current, hovered && styles.hover]}
       testID="aside-strip-mail"
     >
-      <AccessoryGlyph name="mail" size={GLYPH} color={colors.accent} />
+      <AccessoryGlyph name="agentMail" size={GLYPH} color={colors.accent} />
       {fresh > 0 && !mailRoute.open ? (
         <View style={styles.dot} testID="aside-strip-mail-dot">
           <Dot tone="ok" />

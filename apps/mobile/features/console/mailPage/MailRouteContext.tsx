@@ -86,6 +86,20 @@ export function mailRouteFacts(
   };
 }
 
+/**
+ * The tab strip's label override: while Agent Mail fills the document slot, the active tab says so rather than naming
+ * the note behind it (Dev2's screenshot, 2026-11-26: the tab read "seyi" over the Mail page). Otherwise the title being
+ * typed, as before.
+ */
+export function mailTabLabel<T extends { path: string; label: string | null }>(
+  route: MailRoute | undefined,
+  activePath: string | null,
+  titleEdit: T | null | undefined,
+): { path: string; label: string | null } | null | undefined {
+  if (route?.open === true && activePath !== null) return { path: activePath, label: "Agent Mail" };
+  return titleEdit;
+}
+
 export function useConsoleMailRoute(
   router: ConsoleRouter,
   open: boolean,

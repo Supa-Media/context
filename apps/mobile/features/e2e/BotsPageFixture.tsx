@@ -12,7 +12,7 @@ import { useColors } from "../design/theme";
  * land in memory only; nothing here reaches a gateway.
  */
 /** Each bot's logo, as its card's stored picture would be read. */
-const LOGOS: Record<string, string> = {
+export const LOGOS: Record<string, string> = {
   "finance": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAy0lEQVR4nO2XQQ7DIAwEIep/2p8kH2oOeVGf0if1ViEOWa8hiYl2bpHAGlYWOPn5nlMkpqsFaiSEkBBCQohwQo/2Et/tU36+1qWlWm65qSuVEreWU2hHpcSh5ekhow218k+4pqaF2EOz6wdPyNET7K7BEzoBCSE4Id+DQO0aPKHEh8SuHz+hxBza0XN3mYdKAk2MR3CLpj4U61+Hb/CosLSXKaEuNsY6WKiXjbFauB6SEAILNd68bDVTQr2cLHX0dCAkhJAQQkKIcEI/BBI3OwVSDNQAAAAASUVORK5CYII=",
   "grok-bot": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAxElEQVR4nO2XSw6AIAxE0XgNP/c/lfEk7gxh4XQKajHzdibQPCYN1GGe1xSJ8WuBEgkhJISQECKc0FRf4jj2/HNZtppqQ81NXajkuLWcQjcqOQ4tTw8ZbaiVF+GamhZiD82u7zwhR0+wuzpP6AUkhOCEfA8CtavzhBIfEru+/4QSc2hHz/1lHsoJNDE+wS+a+lGsfx2+waPA0l6mhJrYGOtgoVY2xmrhekhCCCxUefOy1UwJtXKy1NHTgZAQQkIICSHCCZ0mCTLNTnUPWgAAAABJRU5ErkJggg==",
   "socials": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAyklEQVR4nO2XMQ7DIBAEwUqZPMmF83AXzpPygXQRovDeHtg+rJ3OEpyG1QnOeVueKRLT1QI1EkJICCEhRDihR3uJef2Wn5/3q6VabrmpK5USt5ZTaEelxKHl6SGjDbXyT7impoXYQ7PrB0/I0RPsrsETOgEJITgh34NA7Ro8ocSHxK4fP6HEHNrRc3eZh0oCTYxHcIumPhTrX4dv8KiwtJcpoS42xjpYqJeNsVq4HpIQAgs13rxsNVNCvZwsdfR0ICSEkBBCQohwQj9U0zfHYsl8DAAAAABJRU5ErkJggg==",

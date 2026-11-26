@@ -157,3 +157,68 @@ export function groupsFor(view: MailView, conversations: readonly Conversation[]
 export function freshCount(conversations: readonly Conversation[]): number {
   return conversations.filter((each) => each.fresh).length;
 }
+
+/** A bot conversation's card, `bots/<bot>/about.md` beside its `mail/` folder, where its logo is named; else null. */
+export function botCardOf(conversation: Pick<Conversation, "path" | "place">): string | null {
+  if (conversation.place.kind !== "bot") return null;
+  const folder = conversation.path.replace(/\/mail\/[^/]+$/, "");
+  return folder === conversation.path ? null : `${folder}/about.md`;
+}
+
+/** The `avatar:` a card's front matter names (the logo's leaf beside the card), or "" when it names none. */
+export function avatarOf(text: string): string {
+  const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? "";
+  const line = /^avatar:[ \t]*(.*)$/m.exec(head)?.[1]?.trim() ?? "";
+  return line.replace(/^["']|["']$/g, "").trim();
+}
+
+/** Whether a mail name is a person (`@seyi`) rather than an agent or bot (`grok-bot`, `claude`). */
+export function isPersonName(name: string): boolean {
+  return name.startsWith("@");
+}
+
+/** One message as the thread draws it: whether it opens a new run (a header with face and name) or a new day. */
+export interface MessageLine<T> {
+  readonly event: T;
+  readonly header: boolean;
+  readonly day: string | null;
+}
+
+/** Five minutes: a second message from the same person inside it sits under the first one's header, Slack style. */
+const RUN_MS = 5 * 60 * 1000;
+
+/**
+ * The thread as runs (Dev2, 2026-11-26: "a more slack style of messages instead of a left right message bubble
+ * style"): every message left-aligned, a header with face, name and time when the sender changes, a gap passes or the
+ * day turns, and a day line between days.
+ */
+export function messageLines<T extends { readonly from: string; readonly at: string }>(events: readonly T[], now: number = Date.now()): MessageLine<T>[] {
+  const out: MessageLine<T>[] = [];
+  let lastDay = "";
+  let last: T | null = null;
+  for (const event of events) {
+    const time = Date.parse(event.at);
+    const day = Number.isNaN(time) ? "" : new Date(time).toDateString();
+    const newDay = day !== "" && day !== lastDay;
+    const gap = last === null || Number.isNaN(time) || time - Date.parse(last.at) > RUN_MS;
+    const header = newDay || gap || last === null || cardSlug(last.from) !== cardSlug(event.from);
+    out.push({ event, header, day: newDay ? dayLabel(time, now) : null });
+    if (day !== "") lastDay = day;
+    last = event;
+  }
+  return out;
+}
+
+/** "Today", "Yesterday", or "Mon, Nov 24". */
+export function dayLabel(time: number, now: number = Date.now()): string {
+  const day = new Date(time).toDateString();
+  if (day === new Date(now).toDateString()) return "Today";
+  if (day === new Date(now - 86_400_000).toDateString()) return "Yesterday";
+  return new Date(time).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** A clock time alone, "6:10 PM", for a message header and the hover time of a message under it. */
+export function clockLabel(at: string): string {
+  const time = Date.parse(at);
+  return Number.isNaN(time) ? "" : new Date(time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}

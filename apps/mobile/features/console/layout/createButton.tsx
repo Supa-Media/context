@@ -19,6 +19,7 @@ export function consoleCreateButton({
   resumeRow,
   setBarDialog,
   joinMeeting = null,
+  mailOpen = false,
 }: {
   data: ConsoleData;
   phone: boolean;
@@ -27,6 +28,8 @@ export function consoleCreateButton({
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
   /** Join and take notes: the next meeting, in a pill beside the `+`. `null` where there is no calendar. */
   joinMeeting?: ConsoleAside["joinMeeting"];
+  /** Agent Mail is open: its reply box has its own Send, and the corner's `+` sat on it (Dev2, 2026-11-26). */
+  mailOpen?: boolean;
 }) {
   /*
     THE +, AND WHY IT IS MOUNTED HERE.
@@ -47,7 +50,7 @@ export function consoleCreateButton({
     reader does not: their notes are somebody else's, read only.
   */
   return (
-    data.demo && (data.visitor === undefined || !data.files.canEdit) ? null : (
+    mailOpen || (data.demo && (data.visitor === undefined || !data.files.canEdit)) ? null : (
     <CreateButton
       compact={phone}
       onNewMeeting={startMeetingFlow}
