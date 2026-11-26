@@ -251,6 +251,9 @@ export const CHECK_IN_TOOLS =
   "and send action say_nothing to stay quiet. Every other action (sending, saving, changing, moving, opening a page) is refused in a check-in: " +
   "offer it to them as the next step instead.";
 
+/** Where a check-in question's own facts start, after the instructions and the Training check-ins. */
+export const THIS_LOOK = "## This look";
+
 export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "", sources = "", muted = [], examples = "" }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
@@ -260,7 +263,7 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
     // The Training check-ins its config context names (`train:checkin`, `texTraining.cjs` VIA_READERS): what a look
     // that found something like this one texted, or that it stayed quiet.
     examples,
-    "## This look",
+    THIS_LOOK,
     shown.length === 0
       ? "Nothing in their notes changed since you last looked."
       : `Notes changed since you last looked, newest first, with older days a sync rewrote and contact pages last:\n${shown.map((note) => `- ${note.key} (${age(note.at, now)})`).join("\n")}` +
@@ -278,12 +281,24 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
         recent.join("\n")
       : "",
     theirs ? `Their own instructions for check-ins, from ${HEARTBEAT_SETTINGS_PATH}:\n${theirs}` : "",
-    muted.length > 0 ? `They asked never to be texted about these unless they ask, so for anything about them, ${SAY_NOTHING}: ${muted.join(", ")}.` : "",
+    // A fact, never a call to make: "for anything about them, call say_nothing" read as one say_nothing per muted
+    // item, and that call ends the look, so a look that meant to text something else went quiet (2026-11-26).
+    muted.length > 0 ? `They asked never to be texted about these unless they ask: ${muted.join(", ")}.` : "",
     CHECK_IN_TOOLS,
     `Answer with the text to send them, or, if nothing is worth a text, ${SAY_NOTHING}: nothing is texted.`,
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/**
+ * What the Quiet check is shown of a look: the research's findings first, then this look's facts, without the
+ * instructions and Training check-ins before them. Clipped from its start, the whole question lost the findings at its
+ * end: a judge that never saw the one urgent finding let a placeholder silence stand (2026-11-26).
+ */
+export function quietLook(question, research = "") {
+  const at = question.indexOf(THIS_LOOK);
+  return [research, at === -1 ? question : question.slice(at)].filter(Boolean).join("\n\n");
 }
 
 /** The model's answer as a text to send, or null for a quiet look. */
@@ -475,6 +490,7 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
   // Dev2, 2026-11-22: "check-ins are not real time, so we can take our time"): read-only digging whose brief the look
   // reads beside what changed. A config without that wire looks as before.
   let question = asked;
+  let research = "";
   if ("checkinResearch" in io.use) {
     const found = await io.use
       .checkinResearch(
@@ -497,6 +513,7 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
       )
       .catch(() => null);
     const said = researchSection(found?.brief ?? "");
+    research = said;
     if (said !== "") question = `${asked}\n\n${said}`;
   }
   // The Answer check node reads a check-in's text before it goes, as a text nobody asked for (Dev2, 2026-11-07:
@@ -516,7 +533,7 @@ async function prepareLook({ io, t, ctxObj, given, dispatch, store, session, env
   const silence = quietCheck !== null
     ? {
         sayNothingJudge: async (why) => {
-          const verdict = await quietCheck({ why, mail: mail.length }, { env, quiet: { look: question, calendar: calendarCopy } });
+          const verdict = await quietCheck({ why, mail: mail.length }, { env, quiet: { look: quietLook(asked, research), calendar: calendarCopy } });
           return verdict?.to === "speak" ? { notice: speakNotice(verdict.why) } : null;
         },
       }
