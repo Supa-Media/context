@@ -15,6 +15,7 @@ import { test } from "node:test";
 
 import { toolSetArea } from "../src/tools/notes/setArea.js";
 import { toolMailNote } from "../src/tools/notes/mail.js";
+import { boundBotOf } from "../src/mail/boundBot.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 import mail from "../../../packages/shared/src/mail.cjs";
@@ -24,7 +25,7 @@ import { withServedTree } from "./servedTree.mjs";
 const RULES = [{ prefix: "areas", vis: "team" }, { prefix: "bots", vis: "team" }];
 const CARD = "---\nholder: Grok Bot\nkind: agent\nbot: grok\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n\n# Grok Bot\n";
 
-async function world(actor, card = CARD) {
+async function world({ bot, botName, ...actor }, card = CARD) {
   const base = createMemoryStore();
   await base.put("bots/grok-bot/about.md", card);
   await base.put("bots/grok-bot/mail/seyi.md", "# Mail with Grok Bot\n");
@@ -40,14 +41,20 @@ async function world(actor, card = CARD) {
     request.ask === "jobs" ? { served: true, jobs: { areas: "areas", projects: "projects" }, roots: ["areas", "projects"] } : served(request);
   store.treeEntries = async () => (await base.list({})).objects;
   const calls = [];
+  const asks = [];
+  // Which bot this connection is comes from the control plane (`mail/boundBot.js`), never the session.
   store.botHooks = async (request) => {
+    if (request.action === "bound") {
+      asks.push(request);
+      return bot ? { bot, name: botName ?? bot } : { bot: null };
+    }
     calls.push(request);
     if (request.action === "bind") return { ok: true, workspaceId: "ws-test", bot: request.bot };
     if (request.action === "answered") return { ok: true };
     return { error: "unknown" };
   };
   const text = async (key) => (await (await base.get(key))?.text()) ?? null;
-  return { store, calls, text };
+  return { store, calls, asks, text };
 }
 
 const said = (result) => result.content.map((part) => part.text).join("\n");
@@ -94,7 +101,7 @@ test("bind_bot is refused on a card that names nobody, unless an owner's connect
 });
 
 test("a bound login's mail is signed by its bot, and tells the control plane it answered", async () => {
-  const { store, calls, text } = await world({ role: "editor", name: "@seyi", bot: "grok-bot", botName: "Grok Bot" });
+  const { store, calls, asks, text } = await world({ role: "editor", name: "@seyi", bot: "grok-bot", botName: "Grok Bot" });
   const deferred = [];
   store.defer = (work) => deferred.push(work);
   const result = await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: "bots/grok-bot/mail/seyi.md", mail: { text: "Done.", used: 1 } });
@@ -103,6 +110,9 @@ test("a bound login's mail is signed by its bot, and tells the control plane it 
   const lines = await mailOf(text, "bots/grok-bot/mail/seyi.md");
   assert.equal(lines.at(-1).from, "grok-bot");
   assert.deepEqual(calls, [{ action: "answered" }]);
+  // One ask per connection, however many lines it writes.
+  await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: "bots/grok-bot/mail/seyi.md", mail: { text: "Again.", used: 0 } });
+  assert.equal(asks.length, 1);
 });
 
 test("a bound login joins only as its bot", async () => {

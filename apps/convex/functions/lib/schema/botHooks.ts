@@ -34,6 +34,21 @@ export const botHookTables = {
    * when that went out and when the bot's own login last answered in mail. Healthy only when an answer came after
    * the check; "not answering" once the check is older than a few minutes with none (Dev, 2026-11-26).
    */
+  /**
+   * Which bot a connection is, in one workspace (`functions/botLogins.ts`): bound by the bot itself during its setup,
+   * so every mail line it writes there is signed by the bot, never by the app it connects through (Dev, 2026-11-26).
+   * Kept here and not on the grant: a grant is an access row, which a person's object holds and takes first, and this
+   * row changes nothing anyone may reach. A revoked grant ends it, since every read resolves the live grant first.
+   */
+  botLogins: defineTable({
+    grantId: v.id("oauthGrants"),
+    workspaceId: v.id("workspaces"),
+    /** The bot's mail name (`mailJoinName`). */
+    bot: v.string(),
+    /** Its card's name, as shown. */
+    name: v.string(),
+    at: v.number(),
+  }).index("by_grant_workspace", ["grantId", "workspaceId"]),
   botHealth: defineTable({
     workspaceId: v.id("workspaces"),
     bot: v.string(),

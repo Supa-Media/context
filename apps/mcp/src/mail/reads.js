@@ -11,6 +11,7 @@
  */
 import { normalizePath } from "../notes/paths.js";
 import { objectReader } from "../store/objectLookup.js";
+import { boundBotOf } from "./boundBot.js";
 
 const MAIL_FENCE = /^ {0,3}```mail\s*$/m;
 const id = (value) => (typeof value === "string" && /^[A-Za-z0-9_:.-]{1,128}$/.test(value) ? value : "-");
@@ -25,7 +26,9 @@ function readerOf(store) {
 function record(store, fields) {
   const reader = readerOf(store);
   if (reader === null) return;
-  const work = reader.client.mail.read({ ...fields, ...reader.judged }).catch(() => null);
+  const work = Promise.resolve(fields)
+    .then((ready) => reader.client.mail.read({ ...ready, ...reader.judged }))
+    .catch(() => null);
   if (typeof store.defer === "function") store.defer(work);
 }
 
@@ -43,10 +46,13 @@ export function countAiMailRead(name, args, store, result) {
     const readsMail = args?.mail !== undefined || args?.args?.mail !== undefined || MAIL_FENCE.test(resultText(result));
     if (!readsMail) return;
     const actor = store?.actor ?? {};
-    // A bound bot's login reads as the bot (`tools/notes/botBind.js`), never as the app it connects through.
-    const named = typeof actor.botName === "string" && actor.botName !== "" ? actor.botName : actor.clientName;
-    const clientName = typeof named === "string" && named !== "" ? named.slice(0, 120) : null;
-    record(store, { path, by: "ai", reader: `ai:${id(actor.userId)}:${id(actor.clientId)}`, name: handle(actor.name), clientName });
+    // A bound bot's login reads as the bot (`tools/notes/botBind.js`, `./boundBot.js`), never as the app it connects through.
+    const fields = boundBotOf(store).then((bound) => {
+      const named = bound?.name ?? actor.clientName;
+      const clientName = typeof named === "string" && named !== "" ? named.slice(0, 120) : null;
+      return { path, by: "ai", reader: `ai:${id(actor.userId)}:${id(actor.clientId)}`, name: handle(actor.name), clientName };
+    });
+    record(store, fields);
   } catch {
     // A read that cannot be kept is no reason to fail the read.
   }

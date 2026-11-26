@@ -17,12 +17,6 @@ import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
  * in. Two copies of this object is how a note filed into somebody's workspace ends
  * up stamped with the workspace the client happened to connect to.
  */
-/** `{ bot, botName }` for the workspace this session addresses, or nothing. */
-function botOf(session) {
-  const bound = Array.isArray(session?.bots) ? session.bots.find((entry) => entry?.workspaceId === session.workspaceId) : undefined;
-  if (typeof bound?.bot !== "string" || bound.bot === "") return {};
-  return { bot: bound.bot, botName: typeof bound.name === "string" && bound.name !== "" ? bound.name : bound.bot };
-}
 
 export function actorFor(session) {
   return {
@@ -65,7 +59,6 @@ export function actorFor(session) {
      * `apps/convex/functions/botLogins.ts`): its mail name and its card's name. Read from the grant by the control
      * plane, never from a request; mail it writes here is signed by the bot (`tools/notes/mail.js`).
      */
-    ...botOf(session),
     /** When this connection last fetched our tool list; see `tools/news.js`. */
     toolsListedAt: Number.isFinite(session.toolsListedAt) ? session.toolsListedAt : null,
   };

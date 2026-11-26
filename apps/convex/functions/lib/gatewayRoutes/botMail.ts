@@ -36,6 +36,7 @@ export async function gatewayBotMailHandler(ctx: ActionCtx, body: Record<string,
  * the gateway's secret and the person's own access token, cleared as an editor of the workspace their grant names.
  * `{ action: "bind", bot, name }` → `{ ok, workspaceId, bot }`: the calling connection is that bot here, and the
  * check starts (`functions/botLogins.ts`). `{ action: "answered" }`: a bound login sent mail; its token alone clears it.
+ * `{ action: "bound" }` → `{ bot, name }` or `{ bot: null }`: which bot this connection is here; its token alone.
  * `{ action: "list" }` → `{ hooks }`; `{ action: "set", bot, address, header?, signingKey? }` → `{ host, headerEnds,
  * keyMade }`; `{ action: "test", bot }` → `{ ok, status }`. A refusal is `{ error }` in words a person can act on. No
  * answer ever carries an address, a header's value or a key.
@@ -48,6 +49,10 @@ export async function gatewayBotHookHandler(ctx: ActionCtx, body: Record<string,
   if (stringField(body, "action") === "answered") {
     await ctx.runMutation(internal.functions.botLogins.botAnswered, { hashedAccessToken: await hashToken(accessToken), expectedWorkspaceId: expected });
     return json({ ok: true });
+  }
+  // Which bot this connection is here (`apps/mcp/src/mail/boundBot.js`): its own token, no role asked.
+  if (stringField(body, "action") === "bound") {
+    return json(await ctx.runQuery(internal.functions.botLogins.boundBotFor, { hashedAccessToken: await hashToken(accessToken), expectedWorkspaceId: expected }));
   }
   const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
     hashedAccessToken: await hashToken(accessToken),

@@ -98,7 +98,6 @@ export async function gatewaySessionHandler(
       ...(session.texChatId === undefined ? {} : { texChatId: session.texChatId }),
       ...(session.texTaggerId === undefined ? {} : { texTaggerId: session.texTaggerId }), // whose own tag: logins they saved for themselves count (`vault/access.js`)
       // The bot this connection is, per workspace (`functions/botLogins.ts`): its mail is signed by that bot.
-      ...(session.bots === undefined ? {} : { bots: session.bots }),
       // The acting person's feature flags (`lib/featureFlags.ts`): ids only.
       flags,
     },

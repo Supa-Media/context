@@ -85,6 +85,15 @@ test("an AI read of a note with mail is that client's receipt, for the person wh
   assert.equal(kept[0].scope, "team", "judged as a read is");
 });
 
+test("a bound bot's login reads as the bot, not as the app it connects through", async () => {
+  // Dev, 2026-11-26: "things still showing as read by cursor".
+  const { store, kept, deferred } = storeOf();
+  store.botHooks = async (request) => (request.action === "bound" ? { bot: "grok-bot", name: "Grok Bot" } : { error: "unknown" });
+  countAiMailRead("read_note", { path: "bots/grok/mail/seyi.md" }, store, answer("# Mail\n\n```mail\n- 2026-11-26T00:00:00.000Z @seyi to everyone: yo\n```\n"));
+  await Promise.all(deferred);
+  assert.equal(kept[0].clientName, "Grok Bot");
+});
+
 test("an AI read of a note without mail keeps nothing, nor a failed read", async () => {
   const { store, kept, deferred } = storeOf();
   countAiMailRead("read_note", { path: "todo.md" }, store, answer("# Todo\n"));
