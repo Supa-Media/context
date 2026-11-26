@@ -323,11 +323,12 @@ export function SheetGrid({
               #
             </Text>
           </View>
-          {columns.map((c) => {
+          {columns.map((c, i) => {
             const sort = view.sort?.column === c.name ? view.sort.direction : null;
             const dragging = drag?.name === c.name;
             return (
-              <View key={c.name} style={[styles.headSlot, widthOf[c.name]]}>
+              // Each slot sits above the one to its right, so the half of its edge that overhangs the next header still takes the pointer.
+              <View key={c.name} style={[styles.headSlot, widthOf[c.name], { zIndex: columns.length - i }]}>
               <Pressable
                 ref={(node) => {
                   headerRefs.current[c.name] = node;

@@ -114,7 +114,7 @@ export function ColumnMenu({
                     <Text variant="mono" style={styles.glyph}>
                       {TYPE_GLYPH[type]}
                     </Text>
-                    <Text variant="tree" style={[styles.typeLabel, current && { color: colors.accentText }]}>
+                    <Text variant="tree" numberOfLines={1} style={[styles.typeLabel, current && { color: colors.accentText }]}>
                       {TYPE_LABEL[type]}
                     </Text>
                     {current ? <Text variant="tree" style={styles.check}>✓</Text> : null}
@@ -149,7 +149,7 @@ export function ColumnMenu({
                 <Text variant="body" style={styles.itemText}>
                   Wrap text
                 </Text>
-                <Switch value={wraps} onValueChange={actions.onWrap} label="Wrap text" testID="sheet-wrap-text" style={{ marginLeft: "auto" }} />
+                <Switch value={wraps} onValueChange={actions.onWrap} label="Wrap text" testID="sheet-wrap-text" style={{ marginLeft: "auto", alignSelf: "center" }} />
               </View>
             )}
             <View style={styles.groupRow}>
@@ -239,7 +239,8 @@ const makeStyles = (colors: Colors) =>
     },
     glyph: { color: colors.chromeMuted, width: 18, textAlign: "center" },
     typeLabel: { color: colors.text, flexShrink: 1 },
-    check: { marginLeft: "auto", color: colors.accentText },
+    // Out of the row's flow, in its right padding, so "Multi-select ✓" fits half the menu on one line.
+    check: { position: "absolute", right: 4, color: colors.accentText },
     rule: { height: 1, backgroundColor: colors.line, marginVertical: space.x1 },
     item: { height: 30, justifyContent: "center", paddingHorizontal: space.x2, borderRadius: radii.sm },
     itemText: { color: colors.text },

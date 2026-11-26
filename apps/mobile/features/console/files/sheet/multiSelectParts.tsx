@@ -26,13 +26,26 @@ export interface MultiSelectEditorProps {
   onFinish: (how: "enter" | "tab" | "backtab" | "save" | "blur") => void;
 }
 
-export function OptionChip({ word, options, size = 13, children }: { word: string; options: readonly string[]; size?: number; children?: React.ReactNode }) {
+export function OptionChip({
+  word,
+  options,
+  size = 13,
+  centered = false,
+  children,
+}: {
+  word: string;
+  options: readonly string[];
+  size?: number;
+  /** In a list row the chip sits on the row's centre line, beside its ✓. */
+  centered?: boolean;
+  children?: React.ReactNode;
+}) {
   const styles = useThemedStyles(makeChipStyles);
   const colors = useColors();
   const at = options.findIndex((o) => o.toLowerCase() === word.toLowerCase());
   const tone = optionTone(colors, at < 0 ? options.length : at);
   return (
-    <View style={[styles.chip, { backgroundColor: tone.wash }]}>
+    <View style={[styles.chip, { backgroundColor: tone.wash }, centered && { alignSelf: "center" }]}>
       <View style={[styles.dot, { backgroundColor: tone.dot }]} />
       <Text variant="body" numberOfLines={1} style={[styles.word, { fontSize: size, lineHeight: Math.round(size * 1.4) }]}>
         {word}

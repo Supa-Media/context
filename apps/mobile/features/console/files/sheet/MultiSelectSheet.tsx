@@ -83,7 +83,7 @@ export function MultiSelectSheet({
               style={[styles.row, i > 0 && styles.rule]}
               testID="sheet-option-row"
             >
-              <OptionChip word={word} options={options} size={15} />
+              <OptionChip word={word} options={options} size={15} centered />
               {on ? <Text variant="body" style={styles.check}>✓</Text> : null}
             </Pressable>
           );
@@ -101,7 +101,7 @@ export function MultiSelectSheet({
             <Text variant="body" style={styles.muted}>
               Create
             </Text>
-            <OptionChip word={list.create} options={options} size={15} />
+            <OptionChip word={list.create} options={options} size={15} centered />
           </Pressable>
         )}
       </View>
