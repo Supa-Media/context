@@ -6,7 +6,8 @@
  * may be changed (null for none), `calendarRefusal` answers every change
  * and check with that word instead, and `calendarGuests` are the guests on
  * the event a move or a cancel names: named back on a check, and a change
- * without `notify_guests` refused, as the real route does. A create's own
+ * without `notify_guests` refused, as the real route does (`calendarGuestsFor`,
+ * a function of the change, names one event's guests instead). A create's own
  * `guests` are its invitees, refused without `notify_guests` and named back
  * on a check; a create with `meet` answers a Meet link.
  *
@@ -32,7 +33,9 @@ export function createCalendarRoute(clearedEditor, flags, clearedRead = clearedE
       else if (body.check === true) answer = { ok: true, calendar: flags.calendarAddress, ...(guests.length > 0 ? { guests } : {}) };
       else answer = { ok: true, calendar: flags.calendarAddress, ...(body.change.meet === true ? { meet: "https://meet.google.com/abc-defg-hij" } : {}) };
     } else {
-      const guests = flags.calendarGuests ?? [];
+      // `calendarGuestsFor`, when set, names the guests of the one event the change names (a bench calendar with
+      // several events, `bench/calendar.mjs`); null from it falls back to `calendarGuests`, every event's.
+      const guests = (typeof flags.calendarGuestsFor === "function" ? flags.calendarGuestsFor(body.change ?? {}) : null) ?? flags.calendarGuests ?? [];
       if (guests.length > 0 && body.check !== true && body.change?.notify_guests !== true) answer = { ok: false, refused: "has_guests" };
       else answer = { ok: true, calendar: flags.calendarAddress, ...(body.check === true ? { guests } : {}) };
     }

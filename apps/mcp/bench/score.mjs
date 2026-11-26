@@ -26,6 +26,7 @@ import { isGateQuestion, parseTest } from "./load.mjs";
 import { frontMatter, parseJudgedSections, parseKey, parseResult, setFrontStatus } from "./resultNote.mjs";
 import { benchFolder } from "./folder.mjs";
 import { repliesName, repliesNote } from "./replies.mjs";
+import { metricLines, metricRates } from "./metrics.mjs";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -183,7 +184,9 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
 
   // The best good-enough setup: highest score, then cheapest, then fastest.
   const good = rows.filter((row) => row.goodEnough).sort((a, b) => b.score - a.score || a.price - b.price || a.speed - b.speed);
-  return { rows, best: good[0]?.setup ?? null, cases };
+  // The Front door metrics the case lines name (`metrics.mjs`), by setup; empty when no line names one.
+  const metrics = metricRates({ key, judged, questions });
+  return { rows, best: good[0]?.setup ?? null, cases, metrics };
 }
 
 /**
@@ -225,7 +228,7 @@ const gatesText = (failed) => (failed.length ? `failed (${failed.map((n) => `q${
  * The "## Scored by" section. `goodEnough` is the test's good_enough lines as written.
  * `cases` is the case table; it is left out when there are none, as an older caller has none.
  */
-export function scoreSection({ judgeModel, date, rows, best, goodEnough = {}, cases = [] }) {
+export function scoreSection({ judgeModel, date, rows, best, goodEnough = {}, cases = [], metrics = {} }) {
   const out = [
     `## Scored by ${judgeModel}, ${date}`,
     "",
@@ -264,6 +267,7 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {}, ca
     }
     out.push("");
   }
+  out.push(...metricLines(metrics, rows.map((r) => r.setup)));
   out.push(`Best setup that passes every bar: ${best ?? "none"}.`, "");
   return out.join("\n");
 }
@@ -281,14 +285,14 @@ export async function scoreFile({ path, dir, date = today() }) {
   const answers = new Map(parseResult(raw).answers.map((answer) => [answer.id, answer]));
   const test = parseTest(await readFile(join(dir, "tests", `${front.test}.md`), "utf8"));
   const bars = parseBars(test.front.good_enough);
-  const { rows, best, cases } = scoreSetups({
+  const { rows, best, cases, metrics } = scoreSetups({
     key,
     judged: latest.blocks,
     answers,
     questions: new Map(test.questions.map((q) => [q.n, q])),
     bars,
   });
-  const section = scoreSection({ judgeModel: latest.model, date, rows, best, goodEnough: test.front.good_enough ?? {}, cases });
+  const section = scoreSection({ judgeModel: latest.model, date, rows, best, goodEnough: test.front.good_enough ?? {}, cases, metrics });
   await writeFile(path, `${setFrontStatus(raw, "scored").replace(/\n*$/, "\n")}\n${section}`);
   const questions = new Map(test.questions.map((q) => [q.n, q]));
   const log = failedGateLog({ key, judged: latest.blocks, answers, questions });
@@ -297,7 +301,7 @@ export async function scoreFile({ path, dir, date = today() }) {
   const repliesPath = join(dirname(path), repliesName(basename(path, ".md")));
   if (replies !== null) await writeFile(repliesPath, replies);
   else await rm(repliesPath, { force: true });
-  return { rows, best, judgeModel: latest.model, log, cases };
+  return { rows, best, judgeModel: latest.model, log, cases, metrics };
 }
 
 /** The `score` command: options come from run.mjs's argument parser. */

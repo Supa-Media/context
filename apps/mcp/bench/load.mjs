@@ -8,6 +8,7 @@ import { normalize, parseFront, unquote } from "./frontMatter.mjs";
 import { readCheck } from "./checks.mjs";
 import { parseSite } from "./sites.mjs";
 import { isEmail, parseEmail } from "./mailbox.mjs";
+import { splitMetrics } from "./metrics.mjs";
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
@@ -109,6 +110,8 @@ function readQuestion(sec) {
     in: null,
     // Lines graded from the run's record, never by the judge (`checks.mjs`).
     checks: [],
+    // The metric ids each must, must not and record line names at its end (`metrics.mjs`): `{ kind, line, ids }`.
+    metrics: [],
     // Background jobs the chat already has running, with `background: on` (`byCode.mjs` `benchRunning`).
     running: 0,
     // Jobs a Tex 🔎 started that are still running at the text (`- running job:` {title, minutesBefore?}; `setsFd.mjs` runningJobOf).
@@ -131,12 +134,14 @@ function readQuestion(sec) {
     routineOnce: false,
     // A Front door test that starts at a job's report (`- job reports:` {title, state, text, asked}; `byCode.mjs`).
     jobReport: null,
-    body: sec.lines.join("\n").trim(),
+    // Without its metrics tags (`metrics.mjs`), for the played person, who reads the case.
+    body: sec.lines.map((raw) => splitMetrics(raw).line).join("\n").trim(),
   };
   for (const raw of sec.lines) {
-    const line = raw.trim();
+    const { line, ids } = splitMetrics(raw.trim());
     let m;
     const check = readCheck(line);
+    if (ids.length) q.metrics.push(metricTag(line, check, ids, sec.n));
     if (check) q.checks.push(check);
     else if ((m = line.match(/^- as:\s*(.*)$/))) q.as = m[1].trim();
     else if ((m = line.match(/^- kind:\s*(.*)$/))) q.kind = m[1].trim();
@@ -195,6 +200,14 @@ function readQuestion(sec) {
     }
   }
   return q;
+}
+
+/** A tagged line's place among the verdicts: a record check by its `line`, a must or must not by its words. */
+function metricTag(line, check, ids, n) {
+  if (check) return { kind: check.kind, line: check.line, ids };
+  const m = line.match(/^- (must not|must):\s*(.*)$/);
+  if (!m) throw new Error(`question ${n}: only a must, must not or record line may name metrics, not "${line}"`);
+  return { kind: m[1], line: m[2].trim(), ids };
 }
 
 /** An earlier trigger line in words, for a reader of the chat before (the judge, the simulated world): what came in, by whom. */

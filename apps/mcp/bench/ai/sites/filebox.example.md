@@ -1,12 +1,13 @@
 ---
 site: filebox.example
-search: filebox, file box, shared files, shared folder, dropbox, drive, logo, brand assets
+search: filebox, file box, shared files, shared folder, dropbox, drive, logo, brand assets, route map, run club, eastside runners
 ---
 
 # filebox.example
 
 An invented file-sharing site, for the carry-on bench (`tests/carry-on.md`
-case 1). From a customer's group chat of 2026-11-04: asked where a logo was,
+case 1) and, under `eastside-runners/`, the Front door completion bench
+(`tests/fd-completion.md` case 4). From a customer's group chat of 2026-11-04: asked where a logo was,
 Tex searched the notes once, said someone else would know, and when told the
 folder it was in, answered with a thanks and did nothing. Here the garden
 club's shared folder is open to anyone with the address, so nothing needs a
@@ -46,3 +47,27 @@ text: Files: garden-club-logo.png (the club logo, green on white, 1200 x 1200), 
 ## https://filebox.example/garden-club/resources/brand-assets/garden-club-logo.png
 title: garden-club-logo.png | Filebox
 text: garden-club-logo.png, 1200 x 1200, 84 KB. Download.
+
+## https://filebox.example/eastside-runners
+title: Eastside Runners | Filebox
+text: Shared folder for the Saturday run club. Folders: Routes, Sign-up sheets.
+- link: Routes -> https://filebox.example/eastside-runners/routes
+- link: Sign-up sheets -> https://filebox.example/eastside-runners/sign-ups
+
+## https://filebox.example/eastside-runners/sign-ups
+title: Sign-up sheets | Eastside Runners | Filebox
+text: Autumn sign-up sheet (closed).
+
+## https://filebox.example/eastside-runners/routes
+title: Routes | Eastside Runners | Filebox
+text: Files: september-route-map.pdf (5 km river loop), october-route-map.pdf (6 km park and bridge loop, from October 3).
+- link: september-route-map.pdf -> https://filebox.example/eastside-runners/routes/september-route-map.pdf
+- link: october-route-map.pdf -> https://filebox.example/eastside-runners/routes/october-route-map.pdf
+
+## https://filebox.example/eastside-runners/routes/september-route-map.pdf
+title: september-route-map.pdf | Filebox
+text: september-route-map.pdf, 5 km river loop, 310 KB. Download.
+
+## https://filebox.example/eastside-runners/routes/october-route-map.pdf
+title: october-route-map.pdf | Filebox
+text: october-route-map.pdf, 6 km park and bridge loop starting at the park gates, 290 KB. Download.

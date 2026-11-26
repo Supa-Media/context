@@ -822,3 +822,4 @@ test/roomCheck.test.mjs
 test/heldShare.test.mjs
 test/setsRunParallel.test.mjs
 test/setsJudges.test.mjs
+bench/test/metrics.test.mjs
