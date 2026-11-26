@@ -49,6 +49,8 @@ export const NIGHTLY_AREAS = [
       count: async () => (await (await import("./jobTasks.mjs")).loadCases()).length,
     },
   },
+  // Area 2 of the eval metrics: whole group turns and Tex asking Tex across chats (`tests/groups.md`, `tests/cross-chat.md`).
+  { area: "groups", tests: ["groups", "cross-chat"] },
 ];
 
 /** How many times an area runs tonight. */
@@ -64,6 +66,7 @@ export const NIGHTLY_ROTATION = {
   every: ["web-facts", "respond", "review"],
   monday: ["core"],
   wednesday: ["core"],
+  thursday: ["groups"],
   friday: ["core"],
   sunday: { even: ["tasks"], odd: ["jobs"] },
 };

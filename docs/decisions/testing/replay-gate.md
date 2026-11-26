@@ -139,7 +139,7 @@ did not have to leave a case behind.
    each (the job tasks once: a whole job each), held-out cases included.
    Which areas is `NIGHTLY_ROTATION`, beside the area list: web-facts,
    respond and review every night; core also on Monday, Wednesday and
-   Friday; on Sunday, tasks in an even ISO week and jobs in an odd one.
+   Friday; groups (`groups.md` and `cross-chat.md`) on Thursday; on Sunday, tasks in an even ISO week and jobs in an odd one.
    The weekday and the week are the America/New_York civil date, the same
    zone as the spend caps. A manual run's `areas` input (comma-separated,
    or `all`) replaces that list. That override does not touch the budget
@@ -222,7 +222,7 @@ every run passed; a target is never held to the bar);
 `apps/mcp/bench/test/nightly.test.mjs` (a quiet day is too few to tell; a hand
 edit to the live prompt is outside the gate; held-out cases by cause alone);
 `apps/mcp/bench/test/nightlyRotation.test.mjs` (Tuesday is the three cheap
-areas; Monday, Wednesday and Friday add core; an even ISO week runs tasks
+areas; Monday, Wednesday and Friday add core; Thursday adds groups; an even ISO week runs tasks
 and an odd week runs jobs, including week 52 on 1 January; 04:30 UTC on a
 Monday in winter is still Sunday in New York);
 `apps/mcp/bench/test/promptFingerprint.test.mjs` and
