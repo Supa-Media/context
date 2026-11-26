@@ -894,8 +894,16 @@ jobs:
             export SEAL; unset LAB_SEAL_SOURCE
             openssl enc -d -aes-256-cbc -pbkdf2 -pass env:SEAL -in "$RUNNER_TEMP/sealed/results.bin" | gunzip > "$RUNNER_TEMP/results.json"
             jq -e 'type == "object"' "$RUNNER_TEMP/results.json" > /dev/null
-            npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
-            exit 0
+            report=$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')
+            # One argument is at most 128 KiB on Linux, and a bigger one never starts (exit 126: the Training set's run
+            # of 2026-11-26 stayed "running" for good). Each cut is tried only while the report is still too big: the
+            # misses' detail shortened, then dropped, then only the misses kept.
+            for cut in '.results.rows |= map(if .detail then .detail |= .[0:500] else . end)' '.results.rows |= map(del(.detail))' '.results.rows |= map(select(.ok != true))'; do
+              [ "$(printf '%s' "$report" | wc -c)" -le 120000 ] && break
+              report=$(jq -c "$cut" <<< "$report")
+            done
+            if npx convex run functions/texLabRuns:report "$report" > /dev/null 2>&1; then exit 0; fi
+            RUN_WHY="the run finished but its results could not be reported ($(printf '%s' "$report" | wc -c) bytes)"
           fi
           why="${RUN_WHY:-${PREP_WHY:-${LEASE_WHY:-the GitHub run failed: read its log}}}"
           [ "$RAN" = "cancelled" ] && why="the GitHub run was cancelled"
