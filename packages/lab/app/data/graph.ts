@@ -140,4 +140,4 @@ export function mainGraph0(): LabGraph {
 
 export const WHEN: Array<[string, string]> = [["*","Always"],["action","After an action"],["lookup","Looking things up"],["email","An email"],["card","A card"],["stuck","Stuck"],["job","A job"],["group","Group chats"],["one","1:1 chats"],["down","Model down"],["big","Big ask"]];
 
-export const KINDS: Array<[string, string, string, string]> = [["haiku-5-5","Model step","door","Haiku, Sonnet or Opus writes or decides"],["clef","Judge on an API","judge","Clef or GLM answers a typed question"],["code","Code step","code","No model, a fixed time"],["tool","Tool","tools","Called from inside a model step"]];
+export const KINDS: Array<[string, string, string, string]> = [["haiku-5-5","Model step","door","Haiku, Sonnet or Opus writes or decides"],["clef","Judge on an API","judge","Clef or GLM answers a typed question"],["code","Code step","code","No model, a fixed time"],["tool","Tool","tools","Called from inside a model step"],["run","New run","repeat","Starts a new run of the chat at an input step"]];

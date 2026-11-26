@@ -20,6 +20,7 @@ import { CHAT_ASK_EVENT, CHAT_ANSWER_EVENT } from "../crossChat.js";
 import { JOINED_EVENT } from "../joined.js";
 import { DID_EVENT } from "../did.js";
 import { gatewayGraph } from "../graph/gatewayGraph.js";
+import { runTarget } from "../../../src/texRunNodes.cjs";
 
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function readTheText(t) {
@@ -100,6 +101,8 @@ export async function readTheText(t) {
 export async function jobReportEvent(body, report, { env = null, config, writer }) {
   if (!config.nodes.some((node) => node.id === "jobReport" && node.on !== false)) return report;
   const graph = gatewayGraph({ env, writer, turn: typeof body.turn === "string" ? body.turn : null, config });
+  // New run (`nodes/reportRun.js`): the Worker queued this run where the step's wire says; logged here, as every step is.
+  if (config.nodes.some((node) => node.id === "reportRun" && node.on !== false)) await graph.runNode("reportRun", { starts: runTarget(config, "reportRun") }, {}, "readTheText");
   const { output } = await graph.runNode("jobReport", { jobReport: body.jobReport }, {}, "readTheText");
   return output?.to === "report" ? output.report : null;
 }

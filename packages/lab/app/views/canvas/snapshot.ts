@@ -16,6 +16,7 @@ import type { Sim } from "../../engine/sim";
 import { lab, node } from "../../engine/state";
 import { LAB_CSS } from "../../labCss";
 import type { LabEdge, LabGraph, LabNode } from "../../types";
+import { tuckedComponents } from "../../engine/components";
 import { renderGroupFocusHtml } from "./groupView";
 import { esc, H, renderFocusCanvasHtml, renderGraphHtml, statsHtml, W, type Bounds } from "./render";
 
@@ -163,8 +164,10 @@ export function snapshotPage(graph: LabGraph, opts: SnapshotOptions = {}): Snaps
     } else {
       // The canvas fades only the steps switched off, whatever is traced (`Canvas.web.tsx`), so the tags change nothing here.
       html = renderGraphHtml(shown, sim, [], null, null, "off", null, null, { groups });
-      const xs = shown.nodes.map((n) => n.x);
-      const ys = shown.nodes.map((n) => n.y);
+      const hidden = tuckedComponents(shown, groups);
+      const drawn = shown.nodes.filter((n) => !hidden.has(n.id));
+      const xs = drawn.map((n) => n.x);
+      const ys = drawn.map((n) => n.y);
       const loops = shown.edges.some((e) => e.mode === "loop");
       bounds = { x0: Math.min(...xs) - 30, x1: Math.max(...xs) + W + 30, y0: Math.min(...ys) - 30, y1: Math.max(...ys) + H + (loops ? 100 : 40) };
     }

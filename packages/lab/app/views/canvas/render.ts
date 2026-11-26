@@ -4,6 +4,7 @@
  * `zoomBy`, the stage's wheel handler and `addStep` (template.html ~lines 600-1027). The view
  * sets innerHTML from these; the tests compare them with the artifact's own output.
  */
+import { isComponent, tuckedComponents } from "../../engine/components";
 import { groupsOf, ICONS, NODE_INFO, WIRES, wireName } from "../../data/graph";
 import { FTYPES } from "../../data/models";
 import { wireKey, type Marks } from "../../engine/changeMarks";
@@ -220,6 +221,8 @@ export function renderGraphHtml(
 ): string {
   const only = opts.only ?? null;
   const isBox = (id: string) => !!g.folded?.[id];
+  // Components whose every wire meets another group are held by those groups, not drawn here (`engine/components.ts`).
+  const tucked = only ? new Set<string>() : tuckedComponents(g, opts.groups ?? {});
   // A folded group's card is wider than a step and stands around the box's place: its wires meet the card's edges.
   const end = (n: LabNode) => (isBox(n.id) ? { at: { x: n.x + CARD_DX, y: n.y }, w: CARD_W } : { at: n, w: W });
   litId = boxesLit(g, litId);
@@ -245,6 +248,7 @@ export function renderGraphHtml(
     const b = node(e.to, g);
     if (!a || !b) return;
     if (only && !(only.has(a.id) && only.has(b.id))) return;
+    if (tucked.has(a.id) || tucked.has(b.id)) return;
     const w = WIRES[e.mode] || WIRES.wait;
     const on = fade === "off" ? lit(e.from) && lit(e.to) : fires(e, tags, g) && lit(e.from);
     const s = sel?.t === "edge" && sel.i === i;
@@ -261,22 +265,28 @@ export function renderGraphHtml(
   if (marks) h += goneHtml(only ? { ...marks, removed: marks.removed.filter((o) => !!opts.group && o.group === opts.group), goneWires: [] } : marks);
   for (const n of g.nodes) {
     if (only && !only.has(n.id)) continue;
+    if (tucked.has(n.id)) continue;
     const m = MODELS[n.model] || MODELS.code;
     const s = sel?.t === "node" && sel.id === n.id;
     const mk = marks?.nodes[n.id] ? ` chg-${marks.nodes[n.id].kind}` : "";
+    // A New run step (kind `run`, `texRunNodes.cjs`): a pill naming where the new run starts (its wire), or nowhere.
+    const run = n.kind === "run";
+    const runTo = run ? g.edges.find((e) => e.from === n.id && e.mode === "generator") : undefined;
     const sub = !n.on
       ? "Off"
-      : m.runs === "code"
+      : run
+        ? "→ " + (runTo ? (g.nodes.find((x) => x.id === runTo.to)?.label ?? runTo.to) : "nowhere")
+        : m.runs === "code"
         ? "Code"
         : m.name + (n.effort && m.runs !== "api" ? " · " + n.effort : "");
     const time = timeLabel(sim, n.id);
     if (isBox(n.id)) {
       const state = `${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : done(n.id) ? "lit done" : "lit") : ""}`;
-      h += groupCardHtml(n, g.folded![n.id].nodes, opts.groups ?? {}, MODELS, { cls: state, time, changed: marks?.nodes[n.id]?.kind === "changed" });
+      h += groupCardHtml(n, g.folded![n.id].nodes, opts.groups ?? {}, MODELS, { cls: state + (isComponent(opts.groups ?? {}, n.id) ? " comp" : ""), time, changed: marks?.nodes[n.id]?.kind === "changed" });
       continue;
     }
-    h += `<g class="nd${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : done(n.id) ? "lit done" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
-      ${marks ? markHtml(marks, n.id) : ""}<rect class="card" width="${W}" height="${H}" rx="12"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
+    h += `<g class="nd${run ? " runnd" : ""}${hlClass(n.id)}${mk} ${s ? "sel" : ""} ${lit(n.id) || s ? "" : "dim"} ${n.on ? "" : "off"} ${(typeof litId === "string" ? litId === n.id : !!litId?.has(n.id)) ? (ring(n.id) !== null ? "lit run" : done(n.id) ? "lit done" : "lit") : ""}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+      ${marks ? markHtml(marks, n.id) : ""}<rect class="card" width="${W}" height="${H}" rx="${run ? H / 2 : 12}"/>${ring(n.id) !== null ? ringHtml(sim, g, n.id, ring(n.id)!) : ""}
       <rect x="10" y="12" width="40" height="40" rx="10" fill="var(--s3)"/>
       <g transform="translate(18,20)" style="color:var(${n.on ? m.c : "--dim"})"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n.icon] || ICONS.code}</svg></g>
       <text class="ttl" x="62" y="28">${esc(n.label.length > 15 ? n.label.slice(0, 14) + "…" : n.label)}</text>
@@ -604,6 +614,8 @@ export function addStepNode(
   const o: Partial<LabNode> =
     kind === "tool"
       ? { model: "code", kind: "tool", ms: 900, icon: "tools" }
+      : kind === "run"
+        ? { model: "code", kind: "run", ms: 0, icon: "repeat" }
       : kind === "code"
         ? { model: "code", ms: 200, icon: "code" }
         : kind === "clef"

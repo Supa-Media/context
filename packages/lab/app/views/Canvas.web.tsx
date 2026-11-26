@@ -46,6 +46,7 @@ import { usePlay } from "../engine/sandboxPlay";
 import { panelRow } from "../engine/stepRunNow";
 import { lineDecorHtml, lineTimes } from "./canvas/lineDecor";
 import { onPage } from "../engine/pages";
+import { tuckedComponents } from "../engine/components";
 
 function Svg({
   d,
@@ -102,7 +103,9 @@ export function Canvas({ testLit = null, graph = null, lead = null }: { testLit?
     const r = { width: b.width - (lab.sel && b.width > 900 ? 350 : 0), height: b.height };
     // The test chat's line is fitted in too, as the mockup's fit does (`canvas/lineDecor.ts`); it sits on the texting page.
     // Only the page shown is fitted (`engine/pages.ts`).
-    const shown = onPage(G(), lab.graphPage).nodes;
+    const page = onPage(G(), lab.graphPage);
+    const hidden = tuckedComponents(page, groupsOf(page));
+    const shown = page.nodes.filter((n) => !hidden.has(n.id));
     const c = fitCam(lab.cfocus ? shown : lab.graphPage === "texting" ? [...shown, ...lineNodes(G())] : shown, r, lab.cfocus ? fBounds.current : null);
     if (!c) return;
     cam.current = c;

@@ -18,6 +18,10 @@
  * Each report carries who asked and their words (`asked`), so a job the
  * coordinator starts again runs on the person's own words, as the first did.
  * One update is one report: offered again, it is already queued.
+ *
+ * Where a report starts its new run is config (Dev2, 2026-11-26: the wire "report to intake" was drawn but nothing read
+ * it): run step `reportRun` (`texRunNodes.cjs`), kind `run`, wires to the input step it starts, `jobReport`, or to
+ * nothing, and then the report is logged and dropped. A config without the step (on the shelf) starts `jobReport`.
  */
 
 import { queueByCode, type InboxStorage } from "./inbox";
@@ -26,8 +30,19 @@ import { JOB_PREFIX, log, noteJobUpdate, type JobEntry, type JobReport, type Job
 import { watchForSave } from "./vaultWatch";
 import { armBy } from "./events";
 import type { LineDeps } from "./line";
+import { TEX_CONFIG as bundled } from "../../../packages/tex/src/texConfig.cjs";
+import { runTarget } from "../../../packages/tex/src/texRunNodes.cjs";
 
-export type JobTextDeps = LineDeps & GroupDeps;
+/** `texGraph`: a Lab test chat's draft config (`env.TEX_GRAPH`); absent, the config this Worker was built with. */
+export type JobTextDeps = LineDeps & GroupDeps & { texGraph?: unknown };
+
+/** The run step that decides where a job's report starts its new run (`texRunNodes.cjs`). */
+export const REPORT_RUN_NODE = "reportRun";
+
+/** The input step a job's report starts a new run at, under this config (or a Lab draft's): "jobReport", or null for nowhere. */
+export function reportStartsAt(graph?: unknown): string | null {
+  return runTarget(graph ?? bundled, REPORT_RUN_NODE);
+}
 
 /** A group report's routine path: it runs as a routine's turn does (no ack, no binding, SKIP), and no run waits on it. */
 export const JOB_REPORT_PATH = "(job report)";
@@ -59,6 +74,11 @@ export async function jobUpdate(storage: InboxStorage, deps: JobTextDeps, update
   if (update.asked === undefined) {
     // Only a job's object from before reports carried their ask: never texted straight in, so it is logged and dropped.
     log("report_unaddressed", update.id);
+    return true;
+  }
+  // Where the new run starts is the config's (`reportRun`): wired to nothing, the report is logged and dropped.
+  if (reportStartsAt(deps.texGraph) === null) {
+    log("report_not_run", update.id);
     return true;
   }
   const eventId = `job-report:${update.id}:${update.pass ?? ""}:${update.first ?? 0}`;

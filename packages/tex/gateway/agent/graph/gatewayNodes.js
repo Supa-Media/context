@@ -76,6 +76,7 @@ import { shapeGateNode } from "./nodes/shapeGate.js";
 import { partEndNode } from "./nodes/partEnd.js";
 import { jobReportNode } from "./nodes/jobReport.js";
 import { jobStartNode } from "./nodes/jobStart.js";
+import { reportRunNode } from "./nodes/reportRun.js";
 import { jobadv } from "./nodes/jobadv.js";
 import { staffNode } from "./nodes/staff.js";
 import { examplesNode } from "./nodes/examples.js";
@@ -206,6 +207,8 @@ export const GATEWAY_NODES = {
   get partEnd() { return partEndNode; },
   // A background job's report, a new run of its chat: read strictly, asked the gateway's own line (`nodes/jobReport.js`).
   get jobReport() { return jobReportNode; },
+  // New run, on the shelf: where a job's report starts its new run, its one wire (`nodes/reportRun.js`, `texRunNodes.cjs`).
+  get reportRun() { return reportRunNode; },
   // Whether a background job the front door asks for starts now, under the slots in its config (`nodes/jobStart.js`).
   get jobStart() { return jobStartNode; },
   // The Training moments nearest to a text, for the front door's preamble (`nodes/examples.js`, `texExamples.cjs`); on the shelf until a Lab draft wires fd -> examples.
