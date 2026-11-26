@@ -488,7 +488,7 @@ const PERSON_SYSTEM =
   "Follow the brief exactly. Answer only what the assistant asked, using the brief's lines; never volunteer new requests. " +
   "An instruction to open a link, sign in, save something or text back counts as being asked. " +
   "If the assistant has finished and asks nothing, or the brief has nothing for what it asked, reply with exactly DONE. " +
-  "Write only the text you send: never your reasoning about the brief.";
+  "Put the text you send, or DONE, inside <text></text>: anything outside it is never sent.";
 
 /**
  * The person's next text, or null when they have nothing more to say.
@@ -520,6 +520,9 @@ export async function playPerson(who, brief, conversation) {
  * that reasoning was never a text the person would send.
  */
 export function personText(text) {
-  const said = String(text ?? "").trim();
+  // Only what is inside <text></text> is sent: Haiku reasoned about the brief in its reply and all of it went out as
+  // the person's text (gh-219, 2026-11-26), the "only the text" rule notwithstanding. A reply with no tag is sent whole.
+  const tagged = String(text ?? "").match(/<text>([\s\S]*?)<\/text>/);
+  const said = (tagged ? tagged[1] : String(text ?? "")).trim();
   return said === "" || /\bDONE[.!]?$/.test(said) ? null : said;
 }
