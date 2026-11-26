@@ -10,6 +10,7 @@ import { screenForTurn, screenNote, screenOn } from "../screen.js";
 import { CONSOLE_CLIENT_ID } from "./clients.js";
 import { groupChatsForTurn, groupsOn } from "../groupChats.js";
 import { CARDS_PART, cardsPrompt } from "../memberCards.js";
+import { styleFacts } from "../chatStyle.js";
 import { ADVISOR_TOOL, advisorRequest, advisorTimeoutMs, advisorTools, jobAdvisorLine } from "../advisor.js";
 import { TRAINING, settingsOf, texCacheTtl, texConfigOf, texFreeze, texToolList } from "../texConfig.js";
 import { consentContext } from "../consentContext.js";
@@ -261,6 +262,9 @@ export async function runTheModel(t, via) {
   // The member cards of the people here, read by the Member cards node beside the door (`memberCards.js`); its words are on the turn, never the wire.
   if (via.memberCards) await tex.wait("member_cards", via.memberCards);
   const cards = via.memberCards ? cardsPrompt(t.memberCards) : "";
+  // How this chat's people text, counted by the Chat style node beside the door (`chatStyle.js`): data in the per-text facts.
+  if (via.chatStyle) await tex.wait("chat_style", via.chatStyle);
+  const style = via.chatStyle ? styleFacts(t.chatStyle ?? null) : "";
   const args = {
     ...examplesOptions(via.examples ?? null, texConfigOf(env), TRAINING, env?.TEX_EXAMPLES), // the nearest Training examples, when the front door is wired to them (`turnExamples.js`)
     resumeFrom: rounds?.from ?? null, keepRounds: rounds?.keep ? { keep: rounds.keep, marks: rounds.marks } : null,
@@ -309,7 +313,7 @@ export async function runTheModel(t, via) {
     web: via.web(steer?.trackWeb((claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb) ?? (claims ?? tries)?.wrapWeb(seenWeb) ?? seenWeb), // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
     history: threaded?.history ? [...threaded.history, ...(logged?.carried ?? [])] : logged?.history ?? shown, // the stretch's turns after it (`stretch.js`)
     // Per text, so said in their turn after the cached prefix (`turnPrompt.js`): who tagged it, the thread, the jobs running now, whether their computers are online, and a job's per-part lines and a report (both changed nearly every text above the history: cache audit, 2026-11-20).
-    turnNote: [group !== null ? taggedLine(group) : "", job === null ? underNote(logged?.covered, { group: group !== null, speaker }) : "", shapeNote(shape), threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning, own: ownComputerWired }) : "", jobPartPrompt(job), carriedLine(rounds?.from), jobReportPrompt(report), screenNote(screen ?? {})].map((part) => part.trim()).filter(Boolean).join("\n\n"),
+    turnNote: [group !== null ? taggedLine(group) : "", job === null ? underNote(logged?.covered, { group: group !== null, speaker }) : "", shapeNote(shape), threaded?.note ?? "", threaded?.timeNote ?? "", threadPrompt(logged ? { thread: null } : inThread), readsNote(reads?.listed ?? []), background?.runningNow ?? "", job === null ? computersLine(computers, { planning, own: ownComputerWired }) : "", jobPartPrompt(job), carriedLine(rounds?.from), jobReportPrompt(report), screenNote(screen ?? {}), style].map((part) => part.trim()).filter(Boolean).join("\n\n"),
     // In parts, so the prompt's manifest names which one changed between two texts (a cache miss, 2026-11-14); sent as one block.
     threadNote: [["group", group !== null ? (canAskChat ? crossChatGroupPrompt(groupPrompt(group, home)) : groupPrompt(group, home)) : ""], [CARDS_PART, cards], ["cross", t.crossPrompt ?? ""], ["learned", learnedSkillsLine(learned)], ["background", background?.prompt ?? ""], ["plan", planning ? PLAN_HINT : ""], ["hub", chatTurn && job === null ? hubPrompt(chatHubUrl(env, session, group), { group: group !== null }) : ""], ["job", jobBriefPrompt(job)], ["jobAdvisor", jobAdvisorLine(job, advising)], ["instructions", chatTurn ? instructionsPrompt(readInstructions(body.instructions)) : ""]], steer,
     routeLocal: via.local, // say_nothing, which the loop adds itself, over the same `fd -> tools` wire (`turn.js`)
