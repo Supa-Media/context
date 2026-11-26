@@ -284,9 +284,24 @@ is the words a typed yes agrees to (`shownEmail.js` lastShownSend), a reworded
 copy is handed back to Tex once a turn with the copy they saw, to send exactly
 (`shownCopyOf`), and an email whose body is in those words goes at once when
 the Mail checker says they asked for it and Tex itself named every recipient
-in its recent texts (`likedPreview.js` agreedToShownEmail). Anything else is
+in its recent texts (`shownEmail.js` emailShown). Anything else is
 held as before. Cost of reverting: "send" to a shown email asks for a second
 👍, or is refused for a rewrite nobody asked for. Tests:
+`emailShownCopy.test.mjs`.
+
+### A shown email goes on the checker's yes, however Tex asked (Dev2, 2026-11-26)
+
+Tex showed Sayo's draft in a group chat and asked which Gmail to send it from;
+he answered "send it from my supa email. draft is good. go ahead". The Mail
+checker said yes, but the email was held for a second 👍, because the words a
+yes agrees to were set only when Tex's last text was worded as an offer
+("Send?", "Want me to send it?"), which a question about the sender is not.
+What the person asked for is the Mail checker's to judge from their own words;
+what they were shown is a fact. So an email goes at once when the checker says
+yes, Tex's own texts in the latest twelve turns named every recipient, and one
+of them held the whole body word for word (`shownEmail.js` emailShown,
+`emailGate.js`). No wording of Tex's text is read for it. Cost of reverting:
+a clear go-ahead to a shown draft is asked about again. Tests:
 `emailShownCopy.test.mjs`.
 
 ### From a Gmail "Send mail as" address (Dev2, 2026-11-26)

@@ -34,8 +34,8 @@ import { readHelperCallers } from "../../../../packages/tex/gateway/agent/produc
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
 import { attachedFiles } from "./emailAttach.js";
-import { agreedToForward, agreedToShownEmail, agreedWordsHold } from "./likedPreview.js";
-import { shownCopyOf } from "./shownEmail.js";
+import { agreedToForward, agreedWordsHold } from "./likedPreview.js";
+import { emailShown, shownCopyOf } from "./shownEmail.js";
 import { recordChange } from "../activity/record.js";
 import { offerFor, offerTarget } from "./offerFor.js";
 import { mailVerdict, recordMail } from "../../../../packages/tex/gateway/agent/workEntries.js";
@@ -240,11 +240,11 @@ export async function emailGate(supplied, { store, session, target }) {
   }
   // Their yes or 👍 to Tex's own preview of this email: every address and the whole body in the words they agreed to (`likedPreview.js`).
   // A forward's offer names who it goes to, and the Mail checker, reading their 👍 or yes on it, says they asked for it (`agreedToForward`).
-  // An email whose body they said yes to, its recipients named in Tex's recent texts, with the checker's yes too (`agreedToShownEmail`).
+  // An email Tex showed lately, every recipient and the whole body in its own texts, that the Mail checker says they asked for (`emailShown`).
   // Never for attached files, whose contents no offer can have shown, and never for a Mail checker "no", which is held above.
   const recipients = [...email.to, ...email.cc];
   const agreed =
-    texting && checked?.verdict !== "no" && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]) || (checked?.verdict === "yes" && agreedToShownEmail(session, recipients, email.body)));
+    texting && checked?.verdict !== "no" && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]) || (checked?.verdict === "yes" && emailShown(session.egress?.turn?.history, recipients, email.body)));
   if (agreed) {
     await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
     console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));
