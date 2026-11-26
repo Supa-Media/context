@@ -156,7 +156,9 @@ describe("Turns page", () => {
 
   it("draws a recent row with its pill, time and escaped name", () => {
     const html = render(fixture());
-    expect(html).toContain(`<td>${hm(answered.at)}</td>`);
+    // Two minutes ago is yesterday just after midnight, when the row shows the date too (`whenOf`).
+    expect(html).toContain(`<td>${whenOf(answered.at)}</td>`);
+    expect(whenOf(answered.at)).toContain(hm(answered.at));
     expect(html).toContain("Maya &lt;b&gt;L&lt;/b&gt;");
     expect(html).not.toContain("<b>L</b>");
     expect(html).toContain('<span class="pill ok">Answered</span>');
