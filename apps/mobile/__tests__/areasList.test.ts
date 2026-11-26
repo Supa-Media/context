@@ -5,15 +5,15 @@
 /**
  * THE AREAS LIST DRAWS THE OPEN FOLDER AS ITS ROOT AND NESTS EVERYTHING UNDER IT.
  *
- * The owner's board, 2026-11-24 ("E Trend"): a top row for the open folder,
- * sub-areas nested under it, and on every area row its owner's face, its one
- * headline metric as a trend with the latest value and the target, a count of
- * its notes and folders that shows them, and ⋯. Notes and folders are hidden
- * until that count is pressed. The properties with teeth: the root row carries
- * the workspace's name, a sub-area indents deeper than its parent, files stay
- * hidden until asked for and then show a CSV or Page tag and a folder's note
- * count, a value is drawn against its target with the state in words to a
- * screen reader, and an unowned area draws the empty face.
+ * The owner's board, 2026-11-24 ("E Trend"), trimmed on 2026-11-26 (the
+ * simplified Areas page, option A): a top row for the open folder, sub-areas
+ * nested under it and folded, and on every area row its owner's face, its one
+ * metric as the latest value with the goal in words, one verdict in words,
+ * and ⋯. No trend, period tag, projects or notes count on a row: those are in
+ * the side panel. The properties with teeth: the root row carries the
+ * workspace's name, a sub-area indents deeper than its parent, a value is
+ * drawn against its goal with the verdict in words, and an unowned area draws
+ * the empty face.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
@@ -54,7 +54,6 @@ const NOTES: ListNote[] = [
   { path: "areas/design/four.md", properties: {} },
 ];
 
-const notesUnder = (folder: string) => NOTES.filter((note) => note.path.startsWith(`${folder}/`)).length;
 
 let mounted: Root | null = null;
 let container: HTMLElement | null = null;
@@ -67,7 +66,6 @@ async function render(overrides: Partial<AreasListProps> = {}, notes: ListNote[]
     label: (owner) => owner,
     reach: () => "",
     rootTitle: "Supa",
-    notesUnder,
     readingOf: () => undefined,
     onOpen: () => {},
     onMenu: () => {},
@@ -132,64 +130,40 @@ describe("the Areas List", () => {
     expect(parseInt(payroll.style.paddingLeft, 10)).toBeGreaterThan(parseInt(finance.style.paddingLeft, 10));
   });
 
-  test("notes and folders are hidden until the area's count is pressed, which shows them all", async () => {
+  test("a row draws no notes, folders or projects count: they live in the side panel", async () => {
     await render();
-    const design = "areas/design";
-    const shown = () =>
-      all("area-file-areas/design/brand.md").concat(
-        all("area-file-areas/design/one.md"),
-        all("area-file-areas/design/two.md"),
-        all("area-file-areas/design/three.md"),
-        all("area-file-areas/design/four.md"),
-      );
-    expect(shown()).toHaveLength(0);
-    const count = one(`area-notes-${design}`);
-    expect(strip(count.textContent)).toContain("5");
-    expect(count.getAttribute("aria-expanded")).toBe("false");
-    await press(count);
-    expect(shown()).toHaveLength(5);
-    expect(one(`area-notes-${design}`).getAttribute("aria-expanded")).toBe("true");
-    await press(one(`area-notes-${design}`));
-    expect(shown()).toHaveLength(0);
+    expect(all("area-notes-areas/design")).toHaveLength(0);
+    expect(all("area-notes-areas/finance")).toHaveLength(0);
+    expect(all("area-file-areas/design/brand.md")).toHaveLength(0);
   });
 
-  test("an area with no notes or folders has no count", async () => {
+  test("a sub-area count sits beside the name of an area that has some", async () => {
     await render();
-    await press(one("area-toggle-areas/finance"));
-    expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
-    expect(all("area-notes-areas/finance/payroll")).toHaveLength(0);
+    expect(strip(one("area-inside-areas/finance").textContent)).toBe("1");
+    expect(all("area-inside-areas/design")).toHaveLength(0);
   });
 
-  test("a CSV shows the CSV tag and a page shows the Page tag", async () => {
-    await render();
-    await press(one("area-notes-areas/finance"));
-    expect(strip(one("area-file-areas/finance/ledger.csv").textContent)).toContain("CSV");
-    expect(strip(one("area-file-areas/finance/home.page.md").textContent)).toContain("Page");
-  });
-
-  test("a plain folder shows how many notes it holds", async () => {
-    await render();
-    await press(one("area-notes-areas/finance"));
-    expect(strip(one("area-file-areas/finance/receipts").textContent)).toContain("2 notes");
-  });
-
-  test("a value is drawn against its target, with a trend from its readings", async () => {
-    // Finance's Monthly cost is $640 against "under $600".
+  test("a value is drawn against its goal in words, with one verdict and no trend on the row", async () => {
+    // Finance's Monthly cost is $640 against "under $600": a broken limit.
     await render({ readingOf: (seat) => (seat.folder === "areas/finance" ? { value: "$640", date: "2026-11-23", series: [480, 560, 640] } : undefined) });
     const finance = one("area-row-areas/finance");
-    expect(strip(finance.textContent)).toContain("Monthly cost");
-    expect(strip(finance.textContent)).toContain("$640");
-    expect(strip(finance.textContent)).toContain("< $600");
-    expect(all("area-trend", finance)).toHaveLength(1);
-    expect(all("area-trend-target", finance)).toHaveLength(1);
+    expect(strip(finance.textContent)).toContain("$640 under $600 · Monthly cost");
+    expect(all("area-verdict-over", finance)).toHaveLength(1);
+    expect(strip(finance.textContent)).toContain("Needs a look");
+    expect(all("area-trend", finance)).toHaveLength(0);
   });
 
-  test("a metric with no reading yet shows its name and target, with no placeholder", async () => {
+  test("a value past its limit reads Exceeds target", async () => {
+    await render({ readingOf: (seat) => (seat.folder === "areas/finance" ? { value: "$420", date: "2026-11-23", series: [480, 420] } : undefined) });
+    expect(all("area-verdict-exceeds", one("area-row-areas/finance"))).toHaveLength(1);
+  });
+
+  test("a metric with no reading yet shows its goal and name, with no placeholder and no verdict", async () => {
     await render();
     const finance = strip(one("area-row-areas/finance").textContent);
-    expect(finance).toContain("Monthly cost");
-    expect(finance).toContain("target < $600");
+    expect(finance).toContain("under $600 · Monthly cost");
     expect(finance).not.toContain("No data");
+    expect(finance).not.toContain("target");
     expect(all("area-trend", one("area-row-areas/finance"))).toHaveLength(0);
   });
 
@@ -233,8 +207,6 @@ describe("the Areas List", () => {
     await press(head);
     expect(menus).toEqual([ROOT]);
     expect(strip(one("area-row-areas/finance").textContent)).toContain("Monthly cost");
-    expect(all("area-file-areas/finance/budget.md")).toHaveLength(0);
-    await press(one("area-notes-areas/finance"));
-    expect(all("area-file-areas/finance/budget.md")).toHaveLength(1);
+    expect(all("area-notes-areas/finance")).toHaveLength(0);
   });
 });
