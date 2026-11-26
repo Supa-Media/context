@@ -24,7 +24,7 @@ const READ_LIMIT = 200;
 const DAY_MS = 86_400_000;
 
 const LETTER = /\p{L}/u;
-const EMOJI = /\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*/gu;
+const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu;
 const LINK = /\bhttps?:\/\/\S+/giu;
 
 /** The counts of one set of texts: how many, how many start in lowercase, end on a full stop, hold a "!", the median words, the emoji used. */
