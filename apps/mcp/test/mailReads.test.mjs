@@ -6,6 +6,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { hasMailBlock, mailReads } from "../src/workspaceStore/mailReads.js";
+import { mailBots } from "../src/workspaceStore/mailBots.js";
+import { MAIL_OPS, serveMail } from "../src/workspaceStore/mailOps.js";
+import { HOMES } from "../src/workspaceStore/api.js";
 import { countAiMailRead, countPersonMailRead } from "../src/mail/reads.js";
 
 let DatabaseSync = null;
@@ -60,6 +63,28 @@ test("a malformed read is refused, never kept", { skip }, () => {
   assert.deepEqual(reads.of("n1"), []);
 });
 
+test("a workspace keeps which bot each connection is, one row per connection", { skip }, () => {
+  const bots = mailBots(sqlOf(), { now: () => 1000 });
+  assert.equal(bots.of("g1"), null);
+  assert.deepEqual(bots.bind("g1", { bot: "grok-bot", name: "Grok Bot" }), { ok: true });
+  assert.deepEqual(bots.of("g1"), { bot: "grok-bot", name: "Grok Bot" });
+  assert.deepEqual(bots.bind("g1", { bot: "pipeline", name: "Pipeline" }), { ok: true });
+  assert.deepEqual(bots.of("g1"), { bot: "pipeline", name: "Pipeline" });
+  assert.equal(bots.of("g2"), null);
+  assert.ok(bots.bind("g2", { bot: "Not A Slug", name: "x" }).error);
+  assert.ok(bots.bind("g2", { bot: "ok", name: "" }).error);
+});
+
+test("the object binds and answers a connection's bot, with no note named", { skip }, async () => {
+  const store = { sql: sqlOf(), rows: { home: () => HOMES.OBJECT }, objects: { get: () => null } };
+  const judge = { sees: () => false };
+  assert.deepEqual(await serveMail(store, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: true, bound: null });
+  assert.deepEqual(await serveMail(store, MAIL_OPS.BIND, { grantId: "g1", bot: "grok-bot", name: "Grok Bot" }, judge), { served: true, ok: true });
+  assert.deepEqual(await serveMail(store, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: true, bound: { bot: "grok-bot", name: "Grok Bot" } });
+  // A workspace whose notes are not here keeps no bots.
+  assert.deepEqual(await serveMail({ ...store, rows: { home: () => "bucket" } }, MAIL_OPS.BOUND, { grantId: "g1" }, judge), { served: false });
+});
+
 /** A store whose object keeps what is recorded. */
 function storeOf(actor = { userId: "u1", clientId: "c1", clientName: "Claude Code", name: "@seyi" }) {
   const kept = [];
@@ -88,7 +113,8 @@ test("an AI read of a note with mail is that client's receipt, for the person wh
 test("a bound bot's login reads as the bot, not as the app it connects through", async () => {
   // Dev, 2026-11-26: "things still showing as read by cursor".
   const { store, kept, deferred } = storeOf();
-  store.botHooks = async (request) => (request.action === "bound" ? { bot: "grok-bot", name: "Grok Bot" } : { error: "unknown" });
+  store.objectReading.client.mail.bound = async ({ grantId }) => ({ served: true, bound: grantId === "g1" ? { bot: "grok-bot", name: "Grok Bot" } : null });
+  store.actor.grantId = "g1";
   countAiMailRead("read_note", { path: "bots/grok/mail/seyi.md" }, store, answer("# Mail\n\n```mail\n- 2026-11-26T00:00:00.000Z @seyi to everyone: yo\n```\n"));
   await Promise.all(deferred);
   assert.equal(kept[0].clientName, "Grok Bot");

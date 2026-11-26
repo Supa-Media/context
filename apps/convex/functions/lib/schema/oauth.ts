@@ -318,7 +318,7 @@ export const oauthTables = {
      */
     pathTokenSeenAt: v.optional(v.number()),
     pathTokenRoute: v.optional(v.string()),
-    /** Retired, never read: a bot's binding is its own row (`botLogins`), since a grant is an access row its object takes first. */
+    /** Retired, never read or written: a bot's binding is kept in its workspace's object (`apps/mcp/src/workspaceStore/mailBots.js`). */
     bots: v.optional(v.array(v.object({ workspaceId: v.id("workspaces"), bot: v.string(), name: v.string() }))),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),

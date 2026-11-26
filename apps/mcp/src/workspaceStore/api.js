@@ -197,6 +197,9 @@ export function workspaceClient(env, workspaceId) {
       // Read receipts (`workspaceStore/mailReads.js`): one read recorded, and a note's readers.
       read: async (fields) => await ask("ws.mail.read", fields),
       reads: async (fields) => await ask("ws.mail.reads", fields),
+      // Which bot a connection is here (`workspaceStore/mailBots.js`).
+      bind: async (fields) => await ask("ws.mail.bind", fields),
+      bound: async (fields) => await ask("ws.mail.bound", fields),
     },
     ...membershipClient(ask),
     state: async () => await ask("ws.state"),

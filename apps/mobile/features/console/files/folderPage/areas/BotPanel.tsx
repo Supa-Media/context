@@ -23,7 +23,8 @@ import { useMailRoute } from "../../../mailPage/MailRouteContext";
 import type { ListNote } from "../../listBlock/model";
 import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
-import { firstMailNote, type Thread } from "./areaMail";
+import { mailJoinName } from "@context/shared/src/areaBots.cjs";
+import { checkHealth, firstMailNote, type Thread } from "./areaMail";
 import { botMailNote, mailOfBot, refreshAskFor, routinesOfBot, type Bot, type Conversation } from "./bots";
 import { withMail } from "../../../mailPage/MailThread";
 
@@ -43,8 +44,6 @@ export interface BotPanelProps {
   io?: { read(path: string): Promise<{ text: string; etag?: string }>; write(path: string, text: string, expectedEtag?: string): Promise<unknown> };
   /** The workspace's `@handle`, named in what Refresh asks. */
   workspace?: string;
-  /** Whether the bot answered the check its login got when bound (`functions/botLogins.ts`). */
-  health?: "answering" | "checking" | "not answering" | null;
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   open: (path: string) => void;
   onClose: () => void;
@@ -58,13 +57,19 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: "mail", label: "Mail" },
 ];
 
-export function BotPanel({ bot, root, notes, conversations, threads, width, canEdit, me, faceOf, label, create, io, workspace, health, chooseMany, open, onClose }: BotPanelProps) {
+export function BotPanel({ bot, root, notes, conversations, threads, width, canEdit, me, faceOf, label, create, io, workspace, chooseMany, open, onClose }: BotPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [tab, setTab] = useState<Tab>("activity");
   const [problem, setProblem] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const mail = mailOfBot(bot, conversations);
+  // Whether it answers Context's setup check, read from that mail (`areaMail.ts` `checkHealth`).
+  const check = mail
+    .map((each) => threads.get(each.path)?.check ?? null)
+    .filter((each): each is NonNullable<Thread["check"]> => each !== null)
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+  const health = checkHealth(check, [bot.slug, mailJoinName(bot.name)]);
   const routines = routinesOfBot(bot, root, notes);
   const mine = me === undefined ? null : botMailNote(bot, me);
   const hasMine = mine !== null && (notes.some((note) => note.path === mine) || sent === mine);

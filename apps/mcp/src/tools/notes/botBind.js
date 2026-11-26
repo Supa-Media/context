@@ -6,11 +6,12 @@
  *
  *   - The card must be there (`bots/<bot>/about.md`, or where bots lived before), and a card that names whose bot it
  *     is (`belongs_to:`) is bound only by that person's own connection, or an owner's.
- *   - The control plane keeps the binding on this connection's grant (`/gateway/bots/hook` `bind`,
- *     `apps/convex/functions/botLogins.ts`), by grant and never on the grant itself, cleared as an owner or editor, and starts the check.
+ *   - Only an owner's or editor's connection binds, and only itself. The workspace's own object keeps the binding by
+ *     grant (`mail/boundBot.js`, `workspaceStore/mailBots.js`), never the control plane (Dev, 2026-11-26: Convex is
+ *     for sign-in, everything else on Cloudflare).
  *   - The check is a mail line from `context` in `<card folder>/mail/context.md`, which the workspace object tells
- *     the bot's webhook like any other (`workspaceStore/botMail.js`). The bot's first answer from this login marks it
- *     answering (`mail.js`).
+ *     the bot's webhook like any other (`workspaceStore/botMail.js`). The bot answers there, signed by its bound name;
+ *     the app reads that note to say "not answering" (`apps/mobile/.../areas/areaMail.ts` `checkOf`).
  */
 
 import areaBots from "../../../../../packages/shared/src/areaBots.cjs";
@@ -21,7 +22,7 @@ import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import comments from "../../../../../packages/shared/src/comments.cjs";
-import { rememberBound } from "../../mail/boundBot.js";
+import { bindBot } from "../../mail/boundBot.js";
 
 const { mailJoinName } = areaBots;
 const { botCardPaths } = areaRoutines;
@@ -80,7 +81,8 @@ async function mailCheck(store, scope, rules, overrides, path, holder) {
 export async function toolBindBot(store, scope, rules, overrides, raw) {
   const name = typeof raw === "string" ? raw.trim() : "";
   if (name === "" || name.startsWith("@") || name.length > 60) return toolError('invalid: bind_bot is the bot\'s name as its card says it. Pass it like bind_bot: "Grok Bot", then try again.');
-  if (typeof store?.botHooks !== "function") return toolError("binding a bot isn't available on this connection. Ask the person to connect you to Context again, then try again.");
+  // Setting up a workspace's bots is an owner's or an editor's, as setting their webhooks is.
+  if (store?.actor?.role !== "owner" && store?.actor?.role !== "editor") return toolError("refused: only an owner or editor of this workspace binds its bots. Ask one to bind it, or to make you an editor.");
   const card = await botCardOf(store, name);
   if (card === null) return toolError(`no card for ${name} here, or this connection can't see it. Make it first with manage area { bot: { name: "${name}" } }, then bind again.`);
   // A card that says whose bot it is is that person's to bind (or an owner's): nobody else's login becomes their bot.
@@ -98,9 +100,8 @@ export async function toolBindBot(store, scope, rules, overrides, raw) {
   }
   const holder = typeof card.props.holder === "string" && card.props.holder.trim() !== "" ? card.props.holder.trim() : name;
   const bot = mailJoinName(name);
-  const answer = await store.botHooks({ action: "bind", bot, name: holder }).catch(() => ({ error: "the control plane could not be reached. Wait a moment, then try again." }));
-  if (answer?.error || answer?.ok !== true) return toolError(`not bound: ${answer?.error ?? "no answer"}. Fix that, then try again.`);
-  rememberBound(store, { bot, name: holder });
+  const answer = await bindBot(store, { bot, name: holder });
+  if (answer.ok !== true) return toolError(`not bound: ${answer.error}. Fix that, then try again.`);
   // A card in a folder (`bots/<bot>/about.md`) has its mail beside it; an old one-note card has none, so no check.
   const folder = card.path.endsWith("/about.md") ? card.path.slice(0, -"/about.md".length) : null;
   if (folder === null) return toolText(`- ${holder}: this connection is now ${holder} here; what it writes is signed ${holder}.`);
