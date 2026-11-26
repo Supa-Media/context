@@ -17,6 +17,14 @@
  *  - the frame's last message cut as older history whatever follows it
  *    (`hasNewest` passed to the first cut) fails "a growing chat keeps its fitted
  *    prefix…" at the first tool round that crossed into a step.
+ *
+ * Sabotage record (2026-11-26): main's rule before the fix (only the frame's last message kept, the ask's
+ * message cut as older history, this turn's tool answers before a clip) fails "a tool round that crosses
+ * into a new step…", "a later round of the same turn…" and "when the system prompt and tools are the
+ * overflow…"; the clip allowed inside the turn fails "a newest message over the budget on its own…"; this
+ * turn's tool answers put before the clip fails "a tool round that crosses…" and "when the system prompt…";
+ * `aiGateway.js` not passing `turnFrom` fails "a texted turn's call tells the trim where its ask is…"; a
+ * clip always before this turn's tool result fails "a lookup longer than the system prompt goes…".
  */
 
 import assert from "node:assert/strict";
@@ -211,4 +219,166 @@ test("the tool result of this round is kept when older history can give the step
   // Tool results outside the newest message went before any history text.
   const older = fit.body.messages.slice(0, -1).flatMap((message) => message.content).filter((block) => block.type === "tool_result");
   if (fit.body.messages.some((message) => message.content[0]?.text === EARLIER)) assert.ok(older.every((block) => block.content === LEFT_OUT));
+});
+
+/**
+ * A Lab test chat, 2026-11-26 (test chat 844dda0745443c68): round 1 of a calendar-and-notes ask came to
+ * 142,055 estimated tokens, step 3; its two tool answers took round 2 to 144,860, step 4. The frame then
+ * ran to the tool answers, and with only the newest message kept, the ask's message (its preamble and
+ * the person's words) was cut as older history: 144,860 down to 61,534, and the front door answered "I
+ * don't see your message this time, only placeholders".
+ */
+function askThenToolRound(roundOneTokens) {
+  const ask = "never mind that. what's on my calendar tomorrow, and what did I last write about Togather?";
+  const preamble = "p".repeat(37_900);
+  const head = body([]);
+  head.system = [{ type: "text", text: "s".repeat(120_000) }];
+  // The week's texts with their pictures (`weekHistory.js`): a picture is no text to stub, so older
+  // history alone cannot give four steps.
+  const picture = { type: "image", source: { type: "base64", media_type: "image/png", data: "a".repeat(64) } };
+  const history = (chars) => [
+    { role: "user", content: [{ type: "text", text: `Your texts so far.\n${"h".repeat(chars)}` }, ...Array.from({ length: 30 }, () => picture), { type: "text", text: "(end of the history)" }] },
+    { role: "assistant", content: [{ type: "text", text: "earlier answer" }] },
+  ];
+  const askMessage = { role: "user", content: [{ type: "text", text: preamble }, { type: "text", text: ask }] };
+  // History sized so round 1 lands at `roundOneTokens`.
+  const without = estimateBodyTokens({ ...head, messages: [...history(0), askMessage] });
+  const chars = Math.round((roundOneTokens - without) * 2.68);
+  const roundOne = { ...head, messages: [...history(chars), askMessage] };
+  const roundTwo = {
+    ...head,
+    messages: [
+      ...roundOne.messages,
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_cal", name: "read_calendar", input: {} }, { type: "tool_use", id: "toolu_find", name: "search_notes", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_cal", content: `Friday: ${"c".repeat(3_800)}` }, { type: "tool_result", tool_use_id: "toolu_find", content: `Togather: ${"t".repeat(3_400)}` }] },
+    ],
+  };
+  return { ask, preamble, roundOne, roundTwo };
+}
+
+test("a tool round that crosses into a new step keeps the person's ask and its preamble", () => {
+  const { ask, preamble, roundOne, roundTwo } = askThenToolRound(HAIKU_INPUT_BUDGET + 3 * TRIM_STEP - 1_000);
+  // The ask is just past the history, as `aiGateway.js` passes it from the turn's cached history.
+  const turnFrom = roundOne.messages.length - 1;
+  const first = fitHaikuBody(roundOne, { turnFrom });
+  const second = fitHaikuBody(roundTwo, { turnFrom });
+  const step = (tokens) => Math.ceil((tokens - HAIKU_INPUT_BUDGET) / TRIM_STEP);
+  assert.equal(step(first.before), 3);
+  assert.equal(step(second.before), 4, "the fixture's tool round crosses into the next step");
+  const askAt = roundTwo.messages.length - 3;
+  for (const [name, fit] of [["round 1", first], ["round 2", second]]) {
+    const words = fit.body.messages[name === "round 1" ? fit.body.messages.length - 1 : askAt].content;
+    assert.equal(words.at(-1).text, ask, `${name}: the person's words are sent`);
+    assert.equal(words[0].text, preamble, `${name}: the turn's preamble is sent`);
+    assert.ok(fit.after <= HAIKU_INPUT_BUDGET, `${name}: still ${fit.after}`);
+  }
+  // This round's tool answers are sent whole, and older history went instead.
+  for (const block of second.body.messages.at(-1).content) assert.notEqual(block.content, LEFT_OUT);
+  assert.equal(second.body.messages[0].content[0].text, EARLIER);
+});
+
+test("a later round of the same turn keeps the turn's earlier tool answers while older history is left", () => {
+  const { ask, roundTwo } = askThenToolRound(HAIKU_INPUT_BUDGET + 2 * TRIM_STEP);
+  const roundThree = {
+    ...roundTwo,
+    messages: [
+      ...roundTwo.messages,
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_more", name: "fetch", input: { id: "togather" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_more", content: `The note: ${"n".repeat(30_000)}` }] },
+    ],
+  };
+  const askAt = roundThree.messages.length - 5;
+  const fit = fitHaikuBody(roundThree, { turnFrom: askAt });
+  assert.ok(fit.after <= HAIKU_INPUT_BUDGET, `still ${fit.after}`);
+  assert.equal(fit.body.messages[askAt].content.at(-1).text, ask);
+  for (const message of fit.body.messages.slice(askAt + 1)) {
+    for (const block of message.content) if (block.type === "tool_result") assert.notEqual(block.content, LEFT_OUT, `${block.tool_use_id} was left out`);
+  }
+  assert.equal(fit.body.messages[0].content[0].text, EARLIER);
+});
+
+test("when the system prompt and tools are the overflow, a tool round clips them and keeps the ask and its answers", () => {
+  // The Lab test chat's own shape: one earlier turn, a 215,706-character stable module, the tool list,
+  // the ask with a 37,890-character preamble, then two lookups.
+  const ask = "never mind that. what's on my calendar tomorrow, and what did I last write about Togather?";
+  const sent = {
+    model: "claude-haiku-5-5",
+    system: [{ type: "text", text: "s".repeat(215_706) }, { type: "text", text: "c".repeat(30_313) }],
+    tools: [{ name: "fetch", description: "d".repeat(96_614), input_schema: { type: "object" } }],
+    messages: [
+      { role: "user", content: [{ type: "text", text: "Thu 9:06 AM: yeah that was me" }] },
+      { role: "assistant", content: [{ type: "text", text: "got it" }] },
+      { role: "user", content: [{ type: "text", text: "p".repeat(37_890) }, { type: "text", text: ask }] },
+    ],
+  };
+  const roundOne = fitHaikuBody(sent, { turnFrom: 2 });
+  const roundTwo = fitHaikuBody({
+    ...sent,
+    messages: [
+      ...sent.messages,
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_cal", name: "read_calendar", input: {} }, { type: "tool_use", id: "toolu_find", name: "search_notes", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_cal", content: "c".repeat(3_834) }, { type: "tool_result", tool_use_id: "toolu_find", content: "t".repeat(3_800) }] },
+    ],
+  }, { turnFrom: 2 });
+  for (const [name, fit] of [["round 1", roundOne], ["round 2", roundTwo]]) {
+    assert.ok(fit.after <= HAIKU_INPUT_BUDGET, `${name}: still ${fit.after}`);
+    assert.equal(fit.body.messages[2].content[0].text.length, 37_890, `${name}: the preamble is sent whole`);
+    assert.equal(fit.body.messages[2].content[1].text, ask, `${name}: the person's words are sent`);
+    assert.ok(fit.body.system[0].text.length < 215_706, `${name}: the system prompt is what gave`);
+  }
+  for (const block of roundTwo.body.messages.at(-1).content) assert.notEqual(block.content, LEFT_OUT, `${block.tool_use_id} was left out`);
+  // The system prompt is clipped the same in both rounds, so round 2 still reads round 1's cached system.
+  assert.equal(roundTwo.body.system[0].text, roundOne.body.system[0].text);
+});
+
+test("a texted turn's call tells the trim where its ask is, so a tool round keeps it", async () => {
+  const { aiGatewayConfig, requestViaGateway, resetCreditState } = await import("../../../packages/tex/gateway/agent/aiGateway.js");
+  resetCreditState();
+  const ask = "never mind that. what's on my calendar tomorrow, and what did I last write about Togather?";
+  const history = [
+    { role: "user", text: "Thu 9:06 AM: yeah that was me" },
+    { role: "assistant", text: "got it" },
+  ];
+  const call = {
+    model: "anthropic/claude-haiku-5-5",
+    system: { stable: "s".repeat(215_706), context: "c".repeat(30_313) },
+    tools: [{ name: "read_calendar", description: "d".repeat(96_614), inputSchema: { type: "object" } }],
+    messages: [
+      ...history,
+      { role: "user", text: ask, preamble: "p".repeat(37_890) },
+      { role: "assistant", text: "", toolCalls: [{ id: "toolu_cal", name: "read_calendar", args: {} }, { id: "toolu_find", name: "read_calendar", args: {} }] },
+      { role: "tool", id: "toolu_cal", name: "read_calendar", text: "c".repeat(3_834) },
+      { role: "tool", id: "toolu_find", name: "read_calendar", text: "t".repeat(3_800) },
+    ],
+    cachedThrough: history.length,
+  };
+  const sent = [];
+  const fetchImpl = async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ id: "m", type: "message", role: "assistant", content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const env = { AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef", AI_GATEWAY_ID: "gw", AI_GATEWAY_TOKEN: `gw-token-${"a".repeat(20)}` };
+  await requestViaGateway(call, aiGatewayConfig(env), { fetchImpl });
+  const words = JSON.stringify(sent[0].messages);
+  assert.ok(words.includes(ask), "the person's words are sent");
+  assert.ok(words.includes("p".repeat(37_890)), "the turn's preamble is sent whole");
+  assert.ok(!words.includes(LEFT_OUT), "this round's answers are sent");
+});
+
+test("a lookup longer than the system prompt goes before the system prompt is clipped", () => {
+  const sent = {
+    model: "claude-haiku-5-5",
+    system: [{ type: "text", text: "s".repeat(215_706) }],
+    tools,
+    messages: [
+      { role: "user", content: [{ type: "text", text: "what does the lease say" }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_now", name: "fetch", input: { id: "lease" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_now", content: "p".repeat(400_000) }] },
+    ],
+  };
+  const fit = fitHaikuBody(sent, { turnFrom: 0 });
+  assert.ok(fit.after <= HAIKU_INPUT_BUDGET, `still ${fit.after}`);
+  assert.equal(fit.body.messages[2].content[0].content, LEFT_OUT);
+  assert.equal(fit.body.messages[0].content[0].text, "what does the lease say");
+  assert.ok(fit.body.system[0].text.length >= 215_706 / 2 - EARLIER.length - 1, `the system prompt cut to ${fit.body.system[0].text.length}`);
 });

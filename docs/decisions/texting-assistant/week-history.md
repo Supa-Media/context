@@ -113,6 +113,25 @@ history and tool results over five days under the old rule, 33.1M under this one
 recomputing to the budget each round brings the rewrites back. Test: `apps/mcp/test/promptBudget.test.mjs` ("a
 growing chat keeps its fitted prefix…", sabotage lines in its header) and the replay case `prompt-under-cliff`.
 
+**The turn is never older history (2026-11-26).** In Lab test chats, 3 of 3 texts that made a tool call lost the
+person's text in round 2: the front door thought "I don't have a real request from the user here, just placeholder
+text" and asked them to resend. Workers Logs (`tex_prompt_budget`) for one of them: round 1 cut from 142,055 to
+75,041, round 2 from 144,860 to 61,534. The two tool answers took the body from step 3 to step 4, so the run of
+messages ran to the tool answers, and with only the newest message kept the ask's message (its 37,890-character
+preamble and the person's words) was cut as older history, then its tool answers, before the clip of the system
+prompt that was the real overflow (one earlier turn; the stable module alone is 215,706 characters). Now the turn
+starts at the person's ask (`turnFrom`: `aiGateway.js` passes the wire index just past the turn's cached history,
+`cachedThrough`), and the ask with everything after it is never older history; a call with no history keeps only
+its newest message, as before. The order is: older tool results, older history text, then whichever is
+longer of a clip of the system prompt, the tool list or older history (never inside the turn) and one of this
+turn's tool results (only while over the budget), down to the step, and last a clip of anything. A lookup of a few
+thousand characters no longer goes while the 215,706-character system prompt is the overflow; a 400,000-character
+page still goes before the system prompt is halved. Tests: `apps/mcp/test/promptBudget.test.mjs`
+("a tool round that crosses into a new step…", "a later round of the same turn…", "when the system prompt and tools
+are the overflow…", "a texted turn's call tells the trim where its ask is…", "a lookup longer than the system
+prompt goes…") and the replay case `prompt-under-cliff`. A simplification that keeps only the newest message
+whole again loses the ask on any tool round that crosses a step.
+
 **In the bench (2026-11-17).** A Front door unit test posts the chat before its text at each line's own time
 (`apps/mcp/bench/setsFd.mjs` `minutesBefore`, `clock.mjs` `atEarlierTime`), as the Worker posted it live, so the
 turn reads the days the way production does. The bench chat has no day summaries, so a line older than the verbatim
