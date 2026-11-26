@@ -181,3 +181,10 @@ export function projectAreaTag(properties: Readonly<Record<string, unknown>>, to
   if (area !== null) return { folder: area, label: areaTitle(area.slice(area.lastIndexOf("/") + 1)) };
   return tone === "in-progress" ? { folder: null, label: "No area" } : undefined;
 }
+
+/** Where a project sits under the area it is counted for: "" when it is this area's own, else the sub-area's last folder. */
+export function servesWhere(area: string, project: AreaProject): string {
+  if (project.area === null || areaKey(project.area) === areaKey(area)) return "";
+  const said = project.area.replace(/\/+$/, "");
+  return areaTitle(said.slice(said.lastIndexOf("/") + 1));
+}

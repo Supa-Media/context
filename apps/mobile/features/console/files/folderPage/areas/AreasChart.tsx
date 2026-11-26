@@ -11,11 +11,13 @@
  * under it on a spine, with an area's sub-areas folded under a
  * "2 sub-areas · Subscriptions, Payroll" foot.
  *
- * An area's box says: its owner's face and name, who holds it (and the
- * delegate), its one headline metric (label, trend, value, target, and whether
- * it is on target, in words and a shape as well as colour), and a foot with
- * how it is run and what else is in the folder. A sub-area's compact box
- * says its face, name and the metric's line. An empty seat is a dashed box
+ * Trimmed for people who do not live in the numbers (the owner, 2026-11-26,
+ * the simplified Areas page): an area's box says its owner's face and name,
+ * who holds it, and its one metric (its name, the value with the goal in
+ * words, and one verdict from `verdict.ts` in words and a mark). Its
+ * sub-areas are folded on every screen under an "6 inside · 1 needs a look"
+ * line; open, each is a compact box with its name and value. The trend, how
+ * the area is run, its projects and its notes are in the side panel. An empty seat is a dashed box
  * with Assign owner. A box opens its area; the top box, a ⋯ and a right-click
  * open the seat options. The page keeps the data; this file only draws it,
  * so it takes every lookup and action as a prop.
@@ -23,20 +25,19 @@
 
 import { useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, View, type GestureResponderEvent } from "react-native";
-import { Circle, Path, Svg } from "react-native-svg";
+import { Path, Svg } from "react-native-svg";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { areasType, pointerType } from "../../../../design/tokens";
-import { OwnerFace, StatusDot, type Face } from "../Glyphs";
+import { OwnerFace, type Face } from "../Glyphs";
 import { useRightClick } from "../../rightClick";
 import { pressPoint } from "./pressPoint";
-import type { Reading, TargetState } from "./readings";
+import type { Reading } from "./readings";
 import { headlineOf, type Headline } from "./headline";
-import { Trend } from "./Trend";
-import { MODE_TIPS, areaTitle, kindCounts, needLook, type AreaNode, type Seat } from "./seat";
+import { VerdictMark } from "./AreaMetricCell";
+import { areaTitle, needLook, type AreaNode, type Seat } from "./seat";
 import type { AreaProjects } from "./areaProjects";
-import { projectsWords } from "./AreaProjectRows";
 
 export interface AreasChartProps {
   /** Rooted at the open folder. */
@@ -69,7 +70,12 @@ export interface AreasChartProps {
 type AreasProjectsCount = Pick<AreaProjects, "inProgress">;
 
 type Point = { readonly x: number; readonly y: number };
-type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact" | "readingOf" | "projectsOf"> & { readonly onArea: (folder: string) => void };
+type Ctx = Pick<AreasChartProps, "faceOf" | "label" | "reach" | "onOpen" | "onMenu" | "onAdd" | "onAssign" | "compact" | "readingOf" | "projectsOf"> & {
+  readonly onArea: (folder: string) => void;
+  /** Whether an area's sub-areas are showing under it. */
+  readonly isOpen: (folder: string) => boolean;
+  readonly toggle: (folder: string) => void;
+};
 
 const pointOf = (event: GestureResponderEvent | undefined): Point | null => (event === undefined ? null : pressPoint(event));
 
@@ -92,7 +98,16 @@ const SUB_ELBOW = 17;
 export function AreasChart(props: AreasChartProps) {
   const { tree, rootTitle, compact } = props;
   const styles = useThemedStyles(makeStyles);
-  const ctx: Ctx = { ...props, onArea: props.onArea ?? props.onOpen };
+  // Every area's sub-areas start folded, on a wide screen as on a phone (the owner, 2026-11-26).
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (folder: string) =>
+    setOpen((previous) => {
+      const next = new Set(previous);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  const ctx: Ctx = { ...props, onArea: props.onArea ?? props.onOpen, isOpen: (folder) => open.has(folder), toggle };
   return (
     <View style={styles.chart} testID="areas-chart">
       {compact ? <PhoneTree tree={tree} rootTitle={rootTitle} ctx={ctx} /> : <OrgChart tree={tree} rootTitle={rootTitle} ctx={ctx} />}
@@ -126,8 +141,8 @@ function OrgChart({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string;
             <View style={styles.orgRow}>
               {tree.areas.map((child, at) => (
                 <Column key={child.seat.folder} at={at} of={columns}>
-                  <AreaBox node={child} level={1} ctx={ctx} />
-                  {child.areas.map((grand, index) => (
+                  <AreaBox node={child} level={1} ctx={ctx} fold={child.areas.length > 0 ? { open: ctx.isOpen(child.seat.folder), toggle: () => ctx.toggle(child.seat.folder) } : undefined} />
+                  {(ctx.isOpen(child.seat.folder) ? child.areas : []).map((grand, index) => (
                     <View key={grand.seat.folder} style={styles.sub}>
                       <View style={[styles.subSpine, index === child.areas.length - 1 ? styles.subSpineLast : styles.subSpineOn]} testID="area-line" />
                       <View style={styles.subElbow} />
@@ -175,17 +190,9 @@ function Column({ at, of, children }: { at: number; of: number; children: React.
 function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string; ctx: Ctx }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const toggle = (folder: string) =>
-    setOpen((previous) => {
-      const next = new Set(previous);
-      if (next.has(folder)) next.delete(folder);
-      else next.add(folder);
-      return next;
-    });
   // Each branch draws its own piece of the spine, so the line stops at the last branch's elbow however tall that box is.
   const branch = (node: AreaNode, level: number, at: number, of: number): React.ReactNode => {
-    const shown = open.has(node.seat.folder);
+    const shown = ctx.isOpen(node.seat.folder);
     const lift = at === 0 ? (level === 1 ? 16 : 8) : 8;
     return (
       <View key={node.seat.folder}>
@@ -195,7 +202,7 @@ function PhoneTree({ tree, rootTitle, ctx }: { tree: AreaNode; rootTitle: string
           node={node}
           level={level}
           ctx={ctx}
-          fold={node.areas.length > 0 ? { open: shown, toggle: () => toggle(node.seat.folder) } : undefined}
+          fold={node.areas.length > 0 ? { open: shown, toggle: () => ctx.toggle(node.seat.folder) } : undefined}
         />
         {shown && node.areas.length > 0 ? (
           <View style={[styles.kids, styles.kidsDeep]}>
@@ -256,7 +263,8 @@ function RootBox({ node, title, ctx }: { node: AreaNode; title: string; ctx: Ctx
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
-  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.state === "missed");
+  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.verdict?.good === false);
+  const headline = headlineOf(seat, ctx.readingOf(seat));
   const reachText = seat.owner === null ? "" : ctx.reach(seat.owner);
   const menuClick = useRightClick((at) => {
     ctx.onMenu(seat, at);
@@ -283,6 +291,7 @@ function RootBox({ node, title, ctx }: { node: AreaNode; title: string; ctx: Ctx
             {ownerLine(seat, ctx)}
           </Text>
         </View>
+        {headline === null || headline.value === null ? null : <BoxMetric headline={headline} />}
         {node.areas.length === 0 ? null : (
           <Text variant="treeMeta" style={styles.small}>
             {`${node.areas.length} ${node.areas.length === 1 ? "area" : "areas"}`}
@@ -294,31 +303,14 @@ function RootBox({ node, title, ctx }: { node: AreaNode; title: string; ctx: Ctx
   );
 }
 
-/** A check in a green disc on target, a warning in an amber triangle off it: the state as a shape, not colour alone. */
-function StateMark({ state, size }: { state: TargetState; size: number }) {
-  const colors = useColors();
-  if (state === "met") {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="On target" style={{ flexShrink: 0 }}>
-        <Circle cx={7} cy={7} r={7} fill={colors.ok} />
-        <Path d="M4 7.2l2 2 4-4.4" fill="none" stroke={colors.cardSurface} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
-      </Svg>
-    );
-  }
-  if (state === "missed") {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14" role="img" aria-label="Off target" style={{ flexShrink: 0 }}>
-        <Path d="M7 0.8L13.6 12.6H0.4Z" fill={colors.warn} stroke={colors.warn} strokeWidth={0.8} strokeLinejoin="round" />
-        <Path d="M7 5v3.4" stroke={colors.cardSurface} strokeWidth={1.7} strokeLinecap="round" />
-        <Circle cx={7} cy={10.5} r={0.95} fill={colors.cardSurface} />
-      </Svg>
-    );
-  }
-  return null;
+function valueInk(colors: Colors, headline: Headline): string {
+  if (headline.status === "hidden" || headline.status === "loading") return colors.muted;
+  return headline.state === "met" ? colors.okText : headline.state === "missed" ? colors.warnText : colors.text;
 }
 
-function valueInk(colors: Colors, state: TargetState): string {
-  return state === "met" ? colors.okText : state === "missed" ? colors.warnText : colors.text;
+/** "6 inside · 1 needs a look": how many areas are folded under a box and how many of them need a look. */
+export function insideWords(count: number, look: number): string {
+  return `${count} inside${look === 0 ? "" : ` · ${look} need${look === 1 ? "s" : ""} a look`}`;
 }
 
 /** An area's box: name and holder, its metric, and a foot. Unowned, a dashed box offering Assign owner. */
@@ -329,8 +321,7 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
   const { seat } = node;
   const title = areaTitle(seat.name);
   const headline = headlineOf(seat, ctx.readingOf(seat));
-  const files = kindCounts(node.files);
-  const inProgress = ctx.projectsOf?.(seat.folder).inProgress.length ?? 0;
+  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.verdict?.good === false);
   const reachText = seat.owner === null ? "" : ctx.reach(seat.owner);
   const menuClick = useRightClick((at) => {
     ctx.onMenu(seat, at);
@@ -366,33 +357,12 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
         ) : (
           <BoxMetric headline={headline} />
         )}
-        {inProgress === 0 ? null : (
-          <View style={styles.projects} testID={`area-box-projects-${seat.folder}`}>
-            <StatusDot tone="in-progress" />
-            <Text variant="treeMeta" style={styles.small} numberOfLines={1}>
-              {projectsWords(inProgress)}
-            </Text>
-          </View>
-        )}
-        {seat.modes.length === 0 && files === "" ? null : (
-          <View style={styles.foot}>
-            <Text variant="treeMeta" style={styles.small} numberOfLines={1}>
-              {seat.modes.map((mode, at) => (
-                <Text key={mode} variant="treeMeta" style={styles.small} accessibilityHint={MODE_TIPS[mode]} {...hoverTitle(MODE_TIPS[mode])}>
-                  {at === 0 ? mode : ` · ${mode}`}
-                </Text>
-              ))}
-            </Text>
-            <Text variant="treeMeta" style={styles.small} numberOfLines={1} testID="area-files">
-              {files}
-            </Text>
-          </View>
-        )}
       </Pressable>
       {fold === undefined ? null : (
-        <Pressable onPress={fold.toggle} role="button" aria-expanded={fold.open} style={styles.fold} testID={`area-fold-${seat.folder}`}>
+        <Pressable onPress={fold.toggle} role="button" aria-expanded={fold.open} accessibilityLabel={`${fold.open ? "Hide" : "Show"} the areas in ${title}`} style={styles.fold} testID={`area-fold-${seat.folder}`}>
           <Text variant="treeMeta" numberOfLines={1} style={[styles.small, styles.foldText]}>
-            {fold.open ? "Hide sub-areas" : `${node.areas.length} sub-area${node.areas.length === 1 ? "" : "s"} · ${node.areas.map((a) => areaTitle(a.seat.name)).join(", ")}`}
+            {insideWords(node.areas.length, 0)}
+            {look === 0 ? null : <Text variant="treeMeta" style={styles.look}>{` · ${look} need${look === 1 ? "s" : ""} a look`}</Text>}
           </Text>
           <Icon name={fold.open ? "chevronUp" : "chevronDown"} size={12} color={colors.muted} />
         </Pressable>
@@ -414,39 +384,30 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
   );
 }
 
-/** An area box's metric: its label, the trend with the value and target, then on target or off it in words. */
+/** An area box's metric: its name, the value with the goal in words, then the verdict in words and a mark. */
 function BoxMetric({ headline }: { headline: Headline }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const ink = valueInk(colors, headline.state);
   return (
     <View style={styles.boxMetric} testID="area-metric" {...hoverTitle(headline.date)}>
-      <Text variant="treeMeta" style={styles.small} numberOfLines={1}>
+      <Text variant="treeMeta" style={styles.small} numberOfLines={2}>
         {headline.label}
       </Text>
       {headline.value === null ? (
         <Text variant="tree" style={styles.noReadings} testID="area-metric-value">
-          {headline.target === "" ? "No readings yet" : `No readings yet · target ${headline.target}`}
+          {headline.goal === "" ? "No readings yet" : `No readings yet · ${headline.goal}`}
         </Text>
       ) : (
         <>
           <View style={styles.valueLine}>
-            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={56} height={18} stroke={1.4} dot={2.2} />}
-            <Text variant="tree" style={[styles.value, { color: ink }]} numberOfLines={1} testID="area-metric-value">
+            <Text variant="tree" style={[styles.bigValue, { color: valueInk(colors, headline) }]} numberOfLines={1} testID="area-metric-value">
               {headline.value}
             </Text>
             <Text variant="treeMeta" style={styles.target} numberOfLines={1} testID="area-metric-target">
-              {headline.target}
+              {headline.goal}
             </Text>
           </View>
-          {headline.state === "unknown" ? null : (
-            <View style={styles.stateLine}>
-              <StateMark state={headline.state} size={11} />
-              <Text variant="treeMeta" style={[styles.stateWord, { color: ink }]}>
-                {headline.state === "met" ? "On target" : "Off target"}
-              </Text>
-            </View>
-          )}
+          {headline.verdict === null ? null : <VerdictMark verdict={headline.verdict} />}
         </>
       )}
     </View>
@@ -486,17 +447,20 @@ function SubBox({ node, ctx }: { node: AreaNode; ctx: Ctx }) {
         </View>
         {headline === null ? null : headline.value === null ? (
           <Text variant="treeMeta" style={[styles.small, styles.subLine]} numberOfLines={1} testID="area-metric">
-            {`${headline.label} · no readings yet`}
+            {headline.label}
           </Text>
         ) : (
-          <View style={[styles.subValueLine, styles.subLine]} testID="area-metric" {...hoverTitle(`${headline.label}${headline.date === "" ? "" : `, ${headline.date}`}`)}>
-            {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={40} height={14} stroke={1.4} dot={2.2} />}
-            <StateMark state={headline.state} size={11} />
-            <Text variant="tree" style={[styles.value, { color: valueInk(colors, headline.state) }]} numberOfLines={1} testID="area-metric-value">
+          <View
+            style={[styles.subValueLine, styles.subLine]}
+            testID="area-metric"
+            accessibilityLabel={`${headline.label}: ${headline.value} ${headline.goal}${headline.verdict === null ? "" : `, ${headline.verdict.words}`}`}
+            {...hoverTitle(`${headline.label}${headline.verdict === null ? "" : ` · ${headline.verdict.words}`}${headline.date === "" ? "" : `, ${headline.date}`}`)}
+          >
+            <Text variant="tree" style={[styles.value, { color: valueInk(colors, headline) }]} numberOfLines={1} testID="area-metric-value">
               {headline.value}
             </Text>
             <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
-              {headline.target}
+              {headline.goal}
             </Text>
           </View>
         )}
@@ -550,7 +514,6 @@ const makeStyles = (colors: Colors) =>
     chart: { width: "100%" },
     muted: { color: colors.muted },
     small: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
-    projects: { flexDirection: "row", alignItems: "center", gap: 6 },
     look: { fontSize: pointerType.meta, lineHeight: 16, color: colors.warnText, fontWeight: "600" },
 
     org: { alignItems: "center", width: "100%" },
@@ -594,13 +557,11 @@ const makeStyles = (colors: Colors) =>
     name: { flexShrink: 1, minWidth: 0, fontSize: pointerType.ui, lineHeight: 18, color: colors.text },
     ownerText: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted, paddingLeft: 24 },
     boxMetric: { gap: 3, minWidth: 0 },
-    valueLine: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    valueLine: { flexDirection: "row", alignItems: "baseline", gap: 6, minWidth: 0 },
     value: { fontSize: pointerType.ui, lineHeight: 18, fontWeight: "600", flexShrink: 0 },
+    bigValue: { fontSize: areasType.value + 4, lineHeight: areasType.value + 10, fontWeight: "700", flexShrink: 0 },
     target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
-    stateLine: { flexDirection: "row", alignItems: "center", gap: 6 },
-    stateWord: { fontSize: pointerType.meta, lineHeight: 15, fontWeight: "500" },
     noReadings: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
-    foot: { flexDirection: "row", justifyContent: "space-between", gap: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.line },
     fold: {
       flexDirection: "row",
       alignItems: "center",

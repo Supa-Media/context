@@ -23,6 +23,8 @@ export interface Reading {
   readonly date: string;
   /** Every reading's leading number, oldest first; the ones with none are left out. */
   readonly series: readonly number[];
+  /** The oldest dated reading with a number, where a goal's pace line starts; absent when none says when. */
+  readonly start?: { readonly value: number; readonly at: number } | null;
 }
 
 /** Readings by metric name, lower-cased. */
@@ -76,7 +78,16 @@ export function readingsOf(text: string): Readings {
     });
     const last = ordered[ordered.length - 1]!;
     const series = ordered.map((r) => leadingNumber(r.value)).filter((n): n is number => n !== null);
-    out.set(name, { value: last.value, date: last.date, series });
+    let start: { value: number; at: number } | null = null;
+    for (const row of ordered) {
+      const at = when(row.date);
+      const n = leadingNumber(row.value);
+      if (at !== null && n !== null) {
+        start = { value: n, at };
+        break;
+      }
+    }
+    out.set(name, { value: last.value, date: last.date, series, start });
   }
   return out;
 }

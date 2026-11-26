@@ -151,9 +151,9 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
                 testID="area-panel-goal"
               />
             </View>
-            {headline?.state == null || headline.state === "unknown" || headline.value == null ? null : (
-              <View style={[styles.state, headline.state === "met" ? styles.stateMet : styles.stateMissed]}>
-                <Text variant="treeMeta" style={{ color: ink }}>{headline.state === "met" ? "On target" : "Off target"}</Text>
+            {headline?.verdict == null || headline.value == null ? null : (
+              <View style={[styles.state, headline.verdict.good ? styles.stateMet : styles.stateMissed]} testID="area-panel-verdict">
+                <Text variant="treeMeta" style={{ color: ink }}>{headline.verdict.words}</Text>
               </View>
             )}
           </View>
@@ -161,8 +161,14 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
         {headline?.trend == null ? null : (
           <PanelTrend geometry={headline.trend} ink={headline.state === "met" ? colors.ok : headline.state === "missed" ? colors.warn : colors.muted} width={Math.max(160, width)} height={64} />
         )}
+        {headline?.verdict?.pace ? (
+          <Text variant="treeMeta" style={styles.muted} testID="area-panel-pace">
+            {headline.verdict.pace}
+          </Text>
+        ) : null}
         {metric === undefined ? null : (
           <Text variant="treeMeta" style={styles.muted}>
+            {headline?.period ? `Covers ${periodWords(headline.period)}. ` : ""}
             {headline?.date ? `Latest ${headline.date}. ` : ""}
             {readingSource(metric, fromWorkspace(reading))}
             {headline?.source ? sourceSentence(headline.source) : ""}
@@ -231,6 +237,16 @@ function fromWorkspace(reading: Reading | AreaReading | undefined): AreaReading 
 function sourceSentence(source: string): string {
   const when = source.split(" · ").find((part) => part.startsWith("last row "));
   return when === undefined ? "" : ` ${when.charAt(0).toUpperCase()}${when.slice(1)}.`;
+}
+
+/** A metric's time range in words, for the panel: "7d" → "the last 7 days", "MTD" → "this month so far". */
+export function periodWords(period: string): string {
+  const days = /^(\d+)d$/i.exec(period);
+  if (days !== null) return days[1] === "1" ? "the last day" : `the last ${days[1]} days`;
+  const hours = /^(\d+)h$/i.exec(period);
+  if (hours !== null) return `the last ${hours[1]} hours`;
+  const known: Record<string, string> = { mtd: "this month so far", now: "right now", today: "today" };
+  return known[period.toLowerCase()] ?? period;
 }
 
 /**

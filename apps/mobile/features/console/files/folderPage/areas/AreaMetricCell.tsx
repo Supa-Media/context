@@ -1,13 +1,14 @@
 /**
- * An area's one metric as the Areas List draws it (the data sources board,
- * 06; the area metric rows board, 2026-11-25): its name and a small tag for
- * the time range the number covers ("7d", "MTD", "today"); then the trend,
- * the latest value in green or amber (muted when Hidden or still being worked
- * out) and the target in symbols; with no value yet, just the target, and no
- * placeholder (the owner, 2026-11-25). The sources a workspace metric reads
- * and how fresh they are stay off the row, in its hover tip and on the
- * metric's page. An area with no metric leaves the cell blank; picking one
- * lives in the area's side panel and its ⋯ menu (the owner, 2026-11-25).
+ * An area's one metric as the Areas List draws it, trimmed for people who do
+ * not live in the numbers (the owner, 2026-11-26: "cofounders complaining that
+ * this is just a wall of text"; the approved trimmed list, option A): the
+ * latest value, coloured by how it stands, then the goal in words and the
+ * metric's name, `186 aim 100+ · Weekly deploys`; and, in a column of its own,
+ * one verdict in words with a mark (`verdict.ts`). The trend, the time-range
+ * tag, the sources and the dates live in the area's side panel and the hover
+ * tip, not on the row. With no value yet, just the name and the goal. An area
+ * with no metric leaves the cell blank; picking one lives in the area's side
+ * panel and its ⋯ menu (the owner, 2026-11-25).
  */
 
 import { useRef } from "react";
@@ -15,108 +16,106 @@ import { StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { useHoverTitle } from "../../../../design/useHoverTitle";
-import { areasType, pointerType, radii } from "../../../../design/tokens";
+import { areasType, pointerType } from "../../../../design/tokens";
 import type { Headline } from "./headline";
-import { Trend } from "./Trend";
+import type { Verdict } from "./verdict";
 
-/** The headline metric on a pointer: its label line, then the trend, the value and the target on one line. */
+/** The words a hover tip says about a metric: its name, time range, sources, target and date. */
+export function metricTip(headline: Headline): string {
+  return `${headline.label}${headline.period === "" ? "" : ` (${headline.period})`}${headline.source === "" ? "" : ` · ${headline.source}`}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
+}
+
+/** The headline metric on a pointer: value, goal and name on one line. */
 export function MetricCell({ headline }: { headline: Headline }) {
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
-  const tip = `${headline.label}${headline.period === "" ? "" : ` (${headline.period})`}${headline.source === "" ? "" : ` · ${headline.source}`}${headline.target === "" ? "" : `, target ${headline.target}`}${headline.date === "" ? "" : `, ${headline.date}`}`;
-  useHoverTitle(ref, tip);
+  useHoverTitle(ref, metricTip(headline));
   return (
     <View ref={ref} style={styles.metric} testID="area-metric">
-      <Label headline={headline} />
-      {headline.value === null ? (
-        headline.target === "" ? null : (
-          <Text variant="tree" style={styles.noData} numberOfLines={1} testID="area-row-target">
-            {`target ${headline.target}`}
-          </Text>
-        )
-      ) : (
-        <View style={styles.valueLine}>
-          {headline.trend === null ? null : <Trend geometry={headline.trend} state={headline.state} width={56} height={16} stroke={1.4} dot={2.2} />}
-          <Value headline={headline} size={pointerType.ui} />
-          <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
-            {headline.target}
-          </Text>
-        </View>
-      )}
+      <MetricLine headline={headline} size={pointerType.ui} />
     </View>
   );
 }
 
-/** The headline metric in a phone's block: the label and its period, then the value line. */
+/** The headline metric in a phone's block: the same line, a size up. */
 export function PhoneMetric({ headline }: { headline: Headline }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.phone} testID="area-metric">
-      <Label headline={headline} />
-      {headline.value === null ? (
-        headline.target === "" ? null : (
-          <Text variant="tree" style={styles.noDataPhone} numberOfLines={1} testID="area-row-target">
-            {`target ${headline.target}`}
-          </Text>
-        )
-      ) : (
-        <View style={styles.valueLinePhone}>
-          {headline.trend === null ? null : (
-            <Trend geometry={headline.trend} state={headline.state} width={56} height={18} stroke={1.8} dash="3 3" dashWidth={1.2} dot={2.8} />
-          )}
-          <Value headline={headline} size={areasType.value} />
-          <Text variant="treeMeta" style={styles.target} numberOfLines={1}>
-            {headline.target}
-          </Text>
-        </View>
-      )}
+    <View style={styles.metric} testID="area-metric">
+      <MetricLine headline={headline} size={areasType.value} />
     </View>
   );
 }
 
-/** The metric's name, cut short when it must be, then its period tag, which is never cut. */
-function Label({ headline }: { headline: Headline }) {
+function MetricLine({ headline, size }: { headline: Headline; size: number }) {
   const styles = useThemedStyles(makeStyles);
+  const rest = [headline.goal, headline.label].filter((part) => part !== "").join(" · ");
   return (
-    <View style={styles.labelLine}>
-      <Text variant="treeMeta" style={[styles.metricLabel, styles.labelName]} numberOfLines={1}>
-        {headline.label}
-      </Text>
-      {headline.period === "" ? null : (
-        <Text variant="treeMeta" style={styles.period} numberOfLines={1} testID="area-metric-period">
-          {headline.period}
-        </Text>
+    <Text variant="tree" style={[styles.line, { fontSize: size - 1, lineHeight: size + 5 }]} numberOfLines={1}>
+      {headline.value === null ? null : (
+        <>
+          <Value headline={headline} size={size} />
+          {" "}
+        </>
       )}
-    </View>
+      <Text variant="tree" style={[styles.rest, { fontSize: size - 1, lineHeight: size + 5 }]} testID={headline.value === null ? "area-row-target" : "area-row-goal"}>
+        {rest}
+      </Text>
+    </Text>
   );
 }
 
-/** The latest value, green on target and amber off it; muted when Hidden or still being worked out. */
+/** The latest value, green when the verdict is good and amber when not; muted when Hidden or still being worked out. */
 function Value({ headline, size }: { headline: Headline; size: number }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const quiet = headline.status === "hidden" || headline.status === "loading";
   const ink = quiet ? colors.muted : headline.state === "met" ? colors.okText : headline.state === "missed" ? colors.warnText : colors.text;
   return (
-    <Text variant="tree" style={[styles.value, quiet && styles.quietValue, { fontSize: size, lineHeight: size + 5, color: ink }]} numberOfLines={1} testID="area-row-value">
+    <Text variant="tree" style={[styles.value, quiet && styles.quietValue, { fontSize: size, lineHeight: size + 5, color: ink }]} testID="area-row-value">
       {headline.value}
     </Text>
+  );
+}
+
+/**
+ * A verdict in words with a mark, so it never rests on colour alone: a dot
+ * for on target and on pace, a dot with a soft ring for exceeds, a hollow
+ * ring for under target, a bar for needs a look.
+ */
+export function VerdictMark({ verdict, size = pointerType.meta }: { verdict: Verdict; size?: number }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const ink = verdict.good ? colors.okText : colors.warnText;
+  const fill = verdict.good ? colors.ok : colors.warn;
+  const mark =
+    verdict.kind === "exceeds"
+      ? [styles.ringDot, { backgroundColor: fill, borderColor: colors.okBorder }]
+      : verdict.kind === "under"
+        ? [styles.dot, { borderColor: fill, borderWidth: 2, backgroundColor: "transparent" }]
+        : verdict.kind === "over"
+          ? [styles.bar, { backgroundColor: fill }]
+          : [styles.dot, { backgroundColor: fill }];
+  return (
+    <View style={styles.verdict} testID={`area-verdict-${verdict.kind}`} accessibilityLabel={verdict.words}>
+      <View style={mark} />
+      <Text variant="treeMeta" style={[styles.verdictWords, { color: ink, fontSize: size, lineHeight: size + 4 }]} numberOfLines={1}>
+        {verdict.words}
+      </Text>
+    </View>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     metric: { minWidth: 0 },
-    phone: { gap: 1, minWidth: 0 },
-    metricLabel: { fontSize: pointerType.meta, lineHeight: 15, minHeight: 15, color: colors.muted },
-    labelLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-    labelName: { flexShrink: 1, minWidth: 0 },
-    period: { flexShrink: 0, fontSize: pointerType.label, lineHeight: 15, fontWeight: "600", paddingHorizontal: 5, borderRadius: radii.sm, overflow: "hidden", backgroundColor: colors.accentDim, color: colors.accentText },
-    valueLine: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-    valueLinePhone: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
-    value: { fontWeight: "600", flexShrink: 0 },
+    line: { color: colors.muted, minWidth: 0 },
+    rest: { color: colors.muted },
+    value: { fontWeight: "600" },
     quietValue: { fontWeight: "500" },
-    target: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted, flexShrink: 1, minWidth: 0 },
-    noData: { fontSize: pointerType.meta, lineHeight: 18, color: colors.muted },
-    noDataPhone: { fontSize: pointerType.ui, lineHeight: 20, color: colors.muted },
+    verdict: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+    dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+    ringDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, flexShrink: 0, marginHorizontal: -2 },
+    bar: { width: 9, height: 3, borderRadius: 2, flexShrink: 0 },
+    verdictWords: { fontWeight: "600", flexShrink: 1, minWidth: 0 },
   });
