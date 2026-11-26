@@ -35,6 +35,7 @@ import { pathToFileURL } from "node:url";
 
 import { regradeCommand } from "./regrade.mjs";
 import { runFd } from "./setsFd.mjs";
+import { judgeAdapters } from "./setsJudges.mjs";
 import { runPool } from "./setsPool.mjs";
 import { RECORD_SETS, worldMode } from "./simFixtures.mjs";
 
@@ -285,6 +286,13 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
   };
   // The live Job advisor runs the same check (`graph/nodes/jobcheck.js`), labelled under its own id.
   table.jobadv = table.jobcheck;
+  // Before asking and the egress judge alone (`setsJudges.mjs`): askGate on the Clef engine Decide is asked on, with the
+  // Training module a message may read as the router's is; egress through the AI gateway.
+  const treeTraining = existsSync(join(tree, TREE_TRAINING)) ? require(join(tree, TREE_TRAINING)) : null;
+  const treeGenerated = existsSync(join(tree, TREE_GENERATED)) ? JSON.parse(await readFile(join(tree, TREE_GENERATED), "utf8")) : null;
+  const trainingFor = (c, i) => (treeTraining ? routeTraining(c, i, treeGenerated, { holdOut, withoutChat: treeTraining.withoutChat, cutAt: treeTraining.cutAt }) : null);
+  const engineOf = async () => (await mod("apps/mcp/bench/models.mjs")).workersAi(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_AI_TOKEN);
+  Object.assign(table, judgeAdapters({ mod, fake, env, training: trainingFor, engineOf }));
   return table;
 }
 
