@@ -73,6 +73,11 @@ export function timesLine(tests, { lanes, wallMs, slowest = 5 }) {
   const ran = tests.filter((t) => typeof t.ms === "number");
   const s = (ms) => `${Math.round(ms / 1000)} s`;
   const sum = ran.reduce((total, t) => total + t.ms, 0);
-  const top = [...ran].sort((a, b) => b.ms - a.ms).slice(0, slowest).map((t) => `${t.id ?? "?"}/${t.name} ${t.cases ?? 1} case(s) ${s(t.ms)}`);
-  return `fd tests: ${ran.length} in ${lanes} lanes, wall ${s(wallMs)}, sum ${s(sum)}, mean ${s(ran.length ? sum / ran.length : 0)}; slowest: ${top.join(", ")}`;
+  const of = (key) => ran.reduce((total, t) => total + (Number(t.split?.[key]) || 0), 0);
+  // Where a test's time went (`coreArea.mjs` splitOf), when its run said: the answer and judge processes, the turns'
+  // own seconds, and the background jobs it ran.
+  const split = (t) => (t.split && typeof t.split.answerMs === "number" ? ` (answer ${s(t.split.answerMs)}, turns ${Math.round(t.split.turnS ?? 0)} s, judge ${s(t.split.judgeMs ?? 0)}, ${t.split.jobs ?? 0} job(s) ${t.split.parts ?? 0} part(s))` : "");
+  const top = [...ran].sort((a, b) => b.ms - a.ms).slice(0, slowest).map((t) => `${t.id ?? "?"}/${t.name} ${t.cases ?? 1} case(s) ${s(t.ms)}${split(t)}`);
+  const totals = ran.some((t) => t.split?.answerMs !== undefined) ? `; answer ${s(of("answerMs"))}, judge ${s(of("judgeMs"))}, ${of("jobs")} job(s) in ${ran.filter((t) => t.split?.jobs > 0).length} test(s)` : "";
+  return `fd tests: ${ran.length} in ${lanes} lanes, wall ${s(wallMs)}, sum ${s(sum)}, mean ${s(ran.length ? sum / ran.length : 0)}${totals}; slowest: ${top.join(", ")}`;
 }
