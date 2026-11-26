@@ -229,7 +229,7 @@ Tex's own jobs, each with its record:
 - [Heartbeat](./texting-assistant/heartbeat.md): three looks a day, one text at most.
 - [Learned skills](./texting-assistant/learned-skills.md): after a hard job, writes down
   how in `tex/skills/`; every text sees the index, none vouches for an address.
-- [Attention](./texting-assistant/attention.md): agents ask Tex to text them; `tex/attention.md` decides. [Bug reports](./texting-assistant/bug-reports.md) by text go, texts included, only on their YES.
+- [Attention](./texting-assistant/attention.md): agents ask Tex to text them; `tex/attention.md` decides. [Bug reports](./texting-assistant/bug-reports.md) by text carry their texts only on their YES; without texts they go at once, shown to nobody.
 - [Housekeeping](./texting-assistant/housekeeping.md): archives, merges and folds to lower the
   chaos score, logging each change in `tex/housekeeping/` with how to undo it.
 - [Pictures](./texting-assistant/pictures.md): graphics as a page, photo edits with Nano Banana;

@@ -18,12 +18,12 @@
  *   3. The approved replay sends it. Only that replay reads the texts, off
  *      the person's own conversation file, never from anything the model
  *      wrote: the model can say whether they go, never what they say.
- *   4. A report with none of their texts, on a turn whose own text asks for
- *      a bug to be filed ("if you can't do it, file a bug to the
- *      developers"), is sent at once: that text is the yes (the owner,
- *      2026-10-21, after Tex drafted the report they had just asked for and
- *      then waited on a thumbs-up). The texts still only ever go on a yes to
- *      the report that says they go with it.
+ *   4. A report with none of their texts is sent at once, and nobody is
+ *      shown it or asked: nothing of theirs goes with it (the owner,
+ *      2026-10-21, for a report they had asked for; widened 2026-11-26 to
+ *      every report without texts, after a group chat was shown a bug
+ *      report and asked for a 👍 to send it). The texts still only ever go
+ *      on a yes to the report that says they go with it.
  */
 
 import { readConversation, shownHistory } from "../../../../packages/tex/gateway/agent/conversation.js";
@@ -107,8 +107,10 @@ export async function reportGate(supplied, { store, session }) {
     );
   }
 
-  // Their own text asked for it, and none of their texts go: sent now (4. above).
-  if (!shareTexts && asksToFile(session.egress?.turn?.question)) return await sendReport(store, message, undefined);
+  // None of their texts go: sent now, shown to nobody and asked of nobody (4. above). Only their texts are theirs to
+  // hand over; a report of what broke is not (Dev2, 2026-11-26, after a group was shown a report that blamed the wrong
+  // step, with "Only @seyi can OK it", for a page save that failed).
+  if (!shareTexts) return await sendReport(store, message, undefined);
 
   const ledger = session.egress?.ledger ?? null;
   if (ledger?.asked.some((asked) => asked.tool === REPORT_TOOL && asked.key !== callKey(REPORT_TOOL, supplied))) {
