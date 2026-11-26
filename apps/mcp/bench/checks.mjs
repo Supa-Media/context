@@ -188,9 +188,16 @@ const plain = (text) => String(text ?? "").toLowerCase().replace(/[\u2018\u2019]
 
 const holdsAny = (text, wanted) => wanted.some((want) => plain(text).includes(want));
 
+/**
+ * A time range ("8–11 pm", "8 to 11:30 PM") also reads as its start ("8 pm"), so a `say: 8 pm` check passes on any
+ * end time Tex chose: gh-223 failed three right answers ("8–11 PM") on a list that only knew "8–10".
+ */
+const RANGE = /\b(\d{1,2})(:\d\d)?\s*(?:–|-|to)\s*\d{1,2}(?::\d\d)?\s*(am|pm)\b/g;
+const withRangeStarts = (text) => plain(text).replace(RANGE, (range, hour, minutes = "", half) => `${hour}${minutes} ${half} ${range}`);
+
 /** A `say` check: one of its alternatives in any text Tex sent in the conversation (a quiet turn sent none). */
 function said(value, conversation) {
-  const sent = conversation.filter((turn) => turn.from === "assistant" && turn.silent !== true).map((turn) => turn.text ?? "");
+  const sent = conversation.filter((turn) => turn.from === "assistant" && turn.silent !== true).map((turn) => withRangeStarts(turn.text ?? ""));
   return sent.some((text) => holdsAny(text, alternatives(value)));
 }
 
