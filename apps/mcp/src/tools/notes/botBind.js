@@ -83,10 +83,17 @@ export async function toolBindBot(store, scope, rules, overrides, raw) {
   const card = await botCardOf(store, name);
   if (card === null) return toolError(`no card for ${name} here, or this connection can't see it. Make it first with manage area { bot: { name: "${name}" } }, then bind again.`);
   // A card that says whose bot it is is that person's to bind (or an owner's): nobody else's login becomes their bot.
+  // A card that names nobody is an owner's, because binding is an identity: what the bound login writes is signed by
+  // the bot, its reads say the bot, and its answer marks the bot answering, so any connection that could see an
+  // unnamed card would have spoken as it.
   const whose = typeof card.props.belongs_to === "string" ? card.props.belongs_to.trim().toLowerCase() : "";
-  const me = typeof store.actor?.name === "string" ? store.actor.name.toLowerCase() : "";
-  if (whose !== "" && whose !== me && store.actor?.role !== "owner") {
-    return toolError(`refused: ${name} is ${card.props.belongs_to}'s bot, so only their own connection binds it. Ask them to connect it.`);
+  const me = typeof store.actor?.name === "string" ? store.actor.name.trim().toLowerCase() : "";
+  if (!(me !== "" && whose === me) && store.actor?.role !== "owner") {
+    return toolError(
+      whose === ""
+        ? `refused: ${name}'s card names nobody, so only an owner's connection binds it. Put belongs_to on the card as whose bot it is, or ask an owner to bind it.`
+        : `refused: ${name} is ${card.props.belongs_to}'s bot, so only their own connection binds it. Ask them to connect it.`,
+    );
   }
   const holder = typeof card.props.holder === "string" && card.props.holder.trim() !== "" ? card.props.holder.trim() : name;
   const bot = mailJoinName(name);
