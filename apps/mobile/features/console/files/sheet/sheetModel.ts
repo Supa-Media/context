@@ -9,13 +9,17 @@
  * row the gateway's query would also return.
  */
 
-import { cellProblem, cellText, dateMs, rowMatches, typedValue } from "../../../../../mcp/src/sheets/csv.js";
+import { cellProblem, cellText, dateMs, rowMatches, splitOptions, typedValue } from "../../../../../mcp/src/sheets/csv.js";
 
-export type ColumnType = "text" | "number" | "usd" | "date" | "person" | "select" | "checkbox" | "link";
+export type ColumnType = "text" | "number" | "usd" | "date" | "person" | "select" | "multiselect" | "checkbox" | "link";
 
 export interface SheetColumn {
   name: string;
   type: ColumnType;
+  /** Its cells wrap, and a row grows to its tallest wrapped cell. Kept in the header (`notes:text:wrap`). */
+  wrap?: boolean;
+  /** Its width in pixels, set by a drag; without one, columns share the grid's width. Kept in the header (`notes:text:w320`). */
+  width?: number;
 }
 
 export interface SheetData {
@@ -40,6 +44,8 @@ export type FilterOp =
   | "is"
   | "is not"
   | "contains"
+  | "has"
+  | "has no"
   | ">"
   | "<"
   | "after"
@@ -76,6 +82,7 @@ export const TYPE_GLYPH: Record<ColumnType, string> = {
   date: "▦",
   person: "@",
   select: "◉",
+  multiselect: "☷",
   checkbox: "☑",
   link: "↗",
 };
@@ -86,12 +93,24 @@ export const TYPE_LABEL: Record<ColumnType, string> = {
   usd: "Money",
   date: "Date",
   person: "Person",
-  select: "Select",
+  select: "Single select",
+  multiselect: "Multi-select",
   checkbox: "Checkbox",
   link: "Link",
 };
 
-export const COLUMN_TYPE_ORDER: readonly ColumnType[] = ["text", "number", "usd", "date", "person", "select", "checkbox", "link"];
+/** The type picker's order, two to a row: Single select and Multi-select share one. */
+export const COLUMN_TYPE_ORDER: readonly ColumnType[] = ["text", "number", "usd", "date", "select", "multiselect", "person", "checkbox", "link"];
+
+/** A type whose cells are picked from options: the column's own, or the workspace's people. */
+export function isChoice(type: ColumnType): boolean {
+  return type === "select" || type === "multiselect" || type === "person";
+}
+
+/** Types whose cells can wrap onto more lines: long words, not figures or marks. */
+export function canWrap(type: ColumnType): boolean {
+  return type === "text" || type === "link" || type === "multiselect";
+}
 
 export function isNumeric(type: ColumnType): boolean {
   return type === "number" || type === "usd";
@@ -104,6 +123,8 @@ export function filterOpsFor(type: ColumnType): FilterOp[] {
 
 function valueOpsFor(type: Exclude<ColumnType, "checkbox">): FilterOp[] {
   switch (type) {
+    case "multiselect":
+      return ["has", "has no"];
     case "select":
     case "person":
       return ["is", "is not"];
@@ -275,12 +296,13 @@ export function dropFromView(v: SheetViewState, name: string): SheetViewState {
   };
 }
 
-/** Distinct non-empty values of a column, first seen first: the choices a filter offers. */
+/** Distinct non-empty values of a column, first seen first: the choices a filter offers. A multi-select's are its options. */
 export function distinctValues(sheet: SheetData, column: string): string[] {
   const seen = new Set<string>();
+  const multi = sheet.columns.find((c) => c.name === column)?.type === "multiselect";
   for (const row of sheet.rows) {
-    const v = cellText(row[column] ?? "").trim();
-    if (v !== "") seen.add(v);
+    const values = multi ? (splitOptions(row[column] ?? "") as string[]) : [cellText(row[column] ?? "").trim()];
+    for (const v of values) if (v !== "") seen.add(v);
   }
   return [...seen];
 }

@@ -105,7 +105,7 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Sheets",
     actions: ["write.rows"],
-    texts: "a sheet is a .csv note with each column's type after a colon in its header (date:date,value:number,by:person); make one by saving the header row (write save), read its rows filtered or sorted (fetch the .csv path with where, sort, last, limit), and add, change or delete rows (write rows): a row that doesn't fit the column types is refused whole and nothing is written; who sees a sheet is set like a note",
+    texts: "a sheet is a .csv note with each column's type after a colon in its header (date:date,value:number,by:person; a multiselect column's cell holds several options joined by a comma and a space, and a column's wrap and width ride after its type, notes:text:wrap:w320); make one by saving the header row (write save), read its rows filtered or sorted (fetch the .csv path with where, sort, last, limit), and add, change or delete rows (write rows): a row that doesn't fit the column types is refused whole and nothing is written; who sees a sheet is set like a note",
     group: "the same, in the shared workspaces of whoever asked, for sheets each one's whole team sees",
     guest: "only sheets in this chat's folder",
     cant: [{ where: "everywhere", what: "make a key that lets a script, a CI job or another service add rows to a sheet by itself", workaround: { kind: "app_path", text: "an editor opens the sheet in the Context app → Data sources → Make a key, and copies the key and the one call there; a key is shown once, there and never in a chat, and Data sources is also where it is revoked" } }],

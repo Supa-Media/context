@@ -22,12 +22,19 @@ import {
   storedValue,
   insertRow,
   deleteRow,
+  setColumnWidth,
+  setColumnWrap,
 } from "../features/console/files/sheet/sheetEdits";
+import { chipsThatFit, columnWidths, DRAG_MIN, dragWidth, FIT_MAX, FIT_MIN, fitWidth } from "../features/console/files/sheet/columnLayout";
+import { optionFor, pickerList, sheetList, toggleOption } from "../features/console/files/sheet/multiSelect";
 import {
   calcFor,
   calcsFor,
   calcValue,
+  COLUMN_TYPE_ORDER,
   compareCells,
+  distinctValues,
+  TYPE_LABEL,
   displayText,
   dropFromView,
   filterOpsFor,
@@ -275,5 +282,65 @@ describe("row edits", () => {
     // Two identical rows: only the one at the index goes.
     expect(deleteRow("a\nx\nx\n", 1)).toBe("a\nx\n");
     expect(deleteRow(text, 9)).toBe(text);
+  });
+});
+
+describe("multi-select, wrap and width (2026-11-26)", () => {
+  test("a multi-select filters by has and has no, and its filter offers each option once", () => {
+    expect(filterOpsFor("multiselect")).toEqual(["has", "has no", "is empty", "is not empty"]);
+    const sheet = parseSheet('n,tags:multiselect\nA,"x, y"\nB,y\nC,\n') as never;
+    expect(distinctValues(sheet, "tags")).toEqual(["x", "y"]);
+    expect(visibleRows(sheet, { ...EMPTY_VIEW, filters: [{ column: "tags", op: "has", value: "y" }] })).toEqual([0, 1]);
+    expect(visibleRows(sheet, { ...EMPTY_VIEW, filters: [{ column: "tags", op: "has no", value: "x" }] })).toEqual([1, 2]);
+  });
+
+  test("a multi-select cell is stored tidy, and Single select and Multi-select sit side by side in the picker", () => {
+    expect(storedValue("multiselect", " a,b ,a,")).toBe("a, b");
+    expect(COLUMN_TYPE_ORDER.indexOf("multiselect") - COLUMN_TYPE_ORDER.indexOf("select")).toBe(1);
+    expect(COLUMN_TYPE_ORDER.indexOf("select") % 2).toBe(0);
+    expect(TYPE_LABEL.select).toBe("Single select");
+  });
+
+  test("wrap and width are written into the header and taken out again", () => {
+    const text = "Area,Try saying\nNotes,hi\n";
+    const wrapped = setColumnWrap(text, "Try saying", true);
+    expect(wrapped).toBe("Area,Try saying:text:wrap\nNotes,hi\n");
+    const wide = setColumnWidth(wrapped, "Try saying", 320);
+    expect(wide.split("\n")[0]).toBe("Area,Try saying:text:wrap:w320");
+    expect(setColumnWidth(setColumnWrap(wide, "Try saying", false), "Try saying", null)).toBe(text);
+    // A retype keeps the layout.
+    expect(retypeColumn(wide, "Try saying", "multiselect").text.split("\n")[0]).toBe("Area,Try saying:multiselect:wrap:w320");
+  });
+
+  test("a sized column keeps its width and the rest share what is left, never under the minimum", () => {
+    const cols = [{ name: "a", type: "text" as const, width: 300 }, { name: "b", type: "text" as const }, { name: "c", type: "text" as const }];
+    expect(columnWidths(cols, 1000, 168)).toEqual([300, 350, 350]);
+    expect(columnWidths(cols, 400, 168)).toEqual([300, 168, 168]);
+    expect(columnWidths(cols, 1000, 168, { name: "b", width: 100 })).toEqual([300, 100, 600]);
+    expect(dragWidth(200, -500)).toBe(DRAG_MIN);
+  });
+
+  test("fit takes the longest value shown, within its bounds", () => {
+    const sheet = parseSheet("n,notes\nA,short\nB," + "x".repeat(200) + "\n") as never;
+    const notes = { name: "notes", type: "text" as const };
+    expect(fitWidth(sheet, { name: "n", type: "text" }, [])).toBe(FIT_MIN);
+    expect(fitWidth(sheet, notes, [0])).toBeLessThan(100);
+    expect(fitWidth(sheet, notes, [0, 1])).toBe(FIT_MAX);
+  });
+
+  test("the picker offers what is not chosen, creates only a new word, and Enter's default is what it will do", () => {
+    const options = ["Family", "Shared", "Annual"];
+    expect(pickerList(options, ["Family"], "")).toEqual({ rows: ["Shared", "Annual"], create: null, highlight: -1 });
+    expect(pickerList(options, [], "an")).toEqual({ rows: ["Annual"], create: "an", highlight: 1 });
+    expect(pickerList(options, [], "annual")).toEqual({ rows: ["Annual"], create: null, highlight: 0 });
+    expect(optionFor(options, "shared")).toBe("Shared");
+    expect(toggleOption(["Family"], "family")).toEqual([]);
+    expect(sheetList(options, ["Kids"], "")).toEqual({ rows: ["Family", "Shared", "Annual", "Kids"], create: null });
+  });
+
+  test("only as many chips show as fit, with room kept for the +N", () => {
+    expect(chipsThatFit(["Family", "Shared", "Annual"], 1000)).toBe(3);
+    expect(chipsThatFit(["Family", "Shared", "Annual"], 150)).toBe(1);
+    expect(chipsThatFit(["A very long option name indeed"], 40)).toBe(1);
   });
 });

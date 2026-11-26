@@ -1,6 +1,6 @@
 /**
  * The "+ Filter" menu, in two steps: which column, then how it is compared
- * and to what. A select or person offers the values the column already has;
+ * and to what. A select, multi-select or person offers the values the column already has;
  * a checkbox filters on ticked or not in one press, and so do "is empty" and
  * "is not empty", which compare with nothing; anything else takes a typed
  * value, which Enter or "Add filter" adds. The filter is session state and is
@@ -19,6 +19,7 @@ import { Popover, type Anchor } from "./Popover";
 import {
   distinctValues,
   filterOpsFor,
+  isChoice,
   opTakesValue,
   TYPE_GLYPH,
   type FilterOp,
@@ -139,7 +140,7 @@ export function FilterMenu({
             {`Shows the rows whose ${current.name} ${chosen === "is empty" ? "is blank" : "has a value"}.`}
           </Text>
         ) : null}
-        {!opTakesValue(chosen) ? null : current.type === "select" || current.type === "person" ? (
+        {!opTakesValue(chosen) ? null : isChoice(current.type) ? (
           <View>
             {distinctValues(sheet, current.name).map((v) => {
               const on = editing !== undefined && v === value;
@@ -175,7 +176,7 @@ export function FilterMenu({
             />
           </View>
         )}
-        {editing === undefined && (!opTakesValue(chosen) || current.type === "select" || current.type === "person") ? null : (
+        {editing === undefined && (!opTakesValue(chosen) || isChoice(current.type)) ? null : (
           <View style={styles.foot}>
             {editing === undefined ? null : (
               <Pressable
@@ -192,7 +193,7 @@ export function FilterMenu({
                 </Text>
               </Pressable>
             )}
-            {!opTakesValue(chosen) || current.type === "select" || current.type === "person" ? null : (
+            {!opTakesValue(chosen) || isChoice(current.type) ? null : (
               <Pressable
                 accessibilityRole="button"
                 disabled={value.trim() === ""}

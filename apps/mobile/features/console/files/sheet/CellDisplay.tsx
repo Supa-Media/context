@@ -10,7 +10,11 @@ import { Text } from "../../../design/components/Text";
 import { pointerType, radii, space } from "../../../design/tokens";
 import { useFieldFont } from "../../../design/fieldFont";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import { splitOptions } from "../../../../../mcp/src/sheets/csv.js";
 import { displayText, type ColumnType } from "./sheetModel";
+
+import { CHIP_GAP, chipsThatFit, WRAP_LINES } from "./columnLayout";
+
 
 /** The chip tints a select cell cycles through, by the option's first-seen order. */
 export function optionTone(colors: Colors, index: number): { dot: string; wash: string } {
@@ -28,11 +32,20 @@ export function CellDisplay({
   type,
   text,
   optionIndex,
+  options = [],
+  wrap = false,
+  room = 0,
 }: {
   type: ColumnType;
   text: string;
   /** Where a select's value is among the column's options, first seen first. */
   optionIndex: number;
+  /** A multi-select column's options, first seen first, which pick each chip's tint. */
+  options?: readonly string[];
+  /** The column wraps: text runs onto more lines, and chips onto more rows. */
+  wrap?: boolean;
+  /** The width the cell's content has, for how many chips fit on one line. */
+  room?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -65,6 +78,31 @@ export function CellDisplay({
     );
   }
   if (text.trim() === "") return <Text variant="meta" style={styles.muted}>—</Text>;
+  if (type === "multiselect") {
+    const words = splitOptions(text) as string[];
+    const shown = wrap ? words.length : chipsThatFit(words, room);
+    const more = words.length - shown;
+    return (
+      <View style={[styles.chips, wrap && styles.chipsWrap]} testID="sheet-chips">
+        {words.slice(0, shown).map((word) => {
+          const tone = optionTone(colors, Math.max(0, options.indexOf(word)));
+          return (
+            <View key={word} style={[styles.chip, styles.chipInRow, { backgroundColor: tone.wash }]}>
+              <View style={[styles.dot, { backgroundColor: tone.dot }]} />
+              <Text variant="body" numberOfLines={1} style={[styles.text, font]}>
+                {word}
+              </Text>
+            </View>
+          );
+        })}
+        {more > 0 ? (
+          <View style={styles.more} accessibilityLabel={`${more} more`} testID="sheet-chips-more">
+            <Text variant="meta" style={styles.moreText}>{`+${more}`}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
   if (type === "select") {
     const tone = optionTone(colors, optionIndex);
     return (
@@ -97,8 +135,8 @@ export function CellDisplay({
     return (
       <Text
         variant="body"
-        numberOfLines={1}
-        style={[styles.link, font]}
+        numberOfLines={wrap ? WRAP_LINES : 1}
+        style={[styles.link, font, wrap && styles.wrapped]}
         accessibilityRole="link"
         onPress={() => {
           void Linking.openURL(text.trim());
@@ -109,7 +147,11 @@ export function CellDisplay({
     );
   }
   return (
-    <Text variant="body" numberOfLines={1} style={[styles.text, font, type === "usd" || type === "number" ? styles.number : null]}>
+    <Text
+      variant="body"
+      numberOfLines={wrap ? WRAP_LINES : 1}
+      style={[styles.text, font, type === "usd" || type === "number" ? styles.number : null, wrap && styles.wrapped]}
+    >
       {displayText(type, text)}
     </Text>
   );
@@ -148,6 +190,12 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.sm,
       maxWidth: "100%",
     },
+    chips: { flexDirection: "row", alignItems: "center", gap: CHIP_GAP, maxWidth: "100%", overflow: "hidden" },
+    chipsWrap: { flexWrap: "wrap" },
+    chipInRow: { flexShrink: 1, minWidth: 0 },
+    more: { height: 22, paddingHorizontal: 6, borderRadius: radii.sm, backgroundColor: colors.chipFill, justifyContent: "center" },
+    moreText: { color: colors.muted, fontVariant: ["tabular-nums"] },
+    wrapped: { lineHeight: 18 },
     dot: { width: 7, height: 7, borderRadius: 2 },
     person: { flexDirection: "row", alignItems: "center", gap: space.x2, maxWidth: "100%" },
     avatar: {

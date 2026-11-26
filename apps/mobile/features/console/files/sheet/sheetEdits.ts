@@ -14,9 +14,11 @@ import {
   cellProblem,
   changeRows,
   deleteColumn,
+  joinOptions,
   parseSheet,
   renameColumn,
   serializeSheet,
+  setColumnLayout,
   setColumnType,
   typedValue,
 } from "../../../../../mcp/src/sheets/csv.js";
@@ -24,7 +26,7 @@ import type { ColumnType } from "./sheetModel";
 
 /** The parsed shape the csv functions take and return. */
 interface SheetShape {
-  columns: { name: string; type: string }[];
+  columns: { name: string; type: string; wrap?: boolean; width?: number }[];
   rows: Record<string, string>[];
 }
 
@@ -48,6 +50,7 @@ const addTo = addColumn as unknown as (sheet: SheetShape, options: { name: strin
 export function storedValue(type: ColumnType, text: string): string {
   const s = text.trim();
   if ((type === "number" || type === "usd") && s !== "" && !cellProblem(type, s)) return String(typedValue(type, s));
+  if (type === "multiselect") return joinOptions([s]) as string;
   return s;
 }
 
@@ -126,4 +129,14 @@ export function removeColumn(text: string, name: string): string {
 /** The column's index in the file's header, or -1. */
 export function columnIndex(text: string, name: string): number {
   return load(text).columns.findIndex((c) => c.name === name);
+}
+
+/** Wrap a column's cells, or not: written into its header, so everyone who opens the sheet sees the same. */
+export function setColumnWrap(text: string, name: string, wrap: boolean): string {
+  return serializeSheet(setColumnLayout(load(text), name, { wrap }));
+}
+
+/** A column's width in pixels, or null to share the grid's width again: written into its header. */
+export function setColumnWidth(text: string, name: string, width: number | null): string {
+  return serializeSheet(setColumnLayout(load(text), name, { width }));
 }

@@ -19,6 +19,11 @@
  * On a touch screen a tap selects a cell and a tap on the selected cell edits
  * it, which a line under the filter bar says until the first edit.
  *
+ * A column's wrap and width are written into its header, like its type, so
+ * everyone who opens the sheet sees the same layout: the column menu's Wrap
+ * text, and a drag on a header's edge (a double-click fits it; a phone uses
+ * the column menu's stepper).
+ *
  * A file whose text the grid cannot hold without losing some of it (a row with
  * more cells than the header, two columns of one name) opens read-only and
  * says why: any edit rewrites the whole file, and would drop what did not fit.
@@ -38,7 +43,8 @@ import { SheetHead } from "./SheetHead";
 import { SyncedBanner } from "./SyncedBanner";
 import { SheetSourcesButton } from "./SheetSources";
 import { measureNode, type Anchor } from "./Popover";
-import { GRID_CHROME_HEIGHT, SheetGrid, type GridEditing, type RowMark } from "./SheetGrid";
+import { GRID_CHROME_HEIGHT, SheetGrid, type FinishHow, type GridEditing, type RowMark } from "./SheetGrid";
+import { fitWidth } from "./columnLayout";
 import { RowMenu } from "./RowMenu";
 import { useSheetHistory } from "./useSheetHistory";
 import { isApplePlatform } from "../../../design/applePlatform";
@@ -56,6 +62,8 @@ import {
   removeColumn,
   renameColumnText,
   retypeColumn,
+  setColumnWidth,
+  setColumnWrap,
 } from "./sheetEdits";
 import {
   calcFor,
@@ -133,9 +141,12 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   // A row drawn apart: its menu is open, or it waits for a second Cmd/Ctrl+Backspace.
   const [rowMark, setRowMark] = useState<RowMark | null>(null);
   const [editedOnce, setEditedOnce] = useState(false);
+  const [overEdge, setOverEdge] = useState(false);
   // The height the pane leaves the grid when the sheet fills it. Measured off a flex slot whose size the
   // grid never sets (flex basis 0, no min height), so the rows' height cannot feed back into it.
   const [slotHeight, setSlotHeight] = useState<number | null>(null);
+  // Each column's drawn width, written by the grid as it draws: the phone's width stepper starts from it.
+  const drawnWidths = useRef<Record<string, number>>({});
   const { commit, undo } = useSheetHistory(path, text, onChangeText);
   useEffect(() => {
     setSelection(null);
@@ -171,11 +182,11 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const valueAt = (row: number, col: string) => cellOf(sheet, row, col);
   const columnNamed = (name: string): SheetColumn | undefined => sheet.columns.find((c) => c.name === name);
 
-  const startEdit = (row: number, col: string, draft: string) => {
+  const startEdit = (row: number, col: string, draft: string, typed?: string) => {
     const column = columnNamed(col);
     if (readOnly || !column || column.type === "checkbox") return;
     setSelection({ row, col });
-    setEditing({ row, col, draft });
+    setEditing(typed === undefined ? { row, col, draft } : { row, col, draft, typed });
     setEditedOnce(true);
   };
 
@@ -290,7 +301,9 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
       e.preventDefault();
       // A date opens its picker on what is there: a typed character is not a date. Anything else starts with the
       // typed character as its first text, so it is not also typed into the field.
-      startEdit(selection.row, selection.col, column.type === "date" ? valueAt(selection.row, selection.col) : e.key);
+      // A multi-select keeps its chips and takes the character as the start of a new option.
+      if (column.type === "multiselect") startEdit(selection.row, selection.col, valueAt(selection.row, selection.col), e.key);
+      else startEdit(selection.row, selection.col, column.type === "date" ? valueAt(selection.row, selection.col) : e.key);
     }
   };
 
@@ -440,6 +453,14 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     updateView((v) => dropFromView(v, name));
   };
 
+  const setWrap = (name: string, wrap: boolean) => commit((t) => setColumnWrap(t, name, wrap));
+  const setWidth = (name: string, width: number | "fit") => {
+    const column = columnNamed(name);
+    if (readOnly || !column) return;
+    const next = width === "fit" ? fitWidth(sheet, column, order) : width;
+    commit((t) => setColumnWidth(t, name, next));
+  };
+
   const openColumn = (name: string, anchor: Anchor | null) => setMenu({ kind: "column", column: name, anchor });
   const openCalc = (name: string, anchor: Anchor | null) => setMenu({ kind: "calc", column: name, anchor });
 
@@ -458,6 +479,8 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const armedRow = rowMark?.tone === "armed" && menu === null ? order.indexOf(rowMark.row) : -1;
   const mac = isApplePlatform();
   const hidden = view.hidden.filter((name) => sheet.columns.some((c) => c.name === name));
+  const editingMulti = editing !== null && columnNamed(editing.col)?.type === "multiselect";
+  const finishHow: Record<FinishHow, [number, number] | null> = { enter: [1, 0], tab: [0, 1], backtab: [0, -1], save: [0, 0], blur: null };
 
   return (
     <View style={[styles.root, fill && styles.rootFill]} testID="sheet-view">
@@ -502,7 +525,15 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
           onFlipSort={() => updateView((v) => (v.sort ? { ...v, sort: { ...v.sort, direction: v.sort.direction === "asc" ? "desc" : "asc" } } : v))}
           onClearSort={() => updateView((v) => ({ ...v, sort: null }))}
           onClear={() => updateView((v) => ({ ...v, filters: [], sort: null }))}
-          hint={readOnly ? undefined : "Double-click to edit · click a column name to change its type"}
+          hint={
+            readOnly
+              ? undefined
+              : editingMulti
+                ? "↵ adds · ⌫ removes the last · Esc saves"
+                : overEdge
+                  ? "Drag a column's edge to resize · double-click it to fit"
+                  : "Double-click to edit · click a column name to change its type"
+          }
           warning={
             armedRow < 0
               ? undefined
@@ -548,7 +579,14 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
             if (open) setEditing({ ...open, draft: value });
           }}
           onPick={pick}
-          onFinishEdit={(how) => finishEdit(how === "enter" ? [1, 0] : null)}
+          onFinishEdit={(how) => finishEdit(finishHow[how])}
+          touch={touch}
+          onResize={readOnly ? undefined : (name, width) => setWidth(name, width)}
+          onEdgeHover={setOverEdge}
+          widthsOut={drawnWidths}
+          {...(fill && slotHeight !== null
+            ? { maxBodyHeight: slotHeight - GRID_CHROME_HEIGHT - (readOnly ? 0 : NEW_ROW_SPACE) - SCROLLBAR_SLACK }
+            : {})}
           editorKeys={editorKeys}
           rowMark={rowMark}
           onOpenRow={
@@ -559,9 +597,6 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
                   setMenu({ kind: "row", row, anchor });
                 }
           }
-          {...(fill && slotHeight !== null
-            ? { maxBodyHeight: slotHeight - GRID_CHROME_HEIGHT - (readOnly ? 0 : NEW_ROW_SPACE) - SCROLLBAR_SLACK }
-            : {})}
         />
       </View>
       {readOnly ? null : (
@@ -586,7 +621,10 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
               onInsert: (side) => addColumnAt(side, menu.column),
               onHide: () => updateView((v) => ({ ...v, hidden: [...v.hidden, menu.column] })),
               onDelete: () => deleteColumn(menu.column),
+              onWrap: (wrap) => setWrap(menu.column, wrap),
+              onWidth: (width) => setWidth(menu.column, width),
             }}
+            width={drawnWidths.current[menu.column] ?? openColumnObject.width ?? 0}
           />
         )
       ) : menu.kind === "calc" ? (

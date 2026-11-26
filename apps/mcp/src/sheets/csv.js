@@ -52,9 +52,36 @@ export function isSheetPath(path) {
   return isSheetKind(path);
 }
 
-/** `renews:date` → { name: "renews", type: "date" }; `notes` → text. */
+/** A column's layout after its type: `wrap` and a width in pixels, `w320`. */
+const LAYOUT_WRAP = "wrap";
+const LAYOUT_WIDTH = /^w(\d{1,4})$/;
+export const MIN_COLUMN_WIDTH = 48;
+export const MAX_COLUMN_WIDTH = 2000;
+
+/**
+ * `renews:date` → { name: "renews", type: "date" }; `notes` → text.
+ * A column's layout rides after its type, so every reader sees the same
+ * sheet: `notes:text:wrap:w320` wraps and is 320 wide. Layout without a
+ * known type before it is not layout: the whole cell stays the name.
+ */
 export function parseHeaderCell(cell) {
   const raw = String(cell ?? "").trim();
+  const parts = raw.split(":");
+  const layout = {};
+  let end = parts.length;
+  while (end > 2) {
+    const token = parts[end - 1].trim().toLowerCase();
+    const width = LAYOUT_WIDTH.exec(token);
+    if (token === LAYOUT_WRAP && !layout.wrap) layout.wrap = true;
+    else if (width && layout.width === undefined) layout.width = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Number(width[1])));
+    else break;
+    end -= 1;
+  }
+  if (end < parts.length) {
+    const type = parts[end - 1].trim().toLowerCase();
+    const name = parts.slice(0, end - 1).join(":").trim();
+    if (TYPE_SET.has(type) && name) return { name, type, ...layout };
+  }
   const at = raw.lastIndexOf(":");
   if (at > 0) {
     const type = raw.slice(at + 1).trim().toLowerCase();
@@ -65,7 +92,23 @@ export function parseHeaderCell(cell) {
 }
 
 export function renderHeaderCell(column) {
-  return column.type && column.type !== "text" ? `${column.name}:${column.type}` : column.name;
+  const layout = [column.wrap ? LAYOUT_WRAP : "", Number.isInteger(column.width) ? `w${column.width}` : ""].filter(Boolean);
+  const type = column.type || "text";
+  if (layout.length) return [column.name, type, ...layout].join(":");
+  return type !== "text" ? `${column.name}:${type}` : column.name;
+}
+
+/** A column's wrap and width changed; every value and the rest of the header stay as they were. */
+export function setColumnLayout(sheet, name, { wrap, width } = {}) {
+  const column = findColumn(sheet, name);
+  if (!column) return sheet;
+  const next = { ...column };
+  if (wrap !== undefined) { if (wrap) next.wrap = true; else delete next.wrap; }
+  if (width !== undefined) {
+    if (width === null) delete next.width;
+    else next.width = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Math.round(width)));
+  }
+  return { columns: sheet.columns.map((c) => (c === column ? next : c)), rows: sheet.rows };
 }
 
 /** RFC 4180 records: quoted fields, doubled quotes, CRLF or LF, newlines inside quotes. */
@@ -224,7 +267,7 @@ export function selectOptions(sheet, name) {
 
 /* ------------------------------- querying -------------------------------- */
 
-export const FILTER_OPS = Object.freeze(["is", "is not", "has", "has not", "contains", ">", "<", ">=", "<=", "after", "before", "is empty", "is not empty"]);
+export const FILTER_OPS = Object.freeze(["is", "is not", "has", "has no", "contains", ">", "<", ">=", "<=", "after", "before", "is empty", "is not empty"]);
 
 function findColumn(sheet, name) {
   const key = String(name ?? "").trim().toLowerCase();
@@ -268,7 +311,7 @@ export function rowMatches(sheet, row, filter) {
     case "contains": return value.toLowerCase().includes(want.toLowerCase());
     // One of the cell's options: a multiselect's, split on commas, or any other cell's whole value.
     case "has": return hasOption(column, value, want);
-    case "has not": return !hasOption(column, value, want);
+    case "has no": return !hasOption(column, value, want);
     case ">": case "after": return value !== "" && compare(column.type, value, want) > 0;
     case "<": case "before": return value !== "" && compare(column.type, value, want) < 0;
     case ">=": return value !== "" && compare(column.type, value, want) >= 0;

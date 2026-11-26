@@ -7,6 +7,12 @@
  * (a long-press on a phone) opens the row's menu. The footer's gutter cell
  * holds how many rows show, in the accent while a filter narrows them.
  *
+ * A column's width comes from its header when someone set one, by dragging
+ * its header's edge (double-click fits it) or with the phone's stepper; the
+ * rest share the grid's width. A column set to wrap grows its rows to fit, up
+ * to six lines, and then the list measures each row instead of assuming one
+ * height.
+ *
  * It draws and reports. Selection, editing and every change are the parent's,
  * so the keyboard and the pointer both go through the same handlers.
  */
@@ -19,6 +25,20 @@ import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { selectOptions } from "../../../../../mcp/src/sheets/csv.js";
 import { CellDisplay } from "./CellDisplay";
 import { CellEditor, type EditorKeys } from "./CellEditor";
+import {
+  columnWidths,
+  COLUMN_WIDTH,
+  dragWidth,
+  estimateRowHeight,
+  fitWidth,
+  NARROW_COLUMN_WIDTH,
+  ROW_HEIGHT,
+  WRAP_PAD,
+  wraps,
+} from "./columnLayout";
+import { MultiSelectPanel } from "./MultiSelectPanel";
+import { MultiSelectSheet } from "./MultiSelectSheet";
+import { ResizeEdge } from "./ResizeEdge";
 import { measureNode, type Anchor } from "./Popover";
 import {
   calcFor,
@@ -30,9 +50,7 @@ import {
   type SheetViewState,
 } from "./sheetModel";
 
-export const ROW_HEIGHT = 34;
-export const COLUMN_WIDTH = 168;
-const NARROW_COLUMN_WIDTH = 128;
+export { COLUMN_WIDTH, ROW_HEIGHT };
 const GUTTER_WIDTH = 44;
 const ADD_WIDTH = 44;
 /** The body's height where nothing gives it more room: a phone, whose page scrolls, and a test. */
@@ -42,10 +60,15 @@ export const GRID_CHROME_HEIGHT = 66;
 /** The fewest rows a grid squeezed by a short window still shows. */
 const MIN_BODY_ROWS = 3;
 
+/** How an editor closed: "enter" saves and moves down, "tab"/"backtab" across, "save" stays, "blur" only saves. */
+export type FinishHow = "enter" | "tab" | "backtab" | "save" | "blur";
+
 export interface GridEditing {
   row: number;
   col: string;
   draft: string;
+  /** A multi-select opened by a typed character: the field starts with it. */
+  typed?: string;
 }
 
 /** A row drawn apart: its menu is open, or a delete of it waits for a second press. */
@@ -73,6 +96,10 @@ export function SheetGrid({
   editorKeys,
   rowMark = null,
   onOpenRow,
+  touch = false,
+  onResize,
+  onEdgeHover,
+  widthsOut,
   maxBodyHeight,
 }: {
   sheet: SheetData;
@@ -91,13 +118,21 @@ export function SheetGrid({
   onOpenCalc: (name: string, anchor: Anchor | null) => void;
   onDraft: (value: string) => void;
   onPick: (value: string) => void;
-  /** Commit the editor: `"enter"` also moves down, `"blur"` only commits. */
-  onFinishEdit: (how: "enter" | "blur") => void;
+  /** Commit the editor, and move as `how` says. */
+  onFinishEdit: (how: FinishHow) => void;
   /** The open editor's own keys (a suggestion list's arrows), read by the grid's handler first. */
   editorKeys?: MutableRefObject<EditorKeys | null>;
   rowMark?: RowMark | null;
   /** Open a row's menu from its number. Left out on a read-only sheet. */
   onOpenRow?: (row: number, anchor: Anchor | null) => void;
+  /** A touch screen: a multi-select edits in a sheet from the bottom, and no edge drags. */
+  touch?: boolean;
+  /** A column's edge was dragged or double-clicked: its new width. Left out on a read-only sheet. */
+  onResize?: (name: string, width: number) => void;
+  /** The pointer is over a column's edge, or left it: the hint says what the edge does. */
+  onEdgeHover?: (over: boolean) => void;
+  /** Filled with each column's drawn width at every draw. */
+  widthsOut?: MutableRefObject<Record<string, number>>;
   /**
    * The most the rows may take, when the sheet fills the pane: the room the
    * pane has left under the head, less the grid's own bands. Absent, the body
@@ -112,10 +147,18 @@ export function SheetGrid({
   const calcRefs = useRef<Record<string, View | null>>({});
   const gutterRefs = useRef<Record<number, View | null>>({});
   const [hovered, setHovered] = useState<number | null>(null);
+  const cellRefs = useRef<Record<string, View | null>>({});
+  // The column being dragged and the width it has so far: drawn live, saved on release.
+  const [drag, setDragState] = useState<{ name: string; start: number; width: number } | null>(null);
+  const dragRef = useRef<{ name: string; start: number; width: number } | null>(null);
+  const setDrag = (next: { name: string; start: number; width: number } | null) => {
+    dragRef.current = next;
+    setDragState(next);
+  };
 
   const options = useMemo(() => {
     const out: Record<string, string[]> = {};
-    for (const c of columns) if (c.type === "select") out[c.name] = selectOptions(sheet, c.name);
+    for (const c of columns) if (c.type === "select" || c.type === "multiselect") out[c.name] = selectOptions(sheet, c.name);
     return out;
   }, [sheet, columns]);
 
@@ -129,16 +172,24 @@ export function SheetGrid({
     }
   }, [selectedIndex]);
 
-  // Columns share the width the grid has, as a table does, and never go narrower than COLUMN_WIDTH: past that the grid scrolls.
+  // A column with a width keeps it; the rest share the width the grid has, as a table does, and never go narrower
+  // than COLUMN_WIDTH: past that the grid scrolls.
   const [frameWidth, setFrameWidth] = useState(0);
   const chrome = GUTTER_WIDTH + (readOnly ? 0 : ADD_WIDTH) + 2;
   // A phone's screen takes narrower columns, as the approved phone design draws them.
   const minWidth = frameWidth > 0 && frameWidth < 600 ? NARROW_COLUMN_WIDTH : COLUMN_WIDTH;
-  const colWidth = columns.length === 0 ? minWidth : Math.max(minWidth, Math.floor((frameWidth - chrome) / columns.length));
-  const width = { width: colWidth };
-  const bodyWidth = GUTTER_WIDTH + columns.length * colWidth + (readOnly ? 0 : ADD_WIDTH);
+  const widths = columnWidths(columns, frameWidth - chrome, minWidth, drag ? { name: drag.name, width: drag.width } : null);
+  const widthOf: Record<string, { width: number }> = Object.fromEntries(columns.map((c, i) => [c.name, { width: widths[i] }]));
+  if (widthsOut) widthsOut.current = Object.fromEntries(columns.map((c, i) => [c.name, widths[i]]));
+  const bodyWidth = GUTTER_WIDTH + widths.reduce((sum, w) => sum + w, 0) + (readOnly ? 0 : ADD_WIDTH);
+  // Rows grow to their wrapped cells, so the list measures them; without wrapping every row is one height.
+  const wrapping = columns.some(wraps);
   const bodyCap = maxBodyHeight === undefined ? MAX_BODY_HEIGHT : Math.max(MIN_BODY_ROWS * ROW_HEIGHT, maxBodyHeight);
-  const bodyHeight = Math.min(bodyCap, Math.max(1, order.length) * ROW_HEIGHT);
+  const bodyHeight = wrapping
+    ? Math.min(bodyCap, Math.max(ROW_HEIGHT, order.slice(0, 60).reduce((sum, row) => sum + estimateRowHeight(sheet, row, columns, widths), 0)))
+    : Math.min(bodyCap, Math.max(1, order.length) * ROW_HEIGHT);
+  // The rule the drag draws down the grid, at the dragged column's right edge.
+  const dragAt = drag ? GUTTER_WIDTH + widths.slice(0, columns.findIndex((c) => c.name === drag.name) + 1).reduce((sum, w) => sum + w, 0) : 0;
   const shownCount = order.length;
 
   const renderRow = ({ item: row, index }: ListRenderItemInfo<number>) => {
@@ -149,7 +200,7 @@ export function SheetGrid({
     const openRow = () => measureNode(gutterRefs.current[row], (anchor) => onOpenRow?.(row, anchor));
     return (
       <View
-        style={[styles.row, hover && styles.rowHover, mark === "menu" && styles.rowMenu, mark === "armed" && styles.rowArmed]}
+        style={[styles.row, wrapping && styles.rowTall, hover && styles.rowHover, mark === "menu" && styles.rowMenu, mark === "armed" && styles.rowArmed]}
         onPointerEnter={() => setHovered(row)}
         onPointerLeave={() => setHovered((h) => (h === row ? null : h))}
         testID="sheet-row"
@@ -164,7 +215,7 @@ export function SheetGrid({
           // A pointer presses the ⋯; a phone, where a tap on the number is easy to make by mistake, holds it.
           onPress={Platform.OS === "web" ? openRow : undefined}
           onLongPress={openRow}
-          style={[styles.gutter, hover && styles.gutterHover, mark === "armed" && styles.gutterArmed]}
+          style={[styles.gutter, wrapping && styles.tall, wrapping && styles.tallTop, hover && styles.gutterHover, mark === "armed" && styles.gutterArmed]}
           testID="sheet-row-handle"
         >
           {handle ? (
@@ -184,12 +235,43 @@ export function SheetGrid({
           const isEditing = editing !== null && editing.row === row && editing.col === c.name;
           const text = sheet.rows[row]?.[c.name] ?? "";
           const optionIndex = c.type === "select" ? (options[c.name] ?? []).indexOf(text.trim()) : -1;
+          const wrapped = wraps(c);
           const cellStyle = [
             styles.cell,
-            width,
+            widthOf[c.name],
+            wrapping && styles.tall,
+            wrapping && styles.tallTop,
             isNumeric(c.type) && styles.cellNumber,
             focused && { borderColor: colors.accent, borderWidth: 2, zIndex: 1 },
           ];
+          if (isEditing && editing && c.type === "multiselect") {
+            const finish = (how: FinishHow) => onFinishEdit(how);
+            const anchor = { current: cellRefs.current[c.name] ?? null };
+            return (
+              <View
+                key={c.name}
+                ref={(node) => {
+                  cellRefs.current[c.name] = node;
+                }}
+                style={cellStyle}
+                testID="sheet-cell"
+              >
+                <CellDisplay type={c.type} text={editing.draft} optionIndex={-1} options={options[c.name] ?? []} wrap={wrapped} room={widths[columns.indexOf(c)] - 16} />
+                {touch ? (
+                  <MultiSelectSheet
+                    label={c.name}
+                    rowLabel={columns[0] && columns[0] !== c ? (sheet.rows[row]?.[columns[0].name] ?? "").trim() : ""}
+                    draft={editing.draft}
+                    options={options[c.name] ?? []}
+                    onDraft={onDraft}
+                    onFinish={finish}
+                  />
+                ) : (
+                  <MultiSelectPanel label={c.name} draft={editing.draft} initialTyped={editing.typed ?? ""} options={options[c.name] ?? []} anchor={anchor} onDraft={onDraft} onFinish={finish} />
+                )}
+              </View>
+            );
+          }
           if (isEditing && editing) {
             return (
               <View key={c.name} style={[...cellStyle, styles.editing]} testID="sheet-cell">
@@ -216,11 +298,18 @@ export function SheetGrid({
               style={cellStyle}
               testID="sheet-cell"
             >
-              <CellDisplay type={c.type} text={text} optionIndex={optionIndex} />
+              <CellDisplay
+                type={c.type}
+                text={text}
+                optionIndex={optionIndex}
+                options={options[c.name] ?? []}
+                wrap={wrapped}
+                room={widths[columns.indexOf(c)] - 16}
+              />
             </Pressable>
           );
         })}
-        {readOnly ? null : <View style={styles.addCell} />}
+        {readOnly ? null : <View style={[styles.addCell, wrapping && styles.tall]} />}
       </View>
     );
   };
@@ -236,16 +325,17 @@ export function SheetGrid({
           </View>
           {columns.map((c) => {
             const sort = view.sort?.column === c.name ? view.sort.direction : null;
+            const dragging = drag?.name === c.name;
             return (
+              <View key={c.name} style={[styles.headSlot, widthOf[c.name]]}>
               <Pressable
-                key={c.name}
                 ref={(node) => {
                   headerRefs.current[c.name] = node;
                 }}
                 accessibilityRole="button"
                 accessibilityHint="Column menu"
                 onPress={() => measureNode(headerRefs.current[c.name], (anchor) => onOpenColumn(c.name, anchor))}
-                style={[styles.headCell, width]}
+                style={[styles.headCell, widthOf[c.name], dragging && styles.headDragging]}
                 testID="sheet-header"
               >
                 <Text variant="mono" numberOfLines={1} style={styles.typeGlyph} accessibilityLabel={c.type}>
@@ -260,6 +350,26 @@ export function SheetGrid({
                   </Text>
                 )}
               </Pressable>
+              {onResize === undefined || touch ? null : (
+                <ResizeEdge
+                  name={c.name}
+                  active={dragging}
+                  color={colors.accent}
+                  onStart={() => setDrag({ name: c.name, start: widthOf[c.name].width, width: widthOf[c.name].width })}
+                  onMove={(moved) => {
+                    const d = dragRef.current;
+                    if (d && d.name === c.name) setDrag({ ...d, width: dragWidth(d.start, moved) });
+                  }}
+                  onEnd={() => {
+                    const d = dragRef.current;
+                    setDrag(null);
+                    if (d && d.name === c.name && d.width !== d.start) onResize(c.name, d.width);
+                  }}
+                  onFit={() => onResize(c.name, fitWidth(sheet, c, order))}
+                  onHover={(over) => onEdgeHover?.(over)}
+                />
+              )}
+              </View>
             );
           })}
           {readOnly ? null : (
@@ -275,7 +385,11 @@ export function SheetGrid({
           data={order}
           keyExtractor={(row) => String(row)}
           renderItem={renderRow}
-          getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+          // Every row one height until a column wraps; then the list measures, and a scroll to a row not yet drawn waits for it.
+          getItemLayout={wrapping ? undefined : (_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+          onScrollToIndexFailed={(info) => {
+            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+          }}
           style={{ height: bodyHeight }}
           initialNumToRender={20}
           keyboardShouldPersistTaps="handled"
@@ -300,7 +414,7 @@ export function SheetGrid({
             if (c.type === "checkbox") {
               const checked = order.filter((r) => sheet.rows[r]?.[c.name]?.trim() === "true").length;
               return (
-                <View key={c.name} style={[styles.footCell, width]}>
+                <View key={c.name} style={[styles.footCell, widthOf[c.name]]}>
                   <Text variant="meta" style={styles.footCount}>
                     {checked} checked
                   </Text>
@@ -318,7 +432,7 @@ export function SheetGrid({
                 accessibilityRole="button"
                 accessibilityLabel={`Calculate ${c.name}`}
                 onPress={() => measureNode(calcRefs.current[c.name], (anchor) => onOpenCalc(c.name, anchor))}
-                style={[styles.footCell, width, isNumeric(c.type) && styles.cellNumber]}
+                style={[styles.footCell, widthOf[c.name], isNumeric(c.type) && styles.cellNumber]}
                 testID="sheet-calc"
               >
                 {(state) =>
@@ -341,6 +455,7 @@ export function SheetGrid({
           })}
           {readOnly ? null : <View style={styles.addCell} />}
         </View>
+        {drag === null ? null : <View pointerEvents="none" style={[styles.dragRule, { left: dragAt - 1 }]} testID="sheet-drag-rule" />}
       </View>
     </ScrollView>
   );
@@ -350,7 +465,13 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     // `width: 100%`: the frame is as wide as the page and the table scrolls inside it, never the frame growing to the table.
     scroll: { width: "100%", borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, backgroundColor: colors.ground },
-    table: {},
+    table: { position: "relative" },
+    headSlot: { position: "relative" },
+    headDragging: { backgroundColor: colors.surface3 },
+    dragRule: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: colors.accent, zIndex: 4 },
+    rowTall: { height: "auto" as unknown as number, minHeight: ROW_HEIGHT, alignItems: "stretch" },
+    tall: { height: "auto" as unknown as number, minHeight: ROW_HEIGHT },
+    tallTop: { justifyContent: "flex-start", paddingVertical: WRAP_PAD },
     header: { flexDirection: "row", height: 32, backgroundColor: colors.surface2, borderBottomWidth: 1, borderColor: colors.line },
     gutterHead: { width: GUTTER_WIDTH, borderRightWidth: 1, borderColor: colors.line, backgroundColor: colors.surface2 },
     gutterHeadMark: { alignItems: "flex-end", justifyContent: "center", paddingHorizontal: space.x2 },

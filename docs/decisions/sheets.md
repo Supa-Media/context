@@ -17,10 +17,24 @@ A select column's options are the distinct values already in it.
 A `multiselect` cell holds several options joined with ", ", the way Notion and
 Airtable export them, so any spreadsheet shows the cell as readable text and an
 option never contains a comma (a single `select` option may). The filters
-`has` and `has not` match one whole option of the cell, never part of one;
+`has` and `has no` match one whole option of the cell, never part of one;
 `is` still compares the whole cell. Asked for by the owner, 2026-11-26.
 `sheets.test.mjs` fails if `has` matches a substring or a written value is not
 stored tidy.
+
+## A column's layout rides in the header too
+
+A column's wrap and width follow its type in the header cell:
+`Try saying:text:wrap:w320` wraps that column's cells and draws it 320 pixels
+wide, for everyone who opens the sheet, as Google Sheets keeps column widths
+with the file. Decided by the owner, 2026-11-26: a layout kept per device or
+per person was offered, and the owner chose the file ("we are able to save
+drawings in just 1 file, why would csv be any different"), accepting a longer
+header in other spreadsheets ("people can always delete the header row").
+Layout tokens count only after a known type, so `notes:wrap` is still a text
+column of that name. Filters, sorts, hidden columns and footer sums stay the
+session's view and are never written. `sheets.test.mjs` fails if layout parses
+without a type before it, or a rename or retype drops it.
 
 The file is the whole truth: no sidecar, no YAML, no database beside it. The
 owner turned a sidecar down ("a YAML and a CSV, that feels like a lot"). Any
@@ -75,8 +89,8 @@ cells wrote a quotation, never an instruction.
 
 ## What is deliberately not built
 
-No chart tab, no source tab, no formulas, no per-sheet views saved in the
-file, and no metric-specific UI: the grid is generic and works in any folder.
+No chart tab, no source tab, no formulas, no per-sheet views (filters, sorts,
+hidden columns) saved in the file, and no metric-specific UI: the grid is generic and works in any folder.
 Formulas over sheets live in metric notes, not in cells
 ([data-and-metrics](./data-and-metrics.md), 2026-11-24).
 Search does not index a sheet's cells yet, and `manage` move takes notes only,

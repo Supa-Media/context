@@ -18,7 +18,7 @@ import { test } from "node:test";
 import {
   addColumn, cellProblem, changeRows, dateMs, deleteColumn, isSheetPath, latestByGroup, MAX_SHEET_ROWS,
   moveColumn, newSheetText, parseCsvRecords, parseHeaderCell, parseSheet, querySheet, queryProblems,
-  joinOptions, renameColumn, selectOptions, serializeSheet, setColumnType, splitOptions, typedValue,
+  joinOptions, renameColumn, selectOptions, setColumnLayout, serializeSheet, setColumnType, splitOptions, typedValue,
 } from "../src/sheets/csv.js";
 
 const METRICS = [
@@ -53,6 +53,24 @@ test("a header colon that is not a type stays in the name", () => {
   assert.deepEqual(parseHeaderCell("ratio:Number"), { name: "ratio", type: "number" });
   assert.deepEqual(parseHeaderCell(":date"), { name: ":date", type: "text" });
   assert.deepEqual(parseHeaderCell("ends 10:30:date"), { name: "ends 10:30", type: "date" });
+});
+
+test("a column's wrap and width ride after its type, and round-trip", () => {
+  assert.deepEqual(parseHeaderCell("Try saying:text:wrap:w320"), { name: "Try saying", type: "text", wrap: true, width: 320 });
+  assert.deepEqual(parseHeaderCell("tags:multiselect:w5000"), { name: "tags", type: "multiselect", width: 2000 });
+  assert.deepEqual(parseHeaderCell("ends 10:30:date:wrap"), { name: "ends 10:30", type: "date", wrap: true });
+  // Layout with no known type before it is part of the name.
+  assert.deepEqual(parseHeaderCell("notes:wrap"), { name: "notes:wrap", type: "text" });
+  assert.deepEqual(parseHeaderCell("plan:w2"), { name: "plan:w2", type: "text" });
+  const sheet = parseSheet("Area,Try saying\nNotes,hi\n");
+  const wide = setColumnLayout(sheet, "try saying", { wrap: true, width: 319.6 });
+  assert.equal(serializeSheet(wide), "Area,Try saying:text:wrap:w320\nNotes,hi\n");
+  assert.deepEqual(parseSheet(serializeSheet(wide)).columns, wide.columns);
+  const plain = setColumnLayout(wide, "Try saying", { wrap: false, width: null });
+  assert.equal(serializeSheet(plain).split("\n")[0], "Area,Try saying");
+  // Renaming and retyping keep the layout.
+  const renamed = setColumnType(renameColumn(wide, "Try saying", "Say"), "Say", "multiselect").sheet;
+  assert.equal(serializeSheet(renamed).split("\n")[0], "Area,Say:multiselect:wrap:w320");
 });
 
 test("quoted cells keep commas, quotes and newlines, and round-trip", () => {
@@ -132,16 +150,16 @@ test("a multiselect column keeps its options comma-joined in one cell, and its h
   assert.equal(serializeSheet(sheet).split("\n")[1], 'Rent,"home, money",Doing');
 });
 
-test("has and has not match one option of a multiselect cell, never part of one", () => {
+test("has and has no match one option of a multiselect cell, never part of one", () => {
   const sheet = parseSheet(TASKS);
   const has = (value) => querySheet(sheet, { where: [{ column: "tags", op: "has", value }] }).rows.map((r) => r.task);
   assert.deepEqual(has("money"), ["Rent", "Taxes"]);
   assert.deepEqual(has("Urgent"), ["Taxes"]);
   assert.deepEqual(has("mon"), []);
-  assert.deepEqual(querySheet(sheet, { where: [{ column: "tags", op: "has not", value: "money" }] }).rows.map((r) => r.task), ["Gym", "Nap"]);
+  assert.deepEqual(querySheet(sheet, { where: [{ column: "tags", op: "has no", value: "money" }] }).rows.map((r) => r.task), ["Gym", "Nap"]);
   // On any other column, has is the whole value.
   assert.deepEqual(querySheet(sheet, { where: [{ column: "stage", op: "has", value: "done" }] }).rows.map((r) => r.task), ["Gym", "Nap"]);
-  assert.equal(queryProblems(sheet, { where: [{ column: "tags", op: "has not", value: "x" }] }).length, 0);
+  assert.equal(queryProblems(sheet, { where: [{ column: "tags", op: "has no", value: "x" }] }).length, 0);
 });
 
 test("a multiselect value written by an agent is stored tidy", () => {
