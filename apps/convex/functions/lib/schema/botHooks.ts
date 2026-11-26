@@ -30,15 +30,10 @@ export const botHookTables = {
     lastCallStatus: v.optional(v.number()),
   }).index("by_workspace_bot", ["workspaceId", "bot"]),
   /**
-   * Whether a bot answers (`functions/botLogins.ts`): when it bound its login, Context mailed it a check, and this is
-   * when that went out and when the bot's own login last answered in mail. Healthy only when an answer came after
-   * the check; "not answering" once the check is older than a few minutes with none (Dev, 2026-11-26).
-   */
-  /**
-   * Which bot a connection is, in one workspace (`functions/botLogins.ts`): bound by the bot itself during its setup,
-   * so every mail line it writes there is signed by the bot, never by the app it connects through (Dev, 2026-11-26).
-   * Kept here and not on the grant: a grant is an access row, which a person's object holds and takes first, and this
-   * row changes nothing anyone may reach. A revoked grant ends it, since every read resolves the live grant first.
+   * Retired (2026-11-26), never read or written: a bot's binding is kept in its workspace's object
+   * (`apps/mcp/src/workspaceStore/mailBots.js`) and its health read from its check mail, since the control plane keeps
+   * sign-in and little else (Dev, 2026-11-26). Kept defined only until emptied: a push that drops a table still
+   * holding rows is refused. Same for `botHealth` below.
    */
   botLogins: defineTable({
     grantId: v.id("oauthGrants"),
@@ -49,6 +44,7 @@ export const botHookTables = {
     name: v.string(),
     at: v.number(),
   }).index("by_grant_workspace", ["grantId", "workspaceId"]),
+  /** Retired with `botLogins` above. */
   botHealth: defineTable({
     workspaceId: v.id("workspaces"),
     bot: v.string(),

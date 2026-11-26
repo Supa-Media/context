@@ -52,13 +52,6 @@ function unjoinedName(actor, bound) {
   return bound?.bot ?? mailName(actor?.client) ?? "agent";
 }
 
-/** Tells the control plane a bound bot answered, behind the response (`functions/botLogins.ts`): its check passes. */
-function noteAnswered(store, bound) {
-  if (bound === null || typeof store.botHooks !== "function") return;
-  const work = store.botHooks({ action: "answered" }).catch(() => null);
-  if (typeof store.defer === "function") store.defer(work);
-}
-
 function members(events) {
   return [...new Set(events.filter((event) => event.kind === "joined").map((event) => event.from))];
 }
@@ -223,7 +216,6 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     if (conflicted && attempt === 0) continue;
     if (written?.isError) return written;
     if (joined) return toolText(`${written.content[0].text}\n${joinedText(path, joined, events, false, store.mailTurn?.job, device)}`);
-    noteAnswered(store, bound);
     const delivered = typeof store.mail?.deliver === "function" ? await store.mail.deliver({ path, at, from: entry.from, app, to: entry.to, mailKind, text: request.text }).catch(() => []) : [];
     const sent = `${written.content[0].text}\nmail: sent${mailKind === "note" ? "" : ` (${mailKind})`} to ${entry.to} as ${entry.from} (${app})` + (delivered.length ? `; delivered at once to ${delivered.join(", ")}` : "");
     if (wait > 0) return toolText(`${sent}\n${await waitForAnswer(store, scope, rules, overrides, path, entry.from, entry.to, at, wait)}`);

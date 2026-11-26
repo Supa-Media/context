@@ -33,7 +33,7 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FolderListing } from "../features/console/files/types";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
-import { firstMailNote, threadOf } from "../features/console/files/folderPage/areas/areaMail";
+import { BOT_CHECK_MS, checkHealth, firstMailNote, threadOf } from "../features/console/files/folderPage/areas/areaMail";
 import { all, entry, host, mount, one, press, strip, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
 
 const NOTES: ListNote[] = [
@@ -140,6 +140,22 @@ describe("The bots folder", () => {
     expect(all("bot-panel")).toHaveLength(1);
     expect(strip(one("bot-panel-refresh").textContent)).toBe("Refresh");
     expect(strip(one("bot-panel-refreshed").textContent)).toMatch(/^Refreshed \d{1,2}:\d{2}/);
+  });
+
+  test("a bot answers when a line under its own name follows Context's setup check, read from that mail", () => {
+    // Dev, 2026-11-26: "marks the connection healthy only when the reply comes from the bot's own identity within a few
+    // minutes"; read from the note, so nothing about it lives in the account server.
+    const sent = firstMailNote("Grok Bot", "context", "Setup check from Context: answer here with one line.", "2026-11-26T20:00:00.000Z");
+    if ("error" in sent) throw new Error(sent.error);
+    const at = Date.parse("2026-11-26T20:00:00.000Z");
+    const check = threadOf(sent.text).check;
+    expect(checkHealth(check, ["grok-bot"], at + 1000)).toBe("checking");
+    expect(checkHealth(check, ["grok-bot"], at + BOT_CHECK_MS)).toBe("not answering");
+    const cursor = threadOf(sent.text.replace("```\n", "- 2026-11-26T20:01:00.000Z cursor--seyi (Cursor) to everyone: here\n```\n")).check;
+    expect(checkHealth(cursor, ["grok-bot"], at + BOT_CHECK_MS)).toBe("not answering");
+    const bot = threadOf(sent.text.replace("```\n", "- 2026-11-26T20:01:00.000Z grok-bot (Cursor) to everyone: here\n```\n")).check;
+    expect(checkHealth(bot, ["grok-bot"], at + BOT_CHECK_MS)).toBe("answering");
+    expect(checkHealth(threadOf("# Mail\n").check, ["grok-bot"])).toBeNull();
   });
 
   test("a mail note says when Refresh last went in it", () => {

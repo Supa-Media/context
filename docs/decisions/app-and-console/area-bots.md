@@ -129,16 +129,20 @@ keeps its notes there and knows what its modes ask of it.
      note, wake the main chat with its exact text, sender, time and path, and
      never write, reply or send from that run.
   2. The main chat binds its login: `manage area { bind_bot }`
-     (`apps/mcp/src/tools/notes/botBind.js`) keeps the bot on the grant
-     (`oauthGrants.bots`, `apps/convex/functions/botLogins.ts`), cleared as an
-     owner or editor and, for a card with `belongs_to:`, only by that person
-     or an owner. Every mail line that login writes there is signed by the
-     bot and its reads say the bot; it joins only as the bot; and another
-     connection joining or sending under a bot's name is refused.
-  3. Binding mails the bot a check (`<card folder>/mail/context.md`). Its card
-     says "not answering" when its own login sends no mail within 5 minutes
-     of the check (`botHealth`, worked out when read), shown on the bot's page
-     and its webhook row. A call is
+     (`apps/mcp/src/tools/notes/botBind.js`), from an owner's or editor's
+     connection and, for a card with `belongs_to:`, only by that person or an
+     owner. The workspace's own object keeps which bot each connection is, by
+     grant (`apps/mcp/src/workspaceStore/mailBots.js`), never the control
+     plane: Convex keeps sign-in and little else, and a binding kept on the
+     grant was refused there for anyone whose connections live in their
+     object (Dev, 2026-11-26). Every mail line that login writes there is
+     signed by the bot and its reads say the bot; it joins only as the bot;
+     and another connection joining or sending under a bot's name is refused.
+  3. Binding mails the bot a check (`<card folder>/mail/context.md`). Its
+     page says "not answering" when no line under the bot's name follows the
+     check within 5 minutes, read from that note in the app
+     (`areaMail.ts` `checkHealth`); only the bound login can write that name.
+     A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.
 - **Everything the panel sets, an agent sets too** (the owner, 2026-11-25:

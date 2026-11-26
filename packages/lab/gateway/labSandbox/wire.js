@@ -37,7 +37,7 @@ export const WS_READS = Object.freeze(
     "ws.read", "ws.visible", "ws.rows.digest", "ws.rows.lookup", "ws.rows.resolve", "ws.rows.names", "ws.facts", "ws.orient.survey",
     "ws.search", "ws.meaning.query", "ws.meaning.warm", "ws.meaning.snippets", "ws.facts.rows", "ws.rows.manifest", "ws.rows.children", "ws.rows.get",
     "ws.rows.list", "ws.rules.get", "ws.state", "ws.open", "ws.access.check", "ws.access.state", "ws.access.render", "ws.members.list",
-    "ws.members.get", "ws.members.digest", "ws.invites.list", "ws.invites.digest", "ws.invites.find", "ws.mail.since",
+    "ws.members.get", "ws.members.digest", "ws.invites.list", "ws.invites.digest", "ws.invites.find", "ws.mail.since", "ws.mail.bound",
     "person.session", "person.state", "person.texting.get", "person.flags.get", "person.reach.list", "person.reach.digest",
     "person.shared.list", "person.shared.digest", "person.connections.list", "person.connections.digest", "token.get",
     "ws.machine.list", "ws.machine.get",

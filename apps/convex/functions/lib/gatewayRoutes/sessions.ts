@@ -97,7 +97,6 @@ export async function gatewaySessionHandler(
       // A group chat's own key, on its turn's grant only (`liveGrants.ts` `texChatIdOf`): the chat whose Tex notes it reaches.
       ...(session.texChatId === undefined ? {} : { texChatId: session.texChatId }),
       ...(session.texTaggerId === undefined ? {} : { texTaggerId: session.texTaggerId }), // whose own tag: logins they saved for themselves count (`vault/access.js`)
-      // The bot this connection is, per workspace (`functions/botLogins.ts`): its mail is signed by that bot.
       // The acting person's feature flags (`lib/featureFlags.ts`): ids only.
       flags,
     },

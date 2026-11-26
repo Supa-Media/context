@@ -54,11 +54,6 @@ export function actorFor(session) {
      * `clientId`, which is the one the control plane issued.
      */
     client: typeof session.actorClientName === "string" ? session.actorClientName : null,
-    /**
-     * The bot this connection is in this workspace, when the bot bound its login here (`manage area { bind_bot }`,
-     * `apps/convex/functions/botLogins.ts`): its mail name and its card's name. Read from the grant by the control
-     * plane, never from a request; mail it writes here is signed by the bot (`tools/notes/mail.js`).
-     */
     /** When this connection last fetched our tool list; see `tools/news.js`. */
     toolsListedAt: Number.isFinite(session.toolsListedAt) ? session.toolsListedAt : null,
   };
