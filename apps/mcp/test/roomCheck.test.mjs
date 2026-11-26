@@ -225,3 +225,23 @@ test("a wide search read first never crowds out the note read after it", async (
   assert.ok(reads.text("events-team").includes("Marcus owns Field Day"), "the note read last is kept");
   assert.ok(roomVerdict({ draft: TAKEAWAYS, reads, group: GROUP }), "and a draft that carries it is held");
 });
+
+test("a progress line that carries it is held, never sent, and the model reads the facts", async () => {
+  const { progressChannel } = await import("../../../packages/tex/gateway/agent/progress.js");
+  const sent = [];
+  const channel = progressChannel(async (line) => void sent.push(line));
+  const t = turnOf();
+  channel.holdWith(async (text) => {
+    t.roomProgress = text;
+    const out = await roomCheckNode({ at: "progress" }, { ctx: { turn: t } });
+    return out.to === "hold" ? t.roomNotice : null;
+  });
+  const held = await channel.call({ text: "Still reading: Marcus has Field Day logistics and Priya the volunteer rota so far." });
+  assert.equal(held.isError, true);
+  assert.ok(JSON.parse(held.content[0].text).held_from_group, "the facts, as data");
+  assert.deepEqual(sent, [], "nothing reached the group");
+  assert.equal(t.ledger.asides.length, 1, "the asker gets it on the side");
+  assert.equal(t.roomHush, undefined, "a held line leaves the answer to its own check");
+  assert.equal((await channel.call({ text: "Looking now." })).isError, undefined);
+  assert.deepEqual(sent, ["Looking now."]);
+});

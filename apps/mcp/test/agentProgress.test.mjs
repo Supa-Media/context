@@ -83,13 +83,14 @@ function turn(ai, overrides = {}) {
 
 const offered = (ai, n = 0) => [...shown((ai.calls[n].input.tools ?? []).map((tool) => ({ name: tool.function?.name ?? tool.name, description: tool.function?.description ?? tool.description })))];
 
-test("Tex is never told to text that it is on it, only real milestones", () => {
-  // Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text you
-  // when it's done.": "I don't want to see it ever again".
+test("Tex is never told to send a line on every turn: when one fits is Training's", () => {
+  // Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text you when it's done.": "I don't want to see it
+  // ever again". Dev2, 2026-11-26: a slow reply gets a short "on it" instead of a tapback. Neither is a rule in words here:
+  // the line is one short sentence of Tex's own, and the Training conversations show when one fits (`truck-crew` m1).
   for (const words of [PROGRESS_PROMPT, PROGRESS_TOOL_DEFINITION.description]) {
-    assert.doesNotMatch(words, /first to say you're on it|first call send with action progress/);
-    assert.match(words, /Never (to say|send a line saying) you're on it/);
+    assert.doesNotMatch(words, /first to say you're on it|first call send with action progress|always/i);
   }
+  assert.match(PROGRESS_TOOL_DEFINITION.description, /one short line/);
 });
 
 test("a streamed turn offers text_progress, sends it to the person and never to the MCP", async () => {
@@ -107,7 +108,7 @@ test("a streamed turn offers text_progress, sends it to the person and never to 
   assert.deepEqual(said, ["On it, opening ChatGPT."]);
   assert.deepEqual(mcp, []);
   assert.equal(result.answer, "Done.");
-  assert.match(ai.calls[0].input.messages[0].content, /send with action progress/);
+  assert.match(ai.calls[0].input.messages[0].content, /with action progress/);
 });
 
 test("a turn with no stream is not offered text_progress, and a call to it reaches nothing", async () => {
@@ -275,32 +276,23 @@ test("a streamed turn texts several lines in order, a done line is refused, and 
   assert.equal(result.answer, "Found 3 tables at Nopa. The 7pm is the one by the window, want it?");
 });
 
-test("a tool start is told before the tool runs, never for a progress line (Dev2, 2026-11-12: a group's one tapback on a slow ask)", async () => {
-  const order = [];
-  const ai = scripted([
-    chat("", [[PROGRESS_TOOL, { text: "Opening OpenTable for Friday." }]]),
-    chat("", [["search_notes", { query: "nopa" }], ["search_notes", { query: "lilia" }]]),
-    chat("Nopa at 7."),
-  ]);
-  await turn(ai, {
-    progress: progressChannel(async () => {}),
-    onToolStart: (name) => order.push(`start ${name}`),
-    callTool: async (name) => (order.push(`ran ${name}`), { content: [{ type: "text", text: "found" }] }),
-  });
-  // Two reads in one round start together (`parallelReads.js`): both starts are told before either runs.
-  // A progress line is still not a start.
-  assert.deepEqual(order, ["start search_notes", "start search_notes", "ran search_notes", "ran search_notes"]);
+test("a slow reply may get a short line of Tex's own first; the line is never the answer or a done claim (Dev2, 2026-11-26)", () => {
+  // Dev2, 2026-11-26: "if tex knows its about to take a while to respond to something then it shouldn't really do a tapback but
+  // rather it should tell the user something along the lines of 'on it'". When one fits is Training's to teach; the words say how.
+  assert.match(PROGRESS_TOOL_DEFINITION.description, /when your reply will take a while/);
+  assert.match(PROGRESS_TOOL_DEFINITION.description, /in your own words/);
+  for (const words of [PROGRESS_PROMPT, PROGRESS_TOOL_DEFINITION.description]) {
+    assert.match(words, /never the answer itself/i);
+    assert.doesNotMatch(words, /Never to say you're on it|Never send a line saying you're on it|your plan|Opening OpenTable/);
+  }
 });
 
-test("a line goes only for something to act on or a change outside their notes, never to narrate a search (Dev2, 2026-11-12)", () => {
-  // Nov Babies, 2026-11-11: "Searching NYC karaoke spots that take groups of 20…" and "Searching NYC group dinners…" went
-  // to a group as plan lines and added nothing. A long task's "here's what I'm doing" is its job's start line now.
-  for (const words of [PROGRESS_PROMPT, PROGRESS_TOOL_DEFINITION.description]) {
-    assert.match(words, /could act on before your answer/);
-    assert.match(words, /Never to narrate a search, a lookup or which sites you're checking/);
-    assert.match(words, /background job, whose start line says what they'll get/);
-    assert.match(words, /never the answer itself/i);
-    assert.doesNotMatch(words, /your plan|Opening OpenTable|Checking OpenTable and Resy/);
+test("an acknowledgement goes as a progress line, and a done claim beside it still does not", () => {
+  for (const text of ["On it.", "Will do.", "On it, pulling up all three.", "I'll check each place's own page.", "Let me look.", "Checking now."]) {
+    assert.equal(claimsDone(text), false, text);
+  }
+  for (const text of ["Booked the 7pm, I'll text you the details.", "On it. Emailed Bo.", "All set, will do."]) {
+    assert.equal(claimsDone(text), true, text);
   }
 });
 

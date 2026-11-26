@@ -78,7 +78,6 @@ export const CODE_CHECKS_NOT_NODED_YET = Object.freeze([
   "ledger.js",
   "lookFirst.js",
   "pageCoverFloor.js",
-  "progress.js",
   "readClaims.js",
   "recordRead.js",
   "saveAccount.js",

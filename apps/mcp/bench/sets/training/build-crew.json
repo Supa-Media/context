@@ -7,7 +7,7 @@
   "setting": "John, Maya and Priya make Driftline, an interview podcast out of Atlanta, and plan episodes in this group. Tex is in the group with the group's notes, the shared calendar and the web. Tex speaks when someone asks it, when it truly helps, or when something is funny enough to laugh at; most of the chat is the three of them.",
   "msgs": [
     {"id":"m1","who":"Maya","text":"Tex compare the three remote recording apps we keep arguing about, price and audio quality","at":"Mon 10:05"},
-    {"id":"m2","who":"Tex","tex":true,"kind":"react","to":"m1","text":"🔎"},
+    {"id":"m2","who":"Tex","tex":true,"kind":"reply","to":"m1","text":"will do, comparing price and audio on all three"},
     {"id":"m3","who":"John","text":"riverside obviously"},
     {"id":"m4","who":"Priya","text":"it eats my laptop alive tho"},
     {"id":"m5","who":"Tex","tex":true,"text":"Riverside $24 a month, records each person locally in full quality. Zencastr $20, same local recording, weaker video. cleanfeed is free but only records the mixed track, so no fixing one person's audio later"},
@@ -24,7 +24,6 @@
     {"id":"m16","who":"John","text":"thats what i meant"},
     {"id":"m17","who":"Tex","tex":true,"kind":"react","to":"m16","text":"👍"},
     {"id":"m18","who":"Priya","text":"Tex which mic should we all buy so we sound the same","at":"Tue 09:30"},
-    {"id":"m19","who":"Tex","tex":true,"kind":"react","to":"m18","text":"🔎"},
     {"id":"m20","who":"Tex","tex":true,"text":"looking into it. I'll start a full comparison and text when it's done"},
     {"id":"m21","who":"Priya","text":"no Tex don't go on a whole mission, just look at what we already wrote down","labels":{"decide":{"act":"respond","why":"corrects_tex","star":true},"fd":{"must":["stop the long job and answer from the notes","if the notes don't settle it, say so once and give the one thing it needs"],"star":true},"router":{"route":"read","star":true}}},
     {"id":"m22","who":"Tex","tex":true,"text":"stopped it. your gear note says Maya's SM7B sounds best and the Q2U was the budget pick. three Q2Us is $210, three SM7Bs is $1,200. notes don't say a budget, so that's your call"},
