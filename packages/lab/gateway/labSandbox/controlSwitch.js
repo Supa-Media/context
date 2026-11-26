@@ -3,6 +3,11 @@
  * the chat. Split out of `chatRun.js` to keep it under its size limit.
  */
 
+/** The chat's shared mailboxes as a turn of `asker`'s is told them: `askerSends` on each one they have connected too. */
+export function mailFor(mail, asker) {
+  return mail.map(({ handle, address, senders }) => ({ handle, address, ...(asker && Array.isArray(senders) && senders.includes(asker) ? { askerSends: true } : {}) }));
+}
+
 /**
  * The control plane as the chat object asks it, answered from what the Lab already read for this chat (`chat`, from
  * `texLabSandbox.ts` `session`). Reads answer; a change is refused and listed (`gate.record`).
@@ -44,6 +49,9 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token, storage =
           ...(chat?.updates ? { updates: chat.updates } : {}),
           // Whether the chat is shared with the developers, as the control plane reads it (`lib/texLabShared.ts` `devShareOf`).
           ...(chat?.devShare ? { devShare: chat.devShare } : {}),
+          // The chat's shared mail, marked for this text's asker as a real turn's is (`lib/textGroupMail.ts`), and calendars.
+          ...(Array.isArray(chat?.mail) && chat.mail.length > 0 ? { mail: mailFor(chat.mail, handle) } : {}),
+          ...(Array.isArray(chat?.calendar) && chat.calendar.length > 0 ? { calendar: chat.calendar } : {}),
         };
       }
       case "/agent-texts/decide/gate":

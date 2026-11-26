@@ -32,6 +32,8 @@ import { listDrafts } from "./texSets";
 import { sharedChats, devShareOf } from "./lib/texLabShared";
 import { engagementOf, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { oldLineSetting } from "./texOldLine";
+import { mailSharesWithSenders } from "./lib/textGroupMail";
+import { calendarSharesNamed } from "./lib/textGroupCalendar";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { groupsOfUser } from "./lib/texIdentity/groups";
 import { isIsolatedPreview } from "./lib/previewDeployment";
@@ -124,7 +126,11 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
     if (live === null) continue;
     const people = await Promise.all((group.homeUsers ?? []).map(async (id) => ({ handle: await handleFor(ctx, id), name: id === userId ? "You" : (await handleFor(ctx, id)) || "Someone" })));
     // What the control plane tells the chat's object about it on each turn (`textGroups.ts` "ready"), read without minting.
-    const chat = { slug: live.workspace.slug, ...engagementOf(group), oldLine: await oldLineSetting(ctx), ...(await devShareOf(ctx, group)) };
+    // Its shared mail and calendars too, as a real turn is told them (`textGroups.ts` "ready"); a test chat's reads of
+    // that mail stay real reads on this grant, and a send is only kept in the test chat (`labSandbox/sandboxTools.js`).
+    const mail = await Promise.all((await mailSharesWithSenders(ctx, group, group.homeUsers ?? [])).map(async (row) => ({ ...row, senders: await Promise.all(row.senders.map((id) => handleFor(ctx, id))) })));
+    const { calendar } = await calendarSharesNamed(ctx, group._id);
+    const chat = { slug: live.workspace.slug, ...engagementOf(group), oldLine: await oldLineSetting(ctx), ...(await devShareOf(ctx, group)), ...(mail.length > 0 ? { mail } : {}), ...(calendar ? { calendar } : {}) };
     return { status: "ok" as const, session: await sessionOf(ctx, live), people, chat };
   }
   return { status: "not_found" as const, error: "Tex has not answered you in this chat yet: tag it there once first." };
