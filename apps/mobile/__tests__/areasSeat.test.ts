@@ -16,7 +16,6 @@ import {
   healthOf,
   areaTitle,
   kindCounts,
-  needLook,
   isArea,
   isBotCardPath,
   metricLine,
@@ -276,15 +275,6 @@ describe("chart and list helpers", () => {
       { kind: "file" as const, path: "a/s.page.md", name: "s.page.md" },
     ];
     expect(kindCounts(files)).toBe("2 sheets · 1 note · 1 folder · 1 page");
-  });
-
-  test("needLook counts the sub-areas with no owner", () => {
-    const notes = [
-      note("areas/finance/about.md", { owner: "@seyi", modes: ["Manager"] }),
-      note("areas/tex/about.md", { owner: "Tex", modes: ["Doer"] }),
-      note("areas/design/brand.md", {}),
-    ];
-    expect(needLook(areaTree("areas", ROOT, notes))).toBe(1);
   });
 
 });
