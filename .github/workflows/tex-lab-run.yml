@@ -266,6 +266,8 @@ jobs:
     if: needs.lease.outputs.slot == '0'
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    outputs:
+      why: ${{ steps.why.outputs.why }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -274,7 +276,16 @@ jobs:
       - name: Wait until no earlier run signs in as the benchmark runner
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/bench-runner-lock.mjs --max-minutes 170
+        run: node scripts/bench-runner-lock.mjs --max-minutes 170 2> >(tee "$RUNNER_TEMP/lock.err" >&2)
+      # A failed wait is the run's why (2026-11-19: seven Dev runs on GitHub's rate limit said only "read its log").
+      - name: Say why the wait failed
+        id: why
+        if: failure()
+        run: |
+          said=$(sed -n 's/^::error:://p' "$RUNNER_TEMP/lock.err" 2>/dev/null | tail -n 1)
+          [ -n "$said" ] || said=$(grep -v '^[[:space:]]*$' "$RUNNER_TEMP/lock.err" 2>/dev/null | tail -n 1)
+          why="waiting for earlier benchmark runs on the shared runner failed: ${said:-read its log}"
+          echo "why=$(printf '%s' "$why" | head -c 280 | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
 
   # The private half never enters the run job. This job does not check out the draft.
   token-key:
@@ -398,8 +409,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/bench-runner-lock.mjs --check
 
+      # It signs in, so a revoked or empty grant fails here: its words and the slot's secrets are the run's why.
       - name: Refuse a Dev set the spend cap does not allow
-        run: pnpm --silent ai spend check dev-set --setups production
+        env:
+          SLOT: ${{ needs.lease.outputs.slot }}
+        run: |
+          ok=0
+          pnpm --silent ai spend check dev-set --setups production 2> "$RUNNER_TEMP/spend.err" || ok=$?
+          cat "$RUNNER_TEMP/spend.err" >&2
+          [ "$ok" = "0" ] && exit 0
+          said=$(grep -v -e ExperimentalWarning -e trace-warnings -e '^[[:space:]]*$' "$RUNNER_TEMP/spend.err" | tail -n 1)
+          if [ "$SLOT" = "0" ]; then
+            where="the shared benchmark runner"; names="BENCH_RUNNER_CLIENT_ID and BENCH_RUNNER_REFRESH_TOKEN_LIVE"
+          else
+            where="Lab runner slot $SLOT"; names="LAB_RUNNER_${SLOT}_CLIENT_ID and LAB_RUNNER_${SLOT}_REFRESH_TOKEN"
+          fi
+          case "$said" in *invalid_grant*|*"not signed in"*|*401*) said="$said (its secrets: $names)" ;; esac
+          echo "the spend check on $where refused: ${said:-no reason given}" > "$RUNNER_TEMP/why"
+          exit 1
 
       # The spend check rotated the refresh token. Seal it before the long run. The writer job, on main's
       # checkout, opens it. This job does not hold the writer token: the branch's install can change PATH, and a
@@ -844,7 +871,7 @@ jobs:
           echo "Wrote $name"
 
   report:
-    needs: [prep, lease, run]
+    needs: [prep, lease, wait-turn, run]
     if: always()
     runs-on: ubuntu-latest
     environment: production
@@ -884,6 +911,7 @@ jobs:
           RUN_WHY: ${{ needs.run.outputs.why }}
           PREP_WHY: ${{ needs.prep.outputs.why }}
           LEASE_WHY: ${{ needs.lease.outputs.why }}
+          WAIT_WHY: ${{ needs.wait-turn.outputs.why }}
         run: |
           set -euo pipefail
           if [ "$RAN" = "success" ] && [ -s "$RUNNER_TEMP/sealed/results.bin" ]; then
@@ -897,7 +925,7 @@ jobs:
             npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --slurpfile r "$RUNNER_TEMP/results.json" '{runId: $id, stage: "done", results: $r[0]}')" > /dev/null 2>&1
             exit 0
           fi
-          why="${RUN_WHY:-${PREP_WHY:-${LEASE_WHY:-the GitHub run failed: read its log}}}"
+          why="${RUN_WHY:-${PREP_WHY:-${LEASE_WHY:-${WAIT_WHY:-the GitHub run failed: read its log}}}}"
           [ "$RAN" = "cancelled" ] && why="the GitHub run was cancelled"
           npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg why "$why" '{runId: $id, stage: "failed", error: $why}')" > /dev/null 2>&1
 

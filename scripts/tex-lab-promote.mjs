@@ -158,7 +158,14 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     for (const id of [...named]) for (let up = groups[id]?.parent; up && !named.has(up); up = groups[up]?.parent) named.add(up);
     for (const id of Object.keys(groups)) if (!named.has(id) && !(current.groups ?? {})[id]) delete groups[id];
   }
-  return { config: { ...current, nodes, edges, ...(groups ? { groups } : {}) }, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)), retired };
+  const config = { ...current, nodes, edges, ...(groups ? { groups } : {}) };
+  // The same schema every runtime loads it with (`texConfig.cjs`), so a draft that could not load is refused here, with
+  // why, and not by every test of a Lab run (Lab run 44696482041, 2026-11-20: steps in a group main had deleted). Only
+  // problems the draft brings: a merge reads it over its base first, which may be an older schema version.
+  const had = new Set(SCHEMA.configProblems(current));
+  const problems = SCHEMA.configProblems(config).filter((p) => !had.has(p));
+  if (problems.length > 0) return refuse(`it would not load as Tex's config: ${problems.join("; ")}`);
+  return { config, words: madeWords.words, unshelved: nodes.map((n) => n.id).filter((id) => shelved.has(id)), retired };
 }
 
 /** The config a draft makes for one registered architecture over its current file (`architectures.cjs` `promotedConfig`). */
@@ -334,6 +341,12 @@ function selfTest() {
   g10.nodes.find((n) => n.id === "fd").group = "inner";
   const nested = configFrom(g10, current, words).config;
   expect(nested?.groups?.inner?.parent === "outer" && nested?.groups?.outer?.label === "Outer", "a nested group lost the group it sits in");
+  // A step in a group that is not there (a draft from before its group was deleted) is refused, not written.
+  const g11 = graph();
+  g11.nodes.find((n) => n.id === "fd").group = "retired";
+  expect(/would not load as Tex's config: step "fd" is in a group that is not there \(retired\)/.test(configFrom(g11, current, words).refused ?? ""), "a step in a group that is not there passed");
+  // A base on an older schema version is not the draft's problem (a merge reads the draft over its base first).
+  expect(!configFrom(graph(), { ...current, texConfig: current.texConfig - 1 }, words).refused, "a draft over a base on an older schema version was refused");
   // A draft refused against its own base is refused, not a crash (draft vmwmxtcxerrji, 2026-11-18).
   const emptied = { ...graph(), modules: { [`p-${Object.keys(words)[0]}`]: { text: "" } } };
   let refusedMerge;
