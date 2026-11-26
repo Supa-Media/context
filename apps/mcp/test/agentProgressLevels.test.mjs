@@ -153,7 +153,7 @@ test("normal: the level said up front; a line the model sends, the link and the 
   assert.ok(told.includes(NORMAL_LEAD));
   assert.ok(!told.includes(PLAN_ONLY_LEAD));
   assert.doesNotMatch(told, /more than about a minute/);
-  assert.match(told, /Never to narrate a search/);
+  assert.match(told, /send with action progress/);
   assert.deepEqual([bubbles[0], bubbles[2]], [PLAN, SECOND]);
   assert.ok(bubbles[1].includes(LINK));
   assert.equal(bubbles.length, 3);
