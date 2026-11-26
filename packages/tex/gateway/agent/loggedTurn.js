@@ -239,7 +239,10 @@ export function turnReads(store, session, body, { runner, group, dispatch, warm,
     entries: (read.entries ?? []).filter((entry) => entry?.kind === "tool"),
     open: async (id) => (await read.ledger.read(read.chat, { kinds: ["tool"], ids: [id], limit: 1 }))?.entries?.[0] ?? null,
   })).catch(() => null);
-  return Promise.all([today, logged, view, tools]).then(([read, named, moment, kept]) => [{ ...read, view: moment, tools: kept }, named]);
+  // The chat's entries as this read kept them (newest first, slim), for what is counted from them, the chat's style
+  // (`chatStyle.js`), so nothing reads the ledger a second time. Null when it keeps no ledger.
+  const entries = ledger === null ? Promise.resolve(null) : ledger.then((read) => (Array.isArray(read?.entries) ? read.entries : null)).catch(() => null);
+  return Promise.all([today, logged, view, tools, entries]).then(([read, named, moment, kept, ledgerEntries]) => [{ ...read, view: moment, tools: kept, ledgerEntries }, named]);
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */

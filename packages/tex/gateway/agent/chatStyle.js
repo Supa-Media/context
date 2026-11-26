@@ -19,8 +19,6 @@ export const STYLE_TEXTS = 40;
 export const STYLE_DAYS = 14;
 export const STYLE_PEOPLE = 8;
 export const STYLE_EMOJI = 8;
-/** How many ledger entries one read asks for: Tex's texts and the people's share it. */
-const READ_LIMIT = 200;
 const DAY_MS = 86_400_000;
 
 const LETTER = /\p{L}/u;
@@ -73,9 +71,11 @@ export function styleFacts(style) {
   return `<chat_style>\n${JSON.stringify(style)}\n</chat_style>`;
 }
 
-/** The chat's style read from its ledger (`ledger.read`), or null: no ledger, nothing said, or a read that failed. */
-export async function readChatStyle(ledger, chat, { group = false, now = Date.now() } = {}) {
-  if (ledger === null || typeof ledger?.read !== "function" || typeof chat !== "string") return null;
-  const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["text"], limit: READ_LIMIT, slim: true, since: now - STYLE_DAYS * DAY_MS });
-  return styleOf((read?.entries ?? []).map((entry) => asEvent(entry, chat)), { group, now });
+/**
+ * The chat's style from the ledger entries the turn already read (`loggedTurn.js` `turnReads`, newest first, slim), or
+ * null when there are none: counting never reads the ledger a second time, so a turn's calls stay in budget.
+ */
+export function styleOfEntries(entries, chat, { group = false, now = Date.now() } = {}) {
+  if (!Array.isArray(entries) || typeof chat !== "string") return null;
+  return styleOf(entries.filter((entry) => entry?.kind === "text").map((entry) => asEvent(entry, chat)), { group, now });
 }
