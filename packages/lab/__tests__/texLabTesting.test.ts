@@ -353,7 +353,7 @@ describe("Dev2's changes to the tab", () => {
 
 describe("the tab's reading of a chat", () => {
   test("a must-run label on a node that didn't run shows !", () => {
-    const fd = G().nodes.find((n) => n.id === "fd")!;
+    const fd = node("fd")!;
     expect(cellOf({ id: "x", who: "Ana", text: "hi", labels: { fd: { run: "must" } } }, fd).sym).toBe("!");
     expect(cellOf({ id: "x", who: "Ana", text: "hi", labels: { fd: { run: "must not" } }, rec: { fd: {} } }, fd).cls).toBe("c-bad");
     expect(cellOf({ id: "x", who: "Ana", text: "hi", rec: { fd: {} } }, fd).sym).toBe("○");

@@ -13,16 +13,6 @@
       ],
       "why": "The Training moments nearest to the text the front door is answering (Dev2, 2026-11-18: the front door's examples are picked for this text, not fixed). The front door starts it at its first step with the text and its recent lines; it embeds them with the meaning-search model and reads the nearest of the Training moments from the Tex-owned index, dropping the scored conversation, and the front door reads them in its preamble after a budget (ms, default 100). Without the index, a model, or an answer in time, the front door keeps its fixed examples. Unwired, nothing changes: a Lab draft turns it on with fd -> examples (uses)."
     },
-    "reportRun": {
-      "files": [
-        "packages/tex/src/texRunNodes.cjs",
-        "packages/tex/worker/jobTexts.ts",
-        "packages/tex/worker/jobReportRun.test.ts",
-        "packages/tex/gateway/agent/graph/nodes/reportRun.js",
-        "packages/tex/gateway/agent/texEntryPoint/readTheText.js"
-      ],
-      "why": "New run (Dev2, 2026-11-26: the job report's wire to Intake was drawn but nothing read it). A run step, kind run: a finished background job's report starts a new run of the chat at the input step this step wires to (jobReport, today the only one its code can start), or nowhere when it has no wire (the report is logged as report_not_run and dropped). The Lab's side panel shows it as \"Starts a new run at\". Without it in the config, a report starts jobReport, as before."
-    },
     "readTheText": {
       "files": [
         "packages/tex/gateway/agent/graph/nodes/readTheText.js",

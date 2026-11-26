@@ -14,13 +14,13 @@ import { TEX_CONFIG, TRAINING, TRAINING_READERS } from "../../../packages/tex/ga
 const moment = (n, route = "act") => ({ chat: `c${n}`, at: 0, kind: "one", before: ["@ann: earlier"], newest: `@ann: ask ${n}`, label: { route } });
 const training = { nodes: { router: [moment(1, "act"), moment(2, "read")], fd: [moment(3)] }, chats: {} };
 
-test("main's router reads its Training labels, the recent chat, what Tex is doing now and the date, and is on with no door wired", () => {
+test("main's router reads its Training labels, the recent chat, what Tex is doing now and the date, and is off with no door wired", () => {
   // The recent chat, not the 7-day history: router-only Lab runs scored the same (57/63 in-context, 54/63 held-out)
   // at far fewer tokens.
   const router = TEX_CONFIG.nodes.find((n) => n.id === "router");
   assert.deepEqual(router.ctx, ["train:router", "recent", "groupBrief", "date"]);
-  // On as a logged signal only (Dev2, 2026-11-20): no specialist door is wired, so nothing branches on its read.
-  assert.equal(router.on, true, "the router runs on main");
+  // On as a logged signal only from 2026-11-20; off since Dev2's 11-26 cleanup draft. No specialist door is wired.
+  assert.equal(router.on, false, "the router is off on main");
   assert.ok(!TEX_CONFIG.edges.some((e) => e.from === "fd" && ["fdQuick", "fdRead", "fdAct"].includes(e.to)), "and no door reads it");
   assert.ok(TRAINING_READERS.includes("router"), "its code reads the Training module it names");
   assert.deepEqual(routerWants(router.ctx), { training: true, history: false, recent: true, facts: true, date: true });

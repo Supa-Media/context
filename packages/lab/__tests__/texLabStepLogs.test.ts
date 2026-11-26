@@ -67,6 +67,7 @@ const entries: LedgerEntry[] = [
   run("rungTools", {}, { tried: ["search"], failedApps: [] }),
   run("handoff", { ask: "find the address", notice: "nothing quick found it", cause: "ladder" }, { to: "hand", title: "Find the address" }),
   run("jobadv", { role: "check" }, { state: "keep_going" }),
+  run("reportRun", { jobReport: { title: "Find ramen", state: "done" } }, { to: "start", at: "jobReport", when: ["start"] }),
   run("jobReport", { jobReport: { title: "Find ramen", state: "done", texts: ["Kyuramen."] } }, { to: "report", report: { title: "Find ramen", state: "done", texts: ["Kyuramen."] } }),
   run("jobStart", { hasTitle: true, hasBrief: true, cloudBusy: 0 }, { to: "start", where: "cloud", slots: 3 }),
   run("partEnd", { cause: "unfinished", part: 1 }, { to: "carry", cause: "unfinished", room: true }),

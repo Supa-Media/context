@@ -122,7 +122,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import TexLabRoute from "../../../apps/mobile/app/(app)/lab";
 import { config } from "@context/lab/app/engine/diff";
-import { clone, emit, lab, MAIN, node, set as setLab } from "@context/lab/app/engine/state";
+import { clone, emit, focusOn, lab, MAIN, node, set as setLab } from "@context/lab/app/engine/state";
 import { promptText } from "@context/lab/app/views/run/runText";
 import { SCENARIOS, traceMine } from "@context/lab/app/engine/traces";
 import { readTurnTimes } from "@context/lab/app/views/mine/useMine";
@@ -194,8 +194,12 @@ describe("the Lab with your own texts", () => {
       await readTurnTimes({ text: "hey" } as never);
     });
     // Its real times on the canvas, not estimates: the front door with its tool call, the Answer check as measured.
+    // Each step is drawn inside its group, so each group is opened to read it.
+    act(() => focusOn("frontDoor"));
     expect(q('.nd[data-id="fd"] .tm')?.textContent).toBe("3.4 s");
+    act(() => focusOn("checkFinish"));
     expect(q('.nd[data-id="answerCheck"] .tm')?.textContent).toBe("2.1 s");
+    act(() => focusOn("intake"));
     expect(q('.nd[data-id="bypass"] .tm')?.textContent ?? "").toMatch(/^(≈ .* s)?$/);
     act(() => {
       lab.sel = { t: "node", id: "tools" };

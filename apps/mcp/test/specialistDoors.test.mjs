@@ -384,8 +384,11 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
   // (main has the router on as a logged signal only since 2026-11-20, with no door wired).
   assert.ok(TEX_CONFIG.edges.some((e) => e.from === "doorStep" && e.to === "router" && e.mode === "uses"));
   assert.ok(TEX_CONFIG.nodes.some((n) => n.id === "fdAct"), "main draws the act door");
-  const drawn = { on: router.on, edges: [...TEX_CONFIG.edges] };
+  // The doors are off on main too since the 11-26 cleanup (Dev2's draft): a draft that branches switches the act door on.
+  const act = TEX_CONFIG.nodes.find((node) => node.id === "fdAct");
+  const drawn = { on: router.on, actOn: act.on, edges: [...TEX_CONFIG.edges] };
   router.on = true;
+  act.on = true;
   if (!TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "fdAct")) TEX_CONFIG.edges.push({ from: "fd", to: "fdAct", mode: "uses", when: ["act"] });
   env.AI = { run: async (_model, input) => ({ answers: input?.questions?.route ? { route: { choice: "act", confidence: 0.9 } } : {} }) };
   const claimed = (slug) => controlPlane.workspaceSetupCalls.some((entry) => entry.dryRun === false && entry.slug === slug);
@@ -402,6 +405,7 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
     assert.equal(pending().length, 1, "the held call is waiting");
   } finally {
     router.on = drawn.on;
+    act.on = drawn.actOn;
     TEX_CONFIG.edges.splice(0, TEX_CONFIG.edges.length, ...drawn.edges);
     restore();
   }

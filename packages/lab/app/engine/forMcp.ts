@@ -30,7 +30,7 @@ import { groupsReference } from "./forMcpGroups";
 import { cvOf, fp, moduleList, mods, wcount, wdiff } from "./modules";
 import { cacheShare, ctxTokens, deltaText, fmtS, fmtUsd, LANE_NAME, outTok, simulate, whereTimeGoes, type Sim } from "./sim";
 import { STEP_LOGS } from "./stepLogs";
-import { clone, G, lab, MAIN, MODELS, node, shownGraph } from "./state";
+import { clone, G, lab, MAIN, MODELS, node, shownGraph, stepsOf } from "./state";
 import { buildTraces, scnLabel, SCENARIOS } from "./traces";
 
 /** The Lab's own functions, for the gateway's tests to hold each answer against (`apps/mcp/test/texDevLab.test.mjs`). */
@@ -100,7 +100,7 @@ export function labSim(input: LabIn, t: TestIn & { base?: DraftIn | null; log?: 
       if (t.base && t.base.id !== "main" && !lab.versions.some((v) => v.id === t.base!.id)) lab.versions.push(asVersion(t.base));
       const base = t.base ? (lab.versions.find((v) => v.id === t.base!.id) ?? MAIN) : MAIN;
       const g = G();
-      const read = t.log ? readLog(t.log, g, MODELS) : null;
+      const read = t.log ? readLog(t.log, stepsOf(g), MODELS) : null;
       if (read) lab.logRows = read.rows;
       const a = simulate(g, lab.scn, lab.logRows);
       const b = simulate(base.graph, lab.scn, null);
@@ -308,7 +308,7 @@ export function labModules(input: LabIn, q: { key?: string | null; full?: boolea
       everyTurn: v.stable ? "same" : "changes",
       changes: v.changes,
       ...(v.custom ? { pill: "new" } : edited ? { pill: "edited" } : {}),
-      usedBy: g.nodes.filter((n) => n.ctx.includes(q.key!)).map((n) => n.id),
+      usedBy: stepsOf(g).nodes.filter((n) => n.ctx.includes(q.key!)).map((n) => n.id),
       fingerprint: fp(v.text || ""),
       main: m0?.text ? fp(m0.text) : "(not in the Lab)",
       words: `+${c.p} −${c.m}`,
@@ -335,13 +335,13 @@ export function labReference(input: LabIn, topic?: string | null, toolLog?: stri
           return { calls: s.calls, median: m != null ? fmtS(m) : "–", errors: s.err, ...(s.err ? { why: s.why } : {}) };
         };
         return {
-          calledBy: toolUsers(g).map((n) => n.id),
+          calledBy: toolUsers(stepsOf(g)).map((n) => n.id),
           ...(stats ? { read: stats.n ? `${stats.n} tool calls` : "No tool entries in that paste" } : {}),
           tools: TOOL_INV.map(([t, kind, what, acts]) => ({ tool: t, kind, does: what, actions: acts, ...(S ? { stats: cell(t) ?? { calls: 0 }, byAction: Object.fromEntries(acts.filter((a) => S[t + "." + a]).map((a) => [a, cell(t + "." + a)])) } : {}) })),
         };
       }
       case "steps":
-        return g.nodes.map((n) => ({ step: n.id, label: n.label, writes: NODE_INFO[n.id]?.logs ?? "nothing", thisVersion: n.log ? "writes" : "writes nothing", ...(n.log !== !!node(n.id, MAIN.graph)?.log ? { changed: true } : {}), ...(STEP_LOGS[n.id] ? { logs: STEP_LOGS[n.id] } : {}), ...(n.group ? { group: n.group } : {}) }));
+        return stepsOf(g).nodes.map((n) => ({ step: n.id, label: n.label, writes: NODE_INFO[n.id]?.logs ?? "nothing", thisVersion: n.log ? "writes" : "writes nothing", ...(n.log !== !!node(n.id, MAIN.graph)?.log ? { changed: true } : {}), ...(STEP_LOGS[n.id] ? { logs: STEP_LOGS[n.id] } : {}), ...(n.group ? { group: n.group } : {}) }));
       case "groups":
         return groupsReference(g, group);
       case "ledger": {
