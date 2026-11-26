@@ -13,7 +13,7 @@
  * And the recipient: Tex named it in an earlier text of the same ask ("Send to bram.visser@example.com on his
  * thread?"), and later showed only the reworded body. `recipientsShown` finds every recipient in Tex's own recent
  * texts; the email then goes at once only when the Mail checker, reading the same texts, says they asked for it, and
- * the body is in the words they agreed to word for word (`likedPreview.js` `agreedToShownEmail`).
+ * Tex's own texts lately held the body word for word (`emailShown`, below; 2026-11-26).
  */
 
 import { folded } from "../../../../packages/tex/gateway/agent/folded.js";
@@ -85,3 +85,27 @@ export function recipientsShown(history, recipients) {
   const named = (address) => new RegExp(`(?<![a-z0-9._%+-])${address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9._%+-]*[a-z0-9])`).test(said);
   return list.length > 0 && list.every(named);
 }
+
+/*
+  THE BODY TEX SHOWED, WHATEVER IT ASKED AROUND IT (Sayo's group email to SupaSounds, 2026-11-26). Tex showed the draft
+  and asked which Gmail to send it from; "send it from my supa email. draft is good. go ahead" agreed to nothing,
+  because only a text worded as an offer ("Send?", "Want me to send it?") counted as the words they agreed to, so the
+  gateway held the email and asked again. Whether they asked for it is the Mail checker's to say, reading their own
+  words; what was shown is a fact read here: the whole body, word for word, in one of Tex's own texts lately.
+*/
+/** Whether one of Tex's texts among the latest `SHOWN_TURNS` turns holds this body whole, word for word. */
+export function bodyShown(history, body) {
+  if (typeof body !== "string" || body.trim().length < MIN_COPY) return false;
+  const words = wordsOf(body).join(" ");
+  if (words === "") return false;
+  return (Array.isArray(history) ? history : [])
+    .slice(-SHOWN_TURNS)
+    .filter((turn) => turn?.role === "assistant" && typeof turn.text === "string")
+    .some((turn) => ` ${wordsOf(turn.text).join(" ")} `.includes(` ${words} `));
+}
+
+/** Whether Tex itself showed this email lately: every recipient named and the whole body, in its own texts. */
+export function emailShown(history, recipients, body) {
+  return recipientsShown(history, recipients) && bodyShown(history, body);
+}
+

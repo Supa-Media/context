@@ -2,7 +2,7 @@
  * A "send" to an email Tex showed is the yes to that copy, and only to it (trial-hire 123, 2026-11-19).
  *
  * Covers `src/tools/shownEmail.js` (what "Send?" asks, the last shown copy, a rewrite of it, the recipients Tex named
- * lately) and the gate that uses them, `src/tools/emailGate.js` with `agreedToShownEmail` in `likedPreview.js`: a
+ * lately, the body Tex showed) and the gate that uses them, `src/tools/emailGate.js` with `emailShown`: a
  * rewrite is handed back once with the copy they read, and an email goes at once only when its body is the words they
  * agreed to, every recipient was named by Tex in its recent texts, and the Mail checker says they asked for it.
  *
@@ -13,18 +13,23 @@
  *
  * Applied, suite run, named check observed failing, reverted.
  *
- *  (i)  `checked?.verdict === "yes" &&` removed from the `agreedToShownEmail` condition in `emailGate.js` →
+ *  (i)  `checked?.verdict === "yes" &&` removed from the `emailShown` condition in `emailGate.js` →
  *       `an unsure checker holds a shown email whose recipient Tex named, and sends nothing` fails (the email goes).
  *  (ii) `recipientsShown` made to return true → `a recipient Tex never named holds the email, even with the body
  *       agreed and the checker's yes` fails (the email goes to attacker@evil.example).
  *  (iii) `checked?.verdict !== "no" &&` removed from the `agreed` condition in `emailGate.js` (2026-11-24) →
  *       `a checker no on an email whose words they 👍'd is held…` fails (the email goes on the earlier 👍).
+ *  (iv) the `emailShown` clause removed from the `agreed` condition in `emailGate.js` (2026-11-26) →
+ *       `a go-ahead to a draft shown beside a question about the sender…` and `the exact body, with the recipient…`
+ *       fail (held for a second 👍).
+ *  (v)  `bodyShown` dropped from `emailShown` (recipients only) → `a body that is not the copy they were shown is
+ *       never released by the shown copy` fails (an email nobody was shown goes).
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { asksToSend, lastShownSend, recipientsShown, shownCopyOf } from "../src/tools/shownEmail.js";
+import { asksToSend, bodyShown, lastShownSend, recipientsShown, shownCopyOf } from "../src/tools/shownEmail.js";
 import { createEgressWorld, request, textTex, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 const BRAM = "bram.visser@example.com";
@@ -277,3 +282,50 @@ test("a body that is not the copy they were shown is never released by the shown
     world.restore();
   }
 });
+
+/* ---------------- 2026-11-26: a shown body, whatever Tex asked around it ---------------- */
+
+/** Sayo's group email: Tex showed the draft and asked which Gmail, with no "Send?" and no offer wording. */
+const ASKED_SENDER = `Draft: "${BODY}"\n${BRAM} is the right address. Which Gmail should it go from, seyi@gmail.example or seyi@work.example?`;
+
+test("a body Tex showed whole in its last twelve turns is shown, whatever its text asked; a partial or older one is not", () => {
+  assert.equal(bodyShown(history(["assistant", ASKED_SENDER]), BODY), true);
+  assert.equal(bodyShown(history(["assistant", "Hi Bram, Thursday at 3 works for me."]), BODY), false, "part of the body");
+  assert.equal(bodyShown(history(["user", ASKED_SENDER]), BODY), false, "only Tex's own texts count");
+  assert.equal(bodyShown(history(["assistant", ASKED_SENDER], ...filler(12)), BODY), false, "more than twelve turns back");
+  assert.equal(bodyShown(history(["assistant", "ok"]), "ok"), false, "a body too short to be read as an email");
+});
+
+test("a go-ahead to a draft shown beside a question about the sender, with the checker's yes, sends it at once", async () => {
+  const world = await createEgressWorld();
+  try {
+    world.controlPlane.flags.emailSender = "seyi@gmail.example";
+    world.model.install([{ text: ASKED_SENDER }]);
+    await textTex(world.env, TOKEN_TEXTS, `email ${BRAM} that Thursday at 3 works`);
+    world.model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, verdict("yes", "they approved the shown draft"), { text: "Sent." }]);
+    const before = sendsOf(world).length;
+    await textTex(world.env, TOKEN_TEXTS, "send it from my gmail. draft is good. go ahead");
+    const sent = sendsOf(world);
+    assert.equal(sent.length, before + 1, "one email sent, with no second ask");
+    assert.equal(sent.at(-1).email.body, BODY);
+    assert.equal(world.pending().length, 0);
+  } finally {
+    world.restore();
+  }
+});
+
+test("the same go-ahead with an unsure checker holds the shown draft, and sends nothing", async () => {
+  const world = await createEgressWorld();
+  try {
+    world.controlPlane.flags.emailSender = "seyi@gmail.example";
+    world.model.install([{ text: ASKED_SENDER }]);
+    await textTex(world.env, TOKEN_TEXTS, `email ${BRAM} that Thursday at 3 works`);
+    world.model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, verdict("unsure", "maybe"), { text: "Drafted." }]);
+    await textTex(world.env, TOKEN_TEXTS, "send it from my gmail. draft is good. go ahead");
+    assert.equal(sendsOf(world).length, 0);
+    assert.equal(world.pending().length, 1);
+  } finally {
+    world.restore();
+  }
+});
+
