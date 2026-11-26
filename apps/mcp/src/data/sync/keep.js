@@ -11,7 +11,9 @@
  *   guesses a row away.
  * - A column the source writes takes the source's type on every run, so a
  *   sheet made by hand with plain columns is put right; a column the person
- *   added keeps its own.
+ *   added keeps its own. A column the source added after its sheets were
+ *   made (`addedColumns`) is appended to an old sheet that lacks it, empty on
+ *   the rows already there; any other missing column refuses the merge.
  * - A result past `MAX_SHEET_ROWS` or `MAX_SHEET_BYTES` writes nothing and
  *   names the sheet (non-negotiable 2: a sheet that would not fit is held
  *   back and named, never cut short).
@@ -39,12 +41,13 @@ function rowOf(columns, source) {
  * be present in an old one; `incoming` the rows the source read.
  * `handColumns` name columns the sync fills only on a row it adds: a person
  * edits them afterwards (a bug's `status`), and a later run never puts the
- * first value back over theirs.
+ * first value back over theirs. `addedColumns` name columns the source
+ * began writing later: an old sheet without one gets it appended.
  *
  * → `{ ok: true, text, added, changed, dropped, rows }`, or
  *   `{ ok: false, refused }` with a plain sentence naming `path`.
  */
-export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, now = Date.now(), keepDays = KEEP_DAYS, handColumns = [] }) {
+export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, now = Date.now(), keepDays = KEEP_DAYS, handColumns = [], addedColumns = [] }) {
   if (!Array.isArray(columns) || !columns.length) return { ok: false, refused: `${path} has no columns to write` };
   for (const column of columns) {
     if (!column || typeof column.name !== "string" || column.name.trim() === "" || RESERVED.has(column.name.trim().toLowerCase())) {
@@ -62,6 +65,8 @@ export function mergeSynced({ path, sheet, columns, incoming, key, dateColumn, n
     ? sheet.columns.map((c) => (typeOf.has(c.name) && typeOf.get(c.name) !== undefined ? { ...c, type: typeOf.get(c.name) } : c))
     : columns;
   const keptNames = new Set(kept.map((c) => c.name));
+  const later = new Set(Array.isArray(addedColumns) ? addedColumns : []);
+  for (const column of columns) if (!keptNames.has(column.name) && later.has(column.name)) { kept.push(column); keptNames.add(column.name); }
   const missing = columns.filter((c) => !keptNames.has(c.name)).map((c) => c.name);
   if (missing.length) return { ok: false, refused: `${path} is missing the column ${missing.join(", ")}; it was changed by hand, so the sync left it alone` };
 

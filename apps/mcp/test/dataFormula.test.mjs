@@ -166,7 +166,7 @@ test("precedence, brackets and every operator spelling", () => {
 });
 
 test("every aggregate is known, in any case, and an unknown one is named", () => {
-  for (const fn of ["sum", "count", "average", "median", "p95", "min", "max"]) {
+  for (const fn of ["sum", "count", "average", "median", "p90", "p95", "min", "max"]) {
     assert.equal(ok(`${fn}(a/b.c)`).fn, fn);
     assert.equal(ok(`${fn.toUpperCase()}(a/b.c)`).fn, fn);
   }
@@ -349,6 +349,17 @@ const value = (text, every, extra) => evaluate(ok(text), ctx(every, extra));
 test("artboard: median deployed − opened over 7 days, in minutes", () => {
   // 40, 22 and 30 minutes in the last 7 days; the PR on the 16th is older.
   assert.deepEqual(value("median(github/pull-requests.deployed − opened)", "7 days"), { value: 30, status: "ok" });
+});
+
+test("p90 is the nearest-rank 90th percentile: the slowest tenth's floor, below p95 and above the median", () => {
+  // Open to live's headline (2026-11-26): 40, 22 and 30 minutes this week, so the slowest of three.
+  assert.deepEqual(value("p90(github/pull-requests.deployed − opened)", "7 days"), { value: 40, status: "ok" });
+  const twenty = parseSheet(["date:date,ms:number", ...Array.from({ length: 20 }, (_, i) => `2026-11-25,${i + 1}`), ""].join("\n"));
+  const rowsOf = (source, dataset) => (`${source}/${dataset}` === "eval-ci/twenty" ? twenty : null);
+  assert.deepEqual(evaluate(ok("p90(eval-ci/twenty.ms)"), ctx("day", { rowsOf })), { value: 18, status: "ok" });
+  assert.deepEqual(evaluate(ok("p95(eval-ci/twenty.ms)"), ctx("day", { rowsOf })), { value: 19, status: "ok" });
+  assert.deepEqual(evaluate(ok("median(eval-ci/twenty.ms)"), ctx("day", { rowsOf })), { value: 10.5, status: "ok" });
+  assert.equal(plainReading(ok("p90(eval-ci/twenty.ms)")), "90th percentile of ms in eval-ci/twenty");
 });
 
 test("artboard: count of merged this week counts the filled cells only", () => {
