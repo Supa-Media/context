@@ -35,6 +35,7 @@ import { pathToFileURL } from "node:url";
 
 import { regradeCommand } from "./regrade.mjs";
 import { runFd } from "./setsFd.mjs";
+import { runPool } from "./setsPool.mjs";
 import { RECORD_SETS, worldMode } from "./simFixtures.mjs";
 
 const require = createRequire(import.meta.url);
@@ -300,6 +301,11 @@ export function repeatNodesOf(value) {
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
+/** At most this many tests of the in-process nodes (Decide, the job check, the reviewer) at once. */
+export const SINGLE_LANES = 8;
+/** The most Front door tests a run takes at once (`--parallel`). */
+export const MAX_PARALLEL = 32;
+
 export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false, repeats = 1, repeatNodes = null, keep = null, world = "replay" } = {}) {
   const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut, keep, world }));
   const again = new Set(["fd", ...(Array.isArray(repeatNodes) ? repeatNodes : [])]);
@@ -321,20 +327,25 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
       }
     }
   }
+  // The nodes that run in this process go `parallel` at a time too (at most SINGLE_LANES): each test is a model call
+  // waiting on the network, so one after another made them the long pole of a run (Dev2, 2026-11-22: a run is 10
+  // minutes at most). Each node is set up once, before its first test, and rows keep the tests' order.
   const alone = async () => {
-    const rows = [];
-    for (const { c, t, label, row } of singles) {
+    const rows = new Array(singles.length);
+    const setup = {};
+    const readyOf = (n) => (setup[n] ??= table[n]().then((r) => (ready[n] = r)));
+    await runPool(singles, Math.min(parallel, SINGLE_LANES), async ({ c, t, label, row }, k) => {
       if (!table[t.node]) {
-        rows.push({ ...row, right: false, ran: false, usd: 0, why: `${t.node} can't run alone yet: it runs in the whole-turn replay` });
-        continue;
+        rows[k] = { ...row, right: false, ran: false, usd: 0, why: `${t.node} can't run alone yet: it runs in the whole-turn replay` };
+        return;
       }
       try {
-        ready[t.node] ??= await table[t.node]();
-        rows.push({ ...row, ...(await ready[t.node](c, t.at, label)) });
+        const run = await readyOf(t.node);
+        rows[k] = { ...row, ...(await run(c, t.at, label)) };
       } catch (error) {
-        rows.push({ ...row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` });
+        rows[k] = { ...row, right: false, ran: false, usd: 0, why: `could not run: ${String(error?.message ?? error).slice(0, 300)}` };
       }
-    }
+    });
     return rows;
   };
   const batched = Object.entries(batches).map(async ([n, units]) => {
@@ -520,7 +531,7 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   if (refusedConvs) throw new Error(refusedConvs);
   const tree = resolve(options.tree ?? join(import.meta.dirname, "../../.."));
   // Front door tests at once: each is a process waiting on models, and the Lab's runner has room for these.
-  const parallel = Math.max(1, Math.min(Number(options.parallel ?? 8) || 1, 16));
+  const parallel = Math.max(1, Math.min(Number(options.parallel ?? 8) || 1, MAX_PARALLEL));
   // The hold-out switch (Seyi, 2026-11-17: "keep the hold-out as a switch, and report both Training numbers"): off, a
   // Training conversation's Front door tests read it among their examples, as production does (the in-context score);
   // on (`--hold-out on`, or TEX_SETS_HOLD_OUT=on, the Lab run workflow's repository variable), each runs without its
