@@ -52,8 +52,14 @@ export function isSheetPath(path) {
   return isSheetKind(path);
 }
 
-/** A column's layout after its type: `wrap` and a width in pixels, `w320`. */
+/**
+ * A column's layout after its type: `nowrap` and a width in pixels, `w320`.
+ * Wrapping is the default (Dev, 2026-11-26: "make wrap text the default for all
+ * csvs"), so only a column turned off says so; `wrap`, written before that, still
+ * reads as on.
+ */
 const LAYOUT_WRAP = "wrap";
+const LAYOUT_NOWRAP = "nowrap";
 const LAYOUT_WIDTH = /^w(\d{1,4})$/;
 export const MIN_COLUMN_WIDTH = 48;
 export const MAX_COLUMN_WIDTH = 2000;
@@ -61,7 +67,7 @@ export const MAX_COLUMN_WIDTH = 2000;
 /**
  * `renews:date` → { name: "renews", type: "date" }; `notes` → text.
  * A column's layout rides after its type, so every reader sees the same
- * sheet: `notes:text:wrap:w320` wraps and is 320 wide. Layout without a
+ * sheet: `notes:text:nowrap:w320` stays on one line and is 320 wide. Layout without a
  * known type before it is not layout: the whole cell stays the name.
  */
 export function parseHeaderCell(cell) {
@@ -72,7 +78,7 @@ export function parseHeaderCell(cell) {
   while (end > 2) {
     const token = parts[end - 1].trim().toLowerCase();
     const width = LAYOUT_WIDTH.exec(token);
-    if (token === LAYOUT_WRAP && !layout.wrap) layout.wrap = true;
+    if ((token === LAYOUT_WRAP || token === LAYOUT_NOWRAP) && layout.wrap === undefined) layout.wrap = token === LAYOUT_WRAP;
     else if (width && layout.width === undefined) layout.width = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Number(width[1])));
     else break;
     end -= 1;
@@ -92,7 +98,8 @@ export function parseHeaderCell(cell) {
 }
 
 export function renderHeaderCell(column) {
-  const layout = [column.wrap ? LAYOUT_WRAP : "", Number.isInteger(column.width) ? `w${column.width}` : ""].filter(Boolean);
+  const wrap = column.wrap === false ? LAYOUT_NOWRAP : column.wrap === true ? LAYOUT_WRAP : "";
+  const layout = [wrap, Number.isInteger(column.width) ? `w${column.width}` : ""].filter(Boolean);
   const type = column.type || "text";
   if (layout.length) return [column.name, type, ...layout].join(":");
   return type !== "text" ? `${column.name}:${type}` : column.name;
@@ -103,7 +110,8 @@ export function setColumnLayout(sheet, name, { wrap, width } = {}) {
   const column = findColumn(sheet, name);
   if (!column) return sheet;
   const next = { ...column };
-  if (wrap !== undefined) { if (wrap) next.wrap = true; else delete next.wrap; }
+  // On is the default, so turning a column on takes its `nowrap` off rather than writing `wrap`.
+  if (wrap !== undefined) { if (wrap) delete next.wrap; else next.wrap = false; }
   if (width !== undefined) {
     if (width === null) delete next.width;
     else next.width = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Math.round(width)));

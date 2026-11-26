@@ -513,14 +513,15 @@ describe("multi-select, wrap text and column width (2026-11-26)", () => {
     expect(changes[0].split("\n")[0]).toBe("name,tags:multiselect,notes:multiselect");
   });
 
-  test("Wrap text writes into the header, for every reader, and the menu shows it on", async () => {
+  test("Wrap text is on by default, and turning it off writes into the header, for every reader", async () => {
     const { changes } = mount({ text: TAGS });
     press($$('[data-testid="sheet-header"]')[2]);
     await settle();
-    press($('[data-testid="sheet-wrap-text"]') as HTMLElement);
-    expect(changes[0].split("\n")[0]).toBe("name,tags:multiselect,notes:text:wrap");
     // The test's menus have no anchor, so they open as the phone's sheet, with a switch.
     expect($('[data-testid="sheet-wrap-text"]')?.getAttribute("aria-checked")).toBe("true");
+    press($('[data-testid="sheet-wrap-text"]') as HTMLElement);
+    expect(changes[0].split("\n")[0]).toBe("name,tags:multiselect,notes:text:nowrap");
+    expect($('[data-testid="sheet-wrap-text"]')?.getAttribute("aria-checked")).toBe("false");
   });
 
   test("a date column offers no Wrap text", async () => {

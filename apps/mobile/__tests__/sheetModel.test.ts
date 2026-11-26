@@ -303,13 +303,15 @@ describe("multi-select, wrap and width (2026-11-26)", () => {
 
   test("wrap and width are written into the header and taken out again", () => {
     const text = "Area,Try saying\nNotes,hi\n";
-    const wrapped = setColumnWrap(text, "Try saying", true);
-    expect(wrapped).toBe("Area,Try saying:text:wrap\nNotes,hi\n");
-    const wide = setColumnWidth(wrapped, "Try saying", 320);
-    expect(wide.split("\n")[0]).toBe("Area,Try saying:text:wrap:w320");
-    expect(setColumnWidth(setColumnWrap(wide, "Try saying", false), "Try saying", null)).toBe(text);
+    // Wrapping is the default (2026-11-26): turning it on writes nothing, turning it off writes nowrap.
+    expect(setColumnWrap(text, "Try saying", true)).toBe(text);
+    const single = setColumnWrap(text, "Try saying", false);
+    expect(single).toBe("Area,Try saying:text:nowrap\nNotes,hi\n");
+    const wide = setColumnWidth(single, "Try saying", 320);
+    expect(wide.split("\n")[0]).toBe("Area,Try saying:text:nowrap:w320");
+    expect(setColumnWidth(setColumnWrap(wide, "Try saying", true), "Try saying", null)).toBe(text);
     // A retype keeps the layout.
-    expect(retypeColumn(wide, "Try saying", "multiselect").text.split("\n")[0]).toBe("Area,Try saying:multiselect:wrap:w320");
+    expect(retypeColumn(wide, "Try saying", "multiselect").text.split("\n")[0]).toBe("Area,Try saying:multiselect:nowrap:w320");
   });
 
   test("a sized column keeps its width and the rest share what is left, never under the minimum", () => {

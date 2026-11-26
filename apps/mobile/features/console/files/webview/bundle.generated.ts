@@ -35,7 +35,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mcp/src/lists/select.js": "db7a9b662f0b11169a15d549fe0bacc44a3655e433fe7a8ccbe979a13bbc9db4",
   "apps/mcp/src/lists/setProperty.js": "27ec2cfb455d2e9bb0f1d7d60370cf1f0896ab310bbe0bc2f66ce87129332f78",
   "apps/mcp/src/lists/statuses.js": "3ffb930fe176d53ffa89d4c7f058683894a4d63c7fcf0dc520e4c26198e8ebf3",
-  "apps/mcp/src/sheets/csv.js": "e224c76b5b0fad63e3ca4fbf80252e87a7bf99d5c90272f356143a5c640a63d3",
+  "apps/mcp/src/sheets/csv.js": "8bd06fe8aae0960f88d0acc1aabd71229e13d5e77fa4e8dd98e2b1231a3ddc32",
   "apps/mobile/features/chaos/figureGeometry.ts": "6c5eb71ecd98d5fc8361d7163a2a9d7d48c7582fc98f1d36bff7cea57c963be5",
   "apps/mobile/features/chaos/texMarkDom.ts": "7d5e5237f620fc9dd3edac368c605ec1b9332209a0b980b5336c62c9947ff5ba",
   "apps/mobile/features/console/faces/defaultFace.ts": "d972b3dc29783816949cc83822f3c9c927d78c0c1a5cabbb7c5dcde5b1dd7662",

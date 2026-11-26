@@ -56,21 +56,25 @@ test("a header colon that is not a type stays in the name", () => {
 });
 
 test("a column's wrap and width ride after its type, and round-trip", () => {
-  assert.deepEqual(parseHeaderCell("Try saying:text:wrap:w320"), { name: "Try saying", type: "text", wrap: true, width: 320 });
+  assert.deepEqual(parseHeaderCell("Try saying:text:nowrap:w320"), { name: "Try saying", type: "text", wrap: false, width: 320 });
+  // Written before wrapping became the default (2026-11-26): still reads as on.
+  assert.deepEqual(parseHeaderCell("Try saying:text:wrap"), { name: "Try saying", type: "text", wrap: true });
   assert.deepEqual(parseHeaderCell("tags:multiselect:w5000"), { name: "tags", type: "multiselect", width: 2000 });
-  assert.deepEqual(parseHeaderCell("ends 10:30:date:wrap"), { name: "ends 10:30", type: "date", wrap: true });
+  assert.deepEqual(parseHeaderCell("ends 10:30:date:nowrap"), { name: "ends 10:30", type: "date", wrap: false });
   // Layout with no known type before it is part of the name.
-  assert.deepEqual(parseHeaderCell("notes:wrap"), { name: "notes:wrap", type: "text" });
+  assert.deepEqual(parseHeaderCell("notes:nowrap"), { name: "notes:nowrap", type: "text" });
   assert.deepEqual(parseHeaderCell("plan:w2"), { name: "plan:w2", type: "text" });
   const sheet = parseSheet("Area,Try saying\nNotes,hi\n");
-  const wide = setColumnLayout(sheet, "try saying", { wrap: true, width: 319.6 });
-  assert.equal(serializeSheet(wide), "Area,Try saying:text:wrap:w320\nNotes,hi\n");
-  assert.deepEqual(parseSheet(serializeSheet(wide)).columns, wide.columns);
-  const plain = setColumnLayout(wide, "Try saying", { wrap: false, width: null });
+  // Wrapping is the default, so only turning it off is written.
+  assert.equal(serializeSheet(setColumnLayout(sheet, "Try saying", { wrap: true })), "Area,Try saying\nNotes,hi\n");
+  const narrow = setColumnLayout(sheet, "try saying", { wrap: false, width: 319.6 });
+  assert.equal(serializeSheet(narrow), "Area,Try saying:text:nowrap:w320\nNotes,hi\n");
+  assert.deepEqual(parseSheet(serializeSheet(narrow)).columns, narrow.columns);
+  const plain = setColumnLayout(narrow, "Try saying", { wrap: true, width: null });
   assert.equal(serializeSheet(plain).split("\n")[0], "Area,Try saying");
   // Renaming and retyping keep the layout.
-  const renamed = setColumnType(renameColumn(wide, "Try saying", "Say"), "Say", "multiselect").sheet;
-  assert.equal(serializeSheet(renamed).split("\n")[0], "Area,Say:multiselect:wrap:w320");
+  const renamed = setColumnType(renameColumn(narrow, "Try saying", "Say"), "Say", "multiselect").sheet;
+  assert.equal(serializeSheet(renamed).split("\n")[0], "Area,Say:multiselect:nowrap:w320");
 });
 
 test("quoted cells keep commas, quotes and newlines, and round-trip", () => {

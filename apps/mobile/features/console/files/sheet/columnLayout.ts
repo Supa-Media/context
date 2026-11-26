@@ -65,7 +65,7 @@ export function dragWidth(start: number, moved: number): number {
 }
 
 export function wraps(column: SheetColumn): boolean {
-  return column.wrap === true && canWrap(column.type);
+  return column.wrap !== false && canWrap(column.type);
 }
 
 /**

@@ -16,7 +16,7 @@ export type ColumnType = "text" | "number" | "usd" | "date" | "person" | "select
 export interface SheetColumn {
   name: string;
   type: ColumnType;
-  /** Its cells wrap, and a row grows to its tallest wrapped cell. Kept in the header (`notes:text:wrap`). */
+  /** False when its cells stay on one line (`notes:text:nowrap`); wrapping, which grows a row to its tallest cell, is the default. */
   wrap?: boolean;
   /** Its width in pixels, set by a drag; without one, columns share the grid's width. Kept in the header (`notes:text:w320`). */
   width?: number;

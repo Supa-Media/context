@@ -60,7 +60,7 @@ export function ColumnMenu({
   const [renamed, setRenamed] = useState(false);
   const windowWidth = useWindowDimensions().width;
   const phone = anchor === null || densityFor(windowWidth) === "compact";
-  const wraps = column.wrap === true;
+  const wraps = column.wrap !== false;
 
   // Rename is kept to the field: it applies on Enter or when focus leaves, and never twice for the same name.
   const rename = () => {
