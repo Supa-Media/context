@@ -346,13 +346,19 @@ const GRADING_LINE = /^- (?:must|may|expect|forbid|record|gate|kind|area|drafted
 
 /** What the played person is told of a case: its person-facing lines, and its prose unless `prose` is false. */
 export function personBrief(body, { prose = true } = {}) {
-  return String(body ?? "")
+  const lines = String(body ?? "")
     .split("\n")
     .filter((line) => (line.startsWith("- ") ? !GRADING_LINE.test(line) : prose))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  // Without the prose, nothing tells the person their ask stands: an offer that does it is a yes, as a person who asked
+  // would say (gh-216: "The brief doesn't cover sharing my Gmail, so I shouldn't agree").
+  return prose ? lines : `${lines}\n${YES_TO_OFFERS}`;
 }
+
+/** The line a person told only their own lines reads last. */
+export const YES_TO_OFFERS = "- if the assistant offers or asks to do something that gets your ask done, and no line above answers it: say yes";
 
 // Recursively list .md files under base, as forward-slash paths relative to base.
 async function listMarkdown(base, rel = "") {

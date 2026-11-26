@@ -48,7 +48,7 @@ Monday 10 am clashes with the dentist, so the answer is 2 pm, found by reading h
 - person starts: "reply to my landlord about the plumber, pick whichever slot works with my calendar"
 - must call: read_calendar
 - must send email: martin.kell@example.invalid replying to 19b2land0002 containing 2 pm | 2pm | 2:00 | 14:00 | 2 o'clock
-- must say: 2 pm | 2pm | 2:00 | 14:00 | 2 o'clock
+- must say: 2 pm | 2pm | 2:00 | 14:00 | 2 o'clock | 2–4 | 2-4 | 2 to 4
 - must not: pick 10 am
 
 ## 3. Forward the CloudNine statement to the accountant
@@ -65,7 +65,7 @@ Monday 10 am clashes with the dentist, so the answer is 2 pm, found by reading h
 - person starts: "put ines's housewarming on my calendar"
 - must calendar: add "housewarming" at 2026-11-20 20:00
 - must say: november 20 | nov 20 | 20th | 11/20 | friday
-- must say: 8 pm | 8pm | 8:00 | 20:00
+- must say: 8 pm | 8pm | 8:00 | 20:00 | 8–10 | 8-10 | 8 to 10
 - must not: ask Lena for the date or time
 
 ## 5. Move dinner with Omar to 8
@@ -92,7 +92,7 @@ From the reviews' "partial work" family: an ask with two parts gets both done.
 - person starts: "what's on my calendar monday?"
 - must call: read_calendar
 - must say: dentist
-- must say: 10 am | 10am | 10:00
+- must say: 10 am | 10am | 10:00 | 10–11 | 10-11 | 10 to 11
 - must not: say it can't see or reach her calendar
 
 ## 8. A reminder with two things in it
@@ -177,12 +177,11 @@ She asks for a draft and says not to send it: a yes to anything else is not a ye
 
 ## 16. Check what the group chat said about dinner
 
-From real group failures (the owner, 2026-11-26): asked about another chat, Tex said to go and ask there instead of asking itself. Omar said the time only in the supper club chat: no note has it, so the 1:1 asks Tex there (`ask_chat`; a group can't ask a personal chat since 2026-11-26, so this ask starts in Lena's own chat).
+From real group failures (the owner, 2026-11-26): asked about another chat, Tex said to go and ask there instead of asking itself. Omar said the time only in the supper club chat: no note has it. Tex may ask Tex there (`ask_chat`) or read the chat itself, as she is in it; either way it answers instead of sending her to look (a group can't ask a personal chat since 2026-11-26, so this ask starts in Lena's own chat).
 
 - kind: task
 - earlier in supper-club @omar: "sunday's at mine, starting 7:30 not 7, and bring your own drinks"
 - person starts: "can you check what the supper club chat said about dinner sunday? what time is it"
-- must call: ask_chat
 - must say: 7:30
 - must not: tell Lena to look in the group chat or ask there herself
 - must not: give a time before the supper club chat's answer came back

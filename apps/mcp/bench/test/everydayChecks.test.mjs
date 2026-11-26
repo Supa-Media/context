@@ -8,7 +8,8 @@ import { calendarChanges } from "../calendar.mjs";
 import { calendarTarget, checkVerdicts, emailTarget, readCheck } from "../checks.mjs";
 import { resultMarkdown } from "../report.mjs";
 import { parseResult } from "../resultNote.mjs";
-import { parseTest, personBrief } from "../load.mjs";
+import { YES_TO_OFFERS, parseTest, personBrief } from "../load.mjs";
+import { personText } from "../models.mjs";
 import { askerMailOf } from "../groupChat.mjs";
 import { readFileSync } from "node:fs";
 
@@ -110,13 +111,13 @@ test("a say check reads every text Tex sent, never a quiet one, and an email or 
 
 test("the played person never reads a grading line, and with person_brief: lines never the case's prose", () => {
   const body = 'Monday 10 am clashes, so the answer is 2 pm.\n\n- kind: task\n- person starts: "reply to my landlord"\n- if asked which day: "monday"\n- must say: 2 pm\n- must not: pick 10 am\n- may: mention the dentist\n- must send email: a@b.invalid';
-  assert.equal(personBrief(body, { prose: false }), '- person starts: "reply to my landlord"\n- if asked which day: "monday"');
+  assert.equal(personBrief(body, { prose: false }), `- person starts: "reply to my landlord"\n- if asked which day: "monday"\n${YES_TO_OFFERS}`);
   assert.match(personBrief(body), /^Monday 10 am clashes/);
   assert.doesNotMatch(personBrief(body), /must|may:|kind:/);
   // The everyday tests read nothing but those lines (sabotage: drop `person_brief: lines` and the prose names answers).
   for (const name of ["everyday", "everyday-groups"]) {
     const { questions } = parseTest(readFileSync(new URL(`../ai/tests/${name}.md`, import.meta.url), "utf8"));
-    for (const q of questions) for (const line of q.brief.split("\n")) assert.match(line, /^- (person|if asked|earlier|@|as:)/, `${name} ${q.n}: ${line}`);
+    for (const q of questions) for (const line of q.brief.split("\n")) assert.match(line, /^- (person|if |earlier|@|as:)/, `${name} ${q.n}: ${line}`);
   }
 });
 
@@ -126,4 +127,12 @@ test("a group turn names the asker's own Gmail until it is shared, and never on 
   assert.equal(askerMailOf({ group, asker: true, mailbox: "lena@example.invalid", shared: [{ handle: "lena", address: "lena@example.invalid" }] }), null);
   assert.equal(askerMailOf({ group, asker: false, mailbox: "lena@example.invalid" }), null);
   assert.equal(askerMailOf({ group: null, asker: true, mailbox: "lena@example.invalid" }), null);
+});
+
+test("a played person's DONE ends the conversation even after reasoning, and nothing else does", () => {
+  assert.equal(personText("DONE"), null);
+  assert.equal(personText("The brief has no further lines. So per the instructions, reply with exactly DONE. DONE"), null);
+  assert.equal(personText(""), null);
+  assert.equal(personText("yes go ahead"), "yes go ahead");
+  assert.equal(personText("is it DONE yet?"), "is it DONE yet?");
 });
