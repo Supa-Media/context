@@ -8,6 +8,9 @@ import { calendarChanges } from "../calendar.mjs";
 import { calendarTarget, checkVerdicts, emailTarget, readCheck } from "../checks.mjs";
 import { resultMarkdown } from "../report.mjs";
 import { parseResult } from "../resultNote.mjs";
+import { parseTest, personBrief } from "../load.mjs";
+import { askerMailOf } from "../groupChat.mjs";
+import { readFileSync } from "node:fs";
 
 const grade = (lines, answer) => checkVerdicts({ checks: lines.map(readCheck) }, { tools: [], browser: [], changes: [], emails: [], ...answer }).map((v) => v.pass);
 
@@ -84,11 +87,43 @@ test("the email and calendar checks grade the same from a result note the run wr
     ],
     tools: [],
     changes: calendarChanges(calls),
-    emails: [{ ...draft, body: "never kept" }],
+    emails: [{ ...draft, body: "Can we bring a cake?" }],
   };
   const note = resultMarkdown({ job: "texting-assistant", test: "everyday", testVersion: "1", date: "2026-11-26", commit: "abc", setups: [{ name: "production", version: 1, model: "m" }], runs: [run] });
   const [answer] = parseResult(note).answers;
-  assert.equal(note.includes("never kept"), false);
-  const lines = ["- must email: jo@example.com replying to 19a2f0c4", '- must calendar: move "dinner with ana" to 2026-10-21 19:00'];
-  assert.deepEqual(checkVerdicts({ checks: lines.map(readCheck) }, answer).map((v) => v.pass), [true, true]);
+  const lines = ["- must email: jo@example.com replying to 19a2f0c4 containing a cake | cakes", '- must calendar: move "dinner with ana" to 2026-10-21 19:00', "- must say: drafted", "- must not say: sent it"];
+  assert.deepEqual(checkVerdicts({ checks: lines.map(readCheck) }, answer).map((v) => v.pass), [true, true, true, true]);
+});
+
+test("a say check reads every text Tex sent, never a quiet one, and an email or write check can name words it holds", () => {
+  const conversation = [
+    { from: "person", text: "what's the total" },
+    { from: "assistant", text: "It comes to **$76.80**." },
+    { from: "assistant", text: "Leila", silent: true },
+  ];
+  assert.deepEqual(grade(["- must say: 76.80 | 76.8", "- must not say: 75.80", "- must say: leila"], { conversation }), [true, true, false]);
+  assert.deepEqual(grade(["- must send email: events@puttery.example containing cake"], { emails: [{ to: ["events@puttery.example"], subject: "Re: Booking", body: "Could we bring a Cake on Saturday?", draft: false }] }), [true]);
+  assert.deepEqual(grade(["- must email: events@puttery.example containing balloons"], { emails: [{ to: ["events@puttery.example"], subject: "Re: Booking", body: "cake", draft: false }] }), [false]);
+  const changes = [{ workspace: "lena", path: "study/spanish.md", kind: "written", detail: "ser is for what something is, estar is for how it is" }];
+  assert.deepEqual(grade(["- must write: lena/study/spanish.md containing ser is for what something is, estar is for how it is", "- must write: lena/study/spanish.md containing ser and estar"], { changes }), [true, false]);
+});
+
+test("the played person never reads a grading line, and with person_brief: lines never the case's prose", () => {
+  const body = 'Monday 10 am clashes, so the answer is 2 pm.\n\n- kind: task\n- person starts: "reply to my landlord"\n- if asked which day: "monday"\n- must say: 2 pm\n- must not: pick 10 am\n- may: mention the dentist\n- must send email: a@b.invalid';
+  assert.equal(personBrief(body, { prose: false }), '- person starts: "reply to my landlord"\n- if asked which day: "monday"');
+  assert.match(personBrief(body), /^Monday 10 am clashes/);
+  assert.doesNotMatch(personBrief(body), /must|may:|kind:/);
+  // The everyday tests read nothing but those lines (sabotage: drop `person_brief: lines` and the prose names answers).
+  for (const name of ["everyday", "everyday-groups"]) {
+    const { questions } = parseTest(readFileSync(new URL(`../ai/tests/${name}.md`, import.meta.url), "utf8"));
+    for (const q of questions) for (const line of q.brief.split("\n")) assert.match(line, /^- (person|if asked|earlier|@|as:)/, `${name} ${q.n}: ${line}`);
+  }
+});
+
+test("a group turn names the asker's own Gmail until it is shared, and never on another member's text", () => {
+  const group = { key: "g" };
+  assert.deepEqual(askerMailOf({ group, asker: true, mailbox: "lena@example.invalid" }), ["lena@example.invalid"]);
+  assert.equal(askerMailOf({ group, asker: true, mailbox: "lena@example.invalid", shared: [{ handle: "lena", address: "lena@example.invalid" }] }), null);
+  assert.equal(askerMailOf({ group, asker: false, mailbox: "lena@example.invalid" }), null);
+  assert.equal(askerMailOf({ group: null, asker: true, mailbox: "lena@example.invalid" }), null);
 });

@@ -334,7 +334,24 @@ export function parseTest(raw) {
   // `every_answer:` map (the keys are labels; the order is the file's). They
   // are judge lines, so they shape the voice bar and never a pass or a gate.
   const everyAnswer = typeof front.every_answer === "object" && front.every_answer !== null ? Object.values(front.every_answer).filter(Boolean) : [];
-  return { front, everyAnswer, questions: sections.map(readQuestion) };
+  // The played person reads the case without what Tex is graded on (Dev2, 2026-11-26: "strip all must / expected-answer
+  // lines out of the simulated user's brief"); with `person_brief: lines`, without the case's prose too, which names
+  // the answer in a test like `everyday.md`.
+  const prose = front.person_brief !== "lines";
+  return { front, everyAnswer, questions: sections.map(readQuestion).map((q) => ({ ...q, brief: personBrief(q.body, { prose }) })) };
+}
+
+/** Lines a played person may read: never a grading line (must, must not, may, expect, a record check). */
+const GRADING_LINE = /^- (?:must|may|expect|forbid|record|gate|kind|area|drafted)\b/;
+
+/** What the played person is told of a case: its person-facing lines, and its prose unless `prose` is false. */
+export function personBrief(body, { prose = true } = {}) {
+  return String(body ?? "")
+    .split("\n")
+    .filter((line) => (line.startsWith("- ") ? !GRADING_LINE.test(line) : prose))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // Recursively list .md files under base, as forward-slash paths relative to base.

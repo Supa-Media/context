@@ -1,7 +1,7 @@
 # About Lena
 
 ## Life
-- Lives in Riverside with her roommate Omar. Works in product design.
+- Lives at 18 Alder Street in Riverside, a few minutes from Riverside Park, with her roommate Omar. Works in product design.
 - Learning Spanish, a little every day (study/spanish.md).
 - Saving for a trip to Lisbon in March (trips/lisbon-fund.md).
 

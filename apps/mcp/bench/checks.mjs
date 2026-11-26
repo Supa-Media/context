@@ -58,6 +58,14 @@
  *                                    whose title holds the quoted words, and for
  *                                    add and move optionally its new start (a day,
  *                                    or a day and a time)
+ *   - must say: 2 pm | 2:00 pm | 14:00
+ *                                    one of these in any text Tex sent, any
+ *                                    case, spaces and asterisks ignored (`must
+ *                                    not say`: none of them in any); for the
+ *                                    facts code can see, so the judge never
+ *                                    grades a name, number, date or time
+ *   An email check may end `containing <words> | <words>` (its subject or
+ *   body), and a write check `containing <words>` (the text it added).
  *
  * Each also takes `must not`. A verdict is a "must" or "must not" line like
  * the judge's, so a failed check fails its question, and on a task, the gate.
@@ -65,7 +73,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link|email|send email|calendar):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach|start|link|email|send email|calendar|say):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -147,6 +155,8 @@ function happened(check, answer) {
       return emailed(emailTarget(check.value), answer.emails ?? [], true);
     case "calendar":
       return changedCalendar(calendarTarget(check.value), answer.changes ?? []);
+    case "say":
+      return said(check.value, answer.conversation ?? []);
     default:
       return false;
   }
@@ -154,19 +164,34 @@ function happened(check, answer) {
 
 /** An `email` or `send email` check's target: `{ to, replyTo }`; a line that isn't one throws when the test is read. */
 export function emailTarget(value) {
-  const m = value.match(/^(\S+@\S+?)(?:\s+replying to\s+(\S+))?$/);
-  if (!m) throw new Error(`email check: "${value}" is not "<address>", optionally "replying to <Gmail id>"`);
-  return { to: m[1].toLowerCase(), replyTo: m[2] ?? null };
+  const m = value.match(/^(\S+@\S+?)(?:\s+replying to\s+(\S+))?(?:\s+containing\s+(.+))?$/);
+  if (!m) throw new Error(`email check: "${value}" is not "<address>", optionally "replying to <Gmail id>" and "containing <words> | <words>"`);
+  return { to: m[1].toLowerCase(), replyTo: m[2] ?? null, ...(m[3] ? { containing: alternatives(m[3]) } : {}) };
 }
 
 /** Whether a draft or (with `sentOnly`) a sent email went to the address, in the thread named when one is. */
-function emailed({ to, replyTo }, emails, sentOnly) {
+function emailed({ to, replyTo, containing = null }, emails, sentOnly) {
   return emails.some((email) => {
     if (sentOnly && email.draft === true) return false;
     const people = [...[].concat(email.to ?? []), ...[].concat(email.cc ?? [])].map((who) => String(who).toLowerCase());
     if (!people.some((who) => who === to || who.includes(`<${to}>`))) return false;
-    return replyTo === null || email.replyTo === replyTo;
+    if (replyTo !== null && email.replyTo !== replyTo) return false;
+    return containing === null || holdsAny(`${email.subject ?? ""} ${email.body ?? ""}`, containing);
   });
+}
+
+/** A check's `a | b | c`: each alternative, as it is compared (`plain`). */
+const alternatives = (value) => value.split(" | ").map(plain).filter(Boolean);
+
+/** Text as a check compares it: lower case, curly quotes straight, asterisks gone, spaces as one. */
+const plain = (text) => String(text ?? "").toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\*/g, "").replace(/\s+/g, " ").trim();
+
+const holdsAny = (text, wanted) => wanted.some((want) => plain(text).includes(want));
+
+/** A `say` check: one of its alternatives in any text Tex sent in the conversation (a quiet turn sent none). */
+function said(value, conversation) {
+  const sent = conversation.filter((turn) => turn.from === "assistant" && turn.silent !== true).map((turn) => turn.text ?? "");
+  return sent.some((text) => holdsAny(text, alternatives(value)));
 }
 
 const CALENDAR_VERBS = { add: "added", move: "moved", edit: "edited", cancel: "cancelled", rsvp: "answered" };
@@ -220,7 +245,10 @@ function startedAsNamed({ n, atLeast, shared, where = null }, all) {
  * `maya/routines/daily/ with at: 7:30 am, on: weekdays`. A comma inside a
  * value (`on: mon, wed`) is kept: only one followed by `key:` starts a line.
  */
-export function writeTarget(value) {
+export function writeTarget(whole) {
+  const cut = whole.search(/\s+containing\s+/);
+  const value = cut < 0 ? whole : whole.slice(0, cut);
+  const containing = cut < 0 ? null : alternatives(whole.slice(cut).replace(/^\s+containing\s+/, ""));
   const at = value.search(/\s+with\s+/);
   const place = at < 0 ? value : value.slice(0, at);
   const fields = at < 0 ? "" : value.slice(at).replace(/^\s+with\s+/, "");
@@ -230,7 +258,7 @@ export function writeTarget(value) {
     if (!m) throw new Error(`write check: "${part.trim()}" is not a front matter line (key: value)`);
     front[m[1].toLowerCase()] = m[2];
   }
-  return { place: place.trim(), front };
+  return { place: place.trim(), front, ...(containing ? { containing } : {}) };
 }
 
 /**
@@ -309,9 +337,10 @@ function atPlace(place, path) {
 }
 
 function wrote(value, changes) {
-  const { place, front } = writeTarget(value);
+  const { place, front, containing = null } = writeTarget(value);
   return writesOf(changes).some((write) => {
     if (!atPlace(place, write.path)) return false;
+    if (containing !== null && !holdsAny(write.detail, containing)) return false;
     const fields = recordedFront(write.detail);
     return Object.entries(front).every(([key, want]) => sameValue(key, want, fields[key]));
   });

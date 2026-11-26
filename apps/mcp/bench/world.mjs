@@ -35,7 +35,7 @@ import { rmSync } from "node:fs";
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { readStream, workerEvents } from "./workerWire.mjs";
 import { benchMachines } from "./benchMachines.mjs";
-import { benchGroup, benchHome, chatShares, seedMemberCards } from "./groupChat.mjs";
+import { askerMailOf, benchGroup, benchHome, chatShares, seedMemberCards } from "./groupChat.mjs";
 import { crossChats, groupNames, oneToOneGroups } from "./crossWorld.mjs";
 import { spentSince } from "./benchSpend.mjs";
 import { seedHandles } from "./benchHandles.mjs";
@@ -408,6 +408,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const shared = chatShares({ group, shares, flags: controlPlane.flags, mailbox: mail[0]?.address ?? null });
       const groupCalendar = shared.calendar ?? (group && models.calendar === "connected" && controlPlane.flags.calendarAddress ? [{ handle: tagger.handle, address: controlPlane.flags.calendarAddress }] : null);
       if (shared.mail) groupMail = [...(groupMail ?? []), ...shared.mail];
+      const askerMail = askerMailOf({ group, asker: sender === tagger, mailbox: mail[0]?.address ?? null, shared: groupMail ?? stand.sharedMail() });
       // Asked for as a stream, as the texting Worker asks (`packages/tex/worker/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
@@ -418,7 +419,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`packages/tex/worker/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`packages/tex/worker/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does. A group's `people` are its handles, as `groupModelTurn.ts` names them (whose member cards a turn may read).
-          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...((groupMail ?? stand.sharedMail()) ? { mail: groupMail ?? stand.sharedMail() } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}) } } : { conversation: "texts", ...cross.counts() }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...((groupMail ?? stand.sharedMail()) ? { mail: groupMail ?? stand.sharedMail() } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}), ...(askerMail ? { askerMail } : {}) } } : { conversation: "texts", ...cross.counts() }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,
