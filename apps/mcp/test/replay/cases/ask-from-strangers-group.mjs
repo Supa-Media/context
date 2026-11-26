@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { oneToOne } from "../chats.mjs";
 import { personalTexTool } from "../../../../../packages/tex/gateway/agent/askPersonalTex.js";
+import { settingsTools } from "../../../../../packages/tex/gateway/agent/settingsTools.js";
 
 const ACCOUNT = { name: "Ada", handle: "ada", phones: ["+15555550100"], emails: ["ada@example.invalid", "ada.l@example.invalid"], google: [] };
 
@@ -13,12 +14,22 @@ export default {
   // group: "Tex what is seyi's last name". ask_chat contact:true answered by code from his account, handing the group
   // turn his phone and four emails, and a code-written status line "Asking your personal Tex for What is …" was texted
   // to the chat; the group's Tex then said his personal Tex knew no last name, though that Tex never ran.
+  // Part three, the same incident: the account held only the first name typed at sign-up, and nothing could change it.
+  // Their own chat now sets it (send account_name); a group chat never gets the tool.
   async run() {
     const tool = personalTexTool({ group: { key: "k", from: "ada", people: ["ada", "bo"] }, ledger: { asked: [], offered: null }, asker: async () => ACCOUNT });
     const facts = (await tool.call({ what: "What is Ada's last name?" })).content.map((part) => part.text).join("\n");
     assert.match(facts, /Name: Ada/);
     assert.doesNotMatch(facts, /\+1555|example\.invalid/, "a contact ask answers only the field asked for");
     assert.match(facts, /Personal Tex: not asked/, "never passed off as the personal Tex's answer");
+    let saved = "Ada";
+    const controlPlane = { accountName: async (token, name) => ((saved = name ?? saved), { status: "done", name: saved }) };
+    const session = { accessToken: "tok", workspaceId: "w1", flags: [], workspaces: [] };
+    const named = settingsTools({ session, controlPlane, group: null, dispatch: async () => ({ isError: true }) }).find((entry) => entry.tool.name === "account_name");
+    assert.ok(named, "their own chat can set the name on their account");
+    await named.call({ name: "Ada Lovelace" });
+    assert.match((await personalTexTool({ group: { key: "k", from: "ada", people: ["ada", "bo"] }, ledger: { asked: [], offered: null }, asker: async () => ({ ...ACCOUNT, name: saved }) }).call({ what: "What is Ada's last name?" })).content.map((part) => part.text).join("\n"), /Name: Ada Lovelace/);
+    assert.equal(settingsTools({ session, controlPlane, group: { from: "ada" }, dispatch: async () => ({}) }).find((entry) => entry.tool.name === "account_name"), undefined, "a group can't rename anyone");
     const chat = await oneToOne();
     try {
       const asked = await chat.byCode("the health saas api services list", "Here's the list: Stripe, Plaid, Twilio.", { event: "chat_ask", crossChat: { kind: "ask", id: "xeeeeeeeeee", from: "a group chat they're in", what: "the health saas api services list", do: false, strangers: true } });
