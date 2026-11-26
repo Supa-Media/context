@@ -15,7 +15,7 @@ good_enough:
 
 # Carry-on bench
 
-From a customer's group chat of 2026-11-04 (thread "Fix group Tex dropping customer asks"): asked where a logo was, Tex searched the notes once, said the asker "or a colleague would know", offered to keep looking, and when the asker named the folder it was in, answered "Thanks, that helps." with no tool. The owner's rule the same day: Tex is always meant to be helpful and do the task, answering fast, handing what it can't finish to a background job or the advisor, and never dropping it. Each case here is one way a task is dropped. The names and places are invented. The repo copy is `apps/mcp/bench/ai/tests/carry-on.md`; `sites/filebox.example.md` is its site. The AI Benchmark Action reads the Context copy (`@context-lc ai/tests/carry-on.md`), so change both together.
+From a customer's group chat of 2026-11-04 (thread "Fix group Tex dropping customer asks"): asked where a logo was, Tex searched the notes once, said the asker "or a colleague would know", offered to keep looking, and when the asker named the folder it was in, answered "Thanks, that helps." with no tool. The owner's rule the same day: Tex is always meant to be helpful and do the task, answering fast, handing what it can't finish to a background job or the advisor, and never dropping it. Each case here is one way a task is dropped. The names and places are invented. The repo copy is `apps/mcp/bench/ai/tests/carry-on.md`; `sites/filebox.example.md` is its site. This repository file is canonical: `pnpm ai pull` runs it over any Context copy (2026-11-26).
 
 ## 1. Where's the club logo? (a location she gives is the ask continuing)
 

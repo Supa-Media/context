@@ -5,8 +5,8 @@
  *   pnpm ai nightly [--held-out <dir>] [--out <file>] [--run-url <url>] [--fake] [--areas core,tasks|all]
  *
  * The night's areas, three runs each, as the live setup. Which areas is `NIGHTLY_ROTATION` (America/New_York):
- * web-facts, respond and review every night; core on Monday, Wednesday and Friday; on Sunday, tasks in an even
- * ISO week and jobs in an odd one. `--areas` (comma-separated, or `all`) replaces that list. Each selected area
+ * respond and review every night; core on Monday, Wednesday and Friday; everyday and fd-completion on Tuesday;
+ * groups and fd-completion on Thursday; on Sunday, tasks in an even ISO week and jobs in an odd one. `--areas` (comma-separated, or `all`) replaces that list. Each selected area
  * is checked against the monthly budget in `@context-lc ai/results/spend.md` before it starts (this month's limit
  * and today's cap), refused when it would pass either, and its cost recorded there after.
  * One note, `ai/results/nightly/<date>.md`, says pass or fail by each area's own bar, the cases that fell short, the
@@ -51,6 +51,10 @@ export const NIGHTLY_AREAS = [
   },
   // Area 2 of the eval metrics: whole group turns and Tex asking Tex across chats (`tests/groups.md`, `tests/cross-chat.md`).
   { area: "groups", tests: ["groups", "cross-chat"] },
+  // Everyday errands people text Tex, graded on the world they leave behind (`tests/everyday.md`, `everyday-groups.md`).
+  { area: "everyday", tests: ["everyday", "everyday-groups"] },
+  // Area 1 of the eval metrics: does the front door finish the task (`tests/fd-completion.md`).
+  { area: "fd-completion", tests: ["fd-completion"] },
 ];
 
 /** How many times an area runs tonight. */
@@ -63,10 +67,12 @@ export const runsOf = (spec) => spec.runs ?? NIGHTLY_RUNS;
  * odd weeks run `odd`.
  */
 export const NIGHTLY_ROTATION = {
-  every: ["web-facts", "respond", "review"],
+  // web-facts is left out until `tests/web-facts.md` is on main (PR #3184); `--areas web-facts` still names it.
+  every: ["respond", "review"],
   monday: ["core"],
+  tuesday: ["everyday", "fd-completion"],
   wednesday: ["core"],
-  thursday: ["groups"],
+  thursday: ["groups", "fd-completion"],
   friday: ["core"],
   sunday: { even: ["tasks"], odd: ["jobs"] },
 };
@@ -137,7 +143,8 @@ export async function runArea(spec, { tree, dir, scratch, fake = false, heldOut 
     const usd = fake ? 0 : priced.every((row) => typeof row.usd === "number") ? priced.reduce((sum, row) => sum + row.usd, 0) : AREA_LIMITS[spec.area].usdPerCase * rows.length * runsOf(spec);
     return { area: spec.area, status: runsPassed * 2 > runsOf(spec) ? "pass" : "fail", rows, usd, runsPassed, runs: runsOf(spec), bars: {}, missing: [] };
   }
-  const result = await runTests(tree, spec.tests, { dir, runs: NIGHTLY_RUNS, fake, scratch, tag: "nightly" });
+  // An area's tests are separate run and judge processes, so they go at once (the 10-minute rule, 2026-11-22).
+  const result = await runTests(tree, spec.tests, { dir, runs: NIGHTLY_RUNS, fake, scratch, tag: "nightly", parallel: spec.tests.length });
   if (result.missing.length === spec.tests.length) return { area: spec.area, status: "missing", rows: [], usd: 0, bars: {}, missing: result.missing };
   const pass = Object.values(result.bars).every((bar) => bar?.goodEnough === true);
   return { area: spec.area, status: pass ? "pass" : "fail", ...result };

@@ -21,6 +21,8 @@
  *     the stats chip" fails.
  *  6. `labWording` answering `{}`. → "get's vsMain names the modules' words and conversation settings" fails.
  *  7. `simulate` (engine/sim.ts) without the "next" tag. → "sim walks the door chain to the front door" fails.
+ *  8. The review area checking `verdict` again (areas.ts, 2026-11-26). → "bench on main's graph can test every case as
+ *     written" fails.
  */
 
 import assert from "node:assert/strict";
@@ -194,6 +196,18 @@ test("config gives the Lab's changes, warnings and its config JSON, and the prom
   const main = jsonOf(await devWith({ versions: { status: "ok", main: { results: "[]" }, drafts: [] }, cases: NO_CASES })("config", {}), 0);
   assert.deepEqual(main.changes, []);
   assert.equal(main.note, "Same as main. A run now is a baseline.");
+});
+
+test("bench on main's graph can test every case as written, but the shelved planner's and the advisor's words", async () => {
+  // Each area's step and check name a node and field live Tex has (packages/lab/app/data/areas.ts): the pipeline's
+  // Door is doorStep, the job checks and job mail run on the Job advisor, the reviewer answers `back`, and a job task
+  // is checked by code. The planner is off on the shelf, and the advisor's words travel on its wire, not its fields.
+  const dev = devWith({ get: draftRow(mainGraph()), cases: NO_CASES });
+  const all = jsonOf(await dev("bench", { draft: "vbench" }));
+  const unfit = Object.fromEntries(all.areas.filter((a) => a.cantTestAsWritten).map((a) => [a.area, a.cantTestAsWritten]));
+  assert.deepEqual(Object.keys(unfit).sort(), ["advisor-chat", "advisor-planner"]);
+  // A Lab run still skips the jobs area (bench/lab.mjs: it needs API credits), so it keeps saying so.
+  assert.equal(all.areas.find((a) => a.area === "jobs").needs, "API credits");
 });
 
 test("bench shows the areas and an area's cases with the draft's picks and the shared edits", async () => {
