@@ -25,14 +25,18 @@ stored tidy.
 ## A column's layout rides in the header too
 
 A column's wrap and width follow its type in the header cell:
-`Try saying:text:wrap:w320` wraps that column's cells and draws it 320 pixels
-wide, for everyone who opens the sheet, as Google Sheets keeps column widths
-with the file. Decided by the owner, 2026-11-26: a layout kept per device or
-per person was offered, and the owner chose the file ("we are able to save
-drawings in just 1 file, why would csv be any different"), accepting a longer
-header in other spreadsheets ("people can always delete the header row").
-Layout tokens count only after a known type, so `notes:wrap` is still a text
-column of that name. Filters, sorts, hidden columns and footer sums stay the
+`Try saying:text:nowrap:w320` keeps that column's cells on one line and draws
+it 320 pixels wide, for everyone who opens the sheet, as Google Sheets keeps
+column widths with the file. Decided by the owner, 2026-11-26: a layout kept
+per device or per person was offered, and the owner chose the file ("we are
+able to save drawings in just 1 file, why would csv be any different"),
+accepting a longer header in other spreadsheets ("people can always delete
+the header row"). The same day the owner made wrapping the default for every
+sheet ("make wrap text the default for all csvs"): text, link and
+multi-select cells wrap unless the header says `nowrap`, so a plain header
+needs no token, and a `wrap` written before still reads as on. Layout tokens
+count only after a known type, so `notes:nowrap` is still a text column of
+that name. Filters, sorts, hidden columns and footer sums stay the
 session's view and are never written. `sheets.test.mjs` fails if layout parses
 without a type before it, or a rename or retype drops it.
 
