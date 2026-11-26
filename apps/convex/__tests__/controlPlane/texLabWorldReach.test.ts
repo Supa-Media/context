@@ -28,7 +28,7 @@ const TEXTING = token("lab_texting");
 const CHAT = "lab-world-0123456789abcdef";
 const keyOf = async (id: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`lab-world:${id}`)))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-type Reach = { status: string; reach: string[]; blocked: { slug: string; who: string; why: string }[]; workspaces: { slug: string }[]; session: { clientId: string; scopes: string[]; defaultWorkspaceId: string; texChatId?: string; workspaces: { workspaceId: string; slug: string; role: string; setupOnly?: true; homeOnly?: true; grantedNames?: string[] }[] } };
+type Reach = { status: string; reach: string[]; unshared?: string[]; blocked: { slug: string; who: string; why: string }[]; workspaces: { slug: string }[]; session: { clientId: string; scopes: string[]; defaultWorkspaceId: string; texChatId?: string; workspaces: { workspaceId: string; slug: string; role: string; setupOnly?: true; homeOnly?: true; grantedNames?: string[] }[] } };
 
 async function world() {
   const tenants = await twoConnectedTenants();
@@ -87,6 +87,8 @@ describe("made-up group chats on main", () => {
     // Ana's own role, never above the Lab user's (Alice edits Lumio and owns Solenne).
     expect(ana.session.workspaces.find((x) => x.slug === "solenne-test")!.role).toBe("owner");
     expect(ana.blocked.filter((b) => b.slug === "lumio-test").map((b) => b.who)).toEqual(["Ben", "Cy"]);
+    // What the asker reads that someone here isn't in, as a real chat names it, for the Room check (Dev2, 2026-11-26).
+    expect(ana.unshared).toContain("lumio-test");
     const ben = (await w.lab("worldReach", { chat: CHAT, people, asker: "ben" })) as Reach;
     expect(ben.reach).toEqual(["solenne-test"]);
     expect(slugs(ben)).not.toContain("lumio-test");
