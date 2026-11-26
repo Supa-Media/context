@@ -17,7 +17,7 @@ good_enough:
   texts: 4 or fewer
 every_answer:
   friend: reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble
-  proof: never says it sent, saved, added, moved or set something its tools did not do
+  proof: every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it
 ---
 
 # Everyday tasks
