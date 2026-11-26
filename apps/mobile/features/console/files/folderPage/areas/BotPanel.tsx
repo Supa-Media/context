@@ -18,7 +18,7 @@ import { Text } from "../../../../design/components/Text";
 import { useFieldFont } from "../../../../design/fieldFont";
 import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import { agoLabel } from "../../mail/model";
+import { agoLabel, timeLabel } from "../../mail/model";
 import { useMailRoute } from "../../../mailPage/MailRouteContext";
 import type { ListNote } from "../../listBlock/model";
 import type { PropertyChanges } from "../useFolderPage";
@@ -95,10 +95,23 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
   };
 
   // Refresh mails the bot its setup again and stays here (Dev, 2026-11-26: "clicking on refresh here keeps you on
-  // the page"): a line added to the reader's mail with it, or that mail started.
-  const [refreshed, setRefreshed] = useState(false);
+  // the page"): a line added to the reader's mail with it, or that mail started. It can go again any time, and says
+  // when it last went (Dev, 2026-11-26: "show the last time it was refreshed, and also allow it to send more than once").
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const lastRefreshed = [refreshedAt, ...mail.map((each) => threads.get(each.path)?.refreshedAt ?? null)]
+    .filter((at): at is string => typeof at === "string" && !Number.isNaN(Date.parse(at)))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const refresh = async () => {
-    if (!canWrite || mine === null || me === undefined || create === undefined) return;
+    if (refreshing || !canWrite || mine === null || me === undefined || create === undefined) return;
+    setRefreshing(true);
+    try {
+      await sendRefresh(mine, me, create);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  const sendRefresh = async (mine: string, me: string, create: (path: string, text: string) => Promise<unknown>) => {
     const text = refreshAskFor(bot.name, workspace);
     try {
       if (hasMine) {
@@ -121,7 +134,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
         setSent(mine);
       }
       setProblem(null);
-      setRefreshed(true);
+      setRefreshedAt(new Date().toISOString());
     } catch {
       setProblem("That didn't send. Try again.");
     }
@@ -156,11 +169,18 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
           {bot.mine ? "Yours: only you change where it works and its caps" : `Only ${bot.whose || "its person"} changes where it works and its caps`}
         </Text>
         {canWrite ? (
-          <Pressable onPress={() => void refresh()} style={styles.smallButton} accessibilityLabel={`Ask ${bot.name} to refresh its setup, name and logo`} testID="bot-panel-refresh">
-            <Text variant="treeMeta" style={styles.smallWord}>
-              {refreshed ? "Sent" : "Refresh"}
-            </Text>
-          </Pressable>
+          <View style={styles.refreshBox}>
+            <Pressable onPress={() => void refresh()} disabled={refreshing} style={[styles.smallButton, refreshing && styles.dim]} accessibilityLabel={`Ask ${bot.name} to refresh its setup, name and logo`} testID="bot-panel-refresh">
+              <Text variant="treeMeta" style={styles.smallWord}>
+                {refreshing ? "Sending…" : "Refresh"}
+              </Text>
+            </Pressable>
+            {lastRefreshed !== undefined ? (
+              <Text variant="treeMeta" style={styles.muted} numberOfLines={1} testID="bot-panel-refreshed">
+                {`Refreshed ${timeLabel(lastRefreshed)}`}
+              </Text>
+            ) : null}
+          </View>
         ) : null}
       </View>
 
@@ -318,6 +338,8 @@ const makeStyles = (colors: Colors) =>
     iconButton: { padding: space.x1, borderRadius: radii.sm },
     lockRow: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingBottom: space.x3, borderBottomWidth: 1, borderBottomColor: colors.line },
     lock: { flexGrow: 1, flexShrink: 1, color: colors.muted },
+    refreshBox: { alignItems: "flex-end", gap: 2, flexShrink: 0 },
+    dim: { opacity: 0.6 },
     smallButton: { paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
     smallWord: { color: colors.text, fontWeight: "600" },
     tabs: { flexDirection: "row", gap: space.x1 },
