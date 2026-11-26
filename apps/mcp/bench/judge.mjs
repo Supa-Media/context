@@ -90,6 +90,7 @@ const SYSTEM = [
   "now is the moment the conversation happens: read today, tonight, tomorrow and every date in a check or a reply against now, never against your own clock or the real date.",
   "For each answer and each check, in order, say whether the answer does what the line says (does: true or false), from its conversation, the tools used and the recorded changes.",
   "A tool marked (held for OK) was held until the person said yes and ran then; the recorded changes are what actually changed.",
+  "emails lists each email the answer sent (sent: true) or saved as a draft (sent: false): a sent email was really sent, even though no note changed.",
   "jobs_started lists the background jobs the answer started; a job's brief_given is what Tex told it to do, not work done: it shows a job was started to do that, never that the job did it or what it found.",
   // 2026-11-18: a started job now runs in the bench and its report is texted (`jobDelivery.mjs`).
   "A conversation line marked later was texted minutes afterwards, when that background job finished: it shows what the job did and found. A check about Tex's first answer (how fast, how short, what it led with, whether it said how long it would take) is graded on the lines before it.",
@@ -154,6 +155,20 @@ export const JUDGE_SCHEMA = {
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+const EMAIL_BODY_CHARS = 600;
+
+/** One email as the judge sees it: who it went to, its subject, whether it was sent or only drafted, its body cut short. */
+export function emailSeen(email) {
+  const body = String(email.body ?? "");
+  return {
+    to: email.to ?? [],
+    ...(email.cc?.length ? { cc: email.cc } : {}),
+    subject: email.subject ?? "",
+    sent: email.draft !== true,
+    body: body.length > EMAIL_BODY_CHARS ? `${body.slice(0, EMAIL_BODY_CHARS)}…` : body,
+  };
+}
 
 /**
  * The checks of a question, in the order the judge must return verdicts: the
@@ -250,6 +265,9 @@ export function buildJudgeRequest({ model, question, answers, every = [], now = 
       conversation: answer.conversation,
       tools: answer.toolsLine,
       changes: answer.changes,
+      // The emails it sent or saved as drafts, so "never says it sent something it did not" is graded on the send, not on
+      // changes that hold no mail (judge-gold 2026-11-26: a sent reply failed truthfulness, "the recorded changes are empty").
+      ...(answer.emails?.length ? { emails: answer.emails.map(emailSeen) } : {}),
       // The links between notes it left, each with the line it sits on, so a line about a link's reason is graded on it.
       ...(answer.links?.length ? { links: answer.links.map((l) => `${l.from} -> ${l.to}${l.isNew ? " (new)" : ""}: ${l.line}`) } : {}),
       // The background jobs it started, each its title and the brief Tex gave it, so "start a job that does X" is graded

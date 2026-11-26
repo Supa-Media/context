@@ -6,6 +6,7 @@ bench/test/benchSetupBugs.test.mjs
 bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
+bench/test/judgeEmails.test.mjs
 bench/test/load.test.mjs
 bench/test/longMemEval.test.mjs
 bench/test/benchRun.test.mjs
