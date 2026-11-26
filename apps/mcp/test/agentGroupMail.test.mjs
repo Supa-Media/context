@@ -87,6 +87,28 @@ test("a chat with shared mail is told it watches that mail itself, with nothing 
   assert.match(prompt, /Nobody has to set that up/);
 });
 
+// 2026-11-25, Crystal Care: the asker had the shared mailbox connected too, and Tex, told only that it was @seyi's,
+// offered the reply for Seyi's yes. Sabotage: drop `askerSends` from `chatMailOf` or the mark in `chatMailPrompt`.
+test("a chat is told which shared mailbox its asker has connected, and only that one", async () => {
+  const { chatMailOf, chatMailPrompt } = await import("../../../packages/tex/gateway/agent/groupMail.js");
+  const mail = chatMailOf([
+    { handle: "seyi", address: "seyi@work.example", askerSends: true },
+    { handle: "seyi", address: "seyi@home.example" },
+    { handle: "bo", address: "bo@work.example", askerSends: "yes" },
+  ]);
+  assert.deepEqual(mail, [
+    { handle: "seyi", address: "seyi@work.example", askerSends: true },
+    { handle: "seyi", address: "seyi@home.example" },
+    { handle: "bo", address: "bo@work.example" },
+  ]);
+  const prompt = chatMailPrompt({ from: "tunji", mail });
+  assert.match(prompt, /@seyi's seyi@work\.example \(connected to @tunji too\)/);
+  assert.match(prompt, /@seyi's seyi@home\.example(?! \()/);
+  assert.match(prompt, /@bo's bo@work\.example(?! \()/);
+  // The sharer asking about their own mailbox is told nothing new.
+  assert.doesNotMatch(chatMailPrompt({ from: "seyi", mail }), /connected to @seyi/);
+});
+
 test("a check-in marks its person's mail a group chat also watches, and is told to leave the group's to it", async () => {
   const { newMailSection, newMailSince } = await import("../../../packages/tex/gateway/agent/newMail.js");
   const store = {

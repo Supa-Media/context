@@ -143,12 +143,49 @@ export function modValue(c: Conversation, i: number, id: string, n: LabNode, all
     case "groupBrief": return row(c.kind === "group" ? "Tex's open work, chat rules, guest names at this point" : "empty: this is a 1:1 chat");
     case "date": return row(`the chat's date and time at #${i + 1}`);
     case "ask": return row(`#${i + 1}: “${m?.text ?? ""}”`);
-    case "draft": return row(next?.tex ? `#${i + 2}: “${next.text}”` : "none: no Tex reply after this message");
+    case "draft": {
+      // The reviewer reads the front door's recorded draft (`setsRun.mjs` `reviewerCase`), including a draft that was
+      // sent back and so has no Tex row after this message (`setsMigrate.mjs` `fromReview` keeps the reply off the chat).
+      const recorded = recordedDraft(m);
+      if (recorded) return row(`recorded draft: “${clip(recorded, 240)}”`);
+      return row(next?.tex ? `#${i + 2}: “${next.text}”` : "none: no Tex reply after this message");
+    }
+    case "ledger": {
+      const did = recordedDid(m);
+      if (did) return row(did.map(didLine).join("; "));
+      return row("this turn so far (the wires below)");
+    }
     case "about": return row(c.kind === "group" ? "the group's About note (test copy)" : "the person's About me (test copy)");
     case "threads": return row(`open threads at #${i + 1}`);
-    case "ledger": return row("this turn so far (the wires below)");
     default: return row(`fixed · ${src || name}`);
   }
+}
+
+const clip = (text: string, n: number) => {
+  const s = text.replace(/\s+/g, " ").trim();
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+};
+
+/** The front door's recorded draft on this message, the text the reviewer actually reads. */
+function recordedDraft(m: Message | undefined): string | null {
+  const draft = m?.rec?.fd?.draft;
+  return typeof draft === "string" && draft.trim() !== "" ? draft : null;
+}
+
+/** The turn's tool calls, stored beside that draft (`[name, args, result, "failed"?]`). */
+function recordedDid(m: Message | undefined): unknown[] | null {
+  const did = m?.rec?.fd?.did;
+  return Array.isArray(did) && did.length > 0 ? did : null;
+}
+
+/** One recorded call as a short line. */
+function didLine(row: unknown): string {
+  if (!Array.isArray(row)) return clip(String(row), 160);
+  const name = typeof row[0] === "string" && row[0] ? row[0] : "call";
+  const args = row[1] && typeof row[1] === "object" ? ` ${JSON.stringify(row[1])}` : "";
+  const result = row[2] === undefined || row[2] === null || row[2] === "" ? "" : ` → ${String(row[2])}`;
+  const failed = row[3] === "failed" ? " (failed)" : "";
+  return clip(`${name}${args}${result}${failed}`, 160);
 }
 
 export type WireRow = { from: string; label: string; mode: string; when: string; src: string; cls: string };

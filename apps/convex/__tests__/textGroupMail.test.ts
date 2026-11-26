@@ -32,6 +32,7 @@ import type { Id } from "../_generated/dataModel";
 import { addMember, asUser, createUser, createWorkspace, gatewayPost, seedGoogleConnection, setupTest } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { withinShare } from "../functions/lib/gatewayRoutes/personMail";
+import { GMAIL_SEND_SCOPE } from "../functions/lib/googleOAuth";
 import { MAIL_WAKE_DELAY_MS, MAIL_WAKE_GAP_MS } from "../functions/lib/routines/wake";
 import { CHAT_LOOK_PATH, DORMANT_MS, FIRST_LOOK_MS, LOOK_DELAY_MS, LOOK_GAP_MS } from "../functions/lib/textGroupLooks";
 import { registerClient, seedConnectedClient } from "./controlPlane/fixtures.helpers";
@@ -160,6 +161,23 @@ describe("sharing a mailbox with the chat", () => {
     const audit = await t.run(async (ctx) => await ctx.db.query("auditEvents").collect());
     // Audited where the mailbox lives, the sharer's own workspace: the share is the chat's, never a workspace's.
     expect(audit.filter((row) => row.action === "mail.shared_with_chat").map((row) => row.workspaceId)).toEqual([seyi.workspaceId]);
+  });
+
+  // 2026-11-25, Crystal Care: Dad had the shared work mailbox connected himself, Tex was told only that it was Seyi's,
+  // and offered his reply for Seyi's yes. Sabotage: drop `ownSender` from `mailSharesNamed`, or its send-scope check.
+  test("an asker who has the shared mailbox connected themselves is told so, only when it can send", async () => {
+    gmail();
+    const t = setupTest();
+    const { dad } = await family(t);
+    expect((await turn(t, SEYI, share(WORK))).status).toBe("mail_shared");
+    const own = await seedGoogleConnection(t, { workspaceId: dad.workspaceId, boundBy: dad.userId, address: WORK, googleAccountId: "dad-google-account" });
+    // Read only: Dad couldn't send from it, so nothing is said.
+    expect((await turn(t, DAD)).mail).toEqual([{ handle: "seyi", address: WORK }]);
+    await t.run((ctx) => ctx.db.patch(own, { scopes: ["https://www.googleapis.com/auth/gmail.readonly", GMAIL_SEND_SCOPE] }));
+    expect((await turn(t, DAD)).mail).toEqual([{ handle: "seyi", address: WORK, askerSends: true }]);
+    // A sign-in that stopped working can't send either.
+    await t.run((ctx) => ctx.db.patch(own, { health: "reconnect_required" }));
+    expect((await turn(t, DAD)).mail).toEqual([{ handle: "seyi", address: WORK }]);
   });
 
   test("only the mailbox's own person shares it, and only a connected Gmail", async () => {

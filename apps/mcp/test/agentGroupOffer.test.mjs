@@ -81,6 +81,23 @@ test("somebody else's 👍 on the offer sends nothing; the sender's 👍 sends t
   assert.doesNotMatch(cy.body.answer, /give it a 👍/, "not asked twice");
 });
 
+// 2026-11-25, Crystal Care: a reply from Seyi's shared work mailbox, for Seyi's yes, was refused outright, so it
+// could never be offered. Sabotage: refuse `replyTo` or `from` again in `emailGate`'s offer path.
+test("a reply from someone else's mailbox is offered for their yes; a forward or attachment is still theirs", async () => {
+  const before = sends().length;
+  const reply = { ...EMAIL, from: "cy@gmail.example", in_reply_to: "email:cy@gmail.example/abc123", as: "@cy" };
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: reply } }] }, { text: "Drafted it for Cy." }]);
+  const asked = await tagged(TOKEN_ADA, "ada", "Tex reply to jo from cy's mail");
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  assert.equal(sends().length, before);
+  assert.equal(asked.body.askFor, "cy", "offered for Cy's own yes");
+
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: { ...EMAIL, forward: "email:cy@gmail.example/abc123", as: "@cy" } } }] }, { text: "Couldn't." }]);
+  await tagged(TOKEN_ADA, "ada", "Tex forward that from cy's mail");
+  assert.match(toolReplies(world.model.requests.at(-1))[0], /a forward or an attachment goes from a mailbox only its owner can name/);
+  assert.equal(sends().length, before);
+});
+
 test("a yes counts only from the person the words ask by name", () => {
   const offer = offerLine({ who: "cy", tool: "send_email", detail: "To: jo@example.com" });
   assert.equal(addressedTo(offer, "cy"), true);
