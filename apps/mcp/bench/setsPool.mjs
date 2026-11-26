@@ -52,3 +52,27 @@ export function untilOutOfCredit(work) {
     if (t.error && CREDIT.test(String(t.error?.message ?? t.error))) spent ??= t.error;
   };
 }
+
+/** `work` that keeps how long each test took on `t.ms`, so a run can say where its time went. */
+export function timed(work, now = Date.now) {
+  return async (t) => {
+    const began = now();
+    try {
+      await work(t);
+    } finally {
+      t.ms = now() - began;
+    }
+  };
+}
+
+/**
+ * One line on where a pool's time went: how many tests, how many lanes, the wall time, the sum, and the slowest few
+ * with their conversation and how many cases each ran. Ids and times only, never a label or a text, so a Dev run may print it.
+ */
+export function timesLine(tests, { lanes, wallMs, slowest = 5 }) {
+  const ran = tests.filter((t) => typeof t.ms === "number");
+  const s = (ms) => `${Math.round(ms / 1000)} s`;
+  const sum = ran.reduce((total, t) => total + t.ms, 0);
+  const top = [...ran].sort((a, b) => b.ms - a.ms).slice(0, slowest).map((t) => `${t.id ?? "?"}/${t.name} ${t.cases ?? 1} case(s) ${s(t.ms)}`);
+  return `fd tests: ${ran.length} in ${lanes} lanes, wall ${s(wallMs)}, sum ${s(sum)}, mean ${s(ran.length ? sum / ran.length : 0)}; slowest: ${top.join(", ")}`;
+}

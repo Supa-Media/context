@@ -40,7 +40,7 @@ import { collectConvo } from "./setsFdRows.mjs";
 export { benchFailed, missedLine } from "./setsFdRows.mjs";
 import { parsePeople } from "./load.mjs";
 import { seedWorld, worldDirOf } from "./setsWorld.mjs";
-import { runPool, scheduleOrder, untilOutOfCredit } from "./setsPool.mjs";
+import { runPool, scheduleOrder, timed, timesLine, untilOutOfCredit } from "./setsPool.mjs";
 
 const { OTHER_ASSISTANTS } = createRequire(import.meta.url)("../../../packages/tex/src/texSets.cjs");
 
@@ -599,8 +599,7 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
     const byConvo = new Map();
     for (const u of can) byConvo.set(u.convo.id, [...(byConvo.get(u.convo.id) ?? []), u]);
     const convos = [...byConvo.values()];
-    // Every conversation's folder and tests first, a few at a time.
-    const prepared = new Array(convos.length);
+    const prepared = new Array(convos.length); // every conversation's folder and tests first, a few at a time
     const compare = compareOf(env, { tree, convs: convos.map((m) => m[0].convo), world }); // one world for both arms (`worldCompare.mjs`)
     await runPool(convos, PREPARE_LANES, async (mine, k) => {
       const c = mine[0].convo;
@@ -612,16 +611,17 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
       }
     });
     // The one pool: every test of every conversation, longest conversations first and round-robin across them.
-    for (const p of prepared) for (const t of p.tests) t.p = p;
-    const jobs = scheduleOrder(prepared.map((p) => p.tests));
-    await runPool(jobs, parallel, untilOutOfCredit(async (t) => {
+    for (const p of prepared) for (const t of p.tests) Object.assign(t, { p, id: p.id, cases: t.group.length });
+    const jobs = scheduleOrder(prepared.map((p) => p.tests)), poolStart = Date.now();
+    await runPool(jobs, parallel, untilOutOfCredit(timed(async (t) => {
       const p = t.p;
       try {
         t.got = await run(tree, [t.name], { dir: p.dir, scratch: p.scratch, tag: "sets", fake, parallel: 1, env: p.env, envOf: p.envOf, keep, keepPrefix: `${basename(p.scratch)}-`, keepUnits: t.group.map((u) => ({ chat: u.row.chat, msg: u.row.msg, node: u.row.node, rep: u.row.rep })) });
       } catch (error) {
         t.error = error;
       }
-    }));
+    })));
+    process.stderr.write(`${timesLine(jobs, { lanes: parallel, wallMs: Date.now() - poolStart })}\n`); // where the time went (Dev runs past 10 min, 2026-11-26)
     for (const p of prepared) rows.push(...collectConvo(p));
     // record/refresh write this run's answers; a replay adds what it had to ask; a compare's arm waits for `finish`.
     if (compare) armDone(compare.dir, compare.arm);
