@@ -12,7 +12,7 @@ import { isNodeArea, liveCases } from "./cases";
 import type { LabCase, LabGraph, LabNode } from "../types";
 import { cvOf, fp, mods, modsRaw, wcount, wdiff } from "./modules";
 import { replayConfig, type MyText } from "./mine";
-import { G, lab, MAIN, MODELS, node } from "./state";
+import { G, lab, MAIN, MODELS, node, stepsOf } from "./state";
 
 export type Change = {
   node: string;
@@ -41,8 +41,9 @@ export function cvDiff(): Change[] {
 }
 
 export function diff(): Change[] {
-  const a: LabGraph = MAIN.graph;
-  const b: LabGraph = G();
+  // Steps, never folded groups' boxes: a change to a step inside a group is still a change (the canvas folds them).
+  const a: LabGraph = stepsOf(MAIN.graph);
+  const b: LabGraph = stepsOf(G());
   const out: Change[] = [];
   const setupFields = SETUP_FIELDS as Record<string, string>;
   const ftypes = FTYPES as Record<string, { name: string }>;
@@ -74,7 +75,7 @@ export function diff(): Change[] {
     }
     if ((o.goal || "") !== (n.goal || "")) out.push({ node: n.id, label: n.label, what: "goal", from: o.goal || "none", to: n.goal || "none", how: "doc", areas: n.areas });
     if (!!o.log !== !!n.log) out.push({ node: n.id, label: n.label, what: "writes to the chat's record", from: o.log ? "yes" : "no", to: n.log ? "yes: each run appends an entry with its input, output, ms and ok" : "no", how: "code", areas: n.areas });
-    if (n.note) out.push({ node: n.id, label: n.label, what: "note", to: n.note, how: "code", areas: n.areas });
+    if (n.note && n.note !== o.note) out.push({ node: n.id, label: n.label, what: "note", to: n.note, how: "code", areas: n.areas });
   }
   for (const o of a.nodes) if (!node(o.id, b)) out.push({ node: o.id, label: o.label, what: "removed", how: "code", areas: o.areas });
   const ma = modsRaw(a);
@@ -135,7 +136,8 @@ export function config() {
   }
   const setup: Record<string, unknown> = {};
   for (const x of d) if (x.how === "setup" && x.setup) setup[x.setup] = x.what === "model" ? MODELS[x.model ?? ""]?.id : x.what === "on" ? (x.to ? "on" : "off") : x.to;
-  const G0 = G();
+  // Steps and their wires, never the canvas's folded boxes: the run builds the config's own steps.
+  const G0 = stepsOf(G());
   const main = mods(MAIN.graph);
   return {
     texLab: 1,

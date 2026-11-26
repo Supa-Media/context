@@ -102,6 +102,8 @@ const drawnEmpty = () => {
 describe("a step's own test cases", () => {
   test("a step with no cases gets a dashed + on the canvas and an add form from its shapes in its panel", () => {
     mount();
+    // Texting's page is all group boxes since the 11-26 cleanup; the Nightly page draws its steps.
+    act(() => set({ graphPage: "nightly" }));
     const n = drawnEmpty();
     expect(q(`[data-addcase="${n.id}"]`)).not.toBeNull();
 
@@ -123,6 +125,8 @@ describe("a step's own test cases", () => {
 
   test("a step's form stops at 20", async () => {
     mount();
+    // Texting's page is all group boxes since the 11-26 cleanup; the Nightly page draws its steps.
+    act(() => set({ graphPage: "nightly" }));
     const n = drawnEmpty();
     const area = nodeArea(n.id);
     const edits: Record<string, LabCase> = {};
@@ -169,8 +173,10 @@ describe("a draft's change marks", () => {
 
   test("a new wire is green, Ghost draws main's version dashed, Off draws no marks, and Put back restores main's", () => {
     mount();
+    act(() => set({ graphPage: "nightly" }));
     const a = first();
-    const b = MAIN.graph.nodes.find((n) => n.id !== a.id && !n.group && !groupsOf(MAIN.graph)[n.id] && !MAIN.graph.edges.some((e) => e.from === a.id && e.to === n.id))!;
+    const drawn = qa(".nd[data-id]").map((x) => x.getAttribute("data-id"));
+    const b = MAIN.graph.nodes.find((n) => n.id !== a.id && drawn.includes(n.id) && !MAIN.graph.edges.some((e) => e.from === a.id && e.to === n.id))!;
     act(() =>
       edit(() => {
         const n = G().nodes.find((x) => x.id === a.id)!;

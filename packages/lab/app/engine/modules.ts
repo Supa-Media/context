@@ -8,7 +8,7 @@ import { changeOf, runMoves, runOrder } from "@context/tex/src/texModuleChange.c
 import { BASE_MODULES, MOD_ABOUT, MOD_SRC, SRC_KINDS, spanModule, wholeTrainModule } from "../data/modules";
 import { MODTEXT } from "../labData.generated";
 import type { ConvoSettings, LabGraph, LabModule, LabNode } from "../types";
-import { edit, G, MAIN } from "./state";
+import { edit, G, MAIN, stepsOf } from "./state";
 
 export const cvOf = (g?: LabGraph): ConvoSettings => ({ ...CV_MAIN, ...(g?.convo || {}), tools: { ...CV_MAIN.tools, ...(g?.convo?.tools || {}) } });
 
@@ -76,7 +76,7 @@ export function moduleList(g: LabGraph = G()): Array<{ kind: string; name: strin
       cards: Object.entries(M)
         .filter(([, v]) => v.kind === kk)
         .sort((x, y) => (y[1].custom ? 1 : 0) - (x[1].custom ? 1 : 0))
-        .map(([k, v]) => ({ key: k, mod: v, edited: !v.custom && JSON.stringify(v) !== JSON.stringify(main[k]), usedBy: g.nodes.filter((n) => n.ctx.includes(k)) })),
+        .map(([k, v]) => ({ key: k, mod: v, edited: !v.custom && JSON.stringify(v) !== JSON.stringify(main[k]), usedBy: stepsOf(g).nodes.filter((n) => n.ctx.includes(k)) })),
     }))
     .filter((s) => s.cards.length);
 }

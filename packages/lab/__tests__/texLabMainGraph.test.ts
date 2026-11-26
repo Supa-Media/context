@@ -35,7 +35,9 @@ describe("the Lab's main graph is Tex's config", () => {
 
   test("each call is a fresh copy, so an edit in the Lab never reaches the config", () => {
     const g = mainGraph();
+    const first = g.nodes[0].label;
     g.nodes[0].label = "changed";
-    expect(mainGraph().nodes[0].label).toBe(TEX_CONFIG.nodes[0].label);
+    expect(mainGraph().nodes[0].label).toBe(first);
+    expect(first).not.toBe("changed");
   });
 });

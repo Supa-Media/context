@@ -281,7 +281,7 @@ test("reference answers the Lab's catalogues, and the Tools tab's count of a pas
   const intake = jsonOf(await dev("reference", { topic: "groups", group: "intake" }));
   assert.equal(intake.length, 1);
   assert.ok(intake[0].steps.includes("decide"));
-  assert.ok(intake[0].to.some((p) => p.outside === "fd" && p.is === "step"));
+  assert.ok(intake[0].to.some((p) => p.outside === "frontDoor" && p.is === "group"));
   assert.ok(jsonOf(await dev("reference", { topic: "groups" })).some((x) => x.group === "tools-subagents"));
   assert.match(textOf(await dev("reference", { topic: "groups", group: "nope" })), /no group called "nope"/);
 });

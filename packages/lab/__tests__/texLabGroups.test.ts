@@ -1,7 +1,7 @@
 /**
  * The Lab folds a step group into one box (Dev2, 2026-11-14: "Focus on it opens all eleven steps"). Tex's config names
  * each step's `group` and draws each group from its top-level `groups`; the Lab shows a group as one box whose id is the
- * group's id. Here the "intake" group's seven steps (A text arrives through the Door) fold into one "intake" box, and
+ * group's id. Here the "intake" group's steps (A text arrives through Confirmations & refusals) fold into one "intake" box, and
  * the "jobs" box takes the wire the Front door starts a job on. A save unfolds the boxes, because Promote writes the
  * config's own steps.
  *
@@ -22,11 +22,17 @@ const ids = (g: LabGraph) => g.nodes.map((n) => n.id).sort();
 const wires = (g: LabGraph) => g.edges.map(wireKey).sort();
 const configWires = TEX_CONFIG.edges.map(wireKey).sort();
 const configIds = TEX_CONFIG.nodes.map((n) => n.id).sort();
+// Only Intake (with the Check-in and Starts groups inside it) folded, so the steps it wires to stay steps.
+const INTAKE_CHAIN = ["intake", "checkInLook", "starts"];
+const intakeOnly = () => {
+  const nodes = (JSON.parse(JSON.stringify(TEX_CONFIG.nodes)) as LabNode[]).map((n) => (n.group && !INTAKE_CHAIN.includes(n.group) ? { ...n, group: undefined } : n));
+  return foldGroups({ nodes, edges: JSON.parse(JSON.stringify(TEX_CONFIG.edges)) }, GROUPS);
+};
 const folded = () => foldGroups({ nodes: JSON.parse(JSON.stringify(TEX_CONFIG.nodes)), edges: JSON.parse(JSON.stringify(TEX_CONFIG.edges)) }, GROUPS);
 
 describe("folding the config's intake group", () => {
-  test("the config has seven intake steps, and the folded graph shows one intake box in their place", () => {
-    expect(MEMBERS).toEqual(["text", "edit", "triage", "decide", "lanes", "react", "doorStep"]);
+  test("the config has thirteen intake steps, and the folded graph shows one intake box in their place", () => {
+    expect(MEMBERS).toEqual(["text", "edit", "triage", "decide", "decideWhy", "lanes", "router", "react", "doorStep", "bypass", "chatAsk", "warm", "stickerLook"]);
     const g = folded();
     const box = g.nodes.find((n) => n.id === "intake") as LabNode;
     expect(box).toBeDefined();
@@ -41,23 +47,27 @@ describe("folding the config's intake group", () => {
     const box = folded().nodes.find((n) => n.id === "intake") as LabNode;
     const members = TEX_CONFIG.nodes.filter((n) => n.group === "intake");
     expect(box.ms).toBe(members.reduce((sum, n) => sum + n.ms, 0));
-    expect([...box.areas].sort()).toEqual(["core", "pipeline", "respond"]);
+    // The union takes in the nested Check-in and Starts groups' steps too.
+    expect([...box.areas].sort()).toEqual(["checkin", "core", "decide", "jobs", "pipeline", "respond"]);
   });
 
   test("the outside wires point at the box, collapsed, and the wires inside the group are gone", () => {
     // A second member wire to the Front door on the same "next" collapses into the box's one wire.
     const c = { nodes: JSON.parse(JSON.stringify(TEX_CONFIG.nodes)), edges: JSON.parse(JSON.stringify(TEX_CONFIG.edges)) };
     c.edges.push({ from: "triage", to: "fd", mode: "wait", when: ["next"] });
+    c.edges.push({ from: "triage", to: "send", mode: "wait", when: ["*"] });
     const g = foldGroups(c, GROUPS);
     const has = (from: string, to: string, mode: string, when: string[]) =>
       g.edges.some((e) => e.from === from && e.to === to && e.mode === mode && e.when.join(",") === when.join(","));
-    // Out of the intake box: the Door's two wires. Into a box: the Front door starting a job, onto the jobs box.
-    expect(has("intake", "fd", "wait", ["next"])).toBe(true);
-    expect(has("intake", "bypass", "wait", ["answered"])).toBe(true);
-    expect(has("fd", "jobs", "job", ["job"])).toBe(true);
+    // Out of the intake box: the Door onto the Front door box, Confirmations onto the Text them box. Box to box: the
+    // Front door starting a job, onto the jobs box.
+    expect(has("intake", "frontDoor", "wait", ["next"])).toBe(true);
+    expect(has("intake", "textThem", "wait", ["*"])).toBe(true);
+    expect(has("intake", "frontDoor", "wait", ["run"])).toBe(true);
+    expect(has("frontDoor", "jobs", "job", ["job"])).toBe(true);
     expect(has("jobs", "tools-subagents", "uses", ["job"])).toBe(true);
-    expect(has("routine", "fd", "wait", ["run"])).toBe(true);
-    expect(g.edges.filter((e) => e.from === "intake" && e.to === "fd")).toHaveLength(1);
+    expect(g.edges.filter((e) => e.from === "intake" && e.to === "frontDoor" && e.when.join(",") === "next")).toHaveLength(1);
+    expect(g.edges.filter((e) => e.from === "intake" && e.to === "textThem" && e.when.join(",") === "*")).toHaveLength(1);
     expect(g.edges.filter((e) => e.from === "intake" && e.to === "intake")).toHaveLength(0);
     expect(g.edges.filter((e) => MEMBERS.includes(e.from) || MEMBERS.includes(e.to))).toHaveLength(0);
   });
@@ -89,53 +99,58 @@ describe("unfolding puts the config back", () => {
   });
 
   test("a wire the user draws from the box leaves from the chain's last step, and one into it goes to the first", () => {
-    const g = folded();
+    const g = intakeOnly();
     g.edges.push({ from: "intake", to: "answerCheck", mode: "wait", when: ["action"] } as LabEdge);
-    g.edges = g.edges.map((e) => (e.from === "fd" && e.to === "jobs" ? { ...e, from: "answerCheck" } : e));
+    g.edges.push({ from: "housekeep", to: "intake", mode: "generator", when: ["again"] } as LabEdge);
     const u = unfoldGroups(g);
-    expect(u.edges).toContainEqual({ from: "doorStep", to: "answerCheck", mode: "wait", when: ["action"] });
-    expect(u.edges).toContainEqual({ from: "answerCheck", to: "job", mode: "job", when: ["job"] });
+    const steps = intakeOnly().folded!.intake.nodes;
+    expect(u.edges).toContainEqual({ from: steps[steps.length - 1].id, to: "answerCheck", mode: "wait", when: ["action"] });
+    expect(u.edges).toContainEqual({ from: "housekeep", to: steps[0].id, mode: "generator", when: ["again"] });
   });
 
   test("a changed wire from the box replaces the step wires it stood for, and leaves from the last step", () => {
-    const g = folded();
-    g.edges = g.edges.map((e) => (e.from === "intake" && e.to === "bypass" ? { ...e, when: ["answered", "group"] } : e));
+    const g = intakeOnly();
+    g.edges = g.edges.map((e) => (e.from === "intake" && e.to === "fd" && e.when.join(",") === "next" ? { ...e, when: ["next", "group"] } : e));
     const u = unfoldGroups(g);
-    expect(u.edges.filter((e) => e.to === "bypass" && e.when.join(",") === "answered,group")).toEqual([
-      { from: "doorStep", to: "bypass", mode: "wait", when: ["answered", "group"] },
+    const steps = intakeOnly().folded!.intake.nodes;
+    expect(u.edges.filter((e) => e.to === "fd" && e.when.join(",") === "next,group")).toEqual([
+      { from: steps[steps.length - 1].id, to: "fd", mode: "wait", when: ["next", "group"] },
     ]);
-    expect(u.edges.filter((e) => MEMBERS.includes(e.from) && e.to === "bypass" && e.when.join(",") === "answered")).toEqual([]);
+    expect(u.edges.filter((e) => MEMBERS.includes(e.from) && e.to === "fd" && e.when.join(",") === "next")).toEqual([]);
   });
 });
 
 describe("focus on the intake box", () => {
-  test("Focus opens all seven steps, and each one is in the canvas with its own wires (nine, with the Provisional run's three)", () => {
+  test("Focus opens all thirteen steps, and each one is in the canvas with its own wires", () => {
     const opened = foldAround(folded(), "intake", GROUPS);
     const shown = stepsShownFor(opened, "intake");
     expect(shown.map((n) => n.id).sort()).toEqual([...MEMBERS].sort());
     expect(opened.nodes.find((n) => n.id === "intake")).toBeUndefined();
     const chain = opened.edges.filter((e) => MEMBERS.includes(e.from) && MEMBERS.includes(e.to));
-    expect(chain).toHaveLength(9);
+    expect(chain).toHaveLength(13);
+    // Decide's reason and Confirmations & refusals now sit inside Intake (11-26 cleanup).
     expect(opened.edges.filter((e) => MEMBERS.includes(e.from) && !MEMBERS.includes(e.to))).toEqual([
-      { from: "doorStep", to: "fd", mode: "wait", when: ["next"] },
-      { from: "doorStep", to: "bypass", mode: "wait", when: ["answered"] },
-      // Decide's helper, Decide's reason (`decideWhy`), sits with the other helpers, folded here into their box.
-      { from: "decide", to: "tools-subagents", mode: "uses", when: ["contradiction"] },
-      // And the Door's helper, the Shape gate (`shapeGate`), beside it.
+      { from: "doorStep", to: "frontDoor", mode: "wait", when: ["next"] },
+      { from: "bypass", to: "textThem", mode: "wait", when: ["*"] },
+      // The Door's helper, the Shape gate (`shapeGate`, off), in the Tools & subagents component.
       { from: "doorStep", to: "tools-subagents", mode: "uses", when: ["*"] },
     ]);
   });
 
-  test("Focus on a group draws just that group: its seven steps and the wires between them (Dev2, 2026-11-16)", () => {
-    // Nine: Triage, Decide and the Queue each start the Door provisionally (Dev2, 2026-11-17).
+  test("Focus on a group draws just that group: its steps, its nested groups' boxes and the wires between them (Dev2, 2026-11-16)", () => {
     const opened = foldAround(folded(), "intake", GROUPS);
     const { items, inner, ins, outs } = groupParts(opened, "intake", GROUPS);
-    expect(items.map((n) => n.id).sort()).toEqual([...MEMBERS].sort());
-    expect(inner).toHaveLength(9);
-    expect(inner.every((i) => MEMBERS.includes(opened.edges[i].from) && MEMBERS.includes(opened.edges[i].to))).toBe(true);
+    // The nested Check-in and Starts groups are drawn as boxes inside it.
+    expect(items.map((n) => n.id).sort()).toEqual([...MEMBERS, "checkInLook", "starts"].sort());
+    expect(inner).toHaveLength(15);
+    const inside = [...MEMBERS, "checkInLook", "starts"];
+    expect(inner.every((i) => inside.includes(opened.edges[i].from) && inside.includes(opened.edges[i].to))).toBe(true);
     // Wires that leave the group are pills naming the thing outside, never steps drawn beside it.
-    expect(outs.map((p) => [p.item, p.other])).toEqual([["doorStep", "fd"], ["doorStep", "bypass"], ["decide", "tools-subagents"], ["doorStep", "tools-subagents"]]);
-    expect(ins.every((p) => !MEMBERS.includes(p.other))).toBe(true);
+    expect(outs.map((p) => [p.item, p.other])).toEqual([
+      ["checkInLook", "frontDoor"], ["starts", "textThem"], ["doorStep", "frontDoor"], ["bypass", "textThem"],
+      ["starts", "frontDoor"], ["starts", "frontDoor"], ["starts", "frontDoor"], ["doorStep", "tools-subagents"],
+    ]);
+    expect(ins.every((p) => !inside.includes(p.other))).toBe(true);
     // The steps are the graph's own: moving one there moves it in the graph.
     expect(items[0]).toBe(opened.nodes.find((n) => n.id === items[0].id));
   });
@@ -151,7 +166,7 @@ describe("focus on the intake box", () => {
     expect(groupToOpen(folded(), "intake")).toBe("intake");
     const opened = foldAround(folded(), "intake", GROUPS);
     expect(groupToOpen(opened, "doorStep")).toBe("intake");
-    expect(stepsShownFor(foldAround(opened, "doorStep", GROUPS), "intake")).toHaveLength(7);
+    expect(stepsShownFor(foldAround(opened, "doorStep", GROUPS), "intake")).toHaveLength(MEMBERS.length);
   });
 
   test("the saved version of an open group is the config again", () => {

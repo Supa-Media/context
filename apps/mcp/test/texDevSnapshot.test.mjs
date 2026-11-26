@@ -36,14 +36,19 @@ const pageOf = (n) => n.graph ?? "texting";
 test("the whole graph draws every top-level step of the texting page, each group folded into its box", () => {
   const g = main();
   const html = graphSvg(g);
+  // Since the 11-26 cleanup every texting step sits in a group, so the page is the groups' boxes.
   const top = g.nodes.filter((n) => !n.group && pageOf(n) === "texting");
-  assert.ok(top.length > 10);
   for (const n of top) assert.ok(html.includes(`>${drawn(n.label)}</text>`), `missing ${n.id}`);
   for (const n of g.nodes.filter((n) => pageOf(n) !== "texting")) assert.ok(!stepsDrawn(html).includes(n.id), `${n.id} is on another page`);
   const used = new Set(g.nodes.map((n) => n.group).filter(Boolean));
   // The "retired" group went with its steps (2026-11-20); intake still folds into its box.
   assert.ok(used.has("intake") && !used.has("retired"));
-  for (const [id, group] of Object.entries(config.groups).filter(([id]) => used.has(id))) {
+  // A component wired only to other boxes is tucked away (`components.ts`); a nested group folds into its top group.
+  const tucked = (id) => config.groups[id].component;
+  const nested = (id) => !!config.groups[id].parent;
+  const boxes = Object.entries(config.groups).filter(([id]) => used.has(id) && !tucked(id) && !nested(id));
+  assert.ok(boxes.length >= 6);
+  for (const [id, group] of boxes) {
     assert.ok(html.includes(`>${carded(group.label)}</text>`), `missing the card of ${id}`);
     assert.ok(stepsDrawn(html).includes(id));
   }
@@ -57,14 +62,15 @@ test("the whole graph draws every top-level step of the texting page, each group
 test("focus on a group draws just that group: its steps in a frame, the wires leaving it as pills (Dev2, 2026-11-16)", () => {
   const g = main();
   const members = g.nodes.filter((n) => n.group === "intake");
-  assert.equal(members.length, 7);
+  assert.equal(members.length, 13);
   const html = graphSvg(g, { focus: "intake" });
   const shown = stepsDrawn(html);
-  assert.deepEqual([...shown].sort(), members.map((m) => m.id).sort(), "only the group's own steps are drawn");
+  // Its own steps, and the Check-in and More ways in groups nested inside it as cards.
+  assert.deepEqual([...shown].sort(), [...members.map((m) => m.id), "checkInLook", "starts"].sort(), "only the group's own steps are drawn");
   assert.ok(html.includes('class="gframe"'));
-  // The Door's two wires out: to the Front door on "next", to Confirmations & refusals on "answered".
-  assert.ok(html.includes('data-gport="fd"') && html.includes('data-gport="bypass"'));
-  assert.ok(!html.includes('data-gport="send"'), "a wire that never touches the group has no pill");
+  // The wires out, as pills: the Door to the Front door's box, Confirmations & refusals to the Text them box.
+  assert.ok(html.includes('data-gport="frontDoor"') && html.includes('data-gport="textThem"'));
+  assert.ok(!html.includes('data-gport="afterSend"'), "a wire that never touches the group has no pill");
 });
 
 test("focus on a step inside a group draws the step's own view, as the Lab's double-click does", () => {
@@ -79,7 +85,8 @@ test("groups nest: the whole graph folds a nested group into its top group, whic
   g.groups = { checks2: { label: "Checks", parent: "tools-subagents" } };
   for (const n of g.nodes) if (n.id === "mail" || n.id === "card") n.group = "checks2";
   const whole = stepsDrawn(graphSvg(g));
-  assert.ok(whole.includes("tools-subagents") && !whole.includes("checks2") && !whole.includes("mail"));
+  // Tools & subagents is a component, wired only to other boxes, so the whole graph tucks it away too.
+  assert.ok(!whole.includes("checks2") && !whole.includes("mail"));
   const outer = graphSvg(g, { focus: "tools-subagents" });
   assert.ok(stepsDrawn(outer).includes("checks2"), "the nested group is a card inside its parent");
   assert.ok(!stepsDrawn(outer).includes("mail"));
@@ -95,7 +102,7 @@ test("focus on one step draws it with what comes in, what it reads and what it g
   const html = graphSvg(main(), { focus: "fd" });
   assert.ok(html.includes('class="fcap"'));
   assert.ok(html.includes("Comes in") && html.includes("Gives out") && html.includes("Goes to"));
-  assert.ok(html.includes(">Front door</b>"));
+  assert.ok(html.includes(">Front door / Front door</b>"), "the caption is the path to the step");
 });
 
 test("a focus that names nothing is one plain sentence", async () => {
@@ -112,12 +119,13 @@ test("a changed step is ringed and a new one tagged, against a base", () => {
   const base = main();
   const draft = main();
   draft.nodes.find((n) => n.id === "fd").goal += " And be brief.";
-  draft.nodes.push({ ...draft.nodes.find((n) => !n.group), id: "extra", label: "Extra step", x: 900, y: 700 });
+  draft.nodes.push({ ...draft.nodes.find((n) => n.id === "fd"), group: undefined, id: "extra", label: "Extra step", x: 900, y: 700 });
   const html = graphSvg(draft, { base });
   const marks = [...html.matchAll(/<g class="mark (new|changed)" transform="translate\(([-\d.]+),([-\d.]+)\)"/g)];
   assert.deepEqual(marks.map((m) => m[1]).sort(), ["changed", "new"]);
   const at = (id) => html.match(new RegExp(`data-id="${id}" transform="translate\\(([-\\d.]+),([-\\d.]+)\\)"`)).slice(1, 3);
-  assert.deepEqual(marks.find((m) => m[1] === "changed").slice(2, 4), at("fd"));
+  // The Front door sits in its own box (11-26 cleanup): the ring is on the box that holds it.
+  assert.deepEqual(marks.find((m) => m[1] === "changed").slice(2, 4), at("frontDoor"));
   assert.deepEqual(marks.find((m) => m[1] === "new").slice(2, 4), at("extra"));
   assert.ok(html.includes("1 step changed") && html.includes("1 new step"));
   assert.ok(!graphSvg(base, { base }).includes('class="mark'));

@@ -196,26 +196,6 @@
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
       "node": {"label":"Reflect","goal":"After a hard or corrected turn, write down what worked as a learned skill for next time.","log":true,"on":false,"rounds":4,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"reflect.js","note":"","icon":"star","model":"haiku-5-5","effort":"off","id":"reflect","inSchema":[{"name":"question","type":"text"},{"name":"tainted","type":"yesno"},{"name":"ownText","type":"yesno"},{"name":"canWrite","type":"yesno"}],"outSchema":[{"name":"outcome","type":"text"},{"name":"reason","type":"text","optional":true},{"name":"where","type":"text","optional":true},{"name":"error","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"model","type":"text","optional":true}]}
-    },
-    "shapeGate": {
-      "files": [
-        "packages/tex/gateway/agent/shapeGate.js",
-        "packages/tex/gateway/agent/graph/nodes/shapeGate.js",
-        "packages/tex/gateway/agent/doItChecks.js"
-      ],
-      "why": "Retired from the config by a Lab promotion on 2026-11-26: deleted from a draft while off. Its code stays, unwired; `node` keeps its last definition, which code still reads for its settings.",
-      "retired": true,
-      "node": {"id":"shapeGate","label":"Shape gate","goal":"Beside the Door, read what kind of answer this text takes: how the turn ends (a tapback, one line, an answer, a report, or on it and a job), whether it is an order to act, and whether it asks about something stored. The Front door is told the read, and the code checks hold it where it was sure, never on a text that tagged Tex.","log":true,"on":false,"rounds":1,"out":20,"ctx":[],"ms":0,"timeoutS":3,"areas":["core"],"file":"graph/nodes/shapeGate.js · shapeGate.js · doItChecks.js","note":"Off until a Training and two Dev runs score it (tex-quality-architecture-2026-11-17, change 2).","icon":"judge","model":"clef","inSchema":[{"name":"question","type":"text"},{"name":"group","type":"yesno"}],"outSchema":[{"name":"to","type":"choice","options":"read, none"},{"name":"ending","optional":true,"type":"choice","options":"tapback, one_line, answer, report, job"},{"name":"endingSure","optional":true,"type":"score","options":"0-1"},{"name":"order","optional":true,"type":"score","options":"0-1"},{"name":"records","optional":true,"type":"score","options":"0-1"}]}
-    },
-    "nudgeOffer": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/nudgeOffer.js",
-        "packages/tex/gateway/agent/nudges.js",
-        "packages/tex/gateway/agent/capabilities.js"
-      ],
-      "why": "Retired from the config by a Lab promotion on 2026-11-26: deleted from a draft while off. Its code stays, unwired; `node` keeps its last definition, which code still reads for its settings.",
-      "retired": true,
-      "node": {"label":"Nudge","goal":"After a finished 1:1 answer, offer one thing Tex can do that would help with what they are doing right now, once per capability, from the capability list: never in their first texts, a group, or beside an answer that asks; at most one offer a day; a no is kept. Each run is traced (offer, none or the gate that skipped it, and how they answered the last offer) and counted for retention.","log":true,"on":false,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":3,"areas":[],"file":"graph/nodes/nudgeOffer.js · nudges.js · capabilities.js","note":"","icon":"star","model":"haiku-5-5","effort":"low","settings":{"addLine":true,"minTexts":5,"cooldownHours":24},"id":"nudgeOffer","inSchema":[{"name":"chars","type":"number","optional":true}],"outSchema":[{"name":"to","type":"choice","options":"offer, none, skip"},{"name":"sent","type":"yesno","optional":true},{"name":"texts","type":"number","optional":true},{"name":"gate","type":"text","optional":true},{"name":"capability","type":"text","optional":true},{"name":"line","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"answered","type":"object","optional":true},{"name":"waiting","type":"text","optional":true},{"name":"model","type":"text","optional":true},{"name":"modelMs","type":"number","optional":true}]}
     }
   }
 }

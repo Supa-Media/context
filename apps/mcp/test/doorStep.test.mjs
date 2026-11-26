@@ -43,7 +43,7 @@ test("Intake holds the Door, which hands the Front door a text and Confirmations
   const out = TEX_CONFIG.edges.filter((e) => e.from === "doorStep" && e.mode !== "uses").map((e) => [e.to, e.mode, e.when.join()]);
   assert.deepEqual(out.sort(), [["bypass", "wait", "answered"], ["fd", "wait", "next"]]);
   // The shape gate and the router are helpers the Door uses, not steps it hands the turn to.
-  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "doorStep" && e.mode === "uses").map((e) => e.to), ["shapeGate", "router"]);
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "doorStep" && e.mode === "uses").map((e) => e.to).sort(), ["router", "shapeGate"]);
   assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "bypass").map((e) => e.to), ["send"]);
   assert.ok(!TEX_CONFIG.edges.some((e) => PARTS.includes(e.from) || PARTS.includes(e.to)), "no part runs as a step of its own any more");
   // The Door starts as a Provisional run beside Triage, Decide and the Queue, which give its go or its stop (Dev2, 2026-11-17).
