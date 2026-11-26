@@ -101,7 +101,7 @@ test("a chat sticker rides with the tapback only while Chat stickers is on", asy
   const on = tapbackEnding({ gate: gateOf, stickers: true });
   assert.equal(on.local.tool.inputSchema.properties.sticker.type, "string");
   const told = await on.local.call({ emoji: "😂", sticker: "sticker s1a2b3c" }, { messages: [] });
-  assert.match(told.content[0].text, /sticker s1a2b3c on their text \(or 😂/);
+  assert.match(told.content[0].text, /sticker s1a2b3c sent after their text \(or 😂/);
   const answer = on.endsTurn(TAPBACK_TOOL);
   assert.equal(answer, tapbackAnswer("😂", "s1a2b3c"));
   const settled = { answer, settled: TAPBACK_TOOL };
@@ -112,7 +112,7 @@ test("a chat sticker rides with the tapback only while Chat stickers is on", asy
   const unread = tapbackEnding({ gate: gateOf, stickers: true });
   await unread.local.call({ emoji: "😂", sticker: "the funny one" }, { messages: [] });
   assert.equal(unread.endsTurn(TAPBACK_TOOL), tapbackAnswer("😂"), "a sticker that is no id goes as the emoji alone");
-  assert.match(tapbackSaidLine("😂", "s1a2b3c"), /stuck sticker s1a2b3c on their text/);
+  assert.match(tapbackSaidLine("😂", "s1a2b3c"), /sent sticker s1a2b3c after their text/);
 });
 
 test("a sticker id reads only as the chat writes one", () => {
