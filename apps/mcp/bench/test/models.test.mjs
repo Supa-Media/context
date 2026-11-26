@@ -251,3 +251,25 @@ test("a refusal's words are read from the gateway's own shape too, and an empty 
   assert.equal(refusalLine(400, null, null), "Claude refused a call: 400 no body read (no content-type)");
   assert.equal(refusalLine(400, null, JSON.stringify({ error: { message: "x".repeat(500) } })).length, "Claude refused a call: 400 ".length + 300);
 });
+
+// A Lab Dev run's answer processes each warmed every workspace with real embeddings (2026-11-26: ~300 s of a test's
+// answer for ~30 s of turns). Sabotage: drop `readNew()` on a miss and the second embedder pays for "shared" again; keep
+// a cut line and the vector comes back the wrong size.
+test("embedders sharing a file read what another appended since they started, and skip a cut line", async () => {
+  const { mkdtempSync, appendFileSync: append } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const file = join(mkdtempSync(join(tmpdir(), "embed-cache-")), "vectors.txt");
+  const vector = (seed) => Array.from({ length: 1024 }, (_, i) => (i === seed ? 1 : 0));
+  let calls = 0;
+  const real = { run: async (_model, { text }) => ((calls += text.length), { data: text.map((t) => vector(t.length)) }) };
+  const first = cachedEmbeddings(real, { file });
+  const second = cachedEmbeddings(real, { file }); // started before the first wrote anything
+  await first.run(MEANING_MODEL, { text: ["shared"] });
+  append(file, "deadbeef QUJD\n"); // a cut line: skipped
+  const again = await second.run(MEANING_MODEL, { text: ["shared"] });
+  assert.equal(calls, 1, "the second process read the first's vector instead of asking the model");
+  assert.deepEqual(again.data[0], vector(6));
+  await second.run(MEANING_MODEL, { text: ["other"] });
+  assert.equal(calls, 2, "a text nobody embedded yet is asked for once");
+});

@@ -11,7 +11,7 @@
  * With no account or no token there is no index (`null`), and the node falls back to the fixed examples.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,7 +56,11 @@ export async function benchExamplesIndex({ accountId, apiToken, cacheDir, fetchI
     const fresh = await embed(missing.map(([, text]) => text));
     missing.forEach(([hash], i) => cache.set(hash, fresh[i]));
     await mkdir(cacheDir, { recursive: true });
-    await writeFile(path, JSON.stringify({ model: MEANING_MODEL, dimensions: MEANING_DIMENSIONS, vectors: Object.fromEntries(cache) }));
+    // Written whole, then moved in: a Lab run's answer processes build this at once, and one reading a half-written file
+    // read an empty cache and embedded every moment again (2026-11-26).
+    const part = `${path}.${process.pid}.part`;
+    await writeFile(part, JSON.stringify({ model: MEANING_MODEL, dimensions: MEANING_DIMENSIONS, vectors: Object.fromEntries(cache) }));
+    await rename(part, path);
   }
 
   const vectors = entries.map((entry, i) => ({ id: entry.id, values: cache.get(hashes[i]) }));

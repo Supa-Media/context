@@ -86,6 +86,7 @@ jobs:
       set: ${{ steps.job.outputs.set }}
       repeats: ${{ steps.job.outputs.repeats }}
       sha: ${{ steps.code.outputs.sha }}
+      main: ${{ steps.code.outputs.main }}
       why: ${{ steps.why.outputs.why }}
     steps:
       - name: The run id is a Convex id
@@ -183,6 +184,8 @@ jobs:
           fi
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || say "the code's commit could not be read"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # Only a run on main's own code keeps the bench's embeddings for later runs (`run` job): a branch's run reads them.
+          if [ -z "$code" ]; then echo "main=true" >> "$GITHUB_OUTPUT"; else echo "main=false" >> "$GITHUB_OUTPUT"; fi
           npx convex run functions/texLabRuns:report "$(jq -cn --arg id "$RUN_ID" --arg sha "$sha" '{runId: $id, stage: "running", commit: $sha}')" > /dev/null 2>&1
 
       - uses: actions/upload-artifact@v4
@@ -516,8 +519,20 @@ jobs:
         if: needs.prep.outputs.models == 'cc'
         run: npm install -g @anthropic-ai/claude-code@2.1.325
 
+      # The bench's embeddings (`apps/mcp/bench/.cache`: the warm pass's notes, BENCH_EMBED_CACHE, and the Training
+      # examples' vectors): every answer process warmed every workspace with real Workers AI embeddings, ~240 warm passes
+      # a Dev run, so a test's answer took ~300 s for ~30 s of turns (2026-11-26). Kept from earlier runs and shared by
+      # this run's processes; saved only by a run on main's code, so a branch's run can never put vectors in.
+      - name: The bench's embeddings from earlier runs
+        uses: actions/cache/restore@v4
+        with:
+          path: apps/mcp/bench/.cache
+          key: tex-lab-embeddings-${{ github.run_id }}
+          restore-keys: tex-lab-embeddings-
+
       - name: Run the Dev set's unit tests
         env:
+          BENCH_EMBED_CACHE: ${{ github.workspace }}/apps/mcp/bench/.cache/bench-embeddings.txt
           MODELS: ${{ needs.prep.outputs.models }}
           NODE_ID: ${{ needs.prep.outputs.node }}
           SET: ${{ needs.prep.outputs.set }}
@@ -596,6 +611,14 @@ jobs:
             tail -n 20 "$RUNNER_TEMP/answerer.log"
           fi
           exit "$code"
+
+      - name: Keep the bench's embeddings for later runs
+        if: always() && needs.prep.outputs.main == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: apps/mcp/bench/.cache
+          key: tex-lab-embeddings-${{ github.run_id }}
 
       # The world's fixtures (`apps/mcp/bench/sets/sim/`) as the run left them: a replay adds the answers it had to ask
       # for (`simFixtures.mjs` saveRunFixtures), a record or refresh what it recorded. Bench data from the repo's own

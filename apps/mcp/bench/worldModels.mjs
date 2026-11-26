@@ -13,8 +13,9 @@ export function benchModels(options, { scripted = false, socketed = false, sites
     : {
         gatewayFetch: anthropicGateway(send),
         // Embeds too (`@cf/baai/bge-m3`), remembered by text so each passage
-        // and each query is paid for once a run.
-        ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null)),
+        // and each query is paid for once a run; with BENCH_EMBED_CACHE, once for every process sharing that file (a Lab
+        // run's answer processes, `tex-lab-run.yml`), and across runs where the workflow keeps it.
+        ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null), { file: process.env.BENCH_EMBED_CACHE || null }),
         searchKey: process.env.BRAVE_SEARCH_API_KEY,
         // Production reads answers for work handed back (wrangler.toml HANDBACK_JUDGE), so a real run does too.
         handbackJudge: true,

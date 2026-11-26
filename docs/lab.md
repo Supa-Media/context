@@ -16,7 +16,7 @@ Everything here works in two places. Signed in at [context.lc/lab](https://conte
 | 2. Search bench on a draft | Does the draft win across a whole benchmark? | `tex_dev search_bench { draft, bench }` | 2 to 10 s |
 | 3. Test chat | What does Tex do with this text on a draft, on real models? | `tex_dev test_chat` (open, send, try, again) | seconds per text |
 | 4. A pull request's preview sandbox | My change is code. Does it work? | Push to the branch; its preview redeploys. Use the preview's app or texts simulator, or `tex_dev code { draft, code: "#<PR>" }` and `test_chat open { code: "#<PR>" }` for rungs 2 and 3 on it | 5 to 8 min per push |
-| 5. GitHub runs | The Dev set, a full eval, the examiner | `tex_dev run`, `eval_run` (a Dev or Training run takes 24 Front door tests and 8 other tests at once, to stay under 10 minutes) | minutes |
+| 5. GitHub runs | The Dev set, a full eval, the examiner | `tex_dev run`, `eval_run` (a Dev or Training run takes 24 Front door tests and 8 other tests at once, to stay under 10 minutes; its processes share one embeddings file, kept between runs on main's code, so a test's world is warmed without asking Workers AI again) | minutes |
 | 6. Promote and merge | Land a change that won | `tex_dev promote { draft }` opens the PR, then CI, the gates, merge and production | about 30 min |
 
 Rungs 1 to 3 need no pull request, no GitHub job and no deploy, so a config change stays on them. A code change iterates on rung 4: its pull request's preview is the sandbox for code, and each push is a try. Rung 6 lands what already won; it is never how you try something.
