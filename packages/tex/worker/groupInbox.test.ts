@@ -655,8 +655,8 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     const w = world();
     await acceptGroup(storage, message("Tex what came in today?"), 0);
     const ready = { status: "ready", slug: "crystal-care", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" };
-    await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example" }, { handle: "bo", address: "not an address" }] } }));
-    expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example" }]);
+    await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example", askerSends: true }, { handle: "bo", address: "not an address" }] } }));
+    expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example", askerSends: true }]);
   });
 
   it("names the shared calendars to the turn the same way, dropping any malformed entry", async () => {
