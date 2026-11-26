@@ -7,6 +7,7 @@ import { ledgerFor } from "../fromGateway/agent_ledger.js";
 import { LEDGER_KINDS } from "../fromGateway/texStore_ledger.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
 import { inboxNameOf } from "./intake.js";
+import { THREADS_SUFFIX } from "../fromGateway/agent_threadsFold.js";
 
 /** One read of a real chat's texts; a chat is read whole, page after page, up to `MAX_PAGES` (a million texts). */
 const PAGE_TEXTS = 5_000;
@@ -20,11 +21,11 @@ const COPIED_KINDS = [...LEDGER_KINDS].filter((kind) => kind !== "step");
  * (Dev2, 2026-11-16: "its not truly loading the entire converstation history ... thats not gonna do"). Every kind a turn
  * reads, not the texts alone: Tex's history is rebuilt from the texts with their `reply` entries, and with texts only it
  * rebuilt nothing (`ledgerConversation.js`), so a test turn read no history. A read the ledger cannot answer leaves what
- * was read so far.
+ * was read so far. `until` is when the text `base` arrived (null when there is none, or it is not found).
  */
-export async function realLedger(env, owner, chat, base) {
+export async function realLedgerAt(env, owner, chat, base) {
   const ledger = ledgerFor(env, owner);
-  if (ledger === null) return [];
+  if (ledger === null) return { entries: [], until: null };
   const entries = [];
   let after = null;
   for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -35,9 +36,33 @@ export async function realLedger(env, owner, chat, base) {
     after = read.next;
   }
   entries.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-  if (typeof base !== "string" || base === "") return entries;
+  if (typeof base !== "string" || base === "") return { entries, until: null };
   const at = entries.findIndex((entry) => entry.kind === "text" && entry.eid === base);
-  return at < 0 ? entries : entries.slice(0, at);
+  return at < 0 ? { entries, until: null } : { entries: entries.slice(0, at), until: Number.isFinite(entries[at].at) ? entries[at].at : null };
+}
+
+/**
+ * The real chat's conversation threads as they stood when a text arrived at `until` (every thread entry the classifier
+ * wrote before then), oldest first; all of them when `until` is null. Without it a test chat started back in the chat
+ * read the threads as they are now, the summaries of what was said after the text it starts at included (2026-11-26: a
+ * copy started before a send read "he has sent the reply" and offered a draft nobody had made). Read only; none when
+ * they cannot be read.
+ */
+export async function realThreads(env, owner, chat, until) {
+  const ledger = ledgerFor(env, owner);
+  if (ledger === null) return [];
+  const threads = [];
+  let after = null;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const read = await ledger.read(`${chat}${THREADS_SUFFIX}`, { ...(after === null ? {} : { after }), limit: PAGE_TEXTS }).catch(() => null);
+    if (read === null) break;
+    for (const entry of read.entries ?? []) if (entry && typeof entry === "object" && entry.kind === "thread") threads.push(entry);
+    if (!Number.isSafeInteger(read.next)) break;
+    after = read.next;
+  }
+  threads.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const kept = until === null ? threads : threads.filter((entry) => Number.isFinite(entry.at) && entry.at < until);
+  return kept.map(({ seq: _seq, ...entry }) => entry);
 }
 
 /** How many of the real chat's newest logged steps a test chat reads at open for its line's delays (`line.js`). */

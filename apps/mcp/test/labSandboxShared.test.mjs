@@ -8,11 +8,15 @@
 //   shared.js `sharedChatOf` answering a chat it did not list   "a chat that isn't listed ..." fails
 //   route.js `addRow` asking the session without `shared`       "a test text runs as the sharer ..." fails
 //   shared.js `sharedLedger` passing the caller's `view`         "the history is raw only ..." fails
+// (2026-11-26) realChat.js `realThreads` keeping every entry (no `until` cut)   "a test chat started back ..." fails
+// (2026-11-26) harness.js `ledger` answering only the chat's own ledger        "a test chat started back ..." fails
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { callSandbox, LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { callSandbox, LabSandboxObject, sandboxStub } from "../../../packages/lab/gateway/labSandbox/object.js";
+import { sandboxGate } from "../../../packages/lab/gateway/labSandbox/harness.js";
+import { foldThreads } from "../../../packages/tex/gateway/agent/threadsFold.js";
 import { handleLabSandbox } from "../../../packages/lab/gateway/labSandbox/route.js";
 import { eventEntry, ledgerFor, ONE_TO_ONE_CHAT } from "../../../packages/tex/gateway/agent/ledger.js";
 import { durableSql, texStoreNamespace } from "./texStoreFixture.mjs";
@@ -155,6 +159,40 @@ test("a test text runs as the sharer, on their own session asked again each time
     const after = await w.call(DEV, { op: "send", sandboxId: id, text: "once more" });
     assert.equal(after.status, 404, "a no stops test texts at once");
     assert.equal(w.turns.length, 1);
+  } finally {
+    w.restore();
+  }
+});
+
+// 2026-11-26: a copy started at an earlier text read the chat's conversations as they are now, the summary of a send
+// made after that text included, and offered a draft nobody had made. The threads are the test chat's own, cut there.
+test("a test chat started back in a chat reads its conversations as they stood then, and keeps its own", async () => {
+  const w = world({ shared: () => [SAM] });
+  try {
+    const ledger = ledgerFor(w.env, { person: "ws_sam" });
+    const at = Date.now() - 60_000;
+    const text = (n, who, words) => eventEntry({ id: `${at + n}-00000${n}`, at: at + n * 1_000, chat: ONE_TO_ONE_CHAT, kind: "text", from: { kind: who }, text: words, ...(who === "tex" ? { delivered: true } : {}) });
+    await ledger.append(ONE_TO_ONE_CHAT, [text(1, "person", "reply to the plumber for me"), text(2, "tex", "here is a draft"), text(3, "person", "send it"), text(4, "tex", "sent")]);
+    const base = `${at + 3}-000003`;
+    await ledger.append(`${ONE_TO_ONE_CHAT}.threads`, [
+      { v: 1, id: "th1", at: at + 2_500, kind: "thread", thread: "t1", status: "open", title: "Plumber reply", description: "a draft is written, not sent", texts: [`${at + 1}-000001`] },
+      { v: 1, id: "th2", at: at + 4_500, kind: "thread", thread: "t1", status: "open", description: "the reply has been sent", texts: [base] },
+    ]);
+    const opened = await w.call(DEV, { op: "open", source: "shared", chatId: SAM.key, base });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    assert.deepEqual(opened.body.rows.map((r) => r.text), ["reply to the plumber for me", "here is a draft"]);
+    const stub = sandboxStub(w.env, "u_dev", opened.body.sandboxId);
+    const about = (await callSandbox(stub, "state", {})).meta.chat;
+    const gate = sandboxGate(stub, about, "row_test");
+    const threads = gate.ledger("tex#person:ws_sam", `${ONE_TO_ONE_CHAT}.threads`);
+    assert.ok(threads !== null, "the turn's threads read is the test chat's, never the real chat's as it is now");
+    const read = await threads.read({ after: 0, limit: 100 });
+    assert.deepEqual(foldThreads(read.entries).threads.map((t) => [t.id, t.description]), [["t1", "a draft is written, not sent"]]);
+    await threads.append([{ v: 1, id: "th9", at: Date.now(), kind: "thread", thread: "t1", status: "finished" }]);
+    assert.equal((await threads.read({ after: 0, limit: 100 })).entries.length, 2, "the test turn's sort is kept in the test chat");
+    assert.deepEqual((await callSandbox(stub, "ledger.of", { by: "row_test" })).entries, [], "what a text's turn wrote to the chat leaves its threads out");
+    const real = await ledger.read(`${ONE_TO_ONE_CHAT}.threads`, { after: 0, limit: 100 });
+    assert.equal(real.entries.length, 2, "nothing written to the real chat's threads");
   } finally {
     w.restore();
   }

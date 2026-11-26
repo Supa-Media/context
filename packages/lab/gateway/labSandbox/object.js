@@ -19,6 +19,7 @@
  */
 
 import { texLedger } from "../fromGateway/texStore_ledger.js";
+import { THREADS_SUFFIX } from "../fromGateway/agent_threadsFold.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
 import { BridgeMailbox } from "./bridge.js";
 /** Where a test chat's job box calls out (`jobBox.js` `JOB_OUT_PREFIX`). */
@@ -127,20 +128,37 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
   const testRows = () => Number(all(sql.exec("SELECT COUNT(*) AS n FROM sb_rows WHERE prod = 0"))[0]?.n ?? 0);
   const nextSeq = (table) => Number(all(sql.exec(`SELECT COALESCE(MAX(seq), 0) AS n FROM ${table}`))[0]?.n ?? 0) + 1;
 
+  /**
+   * A kept piece of the ledger: the chat's own (kept as its entries, as before) or its conversation threads' (kept as
+   * `{ threads: entries }`), read back as the chat it goes to.
+   */
+  const pieceOf = (raw, chat) => {
+    const kept = JSON.parse(raw);
+    return Array.isArray(kept) ? { chat, entries: kept } : { chat: `${chat}${THREADS_SUFFIX}`, entries: Array.isArray(kept?.threads) ? kept.threads : [], threads: true };
+  };
+  const appendAll = (chat, entries) => {
+    for (let at = 0; at < entries.length; at += 100) {
+      try {
+        ledger.append(chat, entries.slice(at, at + 100));
+      } catch {
+        /* an entry the ledger refuses is left out, as the real ledger would */
+      }
+    }
+  };
+  /** Keeps a piece for `by` (null: the real chat's) and appends it to the ledger it goes to. */
+  const keepPiece = (chat, entries, by, threads) => {
+    sql.exec("INSERT INTO sb_ledger (seq, by_row, entries) VALUES (?, ?, ?)", nextSeq("sb_ledger"), by ?? null, JSON.stringify(threads ? { threads: entries } : entries));
+    if (typeof chat === "string") appendAll(threads ? `${chat}${THREADS_SUFFIX}` : chat, entries);
+  };
+
   /** Rebuilds the chat's ledger from what is kept: the real history first, then each test text's entries in order. */
   function rebuildLedger() {
     const chat = meta().chat?.ledgerChat;
     ledger.wipe();
     if (typeof chat !== "string") return;
     for (const row of all(sql.exec("SELECT entries FROM sb_ledger ORDER BY seq"))) {
-      const entries = JSON.parse(row.entries);
-      for (let at = 0; at < entries.length; at += 100) {
-        try {
-          ledger.append(chat, entries.slice(at, at + 100));
-        } catch {
-          /* an entry the ledger refuses is left out, as the real ledger would */
-        }
-      }
+      const piece = pieceOf(row.entries, chat);
+      appendAll(piece.chat, piece.entries);
     }
   }
 
@@ -168,18 +186,19 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
     rows,
     writes,
     /** A new test chat: what it is, and the first piece of the rows it starts from and the real history (`seed` the rest). */
-    init({ about, rows: start = [], history = [] }) {
+    init({ about, rows: start = [], history = [], threads = [] }) {
       ledger.wipe();
       for (const table of TABLES) sql.exec(`DELETE FROM ${table}`);
       setMeta("chat", about);
       setMeta("createdAt", now());
-      this.seed({ rows: start, history });
+      this.seed({ rows: start, history, threads });
     },
     /**
      * More of the real chat a test chat starts from, oldest first after what is kept, before any test text: its rows,
-     * and its history into the ledger, kept in pieces of `SEED_CHUNK`. Never capped.
+     * and its history into the ledger, kept in pieces of `SEED_CHUNK`, and its conversation threads as they stood then
+     * (`realChat.js` `realThreads`) into the threads ledger beside it. Never capped.
      */
-    seed({ rows: more = [], history = [] }) {
+    seed({ rows: more = [], history = [], threads = [] }) {
       if (testRows() > 0) throw new Error("seeded after a test text");
       let seq = nextSeq("sb_rows");
       for (const row of more) {
@@ -187,18 +206,8 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
         seq += 1;
       }
       const chat = meta().chat?.ledgerChat;
-      for (let at = 0; at < history.length; at += SEED_CHUNK) {
-        const piece = history.slice(at, at + SEED_CHUNK);
-        sql.exec("INSERT INTO sb_ledger (seq, by_row, entries) VALUES (?, NULL, ?)", nextSeq("sb_ledger"), JSON.stringify(piece));
-        if (typeof chat !== "string") continue;
-        for (let from = 0; from < piece.length; from += 100) {
-          try {
-            ledger.append(chat, piece.slice(from, from + 100));
-          } catch {
-            /* an entry the ledger refuses is left out, as the real ledger would */
-          }
-        }
-      }
+      for (let at = 0; at < history.length; at += SEED_CHUNK) keepPiece(chat, history.slice(at, at + SEED_CHUNK), null, false);
+      for (let at = 0; at < threads.length; at += SEED_CHUNK) keepPiece(chat, threads.slice(at, at + SEED_CHUNK), null, true);
     },
     addRow(row) {
       if (testRows() >= MAX_ROWS) throw new Error("full");
@@ -290,16 +299,17 @@ export function sandboxTables(sql, { now = Date.now } = {}) {
       }
       return [...out.values()];
     },
-    /** Ledger entries a test turn wrote, kept for its text. */
-    ledgerAppend(entries, by) {
+    /** Ledger entries a test turn wrote, kept for its text: the chat's, or its threads' when `threads` (the classifier's). */
+    ledgerAppend(entries, by, threads = false) {
       const chat = meta().chat?.ledgerChat;
       if (typeof chat !== "string") return { added: 0, seq: 0, kinds: [] };
-      sql.exec("INSERT INTO sb_ledger (seq, by_row, entries) VALUES (?, ?, ?)", nextSeq("sb_ledger"), by ?? null, JSON.stringify(entries));
-      return ledger.append(chat, entries);
+      sql.exec("INSERT INTO sb_ledger (seq, by_row, entries) VALUES (?, ?, ?)", nextSeq("sb_ledger"), by ?? null, JSON.stringify(threads ? { threads: entries } : entries));
+      return ledger.append(threads ? `${chat}${THREADS_SUFFIX}` : chat, entries);
     },
-    /** The ledger entries one test text's turn wrote, in order. */
+    /** The ledger entries one test text's turn wrote to the chat, in order (its threads' left out). */
     ledgerOf(rowId) {
-      return all(sql.exec("SELECT entries FROM sb_ledger WHERE by_row = ? ORDER BY seq", rowId)).flatMap((row) => JSON.parse(row.entries));
+      const chat = meta().chat?.ledgerChat ?? "";
+      return all(sql.exec("SELECT entries FROM sb_ledger WHERE by_row = ? ORDER BY seq", rowId)).map((row) => pieceOf(row.entries, chat)).filter((piece) => !piece.threads).flatMap((piece) => piece.entries);
     },
     wipe() {
       for (const table of TABLES) sql.exec(`DELETE FROM ${table}`);
@@ -353,7 +363,7 @@ export function serveSandbox(tables, op, body) {
     case "kv.list":
       return { keys: tables.kvList(body.obj, body.prefix ?? "") };
     case "ledger.append":
-      return tables.ledgerAppend(body.entries, body.by);
+      return tables.ledgerAppend(body.entries, body.by, body.threads === true);
     case "ledger.read":
       return tables.ledger.read(body.chat, body.options ?? {});
     case "ledger.oldest":
