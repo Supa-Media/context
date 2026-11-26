@@ -23,6 +23,8 @@
  *     → "\"I couldn't open it\" with the web untried gets one more round…" fails.
  *  8. `offersAHeldChange` without `CALENDAR_ASK` (2026-10-22).
  *     → "a calendar change asked about in Tex's own words…" fails.
+ *  9. `YES_ASK` without its "with a yes" / "gives his ok" branches (2026-11-26).
+ *     → "an offer of a calendar change or an email, in words, …" fails.
  */
 
 import assert from "node:assert/strict";
@@ -165,6 +167,11 @@ test("an offer of a calendar change or an email, in words, is read as one; an of
   assert.ok(offersAHeldChange("Here's the message as it would go:\n\n“Hey Jo, testing.”\n\nSay yes and I'll try sending it again."));
   assert.ok(!offersAHeldChange("Say the word and I'll look it up."));
   assert.ok(!offersAHeldChange("I'll add it once you say yes below."));
+  // 2026-11-26: a group's shared mailbox, the email written out and its sender asked for a yes, nothing held.
+  assert.ok(offersAHeldChange("Here's the reply:\n\nHi Mary,\n\nThanks.\n\nseyi, text me yourself with a yes and I'll send it on the thread."));
+  assert.ok(offersAHeldChange("Once Sam gives his ok I'll send it."));
+  assert.ok(!offersAHeldChange("Thanks for your yes earlier, the plan is set."));
+  assert.ok(!offersAHeldChange("No timecard rows this week; the email waits on your yes."), "an ask already held, said back, is no new offer");
 });
 
 test("a calendar change asked about in Tex's own words, with no question, is an offer (2026-10-22 5:04 PM)", () => {

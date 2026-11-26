@@ -224,7 +224,7 @@ const FAMILY_INTRO = {
     "Change where something lives or who sees it, in ways Context can undo: manage { action, args }. Ask the person " +
     "before anything that lets more people see something.",
   send:
-    "Do something outside Context: call send with an action and its args. Ask the person before anything that cannot be taken back.",
+    "Do something outside Context: call send with an action and its args. Ask before anything that can't be undone; a held call is the ask.",
 };
 
 /** A family's tool, its description listing only what this turn may do with it. */
@@ -309,13 +309,13 @@ const SHORT_LINES = {
   advisor: "Ask your advisor, a stronger model, for judgment, before a task is done, or when stuck.",
   fill_card: "Fill the checkout's card boxes with a saved card you never see.",
   delegate: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.",
-  email: "Send one email as the person through their Gmail, once they say yes to it. A reply passes in_reply_to, its whole email: id; to is a list.",
-  app: "Make one change through an app they connected, once they say yes to it.",
+  email: "Show one email; the 👍 of who it's from (you, or as) sends it. A reply passes in_reply_to, its whole email: id; to is a list.",
+  app: "Make one change through an app they connected; held for their yes.",
 };
 
 /** A family's opening on a list with manuals: the call's shape, and the one rule that holds for every action. */
 const MANUAL_INTRO = {
-  send: "Do something outside Context: send { action, args }. Ask the person before anything that cannot be taken back.",
+  send: "Do something outside Context: send { action, args }. Ask before anything that can't be undone; a held call is the ask.",
 };
 
 /** The `fetch` id that reads an action's manual. */

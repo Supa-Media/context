@@ -5,13 +5,16 @@ export function emailToolDefinitions() {
       name: "send_email",
       title: "Send an email",
       description:
-        "Send one plain-text email as the person, through their own connected Gmail. It is never sent straight away: " +
-        "the person is shown this exact email and must say yes to it, and any change is a new email they are asked about again. " +
+        "Show one plain-text email for a yes. Calling it never sends: it holds this exact email and shows it to whoever it goes from, " +
+        "and only their 👍 or yes sends it; any change is a new email they are asked about again. So this call is how a draft is shown " +
+        "for a yes: never write the email out or ask for a 👍 yourself instead, because nothing would be held and their 👍 would send nothing. " +
+        "It goes from the person texting you, through their own connected Gmail; in a group chat, as names someone else here it goes from " +
+        "(a mailbox shared with the chat that the asker can't send from), and their 👍 sends it. " +
         "Write the whole email first (to, subject, body as they would send it) from what the person asked for; for a reply, " +
         "pass in_reply_to with the email's whole email:<address>/<id> id from an email search, use the sender's address and start the subject with Re:. To pass an email on with its " +
         "attachments (a receipt to a bookkeeper, say), pass forward with its id and start the subject with Fwd:; it goes below your words. To attach a file from a website (an invoice PDF), download it with " +
         "the browse download step and pass its download: id in attach. Don't repeat the whole email " +
-        "in your answer; Context shows it to them. Only when the person asked for this email to go; if they asked for a draft, " +
+        "in your answer; Context shows it to them. Call it when someone asked for this email to go, even when somebody else must OK it; if they asked for a Gmail draft, " +
         "use save_email_draft instead. At most 10 addresses, 20 emails an hour, 100 a day, and 10 a day to one address.",
       inputSchema: {
         type: "object",
@@ -37,7 +40,7 @@ export function emailToolDefinitions() {
           as: {
             type: "string",
             description:
-              "Group chats only, optional: the handle of the person in the chat it goes from, when that isn't whoever tagged you. It is shown to them, and only their 👍 or yes sends it.",
+              "Group chats only, optional: the handle of the person in the chat it goes from, when that isn't whoever tagged you (their mailbox, which the asker can't send from). The call shows it to them in the chat, and only their 👍 or yes sends it, whoever asked.",
           },
           attach: {
             type: "array",

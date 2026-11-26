@@ -109,7 +109,8 @@ const EMAIL_SEND = /\b(?:email|e-mail|forward|reply to|write back|file (?:a|the|
 const PREVIEW_LINE = /^\s*(?:to|cc|subject|forward(?:ing)? of|fwd)\s*:/im;
 /** Asking for their yes or 👍 in the answer's own words. */
 // "Say the word and I'll send it", "just say go", "let me know and I'll post it" (2026-10-22: a 👍 on each reached nothing).
-const YES_ASK = /\b(?:say|reply|text|answer|send)\s+(?:yes|ok|okay|go)\b|\bsay the word\b|\bjust say\b|\blet me know (?:and|if)\b|\bgive (?:it|this|me) a\b|\u{1F44D}/iu;
+// "Text me yourself with a yes and I'll send it" (2026-11-26, a group's shared mailbox: nothing held, so a yes sent nothing).
+const YES_ASK = /\b(?:say|reply|text|answer|send)\s+(?:yes|ok|okay|go)\b|\bsay the word\b|\bjust say\b|\blet me know (?:and|if)\b|\bgive (?:it|this|me) a\b|\bwith\s+(?:a|your|their|his|her)\s+(?:yes|ok|okay)\b|\b(?:gives?|sends?)\s+(?:a|your|their|his|her|me)\s+(?:yes|ok|okay|go-ahead)\b|\u{1F44D}/iu;
 /** What a yes or 👍 might be asked about that only a held call can make: "sending it again" too. */
 const HELD_THING = /\b(?:send(?:ing)?|email(?:ing)?|forward(?:ing)?|calendar|schedul(?:e|ing)|book(?:ing)?|fil(?:e|ing)|bug|report|slack|chat|dm|post(?:ing)?)\b/i;
 /*
@@ -145,10 +146,15 @@ const OFFER_KINDS = [
   { kind: "a bug report", tool: "report_problem", said: "write action report_problem", test: (said) => /\b(?:bug|report)\b/i.test(said) },
 ];
 
+/** The kinds of held change an answer's words name; none when they name none. */
+export function namedOfferKinds(answer) {
+  const said = String(answer ?? "");
+  return OFFER_KINDS.filter((entry) => entry.test(said));
+}
+
 /** The kinds of held change an answer offers, by what its words name; every kind when they name none. */
 export function offeredKinds(answer) {
-  const said = String(answer ?? "");
-  const named = OFFER_KINDS.filter((entry) => entry.test(said));
+  const named = namedOfferKinds(answer);
   return named.length > 0 ? named : OFFER_KINDS;
 }
 

@@ -67,7 +67,7 @@ test("a group turn is offered email, calendar and the web, and nothing that read
   assert.equal(status, 200);
   const sent = world.model.requests.at(-1);
   const send = JSON.stringify(sendTool(sent) ?? {});
-  assert.match(send, /- email: Send one email as the person/, "email is offered");
+  assert.match(send, /- email: Show one email; the 👍 of who it's from/, "email is offered");
   assert.match(send, /- calendar: Add, edit, move, cancel or RSVP to one event/, "calendar is offered");
   assert.match(send, /- open_page: /, "and the web");
   const shown = JSON.stringify(sent.tools);
