@@ -31,7 +31,11 @@ const AREA_ROUTINES_FOLDER = "routines";
 const DEFAULT_ROUTINE_ZONE = "America/New_York";
 /** The most routines one workspace's areas run: a week's runs stay a handful of calls. */
 const MAX_AREA_ROUTINES = 100;
-/** The folder in the Areas folder that holds one folder per bot (`bots/<bot>/about.md`). */
+/**
+ * The folder that holds one folder per bot (`bots/<bot>/about.md`, its mail in `bots/<bot>/mail/`): beside the Areas
+ * folder, since a bot is a worker in the workspace and not part of any area (the owner, 2026-11-25: "top level bots
+ * yes"). Cards written for a day inside the Areas folder (`areas/bots/`) are still read there.
+ */
 const BOTS_FOLDER = "bots";
 /** The folder that held how-to-reach cards before bots got their own folder; still read. */
 const PEOPLE_FOLDER = "people";
@@ -47,20 +51,38 @@ function cardSlug(holder) {
   return slug === "" ? "someone" : slug;
 }
 
-/** Where a bot's card is now, `<areas>/bots/<bot>/about.md`, and where it was, `<areas>/people/<bot>.md`, in that order. */
+/** The bots folder for an Areas folder: its sibling, `bots` beside `areas` (`work/areas` → `work/bots`). */
+function botsHome(areasRoot) {
+  const root = String(areasRoot ?? "").replace(/\/+$/, "");
+  const cut = root.lastIndexOf("/");
+  return cut < 0 ? BOTS_FOLDER : `${root.slice(0, cut)}/${BOTS_FOLDER}`;
+}
+
+/** The bots folder inside the Areas folder, where cards lived before the bots folder moved beside it. */
+function legacyBotsFolder(areasRoot) {
+  const root = String(areasRoot ?? "").replace(/\/+$/, "");
+  return root === "" ? BOTS_FOLDER : `${root}/${BOTS_FOLDER}`;
+}
+
+/**
+ * Where a bot's card may be, newest home first: `bots/<bot>/about.md` beside the Areas folder, then
+ * `<areas>/bots/<bot>/about.md`, then `<areas>/people/<bot>.md`.
+ */
 function botCardPaths(areasRoot, bot) {
   const root = String(areasRoot ?? "").replace(/\/+$/, "");
   const slug = cardSlug(bot);
   const inside = root === "" ? "" : `${root}/`;
-  return [`${inside}${BOTS_FOLDER}/${slug}/about.md`, `${inside}${PEOPLE_FOLDER}/${slug}.md`];
+  return [`${botsHome(root)}/${slug}/about.md`, `${legacyBotsFolder(root)}/${slug}/about.md`, `${inside}${PEOPLE_FOLDER}/${slug}.md`];
 }
 
-/** Whether `path` is a bot's card in the bots folder: `<areas>/bots/<bot>/about.md`. */
+/** Whether `path` is a bot's card, `bots/<bot>/about.md`, in the bots folder or the older one inside the Areas folder. */
 function isBotCardPath(path, areasRoot) {
-  const root = String(areasRoot ?? "").replace(/\/+$/, "");
-  const prefix = root === "" ? `${BOTS_FOLDER}/` : `${root}/${BOTS_FOLDER}/`;
-  if (typeof path !== "string" || !path.startsWith(prefix)) return false;
-  return /^[^/]+\/about\.md$/i.test(path.slice(prefix.length));
+  if (typeof path !== "string") return false;
+  for (const folder of [botsHome(areasRoot), legacyBotsFolder(areasRoot)]) {
+    const prefix = `${folder}/`;
+    if (path.startsWith(prefix) && /^[^/]+\/about\.md$/i.test(path.slice(prefix.length))) return true;
+  }
+  return false;
 }
 
 /**
@@ -185,6 +207,8 @@ module.exports = {
   DEFAULT_ROUTINE_ZONE,
   MAX_AREA_ROUTINES,
   cardSlug,
+  botsHome,
+  legacyBotsFolder,
   botCardPaths,
   isBotCardPath,
   areaRoutineOf,

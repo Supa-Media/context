@@ -51,9 +51,9 @@ export const AREA_KEY = "area";
 /** The folder in the Areas folder that held the how-to-reach cards; still read, and a person's card stays there. */
 export const PEOPLE_FOLDER = "people";
 /**
- * The folder in the Areas folder that holds one folder per bot, `bots/<bot>/about.md` its card (the owner,
- * 2026-11-25: "areas/bots should replace areas/people, as a place to configure everything about the available
- * bots"). A new bot's card is written here; one already in `people/` is read and changed where it is.
+ * The folder beside the Areas folder that holds one folder per bot, `bots/<bot>/about.md` its card and `mail/` its
+ * mail (the owner, 2026-11-25: "areas/bots should replace areas/people", then "top level bots yes"). A new bot's card
+ * is written there; one still in the Areas folder's own `bots/` or in `people/` is read and changed where it is.
  */
 export const BOTS_FOLDER = "bots";
 
@@ -152,7 +152,7 @@ function aboutOf(folder: string, notes: readonly ListNote[]): ListNote | null {
 export function isArea(folder: string, root: string, notes: readonly ListNote[]): boolean {
   if (folder === root || !folder.startsWith(inside(root))) return false;
   // The cards' folders are never seats, whether or not their `about.md` has been written yet.
-  if (folder === peopleFolder(root) || folder === botsFolder(root) || folder.startsWith(`${botsFolder(root)}/`)) return false;
+  if (folder === peopleFolder(root) || folder === legacyBotsFolder(root) || folder.startsWith(`${legacyBotsFolder(root)}/`)) return false;
   const about = aboutOf(folder, notes);
   const said = text(about?.properties[AREA_KEY]).toLowerCase();
   if (said === "false" || said === "no") return false;
@@ -266,7 +266,7 @@ export function areaTree(folder: string, root: string, notes: readonly ListNote[
   for (const entry of entriesIn(folder, notes)) {
     if (entry.kind === "folder" && isArea(entry.path, root, notes)) areas.push(areaTree(entry.path, root, notes));
     else if (entry.kind === "file" && entry.name === ABOUT_NOTE) continue;
-    else if (entry.kind === "folder" && (entry.path === peopleFolder(root) || entry.path === botsFolder(root))) continue;
+    else if (entry.kind === "folder" && (entry.path === peopleFolder(root) || entry.path === legacyBotsFolder(root))) continue;
     // An area's mail folder is its Mail, shown on its own (`areaMail.ts`), never a plain folder or a sub-area.
     else if (entry.kind === "folder" && entry.path === `${inside(folder)}mail` && folder !== root) continue;
     else files.push(entry);
@@ -378,31 +378,52 @@ export function peopleFolder(root: string): string {
   return `${inside(root)}${PEOPLE_FOLDER}`;
 }
 
+/** Where bots live: `bots/` beside the Areas folder (`bots` itself when the Areas folder is at the top). */
 export function botsFolder(root: string): string {
+  const cut = root.lastIndexOf("/");
+  return cut < 0 ? BOTS_FOLDER : `${root.slice(0, cut)}/${BOTS_FOLDER}`;
+}
+
+/** Where bots lived first, inside the Areas folder: `<areas>/bots`. Still read, and a card there is changed there. */
+export function legacyBotsFolder(root: string): string {
   return `${inside(root)}${BOTS_FOLDER}`;
 }
 
-/** Whether `path` is a bot's card in the bots folder: `<areas>/bots/<bot>/about.md`. */
+/** The bots folder `path` is a bot's folder of, `bots/<bot>` (either one), or null. */
+export function botsFolderOfBot(root: string, path: string): string | null {
+  for (const folder of [botsFolder(root), legacyBotsFolder(root)]) {
+    const prefix = `${folder}/`;
+    if (path.startsWith(prefix) && /^[^/]+$/.test(path.slice(prefix.length))) return folder;
+  }
+  return null;
+}
+
+/** Whether `path` is a bot's card: `bots/<bot>/about.md`, beside the Areas folder or, as before, in it. */
 export function isBotCardPath(root: string, path: string): boolean {
-  const prefix = `${botsFolder(root)}/`;
-  return path.startsWith(prefix) && /^[^/]+\/about\.md$/i.test(path.slice(prefix.length));
+  return /\/about\.md$/i.test(path) && botsFolderOfBot(root, path.slice(0, -"/about.md".length)) !== null;
 }
 
 /**
- * Where `holder`'s card is: the one already written, in `bots/<holder>/about.md` or, as before, `people/<holder>.md`.
- * A card nobody has written yet goes in `bots/` for an agent and `people/` for a person.
+ * Where `holder`'s card is: the one already written, in `bots/<holder>/about.md` (beside the Areas folder, else in
+ * it) or, as before, `people/<holder>.md`. A card nobody has written yet goes in `bots/` for an agent and `people/`
+ * for a person.
  */
 export function cardPath(root: string, holder: string, notes: readonly ListNote[] = [], kind: Card["kind"] = "agent"): string {
-  const inBots = `${botsFolder(root)}/${cardSlug(holder)}/${ABOUT_NOTE}`;
-  const inPeople = `${peopleFolder(root)}/${cardSlug(holder)}.md`;
-  if (notes.some((note) => note.path === inBots)) return inBots;
-  if (notes.some((note) => note.path === inPeople)) return inPeople;
-  return kind === "agent" ? inBots : inPeople;
+  const home = `${botsFolder(root)}/${cardSlug(holder)}/${ABOUT_NOTE}`;
+  const written = [home, `${legacyBotsFolder(root)}/${cardSlug(holder)}/${ABOUT_NOTE}`, `${peopleFolder(root)}/${cardSlug(holder)}.md`];
+  const found = written.find((path) => notes.some((note) => note.path === path));
+  if (found !== undefined) return found;
+  return kind === "agent" ? home : written[2]!;
 }
 
-/** The folder a card at `path` sits in, whose `about.md` must say `area: false` so it is never drawn as an area. */
-export function cardsFolderOf(root: string, path: string): string {
-  return path.startsWith(`${botsFolder(root)}/`) ? botsFolder(root) : peopleFolder(root);
+/**
+ * The folder in the Areas folder a card at `path` sits in, whose `about.md` must say `area: false` so it is never
+ * drawn as an area; null for a card beside the Areas folder, which no area can be mistaken for.
+ */
+export function cardsFolderOf(root: string, path: string): string | null {
+  if (path.startsWith(`${legacyBotsFolder(root)}/`)) return legacyBotsFolder(root);
+  if (path.startsWith(`${peopleFolder(root)}/`)) return peopleFolder(root);
+  return null;
 }
 
 /** `holder`'s card, or an empty one of `kind` when nobody has written it yet. */

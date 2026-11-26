@@ -1,11 +1,11 @@
 /**
- * The Areas folder's Bots and Mail views (the owner, 2026-11-25, approving the prototype: "make it clear in the UI
- * that its not a chat, and that its mail, because we wont be able to see into its thinking, stream, etc").
+ * The bots folder's page, `bots/` beside the Areas folder (the owner, 2026-11-25: "top level bots yes", in place of
+ * the Areas folder's Bots and Mail tabs; and, approving the prototype: "make it clear in the UI that its not a chat,
+ * and that its mail, because we wont be able to see into its thinking, stream, etc").
  *
- * - **Bots**: every bot card the reader can see, theirs first, each with the areas it holds and its caps there. A
+ * - **`bots/`**: every bot card the reader can see, theirs first, each with the areas it holds and its caps there. A
  *   press shows the bot in the side panel (`BotPanel.tsx`).
- * - **Mail**: every mail note under the Areas folder, with who is on each side and its newest line, filtered to bot
- *   to bot or the reader's own. A press opens the note, whose own mail box answers in place.
+ * - **`bots/<bot>/`**: that bot's page, the same panel drawn as the page.
  *
  * Everything is read from the notes the page already holds (`bots.ts`) and each mail note's text at the reader's
  * clearance; nothing here is a store of its own.
@@ -15,20 +15,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { pointerType, radii, space } from "../../../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import { agoLabel } from "../../mail/model";
+import { useThemedStyles, type Colors } from "../../../../design/theme";
 import type { ListNote } from "../../listBlock/model";
 import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
 import { threadOf, type Thread } from "./areaMail";
-import { botsOf, conversationsOf, type Bot, type Conversation } from "./bots";
+import { botsOf, conversationsOf, type Bot } from "./bots";
+import { botsFolder, cardSlug } from "./seat";
 import { BotPanel } from "./BotPanel";
 import { panelSlot, PanelSlotView } from "./botPanelSlot";
 import { botLabel } from "@context/shared/src/areaBots.cjs";
 
 export interface BotsPageProps {
-  view: "bots" | "talks";
   root: string;
+  /** On a bot's own folder page, that bot's slug: the page is that bot's panel. */
+  only?: string;
   notes: readonly ListNote[];
   compact: boolean;
   canEdit: boolean;
@@ -67,15 +68,8 @@ export function useThreads(paths: readonly string[], read: BotsPageProps["read"]
   return threads;
 }
 
-type Filter = "all" | "bots" | "mine";
-const FILTERS: readonly { id: Filter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "bots", label: "Bot to bot" },
-  { id: "mine", label: "With me" },
-];
-
 export function BotsPage(props: BotsPageProps) {
-  const { view, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel } = props;
+  const { only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel } = props;
   const styles = useThemedStyles(makeStyles);
   const bots = useMemo(() => botsOf(root, notes, me), [root, notes, me]);
   const conversations = useMemo(() => conversationsOf(root, notes, bots, me), [root, notes, bots, me]);
@@ -84,48 +78,27 @@ export function BotsPage(props: BotsPageProps) {
     read,
   );
   const [selected, setSelected] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>("all");
-  const bot = selected === null ? undefined : bots.find((each) => each.name === selected);
+  const bot = only !== undefined ? bots.find((each) => cardSlug(each.name) === only) : selected === null ? undefined : bots.find((each) => each.name === selected);
 
   // The bot shows in the side panel where the page has one; on a phone it takes the page's place.
   const slot = useRef(panelSlot()).current;
   const panel =
     bot === undefined
       ? null
-      : { bot, root, notes, conversations, threads, canEdit, ...(me === undefined ? {} : { me }), faceOf, label, ...(create === undefined ? {} : { create }), chooseMany, open, onClose: () => setSelected(null) };
+      : { bot, root, notes, conversations, threads, canEdit, ...(me === undefined ? {} : { me }), faceOf, label, ...(create === undefined ? {} : { create }), chooseMany, open, onClose: () => (only === undefined ? setSelected(null) : open(botsFolder(root))) };
   useEffect(() => slot.set(panel));
-  const panelOpen = bot !== undefined && onPanel !== undefined;
+  const panelOpen = bot !== undefined && onPanel !== undefined && only === undefined;
   useEffect(() => {
     onPanel?.(panelOpen ? (width: number) => <PanelSlotView slot={slot} width={width} /> : null);
   }, [onPanel, panelOpen, slot]);
   useEffect(() => () => onPanel?.(null), [onPanel]);
 
-  if (panel !== null && onPanel === undefined) return <BotPanel {...panel} width={compact ? 360 : 420} />;
-
-  if (view === "talks") {
-    const shown = conversations.filter((each) => (filter === "all" ? true : filter === "bots" ? each.botToBot : each.mine));
-    const ordered = [...shown].sort((a, b) => (threads.get(b.path)?.last?.at ?? "").localeCompare(threads.get(a.path)?.last?.at ?? ""));
+  if (panel !== null && (onPanel === undefined || only !== undefined)) return <BotPanel {...panel} width={compact ? 360 : 560} />;
+  if (only !== undefined) {
     return (
-      <View style={styles.page} testID="areas-mail-view">
-        <View style={styles.headRow}>
-          <Text variant="treeMeta" style={styles.muted}>
-            Mail between people and bots in every area. A bot answers when it answers; what it thinks in between stays in its own app.
-          </Text>
-        </View>
-        <View style={styles.filters} role="tablist">
-          {FILTERS.map((each) => (
-            <Pressable key={each.id} role="tab" aria-selected={filter === each.id} onPress={() => setFilter(each.id)} style={[styles.filter, filter === each.id && styles.filterOn]} testID={`areas-mail-filter-${each.id}`}>
-              <Text variant="treeMeta" style={filter === each.id ? styles.filterWordOn : styles.muted}>
-                {each.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        {ordered.length === 0 ? <Text variant="treeMeta" style={styles.muted}>No mail here yet.</Text> : null}
-        {ordered.map((each) => (
-          <MailRow key={each.path} conversation={each} thread={threads.get(each.path)} faceOf={faceOf} label={label} onPress={() => open(each.path)} />
-        ))}
-      </View>
+      <Text variant="treeMeta" style={styles.muted} testID="bot-page-missing">
+        No card here yet: a bot's card is its folder's about.md.
+      </Text>
     );
   }
 
@@ -189,36 +162,9 @@ function BotRow({ bot, face, selected, onPress }: { bot: Bot; face: Face; select
   );
 }
 
-function MailRow({ conversation, thread, faceOf, label, onPress }: { conversation: Conversation; thread: Thread | undefined; faceOf: (owner: string | null) => Face; label: (owner: string) => string; onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const from = conversation.mine ? "You" : conversation.sender;
-  const to = conversation.with === null ? "nobody yet" : label(conversation.with);
-  return (
-    <Pressable onPress={onPress} role="link" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.row, hovered && styles.rowOn]} testID={`areas-mail-${conversation.path}`}>
-      <View style={styles.pair}>
-        <OwnerFace face={conversation.mine ? { kind: "person", name: from } : faceOf(conversation.sender)} size={20} />
-        <OwnerFace face={faceOf(conversation.with)} size={20} />
-      </View>
-      <View style={styles.rowText}>
-        <Text variant="tree" numberOfLines={1} style={styles.name}>
-          {`${from} ↔ ${to}`}
-        </Text>
-        <Text variant="treeMeta" numberOfLines={1} style={{ color: colors.muted }}>
-          {thread?.last ? `${thread.last.from}: ${thread.last.text}` : conversation.placeTitle}
-        </Text>
-      </View>
-      <Text variant="treeMeta" style={styles.muted}>
-        {`${conversation.placeTitle}${thread?.last ? ` · ${agoLabel(thread.last.at)}` : ""}`}
-      </Text>
-    </Pressable>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     page: { gap: space.x2 },
-    headRow: { paddingBottom: space.x1 },
     muted: { color: colors.muted },
     group: { gap: 2, marginTop: space.x2 },
     groupTitle: { color: colors.muted, textTransform: "uppercase", letterSpacing: 0.4, fontSize: pointerType.meta, marginBottom: space.x1 },
@@ -226,9 +172,4 @@ const makeStyles = (colors: Colors) =>
     rowOn: { backgroundColor: colors.chipFill },
     rowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     name: { fontWeight: "600" },
-    pair: { flexDirection: "row", gap: 2 },
-    filters: { flexDirection: "row", gap: space.x1, marginBottom: space.x1 },
-    filter: { paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.line },
-    filterOn: { backgroundColor: colors.text, borderColor: colors.text },
-    filterWordOn: { color: colors.surface, fontWeight: "600" },
   });

@@ -11,7 +11,7 @@ import areaRoutines from "../../../../packages/shared/src/areaRoutines.cjs";
 import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import { factProps } from "../tree/facts.js";
 
-const { BOTS_FOLDER, PEOPLE_FOLDER, areaRoutineOf, botAllowedIn, botCardPaths, cardSlug, parseWorksIn, mailOnlyText } = areaRoutines;
+const { PEOPLE_FOLDER, areaRoutineOf, botAllowedIn, botCardPaths, botsHome, cardSlug, isBotCardPath, parseWorksIn, mailOnlyText } = areaRoutines;
 const { mailJoinName } = areaBots;
 
 /** Bots an `orient` names in "Other bots here". */
@@ -135,7 +135,7 @@ export async function otherBotsSection(store, entries, areasRoot, self, held) {
   const cards = entries
     .map(({ key }) => key)
     .filter((key) => {
-      if (key.startsWith(`${areasRoot}/${BOTS_FOLDER}/`)) return /^[^/]+\/about\.md$/i.test(key.slice(areasRoot.length + BOTS_FOLDER.length + 2));
+      if (isBotCardPath(key, areasRoot)) return true;
       if (key.startsWith(`${areasRoot}/${PEOPLE_FOLDER}/`)) return !key.slice(areasRoot.length + PEOPLE_FOLDER.length + 2).includes("/") && !key.endsWith("/about.md");
       return false;
     });
@@ -153,6 +153,6 @@ export async function otherBotsSection(store, entries, areasRoot, self, held) {
     lines.push(`- ${name}${whose ? ` (${whose}'s)` : ""}${areas.length ? ` — holds ${areas.map((area) => `\`${area}/\` (mail \`${area}/mail/\`)`).join(", ")}` : " — holds no area yet"}`);
     if (lines.length >= BOTS_SHOWN) break;
   }
-  const own = typeof self === "string" && self.trim() !== "" ? `\nMail written to you outside any area is in \`${areasRoot}/${BOTS_FOLDER}/${cardSlug(self)}/mail/\`, one note per sender: answer there the same way.` : "";
+  const own = typeof self === "string" && self.trim() !== "" ? `\nMail written to you outside any area is in \`${botsHome(areasRoot)}/${cardSlug(self)}/mail/\`, one note per sender: answer there the same way.` : "";
   return `## Other bots here\n${lines.length ? lines.join("\n") : "None this connection can see."}\n${mailOnlyText()}${own}`;
 }
