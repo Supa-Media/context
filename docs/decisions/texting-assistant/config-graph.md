@@ -239,10 +239,12 @@ nobody edits them by hand:
    (Dev2: "the map seems useless. i wouldnt imagine an agent needs to know about
    its underlying architecture"): the Front door and Background job dropped it,
    with the capability list saying what Tex can do, and the Front door's Training
-   cap went from 100,000 to 30,000 characters. Together they take about 82,000
+   cap went from 100,000 to 70,000 characters, with two of its twelve Training
+   chats (`loose-ends`, `stall-rota`) moved to the Dev set, where they still
+   test, so every chat left fits whole (Dev2 kept the two Lantern chats for
+   their "go look before you ask" labels). Together they take about 45,000
    characters off the Front door's system prompt (about 216,000 before), so the
-   trimmer has far less to cut from the head of the rules (Lab sim: $0.0072 to
-   $0.0061 a text).
+   trimmer has less to cut from the head of the rules.
 3. The page's steps table (see 1).
 
 **What a simplification would cost:** a drawing kept by hand drifts from the code
