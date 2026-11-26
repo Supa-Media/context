@@ -31,7 +31,17 @@ plan in [test-sets](./test-sets.md), piece 4.
   gets its own run back and spends nothing.
 - **Answers pass or fail and counts by node.** The service scores the run's
   answers itself, against the unit tests it handed out at the start (a missing
-  answer is wrong), and passes when no node gets fewer right than main.
+  answer is wrong). A node that ran once passes when it gets at least as many
+  right as main. A node the workflow ran more than once passes unless a test
+  is a steady regression: wrong on every trial of the change and right on
+  every trial of main, the same rule as the replay gate. The reply reviewer
+  is that node. One sample of it is 5/8 or 6/8 on code that did not change
+  (`replyJudge.js` included), and a pull request that drew the low sample
+  while main drew the high one was failing the gate. The workflow runs it
+  three times (`--repeat 3 --repeat-nodes reviewer`). The counts stay the
+  majority of the trials, so a noisy sample still shows, and it does not fail
+  the gate. A case wrong every time on the change and right every time on
+  main still fails it.
 - **People only.** `/tex-test-set` answers the app's own client
   (`context_console`, never registrable) for owners and editors of
   `@context-lc`; writes are checked against the live config with
@@ -65,7 +75,9 @@ hands the judging cases to the agent being judged, and the gate measures
 memory, not Tex. Dropping the caps lets an agent tune by retrying.
 `infra/tex-eval/src/oidc.test.ts` fails if a branch's token, another workflow,
 another repository or another audience gets in; `testSet.test.ts` if the caps
-or the verdict change; `apps/mcp/test/texTestSet.test.mjs` if an AI client's
+or the verdict change (a repeated node fails only on a steady regression, and
+one run still fails when its count drops);
+`apps/mcp/test/texTestSet.test.mjs` if an AI client's
 token or a non-editor reaches the conversations, or tex_dev sees a word.
 
 ## The Search Test is a second set in the same service

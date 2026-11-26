@@ -96,8 +96,14 @@ export async function emailGate(supplied, { store, session, target }) {
   const offer = offerTarget(session, supplied, "email");
   if (offer?.error) return toolError(refusalText("Not sent:", offer.error));
   if (offer) {
-    if (email.forward || email.replyTo || email.attach || email.from) {
-      return toolError("Not sent: a reply, a forward, an attachment or a chosen sender goes from a mailbox only its owner can name. Leave them out, or have them ask you.");
+    /*
+      A reply and a chosen sender are offered as they are: nothing goes until `as`'s own turn makes the same call on
+      their own grant, where their mailbox and the thread are theirs to name (`claimPersonEmail`). Refusing them left a
+      chat's shared work mailbox with no way to answer a thread (2026-11-25, Crystal Care). A forward or an attachment
+      carries a message or a file the asker opened, which the copy shown to `as` does not show whole, so those stay theirs.
+    */
+    if (email.forward || email.attach) {
+      return toolError("Not sent: a forward or an attachment goes from a mailbox only its owner can name. Leave them out, or have them ask you.");
     }
     return offerFor(session, { who: offer.who, tool: EMAIL_TOOL, detail: emailCopy(email), noun: "email" });
   }
