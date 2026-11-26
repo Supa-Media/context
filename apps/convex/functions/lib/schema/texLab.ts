@@ -145,6 +145,11 @@ export const texLabTables = {
      * made before repeats: those ran once. The score is the mean over the repeats with its min..max band.
      */
     repeats: v.optional(v.number()),
+    /**
+     * Whose Anthropic key the run asked to pay first: an alias from `packages/tex/src/aiKeys.json` (Dev2, 2026-11-26:
+     * "need to be able to choose whose we are using"). Unset uses that file's list for the run's use.
+     */
+    key: v.optional(v.string()),
     stage: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("failed")),
     ghRunUrl: v.optional(v.string()),
     /** A gate run's pull request. */

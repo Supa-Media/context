@@ -17,6 +17,7 @@ import { internalAction, internalQuery, query, type MutationCtx, type QueryCtx }
 import { requireAdmin } from "./lib/admin";
 import { internalMutation, mutation } from "./lib/rowWatch/mutations";
 import { CODE, LAB_REPO, codeOf } from "./texLabRuns";
+import { KEY_WORDS, keyOf } from "./lib/aiKeyPick";
 import BENCH_LIST from "@context/bench/benchmarks.generated.json";
 
 /**
@@ -243,6 +244,7 @@ function shown(r: Run, now: number) {
     bench: r.bench,
     n: r.n,
     models: r.models,
+    key: r.key ?? null,
     code: r.code ?? null,
     commit: r.commit ?? null,
     stage: lost(r, now) ? "failed" : r.stage,
@@ -285,6 +287,9 @@ export async function startEvalRun(ctx: MutationCtx, who: Who, a: Record<string,
   if (models !== "gw" && models !== "cc") return { status: "bad_request", error: "models is gw (the AI gateway) or cc (Claude Code)" };
   const code = a.code === undefined ? null : codeOf(a.code);
   if (code === undefined) return { status: "bad_request", error: `code is main, a pull request (#3401) or a branch name (${CODE.source})` };
+  // A Search bench asks no Claude, so whose key pays is not kept for it.
+  const key = bench.search ? null : keyOf(a.key);
+  if (key === undefined) return { status: "bad_request", error: KEY_WORDS };
   const mine = await ctx.db
     .query("labEvalRuns")
     .withIndex("by_by", (q) => q.eq("by", who.userId).gte("startedAt", now - DAY_MS))
@@ -299,6 +304,7 @@ export async function startEvalRun(ctx: MutationCtx, who: Who, a: Record<string,
     bench: bench.id,
     n,
     models,
+    ...(key ? { key } : {}),
     ...(code ? { code } : {}),
     stage: "queued",
     by: who.userId,
@@ -332,7 +338,7 @@ export const benches = query({
 });
 
 export const start = mutation({
-  args: { bench: v.optional(v.string()), n: v.optional(v.number()), models: v.optional(v.string()), code: v.optional(v.string()) },
+  args: { bench: v.optional(v.string()), n: v.optional(v.number()), models: v.optional(v.string()), code: v.optional(v.string()), key: v.optional(v.string()) },
   returns: v.object({ runId: v.id("labEvalRuns") }),
   handler: async (ctx, a) => {
     const actor = await requireAdmin(ctx);
@@ -376,7 +382,7 @@ export const get = query({
 /** `tex_dev` `evals` (the benchmarks and runs, or one run whole), `eval_run` and `eval_remove`; null for any other action. */
 export async function evalAction(ctx: MutationCtx, who: Who, action: string, a: Record<string, unknown>, now: number): Promise<Record<string, unknown> | null> {
   if (action === "eval_run") {
-    const answer = await startEvalRun(ctx, who, { bench: a.bench, n: a.n, models: a.models, code: a.code }, now);
+    const answer = await startEvalRun(ctx, who, { bench: a.bench, n: a.n, models: a.models, code: a.code, key: a.key }, now);
     // "refused" is the door's own answer for a caller who may not; a cap is a bad request.
     return answer.status === "ok" ? { status: "ok", id: answer.runId } : { status: "bad_request", error: answer.error };
   }
@@ -400,7 +406,7 @@ export const job = internalQuery({
   handler: async (ctx, { runId }) => {
     const r = await runOf(ctx, runId);
     if (!r) return null;
-    return { id: r._id, bench: r.bench, n: r.n, models: r.models, code: r.code ?? null };
+    return { id: r._id, bench: r.bench, n: r.n, models: r.models, key: r.key ?? null, code: r.code ?? null };
   },
 });
 

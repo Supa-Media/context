@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import { MEANING_DIMENSIONS, MEANING_MODEL } from "../src/search/meaning/embed.js";
 import { priceUsd } from "./report.mjs";
 import { CREDIT_REST_MS, createCreditCache, noteCreditPaid, noteCreditSpent, payerSkipped } from "../../../packages/tex/gateway/agent/creditRest.js";
+import { keyAliasesOf } from "../../../packages/tex/src/aiKeys.cjs";
 
 const realFetch = globalThis.fetch;
 
@@ -45,10 +46,11 @@ async function retryWithoutKey(response, payer) {
   if (response.status !== 400) return false;
   const text = await response.clone().text().catch(() => "");
   // A stored key's plain 400 may be an alias the gateway does not hold (`aiGateway.js`).
-  return /credit balance/i.test(text) || (Boolean(payer.alias) && !/thinking|signature/i.test(text));
+  return KEY_SPENT.test(text) || (Boolean(payer.alias) && !/thinking|signature/i.test(text));
 }
 
-const KEY_ALIAS = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** A refusal that means this key cannot pay for now: credit spent, or its usage limit reached (`aiGateway.js`). */
+const KEY_SPENT = /credit balance|usage limit/i;
 
 /** Where the benchmark reads the shared credit rest. Production's gateway, unless a run names another. */
 const CREDIT_REST_ORIGIN = "https://mcp.context.lc";
@@ -126,7 +128,8 @@ export function claudeTransport(env, fetchImpl = realFetch, now = Date.now) {
   const gatewayId = env.AI_GATEWAY_ID;
   const token = env.AI_GATEWAY_TOKEN;
   const key = env.ANTHROPIC_CREDIT_KEY || env.ANTHROPIC_API_KEY || null;
-  const aliases = [...new Set(String(env.AI_GATEWAY_KEY_ALIASES || "").split(",").map((a) => a.trim()).filter((a) => KEY_ALIAS.test(a)))].slice(0, 5);
+  // The keys for this run's use (`packages/tex/src/aiKeys.json`, `AI_KEY_USE`), or a one-run pick in AI_GATEWAY_KEY_ALIASES.
+  const aliases = keyAliasesOf(env);
   // Who may pay, in order. A spent one is skipped. A benchmark never adds a keyless call.
   const payers = [...aliases.map((alias) => ({ alias })), ...(key ? [{ key }] : [])];
   const base = { "content-type": "application/json", "anthropic-version": "2023-06-01" };
@@ -162,12 +165,18 @@ export function claudeTransport(env, fetchImpl = realFetch, now = Date.now) {
         if (!moveOn) {
           await noteCost(send, response);
           // A 200 after a probe clears it. Production does this in aiGateway.js; leaving the probe set skips that payer for 30s.
-          if (response.status === 200) await noteCreditPaid(name, { store: rest, cache });
+          if (response.status === 200) {
+            await noteCreditPaid(name, { store: rest, cache });
+            send.paidBy[name] = (send.paidBy[name] ?? 0) + 1;
+          }
           return response;
         }
         last = response;
         const text = response.status === 400 ? await response.clone().text().catch(() => "") : "";
-        if (response.status === 402 || /credit balance/i.test(text)) await noteCreditSpent(name, Date.now() + CREDIT_REST_MS, { store: rest, cache });
+        if (response.status === 402 || KEY_SPENT.test(text)) {
+          await noteCreditSpent(name, Date.now() + CREDIT_REST_MS, { store: rest, cache });
+          console.error(`bench: key ${name} cannot pay (${response.status}); trying the next one`);
+        }
       }
       // The keyless call Unified Billing pays for, only while the opt-in is on and unexpired; labelled so the
       // AI costs tab's Who paid panel files it under Cloudflare.
@@ -180,6 +189,8 @@ export function claudeTransport(env, fetchImpl = realFetch, now = Date.now) {
       return last ?? json({ error: { type: "billing", message: "benchmark calls do not use Unified Billing" } }, 402);
     };
     send.costUsd = 0;
+    // Calls each key paid for, by payer name: the run's report says whose credit it spent.
+    send.paidBy = {};
     send.route = "gateway";
     return send;
   }

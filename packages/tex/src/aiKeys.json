@@ -1,0 +1,53 @@
+{
+  "aiKeys": 2,
+  "about": "Whose Anthropic key pays for a Claude call (aiKeys.cjs). Each key is stored on the AI Gateway's Provider Keys page under its alias; nothing here is secret. Per use, the keys still able to pay are tried soonest-expiring first (no expiry last, then file order). A key is skipped while retiredUntil is in the future, after expires, or once usedUsd reaches capUsd. usedUsd is a snapshot as of usedAsOf; the gateway also rests a key on its own when Anthropic refuses it (credit spent or usage limit).",
+  "uses": {
+    "prod": "People's texts and everything the deployed gateway runs (production, staging, previews, Lab test chats)",
+    "lab": "Lab runs, the Tex test set and replay",
+    "evals": "Eval runs and benchmarks, nightly included"
+  },
+  "keys": [
+    {
+      "key": "dev",
+      "alias": "dev-claude-credits",
+      "owner": "Dev",
+      "capUsd": 100,
+      "usedUsd": null,
+      "usedAsOf": null,
+      "since": "2026-11-13T16:57:00Z",
+      "expires": "2026-11-27T23:59:00Z",
+      "resets": "2026-12-01T00:00:00Z",
+      "retiredUntil": "2026-12-01T00:00:00Z",
+      "note": "Hit its Anthropic usage limit 2026-11-26 20:52Z; Anthropic says access returns 2026-12-01.",
+      "uses": ["prod", "lab", "evals"]
+    },
+    {
+      "key": "dev2",
+      "alias": "dev2-claude-credits",
+      "owner": "Dev2",
+      "capUsd": 200,
+      "usedUsd": 200,
+      "usedAsOf": "2026-11-14T00:00:00Z",
+      "since": "2026-11-13T16:57:00Z",
+      "expires": null,
+      "resets": null,
+      "retiredUntil": null,
+      "note": "Credit used up.",
+      "uses": ["prod", "lab", "evals"]
+    },
+    {
+      "key": "segun",
+      "alias": "segun-claude-credits",
+      "owner": "Segun",
+      "capUsd": null,
+      "usedUsd": null,
+      "usedAsOf": null,
+      "since": "2026-11-26T21:00:00Z",
+      "expires": null,
+      "resets": null,
+      "retiredUntil": null,
+      "note": "Added 2026-11-26; credit amount and expiry not recorded yet.",
+      "uses": ["prod", "lab", "evals"]
+    }
+  ]
+}

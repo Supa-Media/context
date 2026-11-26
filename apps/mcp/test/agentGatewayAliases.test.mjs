@@ -9,7 +9,8 @@
  * agentGateway.test.mjs.
  */
 
-import { aiGatewayConfig, requestViaGateway, resetCreditState } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { aiGatewayConfig, requestViaGateway, resetCreditState, restUntil, saysCreditSpent } from "../../../packages/tex/gateway/agent/aiGateway.js";
+import { AI_KEYS, USES, aliasesForUse, keyAliasesOf, keyState, keysForUse } from "../../../packages/tex/src/aiKeys.cjs";
 
 const TOKEN = `gw-token-${"a".repeat(20)}`;
 const CREDIT = `sk-ant-credit-fixture-${"0".repeat(12)}`;
@@ -50,7 +51,62 @@ export async function runAgentGatewayAliasChecks(check) {
     "aliases are read in order, trimmed, deduplicated, and a malformed one is dropped",
     JSON.stringify(aliased?.keyAliases) === JSON.stringify(["first-credits", "second_credits"]) &&
       aiGatewayConfig(env())?.keyAliases.length === 0 &&
-      aiGatewayConfig(env({ AI_GATEWAY_KEY_ALIASES: "a,b,c,d,e,f,g" }))?.keyAliases.length === 5,
+      aiGatewayConfig(env({ AI_GATEWAY_KEY_ALIASES: "a,b,c,d,e,f,g,h,i,j" }))?.keyAliases.length === 8,
+  );
+
+  // Dev2, 2026-11-26: one key list by use (packages/tex/src/aiKeys.json), soonest-expiring first, retired keys skipped
+  // until their date, and a run may pick whose key goes first ("use segun's key").
+  const NOW = Date.parse("2026-11-26T22:00:00Z");
+  const fake = (over) => ({ key: "k", alias: "k-credits", owner: "K", capUsd: null, usedUsd: null, usedAsOf: null, since: "2026-11-01T00:00:00Z", expires: null, resets: null, retiredUntil: null, uses: ["lab"], ...over });
+  check(
+    "a key is retired until its date, gone once expired or used up, and active otherwise",
+    keyState(fake({ retiredUntil: "2026-12-01T00:00:00Z" }), NOW) === "retired" &&
+      keyState(fake({ retiredUntil: "2026-12-01T00:00:00Z" }), Date.parse("2026-12-01T00:00:01Z")) === null &&
+      keyState(fake({ expires: "2026-11-26T00:00:00Z" }), NOW) === "expired" &&
+      keyState(fake({ capUsd: 50, usedUsd: 50 }), NOW) === "used up" &&
+      keyState(fake({ capUsd: 50, usedUsd: 49 }), NOW) === null,
+  );
+  const listed = aliasesForUse("lab", NOW);
+  const expiries = keysForUse("lab", NOW).map((k) => (k.expires ? Date.parse(k.expires) : Infinity));
+  check(
+    "a use's order holds only keys that can pay, soonest expiry first",
+    keysForUse("lab", NOW).every((k) => keyState(k, NOW) === null) && expiries.every((t, i) => i === 0 || expiries[i - 1] <= t),
+  );
+  const someone = AI_KEYS[AI_KEYS.length - 1];
+  check(
+    "AI_KEY_USE reads that use's order at call time; a pick by owner, \"<owner>'s key\" or alias goes first, once; an unknown pick or use adds nothing",
+    JSON.stringify(keyAliasesOf({ AI_KEY_USE: "lab" }, NOW)) === JSON.stringify(listed) &&
+      keyAliasesOf({ AI_KEY_USE: "lab", AI_KEY_PICK: someone.owner.toLowerCase() }, NOW)[0] === someone.alias &&
+      keyAliasesOf({ AI_KEY_USE: "lab", AI_KEY_PICK: `${someone.owner}'s key` }, NOW)[0] === someone.alias &&
+      keyAliasesOf({ AI_KEY_USE: "lab", AI_KEY_PICK: someone.alias }, NOW).filter((a) => a === someone.alias).length === 1 &&
+      JSON.stringify(keyAliasesOf({ AI_KEY_USE: "lab", AI_KEY_PICK: "nobody" }, NOW)) === JSON.stringify(listed) &&
+      keyAliasesOf({ AI_KEY_USE: "nobody" }, NOW).length === 0 &&
+      JSON.stringify(keyAliasesOf({ AI_KEY_USE: "lab", AI_GATEWAY_KEY_ALIASES: "left-over-secret" }, NOW)) === JSON.stringify(listed),
+  );
+  check(
+    "every key in aiKeys.json has a valid alias, an owner and only known uses",
+    AI_KEYS.length > 0 && AI_KEYS.every((k) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(k.alias) && typeof k.owner === "string" && k.owner && k.uses.every((u) => USES.includes(u))),
+  );
+  check(
+    "a usage-limit refusal rests the key until the date it names, and anything else for the usual fifteen minutes",
+    restUntil(JSON.stringify({ error: { message: "You will regain access on 2026-12-01 at 00:00 UTC." } }), NOW) === Date.parse("2026-12-01T00:00:00Z") &&
+      restUntil(JSON.stringify({ error: { message: "You will regain access on 2027-06-01 at 00:00 UTC." } }), NOW) === NOW + 15 * 60_000 &&
+      restUntil(JSON.stringify({ error: { message: "Your credit balance is too low" } }), NOW) === NOW + 15 * 60_000,
+  );
+
+  // 2026-11-26: a key whose organization hit its own usage limit answered 400 and was tried again on every call.
+  resetCreditState();
+  const USAGE_LIMIT = { error: { type: "invalid_request_error", message: "You have reached your specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC." } };
+  const limited = scripted([
+    { status: 400, body: USAGE_LIMIT },
+    { status: 200, body: answer("second key") },
+    { status: 200, body: answer("second key again") },
+  ]);
+  await requestViaGateway(CALL, aliased, { fetchImpl: limited.fetchImpl, now: () => T0 });
+  await requestViaGateway(CALL, aliased, { fetchImpl: limited.fetchImpl, now: () => T0 + 1 });
+  check(
+    "a key past its usage limit rests like a spent credit: the next call goes straight to the next key",
+    saysCreditSpent(JSON.stringify(USAGE_LIMIT)) && limited.calls.length === 3 && limited.calls[2].headers["cf-aig-byok-alias"] === "second_credits",
   );
 
   resetCreditState();

@@ -25,7 +25,7 @@ export function useStartRun(where: "testing" | "lab") {
   const start = useMutation(api.functions.texLabRuns.start);
   return async (kind: Exclude<RunKind, "gate">, extra: { convId?: string; nodeId?: string } = {}, versionId = runsUi.ver) => {
     try {
-      const { runId } = await start({ versionId, kind, models: runsUi.models, repeats: runsUi.repeats, ...extra });
+      const { runId } = await start({ versionId, kind, models: runsUi.models, repeats: runsUi.repeats, ...(runsUi.key && runsUi.models === "gw" ? { key: runsUi.key } : {}), ...extra });
       setRunsUi({ open: true, run: runId });
     } catch (e) {
       const why = (e as { data?: unknown })?.data;
@@ -140,6 +140,7 @@ export function RunsPanel() {
                 <a href={codeLink(full.code)} target="_blank" rel="noopener noreferrer">
                   {full.code ?? "main"} ↗
                 </a>
+                {full.key ? <span id="runKeyUsed">{` · ${full.key} first`}</span> : null}
                 {full.commit ? (
                   <>
                     {" · ran commit "}

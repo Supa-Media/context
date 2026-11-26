@@ -53,6 +53,7 @@ jobs:
       bench: ${{ steps.job.outputs.bench }}
       n: ${{ steps.job.outputs.n }}
       models: ${{ steps.job.outputs.models }}
+      payer: ${{ steps.job.outputs.payer }}
       sha: ${{ steps.code.outputs.sha }}
       remote: ${{ steps.code.outputs.remote }}
       pr: ${{ steps.code.outputs.pr }}
@@ -102,6 +103,10 @@ jobs:
           echo "n=$n" >> "$GITHUB_OUTPUT"
           echo "models=$models" >> "$GITHUB_OUTPUT"
           echo "search=$search" >> "$GITHUB_OUTPUT"
+          # Whose Anthropic key the run asked to pay first (an alias in packages/tex/src/aiKeys.json, or none).
+          key=$(jq -r '.key // ""' "$RUNNER_TEMP/job.json")
+          [[ "$key" =~ ^([a-z0-9][a-z0-9_-]{0,63})?$ ]] || { echo "::error::bad key alias"; exit 1; }
+          echo "payer=$key" >> "$GITHUB_OUTPUT"
           echo "Run: $(jq -c . "$RUNNER_TEMP/job.json")"
 
       # Main, a same-repository pull request's head, or a branch here. A fork's pull request is refused: only code
@@ -162,7 +167,9 @@ jobs:
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
-      AI_GATEWAY_KEY_ALIASES: dev-claude-credits,dev2-claude-credits # aliases on the gateway's Provider Keys page, not secrets
+      # Whose Anthropic keys it spends: the run's picked key first, then packages/tex/src/aiKeys.json's evals list.
+      AI_KEY_USE: evals
+      AI_KEY_PICK: ${{ needs.prep.outputs.payer }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
       # Bench-only Unified Billing (`apps/mcp/bench/models.mjs` `benchUnifiedBilling`): ignored from 2026-12-01T00:00Z.

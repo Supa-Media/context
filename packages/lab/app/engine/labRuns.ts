@@ -38,6 +38,8 @@ export type LabRun = {
   pr?: string;
   /** The code asked for: `#<pull request>` or a branch; null is main. */
   code?: string | null;
+  /** Whose Anthropic key the run asked to pay first (an alias); null is the default order. */
+  key?: string | null;
   /** The commit the workflow checked out and ran, once it did. */
   commit?: string | null;
   by?: string;
@@ -69,8 +71,9 @@ export type LabRun = {
 };
 
 /** `repeats`: how many times each Front door test runs in a run the Lab starts (Dev2, 2026-11-19; the default is 3). */
-export type RunsUi = { open: boolean; run: string | null; models: "gw" | "cc"; ver: string; repeats: number };
-export const runsUi: RunsUi = { open: false, run: null, models: "gw", ver: "main", repeats: DEFAULT_REPEATS };
+/** `key`: whose Anthropic key a run asks to pay first (an alias in `packages/tex/src/aiKeys.json`); "" is that file's lab order. */
+export type RunsUi = { open: boolean; run: string | null; models: "gw" | "cc"; ver: string; repeats: number; key: string };
+export const runsUi: RunsUi = { open: false, run: null, models: "gw", ver: "main", repeats: DEFAULT_REPEATS, key: "" };
 const subs = new Set<() => void>();
 let n = 0;
 export function setRunsUi(p: Partial<RunsUi>) {
@@ -162,5 +165,6 @@ export function mcpLines(r: LabRun) {
   const extra = r.kind === "chat" ? `, conv: "${r.convId}"` : r.kind === "node" ? `, node: "${r.nodeId}"` : "";
   const repeats = typeof r.repeats === "number" ? `, repeats: ${r.repeats}` : "";
   const code = r.code ? `, code: "${r.code}"` : "";
-  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}"${repeats}${code} }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
+  const key = r.key ? `, key: "${r.key}"` : "";
+  return `tex_dev { action: "run", draft: "${r.versionId}", kind: "${r.kind}"${extra}, models: "${r.models}"${repeats}${code}${key} }\ntex_dev { action: "runs", id: "${r.id}" }${remove}`;
 }

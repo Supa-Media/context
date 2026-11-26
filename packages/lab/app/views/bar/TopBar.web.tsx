@@ -16,6 +16,7 @@ import { setLabTheme, THEMES, useLabTheme } from "../../theme.web";
 import { ChangeToggles, LiveChanges } from "../LiveChanges.web";
 import { StagePill, useRuns, useStartRun } from "../runs/Runs.web";
 import { Pop } from "./Pop.web";
+import { KeyPicker } from "../runs/KeyPicker.web";
 import { PromoteClashes } from "./PromoteClashes.web";
 
 function Svg({ d, className = "i", style }: { d: string; className?: string; style?: React.CSSProperties }) {
@@ -251,6 +252,8 @@ export function RunSplit() {
                 ))}
               </div>
               <div className="mnote">Each Front door test runs this many times; the score is the mean with its min–max band.</div>
+              <hr />
+              <KeyPicker value={ui.key} use="lab" onPick={(key) => setRunsUi({ key })} />
               <hr />
               <CodeField />
               <hr />

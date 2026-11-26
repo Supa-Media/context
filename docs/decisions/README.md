@@ -51,6 +51,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 - [A busy workspace object says busy; nothing about a note falls back to Convex](./storage-and-credentials/no-convex-for-notes.md) (2026-11-06)
 - [The forwarding ledger is read from the workspace object](./storage-and-credentials/forwarding-in-objects.md) (2026-11-06)
 - [The app saves a note through the gateway, as an AI client does](./storage-and-credentials/app-saves-through-gateway.md) (2026-11-24)
+- [One list of keys, by use, and a run may pick whose goes first](./storage-and-credentials/ai-keys.md) (2026-11-26)
 - Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id

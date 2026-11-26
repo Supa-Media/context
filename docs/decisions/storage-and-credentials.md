@@ -155,3 +155,7 @@ Moved to [A workspace's notes live in its workspace object](./storage-and-creden
 ## Pictures and files stay in each workspace's own bucket, and pictures are kept compressed
 
 Moved to [Pictures and files stay in each workspace's own bucket, and pictures are kept compressed](./storage-and-credentials/files-bucket.md).
+
+## Whose Anthropic key pays
+
+Moved to [One list of keys, by use, and a run may pick whose goes first](./storage-and-credentials/ai-keys.md) (decided by the owner, 2026-11-26).

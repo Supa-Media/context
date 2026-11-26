@@ -16,12 +16,13 @@
  *    precedence is the gateway's documented order: a key on the request wins,
  *    and no key means Unified Billing.
  *
- * Keys stored in the gateway itself (its Provider Keys page) come first, when
- * `AI_GATEWAY_KEY_ALIASES` names them: a comma list of aliases, tried in
- * order with `cf-aig-byok-alias`, each skipped once its credit is spent, then
- * the plan key above, then Unified Billing (decided by the owner, 2026-11-13:
- * two Claude Console organizations' credits, held by the gateway rather than
- * a GitHub secret).
+ * Keys stored in the gateway itself (its Provider Keys page) come first: the
+ * aliases `packages/tex/src/aiKeys.json` lists for this deployment's use
+ * (`AI_KEY_USE`), or a one-run pick in `AI_GATEWAY_KEY_ALIASES`, tried in
+ * order with `cf-aig-byok-alias`, each skipped once its credit is spent or its
+ * usage limit reached, then the plan key above, then Unified Billing (decided
+ * by the owner, 2026-11-13 and 2026-11-26: several people's Claude Console
+ * credits, held by the gateway rather than a GitHub secret, chosen by use).
  *
  * Neither is the customer's key: people's own keys were deleted (the owner,
  * 2026-10-10). Nothing in this file can be pointed elsewhere by a caller: the
@@ -55,6 +56,7 @@ import { withToday } from "./localNow.js";
 import { TEX_CONFIG, texConfigOf } from "./texConfig.js";
 import { CREDIT_REST_MS, creditStoreOf, noteCreditPaid, noteCreditSpent, payerSkipped, resetCreditCache } from "./creditRest.js";
 import { fitHaikuBody } from "./promptBudget.js";
+import { keyAliasesOf } from "../../src/aiKeys.cjs";
 
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -99,10 +101,6 @@ const RESPONSE_BYTE_CAP = 2_000_000;
  */
 const RETRY_WITHOUT_KEY = new Set([401, 403]);
 
-/** An alias the gateway's Provider Keys page accepts, and at most this many. */
-const KEY_ALIAS = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const MAX_KEY_ALIASES = 5;
-
 /**
  * Statuses that mean the provider was busy rather than wrong (rate limited,
  * unavailable, overloaded), after which the same call is sent once more after
@@ -138,7 +136,6 @@ export function aiGatewayConfig(env) {
   if (typeof gatewayId !== "string" || !GATEWAY_ID.test(gatewayId)) return null;
   if (typeof token !== "string" || token.length < 20 || token.length > 512) return null;
   const creditKey = env?.ANTHROPIC_CREDIT_KEY;
-  const aliases = typeof env?.AI_GATEWAY_KEY_ALIASES === "string" ? env.AI_GATEWAY_KEY_ALIASES.split(",").map((alias) => alias.trim()) : [];
   // A Lab test chat's turn carries its draft's config (`texConfig.js` `texConfigOf`), so each step it asks a model
   // for runs on the draft's model and effort; a real turn's carries none, and its steps read main's.
   const tex = texConfigOf(env);
@@ -151,7 +148,7 @@ export function aiGatewayConfig(env) {
     token,
     creditKey: typeof creditKey === "string" && creditKey.length >= 20 && creditKey.length <= 512 ? creditKey : null,
     // Keys the gateway holds, by alias, in the order they are tried; a malformed name is dropped, never sent.
-    keyAliases: [...new Set(aliases.filter((alias) => KEY_ALIAS.test(alias)))].slice(0, MAX_KEY_ALIASES),
+    keyAliases: keyAliasesOf(env),
     // The shared "this payer's credit is spent" record (`creditRest.js`). Null where the binding is left out.
     creditStore: creditStoreOf(env),
   };
@@ -381,15 +378,39 @@ async function readCapped(response) {
   }
 }
 
-/** Whether an error body says the credit balance is spent. A boolean, nothing else. */
-function saysCreditSpent(text) {
+/**
+ * Whether an error body says this key cannot pay for now: its credit balance
+ * is spent, or its organization reached the usage limit it set ("You have
+ * reached your specified API usage limits", 2026-11-26). A boolean, nothing else.
+ */
+export function saysCreditSpent(text) {
   if (typeof text !== "string") return false;
   try {
     const message = JSON.parse(text)?.error?.message;
-    return typeof message === "string" && /credit balance/i.test(message);
+    return typeof message === "string" && /credit balance|usage limit/i.test(message);
   } catch {
     return false;
   }
+}
+
+/** The longest a refusal's own "regain access on <date>" may rest a key: a month and a bit. */
+const MAX_REGAIN_MS = 35 * 24 * 60 * 60_000;
+
+/**
+ * Until when a refused key rests: the date Anthropic gives ("You will regain
+ * access on 2026-12-01 at 00:00 UTC") when it is ahead and within a month,
+ * else the usual `CREDIT_REST_MS`. Only a date is read from the body.
+ */
+export function restUntil(text, clock) {
+  let message = "";
+  try {
+    message = String(JSON.parse(text)?.error?.message ?? "");
+  } catch {
+    message = "";
+  }
+  const day = /regain access on (\d{4}-\d{2}-\d{2})(?: at (\d{2}:\d{2}))?/i.exec(message);
+  const at = day ? Date.parse(`${day[1]}T${day[2] ?? "00:00"}:00Z`) : NaN;
+  return Number.isFinite(at) && at > clock && at - clock <= MAX_REGAIN_MS ? at : clock + CREDIT_REST_MS;
 }
 
 /**
@@ -551,7 +572,7 @@ export async function requestViaGateway(call, config, options = {}) {
       break;
     } else if (saysCreditSpent(answer.text) || answer.status === 402) {
       // This payer's credit is used up: rest it, here and on every other isolate, until it is worth asking again.
-      await noteCreditSpent(payer.name, clock + CREDIT_REST_MS, { store, ...(cache ? { cache } : {}) });
+      await noteCreditSpent(payer.name, restUntil(answer.text, clock), { store, ...(cache ? { cache } : {}) });
       answer = null;
     } else if (RETRY_WITHOUT_KEY.has(answer.status) || (payer.alias && answer.status === 400 && !namesThinking(answer))) {
       // The key itself was refused (revoked, wrong organization, an alias the

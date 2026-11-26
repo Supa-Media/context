@@ -10,6 +10,7 @@
 
 import { TEX_STEPS, texStepForModel, type TexStepDef } from "@context/tex/src/texSteps.cjs";
 import { CLEF_MODEL, GLM_MODEL } from "../jev/models";
+import { AI_KEYS } from "@context/tex/src/aiKeys.cjs";
 
 export { CLEF_MODEL, GLM_MODEL };
 
@@ -21,18 +22,28 @@ export interface CreditKey {
   /** The `payer` label the gateway request carries. */
   alias: string;
   label: string;
-  capUsd: number;
+  /** The credit it holds; null when not known. */
+  capUsd: number | null;
   /** When this key began paying (ISO); unlabeled calls from here on are its, until a key is spent. */
   since: string;
   /** Used up: the gateway no longer tries it, so its usage is its cap. */
   spent: boolean;
 }
 
-/** The credit keys, in the order the gateway tries them. */
-export const CREDIT_KEYS: readonly CreditKey[] = [
-  { key: "dev", alias: "dev-claude-credits", label: "dev credits", capUsd: 100, since: "2026-11-13T16:57:00Z", spent: false },
-  { key: "dev2", alias: "dev2-claude-credits", label: "dev2 credits", capUsd: 200, since: "2026-11-13T16:57:00Z", spent: true },
-];
+/**
+ * The credit keys, in the order production tries them: the one list in `packages/tex/src/aiKeys.json`, so a key added
+ * there is a row here with its owner.
+ */
+export const CREDIT_KEYS: readonly CreditKey[] = AI_KEYS.map((k) => ({
+  key: k.key,
+  alias: k.alias,
+  label: `${k.owner}'s credits`,
+  capUsd: k.capUsd,
+  since: k.since,
+  // Used up as the file records it (its use reached its credit). A key retired until a reset or past its expiry is
+  // left out of the gateway's order (aiKeys.cjs keyState) but keeps its row here, counted from what it spent.
+  spent: Number.isFinite(k.capUsd) && Number.isFinite(k.usedUsd) && (k.usedUsd as number) >= (k.capUsd as number),
+}));
 
 /** When the gateway began sending the `payer` label. Before it, every call is unlabeled. */
 export const PAYER_LABEL_SINCE = "2026-11-14T20:00:00Z";
