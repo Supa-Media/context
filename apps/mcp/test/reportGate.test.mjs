@@ -19,6 +19,8 @@
  *     fails.
  *  4. `reportGate` sending at once whenever their text asks, texts or not
  *     (2026-10-21). → `…but their texts still go only on a yes` fails.
+ *  5. `reportGate` holding a report without texts again (2026-11-26). → `a
+ *     report without their texts is sent at once…` fails.
  */
 
 import { reportCopy } from "../src/tools/reportGate.js";
@@ -78,28 +80,27 @@ export async function runReportGateChecks(check) {
         yes.body?.answer === "Done, I sent a bug report to the Context team.",
     );
 
+    // Dev2, 2026-11-26: a report with none of their texts is shown to nobody and asked of nobody; it goes at once.
     model.install([report({ message: "The link in your last text did not open." }), { text: "Written up." }]);
-    const plain = await textTex(env, TOKEN_TEXTS, "report the broken link, but don't send our chat");
+    const plain = await textTex(env, TOKEN_TEXTS, "the link you sent is broken");
     check(
-      "a report without texts says so, and its YES sends the message alone",
-      /None of our texts go with it\./.test(plain.body?.verbatim?.[0] ?? "") && sent().length === 1,
+      "a report without their texts is sent at once, the message alone, and nobody is shown it or asked",
+      plain.body?.verbatim === undefined && sent().length === 2 && sent()[1].texts === undefined && pending().length === 0,
     );
-    await textTex(env, TOKEN_TEXTS, "yes");
-    check("…and its YES sends the message alone", sent().length === 2 && sent()[1].texts === undefined);
 
-    model.install([report({ message: "Something else broke." }), { text: "Written up." }]);
+    model.install([report({ message: "Something else broke.", share_texts: true }), { text: "Written up." }]);
     await textTex(env, TOKEN_TEXTS, "file another one");
     await textTex(env, TOKEN_TEXTS, "no");
     check("a NO drops it", sent().length === 2);
 
     // Dev2, 2026-10-21: a 👍 that stayed on the ask is the yes, but only on the ask for what is waiting.
     const like = (words) => request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: words, tapback: "Liked", conversation: "texts" });
-    model.install([report({ message: "Thumbs should work." }), { text: "Written up." }]);
+    model.install([report({ message: "Thumbs should work.", share_texts: true }), { text: "Written up." }]);
     const shown = (await textTex(env, TOKEN_TEXTS, "file a thumbs one")).body?.verbatim?.[0] ?? "";
     model.install([{ text: "Glad you like it." }]);
-    await like("Here's the bug report I'd send to the Context team:\n\nSomething else broke.\n\nNone of our texts go with it.");
+    await like("Here's the bug report I'd send to the Context team:\n\nSomething else broke.\n\nUp to the last 12 messages between us go with it, so they can see what happened.");
     check("a 👍 on an older ask releases nothing", sent().length === 2);
-    model.install([report({ message: "Thumbs should work." }), { text: "Written up." }]);
+    model.install([report({ message: "Thumbs should work.", share_texts: true }), { text: "Written up." }]);
     await textTex(env, TOKEN_TEXTS, "file a thumbs one");
     before = model.requests.length;
     const liked = await like(`${shown.slice(0, 60)}…`);
