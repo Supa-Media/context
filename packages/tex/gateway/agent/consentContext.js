@@ -13,6 +13,10 @@
  * - `where`: the chat the text was sent in, and who is in it, so "here", "this chat", "everyone here" and "us" have a
  *   meaning. Handles, names and guest labels as the turn knows them; never a phone number.
  * - `offered`: Tex's last text in that chat before this one, so "yes", "do it" or "go ahead" answering it counts.
+ * - `owns` (Dev2, 2026-11-26): in a group, the Gmail addresses the sender connected, shared here or not. "Share my
+ *   gmail here" from @lena was refused as "the words are from @lena, not the inbox owner": the judge was never told
+ *   whose inbox it was. Addresses as the control plane sent them (`askerMail`, and this chat's mail rows that are
+ *   the sender's), never the model's arguments.
  *
  * Each goes only when the config's `egress` step names it in its `inSchema` (`texConfig.json`): the graph runner
  * refuses an input field the schema does not name, so the code ships first and the config turns it on.
@@ -22,11 +26,15 @@
 export const MAX_OFFERED = 600;
 const MAX_PEOPLE_SHOWN = 12;
 
-/** Which of `where` and `offered` the config's egress step takes. */
+const JUDGED_FIELDS = new Set(["where", "offered", "owns"]);
+const ADDRESS = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+const MAX_OWNED = 10;
+
+/** Which of `where`, `offered` and `owns` the config's egress step takes. */
 function namedFields(config) {
   const node = Array.isArray(config?.nodes) ? config.nodes.find((n) => n?.id === "egress") : null;
   const schema = Array.isArray(node?.inSchema) ? node.inSchema : [];
-  return new Set(schema.map((field) => field?.name).filter((name) => name === "where" || name === "offered"));
+  return new Set(schema.map((field) => field?.name).filter((name) => JUDGED_FIELDS.has(name)));
 }
 
 /** "@ada (Ada Lovelace)", or "@ada" without a name. */
@@ -71,6 +79,18 @@ export function offeredLine(history) {
   return "";
 }
 
+/** The group sender's own connected Gmail addresses, as data (JSON), or "" when the turn has none to name. */
+export function ownsLine(group) {
+  if (group === null || typeof group !== "object") return "";
+  const from = typeof group.from === "string" ? group.from : "";
+  if (from === "") return "";
+  const unshared = Array.isArray(group.askerMail) ? group.askerMail : [];
+  const shared = Array.isArray(group.mail) ? group.mail.filter((row) => row?.handle === from).map((row) => row.address) : [];
+  const addresses = [...new Set([...unshared, ...shared].filter((address) => typeof address === "string" && ADDRESS.test(address)).map((address) => address.toLowerCase()))].slice(0, MAX_OWNED);
+  if (addresses.length === 0) return "";
+  return JSON.stringify({ sender: `@${from}`, senders_own_connected_gmail: addresses });
+}
+
 /**
  * The fields a texted turn adds to every Egress judge call, `{}` when the config's step names neither or the turn is
  * not a texted chat.
@@ -86,6 +106,10 @@ export function consentContext({ group = null, history = [], chatTurn = false, c
   if (fields.has("offered")) {
     const offered = offeredLine(history);
     if (offered) out.offered = offered;
+  }
+  if (fields.has("owns")) {
+    const owns = ownsLine(group);
+    if (owns) out.owns = owns;
   }
   return out;
 }
