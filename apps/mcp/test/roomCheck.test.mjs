@@ -15,7 +15,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cantOpen, heldFacts, pointedAt, roomReads, roomSlugs, roomVerdict, slugsCalled, tokensOf } from "../../../packages/tex/gateway/agent/roomCheck.js";
+import { MAX_CALL_CHARS, cantOpen, heldFacts, pointedAt, roomReads, roomSlugs, roomVerdict, slugsCalled, tokensOf } from "../../../packages/tex/gateway/agent/roomCheck.js";
 import { roomCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/roomCheck.js";
 import { answerCheckNode } from "../../../packages/tex/gateway/agent/graph/nodes/answerCheck.js";
 import { holdForAsker } from "../../../packages/tex/gateway/agent/privateAside.js";
@@ -147,7 +147,11 @@ test("the node holds once a turn: one aside, the facts on the turn, and a rewrit
   await roomCheckNode({ at: "answer" }, { ctx: { turn: t } });
   assert.equal(t.roomHush, true, "the last answer goes to nobody in the group");
   const clean = turnOf({ drafts: { waiting: { draft: "I sent you the action items on the side, Ada." } } });
-  assert.equal((await roomCheckNode({ at: "draft" }, { ctx: { turn: clean } })).to, "pass");
+  const passed = await roomCheckNode({ at: "draft" }, { ctx: { turn: clean } });
+  assert.equal(passed.to, "pass");
+  assert.ok(passed.chars > 0, "a pass says how much it read, so a Lab run shows an empty read");
+  assert.equal(passed.pointed, 0);
+  assert.ok(passed.carried < 2);
   assert.equal((await roomCheckNode({ at: "draft" }, { ctx: { turn: { ...clean, roomReads: null } } })).to, "skipped");
   assert.equal((await roomCheckNode({ at: "draft" }, { ctx: { turn: { ...clean, job: { id: "j" } } } })).to, "skipped", "a job's own turn reports, and its report is checked");
 });
@@ -209,4 +213,15 @@ test("a job reports the closed workspaces it read, and a held aside reaches the 
 test("a group turn keeps the unshared workspaces it is told, read strictly", () => {
   const group = groupOf({ group: { key: KEY, members: "b".repeat(64), from: "ada", unshared: ["events-team", "Bad Slug", 7] } });
   assert.deepEqual(group.unshared, ["events-team"]);
+});
+
+test("a wide search read first never crowds out the note read after it", async () => {
+  const reads = roomReads(GROUP);
+  const search = reads.wrap(async () => ok("Weekly sync notes, nothing to see. ".repeat(4_000)));
+  await search("search_notes", { query: "events", context: "@events-team" });
+  const read = reads.wrap(async () => ok(MEETING));
+  await read("read_note", { path: "@events-team/inbox/meetings/structure.md" });
+  assert.ok(reads.text("events-team").length <= 2 * MAX_CALL_CHARS + 2);
+  assert.ok(reads.text("events-team").includes("Marcus owns Field Day"), "the note read last is kept");
+  assert.ok(roomVerdict({ draft: TAKEAWAYS, reads, group: GROUP }), "and a draft that carries it is held");
 });

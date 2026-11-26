@@ -89,7 +89,7 @@ A quality change fixes how Tex behaves: what it says, when it stays quiet, wheth
    - **A step on or off, or a new step.** New code goes to the shelf first, then gets wired in a draft (see Changing Tex above).
 3. **Try it on the turn that went wrong.** `test_chat replay { chat, text, draft }` re-runs a real text on the draft. `test_chat try` runs one text on main and the draft side by side. `test_chat open` with a Dev or Training conversation (`source: "set"`) runs inside that conversation's world.
 4. **Measure, not one example.** `run { draft, kind: "dev" }` replays the Dev set's unit tests, and `run { kind: "node", node }` runs one step's. Decide is exact, so one run is a result. The front door varies about three points between repeats, so judge it over repeats (`repeats` up to 5). A draft wins only if it is better on the cases it targets and no worse elsewhere.
-5. **Promote.** The replay gate runs the sealed Test set on main. Nobody tunes against the Test set; it is people-only and never shown to an agent. Production follows green CI. Afterwards, check the real chat it came from.
+5. **Promote.** The replay gate runs the sealed Test set on main. The reply reviewer runs three times there and fails only when a case is wrong every time on the change and right every time on main; one unlucky sample does not block the pull request. Nobody tunes against the Test set; it is people-only and never shown to an agent. Production follows green CI. Afterwards, check the real chat it came from.
 
 Where it is decided: [test-sets](./decisions/testing/test-sets.md), [replay-gate](./decisions/testing/replay-gate.md), [tex-quality-architecture](./decisions/testing/tex-quality-architecture-2026-11-17.md).
 

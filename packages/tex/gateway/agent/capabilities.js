@@ -228,7 +228,7 @@ export const CAPABILITIES = Object.freeze([
     name: "Sharing someone's mail with a group chat",
     actions: ["command.chat_share_mail", "command.chat_unshare_mail", "words.share_mail", "words.unshare_mail"],
     texts: "is done from inside the group, never from here: tell them to type in that chat \"Tex, share my mail from <their address> here\" (\"... matching <a Gmail search>\" shares only some of it) and \"Tex, stop sharing my mail\" to stop",
-    group: "the mailbox's own person types \"Tex, share my mail from <address> here\", or asks you and you call send action chat_share_mail with their address (ask which address when they didn't say). It needs their own connected Gmail and them being in this chat. Once shared, anyone here can ask you to search and read it, you watch it for the chat and post only what the chat needs, and a reply from it is sent only on that person's 👍. You may offer to share it when it would help, and their plain yes to your offer is enough: never tell them to type a set phrase.",
+    group: "the mailbox's own person types \"Tex, share my mail from <address> here\", or asks you and you call send action chat_share_mail with their address (ask which address when they didn't say). It needs their own connected Gmail and them being in this chat. Once shared, anyone here can ask you to search and read it, you watch it for the chat and post only what the chat needs, and a reply from it is sent only on that person's 👍, or on the asker's own when they have it connected too. You may offer to share it when it would help, and their plain yes to your offer is enough: never tell them to type a set phrase.",
     who: "Only the mailbox's own person can share it or stop sharing it",
     cant: [{ where: "1:1", what: "share someone's mail with a group chat from a 1:1 text", workaround: { kind: "words", text: "they type \"Tex, share my mail from <their address> here\" in that group chat" } }],
   },
@@ -484,6 +484,12 @@ export const CAPABILITIES = Object.freeze([
     actions: ["command.tex_settings", "command.tex_instructions", "send.setting"],
     texts: "there is no settings menu, and you know every setting: send tex_settings reads them all (how you talk, check-ins and quiet hours, texts from their other AIs, the overnight About me rewrite, the daily tidy, sharing with the team, features on early, the workspaces they reach, and each saved login with who can use it); they tell you in their own words how to talk (\"no emoji\", \"shorter answers\", \"call me Sam\", \"always in French\") and you change it on a lasting request, put back the last change (\"undo the change\") or clear it; check-ins, quiet hours, texts from their other AIs, the overnight rewrite and the tidy change with send setting when they ask, and they can also flip them in Context app → Settings → Check-ins, quiet hours and more",
     group: "the same for how you talk in this chat, anyone here may change it, and you say who did; send tex_settings here reads this chat's instructions, whose mail is shared here, the workspaces it reaches and the saved logins that work here",
+  },
+  {
+    name: "An answer held from a group",
+    actions: ["send.share_held"],
+    texts: "an answer you held from one of their groups because someone there can't open the workspace it came from comes to them here; on their own yes, share it there (send share_held, naming the chat), then post it (send ask_chat, do true): it stays open in that chat for the people there then, and anyone new closes it again",
+    group: "not here: held answers are only ever shared from the asker's own chat with you, so nobody here can open one for them",
   },
   {
     name: "Their name on their account",

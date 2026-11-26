@@ -22,8 +22,13 @@
  * told, and how, is the model's own, from the facts it is handed (`heldFacts`) and Training. Never a line written here.
  */
 
-/** Most text kept per turn of what was read from the room's closed workspaces: enough to find a draft's names in. */
-const MAX_READ_CHARS = 60_000;
+/**
+ * Most text kept per turn of what was read from the room's closed workspaces, and per call: each call keeps its own
+ * share, so one wide search's results never crowd out the note read after it (a Lab test chat, 2026-11-26: a search
+ * filled the whole turn's room, the roles note read next kept nothing, and the draft that carried it passed).
+ */
+export const MAX_READ_CHARS = 240_000;
+export const MAX_CALL_CHARS = 30_000;
 /** Shared names and figures it takes to hold a draft: one alone is too often a word anybody could say. */
 export const HOLD_AT = 2;
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
@@ -86,7 +91,7 @@ export function roomReads(group) {
   let chars = 0;
   const keep = (slug, text) => {
     if (!closed.has(slug)) return;
-    const left = MAX_READ_CHARS - chars;
+    const left = Math.min(MAX_CALL_CHARS, MAX_READ_CHARS - chars);
     const piece = left > 0 ? String(text ?? "").slice(0, left) : "";
     chars += piece.length;
     read.set(slug, `${read.get(slug) ?? ""}\n${piece}`);
@@ -136,6 +141,24 @@ export function seenInRoom({ history = [], question = "", group = null }) {
   const seen = tokensOf(`${lines}\n${question}\n${chat}`);
   for (const name of names.split(/\s+/)) if (name.length >= 3) seen.add(name.toLowerCase());
   return seen;
+}
+
+/**
+ * How a draft measures against what was read, as counts for the step's log: the text read from closed workspaces, how
+ * many of them the asker pointed at, and the most names and figures the draft shares with one of the others.
+ */
+export function roomTally({ draft, reads, group, question = "", history = [] }) {
+  if (reads === null || reads === undefined) return { chars: 0, pointed: 0, carried: 0 };
+  const seen = seenInRoom({ history, question, group });
+  const said = tokensOf(draft);
+  let chars = 0, pointed = 0, carried = 0;
+  for (const slug of reads.slugs()) {
+    chars += reads.text(slug).trim().length;
+    if (pointedAt(question, slug)) { pointed += 1; continue; }
+    const there = tokensOf(reads.text(slug));
+    carried = Math.max(carried, [...said].filter((token) => there.has(token) && !seen.has(token)).length);
+  }
+  return { chars, pointed, carried };
 }
 
 /**

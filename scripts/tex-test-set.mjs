@@ -62,18 +62,38 @@ export function starsByNode(conversations) {
   return byNode;
 }
 
+/**
+ * A node failed the gate. One run: fewer right than main. Several runs: a steady regression (`rules.ts` `nodeWorse`).
+ * A lower sample with `steady` 0 is noise, and the check stays green.
+ */
+export function nodeWorse(s) {
+  if (!s || typeof s !== "object") return false;
+  return (s.repeats ?? 1) > 1 ? (s.steady ?? 0) > 0 : s.right < s.main;
+}
+
+/** The mark a log line puts on one node's counts. */
+function nodeMark(s) {
+  if ((s.repeats ?? 1) > 1) return (s.steady ?? 0) > 0 ? "  <- steady regression" : s.right < s.main ? "  (within noise)" : "";
+  return s.right < s.main ? "  <- fewer right than main" : "";
+}
+
 /** The verdict as lines a log may carry: counts by node, never a word. */
 export function verdictLines(v) {
   const lines = [`Test Set: ${v.right}/${v.total} right on the change, ${v.main}/${v.total} on main: ${v.pass ? "PASS" : "FAIL"}`];
-  for (const [node, s] of Object.entries(v.byNode ?? {}).sort()) lines.push(`- ${node}: ${s.right}/${s.total} (main ${s.main}/${s.total})${s.right < s.main ? "  <- fewer right than main" : ""}`);
+  for (const [node, s] of Object.entries(v.byNode ?? {}).sort()) lines.push(`- ${node}: ${s.right}/${s.total} (main ${s.main}/${s.total})${nodeMark(s)}`);
   return lines;
 }
 
 /** The status description GitHub shows (140 characters at most). */
 export function statusLine(v) {
   if (v.total === 0) return "The Test Set has no unit tests yet: nothing to gate on";
-  const worse = Object.entries(v.byNode ?? {}).filter(([, s]) => s.right < s.main).map(([n]) => n);
-  const text = v.pass ? `Test Set ${v.right}/${v.total} right, main ${v.main}/${v.total}: no step worse` : `Test Set ${v.right}/${v.total}, main ${v.main}/${v.total}; worse on ${worse.join(", ")}`;
+  const worse = Object.entries(v.byNode ?? {}).filter(([, s]) => nodeWorse(s)).map(([n]) => n);
+  const noisy = Object.entries(v.byNode ?? {}).filter(([, s]) => !nodeWorse(s) && s.right < s.main).map(([n]) => n);
+  const text = v.pass
+    ? noisy.length
+      ? `Test Set ${v.right}/${v.total}, main ${v.main}/${v.total}: ${noisy.join(", ")} within noise`
+      : `Test Set ${v.right}/${v.total} right, main ${v.main}/${v.total}: no step worse`
+    : `Test Set ${v.right}/${v.total}, main ${v.main}/${v.total}; worse on ${worse.join(", ")}`;
   return text.slice(0, 140);
 }
 
@@ -148,6 +168,11 @@ function selfTest() {
   const v = { pass: false, total: 4, right: 2, main: 3, byNode: { decide: { total: 2, right: 2, main: 1 }, fd: { total: 2, right: 0, main: 2 } } };
   ok("the verdict lines carry counts by node and mark the worse one", verdictLines(v).join("\n").includes("- fd: 0/2 (main 2/2)  <- fewer right than main"));
   ok("the status names the step that got worse", statusLine(v) === "Test Set 2/4, main 3/4; worse on fd");
+  const noisy = { pass: true, total: 12, right: 9, main: 10, byNode: { reviewer: { total: 8, right: 5, main: 6, steady: 0, repeats: 3 }, decide: { total: 4, right: 4, main: 4 } } };
+  ok("a repeated node whose sample is lower, and not steadily wrong, is within noise", statusLine(noisy) === "Test Set 9/12, main 10/12: reviewer within noise");
+  ok("the verdict line marks that sample as noise", verdictLines(noisy).join("\n").includes("- reviewer: 5/8 (main 6/8)  (within noise)"));
+  const steady = { pass: false, total: 12, right: 9, main: 10, byNode: { reviewer: { total: 8, right: 5, main: 6, steady: 1, repeats: 3 } } };
+  ok("a steady regression is what the status names", statusLine(steady) === "Test Set 9/12, main 10/12; worse on reviewer");
   ok("an empty Test Set says so", /no unit tests yet/.test(statusLine({ pass: true, total: 0, right: 0, main: 0, byNode: {} })));
   const conv = [{ id: "a", msgs: [{ id: "m", who: "Sam", text: "words", labels: { fd: { star: true }, decide: { act: "quiet" } } }, { id: "t", tex: true, labels: { fd: { star: true } } }] }];
   ok("stars are counted per node, never a Tex row or an unstarred label", JSON.stringify(starsByNode(conv)) === '{"fd":1}');

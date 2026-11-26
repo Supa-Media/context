@@ -26,8 +26,17 @@ It builds on [asker-reach](./asker-reach.md) (a group ask reads the asker's own 
 - **Code, not a model.** The check is node `roomCheck` (`graph/nodes/roomCheck.js`), wired `answerCheck -> roomCheck`
   and `finish -> roomCheck` (`uses`). No line is written for Tex to say: what it texts the group and the asker is its
   own, taught by Training ([no-scripted-wording](./no-scripted-wording.md)).
-- **What it doesn't do.** It gives the owner no yes to share it after all, and it unlocks nothing for the room: that
-  is the privacy rulebook's next step, built on this hold.
+- **The asker's yes unlocks it for the people present** (rulebook rule 4: "an unlock sticks to the room for the
+  people present then; a newcomer starts locked"). The first hold a turn sends the asker is recorded on the chat's row
+  in the control plane (`apps/convex/functions/groupHolds.ts` `recordHold`): its workspaces, the asker, and who was in
+  the chat, as keyed hashes of their numbers taken from the turn's own token (kept on the grant when it was minted,
+  `ownTagPresent`), never numbers a caller names and never a word of the answer. In their own chat with Tex, the asker's
+  yes, on their own words (the consent judge every widening uses), is `send share_held`
+  (`packages/tex/gateway/agent/heldShare.js`): only their own 1:1 token shares, only a hold they asked for, only while
+  they are still in each workspace, within 7 days. From then on those workspaces are not the room's closed ones while
+  everyone in the chat was there when it was held (`lib/groupHoldPeople.ts` `unlockedSlugs`); someone leaving keeps it
+  open, anyone new closes it again. Sharing posts nothing by itself: the draft reaches the group the way any 1:1 gets
+  something done in one of its groups (`send ask_chat`, do true), taught by Training (`loose-ends`).
 
 ## What a simplification would cost
 
@@ -35,4 +44,6 @@ Dropping the check before send puts back the leak this was built for: any group 
 workspaces can text a non-member what they can't open. Counting only `blocked` misses a workspace past its cap of
 three. Holding without the `pointedAt` exemption stops the asker from sharing the very note they linked. Tests:
 `apps/mcp/test/roomCheck.test.mjs`, `packages/tex/worker/roomRead.test.ts`, and `unshared` in
-`apps/convex/__tests__/textGroupAskerReach.test.ts`.
+`apps/convex/__tests__/textGroupAskerReach.test.ts`. Taking who was present from the caller instead of the token lets a
+gateway bug open a workspace for people who never saw it shared; dropping the presence check makes one yes a standing
+unlock for anyone added later. Tests: `apps/convex/__tests__/groupHolds.test.ts`, `apps/mcp/test/heldShare.test.mjs`.
