@@ -10,7 +10,7 @@ import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gateway
 
 /**
  * TEX ASKS TEX ACROSS CHATS (`src/agent/crossChat.js`; Dev2, 2026-11-17, design N3ZawPjhhgYcNfHm7xWa37). A 1:1 asks a
- * group of its person's, a group asks the tagger's personal Tex; the answer comes back as a run of its own.
+ * group of its person's; a group asks no one (Dev2, 2026-11-26); the answer comes back as a run of its own.
  *
  * Sabotage record (temporary local edits, reverted):
  *   crossAskTool's `event !== null` check removed (an ask-run offered ask_chat)
@@ -58,40 +58,23 @@ test("a run started by an ask can't ask on: one hop", () => {
   assert.equal(crossAskTool({ event: { ...event, kind: "answer" }, groups: GROUPS, counts: COUNTS, ledger: {}, gate }), null);
 });
 
-test("no tool without the Worker's counts or without a list in a 1:1; a chat that reads only its home asks like any group", () => {
+test("no tool without the Worker's counts or without a list in a 1:1", () => {
   assert.equal(crossAskTool({ groups: GROUPS, counts: null, ledger: {}, gate }), null);
   assert.equal(crossAskTool({ groups: null, counts: COUNTS, ledger: {}, gate }), null);
-  // Dev2, 2026-11-25: "there shouldnt be any capability split" between a chat that shares no workspace and one that does.
-  assert.notEqual(crossAskTool({ group: { from: "ada", people: ["ada"], homeOnly: true }, counts: COUNTS, ledger: {}, gate }), null);
 });
 
-test("from a group, ask_chat asks only the tagger's personal Tex; someone else's waits for their yes", async () => {
-  const ledger = { asked: [] };
-  const group = { key: "c".repeat(64), from: "ada", people: ["ada", "bo"] };
-  const tool = crossAskTool({ group, counts: COUNTS, ledger, gate });
-  await tool.call({ what: "which hotel did I book for Austin?" });
-  assert.deepEqual(ledger.crossAsks[0].to, { kind: "person", who: "ada" });
-  const offered = await tool.call({ what: "their flight number", as: "bo" });
-  assert.match(words(offered), /Not asked yet/);
-  assert.equal(ledger.offered.who, "bo");
-  assert.equal(ledger.offered.tool, ASK_CHAT);
-  assert.equal(ledger.crossAsks.length, 1);
+// Dev2, 2026-11-26: "grouptex asking personal tex is not a node i want".
+test("a group chat has no ask_chat: it never asks anyone's personal Tex", () => {
+  for (const group of [{ key: "c".repeat(64), from: "ada", people: ["ada", "bo"] }, { from: "ada", people: ["ada"], homeOnly: true }]) {
+    assert.equal(crossAskTool({ group, groups: GROUPS, counts: COUNTS, ledger: {}, gate }), null);
+  }
 });
 
-test("contact: true still answers at once from the tagger's account (ask_personal_tex folded in)", async () => {
-  const ledger = { asked: [] };
-  const group = { key: "c".repeat(64), from: "ada", people: ["ada"] };
-  const tool = crossAskTool({ group, counts: COUNTS, ledger, gate, identity: async () => ({ name: "Ada Lovelace", handle: "ada", phones: ["+15555550100"], emails: ["ada@example.invalid"], google: [] }) });
-  const result = await tool.call({ what: "name and email for the form", contact: true });
-  assert.match(words(result), /Ada Lovelace/);
-  assert.equal(ledger.crossAsks, undefined);
-});
-
-test("the gate: never group to group, never from a guest, never an empty ask", async () => {
+test("the gate: a group asks no one, a 1:1 asks only a group, never an empty ask", async () => {
   assert.equal((await gate({ from: "group", to: { kind: "group", key: "a".repeat(64) }, what: "x", counts: COUNTS })).to, "refuse");
+  assert.equal((await gate({ from: "group", to: { kind: "person", who: "ada" }, what: "x", counts: COUNTS })).to, "refuse");
   assert.equal((await gate({ from: "one", to: { kind: "person", who: "ada" }, what: "x", counts: COUNTS })).to, "refuse");
-  assert.equal((await gate({ from: "group", to: { kind: "person", who: "ada" }, what: "x", guest: true, counts: COUNTS })).to, "refuse");
-  assert.equal((await gate({ from: "group", to: { kind: "person", who: "ada" }, what: " ", counts: COUNTS })).to, "refuse");
+  assert.equal((await gate({ from: "one", to: { kind: "group", key: "a".repeat(64) }, what: " ", counts: COUNTS })).to, "refuse");
 });
 
 test("one open ask per pair of chats", async () => {

@@ -29,7 +29,6 @@ import { groupChatsForTurn } from "./groupChats.js";
 import { guestNameTool } from "./groupGuestNames.js";
 import { holdersTool } from "./groupHolders.js";
 import { earlierChatTool } from "./groupTurn.js";
-import { personalTexTool } from "./askPersonalTex.js";
 import { MAKE_LOGIN_DEFINITION } from "./makeLogin.js";
 import { DRAW_DEFINITION, MAKE_DEFINITION } from "./pictureMaker.js";
 import { PLAN_DEFINITION } from "./planBigAsk.js";
@@ -82,7 +81,6 @@ function build(kind) {
     () => groupChatsForTurn({ env: {}, groups: [], timeZone: "UTC" })?.tool,
     () => delegateSession(INERT.callTool, { handle: "@them", home: "@them" }),
     () => mailAgentSession(INERT.callTool, { path: "task.md" }, "m"),
-    () => personalTexTool({ group: INERT.group, ledger: INERT.ledger, asker: async () => null }),
     () => guestNameTool({ group: INERT.group, ledger: INERT.ledger }),
     () => holdersTool({ group, holders: async () => null }),
     () => crossAskTool({ group, groups: [], counts: {}, ledger: INERT.ledger, gate: async () => null }),

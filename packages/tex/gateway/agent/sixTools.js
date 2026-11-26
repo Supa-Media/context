@@ -32,7 +32,6 @@ import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
 import { COMPUTER_SEND_ACTIONS } from "../../../../apps/mcp/src/machines/texActions.js";
 import { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
 import { GUEST_NAME_SEND_ACTIONS, HOLDERS_SEND_ACTIONS } from "./groupGuestNames.js";
-import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
 import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
 import { withNothingChanged } from "./noteLinks.js";
@@ -140,8 +139,6 @@ export const ASSISTANT_SEND_ACTIONS = {
   ...Object.fromEntries(Object.entries(COMPUTER_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   // Their settings and who can use each saved login, changed from a text (`settingsTools.js`).
   ...Object.fromEntries(Object.entries(SETTINGS_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: ownAndWhere }])),
-  // A group chat's ask of the tagger's personal Tex for who they are (`askPersonalTex.js`).
-  ...Object.fromEntries(Object.entries(PERSONAL_TEX_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   // Tex asking Tex in another chat, and a do-ask's signed line (`crossChat.js`): offered only while the config wires tools -> crossChatGate.
   ...Object.fromEntries(Object.entries(CROSS_CHAT_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   ...Object.fromEntries(Object.entries({ ...GUEST_NAME_SEND_ACTIONS, ...HOLDERS_SEND_ACTIONS }).map(([name, entry]) => [name, { ...entry, take: own }])), // a guest label's name (`groupGuestNames.js`); who here is in a named workspace (`groupHolders.js`)
@@ -288,11 +285,10 @@ function firstSentence(text) {
  * characters). The whole summary and the carrier's words are its manual.
  */
 const SHORT_LINES = {
-  ask_chat: "Ask Tex in another chat they share with you, to know or do something there.",
+  ask_chat: "From a 1:1, ask Tex in one of their group chats, to know or do something there.",
   name_guest: "Keep a guest label's real name, once someone here says it.",
   draw_visual: "Turn your answer into one of your designed picture cards, to text them; write a page before drawing it.",
   vault_access: "Who can use each saved login, key or card; give or take it back.",
-  ask_personal_tex: "Get the tagger's name, phone and email from their own Tex, for a form.",
   say_nothing: "Text nothing and end your turn, only where your instructions say silence fits.",
   // The four lines below name what their calls were refused for most (tool_stats, 7 days to 2026-11-20; Dev2: "look at the
   // most failed tools ... add more explanation"): calendar 32 of 64, browse 24 of 178, open_page 7 of 194, job_status 5 of 11.
