@@ -210,6 +210,12 @@ export async function runTheModel(t, via) {
   // a job's report brings what its job read there, its words as what was read.
   t.roomReads = group !== null ? roomReads(group) : null;
   if (t.roomReads !== null && report !== null && Array.isArray(report.roomRead)) t.roomReads.add(report.roomRead, report.texts);
+  // A group's progress line is read by the Room check before it goes, when the config wires it (`graph/nodes/roomCheck.js`).
+  if (t.roomReads !== null && typeof via?.roomCheck === "function" && typeof channel?.holdWith === "function") channel.holdWith(async (text) => {
+    t.roomProgress = text;
+    const out = await via.roomCheck({ at: "progress", draftChars: text.length }).catch(() => null);
+    return out?.to === "hold" ? t.roomNotice : null;
+  });
   const crossTools = crossWired ? [crossAskTool({ event: t.crossChat ?? null, group, groups: t.groups ?? null, counts: crossCountsOf(body.crossCounts), ledger, gate: (input) => drawn.fire("tools", "crossChatGate", input, { env }), identity: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }), postInChatTool({ event: t.crossChat ?? null, group, ledger })].filter(Boolean) : [];
   // The group's prompt says to ask a person's own Tex only when ask_chat is offered: a chat with guests has none
   // (`crossAskTool`), and telling it to ask got "ask_chat isn't available on this turn" (Tex Devs, 2026-11-24).

@@ -64,6 +64,8 @@ export async function fdNode(input, io) {
   };
   const via = {
     examples,
+    // Each progress line of a group turn goes through the Room check when a draft wires `fd -> roomCheck` (`progress.js`).
+    roomCheck: "roomCheck" in (io.use ?? {}) ? (input) => io.use.roomCheck(input) : null,
     memberCards,
     chatStyle,
     // A draft the Answer check handed to a background job (`handoff.js`) ends the loop on the job's start line.
