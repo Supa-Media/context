@@ -394,8 +394,14 @@ export function noteDocument(view: NoteView) {
             On a phone the page draws its own title and the grid gets the
             screen's 16pt gutter and room under it for the floating buttons.
           */
-          <View style={[{ width: "100%", alignSelf: "stretch" }, compact ? { paddingHorizontal: 16, paddingBottom: 96 } : null]}>
+          /*
+            A pointer layout's pane does not scroll around a sheet: the grid runs to the
+            pane's bottom and scrolls its rows inside (Dev2, 2026-11-26, a 199-row sheet
+            stopped at 14 rows with half the pane empty under it).
+          */
+          <View style={[{ width: "100%", alignSelf: "stretch" }, compact ? { paddingHorizontal: 16, paddingBottom: 96 } : { flex: 1, minHeight: 0 }]}>
           <SourceSheetView
+            fill={!compact}
             source={folderLists}
             {...(onOpenNote === undefined ? {} : { onOpenFolder: onOpenNote })}
             path={state.path!}
