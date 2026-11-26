@@ -26,6 +26,7 @@
  * the product and the notes, Tex the assistant people text.
  */
 
+import { didUnsaidOne } from "./didOne";
 import { maySend } from "./outboundGuard";
 import {
   askAgent,
@@ -347,7 +348,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`packages/tex/gateway/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm, ...(deps.again ? { again: true } : {}), ...(deps.onLive ? { onLive: deps.onLive } : {}) },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running, event: message.event, ...(message.did ? { did: message.did } : {}), jobReport: message.jobReport, ...(message.crossChat ? { crossChat: crossFields(message.crossChat).crossChat } : {}), ...(deps.crossCounts ? { crossCounts: deps.crossCounts } : {}), covers: deps.covers, chat: message.chatId, told: deps.told, settings: session.settings, arrivedAt: deps.arrivedAt, worker, ...warm, ...(deps.again ? { again: true } : {}), ...(deps.onLive ? { onLive: deps.onLive } : {}) },
     );
     if (answer.kind === "unavailable") await deps.warm?.keep(undefined); // a turn that may have written and never said what: the next one starts a new copy (`warm.ts`); the rest wrote nothing
     // Cancelled for a restart (`steer.ts`): the turn that replaces it answers.
@@ -382,6 +383,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     if (triedAgain(answer) && deps.retry) throw new TryLater();
     // A job's report the chat's turn was refused for is never lost in silence: the result waits in the job list for their next text.
     if (message.event === "job_report" && (answer.kind === "no_model" || answer.kind === "daily_limit")) return [COPY.jobReportRefused];
+    // What code did for them, when its turn could not run: the old line, once, logged (`didFacts.ts` `didUnsaidOne`).
+    if (message.event === "did") return didUnsaidOne(message, answer.kind);
     // A save's turn that could not run says nothing: they asked nothing, and their next text carries the task on.
     if (message.event !== undefined) return [];
     if (answer.kind === "no_model") return COPY.noModel;
@@ -390,7 +393,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     return COPY.unavailable;
   } catch (error) {
     if (error instanceof ServiceError && deps.retry) throw new TryLater();
-    if (error instanceof ServiceError) return message.event !== undefined ? [] : COPY.unavailable;
+    if (error instanceof ServiceError) return message.event === "did" ? didUnsaidOne(message, "unavailable") : message.event !== undefined ? [] : COPY.unavailable;
     throw error;
   }
 }

@@ -100,6 +100,10 @@
     {"id":"pr6","who":"Tex","tex":true,"text":"On it, I'll text you when the note's up."},
     {"id":"pr7","who":"Background job","via":"job","state":"failed","text":"Couldn't finish the kiln shop comparison: the step that reads the review sites didn't answer, twice. Nothing was saved."},
     {"id":"pr8","who":"Maya","text":"is it done?","labels":{"fd":{"must":["own it in a line and say what happens next (trying again now, will text)"],"never":["blame the AI model or say a model didn't answer","read out what broke"],"star":true}}},
-    {"id":"pr9","who":"Tex","tex":true,"text":"Not yet, that one didn't go through. Trying again now, and I'll text you when the note's up."}
+    {"id":"pr9","who":"Tex","tex":true,"text":"Not yet, that one didn't go through. Trying again now, and I'll text you when the note's up."},
+    {"at":"Fri 10:02","id":"ge1","who":"Maya","text":"can you read the fernway gmail too, the shop one"},
+    {"id":"ge2","who":"Tex","tex":true,"text":"Yes, connect it here and I'll read it too: https://context.example/connect/gmail"},
+    {"id":"ge3","who":"Context","via":"did","text":"{\"from\":\"context\",\"did\":{\"action\":\"gmail\",\"status\":\"connected\",\"address\":\"hello@fernway.example\",\"main\":false}}","labels":{"fd":{"must":["say it can read hello@fernway.example now, in one short text"],"never":["call it her main email","paste the facts or their field names","say it was told or handed anything"],"star":true}}},
+    {"id":"ge4","who":"Tex","tex":true,"text":"Got it, I can read hello@fernway.example now too."}
   ]
 }

@@ -14,6 +14,7 @@ import {
   type GmailWatchDeps,
 } from "./gmailWatch";
 import { owedTold } from "./told";
+import { WITHOUT_DID } from "./groupWorld.testing";
 
 /**
  * TEX SAYS SO ITSELF WHEN THE GMAIL IT ASKED FOR CONNECTS (Dev2, 2026-10-20).
@@ -45,7 +46,7 @@ function deps(opts: { answer: () => unknown; status?: () => number; linqStatus?:
     }
     throw new Error(`unexpected ${path}`);
   }) as unknown as Fetch;
-  return { fetch: fetcher, controlPlaneOrigin: "https://cp.example", workerSecret: "s", linqApiKey: "k", now: opts.now };
+  return { fetch: fetcher, controlPlaneOrigin: "https://cp.example", workerSecret: "s", linqApiKey: "k", now: opts.now, texGraph: WITHOUT_DID };
 }
 
 describe("the Gmail-connected text", () => {
