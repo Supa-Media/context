@@ -110,6 +110,7 @@ import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as vaultText from "./functions/lib/gatewayRoutes/vaultText";
+import * as accountName from "./functions/lib/gatewayRoutes/accountName";
 import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
 import * as personMail from "./functions/lib/gatewayRoutes/personMail";
 import * as personCalendar from "./functions/lib/gatewayRoutes/personCalendar";
@@ -790,6 +791,8 @@ export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
 export const gatewayVaultText = gatewayRoute(vaultText.gatewayVaultTextHandler); // who each vault login is for, by text (`vaultByText.ts`)
 http.route({ path: "/gateway/vault/text", method: "POST", handler: gatewayVaultText });
+export const gatewayAccountName = gatewayRoute(accountName.gatewayAccountNameHandler); // their own name, from their own chat with Tex (`accountName.ts`)
+http.route({ path: "/gateway/account/name", method: "POST", handler: gatewayAccountName });
 for (const [path, handler] of vault.BROWSER_GATEWAY_ROUTES) http.route({ path, method: "POST", handler: gatewayRoute(handler) }); // a browser's profile, and "Done" on its take-over screen
 
 // A connector: a link for the person to connect an app, and one call through it.

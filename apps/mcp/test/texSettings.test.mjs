@@ -179,3 +179,30 @@ test("the app's settings page reads and changes the same notes a text does", asy
   assert.deepEqual(await settingSet(dispatch, "tidy", { on: true }), { ok: false, error: "invalid" });
   assert.deepEqual(await settingSet(dispatch, "quiet_hours", "x".repeat(81)), { ok: false, error: "invalid" });
 });
+
+// Dev2, 2026-11-25: a group asked for someone's last name and the account had only the first name typed at sign-up.
+test("their own chat reads and changes the name on their account; a group chat never gets the tool", async () => {
+  const calls = [];
+  let saved = "Ada";
+  const controlPlane = {
+    accountName: async (token, name) => {
+      calls.push({ token, name });
+      if (name !== undefined) saved = name;
+      return { status: "done", name: saved };
+    },
+  };
+  const { dispatch } = notes();
+  const tool = byName(settingsTools({ session, controlPlane, group: null, dispatch }), "account_name");
+  assert.ok(tool, "a person's own chat has it");
+  assert.deepEqual(JSON.parse((await tool.call({})).content[0].text), { changed: false, name: "Ada" });
+  assert.deepEqual(JSON.parse((await tool.call({ name: "Ada Lovelace" })).content[0].text), { changed: true, name: "Ada Lovelace" });
+  assert.deepEqual(calls.at(-1), { token: "tok", name: "Ada Lovelace" }, "the turn's own token, never a name for someone else");
+  assert.match(await settingsSnapshot({ session, controlPlane, group: null, dispatch }), /Account name: Ada Lovelace\./);
+
+  const refused = byName(settingsTools({ session, controlPlane: { accountName: async () => ({ status: "invalid" }) }, group: null, dispatch }), "account_name");
+  const answer = await refused.call({ name: "" });
+  assert.equal(answer.isError, true);
+  assert.deepEqual(JSON.parse(answer.content[0].text), { changed: false, status: "invalid" });
+
+  assert.equal(byName(settingsTools({ session, controlPlane, group: { from: "ada" }, dispatch }), "account_name"), undefined, "a group chat can't rename anyone");
+});
