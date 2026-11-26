@@ -471,25 +471,25 @@ describe("the group chat of 2026-10-21", () => {
     expect(w.sends.map((sent) => sent.content)).toEqual(["I've written it up.", ask]);
   });
 
-  it("answers the same ask from the same person once, however it is redelivered", async () => {
+  it("answers the same words sent again, and a redelivered webhook once", async () => {
     const storage = new MemoryStorage();
     const w = world();
-    const text = "Tex, report a bug, when replying to a text message keep all blocks under the reply thread";
-    // The judge answers each; the same words from the same person a moment later are dropped after it (`notAskedAgain`).
+    const text = "Tex, what's seyi's moms name";
+    // 2026-11-26: the same ask re-sent after someone answered it in the chat was dropped in code, and Tex said nothing.
+    // Each text the judge answers reaches the front door, whose history holds the first ask and what was said since.
     const asked = async (extra: Partial<GroupMessage>, at: number) => {
       await acceptGroup(storage, message(text, extra), at);
       await drainGroup(storage, { ...deps(w), now: () => at });
     };
-    // A chat Tex is set up in (a first look's answer is forced, and never counted as a repeat).
+    // A chat Tex is set up in (a first look's answer is forced).
     await acceptGroup(storage, message("Tex, hi", { eventId: "sendblue:hi", messageId: "hi" }), 0);
     await drainGroup(storage, deps(w));
     await asked({ eventId: "sendblue:a", messageId: "a" }, 1_000);
     await asked({ eventId: "sendblue:b", messageId: "b" }, 60_000);
-    expect(w.asks).toHaveLength(2);
-    // Someone else asking the same thing is their own ask; and the same person, much later, is asking again.
-    await asked({ eventId: "sendblue:c", messageId: "c", from: BO }, 60_000);
-    await asked({ eventId: "sendblue:d", messageId: "d" }, 60_000 + 11 * 60_000);
-    expect(w.asks).toHaveLength(4);
+    expect(w.asks).toHaveLength(3);
+    // The same webhook delivered again is the same text: not a new ask.
+    await asked({ eventId: "sendblue:b", messageId: "b" }, 61_000);
+    expect(w.asks).toHaveLength(3);
   });
 
   it("reads an edit delivered under the same handle as the new message it is", async () => {

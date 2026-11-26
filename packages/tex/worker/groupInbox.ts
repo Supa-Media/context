@@ -29,8 +29,6 @@
  * - `gseen:<eventId>:<hash>` a timestamp for a day, so a redelivered webhook
  *   is answered once; keyed by the words' hash too, so an edit Sendblue
  *   delivers under the same handle is read as the new message it is.
- * - `grecent` hashes of who tagged what in the last ten minutes, so the same
- *   ask sent twice is answered once (the group chat of 2026-10-21).
  * - `gask` who Tex last asked for a yes, for half an hour, never the words:
  *   their bare "yes" or "send" is then for Tex, not chat.
  * - `gsent` the handles of Tex's last thirty texts in this group, so an
@@ -60,7 +58,7 @@ import { dropKept, keepAnswer, keptAnswer, refreshKept } from "./groupKept";
 import { GROUP_LINES, PICTURE_LINE } from "./groupLines";
 export { askControlPlane, GROUP_LINES, PICTURE_LINE };
 export type { Command, ControlAnswer };
-import { log, MAX_SENT, say, timedReply, type ReplyClock } from "./groupSay";
+import { log, say, timedReply, type ReplyClock } from "./groupSay";
 import type { Picture } from "./line";
 import type { ImagesLike } from "./attachments";
 import type { InboundAttachment } from "./inbound";
@@ -146,10 +144,6 @@ const MAX_PENDING = GROUP_QUEUE.max;
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
 const seenKey = (eventId: string, words: string) => `gseen:${eventId}:${words}`;
-/** The same person tagging Tex with the same words this soon after is the same ask. */
-export const SAME_ASK_MS = 10 * 60_000;
-const RECENT_KEY = "grecent";
-type Recent = { h: string; at: number };
 /** A picture from the person whose tag is still waiting joins that tag, this soon after it. */
 export const PICTURE_JOINS_MS = 2 * 60_000;
 /** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
@@ -369,42 +363,6 @@ async function acceptReaction(storage: InboxStorage, message: GroupMessage, came
   return { kind: "line", line };
 }
 
-/**
- * What the judge chose to answer, less an ask this person already had
- * answered in these same words a moment ago (Dev2, 2026-10-21: the same bug
- * report sent twice was written up twice), which is dropped. Only an ask of
- * some length: a short "yes" or "send it" answers each new question afresh.
- */
-async function notAskedAgain(storage: InboxStorage, entries: GroupEntry[], now: number): Promise<GroupEntry[]> {
-  const fresh: GroupEntry[] = [];
-  for (const entry of entries) {
-    // lean: a length floor, not a word rule; an exact repeat of a short reply is a new answer to a new question.
-    // Every answered ask is remembered; a forced or rechecked one is answered again on purpose (`recheckDraft`, a restart), never dropped.
-    const repeat = entry[1].message.text.trim().length >= REPEAT_CHARS && (await askedJustNow(storage, entry[1].message, entry[1].at ?? now));
-    if (repeat && entry[1].force !== true && entry[1].rechecked !== true) {
-      log("duplicate_ask");
-      await storage.delete(entry[0]);
-    } else fresh.push(entry);
-  }
-  return fresh;
-}
-
-/** The shortest ask `notAskedAgain` treats as a repeat. */
-const REPEAT_CHARS = 16;
-
-/**
- * Whether this person asked Tex with these same words a moment ago. Kept as
- * hashes of sender and words, never either. Remembers this ask either way.
- */
-async function askedJustNow(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
-  const h = await sha256Hex(`${message.from}\n${message.text.replace(/\s+/g, " ").trim().toLowerCase()}`);
-  const recent = ((await storage.get<Recent[]>(RECENT_KEY)) ?? []).filter((item) => now - item.at < SAME_ASK_MS);
-  const again = recent.some((item) => item.h === h);
-  await storage.put<Recent[]>(RECENT_KEY, [...recent.filter((item) => item.h !== h), { h, at: now }].slice(-MAX_SENT));
-  return again;
-}
-
-
 /** Answer what is waiting, oldest first: code's messages one by one, the rest as decide groups them. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
   try {
@@ -494,7 +452,10 @@ async function drainOnce(storage: InboxStorage, deps: GroupDeps): Promise<void> 
         await storage.delete(key);
       }
       for (const [key] of choice.drop) await storage.delete(key);
-      entries = await notAskedAgain(storage, ownTurn(choice.answer), deps.now());
+      // The same words sent again are answered like any ask: the history the front door reads holds the first ask, its
+      // answer and what was said since, so the model decides (Dev2, 2026-11-26: a repeat after the chat had answered it
+      // was dropped in code and Tex said nothing). A redelivered webhook is still answered once (`gseen`).
+      entries = ownTurn(choice.answer);
       // The go only for exactly the messages it started on; quiet, or any other set, stops it and the drain goes on as before.
       if (early !== null) {
         const go = entries.length > 0 && sameMessages(early.keys, entries.map(([key]) => key));
