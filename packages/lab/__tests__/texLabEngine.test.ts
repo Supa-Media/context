@@ -24,7 +24,8 @@ jest.mock("@context/tex/src/texModuleChange.cjs", () => jest.requireActual<typeo
 // grows with every capability added the same way; it is held at its size on 2026-11-25 (46,411 characters), when
 // main's costs already stood 2.95% over the artifact's and one more line (manage area) put them past the 3%. The
 // front door's Training and its about-Tex and working words are held at their sizes on 2026-11-25 the same way, when
-// new Training moments and a plain pitch of Context (#4234) put a 1:1 turn past the 3%.
+// new Training moments and a plain pitch of Context (#4234) put a 1:1 turn past the 3%. The two voice modules are held
+// at their sizes on 2026-11-26, when the words for matching each chat's texting style put a 1:1 turn past it.
 jest.mock("@context/lab/app/labData.generated", () => {
   const real = jest.requireActual<typeof import("@context/lab/app/labData.generated")>("@context/lab/app/labData.generated");
   return {
@@ -36,7 +37,9 @@ jest.mock("@context/lab/app/labData.generated", () => {
       "p-about-tex": "a".repeat(1032),
       "p-working": "w".repeat(11132),
       "train:fd": "t".repeat(73493),
-      "train:fd:all:90000": "t".repeat(68491),
+      "train:fd:all:100000": "t".repeat(68491),
+      "p-how-you-talk": "h".repeat(7544),
+      "p-sound-like-a-person": "s".repeat(2345),
     },
   };
 });

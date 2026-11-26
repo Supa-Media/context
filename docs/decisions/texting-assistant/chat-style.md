@@ -10,7 +10,7 @@ leaning toward the person it answers. It tells banter from an ask by reading the
 Two levers, no third model call:
 
 - **Facts, as data.** The `chatStyle` node (`packages/tex/gateway/agent/chatStyle.js`) counts the people's own recent
-  texts in the chat's ledger (never Tex's: mirroring itself would freeze its first style): how many start in lowercase,
+  texts in the ledger entries the turn's history read already holds, with no read of its own, so a texted turn's calls stay in budget (never Tex's texts: mirroring itself would freeze its first style): how many start in lowercase,
   end on a full stop or hold a "!", the median words, the emoji used, for the room and, in a group, each person. The
   front door reads them in its per-text facts as a `<chat_style>` block of JSON. No sentence of how to use them lives
   in code (`no-scripted-wording.md`).

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { STYLE_DAYS, STYLE_TEXTS, countStyle, readChatStyle, styleFacts, styleOf } from "../../../packages/tex/gateway/agent/chatStyle.js";
+import { STYLE_DAYS, STYLE_TEXTS, countStyle, styleFacts, styleOf, styleOfEntries } from "../../../packages/tex/gateway/agent/chatStyle.js";
 import { chatStyleNode } from "../../../packages/tex/gateway/agent/graph/nodes/chatStyle.js";
 import { GATEWAY_NODES as gatewayNodes } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 
@@ -60,31 +60,30 @@ test("the facts are a tagged block of data, and nothing without texts", () => {
   assert.deepEqual(JSON.parse(facts.split("\n")[1]).room.texts, 1);
 });
 
-test("reads the chat's own ledger, text entries only, from the span", async () => {
-  const asked = [];
-  const ledger = {
-    read(chat, options) {
-      asked.push({ chat, options });
-      return { entries: [{ v: 1, seq: 4, eid: "e1", event: "text", kind: "text", from: { kind: "person", name: "seyi" }, text: "nah", at: NOW - 1000 }] };
-    },
-  };
-  const style = await readChatStyle(ledger, "texts", { now: NOW });
+test("counts from the entries the turn already read, text entries only, without a read of its own", () => {
+  const entries = [
+    { v: 1, seq: 5, eid: "e2", event: "text", kind: "tool", from: { kind: "tex" }, text: "Searched.", at: NOW - 500 },
+    { v: 1, seq: 4, eid: "e1", event: "text", kind: "text", from: { kind: "person", name: "seyi" }, text: "nah", at: NOW - 1000 },
+  ];
+  const style = styleOfEntries(entries, "texts", { now: NOW });
   assert.equal(style.room.texts, 1);
-  assert.equal(asked[0].chat, "texts");
-  assert.deepEqual(asked[0].options.kinds, ["text"]);
-  assert.equal(asked[0].options.since, NOW - STYLE_DAYS * 86_400_000);
-  assert.equal(await readChatStyle(null, "texts"), null);
+  assert.equal(style.room.startsLowercase, 1);
+  assert.equal(styleOfEntries(null, "texts", { now: NOW }), null);
 });
 
 test("the node's output carries counts only, never the texts or emoji", async () => {
   const entries = [{ v: 1, seq: 1, eid: "e1", event: "text", kind: "text", from: { kind: "person", name: "seyi" }, text: "secret plans 💀", at: Date.now() - 1000 }];
-  const turn = { session: { workspaceKind: "personal", workspaceId: "ws1" }, group: null, store: { texLedger: () => ({ read: () => ({ entries }) }) } };
+  let reads = 0;
+  const ledger = { read: () => { reads += 1; return { entries }; } };
+  const turn = { session: { workspaceKind: "personal", workspaceId: "ws1" }, group: null, historyRead: Promise.resolve([{ ledgerEntries: entries }, null]), store: { texLedger: () => ledger } };
   const out = await chatStyleNode({}, { ctx: { turn } });
   assert.deepEqual(out, { when: ["found"], texts: 1, people: 1 });
   assert.ok(!JSON.stringify(out).includes("secret") && !JSON.stringify(out).includes("💀"));
   assert.deepEqual(turn.chatStyle.room.emoji, ["💀"]);
+  assert.equal(reads, 0, "the node reads no ledger of its own: the turn's history read already holds the entries");
   assert.deepEqual(await chatStyleNode({}, { ctx: { turn: { session: {}, store: {} } } }), { when: ["none"], why: "no ledger" });
-  const broken = { ...turn, store: { texLedger: () => ({ read: () => { throw new TypeError("x"); } }) } };
+  assert.deepEqual(await chatStyleNode({}, { ctx: { turn: { ...turn, historyRead: Promise.resolve([{ ledgerEntries: null }, null]) } } }), { when: ["none"], why: "no ledger" });
+  const broken = { ...turn, historyRead: Promise.reject(new TypeError("x")) };
   assert.deepEqual(await chatStyleNode({}, { ctx: { turn: broken } }), { when: ["none"], why: "error:TypeError" });
 });
 

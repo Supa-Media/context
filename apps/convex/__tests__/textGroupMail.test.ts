@@ -196,6 +196,40 @@ describe("sharing a mailbox with the chat", () => {
     expect(await senders()).toEqual([{ handle: "seyi", address: WORK, senders: [dad.userId] }]);
   });
 
+  // 2026-11-26: a Lab test chat copied from this chat runs on the Lab user's own token, which reads nobody's mail, so
+  // it could not show what Tex does with a shared mailbox. Naming the chat (`labChat`) reads the share as the chat's
+  // own read does, only for someone in the chat. Sabotage: drop the in-chat checks in `labChatMailClearance` and the
+  // outsider reads the mail; drop `labChat` from the route and the member's read is refused.
+  test("a Lab copy of the chat reads its shared mail for someone in it, narrowed, and nobody else", async () => {
+    const queries = gmail();
+    const t = setupTest();
+    const { care, dad, seyi } = await family(t);
+    await turn(t, SEYI, share(WORK, "to:clients@work.example"));
+    const groupKey = await t.run(async (ctx) => {
+      const group = (await ctx.db.query("textGroups").collect())[0]!;
+      await ctx.db.patch(group._id, { homeUsers: [seyi.userId, dad.userId] });
+      return group.groupKey;
+    });
+    await registerClient(t, "context_lab_test");
+    const own = "cat_dad_lab_token_not_real";
+    await seedConnectedClient(t, { workspaceId: care, userId: dad.userId, clientId: "context_lab_test", accessToken: own });
+    const lab = async (body: Record<string, unknown>, path = "/gateway/email/search") =>
+      (await (await gatewayPost(t, path, { accessToken: own, expectedWorkspaceId: care, query: "intake", ...body })).json()) as Record<string, unknown>;
+    // The same token alone reads nobody's mail.
+    expect(await lab({})).toMatchObject({ ok: false, refused: "not_allowed" });
+    expect(await lab({ labChat: groupKey })).toMatchObject({ ok: true, results: [expect.objectContaining({ id: "m1" })] });
+    expect(queries[queries.length - 2]).toBe("(to:clients@work.example) (intake)");
+    expect(await lab({ labChat: groupKey, address: WORK, id: "m1" }, "/gateway/email/read")).toMatchObject({ ok: true, message: { id: "m1" } });
+    expect(await lab({ labChat: "f".repeat(64) })).toMatchObject({ ok: false, refused: "not_allowed" });
+    expect(await lab({ labChat: "not-a-key" })).toMatchObject({ ok: false, refused: "not_allowed" });
+    // Someone outside the chat, naming it, reads nothing.
+    const stranger = await createUser(t, "stranger@example.invalid");
+    await addMember(t, care, stranger, "editor");
+    const theirs = "cat_stranger_lab_token_not_real";
+    await seedConnectedClient(t, { workspaceId: care, userId: stranger, clientId: "context_lab_test", accessToken: theirs });
+    expect(await (await gatewayPost(t, "/gateway/email/search", { accessToken: theirs, expectedWorkspaceId: care, query: "intake", labChat: groupKey })).json()).toMatchObject({ ok: false, refused: "not_allowed" });
+  });
+
   test("only the mailbox's own person shares it, and only a connected Gmail", async () => {
     gmail();
     const t = setupTest();

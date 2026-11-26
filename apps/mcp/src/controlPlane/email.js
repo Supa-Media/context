@@ -80,14 +80,16 @@ export function createEmailMethods({ post }) {
         aiAccess,
       };
     },
-    /** With `attachment` (1 for the first), that attachment's bytes come back too, as base64. */
-    async personMailRead(accessToken, expectedWorkspaceId, address, id, { attachment } = {}) {
+    /** With `attachment` (1 for the first), that attachment's bytes come back too, as base64; `labChat` as in `labChatMail`. */
+    async personMailRead(accessToken, expectedWorkspaceId, address, id, { attachment, labChat } = {}) {
       const answer = await post("/gateway/email/read", {
         accessToken,
         expectedWorkspaceId,
         address,
         id,
         ...(attachment === undefined ? {} : { attachment }),
+        // A Lab test chat of a group chat reads the mail shared there (`labSandbox/chatRun.js` `labChatMail`).
+        ...(typeof labChat === "string" ? { labChat } : {}),
       }, { timeoutMs: READ_TIMEOUT_MS, ...(attachment === undefined ? {} : { maxBytes: ATTACHMENT_RESPONSE_BYTE_CAP }) });
       if (answer?.ok === true && answer.message && typeof answer.message === "object") {
         const file = answer.attachment;
