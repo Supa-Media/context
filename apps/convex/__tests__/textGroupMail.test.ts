@@ -33,6 +33,7 @@ import { addMember, asUser, createUser, createWorkspace, gatewayPost, seedGoogle
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { withinShare } from "../functions/lib/gatewayRoutes/personMail";
 import { GMAIL_SEND_SCOPE } from "../functions/lib/googleOAuth";
+import { mailSharesWithSenders } from "../functions/lib/textGroupMail";
 import { MAIL_WAKE_DELAY_MS, MAIL_WAKE_GAP_MS } from "../functions/lib/routines/wake";
 import { CHAT_LOOK_PATH, DORMANT_MS, FIRST_LOOK_MS, LOOK_DELAY_MS, LOOK_GAP_MS } from "../functions/lib/textGroupLooks";
 import { registerClient, seedConnectedClient } from "./controlPlane/fixtures.helpers";
@@ -178,6 +179,21 @@ describe("sharing a mailbox with the chat", () => {
     // A sign-in that stopped working can't send either.
     await t.run((ctx) => ctx.db.patch(own, { health: "reconnect_required" }));
     expect((await turn(t, DAD)).mail).toEqual([{ handle: "seyi", address: WORK }]);
+  });
+
+  // A Lab test chat of this chat is told the same shares, with who has each connected, so each test text's asker is
+  // marked as a real turn's is (`packages/lab/gateway/labSandbox/controlSwitch.js` `mailFor`).
+  test("a Lab copy of the chat reads its shares with who can send from each", async () => {
+    gmail();
+    const t = setupTest();
+    const { dad } = await family(t);
+    await turn(t, SEYI, share(WORK));
+    const own = await seedGoogleConnection(t, { workspaceId: dad.workspaceId, boundBy: dad.userId, address: WORK, googleAccountId: "dad-google-account" });
+    const senders = () => t.run(async (ctx) => mailSharesWithSenders(ctx, (await ctx.db.query("textGroups").collect())[0]!, [dad.userId]));
+    // Read only: Dad couldn't send from it.
+    expect(await senders()).toEqual([{ handle: "seyi", address: WORK, senders: [] }]);
+    await t.run((ctx) => ctx.db.patch(own, { scopes: ["https://www.googleapis.com/auth/gmail.readonly", GMAIL_SEND_SCOPE] }));
+    expect(await senders()).toEqual([{ handle: "seyi", address: WORK, senders: [dad.userId] }]);
   });
 
   test("only the mailbox's own person shares it, and only a connected Gmail", async () => {
