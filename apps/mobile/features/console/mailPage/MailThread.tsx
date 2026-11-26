@@ -307,7 +307,7 @@ const makeStyles = (colors: Colors) =>
     hover: { backgroundColor: colors.chrome },
     close: { paddingVertical: space.x1, paddingHorizontal: space.x2, borderRadius: radii.control },
     link: { color: colors.accent },
-    title: { fontWeight: "600", fontSize: 16 },
+    title: { fontWeight: "600", fontSize: pointerType.body },
     muted: { color: colors.muted },
     grow: { flexGrow: 1, flexShrink: 1, gap: 2 },
     openNote: { paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
@@ -336,5 +336,5 @@ const makeStyles = (colors: Colors) =>
     usageMissing: { backgroundColor: "transparent", borderWidth: 1, borderColor: colors.line },
     usageMissingWord: { color: colors.warnText },
     weekUsed: { alignItems: "flex-end" },
-    weekUsedNumber: { color: colors.text, fontWeight: "700", fontSize: 16 },
+    weekUsedNumber: { color: colors.text, fontWeight: "700", fontSize: pointerType.body },
   });
