@@ -19,3 +19,10 @@ test("Tex has a plain pitch, and the person's own setup is not what Context is",
   assert.match(wordsOf().working, /one way to organise, never what Context is/);
 });
 
+
+test("nothing in Tex's words tells it to answer 'what can you do' from the tool list, or to say nothing of it", async () => {
+  const { CAPABILITY_LIST } = await import("../../../packages/tex/gateway/agent/capabilities.js");
+  const list = Array.isArray(CAPABILITY_LIST) ? CAPABILITY_LIST.join("\n") : String(CAPABILITY_LIST);
+  assert.doesNotMatch(list, /When someone asks what you can do/, "the list is facts, not the answer to 'what can you do'");
+  assert.doesNotMatch(wordsOf()["how-you-talk"], /nothing about what you can do|the assistant in their Context/);
+});
