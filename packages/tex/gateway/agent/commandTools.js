@@ -310,9 +310,9 @@ export const COMMAND_SEND_ACTIONS = {
   tex_instructions: { tool: "tex_instructions_set", summary: "Change how Tex talks in this chat, on a clear lasting request; the only way it changes." },
   chat_mute: { tool: "chat_mute", summary: "Mute Tex in this group, when someone asks it to stop." },
   chat_status: { tool: "chat_status", summary: "Which workspace this group chat uses." },
-  chat_share_mail: { tool: "chat_share_mail", summary: "Share the asker's own Gmail with this group chat." },
-  chat_unshare_mail: { tool: "chat_unshare_mail", summary: "Stop sharing the asker's own mail with this chat." },
-  chat_share_calendar: { tool: "chat_share_calendar", summary: "Share the asker's own Google Calendar with this group chat." },
-  chat_unshare_calendar: { tool: "chat_unshare_calendar", summary: "Stop sharing the asker's own calendar with this chat." },
+  chat_share_mail: { tool: "chat_share_mail", summary: "Share the asker's Gmail here." },
+  chat_unshare_mail: { tool: "chat_unshare_mail", summary: "Stop sharing the asker's mail here." },
+  chat_share_calendar: { tool: "chat_share_calendar", summary: "Share the asker's Google Calendar here." },
+  chat_unshare_calendar: { tool: "chat_unshare_calendar", summary: "Stop sharing the asker's calendar here." },
   review_sharing: { tool: "review_sharing_set", summary: "Turn sharing their finished conversations with the Context team on or off." },
 };

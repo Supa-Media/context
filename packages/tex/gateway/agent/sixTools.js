@@ -288,9 +288,9 @@ function firstSentence(text) {
  * characters). The whole summary and the carrier's words are its manual.
  */
 const SHORT_LINES = {
-  ask_chat: "Ask Tex in another chat of theirs to find or do something there.",
+  ask_chat: "Ask Tex in another chat they share with you, to know or do something there.",
   name_guest: "Keep a guest label's real name, once someone here says it.",
-  draw_visual: "Turn your answer into a designed picture card to text; write a page before drawing it.",
+  draw_visual: "Turn your answer into one of your designed picture cards, to text them; write a page before drawing it.",
   vault_access: "Who can use each saved login, key or card; give or take it back.",
   ask_personal_tex: "Get the tagger's name, phone and email from their own Tex, for a form.",
   say_nothing: "Text nothing and end your turn, only where your instructions say silence fits.",
@@ -300,17 +300,17 @@ const SHORT_LINES = {
   browse: "Drive a browser, at most 10 steps a call; fill_login is its own action.",
   open_page: "Read web pages they wrote, found by search or saw linked.",
   job_status: "How a background job is going; title exactly as your jobs list shows it.",
-  email_draft: "Save one email as a Gmail draft for them to send. A reply passes in_reply_to.",
+  email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
-  who_can_open: "Who here holds a workspace.",
+  who_can_open: "Who holds a workspace.",
   tapback: "Only a tapback or chat sticker, no words; ends turn.",
   forward_rule: "Keep forwarding one kind of their mail to one address, once they 👍 it.",
-  restart_job: "Resume stopped background jobs where they stopped.",
+  restart_job: "Pick stopped background jobs back up where they stopped.",
   advisor: "Ask your advisor, a stronger model, for judgment, before a task is done, or when stuck.",
   fill_card: "Fill the checkout's card boxes with a saved card you never see.",
-  delegate: "Hand a whole sub-project to another agent.",
-  email: "Send one email as the person through their Gmail, once they say yes. A reply passes in_reply_to, its whole email: id; to is a list.",
-  app: "Make one change through an app they connected, once they say yes.",
+  delegate: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.",
+  email: "Send one email as the person through their Gmail, once they say yes to it. A reply passes in_reply_to, its whole email: id; to is a list.",
+  app: "Make one change through an app they connected, once they say yes to it.",
 };
 
 /** A family's opening on a list with manuals: the call's shape, and the one rule that holds for every action. */
