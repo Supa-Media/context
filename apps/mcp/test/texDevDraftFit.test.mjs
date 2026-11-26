@@ -207,6 +207,11 @@ test("node_stats counts each step's runs, failures, time and what it said, and n
   assert.equal(asked[0].since, 70 * 86_400_000);
   assert.equal(asked.length, 2, "paged until the window's end");
   assert.equal(answer.nodes.find((n) => n.node === "nudge").runs, 2);
+  assert.equal(answer.examples, undefined, "no examples unless a step is named");
+
+  // With a step named, its newest runs per thing it said, to open with `turn`.
+  const named = await nodeStatsAnswer({}, page, { node: "nudge" }, { ledgerOf: () => ledger, now: 100 * 86_400_000 });
+  assert.deepEqual(named.examples, { not_yet: [{ chat: "me", turn: "a", at: 1 }], failed: [{ chat: "me", turn: "b", at: 2, ok: false }] });
 });
 
 test("a failed nudge or reflect says where and why", () => {

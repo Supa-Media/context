@@ -8,6 +8,10 @@
  * config node, with how many failed, the median and slowest time, and what each said most often (its `when`, `to` or
  * `outcome`). The steps of main's config that logged no run in the window are listed by name. Only what the log
  * shows ran is counted; nothing is estimated (Dev2, 2026-11-14).
+ *
+ * With `node`, it also lists that step's newest runs per thing it said (`examples`: chat, turn, time), so an audit of
+ * one step (2026-11-26: the ask gate's rare overrides) can open each run's turn with `turn` instead of paging
+ * `entries` through a week.
  */
 
 import { TEX_CONFIG } from "../fromGateway/agent_texConfig.js";
@@ -105,6 +109,25 @@ export function tally(entries, { config = TEX_CONFIG } = {}) {
   return { replies, nodes, neverRan: never };
 }
 
+/** Runs kept per thing a step said, newest first. */
+export const EXAMPLES_PER_SAID = 10;
+
+/** One step's newest runs per thing it said: `{ said: [{ chat, turn, at, ok? }] }` from `{ chat, entry }` pairs. */
+export function examplesOf(tagged, node) {
+  const by = new Map();
+  for (const { chat, entry } of tagged) {
+    const run = runOf(entry);
+    if (!run || run.node !== node) continue;
+    const key = run.said ?? "(said nothing)";
+    const list = by.get(key) ?? [];
+    list.push({ chat, ...(run.turn ? { turn: run.turn } : {}), ...(Number.isFinite(entry.at) ? { at: entry.at } : {}), ...(run.ok ? {} : { ok: false }) });
+    by.set(key, list);
+  }
+  const out = {};
+  for (const [key, list] of by) out[key] = list.sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, EXAMPLES_PER_SAID);
+  return out;
+}
+
 /** All of one chat's step and reply entries in the window, a page at a time, up to the cap. */
 async function stepsOfChat(ledger, name, since, until) {
   const out = [];
@@ -118,7 +141,7 @@ async function stepsOfChat(ledger, name, since, until) {
   }
 }
 
-/** `node_stats { days?, chat? }`: per step of the graph, how often it ran in this person's chats over the window. */
+/** `node_stats { days?, chat?, node? }`: per step of the graph, how often it ran in this person's chats over the window. */
 export async function nodeStatsAnswer(env, page, args = {}, { ledgerOf, now = Date.now() } = {}) {
   const days = Number.isFinite(args.days) && args.days > 0 ? Math.min(MAX_DAYS, Math.round(args.days)) : DEFAULT_DAYS;
   const until = now;
@@ -127,19 +150,23 @@ export async function nodeStatsAnswer(env, page, args = {}, { ledgerOf, now = Da
   // "app" is a view of the 1:1's own history ("me"), so reading every chat skips it rather than count those steps twice.
   const picked = typeof args.chat === "string" && args.chat !== "" ? all.filter((c) => c.chat === args.chat) : all.filter((c) => c.via !== "app").slice(0, MAX_CHATS);
   if (picked.length === 0) return { error: "There is no such chat; chats lists yours." };
+  const node = typeof args.node === "string" && args.node !== "" ? args.node : null;
   const entries = [];
+  const tagged = [];
   const read = [];
   for (const c of picked) {
     const { place, ledger } = openChat(env, page, c.chat, ...(ledgerOf ? [ledgerOf] : []));
     if (ledger === null) continue;
     const got = await stepsOfChat(ledger, place.name, since, until);
     entries.push(...got.entries);
+    if (node) for (const entry of got.entries) tagged.push({ chat: c.chat, entry });
     read.push({ chat: c.chat, entries: got.entries.length, ...(got.cut ? { cut: true } : {}) });
   }
   return {
     days,
     chats: read,
     ...tally(entries),
+    ...(node ? { examples: examplesOf(tagged, node) } : {}),
     note: "Counts from your own chats' history files (what ran, never an estimate). A run is one logged step: a step that runs twice in a turn (the front door after a check) counts twice; turns says in how many turns it ran.",
   };
 }
