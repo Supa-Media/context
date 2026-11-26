@@ -606,13 +606,6 @@ jobs:
           fi
           exit "$code"
 
-      - name: Keep the bench's embeddings for later runs
-        if: always() && needs.prep.outputs.main == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: apps/mcp/bench/.cache
-          key: tex-lab-embeddings-${{ github.run_id }}
-
       # The world's fixtures (`apps/mcp/bench/sets/sim/`) as the run left them: a replay adds the answers it had to ask
       # for (`simFixtures.mjs` saveRunFixtures), a record or refresh what it recorded. Bench data from the repo's own
       # Training and Dev conversations, never the sealed Test set; heal-ready and tex-world-heal.yml merge them into main.
@@ -624,6 +617,13 @@ jobs:
           path: apps/mcp/bench/sets/sim/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Keep the bench's embeddings for later runs
+        if: always() && needs.prep.outputs.main == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: apps/mcp/bench/.cache
+          key: tex-lab-embeddings-${{ github.run_id }}
 
       - name: The results
         env:
