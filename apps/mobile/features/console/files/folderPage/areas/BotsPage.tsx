@@ -25,6 +25,8 @@ import { botsFolder, cardSlug } from "./seat";
 import { BotPanel } from "./BotPanel";
 import { panelSlot, PanelSlotView } from "./botPanelSlot";
 import { botLabel } from "@context/shared/src/areaBots.cjs";
+import type { OwnerSearch } from "../../owners";
+import { AddBotForm, usePeopleList } from "./PanelBotFields";
 
 export interface BotsPageProps {
   root: string;
@@ -44,6 +46,10 @@ export interface BotsPageProps {
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   open: (path: string) => void;
   onPanel?: (panel: ((width: number) => React.ReactNode) | null) => void;
+  /** The workspace's people, for whose a new bot is. */
+  people?: OwnerSearch;
+  /** Adds a Grok bot: its name to the workspace's agents and its card here; absent for somebody who may not. */
+  addBot?: (name: string, whose: string) => Promise<string | null>;
 }
 
 /** Each note's count and newest line, read once per path list. */
@@ -69,7 +75,7 @@ export function useThreads(paths: readonly string[], read: BotsPageProps["read"]
 }
 
 export function BotsPage(props: BotsPageProps) {
-  const { only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel } = props;
+  const { only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel, people, addBot } = props;
   const styles = useThemedStyles(makeStyles);
   const bots = useMemo(() => botsOf(root, notes, me), [root, notes, me]);
   const conversations = useMemo(() => conversationsOf(root, notes, bots, me), [root, notes, bots, me]);
@@ -78,6 +84,11 @@ export function BotsPage(props: BotsPageProps) {
     read,
   );
   const [selected, setSelected] = useState<string | null>(null);
+  // "+ Add a bot" under the list, the same form an area's Owner menu opens (the owner, 2026-11-26: "no way to add new
+  // bots on this page?"); the reader is offered first as whose it is.
+  const [adding, setAdding] = useState(false);
+  const known = usePeopleList(people, adding);
+  const whoseChoices = me === undefined ? known : [me, ...known.filter((each) => each.toLowerCase() !== me.toLowerCase())];
   const bot = only !== undefined ? bots.find((each) => cardSlug(each.name) === only) : selected === null ? undefined : bots.find((each) => each.name === selected);
 
   // The bot shows in the side panel where the page has one; on a phone it takes the page's place.
@@ -111,7 +122,7 @@ export function BotsPage(props: BotsPageProps) {
     <View style={styles.page} testID="areas-bots-view">
       {bots.length === 0 ? (
         <Text variant="treeMeta" style={styles.muted}>
-          No bots yet. Add one from an area's Owner menu: pick "+ Add a Grok bot…".
+          {addBot === undefined ? "No bots yet." : "No bots yet. Add one below, then give it an area from that area's Owner menu."}
         </Text>
       ) : null}
       {[...groups].map(([key, list]) => (
@@ -124,6 +135,32 @@ export function BotsPage(props: BotsPageProps) {
           ))}
         </View>
       ))}
+      {addBot === undefined ? null : adding ? (
+        <AddBotForm
+          people={whoseChoices}
+          label={label}
+          onAdd={async (name, whose) => {
+            const why = await addBot(name, whose);
+            if (why === null) {
+              setAdding(false);
+              setSelected(name);
+            }
+            return why;
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      ) : (
+        <Pressable
+          onPress={() => setAdding(true)}
+          accessibilityRole="button"
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.row, styles.addRow, hovered && styles.rowOn]}
+          testID="bots-add"
+        >
+          <Text variant="tree" style={styles.addWord}>
+            + Add a bot
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -172,4 +209,6 @@ const makeStyles = (colors: Colors) =>
     rowOn: { backgroundColor: colors.chipFill },
     rowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     name: { fontWeight: "600" },
+    addRow: { minHeight: 40, marginTop: space.x1 },
+    addWord: { color: colors.accent },
   });

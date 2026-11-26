@@ -33,7 +33,7 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FolderListing } from "../features/console/files/types";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
-import { all, entry, host, mount, one, press, strip, unmountAll, windowOf } from "./projectPage/fixtures";
+import { all, entry, host, mount, one, press, strip, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
 
 const NOTES: ListNote[] = [
   { path: "areas/about.md", properties: { agents: ["Grok Bot", "Socials"] } },
@@ -62,6 +62,13 @@ const GROK: FolderListing = { path: "bots/grok-bot", folderDefault: "team", entr
 
 beforeEach(() => forgetViews());
 afterEach(unmountAll);
+
+async function typeInto(input: HTMLElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 
 async function settle() {
   await act(async () => {
@@ -123,5 +130,50 @@ describe("The bots folder", () => {
     await settle();
     expect(files.some((line) => line.startsWith("create bots/grok-bot/mail/seyi.md\n# Mail with Grok Bot"))).toBe(true);
     expect(files.join("\n")).toContain("if your name or your logo has changed");
+  });
+
+  test("a bot is added from the bots folder's page: whose it is and its name, with its card in its own folder", async () => {
+    // The owner, 2026-11-26, on this page: "no way to add new bots on this page?"
+    windowOf(1440);
+    const writes: Write[] = [];
+    await mount(host(writes, { notes: NOTES, bodies: BODIES, files: [] }), BOTS);
+    await settle();
+    await press(one("bots-add"));
+    await settle();
+    expect(all("area-panel-add-bot")).toHaveLength(1);
+    await typeInto(one("area-panel-add-bot-name"), "Finance Bot");
+    await press(one("area-panel-add-bot-save"));
+    await settle();
+    const at = (path: string, key: string) => writes.filter(([p, k]) => p === path && k === key).map(([, , value]) => value);
+    expect(at("areas/about.md", "agents").at(-1)).toBe("Grok Bot, Socials, Finance Bot");
+    expect(at("bots/finance-bot/about.md", "bot").at(-1)).toBe("grok");
+    // The reader is offered first as whose it is.
+    expect(at("bots/finance-bot/about.md", "belongs_to").at(-1)).toBe("@seyi");
+    // It holds no area until an area's Owner menu gives it one.
+    expect(writes.filter(([p, k]) => p.startsWith("areas/") && k === "owner")).toEqual([]);
+    expect(writes.filter(([p, k]) => p === "bots/finance-bot/about.md" && /secret|token|key|password|url|webhook/i.test(k))).toEqual([]);
+    expect(all("area-panel-add-bot")).toHaveLength(0);
+  });
+
+  test("a reader who may not write sees no way to add a bot", async () => {
+    windowOf(1440);
+    await mount(host(null, { notes: NOTES, bodies: BODIES }), BOTS);
+    await settle();
+    expect(all("bots-add")).toHaveLength(0);
+  });
+
+  test("each bot is drawn with its own logo, read through its card, wherever the card is", async () => {
+    // The owner, 2026-11-26, on this page: "also realizing these arent the bot logos?"
+    windowOf(1440);
+    const withLogos = NOTES.map((note) =>
+      note.path === "bots/grok-bot/about.md" || note.path === "areas/bots/socials/about.md" ? { ...note, properties: { ...note.properties, avatar: `upload-${note.path.split("/").at(-2)}.webp` } } : note,
+    );
+    const pictures: string[] = [];
+    const page = host([], { notes: withLogos, bodies: BODIES, files: [] });
+    const withReader = { ...page, source: { ...page.source, readPicture: async (card: string, leaf: string) => (pictures.push(`${card}|${leaf}`), "data:image/webp;base64,AA") } };
+    await mount(withReader, BOTS);
+    await settle();
+    await settle();
+    expect(pictures).toEqual(expect.arrayContaining(["bots/grok-bot/about.md|upload-grok-bot.webp", "areas/bots/socials/about.md|upload-socials.webp"]));
   });
 });
