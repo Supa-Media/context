@@ -151,7 +151,7 @@ export function configFrom(graph, current, currentWords = {}, shelf = []) {
     groups = { ...(current.groups ?? {}) };
     for (const [id, info] of Object.entries(graph.groups)) {
       if (!ID.test(id) || !info || typeof info !== "object" || typeof info.label !== "string") return refuse(`group "${id}" has no label`);
-      groups[id] = Object.fromEntries(["label", "goal", "icon", "x", "y", "parent"].filter((k) => info[k] !== undefined).map((k) => [k, info[k]]));
+      groups[id] = Object.fromEntries(SCHEMA.GROUP_FIELDS.filter((k) => info[k] !== undefined).map((k) => [k, info[k]]));
     }
     // A group some step names, and every group around it (groups nest: Dev2, 2026-11-16), is kept.
     const named = new Set(nodes.map((n) => n.group).filter(Boolean));
@@ -334,6 +334,11 @@ function selfTest() {
   g10.nodes.find((n) => n.id === "fd").group = "inner";
   const nested = configFrom(g10, current, words).config;
   expect(nested?.groups?.inner?.parent === "outer" && nested?.groups?.outer?.label === "Outer", "a nested group lost the group it sits in");
+  // A component (Dev2, 2026-11-26) keeps its flag: every field the schema knows promotes (11-26: component was dropped).
+  const g11 = graph();
+  g11.groups = { box: { label: "Box", component: true } };
+  g11.nodes.find((n) => n.id === "fd").group = "box";
+  expect(configFrom(g11, current, words).config?.groups?.box?.component === true, "a component group lost its component flag");
   // A draft refused against its own base is refused, not a crash (draft vmwmxtcxerrji, 2026-11-18).
   const emptied = { ...graph(), modules: { [`p-${Object.keys(words)[0]}`]: { text: "" } } };
   let refusedMerge;
