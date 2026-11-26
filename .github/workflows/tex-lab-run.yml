@@ -555,8 +555,14 @@ jobs:
           fi
           args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel 24 --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
           if [ -n "$NODE_ID" ]; then args+=(--node "$NODE_ID"); fi
+          # Where a slow run's time goes (2026-11-26: 8 lanes took 12 min, 24 took 15): the load each minute, and the CPU
+          # the run's processes used, so a run held by this machine's CPU reads differently from one waiting on the network.
+          ( while sleep 60; do echo "load $(nproc) cores: $(cut -d' ' -f1-3 /proc/loadavg)"; done ) & sampler=$!
           node apps/mcp/bench/run.mjs sets run "${scope[@]}" "${args[@]}"
           code=$?
+          kill "$sampler" 2>/dev/null || true
+          times > "$RUNNER_TEMP/times" # in this shell: a subshell's `times` counts none of the run's processes
+          echo "cpu (user, system) of the run's processes over $(( ($(date +%s%3N) - started) / 1000 )) s: $(tail -n 1 "$RUNNER_TEMP/times")"
           echo "$(( $(date +%s%3N) - started ))" > "$RUNNER_TEMP/lab/ms"
           # The answerer stops itself when a call fails three times, and the watchdog then ends the run. The regrade and
           # the gold self-check below ask the same answerer, so with it gone they would wait on the socket until the job's
