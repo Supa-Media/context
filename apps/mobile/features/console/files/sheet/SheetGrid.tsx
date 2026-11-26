@@ -478,6 +478,8 @@ const makeStyles = (colors: Colors) =>
     gutterHeadMark: { alignItems: "flex-end", justifyContent: "center", paddingHorizontal: space.x2 },
     headCell: {
       width: COLUMN_WIDTH,
+      // Fills its slot's full height, so the glyph and name sit on the header's centre line.
+      flexGrow: 1,
       flexDirection: "row",
       alignItems: "center",
       gap: space.x1,
