@@ -23,6 +23,12 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 | Priya | the-flat | owner |
 | John | the-flat | editor |
 | Kofi | the-flat | editor |
+| Lena | lena (personal) | owner |
+| Lena | supper-club | owner |
+| Omar | omar (personal) | owner |
+| Omar | supper-club | member |
+| Dee | dee (personal) | owner |
+| Dee | supper-club | member |
 
 ## Things tests rely on
 
@@ -36,6 +42,8 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 
 - John's Gmail has Paulo's wedding email (Ines and Paulo, Saturday October 24, Quinta da Ribeira in Sintra, no ceremony time yet), and his people notes name one brother, Mateo: the Dev conversation `wedding-trip` relies on both.
 - John's calendar has two days in the-flat's week (Mon Jun 29 and Fri Jul 3, 2026), so the group's calendar asks (`the-flat` m26) find it connected.
+
+- Lena, Omar and Dee are the everyday tasks' people (`tests/everyday.md`, `tests/everyday-groups.md`): Lena's Gmail has a Puttery booking to answer in its thread, her landlord's plumber question (Monday 10 am clashes with her dentist), a CloudNine statement, and Ines's housewarming invite; her calendar holds November 12 to 16. Supper-club is the three's shared workspace and group chat, with its grocery list, budget (25 dollars a head) and hosting rota. Keep them out of every other test, so those tests' scores never move with these.
 
 - Maya and John both work on fashion-brand. John's woodshop is his alone.
 - Priya is in seven workspaces and shares two with Maya (fashion-brand, band).

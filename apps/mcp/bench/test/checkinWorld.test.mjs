@@ -103,10 +103,13 @@ test("a calendar write Tex makes is a change row the judge reads; a check or a r
   await call({ action: "move", title: "Only checked", start: "2026-10-21T19:00:00-04:00" }, true);
   await call({ action: "create", title: "Dentist", start: "2026-10-21T15:00:00-04:00" });
   await call({ action: "cancel", title: "Old standup" });
+  await call({ action: "move", title: "Gym", start: "2026-10-21T18:00:00-04:00", new_start: "2026-10-21T19:00:00-04:00" });
   assert.deepEqual(calendarChanges(route.calls), [
     { workspace: "calendar", path: "calendar", kind: "move", detail: 'moved "House dinner" to 2026-10-20T19:00:00-04:00' },
     { workspace: "calendar", path: "calendar", kind: "create", detail: 'added "Dentist" at 2026-10-21T15:00:00-04:00' },
     { workspace: "calendar", path: "calendar", kind: "cancel", detail: 'cancelled "Old standup"' },
+    // A move says where the event went, not only where it was (everyday tasks, 2026-11-26: every move read as its old time).
+    { workspace: "calendar", path: "calendar", kind: "move", detail: 'moved "Gym" from 2026-10-21T18:00:00-04:00 to 2026-10-21T19:00:00-04:00' },
   ]);
   assert.deepEqual(calendarChanges([{ change: { action: "move", title: "Refused" }, check: false, answer: { ok: false, refused: "has_guests" } }]), []);
 });

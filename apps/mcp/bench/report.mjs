@@ -306,6 +306,9 @@ function runBlock(run, setup) {
   if (Object.keys(run.where ?? {}).length) lines.push(`Filed: ${JSON.stringify(run.where)}`, "");
   // The background jobs it started (`checks.mjs` `start`): one JSON line, read back by the checks.
   if (run.jobs?.length) lines.push(`Jobs: ${JSON.stringify(run.jobs)}`, "");
+  // The emails it saved as drafts or sent, for the email, forward and attach checks (`checks.mjs`): who, which thread,
+  // which forward and files, never a body.
+  if (run.emails?.length) lines.push(`Emails: ${JSON.stringify(run.emails.map(emailLine))}`, "");
   // The jobs it started that ran and texted their report (`jobDelivery.mjs`): one JSON line, read back for the Lab run's spend.
   // Each texted turn's rounds of its bound, and whether it reached its end or ran out (`run.mjs`; a job's parts are not texted turns): one JSON line, read back for a Lab run's row.
   if (run.turnRounds?.length) lines.push(`Rounds: ${JSON.stringify(run.turnRounds.map(({ used, of, toEnd, exhausted, handedOff }) => ({ used, of, ...(toEnd ? { toEnd } : {}), ...(exhausted ? { exhausted } : {}), ...(handedOff ? { handedOff } : {}) })))}`, "");
@@ -428,4 +431,18 @@ export function keyMarkdown(result) {
     ...rows,
     "",
   ].join("\n");
+}
+
+/** One saved or sent email as the result note keeps it (`resultNote.mjs` reads it back): no body. */
+export function emailLine(email) {
+  const list = (value) => [].concat(value ?? []).map(String);
+  return {
+    to: list(email.to),
+    cc: list(email.cc),
+    subject: String(email.subject ?? ""),
+    ...(email.replyTo ? { replyTo: String(email.replyTo) } : {}),
+    ...(email.forward ? { forward: String(email.forward) } : {}),
+    ...(Array.isArray(email.files) && email.files.length > 0 ? { files: email.files.map((file) => ({ filename: String(file?.filename ?? "") })) } : {}),
+    draft: email.draft === true,
+  };
 }
