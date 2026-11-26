@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { runFd } from "../bench/setsFd.mjs";
+import { CASES_PER_TEST, runFd } from "../bench/setsFd.mjs";
 import { parseTest } from "../bench/load.mjs";
 
 const TREE = new URL("../../..", import.meta.url).pathname;
@@ -40,4 +40,22 @@ test("each repeat of a Front door test is a test of its own, so repeats go in pa
   assert.deepEqual(seen.map(([, n]) => n), [1, 1, 1], "one case a test, never three in one");
   assert.equal(new Set(seen.map(([name]) => name)).size, 3);
   assert.deepEqual(rows.map((r) => [r.rep, r.ran, r.right]), [[0, true, true], [1, true, true], [2, true, true]]);
+});
+
+test("a person-day with many cases is cut into tests of at most CASES_PER_TEST, each its own lane", async () => {
+  const day = { ...chat, id: "c2", msgs: [] };
+  for (let k = 0; k < 5; k += 1) {
+    day.msgs.push({ id: `a${k}`, who: "Maya", text: `ask ${k}`, labels: { fd: { must: ["answer it"], star: true } } });
+    day.msgs.push({ id: `r${k}`, who: "Tex", tex: true, text: "ok" });
+  }
+  const sizes = [];
+  const runTests = async (_tree, tests, { dir }) => {
+    const n = parseTest(await readFile(join(dir, "tests", `${tests[0]}.md`), "utf8")).questions.length;
+    sizes.push(n);
+    return { rows: Array.from({ length: n }, (_, q) => ({ id: `${tests[0]}/q${q + 1}`, right: true })), usd: 0, bars: {}, missing: [] };
+  };
+  const rows = await runFd([0, 2, 4, 6, 8].map((at) => unit(day, at)), { tree: TREE, fake: true, runTests, parallel: 3 });
+  assert.equal(CASES_PER_TEST, 2);
+  assert.deepEqual(sizes.sort(), [1, 2, 2], "five cases of one day: three tests, none over two");
+  assert.deepEqual(rows.map((r) => [r.msg, r.ran, r.right]), [["a0", true, true], ["a1", true, true], ["a2", true, true], ["a3", true, true], ["a4", true, true]]);
 });
