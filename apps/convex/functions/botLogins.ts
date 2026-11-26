@@ -118,9 +118,10 @@ async function boundOf(ctx: QueryCtx, hashedAccessToken: string, expectedWorkspa
   if (!TOKEN_HASH_PATTERN.test(hashedAccessToken)) return null;
   const live = await resolveLiveGrant(ctx, hashedAccessToken);
   if (live === null || live.grant.texGroup !== undefined) return null;
-  const workspaceId = ctx.db.normalizeId("workspaces", expectedWorkspaceId);
-  if (workspaceId === null) return null;
-  return await bindingOf(ctx, live.grant._id, workspaceId);
+  // The workspace comes from what the grant reaches, compared with the expected one, never looked up by it.
+  const reached = (await contextsForGrant(ctx, live)).find((entry) => entry.workspaceId === expectedWorkspaceId);
+  if (reached === undefined) return null;
+  return await bindingOf(ctx, live.grant._id, reached.workspaceId);
 }
 
 /** Which bot this connection is in this workspace: `{ bot, name }`, or `{ bot: null }`. Its own token is the proof. */
