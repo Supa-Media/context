@@ -16,7 +16,7 @@ import { trackEvent } from "../../../observability/client";
 import { useCallback, useRef } from "react";
 import { isServerRefusal, refusesOpen, toFileError } from "../browser";
 import { guardLeaving } from "../editor";
-import { isMarkdown, parentPath } from "../paths";
+import { opensAsDocument, parentPath } from "../paths";
 import { isHistoryView } from "../ledgerDownload";
 import { rekeyPath } from "../optimistic";
 import { raceTimeout } from "../../storage/timeout";
@@ -411,7 +411,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
    */
   const prefetch = useCallback(
     (path: string): void => {
-      if (workspaceId === null || !isMarkdown(path)) return;
+      if (workspaceId === null || !opensAsDocument(path)) return;
       if (pendingMoveTo(path) !== undefined || pendingCreateTo(path) !== undefined) return;
       const offline = offlineRef.current;
       if (offline.reachability === "offline" || offline.pendingCreate(path) !== undefined) return;
@@ -515,10 +515,11 @@ export function useOpenNote(deps: OpenNoteDeps) {
        * file does not exist" over an empty page.
        *
        * So the entry decides when it is known, and the path's own shape decides
-       * when it is not. A note is `.md` by construction: `createNote` appends
-       * it, `writeNote` refuses anything else, and `checkSharePath` requires it.
-       * Anything else is a folder, and treating an unknown `.md` as a note is
-       * the right failure anyway — that is a real read whose refusal is honest.
+       * when it is not: a note (`.md`) or a sheet (`.csv`) opens as a document
+       * (`opensAsDocument`, which asks `fileKinds.cjs`), anything else is a
+       * folder. Treating an unknown `.md` or `.csv` as a document is the right
+       * failure anyway: that is a real read whose refusal is honest. It asked
+       * `.md` alone once, and a link to a sheet opened an empty editor.
        */
       if (written !== undefined && written.path === path) {
         // Anything still being read is for a note nobody is going to now.
@@ -552,7 +553,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
       }
 
       const known = findEntry(listings, path);
-      const isFolder = known === null ? !isMarkdown(path) : known.kind === "folder";
+      const isFolder = known === null ? !opensAsDocument(path) : known.kind === "folder";
       if (isFolder) {
         /*
           A note still being read is a note nobody is going to now, and its

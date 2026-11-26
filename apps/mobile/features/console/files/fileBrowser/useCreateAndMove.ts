@@ -20,6 +20,7 @@ import {
   describeNameProblem,
   displayName,
   isMarkdown,
+  opensAsDocument,
   joinPath,
   parentPath,
 } from "../paths";
@@ -154,7 +155,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
     */
     const loaded = listingsRef.current;
     const known = findEntry(loaded, from);
-    const isFolder = known === null ? !isMarkdown(from) : known.kind === "folder";
+    const isFolder = known === null ? !opensAsDocument(from) : known.kind === "folder";
     return isFolder && subtreeOf(loaded, from).length > 0
       ? { touched: [from, to], cascadeFrom: to }
       : { touched: [from, to] };

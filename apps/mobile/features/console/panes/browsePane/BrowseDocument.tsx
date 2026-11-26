@@ -25,7 +25,7 @@ import { DocumentPage } from "./DocumentPage";
 import { NoteLoading } from "./NoteLoading";
 import { preloadFronts } from "../../files/folderPage/pageCache";
 import { noteNameEdit } from "./nameEdit";
-import { isMarkdown, parentPath } from "../../files/paths";
+import { opensAsDocument, parentPath } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
@@ -467,7 +467,7 @@ export function BrowseDocument({
           // it's just a blank black screen").
           phoneHome
         )
-      ) : isMarkdown(files.opening ?? pendingNote ?? "") ? (
+      ) : opensAsDocument(files.opening ?? pendingNote ?? "") ? (
         // A note on its way with nothing yet to draw it from: say so. The surface
         // draws the band itself with nothing selected, so it is not passed in twice.
         <NoteLoading pathBar={pathBar} />

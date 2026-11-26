@@ -16,6 +16,7 @@
 import { isDrawingPath } from "@context/drawings";
 import { isSheetPath, SHEET_EXTENSION } from "../../../../mcp/src/sheets/csv.js";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { isTextFilePath } from "@context/shared/src/fileKinds.cjs";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
 import { restoreTarget } from "@context/shared/src/archiveMirror.cjs";
 import { archiveFolderNow } from "./jobIcons/jobFoldersNow";
@@ -49,6 +50,22 @@ export function ancestorsOf(path: string): string[] {
 
 export function isMarkdown(name: string): boolean {
   return name.toLowerCase().endsWith(".md");
+}
+
+/**
+ * Whether a path the listings do not know yet opens as a document (a note or a
+ * sheet) rather than a folder.
+ *
+ * Asked only when `findEntry` has no answer: a cold load from a link, before
+ * the parent folder is listed. A known row always decides by its kind. This
+ * was `isMarkdown`, and a link straight to a sheet
+ * (`?note=products/tex/capabilities.csv`) was taken for a folder, listed, and
+ * left the editor closed under the sheet's name: an empty "Write in markdown"
+ * page until the row was clicked. The kinds come from `fileKinds.cjs`, so a
+ * new text type opens from a link the moment it is added there.
+ */
+export function opensAsDocument(path: string): boolean {
+  return isTextFilePath(path);
 }
 
 /**

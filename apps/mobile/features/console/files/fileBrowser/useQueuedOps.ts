@@ -13,7 +13,7 @@
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
 import { useCallback } from "react";
-import { isMarkdown } from "../paths";
+import { opensAsDocument } from "../paths";
 import { findEntry } from "../tree";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { OfflineQueueValues } from "./useOfflineQueue";
@@ -73,7 +73,7 @@ export function useQueuedOps(deps: QueuedOpsDeps) {
   const isFolderPath = useCallback(
     (path: string) => {
       const known = findEntry(listings, path);
-      return known === null ? !isMarkdown(path) : known.kind === "folder";
+      return known === null ? !opensAsDocument(path) : known.kind === "folder";
     },
     [listings],
   );

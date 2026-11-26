@@ -250,7 +250,7 @@ describe("a team link opens the note it names", () => {
       const path = (args as { path: string }).path;
       return path === "" ? ROOT : { ...ROOT, path, entries: [entry(NOTE, "file")] };
     };
-    actions[name("readNote")] = async () => NOTE_BODY;
+    actions[name("readNote")] = async (args: never) => ({ ...NOTE_BODY, path: (args as { path: string }).path });
   });
 
   afterEach(() => {
@@ -258,7 +258,7 @@ describe("a team link opens the note it names", () => {
     unmount = null;
   });
 
-  test("the note the URL names is open once the context has resolved", async () => {
+  test.each([NOTE, `${FOLDER}/capabilities.csv`])("the note or sheet the URL names (%s) is open once the context has resolved", async (NOTE) => {
     unmount = mount(NOTE);
     await settle();
 
