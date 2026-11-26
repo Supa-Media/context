@@ -118,7 +118,7 @@ export async function runAppSource(deps) {
   // Each sheet merged first, so a refusal writes none of them.
   for (const place of places) {
     const { set, sheetPath, sheet, hasColumns } = place;
-    place.merged = mergeSynced({ path: sheetPath, sheet: hasColumns ? sheet : null, columns: [...set.columns], incoming: incoming[set.dataset]?.rows ?? [], key: set.key, dateColumn: set.date, now, ...(set.keepDays ? { keepDays: set.keepDays } : {}) });
+    place.merged = mergeSynced({ path: sheetPath, sheet: hasColumns ? sheet : null, columns: [...set.columns], incoming: incoming[set.dataset]?.rows ?? [], key: set.key, dateColumn: set.date, now, ...(set.keepDays ? { keepDays: set.keepDays } : {}), ...(set.added ? { addedColumns: [...set.added] } : {}) });
     if (!place.merged.ok) return failed(`Nothing was written: ${place.merged.refused}.`);
   }
   let rows = 0;

@@ -40,7 +40,8 @@ export async function withSource(w, who, source = "github") {
   return ids;
 }
 
-export const pr = (number, opened, merged, updated = merged ?? opened) => ({ number, title: `Change ${number}`, createdAt: opened, mergedAt: merged, updatedAt: updated, additions: 10 * number, deletions: number, author: { login: "dev" } });
+/** A pull request as GitHub answers it; a merged one's squash commit is its number's letter, 40 times (#2 → "b"…). */
+export const pr = (number, opened, merged, updated = merged ?? opened) => ({ number, title: `Change ${number}`, createdAt: opened, mergedAt: merged, updatedAt: updated, additions: 10 * number, deletions: number, author: { login: "dev" }, mergeCommit: merged && number <= 26 ? { oid: String.fromCharCode(96 + number).repeat(40) } : null });
 
 /** GitHub as it answers, recording each call's host, path and the authorization it carried. */
 export const DEPLOY_RUN = { id: 7001, name: "Deploy to Production", head_branch: `prod-deploy/${"c".repeat(40)}`, run_started_at: "2026-11-25T08:30:00Z", updated_at: "2026-11-25T08:50:00Z", conclusion: "failure" };
@@ -48,7 +49,7 @@ export const CI_RUN = { id: 5001, name: "CI", head_branch: "main", run_started_a
 /** The deploy workflow's runs per repo: the one deploy on a prod-deploy branch for supa/app, and a 404 for supa/context. */
 const DEFAULT_DEPLOY_RUNS = (repo) => (repo === "supa/app" ? [DEPLOY_RUN] : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }));
 
-export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], trade = null, deployRuns = DEFAULT_DEPLOY_RUNS, mainRuns = (repo) => (repo === "supa/app" ? [CI_RUN] : []) } = {}) {
+export function github(w, { installations = [Number(INSTALLATION)], mintStatus = 200, repos = ["supa/app", "supa/context"], trade = null, deployRuns = DEFAULT_DEPLOY_RUNS, search = () => [], mainRuns = (repo) => (repo === "supa/app" ? [CI_RUN] : []) } = {}) {
   const seen = [];
   const auth = (init) => String(new Headers(init?.headers ?? {}).get("authorization") ?? "");
   w.net.answers.set("github.com", (url, init) => {
@@ -94,7 +95,7 @@ export function github(w, { installations = [Number(INSTALLATION)], mintStatus =
           : [];
         return Response.json({ data: { repository: { deployments: { nodes, pageInfo: { hasNextPage: false } } } } });
       }
-      return Response.json({ data: { search: { nodes: [], pageInfo: { hasNextPage: false } } } });
+      return Response.json({ data: { search: { nodes: search(variables.q), pageInfo: { hasNextPage: false } } } });
     }
     const deploying = /^\/repos\/(.+)\/actions\/workflows\/([^/]+)\/runs$/.exec(pathname);
     if (deploying) {

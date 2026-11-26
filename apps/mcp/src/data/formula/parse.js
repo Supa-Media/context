@@ -4,7 +4,7 @@
  *   formula := term (("+" | "-") term)*
  *   term    := factor (("*" | "×" | "/" | "÷") factor)*
  *   factor  := NUMBER | agg | "(" formula ")"
- *   agg     := FN "(" colexpr [where] ")"     FN: sum count average median p95 min max
+ *   agg     := FN "(" colexpr [where] ")"     FN: sum count average median p90 p95 min max
  *            | "count" "(" "distinct" colexpr [where] ")"   each filled value once
  *   colexpr := the same + − × ÷ and brackets, per row, over refs and numbers
  *   ref     := source "/" dataset "." column  |  column
@@ -32,7 +32,7 @@
 import { lex } from "./lex.js";
 import { toText } from "./render.js";
 
-export const FUNCTIONS = Object.freeze(["sum", "count", "average", "median", "p95", "min", "max"]);
+export const FUNCTIONS = Object.freeze(["sum", "count", "average", "median", "p90", "p95", "min", "max"]);
 export const MAX_FORMULA_BYTES = 2048;
 export const MAX_AGGREGATES = 8;
 export const MAX_NODES = 32;

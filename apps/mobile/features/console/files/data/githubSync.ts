@@ -19,9 +19,9 @@ export const GITHUB_DATASETS = ["pull-requests", "deploys", "workflow-runs"] as 
 
 /** Each dataset's columns, as the gateway keeps them (`apps/mcp/src/data/connect/github.js`), drawn on board 02b. */
 export const GITHUB_COLUMNS: Readonly<Record<(typeof GITHUB_DATASETS)[number], readonly string[]>> = {
-  "pull-requests": ["repo", "number", "title", "author", "opened", "merged", "deployed", "lines_added", "lines_removed"],
+  "pull-requests": ["repo", "number", "title", "author", "opened", "merged", "deployed", "lines_added", "lines_removed", "merge_commit"],
   deploys: ["repo", "sha", "environment", "started", "finished", "status"],
-  "workflow-runs": ["repo", "workflow", "branch", "started", "finished", "conclusion"],
+  "workflow-runs": ["repo", "workflow", "branch", "started", "finished", "conclusion", "sha"],
 };
 
 /** What GitHub sends back, as the callback page reads it from its address. */

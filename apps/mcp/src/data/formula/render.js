@@ -12,7 +12,7 @@ const PRECEDENCE = new Map([["+", 1], ["-", 1], ["*", 2], ["/", 2]]);
 const KEYWORDS = new Set(["where", "and", "distinct"]);
 const READ_AS = new Map([
   ["sum", "sum of"], ["count", "count of"], ["average", "average of"], ["median", "median of"],
-  ["p95", "95th percentile of"], ["min", "minimum of"], ["max", "maximum of"],
+  ["p90", "90th percentile of"], ["p95", "95th percentile of"], ["min", "minimum of"], ["max", "maximum of"],
 ]);
 
 /** Words that lex back as themselves, or quoted. A first word that is a number is quoted where it would read as one. */

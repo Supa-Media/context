@@ -33,7 +33,7 @@ with Download as folders, and every agent reads it with `fetch`
 
 ## A formula is a small language, worked out when it is read
 
-- **Grammar.** `sum`, `count`, `average`, `median`, `p95`, `min`, `max` over a
+- **Grammar.** `sum`, `count`, `average`, `median`, `p90`, `p95`, `min`, `max` over a
   column `source/dataset.column`, and `count(distinct …)`, which counts each
   filled value once (people active, not their rows; added 2026-11-25 for the
   Context usage source), with per-row `+ − × ÷` inside

@@ -15,7 +15,9 @@
  * 3. `installationToken` asking without `READ_ONLY`: "an owner installs GitHub: ..." fails.
  * 4. `readGithub` ignoring the pick: "the owner picks repositories: ..." fails.
  * 5. `fillDeployed` taking a deployment that started before the merge: "a pull request's deployed is the first
- *    production deployment after its merge" fails.
+ *    production deployment that ships its merge commit" fails.
+ * 11. `fillDeployed` matching a release by when it started again (`release.started >= merged`): "a deploy that starts
+ *    after a merge but ships an older commit does not make that merge live" fails.
  * 6. The deploy read sending `branch` too: "Deploy to Production runs are read on every branch: ..." fails.
  * 7. The deploy read's 404 no longer skipped: the same test fails, and "an owner installs GitHub: ..." fails too
  *    (repo supa/context answers 404 for its deploy workflow).
@@ -36,48 +38,74 @@ import { fillDeployed, pullRequestRow } from "../src/data/connect/github.js";
 import { skip, NOW, SECRET, world, send, dataObject, roleOf } from "./dataSyncWorld.mjs";
 import { CLIENT_ID, CLIENT_SECRET, CALLBACK, USER_TOKEN, INSTALL_TOKEN, CODE, ABOUT, CI_RUN, DEPLOY_RUN, withGithubApp, withSource, pr, github, start, finish, sheet, stateOf, logsOf, installed, firstRun } from "./dataSyncGithubWorld.mjs";
 
-test("a pull request's deployed is the first production deployment after its merge", () => {
-  const pull = pullRequestRow("supa/app", pr(3, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z"));
+const sha = (n) => String(n).padStart(4, "0").repeat(10);
+/** A merged pull request row whose squash merge made commit `sha(number)`. */
+const merged = (number, opened, at) => ({ ...pullRequestRow("supa/app", { ...pr(number, opened, at), mergeCommit: { oid: sha(number) } }) });
+
+test("a pull request's deployed is the first production deployment that ships its merge commit", () => {
+  const pull = merged(3, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z");
   assert.equal(pull.id, "supa/app#3");
+  assert.equal(pull.merge_commit, sha(3));
+  const before = merged(2, "2026-11-20T08:00:00Z", "2026-11-24T09:00:00Z");
   const deploys = [
-    { repo: "supa/app", status: "success", started: "2026-11-24T09:30:00Z", finished: "2026-11-24T09:40:00Z" },
-    { repo: "supa/app", status: "failure", started: "2026-11-24T10:30:00Z", finished: "2026-11-24T10:35:00Z" },
-    { repo: "supa/app", status: "success", started: "2026-11-24T11:00:00Z", finished: "2026-11-24T11:20:00Z" },
-    { repo: "supa/site", status: "success", started: "2026-11-24T10:10:00Z", finished: "2026-11-24T10:12:00Z" },
+    { repo: "supa/app", sha: sha(2), status: "success", started: "2026-11-24T09:30:00Z", finished: "2026-11-24T09:40:00Z" },
+    { repo: "supa/app", sha: sha(3), status: "failure", started: "2026-11-24T10:30:00Z", finished: "2026-11-24T10:35:00Z" },
+    { repo: "supa/app", sha: sha(3), status: "success", started: "2026-11-24T11:00:00Z", finished: "2026-11-24T11:20:00Z" },
+    { repo: "supa/site", sha: sha(3), status: "success", started: "2026-11-24T10:10:00Z", finished: "2026-11-24T10:12:00Z" },
   ];
-  assert.deepEqual(fillDeployed([pull], deploys).map((row) => row.deployed), ["2026-11-24T11:20:00Z"]);
-  assert.deepEqual(fillDeployed([{ ...pull, merged: "" }], deploys), []);
+  assert.deepEqual(fillDeployed([pull], deploys, [], [pull, before]).map((row) => row.deployed), ["2026-11-24T11:20:00Z"]);
+  assert.deepEqual(fillDeployed([{ ...pull, merged: "" }], deploys, [], [pull, before]), []);
+  assert.equal(pullRequestRow("supa/app", { ...pr(4, "2026-11-20T09:00:00Z", null), mergeCommit: { oid: sha(4) } }).merge_commit, "", "an open pull request names no merge commit");
+  assert.equal(pullRequestRow("supa/app", { ...pr(5, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z"), mergeCommit: null }).merge_commit, "none", "a merge GitHub names no commit for is not read again");
 });
 
-test("a superseded deploy still ships: deployed comes from the first successful Deploy to Production run after the merge", () => {
+test("a deploy that starts after a merge but ships an older commit does not make that merge live", () => {
+  // 2026-11-26: #4375 merged 21:50, #4373 at 21:53, and the deploy of #4375's commit started at 21:54. Matching by
+  // start time made #4373 live with it; 104 of 573 pull requests that week read about 5 minutes early.
+  const first = merged(4375, "2026-11-26T21:46:52Z", "2026-11-26T21:50:24Z");
+  const second = merged(4373, "2026-11-26T21:42:02Z", "2026-11-26T21:53:27Z");
+  const runs = [
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", branch: `prod-deploy/${sha(4375).slice(0, 12)}`, sha: sha(4375), started: "2026-11-26T21:54:33Z", finished: "2026-11-26T21:59:44Z" },
+    // A run kept before `sha` was read: its branch names the commit.
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", branch: `prod-deploy/${sha(4373).slice(0, 12)}`, started: "2026-11-26T21:57:37Z", finished: "2026-11-26T22:03:00Z" },
+  ];
+  const known = [first, second];
+  assert.deepEqual(fillDeployed(known, [], runs, known).map((row) => [row.number, row.deployed]), [["4375", "2026-11-26T21:59:44Z"], ["4373", "2026-11-26T22:03:00Z"]]);
+  // A later commit's release ships every earlier merge too, and a release whose commit is no known merge ships none.
+  const later = merged(4376, "2026-11-26T21:55:00Z", "2026-11-26T21:56:00Z");
+  const both = [{ repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", sha: sha(4376), started: "2026-11-26T21:57:00Z", finished: "2026-11-26T22:01:00Z" }, { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", sha: "f".repeat(40), started: "2026-11-26T21:55:00Z", finished: "2026-11-26T21:58:00Z" }];
+  assert.deepEqual(fillDeployed([second], [], both, [first, second, later]).map((row) => row.deployed), ["2026-11-26T22:01:00Z"]);
+});
+
+test("a superseded deploy still ships: deployed comes from the first successful Deploy to Production run of its commit", () => {
   // GitHub marks every older production deployment "inactive" once a newer one goes out, and that status's time is
   // when it was superseded. Matching only "success" deployments left every merged pull request waiting for the one
   // live deployment, so open to live read days (2026-11-25).
-  const pull = pullRequestRow("supa/app", pr(3, "2026-11-24T09:58:00Z", "2026-11-24T10:00:00Z"));
+  const pull = merged(3, "2026-11-24T09:58:00Z", "2026-11-24T10:00:00Z");
   const deploys = [
-    { repo: "supa/app", status: "inactive", started: "2026-11-24T10:05:00Z", finished: "2026-11-25T06:00:00Z" },
-    { repo: "supa/app", status: "success", started: "2026-11-25T05:50:00Z", finished: "2026-11-25T06:00:00Z" },
+    { repo: "supa/app", sha: sha(3), status: "inactive", started: "2026-11-24T10:05:00Z", finished: "2026-11-25T06:00:00Z" },
+    { repo: "supa/app", sha: sha(3), status: "success", started: "2026-11-25T05:50:00Z", finished: "2026-11-25T06:00:00Z" },
   ];
   const runs = [
-    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "failure", started: "2026-11-24T10:02:00Z", finished: "2026-11-24T10:06:00Z" },
-    { repo: "supa/app", workflow: "CI", conclusion: "success", started: "2026-11-24T10:01:00Z", finished: "2026-11-24T10:04:00Z" },
-    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-24T10:08:00Z", finished: "2026-11-24T10:12:00Z" },
-    { repo: "supa/site", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-24T10:03:00Z", finished: "2026-11-24T10:04:00Z" },
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "failure", sha: sha(3), started: "2026-11-24T10:02:00Z", finished: "2026-11-24T10:06:00Z" },
+    { repo: "supa/app", workflow: "CI", conclusion: "success", sha: sha(3), started: "2026-11-24T10:01:00Z", finished: "2026-11-24T10:04:00Z" },
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", sha: sha(3), started: "2026-11-24T10:08:00Z", finished: "2026-11-24T10:12:00Z" },
+    { repo: "supa/site", workflow: "Deploy to Production", conclusion: "success", sha: sha(3), started: "2026-11-24T10:03:00Z", finished: "2026-11-24T10:04:00Z" },
   ];
   assert.deepEqual(fillDeployed([pull], deploys, runs).map((row) => row.deployed), ["2026-11-24T10:12:00Z"]);
 });
 
 test("a deployed time filled wrong is corrected once the runs cover its merge, and kept when they don't", () => {
   const runs = [
-    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-20T09:00:00Z", finished: "2026-11-20T09:04:00Z" },
-    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", started: "2026-11-20T10:08:00Z", finished: "2026-11-20T10:12:00Z" },
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", sha: sha(1), started: "2026-11-20T09:00:00Z", finished: "2026-11-20T09:04:00Z" },
+    { repo: "supa/app", workflow: "Deploy to Production", conclusion: "success", sha: sha(3), started: "2026-11-20T10:08:00Z", finished: "2026-11-20T10:12:00Z" },
   ];
-  const wrong = { ...pullRequestRow("supa/app", pr(3, "2026-11-20T09:58:00Z", "2026-11-20T10:00:00Z")), deployed: "2026-11-25T06:00:00Z" };
+  const wrong = { ...merged(3, "2026-11-20T09:58:00Z", "2026-11-20T10:00:00Z"), deployed: "2026-11-25T06:00:00Z" };
   assert.deepEqual(fillDeployed([wrong], [], runs).map((row) => row.deployed), ["2026-11-20T10:12:00Z"]);
   const right = { ...wrong, deployed: "2026-11-20T10:12:00Z" };
   assert.deepEqual(fillDeployed([right], [], runs), [], "a row already right is not rewritten");
-  const older = { ...pullRequestRow("supa/app", pr(2, "2026-11-01T09:00:00Z", "2026-11-01T10:00:00Z")), deployed: "2026-11-01T10:20:00Z" };
-  assert.deepEqual(fillDeployed([older], [], runs), [], "a merge before the kept runs keeps the time it had");
+  const older = { ...merged(2, "2026-11-01T09:00:00Z", "2026-11-01T10:00:00Z"), deployed: "2026-11-01T10:20:00Z" };
+  assert.deepEqual(fillDeployed([older], [], runs, [older, wrong]), [], "a merge before the kept runs keeps the time it had");
 });
 
 test("an install state holds only its own signature, for 30 minutes", async () => {
@@ -186,6 +214,31 @@ test("each workflow-runs read keeps its own window: kept default-branch runs don
   assert.deepEqual(created("/repos/supa/app/actions/runs"), [">=2026-11-23T12:00:00.000Z", `${new Date(runFloor).toISOString()}..2026-10-28T00:00:00.000Z`]);
   // The deploy read has no kept rows of its own yet, so it reads the whole 30 days.
   assert.deepEqual(created("/repos/supa/app/actions/workflows/deploy-production.yml/runs"), [`>=${new Date(runFloor).toISOString()}`]);
+});
+
+test("sheets kept before commits were read gain merge_commit and sha, kept pull requests are read again, and deployed is matched by commit", { skip }, async () => {
+  const w = await world();
+  const queries = [];
+  const search = (q) => (queries.push(q), q.startsWith("repo:supa/app ") ? [pr(3, "2026-11-22T09:00:00Z", "2026-11-22T10:00:00Z")] : []);
+  const { ids, state } = await installed(w, { search });
+  await w.alice.bucket.put(`files/${ids.pulls}.csv`, ["id,repo,number,title,author,opened:date,merged:date,deployed:date,lines_added:number,lines_removed:number", "supa/app#3,supa/app,3,Change 3,dev,2026-11-22T09:00:00Z,2026-11-22T10:00:00Z,2026-11-22T10:03:00Z,30,3", ""].join("\n"));
+  await w.alice.bucket.put(`files/${ids.runs}.csv`, [
+    "id,repo,workflow,branch,started:date,finished:date,conclusion",
+    `6000,supa/app,Deploy to Production,prod-deploy/${"y".repeat(12)},2026-11-22T09:50:00Z,2026-11-22T09:58:00Z,success`,
+    // Started after #3 merged, but shipped an older commit: the old rule took it.
+    `6001,supa/app,Deploy to Production,prod-deploy/${"z".repeat(12)},2026-11-22T10:01:00Z,2026-11-22T10:03:00Z,success`,
+    `6002,supa/app,Deploy to Production,prod-deploy/${"c".repeat(12)},2026-11-22T10:05:00Z,2026-11-22T10:15:00Z,success`,
+    "",
+  ].join("\n"));
+  const last = await firstRun(w, state);
+  assert.equal(last.outcome, "ok", JSON.stringify(last));
+  assert.ok(queries.some((q) => q.startsWith("repo:supa/app ") && q.includes("created:") && q.includes("..2026-11-23")), queries.join(" | "));
+  const pulls = await sheet(w.alice, ids.pulls);
+  assert.ok(pulls.columns.some((c) => c.name === "merge_commit"));
+  assert.deepEqual(pulls.rows.filter((row) => row.id === "supa/app#3").map((row) => [row.merge_commit, row.deployed]), [["c".repeat(40), "2026-11-22T10:15:00Z"]]);
+  const runs = await sheet(w.alice, ids.runs);
+  assert.ok(runs.columns.some((c) => c.name === "sha"));
+  assert.deepEqual(runs.rows.filter((row) => row.id === "6001").map((row) => row.sha), [""], "a kept run keeps an empty sha; its branch names the commit");
 });
 
 test("a non-404 failure of the deploy read fails the run and keeps no workflow runs", { skip }, async () => {

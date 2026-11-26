@@ -3,18 +3,23 @@
  * (`githubApp.js`). The source keeps them beside its `about.md`, in the data folder's `github/`:
  *
  * - `pull-requests.csv`: one row per pull request, keyed `<repo>#<number>`, with when it was opened, merged and
- *   deployed, and the lines it added and removed. Kept 400 days. A run reads the ones updated in the last three
+ *   deployed, the commit its merge made on the default branch, and the lines it added and removed. Kept 400 days. A run reads the ones updated in the last three
  *   days, then carries the history back toward 90 days, a slice a run, by when they were opened.
  * - `deploys.csv`: one row per production deployment (an environment named production or prod), with its commit,
  *   when it started and finished, and how it ended. Kept 90 days.
- * - `workflow-runs.csv`: one row per finished Actions run on the repository's default branch, and every run of its
+ * - `workflow-runs.csv`: one row per finished Actions run, with its commit, on the repository's default branch, and every run of its
  *   production deploy workflow (`DEPLOY_WORKFLOWS`) on any branch, since a deploy runs on a `prod-deploy/<sha>` branch
  *   of its own. Kept 30 days: a busy repository runs thousands a week.
  *
- * `deployed` is when the first production release that started at or after the merge finished successfully, so
- * "open to live" is `deployed - opened`: a successful run of the production deploy workflow, or a deployment GitHub
- * still says succeeded. A deployment is no good alone: GitHub marks every older one `inactive` once a newer one goes
- * out, stamped when it was superseded. A pull request merged but not yet deployed is filled in by a later run.
+ * `deployed` is when the first production release that ships the pull request's merge finished successfully, so
+ * "open to live" is `deployed - opened`. A release is a successful run of the production deploy workflow, or a
+ * deployment GitHub still says succeeded; it ships the commit it deployed and every commit before it on the default
+ * branch. Pull requests are squash-merged, so a release's commit is some pull request's merge commit, and the release
+ * ships every pull request merged at or before that one. A release is matched by its commit, never by when it
+ * started: a deploy that starts after a merge may still be shipping an older commit (2026-11-26: 104 of 573 pull
+ * requests in a week read about 5 minutes early). A release whose commit is no pull request's known merge ships
+ * nothing here. A deployment is no good alone: GitHub marks every older one `inactive` once a newer one goes out,
+ * stamped when it was superseded. A pull request merged but not yet deployed is filled in by a later run.
  *
  * No body, comment, review, branch name of a pull request, commit message or file is read: a title and a login are
  * the most a row says. At most 10 repositories are read, in name order, when the owner picked none.
@@ -36,6 +41,8 @@ const PRODUCTION = ["production", "Production", "prod", "Prod"];
 export const DEPLOY_WORKFLOWS = Object.freeze(["deploy-production.yml"]);
 /** Those workflows by the name a run row keeps, so a successful run counts as a release. */
 const DEPLOY_WORKFLOW_NAMES = new Set(["Deploy to Production"]);
+/** The branch a deploy runs on names its commit, so a run kept before `sha` was read still says what it shipped. */
+const DEPLOY_BRANCH = "prod-deploy/";
 
 const text = (name) => ({ name, type: "text" });
 const date = (name) => ({ name, type: "date" });
@@ -47,7 +54,8 @@ export const GITHUB_SETS = Object.freeze([
     key: "id",
     date: "opened",
     keepDays: 400,
-    columns: Object.freeze([text("id"), text("repo"), number("number"), text("title"), text("author"), date("opened"), date("merged"), date("deployed"), number("lines_added"), number("lines_removed")]),
+    columns: Object.freeze([text("id"), text("repo"), number("number"), text("title"), text("author"), date("opened"), date("merged"), date("deployed"), number("lines_added"), number("lines_removed"), text("merge_commit")]),
+    added: Object.freeze(["merge_commit"]),
   }),
   Object.freeze({
     dataset: "deploys",
@@ -61,7 +69,8 @@ export const GITHUB_SETS = Object.freeze([
     key: "id",
     date: "started",
     keepDays: 30,
-    columns: Object.freeze([text("id"), text("repo"), text("workflow"), text("branch"), date("started"), date("finished"), text("conclusion")]),
+    columns: Object.freeze([text("id"), text("repo"), text("workflow"), text("branch"), date("started"), date("finished"), text("conclusion"), text("sha")]),
+    added: Object.freeze(["sha"]),
   }),
 ]);
 
@@ -74,7 +83,7 @@ const iso = (value) => {
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const clip = (value, length) => String(value ?? "").replace(/[\r\n]+/g, " ").slice(0, length);
 
-const PR_FIELDS = "number title createdAt mergedAt updatedAt additions deletions author { login }";
+const PR_FIELDS = "number title createdAt mergedAt updatedAt additions deletions author { login } mergeCommit { oid }";
 
 export function pullRequestRow(repo, pr) {
   if (!pr || !Number.isInteger(pr.number)) return null;
@@ -91,6 +100,8 @@ export function pullRequestRow(repo, pr) {
     deployed: "",
     lines_added: Number.isFinite(pr.additions) ? String(pr.additions) : "",
     lines_removed: Number.isFinite(pr.deletions) ? String(pr.deletions) : "",
+    // A merged pull request GitHub names no merge commit for says "none", so it is not read again for one.
+    merge_commit: iso(pr.mergedAt) === "" ? "" : clip(pr.mergeCommit?.oid, 40) || "none",
   };
 }
 
@@ -123,6 +134,7 @@ export function workflowRunRow(repo, run) {
     started,
     finished: iso(run.updated_at),
     conclusion: clip(run.conclusion, 30),
+    sha: clip(run.head_sha, 40),
   };
 }
 
@@ -223,23 +235,36 @@ async function workflowRuns({ fetcher, token, repo, branch = null, workflow = nu
   return { ok: true, rows, more: true };
 }
 
+const short = (sha) => String(sha ?? "").trim().toLowerCase().slice(0, 12);
+/** The commit a run deployed: its own `sha`, or for a run kept before that was read, the one its branch names. */
+const runSha = (run) => run.sha || (String(run.branch ?? "").startsWith(DEPLOY_BRANCH) ? String(run.branch).slice(DEPLOY_BRANCH.length) : "");
+
 /**
- * `deployed` for each merged pull request: when the first production release of its repository that started at or
- * after the merge finished. A release is a successful run of the deploy workflow, or a deployment still marked
- * success. A row that already has a time is checked again once the releases read reach back to its merge, so a time
- * filled wrong is corrected; one merged before them keeps what it had. Answers the rows it filled or changed.
+ * `deployed` for each merged pull request: when the first production release of its repository that ships its merge
+ * finished. A release ships a pull request when its commit is the merge commit of one merged at or after it (`known`
+ * holds every pull request whose merge commit places a release; by default `pulls`). A release is a successful run of
+ * the deploy workflow, or a deployment still marked success. A row that already has a time is checked again once the
+ * releases read reach back to its merge, so a time filled wrong is corrected; one merged before them keeps what it
+ * had. Answers the rows it filled or changed.
  */
-export function fillDeployed(pulls, deploys, runs = []) {
+export function fillDeployed(pulls, deploys, runs = [], known = pulls) {
+  const mergedAt = new Map();
+  for (const pull of known) {
+    const at = Date.parse(pull.merged);
+    const sha = short(pull.merge_commit);
+    if (sha.length === 12 && Number.isFinite(at)) mergedAt.set(`${pull.repo} ${sha}`, at);
+  }
   const byRepo = new Map();
-  const add = (repo, started, finished) => {
+  const add = (repo, sha, started, finished) => {
     const at = Date.parse(started);
-    if (!Number.isFinite(at) || finished === "") return;
+    const done = Date.parse(finished);
+    if (!Number.isFinite(at) || !Number.isFinite(done)) return;
     const list = byRepo.get(repo) ?? [];
-    list.push({ started: at, finished });
+    list.push({ started: at, done, finished, ships: mergedAt.get(`${repo} ${short(sha)}`) ?? Number.NaN });
     byRepo.set(repo, list);
   };
-  for (const deploy of deploys) if (deploy.status === "success") add(deploy.repo, deploy.started, deploy.finished);
-  for (const run of runs) if (run.conclusion === "success" && DEPLOY_WORKFLOW_NAMES.has(run.workflow)) add(run.repo, run.started, run.finished);
+  for (const deploy of deploys) if (deploy.status === "success") add(deploy.repo, deploy.sha, deploy.started, deploy.finished);
+  for (const run of runs) if (run.conclusion === "success" && DEPLOY_WORKFLOW_NAMES.has(run.workflow)) add(run.repo, runSha(run), run.started, run.finished);
   for (const list of byRepo.values()) list.sort((a, b) => a.started - b.started);
   const filled = [];
   for (const pull of pulls) {
@@ -247,7 +272,8 @@ export function fillDeployed(pulls, deploys, runs = []) {
     const merged = Date.parse(pull.merged);
     const releases = byRepo.get(pull.repo) ?? [];
     if (pull.deployed !== "" && !(releases.length > 0 && merged >= releases[0].started)) continue;
-    const first = releases.find((release) => release.started >= merged);
+    let first = null;
+    for (const release of releases) if (release.ships >= merged && (first === null || release.done < first.done)) first = release;
     if (first && first.finished !== pull.deployed) filled.push({ ...pull, deployed: first.finished });
   }
   return filled;
@@ -258,6 +284,18 @@ const cellOf = (value) => cellText(value).trim();
 const pullOfSheet = (row) => Object.fromEntries(GITHUB_SETS[0].columns.map(({ name }) => [name, cellOf(row[name])]));
 const deployOfSheet = (row) => Object.fromEntries(GITHUB_SETS[1].columns.map(({ name }) => [name, cellOf(row[name])]));
 const runOfSheet = (row) => Object.fromEntries(GITHUB_SETS[2].columns.map(({ name }) => [name, cellOf(row[name])]));
+
+/** When the newest kept pull request of `repo` merged since `sinceMs` with no `merge_commit` was opened (ms); NaN for none. */
+function unplacedSince(rows, repo, sinceMs) {
+  let newest = Number.NaN;
+  for (const row of rows) {
+    if (cellOf(row.repo) !== repo || cellOf(row.merged) === "" || cellOf(row.merge_commit) !== "") continue;
+    const merged = Date.parse(cellOf(row.merged));
+    const opened = Date.parse(cellOf(row.opened));
+    if (merged >= sinceMs && Number.isFinite(opened) && !(opened <= newest)) newest = opened;
+  }
+  return newest;
+}
 
 const failedOf = (got) => ({ ok: false, refused: got.refused === true, said: got.said ?? "GitHub didn't answer" });
 
@@ -311,6 +349,14 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
       if (!older.ok) return failedOf(older);
       add("pull-requests", older);
     }
+    // Pull requests kept before `merge_commit` was read are read again, newest first, a slice a run, so every
+    // release can be placed by its commit.
+    const unplaced = unplacedSince(sheets["pull-requests"] ?? [], repo, Math.max(floor, now - GITHUB_SETS[1].keepDays * DAY_MS));
+    if (Number.isFinite(unplaced)) {
+      const again = await olderPulls({ fetcher, token: minted.token, repo, fromMs: floor, beforeMs: Math.min(unplaced + DAY_MS, now) });
+      if (!again.ok) return failedOf(again);
+      add("pull-requests", again);
+    }
     const kept = span("deploys");
     const fullDeploys = !Number.isFinite(kept.oldestMs) || kept.oldestMs > floor + DAY_MS;
     const deploys = await deployments({ fetcher, token: minted.token, repo, sinceMs: fullDeploys ? floor : Math.max(now - RECENT_MS, floor) });
@@ -343,8 +389,9 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
   const keptPulls = (sheets["pull-requests"] ?? []).filter((row) => !incomingIds.has(String(row.id))).map(pullOfSheet);
   const allDeploys = [...(sheets.deploys ?? []).map(deployOfSheet), ...out.deploys.rows];
   const allRuns = [...(sheets["workflow-runs"] ?? []).map(runOfSheet), ...out["workflow-runs"].rows];
-  const filledNow = new Map(fillDeployed(out["pull-requests"].rows, allDeploys, allRuns).map((row) => [row.id, row]));
+  const known = [...out["pull-requests"].rows, ...keptPulls];
+  const filledNow = new Map(fillDeployed(out["pull-requests"].rows, allDeploys, allRuns, known).map((row) => [row.id, row]));
   out["pull-requests"].rows = out["pull-requests"].rows.map((row) => filledNow.get(row.id) ?? row);
-  out["pull-requests"].rows.push(...fillDeployed(keptPulls, allDeploys, allRuns));
+  out["pull-requests"].rows.push(...fillDeployed(keptPulls, allDeploys, allRuns, known));
   return { ok: true, sets: out, repos: repos.map((repo) => repo.name) };
 }

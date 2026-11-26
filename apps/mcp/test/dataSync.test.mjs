@@ -88,6 +88,21 @@ test("a sheet whose columns were changed by hand is left alone", () => {
   assert.match(r.refused, /missing the column opened, title/);
 });
 
+test("a column the source added later is appended to an old sheet, empty on its rows, and filled by the run", () => {
+  // GitHub's merge_commit and sha (2026-11-26): every connected workspace's sheets were made before them.
+  const sheet = parseSheet("number:number,opened:date\n1,2026-11-20\n2,2026-11-21\n");
+  const r = mergeSynced({ path: PATH, sheet, columns: COLUMNS, addedColumns: ["title"], key: "number", dateColumn: "opened", now: NOW, incoming: [{ number: "2", opened: "2026-11-21", title: "second" }] });
+  assert.equal(r.ok, true, r.refused);
+  const back = parseSheet(r.text);
+  assert.deepEqual(back.columns.map((c) => c.name), ["number", "opened", "title"]);
+  assert.deepEqual(back.rows.map((row) => [row.number, row.title]), [["1", ""], ["2", "second"]]);
+  assert.equal(r.changed, 1);
+  // Only the named column is appended: a sheet missing another is still left alone.
+  const other = mergeSynced({ path: PATH, sheet: parseSheet("number:number,title\n1,x\n"), columns: COLUMNS, addedColumns: ["title"], key: "number", dateColumn: "opened", now: NOW, incoming: [] });
+  assert.equal(other.ok, false);
+  assert.match(other.refused, /missing the column opened/);
+});
+
 test("reserved names are refused as a synced column", () => {
   for (const name of ["__proto__", "constructor", "prototype"]) {
     const r = mergeSynced({ path: PATH, sheet: null, columns: [...COLUMNS, { name, type: "text" }], key: "number", dateColumn: "opened", now: NOW, incoming: [] });

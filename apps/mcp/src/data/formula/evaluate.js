@@ -125,8 +125,9 @@ function arithmetic(op, a, b) {
   return out;
 }
 
-function percentile95(sorted) {
-  return sorted[Math.max(0, Math.ceil(0.95 * sorted.length) - 1)];
+/** The nearest-rank percentile: the smallest value at least `share` of the values are at or under. */
+function percentile(sorted, share) {
+  return sorted[Math.max(0, Math.ceil(share * sorted.length) - 1)];
 }
 
 function aggregate(fn, values, count) {
@@ -142,7 +143,8 @@ function aggregate(fn, values, count) {
     for (const v of values) if (fn === "min" ? v < out : v > out) out = v;
   } else {
     const sorted = [...values].sort((a, b) => a - b);
-    if (fn === "p95") out = percentile95(sorted);
+    if (fn === "p95") out = percentile(sorted, 0.95);
+    else if (fn === "p90") out = percentile(sorted, 0.9);
     else {
       const mid = sorted.length >> 1;
       out = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
