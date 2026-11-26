@@ -89,7 +89,7 @@ export function BotsPage(props: BotsPageProps) {
   const [adding, setAdding] = useState(false);
   const known = usePeopleList(people, adding);
   const whoseChoices = me === undefined ? known : [me, ...known.filter((each) => each.toLowerCase() !== me.toLowerCase())];
-  const bot = only !== undefined ? bots.find((each) => cardSlug(each.name) === only) : selected === null ? undefined : bots.find((each) => each.name === selected);
+  const bot = only !== undefined ? bots.find((each) => each.slug === only) : selected === null ? undefined : bots.find((each) => each.name === selected);
 
   // The bot shows in the side panel where the page has one; on a phone it takes the page's place.
   const slot = useRef(panelSlot()).current;

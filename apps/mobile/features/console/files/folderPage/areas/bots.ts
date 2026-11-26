@@ -29,7 +29,13 @@ export interface BotArea {
 }
 
 export interface Bot {
+  /** The words its card says, `Tex Quality · Tex reply quality`. */
   readonly name: string;
+  /**
+   * What names it: its folder, `tex-quality`, for a card in a bots folder (as the gateway's mail watch reads it,
+   * `cardFolderBot`), else its name's slug. An area's `owner:` or `delegate:` line naming either is this bot.
+   */
+  readonly slug: string;
   readonly card: Card & { readonly path: string };
   /** Its person, `@seyi`; "" when the card names nobody. */
   readonly whose: string;
@@ -66,24 +72,28 @@ const same = (a: string | null | undefined, b: string | null | undefined) => (a 
 /** Every bot card the reader can see, its own first. */
 export function botsOf(root: string, notes: readonly ListNote[], me: string | undefined): Bot[] {
   const people = `${peopleFolder(root)}/`;
-  const names = new Map<string, string>();
+  // Each bot's slug, its words and the card they were read from.
+  const names = new Map<string, { name: string; at: string }>();
   for (const note of notes) {
     const inPeople = note.path.startsWith(people) && !note.path.slice(people.length).includes("/");
     if (!isBotCardPath(root, note.path) && !(inPeople && word(note.properties.bot) !== "")) continue;
     if (note.path.endsWith("/about.md") && !isBotCardPath(root, note.path)) continue;
-    const name = word(note.properties.holder) || note.path.split("/").slice(-2)[0] || "";
-    if (name === "" || names.has(cardSlug(name))) continue;
-    names.set(cardSlug(name), name);
+    const folder = isBotCardPath(root, note.path) ? (note.path.split("/").slice(-2)[0] ?? "") : "";
+    const name = word(note.properties.holder) || folder;
+    const slug = folder !== "" ? cardSlug(folder) : cardSlug(name);
+    if (name === "" || names.has(slug)) continue;
+    names.set(slug, { name, at: note.path });
   }
   const tree = areaTree(root, root, notes);
   const out: Bot[] = [];
-  for (const name of names.values()) {
-    const card = cardOf(name, "agent", root, notes);
+  for (const [slug, { name, at }] of names) {
+    const card = cardOf(name, "agent", root, notes, at);
+    const isThis = (who: string | null | undefined) => same(who, name) || (who != null && who.trim() !== "" && cardSlug(who) === slug);
     const works = parseWorksIn(notes.find((note) => note.path === card.path)?.properties.works_in);
     const areas: BotArea[] = [];
     const walk = (node: AreaNode) => {
       const { seat } = node;
-      const role = same(seat.ownOwner, name) ? "owner" : same(seat.delegate, name) && seat.owner !== null && seat.owner.startsWith("@") ? "delegate" : null;
+      const role = isThis(seat.ownOwner) ? "owner" : isThis(seat.delegate) && seat.owner !== null && seat.owner.startsWith("@") ? "delegate" : null;
       if (role !== null) {
         const entry = works?.find((item) => item.area.toLowerCase() === seat.folder.toLowerCase());
         areas.push({ folder: seat.folder, title: seat.folder === root ? "The whole workspace" : areaTitle(seat.name), role, cap: entry?.cap ?? null, listed: works === null || entry !== undefined });
@@ -91,7 +101,7 @@ export function botsOf(root: string, notes: readonly ListNote[], me: string | un
       for (const child of node.areas) walk(child);
     };
     walk(tree);
-    out.push({ name, card, whose: card.belongsTo, mine: me !== undefined && same(card.belongsTo, me), areas, mailFolder: mailFolderOf(root, card.path, name) });
+    out.push({ name, slug, card, whose: card.belongsTo, mine: me !== undefined && same(card.belongsTo, me), areas, mailFolder: mailFolderOf(root, card.path, name) });
   }
   return out.sort((a, b) => Number(b.mine) - Number(a.mine) || a.whose.localeCompare(b.whose) || a.name.localeCompare(b.name));
 }
@@ -113,7 +123,7 @@ export function conversationsOf(root: string, notes: readonly ListNote[], bots: 
     for (const child of node.areas) walk(child);
   };
   walk(tree);
-  const isBot = (who: string | null) => who !== null && bots.some((bot) => cardSlug(bot.name) === cardSlug(who));
+  const isBot = (who: string | null) => who !== null && bots.some((bot) => bot.slug === cardSlug(who) || cardSlug(bot.name) === cardSlug(who));
   const out: Conversation[] = [];
   for (const note of notes) {
     if (!isNotePath(note.path)) continue;
@@ -142,8 +152,8 @@ export function conversationsOf(root: string, notes: readonly ListNote[], bots: 
 
 /** The conversations a bot is in: written by it, or with it. */
 export function mailOfBot(bot: Bot, conversations: readonly Conversation[]): Conversation[] {
-  const slug = cardSlug(bot.name);
-  return conversations.filter((each) => each.sender === slug || (each.with !== null && cardSlug(each.with) === slug));
+  const slugs = new Set([bot.slug, cardSlug(bot.name)]);
+  return conversations.filter((each) => slugs.has(each.sender) || (each.with !== null && slugs.has(cardSlug(each.with))));
 }
 
 /** The routine notes of the areas a bot holds: `<area>/routines/<how often>/<name>.md`. */
