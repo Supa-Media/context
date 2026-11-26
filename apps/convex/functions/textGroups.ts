@@ -325,10 +325,13 @@ async function homeAnswer(
   others: string[],
 ): Promise<GroupAnswer | null> {
   // Somebody asked for every turn but a routine's, a check-in's or the hello's (rulebook rule 2, Dev2 2026-11-25).
-  const turn = await homeOnlyTurn(ctx, { ...args, asked: args.routine !== true || args.asked === true }, chat, senderUser, others);
+  const asked = args.routine !== true || args.asked === true;
+  const turn = await homeOnlyTurn(ctx, { ...args, asked }, chat, senderUser, others);
   if (turn === null) return null;
+  // An account holder's ask also reads their own calendars, on their own grant (`lib/textGroupCalendar.ts` `askerCalendars`).
+  const asker = asked && senderUser !== null ? senderUser : null;
   // Read again: the turn may have named this chat's people on its home just now.
-  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)), ...(await calendarSharesNamed(ctx, chat._id)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
+  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id)), ...(await calendarSharesNamed(ctx, chat._id, asker)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
 }
 
 /**
