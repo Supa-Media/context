@@ -52,6 +52,8 @@ export function createTexCommands({ group = null, setBy = "someone here" } = {})
   const settings = () => ({ ...(kept.instructions ? { instructions: kept.instructions } : {}), ...(state.updates ? { updates: state.updates } : {}) });
   return {
     changes: () => [...changes],
+    /** The mail shared with this chat, as the Worker names it on every later turn (`group.mail`). */
+    mail: () => state.mail.map((row) => ({ ...row })),
     answer(command) {
       const kind = command?.kind;
       if (kind === "settings") {

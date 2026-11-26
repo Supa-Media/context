@@ -97,6 +97,12 @@ test("the chat's commands follow the control plane's rules: add, remove, undo, t
   assert.deepEqual(crew.answer({ kind: "mute" }), { status: "done", muted: true });
   assert.equal(crew.answer({ kind: "review_sharing", share: true }).status, "not_allowed", "review sharing is never a group's");
   assert.deepEqual(crew.answer({ kind: "nonsense" }), { status: "bad_request" });
+  // A share is kept for the chat's later turns, which name it as the Worker does (`world.mjs` `group.mail`).
+  assert.deepEqual(crew.mail(), []);
+  assert.deepEqual(crew.answer({ kind: "share_mail", address: "Maya@Example.com" }), { status: "done", address: "maya@example.com" });
+  assert.deepEqual(crew.mail(), [{ handle: "maya", address: "maya@example.com" }]);
+  crew.answer({ kind: "unshare_mail" });
+  assert.deepEqual(crew.mail(), []);
 });
 
 const CARD = { action: "draw_visual", args: { template: "places", data: { title: "Budget picks", items: [{ name: "The Eleanor", cuisine: "Bowling bar" }] } } };
