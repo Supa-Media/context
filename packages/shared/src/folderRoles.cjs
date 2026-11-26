@@ -114,7 +114,7 @@ const ROLE_PATTERN = /^(?:\d+-)?([a-z]+)$/i;
  * folder, the meetings folder, Tex's folder and the data folder, always under
  * these original names.
  */
-const ROW_ROLES = Object.freeze([...MAIN_ROLES, ...EXTRA_ROLES, "website", "meetings", "tex", "data"]);
+const ROW_ROLES = Object.freeze([...MAIN_ROLES, ...EXTRA_ROLES, "website", "meetings", "tex", "data", "bots"]);
 
 /** The website folder's name when nothing has moved it (`DEFAULT_WEBSITE_ROOT`). */
 const WEBSITE_FOLDER = "website";
@@ -136,6 +136,14 @@ const TEX_FOLDER = "tex";
 const DATA_FOLDER = "data";
 
 /**
+ * The bots folder's name when nothing has moved it: one folder per bot beside the
+ * Areas folder, its card `bots/<bot>/about.md` and its mail `bots/<bot>/mail/`
+ * (the owner, 2026-11-25: "top level bots yes"), made the first time a bot is
+ * added and drawn with its own icon like the other built-in folders (2026-11-26).
+ */
+const BOTS_FOLDER = "bots";
+
+/**
  * What a row's `role` holds once a person took a job away from it, or gave it
  * to another folder: a folder that does no job even though its name says one,
  * so a root `clients` the person said is not their Clients folder stays theirs
@@ -143,11 +151,12 @@ const DATA_FOLDER = "data";
  */
 const NO_JOB = "none";
 
-const JOB_LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings", tex: "Tex", data: "Data" });
+const JOB_LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings", tex: "Tex", data: "Data", bots: "Bots" });
 
 /** Where each job is drawn among its siblings when no `order` is set, in steps of ten. */
 /** Data draws between Areas and Resources, as the data sources boards draw it: the areas read their metrics from it. */
-const JOB_RANK = Object.freeze({ ...ROLE_RANK, website: 7, meetings: 7, tex: OWN_FOLDER_RANK, data: 2.5 });
+/** Bots draws right after Areas, whose work they hold. */
+const JOB_RANK = Object.freeze({ ...ROLE_RANK, website: 7, meetings: 7, tex: OWN_FOLDER_RANK, data: 2.5, bots: 2.2 });
 
 function isRowRole(value) {
   return typeof value === "string" && ROW_ROLES.includes(value);
@@ -155,12 +164,13 @@ function isRowRole(value) {
 
 /**
  * The job a top-level folder NAME plays: a built-in role (`folderRole`), or
- * `website`, `tex` and `data` for those folders' own names.
+ * `website`, `tex`, `data` and `bots` for those folders' own names.
  */
 function jobOfName(name) {
   if (name === WEBSITE_FOLDER) return "website";
   if (name === TEX_FOLDER) return "tex";
   if (name === DATA_FOLDER) return "data";
+  if (name === BOTS_FOLDER) return "bots";
   return folderRole(name);
 }
 
@@ -378,6 +388,7 @@ function folderJobs(rows) {
   if (jobs.website === null && unclaimedRoots.includes(WEBSITE_FOLDER)) jobs.website = WEBSITE_FOLDER;
   if (jobs.tex === null && unclaimedRoots.includes(TEX_FOLDER)) jobs.tex = TEX_FOLDER;
   if (jobs.data === null && unclaimedRoots.includes(DATA_FOLDER)) jobs.data = DATA_FOLDER;
+  if (jobs.bots === null && unclaimedRoots.includes(BOTS_FOLDER)) jobs.bots = BOTS_FOLDER;
   return { jobs, roots: sorted.filter((row) => row.top).map((row) => row.name) };
 }
 
@@ -466,6 +477,7 @@ module.exports = {
   WEBSITE_FOLDER,
   TEX_FOLDER,
   DATA_FOLDER,
+  BOTS_FOLDER,
   NO_JOB,
   JOB_LABEL,
   isRowRole,

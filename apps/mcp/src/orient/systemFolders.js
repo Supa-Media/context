@@ -19,6 +19,7 @@ const JOB_ORDER = Object.freeze([
   "inbox",
   "projects",
   "areas",
+  "bots",
   "data",
   "resources",
   "clients",
@@ -42,6 +43,8 @@ const JOB_LINE = Object.freeze({
     " modes (Visionary, Manager, Doer: labels, never rules), approvals (one rule an item) and one metric," +
     " metrics: [<metric name> · target <what good looks like>] with no commas inside, naming a metric note's metric: exactly;" +
     " a second number is a sub-area of its own. A bot is configured in its own folder in the bots folder beside this one, bots/<bot>/about.md (whose it is, how it is reached, where it works and its cap there), never a login; a person's card is in people/.",
+  bots:
+    "one folder per bot, bots/<bot>/: its card about.md (whose it is, how it is reached, where it works and its cap there, never a login) and its mail in mail/. A path written as bots/... lands here.",
   resources: "reference material worth finding again: how things work, decisions and why, notes on things read.",
   clients: "one folder per client: who they are, what they need, what was promised.",
   teams: "one folder per team or function: what it owns and how it runs.",
@@ -57,7 +60,7 @@ const JOB_LINE = Object.freeze({
 
 /**
  * Needed (the five main ones: renamed, moved and nested, never removed), made
- * when used (Tex, Website, Data, Meetings), or optional (owner, 2026-10-18).
+ * when used (Tex, Website, Data, Bots, Meetings), or optional (owner, 2026-10-18).
  */
 const importance = (job) => GROUP_LABEL[JOB_GROUP[job]].toLowerCase();
 
