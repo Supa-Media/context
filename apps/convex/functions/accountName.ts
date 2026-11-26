@@ -11,8 +11,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { internalMutation, internalQuery, query } from "../_generated/server";
-import { mutation } from "./lib/rowWatch/mutations";
+import { internalMutation, internalQuery, mutation, query } from "./lib/rowWatch/mutations";
 import type { Id } from "../_generated/dataModel";
 import { getAuthUserId, requireAuthId } from "./lib/signedIn";
 import { resolveLiveGrant } from "./lib/controlPlane/liveGrants";
