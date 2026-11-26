@@ -38,7 +38,7 @@ import { SheetHead } from "./SheetHead";
 import { SyncedBanner } from "./SyncedBanner";
 import { SheetSourcesButton } from "./SheetSources";
 import { measureNode, type Anchor } from "./Popover";
-import { SheetGrid, type GridEditing, type RowMark } from "./SheetGrid";
+import { GRID_CHROME_HEIGHT, SheetGrid, type GridEditing, type RowMark } from "./SheetGrid";
 import { RowMenu } from "./RowMenu";
 import { useSheetHistory } from "./useSheetHistory";
 import { isApplePlatform } from "../../../design/applePlatform";
@@ -85,6 +85,7 @@ export type SheetViewProps = {
   compact?: boolean; // a phone, whose page already shows the name as its title
   onChangeText: (next: string) => void; // called with the whole new file text after every committed change
   keptBy?: { name: string; onOpenSource?: () => void }; // a source that syncs this sheet: read-only, under its lock line
+  fill?: boolean; // the sheet is the pane: the grid runs to its bottom and scrolls its rows inside (a pointer layout, not a phone's scrolling page)
 };
 
 type Menu =
@@ -95,9 +96,13 @@ type Menu =
 
 /** A double press on one cell this close together starts an edit, as a double-click does. */
 const DOUBLE_PRESS_MS = 400;
+/** "+ New row" under the grid: its 32pt line and the space above it. */
+const NEW_ROW_SPACE = 32 + space.x1;
+/** Room for a horizontal scrollbar where the platform draws one under the rows rather than over them (Windows, Linux: up to 17). */
+const SCROLLBAR_SLACK = 17;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
 
-export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText, keptBy }: SheetViewProps): JSX.Element {
+export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText, keptBy, fill = false }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
   const parsed = useMemo(() => parseSheet(text), [text]);
@@ -128,6 +133,9 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   // A row drawn apart: its menu is open, or it waits for a second Cmd/Ctrl+Backspace.
   const [rowMark, setRowMark] = useState<RowMark | null>(null);
   const [editedOnce, setEditedOnce] = useState(false);
+  // The height the pane leaves the grid when the sheet fills it. Measured off a flex slot whose size the
+  // grid never sets (flex basis 0, no min height), so the rows' height cannot feed back into it.
+  const [slotHeight, setSlotHeight] = useState<number | null>(null);
   const { commit, undo } = useSheetHistory(path, text, onChangeText);
   useEffect(() => {
     setSelection(null);
@@ -452,7 +460,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const hidden = view.hidden.filter((name) => sheet.columns.some((c) => c.name === name));
 
   return (
-    <View style={styles.root} testID="sheet-view">
+    <View style={[styles.root, fill && styles.rootFill]} testID="sheet-view">
       <View style={styles.headRow}>
         <SheetHead path={path} visibility={visibility} compact={compact} />
         {readOnly ? null : <SheetSourcesButton path={path} columns={sheet.columns.map((column) => column.name)} />}
@@ -516,6 +524,11 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
           </Pressable>
         </View>
       )}
+      <View
+        style={fill ? styles.slot : undefined}
+        onLayout={fill ? (event) => setSlotHeight(event.nativeEvent.layout.height) : undefined}
+        testID="sheet-grid-slot"
+      >
       <View ref={gridRef} style={styles.gridBox} focusable={Platform.OS === "web"} testID="sheet-grid-box">
         <SheetGrid
           sheet={sheet}
@@ -546,6 +559,9 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
                   setMenu({ kind: "row", row, anchor });
                 }
           }
+          {...(fill && slotHeight !== null
+            ? { maxBodyHeight: slotHeight - GRID_CHROME_HEIGHT - (readOnly ? 0 : NEW_ROW_SPACE) - SCROLLBAR_SLACK }
+            : {})}
         />
       </View>
       {readOnly ? null : (
@@ -555,6 +571,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
           </Text>
         </Pressable>
       )}
+      </View>
       {menu === null ? null : menu.kind === "column" ? (
         openColumnObject === undefined ? null : (
           <ColumnMenu
@@ -622,6 +639,9 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     root: { gap: space.x1 },
+    rootFill: { flex: 1, minHeight: 0 },
+    // Takes whatever height is left under the head; the grid's rows are capped to it and scroll inside.
+    slot: { flex: 1, minHeight: 0 },
     headRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: space.x2 },
     problems: { padding: space.x2, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line, gap: 2 },
     problemLine: { color: colors.chromeMuted },

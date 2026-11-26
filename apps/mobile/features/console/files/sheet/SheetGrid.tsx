@@ -35,7 +35,12 @@ export const COLUMN_WIDTH = 168;
 const NARROW_COLUMN_WIDTH = 128;
 const GUTTER_WIDTH = 44;
 const ADD_WIDTH = 44;
+/** The body's height where nothing gives it more room: a phone, whose page scrolls, and a test. */
 const MAX_BODY_HEIGHT = 480;
+/** What the grid draws around its rows: the header and footer bands (32 each) and the frame's two borders. */
+export const GRID_CHROME_HEIGHT = 66;
+/** The fewest rows a grid squeezed by a short window still shows. */
+const MIN_BODY_ROWS = 3;
 
 export interface GridEditing {
   row: number;
@@ -68,6 +73,7 @@ export function SheetGrid({
   editorKeys,
   rowMark = null,
   onOpenRow,
+  maxBodyHeight,
 }: {
   sheet: SheetData;
   /** The columns that show, in order (hidden ones are left out). */
@@ -92,6 +98,12 @@ export function SheetGrid({
   rowMark?: RowMark | null;
   /** Open a row's menu from its number. Left out on a read-only sheet. */
   onOpenRow?: (row: number, anchor: Anchor | null) => void;
+  /**
+   * The most the rows may take, when the sheet fills the pane: the room the
+   * pane has left under the head, less the grid's own bands. Absent, the body
+   * stops at MAX_BODY_HEIGHT, which is what a page that scrolls wants.
+   */
+  maxBodyHeight?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -125,7 +137,8 @@ export function SheetGrid({
   const colWidth = columns.length === 0 ? minWidth : Math.max(minWidth, Math.floor((frameWidth - chrome) / columns.length));
   const width = { width: colWidth };
   const bodyWidth = GUTTER_WIDTH + columns.length * colWidth + (readOnly ? 0 : ADD_WIDTH);
-  const bodyHeight = Math.min(MAX_BODY_HEIGHT, Math.max(1, order.length) * ROW_HEIGHT);
+  const bodyCap = maxBodyHeight === undefined ? MAX_BODY_HEIGHT : Math.max(MIN_BODY_ROWS * ROW_HEIGHT, maxBodyHeight);
+  const bodyHeight = Math.min(bodyCap, Math.max(1, order.length) * ROW_HEIGHT);
   const shownCount = order.length;
 
   const renderRow = ({ item: row, index }: ListRenderItemInfo<number>) => {
