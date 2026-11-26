@@ -65,7 +65,7 @@ export const TAPBACK_DEFINITION = {
       emoji: { type: "string", description: `The one emoji, from these only: ${[...EMOJI].join(" ")}` },
       sticker: {
         type: "string",
-        description: "Optional: a sticker someone used in this chat (stuck on a text or sent), by its id (\"sticker s1a2b3c\" is s1a2b3c), stuck on their text instead of the emoji; the emoji goes if it can't.",
+        description: "Optional: a sticker someone used in this chat (stuck on a text or sent), by its id (\"sticker s1a2b3c\" is s1a2b3c), sent after their text as a picture of its own instead of the emoji; the emoji goes if it can't.",
       },
       why: { type: "string", description: "In a few words, why a tapback answers them. Kept in the history, never sent." },
     },
