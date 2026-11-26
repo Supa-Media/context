@@ -34,7 +34,9 @@ Hardened on 2026-11-26 as `everyday.md` says (`person_brief: lines`; names, numb
 - must write: supper-club/lists/groceries.md
 - must write: supper-club/lists/groceries.md containing dish soap
 - must write: supper-club/lists/groceries.md containing paper towel
-- must not: remove olive oil, rice or lemons from the list
+- must file: supper-club/lists/groceries.md under supper-club/lists/groceries.md containing olive oil
+- must file: supper-club/lists/groceries.md under supper-club/lists/groceries.md containing rice
+- must file: supper-club/lists/groceries.md under supper-club/lists/groceries.md containing lemon
 
 ## 2. What did we decide about the budget
 
