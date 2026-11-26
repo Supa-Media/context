@@ -211,11 +211,14 @@ export const CAPABILITIES = Object.freeze([
   {
     name: "Sending email",
     actions: ["send.email"],
-    texts: "draft one email from their connected Gmail and call send action email: a new one, a reply inside its thread (in_reply_to), a forward of one of their emails with its attachments (forward), or one with up to 5 files a site gave you (attach, 10 MB in all); it never sends on its own: they see the exact email and their 👍 sends it",
+    texts: "draft one email from their connected Gmail and call send action email: a new one, a reply inside its thread (in_reply_to), a forward of one of their emails with its attachments (forward), or one with up to 5 files a site gave you (attach, 10 MB in all); from the mailbox or any of its Gmail Send mail as addresses listed beside it (from), a reply too; it never sends on its own: they see the exact email and their 👍 sends it",
     group: "one email from someone here's own Gmail: pass as with their handle when it isn't whoever tagged you. Anyone here may ask for it and ask for changes; only that person's 👍 or yes sends it, and anyone else's yes does nothing",
     guest: "only from the account of someone here who is on Context, always with as, even when they are the one asking; the same 👍 rule",
     who: "Anyone can ask for a draft and refine it; only the mailbox's own person sends it",
-    cant: [{ where: "everywhere", what: "read or send Outlook, Microsoft 365, iCloud or other mail that isn't Gmail", workaround: { kind: "link", text: "browse to that web mail and do the step there, signing in with a saved login" } }],
+    cant: [
+      { where: "everywhere", what: "read or send Outlook, Microsoft 365, iCloud or other mail that isn't Gmail", workaround: { kind: "link", text: "browse to that web mail and do the step there, signing in with a saved login" } },
+      { where: "everywhere", what: "add or remove a Gmail \"Send mail as\" address", workaround: { kind: "link", text: "https://mail.google.com/mail/u/0/#settings/accounts, \"Send mail as\" → Add another email address; Tex sends from it once Gmail shows it verified" } },
+    ],
   },
   {
     name: "Reading email",

@@ -33,7 +33,7 @@ export type ControlAnswer =
       guests?: { phone: string; label: string }[];
       /** Mailboxes shared with this chat (`chat-mail.md`): the turn is told whose and which. */
       /** `askerSends`: the turn's asker has this mailbox connected themselves, so it can go from them (`lib/textGroupMail.ts`). */
-      mail?: { handle: string; address: string; askerSends?: true }[];
+      mail?: { handle: string; address: string; askerSends?: true; sendsAs?: string[] }[];
       /** Calendars shared with this chat: the turn is told whose and which. */
       calendar?: { handle: string; address: string }[];
       /** Whether this chat is shared with the developers who build Tex, by handle (`lib/texLabShared.ts` `devShareOf`). */
@@ -45,6 +45,11 @@ export type ControlAnswer =
 
 const LABEL = /^guest-[0-9a-f]{4}$/;
 const MAIL_ADDRESS = /^[^\s@/]{1,64}@[^\s@/]{1,190}$/;
+/** A shared mailbox's "Send mail as" addresses, as the control plane named them (`lib/textGroupMail.ts`); none is `{}`. */
+function sendsAsOf(value: unknown): { sendsAs?: string[] } {
+  const aliases = Array.isArray(value) ? value.filter((alias): alias is string => typeof alias === "string" && MAIL_ADDRESS.test(alias)).slice(0, 30) : [];
+  return aliases.length > 0 ? { sendsAs: aliases } : {};
+}
 
 /** Who keeps the chat from a workspace, as the control plane named them: a handle or a guest's label, never a number. */
 export function blockedOf(value: unknown): { blocked?: { slug: string; who: string; why: "not_member" | "no_account" }[] } {
@@ -142,7 +147,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         ),
         mail: (Array.isArray(body.mail) ? body.mail : []).slice(0, 10).map(record).flatMap((entry) =>
           slug(entry.handle) && typeof entry.address === "string" && MAIL_ADDRESS.test(entry.address)
-            ? [{ handle: entry.handle as string, address: entry.address, ...(entry.askerSends === true ? { askerSends: true as const } : {}) }]
+            ? [{ handle: entry.handle as string, address: entry.address, ...(entry.askerSends === true ? { askerSends: true as const } : {}), ...sendsAsOf(entry.sendsAs) }]
             : [],
         ),
         calendar: (Array.isArray(body.calendar) ? body.calendar : []).slice(0, 10).map(record).flatMap((entry) =>

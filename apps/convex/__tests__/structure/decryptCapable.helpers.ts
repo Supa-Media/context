@@ -414,6 +414,11 @@ export const DECRYPT_CAPABLE_FUNCTIONS: readonly string[] = [
       "functions.googleConnect.revokeGoogleGrant",
       "functions.googleClients.exchangeAndBindAgent", // agent grant (googleClients.ts), on the schedule edge
       "functions.googleClients.revokeAgentGrant",
+      // Gmail's "Send mail as" list (`gmailSendAs.ts`): mints the agent grant's access token inside the action, reads
+      // one settings GET, and returns only a boolean; no token or credential flows back to a caller.
+      "functions.gmailSendAs.addressOf",
+      "functions.gmailSendAs.refreshDue",
+      "functions.gmailSendAs.refreshOne",
       // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt `googleConnect.ts`'s `exchangeAndBind`
       // needs, on its own sibling file. Disconnect and access-token minting are reused verbatim from
       // `googleConnect.ts` (they are already product-agnostic), so Chat adds exactly one barrier function, not three.

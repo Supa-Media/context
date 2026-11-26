@@ -119,6 +119,17 @@ export const googleTables = {
      */
     scopes: v.array(v.string()),
     /**
+     * The Gmail's accepted "Send mail as" addresses besides its own, read from
+     * Gmail's settings (`lib/gmailSendAs.ts`), and when. Addresses and Gmail's
+     * display name only, never mail. Absent until first read.
+     */
+    gmailSendAs: v.optional(
+      v.object({
+        aliases: v.array(v.object({ address: v.string(), name: v.optional(v.string()) })),
+        checkedAt: v.number(),
+      }),
+    ),
+    /**
      * Whose Google account this is. Not a secret — it is what lets the console
      * show which account is connected and notice a reconnect landing on a
      * *different* account, the same role a provider account id plays.

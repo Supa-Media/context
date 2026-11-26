@@ -5,6 +5,7 @@
  * as the stub's flags say: `emailSender` is the address that may send (null
  * for none, which is every real connection until Google adds `gmail.send`),
  * and `emailRefusal` answers every send and check with that word instead.
+ * `emailSendAs` maps a send-as address to the mailbox it is accepted on.
  * `emailSenders`, two or more addresses, makes a send that names none answer
  * `choose_sender` with them, as the real route does.
  * `/gateway/email/draft` answers the same way off `emailDrafter`, the address
@@ -27,6 +28,12 @@ export function createEmailRoute(clearedOwnAccount, flags, clearedEditor = clear
     } else if (!draft && Array.isArray(flags.emailSenders) && flags.emailSenders.length > 1) {
       answer = flags.emailSenders.includes(body.email.from) ? { ok: true, from: body.email.from } : { ok: false, refused: "no_sender" };
     } else if (!sender) answer = { ok: false, refused: "no_sender" };
+    // One of the sender's "Send mail as" addresses (`emailSendAs`: alias → its mailbox), as the real route checks
+    // (`lib/gmailSendAs.ts`): it goes through that mailbox, and a reply's mailbox must be the alias's own.
+    else if (body.email?.from && flags.emailSendAs?.[body.email.from] !== undefined) {
+      const through = flags.emailSendAs[body.email.from];
+      answer = through === sender && (body.email.mailbox === undefined || body.email.mailbox === through) ? { ok: true, from: body.email.from, mailbox: through } : { ok: false, refused: "not_their_address" };
+    }
     // Only a mailbox the person connected sends, as the real route checks.
     else if (body.email?.from && body.email.from !== sender) answer = { ok: false, refused: "no_sender" };
     else answer = { ok: true, from: sender };

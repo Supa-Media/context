@@ -48,6 +48,11 @@ const ADDRESS = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9
 export interface PersonEmail {
   /** Which of the person's connected Gmail addresses sends it; absent means their first one that can. */
   from: string | null;
+  /**
+   * The connected mailbox holding the message a reply or forward names, when `from` is one of its "Send mail as"
+   * addresses rather than the mailbox itself (`lib/gmailSendAs.ts`); null otherwise.
+   */
+  mailbox: string | null;
   to: string[];
   cc: string[];
   subject: string;
@@ -146,6 +151,8 @@ export function readPersonEmail(value: unknown): PersonEmail | null {
   const raw = value as Record<string, unknown>;
   const from = raw.from === undefined ? [] : addresses(raw.from);
   if (from === null || from.length > 1) return null;
+  const mailbox = raw.mailbox === undefined ? [] : addresses(raw.mailbox);
+  if (mailbox === null || mailbox.length > 1) return null;
   const to = addresses(raw.to);
   const cc = addresses(raw.cc);
   if (to === null || cc === null || to.length === 0) return null;
@@ -165,7 +172,10 @@ export function readPersonEmail(value: unknown): PersonEmail | null {
   if (forward !== null && (from.length === 0 || replyTo !== null)) return null;
   const files = filesOf(raw.files);
   if (files === null) return null;
-  return { from: from[0] ?? null, to, cc, subject, body, replyTo, forward, files };
+  // A mailbox is named only beside the send-as From of a reply or forward that is in it.
+  if (mailbox.length === 1 && (replyTo === null && forward === null)) return null;
+  if (mailbox.length === 1 && mailbox[0] === from[0]) return null;
+  return { from: from[0] ?? null, mailbox: mailbox[0] ?? null, to, cc, subject, body, replyTo, forward, files };
 }
 
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -240,6 +250,16 @@ function base64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+/**
+ * The From header's value: the address alone, or with the display name Gmail keeps for a send-as address
+ * (`lib/gmailSendAs.ts` strips quotes, backslashes, angle brackets and control characters from it).
+ */
+export function fromHeader(address: string, name?: string): string {
+  if (name === undefined || name.trim() === "") return address;
+  const shown = /^[\x20-\x7e]*$/.test(name) ? `"${name}"` : headerText(name);
+  return `${shown} <${address}>`;
 }
 
 /**

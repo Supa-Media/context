@@ -145,7 +145,7 @@ export const groupAnswerValidator = v.union(
     instructions: v.optional(v.string()),
     updates: v.optional(texUpdatesValidator),
     /** Mailboxes shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupMail.ts`). */
-    mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string(), askerSends: v.optional(v.literal(true)) }))),
+    mail: v.optional(v.array(v.object({ handle: v.string(), address: v.string(), askerSends: v.optional(v.literal(true)), sendsAs: v.optional(v.array(v.string())) }))),
     /** Calendars shared with this chat, by whose and which address, for the turn to be told (`lib/textGroupCalendar.ts`). */
     calendar: v.optional(v.array(v.object({ handle: v.string(), address: v.string() }))),
     /** Whether this chat is shared with the developers who build Tex, who said yes and who hasn't (`lib/texLabShared.ts`). */
