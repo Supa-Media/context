@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { drainGroup, type GroupDeps } from "./groupInbox";
+import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
+import { setChatBound } from "./groupChat";
+import type { GroupMessage } from "./sendblueGroups";
 import { acceptJoined, INTRO_KEY, JOINED_PATH, joinedOf, joinedWired, type Joined } from "./groupJoined";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -13,6 +15,10 @@ import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
  *  - `acceptJoined` without the `joinedWired` check: "a config with node `joined` off queues nothing";
  *  - `acceptJoined` without the `INTRO_KEY` check: "a group hears its hello once";
  *  - `photonGroupChange` marking every `participantAdded` as Tex's: "only Tex's own number added is a join".
+ * Sabotage record (2026-11-26):
+ *  - `acceptGroup` without its `bindAtJoin` call: "a link shared right after Tex is added is kept";
+ *  - `bindAtJoin` without its JOIN_BOUND_KEY check: "a chat a turn unbound is not bound again by its next line";
+ *  - `answerGroup` without the hello's unbind: "added by someone not on Context, the chat keeps nothing after its hello".
  */
 
 const LINE = "+15555550199";
@@ -27,7 +33,7 @@ const OFF = { ...TEX_CONFIG, nodes: TEX_CONFIG.nodes.map((node) => (node.id === 
 
 type World = { sends: Record<string, unknown>[]; control: Record<string, unknown>[]; asks: Record<string, unknown>[] };
 
-function deps(world: World): GroupDeps {
+function deps(world: World, status = "ready"): GroupDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
     if (path.startsWith("/api/v2/groups/")) return Response.json({ data: { group_id: GROUP, participants: [ADA, BO].map((number) => ({ number })) } });
@@ -38,7 +44,7 @@ function deps(world: World): GroupDeps {
     }
     if (path === "/agent-texts/group") {
       world.control.push(body);
-      return Response.json({ status: "ready", slug: "crystal-care", intro: true, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" });
+      return Response.json({ status, slug: "crystal-care", intro: true, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" });
     }
     if (path === "/agent") {
       world.asks.push(body);
@@ -88,5 +94,58 @@ describe("Tex's hello when it is added to a group", () => {
     expect(photonGroupChange(changed(BO, ADA))).not.toHaveProperty("texAdded");
     expect(photonGroupChange(changed(LINE))).not.toHaveProperty("texAdded");
     expect(photonGroupChange(changed(LINE, ADA, "participantRemoved"))).not.toHaveProperty("texAdded");
+  });
+});
+
+/** A line of the chat, from Ada, with its people, as the line's webhook brings one. */
+function line(text: string, eventId: string, extra: Partial<GroupMessage> = {}): GroupMessage {
+  return { kind: "group-message", eventId, groupId: GROUP, line: LINE, from: ADA, participants: [LINE, ADA, BO], messageId: eventId, text, ...extra } as GroupMessage;
+}
+
+describe("a group Tex was added to keeps what is said from then on", () => {
+  // Dev2, 2026-11-26: "Tex should be able to read from the point when it gets added". The link shared right before
+  // "Tex, summarize the action items for them" was dropped unread, and Tex guessed another meeting.
+  const LINK = "https://context.lc/note/@ada/inbox/meetings/standup.md";
+
+  it("a link shared right after Tex is added is kept, not judged alone and dropped", async () => {
+    const storage = new MemoryStorage();
+    expect(await acceptJoined(storage, JOINED, 1_000, WIRED)).toBe("queued");
+    expect(await acceptGroup(storage, line(LINK, "e1"), 1_100)).toBe("kept");
+  });
+
+  it("a chat Tex was never added to still keeps nothing untagged", async () => {
+    const storage = new MemoryStorage();
+    expect(await acceptGroup(storage, line("lunch at noon?", "e1"), 1_100)).toBe("ignored");
+  });
+
+  it("an SMS never binds a chat, even right after the hello", async () => {
+    const storage = new MemoryStorage();
+    await acceptJoined(storage, JOINED, 1_000, WIRED);
+    expect(await acceptGroup(storage, line("lunch at noon?", "e1", { sms: true }), 1_100)).toBe("ignored");
+  });
+
+  it("a chat a turn unbound is not bound again by its next line", async () => {
+    const storage = new MemoryStorage();
+    await acceptJoined(storage, JOINED, 1_000, WIRED);
+    expect(await acceptGroup(storage, line("lunch at noon?", "e1"), 1_100)).toBe("kept");
+    await setChatBound(storage, null); // a turn found nobody there shares a workspace
+    expect(await acceptGroup(storage, line("still on?", "e2"), 1_200)).toBe("ignored");
+  });
+
+  it("a muted chat stays muted", async () => {
+    const storage = new MemoryStorage();
+    await acceptJoined(storage, JOINED, 1_000, WIRED);
+    await setChatBound(storage, null, true);
+    expect(await acceptGroup(storage, line("lunch at noon?", "e1"), 1_100)).toBe("ignored");
+  });
+
+  it("added by someone not on Context, the chat keeps nothing after its hello", async () => {
+    const w: World = { sends: [], control: [], asks: [] };
+    const storage = new MemoryStorage();
+    await acceptJoined(storage, JOINED, 1_000, WIRED);
+    expect(await acceptGroup(storage, line("lunch at noon?", "e1"), 1_100)).toBe("kept");
+    await drainGroup(storage, deps(w, "unknown_sender"));
+    expect(w.asks).toHaveLength(0);
+    expect(await acceptGroup(storage, line("still on?", "e2"), 1_200)).toBe("ignored");
   });
 });

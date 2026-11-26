@@ -23,7 +23,14 @@ own 1:1 with me."
 - **Config, not code.** Nothing is queued, and the gateway says nothing, unless the config (or a Lab draft) has node
   `joined`, on. The node was merged on the shelf and wired through a Lab draft; a Lab group test chat's **Tex added**
   (`test_chat added`) tries it.
+- **It keeps what is said from then on** (Dev2, 2026-11-26: "Tex should be able to read from the point when it gets
+  added"). Before, a group kept nothing until somebody's tagged turn bound it, so a link shared right before "Tex,
+  summarize the action items for them" was judged alone, not answered and dropped, and Tex guessed another meeting.
+  Now the first line after the hello was queued binds the chat (`groupChat.ts` `bindAtJoin`, called by `acceptGroup`):
+  once (`gjoinbound`), never from an SMS, and never a chat already bound, muted, or unbound since by a turn that found
+  nobody there shares a workspace.
 
 What a "simplification" would cost: queuing it without `gintro` says hello on every member change; letting the Worker
 send words makes the hello a body the model treats as someone's text. `packages/tex/worker/groupJoined.test.ts` and
-`apps/mcp/test/texJoined.test.mjs` fail if either is reversed.
+`apps/mcp/test/texJoined.test.mjs` fail if either is reversed; binding again after a turn unbound the chat would
+keep lines in a chat whose people share nothing, and the same Worker test fails.
