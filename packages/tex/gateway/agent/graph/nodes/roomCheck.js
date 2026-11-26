@@ -12,7 +12,10 @@
  * The first hold a turn sends the asker is recorded in the control plane with who is in the chat, so their yes in their
  * own chat opens it here for those people (`heldShare.js`).
  *
- * Input `{ at: "draft" | "answer", draftChars }`. Output `{ to: "pass" | "hold" | "skipped", read?, chars?, pointed?, carried?,
+ * Wired as `fd -> roomCheck`, it reads each progress line before it goes (`progress.js` `holdWith`): a line that carries
+ * it is not sent, and the front door reads the facts as the tool's answer.
+ *
+ * Input `{ at: "draft" | "answer" | "progress", draftChars }`. Output `{ to: "pass" | "hold" | "skipped", read?, chars?, pointed?, carried?,
  * from?, shared?, sent?, recorded? }` (a pass says how it measured, `roomTally`):
  * counts only, never the words.
  */
@@ -23,7 +26,7 @@ export async function roomCheckNode(input, io) {
   const t = io?.ctx?.turn ?? null;
   const reads = t?.roomReads ?? null;
   if (t === null || reads === null || t.group === null || t.group === undefined || t.job) return { to: "skipped" };
-  const draft = input?.at === "answer" ? t.turn?.answer : t.drafts?.waiting?.draft;
+  const draft = input?.at === "answer" ? t.turn?.answer : input?.at === "progress" ? t.roomProgress : t.drafts?.waiting?.draft;
   const seen = { draft, reads, group: t.group, question: t.question, history: t.history };
   const verdict = roomVerdict(seen);
   if (verdict === null) return { to: "pass", read: reads.slugs().length, ...roomTally(seen) };

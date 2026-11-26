@@ -150,6 +150,7 @@ export const PLAN_ONLY_NOTICE = "Not sent: this chat gets one plan line per turn
  */
 export function progressChannel(send, { planOnly = false, level = planOnly ? "planOnly" : "normal", job = false } = {}) {
   let said = 0;
+  let hold = null;
   const lines = [];
   const plan = level === "planOnly";
   return {
@@ -169,6 +170,13 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       await send(line.length > MAX_GATEWAY_CHARS ? line.slice(0, MAX_GATEWAY_CHARS) : line);
       return true;
     },
+    /**
+     * `(text) => facts | null`, asked about each line before it goes: facts hold it, and the model reads them as the
+     * tool's answer. The Room check's (`graph/nodes/roomCheck.js`), so a group's line never carries what the room can't open.
+     */
+    holdWith(check) {
+      hold = typeof check === "function" ? check : null;
+    },
     // No reviewer reads a progress line (Dev2, 2026-11-11, one-judge PR 3): the code checks above do.
     async call(args) {
       const text = typeof args?.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";
@@ -176,6 +184,8 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       if (lines.includes(text)) return result("Not sent: you already sent that line in this turn. Keep working.");
       if (claimsDone(text)) return result(DONE_NOTICE, true);
       if (plan && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
+      const held = hold === null ? null : await Promise.resolve(hold(text)).catch(() => null);
+      if (typeof held === "string" && held !== "") return result(held, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
       // A job's line is texted only when it holds a link (`packages/tex/worker/jobRun.ts` `HAS_LINK`); the rest update its
