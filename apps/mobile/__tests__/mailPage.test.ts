@@ -50,7 +50,7 @@ jest.mock("../features/console/files/useWriteNote", () => ({
 
 import { routeMap } from "../features/console/map/live/route";
 import { routeTrash } from "../features/console/trash/TrashRouteContext";
-import { mailFromQuery, mailTabLabel, routeMail, type MailRoute } from "../features/console/mailPage/MailRouteContext";
+import { mailFromQuery, mailTabLabel, routeMail, wantThread, type MailRoute } from "../features/console/mailPage/MailRouteContext";
 import { avatarOf, botCardOf, conversationsOf, groupsFor, messageLines, placeOf, SINCE, type MailNoteRow } from "../features/console/mailPage/model";
 import { withMail } from "../features/console/mailPage/MailThread";
 import { consoleCreateButton } from "../features/console/layout/createButton";
@@ -164,7 +164,7 @@ describe("the thread reads Slack style", () => {
   });
 
   test("while Agent Mail is open the active tab says so; closed, the title being typed shows as before", () => {
-    const open: MailRoute = { open: true, workspaceId: "ws", openMail: () => {}, closeMail: () => {}, toggle: () => {} };
+    const open: MailRoute = { open: true, workspaceId: "ws", openMail: () => {}, openThread: () => {}, closeMail: () => {}, toggle: () => {} };
     const edit = { path: "notes/a.md", label: "A" };
     expect(mailTabLabel(open, "bots/grok-bot/mail/seyi.md", edit)).toEqual({ path: "bots/grok-bot/mail/seyi.md", label: "Agent Mail" });
     expect(mailTabLabel({ ...open, open: false }, "notes/a.md", edit)).toBe(edit);
@@ -191,7 +191,7 @@ describe("the page", () => {
       act(() => root.unmount());
       container.remove();
     });
-    const route: MailRoute = { open: true, workspaceId: "ws-test", me: "@seyi", openMail: () => {}, closeMail: () => {}, toggle: () => {} };
+    const route: MailRoute = { open: true, workspaceId: "ws-test", me: "@seyi", openMail: () => {}, openThread: () => {}, closeMail: () => {}, toggle: () => {} };
     const opened: string[] = [];
     await act(async () => {
       root.render(createElement(MailPage, { route, compact, onOpen: (path: string) => void opened.push(path), onClose: () => {} }));
@@ -205,7 +205,7 @@ describe("the page", () => {
     await mountPage(false);
     expect(all("mail-row-areas/growth/mail/seyi.md")).toHaveLength(1);
     expect(all("mail-row-products/search/speed-plan.md")).toHaveLength(1);
-    expect(strip(one("mail-thread").textContent)).toContain("You ↔ Growth");
+    expect(strip(one("mail-thread").textContent)).toContain("Growth");
     await press(one("mail-view-notes"));
     expect(all("mail-row-areas/growth/mail/seyi.md")).toHaveLength(0);
     expect(all("mail-row-products/search/speed-plan.md")).toHaveLength(1);
@@ -234,6 +234,25 @@ describe("the page", () => {
     expect(mockWrites[0]!.path).toBe("areas/finance/mail/seyi.md");
     expect(mockWrites[0]!.expectedEtag).toMatch(/^etag-/);
     expect(mockWrites[0]!.text).toMatch(/@seyi to everyone: Thanks!\n```/);
+  });
+
+  test("a conversation asked for from a bot's panel opens in Agent Mail, before or after the page is up", async () => {
+    // Dev2, 2026-11-26: "clicking open your mail doesnt open up in the actual mail page, it opens up the note".
+    windowOf(390);
+    wantThread("bots/grok-bot/mail/seyi.md");
+    await mountPage(true);
+    expect(all("mail-list")).toHaveLength(0);
+    expect(strip(one("mail-thread").textContent)).toContain("Grok Bot");
+    await act(async () => wantThread("areas/finance/mail/seyi.md"));
+    for (let i = 0; i < 3; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
+    expect(strip(one("mail-thread").textContent)).toContain("$512 so far.");
+  });
+
+  test("a wide page has one header row: the list's head and the thread's, with Close in the thread's", async () => {
+    windowOf(1440);
+    await mountPage(false);
+    expect(all("mail-close")).toHaveLength(1);
+    expect(one("mail-thread").contains(one("mail-close"))).toBe(true);
   });
 
   test("on a phone the list is the page, and a conversation takes the whole screen with a way back", async () => {

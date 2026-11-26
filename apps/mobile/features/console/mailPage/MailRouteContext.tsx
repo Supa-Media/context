@@ -23,6 +23,8 @@ export interface MailRoute {
   /** The reader's own `@handle`, whose own messages are never new to them; absent until it is known. */
   me?: string;
   openMail(): void;
+  /** Open Agent Mail on one conversation, the note at `path` (a bot panel's "Open your mail with …"). */
+  openThread(path: string): void;
   closeMail(): void;
   /** The rail's button: open when closed, closed when open. */
   toggle(): void;
@@ -43,8 +45,40 @@ export function routeMail(
     workspaceId,
     ...(me === undefined ? {} : { me }),
     openMail,
+    openThread: (path: string) => {
+      wantThread(path);
+      openMail();
+    },
     closeMail,
     toggle: () => (open ? closeMail() : openMail()),
+  };
+}
+
+/*
+  Which conversation Agent Mail should show when it next draws, asked for from outside the page (Dev2, 2026-11-26:
+  "clicking open your mail doesnt open up in the actual mail page, it opens up the note"). Held here rather than in the
+  URL: the page is already one query parameter, and a path is a conversation's name, not an address to share.
+*/
+let wanted: string | null = null;
+const wanting = new Set<(path: string) => void>();
+
+/** Ask Agent Mail for the conversation at `path`: a page already open switches to it, a page opening starts on it. */
+export function wantThread(path: string): void {
+  wanted = path;
+  for (const listener of wanting) listener(path);
+}
+
+/** The page takes the asked-for conversation once, and hears later asks while it is open. */
+export function takeWantedThread(): string | null {
+  const path = wanted;
+  wanted = null;
+  return path;
+}
+
+export function onWantedThread(listener: (path: string) => void): () => void {
+  wanting.add(listener);
+  return () => {
+    wanting.delete(listener);
   };
 }
 

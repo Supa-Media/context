@@ -46,7 +46,7 @@ export function MailPageFixture() {
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const [open, setOpen] = useState(true);
   const route = useMemo<MailRoute>(
-    () => ({ open, workspaceId: "ws-fixture", me: "@seyi", openMail: () => setOpen(true), closeMail: () => setOpen(false), toggle: () => setOpen((was) => !was) }),
+    () => ({ open, workspaceId: "ws-fixture", me: "@seyi", openMail: () => setOpen(true), openThread: () => setOpen(true), closeMail: () => setOpen(false), toggle: () => setOpen((was) => !was) }),
     [open],
   );
   const fixture = useMemo(

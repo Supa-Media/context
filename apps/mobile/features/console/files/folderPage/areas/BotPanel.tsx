@@ -19,6 +19,7 @@ import { useFieldFont } from "../../../../design/fieldFont";
 import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { agoLabel } from "../../mail/model";
+import { useMailRoute } from "../../../mailPage/MailRouteContext";
 import type { ListNote } from "../../listBlock/model";
 import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
@@ -62,6 +63,9 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
   const hasMine = mine !== null && (notes.some((note) => note.path === mine) || sent === mine);
   const canWrite = canEdit && create !== undefined && me !== undefined && mine !== null;
   const editsCaps = canEdit && bot.mine;
+  // A conversation opens in Agent Mail where the console has it, else as its note (Dev2, 2026-11-26).
+  const mailRoute = useMailRoute();
+  const openMail = (path: string) => (mailRoute === undefined ? open(path) : mailRoute.openThread(path));
 
   // What the bot itself said, newest first: its activity through Context.
   const activity = mail
@@ -71,7 +75,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
 
   const send = async (text: string) => {
     if (!canWrite || mine === null || me === undefined || create === undefined) return;
-    if (hasMine) return open(mine);
+    if (hasMine) return openMail(mine);
     const note = firstMailNote(bot.name, me, text);
     if ("error" in note) return setProblem(note.error);
     try {
@@ -135,7 +139,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
             <Text variant="treeMeta" style={styles.muted}>Nothing yet. What it writes in Context mail shows here.</Text>
           ) : (
             activity.map(({ each, last }) => (
-              <Pressable key={each.path} onPress={() => open(each.path)} style={styles.line}>
+              <Pressable key={each.path} onPress={() => openMail(each.path)} style={styles.line}>
                 <Text variant="treeMeta" style={styles.when}>
                   {last ? agoLabel(last.at) : ""}
                 </Text>
@@ -196,7 +200,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
             mail.map((each) => {
               const last = threads.get(each.path)?.last;
               return (
-                <Pressable key={each.path} onPress={() => open(each.path)} style={styles.line} testID={`bot-panel-mail-${each.path}`}>
+                <Pressable key={each.path} onPress={() => openMail(each.path)} style={styles.line} testID={`bot-panel-mail-${each.path}`}>
                   <OwnerFace face={each.mine ? { kind: "person", name: "You" } : faceOf(each.sender)} size={18} />
                   <View style={styles.lineText}>
                     <Text variant="tree" numberOfLines={1}>{`${each.mine ? "You" : each.sender} ↔ ${each.with === null ? "nobody" : label(each.with)}`}</Text>
@@ -211,7 +215,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
         ) : null}
       </View>
 
-      {canWrite && mine !== null ? <Composer bot={bot} path={mine} hasMine={hasMine} onSend={send} /> : null}
+      {canWrite && mine !== null ? <Composer bot={bot} hasMine={hasMine} onSend={send} /> : null}
       {problem === null ? null : <Text variant="treeMeta" role="alert" style={styles.problem}>{problem}</Text>}
       {sent === null ? null : <Text variant="treeMeta" style={styles.muted} testID="bot-panel-sent">Sent as mail. Open the conversation later to read its answer.</Text>}
     </View>
@@ -231,7 +235,7 @@ function CapField({ value, label, onCommit }: { value: number | null; label: str
 }
 
 /** The box to write to the bot: mail, and it says so. */
-function Composer({ bot, path, hasMine, onSend }: { bot: Bot; path: string; hasMine: boolean; onSend: (text: string) => Promise<void> }) {
+function Composer({ bot, hasMine, onSend }: { bot: Bot; hasMine: boolean; onSend: (text: string) => Promise<void> }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const fieldFont = useFieldFont(pointerType.ui);
@@ -255,7 +259,7 @@ function Composer({ bot, path, hasMine, onSend }: { bot: Bot; path: string; hasM
         </View>
       )}
       <Text variant="treeMeta" style={styles.muted} testID="bot-panel-mail-note">
-        {`Mail, not a chat: goes to ${path}. ${bot.card.reach === "webhook" ? "Its webhook is told now" : "It reads this when it checks its mail"}, and it answers in the same note when it answers. Its thinking stays in its own app.`}
+        {`Mail, not a chat. ${bot.card.reach === "webhook" ? "Its webhook is told now" : "It reads this when it checks its mail"}, and it answers in the same note when it answers. Its thinking stays in its own app.`}
       </Text>
     </View>
   );
