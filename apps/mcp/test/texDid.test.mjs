@@ -49,3 +49,15 @@ test("the node has code and sits on the shelf until a draft wires it", () => {
   assert.equal(shelf.nodes.did?.node?.id, "did");
   assert.equal(shelf.nodes.did.node.outSchema.find((f) => f.name === "to")?.options, "tell, refuse");
 });
+
+test("a job that ended hands the chat's turn how it ended as facts, never a line code wrote (no-scripted-wording.md)", async () => {
+  const { jobReportOf, jobReportPrompt } = await import("../../../packages/tex/gateway/agent/jobReport.js");
+  const end = { action: "job", status: "paused", why: "daily_limit", resumes_by_itself: true };
+  const report = jobReportOf({ event: "job_report", jobReport: { id: "job-abcdefgh", title: "Trip plan", state: "waiting", texts: [], end } }, { chatTurn: true, job: null });
+  assert.deepEqual(report.end, end);
+  assert.match(jobReportPrompt(report), /\{"end":\{"action":"job","status":"paused","why":"daily_limit","resumes_by_itself":true\}\}/);
+  for (const bad of [{ action: "invite", status: "invited" }, { action: "job", status: "Paused!" }, { action: "job", status: "failed", why: { nested: true } }, "paused"]) {
+    const read = jobReportOf({ event: "job_report", jobReport: { title: "Trip plan", state: "failed", texts: [], end: bad } }, { chatTurn: true, job: null });
+    assert.equal(read.end, undefined, `${JSON.stringify(bad)} is not a job's end`);
+  }
+});

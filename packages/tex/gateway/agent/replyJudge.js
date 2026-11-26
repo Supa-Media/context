@@ -191,7 +191,7 @@ export function judgeState({ question, history = [], messages = [], answer, repo
     "",
     `The reply about to be sent: ${clip(String(answer ?? ""), 3_000)}`,
     "",
-    ...(report ? [`The job's report (job "${clip(String(report.title ?? ""), 120)}", ${String(report.state ?? "done")}), which the person has not seen:`, clip((Array.isArray(report.texts) ? report.texts : []).join("\n\n") || "(nothing)", 4_000), ""] : []),
+    ...(report ? [`The job's report (job "${clip(String(report.title ?? ""), 120)}", ${String(report.state ?? "done")}), which the person has not seen:`, clip([...(Array.isArray(report.texts) ? report.texts : []), ...(report.end ? [JSON.stringify({ end: report.end })] : [])].join("\n\n") || "(nothing)", 4_000), ""] : []),
     `What Tex did this turn (${actions.length === 0 ? "nothing: no searches, reads or other actions" : `${actions.filter((line) => line.startsWith("- ")).length} actions`}):`,
     ...actions,
     "",

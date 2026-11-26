@@ -164,7 +164,7 @@ describe("mail to a running job", () => {
     expect(await runJob(storage, deps)).toEqual({ kind: "now" });
     expect(reports.at(-1)?.state).toBe("running");
     expect(reports.at(-1)?.status?.startsWith("Answering mail from lead")).toBe(true);
-    expect(reports.every((update) => !update.texts?.includes(JOB_LINES.missed))).toBe(true);
+    expect(reports.every((update) => update.end?.change_missed !== true)).toBe(true);
     expect(reports.some((update) => update.texts?.includes("Priced it."))).toBe(false);
 
     await runJob(storage, deps);
@@ -180,7 +180,7 @@ describe("mail to a running job", () => {
     ]);
     expect(await runJob(storage, deps)).toEqual({ kind: "done" });
     expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Priced it."] });
-    expect(reports.every((update) => !update.texts?.includes(JOB_LINES.missed))).toBe(true);
+    expect(reports.every((update) => update.end?.change_missed !== true)).toBe(true);
   });
 
   it("a busy note never pushes out a person's text", async () => {

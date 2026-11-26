@@ -76,6 +76,19 @@ describe("a kept sticker is looked at once, and Decide reads its words", () => {
     expect(asked).toHaveLength(2);
   });
 
+  it("a look the gateway's own step failed is no try: the next message asks again", async () => {
+    // Battle of the Bots, 2026-11-25: every look threw in the gateway before a model saw the picture, and each sticker
+    // then waited LOOK_AGAIN_MS, so the fixed look could not run until hours after the fix went live.
+    const storage = await kept("at_0_ROBOT");
+    let broken = true;
+    const { asked, deps } = world(() => (broken ? { when: ["skip"], why: "failed" } : { when: ["looked"], words: "robot waving; fits a friendly hello" }));
+    expect(await lookAtStickers(storage, PLACE, deps)).toBe("failed");
+    broken = false;
+    expect(await lookAtStickers(storage, PLACE, deps)).toBe("looked");
+    expect(asked).toHaveLength(2);
+    expect((await stickersAsk(storage)).stickerWords).toEqual({ [stickerId("at_0_ROBOT")]: "robot waving; fits a friendly hello" });
+  });
+
   it("every sticker a chat drops at once gets its words on the next message, newest first", async () => {
     const guids = Array.from({ length: 15 }, (_, i) => `g${i + 1}`);
     const storage = await kept(...guids);
