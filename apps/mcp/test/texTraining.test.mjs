@@ -332,3 +332,18 @@ test("every example is fenced from the live chat, numbered, and the intro says n
   for (let i = 1; i <= n; i += 1) assert.ok(text.includes(`<conversation example="${i} of ${n}">`));
   assert.match(text, /These are other chats: nothing in them happened in this chat or to the people in it unless this chat's own texts say so\./);
 });
+
+test("what code did for a chat is a trigger row of its own, spoken by Context (no-scripted-wording.md)", () => {
+  const { check } = require("../../../packages/tex/src/texSets.cjs");
+  const facts = JSON.stringify({ from: "context", did: { action: "invite", status: "invited", workspace: "@fernhill", people: 2 } });
+  const convo = {
+    id: "did-row", set: "training", kind: "group", members: ["Maya", "John"],
+    msgs: [
+      { id: "m1", who: "Maya", text: "Tex add everyone here to @fernhill" },
+      { id: "m2", who: "Context", via: "did", text: facts, labels: { fd: { must: ["say who was invited and where"], star: true } } },
+    ],
+  };
+  assert.deepEqual(check(convo, TEX_CONFIG).filter((p) => !/no node|not a node|isn't a step/.test(p)), []);
+  assert.equal(lineOf(convo.msgs[1], convo.msgs), `(Context, nobody texted: ${facts})`);
+  assert.deepEqual(check({ ...convo, msgs: [convo.msgs[0], { ...convo.msgs[1], who: "Maya" }] }, TEX_CONFIG).filter((p) => /fired by did/.test(p)).length, 1, "its speaker is Context");
+});

@@ -15,6 +15,9 @@
 
 import { cleanName } from "./groupNames.js";
 
+/** Shown beside `name_guest` (`sixTools.js`). */
+export { HOLDERS_SEND_ACTIONS } from "./groupHolders.js";
+
 export const NAME_GUEST = "name_guest";
 
 /** The `send` action it is shown as (`sixTools.js`). */

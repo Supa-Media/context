@@ -187,7 +187,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
           : joining
             ? `joined this note's mail as ${entry.from}`
             : `sent mail to ${entry.to}`,
-    });
+    }, { mailOwn: true });
     const conflicted = written?.isError && /^conflict:/.test(written?.content?.[0]?.text ?? "");
     if (conflicted && attempt === 0) continue;
     if (written?.isError) return written;

@@ -27,6 +27,7 @@ import { FILL_CARD_DEFINITION } from "./fillCard.js";
 import { FILL_LOGIN_DEFINITION } from "./fillLogin.js";
 import { groupChatsForTurn } from "./groupChats.js";
 import { guestNameTool } from "./groupGuestNames.js";
+import { holdersTool } from "./groupHolders.js";
 import { earlierChatTool } from "./groupTurn.js";
 import { personalTexTool } from "./askPersonalTex.js";
 import { MAKE_LOGIN_DEFINITION } from "./makeLogin.js";
@@ -82,6 +83,7 @@ function build(kind) {
     () => mailAgentSession(INERT.callTool, { path: "task.md" }, "m"),
     () => personalTexTool({ group: INERT.group, ledger: INERT.ledger, asker: async () => null }),
     () => guestNameTool({ group: INERT.group, ledger: INERT.ledger }),
+    () => holdersTool({ group, holders: async () => null }),
     () => crossAskTool({ group, groups: [], counts: {}, ledger: INERT.ledger, gate: async () => null }),
     () => postInChatTool({ event: { kind: "ask", do: true }, group: INERT.group, ledger: INERT.ledger }),
   ];

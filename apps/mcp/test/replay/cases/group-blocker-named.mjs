@@ -4,6 +4,7 @@ import { CAPABILITIES } from "../../../../../packages/tex/gateway/agent/capabili
 import { resolveSession } from "../../../src/session.js";
 import { groupOf, groupPrompt } from "../../../../../packages/tex/gateway/agent/groupTurn.js";
 import { blockedLine } from "../../../../../packages/tex/gateway/agent/groupGuests.js";
+import { holdersTool } from "../../../../../packages/tex/gateway/agent/groupHolders.js";
 
 const TOKEN = `cat_asker_reach_${"0".repeat(24)}`;
 const ROW = "#00000000-0000-7000-8000-0000000000c4";
@@ -35,6 +36,16 @@ async function askerReach() {
     assert.doesNotMatch(blockedLine(group), /chat_add_everyone/, "nothing to fix for a workspace the asker reads");
 }
 
+/** Jo, not in @harbor-care, asks for its numbers: the turn reads none of it, and can look up who here holds it. */
+async function holdersLookup() {
+  const asked = [];
+  const tool = holdersTool({ group: { key: "e5".repeat(32), from: "jo" }, holders: async (workspace) => (asked.push(workspace), { slug: "harbor-care", holders: ["sam", "sol"] }) });
+  const answer = JSON.parse((await tool.call({ workspace: "Harbor Care" })).content[0].text);
+  assert.deepEqual(answer, { workspace: "@harbor-care", holders: ["@sam", "@sol"] }, "who here holds it, as data");
+  assert.deepEqual(asked, ["Harbor Care"], "asked about the workspace the chat named, nothing else");
+  assert.equal(holdersTool({ group: null, holders: async () => null }), null, "only in a group chat");
+}
+
 export default {
   id: "group-blocker-named",
   incident: "2026-11-16 (and 2026-11-25, an ask the asker's own workspace could answer): a group chat lost its shared workspace overnight when someone joined who wasn't a member; Tex could only say the chat couldn't see it and sent people to the app, then, asked to add the newcomer, said only the owner could and sent them to the app again.",
@@ -63,6 +74,9 @@ export default {
       // it is and who here can't open it. Sabotage: put back "every person here is a member of" in `groupPrompt`, or drop
       // the reach check in `blockedLine`, and this fails.
       await askerReach();
+      // And when the asker isn't in the workspace the chat named, who here is (send who_can_open, `groupHolders.js`):
+      // the fact behind "a neutral boundary naming who holds the keys". Sabotage: drop the group check and this fails.
+      await holdersLookup();
     } finally {
       chat.restore();
     }

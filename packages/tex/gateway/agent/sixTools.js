@@ -31,7 +31,7 @@ import { actionArguments } from "../../../../apps/mcp/src/orient/manual.js";
 import { COMMAND_SEND_ACTIONS } from "./commandTools.js";
 import { COMPUTER_SEND_ACTIONS } from "../../../../apps/mcp/src/machines/texActions.js";
 import { SETTINGS_SEND_ACTIONS } from "./settingsActions.js";
-import { GUEST_NAME_SEND_ACTIONS } from "./groupGuestNames.js";
+import { GUEST_NAME_SEND_ACTIONS, HOLDERS_SEND_ACTIONS } from "./groupGuestNames.js";
 import { PERSONAL_TEX_SEND_ACTIONS } from "./askPersonalTex.js";
 import { CROSS_CHAT_SEND_ACTIONS } from "./crossChat.js";
 import { TEXTS_ID_PREFIX } from "../../../../apps/mcp/src/tools/texts.js";
@@ -144,8 +144,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   ...Object.fromEntries(Object.entries(PERSONAL_TEX_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
   // Tex asking Tex in another chat, and a do-ask's signed line (`crossChat.js`): offered only while the config wires tools -> crossChatGate.
   ...Object.fromEntries(Object.entries(CROSS_CHAT_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
-  // A group chat's name for a guest label, kept in its ledger (`groupGuestNames.js`).
-  ...Object.fromEntries(Object.entries(GUEST_NAME_SEND_ACTIONS).map(([name, entry]) => [name, { ...entry, take: own }])),
+  ...Object.fromEntries(Object.entries({ ...GUEST_NAME_SEND_ACTIONS, ...HOLDERS_SEND_ACTIONS }).map(([name, entry]) => [name, { ...entry, take: own }])), // a guest label's name (`groupGuestNames.js`); who here is in a named workspace (`groupHolders.js`)
 };
 
 /**
@@ -303,6 +302,7 @@ const SHORT_LINES = {
   job_status: "How a background job is going; title exactly as your jobs list shows it.",
   email_draft: "Save one email as a draft in their Gmail, for them to send. A reply passes in_reply_to.",
   chat_add_everyone: "Invite everyone here to one of the asker's workspaces.",
+  who_can_open: "Who holds a workspace.",
   tapback: "Only a tapback or chat sticker, no words; ends turn.",
   forward_rule: "Keep forwarding one kind of their mail to one address, once they 👍 it.",
   restart_job: "Pick stopped background jobs back up where they stopped.",

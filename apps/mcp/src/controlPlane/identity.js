@@ -44,6 +44,17 @@ export function createIdentityMethods({ post }) {
     },
 
     /**
+     * Who in a group chat is a member of the shared workspace it named (`agent/groupHolders.js`;
+     * `lib/texIdentity/holders.ts`): `{ slug, holders }`, `slug` null when nobody here is in one by that name, or
+     * `null` for every caller who may not ask (any client but a group chat's grant, a job's token, a dead token).
+     */
+    async workspaceHolders(accessToken, workspace) {
+      const parsed = await post("/gateway/agent/identity", { accessToken, holders: String(workspace).slice(0, 80) });
+      const answer = parsed?.holders;
+      return answer !== null && typeof answer === "object" && Array.isArray(answer.holders) ? answer : null;
+    },
+
+    /**
      * The group chats the person texting their own Tex is in, for their 1:1 turn's `group_chats` tool
      * (`agent/groupChats.js`; `lib/texIdentity/groups.ts`): `[{ key, name, people, lastSeenAt }]`, or `null` for
      * every caller who may not know (any client but the 1:1 texting grant, another person's workspace, a dead token).

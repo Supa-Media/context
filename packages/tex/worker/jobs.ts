@@ -23,6 +23,7 @@
  * text would get, never one carried over from the turn that started it.
  */
 
+import { didOf } from "./factsOf";
 import type { JobNote } from "./jobNote";
 import { isAppChat } from "./appChat";
 import type { GroupMessage } from "./sendblueGroups";
@@ -63,7 +64,12 @@ export type JobMail = { from: string; app?: string; kind: "note" | "ask" | "inte
 export type JobSteerAsk = { id: string; stop?: true; note?: string; resume?: true; machine?: JobMachine };
 /** What a job would have said, handed to its chat's own turn, which decides what is said (`jobTexts.ts`). */
 /** `ask`: the gateway's own line asking a computer's owner for a 👍, texted as it is (`machineTurn.ts`). */
-export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; ask?: string; unasked?: true };
+/**
+ * How a job ended, as facts (no-scripted-wording.md): code says what happened, the chat's turn says it to them.
+ * Read as strictly as node `did`'s facts (`didFacts.ts` `didOf`).
+ */
+export type JobEnd = { action: "job"; status: string; [field: string]: string | number | boolean };
+export type JobReport = { id?: string; title: string; state: JobState; texts: string[]; end?: JobEnd; ask?: string; unasked?: true };
 /** `waiting`: it needs something only they can give; `stuck`: no way forward, or out of time (`jobRun.ts`). */
 export type JobState = "running" | "done" | "failed" | "waiting" | "stuck";
 
@@ -87,7 +93,7 @@ export type JobEntry = RunningJob & { unasked?: true; chatId?: string; messageId
 /** `pictures`: the answer's pictures (a page's cover), sent before its texts and counted with them in `first`. */
 /** `asked`: who asked for the job and their words, so the chat's turn on its report can start it again (`jobTexts.ts`). */
 /** `pass`: the job's pass that sent it (`jobRun.ts` `PASS_KEY`); once one pass finished the job, no other pass's word is texted. */
-export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number; part?: number; ends?: PartEnd[] };
+export type JobUpdate = { id: string; state: JobState; status?: string; verdict?: JobVerdict; advice?: string; pictures?: OutgoingPicture[]; texts?: string[]; first?: number; step?: string; stepFailed?: true; stepWhy?: string; vaultWatch?: string; vaultLinks?: string[]; pass?: string; asked?: { from: string; text: string }; ask?: string; resumeAt?: number; part?: number; ends?: PartEnd[]; end?: JobEnd };
 
 /** A job's answer texts at most this many pictures: a page's cover, a card or two. */
 export const MAX_JOB_PICTURES = 2;
@@ -165,16 +171,6 @@ const MAX_ASK = 400;
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
 
 export const JOB_LINES = {
-  failed: (title: string, why?: string) => `I couldn't finish "${title}"${why ? `: ${why}` : ""}. Text me if you want me to try again.`,
-  busy: "I'm already running three things for you; I'll take that one once one finishes.",
-  missed: "You texted a change after I'd done most of it, and I ran out of room to redo it. Text me if you still want it changed.",
-  /** A part the gateway refused to run (`jobRun.ts`): the job waits on them, and they're told why. */
-  refused: (title: string, why: "daily_limit" | "no_model") =>
-    why === "daily_limit"
-      ? `I paused "${title}": I've hit today's limit for background work. I'll pick it back up by myself as soon as the limit resets, and tell you when it's done.`
-      : `I paused "${title}": I can't reach my model right now. Text me in a bit and I'll pick it back up.`,
-  /** A part the gateway turned down before it ran (`jobRun.ts` `rejected`): asking again is turned down the same way. */
-  rejected: (title: string, why: string) => `I couldn't run "${title}": it was turned down before it started (${why}). Text me if you want me to try again.`,
   refusedStatus: { daily_limit: "Paused: today's limit for background work is used up; it starts again by itself once the limit resets", no_model: "Paused: no model could run it" },
 } as const;
 
@@ -538,7 +534,7 @@ function resultOf(update: JobUpdate): { result?: string } {
 /** `POST /job-update`'s body, read strictly. */
 export function readJobUpdate(value: unknown): JobUpdate | null {
   if (!value || typeof value !== "object") return null;
-  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt, part, ends } = value as Record<string, unknown>;
+  const { id, state, status, pictures, texts, first, step, stepFailed, stepWhy, vaultWatch, vaultLinks, pass, asked, verdict, advice, ask, resumeAt, part, ends, end } = value as Record<string, unknown>;
   const by = asked && typeof asked === "object" ? (asked as Record<string, unknown>) : {};
   const read = jobPictures(readPictures(pictures));
   if (typeof id !== "string" || !ID.test(id) || typeof state !== "string" || !STATES.has(state)) return null;
@@ -560,7 +556,14 @@ export function readJobUpdate(value: unknown): JobUpdate | null {
     ...(Number.isInteger(part) && (part as number) > 0 && (part as number) < 1_000 ? { part: part as number } : {}),
     ...(readEnds(ends).length > 0 ? { ends: readEnds(ends) } : {}),
     ...(Array.isArray(texts) ? { texts: texts.filter((text): text is string => typeof text === "string" && text.trim() !== "").slice(0, 12) } : {}),
+    ...(jobEndOf(end) ? { end: jobEndOf(end)! } : {}),
   };
+}
+
+/** How a job ended, read as strictly as node `did`'s facts (`didFacts.ts` `didOf`), or null. */
+export function jobEndOf(value: unknown): JobEnd | null {
+  const facts = didOf(value);
+  return facts !== null && facts.action === "job" ? (facts as JobEnd) : null;
 }
 
 /** How a job's parts ended (`jobProgress.ts`), read strictly. */

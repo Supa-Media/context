@@ -14,7 +14,7 @@
  * when it is a unit test. `rec[nodeId]` is a node's recorded run on main, the frozen input for the nodes it feeds.
  *
  * A turn nobody texted (Dev2, 2026-11-16: Tex's unprompted heads-ups belong in the sets "as routine-fired turns") is
- * a trigger row: `via` names the input that fired it (checkin | routine | notify), `who` is that input's name
+ * a trigger row: `via` names the input that fired it (checkin | routine | notify | job | did), `who` is that input's name
  * (TRIGGERS), and `text` says what it brought in (the email, the event, the routine's ask, a background job's report,
  * with the job's `state`). It is not a member, and
  * it carries labels like a person's message, so "should Tex speak up about this" is a unit test. `at` is an
@@ -29,7 +29,7 @@ const TARGET = Object.freeze({ training: 60, dev: 20, test: 20 });
 const DRIFT = 10;
 const KINDS = Object.freeze(["react", "reply", "edit", "delete"]);
 /** The inputs that start a turn with no text, and the name their rows go by. */
-const TRIGGERS = Object.freeze({ checkin: "Check-in", routine: "Routine", notify: "Send through Tex", job: "Background job" });
+const TRIGGERS = Object.freeze({ checkin: "Check-in", routine: "Routine", notify: "Send through Tex", job: "Background job", did: "Context" });
 /**
  * A job row's `state`, as the texting Worker reports a job to the chat's turn (`packages/tex/worker/jobTexts.ts`): its
  * result (done), an update on its way (running), or its end otherwise. Absent is done.

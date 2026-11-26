@@ -182,7 +182,8 @@ describe("a job part the gateway turns down", () => {
     const last = reports.at(-1)!;
     expect(last.state).toBe("failed");
     expect(last.status).toContain("Ask a question.");
-    expect(last.texts?.[0]).toContain("Ask a question.");
+    expect(last.end).toMatchObject({ action: "job", status: "turned_down" });
+    expect(String(last.end?.why)).toContain("Ask a question.");
   });
 
   it("a part that broke on the way still carries on in the next one", async () => {
