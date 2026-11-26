@@ -634,8 +634,8 @@ export async function runFd(units, { tree, fake = false, runTests = null, parall
   }
 }
 
-/** How many conversations are prepared at once (their folders are copies of the bench folder). */
-const PREPARE_LANES = 4;
+const PREPARE_LANES = 4; // conversations prepared at once (their folders are copies of the bench folder)
+export const CASES_PER_TEST = 2; // the most cases one test runs, one after another
 
 /**
  * One conversation's units, prepared to run: its own copy of the bench folder with its world laid in, and one `sets-N`
@@ -678,7 +678,9 @@ async function prepareConvo(units, { tree, scratch, env, mode = "replay", compar
     batches.get(key).units.push(u);
   }
   const tests = [];
-  for (const { person, today, clock, units: mine } of batches.values()) {
+  // A test runs its cases in turn, so a big person-day is cut (wedding-trip's 7 held Dev runs past 10 min, 2026-11-26).
+  for (const { person, today, clock, units: day } of batches.values()) for (let s = 0; s < day.length; s += CASES_PER_TEST) {
+    const mine = day.slice(s, s + CASES_PER_TEST);
     // A conversation whose setting gives Tex the calendar runs with one connected (`calendar.mjs` benchCalendar).
     const front = await frontFor(dir, person, { today, group, calendar: hasCalendar(c), chat: hasChat(c), setting: String(c.setting ?? ""), clock, sites: world.sites, dated: world.laid });
     if (front === null) {
@@ -690,10 +692,8 @@ async function prepareConvo(units, { tree, scratch, env, mode = "replay", compar
     await writeFile(join(dir, "tests", `${name}.md`), fdTest(mine, `${front}\n${worldFront({ tree, id: c.id, runDir, mode, test: name, ...worldFixtures })}`, from));
     tests.push({ name, group: mine, cut: Math.min(...mine.map((u) => u.at)) });
   }
-  // A Training conversation scored in context reads itself as an example only up to the scored moment
-  // (`texTraining.cjs` UNTIL_ENV): its later texts are its future (truck-crew 96, 2026-11-18, quoted message 98). A test
-  // is one person's day and clock, often several moments; it is cut at its earliest, so none of them reads ahead, and
-  // the later ones still have their own past in the live chat. A held-out chat is gone whole and needs no cut.
+  // A Training conversation reads itself as an example only up to a test's earliest scored moment (`texTraining.cjs`
+  // UNTIL_ENV; truck-crew 96, 2026-11-18), so no case reads ahead. A held-out chat is gone whole and needs no cut.
   const cuts = c.set === "training" && env[HOLD_OUT_ENV] !== c.id;
   const envOf = cuts ? (name) => ({ ...env, [UNTIL_ENV]: `${c.id}:${tests.find((t) => t.name === name)?.cut ?? 0}` }) : null;
   return { dir, scratch, env, envOf, tests, rows, runDir, id: c.id, set: c.set };
