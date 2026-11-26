@@ -54,6 +54,25 @@ export function toolErrorsIn(calls) {
 }
 
 /**
+ * What the provider said when it refused a call (Anthropic's `{ error: { type, message } }`, the gateway's
+ * `{ errors: [{ code, message }] }`, or a body that was not JSON), kept short and safe (`safeError`), so a row reads
+ * "status 400: prompt is too long" instead of a bare status (Dev runs of 2026-11-26: 18 rows a run said only 400).
+ */
+export function refusalOf(answer) {
+  if (typeof answer === "string") return safeError(answer);
+  const error = answer?.error;
+  const listed = [answer?.errors, error].find(Array.isArray);
+  const said = listed
+    ? listed.map((entry) => [entry?.code, entry?.message].filter((part) => part !== undefined && part !== null && part !== "").join(": ")).filter(Boolean).join("; ")
+    : typeof error?.message === "string"
+      ? [error.type, error.message].filter((part) => typeof part === "string" && part).join(": ")
+      : typeof error === "string"
+        ? error
+        : "";
+  return safeError(said);
+}
+
+/**
  * What went wrong with the model itself in a turn, as gap lines (`benchGaps.mjs`): a call that failed (no 200), and a
  * Front door answer that came back with no words and no tool call. Production's model does not hand Tex an empty
  * answer to send; on the bench it is the answerer (Claude Code in cc, the gateway in gw) failing, so the row is a
@@ -63,7 +82,8 @@ export function modelFailuresIn(calls, isFrontDoor) {
   const out = [];
   for (const call of Array.isArray(calls) ? calls : []) {
     if (typeof call?.status === "number" && call.status !== 200) {
-      out.push(`a model call failed (status ${call.status})`);
+      const said = refusalOf(call.answer);
+      out.push(`a model call failed (status ${call.status}${said ? `: ${said}` : ""})`);
       continue;
     }
     if (!isFrontDoor(call)) continue;

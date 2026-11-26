@@ -35,6 +35,17 @@ test("each round keeps only its new messages, the system prompt once, and the an
   assert.equal(a.answer.content[0].text, "hi");
 });
 
+test("a refused call keeps the provider's error beside its status, and a good one has none", async () => {
+  const log = modelLog(async () => new Response(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "prompt is too long" } }), { status: 400 }));
+  await log.fetch("u", request([{ role: "user", content: "hi" }]));
+  const [call] = log.calls();
+  assert.equal(call.status, 400);
+  assert.deepEqual(call.answer.error, { type: "invalid_request_error", message: "prompt is too long" });
+  const ok = modelLog(async () => answer([{ type: "text", text: "hi" }]));
+  await ok.fetch("u", request([{ role: "user", content: "hi" }]));
+  assert.equal("error" in ok.calls()[0].answer, false);
+});
+
 test("a call the log cannot read still goes through", async () => {
   const log = modelLog(async () => new Response("not json", { status: 500 }));
   const response = await log.fetch("u", { body: "{not json" });
