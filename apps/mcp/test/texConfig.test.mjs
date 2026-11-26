@@ -106,11 +106,11 @@ test("the advisor runs on Sonnet 5.5 at effort high (Finance, approved 2026-11-1
   assert.deepEqual([texModel("advisor"), texStep("advisor").effort], ["anthropic/claude-sonnet-5-5", "high"]);
 });
 
-test("the router and its doors are off on main (Dev2's 11-26 cleanup draft), and no door or hand-off reads it", () => {
-  // On as a logged signal only from 2026-11-20 until the 11-26 cleanup turned it and the specialist doors off.
-  assert.equal(texStep("router").on, false);
-  for (const id of ["fdQuick", "fdRead", "fdAct"]) assert.equal(texStep(id).on, false, id);
-  assert.ok(!TEX_CONFIG.edges.some((e) => (e.from === "fd" && ["fdQuick", "fdRead", "fdAct"].includes(e.to)) || (e.from === "router" && e.to === "handoff")));
+test("the router and its doors are retired to the shelf (Dev2, 2026-11-26), and no wire names them", () => {
+  // On as a logged signal only from 2026-11-20, off in the 11-26 cleanup, then deleted from the config with the doors.
+  const gone = ["router", "fdQuick", "fdRead", "fdAct"];
+  for (const id of gone) assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === id), id);
+  assert.ok(!TEX_CONFIG.edges.some((e) => gone.includes(e.from) || gone.includes(e.to)));
 });
 
 test("both send-backs reach the front door through the Answer check's one loop, on any draft (sendBack.js); the old steps' loops are gone", () => {
@@ -139,10 +139,9 @@ test("each step's prompt modules are the p- entries of its context, in order, an
     texStep(id)
       .ctx.map((c) => (c.startsWith("p-") ? c.slice(2) : trainName(c) && TEX_PROMPT_WORDS[trainName(c)] ? trainName(c) : null))
       .filter(Boolean);
-  // Each specialist door with no context of its own reads the front door's list with its door words last (doorTools.js).
-  const door = (route) => [...of("fd"), `door-${route}`];
-  assert.deepEqual(texModules(), { texts: of("fd"), group: of("fd"), job: of("job"), "door-quick": door("quick"), "door-read": door("read"), "door-act": door("act") });
-  for (const name of new Set([...of("fd"), ...of("job"), "door-quick", "door-read", "door-act"])) assert.equal(typeof TEX_PROMPT_WORDS[name], "string", name);
+  // The specialist doors are on the shelf since 2026-11-26, so main draws no door lists (specialistDoors.test.mjs draws them).
+  assert.deepEqual(texModules(), { texts: of("fd"), group: of("fd"), job: of("job") });
+  for (const name of new Set([...of("fd"), ...of("job")])) assert.equal(typeof TEX_PROMPT_WORDS[name], "string", name);
 });
 
 test("a note naming neither models nor modules, as production's does, is given the config's modules and the repository's words", async () => {

@@ -305,11 +305,20 @@ export function estimateJudging(requests, model, votes = 1) {
  */
 export const JUDGE_ATTEMPTS = 3;
 
+/**
+ * Statuses that mean "busy, ask again shortly": a rate or concurrency limit (429, gh-220 lost its judging to one
+ * while a test set ran beside it), an overload (529) or a passing server error. The wait grows per attempt.
+ */
+const BUSY = new Set([429, 500, 502, 503, 504, 529]);
+const BUSY_WAIT_MS = 5000;
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** A reply the judge got wrong in a way asking again can fix. */
 class MalformedReply extends Error {
-  constructor(message, { cutOff = false } = {}) {
+  constructor(message, { cutOff = false, busy = false } = {}) {
     super(message);
     this.cutOff = cutOff;
+    this.busy = busy;
   }
 }
 
@@ -352,6 +361,7 @@ async function judgeQuestion({ send, body, checks, answers, n }) {
       if (!(error instanceof MalformedReply)) throw error;
       lastError = error;
       if (error.cutOff) body = withMoreRoom(body);
+      if (error.busy && attempt < JUDGE_ATTEMPTS) await (send.wait ?? pause)(BUSY_WAIT_MS * attempt);
     }
   }
   throw new Error(`${lastError.message} (${JUDGE_ATTEMPTS} attempts)`);
@@ -363,6 +373,7 @@ async function judgeOnce({ send, body, checks, answers, n }) {
     const reply = await response.json().catch(() => ({}));
     const detail = reply?.error?.message ? ` (${reply.error.message})` : "";
     if (outOfCredit(response.status, detail)) throw new OutOfCredit();
+    if (BUSY.has(response.status)) throw new MalformedReply(`judge call for question ${n} failed: status ${response.status}${detail}`, { busy: true });
     throw new Error(`judge call for question ${n} failed: status ${response.status}${detail}`);
   }
   const reply = await response.json();

@@ -48,7 +48,7 @@ Monday 10 am clashes with the dentist, so the answer is 2 pm, found by reading h
 - person starts: "reply to my landlord about the plumber, pick whichever slot works with my calendar"
 - must call: read_calendar
 - must send email: martin.kell@example.invalid replying to 19b2land0002 containing 2 pm | 2pm | 2:00 | 14:00 | 2 o'clock
-- must say: 2 pm | 2pm | 2:00 | 14:00 | 2 o'clock | 2–4 | 2-4 | 2 to 4
+- must say: 2 pm | 2pm | 2:00 | 14:00 | 2 o'clock
 - must not: pick 10 am
 
 ## 3. Forward the CloudNine statement to the accountant
@@ -65,7 +65,7 @@ Monday 10 am clashes with the dentist, so the answer is 2 pm, found by reading h
 - person starts: "put ines's housewarming on my calendar"
 - must calendar: add "housewarming" at 2026-11-20 20:00
 - must say: november 20 | nov 20 | 20th | 11/20 | friday
-- must say: 8 pm | 8pm | 8:00 | 20:00 | 8–10 | 8-10 | 8 to 10
+- must say: 8 pm | 8pm | 8:00 | 20:00
 - must not: ask Lena for the date or time
 
 ## 5. Move dinner with Omar to 8
@@ -92,7 +92,7 @@ From the reviews' "partial work" family: an ask with two parts gets both done.
 - person starts: "what's on my calendar monday?"
 - must call: read_calendar
 - must say: dentist
-- must say: 10 am | 10am | 10:00 | 10–11 | 10-11 | 10 to 11
+- must say: 10 am | 10am | 10:00
 - must not: say it can't see or reach her calendar
 
 ## 8. A reminder with two things in it

@@ -26,6 +26,13 @@ import { toolDefinitions } from "../src/tools/registry.js";
 import { TEX_CONFIG, texModules } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { ask, createEgressWorld, toolReplies, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 import { asSixCall } from "./sixCallFixture.mjs";
+import { createRequire } from "node:module";
+
+// The router and the doors were retired to the shelf on 2026-11-26 (Dev2): a draft that puts them back draws their
+// last definitions, which these tests use.
+const SHELF = createRequire(import.meta.url)("../../../packages/tex/src/texNodeShelf.json");
+const shelved = (id) => ({ ...SHELF.nodes[id].node, id });
+const DOORS = ["fdQuick", "fdRead", "fdAct"].map(shelved);
 
 const mcp = new Map(toolDefinitions().map((tool) => [tool.name, tool]));
 const held = (...names) => names.map((name) => mcp.get(name) ?? { name, description: `${name} words.`, inputSchema: { type: "object", properties: { text: { type: "string" } } } });
@@ -356,8 +363,9 @@ test("door nodes: each returns the door it is, and fd's wires name the nodes the
   assert.deepEqual(DOOR_NODES, { quick: "fdQuick", read: "fdRead", act: "fdAct" });
 });
 
-test("texModules: main's config draws the three doors' prompts, each the front door's list with its door words last; a config without them draws none", () => {
-  const drawn = texModules(TEX_CONFIG);
+test("texModules: a config with the three doors draws their prompts, each the front door's list with its door words last; main, without them, draws none", () => {
+  assert.ok(!TEX_CONFIG.nodes.some((node) => Object.values(DOOR_NODES).includes(node.id)), "main has no doors since 2026-11-26");
+  const drawn = texModules({ ...TEX_CONFIG, nodes: [...TEX_CONFIG.nodes, ...DOORS] });
   assert.deepEqual(Object.keys(drawn), ["texts", "group", "job", "door-quick", "door-read", "door-act"]);
   for (const door of ["quick", "read", "act"]) assert.deepEqual(drawn[`door-${door}`], [...drawn.texts, `door-${door}`]);
 
@@ -379,17 +387,11 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
   // route record says the act door answered with no fallback.
   const world = await createEgressWorld();
   const { model, controlPlane, env, pending, restore } = world;
-  const router = TEX_CONFIG.nodes.find((node) => node.id === "router");
-  // Main draws the doors and doorStep -> router; the router on and fd -> fdAct wired are what a draft that branches sets
-  // (main has the router on as a logged signal only since 2026-11-20, with no door wired).
-  assert.ok(TEX_CONFIG.edges.some((e) => e.from === "doorStep" && e.to === "router" && e.mode === "uses"));
-  assert.ok(TEX_CONFIG.nodes.some((n) => n.id === "fdAct"), "main draws the act door");
-  // The doors are off on main too since the 11-26 cleanup (Dev2's draft): a draft that branches switches the act door on.
-  const act = TEX_CONFIG.nodes.find((node) => node.id === "fdAct");
-  const drawn = { on: router.on, actOn: act.on, edges: [...TEX_CONFIG.edges] };
-  router.on = true;
-  act.on = true;
-  if (!TEX_CONFIG.edges.some((e) => e.from === "fd" && e.to === "fdAct")) TEX_CONFIG.edges.push({ from: "fd", to: "fdAct", mode: "uses", when: ["act"] });
+  // The router and the doors are on the shelf since 2026-11-26: a draft that branches puts the router back on, beside
+  // the Door, and wires the act door from the front door.
+  const drawn = { nodes: [...TEX_CONFIG.nodes], edges: [...TEX_CONFIG.edges] };
+  TEX_CONFIG.nodes.push({ ...shelved("router"), on: true }, { ...shelved("fdAct"), on: true });
+  TEX_CONFIG.edges.push({ from: "doorStep", to: "router", mode: "uses", when: ["*"] }, { from: "fd", to: "fdAct", mode: "uses", when: ["act"] });
   env.AI = { run: async (_model, input) => ({ answers: input?.questions?.route ? { route: { choice: "act", confidence: 0.9 } } : {} }) };
   const claimed = (slug) => controlPlane.workspaceSetupCalls.some((entry) => entry.dryRun === false && entry.slug === slug);
   try {
@@ -404,8 +406,7 @@ test("the act door, chosen by the router, holds a handle claim for the person's 
     assert.equal(claimed("woodshop"), false, "nothing was claimed");
     assert.equal(pending().length, 1, "the held call is waiting");
   } finally {
-    router.on = drawn.on;
-    act.on = drawn.actOn;
+    TEX_CONFIG.nodes.splice(0, TEX_CONFIG.nodes.length, ...drawn.nodes);
     TEX_CONFIG.edges.splice(0, TEX_CONFIG.edges.length, ...drawn.edges);
     restore();
   }

@@ -62,7 +62,7 @@ test("the whole graph draws every top-level step of the texting page, each group
 test("focus on a group draws just that group: its steps in a frame, the wires leaving it as pills (Dev2, 2026-11-16)", () => {
   const g = main();
   const members = g.nodes.filter((n) => n.group === "intake");
-  assert.equal(members.length, 13);
+  assert.equal(members.length, 12);
   const html = graphSvg(g, { focus: "intake" });
   const shown = stepsDrawn(html);
   // Its own steps, and the Check-in and More ways in groups nested inside it as cards.

@@ -17,7 +17,7 @@
  * the value with the goal in words, the value coloured by the verdict from
  * `verdict.ts`, whose words are on its hover tip and read to a screen reader
  * (the owner, 2026-11-26: "colors already do that"). Its sub-areas are folded
- * on every screen under an "6 inside · 1 needs a look" line; open, each is a
+ * on every screen under a "6 sub-areas" line; open, each is a
  * compact box with its name, its metric's name and its value, and one with
  * sub-areas of its own folds them the same way (the owner, 2026-11-26). The trend, how
  * the area is run, its projects and its notes are in the side panel. An empty seat is a dashed box
@@ -40,7 +40,7 @@ import type { Reading } from "./readings";
 import { headlineOf, periodBeside, type Headline } from "./headline";
 import { metricTip } from "./AreaMetricCell";
 import { useHoverTitle } from "../../../../design/useHoverTitle";
-import { areaTitle, needLook, type AreaNode, type Seat } from "./seat";
+import { areaTitle, type AreaNode, type Seat } from "./seat";
 import type { AreaProjects } from "./areaProjects";
 import { useFolds, type FoldHome } from "./foldMemory";
 
@@ -271,12 +271,11 @@ function ownerLine(seat: Seat, ctx: Ctx): string {
   return `${ctx.label(seat.owner)}${seat.delegate === null ? "" : ` + ${seat.delegate}`}`;
 }
 
-/** The open folder's box: its name, who holds it, and how many of its areas need a look. Pressing it opens the seat options. */
+/** The open folder's box: its name, who holds it, its metric and how many areas it has. Pressing it opens the seat options. */
 function RootBox({ node, title, ctx }: { node: AreaNode; title: string; ctx: Ctx }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
-  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.verdict?.good === false);
   const headline = headlineOf(seat, ctx.readingOf(seat));
   const reachText = seat.owner === null ? "" : ctx.reach(seat.owner);
   const menuClick = useRightClick((at) => {
@@ -308,7 +307,6 @@ function RootBox({ node, title, ctx }: { node: AreaNode; title: string; ctx: Ctx
         {node.areas.length === 0 ? null : (
           <Text variant="treeMeta" style={styles.small}>
             {`${node.areas.length} ${node.areas.length === 1 ? "area" : "areas"}`}
-            {look === 0 ? null : <Text variant="treeMeta" style={styles.look}>{` · ${look} need${look === 1 ? "s" : ""} a look`}</Text>}
           </Text>
         )}
       </Pressable>
@@ -321,9 +319,9 @@ function valueInk(colors: Colors, headline: Headline): string {
   return headline.state === "met" ? colors.okText : headline.state === "missed" ? colors.warnText : colors.text;
 }
 
-/** "6 inside · 1 needs a look": how many areas are folded under a box and how many of them need a look. */
-export function insideWords(count: number, look: number): string {
-  return `${count} inside${look === 0 ? "" : ` · ${look} need${look === 1 ? "s" : ""} a look`}`;
+/** "6 sub-areas": how many areas are folded under a box. The count of those that need a look left with the owner's word (2026-11-26). */
+export function insideWords(count: number): string {
+  return `${count} ${count === 1 ? "sub-area" : "sub-areas"}`;
 }
 
 /** An area's box: name and holder, its metric, and a foot. Unowned, a dashed box offering Assign owner. */
@@ -334,7 +332,6 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
   const { seat } = node;
   const title = areaTitle(seat.name);
   const headline = headlineOf(seat, ctx.readingOf(seat));
-  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.verdict?.good === false);
   const reachText = seat.owner === null ? "" : ctx.reach(seat.owner);
   const menuClick = useRightClick((at) => {
     ctx.onMenu(seat, at);
@@ -374,8 +371,7 @@ function AreaBox({ node, level, ctx, fold }: { node: AreaNode; level: number; ct
       {fold === undefined ? null : (
         <Pressable onPress={fold.toggle} role="button" aria-expanded={fold.open} accessibilityLabel={`${fold.open ? "Hide" : "Show"} the areas in ${title}`} style={styles.fold} testID={`area-fold-${seat.folder}`}>
           <Text variant="treeMeta" numberOfLines={1} style={[styles.small, styles.foldText]}>
-            {insideWords(node.areas.length, 0)}
-            {look === 0 ? null : <Text variant="treeMeta" style={styles.look}>{` · ${look} need${look === 1 ? "s" : ""} a look`}</Text>}
+            {insideWords(node.areas.length)}
           </Text>
           <Icon name={fold.open ? "chevronUp" : "chevronDown"} size={12} color={colors.muted} />
         </Pressable>
@@ -465,7 +461,6 @@ function SubBox({ node, ctx, fold }: { node: AreaNode; ctx: Ctx; fold?: { open: 
   const { seat } = node;
   const title = areaTitle(seat.name);
   const headline = headlineOf(seat, ctx.readingOf(seat));
-  const look = needLook(node, (child) => headlineOf(child, ctx.readingOf(child))?.verdict?.good === false);
   const metricRef = useRef<View>(null);
   useHoverTitle(metricRef, headline === null ? null : metricTip(headline));
   const reachText = seat.owner === null ? "" : `${ctx.label(seat.owner)}${ctx.reach(seat.owner) === "" ? "" : ` · ${ctx.reach(seat.owner)}`}`;
@@ -516,8 +511,7 @@ function SubBox({ node, ctx, fold }: { node: AreaNode; ctx: Ctx; fold?: { open: 
       {fold === undefined ? null : (
         <Pressable onPress={fold.toggle} role="button" aria-expanded={fold.open} accessibilityLabel={`${fold.open ? "Hide" : "Show"} the areas in ${title}`} style={[styles.fold, styles.subFold]} testID={`area-fold-${seat.folder}`}>
           <Text variant="treeMeta" numberOfLines={1} style={[styles.small, styles.foldText]}>
-            {insideWords(node.areas.length, 0)}
-            {look === 0 ? null : <Text variant="treeMeta" style={styles.look}>{` · ${look} need${look === 1 ? "s" : ""} a look`}</Text>}
+            {insideWords(node.areas.length)}
           </Text>
           <Icon name={fold.open ? "chevronUp" : "chevronDown"} size={12} color={colors.muted} />
         </Pressable>
@@ -571,7 +565,6 @@ const makeStyles = (colors: Colors) =>
     chart: { width: "100%" },
     muted: { color: colors.muted },
     small: { fontSize: pointerType.meta, lineHeight: 16, color: colors.muted },
-    look: { fontSize: pointerType.meta, lineHeight: 16, color: colors.warnText, fontWeight: "600" },
 
     org: { alignItems: "center", width: "100%" },
     orgRoot: { width: 240 },

@@ -10,18 +10,21 @@ import { routeRequest } from "../../../packages/tex/gateway/agent/specialistRout
 import { routerContextText, routerWants } from "../../../packages/tex/gateway/agent/routerContext.js";
 import { CONTEXT_MS, routerNode, routerReads } from "../../../packages/tex/gateway/agent/graph/nodes/router.js";
 import { TEX_CONFIG, TRAINING, TRAINING_READERS } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { createRequire } from "node:module";
+
+const SHELF = createRequire(import.meta.url)("../../../packages/tex/src/texNodeShelf.json");
 
 const moment = (n, route = "act") => ({ chat: `c${n}`, at: 0, kind: "one", before: ["@ann: earlier"], newest: `@ann: ask ${n}`, label: { route } });
 const training = { nodes: { router: [moment(1, "act"), moment(2, "read")], fd: [moment(3)] }, chats: {} };
 
-test("main's router reads its Training labels, the recent chat, what Tex is doing now and the date, and is off with no door wired", () => {
+test("the router, retired to the shelf, reads its Training labels, the recent chat, what Tex is doing now and the date", () => {
   // The recent chat, not the 7-day history: router-only Lab runs scored the same (57/63 in-context, 54/63 held-out)
   // at far fewer tokens.
-  const router = TEX_CONFIG.nodes.find((n) => n.id === "router");
+  // On as a logged signal only from 2026-11-20, off in the 11-26 cleanup, then retired to the shelf (Dev2, 2026-11-26):
+  // its last definition is what a draft that puts it back draws.
+  assert.ok(!TEX_CONFIG.nodes.some((n) => n.id === "router"), "main has no router");
+  const router = SHELF.nodes.router.node;
   assert.deepEqual(router.ctx, ["train:router", "recent", "groupBrief", "date"]);
-  // On as a logged signal only from 2026-11-20; off since Dev2's 11-26 cleanup draft. No specialist door is wired.
-  assert.equal(router.on, false, "the router is off on main");
-  assert.ok(!TEX_CONFIG.edges.some((e) => e.from === "fd" && ["fdQuick", "fdRead", "fdAct"].includes(e.to)), "and no door reads it");
   assert.ok(TRAINING_READERS.includes("router"), "its code reads the Training module it names");
   assert.deepEqual(routerWants(router.ctx), { training: true, history: false, recent: true, facts: true, date: true });
 });

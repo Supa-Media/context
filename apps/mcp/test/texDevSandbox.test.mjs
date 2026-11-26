@@ -48,8 +48,8 @@ test("the card says which steps did not run and why, from the config and the log
   assert.equal(card.slowest[0], "fd 12 s");
   assert.deepEqual(card.failed, [{ n: 4, node: "tools", why: "failed: true" }], "a tool that failed inside is a failure though its step ended ok");
   const why = Object.fromEntries(card.notFired.map((n) => [n.node, n.why]));
-  // The Router may be on (a logged signal, 2026-11-20) or off: either way its why is the config's or its caller's.
-  assert.ok(["off in this config", "doorStep may call it and did not"].includes(why.router), why.router);
+  // The Router was retired off the config (2026-11-26), so it is never named as a step that did not run.
+  assert.equal(why.router, undefined);
   assert.equal(why.shapeGate, "off in this config", "a step Promote turned off");
   // Retired 2026-11-20, back on 2026-11-23 as a step the Answer check uses (the no-shadow steps).
   assert.equal(why.reviewer, "answerCheck may call it and did not", "a uses step the run did not reach names its caller");

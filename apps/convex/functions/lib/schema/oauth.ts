@@ -318,12 +318,7 @@ export const oauthTables = {
      */
     pathTokenSeenAt: v.optional(v.number()),
     pathTokenRoute: v.optional(v.string()),
-    /**
-     * The bot this connection is, per workspace (`functions/botLogins.ts`): bound once by the bot itself during its
-     * setup, so every mail line it writes there is signed by the bot, never by the app the client is named after
-     * (Dev, 2026-11-26: "anything that login writes shows as Grok Bot, Pipeline and so on instead of Cursor").
-     * `bot` is its mail name (`mailJoinName`), `name` its card's name as shown.
-     */
+    /** Retired, never read: a bot's binding is its own row (`botLogins`), since a grant is an access row its object takes first. */
     bots: v.optional(v.array(v.object({ workspaceId: v.id("workspaces"), bot: v.string(), name: v.string() }))),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),

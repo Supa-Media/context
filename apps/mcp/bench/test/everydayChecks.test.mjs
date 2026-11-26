@@ -109,6 +109,14 @@ test("a say check reads every text Tex sent, never a quiet one, and an email or 
   assert.deepEqual(grade(["- must write: lena/study/spanish.md containing ser is for what something is, estar is for how it is", "- must write: lena/study/spanish.md containing ser and estar"], { changes }), [true, false]);
 });
 
+test("a say check reads a time range as its start, whatever end Tex chose", () => {
+  const conversation = (text) => [{ from: "assistant", text }];
+  const line = ["- must say: 8 pm | 8pm | 8:00 | 20:00"];
+  assert.deepEqual(grade(line, { conversation: conversation("Added: Fri Nov 20, 8–11 PM, at 14 Oak Street.") }), [true]);
+  assert.deepEqual(grade(line, { conversation: conversation("Fri Nov 20, 8 to 11:30 pm.") }), [true]);
+  assert.deepEqual(grade(line, { conversation: conversation("Fri Nov 20, 7–11 pm.") }), [false], "a range starting at 7 is not 8");
+});
+
 test("the played person never reads a grading line, and with person_brief: lines never the case's prose", () => {
   const body = 'Monday 10 am clashes, so the answer is 2 pm.\n\n- kind: task\n- person starts: "reply to my landlord"\n- if asked which day: "monday"\n- must say: 2 pm\n- must not: pick 10 am\n- may: mention the dentist\n- must send email: a@b.invalid';
   assert.equal(personBrief(body, { prose: false }), `- person starts: "reply to my landlord"\n- if asked which day: "monday"\n${YES_TO_OFFERS}`);
@@ -135,4 +143,6 @@ test("a played person's DONE ends the conversation even after reasoning, and not
   assert.equal(personText(""), null);
   assert.equal(personText("yes go ahead"), "yes go ahead");
   assert.equal(personText("is it DONE yet?"), "is it DONE yet?");
+  assert.equal(personText("The assistant asked which time. The brief has no line for it. <text>yes</text>"), "yes");
+  assert.equal(personText("Nothing more to say. <text>DONE</text>"), null);
 });
