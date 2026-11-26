@@ -21,7 +21,7 @@ import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
 import { threadOf, type Thread } from "./areaMail";
 import { botsOf, conversationsOf, type Bot } from "./bots";
-import { botsFolder, cardSlug } from "./seat";
+import { botsFolder } from "./seat";
 import { BotPanel } from "./BotPanel";
 import { panelSlot, PanelSlotView } from "./botPanelSlot";
 import { botLabel } from "@context/shared/src/areaBots.cjs";
