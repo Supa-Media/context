@@ -53,7 +53,7 @@ export const ACTIONS = [
   ["set_fields", "{ node? }", "what a label can hold on each node (its output fields and picks, must/never lines, run, star), the message kinds and the edits set_edit takes"],
   ["set_edit", "{ id, rev, ops: [...] }", "small edits to a conversation against the revision you read: title, kind, members, set, add/edit/remove/move a message (reactions, replies, edits, deletes too), label/field/rec per message × node, put; refused only when someone changed the same piece since"],
   ["set_move", "{ id, set: \"training\" | \"dev\" }", "move a whole conversation between Training and Dev, as dragging it in the Lab"],
-  ["set_create", "{ conv } | { id, title?, set, kind?, members? }, from_chat?", "a new conversation, whole or empty; with from_chat (from set_import) it is checked against the real chat and refused if it copies a line or a name"],
+  ["set_create", "{ conv } | { id, title?, set, kind?, members? }, from_chat?", "a new conversation, whole or empty; with from_chat (from set_import) it is checked against the real chat and refused if it copies a line or a name. A turn nobody texted is a trigger row: via checkin, routine, notify, job or did (what code did for the chat, spoken by Context, its text the facts as node did hands them)"],
   ["set_import", "{ chat?, before?, limit? }", "a real Tex chat's texts (yours, or a group you are in; at most 60) with the rules for rewriting it into a Training or Dev conversation"],
   ["set_delete", "{ id, confirm: true }", "a new conversation goes now; one in the repo is removed at the next Promote"],
   ["set_restore", "{ id }", "drop the Lab's draft of a conversation (or its delete), back to the repo's copy"],

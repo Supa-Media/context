@@ -153,7 +153,7 @@ export function modValue(c: Conversation, i: number, id: string, n: LabNode, all
 
 export type WireRow = { from: string; label: string; mode: string; when: string; src: string; cls: string };
 /** The triggers that start a turn other than a text; their wires don't apply to a person's message. */
-const TRIGGERS = new Set(["checkin", "routine", "notify"]);
+const TRIGGERS = new Set(["checkin", "routine", "notify", "joined", "did"]);
 /** A node's wires in, and where each one's input comes from on this message: your label, else main's recorded run. */
 export function wiresIn(n: LabNode, m: Message, g: LabGraph): WireRow[] {
   return g.edges.filter((e) => e.to === n.id).map((e) => {

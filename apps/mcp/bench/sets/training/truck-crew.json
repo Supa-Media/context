@@ -153,6 +153,27 @@
     {"id":"m143","kind":"reply","labels":{"decide":{"act":"quiet","also_react":"no","star":true,"why":"asks_someone_else"}},"text":"john didn't they email you about it","to":"m142","who":"Kofi"},
     {"id":"m144","text":"somewhere, i'll look","who":"John"},
     {"id":"m145","kind":"reply","text":"try the city's events page instead","to":"m142","who":"Priya"},
-    {"id":"m146","tex":true,"text":"The city's page lists summer stalls at $45 a day.","who":"Tex"}
+    {"id":"m146","tex":true,"text":"The city's page lists summer stalls at $45 a day.","who":"Tex"},
+    {"at":"Mon 9:02","id":"m147","text":"Tex add everyone here to @ember","who":"Priya"},
+    {"at":"Mon 9:02","id":"m148","labels":{"fd":{"must":["say who was invited, to which workspace and as what, in one short text","say it can use that workspace here now, and when each invite holds for good"],"never":["paste the facts or their field names","say it was told or handed anything"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"invite\",\"status\":\"invited\",\"workspace\":\"@ember\",\"people\":2,\"role\":\"editor\"}}","via":"did","who":"Context"},
+    {"id":"m149","tex":true,"text":"Done, I invited you two to @ember as editors, so I can use it here now. It holds for good once you text me or sign in with this number.","who":"Tex"},
+    {"at":"Mon 9:05","id":"m150","text":"Tex add everyone to @kofi-home too","who":"Kofi"},
+    {"at":"Mon 9:05","id":"m151","labels":{"fd":{"must":["say only an owner of that workspace can add people, and how an owner asks"],"never":["say it tried and something broke","blame the person who asked"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"invite\",\"status\":\"not_owner\",\"workspace\":\"@kofi-home\"}}","via":"did","who":"Context"},
+    {"id":"m152","tex":true,"text":"Only an owner of @kofi-home can add people to it. Whoever owns it can ask me here and I'll add everyone.","who":"Tex"},
+    {"at":"Mon 9:20","id":"m153","text":"Tex what can you see in here","who":"John"},
+    {"at":"Mon 9:20","id":"m154","labels":{"fd":{"must":["name each workspace it can use here, and that it uses only what everyone here can open"],"never":["name a workspace the facts don't"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"what_tex_sees\",\"status\":\"read\",\"workspaces\":\"@ember\"}}","via":"did","who":"Context"},
+    {"id":"m155","tex":true,"text":"Here I can use @ember, and only what everyone in this chat can open there.","who":"Tex"},
+    {"at":"Tue 11:40","id":"m156","text":"Tex share my truck gmail with this chat","who":"Priya"},
+    {"at":"Tue 11:40","id":"m157","labels":{"fd":{"must":["say what it needs before it can share a mailbox here, from what Tex can do, and the one step to take"],"never":["ask for a password or a sign-in here","promise to read that mail anyway"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"share_mail\",\"status\":\"refused\"}}","via":"did","who":"Context"},
+    {"id":"m158","tex":true,"text":"I can only share a Gmail you've connected yourself. Text me on your own to connect it, then ask here again.","who":"Tex"},
+    {"at":"Tue 12:15","id":"m159","text":"ok connected. Tex share my truck gmail with this chat","who":"Priya"},
+    {"at":"Tue 12:15","id":"m160","labels":{"fd":{"must":["say anyone here can ask about that mailbox now, that it sends from it only on a yes, and how to stop sharing it"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"share_mail\",\"status\":\"shared\",\"address\":\"truck@ember.example\",\"narrowed\":false}}","via":"did","who":"Context"},
+    {"id":"m161","tex":true,"text":"Done. Anyone here can ask me about truck@ember.example now, and I'll only send from it when you say yes. Tell me to stop sharing it any time.","who":"Tex"},
+    {"at":"Thu 8:30","id":"m162","text":"Tex, start","who":"John"},
+    {"at":"Thu 8:30","id":"m163","labels":{"fd":{"must":["say it's back in one short line, and how to get its attention"],"never":["apologise for being away","catch up on what it missed unasked"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"unmute\",\"status\":\"started\"}}","via":"did","who":"Context"},
+    {"id":"m164","tex":true,"text":"I'm back. Start with \"Tex\" when you need me.","who":"Tex"},
+    {"at":"Thu 9:40","id":"m165","text":"Tex what's the card number on file for the propane order","who":"Kofi"},
+    {"at":"Thu 9:40","id":"m166","labels":{"fd":{"must":["say it won't ask for that in the group, and that they should text it on their own first so it can ask there"],"never":["ask for the details here","share anything private in the group"],"star":true}},"text":"{\"from\":\"context\",\"did\":{\"action\":\"text_on_the_side\",\"status\":\"no_1to1\"}}","via":"did","who":"Context"},
+    {"id":"m167","tex":true,"text":"I won't ask for that here. Text me on your own first and I'll ask you there.","who":"Tex"}
   ]
 }
