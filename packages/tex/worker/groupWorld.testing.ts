@@ -5,6 +5,7 @@ import type { GroupMessage } from "./sendblueGroups";
 import type { MemoryStorage } from "./memoryStorage.testing";
 import { keptEvents, type TexEvent } from "./events";
 import { whapiGroupId } from "./whapi";
+import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 import type { Fetch } from "./clients";
 
 export const LINE = "+15555550199";
@@ -241,3 +242,5 @@ export async function decidedWords(storage: MemoryStorage, w: ReturnType<typeof 
   return w.decided.filter((body) => !body.running && body.ledger !== undefined).flatMap((body) => body.candidates.map((id) => byId.get(id) ?? "?"));
 }
 
+/** The config without node `did`: what a chat says when Tex can't word what code did (its old fixed lines, `didFacts.ts`). */
+export const WITHOUT_DID = { ...TEX_CONFIG, nodes: (TEX_CONFIG as { nodes: { id: string }[] }).nodes.filter((node) => node.id !== "did") };

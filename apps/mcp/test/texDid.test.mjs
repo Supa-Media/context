@@ -5,7 +5,7 @@
 // Sabotage record (2026-11-25), each fails a test here:
 //  - `didFactsOf` letting a nested object through: "facts are short names and short values, or nothing";
 //  - `didQuestion` adding a sentence: "the Front door is handed the facts and no words";
-//  - `did` dropped from `GATEWAY_NODES`: "the node has code and sits on the shelf until a draft wires it".
+//  - `did` dropped from `GATEWAY_NODES`: "the node has code and is wired to the Front door, when tell".
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -43,11 +43,13 @@ test("its cause adds no line: the facts are the turn's whole question", () => {
   assert.equal(taggedLine({ cause: "did" }), "");
 });
 
-test("the node has code and sits on the shelf until a draft wires it", () => {
+test("the node has code and is wired to the Front door, when tell (Lab draft vmwwsr5uflmq6)", () => {
   assert.equal(typeof GATEWAY_NODES.did, "function");
-  assert.equal(TEX_CONFIG.nodes.some((n) => n.id === "did"), false);
-  assert.equal(shelf.nodes.did?.node?.id, "did");
-  assert.equal(shelf.nodes.did.node.outSchema.find((f) => f.name === "to")?.options, "tell, refuse");
+  const node = TEX_CONFIG.nodes.find((n) => n.id === "did");
+  assert.equal(node?.on, true);
+  assert.equal(node.outSchema.find((f) => f.name === "to")?.options, "tell, refuse");
+  assert.deepEqual(TEX_CONFIG.edges.filter((e) => e.from === "did"), [{ from: "did", to: "fd", mode: "wait", when: ["tell"] }]);
+  assert.equal(shelf.nodes.did, undefined, "off the shelf once wired");
 });
 
 test("a job that ended hands the chat's turn how it ended as facts, never a line code wrote (no-scripted-wording.md)", async () => {

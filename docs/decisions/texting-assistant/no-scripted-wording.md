@@ -49,8 +49,10 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
 - **Never silent.** A `did` turn that can't run (the chat can't run one now, no model, the daily limit, every retry
   failed, the queue full) sends the action's old line once, logged as `group_did` `unsaid_<why>`
   (`didFacts.ts` `didUnsaid`). A retry re-sends the facts and never repeats the action.
-- **Config, not code.** The node merged on the shelf; until a Lab draft wires it (`did` to `fd`, when `tell`), the old
-  line is sent exactly as before. First user: adding everyone in a group to a workspace (`groupInvite.ts`). Tests:
+- **Config, not code.** The node merged on the shelf, then Lab draft `vmwwsr5uflmq6` wired it (`did` to `fd`, when
+  `tell`, 2026-11-26), tried in a group test chat first. Config without the node sends the old line exactly as before.
+  A command still runs at once beside a running turn, by code; what Tex says about it waits in the chat's own queue
+  behind that turn (`groupFast.test.ts`). First user: adding everyone in a group to a workspace (`groupInvite.ts`). Tests:
   `apps/mcp/test/texDid.test.mjs`, `packages/tex/worker/groupInvite.test.ts` (with the node wired: the facts reach the
   turn, the model out or the gateway down on every try sends the old line once, and the invite runs once).
 - **Group commands next** (B2): the start, invite, mail-sharing and "what can you see" answers, a group run's
