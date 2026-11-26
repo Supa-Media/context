@@ -3,7 +3,7 @@
  * /mnt/project-files/tex-sets/plan.md: "run that node alone on every gated change, given everything before the
  * message, its config context modules, and its wires' inputs").
  *
- *   node apps/mcp/bench/run.mjs sets run --conversations <file.json> --tree <dir> --out <file.json> [--node <id>] [--repeat n] [--fake]
+ *   node apps/mcp/bench/run.mjs sets run --conversations <file.json> --tree <dir> --out <file.json> [--node <id>] [--repeat n] [--repeat-nodes reviewer] [--fake]
  *   pnpm ai sets run [--set dev] [--node decide] [--repeat n] [--fake] [--out <file.json>]   (the repo's Dev Set by default)
  *   pnpm ai sets run --set dev --node fd --world record|refresh   record the simulated world's answers as fixtures
  *     (`simFixtures.mjs`, apps/mcp/bench/sets/sim/<conversation>.json): record adds this run's misses, refresh re-asks
@@ -13,8 +13,9 @@
  *
  * Each Front door test runs `--repeat n` times (or TEX_SETS_REPEAT): a whole number 1..5, 3 by default (Dev2, 2026-11-19:
  * one Front door run came back 11/30 and 15/30 minutes apart, so a run's score is a mean over repeats with its band).
- * Each copy's row carries its repeat as `rep` (0-based); the other nodes run once and carry none. `scoreByRepeat` reads
- * the rows back as per-repeat pass counts for the band.
+ * `--repeat-nodes reviewer` repeats those nodes the same way. The Test Set gate names the reply reviewer, because one
+ * sample of it is noise. Each copy's row carries its repeat as `rep` (0-based); a node that runs once carries none.
+ * `scoreByRepeat` reads the rows back as per-repeat pass counts for the band.
  *
  * A unit test is a starred label: one person's message × one node (`texSets.cjs` `unitTests`). Each runs through
  * that node's own code from `--tree` (the checkout whose nodes are judged), put the way production puts it, with
@@ -286,13 +287,22 @@ export async function adaptersFor(tree, { fake = false, env = process.env, holdO
   return table;
 }
 
+/** Nodes besides the front door that run `repeats` times (`--repeat-nodes`; the Test Set gate names the reply reviewer). */
+export function repeatNodesOf(value) {
+  return String(value ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "fd");
+}
+
 /**
  * Every unit test of the conversations (one node when `node` is named), each run alone. The nodes that run in this
  * process (Decide, the job check, the reviewer) go one after another while the batched ones (the Front door, whose
  * tests are processes of their own) go beside them, `parallel` tests at a time; rows come back in the same order.
  */
-export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false, repeats = 1, keep = null, world = "replay" } = {}) {
+export async function runSets(convs, { tree, node = null, fake = false, env = process.env, adapters = null, parallel = 1, holdOut = false, repeats = 1, repeatNodes = null, keep = null, world = "replay" } = {}) {
   const table = adapters ?? (await adaptersFor(tree, { fake, env, holdOut, keep, world }));
+  const again = new Set(["fd", ...(Array.isArray(repeatNodes) ? repeatNodes : [])]);
   const ready = {};
   const singles = [];
   const batches = {};
@@ -301,13 +311,14 @@ export async function runSets(convs, { tree, node = null, fake = false, env = pr
       if (node && t.node !== node) continue;
       const label = c.msgs[t.at].labels[t.node];
       const row = { chat: c.id, msg: t.msg, at: t.at, node: t.node };
+      // The front door, and any node named in `repeatNodes`, go `repeats` times. Each copy's row carries `rep`.
+      const copies = again.has(t.node) && repeats > 1 ? repeats : 1;
+      const withRep = (rep) => (copies > 1 ? { ...row, rep } : { ...row });
       if (table[t.node]?.batch) {
-        // The Front door's tests go `repeats` times, each copy its own object with its repeat's number (Dev2, 2026-11-19).
-        const copies = t.node === "fd" ? repeats : 1;
-        for (let rep = 0; rep < copies; rep++) {
-          (batches[t.node] ??= []).push({ convo: c, at: t.at, label, row: t.node === "fd" ? { ...row, rep } : { ...row } });
-        }
-      } else singles.push({ c, t, label, row });
+        for (let rep = 0; rep < copies; rep++) (batches[t.node] ??= []).push({ convo: c, at: t.at, label, row: withRep(rep) });
+      } else {
+        for (let rep = 0; rep < copies; rep++) singles.push({ c, t, label, row: withRep(rep) });
+      }
     }
   }
   const alone = async () => {
@@ -481,7 +492,7 @@ export const holdOutOn = (value) => /^(?:on|yes|true|1)$/i.test(String(value ?? 
 /** `sets run` and `sets regrade`: the CLI half. */
 export async function setsCommand(sub, options, { write = (t) => process.stdout.write(t) } = {}) {
   if (sub === "regrade") return regradeCommand(options, { write });
-  const usage = "usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--repeat n] [--keep <dir>] [--world replay|record|refresh] [--world-strict off|warn|fail] [--fake]\n       sets regrade --kept <dir> [--times n] [--votes n] [--out <file.json>] [--fake]";
+  const usage = "usage: sets run [--conversations <file.json>] [--set dev] [--tree <dir>] [--node <id>] [--out <file.json>] [--parallel n] [--hold-out on] [--repeat n] [--repeat-nodes id,id] [--keep <dir>] [--world replay|record|refresh] [--world-strict off|warn|fail] [--fake]\n       sets regrade --kept <dir> [--times n] [--votes n] [--out <file.json>] [--fake]";
   if (sub !== "run") throw new Error(usage);
   // Each Front door test's repeats (Dev2, 2026-11-19): --repeat, else TEX_SETS_REPEAT, else 3; a whole number 1..5. A bare
   // `--repeat` (no value) is refused, not read as 1 or as the default.
@@ -517,7 +528,7 @@ export async function setsCommand(sub, options, { write = (t) => process.stdout.
   const holdOut = holdOutOn(options["hold-out"] ?? process.env.TEX_SETS_HOLD_OUT);
   // `--keep <dir>`: each Front door test's judged notes and units are kept there (`setsFd.mjs`), for `sets regrade`.
   const keep = options.keep ? resolve(options.keep) : null;
-  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut, repeats, keep, world });
+  const rows = await runSets(convs, { tree, node: options.node ?? null, fake: Boolean(options.fake), parallel, holdOut, repeats, repeatNodes: repeatNodesOf(options["repeat-nodes"]), keep, world });
   if (convs.some((c) => c.set === "training")) write(`Training Front door: ${holdOut ? "held out (each conversation left out of its own examples)" : "in context (each conversation among its own examples)"}\n`);
   // A run on Claude Code says what it is: the same model family, not the production version (`texRunBand.cjs`).
   const { modelSocket } = await import("./modelSocket.mjs");

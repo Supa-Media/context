@@ -491,6 +491,14 @@ test("runSets sends each Front door test `repeats` times, each copy its own obje
   assert.equal("rep" in rows.find((r) => r.node === "decide"), false, "a node that runs once carries no rep");
 });
 
+test("runSets repeats a node named in repeatNodes, and still runs the others once", async () => {
+  const c = conv("rv", [{ id: "m1", who: "Ann", text: "thanks", labels: { reviewer: { sentBack: "0", star: true }, decide: { act: "quiet", star: true } }, rec: { fd: { draft: "ok" } } }]);
+  const one = async () => () => ({ right: true, ran: true, usd: 0 });
+  const rows = await runSets([c], { adapters: { reviewer: one, decide: one }, tree: "/x", repeats: 3, repeatNodes: ["reviewer"] });
+  assert.deepEqual(rows.filter((r) => r.node === "reviewer").map((r) => r.rep), [0, 1, 2]);
+  assert.deepEqual([rows.filter((r) => r.node === "decide").length, "rep" in rows.find((r) => r.node === "decide")], [1, false]);
+});
+
 test("scoreByRepeat reads repeated rows as per-repeat pass counts: a repeat that did not run falls back to the test's rate, and a test that never ran is left out", () => {
   const rows = [
     // A: 2 of 3 repeats right; B: 0 of 3; D: a decide test right once, which counts at every repeat.
