@@ -45,6 +45,12 @@ export const CAPABILITIES = Object.freeze([
     cant: [{ where: "group", what: "see the account of someone whose number here isn't on Context", workaround: { kind: "words", text: "they sign in to the Context app with the number they use in this chat, or text you once on their own from it; either puts it on their account" } }],
   },
   {
+    name: "Who here can open a workspace",
+    actions: ["send.who_can_open"],
+    texts: "a 1:1 text has nobody else to name; in a group chat you can find who here is in a workspace someone named",
+    group: "when the chat names a shared workspace the asker can't open, find who here is a member of it (send who_can_open, by its @handle or name), so you can say who could pull it up instead of reading it; a workspace nobody here is in answers the same as one that doesn't exist, and you never read its notes from the lookup",
+  },
+  {
     name: "Who someone is, for a form",
     actions: ["send.ask_personal_tex"],
     texts: "you know their own name, phone number and emails from their account, and use them for any form or sign-in without asking",

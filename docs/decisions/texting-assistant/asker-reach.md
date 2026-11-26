@@ -38,6 +38,13 @@ show it" said by the third person about one of the other two.
   `groupGuests.js` `blockedLine` as "Asker's, not everyone's: @slug is missing ..."). A workspace the asker is not in is never
   named. The prompt says the reach is the asker's, by their access and never anyone else's (`groupTurn.js`
   `groupPrompt`).
+- **Who holds the keys is looked up, one named workspace at a time.** When someone asks about a workspace they are not
+  in, the turn reads nothing of it, so it can call `send who_can_open` with the workspace's handle or name as the chat
+  said it (`packages/tex/gateway/agent/groupHolders.js`), and gets back the handles of the people in this chat with an
+  account who are members of that shared workspace (`apps/convex/functions/lib/texIdentity/holders.ts`, on the chat's
+  live grant only, the chat's home people only). It lists no workspace by itself, a workspace nobody here is in answers
+  the same as one that does not exist, and it never names a personal workspace or the pin. This is the fact behind
+  the rulebook's "Seyi or Sayo can pull it up"; saying it is Training's.
 
 ## What stays the model's
 
@@ -63,7 +70,10 @@ never feigned ignorance. A code floor comes only if Training keeps oversharing.
 - Taking the asker from the words, or from anything but the sender's number: anyone in the chat borrows anyone's
   access by naming them.
 - Letting a personal workspace count: a group turn reads someone's 1:1 memory, mail and calendar.
+- Handing every turn the list of everyone's workspaces instead of a lookup for a named one: the room learns which
+  workspaces each person is in without anyone asking.
 
 Tests: `apps/convex/__tests__/textGroupAskerReach.test.ts` (with its sabotage record),
 `apps/convex/__tests__/textGroupBlockers.test.ts`, `apps/convex/__tests__/controlPlane/texLabWorldReach.test.ts`,
-`packages/tex/worker/groupAskedRuns.test.ts`, `apps/mcp/test/chatReach.test.mjs`, `apps/mcp/test/chatBlockers.test.mjs`.
+`packages/tex/worker/groupAskedRuns.test.ts`, `apps/mcp/test/chatReach.test.mjs`, `apps/mcp/test/chatBlockers.test.mjs`, `apps/convex/__tests__/textGroupHolders.test.ts`,
+`apps/mcp/test/groupHolders.test.mjs`.

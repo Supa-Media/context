@@ -3,6 +3,7 @@ import { internalQuery } from "../_generated/server";
 import { askerIdentityHandler, texterIdentityHandler } from "./lib/texIdentity/identity";
 import { texterGroupsHandler } from "./lib/texIdentity/groups";
 import { memberCardsHandler } from "./lib/texIdentity/cards";
+import { workspaceHoldersHandler } from "./lib/texIdentity/holders";
 
 /** Who is texting Tex, for the gateway (`lib/texIdentity/identity.ts`). */
 const identityValidator = v.union(
@@ -41,4 +42,11 @@ export const cardsForGateway = internalQuery({
   args: { hashedAccessToken: v.string() },
   returns: v.union(v.null(), v.array(v.object({ handle: v.string(), workspaceId: v.string() }))),
   handler: memberCardsHandler,
+});
+
+/** Who in a group chat is a member of the shared workspace it named, by handle (`lib/texIdentity/holders.ts`). */
+export const holdersForGateway = internalQuery({
+  args: { hashedAccessToken: v.string(), workspace: v.string() },
+  returns: v.union(v.null(), v.object({ slug: v.union(v.string(), v.null()), holders: v.array(v.string()) })),
+  handler: workspaceHoldersHandler,
 });
