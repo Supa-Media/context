@@ -1,6 +1,6 @@
 {
   "why": "Sentences of Tex's wording still written in code, per file. Only shrinks (scripts/tex-wording-check.mjs; docs/decisions/texting-assistant/no-scripted-wording.md).",
-  "total": 2557,
+  "total": 2551,
   "files": {
     "packages/tex/gateway/agent/aboutLines.js": 1,
     "packages/tex/gateway/agent/aboutMe.js": 6,
@@ -306,7 +306,7 @@
     "packages/tex/worker/inboxTurn.ts": 8,
     "packages/tex/worker/jobNote.ts": 1,
     "packages/tex/worker/jobRun.ts": 17,
-    "packages/tex/worker/jobs.ts": 14,
+    "packages/tex/worker/jobs.ts": 8,
     "packages/tex/worker/lineCalls.ts": 1,
     "packages/tex/worker/machineTurn.ts": 20,
     "packages/tex/worker/media.ts": 1,

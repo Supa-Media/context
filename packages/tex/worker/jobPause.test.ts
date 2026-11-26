@@ -83,11 +83,9 @@ describe("a job paused at the daily limit", () => {
     expect(limitResetAt(Date.UTC(2026, 10, 5, 23, 59))).toBe(RESET);
   });
 
-  it("says it will pick itself back up, not to text tomorrow", async () => {
+  it("tells the chat, as facts, that it picks itself back up", async () => {
     const { update } = await pausedJob();
-    expect(update).toMatchObject({ state: "waiting", resumeAt: RESET, texts: [JOB_LINES.refused("Morocco trip plan", "daily_limit")] });
-    expect(update.texts?.[0]).toMatch(/pick it back up by myself as soon as the limit resets/);
-    expect(update.texts?.[0]).not.toMatch(/tomorrow/i);
+    expect(update).toMatchObject({ state: "waiting", resumeAt: RESET, texts: [], end: { action: "job", status: "paused", why: "daily_limit", resumes_by_itself: true } });
   });
 
   it("does nothing before the reset, and arms the alarm for it", async () => {

@@ -126,7 +126,7 @@ describe("a background job's own alarm", () => {
     expect(passes).toBe(4);
     // The waits between its four tries; the alarm after them is the ended job's, to drop its kept run.
     expect(fired.slice(1, 4).map((at, i) => at - fired[i])).toEqual([10_000, 20_000, 40_000]);
-    expect(reports).toEqual([expect.objectContaining({ state: "failed", texts: [JOB_LINES.failed(RUN.title)] })]);
+    expect(reports).toEqual([expect.objectContaining({ state: "failed", texts: [], end: { action: "job", status: "failed", why: "every_try_failed" } })]);
     expect(storage.data.has(RUN_KEY)).toBe(false);
     expect(storage.data.has(DRIVE_KEY)).toBe(false);
   });

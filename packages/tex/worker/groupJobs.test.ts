@@ -282,6 +282,6 @@ describe("background jobs in a group chat", () => {
     const reports: JobUpdate[] = [];
     await acceptJob(storage, groupRun(), NOW);
     await runJob(storage, { ...d, report: async (_inbox, update) => (reports.push(update), true) });
-    expect(reports.at(-1)).toMatchObject({ state: "failed", texts: [GROUP_LINES.joined] });
+    expect(reports.at(-1)).toMatchObject({ state: "failed", end: { action: "job", status: "stopped", why: "someone_joined" } });
   });
 });

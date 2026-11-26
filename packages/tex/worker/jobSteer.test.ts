@@ -167,7 +167,7 @@ describe("steering a running job", () => {
     await acceptJob(storage, run({ attempt: MAX_JOB_ATTEMPTS }), NOW);
     const { deps, reports } = jobDeps([{ body: { answer: "Made a green logo." }, during: async () => void (await steerJob(storage, yellow)) }]);
     await runJob(storage, deps);
-    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Made a green logo.", JOB_LINES.missed] });
+    expect(reports.at(-1)).toMatchObject({ state: "done", texts: ["Made a green logo."], end: { action: "job", status: "done", change_missed: true } });
   });
 });
 
