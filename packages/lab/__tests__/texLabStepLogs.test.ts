@@ -102,6 +102,7 @@ const entries: LedgerEntry[] = [
   step("checks", { input: "Started.", output: null }),
   run("toolRules", { calls: 3, tools: ["plan_big_ask", "read_note", "ask_advisor"] }, { on: ["sameAsk", "folderFit", "noteLinks"], off: [] }),
   run("finish", {}, { chars: 8, asked: 0, silent: false }),
+  run("roomCheck", { at: "answer", draftChars: 8 }, { to: "send", read: 0, chars: 0, pointed: false, carried: 0 }),
   run("recheck", { candidates: ["1000-000001"], transcriptChars: 40 }, { fits: true }),
   e({ kind: "mail_check", turn: T, to: "a@example.com", subject: "Trip", verdict: "send", why: "fine" }),
   step("card", { input: { tool: "draw_visual" }, output: { ok: true } }),
