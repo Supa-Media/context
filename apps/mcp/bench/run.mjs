@@ -38,6 +38,7 @@ import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
+import { judgeGoldCommand } from "./judgeGold.mjs";
 import { reviewCommand } from "./review.mjs";
 import { respondCommand } from "./respond.mjs";
 import { ROLES as ADVISOR_ROLES, advisorCommand } from "./advisor.mjs";
@@ -623,6 +624,7 @@ const USAGE = [
   "       pnpm ai score <result file> --dir <benchmarks folder>",
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
+  "       pnpm ai judge-gold [--times <n>] [--judge <model>] [--votes <n>] [--fake]   grade the judge against people's labels (judgeGold/)",
   "       pnpm ai review [--set a,b] [--concurrency <n>] [--fake]   score the reply reviewer on its labelled cases",
   "       pnpm ai respond [--concurrency <n>] [--fake]   score the one judge's respond-or-quiet call (Clef) on its held-out cases",
   "       pnpm ai advisor-chat | advisor-job-check | advisor-planner | advisor-job-mail [--only a,b] [--fake]   score one advisor role on its cases",
@@ -653,6 +655,7 @@ const COMMANDS = new Map([
   ["score", scoreCommand],
   ["summary", summaryCommand],
   ["calibrate", calibrateCommand],
+  ["judge-gold", judgeGoldCommand],
   ["review", reviewCommand],
   ["respond", respondCommand],
   ...Object.keys(ADVISOR_ROLES).map((role) => [role, advisorCommand(role)]),

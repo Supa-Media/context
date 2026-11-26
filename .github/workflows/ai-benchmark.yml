@@ -39,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "The job to benchmark (tests/<job>.md, setups/<job>/)"
+        description: "The job to benchmark (tests/<job>.md, setups/<job>/); judge-gold grades the judge against people's labels (runs = rounds)"
         required: false
         default: "texting-assistant"
       test:
@@ -152,9 +152,46 @@ jobs:
           [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
           pnpm --silent ai respond "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # The judge graded against people's labels (`apps/mcp/bench/judgeGold.mjs`, Dev2, 2026-11-26): the gold answers
+  # judged again `runs` rounds (default 2), agreement and flips on the summary page. Only the judge's model calls:
+  # no runner sign-in, no setups, no Context.
+  judge-gold:
+    name: Grade the judge (judge-gold)
+    if: ${{ inputs.job == 'judge-gold' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      AI_KEY_USE: evals # whose Anthropic keys it spends, in order: packages/tex/src/aiKeys.json
+      ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
+      BENCH_FAKE: ${{ inputs.fake && '--fake' || '' }}
+      BENCH_RUNS: ${{ inputs.runs }}
+      BENCH_JUDGE: ${{ inputs.judge }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Judge the gold answers and compare with the labels
+        run: |
+          set -euo pipefail
+          [[ "$BENCH_RUNS" =~ ^[0-9]{0,1}$ ]] || { echo "::error::runs must be a small number, or empty."; exit 1; }
+          [[ "$BENCH_JUDGE" =~ ^[a-z0-9@/._-]{0,64}$ ]] || { echo "::error::judge must be a model id."; exit 1; }
+          args=()
+          [ -n "$BENCH_RUNS" ] && args+=(--times "$BENCH_RUNS")
+          [ -n "$BENCH_JUDGE" ] && args+=(--judge "$BENCH_JUDGE")
+          [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
+          pnpm --silent ai judge-gold "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
   benchmark:
     name: Run, judge, score
-    if: ${{ inputs.job != 'respond' }}
+    if: ${{ inputs.job != 'respond' && inputs.job != 'judge-gold' }}
     needs: wait-turn
     runs-on: ubuntu-latest
     environment: production
