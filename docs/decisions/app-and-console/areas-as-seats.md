@@ -27,7 +27,10 @@ who to ask and what is not covered. No new concept: an area is the seat.
 - **The page.** The Areas folder and every area in it offers **List** (the
   default, an outline of areas with their notes, sheets and plain folders) and
   **Chart** (the open area on top, its sub-areas below), remembered per
-  viewer like a projects folder's List and Board. A right-click or ⋯ on a row
+  viewer like a projects folder's List and Board. Which areas a viewer has
+  unfolded is remembered too, per viewer, workspace, folder and view, List
+  and Chart apart (the owner, 2026-11-26: "dont want to have to keep
+  reopening"; `areas/foldMemory.ts`, `areasList.test.ts`). A right-click or ⋯ on a row
   or box opens the seat menu; Edit seat opens the pop-up that writes the
   lines; Add a sub-area writes a new folder's `about.md`.
 - **Both views draw the approved prototype, not an approximation of it**

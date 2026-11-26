@@ -38,6 +38,7 @@ import { headlineOf, type Headline } from "./headline";
 import { VerdictMark } from "./AreaMetricCell";
 import { areaTitle, needLook, type AreaNode, type Seat } from "./seat";
 import type { AreaProjects } from "./areaProjects";
+import { useFolds, type FoldHome } from "./foldMemory";
 
 export interface AreasChartProps {
   /** Rooted at the open folder. */
@@ -65,6 +66,8 @@ export interface AreasChartProps {
   onAssign: ((seat: Seat) => void) | null;
   /** The projects that serve an area or its sub-areas; absent where the Projects folder is not read. */
   projectsOf?: (folder: string) => AreasProjectsCount;
+  /** Where the folds are kept for this viewer (`foldMemory.ts`); absent, they last while the page is open. */
+  remember?: FoldHome;
 }
 
 type AreasProjectsCount = Pick<AreaProjects, "inProgress">;
@@ -98,15 +101,9 @@ const SUB_ELBOW = 17;
 export function AreasChart(props: AreasChartProps) {
   const { tree, rootTitle, compact } = props;
   const styles = useThemedStyles(makeStyles);
-  // Every area's sub-areas start folded, on a wide screen as on a phone (the owner, 2026-11-26).
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const toggle = (folder: string) =>
-    setOpen((previous) => {
-      const next = new Set(previous);
-      if (next.has(folder)) next.delete(folder);
-      else next.add(folder);
-      return next;
-    });
+  // Every area's sub-areas start folded, on a wide screen as on a phone (the owner, 2026-11-26),
+  // and what a viewer unfolds is kept for them (the owner, 2026-11-26).
+  const [open, toggle] = useFolds(props.remember === undefined ? undefined : { ...props.remember, view: "chart" });
   const ctx: Ctx = { ...props, onArea: props.onArea ?? props.onOpen, isOpen: (folder) => open.has(folder), toggle };
   return (
     <View style={styles.chart} testID="areas-chart">

@@ -344,7 +344,7 @@ export function AreasView(props: AreasViewProps) {
   }, [onPanel, peekOpen, slot, botsView]);
   useEffect(() => () => onPanel?.(null), [onPanel]);
   const countNotes = useCallback((path: string) => notesUnder(path, notes), [notes]);
-  const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf, ...(projectTools === null ? {} : { projectsOf: projectTools.of }) };
+  const shared = { tree, rootTitle, notesUnder: countNotes, compact, faceOf, label, reach, onMenu: openMenu, readingOf, ...(projectTools === null ? {} : { projectsOf: projectTools.of }), ...(host === undefined ? {} : { remember: { workspaceId: host.workspaceId, folder } }) };
   const pickingTitle = picking === null ? "" : picking.folder === folder ? rootTitle : areaTitle(picking.name);
   return (
     <View testID="areas-view">

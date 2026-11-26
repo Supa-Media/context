@@ -29,6 +29,8 @@ import type { ListNote } from "../features/console/files/listBlock/model";
 import { AreasList, type AreasListProps } from "../features/console/files/folderPage/areas/AreasList";
 import { areaTree } from "../features/console/files/folderPage/areas/seat";
 import type { AreaProject, AreaProjects } from "../features/console/files/folderPage/areas/areaProjects";
+import { AreasChart, type AreasChartProps } from "../features/console/files/folderPage/areas/AreasChart";
+import { forgetFolds } from "../features/console/files/folderPage/areas/foldMemory";
 import { all, one, press, strip, unmountAll } from "./projectPage/fixtures";
 
 const ROOT = "areas";
@@ -87,6 +89,8 @@ async function render(overrides: Partial<AreasListProps> = {}, notes: ListNote[]
 beforeEach(() => {
   mounted = null;
   container = null;
+  forgetFolds();
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -251,6 +255,76 @@ describe("the Areas List", () => {
     await press(one("area-toggle-areas/finance"));
     expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
     expect(all("area-row-areas/finance")).toHaveLength(1);
+  });
+
+  describe("what a viewer unfolds is kept for them (the owner, 2026-11-26)", () => {
+    const remember = { workspaceId: "ws_test", folder: ROOT };
+    const remount = async (overrides: Partial<AreasListProps>) => {
+      act(() => mounted!.unmount());
+      container?.remove();
+      await render(overrides);
+    };
+
+    test("an area unfolded in the List is still unfolded after the page is opened again", async () => {
+      await render({ remember });
+      await press(one("area-toggle-areas/finance"));
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
+      // Folding it again is kept too.
+      await press(one("area-toggle-areas/finance"));
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
+
+    test("it survives a reload, kept per workspace and folder", async () => {
+      await render({ remember });
+      await press(one("area-toggle-areas/finance"));
+      forgetFolds();
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(1);
+      await remount({ remember: { workspaceId: "ws_other", folder: ROOT } });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
+
+    test("without a place to keep it, a fresh page starts folded as before", async () => {
+      await render();
+      await press(one("area-toggle-areas/finance"));
+      await remount({});
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
+
+    test("the Chart keeps its own unfolded areas, apart from the List's", async () => {
+      const chartProps: AreasChartProps = {
+        tree: areaTree(ROOT, ROOT, NOTES),
+        rootTitle: "Supa",
+        compact: false,
+        faceOf: () => ({ kind: "nobody" }) as never,
+        label: (owner) => owner,
+        reach: () => "",
+        onOpen: () => {},
+        readingOf: () => undefined,
+        onMenu: () => {},
+        onAdd: null,
+        onAssign: null,
+        remember,
+      };
+      const chart = async () => {
+        if (mounted !== null) act(() => mounted!.unmount());
+        container?.remove();
+        container = document.createElement("div");
+        document.body.appendChild(container);
+        mounted = createRoot(container);
+        await act(async () => mounted!.render(createElement(AreasChart, chartProps)));
+      };
+      await chart();
+      expect(all("area-box-areas/finance/payroll")).toHaveLength(0);
+      await press(one("area-fold-areas/finance"));
+      await chart();
+      expect(all("area-box-areas/finance/payroll")).toHaveLength(1);
+      // The List was never unfolded, so it still opens folded.
+      await remount({ remember });
+      expect(all("area-row-areas/finance/payroll")).toHaveLength(0);
+    });
   });
 
   test("the top row's chevron folds everything under it", async () => {
