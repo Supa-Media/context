@@ -104,8 +104,8 @@ export function MailPage({
   return (
     <View style={styles.page} testID="mail-page">
       <View style={styles.head}>
-        <Text variant="paneTitle">Mail</Text>
-        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close Mail" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.close, hovered && styles.closeHover]} testID="mail-close">
+        <Text variant="paneTitle">Agent Mail</Text>
+        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close Agent Mail" style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.close, hovered && styles.closeHover]} testID="mail-close">
           <Text variant="treeMeta" style={styles.muted}>
             Close
           </Text>

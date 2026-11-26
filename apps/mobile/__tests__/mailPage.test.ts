@@ -50,9 +50,10 @@ jest.mock("../features/console/files/useWriteNote", () => ({
 
 import { routeMap } from "../features/console/map/live/route";
 import { routeTrash } from "../features/console/trash/TrashRouteContext";
-import { mailFromQuery, routeMail, type MailRoute } from "../features/console/mailPage/MailRouteContext";
-import { conversationsOf, groupsFor, placeOf, SINCE, type MailNoteRow } from "../features/console/mailPage/model";
+import { mailFromQuery, mailTabLabel, routeMail, type MailRoute } from "../features/console/mailPage/MailRouteContext";
+import { avatarOf, botCardOf, conversationsOf, groupsFor, messageLines, placeOf, SINCE, type MailNoteRow } from "../features/console/mailPage/model";
 import { withMail } from "../features/console/mailPage/MailThread";
+import { consoleCreateButton } from "../features/console/layout/createButton";
 import { MailPage } from "../features/console/mailPage/MailPage";
 import { forgetMail, mailNotesAnswer } from "../features/console/mailPage/useMailNotes";
 import { all, one, press, strip, windowOf } from "./projectPage/fixtures";
@@ -124,6 +125,53 @@ describe("the address", () => {
   });
 });
 
+describe("the thread reads Slack style", () => {
+  const at = (iso: string, from: string) => ({ at: iso, from });
+  const NOW = Date.parse("2026-11-26T15:00:00.000Z");
+
+  test("a header when the sender changes, a gap passes or the day turns; a run from one sender sits under one", () => {
+    const lines = messageLines(
+      [
+        at("2026-11-25T18:10:00.000Z", "@seyi"),
+        at("2026-11-25T18:12:00.000Z", "@seyi"),
+        at("2026-11-25T18:13:00.000Z", "grok-bot"),
+        at("2026-11-25T23:06:00.000Z", "grok-bot"),
+        at("2026-11-26T09:00:00.000Z", "grok-bot"),
+      ],
+      NOW,
+    );
+    expect(lines.map((line) => line.header)).toEqual([true, false, true, true, true]);
+    expect(lines.map((line) => line.day !== null)).toEqual([true, false, false, false, true]);
+    expect(lines[4]!.day).toBe("Today");
+  });
+
+  test("a bot's logo is read through its card's avatar line, and only a bot's own mail has a card", () => {
+    expect(avatarOf("---\nkind: agent\navatar: logo-3f2a.png\n---\n# Grok Bot\n")).toBe("logo-3f2a.png");
+    expect(avatarOf("---\navatar: \"logo.png\"\n---\n")).toBe("logo.png");
+    expect(avatarOf("# No front matter\navatar: not-this.png\n")).toBe("");
+    const conversations = conversationsOf(ROWS, "areas", "@seyi");
+    const grok = conversations.find((each) => each.path === "bots/grok-bot/mail/seyi.md")!;
+    const finance = conversations.find((each) => each.path === "areas/finance/mail/seyi.md")!;
+    expect(botCardOf(grok)).toBe("bots/grok-bot/about.md");
+    expect(botCardOf(finance)).toBeNull();
+  });
+
+  test("the corner's + is not drawn while Agent Mail is open, where it sat on Send", () => {
+    const data = { demo: false, files: { canEdit: true, listings: [], selectedPath: null, createUntitled: () => {} } } as unknown as Parameters<typeof consoleCreateButton>[0]["data"];
+    const base = { data, phone: false, startMeetingFlow: () => {}, resumeRow: null, setBarDialog: () => {} } as unknown as Parameters<typeof consoleCreateButton>[0];
+    expect(consoleCreateButton({ ...base, mailOpen: true })).toBeNull();
+    expect(consoleCreateButton(base)).not.toBeNull();
+  });
+
+  test("while Agent Mail is open the active tab says so; closed, the title being typed shows as before", () => {
+    const open: MailRoute = { open: true, workspaceId: "ws", openMail: () => {}, closeMail: () => {}, toggle: () => {} };
+    const edit = { path: "notes/a.md", label: "A" };
+    expect(mailTabLabel(open, "bots/grok-bot/mail/seyi.md", edit)).toEqual({ path: "bots/grok-bot/mail/seyi.md", label: "Agent Mail" });
+    expect(mailTabLabel({ ...open, open: false }, "notes/a.md", edit)).toBe(edit);
+    expect(mailTabLabel(undefined, "notes/a.md", null)).toBeNull();
+  });
+});
+
 describe("the page", () => {
   const roots: (() => void)[] = [];
   beforeEach(() => {
@@ -163,13 +211,18 @@ describe("the page", () => {
     expect(all("mail-row-products/search/speed-plan.md")).toHaveLength(1);
   });
 
-  test("a reply is appended to the note's mail, at the version just read, and says it is mail", async () => {
+  test("a reply is appended to the note's mail, at the version just read, with no note under the box", async () => {
     windowOf(1440);
     await mountPage(false);
     await press(one("mail-row-areas/finance/mail/seyi.md"));
     for (let i = 0; i < 3; i += 1) await act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
     expect(strip(one("mail-thread").textContent)).toContain("$512 so far.");
-    expect(strip(one("mail-not-chat").textContent)).toContain("Mail, not a chat.");
+    // Dev2, 2026-11-26, on the old "Mail, not a chat…" line under the box: "unnecessary". The page's name says it.
+    expect(all("mail-not-chat")).toHaveLength(0);
+    // The head names the people and links the note; never the file's path (Dev2: "no need to show the full path").
+    expect(strip(one("mail-thread").textContent)).not.toContain("areas/finance/mail/seyi.md");
+    expect(strip(one("mail-people").textContent)).toContain("You");
+    expect(strip(one("mail-open-note").textContent)).toBe("Open note");
     const input = one("mail-input") as HTMLTextAreaElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Thanks!");

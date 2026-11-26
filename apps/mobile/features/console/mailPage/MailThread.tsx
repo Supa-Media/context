@@ -1,24 +1,33 @@
 /**
- * One conversation on the Mail page: the note's mail read like a thread, and a box that adds to it. Writing here is
- * mail, never a chat (the owner, 2026-11-25: "make it clear in the UI that its not a chat, and that its mail, because
- * we wont be able to see into its thinking, stream, etc"): the line is appended to the note's ```mail block, signed
- * with the reader's `@handle`, and whoever holds the area or the bot is told by the workspace, as for any new line.
+ * One conversation on Agent Mail: the note's mail read like a thread, and a box that adds to it. Writing here is mail,
+ * never a chat: the line is appended to the note's ```mail block, signed with the reader's `@handle`, and whoever holds
+ * the area or the bot is told by the workspace, as for any new line. The page's name says it is mail with agents, so
+ * the box carries no note saying so (Dev2, 2026-11-26, on the old footer line: "unnecessary").
+ *
+ * Read Slack style (Dev2, 2026-11-26): every message left-aligned under a header with the sender's face, name and
+ * time, a run from one sender under one header, a line between days. The head names the people in the mail by face,
+ * a bot by its own logo from its card, and links the note; it never shows the file's path.
  */
 
 import { appendMail, parseMail, type MailEvent } from "@context/shared/src/mail.cjs";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "../../design/components/Text";
 import { useFieldFont } from "../../design/fieldFont";
 import { pointerType, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { timeLabel } from "../files/mail/model";
-import { isMe, nameOf, type Conversation } from "./model";
+import { OwnerFace, type Face, type FacePicture } from "../files/folderPage/Glyphs";
+import { cardSlug } from "../files/folderPage/areas/seat";
+import { avatarOf, botCardOf, clockLabel, isMe, isPersonName, messageLines, nameOf, sideName, type Conversation } from "./model";
 
 /** How the page reads a note and writes it back: the app's own note reads and saves (`useMailIO`). */
 export interface MailNoteIO {
   read(path: string): Promise<{ text: string; etag: string; readOnly: boolean; encrypted?: boolean }>;
   write(path: string, text: string, expectedEtag: string): Promise<unknown>;
+  /** A picture named on a note (a bot's logo on its card), as a `src`; absent where pictures can't be read. */
+  picture?(notePath: string, leaf: string): Promise<string | null>;
+  /** The picture's cache key: the stored picture's name is a hash of its bytes. */
+  pictureKey?(leaf: string): string;
 }
 
 /** `text` with `entry` appended to its mail block, or the reason it cannot be. */
@@ -30,11 +39,26 @@ export function withMail(text: string, from: string, words: string): { text: str
   return { text: out };
 }
 
-/** Who the reply box reaches, in words: a bot's own mail, an area's holder, or everyone on the note. */
-function reachWords(conversation: Conversation): string {
-  if (conversation.place.kind === "bot") return `Mail, not a chat. ${nameOf(conversation.place.bot)} is told now and answers here when it answers; its thinking stays in its own app.`;
-  if (conversation.place.kind === "area") return "Mail, not a chat. Whoever holds the area is told now and answers here when it answers.";
-  return "Mail, not a chat. Everyone who joined this note's mail reads it here.";
+/** The conversation's bot logo, read through its card's `avatar:` line; undefined until read, or when there is none. */
+function useBotPicture(conversation: Conversation, io: MailNoteIO): FacePicture | undefined {
+  const card = botCardOf(conversation);
+  const [picture, setPicture] = useState<FacePicture | undefined>(undefined);
+  useEffect(() => {
+    setPicture(undefined);
+    const read = io.picture;
+    if (card === null || read === undefined) return;
+    let live = true;
+    io.read(card)
+      .then((note) => {
+        const leaf = note.encrypted === true ? "" : avatarOf(note.text);
+        if (live && leaf !== "") setPicture({ key: io.pictureKey?.(leaf) ?? `${card}|${leaf}`, read: () => read(card, leaf) });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [card, io]);
+  return picture;
 }
 
 type Read = { status: "reading" } | { status: "failed" } | { status: "sealed" } | { status: "read"; events: readonly MailEvent[]; readOnly: boolean };
@@ -62,6 +86,15 @@ export function MailThread({
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const path = conversation.path;
+  const botPicture = useBotPicture(conversation, io);
+  const bot = conversation.place.kind === "bot" ? conversation.place.bot : null;
+  const faceOf = useCallback(
+    (name: string): Face => {
+      if (isPersonName(name)) return { kind: "person", name };
+      return bot !== null && cardSlug(name) === bot && botPicture !== undefined ? { kind: "agent", picture: botPicture } : { kind: "agent" };
+    },
+    [bot, botPicture],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -107,70 +140,111 @@ export function MailThread({
     }
   };
 
-  const messages = read.status === "read" ? read.events.filter((event) => event.kind === "mail") : [];
+  const messages = useMemo(() => (read.status === "read" ? read.events.filter((event) => event.kind === "mail") : []), [read]);
+  const lines = useMemo(() => messageLines(messages), [messages]);
+  // Who is in this mail: the names that joined, else whoever wrote; the bot first, the reader last.
+  const people = useMemo(() => {
+    const names = conversation.joined.length > 0 ? [...conversation.joined] : [...new Set(messages.map((event) => event.from))];
+    if (bot !== null && !names.some((name) => cardSlug(name) === bot)) names.unshift(bot);
+    const rank = (name: string) => (bot !== null && cardSlug(name) === bot ? 0 : isMe(name, me) ? 2 : 1);
+    return names.sort((a, b) => rank(a) - rank(b));
+  }, [conversation.joined, messages, bot, me]);
   const canWrite = me !== undefined && read.status === "read" && !read.readOnly;
+  const cantSend = !canWrite || sending || words.trim() === "";
   return (
     <View style={styles.thread} testID="mail-thread">
       <View style={styles.head}>
         {onBack !== undefined ? (
-          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to Mail" style={styles.back} testID="mail-back">
+          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to Agent Mail" style={styles.back} testID="mail-back">
             <Text variant="treeMeta" style={styles.link}>
-              ‹ Mail
+              ‹ Agent Mail
             </Text>
           </Pressable>
         ) : null}
-        <Text variant="tree" style={styles.title} numberOfLines={1}>
-          {conversation.title}
-        </Text>
-        <Pressable onPress={() => onOpenNote(path)} accessibilityRole="link" testID="mail-open-note">
-          <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
-            {`${conversation.where} · open the note`}
-          </Text>
-        </Pressable>
+        <View style={styles.headRow}>
+          <View style={styles.grow}>
+            <Text variant="tree" style={styles.title} numberOfLines={1}>
+              {conversation.title}
+            </Text>
+            <View style={styles.people} testID="mail-people">
+              {people.map((name) => (
+                <View key={name} style={styles.person}>
+                  <OwnerFace face={faceOf(name)} size={18} />
+                  <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
+                    {sideName(name, me)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+          <Pressable onPress={() => onOpenNote(path)} accessibilityRole="link" style={styles.openNote} testID="mail-open-note">
+            <Text variant="treeMeta" style={styles.link}>
+              Open note
+            </Text>
+          </Pressable>
+        </View>
       </View>
       <ScrollView style={styles.messages} contentContainerStyle={styles.messagesInner}>
-        {read.status === "reading" ? <Text variant="treeMeta" style={styles.muted}>Reading…</Text> : null}
-        {read.status === "failed" ? <Text variant="treeMeta" style={styles.muted}>This mail couldn't be read just now.</Text> : null}
-        {read.status === "sealed" ? <Text variant="treeMeta" style={styles.muted}>This note is encrypted: open it to read its mail.</Text> : null}
-        {messages.map((event) => {
-          const mine = isMe(event.from, me);
-          return (
-            <View key={`${event.at}|${event.from}|${event.start}`} style={[styles.message, mine && styles.mine]} testID="mail-message">
-              <Text variant="treeMeta" style={styles.muted}>
-                {`${mine ? "You" : nameOf(event.from)}${event.app ? ` (${event.app})` : ""} · ${timeLabel(event.at)}${event.to && event.to !== "everyone" ? ` · to ${nameOf(event.to)}` : ""}${event.used !== null ? ` · used ${event.used}%` : ""}`}
-              </Text>
-              <Text variant="tree" selectable>
-                {event.text}
-              </Text>
+        {read.status === "reading" ? <Text variant="treeMeta" style={[styles.muted, styles.notice]}>Reading…</Text> : null}
+        {read.status === "failed" ? <Text variant="treeMeta" style={[styles.muted, styles.notice]}>This mail couldn't be read just now.</Text> : null}
+        {read.status === "sealed" ? <Text variant="treeMeta" style={[styles.muted, styles.notice]}>This note is encrypted: open it to read its mail.</Text> : null}
+        {lines.map(({ event, header, day }) => (
+          <View key={`${event.at}|${event.from}|${event.start}`}>
+            {day !== null ? (
+              <View style={styles.day} testID="mail-day">
+                <View style={styles.dayRule} />
+                <Text variant="treeMeta" style={styles.dayWord}>
+                  {day}
+                </Text>
+                <View style={styles.dayRule} />
+              </View>
+            ) : null}
+            <View style={[styles.message, header && styles.messageFirst]} testID="mail-message">
+              <View style={styles.gutter}>{header ? <OwnerFace face={faceOf(event.from)} size={32} /> : null}</View>
+              <View style={styles.body}>
+                {header ? (
+                  <View style={styles.sender}>
+                    <Text variant="tree" style={styles.name}>
+                      {isMe(event.from, me) ? "You" : nameOf(event.from)}
+                    </Text>
+                    {event.app ? <Text variant="treeMeta" style={styles.muted}>{event.app}</Text> : null}
+                    <Text variant="treeMeta" style={styles.muted}>
+                      {clockLabel(event.at)}
+                      {event.to && event.to !== "everyone" ? ` · to ${nameOf(event.to)}` : ""}
+                      {event.used !== null ? ` · used ${event.used}%` : ""}
+                    </Text>
+                  </View>
+                ) : null}
+                <Text variant="tree" style={styles.words} selectable>
+                  {event.text}
+                </Text>
+              </View>
             </View>
-          );
-        })}
+          </View>
+        ))}
       </ScrollView>
       <View style={styles.box}>
-        <TextInput
-          value={words}
-          onChangeText={(next) => {
-            setWords(next);
-            setProblem(null);
-          }}
-          multiline
-          editable={canWrite && !sending}
-          accessibilityLabel={`Write to ${conversation.other}`}
-          placeholder={canWrite ? `Write to ${conversation.other}…` : "You can read this mail but not write in it."}
-          placeholderTextColor={colors.muted}
-          style={[styles.input, fieldFont]}
-          testID="mail-input"
-        />
-        <View style={styles.boxFoot}>
-          <Text variant="treeMeta" style={[styles.muted, styles.grow]} testID="mail-not-chat">
-            {problem ?? reachWords(conversation)}
-          </Text>
+        <View style={styles.field}>
+          <TextInput
+            value={words}
+            onChangeText={(next) => {
+              setWords(next);
+              setProblem(null);
+            }}
+            multiline
+            editable={canWrite && !sending}
+            accessibilityLabel={`Write to ${conversation.other}`}
+            placeholder={canWrite ? `Write to ${conversation.other}…` : "You can read this mail but not write in it."}
+            placeholderTextColor={colors.muted}
+            style={[styles.input, fieldFont]}
+            testID="mail-input"
+          />
           <Pressable
             onPress={() => void send()}
-            disabled={!canWrite || sending || words.trim() === ""}
+            disabled={cantSend}
             accessibilityRole="button"
             accessibilityLabel="Send mail"
-            style={[styles.send, (!canWrite || sending || words.trim() === "") && styles.sendOff]}
+            style={[styles.send, cantSend && styles.sendOff]}
             testID="mail-send"
           >
             <Text variant="treeMeta" style={styles.sendWord}>
@@ -178,6 +252,11 @@ export function MailThread({
             </Text>
           </Pressable>
         </View>
+        {problem !== null ? (
+          <Text variant="treeMeta" style={styles.problem} testID="mail-problem">
+            {problem}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -187,19 +266,33 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     thread: { flex: 1, minHeight: 0 },
     head: { paddingHorizontal: space.x4, paddingVertical: space.x2, gap: 2, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+    headRow: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     back: { paddingVertical: space.x1 },
     link: { color: colors.accent },
     title: { fontWeight: "600" },
     muted: { color: colors.muted },
+    grow: { flexGrow: 1, flexShrink: 1, gap: space.x1 },
+    people: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.x3, rowGap: space.x1 },
+    person: { flexDirection: "row", alignItems: "center", gap: space.x1 },
+    openNote: { paddingVertical: space.x1, paddingHorizontal: space.x2 },
     messages: { flex: 1 },
-    messagesInner: { padding: space.x4, gap: space.x3 },
-    message: { gap: 2, maxWidth: 640 },
-    mine: { alignSelf: "flex-end" },
-    box: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, padding: space.x3, gap: space.x2 },
-    input: { minHeight: 44, maxHeight: 160, borderWidth: 1, borderColor: colors.line, borderRadius: radii.sm, paddingHorizontal: space.x2, paddingVertical: space.x2, color: colors.text },
-    boxFoot: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    grow: { flexGrow: 1, flexShrink: 1 },
-    send: { paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.pill, backgroundColor: colors.accent },
+    messagesInner: { paddingVertical: space.x3 },
+    notice: { paddingHorizontal: space.x4 },
+    day: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingHorizontal: space.x4, paddingVertical: space.x2 },
+    dayRule: { flexGrow: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
+    dayWord: { color: colors.muted, fontWeight: "600" },
+    message: { flexDirection: "row", gap: space.x3, paddingHorizontal: space.x4, paddingVertical: 2 },
+    messageFirst: { paddingTop: space.x3 },
+    gutter: { width: 32 },
+    body: { flex: 1, minWidth: 0, maxWidth: 720, gap: 2 },
+    sender: { flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", gap: space.x2 },
+    name: { fontWeight: "700" },
+    words: { lineHeight: 21 },
+    box: { paddingHorizontal: space.x4, paddingTop: space.x2, paddingBottom: space.x3, gap: space.x1 },
+    field: { flexDirection: "row", alignItems: "flex-end", gap: space.x2, borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, paddingLeft: space.x3, paddingRight: space.x2, paddingVertical: space.x2 },
+    input: { flex: 1, minHeight: 28, maxHeight: 160, paddingVertical: space.x1, color: colors.text },
+    send: { paddingVertical: space.x1, paddingHorizontal: space.x3, borderRadius: radii.sm, backgroundColor: colors.accent },
     sendOff: { opacity: 0.4 },
     sendWord: { color: colors.ground, fontWeight: "600" },
+    problem: { color: colors.warnText },
   });

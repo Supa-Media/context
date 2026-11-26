@@ -46,6 +46,18 @@ const MAIL: readonly Stroke[] = [
   [[16, 28], [50, 54], [84, 28]],
 ];
 
+/**
+ * Agent Mail: the bots folder's robot head with an envelope's flap for a mouth, so the rail's button reads as mail
+ * with agents rather than email (Dev2, 2026-11-26: "mail icon can be misleading, add robot icon to show agent").
+ */
+const AGENT_MAIL: readonly Stroke[] = [
+  [[50, 10], [50, 24]],
+  [[16, 26], [84, 26], [84, 84], [16, 84], [16, 24]],
+  [[36, 40], [36, 50]],
+  [[64, 40], [64, 50]],
+  [[18, 60], [50, 80], [82, 60]],
+];
+
 /*
   At a key's size the set's own drawings carry too much: the calendar's dots and
   the microphone's base and cradle ran into one blot at 18px. These are the same
@@ -75,6 +87,7 @@ const GLYPHS = {
   key: ICONS.key!,
   links: LINKS,
   mail: MAIL,
+  agentMail: AGENT_MAIL,
   panelLeft: panel(36),
   panelRight: panel(64),
 } as const;

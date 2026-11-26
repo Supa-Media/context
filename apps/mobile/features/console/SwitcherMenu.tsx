@@ -345,7 +345,7 @@ export function SwitcherMenu({
     */
     ...(vault !== undefined ? [{ id: "vault", label: "Vault", leading: glyph("key"), testID: "switcher-vault" }] : []),
     // Mail, which a pointer layout opens from under the map on the right rail (the owner's boards, 2026-11-25).
-    ...(phone && mail !== undefined ? [{ id: "mail", label: "Mail", leading: glyph("mail"), testID: "switcher-mail" }] : []),
+    ...(phone && mail !== undefined ? [{ id: "mail", label: "Agent Mail", leading: glyph("robot"), testID: "switcher-mail" }] : []),
     /*
       The phone's Folders page lost its Trash and Chaos lines to board 2 of
       meeting-2026-10-17/phone-inbox (Dev2: "EXACTLY like the mockups"), so

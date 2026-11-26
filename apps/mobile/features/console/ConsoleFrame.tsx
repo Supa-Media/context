@@ -87,7 +87,7 @@ import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
 import { ChaosSheet } from "../chaos/ChaosPopover";
 import { MapRouteAndSideProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteContext";
-import { MailRouteProvider, mailRouteFacts, useConsoleMailRoute } from "./mailPage/MailRouteContext";
+import { MailRouteProvider, mailRouteFacts, mailTabLabel, useConsoleMailRoute } from "./mailPage/MailRouteContext";
 import { useHomeView } from "./home/homeView";
 import { usePreviousPage } from "./home/phoneHistory";
 import { useSyncSheetRequests } from "./files/syncSheetRequest";
@@ -511,7 +511,7 @@ export function ConsoleFrame({
               onCloseOthers={tabs.closeOthers}
               onCloseToRight={tabs.closeToRight}
               onReopen={tabs.reopen}
-              relabel={data.files.titleEdit}
+              relabel={mailTabLabel(mailRoute, tabs.state.activePath, data.files.titleEdit)}
             />
           ) : undefined
         }
@@ -649,7 +649,7 @@ export function ConsoleFrame({
         <ToastHost toasts={data.files.toasts} onDismiss={data.files.dismissToast} />
 
         {consoleCreateButton({
-          data, phone, startMeetingFlow, resumeRow, setBarDialog, joinMeeting,
+          data, phone, startMeetingFlow, resumeRow, setBarDialog, joinMeeting, mailOpen: mailRoute?.open === true,
         })}
 
         {/*

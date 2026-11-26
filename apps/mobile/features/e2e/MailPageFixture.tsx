@@ -6,6 +6,7 @@ import { MailRouteProvider, type MailRoute } from "../console/mailPage/MailRoute
 import type { MailNoteRow } from "../console/mailPage/model";
 import { useColors } from "../design/theme";
 import { densityFor } from "../app/frame";
+import { LOGOS } from "./BotsPageFixture";
 
 /**
  * `screen=mail-page`: the Mail page beside the right rail's Mail button, on notes shaped like a busy shared
@@ -18,11 +19,14 @@ const LONG = "Here is the November spend so far, line by line: Grok is the bigge
 
 const TEXTS: Record<string, string> = {
   "areas/operations/finance/mail/seyi.md": `# Mail with Finance\n\n\`\`\`mail\n- ${AT(9)} @seyi to everyone: How much are we spending this month?\n- ${AT(2)} finance (Grok) to everyone [used 2%]: ${LONG}\n\`\`\`\n`,
-  "bots/grok-bot/mail/seyi.md": `# Mail with Grok Bot\n\n\`\`\`mail\n- ${AT(70)} @seyi to everyone: Please check your card: if your name or logo changed, send the new ones.\n- ${AT(62)} grok-bot (Grok) to everyone [used 1%]: Logo updated. Name is the same.\n\`\`\`\n`,
+  "bots/grok-bot/mail/seyi.md": `# Mail with Grok Bot\n\n\`\`\`mail\n- ${AT(70)} @seyi to everyone: Please check your card: if your name or logo changed, send the new ones.\n- ${AT(68)} @seyi to everyone: And can you update your image please?\n- ${AT(62)} grok-bot (Grok) to everyone [used 1%]: Logo updated. Name is the same.\n\`\`\`\n`,
   "areas/operations/finance/mail/grok-bot.md": `# Mail with Finance\n\n\`\`\`mail\n- ${AT(2900)} grok-bot (Grok) to everyone: What was November's total cost so far? Scoring every area for the Monday scorecard.\n- ${AT(2898)} finance (Grok) to everyone [used 1%]: $512 as of today.\n\`\`\`\n`,
   "products/search/speed-plan.md": `# Search speed plan\n\nThe plan.\n\n\`\`\`mail\n- ${AT(330)} builder (Claude) joined\n- ${AT(320)} reviewer (Codex) joined\n- ${AT(318)} builder (Claude) to reviewer: Index rebuild is in PR #4240. Reviewer, can you check the cold path?\n- ${AT(300)} reviewer (Codex) to builder: Cold path ok. One nit left on the PR.\n\`\`\`\n`,
   "areas/growth/socials/mail/shyoh.md": `# Mail with Socials\n\n\`\`\`mail\n- ${AT(2000)} @shyoh to everyone: Draft posts for Friday?\n- ${AT(1990)} socials (Grok) to everyone [used 4%]: Draft posts for Friday are up in products/website/drafts/friday-launch-posts-with-a-very-long-name.md.\n\`\`\`\n`,
 };
+
+/** Grok Bot's card, where its logo is named: the thread draws the bot by it. */
+const CARDS: Record<string, string> = { "bots/grok-bot/about.md": "---\nkind: agent\nbot: grok\navatar: grok-logo.png\n---\n# Grok Bot\n" };
 
 function rowOf(path: string): MailNoteRow {
   const lines = TEXTS[path]!.split("\n").filter((line) => line.startsWith("- "));
@@ -49,7 +53,8 @@ export function MailPageFixture() {
     () => ({
       load: async () => ({ notes: Object.keys(TEXTS).map(rowOf), complete: true }),
       io: {
-        read: async (path: string) => ({ text: TEXTS[path] ?? "# Empty\n", etag: "e", readOnly: false }),
+        read: async (path: string) => ({ text: TEXTS[path] ?? CARDS[path] ?? "# Empty\n", etag: "e", readOnly: false }),
+        picture: async (card: string) => LOGOS[card.split("/")[1] ?? ""] ?? null,
         write: async (path: string, text: string) => {
           TEXTS[path] = text;
         },
