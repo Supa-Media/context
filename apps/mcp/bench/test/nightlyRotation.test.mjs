@@ -19,20 +19,21 @@ test("the schedule is one rotation constant", () => {
     every: ["web-facts", "respond", "review"],
     monday: ["core"],
     wednesday: ["core"],
+    thursday: ["groups"],
     friday: ["core"],
     sunday: { even: ["tasks"], odd: ["jobs"] },
   });
 });
 
-test("every night runs web-facts, respond and review, and core only on Monday, Wednesday and Friday", () => {
+test("every night runs web-facts, respond and review, core only on Monday, Wednesday and Friday, and groups on Thursday", () => {
   assert.deepEqual(areasForNight(noon("2026-11-17")), EVERY, "Tuesday");
   assert.deepEqual(areasForNight(new Date("2026-11-17T07:23:00.000Z")), EVERY, "the 07:23 UTC schedule is still Tuesday in New York");
-  assert.deepEqual(areasForNight(noon("2026-11-19")), EVERY, "Thursday");
+  assert.deepEqual(areasForNight(noon("2026-11-19")), [...EVERY, "groups"], "Thursday");
   assert.deepEqual(areasForNight(noon("2026-11-21")), EVERY, "Saturday");
   assert.deepEqual(areasForNight(noon("2026-11-16")), ["core", ...EVERY], "Monday");
   assert.deepEqual(areasForNight(noon("2026-11-18")), ["core", ...EVERY], "Wednesday");
   assert.deepEqual(areasForNight(noon("2026-11-20")), ["core", ...EVERY], "Friday");
-  for (const areas of [EVERY, ["core", ...EVERY]]) {
+  for (const areas of [EVERY, ["core", ...EVERY], [...EVERY, "groups"]]) {
     const order = NIGHTLY_AREAS.map((spec) => spec.area);
     assert.deepEqual(areas, order.filter((area) => areas.includes(area)));
   }
