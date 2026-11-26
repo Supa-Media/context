@@ -22,7 +22,7 @@ import { OwnerFace, type Face } from "../Glyphs";
 import { threadOf, type Thread } from "./areaMail";
 import { botsOf, conversationsOf, type Bot } from "./bots";
 import { botsFolder } from "./seat";
-import { BotPanel } from "./BotPanel";
+import { AnyBotPanel } from "./LiveBotPanel";
 import { panelSlot, PanelSlotView } from "./botPanelSlot";
 import { botLabel } from "@context/shared/src/areaBots.cjs";
 import type { OwnerSearch } from "../../owners";
@@ -50,6 +50,10 @@ export interface BotsPageProps {
   people?: OwnerSearch;
   /** Adds a Grok bot: its name to the workspace's agents and its card here; absent for somebody who may not. */
   addBot?: (name: string, whose: string) => Promise<string | null>;
+  /** The workspace's id, for the panel's mail saves and the bot's health; absent in a fixture. */
+  workspaceId?: string;
+  /** The workspace's `@handle`, named in what Refresh asks. */
+  workspace?: string;
 }
 
 /** Each note's count and newest line, read once per path list. */
@@ -75,7 +79,7 @@ export function useThreads(paths: readonly string[], read: BotsPageProps["read"]
 }
 
 export function BotsPage(props: BotsPageProps) {
-  const { only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel, people, addBot } = props;
+  const { only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel, people, addBot, workspaceId, workspace } = props;
   const styles = useThemedStyles(makeStyles);
   const bots = useMemo(() => botsOf(root, notes, me), [root, notes, me]);
   const conversations = useMemo(() => conversationsOf(root, notes, bots, me), [root, notes, bots, me]);
@@ -96,7 +100,7 @@ export function BotsPage(props: BotsPageProps) {
   const panel =
     bot === undefined
       ? null
-      : { bot, root, notes, conversations, threads, canEdit, ...(me === undefined ? {} : { me }), faceOf, label, ...(create === undefined ? {} : { create }), chooseMany, open, onClose: () => (only === undefined ? setSelected(null) : open(botsFolder(root))) };
+      : { bot, root, notes, conversations, threads, canEdit, ...(me === undefined ? {} : { me }), faceOf, label, ...(create === undefined ? {} : { create }), ...(workspaceId === undefined ? {} : { workspaceId }), ...(workspace === undefined ? {} : { workspace }), chooseMany, open, onClose: () => (only === undefined ? setSelected(null) : open(botsFolder(root))) };
   useEffect(() => slot.set(panel));
   const panelOpen = bot !== undefined && onPanel !== undefined && only === undefined;
   useEffect(() => {
@@ -104,7 +108,7 @@ export function BotsPage(props: BotsPageProps) {
   }, [onPanel, panelOpen, slot]);
   useEffect(() => () => onPanel?.(null), [onPanel]);
 
-  if (panel !== null && (onPanel === undefined || only !== undefined)) return <BotPanel {...panel} width={compact ? 360 : 560} />;
+  if (panel !== null && (onPanel === undefined || only !== undefined)) return <AnyBotPanel {...panel} width={compact ? 360 : 560} />;
   if (only !== undefined) {
     return (
       <Text variant="treeMeta" style={styles.muted} testID="bot-page-missing">

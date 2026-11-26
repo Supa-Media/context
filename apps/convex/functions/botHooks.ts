@@ -36,6 +36,7 @@ import { getMembership } from "./lib/workspaceAuth";
 import { handleForUser } from "./lib/identities";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { dohQuery, RR } from "./lib/customDomains/dns";
+import { botHealthRows } from "./botLogins";
 import { mailJoinName } from "@context/shared/src/areaBots.cjs";
 import { isPrivateAddress, publicHttps } from "@context/shared/src/publicAddress.cjs";
 import { HOOK_TIMEOUT_MS, headerLine, hookPayload, signHook, signingKeyShaped, type HookPayload } from "@context/shared/src/botHooks.cjs";
@@ -220,6 +221,8 @@ const hookRow = v.object({
   lastCallStatus: v.union(v.number(), v.null()),
   /** Whether the viewer may replace or remove it: whoever set it, or an owner. */
   canReplace: v.boolean(),
+  /** Whether the bot answers the check it got when its login was bound (`functions/botLogins.ts`); null before one. */
+  health: v.union(v.literal("answering"), v.literal("checking"), v.literal("not answering"), v.null()),
 });
 
 async function hookRows(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
@@ -229,6 +232,7 @@ async function hookRows(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id
     .query("botHooks")
     .withIndex("by_workspace_bot", (q) => q.eq("workspaceId", workspaceId))
     .take(100);
+  const health = new Map((await botHealthRows(ctx, workspaceId)).map((entry) => [entry.bot, entry.health]));
   const out = [];
   for (const row of rows) {
     out.push({
@@ -241,6 +245,7 @@ async function hookRows(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id
       lastCallOk: row.lastCallOk ?? null,
       lastCallStatus: row.lastCallStatus ?? null,
       canReplace: row.setBy === userId || membership.role === "owner",
+      health: health.get(row.bot) ?? null,
     });
   }
   return out;

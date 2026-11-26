@@ -30,6 +30,17 @@ export const botHookTables = {
     lastCallStatus: v.optional(v.number()),
   }).index("by_workspace_bot", ["workspaceId", "bot"]),
   /**
+   * Whether a bot answers (`functions/botLogins.ts`): when it bound its login, Context mailed it a check, and this is
+   * when that went out and when the bot's own login last answered in mail. Healthy only when an answer came after
+   * the check; "not answering" once the check is older than a few minutes with none (Dev, 2026-11-26).
+   */
+  botHealth: defineTable({
+    workspaceId: v.id("workspaces"),
+    bot: v.string(),
+    checkSentAt: v.number(),
+    answeredAt: v.optional(v.number()),
+  }).index("by_workspace_bot", ["workspaceId", "bot"]),
+  /**
    * A one-time ticket a bot spends from its own shell to hand Context its
    * webhook's header (`functions/botHookTickets.ts`): minted by `manage area`
    * for one bot, address and header name, good for ten minutes, once. The

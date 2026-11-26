@@ -43,7 +43,9 @@ export function countAiMailRead(name, args, store, result) {
     const readsMail = args?.mail !== undefined || args?.args?.mail !== undefined || MAIL_FENCE.test(resultText(result));
     if (!readsMail) return;
     const actor = store?.actor ?? {};
-    const clientName = typeof actor.clientName === "string" && actor.clientName !== "" ? actor.clientName.slice(0, 120) : null;
+    // A bound bot's login reads as the bot (`tools/notes/botBind.js`), never as the app it connects through.
+    const named = typeof actor.botName === "string" && actor.botName !== "" ? actor.botName : actor.clientName;
+    const clientName = typeof named === "string" && named !== "" ? named.slice(0, 120) : null;
     record(store, { path, by: "ai", reader: `ai:${id(actor.userId)}:${id(actor.clientId)}`, name: handle(actor.name), clientName });
   } catch {
     // A read that cannot be kept is no reason to fail the read.

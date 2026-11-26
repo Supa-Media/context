@@ -15,11 +15,10 @@
  *    "area":"areas/finance","note":"areas/finance/mail/seyi.md","at":"…",
  *    "instructions":"New mail for you … answer in that same note …"}
  *
- * `instructions` is fixed wording built from those same fields: how to read the
- * mail and that the answer goes back in the note, through the bot's own Context
- * connection, never only in its own app. A bot whose webhook starts a chat in its
- * own app answered there, where the person never looked (Dev, 2026-11-26: "why
- * are the bots responding here instead of in mail?").
+ * `instructions` is the relay's fixed prompt (`botRelay.cjs`) and where to read:
+ * the run that gets a call only wakes the bot's main chat, which answers in the
+ * note as itself. A run that answered by itself replied in its own app, or as
+ * "Cursor" without the facts the main chat had (Dev, 2026-11-26).
  *
  * An area's routine that came due says which routine, never its words; the bot
  * reads the note and answers in the area's mail:
@@ -27,6 +26,8 @@
  *    "area":"areas/operations/Scorecard",
  *    "note":"areas/operations/Scorecard/routines/weekly/score-every-area.md","at":"…"}
  */
+
+const { RELAY_PROMPT } = require("./botRelay.cjs");
 
 const KEY_PREFIX = "ctxbot_";
 const KEY_SHAPE = /^ctxbot_[0-9a-f]{64}$/;
@@ -66,35 +67,14 @@ function openArgs(workspace) {
   return `{ context: ${JSON.stringify(handle.startsWith("@") ? handle : `@${handle}`)}, `;
 }
 
-/**
- * What the bot is told to do with a call, built only from the call's own fields: where to read, and that the answer
- * goes back through Context mail. Never the message.
- */
-function hookInstructions({ type, workspace, bot, from, area, note }) {
+/** What the run that gets a call is told: relay only (`botRelay.cjs`), and where to read. Never the message. */
+function hookInstructions({ type, workspace, note }) {
   const args = openArgs(workspace);
-  const never = "Never answer only in your own app's chat: the person reads answers in Context's Agent Mail and never sees what you say only in your app.";
-  const used = "used: <whole percent of your week it took>";
-  const work = "Do what it asks with your own tools, as you would in your own app (look things up, work it out), and answer with the result, not a promise or a question you could answer yourself.";
-  // Joined under the bot's own name, a line is signed by the bot, not by the app its connection is named after
-  // (Dev, 2026-11-26: "why is it showing as read by cursor and not grok bot"). Joining again from the same connection
-  // hands back the same mailbox.
-  const join = (path) =>
-    `First join that note's mail as yourself: write ${args}action: "mail", path: ${JSON.stringify(path)}, args: { join: ${JSON.stringify(bot)} } }, and pass the mailbox id it gives as mailbox on the calls below.`;
-  if (type === "test") {
-    return `This is a test call from Context to check your webhook works; there is nothing to answer. When real mail comes, join the note's mail as ${JSON.stringify(bot)}, read it through your Context connection and answer in that same mail note. ${never}`;
-  }
-  if (type === "routine") {
-    const reply = `${area}/mail/${bot}.md`;
-    return (
-      `The routine ${JSON.stringify(note)} is due. Read it through your Context connection: fetch ${args}id: ${JSON.stringify(note)} }. ${work} ` +
-      `Then answer in the area's mail. ${join(reply)} write ${args}action: "mail", path: ${JSON.stringify(reply)}, mailbox: "<that id>", args: { text: "<your answer>", ${used} } }. ${never}`
-    );
-  }
-  return (
-    `New mail for you from ${from} in ${JSON.stringify(note)}. ${join(note)} ` +
-    `Read the whole note: fetch ${args}id: ${JSON.stringify(note)}, mailbox: "<that id>" }; answer what is new and anything still unanswered there. ${work} ` +
-    `Always answer in that same note: write ${args}action: "mail", path: ${JSON.stringify(note)}, mailbox: "<that id>", args: { text: "<your answer>", ${used} } }. ${never}`
-  );
+  if (type === "test") return `This is a test call from Context to check your webhook works; there is nothing to relay. ${RELAY_PROMPT}`;
+  // Only a relay (Dev, 2026-11-26: "Make the webhook routine a pure relay that wakes the main bot, never a
+  // responder"): the run that gets this call reads and wakes the bot's main chat, which answers in the note itself.
+  const read = type === "mail" ? `fetch ${args}id: ${JSON.stringify(note)}, args: { mail: true } }` : `fetch ${args}id: ${JSON.stringify(note)} }`;
+  return `${RELAY_PROMPT} The note: ${JSON.stringify(note)}; read it with ${read}.`;
 }
 
 /** The body a call carries, with only the fields it may: no message, no address, nothing else. */

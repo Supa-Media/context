@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-26",
+    text:
+      'manage action area takes bind_bot: "<your bot name>", needing no area: said from a bot\'s own main chat, its connection is that bot in this ' +
+      "workspace, so its mail is signed by the bot, and Context mails it a check to answer within 5 minutes.",
+  },
+  {
     date: "2026-11-25",
     text:
       'manage action area takes delegate: "<bot name>" | "Tex" | null, the one bot that acts for a person owner in that area, in place of ' +
@@ -523,7 +529,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "55767918";
+export const TOOL_SHAPE = "ded5df41";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

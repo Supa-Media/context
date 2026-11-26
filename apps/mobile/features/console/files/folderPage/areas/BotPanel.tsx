@@ -24,7 +24,8 @@ import type { ListNote } from "../../listBlock/model";
 import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
 import { firstMailNote, type Thread } from "./areaMail";
-import { botMailNote, mailOfBot, REFRESH_ASK, routinesOfBot, type Bot, type Conversation } from "./bots";
+import { botMailNote, mailOfBot, refreshAskFor, routinesOfBot, type Bot, type Conversation } from "./bots";
+import { withMail } from "../../../mailPage/MailThread";
 
 export interface BotPanelProps {
   bot: Bot;
@@ -38,6 +39,12 @@ export interface BotPanelProps {
   faceOf: (owner: string | null) => Face;
   label: (owner: string) => string;
   create?: (path: string, text: string) => Promise<unknown>;
+  /** Reads a note and saves it back with the version read: how Refresh adds a line to mail already there. */
+  io?: { read(path: string): Promise<{ text: string; etag?: string }>; write(path: string, text: string, expectedEtag?: string): Promise<unknown> };
+  /** The workspace's `@handle`, named in what Refresh asks. */
+  workspace?: string;
+  /** Whether the bot answered the check its login got when bound (`functions/botLogins.ts`). */
+  health?: "answering" | "checking" | "not answering" | null;
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   open: (path: string) => void;
   onClose: () => void;
@@ -51,7 +58,7 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: "mail", label: "Mail" },
 ];
 
-export function BotPanel({ bot, root, notes, conversations, threads, width, canEdit, me, faceOf, label, create, chooseMany, open, onClose }: BotPanelProps) {
+export function BotPanel({ bot, root, notes, conversations, threads, width, canEdit, me, faceOf, label, create, io, workspace, health, chooseMany, open, onClose }: BotPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [tab, setTab] = useState<Tab>("activity");
@@ -87,6 +94,39 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
     }
   };
 
+  // Refresh mails the bot its setup again and stays here (Dev, 2026-11-26: "clicking on refresh here keeps you on
+  // the page"): a line added to the reader's mail with it, or that mail started.
+  const [refreshed, setRefreshed] = useState(false);
+  const refresh = async () => {
+    if (!canWrite || mine === null || me === undefined || create === undefined) return;
+    const text = refreshAskFor(bot.name, workspace);
+    try {
+      if (hasMine) {
+        if (io === undefined) return openMail(mine);
+        for (let attempt = 0; ; attempt += 1) {
+          const note = await io.read(mine);
+          const next = withMail(note.text, me, text);
+          if ("error" in next) return setProblem(next.error);
+          try {
+            await io.write(mine, next.text, note.etag);
+            break;
+          } catch (error) {
+            if (attempt >= 1) throw error;
+          }
+        }
+      } else {
+        const note = firstMailNote(bot.name, me, text);
+        if ("error" in note) return setProblem(note.error);
+        await create(mine, note.text);
+        setSent(mine);
+      }
+      setProblem(null);
+      setRefreshed(true);
+    } catch {
+      setProblem("That didn't send. Try again.");
+    }
+  };
+
   const setCap = async (folder: string, raw: string) => {
     const cap = raw.trim() === "" ? null : Number(raw.replace("%", "").trim());
     if (cap !== null && (!Number.isInteger(cap) || cap < 0 || cap > 100)) return setProblem("A cap is a whole percent from 0 to 100, or empty for none.");
@@ -104,6 +144,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
           </Text>
           <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
             {`${botLabel(bot.card.bot || "grok")}${bot.whose ? ` · ${bot.whose}'s` : ""} · ${bot.card.reach === "webhook" ? "reached by its webhook" : "checks its mail"}`}
+            {health === "not answering" ? <Text variant="treeMeta" style={styles.warn} testID="bot-panel-health">{" · not answering"}</Text> : null}
           </Text>
         </View>
         <Pressable onPress={onClose} accessibilityLabel="Close" style={styles.iconButton} testID="bot-panel-close">
@@ -115,9 +156,9 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
           {bot.mine ? "Yours: only you change where it works and its caps" : `Only ${bot.whose || "its person"} changes where it works and its caps`}
         </Text>
         {canWrite ? (
-          <Pressable onPress={() => void send(REFRESH_ASK)} style={styles.smallButton} accessibilityLabel={`Ask ${bot.name} to refresh its name and logo`} testID="bot-panel-refresh">
+          <Pressable onPress={() => void refresh()} style={styles.smallButton} accessibilityLabel={`Ask ${bot.name} to refresh its setup, name and logo`} testID="bot-panel-refresh">
             <Text variant="treeMeta" style={styles.smallWord}>
-              Refresh
+              {refreshed ? "Sent" : "Refresh"}
             </Text>
           </Pressable>
         ) : null}

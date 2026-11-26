@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { addMember, asUser, captureError, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 import { signHook } from "@context/shared/src/botHooks.cjs";
+import { RELAY_PROMPT } from "@context/shared/src/botRelay.cjs";
 import { registerClient, seedConnectedClient, token } from "./controlPlane/fixtures.helpers";
 
 /**
@@ -119,11 +120,9 @@ describe("a bot's webhook", () => {
     const body = JSON.parse(call.body);
     expect(Object.keys(body).sort()).toEqual(["area", "at", "bot", "from", "instructions", "note", "type", "workspace"]);
     expect(body).toMatchObject({ type: "mail", workspace: "@supa-bots", bot: "finance", from: "@kim", area: "areas/finance", note: "areas/finance/mail/kim.md" });
-    // Dev, 2026-11-26: a bot answered in its own app's chat, where nobody looked. The call says to answer in the note.
-    expect(body.instructions).toContain('write { context: "@supa-bots", action: "mail", path: "areas/finance/mail/kim.md"');
-    expect(body.instructions).toContain("Never answer only in your own app's chat");
-    // Dev, 2026-11-26: its line was signed "Cursor", the app its connection is named after. It joins as itself first.
-    expect(body.instructions).toContain('args: { join: "finance" }');
+    // Dev, 2026-11-26: the run that gets a call only relays to the bot's main chat, which answers in the note.
+    expect(body.instructions).toContain(RELAY_PROMPT);
+    expect(body.instructions).toContain('fetch { context: "@supa-bots", id: "areas/finance/mail/kim.md", args: { mail: true } }');
     const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
     expect(audit.some((event) => event.action === "bot_hook.called")).toBe(true);
     expect(JSON.stringify(audit)).not.toContain("s3cret-path");
@@ -150,7 +149,8 @@ describe("a bot's webhook", () => {
     expect(await (await gatewayPost(t, "/gateway/bots/mail", routine)).json()).toEqual({ ok: true, status: 200 });
     const sent = JSON.parse(seen[0]!.body);
     expect(sent).toMatchObject({ type: "routine", area: "areas/finance", note: "areas/finance/routines/weekly/close.md", from: "context" });
-    expect(sent.instructions).toContain('path: "areas/finance/mail/finance.md"');
+    expect(sent.instructions).toContain('id: "areas/finance/routines/weekly/close.md"');
+    expect(sent.instructions).toContain(RELAY_PROMPT);
     // A routine type naming a mail note, mail naming a routine note, or a path that climbs out: nobody is called.
     for (const odd of [
       { note: "areas/finance/mail/kim.md" },

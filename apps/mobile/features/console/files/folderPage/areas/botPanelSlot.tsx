@@ -4,9 +4,9 @@
  */
 
 import { useSyncExternalStore } from "react";
-import { BotPanel, type BotPanelProps } from "./BotPanel";
+import { AnyBotPanel, type AnyBotPanelProps } from "./LiveBotPanel";
 
-type Held = Omit<BotPanelProps, "width"> | null;
+type Held = Omit<AnyBotPanelProps, "width"> | null;
 
 export function panelSlot() {
   let current: Held = null;
@@ -26,5 +26,5 @@ export function panelSlot() {
 
 export function PanelSlotView({ slot, width }: { slot: ReturnType<typeof panelSlot>; width: number }) {
   const props = useSyncExternalStore(slot.subscribe, slot.get, slot.get);
-  return props === null ? null : <BotPanel {...props} width={width} />;
+  return props === null ? null : <AnyBotPanel {...props} width={width} />;
 }
