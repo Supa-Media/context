@@ -23,6 +23,8 @@ export type ControlAnswer =
       reach?: string[];
       /** Who keeps the chat from each shared workspace its asker and sponsor share, and why (`lib/textGroupBlockers.ts`). */
       blocked?: { slug: string; who: string; why: "not_member" | "no_account" }[];
+      /** The asker's workspaces this turn reads that the whole chat does not share (`lib/textGroupHomeOnly.ts`): what someone here can't open. */
+      unshared?: string[];
       intro: boolean;
       timeZone?: string;
       handle?: string;
@@ -123,6 +125,7 @@ export async function askControlPlane(deps: GroupDeps, message: GroupMessage, pe
         slug: body.slug as string,
         ...(Array.isArray(body.reach) ? { reach: (body.reach.filter(slug) as string[]).slice(0, 12) } : {}),
         ...blockedOf(body.blocked),
+        ...(Array.isArray(body.unshared) && body.unshared.some(slug) ? { unshared: (body.unshared.filter(slug) as string[]).slice(0, 24) } : {}),
         ...devShareOf(body.devShare),
         intro: body.intro === true,
         ...(typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {}),

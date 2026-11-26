@@ -109,6 +109,8 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
     // Who keeps the chat from a workspace its asker and sponsor share (`lib/textGroupBlockers.ts`), so the turn logs it
     // and Tex names who and the fix, by text (Dev2, 2026-11-16).
     ...(asked.blocked?.length ? { blocked: asked.blocked } : {}),
+    // The asker's workspaces this turn reads that someone here can't open, for the Room check before send (Dev2, 2026-11-26).
+    ...(asked.unshared?.length ? { unshared: asked.unshared } : {}),
     // Whether the developers who build Tex can read this chat in their Lab, and who said yes (Dev2, 2026-11-17).
     ...(asked.devShare ? { devShare: asked.devShare } : {}),
   };
