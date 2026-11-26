@@ -29,10 +29,29 @@ export interface MailRoute {
 }
 
 /** One page in the document slot at a time: opening the mail closes the map, the trash and Settings. */
-export function routeMail(router: Pick<ConsoleRouter, "setParams">, open: boolean, workspaceId: string, me?: string): MailRoute {
-  const openMail = () => router.setParams({ mail: "1", map: undefined, trash: undefined, settings: undefined, vault: undefined });
+export function routeMail(
+  router: Pick<ConsoleRouter, "setParams">,
+  open: boolean,
+  workspaceId: string,
+  me?: string,
+): MailRoute {
+  const openMail = () =>
+    router.setParams({
+      mail: "1",
+      map: undefined,
+      trash: undefined,
+      settings: undefined,
+      vault: undefined,
+    });
   const closeMail = () => router.setParams({ mail: undefined });
-  return { open, workspaceId, ...(me === undefined ? {} : { me }), openMail, closeMail, toggle: () => (open ? closeMail() : openMail()) };
+  return {
+    open,
+    workspaceId,
+    ...(me === undefined ? {} : { me }),
+    openMail,
+    closeMail,
+    toggle: () => (open ? closeMail() : openMail()),
+  };
 }
 
 /**
@@ -50,13 +69,49 @@ export function useMailRoute(): MailRoute | undefined {
 }
 
 /** The route the layout provides, and choosing a note or folder in the tree leaves it, as it leaves the map. */
+/** What the console knows that the Mail route needs: not in a demo or for a visitor, and the reader's `@handle`. */
+export function mailRouteFacts(
+  data: {
+    demo: boolean;
+    selectedContextId: string | null;
+    files: { selectedPath: string | null };
+    viewer: { name: string };
+  },
+  visitor: unknown,
+): {
+  available: boolean;
+  workspaceId: string | null;
+  selectedPath: string | null;
+  me?: string;
+} {
+  return {
+    available: !data.demo && visitor === undefined,
+    workspaceId: data.selectedContextId,
+    selectedPath: data.files.selectedPath,
+    ...(data.viewer.name.startsWith("@") ? { me: data.viewer.name } : {}),
+  };
+}
+
 export function useConsoleMailRoute(
   router: ConsoleRouter,
   open: boolean,
-  { available, workspaceId, selectedPath, me }: { available: boolean; workspaceId: string | null; selectedPath: string | null; me?: string },
+  {
+    available,
+    workspaceId,
+    selectedPath,
+    me,
+  }: {
+    available: boolean;
+    workspaceId: string | null;
+    selectedPath: string | null;
+    me?: string;
+  },
 ): MailRoute | undefined {
   const route = useMemo(
-    () => (available && workspaceId !== null ? routeMail(router, open, workspaceId, me) : undefined),
+    () =>
+      available && workspaceId !== null
+        ? routeMail(router, open, workspaceId, me)
+        : undefined,
     [available, router, open, workspaceId, me],
   );
   const last = useRef(selectedPath);
