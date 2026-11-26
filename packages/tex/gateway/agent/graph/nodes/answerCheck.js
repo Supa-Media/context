@@ -29,7 +29,18 @@ export async function answerCheckNode(input, io) {
   let spent = false;
   let handedOff = false;
   let ladders = 0;
-  const letGo = () => back({ notice: null }, { release: true });
+  let held = 0;
+  const release = () => back({ notice: null }, { release: true });
+  // Before any draft goes: the Room check, when the config wires `answerCheck -> roomCheck`. A group draft carrying what
+  // someone here can't open goes back with the facts while a round is left (`roomCheck.js`); with none, Finish holds it.
+  const letGo = async () => {
+    if ((await roomBefore(io, t)) === "hold" && back.left() > 0 && typeof t.roomNotice === "string") {
+      sentBack += 1;
+      held += 1;
+      return back({ notice: t.roomNotice });
+    }
+    return release();
+  };
   // The budget is spent and the draft would be sent back: when the config wires the Hand-off node, the job goes to a
   // background worker instead of the draft going as it is (`../../handoff.js`); the Front door ends on its start line.
   const spentOn = async (waiting, notice) => {
@@ -38,7 +49,7 @@ export async function answerCheckNode(input, io) {
     if (typeof ack !== "string" || ack === "") return letGo();
     handedOff = true;
     t.handedOff = ack; // the Front door's model loop ends on it (`turn.js`), and the wire carries no notice
-    return letGo();
+    return release(); // the job's start line goes, never the draft
   };
   while (stop.pending) {
     const waiting = t.drafts.waiting;
@@ -72,7 +83,7 @@ export async function answerCheckNode(input, io) {
       if (typeof ack === "string" && ack !== "") {
         handedOff = true;
         t.handedOff = ack;
-        stop = await letGo();
+        stop = await release();
         continue;
       }
     }
@@ -89,7 +100,7 @@ export async function answerCheckNode(input, io) {
     }
     stop = await letGo(); // let go: the front door may still write it again with a text that came in
   }
-  return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack, reviews, ...(spent ? { spent: true } : {}), ...(handedOff || ladders > 0 ? { log: { ...(handedOff ? { handedOff: true } : {}), ...(ladders > 0 ? { ladders } : {}) } } : {}) };
+  return { ...stop, when: [stop.ended ? "ended" : "done"], sentBack, reviews, ...(spent ? { spent: true } : {}), ...(handedOff || ladders > 0 || held > 0 ? { log: { ...(handedOff ? { handedOff: true } : {}), ...(ladders > 0 ? { ladders } : {}), ...(held > 0 ? { held } : {}) } } : {}) };
 }
 
 /**
@@ -118,6 +129,20 @@ async function friendBefore(io, t, waiting) {
   t.friendLast = waiting.draft;
   try {
     return (await io.use.friendCheck({ draftChars: String(waiting.draft ?? "").length }))?.to ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Room check's verdict on a group draft (`roomCheck.js`, over `answerCheck -> roomCheck`), once per draft: "hold" or
+ * "pass", or null when it is not wired, the turn read nothing the room can't open, or it failed.
+ */
+async function roomBefore(io, t) {
+  if (!("roomCheck" in (io.use ?? {})) || !t.roomReads || t.drafts?.waiting?.draft === undefined || t.drafts.waiting.draft === t.roomLast) return null;
+  t.roomLast = t.drafts.waiting.draft;
+  try {
+    return (await io.use.roomCheck({ at: "draft", draftChars: String(t.drafts.waiting.draft ?? "").length }))?.to ?? null;
   } catch {
     return null;
   }

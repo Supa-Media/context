@@ -105,6 +105,7 @@ export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { sco
   const asker = askerName === undefined ? undefined : people.find((p) => p.name.toLowerCase() === askerName.toLowerCase());
   const reached: SessionRow[] = [];
   const blocked: Blocked[] = [];
+  const unshared: string[] = []; // the asker's reached workspaces someone here isn't in, as a real chat's turn names them
   for (const w of mine) {
     const stands = people.map((p) => ({ p, s: standing(p, w.slug) }));
     const out = stands.flatMap((x) => ("why" in x.s ? [{ slug: w.slug, who: x.p.name, why: x.s.why }] : []));
@@ -116,6 +117,7 @@ export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { sco
       let role = w.role;
       for (const x of own !== null ? [{ s: own }] : stands) if ("role" in x.s && RANK[x.s.role] < RANK[role]) role = x.s.role;
       reached.push({ workspaceId: w.workspaceId, slug: w.slug, role, kind: "shared" });
+      if (own !== null && out.length > 0) unshared.push(w.slug);
     }
     // Who here keeps a workspace from the whole chat, named for the asker's own ones only (`textGroupBlockers.ts`).
     const named = own === null ? !reads : reads;
@@ -143,5 +145,5 @@ export async function worldReach(ctx: QueryCtx, userId: Id<"users">, base: { sco
     defaultWorkspaceId: setup.workspaceId,
     workspaces,
   };
-  return { status: "ok" as const, session, reach: reached.map((r) => r.slug), blocked, workspaces: mine.map(({ slug, name }) => ({ slug, name })) };
+  return { status: "ok" as const, session, reach: reached.map((r) => r.slug), blocked, ...(unshared.length > 0 ? { unshared } : {}), workspaces: mine.map(({ slug, name }) => ({ slug, name })) };
 }

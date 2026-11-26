@@ -74,7 +74,7 @@ import type { WhapiKeys } from "./whapi";
 import { decideSticker, groupLineFor, groupLineSeam, type GroupLine, type GroupPlace } from "./groupLine";
 import { inRoom, namesOnlySender, readMembersNow, withMembers } from "./groupMembers";
 import type { NoteCardDrawer } from "./noteCards";
-import { isBound, isMuted, keepChatLine, markMutedTold, mutedTold, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
+import { bindAtJoin, isBound, JOINED_EVENT, isMuted, keepChatLine, markMutedTold, mutedTold, peopleOf, setChatBound, sha256Hex, unmute } from "./groupChat";
 import type { GroupMessage } from "./sendblueGroups";
 import { callsTex, groupCommand, type Command } from "./groupWords";
 import { keepTagPeople } from "./groupTags";
@@ -195,6 +195,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
     const { stickers: _stickers, ...plain } = message;
     message = message.sms !== true && (await isBound(storage, message)) ? await keepSentStickers(storage, message, now) : plain;
   }
+  // A group Tex was just added to keeps what is said from then on (`bindAtJoin`): the first line after its hello binds it.
+  await bindAtJoin(storage, message);
   const { repliesToTex, forTex: tagged, byCode } = await isItForTexInGroup(storage, message, now);
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
@@ -614,6 +616,8 @@ export async function answerGroup(storage: InboxStorage, entries: GroupEntry[], 
   // What code did, to Tex as facts; the old line only while node `did` is unwired (`didFacts.ts`). A muted chat runs no model: its two lines stay.
   const told = (did: Did, fallback: string) => tellTex(storage, deps, message, did, fallback);
   // A chat that can't run it now is told nothing: nobody in it asked just now.
+  // A group bound when Tex was added (`bindAtJoin`) that can't run keeps nothing it was told since: fail closed.
+  if (message.event === JOINED_EVENT && status !== "ready" && status !== "muted") await setChatBound(storage, null);
   if (routine && status !== "ready") return void (await cannotRun(storage, deps, message, status));
   // A chat that isn't answering keeps nothing it was told.
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null, status !== "no_shared");

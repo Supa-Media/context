@@ -19,6 +19,7 @@ import { prefixKeeper, warmWired } from "../warmPrefix.js";
 import { aiGatewayConfig } from "../aiGateway.js";
 import { carriesData, withAttachmentImages } from "../attachments.js";
 import { jobBriefPrompt, jobPartPrompt, jobReportPrompt, withBackground, withJobSteps } from "../background.js";
+import { roomReads } from "../roomCheck.js";
 import { handoffHook, routeSureOf } from "../handoff.js";
 import { withJobDrafts } from "../jobSaved.js";
 import { SAY_NOTHING_TOOL } from "../sayNothing.js";
@@ -204,6 +205,10 @@ export async function runTheModel(t, via) {
   // A group chat turn's sensitive asks go to the tagger's own chat, never the group (`privateAside.js`; Dev2, 2026-11-25).
   const asideGroup = chatTurn && job === null && group !== null && t.crossChat?.kind !== "ask" ? group : null;
   const asideTool = privateAsideTool({ group: asideGroup, ledger });
+  // What a group turn reads from a workspace someone here can't open, for the Room check before it goes (`roomCheck.js`);
+  // a job's report brings what its job read there, its words as what was read.
+  t.roomReads = group !== null ? roomReads(group) : null;
+  if (t.roomReads !== null && report !== null && Array.isArray(report.roomRead)) t.roomReads.add(report.roomRead, report.texts);
   const crossTools = crossWired ? [crossAskTool({ event: t.crossChat ?? null, group, groups: t.groups ?? null, counts: crossCountsOf(body.crossCounts), ledger, gate: (input) => drawn.fire("tools", "crossChatGate", input, { env }), identity: typeof controlPlane?.askerIdentity === "function" ? () => controlPlane.askerIdentity(session.accessToken) : null }), postInChatTool({ event: t.crossChat ?? null, group, ledger })].filter(Boolean) : [];
   // The group's prompt says to ask a person's own Tex only when ask_chat is offered: a chat with guests has none
   // (`crossAskTool`), and telling it to ask got "ask_chat isn't available on this turn" (Tex Devs, 2026-11-24).
@@ -291,7 +296,7 @@ export async function runTheModel(t, via) {
     callTool: via.tools(allowedFirst(allowedBeside ? allowedRead : null, withChatWriteLock({ env, group, steps: chatLog === null ? null : stepLog(chatLog, ledgerAt ?? {}) }, (steer?.track ?? ((call) => call))(withPrivateLinks(asideGroup, ledger, withVaultWatch(ledger, withGroupVault(group, (stands?.wrap ?? ((call) => call))((claims?.wrap ?? tries?.wrap ?? ((call) => call))(withSameAsk({ on: claims !== null && toolRules.sameAsk === true, store, session, ledger, history, question }, withBackground(background, outgoing.wrap(
       withPictureMaker(maker, withDrawnImages(outgoing, withAttachmentImages(
         attachments,
-        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(ruled(toolRules.noteLinks, withNoteLinks)(ruled(toolRules.folderFit, withFolderFit)(group !== null ? groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group }) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
+        withEmailFiles({ store, attachments }, withKeptFiles(store, () => markUntrusted(ledger), withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withChatSkills(group, learned, withLearnedSkills(group !== null ? null : learned, withSkills(skills, withWorkspaceConventions(ruled(toolRules.noteLinks, withNoteLinks)(ruled(toolRules.folderFit, withFolderFit)(group !== null ? (t.roomReads?.wrap ?? ((call) => call))(groupAwareCallTool(withTheirNotesKept(dispatch, keptOptions), groupWriting, { store, group })) : textingAwareCallTool(withTheirNotesKept(dispatch, keptOptions), textingWriting, { timeZone })), noteLinking), { own: ownWorkspaceName(noteLinking.contexts) })), { tainted: () => ledger.untrusted === true, dispatch }), { outside: () => ledger.outside === true }))))),
       )), pictureRun),
     )))))))))))),
     pictures: texted || group !== null,

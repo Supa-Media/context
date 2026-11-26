@@ -74,7 +74,7 @@ export async function localSession(controlPlane, token, about, who) {
   const answer = await controlPlane.labSandbox(token, "worldReach", { chat: about.world?.groupId, people: hereNow(about), ...(asker ? { asker } : {}) });
   if (answer === null) return { status: "unavailable", error: "the control plane did not answer" };
   if (answer.status !== "ok") return answer;
-  return { status: "ok", session: answer.session, chat: { world: { reach: answer.reach ?? [], blocked: answer.blocked ?? [] } } };
+  return { status: "ok", session: answer.session, chat: { world: { reach: answer.reach ?? [], blocked: answer.blocked ?? [], ...(Array.isArray(answer.unshared) && answer.unshared.length > 0 ? { unshared: answer.unshared } : {}) } } };
 }
 
 /** Where a made-up chat on main keeps that Tex has introduced itself, in its chat object's storage. */
@@ -95,7 +95,9 @@ export function localControl({ about, chat, grant, storage }) {
     const introduced = about.world?.introduced === true || (await storage.get(WORLD_INTRO_KEY)) === true;
     if (!introduced) await storage.put(WORLD_INTRO_KEY, true);
     const reach = chat?.world?.reach ?? [];
-    const out = { ...answer, intro: !introduced, ...(speaksUp ? { engagement: speaksUp, engagementChosen: true } : {}) };
+    // The asker's workspaces someone here isn't in, as a real chat's answer names them, for the Room check (`roomCheck.js`).
+    const unshared = Array.isArray(chat?.world?.unshared) ? chat.world.unshared : [];
+    const out = { ...answer, ...(unshared.length > 0 ? { unshared } : {}), intro: !introduced, ...(speaksUp ? { engagement: speaksUp, engagementChosen: true } : {}) };
     grant.asked = [...(grant.asked ?? []), { path, status: out.status, ...(out.intro ? { intro: true } : {}) }].slice(-8);
     grant.last = { ...(grant.failures ? { failed: grant.failures } : {}), path, status: out.status, reach, blocked: chat?.world?.blocked ?? [], intro: out.intro || grant.last?.intro === true, guests: (out.guests ?? []).map((g) => g.label), asked: grant.asked };
     return out;
