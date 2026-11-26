@@ -19,6 +19,7 @@ import { folderMenuFacts } from "../menuBuiltIn";
 import { useActivityMarks } from "./useActivityMarks";
 import { useTreePick } from "./useTreePick";
 import { useTreeDrag } from "./useTreeDrag";
+import { useLeaveFullPages } from "../../layout/leaveFullPage";
 
 /**
  * Everything `Explorer` holds and every command it can run: the filter, the
@@ -191,15 +192,18 @@ export function useExplorer({
    * identity every render, which would rebuild that callback on every keystroke
    * in the filter box.
    */
+  const leaveFullPages = useLeaveFullPages();
   const select = useCallback(
     (path: string) => {
       // A plain click ends a pick, even on the row already open — that is
       // the click that says "just this one".
       setPicked(NO_PICK);
       files.select(path);
+      // Agent Mail, the map or the trash over the slot gives way to what was chosen, even the row already open.
+      leaveFullPages();
       if (frame.closesOnSelect) frame.closeOverlays();
     },
-    [files, frame, setPicked],
+    [files, frame, setPicked, leaveFullPages],
   );
 
   /* ---------------------------------------------------------------------- */
