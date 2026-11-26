@@ -93,10 +93,11 @@ Her notes say nothing about a Saturday class and her calendar has only Thursday'
 - kind: task
 - person starts: "put oat milk on my list, what's on friday, and remind me tomorrow at 9 to call the plumber"
 - must write: maya/todo.md [metrics: task_completion_rate, write_and_confirm_accuracy]
-- must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am [metrics: task_completion_rate, write_and_confirm_accuracy]
+- must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am [metrics: task_completion_rate, cant_first_rate, write_and_confirm_accuracy]
 - must: say oat milk is on her list [metrics: write_and_confirm_accuracy]
 - must: give Friday's haircut with Lena at 11 am and dinner at Nia and Kofi's at 7:30 pm [metrics: task_completion_rate]
 - must: say it will remind her tomorrow at 9 am to call the plumber [metrics: write_and_confirm_accuracy]
 - must not: answer only one or two of the three asks, or leave one for a later text [metrics: task_completion_rate]
+- must not: say it can't set a reminder or a timed alert, or put the reminder on the to-do list instead [metrics: cant_first_rate, task_completion_rate]
 - must not: ask which list to use, or whether to set the reminder, before doing it [metrics: turns_to_resolution_clean]
 - must not: end with "let me know if you need anything else" or another offer of more help [metrics: turns_to_resolution_clean]
