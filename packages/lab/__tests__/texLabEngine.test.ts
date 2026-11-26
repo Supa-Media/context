@@ -37,7 +37,7 @@ jest.mock("@context/lab/app/labData.generated", () => {
       "p-about-tex": "a".repeat(1032),
       "p-working": "w".repeat(11132),
       "train:fd": "t".repeat(73493),
-      "train:fd:all:90000": "t".repeat(68491),
+      "train:fd:all:100000": "t".repeat(68491),
       "p-how-you-talk": "h".repeat(7544),
       "p-sound-like-a-person": "s".repeat(2345),
     },
