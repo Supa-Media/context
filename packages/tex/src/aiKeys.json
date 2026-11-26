@@ -1,6 +1,6 @@
 {
-  "aiKeys": 2,
-  "about": "Whose Anthropic key pays for a Claude call (aiKeys.cjs). Each key is stored on the AI Gateway's Provider Keys page under its alias; nothing here is secret. Per use, the keys still able to pay are tried soonest-expiring first (no expiry last, then file order). A key is skipped while retiredUntil is in the future, after expires, or once usedUsd reaches capUsd. usedUsd is a snapshot as of usedAsOf; the gateway also rests a key on its own when Anthropic refuses it (credit spent or usage limit).",
+  "aiKeys": 3,
+  "about": "Whose Anthropic key pays for a Claude call (aiKeys.cjs). Each key is stored on the AI Gateway's Provider Keys page under its alias; nothing here is secret. A key with resetEvery \"month\" holds use-it-or-lose-it credit that lapses and refills on each monthly anniversary of resets; a key without it lapses for good at expires. Per use, the keys still able to pay are tried by whose credit lapses soonest (the current period's end, or expires), then file order. A key is skipped while retiredUntil is in the future, after a one-off expires, or once usedUsd (as of usedAsOf, within the current period) reaches capUsd. The gateway also rests a key on its own when Anthropic refuses it (credit spent or usage limit).",
   "uses": {
     "prod": "People's texts and everything the deployed gateway runs (production, staging, previews, Lab test chats)",
     "lab": "Lab runs, the Tex test set and replay",
@@ -15,10 +15,11 @@
       "usedUsd": null,
       "usedAsOf": null,
       "since": "2026-11-13T16:57:00Z",
-      "expires": "2026-11-27T23:59:00Z",
-      "resets": "2026-12-01T00:00:00Z",
+      "expires": null,
+      "resets": "2026-11-27T23:59:00Z",
+      "resetEvery": "month",
       "retiredUntil": "2026-12-01T00:00:00Z",
-      "note": "Hit its Anthropic usage limit 2026-11-26 20:52Z; Anthropic says access returns 2026-12-01.",
+      "note": "Monthly credit, assumed to lapse and refill like Segun's (to confirm). Hit its Anthropic usage limit 2026-11-26 20:52Z; Anthropic says access returns 2026-12-01.",
       "uses": ["prod", "lab", "evals"]
     },
     {
@@ -26,13 +27,14 @@
       "alias": "dev2-claude-credits",
       "owner": "Dev2",
       "capUsd": 200,
-      "usedUsd": 200,
-      "usedAsOf": "2026-11-14T00:00:00Z",
+      "usedUsd": 27,
+      "usedAsOf": "2026-11-26T22:18:00Z",
       "since": "2026-11-13T16:57:00Z",
       "expires": null,
-      "resets": null,
+      "resets": "2026-12-23T05:00:00Z",
+      "resetEvery": "month",
       "retiredUntil": null,
-      "note": "Credit used up.",
+      "note": "$200 a month, use it or lose it; about $173 left on 2026-11-26, refills 2026-12-23 and monthly after, per Dev2.",
       "uses": ["prod", "lab", "evals"]
     },
     {
@@ -40,13 +42,14 @@
       "alias": "segun-claude-credits",
       "owner": "Segun",
       "capUsd": 200,
-      "usedUsd": null,
-      "usedAsOf": null,
+      "usedUsd": 100,
+      "usedAsOf": "2026-11-26T22:17:00Z",
       "since": "2026-11-26T21:00:00Z",
-      "expires": "2026-11-28T04:59:00Z",
-      "resets": null,
+      "expires": null,
+      "resets": "2026-11-28T04:59:00Z",
+      "resetEvery": "month",
       "retiredUntil": null,
-      "note": "$200 credit expiring 2026-11-27 (end of day US Eastern), per Dev2 2026-11-26.",
+      "note": "$200 a month, use it or lose it, refilled 2026-11-27 (end of day US Eastern) and monthly after, per Dev2 2026-11-26. About $100 left in the period ending then.",
       "uses": ["prod", "lab", "evals"]
     }
   ]

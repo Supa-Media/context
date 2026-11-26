@@ -16,8 +16,10 @@ export interface AiKeyDef {
   since: string;
   /** When its credit lapses (ISO), or null. */
   expires: string | null;
-  /** When it refills (ISO), or null. */
+  /** When it refills (ISO), or null; with `resetEvery`, the anchor of its monthly period. */
   resets: string | null;
+  /** "month": use-it-or-lose-it credit that lapses and refills each month on `resets`' anniversary. */
+  resetEvery: "month" | null;
   /** Skipped until then (ISO), or null. */
   retiredUntil: string | null;
   note?: string;
@@ -35,4 +37,6 @@ export declare function aliasesForUse(use: string, now?: number): string[];
 export declare function cleanAliases(list: string | readonly string[] | null | undefined): string[];
 export declare function findKey(name: unknown): AiKeyDef | null;
 export declare function keyAliasesOf(env: Record<string, unknown> | null | undefined, now?: number): string[];
+export declare function periodOf(key: AiKeyDef, now?: number): { start: number; end: number } | null;
+export declare function lapsesAt(key: AiKeyDef, now?: number): number;
 export declare function keysReport(now?: number): { order: Record<string, string[]>; keys: Array<AiKeyDef & { leftUsd: number | null; state: string }> };

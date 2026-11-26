@@ -10,7 +10,7 @@
 
 import { TEX_STEPS, texStepForModel, type TexStepDef } from "@context/tex/src/texSteps.cjs";
 import { CLEF_MODEL, GLM_MODEL } from "../jev/models";
-import { AI_KEYS } from "@context/tex/src/aiKeys.cjs";
+import { AI_KEYS, keyState } from "@context/tex/src/aiKeys.cjs";
 
 export { CLEF_MODEL, GLM_MODEL };
 
@@ -40,9 +40,9 @@ export const CREDIT_KEYS: readonly CreditKey[] = AI_KEYS.map((k) => ({
   label: `${k.owner}'s credits`,
   capUsd: k.capUsd,
   since: k.since,
-  // Used up as the file records it (its use reached its credit). A key retired until a reset or past its expiry is
-  // left out of the gateway's order (aiKeys.cjs keyState) but keeps its row here, counted from what it spent.
-  spent: Number.isFinite(k.capUsd) && Number.isFinite(k.usedUsd) && (k.usedUsd as number) >= (k.capUsd as number),
+  // Used up as the file records it (its use reached its credit in its current period; a monthly key's refill makes it
+  // whole). A key retired until a date or past a one-off expiry keeps its row here, counted from what it spent.
+  spent: keyState(k, Date.now()) === "used up",
 }));
 
 /** When the gateway began sending the `payer` label. Before it, every call is unlabeled. */
