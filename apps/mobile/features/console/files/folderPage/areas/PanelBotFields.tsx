@@ -10,7 +10,7 @@
  * how it is reached; a webhook's secret is kept sealed on the server.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { botLabel, setupPrompt, type OwnedArea } from "@context/shared/src/areaBots.cjs";
 import { MCP_ENDPOINT } from "../../../placeholderData";
@@ -21,6 +21,7 @@ import { useFieldFont } from "../../../../design/fieldFont";
 import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { MenuItem } from "../../menuItem";
+import type { OwnerSearch } from "../../owners";
 import { agentName } from "../agents";
 import { pickSquarePhoto } from "../../../settings/panels/pickSquarePhoto";
 import type { Card } from "./seat";
@@ -43,6 +44,22 @@ export function botSetupPrompt(card: Card, areas: readonly OwnedArea[], workspac
     endpoint: MCP_ENDPOINT,
     ...(cardNote === undefined || card.avatar !== "" ? {} : { card: cardNote }),
   });
+}
+
+/** The workspace's people, asked once when a menu opens. */
+export function usePeopleList(search: OwnerSearch | undefined, asking: boolean): readonly string[] {
+  const [people, setPeople] = useState<readonly string[]>([]);
+  useEffect(() => {
+    if (!asking || search === undefined) return;
+    let live = true;
+    search("", [])
+      .then((found) => live && setPeople(found.people.map((person) => person.value)))
+      .catch(() => live && setPeople([]));
+    return () => {
+      live = false;
+    };
+  }, [search, asking]);
+  return people;
 }
 
 /**

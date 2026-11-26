@@ -111,8 +111,8 @@ folders its own way, so a job can no longer come from a root name alone.
 - **Three groups, one list** (`packages/shared/src/folderJobInfo.cjs`, read by
   Settings, the import picker, `orient` and `folder_job` alike): *needed* —
   Inbox, Projects, Areas, Resources, Archive, one each, which can be handed to
-  another folder and never taken away; *made when used* — Tex, Website and
-  Data;
+  another folder and never taken away; *made when used* — Tex, Website,
+  Data and Bots;
   *optional* — Clients, Teams, Products, which can be taken away. The list is
   fixed: there are no made-up jobs; a folder of a person's own kind explains
   itself in its `about.md`.
@@ -160,6 +160,15 @@ folders its own way, so a job can no longer come from a root name alone.
   `metrics/` as the metrics page, picked by job (`dataFolderNow`) and never
   by name (`features/console/files/data/DataFolderPage.tsx`;
   [data-and-metrics](../data-and-metrics.md#what-stage-b-draws-and-what-it-leaves-out)).
+- **Bots is a job** (2026-11-26, the owner: "update bots folder logo", after
+  "top level bots yes" put one folder per bot beside the Areas folder,
+  [area-routines](./area-routines.md)). The folder doing it holds
+  `<bot>/about.md` (the bot's card) and `<bot>/mail/`, and is made the first
+  time a bot is added. It draws right after Areas with a robot-head icon in
+  the built-in folders' blue, and a root folder named `bots` that no row
+  claims is it, as for Data. It can be renamed and nested; the app and the
+  gateway still name it `bots` beside the Areas folder, so a renamed one is
+  not yet followed there. It is never guessed for an import: no synonyms.
 - **AI clients** use `manage` action `folder_job` `{ job, path | remove }`, a
   row over `apply_layout`, through the same `giveJob` the app's Settings uses.
 

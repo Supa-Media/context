@@ -5,7 +5,7 @@ import { parseSendblueInbound } from "./sendblue";
 import { MemoryStorage } from "./memoryStorage.testing";
 import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
 import type { Fetch } from "./clients";
-import type { Decide } from "./groupWorld.testing";
+import { WITHOUT_DID, type Decide } from "./groupWorld.testing";
 import { commandTo } from "./groupWords";
 import { unwritten } from "./events";
 import { LINE, ADA, BO, CY, GROUP, PICTURE, message, deps, world } from "./groupInboxWorld.testing";
@@ -365,7 +365,8 @@ describe("a group's queue", () => {
       const storage = new MemoryStorage();
       const w = world();
       await acceptGroup(storage, message(text), 0);
-      await drainGroup(storage, deps(w, { control }));
+      // The old lines, as sent when node did is not wired (`didFacts.ts`): the fallback every did turn keeps.
+      await drainGroup(storage, { ...deps(w, { control }), texGraph: WITHOUT_DID });
       expect(w.sends.map((sent) => sent.content)).toEqual([said]);
       expect(w.asks).toEqual([]);
     }
@@ -591,7 +592,7 @@ describe("a group chat with people who aren't all here (homes, not guest mode; d
     const storage = new MemoryStorage();
     const w = world();
     await acceptGroup(storage, message("Tex what can you see?", { eventId: "sendblue:status", messageId: "status" }), 10);
-    await drainGroup(storage, deps(w, { control: { ...ready, handle: "ada", reach: ["band"] } }));
+    await drainGroup(storage, { ...deps(w, { control: { ...ready, handle: "ada", reach: ["band"] } }), texGraph: WITHOUT_DID });
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.status(["band"])]);
   });
 
@@ -654,8 +655,8 @@ describe("a mailbox shared with the chat (chat-mail.md)", () => {
     const w = world();
     await acceptGroup(storage, message("Tex what came in today?"), 0);
     const ready = { status: "ready", slug: "crystal-care", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" };
-    await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example" }, { handle: "bo", address: "not an address" }] } }));
-    expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example" }]);
+    await drainGroup(storage, deps(w, { control: { ...ready, mail: [{ handle: "ada", address: "me@work.example", askerSends: true }, { handle: "bo", address: "not an address" }] } }));
+    expect((w.asks[0]?.group as { mail?: unknown }).mail).toEqual([{ handle: "ada", address: "me@work.example", askerSends: true }]);
   });
 
   it("names the shared calendars to the turn the same way, dropping any malformed entry", async () => {

@@ -13,6 +13,7 @@ import { shortTarget } from "./shortTarget";
 import { targetNumber, targetState, type Reading, type TargetState } from "./readings";
 import { trendGeometry, type TrendGeometry } from "./Trend";
 import type { Seat } from "./seat";
+import { goalWords, verdictOf, type Verdict } from "./verdict";
 
 export interface Headline {
   readonly label: string;
@@ -29,6 +30,16 @@ export interface Headline {
   readonly period: string;
   /** Hidden or still being worked out: drawn muted. */
   readonly status: ReadingStatus;
+  /** The target in words, `aim 100+`, `under $500`, `of 15`; "" when none is set. */
+  readonly goal: string;
+  /** Exceeds target, On target, On pace, Under target or Needs a look; null when nothing can be said (`verdict.ts`). */
+  readonly verdict: Verdict | null;
+}
+
+/** The verdict as the two-state colour the trend and value are drawn in. */
+function stateFrom(verdict: Verdict | null, fallback: TargetState): TargetState {
+  if (verdict === null) return fallback;
+  return verdict.good ? "met" : "missed";
 }
 
 function fromArea(reading: Reading | AreaReading | undefined): reading is AreaReading {
@@ -36,32 +47,39 @@ function fromArea(reading: Reading | AreaReading | undefined): reading is AreaRe
 }
 
 /** Null when the area names no metric. */
-export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefined): Headline | null {
+export function headlineOf(seat: Seat, reading: Reading | AreaReading | undefined, now: number = Date.now()): Headline | null {
   const metric = seat.metrics[0];
   if (metric === undefined) return null;
   const target = metric.target === null ? "" : shortTarget(metric.target);
+  const goal = metric.target === null ? "" : goalWords(metric.target);
   if (fromArea(reading)) {
+    const verdict = reading.status === "ok" ? verdictOf(reading.value, metric.target, reading.start ?? null, now) : null;
     return {
       label: metric.name,
       target,
       value: reading.status === "none" ? null : reading.value.replace(/ days?$/, " d"),
       date: reading.date,
-      state: metric.target === null ? "unknown" : reading.state,
+      state: metric.target === null ? "unknown" : stateFrom(verdict, reading.state),
       trend: reading.status === "ok" ? trendGeometry(reading.series, reading.limit) : null,
       source: [reading.inputs, reading.when].filter((part) => part !== "").join(" · "),
       period: reading.period,
       status: reading.status,
+      goal,
+      verdict,
     };
   }
+  const verdict = reading === undefined ? null : verdictOf(reading.value, metric.target, reading.start ?? null, now);
   return {
     label: metric.name,
     target,
     value: reading === undefined ? null : reading.value.replace(/ days?$/, " d"),
     date: reading?.date ?? "",
-    state: metric.target === null ? "unknown" : targetState(reading, metric.target),
+    state: metric.target === null ? "unknown" : stateFrom(verdict, targetState(reading, metric.target)),
     trend: reading === undefined ? null : trendGeometry(reading.series, targetNumber(reading, metric.target)),
     source: "",
     period: "",
     status: reading === undefined ? "none" : "ok",
+    goal,
+    verdict,
   };
 }

@@ -17,8 +17,7 @@ import { fonts, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import { OwnerFace, StatusDot, type Face } from "../Glyphs";
 import type { StatusTone } from "../StatusPill";
-import { servesWhere } from "./AreaProjectRows";
-import { restLine, type AreaProject, type AreaProjects } from "./areaProjects";
+import { restLine, servesWhere, type AreaProject, type AreaProjects } from "./areaProjects";
 import { areaTitle } from "./seat";
 
 export interface PanelProjectsTools {

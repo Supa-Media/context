@@ -61,7 +61,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { TexLab } from "@context/lab/app/TexLab.web";
 import { clone, G, MAIN, node, set } from "@context/lab/app/engine/state";
-import { bodyOf, cellOf, defaultCols, fitCols, missingTest, setsRatio, stepNodes, type Conversation } from "@context/lab/app/engine/sets";
+import { bodyOf, cellOf, defaultCols, fitCols, missingTest, modValue, setsRatio, stepNodes, type Conversation } from "@context/lab/app/engine/sets";
 import { hiddenOf, mergeDrafts } from "@context/lab/app/engine/setsData";
 import { sets, undo } from "@context/lab/app/engine/setsStore";
 
@@ -358,6 +358,27 @@ describe("the tab's reading of a chat", () => {
     expect(cellOf({ id: "x", who: "Ana", text: "hi", labels: { fd: { run: "must not" } }, rec: { fd: {} } }, fd).cls).toBe("c-bad");
     expect(cellOf({ id: "x", who: "Ana", text: "hi", rec: { fd: {} } }, fd).sym).toBe("○");
     expect(cellOf({ id: "x", who: "Ana", text: "hi" }, fd).sym).toBe("–");
+  });
+
+  test("a recorded front-door draft shows as the draft, and its tool calls as the ledger, with no Tex reply after", () => {
+    const g = G();
+    const n = g.nodes.find((x) => x.id === "reviewer")!;
+    const held: Conversation = {
+      id: "held",
+      title: "held",
+      set: "test",
+      kind: "one",
+      members: ["Jo"],
+      msgs: [{ id: "m1", who: "Jo", text: "is the hall free?", labels: { reviewer: { sentBack: "1", star: true } }, rec: { fd: { draft: "Saturday is free.", did: [["list_events", { day: "Saturday" }, "booked 2pm"]] } } }],
+    };
+    expect(modValue(held, 0, "draft", n, [], g).value).toBe("recorded draft: “Saturday is free.”");
+    expect(modValue(held, 0, "ledger", n, [], g).value).toContain("list_events");
+    expect(modValue(held, 0, "ledger", n, [], g).value).toContain("booked 2pm");
+    const sent: Conversation = { ...held, msgs: [{ id: "m1", who: "Jo", text: "hi" }, { id: "m2", who: "Tex", tex: true, text: "hello" }] };
+    expect(modValue(sent, 0, "draft", n, [], g).value).toContain("hello");
+    const bare: Conversation = { ...held, msgs: [{ id: "m1", who: "Jo", text: "hi" }] };
+    expect(modValue(bare, 0, "draft", n, [], g).value).toBe("none: no Tex reply after this message");
+    expect(modValue(bare, 0, "ledger", n, [], g).value).toBe("this turn so far (the wires below)");
   });
 
   test("a special message moved above the one it points at is flagged", () => {

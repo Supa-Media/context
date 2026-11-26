@@ -73,6 +73,20 @@ control plane with no model (`textGroups.applyGroupTurn`,
 - **Sending is unchanged**: an email from someone's own Gmail still goes only
   on their own yes in the chat. Sharing a mailbox to read is not a yes to
   send from it.
+- **Whoever has the mailbox connected can send from it** (Dev2, 2026-11-26).
+  A family business's work mailbox is often connected by more than one of
+  its people. Each turn's asker is told, as a fact on the shared mailbox
+  (`askerSends`, `lib/textGroupMail.ts`), when they have it connected on their
+  own account with sending granted; then the email goes as them, on their own
+  yes, from their own connection (`claimPersonEmail` sends from nothing else).
+  Otherwise it is offered for the sharer's yes, a reply in its thread
+  included (`emailGate.js`); a forward or an attachment still goes only from
+  its owner's own ask. Why: on 2026-11-25 Tex, told only that the mailbox was
+  the sharer's, offered a reply for the sharer's yes, which the gate refused,
+  though the asker had sent the same kind of reply on 11-20 from their own
+  connection. Reversing it fails `textGroupMail.test.ts` "an asker who has the
+  shared mailbox connected" and `agentGroupOffer.test.mjs` "a reply from
+  someone else's mailbox".
 
 ## The chat checks in on its own
 

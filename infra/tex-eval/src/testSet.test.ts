@@ -77,6 +77,34 @@ describe("the rules", () => {
     expect(verdict(tests, [r("9", "decide", true)], []).right).toBe(0);
     expect(verdict([], [], [])).toMatchObject({ pass: true, total: 0 });
   });
+
+  it("a node run more than once fails only on a steady regression, and one run still fails when its count drops", () => {
+    const tests = [
+      { chat: "a", msg: "1", node: "reviewer" },
+      { chat: "a", msg: "2", node: "reviewer" },
+    ];
+    const trial = (msg: string, right: boolean, rep: number) => ({ chat: "a", msg, node: "reviewer", right, rep });
+    const thrice = (msg: string, rights: boolean[]) => rights.map((right, rep) => trial(msg, right, rep));
+    // The change got case 1 right once of three, main every time. The sample is 1/2 against 2/2. Not a steady miss.
+    const noisy = verdict(tests, [...thrice("1", [true, false, false]), ...thrice("2", [true, true, true])], [...thrice("1", [true, true, true]), ...thrice("2", [true, true, true])]);
+    expect(noisy.pass).toBe(true);
+    expect(noisy.byNode.reviewer).toEqual({ total: 2, right: 1, main: 2, steady: 0, repeats: 3 });
+    // Wrong every time on the change, right every time on main: a real regression.
+    const lost = verdict(tests, [...thrice("1", [false, false, false]), ...thrice("2", [true, true, true])], [...thrice("1", [true, true, true]), ...thrice("2", [true, true, true])]);
+    expect(lost.pass).toBe(false);
+    expect(lost.byNode.reviewer.steady).toBe(1);
+    // Main itself missed a trial, so the case is not steady and does not fail the gate.
+    const flakyMain = verdict(tests, thrice("1", [false, false, false]), thrice("1", [true, false, true]));
+    expect(flakyMain.pass).toBe(true);
+    expect(flakyMain.byNode.reviewer.steady).toBe(0);
+    // No answer from the change, and main right every time, is a steady regression.
+    const missing = verdict([{ chat: "a", msg: "1", node: "reviewer" }], [], thrice("1", [true, true, true]));
+    expect(missing.pass).toBe(false);
+    // One run is unchanged: a lower count fails, and the score carries no repeat fields.
+    const once = verdict([{ chat: "b", msg: "1", node: "decide" }], [{ chat: "b", msg: "1", node: "decide", right: false }], [{ chat: "b", msg: "1", node: "decide", right: true }]);
+    expect(once.pass).toBe(false);
+    expect(once.byNode.decide).toEqual({ total: 1, right: 0, main: 1 });
+  });
 });
 
 describe("the Test Set object", () => {

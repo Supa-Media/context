@@ -573,6 +573,7 @@ test/datePropertiesWrite.test.mjs
 test/dateStamp.test.mjs
 test/agentCheckInTexts.test.mjs
 test/folderNotesRoute.test.mjs
+test/mailNotesRoute.test.mjs
 test/noteReadRoute.test.mjs
 test/noteWriteRoute.test.mjs
 test/toldFacts.test.mjs
@@ -812,3 +813,6 @@ test/areaRoutines.test.mjs
 test/stickerLook.test.mjs
 test/blankFields.test.mjs
 test/explainContext.test.mjs
+test/chatStyle.test.mjs
+test/roomCheck.test.mjs
+test/heldShare.test.mjs

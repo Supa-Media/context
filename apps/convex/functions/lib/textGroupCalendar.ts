@@ -32,8 +32,11 @@ const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 /** Most calendars one chat reads. */
 const MAX_SHARES = 10;
 
-/** A share a chat's turn may read now, with the connection it reads through. */
-export type LiveCalendarShare = { share: Doc<"chatCalendarShares">; connection: Doc<"googleConnections"> };
+/**
+ * A calendar a chat's turn may read now, with the connection it reads through: one shared into the chat, or, on a turn
+ * its own person asked for, one of theirs (`own`).
+ */
+export type LiveCalendarShare = { share: { userId: Id<"users">; address: string }; connection: Doc<"googleConnections">; own?: true };
 
 /** The person's own live calendar connection at this address, or null. */
 async function ownCalendar(ctx: QueryCtx, userId: Id<"users">, address: string): Promise<Doc<"googleConnections"> | null> {
@@ -147,19 +150,54 @@ export async function liveCalendarShares(ctx: QueryCtx, group: Doc<"textGroups">
   for (const share of rows) {
     if (!(await inChat(ctx, group, share.userId))) continue;
     const connection = await ownCalendar(ctx, share.userId, share.address);
-    if (connection !== null) live.push({ share, connection });
+    if (connection !== null) live.push({ share: { userId: share.userId, address: share.address }, connection });
   }
   return live;
+}
+
+/**
+ * The asker's own calendars, on a turn they asked for (Dev2, 2026-11-26: "Tex what was my meeting today about" in a
+ * group went the long way round, through their own 1:1 Tex, because a group turn read no one's calendar). Read on the
+ * asker's own grant only (`reachFor: "asker"`, held by them, no guest acting through it), while they are one of the
+ * chat's people; a turn nobody asked for, a guest's ask and anyone else's tag read none of them. What gets said from it
+ * in front of the room is Training's, as for the asker's shared workspaces (`docs/decisions/texting-assistant/asker-reach.md`).
+ */
+async function askerCalendars(ctx: QueryCtx, group: Doc<"textGroups">, asker: Id<"users">): Promise<LiveCalendarShare[]> {
+  if (speaksUpOf(group) === "off") return [];
+  if (!(await inChat(ctx, group, asker))) return [];
+  return (await ownCalendars(ctx, asker)).map((connection) => ({
+    share: { userId: asker, address: connection.address.toLowerCase() },
+    connection,
+    own: true as const,
+  }));
+}
+
+/** Whose calendar this grant reads as its asker's own: the asker's id, or null for any other grant. */
+function askerOf(grant: { userId: Id<"users">; texGroup?: Doc<"oauthGrants">["texGroup"] }): Id<"users"> | null {
+  const chat = grant.texGroup;
+  if (chat === undefined || chat.reachFor !== "asker") return null;
+  // Held by the asker themselves: a guest's ask stands on the sponsor's grant, and so does an invited person's.
+  if (chat.taggerId === undefined || chat.taggerId !== grant.userId) return null;
+  if (chat.guestPhone !== undefined || chat.guestTagger === true || chat.invitedTaggerRole !== undefined) return null;
+  return grant.userId;
+}
+
+/** Shares and the asker's own calendars together, one row per address, the share first. */
+function withOwn(shares: LiveCalendarShare[], own: LiveCalendarShare[]): LiveCalendarShare[] {
+  return [...shares, ...own.filter((row) => !shares.some(({ share }) => share.userId === row.share.userId && share.address === row.share.address))];
 }
 
 /** Who shares which calendar here, by handle, for the chat's turn to be told: `{ calendar }` on a turn's answer, or `{}`. */
 export async function calendarSharesNamed(
   ctx: QueryCtx,
   groupId: Id<"textGroups">,
+  asker: Id<"users"> | null = null,
 ): Promise<{ calendar?: { handle: string; address: string }[] }> {
   const group = await ctx.db.get(groupId);
+  const shares = group === null ? [] : await liveCalendarShares(ctx, group);
+  const rows = group === null || asker === null ? shares : withOwn(shares, await askerCalendars(ctx, group, asker));
   const named: { handle: string; address: string }[] = [];
-  for (const { share } of group === null ? [] : await liveCalendarShares(ctx, group)) {
+  for (const { share } of rows) {
     const personal = await personalWorkspaceOf(ctx, share.userId);
     if (personal !== null) named.push({ handle: personal.slug, address: share.address });
   }
@@ -184,5 +222,7 @@ export async function chatCalendarClearance(
   if (!covered && String(live.grant.workspaceId) !== args.expectedWorkspaceId) return null;
   const group = await ctx.db.get(chat.groupId);
   if (group === null) return null;
-  return await liveCalendarShares(ctx, group);
+  const shares = await liveCalendarShares(ctx, group);
+  const asker = askerOf(live.grant);
+  return asker === null ? shares : withOwn(shares, await askerCalendars(ctx, group, asker));
 }

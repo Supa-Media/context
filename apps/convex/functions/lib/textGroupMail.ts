@@ -41,6 +41,8 @@ import { chatWorkspace } from "./textGroupReach";
 import { writingRole } from "./routines/access";
 import { personalWorkspaceOf } from "./faces/people";
 import { speaksUpOf } from "./texChatRules";
+import { canSendEmail } from "./googleOAuth";
+import { aiScopesOf } from "./googleConnect/aiScopes";
 
 /** The client every group grant is minted for; the audit names it beside the person. */
 const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -182,13 +184,50 @@ export async function liveMailShares(ctx: QueryCtx, group: Doc<"textGroups">): P
   return live;
 }
 
-/** Who shares which mailbox here, by handle, for the chat's turn to be told: `{ mail }` on a turn's answer, or `{}`. */
-export async function mailSharesNamed(ctx: QueryCtx, groupId: Id<"textGroups">): Promise<{ mail?: { handle: string; address: string }[] }> {
+/**
+ * Whether `userId` can send from `address` as their own: a Gmail connected to their own personal workspace, with
+ * sending granted to AI and its sign-in working, the connection `claimPersonEmail` (`functions/personEmail.ts`) would
+ * send it from on their own grant.
+ */
+async function ownSender(ctx: QueryCtx, userId: Id<"users">, address: string): Promise<boolean> {
+  const personal = await personalWorkspaceOf(ctx, userId);
+  if (personal === null || personal.createdBy !== userId) return false;
+  const rows = await ctx.db
+    .query("googleConnections")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))
+    .take(20);
+  return rows.some(
+    (row) =>
+      row.disconnectedAt === undefined &&
+      row.products.includes("gmail") &&
+      canSendEmail(aiScopesOf(row)) &&
+      row.health !== "reconnect_required" &&
+      row.address.toLowerCase() === address,
+  );
+}
+
+/** One shared mailbox as the chat's turn is told it: whose share, and whether the asker can send from it as their own. */
+export type NamedMailShare = { handle: string; address: string; askerSends?: true };
+
+/**
+ * Who shares which mailbox here, by handle, for the chat's turn to be told: `{ mail }` on a turn's answer, or `{}`.
+ * With the turn's asker, each mailbox the asker has connected themselves is marked `askerSends` (2026-11-25, Crystal
+ * Care: the asker had the shared work mailbox connected too, and Tex, told only whose share it was, offered the reply
+ * for the sharer's yes, which nobody could give it; on 11-20 it had sent the same kind of reply as the asker).
+ */
+export async function mailSharesNamed(
+  ctx: QueryCtx,
+  groupId: Id<"textGroups">,
+  asker: Id<"users"> | null = null,
+): Promise<{ mail?: NamedMailShare[] }> {
   const group = await ctx.db.get(groupId);
-  const named: { handle: string; address: string }[] = [];
+  const named: NamedMailShare[] = [];
+  const askerHere = group !== null && asker !== null && (await inChat(ctx, group, asker));
   for (const { share } of group === null ? [] : await liveMailShares(ctx, group)) {
     const personal = await personalWorkspaceOf(ctx, share.userId);
-    if (personal !== null) named.push({ handle: personal.slug, address: share.address });
+    if (personal === null) continue;
+    const askerSends = askerHere && asker !== null && (await ownSender(ctx, asker, share.address));
+    named.push({ handle: personal.slug, address: share.address, ...(askerSends ? { askerSends: true as const } : {}) });
   }
   return named.length > 0 ? { mail: named } : {};
 }

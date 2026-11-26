@@ -69,7 +69,16 @@ orient), `apps/mcp/test/setArea.test.mjs` (`bot.works_in`),
 `apps/convex/__tests__/botHooks.test.ts` (the routine call and its limits)
 and `apps/mobile/__tests__/areaBotPrompts.test.ts` (the prompts).
 
-**Not built yet.** The `areas/bots/<bot>/about.md` folder that replaces
-`people/` as the home of bot cards, with only a bot's person able to change
-its card, and the app's Bots and Conversations views: the next pull requests.
-Readers already look for a card in `bots/` first, then `people/`.
+**Where bots live.** *Decided by the owner, 2026-11-25* ("top level bots
+yes", after asking whether bots should live in the Areas folder at all, since
+a bot can hold many areas): a bot is a folder `bots/<bot>/` beside the Areas
+folder, its card `about.md` and its mail `mail/<sender>.md`, and the Areas
+folder's Bots and Mail tabs are gone. The app draws `bots/` as the list of
+bots and `bots/<bot>/` as that bot's page. Cards are read in `bots/` first,
+then the Areas folder's old `bots/`, then `people/`, and changed where they
+are, so a workspace not yet moved keeps working; a new card goes to the new
+home. A bot's own folder is never held by a budget: its mail is to the bot,
+not work in an area (`areaRoutines.js` `budget`). Tests:
+`apps/mcp/test/setArea.test.mjs`, `apps/mcp/test/orientArea.test.mjs`,
+`apps/mobile/__tests__/areasBotsView.test.ts`. Only a bot's person changing
+its card is shown in the app, not enforced.

@@ -70,7 +70,9 @@ export function jobReportOf(body, { chatTurn, job }) {
   // How it ended, as facts (the Worker's `JobEnd`), read as strictly as node did's.
   const facts = didFactsOf(value.end);
   const end = facts !== null && facts.action === "job" ? facts : null;
-  return { title, state: value.state, texts, ...(end ? { end } : {}), ...(ask ? { ask } : {}), ...(id ? { id } : {}), ...(unasked ? { unasked: true } : {}) };
+  // The workspaces it read that someone in its group can't open (`roomCheck.js`): its words count as read from them.
+  const roomRead = (Array.isArray(value.roomRead) ? value.roomRead : []).filter((slug) => typeof slug === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)).slice(0, 24);
+  return { title, state: value.state, texts, ...(roomRead.length > 0 ? { roomRead } : {}), ...(end ? { end } : {}), ...(ask ? { ask } : {}), ...(id ? { id } : {}), ...(unasked ? { unasked: true } : {}) };
 }
 
 /** What the coordinator's turn is asked: the gateway's own line, kept in the history as Tex speaking by itself. */

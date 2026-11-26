@@ -104,11 +104,20 @@ export interface Result {
   msg: string;
   node: string;
   right: boolean;
+  /** Which repeat this row is, when the node ran more than once. Absent on a node that ran once. */
+  rep?: number;
 }
 export interface NodeScore {
   total: number;
   right: number;
   main: number;
+  /**
+   * Set when the node ran more than once. Tests the change got wrong on every trial and main got right on every
+   * trial. The gate reads this instead of `right < main`: one sample of the reviewer is noise.
+   */
+  steady?: number;
+  /** The most trials any test of this node ran, when that is more than one. */
+  repeats?: number;
 }
 export interface Verdict {
   pass: boolean;
@@ -124,28 +133,69 @@ export interface Verdict {
   byKind: Record<string, NodeScore>;
 }
 
+/** One test's trials on one side, in repeat order. A row with no `rep` is its own trial. A repeat sent twice counts once. */
+function trialsOf(rows: Result[], t: Test): boolean[] {
+  const seen = new Set<string>();
+  const out: boolean[] = [];
+  for (const r of rows) {
+    if (!r || r.chat !== t.chat || r.msg !== t.msg || r.node !== t.node || typeof r.right !== "boolean") continue;
+    const rep = Number.isInteger(r.rep) && (r.rep as number) >= 0 ? String(r.rep) : `row-${out.length}`;
+    if (seen.has(rep)) continue;
+    seen.add(rep);
+    out.push(r.right === true);
+  }
+  return out;
+}
+
+/** A side got the test right: a strict majority of its trials. No trial is wrong, the same as a missing answer. */
+const majority = (trials: boolean[]) => trials.filter(Boolean).length * 2 > trials.length;
+/** Wrong on every trial, and a missing answer is wrong on every trial. */
+const neverRight = (trials: boolean[]) => trials.length === 0 || trials.every((ok) => !ok);
+/** Right on every trial. An empty side is not this: main has to have answered. */
+const alwaysRight = (trials: boolean[]) => trials.length > 0 && trials.every(Boolean);
+
+/**
+ * Whether a node's score fails the gate. One run: fewer right than main. Several runs: a steady regression, a test
+ * wrong on every trial of the change and right on every trial of main. A lower sample with no such test is noise.
+ */
+export function nodeWorse(s: NodeScore): boolean {
+  return (s.repeats ?? 1) > 1 ? (s.steady ?? 0) > 0 : s.right < s.main;
+}
+
 /**
  * The gate: every unit test the run was handed, scored on the change and on main. A test with no answer is wrong.
- * It passes when no node gets fewer right on the change than on main (Dev2: "no worse than main"); an empty Test
- * Set passes, and says so by its total.
+ * A node that ran once passes when it gets at least as many right as main (Dev2: "no worse than main"). A node that
+ * ran more than once passes unless a test is a steady regression (the replay gate's rule): one sample of the reply
+ * reviewer is 5/8 or 6/8 on unchanged code, and that must not fail a pull request. The counts stay the majority of
+ * the trials, so the sample still shows. An empty Test Set passes, and says so by its total.
  */
 export function verdict(tests: Test[], branch: Result[], main: Result[]): Verdict {
-  const rightIn = (rows: Result[]) => new Set(rows.filter((r) => r && r.right === true).map((r) => keyOf(r)));
-  const b = rightIn(branch);
-  const m = rightIn(main);
   const byNode: Record<string, NodeScore> = {};
   const byKind: Record<string, NodeScore> = {};
+  const mostTrials: Record<string, number> = {};
+  const steady: Record<string, number> = {};
   for (const t of tests) {
+    const b = trialsOf(branch, t);
+    const m = trialsOf(main, t);
+    const repeats = Math.max(b.length, m.length);
     const kind = t.kind === "group" ? "group" : "one";
     for (const s of [(byNode[t.node] ??= { total: 0, right: 0, main: 0 }), (byKind[kind] ??= { total: 0, right: 0, main: 0 })]) {
       s.total += 1;
-      if (b.has(keyOf(t))) s.right += 1;
-      if (m.has(keyOf(t))) s.main += 1;
+      if (majority(b)) s.right += 1;
+      if (majority(m)) s.main += 1;
+    }
+    mostTrials[t.node] = Math.max(mostTrials[t.node] ?? 0, repeats);
+    if (repeats > 1 && neverRight(b) && alwaysRight(m)) steady[t.node] = (steady[t.node] ?? 0) + 1;
+  }
+  for (const [node, n] of Object.entries(mostTrials)) {
+    if (n > 1) {
+      byNode[node].repeats = n;
+      byNode[node].steady = steady[node] ?? 0;
     }
   }
   const scores = Object.values(byNode);
   const sum = (f: (s: NodeScore) => number) => scores.reduce((a, s) => a + f(s), 0);
-  return { pass: scores.every((s) => s.right >= s.main), total: tests.length, right: sum((s) => s.right), main: sum((s) => s.main), byNode, byKind };
+  return { pass: scores.every((s) => !nodeWorse(s)), total: tests.length, right: sum((s) => s.right), main: sum((s) => s.main), byNode, byKind };
 }
 
 /** The UTC day a time falls on, as the day cap counts. */

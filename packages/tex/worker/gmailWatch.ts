@@ -11,9 +11,12 @@
  * other Gmails; their answer is the next turn, which the onboarding skill
  * picks up.
  *
- * No model writes this text. Kept: the phone (this object is already named
- * after it), the chat id and times, never the address. Given up silently
- * after a day, the life of the link that was texted.
+ * Tex writes this text: the chat queues a turn of its own with what happened
+ * as facts (`didOne.ts`, node `did`), and the old line goes only until the
+ * node is wired or when that turn can't run. Kept: the phone (this object is
+ * already named after it), the chat id and times; the address only in that
+ * queued turn. Given up silently after a day, the life of the link that was
+ * texted.
  */
 
 import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
@@ -21,6 +24,7 @@ import type { InboxStorage } from "./inbox";
 import { lineFor, lineSeam, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { noteTold } from "./told";
+import { tellTexOne } from "./didOne";
 
 export const GMAIL_KEY = "gmail";
 /** Opening the link, signing in to Google and coming back takes a minute at least. */
@@ -46,6 +50,8 @@ export type GmailWatchDeps = LineDeps & {
   controlPlaneOrigin: string;
   workerSecret: string;
   now: () => number;
+  /** This chat's config graph, when not the bundled one (tests): whether node `did` is wired. */
+  texGraph?: unknown;
 };
 
 /** Called once the ready text went: watch for the Gmail it asked for. */
@@ -87,6 +93,12 @@ export async function checkGmail(storage: InboxStorage, deps: GmailWatchDeps): P
     return;
   }
   const text = answer.main ? GMAIL_COPY.main(answer.address) : GMAIL_COPY.connected(answer.address);
+  // With node `did` wired, Tex says it in its own words (`didOne.ts`); the old line only when its turn can't run.
+  const told = await tellTexOne(storage, owed, { action: "gmail", status: "connected", address: answer.address, main: answer.main }, `gmail:${owed.since}`, text, { now, graph: deps.texGraph });
+  if (told !== "off") {
+    await storage.delete(GMAIL_KEY);
+    return;
+  }
   try {
     if (owed.channel === "simulator") await record(storage, "in", text, now);
     else await lineFor(lineSeam(deps), owed.chatId).sendText(owed.chatId, text, `gmail:${owed.since}`);

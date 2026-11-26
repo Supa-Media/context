@@ -1,6 +1,31 @@
 {
   "about": "Nodes whose code is merged into packages/tex/gateway/agent/graph/gatewayNodes.js but not wired into texConfig.json yet (Dev2, 2026-11-16: \"for code changes, create the node inside the code first and merge it to main\"). A shelf node never runs: the runner runs only the config's nodes. A Lab draft wires it, and Promote takes it off the shelf in the same pull request that puts it in the config. Each entry: the node's id, its files (repository paths), and what it is for.",
   "nodes": {
+    "roomCheck": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/roomCheck.js",
+        "packages/tex/gateway/agent/roomCheck.js",
+        "packages/tex/gateway/agent/graph/nodes/answerCheck.js",
+        "packages/tex/gateway/agent/graph/nodes/finish.js",
+        "packages/tex/gateway/agent/privateAside.js",
+        "packages/tex/gateway/agent/crossChat.js",
+        "packages/tex/gateway/agent/texEntryPoint/runTheModel.js",
+        "packages/tex/gateway/agent/texEntryPoint/finishTheText.js",
+        "packages/tex/gateway/agent/texEntryPoint/sendTheReply.js"
+      ],
+      "why": "A permission gate right before send (Dev2, 2026-11-26: a group's new members got the takeaways of a meeting in a workspace they can't open). A group turn records what it reads from the asker's workspaces someone in the room can't open, and a job reports the ones it read; a draft that shares names and figures with that material, which nobody in the chat or the ask already said, and that the asker didn't point at (@slug or a link into it), is held: its draft goes to the asker alone as a held aside in their own 1:1, and the front door is sent back with the facts as data to write what the group gets. On Finish it reads the answer once more, so a last-round draft that still carries it goes to the asker and nothing goes to the group. Code only. Unwired, nothing changes: a Lab draft turns it on with answerCheck -> roomCheck (uses) and finish -> roomCheck (uses).",
+      "node": {"id":"roomCheck","label":"Room check","goal":"Before a group answer goes: does it carry what was read from a workspace someone here can't open, that the asker didn't point at? Then it goes to the asker alone, and the group gets Tex's own line.","log":true,"on":true,"rounds":1,"out":300,"ctx":[],"ms":5,"timeoutS":0,"areas":[],"file":"graph/nodes/roomCheck.js · roomCheck.js","note":"","icon":"code","model":"code","x":1200,"y":200,"inSchema":[{"name":"at","type":"text","optional":true},{"name":"draftChars","type":"number","optional":true}],"outSchema":[{"name":"to","type":"text"},{"name":"read","optional":true,"type":"number"},{"name":"chars","optional":true,"type":"number"},{"name":"pointed","optional":true,"type":"number"},{"name":"carried","optional":true,"type":"number"},{"name":"from","optional":true,"type":"number"},{"name":"shared","optional":true,"type":"number"},{"name":"sent","optional":true,"type":"yesno"}]}
+    },
+    "chatStyle": {
+      "files": [
+        "packages/tex/gateway/agent/graph/nodes/chatStyle.js",
+        "packages/tex/gateway/agent/chatStyle.js",
+        "packages/tex/gateway/agent/graph/nodes/fd.js",
+        "packages/tex/gateway/agent/texEntryPoint/runTheModel.js"
+      ],
+      "why": "How the people in a chat text, counted from their own recent texts (Dev2, 2026-11-25: Tex should match the flow, energy and style of the people in each 1:1 and group: casing, length, pace, emoji). The front door starts it at its first step; it reads the chat's ledger and keeps on the turn, for the front door's per-text facts, how many texts start in lowercase, end on a full stop or hold a \"!\", the median words and the emoji used, for the room and, in a group, each person. Data only: the voice modules and Training teach what to do with it. Unwired, nothing changes: a Lab draft turns it on with fd -> chatStyle (uses).",
+      "node": {"id":"chatStyle","label":"Chat style","goal":"Count how the people in this chat text (casing, full stops, length, emoji), from their own recent texts, so the front door can write the way they do.","log":true,"on":true,"rounds":1,"out":300,"ctx":[],"ms":300,"timeoutS":0,"areas":[],"file":"graph/nodes/chatStyle.js · chatStyle.js","note":"","icon":"code","model":"code","x":900,"y":200,"inSchema":[],"outSchema":[{"name":"texts","optional":true,"type":"number"},{"name":"people","optional":true,"type":"number"},{"name":"why","optional":true,"type":"text"}]}
+    },
     "examples": {
       "files": [
         "packages/tex/gateway/agent/graph/nodes/examples.js",
@@ -196,25 +221,6 @@
       "why": "Retired from the config on 2026-11-20 (Dev2: delete the steps that were folded away, keep their code unwired): its work runs inside Learn (learn). Its code stays; `node` keeps its last definition, which code still reads for its settings.",
       "retired": true,
       "node": {"label":"Reflect","goal":"After a hard or corrected turn, write down what worked as a learned skill for next time.","log":true,"on":false,"rounds":4,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"reflect.js","note":"","icon":"star","model":"haiku-5-5","effort":"off","id":"reflect","inSchema":[{"name":"question","type":"text"},{"name":"tainted","type":"yesno"},{"name":"ownText","type":"yesno"},{"name":"canWrite","type":"yesno"}],"outSchema":[{"name":"outcome","type":"text"},{"name":"reason","type":"text","optional":true},{"name":"where","type":"text","optional":true},{"name":"error","type":"text","optional":true},{"name":"why","type":"text","optional":true},{"name":"model","type":"text","optional":true}]}
-    },
-    "did": {
-      "files": [
-        "packages/tex/gateway/agent/graph/nodes/did.js",
-        "packages/tex/gateway/agent/did.js",
-        "packages/tex/gateway/agent/texEntryPoint/readTheText.js",
-        "packages/tex/worker/didFacts.ts",
-        "packages/tex/worker/groupInvite.ts",
-        "packages/tex/gateway/agent/groupTurnCause.js",
-        "packages/tex/worker/groupInbox.ts",
-        "packages/tex/worker/groupTurnFailed.ts",
-        "packages/tex/worker/groupRunTurn.ts",
-        "packages/tex/worker/groupModelTurn.ts",
-        "packages/tex/worker/groupCause.ts",
-        "packages/tex/worker/sendblueGroups.ts",
-        "packages/tex/worker/clients.ts"
-      ],
-      "why": "What code did for a chat, handed to Tex as data so Tex writes the text (Dev2, 2026-11-25: \"Tex's code never writes what Tex says\"; docs/decisions/texting-assistant/no-scripted-wording.md). Merged unwired: until a Lab draft wires it (did to fd, when tell), the Worker sends the old fixed line. Promote takes it off the shelf.",
-      "node": {"id":"did","label":"Tex did","goal":"When code ran something a person in the chat asked for (an invite, a mute, a shared mailbox, a job it could not start), start a run in that chat with what happened, as data, so Tex tells them in its own words.","log":true,"on":true,"rounds":1,"out":300,"ctx":[],"ms":0,"timeoutS":0,"areas":[],"file":"graph/nodes/did.js · did.js · didFacts.ts","note":"","icon":"text","kind":"input","model":"code","x":0,"y":560,"inSchema":[{"name":"event","type":"text"},{"name":"did","type":"object"}],"outSchema":[{"name":"to","type":"choice","options":"tell, refuse"},{"name":"question","type":"text","optional":true},{"name":"why","type":"text","optional":true}]}
     }
   }
 }

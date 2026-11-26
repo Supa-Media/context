@@ -21,13 +21,13 @@ import { noteProperties } from "../src/lists/properties.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { withServedTree } from "./servedTree.mjs";
 
-const RULES = [{ prefix: "areas", vis: "team" }, { prefix: "data", vis: "team" }];
+const RULES = [{ prefix: "areas", vis: "team" }, { prefix: "data", vis: "team" }, { prefix: "bots", vis: "team" }];
 
 async function world(notes = {}) {
   const base = createMemoryStore();
   for (const [key, text] of Object.entries(notes)) await base.put(key, text);
   const store = withPrivacyAuthority(withServedTree(base), {
-    rules: { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "areas", visibility: "team" }, { prefix: "data", visibility: "team" }], notes: [] },
+    rules: { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "areas", visibility: "team" }, { prefix: "data", visibility: "team" }, { prefix: "bots", visibility: "team" }], notes: [] },
     async setAccess(change) {
       return { ok: true, version: (change.expectedVersion ?? 1) + 1 };
     },
@@ -104,17 +104,19 @@ test("an area outside the areas folder, or one that isn't there, is refused", as
   assert.equal((await run(store, { area: "areas/nowhere", owner: "Finance" })).isError, true);
 });
 
-test("a bot gets its card in bots/<bot>/about.md and its name on the agents list", async () => {
+test("a bot gets its card in bots/<bot>/about.md beside the Areas folder, and its name on the agents list", async () => {
   const { store, props } = await world({ "areas/about.md": "---\nagents:\n  - Pipeline\n---\n\n# Areas\n", "areas/finance/about.md": FINANCE });
   const result = await run(store, { area: "areas/finance", owner: "Finance", bot: { name: "Finance", whose: "@seyi", reach: "webhook" } });
   assert.equal(result.isError, undefined, said(result));
-  const card = await props("areas/bots/finance/about.md");
+  // Beside the Areas folder, not in it (the owner, 2026-11-25: "top level bots yes"), with no area: false note needed.
+  const card = await props("bots/finance/about.md");
   assert.equal(card.holder, "Finance");
   assert.equal(card.kind, "agent");
   assert.equal(card.bot, "grok");
   assert.equal(card.belongs_to, "@seyi");
   assert.equal(card.reach, "webhook");
-  assert.equal(String((await props("areas/bots/about.md")).area), "false");
+  assert.equal(await (await store.get("bots/about.md"))?.text?.(), undefined);
+  assert.equal(await (await store.get("areas/bots/finance/about.md"))?.text?.(), undefined);
   assert.deepEqual((await props("areas/about.md")).agents, ["Pipeline", "Finance"]);
   // Again: no second name on the list.
   await run(store, { area: "areas/finance", bot: { name: "finance" } });
@@ -129,10 +131,10 @@ test("a bot's logo is stored in the workspace and named on its card's avatar lin
   const result = await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } });
   assert.equal(result.isError, undefined, said(result));
   assert.match(said(result), /with its logo/);
-  const avatar = String((await props("areas/bots/finance/about.md")).avatar);
+  const avatar = String((await props("bots/finance/about.md")).avatar);
   assert.match(avatar, /^upload-[0-9a-f]{16}\.(png|webp|jpe?g)$/);
   // The logo is a field, not an embed added under the card.
-  assert.doesNotMatch(await text("areas/bots/finance/about.md"), /!\[/);
+  assert.doesNotMatch(await text("bots/finance/about.md"), /!\[/);
   assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: {} } })).isError, true);
 });
 
@@ -226,14 +228,14 @@ test("a bot's works_in lists the areas its person lets it work in, each with its
   const set = await run(store, { area: "areas/finance", bot: { name: "Finance", whose: "@seyi", works_in: [{ area: "areas/finance", cap: 20 }, "areas/ops · 5%", { area: "areas/finance/" }] } });
   assert.equal(set.isError, undefined, said(set));
   assert.match(said(set), /working in areas\/finance · 20%, areas\/ops · 5%/);
-  assert.deepEqual((await props("areas/bots/finance/about.md")).works_in, ["areas/finance · 20%", "areas/ops · 5%"]);
+  assert.deepEqual((await props("bots/finance/about.md")).works_in, ["areas/finance · 20%", "areas/ops · 5%"]);
   for (const works_in of [[{ area: "areas/finance", cap: 120 }], [{ area: "projects/x", cap: 5 }], "areas/finance", [{ area: "areas/finance", cap: 2.5 }]]) {
     const bad = await run(store, { area: "areas/finance", bot: { name: "Finance", works_in } });
     assert.equal(bad.isError, true, JSON.stringify(works_in));
   }
   const cleared = await run(store, { area: "areas/finance", bot: { name: "Finance", works_in: null } });
   assert.match(said(cleared), /working wherever an area names it/);
-  assert.equal((await props("areas/bots/finance/about.md")).works_in, undefined);
+  assert.equal((await props("bots/finance/about.md")).works_in, undefined);
 });
 
 test("a card still in people/ is changed where it is", async () => {
@@ -248,7 +250,7 @@ test("a card still in people/ is changed where it is", async () => {
   assert.equal(await (await store.get("areas/bots/finance/about.md"))?.text?.(), undefined);
 });
 
-test("a card already in the bots folder is changed there", async () => {
+test("a card still in the Areas folder's bots/ is changed there", async () => {
   const { store, props } = await world({
     "areas/finance/about.md": FINANCE,
     "areas/bots/about.md": "---\narea: false\n---\n",

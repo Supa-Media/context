@@ -120,6 +120,7 @@ export async function sendTheReply(t) {
     ...(ledger.chatInvite ? { invite: ledger.chatInvite } : {}), // the Worker invites this chat's people, as its asker, after the answer (`settingsTools.js`)
     ...(ledger.vaultLink === true ? { vaultWatch: true, ...(ledger.vaultLinks?.length ? { vaultLinks: ledger.vaultLinks } : {}) } : {}), // the Worker watches for the save, in a group too, on the links this chat texted (`vaultSaved.js`)
     ...(await tex.step("handback_watch", () => handbackField(opened))), // the browser it handed over, whose Done carries the task on (`handback.js`)
+    ...(job !== null && t.roomReads?.slugs().length > 0 ? { roomRead: t.roomReads.slugs() } : {}), // a group job's reads from a workspace someone there can't open, carried to its report (`roomCheck.js`)
     ...(ledger.asides?.length ? { asides: ledger.asides } : {}), // sensitive asks for the tagger alone: the Worker starts each in their own 1:1 (`privateAside.js`)
     ...(ledger.crossAsks?.length ? { crossAsks: ledger.crossAsks } : {}), // asks the Cross-chat gate let go: the Worker starts each in its chat (`crossChat.js`)
     provider: turn.provider,

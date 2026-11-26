@@ -33,6 +33,11 @@ import { WORLDS, worldDirOf } from "./setsWorld.mjs";
  * longer in the gold) is reported as stale by `traceTraining`, so the list never outlives its reason.
  */
 export const COMPUTED = {
+  "harbour-bounce": {
+    r2: [
+      { fact: "Advanced", why: "the buttons on Google's own unverified-app and permissions screens, which the picture after this text shows: Context's sign-up, not anything of Nia's" },
+    ],
+  },
   "build-crew": {
     m22: [
       { fact: "$210", why: "three Q2Us at the gear note's $70 each" },
