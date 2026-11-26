@@ -113,6 +113,8 @@ export function isTransportPath(path) {
     path === "/files/read" ||
     // A folder page's notes (`live/folderNotesRoute.js`): it names notes and answers their front matter.
     path === "/files/folder-notes" ||
+    // The Mail page's notes (`live/mailNotesRoute.js`): it names notes and answers their newest message.
+    path === "/files/mail" ||
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
     // able to ask it with somebody else's token.

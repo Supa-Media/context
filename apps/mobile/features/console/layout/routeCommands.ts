@@ -10,6 +10,7 @@ import { formerHandleRedirect } from "../formerHandles";
 import { trashFromQuery } from "../trash/TrashRouteContext";
 import { vaultFromQuery } from "../vault/route";
 import { mapFromQuery } from "../map/live/route";
+import { mailFromQuery } from "../mailPage/MailRouteContext";
 import { inboxFolder } from "../files/jobIcons/folderJobs";
 import { meetingsPanelFromQuery } from "../../meetings/route";
 import type { ConsoleData } from "../types";
@@ -36,6 +37,7 @@ export function useConsoleParams() {
     trash?: string | string[];
     meetings?: string | string[];
     vault?: string | string[];
+    mail?: string | string[];
   }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
   /*
@@ -58,7 +60,9 @@ export function useConsoleParams() {
   const meetingsOpen = meetingsPanelFromQuery(settingsParams.meetings);
   // The vault: the rail's tab, or a phone's page (`vault/route.ts`). An old `?settings=vault` lands here too.
   const vaultOpen = vaultFromQuery(settingsParams.vault, settingsParams.settings);
-  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen, meetingsOpen, vaultOpen };
+  // The Mail page, drawn where a note would be — see `mailPage/MailPage.tsx`.
+  const mailOpen = mailFromQuery(settingsParams.mail);
+  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen, meetingsOpen, vaultOpen, mailOpen };
 }
 
 /**

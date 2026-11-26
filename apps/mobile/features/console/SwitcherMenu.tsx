@@ -23,6 +23,7 @@ import {
 import { atName } from "./format";
 import { isOwnWorkspace, railGroup } from "./rail";
 import { useTrashRoute } from "./trash/TrashRouteContext";
+import { useMailRoute } from "./mailPage/MailRouteContext";
 import { useVaultRoute } from "./vault/route";
 import { selectedContext, type ConsoleData } from "./types";
 import { useWorkspaceIcons } from "./useWorkspaceIcons";
@@ -92,6 +93,7 @@ export type SwitcherMenuId =
   | "whatsnew"
   | "shared"
   | "trash"
+  | "mail"
   | "vault"
   | "chaos";
 
@@ -184,6 +186,7 @@ export function SwitcherMenu({
   const colors = useColors();
   const scheme = useScheme();
   const trash = useTrashRoute();
+  const mail = useMailRoute();
   const vault = useVaultRoute();
   const chaosView = useChaosView();
   const triggerRef = useRef<View>(null);
@@ -341,6 +344,8 @@ export function SwitcherMenu({
       down on a phone, inside a workspace (`vault/route.ts`).
     */
     ...(vault !== undefined ? [{ id: "vault", label: "Vault", leading: glyph("key"), testID: "switcher-vault" }] : []),
+    // Mail, which a pointer layout opens from under the map on the right rail (the owner's boards, 2026-11-25).
+    ...(phone && mail !== undefined ? [{ id: "mail", label: "Mail", leading: glyph("mail"), testID: "switcher-mail" }] : []),
     /*
       The phone's Folders page lost its Trash and Chaos lines to board 2 of
       meeting-2026-10-17/phone-inbox (Dev2: "EXACTLY like the mockups"), so
@@ -454,6 +459,7 @@ export function SwitcherMenu({
     else if (id === "new") onNewWorkspace?.();
     else if (id === "settings") onOpenSettings?.();
     else if (id === "trash") trash?.openTrash();
+    else if (id === "mail") mail?.openMail();
     else if (id === "vault") vault?.openVault();
     else if (id === "chaos") chaosView?.openPanel("sheet");
     else if (id === "invite") onInviteFriends?.();

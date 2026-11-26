@@ -1,4 +1,5 @@
 import { APP_PANE_REACHABILITY } from "./appPaneReachability";
+import { DOCUMENT_SLOT_ENTRIES } from "./documentSlotReachability";
 import { DELIBERATELY_UNREACHABLE } from "./unreachableRoutes";
 import { INSTALL_REACHABILITY } from "./installReachability";
 
@@ -284,7 +285,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the Privacy note in the homepage's Legal folder, which links to this page",
+        surface:
+          "the Privacy note in the homepage's Legal folder, which links to this page",
         /*
           The link is Markdown in the note (`legalMarkdown`), drawn and pressed
           by the note renderer, and routed out of the shell because the path is
@@ -297,7 +299,12 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/home/homeSite.ts",
-            contains: ["legalMarkdown(privacyContent, \"/privacy\")", "[its own page](${standalone})", '"/privacy"', "APP_ROUTES"],
+            contains: [
+              'legalMarkdown(privacyContent, "/privacy")',
+              "[its own page](${standalone})",
+              '"/privacy"',
+              "APP_ROUTES",
+            ],
           },
           {
             file: "features/home/HomeShell.tsx",
@@ -315,7 +322,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the Terms note in the homepage's Legal folder, which links to this page",
+        surface:
+          "the Terms note in the homepage's Legal folder, which links to this page",
         /*
           The link is Markdown in the note (`legalMarkdown`), drawn and pressed
           by the note renderer, and routed out of the shell because the path is
@@ -328,7 +336,12 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/home/homeSite.ts",
-            contains: ["legalMarkdown(termsContent, \"/terms\")", "[its own page](${standalone})", '"/terms"', "APP_ROUTES"],
+            contains: [
+              'legalMarkdown(termsContent, "/terms")',
+              "[its own page](${standalone})",
+              '"/terms"',
+              "APP_ROUTES",
+            ],
           },
           {
             file: "features/home/HomeShell.tsx",
@@ -346,7 +359,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the Support note in the homepage's Legal folder, which links to this page",
+        surface:
+          "the Support note in the homepage's Legal folder, which links to this page",
         /*
           The link is Markdown in the note (`legalMarkdown`), drawn and pressed
           by the note renderer, and routed out of the shell because the path is
@@ -359,7 +373,12 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/home/homeSite.ts",
-            contains: ["legalMarkdown(supportContent, \"/support\")", "[its own page](${standalone})", '"/support"', "APP_ROUTES"],
+            contains: [
+              'legalMarkdown(supportContent, "/support")',
+              "[its own page](${standalone})",
+              '"/support"',
+              "APP_ROUTES",
+            ],
           },
           {
             file: "features/home/HomeShell.tsx",
@@ -420,63 +439,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     file: "app/(app)/console/[slug]/index.tsx",
     reachable: true,
     from: [
-      /*
-        The live map is not a route of its own: it is `?map=1` on this page, a
-        page in the document slot over Browse. So its two ways in are claims
-        about this route, and its
-        navigation is `router.setParams` on the route it is already on.
-      */
-      {
-        surface: "the live map, from the Map button in the sidebar's top row",
-        control: {
-          file: "features/console/files/explorer/ExplorerToolbar.tsx",
-          contains: ['testID="explorer-map"', "onPress={mapRoute.toggle}"],
-        },
-        navigation: [
-          {
-            file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", settings: undefined, trash: undefined, vault: undefined })'],
-          },
-        ],
-        region: "screen",
-        densities: POINTER,
-      },
-      /*
-        The Trash page is `?trash=1` on this page, in the document slot, as
-        the map is (`trash/TrashRouteContext.tsx`): a row of the account card
-        on a pointer layout (the tree's foot until Dev2, 2026-10-18), and on a phone a row of the @name menu on Inbox,
-        since Folders left its Trash line off for board 2 (2026-10-17).
-      */
-      {
-        surface: "the Trash page, from Trash in the account card",
-        control: {
-          file: "features/console/SwitcherMenu.tsx",
-          contains: ['(phoneNamed || !phone) && trash !== undefined', 'else if (id === "trash") trash?.openTrash();'],
-        },
-        navigation: [
-          {
-            file: "features/console/trash/TrashRouteContext.tsx",
-            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined, vault: undefined })'],
-          },
-        ],
-        region: "switcher",
-        densities: POINTER,
-      },
-      {
-        surface: "the Trash page, from Trash in the @name menu on a phone's Inbox",
-        control: {
-          file: "features/console/SwitcherMenu.tsx",
-          contains: ['trigger === "phone"', 'testID: "switcher-trash"', 'else if (id === "trash") trash?.openTrash();'],
-        },
-        navigation: [
-          {
-            file: "features/console/trash/TrashRouteContext.tsx",
-            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined, vault: undefined })'],
-          },
-        ],
-        region: "account",
-        densities: PHONE,
-      },
+      ...DOCUMENT_SLOT_ENTRIES,
       /*
         The Vault is `?vault=1` on this page (Dev, 2026-11-23,
         `vault/route.ts`). A phone has no right rail, so its Vault is a
@@ -488,12 +451,18 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         surface: "the Vault page, from Vault in a phone's account sheet",
         control: {
           file: "features/console/SwitcherMenu.tsx",
-          contains: ['trigger === "phone"', 'testID: "switcher-vault"', 'else if (id === "vault") vault?.openVault();'],
+          contains: [
+            'trigger === "phone"',
+            'testID: "switcher-vault"',
+            'else if (id === "vault") vault?.openVault();',
+          ],
         },
         navigation: [
           {
             file: "features/console/vault/route.ts",
-            contains: ['router.setParams({ vault: "1", map: undefined, trash: undefined, settings: undefined })'],
+            contains: [
+              'router.setParams({ vault: "1", map: undefined, trash: undefined, settings: undefined })',
+            ],
           },
         ],
         region: "account",
@@ -713,15 +682,21 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
           the page was a second copy of that tab — on the Mac app, a window
           with no way out (owner, 2026-10-21).
         */
-        surface: "the address itself, which a pointer layout answers with the panel",
+        surface:
+          "the address itself, which a pointer layout answers with the panel",
         navigation: [
           {
             file: "app/(app)/meetings/index.tsx",
-            contains: ["<Redirect href={record ? MEETINGS_RECORD_HREF : MEETINGS_PANEL_HREF} />"],
+            contains: [
+              "<Redirect href={record ? MEETINGS_RECORD_HREF : MEETINGS_PANEL_HREF} />",
+            ],
           },
           {
             file: "features/console/layout/useConsoleAside.ts",
-            contains: ["meetingsAskAction", "else if (action === \"open\") showMeetings();"],
+            contains: [
+              "meetingsAskAction",
+              'else if (action === "open") showMeetings();',
+            ],
           },
         ],
         region: "screen",

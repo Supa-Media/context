@@ -40,6 +40,12 @@ const LINKS: readonly Stroke[] = [
   [[32, 73], [70, 75]],
 ];
 
+/** Mail: an envelope, its flap folded to the middle (the Mail page, the owner's boards of 2026-11-25). */
+const MAIL: readonly Stroke[] = [
+  [[14, 26], [86, 26], [86, 76], [14, 76], [14, 24]],
+  [[16, 28], [50, 54], [84, 28]],
+];
+
 /*
   At a key's size the set's own drawings carry too much: the calendar's dots and
   the microphone's base and cradle ran into one blot at 18px. These are the same
@@ -68,6 +74,7 @@ const GLYPHS = {
   page: ICONS.page!,
   key: ICONS.key!,
   links: LINKS,
+  mail: MAIL,
   panelLeft: panel(36),
   panelRight: panel(64),
 } as const;
