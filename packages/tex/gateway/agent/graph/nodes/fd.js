@@ -44,6 +44,9 @@ export async function fdNode(input, io) {
   // The member cards of the people in a group's room (`memberCards.js`), started now; only when the config wires
   // `fd -> memberCards`, on a group chat's own turn. The words stay on the turn, never on the wire.
   const memberCards = "memberCards" in io.use && t.group && t.chatTurn && !t.job ? io.use.memberCards({}).catch(() => ({ when: ["none"], why: "error" })) : null;
+  // How this chat's people text, counted (`chatStyle.js`), started now; only when the config wires `fd -> chatStyle`, on a
+  // chat's own turn. The counts stay on the turn, never on the wire.
+  const chatStyle = "chatStyle" in io.use && t.chatTurn && !t.job ? io.use.chatStyle({}).catch(() => ({ when: ["none"], why: "error" })) : null;
   // What a call carries that the log must not (its arguments, the turn so far, its result): kept here by the call's number, and the wire carries only the number and the tool's name.
   // Each call's arguments and result are kept already, with their privacy rules, as the turn's own tool entry (`ledger.js` `toolEntry`).
   const calls = (t.toolCalls = { mcp: null, web: null, local: new Map(), held: new Map(), planner: null, fallback: null });
@@ -62,6 +65,7 @@ export async function fdNode(input, io) {
   const via = {
     examples,
     memberCards,
+    chatStyle,
     // A draft the Answer check handed to a background job (`handoff.js`) ends the loop on the job's start line.
     answerCheck: async (draft, info) => {
       const notice = await drafts.answerCheck(draft, info);
