@@ -1,16 +1,14 @@
 /**
- * A GROUP'S SLOW ASK GETS ONE TAPBACK, AS ITS FIRST TOOL STARTS (`groupModelTurn.ts` `toolStarted`,
- * `packages/tex/gateway/agent/turn.js` `onToolStart`; Dev2, 2026-11-12). It replaced the 25 s timer tapback, which landed
- * after most answers (12 to 26 s) and fired on messages the judge silenced. A turn with no tool (about 12 s) gets
- * none, and Tex never pairs it with a text acknowledgement.
+ * A GROUP'S SLOW ASK GETS NO TAPBACK FROM CODE (Dev2, 2026-11-26: "if tex knows its about to take a while to respond
+ * to something then it shouldn't really do a tapback but rather it should tell the user something along the lines of
+ * 'on it'"). From 2026-11-12 to 2026-11-26 the first tool a turn started tapped the asked message (`toolStarted`);
+ * now Tex texts a short line of its own first (`text_progress`, taught by Training), and the only tapbacks left are
+ * Tex's own pick for a turn that ends with no words, never beside a line it texted.
  *
  * Sabotage record (applied, run, observed failing, reverted):
- *  1. `toolStarted` without its `acked` check → "two tool calls still give one tapback" fails.
- *  2. `onStep` left out of the `askAgentStream` call → "a tool turn gets exactly one tapback, before the reply" fails.
+ *  1. The tool-start tapback put back (`onStep` taps the asked message) → "a tool turn gets no tapback ..." fails.
+ *  2. The `acked` check dropped from the tapback ending → "a progress line already said Tex is on it ..." fails.
  *  3. A tapback at accept on any message naming Tex, as the old timer armed it → "a message the judge silenced gets none" fails.
- *  4. `toolStarted` on every step and on a turn's end (a no-tool turn tapped) → "a turn with no tool gets none" fails.
- *  5. `replaces` false (2026-11-17) → "Tex's own tapback after a tool replaces the early one ..." fails; `replaces`
- *     without its `!== tapped` → the same test fails on the repeated emoji.
  */
 
 import { describe, expect, it } from "vitest";
@@ -50,15 +48,24 @@ async function bound(storage: MemoryStorage, w: ReturnType<typeof streaming>): P
 
 for (const { name, groupId } of LINES) {
   describe(`a group's slow ask, ${name}`, () => {
-    it("a tool turn gets exactly one tapback, before the reply", async () => {
+    it("a tool turn gets no tapback from code, only its reply", async () => {
       const storage = new MemoryStorage();
-      const w = streaming(groupId, [{ step: "web_search" }], { answer: "Nopa at 7." });
+      const w = streaming(groupId, [{ step: "web_search" }, { step: "web_fetch" }, { step: "web_search" }], { answer: "Nopa at 7." });
       await bound(storage, w);
       await acceptGroup(storage, w.message("Tex, where should we eat Friday?"), 1_000);
       await drainGroup(storage, w.deps);
-      expect(w.reactions).toHaveLength(1);
-      expect(w.tapsAt).toEqual([0]);
+      expect(w.reactions).toEqual([]);
       expect(w.texts).toEqual(["Nopa at 7."]);
+    });
+
+    it("a slow ask's own short line goes first, then the answer, with no tapback", async () => {
+      const storage = new MemoryStorage();
+      const w = streaming(groupId, [{ progress: "Checking now." }, { step: "web_search" }], { answer: "Nopa at 7." });
+      await bound(storage, w);
+      await acceptGroup(storage, w.message("Tex, where should we eat Friday?"), 1_000);
+      await drainGroup(storage, w.deps);
+      expect(w.reactions).toEqual([]);
+      expect(w.texts).toEqual(["Checking now.", "Nopa at 7."]);
     });
 
     // Dev2, 2026-11-15: "The Text them node doesnt seem to be logging the actual time it takes": a group's texts are
@@ -78,15 +85,6 @@ for (const { name, groupId } of LINES) {
       expect(kept.at(-1)!.step!.ms).toBeGreaterThanOrEqual(0);
     });
 
-    it("two tool calls still give one tapback", async () => {
-      const storage = new MemoryStorage();
-      const w = streaming(groupId, [{ step: "web_search" }, { step: "web_fetch" }, { step: "web_search" }], { answer: "Nopa at 7." });
-      await bound(storage, w);
-      await acceptGroup(storage, w.message("Tex, where should we eat Friday?"), 1_000);
-      await drainGroup(storage, w.deps);
-      expect(w.reactions).toHaveLength(1);
-    });
-
     it("a tool turn that starts a job with a tapback still gives one", async () => {
       const storage = new MemoryStorage();
       const w = streaming(groupId, [{ step: "send" }], { answer: "", quiet: true, react: "" });
@@ -97,29 +95,16 @@ for (const { name, groupId } of LINES) {
       expect(w.texts).toEqual([]);
     });
 
-    // Dev2, 2026-11-17, "Front door picks the tapback": Tex's own tapback (`packages/tex/gateway/agent/tapbackEnding.js`) after a
-    // tool replaces the early one when it differs, and is never a second one when it is the same.
-    it("Tex's own tapback after a tool replaces the early one, and the same emoji is not sent twice", async () => {
+    // Dev2, 2026-11-17, "Front door picks the tapback": a turn that ends with only Tex's own tapback
+    // (`packages/tex/gateway/agent/tapbackEnding.js`) gets that one, once.
+    it("Tex's own tapback ending goes once, as Tex picked it", async () => {
       const storage = new MemoryStorage();
       const w = streaming(groupId, [{ step: "write" }], { answer: "", quiet: true, react: "🎉" });
       await bound(storage, w);
       await acceptGroup(storage, w.message("Tex, put the party on the calendar for Saturday"), 1_000);
       await drainGroup(storage, w.deps);
-      expect(w.reactions).toHaveLength(2);
-      expect(w.reactions.at(-1)).toBe("🎉");
+      expect(w.reactions).toEqual(["🎉"]);
       expect(w.texts).toEqual([]);
-      const same = streaming(groupId, [{ step: "write" }], { answer: "", quiet: true, react: "" });
-      const again = new MemoryStorage();
-      await bound(again, same);
-      await acceptGroup(again, same.message("Tex, put the party on the calendar for Saturday"), 1_000);
-      await drainGroup(again, same.deps);
-      const early = same.reactions[0];
-      const echo = streaming(groupId, [{ step: "write" }], { answer: "", quiet: true, react: early });
-      const third = new MemoryStorage();
-      await bound(third, echo);
-      await acceptGroup(third, echo.message("Tex, put the party on the calendar for Saturday"), 1_000);
-      await drainGroup(third, echo.deps);
-      expect(echo.reactions).toEqual([early]);
     });
 
     it("a turn with no tool gets none, answered or silent", async () => {
@@ -135,11 +120,12 @@ for (const { name, groupId } of LINES) {
 
     it("a progress line already said Tex is on it: no tapback with it", async () => {
       const storage = new MemoryStorage();
-      const w = streaming(groupId, [{ progress: "Here's the sign-in link: https://example.test/a" }, { step: "browse" }], { answer: "Booked." });
+      const w = streaming(groupId, [{ progress: "On it, checking their sites." }, { step: "browse" }], { answer: "", quiet: true, react: "👍" });
       await bound(storage, w);
       await acceptGroup(storage, w.message("Tex, book the 7pm"), 1_000);
       await drainGroup(storage, w.deps);
       expect(w.reactions).toEqual([]);
+      expect(w.texts).toEqual(["On it, checking their sites."]);
     });
 
     it("a message the judge silenced gets none, though it names Tex", async () => {

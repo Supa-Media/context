@@ -6,8 +6,6 @@
  */
 
 import { didUnsaid, tellTex } from "./didFacts";
-import { reactionFor } from "./reactEmoji";
-import { ackEmoji } from "./ackEmoji";
 import { canRedraft, chatEvent, readChatState } from "./chatState";
 import { askAgentStream, askLine, ServiceError, type AgentAnswer } from "./clients";
 import { CHAT_LOOK_PATH, saysSkip } from "./groupRoutines";
@@ -142,23 +140,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // read retried at once: a blip is not a reason to hold (2026-11-02, 2026-11-12; `groupMembers.ts`).
   const readTwice = () => membersBeforeSend(storage, app, chat, deps.now);
   let paused = false;
-  // One tapback on a slow ask, never with a text (Dev2, 2026-11-12): the first tool the turn starts taps the asked
-  // message, at most once an answer and not after a progress line; a turn with no tool gets none.
+  // No tapback from code on a slow ask (Dev2, 2026-11-26, replacing the tool-start tapback of 2026-11-12): when the
+  // reply will take a while, Tex texts a short line of its own first (`text_progress`), as Training teaches it.
+  // `acked`: a progress line went, so a tapback-only ending does not land beside it.
   let acked = false;
-  let tapped: string | undefined; // the emoji the early tapback sent, when one did: Tex's own pick may replace it (below)
-  const toolStarted = async () => {
-    // Never on a tapback: tapping a tapback is no sign to anyone (`answersTapback`).
-    if (acked || routine || message.jobReport !== undefined || message.reaction !== undefined || message.answersTapback !== undefined) return;
-    acked = true;
-    if (await stopped()) return;
-    try {
-      if (!(await isBound(storage, message))) return;
-      await tapback(storage, { chat: message.groupId, now: deps.now, by: "tool_started", turn: steer.turn }, message.text, (sent) => ((tapped = sent), groupLineFor(groupLineSeam(deps), message.groupId).react({ line: message.line, groupId: message.groupId }, message.messageId, sent)));
-      log("tool_tap");
-    } catch {
-      log("tool_tap_failed");
-    }
-  };
   const progress = async (text: string) => {
     if (routine || (await stopped())) return;
     try {
@@ -201,7 +186,6 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
               : {}),
       },
       progress,
-      toolStarted,
     );
   } finally {
     end();
@@ -284,12 +268,10 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // Nothing to text (a group's SKIP, `packages/tex/gateway/agent/route.js`): the gateway kept nothing, so this object keeps the chat's lines.
   if (!routine && answer.quiet && (answer.verbatim?.length ?? 0) === 0 && answer.pictures.length === 0) {
     // Answered with a tapback and no words: the conversation classifier's (`packages/tex/gateway/agent/respond.js`), the emoji checked against the list.
-    // Tex's own pick (the front door's `tapback`, `packages/tex/gateway/agent/tapbackEnding.js`) replaces the early one when it
-    // differs: a person keeps one tapback on a message, so the second takes the first's place, never beside a text.
-    const replaces = acked && tapped !== undefined && answer.react !== "" && answer.react !== undefined && reactionFor(answer.react, ackEmoji(message.text)) !== tapped;
+    // Tex's own pick (the front door's `tapback`, `packages/tex/gateway/agent/tapbackEnding.js`), never beside a progress line it texted.
     // Tex's pick may be a sticker this chat kept (`stickers.ts`): it goes on their text beside any tapback, its emoji the fallback.
     const sticker = answer.react ? answer.sticker : undefined;
-    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && (!acked || replaces || sticker !== undefined)) {
+    if (answer.react !== undefined && message.reaction === undefined && message.answersTapback === undefined && (!acked || sticker !== undefined)) {
       const line = groupLineFor(groupLineSeam(deps), message.groupId);
       const place = { line: message.line, groupId: message.groupId };
       const stick = line.stick === undefined ? undefined : (guid: string) => line.stick!(place, message.messageId, { attachment: guid });

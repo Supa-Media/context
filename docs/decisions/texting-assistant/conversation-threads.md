@@ -274,6 +274,40 @@ message), `apps/mcp/test/agentProgress.test.mjs` ("a tool start is told before
 the tool runs…"), `agentBackgroundRoute.test.mjs` ("an ordinary texted turn
 streams no steps…": the 1:1 stream stays without them).
 
+### A slow ask gets Tex's own short line, not a tapback (Dev2, 2026-11-26)
+
+Supersedes the tool tapback above. Dev2: "if tex knows its about to take a
+while to respond to something then it shouldn't really do a tapback but rather
+it should tell the user something along the lines of 'on it', 'will do',
+'checking now', etc. give the user confirmation that its been seen and its
+actively working on the task." A Lab test chat showed both at once on a group's
+slow ask: code's 🔎 as the first tool started, then Tex's own "On it…".
+
+- **No tapback from code on a tool start.** `groupModelTurn.ts` no longer taps
+  the asked message, and the gateway no longer streams a tool start for it
+  (`turn.js` `onToolStart` and its wiring in `runTheModel.js` are gone).
+- **Tex writes the line.** When a reply will take a while, the front door texts
+  one short line of its own first (`text_progress`, whose description now names
+  that case), then works; a job's start line (`say`) is the same line for a job.
+  The words are never code's (no-scripted-wording): Training teaches when one
+  fits (`truck-crew` m1, m39, m68; `build-crew` m1; Dev `the-flat` m76: a short
+  line from Tex where a 🔎 was, and Decide's label no longer reacts to an ask
+  Tex is taking on). The prompt sentences that forbade "on it" lines are
+  deleted, not reworded.
+- **"On it" is not a done claim.** `claimsDone` refused any line without a
+  doing verb, so "On it." and "Will do." were refused as progress lines; a
+  clause that says what Tex will do is now let through (`AHEAD`), and a clause
+  claiming a change beside it still refuses the line.
+- **Still none on a quick ask**, and a tapback-only ending is never sent beside
+  a line Tex already texted. Dev's 2026-10-19 objection ("On it. This one takes
+  a few steps, so I'll text you when it's done.") is to that long filler; the
+  Training lines are a few words.
+
+Tests: `packages/tex/worker/groupToolTap.test.ts` (no tapback on a tool turn,
+the line before the answer, Tex's own tapback ending once, none beside a
+line), `apps/mcp/test/agentProgress.test.mjs` ("a slow reply may get a short
+line…", "an acknowledgement goes as a progress line…").
+
 ## Undo and reversal cost
 
 `CONVERSATION_THREADS=off` on the gateway shows the chat as before (faded

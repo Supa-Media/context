@@ -63,14 +63,10 @@ export function wantsProgress(request) {
 export const PROGRESS_TOOL_DEFINITION = {
   name: PROGRESS_TOOL,
   description:
-    "Text the person one short line now, while you keep working, only for something they could act on before your answer, like a " +
-    "link they must open or a sign-in code, or a step that will change something outside their notes (\"Booking the 7pm at Lilia now.\"). " +
-    "Never to narrate a search, a lookup or which sites you're checking (Nov Babies, 2026-11-11: \"Searching NYC karaoke spots…\" added " +
-    "nothing): a long task goes to a background job, whose start line says what they'll get. Every " +
-    "line must be new to them or something to act on, fewer the longer the task runs. Start it with what you're doing now. Never before " +
-    "a search, a note read or asking your advisor, never the answer itself, and never that something is done, sent or booked: " +
-    "that is your reply. Never to say you're on it, that it will take a while, or that you'll text when it's done (the person " +
-    "called that the most useless text they get), and never to ask a question (ask in your answer and stop).",
+    "Text the person one short line now, in your own words, while you keep working: when your reply will take a while, so they " +
+    "know you're on it, or for something they could act on before your answer, like a link to open or a sign-in code. " +
+    "One line, not a running account of each search. Never the answer itself, never that something is done, and never a " +
+    "question (ask in your answer and stop).",
   inputSchema: {
     type: "object",
     properties: { text: { type: "string", description: "One short plain sentence, no Markdown." } },
@@ -88,20 +84,10 @@ export const PLAN_EXAMPLE = "Checking OpenTable and Resy for Friday, then the be
 const PLAN_LINE =
   "For a task you expect to take more than about a minute (opening sites, browsing, a long job of many steps), send with action " +
   `progress, args { text }, one line with your plan ("${PLAN_EXAMPLE}"), then start at once without asking; they can text to stop you. `;
-const NEVER =
-  "Never the answer itself or that something is done. Never send a line saying you're on it or that you'll text when it's done.";
+const NEVER = "Never the answer itself or that something is done.";
 
-/**
- * No plan line and no "Opening OpenTable" line any more (Dev2, 2026-11-12, Nov Babies 6d): two "Searching…" lines went
- * to a group and added nothing. A long task goes to a background job, whose start line says what they'll get (`jobStart.js`).
- */
-export const PROGRESS_PROMPT =
-  `\n\n${NORMAL_LEAD} ` +
-  "Text a line (send with action progress, args { text }) only for something they could act on before your answer (a link to open, a sign-in code), or just before a step " +
-  "that changes something outside their notes (\"Booking the 7pm at Lilia now.\"). Never to narrate a search, a lookup or which " +
-  "sites you're checking, and never before a search, a note read or asking your advisor: a long task goes to a background job, " +
-  "whose start line says what they'll get. " +
-  NEVER;
+/** How a line is sent; when one fits is the tool's description and the Training examples (Dev2, 2026-11-26). */
+export const PROGRESS_PROMPT = `\n\n${NORMAL_LEAD} To send one, send with action progress, args { text }. ${NEVER}`;
 
 export const PLAN_ONLY_PROMPT = `\n\n${PLAN_ONLY_LEAD} ${PLAN_LINE}${NEVER}`;
 
@@ -121,6 +107,8 @@ export const progressPrompt = (level) => (level === "off" ? "" : level === "plan
 const CHANGED = /^\W*(?:emailed|booked|sent|added|cancell?ed|moved|reserved|paid|ordered|invited|rescheduled|submitted|placed|replied|forwarded|deleted|removed|created|saved|updated|signed up|bought|got)\b/i;
 const DOING = /^(?:(?:now|still|just|also|next|i'm|we're)\s+)?([a-z]{3,}ing)\b(?!\s+(?:went|is|was|has|worked|succeeded|failed|done)\b)/i;
 const NOT_A_VERB = /^(?:nothing|something|anything|everything|morning|evening|thing|king|ring|string|wing|ceiling|wedding|spring)$/i;
+/** A clause that says what Tex will do or is on ("On it", "Will do", "I'll check"): ahead, never done (Dev2, 2026-11-26). */
+const AHEAD = /^(?:on it|will do|i'll|i will|let me|give me|one sec)\b/i;
 
 export function claimsDone(text) {
   const said = String(text ?? "").replace(/[\u2018\u2019]/g, "'").trim();
@@ -128,6 +116,7 @@ export function claimsDone(text) {
   if (clauses.some((clause) => CHANGED.test(clause) || /^all set\b/i.test(clause))) return true;
   if (/https?:\/\//i.test(said) || /^found\b/i.test(said)) return false;
   return !clauses.some((clause) => {
+    if (AHEAD.test(clause)) return true;
     const doing = DOING.exec(clause);
     return doing !== null && !NOT_A_VERB.test(doing[1]);
   });
@@ -150,6 +139,7 @@ export const PLAN_ONLY_NOTICE = "Not sent: this chat gets one plan line per turn
  */
 export function progressChannel(send, { planOnly = false, level = planOnly ? "planOnly" : "normal", job = false } = {}) {
   let said = 0;
+  let hold = null;
   const lines = [];
   const plan = level === "planOnly";
   return {
@@ -169,6 +159,13 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       await send(line.length > MAX_GATEWAY_CHARS ? line.slice(0, MAX_GATEWAY_CHARS) : line);
       return true;
     },
+    /**
+     * `(text) => facts | null`, asked about each line before it goes: facts hold it, and the model reads them as the
+     * tool's answer. The Room check's (`graph/nodes/roomCheck.js`), so a group's line never carries what the room can't open.
+     */
+    holdWith(check) {
+      hold = typeof check === "function" ? check : null;
+    },
     // No reviewer reads a progress line (Dev2, 2026-11-11, one-judge PR 3): the code checks above do.
     async call(args) {
       const text = typeof args?.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";
@@ -176,6 +173,8 @@ export function progressChannel(send, { planOnly = false, level = planOnly ? "pl
       if (lines.includes(text)) return result("Not sent: you already sent that line in this turn. Keep working.");
       if (claimsDone(text)) return result(DONE_NOTICE, true);
       if (plan && lines.length > 0) return result(PLAN_ONLY_NOTICE, true);
+      const held = hold === null ? null : await Promise.resolve(hold(text)).catch(() => null);
+      if (typeof held === "string" && held !== "") return result(held, true);
       lines.push(text);
       await send(text.length > MAX_PROGRESS_CHARS ? `${text.slice(0, MAX_PROGRESS_CHARS - 1)}…` : text);
       // A job's line is texted only when it holds a link (`packages/tex/worker/jobRun.ts` `HAS_LINK`); the rest update its
