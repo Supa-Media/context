@@ -143,6 +143,8 @@ export async function settingsSnapshot({ session, controlPlane, group, dispatch 
     if (switches) lines.push(`Overnight About me rewrite: ${switches.dreams ? "on" : "off"}. Daily tidy of their notes: ${switches.housekeeping ? "on" : "off"}.`);
     const flags = (Array.isArray(session?.flags) ? session.flags : []).filter((id) => Object.hasOwn(FLAGS, id)).map((id) => FLAGS[id].label);
     lines.push(`Features turned on early for them: ${flags.length ? flags.join(", ") : "none"}.`);
+    const named = typeof controlPlane?.accountName === "function" && typeof session?.accessToken === "string" ? await controlPlane.accountName(session.accessToken).catch(() => null) : null;
+    if (named?.status === "done") lines.push(`Account name: ${named.name ?? "none"}.`);
   }
   const workspaces = contextsFor(session ?? {}).map((entry) => `${entry.name} (${entry.kind === "personal" ? "personal" : entry.role}${entry.current ? ", this chat's default" : ""})`);
   if (workspaces.length) lines.push(`Workspaces ${group === null ? "they" : "this chat"} can reach: ${workspaces.join(", ")}.`);
@@ -214,6 +216,9 @@ export function settingsTools({ session, controlPlane, group, dispatch, words = 
       },
     });
   }
+  if (group === null && typeof controlPlane?.accountName === "function" && typeof session?.accessToken === "string") {
+    tools.push(accountNameTool(session, controlPlane));
+  }
   if (typeof controlPlane?.vaultText === "function" && group?.guestTagger !== true) {
     const asked = async () => {
       const said = typeof words === "string" ? words : "";
@@ -266,6 +271,29 @@ export function settingsTools({ session, controlPlane, group, dispatch, words = 
     });
   }
   return tools;
+}
+
+/**
+ * Their own name on their account (`functions/accountName.ts`): what a group gets when someone there asks for it
+ * (`askPersonalTex.js`), and what people see beside their notes. Their own chat only; the answer is facts, never words.
+ */
+function accountNameTool(session, controlPlane) {
+  return {
+    tool: {
+      name: "account_name",
+      description:
+        "Their own name on their Context account, the one a group chat is told when someone there asks for it. " +
+        "Leave name out to read it; pass name (their full name, as they say it) to change it when they ask.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } } },
+    },
+    call: async (args) => {
+      const asked = typeof args?.name === "string" ? args.name : undefined;
+      const answer = await controlPlane.accountName(session.accessToken, asked).catch(() => null);
+      const status = answer?.status ?? "unavailable";
+      if (status !== "done") return text(JSON.stringify({ changed: false, status }), true);
+      return text(JSON.stringify({ changed: asked !== undefined, name: answer.name ?? null }));
+    },
+  };
 }
 
 /** The words an invitation needs in the turn's own message before the judge is asked. */

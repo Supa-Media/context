@@ -486,6 +486,12 @@ export const CAPABILITIES = Object.freeze([
     group: "the same for how you talk in this chat, anyone here may change it, and you say who did; send tex_settings here reads this chat's instructions, whose mail is shared here, the workspaces it reaches and the saved logins that work here",
   },
   {
+    name: "Their name on their account",
+    actions: ["send.account_name"],
+    texts: "read or change their own name on their Context account (\"my full name is Ada Lovelace\"), the name a group chat is told when someone there asks for it; also Context app → Settings → Profile → Name",
+    group: "not here: only in their own chat with you, so nobody in a group can rename them",
+  },
+  {
     name: "When you speak up in a group",
     actions: ["command.chat_mute", "command.chat_status", "words.stop", "words.start", "words.status"],
     texts: "only in a group chat: tell them what to type there (\"Tex, stop\", \"Tex, start\", \"Tex, what can you see\")",
