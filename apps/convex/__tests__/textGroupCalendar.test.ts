@@ -3,7 +3,8 @@
  *
  * "Tex, share my calendar here" from the calendar's own person, in a chat they are one of the people of, lets that
  * chat's turns read it live through `/gateway/calendar/days` with the chat's own grant, the same way mail shared with a
- * chat is read (`textGroupMailHomes.test.ts`). A group turn reads no one's calendar otherwise.
+ * chat is read (`textGroupMailHomes.test.ts`). A turn an account holder asked for also reads their own calendars, on
+ * their own grant (Dev2, 2026-11-26). A group turn reads no one's calendar otherwise.
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - drop `ownCalendar` from `shareCalendar`: "someone else's address is refused" fails;
@@ -11,7 +12,9 @@
  *  - drop the `speaksUpOf` check in `liveCalendarShares`: "a muted chat reads nothing" fails;
  *  - ignore `account` in `chatCalendarRead`: "an account not shared is refused" fails;
  *  - read every share instead of this chat's: "a chat never reads a calendar shared into another chat" fails;
- *  - return a read with no share instead of `not_allowed`: "a group grant with no share is refused" fails.
+ *  - return a read with no share instead of `not_allowed`: "a group grant with no share is refused" fails;
+ *  - drop the `reachFor` check in `askerOf`: "a turn nobody asked for reads none of the asker's own" fails;
+ *  - drop `inChat` from `askerCalendars`: "the asker's own calendars stop when they leave the chat" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -224,5 +227,58 @@ describe("a calendar share is the calendar's own person's, and is audited on the
     const audits = await t.run(async (ctx) => (await ctx.db.query("auditEvents").collect()).filter((row) => row.action === "calendar.shared_with_chat"));
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ workspaceId: seyi.workspaceId });
+  });
+});
+
+describe("the asker's own calendar, on a turn they asked for (Dev2, 2026-11-26)", () => {
+  test("their own tag reads their own calendar with nothing shared, and the turn is told whose it is", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    const ready = await turn(SEYI);
+    expect(ready.calendar).toEqual([{ handle: "seyi", address: WORK }]);
+    expect(await days(t, ready.accessToken as string, w.pinned, { days: 1 })).toMatchObject({ ok: true, days: [expect.objectContaining({ address: WORK, events: 1 })] });
+    // Never stored as a share: nothing of it outlives the turn.
+    expect(await t.run(async (ctx) => await ctx.db.query("chatCalendarShares").collect())).toEqual([]);
+  });
+
+  test("someone else's tag never reads it", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    await turn(SEYI);
+    const dad = await turn(DAD);
+    expect(dad.calendar).toBeUndefined();
+    expect(await days(t, dad.accessToken as string, w.pinned)).toEqual({ ok: false, refused: "not_allowed" });
+    expect(await days(t, dad.accessToken as string, w.pinned, { account: WORK })).toEqual({ ok: false, refused: "not_allowed" });
+  });
+
+  test("a turn nobody asked for reads none of the asker's own", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    await turn(SEYI);
+    const routine = await turn(SEYI, { routine: true });
+    expect(routine.calendar).toBeUndefined();
+    expect(await days(t, routine.accessToken as string, w.pinned)).toEqual({ ok: false, refused: "not_allowed" });
+  });
+
+  test("a shared calendar and their own are one row each", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    const token = (await turn(SEYI)).accessToken as string;
+    await command(t, token, { kind: "share_calendar", address: WORK });
+    const again = await turn(SEYI);
+    expect(again.calendar).toEqual([{ handle: "seyi", address: WORK }]);
+    expect(await days(t, again.accessToken as string, w.pinned, { days: 1 })).toMatchObject({ ok: true, days: [expect.objectContaining({ address: WORK })] });
+  });
+
+  test("the asker's own calendars stop when they leave the chat", async () => {
+    const { w, t, seyi, turn } = await world();
+    calendar();
+    const token = (await turn(SEYI)).accessToken as string;
+    expect(await days(t, token, w.pinned)).toMatchObject({ ok: true });
+    await t.run(async (ctx) => {
+      const chat = (await ctx.db.query("textGroups").collect())[0]!;
+      await ctx.db.patch(chat._id, { homeUsers: (chat.homeUsers ?? []).filter((id) => id !== seyi.userId) });
+    });
+    expect(await days(t, token, w.pinned)).toEqual({ ok: false, refused: "not_allowed" });
   });
 });
