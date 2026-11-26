@@ -546,14 +546,14 @@ jobs:
           started=$(date +%s%3N)
           # Replay runs the handed-in conversations and warns on each simulated call with no fixture (`--world-strict warn`).
           # Record and refresh run the set itself (`--set`, the Dev or Training set the prep step checked), since they write
-          # fixtures and never run on a file handed in. Eight Front door tests at once inside this one job (`setsRun.mjs`):
+          # fixtures and never run on a file handed in. 24 Front door tests at once inside this one job (`setsRun.mjs`; 8 at once took 12 minutes on 2026-11-26):
           # no more GitHub jobs, so CI keeps its runners.
           if [ "$WORLD" = "replay" ]; then
             scope=(--conversations "$RUNNER_TEMP/lab/convs.json" --world replay --world-strict warn)
           else
             scope=(--set "$SET" --world "$WORLD")
           fi
-          args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel 8 --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
+          args=(--out "$RUNNER_TEMP/lab/rows.json" --parallel 24 --repeat "${REPEATS:-3}" --keep "$RUNNER_TEMP/lab/kept")
           if [ -n "$NODE_ID" ]; then args+=(--node "$NODE_ID"); fi
           node apps/mcp/bench/run.mjs sets run "${scope[@]}" "${args[@]}"
           code=$?
