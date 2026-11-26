@@ -31,10 +31,15 @@
  * no send_email went through this turn (`claimCheck.js` rule 7, `SENT_NOTICE`):
  * a Mail checker "no" had been refused with nothing held, the 👍 on Tex's own
  * question matched no ask, and front-door texts run no other claim check.
+ *
+ * Since 2026-11-26 it also sends back an answer that asks for a yes or 👍 to an email, a message or a report it names, in
+ * its own words, when nothing was held this turn and it isn't pointing at an ask already waiting (`claimCheck.js` `offersAHeldChange`, `offerNotice`): in a
+ * group chat with a shared mailbox, Tex wrote a reply out and asked its person to "text me yourself with a yes", so a
+ * yes would have sent nothing, and only the claim check, which front-door texts don't run, knew to send it back.
  */
 
-import { SENT_NOTICE, TRY_NOTICE, falselySent, saysItCouldNot, sentBy } from "./claimCheck.js";
-import { EMPTY_NOTICE, isEmptyAnswer } from "./replyChecks.js";
+import { SENT_NOTICE, TRY_NOTICE, falselySent, namedOfferKinds, offerNotice, offersAHeldChange, saysItCouldNot, sentBy } from "./claimCheck.js";
+import { EMPTY_NOTICE, isEmptyAnswer, pointsAtWaitingAsk } from "./replyChecks.js";
 import { recordReadNotice } from "./recordRead.js";
 import { seenFiguresNotice } from "./sourcedFigures.js";
 import { stepOf } from "./standsCheck.js";
@@ -51,6 +56,9 @@ export function untriedWebCheck({ question = "", reaction = false, reported = fa
   let recordNoticed = false;
   let emptyNoticed = false;
   let sentNoticed = false;
+  let offerNoticed = false;
+  // Whether a call this turn was held for somebody's yes: a yes asked for then has something to send.
+  let held = false;
   // What this turn's sends that went were: an email, or a Slack or Chat message (`sentBy`).
   const sent = new Set();
   const steps = [];
@@ -60,6 +68,7 @@ export function untriedWebCheck({ question = "", reaction = false, reported = fa
       return async (name, args) => {
         const result = await callTool(name, args);
         steps.push(stepOf(name, args, result));
+        if (result?.held === true) held = true;
         const went = sentBy(name, args, result);
         if (went !== null) sent.add(went);
         return result;
@@ -90,6 +99,15 @@ export function untriedWebCheck({ question = "", reaction = false, reported = fa
       if (!sentNoticed && !reported && falselySent(answer, { sent: sent.has("email"), sentOther: sent.has("other") })) {
         sentNoticed = true;
         return SENT_NOTICE;
+      }
+      // A yes or 👍 asked for in its own words to an email, a message or a report it names, with nothing held: the yes
+      // would reach nothing. Never a calendar: a change to their own needs no yes, and sharing one here is asked in words,
+      // their yes judged on the next text. Not after a refused call either: what to ask for is then that call's to say.
+      const offered = offerNoticed || reaction || reported || held || steps.some((step) => !step.ok) ? [] : namedOfferKinds(answer).filter((entry) => entry.tool !== "calendar_event");
+      // "It's still waiting for your 👍 above" points at an ask an earlier text holds: nothing new to make.
+      if (offered.length > 0 && offersAHeldChange(answer) && !pointsAtWaitingAsk(answer, true)) {
+        offerNoticed = true;
+        return offerNotice(offered);
       }
       if (!noticed && hadWeb && !triedWeb && saysItCouldNot(answer)) {
         noticed = true;

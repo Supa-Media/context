@@ -11,13 +11,15 @@
  *  - `triedWeb = true` dropped from the wrapper: "a can't-open after a real
  *    try goes out" fails (the notice fires after a try);
  *  - `noticed` never set: "once a turn" fails.
+ *  - (2026-11-26) the offer branch dropped: "a yes asked for an email in its own words …" fails, and replay
+ *    `checker-no-held` with it.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ask, createEgressWorld, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { TRY_NOTICE } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { TRY_NOTICE, offerNotice, namedOfferKinds } from "../../../packages/tex/gateway/agent/claimCheck.js";
 import { LINK_LINE, systemPromptParts } from "../../../packages/tex/gateway/agent/prompt.js";
 import { untriedWebCheck } from "../../../packages/tex/gateway/agent/untriedWeb.js";
 
@@ -79,4 +81,24 @@ test("a texted turn is told a link is read before it is talked about", () => {
   const said = JSON.stringify(systemPromptParts("texts", { texting: true }));
   assert.ok(said.includes(LINK_LINE.slice(0, 60)));
   assert.match(LINK_LINE, /never ask them to paste what a link holds/);
+});
+
+// 2026-11-26: a group's shared mailbox; Tex wrote the reply out and asked its person for a yes, with nothing held.
+test("a yes asked for an email in its own words, with nothing held, is sent back once; never a calendar or after a hold", async () => {
+  const PROSE = "Found Mary's email. Here's the reply:\n\nHi Mary,\n\nThanks.\n\nseyi, text me yourself with a yes and I'll send it.";
+  const fresh = untriedWebCheck();
+  assert.equal(fresh.check(PROSE), offerNotice(namedOfferKinds(PROSE)), "sent back, naming the email");
+  assert.equal(fresh.check(PROSE), null, "once a turn");
+
+  const heldOne = untriedWebCheck();
+  await heldOne.wrap(async () => ({ held: true, content: [] }))("send_email", { to: ["mary@example.com"] });
+  assert.equal(heldOne.check("Here it is for your 👍, seyi."), null, "a held email's ask goes out");
+
+  const refused = untriedWebCheck();
+  await refused.wrap(async () => ({ isError: true, content: [] }))("send_email", { to: ["mary@example.com"] });
+  assert.equal(refused.check(PROSE), null, "after a refused call, what to ask is that call's to say");
+
+  assert.equal(untriedWebCheck().check("Want me to share your calendar with this chat? Say yes."), null, "a calendar share is asked in words");
+  assert.equal(untriedWebCheck({ reported: true }).check(PROSE), null, "a job's report relayed");
+  assert.equal(untriedWebCheck().check("The email to Jo is still waiting for your 👍 above."), null, "pointing at an ask already waiting");
 });

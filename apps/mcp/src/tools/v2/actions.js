@@ -190,7 +190,7 @@ export const ACTIONS = {
     },
     email: {
       tool: "send_email",
-      summary: "Send one email as the person through their Gmail, once they say yes to that exact email.",
+      summary: "Show one email for a yes: the call sends nothing, and only the yes of whoever it goes from sends that exact email.",
       take: plain,
     },
     email_draft: {
