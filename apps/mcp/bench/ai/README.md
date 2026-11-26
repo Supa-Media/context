@@ -34,6 +34,14 @@ this folder: it is public, like the rest of the repository.
   `--test tasks`. Every task is a gate, and its `must call`, `must reach`,
   `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect` and `must write` lines are checked
   from the run's record (`bench/checks.mjs`), not by the judge.
+- `tests/everyday.md` and `tests/everyday-groups.md` (2026-11-26): the
+  everyday tasks, tau2-bench's shape on what people really text Tex for
+  (drawn from the self-reviews of real chats, every detail invented): a
+  played person texts, Tex works in Lena's world (`workspaces/lena/`, the
+  supper-club group), and each task is graded on the state it leaves
+  (`must email`, `must send email`, `must calendar`, `must write`, read from
+  the run's record) and passes only when all three runs pass (pass^3). Run
+  them with `--test everyday` and `--test everyday-groups`.
 - A question marked `- target: <cause>` is a known bug not fixed yet: it
   runs and is reported apart, and never fails a bar or blocks a merge
   (`docs/decisions/testing/replay-gate.md`). The core set and the simple asks

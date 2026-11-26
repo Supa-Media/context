@@ -58,6 +58,8 @@ export function worldStandIns({ models, person }) {
     },
     /** The settings changes since `mark()`: each a change the turn made, kept by the control plane, never in a note. */
     settingsChanges: () => commands.changes().slice(commandsBefore).map((detail) => ({ workspace: "this chat's settings", path: "tex", kind: "set", detail })),
+    /** The mail shared with this chat so far (`texCommands.mjs`), named on the next group turn as production's Worker does (`group.mail`), or null. */
+    sharedMail: () => (commands.mail().length > 0 ? commands.mail() : null),
     mark() {
       commandsBefore = commands.changes().length;
     },

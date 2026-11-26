@@ -41,6 +41,7 @@ import { MineLoader } from "./views/mine/useMine";
 import { useSandbox } from "./engine/sandbox";
 import { useLabUrl } from "./views/useLabUrl.web";
 import { ArchCanvas } from "./views/canvas/ArchCanvas.web";
+import { ComponentList } from "./views/ComponentList.web";
 import { useLabTheme } from "./theme.web";
 import { Testing } from "./views/testing/Testing.web";
 
@@ -278,6 +279,7 @@ function Lab() {
                   ) : null}
                 </button>
                 {v === "canvas" ? <ArchPages onPick={closeSide} /> : null}
+                {v === "canvas" ? <ComponentList onPick={closeSide} /> : null}
               </Fragment>
             ))}
             <div className="sidefoot">

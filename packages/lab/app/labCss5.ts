@@ -61,6 +61,7 @@ export const LAB_CSS_5 = String.raw`
 .tl .labnav .sidefoot{margin-top:auto}
 /* The architectures under Architecture (Texting, Nightly, Search): indented rows with their own icon; folded, icons only. */
 .tl .labnav .archpages{display:flex;flex-direction:column;gap:2px}
+.tl .labnav .comps .comphd{font-size:11px;color:var(--dim);padding:8px 8px 2px 30px}.tl .labnav.navmin .comps .comphd{display:none}.tl .labnav .side .rowi.comp .i{color:var(--comp)}
 .tl .labnav .side .rowi.archpage{padding-left:30px}
 .tl .labnav .side .rowi.archpage .i{width:15px;height:15px}
 .tl .labnav.navmin .side .rowi.archpage{padding-left:8px}

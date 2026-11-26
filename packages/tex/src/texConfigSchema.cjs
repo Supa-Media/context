@@ -23,6 +23,7 @@
 "use strict";
 
 const { stepSettingsProblems } = require("./texNodeSettings.cjs");
+const { runStepProblems } = require("./texRunNodes.cjs");
 const SCHEMA_VERSION = 6;
 
 const MODES = Object.freeze(["wait", "uses", "background", "job", "loop", "provisional", "generator"]);
@@ -41,7 +42,8 @@ const START_FACTS = Object.freeze(["firstLook", "sms", "unpaired"]);
  * hand edit start the door early on a chat Tex is not set up in, or on an SMS. `unpaired` may be absent.
  */
 const REQUIRED_HOLDS = Object.freeze(["firstLook", "sms"]);
-const KINDS = Object.freeze(["input", "tool"]);
+// `run` (Dev2, 2026-11-26): a step that starts a new run of the chat at the input step it wires to (`texRunNodes.cjs`).
+const KINDS = Object.freeze(["input", "tool", "run"]);
 const CACHE_TTLS = Object.freeze(["5m", "1h"]);
 /** Which tools a model step is shown (`sixToolsFixed.js`): what its turn holds, or every tool its kind of chat has, the same bytes each turn. */
 const TOOL_LISTS = Object.freeze(["turn", "fixed"]);
@@ -49,7 +51,7 @@ const TOOL_LISTS = Object.freeze(["turn", "fixed"]);
 const FREEZES = Object.freeze(["turn", "summary"]);
 /** The types a node's input and output fields may have (`inSchema`, `outSchema`; checked by the runner, `texGraph.cjs`). */
 const IO_TYPES = Object.freeze(["text", "number", "choice", "object", "yesno", "score", "ids", "list"]);
-const GROUP_FIELDS = Object.freeze(["label", "goal", "icon", "x", "y", "parent"]);
+const GROUP_FIELDS = Object.freeze(["label", "goal", "icon", "x", "y", "parent", "component"]);
 /**
  * The Lab's pages a step may live on (Dev2, 2026-11-20: "the nightly cleanup is a different type of AI job. It's not
  * really texting, so it should probably live in a different graph"). One config still holds every step; a step's
@@ -128,6 +130,8 @@ function configProblems(config) {
     if (!g || !isText(g.label)) out.push(`group "${id}" has no label`);
     for (const k of Object.keys(g ?? {})) if (!GROUP_FIELDS.includes(k)) out.push(`group "${id}" has a field the schema does not know: ${k}`);
     if (g?.parent !== undefined && !groups[g.parent]) out.push(`group "${id}" sits in a group that is not there (${g.parent})`);
+    // A component (Dev2, 2026-11-26) is a group the Lab draws as a reference inside the groups that use it.
+    if (g?.component !== undefined && g.component !== true && g.component !== false) out.push(`${id}.component: not boolean`);
   }
   const ids = new Set();
   for (const n of config.nodes) {
@@ -170,6 +174,7 @@ function configProblems(config) {
     if (wires.has(key)) out.push(`the wire ${name} (${e.mode}) is there twice`);
     wires.add(key);
   }
+  out.push(...runStepProblems(config));
   return out;
 }
 

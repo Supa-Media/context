@@ -48,7 +48,7 @@ const ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
  * they part. The Training conversations are cast from them too (Seyi, 2026-11-17), and what a conversation refers to
  * that its people's worlds do not hold is its own world's to declare (`apps/mcp/bench/setsWorld.mjs`).
  */
-const BENCH_PEOPLE = Object.freeze(["Maya", "John", "Priya", "Tomas", "Nia", "Kofi"]);
+const BENCH_PEOPLE = Object.freeze(["Maya", "John", "Priya", "Tomas", "Nia", "Kofi", "Lena", "Omar", "Dee"]);
 /**
  * Another AI assistant a group may have beside Tex (Training `side-talk`): a member whose lines are in the chat, never
  * a person, so it needs no bench world and no test runs as it.

@@ -31,7 +31,7 @@ export type LabNode = {
   toolList?: "turn" | "fixed";
   /** When the step's rarely-changing modules are read (`packages/tex/gateway/agent/frozenModules.js`): each turn, or once a day until the next summary. */
   freeze?: "turn" | "summary";
-  kind?: "input" | "tool";
+  kind?: "input" | "tool" | "run";
   outSchema?: OutField[];
   sendBack?: number;
   x: number;
