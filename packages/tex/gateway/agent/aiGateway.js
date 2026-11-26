@@ -496,7 +496,9 @@ export async function requestViaGateway(call, config, options = {}) {
   if (contextEditsRefused) body = withoutContextEdits(body);
   // Tool results ride outside the history caps (`promptBudget.js`). A Haiku call is trimmed before it is sent, so it never crosses the 100k price cliff.
   if (!options.rawBody && /haiku/i.test(call.model)) {
-    const fit = fitHaikuBody(body);
+    // The turn starts at the person's ask, just past the cached history (`gatewayBody`): never cut as older history.
+    const turnFrom = Number.isInteger(call.cachedThrough) ? anthropicMessages(call.messages.slice(0, call.cachedThrough)).length : undefined;
+    const fit = fitHaikuBody(body, { turnFrom });
     if (fit.shed > 0) {
       body = fit.body;
       console.log(JSON.stringify({ event: "tex_prompt_budget", before: fit.before, after: fit.after, shed: fit.shed }));

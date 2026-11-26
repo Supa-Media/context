@@ -5,9 +5,9 @@ import { EARLIER, estimateBodyTokens, fitHaikuBody, HAIKU_INPUT_BUDGET, LEFT_OUT
 export default {
   id: "prompt-under-cliff",
   incident:
-    "2026-11-24: 368 of 1,047 front-door rounds (2026-11-19 to 11-24) were trimmed, each cut worked out afresh so the stub line moved a message per text and the cached prefix was written again (cache writes p50 2.5K tokens 1:1, 28K group); the estimate ran 1.26 times low, so 206 trimmed calls still billed over 100,000. Before that, 2026-11-17, after the history caps shipped: 161 Haiku requests in three hours still went over 100,000 input tokens (average 125,800), from 1:1 threads on setups 54bad9c2e0f0 and d51546d21963. The average Haiku call stayed about 32,000 tokens.",
+    "2026-11-26: in Lab test chats, 3 of 3 texts that made a tool call lost the person's text in round 2 (round 2 cut from 144,860 to 61,534 estimated tokens), and the front door asked them to resend. 2026-11-24: 368 of 1,047 front-door rounds (2026-11-19 to 11-24) were trimmed, each cut worked out afresh so the stub line moved a message per text and the cached prefix was written again (cache writes p50 2.5K tokens 1:1, 28K group); the estimate ran 1.26 times low, so 206 trimmed calls still billed over 100,000. Before that, 2026-11-17, after the history caps shipped: 161 Haiku requests in three hours still went over 100,000 input tokens (average 125,800), from 1:1 threads on setups 54bad9c2e0f0 and d51546d21963. The average Haiku call stayed about 32,000 tokens.",
   cause:
-    "The cut was recomputed every round from the untrimmed body, at 3.5 characters a token. Before that: the caps bound the week's transcript only. A 1:1 stretch replays tool results whole, up to 64,000 characters each, outside those caps, and Haiku charges five times past 100,000 tokens.",
+    "11-26: the tool answers took the body into the next step, and with only the newest message kept the ask's message was cut as older history. 11-24: the cut was recomputed every round from the untrimmed body, at 3.5 characters a token. Before that: the caps bound the week's transcript only. A 1:1 stretch replays tool results whole, up to 64,000 characters each, outside those caps, and Haiku charges five times past 100,000 tokens.",
   path: "1:1 text",
   async run() {
     const page = "The lease says the deposit is one month. ".repeat(12_000);
@@ -53,5 +53,27 @@ export default {
     assert.ok(again.after <= HAIKU_INPUT_BUDGET);
     assert.equal(JSON.stringify(again.body.messages.slice(0, 3)), JSON.stringify(kept.body.messages));
     assert.ok(kept.after <= HAIKU_INPUT_BUDGET - TRIM_STEP + (kept.before - HAIKU_INPUT_BUDGET) % TRIM_STEP, "cut a step under the budget");
+
+    // 2026-11-26, Lab test chats: a tool round that took the body into the next step cut the person's ask (its
+    // preamble and their words) and this round's answers as older history, before a clip of the system prompt
+    // that was the real overflow; the front door answered "I only see placeholders". The turn is never older history.
+    const ask = "never mind that. what's on my calendar tomorrow, and what did I last write about Togather?";
+    const sent = {
+      model: "claude-haiku-5-5",
+      system: [{ type: "text", text: "s".repeat(215_706) }, { type: "text", text: "c".repeat(30_313) }],
+      tools: [{ name: "fetch", description: "d".repeat(96_614), input_schema: { type: "object" } }],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Thu 9:06 AM: yeah that was me" }] },
+        { role: "assistant", content: [{ type: "text", text: "got it" }] },
+        { role: "user", content: [{ type: "text", text: "p".repeat(37_890) }, { type: "text", text: ask }] },
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_cal", name: "read_calendar", input: {} }, { type: "tool_use", id: "toolu_find", name: "search_notes", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_cal", content: "c".repeat(3_834) }, { type: "tool_result", tool_use_id: "toolu_find", content: "t".repeat(3_800) }] },
+      ],
+    };
+    const turn = fitHaikuBody(sent, { turnFrom: 2 }); // the ask, just past the cached history (`aiGateway.js`)
+    assert.ok(turn.after <= HAIKU_INPUT_BUDGET);
+    assert.equal(turn.body.messages[2].content[0].text.length, 37_890, "the preamble is sent whole");
+    assert.equal(turn.body.messages[2].content[1].text, ask, "the person's words are sent");
+    for (const block of turn.body.messages[4].content) assert.notEqual(block.content, LEFT_OUT, "this round's answers are sent");
   },
 };
