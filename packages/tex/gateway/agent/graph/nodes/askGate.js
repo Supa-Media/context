@@ -136,7 +136,7 @@ export async function askGateNode(input, io) {
     const climbed = { knows: knows === null ? null : found.knows.length, notes: notes === null ? null : found.notes.length, tried: [] };
     if (found.knows.length === 0 && found.notes.length === 0) return { to: "bypass", ...base, climbed, when: ["bypass"] };
     t.ladderSentBack = true;
-    return { to: "back", notice: ladderNotice({ questions, knows: found.knows, notes: found.notes, untried: [], failedApps: [] }), found: true, ...base, climbed, when: ["tryNext"] };
+    return { to: "back", notice: ladderNotice({ questions, knows: found.knows, notes: found.notes, untried: [], failedApps: [] }), ...base, climbed, when: ["tryNext"] };
   }
   // A second asking draft after the ladder sent one back: the quick rungs had their go, so the slow ones are a job's.
   if (t.ladderSentBack === true) return { to: "job", why: "still asking after the quick rungs", ...base, when: ["climbOn"] };
