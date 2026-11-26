@@ -60,7 +60,7 @@
 
 import { createControlPlane } from "../fromGateway/controlPlane.js";
 import { ONE_TO_ONE_CHAT } from "../fromGateway/agent_ledger.js";
-import { loggedSteps, oneRowPerText, realLedger, realRow } from "./realChat.js";
+import { loggedSteps, oneRowPerText, realLedgerAt, realRow, realThreads } from "./realChat.js";
 import { saidTexts } from "../fromGateway/agent_sentOnItsOwn.js";
 import { bearerToken } from "../fromGateway/session.js";
 import { json } from "../fromGateway/http_responses.js";
@@ -189,16 +189,16 @@ export async function open(env, controlPlane, token, who, input, origin) {
   const kind = group ? "group" : "one";
   const ledgerChat = group ? owner.chat : ONE_TO_ONE_CHAT;
 
-  let rows;
-  let history;
-  let people;
+  let rows, history, people;
+  let threads = [];
   if (conv !== null) {
     ({ rows, history } = conversationStart(conv, kind, input.base));
     people = group ? (conv.members ?? []).map((name) => ({ handle: handleOf(name), name: String(name) })) : [{ handle: "", name: "You" }];
   } else {
-    const entries = await realLedger(env, owner, ledgerChat, input.base);
+    const { entries, until } = await realLedgerAt(env, owner, ledgerChat, input.base);
     rows = oneRowPerText(saidTexts(entries)).map((entry) => realRow(entry, kind)); // a text never said is no row
     history = entries.map(({ seq: _seq, ...entry }) => entry);
+    threads = await realThreads(env, owner, ledgerChat, until); // the chat's conversations as they stood at `base`, never as they are now
     people = (answer.people ?? []).filter((person) => person && typeof person.handle === "string");
   }
   const sandboxId = randomId();
@@ -218,7 +218,7 @@ export async function open(env, controlPlane, token, who, input, origin) {
     people,
     ...(conv !== null ? { convId: conv.id } : {}),
   };
-  return await startChat(env, who, input, drafted, about, rows, history);
+  return await startChat(env, who, input, drafted, about, rows, history, threads);
 }
 
 /**
@@ -242,7 +242,7 @@ async function openWorld(env, controlPlane, token, who, input, origin, drafted) 
 }
 
 /** A new test chat's object, seeded with its rows and history, and listed for its person. */
-async function startChat(env, who, input, drafted, base, rows, history) {
+async function startChat(env, who, input, drafted, base, rows, history, threads = []) {
   const { sandboxId, source, chat, kind } = base;
   const group = kind === "group";
   const people = base.people;
@@ -255,9 +255,9 @@ async function startChat(env, who, input, drafted, base, rows, history) {
     ...(typeof who.timeZone === "string" ? { timeZone: who.timeZone } : {}),
   };
   // The whole chat, in pieces a Durable Object call carries (`object.js` `SEED_CHUNK`).
-  await callSandbox(stub, "init", { about, rows: rows.slice(0, SEED_CHUNK), history: history.slice(0, SEED_CHUNK) });
-  for (let at = SEED_CHUNK; at < Math.max(rows.length, history.length); at += SEED_CHUNK) {
-    await callSandbox(stub, "seed", { rows: rows.slice(at, at + SEED_CHUNK), history: history.slice(at, at + SEED_CHUNK) });
+  await callSandbox(stub, "init", { about, rows: rows.slice(0, SEED_CHUNK), history: history.slice(0, SEED_CHUNK), threads: threads.slice(0, SEED_CHUNK) });
+  for (let at = SEED_CHUNK; at < Math.max(rows.length, history.length, threads.length); at += SEED_CHUNK) {
+    await callSandbox(stub, "seed", { rows: rows.slice(at, at + SEED_CHUNK), history: history.slice(at, at + SEED_CHUNK), threads: threads.slice(at, at + SEED_CHUNK) });
   }
   // Listed for the person, so the Lab can follow a test chat an AI opened on their grant, and the AI one the Lab opened.
   await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat, kind: group ? "group" : "1:1", versionId: about.versionId, by: byOf(input.by), at: Date.now() } }).catch(() => {});
