@@ -205,10 +205,13 @@ test("an email is kept whole and never sent; a draft too", async () => {
   try {
     const gate = await gateFor("t1", chat);
     const sent = await toolAnswer("send_email", { to: ["jo@example.invalid"], cc: ["sam@example.invalid"], subject: "Dinner", body: "Seven at Ana's." }, gate);
-    assert.match(sent.content[0].text, /Sent "Dinner" to jo@example\.invalid/);
+    assert.match(sent.content[0].text, /Held for the person's 👍, not sent: "Dinner" to jo@example\.invalid/);
+    assert.equal(sent.held, true, "held for a yes, as the real gate holds a texted email (2026-11-26: it said Sent)");
+    const offered = await toolAnswer("send_email", { to: ["jo@example.invalid"], subject: "Lunch", body: "Noon.", as: "@sam" }, gate);
+    assert.match(offered.content[0].text, /Held for @sam's 👍/, "one for somebody else waits on their 👍");
     await toolAnswer("save_email_draft", { to: ["jo@example.invalid"], subject: "Later", body: "..." }, gate);
     await gate.flush();
-    const [email, draft] = (await chat.call("state")).writes;
+    const [email, , draft] = (await chat.call("state")).writes;
     assert.deepEqual({ kind: email.kind, to: email.to, cc: email.cc, subject: email.subject, body: email.body, sent: email.sent }, { kind: "email", to: ["jo@example.invalid"], cc: ["sam@example.invalid"], subject: "Dinner", body: "Seven at Ana's.", sent: false });
     assert.equal(draft.kind, "draft");
     assert.deepEqual(fetched, [], "no mail went anywhere");

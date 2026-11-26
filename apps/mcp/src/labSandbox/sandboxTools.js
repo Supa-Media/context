@@ -11,7 +11,8 @@
  *    and `search` name it (`afterRead`). A `.page.md` is a page: it is served from the test chat (`pages.js`) at an
  *    address only the test chat's owner can open, and the write carries that `url`;
  *  - `remember`: the line is added to the note in the test chat; a read of a real note then shows it below the note;
- *  - `send_email` and `save_email_draft`: nothing is sent; the write keeps who to, the subject and the whole body;
+ *  - `send_email` and `save_email_draft`: nothing is sent; the write keeps who to, the subject and the whole body, and
+ *    `send_email` answers held for the yes of whoever it goes from (`as`, or the person), as the real gate holds it;
  *  - a picture Tex sends (`chatRun.js`'s line, `uploadPicture`): kept in the test chat and served like a page.
  *
  * Everything else that changes something keeps today's answer in `policy.js`: recorded, and answered as done.
@@ -116,8 +117,12 @@ export async function sandboxWrite(name, args, gate) {
     const subject = text(a.subject, 200);
     const body = text(a.body, WRITE_BODY_CHARS);
     const cc = list(a.cc);
-    await gate.write({ kind: name === "send_email" ? "email" : "draft", title: subject || "(no subject)", to, ...(cc.length ? { cc } : {}), subject, body, tool: name, sent: false });
-    return said(name === "send_email" ? `Sent "${subject}" to ${to.join(", ") || "nobody"}.` : `Saved a draft "${subject}".`);
+    const who = typeof a.as === "string" && a.as.trim() !== "" ? `@${a.as.trim().replace(/^@/, "")}` : "the person";
+    await gate.write({ kind: name === "send_email" ? "email" : "draft", title: subject || "(no subject)", to, ...(cc.length ? { cc } : {}), subject, body, tool: name, sent: false, ...(name === "send_email" ? { held: who } : {}) });
+    if (name === "save_email_draft") return said(`Saved a draft "${subject}".`);
+    // Held, as the real gate holds every texted email for a yes (`tools/emailGate.js`, `tools/offerFor.js` for `as`);
+    // before 2026-11-26 this answered "Sent", and a turn that rightly offered an email for @seyi's 👍 said it had gone.
+    return { ...said(`Held for ${who}'s 👍, not sent: "${subject}" to ${to.join(", ") || "nobody"}. In a test chat it stays here.`), held: true };
   }
   return null;
 }
