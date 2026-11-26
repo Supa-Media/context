@@ -5,7 +5,9 @@
  * colon (`renews:date`), and a header with no known type after a colon is
  * plain text, so `time: 10:30` stays a column called `time: 10:30`. There is
  * no sidecar file: the owner rejected a YAML beside every CSV (2026-11-23).
- * Select options are the values already in the column.
+ * Select options are the values already in the column. A multiselect cell
+ * holds several options joined with ", " (as Notion and Airtable export them),
+ * so one option never contains a comma.
  *
  * Pure and dependency-free: the gateway's fetch and write tools and the app's
  * grid import the same functions, so every surface reads a sheet the same way.
@@ -16,7 +18,7 @@
 import { isSheetPath as isSheetKind } from "../../../../packages/shared/src/fileKinds.cjs";
 
 export const SHEET_EXTENSION = ".csv";
-export const COLUMN_TYPES = Object.freeze(["text", "number", "usd", "date", "person", "select", "checkbox", "link"]);
+export const COLUMN_TYPES = Object.freeze(["text", "number", "usd", "date", "person", "select", "multiselect", "checkbox", "link"]);
 /** A sheet past either bound is held back and named, never cut short. */
 export const MAX_SHEET_BYTES = 5 * 1024 * 1024;
 export const MAX_SHEET_ROWS = 50_000;
@@ -50,9 +52,36 @@ export function isSheetPath(path) {
   return isSheetKind(path);
 }
 
-/** `renews:date` → { name: "renews", type: "date" }; `notes` → text. */
+/** A column's layout after its type: `wrap` and a width in pixels, `w320`. */
+const LAYOUT_WRAP = "wrap";
+const LAYOUT_WIDTH = /^w(\d{1,4})$/;
+export const MIN_COLUMN_WIDTH = 48;
+export const MAX_COLUMN_WIDTH = 2000;
+
+/**
+ * `renews:date` → { name: "renews", type: "date" }; `notes` → text.
+ * A column's layout rides after its type, so every reader sees the same
+ * sheet: `notes:text:wrap:w320` wraps and is 320 wide. Layout without a
+ * known type before it is not layout: the whole cell stays the name.
+ */
 export function parseHeaderCell(cell) {
   const raw = String(cell ?? "").trim();
+  const parts = raw.split(":");
+  const layout = {};
+  let end = parts.length;
+  while (end > 2) {
+    const token = parts[end - 1].trim().toLowerCase();
+    const width = LAYOUT_WIDTH.exec(token);
+    if (token === LAYOUT_WRAP && !layout.wrap) layout.wrap = true;
+    else if (width && layout.width === undefined) layout.width = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Number(width[1])));
+    else break;
+    end -= 1;
+  }
+  if (end < parts.length) {
+    const type = parts[end - 1].trim().toLowerCase();
+    const name = parts.slice(0, end - 1).join(":").trim();
+    if (TYPE_SET.has(type) && name) return { name, type, ...layout };
+  }
   const at = raw.lastIndexOf(":");
   if (at > 0) {
     const type = raw.slice(at + 1).trim().toLowerCase();
@@ -63,7 +92,23 @@ export function parseHeaderCell(cell) {
 }
 
 export function renderHeaderCell(column) {
-  return column.type && column.type !== "text" ? `${column.name}:${column.type}` : column.name;
+  const layout = [column.wrap ? LAYOUT_WRAP : "", Number.isInteger(column.width) ? `w${column.width}` : ""].filter(Boolean);
+  const type = column.type || "text";
+  if (layout.length) return [column.name, type, ...layout].join(":");
+  return type !== "text" ? `${column.name}:${type}` : column.name;
+}
+
+/** A column's wrap and width changed; every value and the rest of the header stay as they were. */
+export function setColumnLayout(sheet, name, { wrap, width } = {}) {
+  const column = findColumn(sheet, name);
+  if (!column) return sheet;
+  const next = { ...column };
+  if (wrap !== undefined) { if (wrap) next.wrap = true; else delete next.wrap; }
+  if (width !== undefined) {
+    if (width === null) delete next.width;
+    else next.width = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, Math.round(width)));
+  }
+  return { columns: sheet.columns.map((c) => (c === column ? next : c)), rows: sheet.rows };
 }
 
 /** RFC 4180 records: quoted fields, doubled quotes, CRLF or LF, newlines inside quotes. */
@@ -193,20 +238,36 @@ export function serializeSheet({ columns, rows }) {
   return `${lines.join("\n")}\n`;
 }
 
-/** Values already in a select column, in first-seen order. */
+/** A multiselect cell's options, in the order written: split on commas, trimmed, blanks and repeats dropped. */
+export function splitOptions(value) {
+  const out = [];
+  for (const part of cellText(value).split(",")) {
+    const v = part.trim();
+    if (v && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+/** Options as a multiselect cell stores them. */
+export function joinOptions(options) {
+  return splitOptions((options ?? []).join(",")).join(", ");
+}
+
+/** Values already in a select or multiselect column, each option once, in first-seen order. */
 export function selectOptions(sheet, name) {
   const out = [];
   const seen = new Set();
+  const multi = findColumn(sheet, name)?.type === "multiselect";
   for (const row of sheet.rows) {
-    const v = cellText(row[name]).trim();
-    if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+    const values = multi ? splitOptions(row[name]) : [cellText(row[name]).trim()];
+    for (const v of values) if (v && !seen.has(v)) { seen.add(v); out.push(v); }
   }
   return out;
 }
 
 /* ------------------------------- querying -------------------------------- */
 
-export const FILTER_OPS = Object.freeze(["is", "is not", "contains", ">", "<", ">=", "<=", "after", "before", "is empty", "is not empty"]);
+export const FILTER_OPS = Object.freeze(["is", "is not", "has", "has no", "contains", ">", "<", ">=", "<=", "after", "before", "is empty", "is not empty"]);
 
 function findColumn(sheet, name) {
   const key = String(name ?? "").trim().toLowerCase();
@@ -226,6 +287,19 @@ function compare(type, a, b) {
   return cellText(a).localeCompare(cellText(b), undefined, { numeric: true });
 }
 
+function hasOption(column, value, want) {
+  const options = column.type === "multiselect" ? splitOptions(value) : [value];
+  return options.some((o) => o.toLowerCase() === want.toLowerCase());
+}
+
+/** A value as its column stores it: a number plain, a multiselect's options tidied, the rest trimmed. */
+function storedText(type, text, problem) {
+  if (text === "" || problem) return text;
+  if (type === "usd" || type === "number") return String(typedValue(type, text));
+  if (type === "multiselect") return joinOptions([text]);
+  return text;
+}
+
 export function rowMatches(sheet, row, filter) {
   const column = findColumn(sheet, filter.column);
   if (!column) return false;
@@ -235,6 +309,9 @@ export function rowMatches(sheet, row, filter) {
     case "is": return value.toLowerCase() === want.toLowerCase();
     case "is not": return value.toLowerCase() !== want.toLowerCase();
     case "contains": return value.toLowerCase().includes(want.toLowerCase());
+    // One of the cell's options: a multiselect's, split on commas, or any other cell's whole value.
+    case "has": return hasOption(column, value, want);
+    case "has no": return !hasOption(column, value, want);
     case ">": case "after": return value !== "" && compare(column.type, value, want) > 0;
     case "<": case "before": return value !== "" && compare(column.type, value, want) < 0;
     case ">=": return value !== "" && compare(column.type, value, want) >= 0;
@@ -307,7 +384,7 @@ function normaliseRow(sheet, input, errors, where) {
     const text = key === undefined ? "" : cellText(input[key]).trim();
     const problem = cellProblem(c.type, text);
     if (problem) errors.push(`${where}: ${c.name} "${text}" is ${problem}`);
-    row[c.name] = c.type === "usd" || c.type === "number" ? (text === "" || problem ? text : String(typedValue(c.type, text))) : text;
+    row[c.name] = storedText(c.type, text, problem);
   }
   return row;
 }
@@ -355,7 +432,7 @@ function normaliseRowPartial(sheet, set, errors) {
     const text = cellText(v).trim();
     const problem = cellProblem(c.type, text);
     if (problem) errors.push(`set: ${c.name} "${text}" is ${problem}`);
-    out[c.name] = text;
+    out[c.name] = c.type === "multiselect" ? storedText(c.type, text, problem) : text;
   }
   return out;
 }

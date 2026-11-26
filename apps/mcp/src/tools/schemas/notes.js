@@ -85,7 +85,7 @@ export function noteWriteToolDefinitions() {
           path: { type: "string", description: "The sheet's path, ending in .csv" },
           where: {
             type: "array",
-            description: "Optional filters, all must hold: [{ column, op, value }]; op is one of: is, is not, contains, >, <, >=, <=, after, before, is empty, is not empty.",
+            description: "Optional filters, all must hold: [{ column, op, value }]; op is one of: is, is not, has, has no (an option of a multiselect cell), contains, >, <, >=, <=, after, before, is empty, is not empty.",
             items: {
               type: "object",
               properties: { column: { type: "string" }, op: { type: "string" }, value: { type: ["string", "number", "boolean"] } },

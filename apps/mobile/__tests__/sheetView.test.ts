@@ -462,3 +462,103 @@ describe("the new sheet UI of 2026-11-24", () => {
     expect($('[data-testid="sheet-touch-hint"]')).toBeNull();
   });
 });
+
+describe("multi-select, wrap text and column width (2026-11-26)", () => {
+  const TAGS = 'name,tags:multiselect,notes\nNetflix,"Family, Shared",hi\nGym,,there\n';
+
+  test("a multi-select cell shows each option as a chip", () => {
+    mount({ text: TAGS });
+    expect(cell(0, 1).textContent).toBe("FamilyShared");
+    expect($$('[data-testid="sheet-chips"]')).toHaveLength(1);
+  });
+
+  test("its panel adds a pick and stays open, Backspace takes the last off, and Enter saves", () => {
+    const { changes } = mount({ text: TAGS });
+    press(cell(1, 1));
+    key(cell(1, 1), "Enter");
+    const panel = $('[data-testid="sheet-multiselect-panel"]') as HTMLElement;
+    expect(panel).not.toBeNull();
+    // Drawn into the body, so the rows below never cover it.
+    expect($('[data-testid="sheet-grid"]')?.contains(panel)).toBe(false);
+    press(buttonWithText(panel, "Shared") as HTMLElement);
+    press(buttonWithText(panel, "Family") as HTMLElement);
+    expect($('[data-testid="sheet-multiselect-panel"]')).not.toBeNull();
+    const field = fieldIn($('[data-testid="sheet-cell-editor"]') as HTMLElement);
+    key(field, "Backspace");
+    typeInto(field, "Kids");
+    expect($('[data-testid="sheet-option-create"]')?.textContent).toContain("Kids");
+    key(field, "Enter");
+    key(field, "Enter");
+    expect(changes).toEqual(['name,tags:multiselect,notes\nNetflix,"Family, Shared",hi\nGym,"Shared, Kids",there\n']);
+    expect($('[data-testid="sheet-multiselect-panel"]')).toBeNull();
+  });
+
+  test("a comma adds what is before it, and Esc saves with what is typed", () => {
+    const { changes } = mount({ text: TAGS });
+    press(cell(1, 1));
+    key(cell(1, 1), "Enter");
+    const field = fieldIn($('[data-testid="sheet-cell-editor"]') as HTMLElement);
+    typeInto(field, "Annual,");
+    typeInto(field, "Trial");
+    key(field, "Escape");
+    expect(changes).toEqual(['name,tags:multiselect,notes\nNetflix,"Family, Shared",hi\nGym,"Annual, Trial",there\n']);
+  });
+
+  test("Multi-select sits beside Single select in the type picker and retypes the column", async () => {
+    const { changes } = mount({ text: TAGS });
+    press($$('[data-testid="sheet-header"]')[2]);
+    await settle();
+    expect($('[data-testid="sheet-type-select"]')?.textContent).toContain("Single select");
+    press($('[data-testid="sheet-type-multiselect"]') as HTMLElement);
+    expect(changes[0].split("\n")[0]).toBe("name,tags:multiselect,notes:multiselect");
+  });
+
+  test("Wrap text writes into the header, for every reader, and the menu shows it on", async () => {
+    const { changes } = mount({ text: TAGS });
+    press($$('[data-testid="sheet-header"]')[2]);
+    await settle();
+    press($('[data-testid="sheet-wrap-text"]') as HTMLElement);
+    expect(changes[0].split("\n")[0]).toBe("name,tags:multiselect,notes:text:wrap");
+    // The test's menus have no anchor, so they open as the phone's sheet, with a switch.
+    expect($('[data-testid="sheet-wrap-text"]')?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("a date column offers no Wrap text", async () => {
+    mount();
+    press($$('[data-testid="sheet-header"]')[1]);
+    await settle();
+    expect($('[data-testid="sheet-wrap-text"]')).toBeNull();
+  });
+
+  test("dragging a header's edge sets that column's width, written into the header", () => {
+    const { changes } = mount({ text: TAGS });
+    const edge = $$('[data-testid="sheet-resize-edge"]')[2];
+    const start = 168;
+    act(() => {
+      edge.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
+    });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 540 }));
+    });
+    expect($('[data-testid="sheet-drag-rule"]')).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointerup", { clientX: 540 }));
+    });
+    expect(changes).toHaveLength(1);
+    expect(changes[0].split("\n")[0]).toBe(`name,tags:multiselect,notes:text:w${start + 40}`);
+    expect($('[data-testid="sheet-drag-rule"]')).toBeNull();
+  });
+
+  test("a double-click on the edge fits the column to its values", () => {
+    const { changes } = mount({ text: TAGS });
+    act(() => {
+      $$('[data-testid="sheet-resize-edge"]')[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(changes[0].split("\n")[0]).toBe("name:text:w72,tags:multiselect,notes");
+  });
+
+  test("a read-only sheet has no edges to drag", () => {
+    mount({ text: TAGS, readOnly: true });
+    expect($$('[data-testid="sheet-resize-edge"]')).toHaveLength(0);
+  });
+});
