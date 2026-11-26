@@ -191,6 +191,25 @@ const STREAMLY = {
   ],
 };
 
+// gh-227: a texting case's `file` lines had no record to read (only housekeeping looked), so they always failed.
+// Sabotage: drop the `where` line from the texting record in `run.mjs` and the Filed line is missing.
+test("a texting case with a file check records where the named note is, as housekeeping does", async () => {
+  const dir = await benchFolder();
+  try {
+    await writeFile(join(dir, "tests/texting-assistant.md"), TEST + "- must file: ana/health/dentist.md under ana/health/dentist.md containing tuesday\n");
+    const out = join(dir, "result.md");
+    await execFileAsync(process.execPath, [RUN, "run", "texting-assistant", "--dir", dir, "--fake", "--no-fluff", "--out", out], { timeout: 120000 });
+    const note = await readFile(out, "utf8");
+    const line = note.split("\n").find((l) => l.startsWith("Filed: "));
+    assert.ok(line, note.slice(0, 1500));
+    const filed = JSON.parse(line.slice("Filed: ".length));
+    assert.equal(filed["ana/health/dentist.md"].at, "ana/health/dentist.md");
+    assert.match(filed["ana/health/dentist.md"].text, /Tuesday/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("a handoff or a link to save a login is answered from the brief, not ended by the played person", async () => {
   const { converse } = await import("../run.mjs");
   // The fake person (`playPerson`) answers nothing, as a model reading "text me

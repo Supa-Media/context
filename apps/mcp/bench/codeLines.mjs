@@ -302,6 +302,12 @@ export function codeOnly(check) {
  * for a line that asks for more than the record can show.
  */
 export function codeVerdict(check, answer) {
+  // A "reads like ..." judge line grades how Tex's texts read; a turn that sent none has nothing to grade, and whether
+  // it should have spoken is the case's own must lines (gh-227: four right silences failed "reads like texts from a
+  // capable friend").
+  if (check?.kind === "judge" && norm(check.line).startsWith("reads like") && !wordsSent(answer)) {
+    return { does: true, reason: "checked from the run's record: Tex sent no words, so no text to read" };
+  }
   const rules = matching(check);
   if (rules.length === 0) return null;
   const line = norm(check.line);

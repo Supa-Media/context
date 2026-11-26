@@ -481,6 +481,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
           ...result,
           model: result.model ?? setup.model,
           changes: world.changes(),
+          ...(result.where === undefined && filedNotes(question).length > 0 ? { where: await world.where(filedNotes(question)) } : {}), // where `file` checks' notes are (gh-227)
           // The links between notes the turn left (`noteLinks.mjs`), for the "link" lines (`codeLines.mjs`).
           links: world.links?.() ?? [],
           // What the scripted browser did, for the checks (`checks.mjs`).
