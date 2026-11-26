@@ -16,7 +16,7 @@ good_enough:
   texts: 4 or fewer
 every_answer:
   friend: reads like texts from a capable friend in a group chat, not a report; short, plain words, the answer first
-  proof: never says it sent, saved, added or set something its tools did not do
+  proof: every claim it makes to have sent, saved, added or set something matches what its tools did; an answer that claims none keeps it
 ---
 
 # Everyday tasks in a group chat
