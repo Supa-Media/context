@@ -35,3 +35,9 @@ costs one refused call per Claude call until the 1st. **The tests that fail:**
 `apps/mcp/test/agentGatewayAliases.test.mjs` (usage limit rests the key until its
 date; retired, expired and used-up keys; soonest expiry first; a pick by owner) and `apps/convex/__tests__/controlPlane/texLabRuns.test.ts`
 (a run keeps only a listed key).
+
+**Monthly credit (Dev2, same day):** "the expiriation and reset date is the same ... use it or loose it, but tomorrow he
+gets a fresh $200". A key with `resetEvery: "month"` never expires: its credit lapses and refills on each monthly
+anniversary of `resets`, the order ranks it by that period's end, and its `usedUsd` counts only when recorded inside
+the current period. **Simplifying it** to one `expires` date drops a refilling key for good after its first lapse.
+**The test that fails:** "a monthly key never expires" in `agentGatewayAliases.test.mjs`.

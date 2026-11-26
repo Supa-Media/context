@@ -10,7 +10,7 @@
  */
 
 import { aiGatewayConfig, requestViaGateway, resetCreditState, restUntil, saysCreditSpent } from "../../../packages/tex/gateway/agent/aiGateway.js";
-import { AI_KEYS, USES, aliasesForUse, keyAliasesOf, keyState, keysForUse } from "../../../packages/tex/src/aiKeys.cjs";
+import { AI_KEYS, USES, aliasesForUse, keyAliasesOf, keyState, keysForUse, lapsesAt } from "../../../packages/tex/src/aiKeys.cjs";
 
 const TOKEN = `gw-token-${"a".repeat(20)}`;
 const CREDIT = `sk-ant-credit-fixture-${"0".repeat(12)}`;
@@ -57,7 +57,7 @@ export async function runAgentGatewayAliasChecks(check) {
   // Dev2, 2026-11-26: one key list by use (packages/tex/src/aiKeys.json), soonest-expiring first, retired keys skipped
   // until their date, and a run may pick whose key goes first ("use segun's key").
   const NOW = Date.parse("2026-11-26T22:00:00Z");
-  const fake = (over) => ({ key: "k", alias: "k-credits", owner: "K", capUsd: null, usedUsd: null, usedAsOf: null, since: "2026-11-01T00:00:00Z", expires: null, resets: null, retiredUntil: null, uses: ["lab"], ...over });
+  const fake = (over) => ({ key: "k", alias: "k-credits", owner: "K", capUsd: null, usedUsd: null, usedAsOf: null, since: "2026-11-01T00:00:00Z", expires: null, resets: null, resetEvery: null, retiredUntil: null, uses: ["lab"], ...over });
   check(
     "a key is retired until its date, gone once expired or used up, and active otherwise",
     keyState(fake({ retiredUntil: "2026-12-01T00:00:00Z" }), NOW) === "retired" &&
@@ -66,8 +66,19 @@ export async function runAgentGatewayAliasChecks(check) {
       keyState(fake({ capUsd: 50, usedUsd: 50 }), NOW) === "used up" &&
       keyState(fake({ capUsd: 50, usedUsd: 49 }), NOW) === null,
   );
+  // Dev2, same day: credit is use-it-or-lose-it each month ("tomorrow he gets a fresh $200").
+  const monthly = fake({ capUsd: 200, usedUsd: 200, usedAsOf: "2026-11-20T00:00:00Z", resets: "2026-11-27T05:00:00Z", resetEvery: "month" });
+  check(
+    "a monthly key never expires: its period ends on each anniversary of resets, and a refill clears the period's use",
+    keyState(monthly, NOW) === "used up" &&
+      keyState(monthly, Date.parse("2026-11-28T00:00:00Z")) === null &&
+      lapsesAt(monthly, NOW) === Date.parse("2026-11-27T05:00:00Z") &&
+      lapsesAt(monthly, Date.parse("2026-11-28T00:00:00Z")) === Date.parse("2026-12-27T05:00:00Z") &&
+      lapsesAt(fake({ resets: "2026-01-31T00:00:00Z", resetEvery: "month" }), Date.parse("2026-02-10T00:00:00Z")) === Date.parse("2026-02-28T00:00:00Z") &&
+      keyState(fake({ expires: "2026-11-01T00:00:00Z", resets: "2026-11-27T05:00:00Z", resetEvery: "month" }), NOW) === null,
+  );
   const listed = aliasesForUse("lab", NOW);
-  const expiries = keysForUse("lab", NOW).map((k) => (k.expires ? Date.parse(k.expires) : Infinity));
+  const expiries = keysForUse("lab", NOW).map((k) => lapsesAt(k, NOW));
   check(
     "a use's order holds only keys that can pay, soonest expiry first",
     keysForUse("lab", NOW).every((k) => keyState(k, NOW) === null) && expiries.every((t, i) => i === 0 || expiries[i - 1] <= t),

@@ -335,11 +335,16 @@ describe("consoleCosts: attribution", () => {
 
   test("a spent key's usage is its cap, and an open key's usage is what it has spent since it began", async () => {
     const { result } = await run(7, { u0: [gw({ p: "dev-claude-credits", cost: 40 }), gw({ p: "", cost: 10 })] });
-    const dev2 = payer(result, "dev2");
-    expect(dev2.capUsd).toBe(200);
-    expect(dev2.usedUsd).toBe(200);
-    expect(dev2.leftUsd).toBe(0);
-    expect(dev2.note).toBe("Spent");
+    // Which keys are spent is data (packages/tex/src/aiKeys.json, which changes as credit refills), so the rule is
+    // checked on every key as the file has it: a spent one reads its cap as used, an open one reads no note.
+    for (const credit of CREDIT_KEYS) {
+      const row = payer(result, credit.key);
+      if (credit.spent) {
+        expect(row.usedUsd).toBe(credit.capUsd);
+        expect(row.leftUsd).toBe(0);
+        expect(row.note).toBe("Spent");
+      } else expect(row.note).toBeNull();
+    }
     const dev = payer(result, "dev");
     expect(dev.capUsd).toBe(100);
     expect(dev.usedUsd).toBeCloseTo(50);
