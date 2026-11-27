@@ -15,6 +15,9 @@
  *  - return a read with no share instead of `not_allowed`: "a group grant with no share is refused" fails;
  *  - drop the `reachFor` check in `askerOf`: "a turn nobody asked for reads none of the asker's own" fails;
  *  - drop `inChat` from `askerCalendars`: "the asker's own calendars stop when they leave the chat" fails;
+ *  - `calendarSharesNamedForGrant` naming no asker (as the Lab's test chats once did): "a Lab test chat, which runs on a
+ *    grant it finds, is told off that grant ..." fails, and so does "an own tag, someone else's tag and a routine are
+ *    each told exactly the calendars their grant reads";
  *  - delete the row in `unshareCalendar` instead of ending it: "a second stop says it was already stopped" fails;
  *  - drop the `endedAt` filter in `liveCalendarShares`: "unsharing stops reads" fails;
  *  - mark every row `whole` in `chatCalendarClearance`: "a guest's ask and another member's both read when it is busy"
@@ -26,7 +29,7 @@ import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { addMember, asUser, createUser, createWorkspace, gatewayPost, seedGoogleConnection } from "./fixtures.helpers";
 import { encryptSecret, hashToken, requireKeyset } from "../functions/lib/crypto";
-import { shareCalendar } from "../functions/lib/textGroupCalendar";
+import { calendarSharesNamedForGrant, shareCalendar } from "../functions/lib/textGroupCalendar";
 import { migrate, pinnedWorld, type PinnedWorld } from "./pinnedReaders.helpers";
 import { bodyOf } from "./controlPlane/fixtures.helpers";
 
@@ -285,6 +288,47 @@ describe("the asker's own calendar, on a turn they asked for (Dev2, 2026-11-26)"
       await ctx.db.patch(chat._id, { homeUsers: (chat.homeUsers ?? []).filter((id) => id !== seyi.userId) });
     });
     expect(await days(t, token, w.pinned)).toEqual({ ok: false, refused: "not_allowed" });
+  });
+});
+
+describe("what a turn is told it reads is what it reads (Dev2, 2026-11-27, \"Stop Tex parts drifting out of sync\")", () => {
+  // One rule (`askerOf`) both names a turn's calendars and clears its reads, so a change to either moves both.
+  const told = (ready: Record<string, unknown>) => ((ready.calendar as { address: string }[] | undefined) ?? []).map((row) => row.address).sort();
+  const read = async (t: T, ready: Record<string, unknown>, workspaceId: Id<"workspaces">) => {
+    const answer = (await days(t, ready.accessToken as string, workspaceId, { days: 1 })) as { ok: boolean; days?: { address: string }[] };
+    return answer.ok ? [...new Set((answer.days ?? []).map((day) => day.address))].sort() : [];
+  };
+
+  test("a Lab test chat, which runs on a grant it finds, is told off that grant: its asker's own calendar on their own", async () => {
+    // `texLabSandbox.ts` once named a test chat's calendars with no asker, while its reads on the asker's grant read
+    // their own calendar: the brunch test chat was told it could read none (2026-11-27).
+    const { t, turn } = await world();
+    calendar();
+    const own = await turn(SEYI);
+    const dad = await turn(DAD);
+    const named = async (accessToken: string) =>
+      await t.run(async (ctx) => {
+        const grant = (await ctx.db.query("oauthGrants").withIndex("by_access_token", (q) => q.eq("hashedAccessToken", accessToken)).unique())!;
+        return await calendarSharesNamedForGrant(ctx, grant.texGroup!.groupId, grant);
+      });
+    expect(await named(await hashToken(own.accessToken as string))).toEqual({ calendar: [{ handle: "seyi", address: WORK }] });
+    expect(await named(await hashToken(dad.accessToken as string))).toEqual({});
+  });
+
+  test("an own tag, someone else's tag and a routine are each told exactly the calendars their grant reads", async () => {
+    const { w, t, turn } = await world();
+    calendar();
+    for (const [who, extra] of [[SEYI, {}], [DAD, {}], [SEYI, { routine: true }]] as const) {
+      const ready = await turn(who, extra);
+      expect(told(ready), `${who} ${JSON.stringify(extra)}`).toEqual(await read(t, ready, w.pinned));
+    }
+    // And once a share exists, the room's turns are told it and read it too.
+    await command(t, (await turn(SEYI)).accessToken as string, { kind: "share_calendar", address: WORK });
+    for (const who of [SEYI, DAD]) {
+      const ready = await turn(who);
+      expect(told(ready), who).toEqual([WORK]);
+      expect(await read(t, ready, w.pinned), who).toEqual([WORK]);
+    }
   });
 });
 

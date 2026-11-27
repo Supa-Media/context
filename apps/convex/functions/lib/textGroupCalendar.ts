@@ -228,6 +228,30 @@ export async function calendarSharesNamed(
 }
 
 /**
+ * Whose calendars a turn on this grant is told it reads: worked out by `askerOf`, the same rule `chatCalendarClearance`
+ * reads by, so what the turn is told and what it may read never differ (Dev2, 2026-11-27, "Stop Tex parts drifting out
+ * of sync": a Lab test chat on the asker's own grant read their calendar while its prompt said it read none, and a
+ * turn whose grant was the chat's was told the asker's own were readable).
+ */
+export async function calendarSharesNamedForGrant(
+  ctx: QueryCtx,
+  groupId: Id<"textGroups">,
+  grant: { userId: Id<"users">; texGroup?: Doc<"oauthGrants">["texGroup"] } | null,
+): Promise<{ calendar?: { handle: string; address: string }[] }> {
+  return await calendarSharesNamed(ctx, groupId, grant === null ? null : askerOf(grant));
+}
+
+/** The same, for the turn whose token is `hashedAccessToken`, found as the reads find it (`resolveLiveGrant`). */
+export async function calendarSharesNamedForToken(
+  ctx: QueryCtx,
+  groupId: Id<"textGroups">,
+  hashedAccessToken: string,
+): Promise<{ calendar?: { handle: string; address: string }[] }> {
+  const live = await resolveLiveGrant(ctx, hashedAccessToken);
+  return await calendarSharesNamedForGrant(ctx, groupId, live?.grant ?? null);
+}
+
+/**
  * The shared calendars a group chat's grant may read now, or null when this is no chat's grant, each marked `whole`
  * only when its own person asked for this turn (Dev2, 2026-11-27: "guest and context members are not really
  * different … they should be treated the same"). Everyone else's turn, a guest's, another member's and one nobody

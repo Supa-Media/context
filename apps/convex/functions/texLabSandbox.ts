@@ -33,7 +33,7 @@ import { sharedChats, devShareOf } from "./lib/texLabShared";
 import { engagementOf, TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { oldLineSetting } from "./texOldLine";
 import { mailSharesWithSenders } from "./lib/textGroupMail";
-import { calendarSharesNamed } from "./lib/textGroupCalendar";
+import { calendarSharesNamedForGrant } from "./lib/textGroupCalendar";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { groupsOfUser } from "./lib/texIdentity/groups";
 import { isIsolatedPreview } from "./lib/previewDeployment";
@@ -129,7 +129,8 @@ async function sessionFor(ctx: QueryCtx, userId: Id<"users">, chat: string) {
     // Its shared mail and calendars too, as a real turn is told them (`textGroups.ts` "ready"); a test chat's reads of
     // that mail stay real reads on this grant, and a send is only kept in the test chat (`labSandbox/sandboxTools.js`).
     const mail = await Promise.all((await mailSharesWithSenders(ctx, group, group.homeUsers ?? [])).map(async (row) => ({ ...row, senders: await Promise.all(row.senders.map((id) => handleFor(ctx, id))) })));
-    const { calendar } = await calendarSharesNamed(ctx, group._id);
+    // Off the grant the test turn runs on, as its calendar reads are (`calendarSharesNamedForGrant`).
+    const { calendar } = await calendarSharesNamedForGrant(ctx, group._id, grant);
     const chat = { slug: live.workspace.slug, ...engagementOf(group), oldLine: await oldLineSetting(ctx), ...(await devShareOf(ctx, group)), ...(mail.length > 0 ? { mail } : {}), ...(calendar ? { calendar } : {}) };
     return { status: "ok" as const, session: await sessionOf(ctx, live), people, chat };
   }

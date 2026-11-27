@@ -18,6 +18,8 @@
  *     → "no more than three run at once, counting the ones picked up" fails.
  *  5. `endsTurn` texting "On it" again for a start or restart.
  *     → "a start or restart texts nothing, ever" fails.
+ *  6. `canResume` (`packages/shared/src/jobResume.cjs`) without its two-hour window.
+ *     → "a job whose run was let go is not offered for restart, by the rule the Worker applies" fails.
  */
 
 import assert from "node:assert/strict";
@@ -25,6 +27,7 @@ import { test } from "node:test";
 
 import { MAX_RUNNING_JOBS, QUIET_ACK, RESTART_JOB_TOOL, START_JOB_TOOL, backgroundSession, startedJobs, withBackground } from "../../../packages/tex/gateway/agent/background.js";
 import { MAX_START_LINE, SAY_FIELD, startLine } from "../../../packages/tex/gateway/agent/jobStart.js";
+import { RESUME_MS, canResume } from "../../../packages/shared/src/jobResume.cjs";
 
 const NOW = Date.UTC(2026, 9, 31, 17, 0, 0);
 const job = (title, state, extra = {}) => ({ id: `job-${title.replace(/\W/g, "").toLowerCase()}-0001`, title, state, startedAt: NOW - 20 * 60_000, ...(state === "running" ? {} : { finishedAt: NOW - 60_000 }), steps: [], verdict: null, advice: "", result: "", status: "", ...extra });
@@ -167,4 +170,19 @@ test("with no fd -> jobStart wire the Front door's start is refused, and nothing
   assert.match(words(refused), /no fd -> jobStart wire/);
   assert.deepEqual(startedJobs(unwired, false), {}, "no job started");
   assert.equal(unwired.endsTurn(START_JOB_TOOL), null, "and nothing settles the turn");
+});
+
+test("a job whose run was let go is not offered for restart, by the rule the Worker applies", async () => {
+  // 2026-11-27 launch rehearsal: a test chat kept an ended job a day, the restart tool offered it, Tex said "restarting",
+  // and the Worker refused it, because its object keeps the run two hours (`jobRun.ts`).
+  const OLD = job("Brunch booking", "stuck", { finishedAt: NOW - RESUME_MS - 60_000 });
+  const background = backgroundSession({ running: [OLD], job: null, now: NOW });
+  assert.doesNotMatch(background.runningNow, /restart_job/, "no restart is offered for it");
+  const dispatch = withBackground(background, async () => ({ content: [] }));
+  assert.equal((await dispatch(RESTART_JOB_TOOL, {})).isError, true, "a restart of it is refused before the Worker sees it");
+  assert.deepEqual(startedJobs(background, false), {});
+  const PAUSED = job("Brunch booking", "waiting", { finishedAt: NOW - RESUME_MS - 60_000, resumeAt: NOW - 60_000 });
+  assert.equal(canResume(PAUSED, NOW), true, "a job paused at the limit is kept two hours past its restart");
+  assert.equal(canResume({ ...A16Z, finishedAt: NOW - RESUME_MS }, NOW), true, "the last moment of the window still counts");
+  assert.equal(canResume(DONE, NOW), false);
 });

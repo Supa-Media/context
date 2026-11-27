@@ -14,7 +14,7 @@ import { clearGuests, guestLabel, mayOpenToGuests } from "./lib/textGroupGuests"
 import { homeOnlyTurn } from "./lib/textGroupHomeOnly";
 import { inviteEveryone, invitedChat, type InvitedChat } from "./lib/textGroupInvited";
 import { cleanAddress, cleanShareQuery, askerMailNamed, mailSharesNamed, shareMail, unshareMail } from "./lib/textGroupMail";
-import { calendarSharesNamed } from "./lib/textGroupCalendar";
+import { calendarSharesNamedForToken } from "./lib/textGroupCalendar";
 import { armChatLook } from "./lib/textGroupLooks";
 import { muteChat, setSpeaksUp, speaksUpOf, unmuteChat } from "./lib/texChatRules";
 import { ensureGroupClient } from "./lib/textGroupClient";
@@ -333,10 +333,11 @@ async function homeAnswer(
   const asked = args.routine !== true || args.asked === true;
   const turn = await homeOnlyTurn(ctx, { ...args, asked }, chat, senderUser, others);
   if (turn === null) return null;
-  // An account holder's ask also reads their own calendars, on their own grant (`lib/textGroupCalendar.ts` `askerCalendars`).
+  // An account holder's ask also reads their own mail and calendars, on their own grant (`lib/textGroupCalendar.ts` `askerCalendars`);
+  // which calendars the turn is told is read off that grant, as its reads are (`calendarSharesNamedForToken`).
   const asker = asked && senderUser !== null ? senderUser : null;
   // Read again: the turn may have named this chat's people on its home just now.
-  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id, asker)), ...(await askerMailNamed(ctx, chat._id, asker)), ...(await calendarSharesNamed(ctx, chat._id, asker)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
+  return { status: "ready", ...turn, bound: false, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id, asker)), ...(await askerMailNamed(ctx, chat._id, asker)), ...(await calendarSharesNamedForToken(ctx, chat._id, args.hashedAccessToken)), ...(await devShareOf(ctx, (await ctx.db.get(chat._id)) ?? chat)) };
 }
 
 /**
@@ -390,7 +391,7 @@ async function singleWorkspaceTurn(
   for (const [userId, phone] of phones) names.push(await chatPerson(ctx, phone, userId));
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, senderUser));
   const handle = await handleOf(ctx, senderUser);
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id, senderUser)), ...(await askerMailNamed(ctx, group._id, senderUser)), ...(await calendarSharesNamed(ctx, group._id)), ...(await devShareOf(ctx, group)) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, ...engagementOf(group), ...(await mailSharesNamed(ctx, group._id, senderUser)), ...(await askerMailNamed(ctx, group._id, senderUser)), ...(await calendarSharesNamedForToken(ctx, group._id, args.hashedAccessToken)), ...(await devShareOf(ctx, group)) };
 }
 
 /** A slug as a command said it: no "@", lowercase, bounded. */
@@ -450,7 +451,7 @@ async function invitedTurn(
   const timeZone = effectiveTimeZone(undefined, await accountTimeZone(ctx, actor));
   const handle = taggerUser !== null ? await handleOf(ctx, taggerUser) : "";
   const tagger = taggerUser !== null ? {} : { guestTagger: await guestLabel(args.groupKey, args.sender) };
-  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id, taggerUser)), ...(await askerMailNamed(ctx, chat._id, taggerUser)), ...(await calendarSharesNamed(ctx, chat._id)), ...(await devShareOf(ctx, chat)) };
+  return { status: "ready", slug: workspace.slug, intro: introduced, bound: false, reach: [workspace.slug], timeZone, handle, minted, names, guests, ...tagger, ...engagementOf(chat), ...(await mailSharesNamed(ctx, chat._id, taggerUser)), ...(await askerMailNamed(ctx, chat._id, taggerUser)), ...(await calendarSharesNamedForToken(ctx, chat._id, args.hashedAccessToken)), ...(await devShareOf(ctx, chat)) };
 }
 
 async function groupRow(ctx: MutationCtx, groupKey: string, now: number, touch: boolean): Promise<Doc<"textGroups">> {
