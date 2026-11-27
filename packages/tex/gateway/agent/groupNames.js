@@ -150,10 +150,10 @@ export function guestLabelFor(group, said) {
   return match?.who ?? "";
 }
 
-/** What a group turn is told of keeping a guest's name (`groupGuestNames.js` `name_guest`). */
+/** What a group turn is told of keeping a guest's name or a member's other name (`groupGuestNames.js` `name_guest`), guests here or not. */
 export const GUEST_NAME_LINE =
-  "When someone here says who a guest is, or a guest says it themselves, keep it at once with send action name_guest (their number and name), without saying so unless asked: " +
-  "from then on this list and the chat's lines show that name. ";
+  "When someone here says who a guest is, or a guest says it themselves, or a member says another name they go by (\"call me boss\"), keep it at once with send action name_guest " +
+  "(a guest's number or a member's @handle, and the name), without saying so unless asked: from then on this list and the chat's lines show that name. ";
 
 /**
  * Everyone in the chat, for "who is in this chat" (Dev2, 2026-11-12: Tex said it couldn't see the member list):
@@ -185,9 +185,9 @@ export function rosterLine(group) {
     (numbered
       ? "Everyone here already sees each other's numbers in the chat, so say a number here whenever a person here would, as in \"the +1 (555) 123-4567 number\". "
       : "") +
+    GUEST_NAME_LINE +
     (guests.length > 0
-      ? GUEST_NAME_LINE +
-        "Someone with a Context account who shows here as a guest has not linked this number to it: they can text you once from it, on their own, to link it. "
+      ? "Someone with a Context account who shows here as a guest has not linked this number to it: they can text you once from it, on their own, to link it. "
       : "")
   );
 }

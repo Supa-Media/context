@@ -286,7 +286,7 @@ function firstSentence(text) {
  */
 const SHORT_LINES = {
   ask_chat: "From a 1:1, ask Tex in one of their group chats, to know or do something there.",
-  name_guest: "Keep a guest label's real name, once someone here says it.",
+  name_guest: "Keep a name for someone here: a guest's, by number, or another name a member goes by.",
   draw_visual: "Turn your answer into one of your designed picture cards, to text them; write a page before drawing it.",
   vault_access: "Who can use each saved login, key or card; give or take it back.",
   say_nothing: "Text nothing and end your turn, only where your instructions say silence fits.",

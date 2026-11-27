@@ -139,7 +139,7 @@ test("each person here is shown with their number, and a guest is called by numb
   assert.match(line, /; \+447700900123, on no Context account/);
   assert.doesNotMatch(line, /guest-1a2b/);
   assert.match(line, /Everyone here already sees each other's numbers/);
-  assert.match(line, /name_guest \(their number and name\)/);
+  assert.match(line, /name_guest \(a guest.s number or a member.s @handle, and the name\)/);
   assert.match(groupPrompt(group, "acme"), /\+1 \(555\) 555-0101/);
 });
 
@@ -399,4 +399,15 @@ test("the send action's summary says name_guest keeps a member's other name too,
   assert.match(summary, /member/);
   assert.match(summary, /number/);
   assert.doesNotMatch(summary, /shown by a guest label/);
+});
+
+test("every word a turn reads of name_guest says it keeps a member's other name too, guests here or not", () => {
+  // Lab test chat on production, 2026-11-27: told name_guest was for guest labels (its list line, the roster's line only
+  // when a guest was here), Tex answered "Yep, boss. Kept." to "keep that as another name for me" and kept nothing.
+  const summary = GUEST_NAME_SEND_ACTIONS.name_guest.summary;
+  assert.match(summary, /member/);
+  assert.doesNotMatch(summary, /shown by a guest label/);
+  const membersOnly = rosterLine({ size: 2, people: ["jo", "sayo"], names: [{ handle: "jo", name: "Jo" }, { handle: "sayo", name: "Sayo" }], guests: [] });
+  assert.match(membersOnly, /name_guest/, "told with no guest here");
+  assert.match(membersOnly, /@handle/);
 });
