@@ -22,13 +22,17 @@
  *     /_expo/[...]     -> the Expo web app, cacheable forever
  *     /og/card.png     -> the Worker's own OpenGraph card
  *     /favicon.ico etc -> the Worker's own icons (icons.ts)
- *     /robots.txt      -> allow everything, plain text (icons.ts)
+ *     /robots.txt      -> search yes, training crawlers no, plain text (icons.ts)
  *     /llms.txt        -> the agent index, plain text (agentDocs.ts)
  *     /grokbot.md, /claude.md -> the setup guides, markdown
  *     /agents, /claude -> those guides as HTML, from the same source
+ *     /sitemap.xml, /shared-ai-memory -> constants (publicPages.ts)
+ *     /privacy, /terms -> 301 to /legal/privacy/, /legal/terms/ (static files)
  *     everything else  -> a link-preview crawler gets server-rendered meta
- *                         tags; everyone else gets the Expo web app on EAS
- *                         Hosting, path unchanged
+ *                         tags (a homepage website page's own card, or a
+ *                         404 for an address that is no page); everyone else
+ *                         gets the Expo web app, path unchanged
+ *   http://<production host> -> 301 to the same URL on https
  *   www.context.lc     -> 301 https://context.lc<path><search>
  *
  *   tex.lc, tex-staging.context.lc   (Tex, the texting assistant; texHost.ts)
@@ -69,7 +73,7 @@ import {
   shareTokenFrom,
   type PreviewMeta,
 } from "./preview";
-import { handleSiteFrom, siteCardFrom } from "./preview/sites";
+import { handleSiteFrom, siteCardFrom, siteRoutePath } from "./preview/sites";
 import { noteCardLinkFrom, signedNoteLinkFrom, type SignedNoteLink } from "./noteLinkCards";
 import { agentDocFor, type AgentDocName } from "./agentDocs";
 import { downloadFor } from "./download";
@@ -78,6 +82,8 @@ export { downloadResponse } from "./download";
 import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
 import { isTexHost, TEX_APEX, TEX_CARD_PATH, TEX_WWW_HOST, texPreviewFor } from "./texHost";
 import { ingestTarget } from "./analyticsIngest";
+import { publicPageFor, type PublicPageName } from "./publicPages";
+import { homePagePathOf } from "./homeSite";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
 export type Upstream = "expo" | "convex";
@@ -150,6 +156,14 @@ export type RouteDecision =
   // Agent docs: /llms.txt, the guides as markdown, and the same guides as HTML.
   // No auth. Ahead of the crawler branch so a bot gets the file, not a card.
   | { kind: "agent-doc"; doc: AgentDocName }
+  // /sitemap.xml and /shared-ai-memory, from constants (`publicPages.ts`).
+  | { kind: "public-page"; page: PublicPageName }
+  // A crawler asking for an address that is neither a page nor a screen.
+  | { kind: "not-found" }
+  // A crawler asking for one of the homepage website's own addresses
+  // (`/devlog`): that page's card, or a 404 when the site has no such page.
+  // The handle is the deployment's home site, chosen in index.ts.
+  | { kind: "home-page-preview"; routePath: string }
   // `path` is the full path + query to request from the upstream. It is never
   // rewritten today, but naming it separately keeps the tests honest about
   // that and makes a future prefix rule a one-line change.
@@ -211,6 +225,27 @@ export const CONVEX_PREFIXES = [
  *  is read, and a missing file there is the shell, which must not be cached. */
 const IMMUTABLE_PREFIX = "/_expo/";
 
+/** The production hostnames this Worker is attached to (wrangler.jsonc's comment). */
+const HTTPS_HOSTS: ReadonlySet<string> = new Set([APEX, WWW_HOST, TEX_APEX, TEX_WWW_HOST]);
+
+/** The complete public legal documents, served as static files for everyone. */
+const LEGAL_DOCUMENTS: ReadonlySet<string> = new Set([
+  "/legal/privacy",
+  "/legal/privacy/",
+  "/legal/terms",
+  "/legal/terms/",
+]);
+
+/** The app's short legal addresses, and the document each one is. */
+const LEGAL_SHORT_PATHS: Readonly<Record<string, string>> = {
+  "/privacy": "/legal/privacy/",
+  "/terms": "/legal/terms/",
+};
+
+function normaliseTrailing(pathname: string): string {
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+}
+
 function isConvexPath(pathname: string): boolean {
   return CONVEX_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
@@ -225,6 +260,16 @@ function isConvexPath(pathname: string): boolean {
  */
 export function route(url: URL, userAgent?: string | null): RouteDecision {
   const { hostname, pathname, search } = url;
+
+  // A plain-HTTP request to a production host moves to HTTPS, in one hop:
+  // `http://www.` goes straight to the HTTPS apex. Cloudflare's "Always Use
+  // HTTPS" normally answers before the Worker runs; this is the same answer
+  // if that zone setting is ever off. Exact hosts only, so `wrangler dev` on
+  // http://localhost and workers.dev previews are untouched.
+  if (url.protocol === "http:" && HTTPS_HOSTS.has(hostname)) {
+    const host = hostname === WWW_HOST ? APEX : hostname === TEX_WWW_HOST ? TEX_APEX : hostname;
+    return { kind: "redirect", location: `https://${host}${pathname}${search}` };
+  }
 
   // Checked before the path rules on purpose: one canonical origin for the app
   // means one origin in cookies, CORS, and OAuth redirect_uri allow-lists.
@@ -292,6 +337,15 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // guide. Tex's hosts are a different front door and do not serve these.
   const agentDoc = tex ? null : agentDocFor(pathname);
   if (agentDoc !== null) return { kind: "agent-doc", doc: agentDoc };
+  const publicPage = tex ? null : publicPageFor(pathname);
+  if (publicPage !== null) return { kind: "public-page", page: publicPage };
+
+  // The legal pages have one complete public document each
+  // (`apps/mobile/public/legal/`). The short addresses are the app's screens
+  // for the same words; they move to the document, for a crawler and a
+  // person alike, so the address search engines keep is the self-canonical one.
+  const legal = tex ? undefined : LEGAL_SHORT_PATHS[normaliseTrailing(pathname)];
+  if (legal !== undefined) return { kind: "redirect", location: `https://${APEX}${legal}` };
 
   // A download link pasted into Slack is still a download link: ahead of the
   // crawler check, so the unfurler is sent to the file rather than a card.
@@ -341,7 +395,7 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
 
   // This is a complete public document, not the app shell or a link card.
   // Automated directory reviewers must receive the same policy as a person.
-  if (pathname === "/legal/privacy" || pathname === "/legal/privacy/") {
+  if (LEGAL_DOCUMENTS.has(pathname)) {
     return { kind: "proxy", upstream: "expo", path };
   }
 
@@ -406,6 +460,19 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
       return meta.robots === undefined
         ? { kind: "preview", meta }
         : { kind: "preview", meta, robotsHeader: meta.robots };
+    }
+    // Not a screen and not a page: the app's own not-found for a person.
+    if (normaliseTrailing(pathname) === "/connect") return { kind: "not-found" };
+    // An address the homepage website may own (`homeSite.ts`). App screens,
+    // `/@handle` and files are not among them, so a console path still gets
+    // the frozen card below; `/` and `/a` are the landing and keep theirs.
+    // Validated the way `/@handle/<path>` is before it reaches the control
+    // plane; a path the site's own router would refuse is no page.
+    const homePage = homePagePathOf(url);
+    if (homePage !== null && homePage !== "/" && homePage !== "/a") {
+      if (url.pathname.length > 3072 || /%(?:2f|5c)/i.test(url.pathname)) return { kind: "not-found" };
+      const routePath = siteRoutePath(homePage);
+      return routePath === null ? { kind: "not-found" } : { kind: "home-page-preview", routePath };
     }
     return { kind: "preview", meta: previewFor(pathname) };
   }

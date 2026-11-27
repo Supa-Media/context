@@ -14,7 +14,7 @@ export const MCP_ENDPOINT = "https://mcp.context.lc/mcp";
 export const LANDING_H1 = "Context gives your brain that feeling you have when your room is clean.";
 
 export const AGENT_SENTENCE =
-  "Context is shared Markdown notes for a person and the AI tools they use. " +
+  "Context is shared Markdown notes for people, groups, and the AI tools they use. " +
   `An agent connects at ${MCP_ENDPOINT} and signs in with OAuth.`;
 
 const BLOCK = `<div id="context-for-agents" aria-hidden="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">
@@ -43,3 +43,6 @@ export function injectAgentFront(html: string): string {
   const insert = at + open[0].length;
   return `${html.slice(0, insert)}${BLOCK}${html.slice(insert)}`;
 }
+
+/** The one command that adds Context to Claude Code (`agentDocs.ts`'s Claude guide). */
+export const CLAUDE_CODE_ADD = `claude mcp add --transport http context ${MCP_ENDPOINT}`;

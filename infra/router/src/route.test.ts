@@ -427,7 +427,8 @@ describe("route: Tex's hosts are the apex, path for path", () => {
       });
     }
     expect(at("https://context.lc/", SLACKBOT_UA)).toEqual({ kind: "preview", meta: previewFor("/") });
-    expect(at("https://context.lc/whatever", SLACKBOT_UA)).toEqual({ kind: "preview", meta: GENERIC_PREVIEW });
+    expect(at("https://context.lc/console/@x/a", SLACKBOT_UA)).toEqual({ kind: "preview", meta: GENERIC_PREVIEW });
+    expect(at("https://context.lc/whatever", SLACKBOT_UA)).toEqual({ kind: "home-page-preview", routePath: "/whatever" });
   });
 
   it("paths with their own preview logic keep it on a Tex host", () => {

@@ -90,12 +90,45 @@ export function staticAsset(body: ArrayBuffer, type: string): Response {
 export const ROBOTS_PATH = "/robots.txt";
 
 /**
- * The apex allows every crawler everything: what reaches a crawler is already
- * decided per path (`route.ts`), and private pages are behind sign-in, not
- * behind this file. It exists so the answer is rules rather than HTML, which
- * is what both the crawler card and the SPA fallback returned for it.
+ * Search and AI answer engines may read everything; model-training crawlers
+ * may read nothing. What reaches a crawler is already decided per path
+ * (`route.ts`), and private pages are behind sign-in, not behind this file.
+ * It exists so the answer is rules rather than HTML, which is what both the
+ * crawler card and the SPA fallback returned for it.
+ *
+ * In production Cloudflare's managed robots.txt is prepended to this body
+ * with the same training denials. They are repeated here so the policy does
+ * not depend on a dashboard toggle, and so a self-hosted deploy inherits it.
+ * Repeated groups for one agent are merged by RFC 9309, so the overlap is
+ * harmless. `Content-Signal` is Cloudflare's content-signals line: search
+ * and live AI answers yes, training no.
  */
-const ROBOTS_TXT = "User-agent: *\nAllow: /\n";
+export const TRAINING_CRAWLERS: readonly string[] = [
+  "Amazonbot",
+  "Applebot-Extended",
+  "Bytespider",
+  "CCBot",
+  "ClaudeBot",
+  "anthropic-ai",
+  "Claude-Web",
+  "cohere-ai",
+  "Diffbot",
+  "Google-Extended",
+  "Google-CloudVertexBot",
+  "GoogleOther",
+  "GPTBot",
+  "meta-externalagent",
+  "MistralAI-Training",
+  "omgili",
+];
+
+export const CONTENT_SIGNAL = "search=yes,ai-input=yes,ai-train=no,use=reference";
+export const SITEMAP_URL = "https://context.lc/sitemap.xml";
+
+const ROBOTS_TXT =
+  `User-agent: *\nContent-Signal: ${CONTENT_SIGNAL}\nAllow: /\n\n` +
+  TRAINING_CRAWLERS.map((agent) => `User-agent: ${agent}\nDisallow: /\n`).join("\n") +
+  `\nSitemap: ${SITEMAP_URL}\n`;
 
 /** `body` is Tex's variant on a Tex host (`texHost.ts`); the apex's otherwise. */
 export function robotsResponse(body: string = ROBOTS_TXT): Response {

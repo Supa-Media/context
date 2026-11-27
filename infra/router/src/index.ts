@@ -13,9 +13,10 @@ import { isSitePageRequest, sitePageResponse } from "./sitePages"; // any site's
 import { downloadResponse, route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
-import { siteCardResponse, sitePreviewResponse } from "./siteCards";
+import { homePagePreviewResponse, siteCardResponse, sitePreviewResponse } from "./siteCards";
 import { noteCardResponse, signedNotePreviewResponse } from "./noteLinkCards";
-import { isHomeDocument, retiredHomePageRedirect, withHomeSite } from "./homeSite";
+import { homeSiteHandle, isHomeDocument, retiredHomePageRedirect, withHomeSite } from "./homeSite";
+import { notFoundResponse, publicPageResponse } from "./publicPages";
 import { textsSimulatorResponse } from "./textsSimulator";
 import { messagesCardResponse } from "./messagesCards";
 import { pictureResponse } from "./messagesPicture";
@@ -79,7 +80,7 @@ async function platformResponse(request: Request, url: URL, env: Env, ctx: Execu
     // Not on a Tex host: tex.lc's `/` is the Tex landing, which the app draws
     // from the hostname, and context.lc's website has no business in it.
     const homeHost = !isTexHost(url.hostname);
-    const appDocument = decision.kind === "preview" || (decision.kind === "proxy" && decision.upstream === "expo");
+    const appDocument = decision.kind === "preview" || decision.kind === "home-page-preview" || (decision.kind === "proxy" && decision.upstream === "expo");
     // A retired homepage address (`/pricing`) moves for a person and a crawler alike.
     const retired = appDocument && homeHost ? retiredHomePageRedirect(request, url) : null;
     if (retired !== null) return retired;
@@ -251,6 +252,15 @@ async function respond(
 
       case "agent-doc":
         return agentDocResponse(decision.doc, request.method);
+
+      case "public-page":
+        return publicPageResponse(decision.page, request.method);
+
+      case "not-found":
+        return notFoundResponse();
+
+      case "home-page-preview": // the homepage website's page, or a 404 (`siteCards.ts`)
+        return await homePagePreviewResponse(homeSiteHandle(env), decision.routePath, readOrigin(env.CONVEX_ORIGIN), ctx);
 
       case "redirect":
         // Deterministic (host-only) redirects are safe to cache. A plain

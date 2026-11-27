@@ -22,6 +22,7 @@
  */
 
 import { injectAgentFront } from "./agentFront";
+import { escapeHtml, HOME_DESCRIPTION, HOME_TITLE, OG_CARD_URL, ORIGIN } from "./preview/meta";
 
 /** The element the app reads (`apps/mobile/features/home/homeSnapshot.ts`). */
 export const HOME_SITE_ELEMENT_ID = "context-home-site";
@@ -312,6 +313,7 @@ export async function homeDocumentResponse(
   if (!landing && !carriesSite) return upstream;
   let html = await upstream.text();
   if (landing) html = injectAgentFront(html);
+  if (routePath === "/") html = injectHomeHead(html);
   if (carriesSite && site !== null) html = injectHomeSnapshot(html, site);
   const headers = new Headers(upstream.headers);
   // The body is no longer the upstream's bytes: its length, encoding and
@@ -322,6 +324,12 @@ export async function homeDocumentResponse(
   // A browser keeping this would keep a site that has since been edited.
   headers.set("Cache-Control", "no-cache");
   return new Response(html, { status: 200, headers });
+}
+
+/** The workspace whose `website/` is the homepage: `HOME_SITE_HANDLE` when it is shaped like a handle. */
+export function homeSiteHandle(env: { HOME_SITE_HANDLE?: string }): string {
+  const named = env.HOME_SITE_HANDLE ?? "";
+  return /^[a-z0-9-]{1,64}$/.test(named) ? named : DEFAULT_HOME_SITE_HANDLE;
 }
 
 /**
@@ -337,8 +345,37 @@ export async function withHomeSite(
   url: URL,
 ): Promise<Response> {
   const routePath = homePagePathOf(url) ?? "/";
-  const named = env.HOME_SITE_HANDLE ?? "";
-  const handle = /^[a-z0-9-]{1,64}$/.test(named) ? named : DEFAULT_HOME_SITE_HANDLE;
+  const handle = homeSiteHandle(env);
   const snapshot = fetchHomeSnapshot(convexOrigin, handle, ctx);
   return await homeDocumentResponse(await document(), snapshot, routePath);
+}
+
+const HOME_HEAD_MARK = 'data-context-home-head=""';
+
+/**
+ * `/`'s head says what the crawler's card says (`preview/meta.ts`): the same
+ * title, a canonical URL, and the OpenGraph tags. The shell is one document
+ * for every route, so only the Worker, which knows this one is the homepage,
+ * may give it a canonical. The description is already the homepage's in the
+ * shell itself (`apps/mobile/public/index.html`). Constants only.
+ */
+export function injectHomeHead(html: string): string {
+  if (html.includes(HOME_HEAD_MARK)) return html;
+  const close = html.search(/<\/head>/i);
+  if (close === -1) return html;
+  const title = escapeHtml(HOME_TITLE);
+  const description = escapeHtml(HOME_DESCRIPTION);
+  const tags = [
+    `<link rel="canonical" href="${ORIGIN}/" ${HOME_HEAD_MARK}>`,
+    `<meta property="og:type" content="website">`,
+    `<meta property="og:site_name" content="Context.LC">`,
+    `<meta property="og:title" content="${title}">`,
+    `<meta property="og:description" content="${description}">`,
+    `<meta property="og:url" content="${ORIGIN}/">`,
+    `<meta property="og:image" content="${OG_CARD_URL}">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
+  ].join("\n    ");
+  const head = `${html.slice(0, close)}    ${tags}\n  ${html.slice(close)}`;
+  // The first title only: the shell has one, before anything the app adds.
+  return head.replace(/<title>[^<]*<\/title>/i, `<title>${title}</title>`);
 }

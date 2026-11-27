@@ -2,8 +2,12 @@
 
 **Free your context. Share your context.**
 
-A simple notes app you, your team and your agents all work in — plain
-Markdown, in a dedicated bucket you can move to storage you own at any time.
+Context.LC is a shared notes workspace for people, groups, and the AI tools
+they use. ChatGPT, Claude, Cursor, and other MCP-compatible clients can read
+and write the same plain Markdown notes over MCP
+(`https://mcp.context.lc/mcp`, OAuth). Your information stays in files you
+own and can download as folders, instead of being trapped in one assistant's
+memory.
 
 Your context is the durable layer. AI clients are replaceable interfaces.
 
@@ -11,15 +15,15 @@ Every context is a **workspace**. Your own is one per person, addressed by your
 name; others are shared, with several members. Your workspace, the ones people
 share with you, and the ones you belong to are, together, your **context**.
 
-Context gives you one MCP endpoint you add everywhere — ChatGPT, Claude, Codex,
-Notion AI, whatever comes next — so every tool starts already knowing your
+Context gives you one MCP endpoint you add everywhere — ChatGPT, Claude,
+Cursor, whatever comes next — so every tool starts already knowing your
 projects, decisions, and history. You stop re-teaching each new assistant from
 scratch.
 
 ## The deal
 
-**You keep your data.** Start free with a Context-managed bucket — no card,
-up to 1,000 notes — or bring a bucket you own outright: Cloudflare R2, AWS S3,
+**You keep your data.** Context does not charge for an account. Start with a
+Context-managed bucket, or bring a bucket you own outright: Cloudflare R2, AWS S3,
 Backblaze B2, or any S3-compatible storage. A managed context can move every
 raw object into your bucket from Settings; Context copies and verifies first,
 then switches, for free and even after cancellation. Every way out is plain
