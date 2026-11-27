@@ -93,19 +93,49 @@ export function recipientsShown(history, recipients) {
   gateway held the email and asked again. Whether they asked for it is the Mail checker's to say, reading their own
   words; what was shown is a fact read here: the whole body, word for word, in one of Tex's own texts lately.
 */
+/*
+  IN A GROUP, ONLY WHAT TEX SHOWED THE TAGGER (2026-11-27). The tagger's own account sends, so a copy Tex showed
+  in answer to somebody else, or put to another member by name (an offer to @cy), was never shown to them to send: a
+  text counts only when it answered the tagger's own turn (its question's last line is theirs, `groupTurn.js`
+  `groupQuestionLine`, `groupLedgerHistory.js`) and names no other member unless it names the tagger too.
+*/
+/** Whether a kept group question was the tagger's: its last line, the text that tagged Tex, is `@from:` theirs. */
+function askedBy(question, from) {
+  const last = String(question ?? "").trimEnd().split("\n").at(-1) ?? "";
+  return last.startsWith(`@${from}:`) || last.startsWith(`@${from} (`);
+}
+
+/** Whether a text names this handle whole: "@jo" is not named by "@joan". */
+const namesHandle = (text, who) => new RegExp(`(?:^|[^a-z0-9-])@${who.replace(/[^a-z0-9-]/gi, "")}(?![a-z0-9-])`, "i").test(text);
+
+/** Tex's texts among the latest `SHOWN_TURNS` turns that showed the person this email; in a group, only those shown to the tagger. */
+function texTexts(history, group) {
+  const turns = (Array.isArray(history) ? history : []).slice(-SHOWN_TURNS);
+  return turns
+    .map((turn, at) => ({ turn, asked: turns.slice(0, at).findLast((before) => before?.role === "user") }))
+    .filter(({ turn }) => turn?.role === "assistant" && typeof turn.text === "string")
+    .filter(({ turn, asked }) => {
+      if (!group?.from) return true;
+      if (!askedBy(asked?.text, group.from)) return false;
+      const others = (Array.isArray(group.people) ? group.people : []).filter((who) => typeof who === "string" && who !== group.from);
+      return namesHandle(turn.text, group.from) || !others.some((who) => namesHandle(turn.text, who));
+    })
+    .map(({ turn }) => turn.text);
+}
+
 /** Whether one of Tex's texts among the latest `SHOWN_TURNS` turns holds this body whole, word for word. */
-export function bodyShown(history, body) {
+export function bodyShown(history, body, group = null) {
   if (typeof body !== "string" || body.trim().length < MIN_COPY) return false;
   const words = wordsOf(body).join(" ");
   if (words === "") return false;
-  return (Array.isArray(history) ? history : [])
-    .slice(-SHOWN_TURNS)
-    .filter((turn) => turn?.role === "assistant" && typeof turn.text === "string")
-    .some((turn) => ` ${wordsOf(turn.text).join(" ")} `.includes(` ${words} `));
+  return texTexts(history, group).some((text) => ` ${wordsOf(text).join(" ")} `.includes(` ${words} `));
 }
 
-/** Whether Tex itself showed this email lately: every recipient named and the whole body, in its own texts. */
-export function emailShown(history, recipients, body) {
-  return recipientsShown(history, recipients) && bodyShown(history, body);
+/**
+ * Whether Tex itself showed this email lately: every recipient named and the whole body, in its own texts; in a group
+ * (`group`: `{ from, people }`), in texts that answered the tagger and were not put to somebody else.
+ */
+export function emailShown(history, recipients, body, group = null) {
+  const shown = group?.from ? texTexts(history, group).map((text) => ({ role: "assistant", text })) : history;
+  return recipientsShown(shown, recipients) && bodyShown(history, body, group);
 }
-

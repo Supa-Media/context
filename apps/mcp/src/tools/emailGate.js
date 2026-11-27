@@ -244,7 +244,7 @@ export async function emailGate(supplied, { store, session, target }) {
   // Never for attached files, whose contents no offer can have shown, and never for a Mail checker "no", which is held above.
   const recipients = [...email.to, ...email.cc];
   const agreed =
-    texting && checked?.verdict !== "no" && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]) || (checked?.verdict === "yes" && emailShown(session.egress?.turn?.history, recipients, email.body)));
+    texting && checked?.verdict !== "no" && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]) || (checked?.verdict === "yes" && emailShown(session.egress?.turn?.history, recipients, email.body, session.egress?.group ?? null)));
   if (agreed) {
     await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
     console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));

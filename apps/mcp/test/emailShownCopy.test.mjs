@@ -24,6 +24,8 @@
  *       fail (held for a second 👍).
  *  (v)  `bodyShown` dropped from `emailShown` (recipients only) → `a body that is not the copy they were shown is
  *       never released by the shown copy` fails (an email nobody was shown goes).
+ *  (vi) the group filter in `texTexts` made to pass every text (2026-11-27) → `in a group, a body Tex showed in answer
+ *       to the tagger counts…` fails (a copy shown to Cy, or offered to @cy, would send from Ada's account).
  */
 
 import assert from "node:assert/strict";
@@ -329,3 +331,17 @@ test("the same go-ahead with an unsure checker holds the shown draft, and sends 
   }
 });
 
+
+/* ---------------- 2026-11-27: in a group, only what Tex showed the tagger ---------------- */
+
+const GROUP = { from: "ada", people: ["ada", "cy"] };
+const asked = (who, text) => ["user", `@bo: lunch?\n\n@${who}: ${text}`];
+
+test("in a group, a body Tex showed in answer to the tagger counts; one shown to another member, or put to them by name, does not", () => {
+  assert.equal(bodyShown(history(asked("ada", "email Bram"), ["assistant", ASKED_SENDER]), BODY, GROUP), true, "answered Ada");
+  assert.equal(bodyShown(history(asked("cy", "email Bram"), ["assistant", ASKED_SENDER]), BODY, GROUP), false, "answered Cy");
+  assert.equal(bodyShown(history(asked("ada", "email Bram from cy"), ["assistant", `@cy, here's the draft:\n\n${BODY}`]), BODY, GROUP), false, "put to @cy");
+  assert.equal(bodyShown(history(asked("ada", "email Bram"), ["assistant", `@ada, here's the draft; @cy can add to it:\n\n${BODY}`]), BODY, GROUP), true, "put to @ada, naming @cy too");
+  assert.equal(bodyShown(history(asked("adam", "email Bram"), ["assistant", ASKED_SENDER]), BODY, GROUP), false, "@adam is not @ada");
+  assert.equal(bodyShown(history(asked("cy", "email Bram"), ["assistant", ASKED_SENDER]), BODY), true, "a one-to-one reads every text of Tex's");
+});
