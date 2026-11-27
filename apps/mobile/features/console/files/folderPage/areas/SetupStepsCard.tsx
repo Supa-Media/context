@@ -10,7 +10,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { writeClipboard } from "../../../../design/clipboard";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { radii, space } from "../../../../design/tokens";
+import { leading, pointerType, radii, space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 import type { SetupSteps } from "./setupSteps";
 
@@ -122,7 +122,7 @@ const makeStyles = (colors: Colors) =>
     strut: { width: 0 },
     number: { width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.lineStrong, alignItems: "center", justifyContent: "center" },
     numberDone: { borderColor: colors.ok, backgroundColor: colors.ok },
-    numberWord: { color: colors.text2, fontWeight: "600", fontSize: 11, lineHeight: 14 },
+    numberWord: { color: colors.text2, fontWeight: "600", fontSize: pointerType.label, lineHeight: leading(pointerType.label, 1.25) },
     stepBody: { flex: 1, minWidth: 0, gap: space.x1 },
     stepText: { color: colors.text2, flexShrink: 1 },
     copyRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.x3 },
