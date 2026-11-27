@@ -13,6 +13,7 @@
  * have important things for the bot to know ... so at what point will it call the full orient?").
  */
 
+import { withoutTextExtension } from "../../../../packages/shared/src/fileKinds.cjs";
 import { toolError, toolText } from "../tools/results.js";
 
 /** A gap this long between check-ins starts a new working session, answered in full. */
@@ -20,7 +21,7 @@ export const FULL_AFTER_MS = 6 * 60 * 60 * 1000;
 
 const when = (ms) => (typeof ms === "number" && Number.isFinite(ms) ? new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z") : null);
 const quoted = (value) => JSON.stringify(value);
-const routineName = (path) => String(path).replace(/\.md$/i, "").split("/").pop();
+const routineName = (path) => withoutTextExtension(String(path).split("/").pop());
 
 /** One item as a line: paths, names and times only, whatever else the item carries. */
 function itemLine(item) {
