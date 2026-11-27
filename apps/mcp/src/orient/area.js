@@ -23,6 +23,7 @@ import { toolError, toolText } from "../tools/results.js";
 import { relativeAge } from "./render.js";
 import { isVisibleTextFile } from "./survey.js";
 import { areaWorkSections, botOfSeat, botsState, capsFor, holderWorkLines, otherBotsSection } from "./areaWork.js";
+import { areaContextSections } from "./areaContext.js";
 
 const { MODE_MEANINGS, knownModes, modeLines } = areaBots;
 
@@ -76,7 +77,7 @@ function isPerson(word) {
 const same = (a, b) => String(a ?? "").trim().replace(/^@+/, "").toLowerCase() === String(b ?? "").trim().replace(/^@+/, "").toLowerCase();
 
 /** The entries this connection may see. */
-async function visibleEntries(store, scope, rules, overrides) {
+export async function visibleEntries(store, scope, rules, overrides) {
   if (typeof store?.treeEntries !== "function") return null;
   try {
     const entries = await store.treeEntries();
@@ -220,7 +221,19 @@ export async function areaAnswer(store, scope, rules, overrides, rawArea) {
   const noteLines = notes.slice(0, AREA_NOTES_SHOWN).map(({ key, uploaded }) => `- ${key}${uploaded ? ` — ${relativeAge(uploaded, now)}` : ""}`);
   if (notes.length > AREA_NOTES_SHOWN) noteLines.push(`- (+${notes.length - AREA_NOTES_SHOWN} more: fetch "${area}/" lists them all)`);
   parts.push(`## Notes in this area\n${noteLines.length ? noteLines.join("\n") : "None yet."}`);
-  if (subAreas.length) parts.push(`## Sub-areas\n${subAreas.map((name) => `- ${area}/${name}/ — orient { area: "${area}/${name}" }`).join("\n")}`);
+  // The metric worked out now, each sub-area's seat and metric, the area above and where heavy lifting goes.
+  parts.push(
+    ...(await areaContextSections(store, scope, rules, overrides, {
+      entries,
+      area,
+      areasRoot,
+      dataFolder: jobs?.jobs?.data ?? (entries.some(({ key }) => key.startsWith("data/metrics/")) ? "data" : null),
+      properties: props.get(`${area}/about.md`)?.properties,
+      owner: seat.owner,
+      subAreas,
+      now,
+    })),
+  );
   parts.push(
     `## Mail\n` +
       (mail.length

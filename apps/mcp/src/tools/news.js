@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-11-27",
+    text:
+      "manage action area takes pulse: true, which writes the area's routines from templates (improve your metric, then one per mode) and " +
+      "keeps any already there, or pulse: false, which pauses the ones a template wrote. Fetching a routine note now returns its run brief after it.",
+  },
+  {
     date: "2026-11-26",
     text:
       'manage action area takes bind_bot: "<your bot name>", needing no area: said from a bot\'s own main chat, its connection is that bot in this ' +
@@ -519,17 +525,13 @@ export const TOOL_NEWS = Object.freeze([
       "write_note `comment: { action: add|reply|resolve|reopen, quote, thread, text }` comments on a note " +
       "without rewriting it; read_note lists open threads.",
   },
-  {
-    date: "2026-09-26",
-    text: "write_note `images` attaches pictures to a note in the same write.",
-  },
 ]);
 
 /**
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "ded5df41";
+export const TOOL_SHAPE = "757cd01e";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

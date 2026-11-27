@@ -28,6 +28,7 @@ import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { attachProjects } from "./attachProjects.js";
 import { toolBindBot } from "./botBind.js";
+import { areaPulse } from "./areaPulse.js";
 
 const { BOT_KINDS, MODE_ORDER, botLabel, knownModes, mailJoinName } = areaBots;
 const { botCardPaths, botShortName, parseWorksInEntry, worksInLine } = areaRoutines;
@@ -376,6 +377,25 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   done.push(...projects.done);
   problems.push(...projects.problems);
 
+  // Pulse checks: the area's routines written from the templates, or paused (`areaPulse.js`).
+  if (args.pulse !== undefined) {
+    const pulsed = await areaPulse(
+      {
+        store,
+        scope,
+        rules,
+        overrides,
+        area,
+        modes: args.modes === undefined ? undefined : knownModes(Array.isArray(args.modes) ? args.modes : []),
+        change: (path, changes, options) => change(store, scope, rules, overrides, path, changes, options),
+      },
+      args.pulse,
+    );
+    if (pulsed.refused) return pulsed.refused;
+    done.push(...pulsed.done);
+    problems.push(...pulsed.problems);
+  }
+
   if (args.bind_bot !== undefined) {
     const bound = await toolBindBot(store, scope, rules, overrides, args.bind_bot);
     if (bound.isError) problems.push(textOf(bound));
@@ -383,7 +403,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   }
 
   if (done.length === 0 && problems.length === 0) {
-    return toolError("invalid: nothing to change; pass owner, delegate, modes, approvals, metric, bot, webhook, test_webhook, bind_bot, attach or detach");
+    return toolError("invalid: nothing to change; pass owner, delegate, modes, approvals, metric, bot, webhook, test_webhook, bind_bot, pulse, attach or detach");
   }
   return toolText([...done.map((line) => `- ${line}`), ...problems.map((line) => `- not done: ${line}`)].join("\n"));
 }
