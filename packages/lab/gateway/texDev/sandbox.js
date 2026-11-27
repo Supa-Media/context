@@ -198,6 +198,8 @@ export function runCard({ rows, msgId, writes = [], graph, running = null, draft
     // An ask of Tex in another chat, carried after this run (`labSandbox/crossRuns.js`): the group's linked test chat and
     // the rows its run and the answer's run came in on, each with its own card.
     ...(Array.isArray(reply?.cross) && reply.cross.length ? { cross: reply.cross.map((c) => ({ ...cutDeep(c, 80), ...(c.ask ? { askCard: `card { sandboxId: "${c.sandboxId}", msgId: "${c.ask}" }` } : {}), ...(c.answer ? { answerCard: `card { msgId: "${c.answer}" } in this test chat` } : {}) })) } : {}),
+    // A private aside the run handed someone's own 1:1 (`labSandbox/chatRun.js` `asidesOf`): to whom and what, never sent.
+    ...(Array.isArray(reply?.asides) && reply.asides.length ? { asides: reply.asides.map((a) => cutDeep(a, 300)) } : {}),
     ...(reply?.quiet ? { quiet: short(reply.text || "Tex stayed quiet", 300) } : {}),
     ...(row.error || reply?.error ? { error: row.error ?? reply.error } : {}),
     time: {
@@ -544,10 +546,10 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
         if (ran.error) return ran;
         return { ...ran, card: await cardNow(args.sandboxId, ran.msgId) };
       }
-      // A check-in now (`labSandbox/checkin.js`): in a test chat of your 1:1, on its draft, its card as a text's.
+      // A check-in now (`labSandbox/checkin.js`): in a test chat of your 1:1, or a group's own, on its draft, its card as a text's.
       case "checkin": {
         if (needId(args)) return needId(args);
-        const ran = await call({ op: "checkin", sandboxId: args.sandboxId, ...(args.hours === undefined ? {} : { hours: args.hours }) });
+        const ran = await call({ op: "checkin", sandboxId: args.sandboxId, ...(args.hours === undefined ? {} : { hours: args.hours }), ...(typeof args.as === "string" ? { as: args.as } : {}) });
         if (ran.error) return ran;
         return { ...ran, card: await cardNow(args.sandboxId, ran.msgId) };
       }

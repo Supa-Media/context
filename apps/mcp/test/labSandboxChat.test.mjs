@@ -357,3 +357,42 @@ test("a turn that mutes a group test chat mutes it: said in fixed words, the nex
   assert.match(replies[1], /I'm muted in this chat, so I didn't do that\. Say "Tex, start"/, "the next ask hears how to start Tex");
   assert.equal(replies[2], "", "then nothing");
 });
+
+// A group's own check-in in a test chat (Dev2, 2026-11-27: a check-in's calendar clash goes to the calendar's own person
+// privately, and the Lab could not run a group check-in to show it). Sabotage (temporary local edits, reverted):
+//   chatRun.js `inboundOf` sending a checkin row to /group-accept as a text   "... asked in production's own words" fails
+//   jobs.js without its /cross-aside case                                     "... the aside is on the reply row" fails
+test("a group check-in row runs as the cron hands one to the chat, asked in production's own words, and its private aside is on the reply row, never sent", async () => {
+  const about = { kind: "group", owner: `chat:${KEY}`, ledgerChat: KEY, chatKey: KEY, members: "d".repeat(64), people: [{ handle: "ana", name: "You" }, { handle: "ben", name: "ben" }], line: LINE, timeZone: "America/New_York" };
+  const address = { line: "+15555550100", groupId: "lab:x", phones: new Map([["ana", "+15555550101"]]) };
+  const at = Date.now();
+  const inbound = inboundOf({ about, row: { id: "t9", who: "ana", kind: "checkin", checkin: 3, at }, rows: [], address, sentHandles: new Map(), chat: { mail: [] } });
+  assert.equal(inbound.path, "/group-routine");
+  assert.deepEqual([inbound.body.path, inbound.body.phone, inbound.body.since, inbound.body.mail, inbound.body.timeZone], ["(check-in)", "+15555550101", at - 3 * 3_600_000, false, "America/New_York"]);
+  assert.match(inbound.body.runId, /^run_[A-Za-z0-9_-]{1,64}$/, "a run id the chat object takes");
+
+  // The ids a test row gets from the route (`route.js` `newIds`): `t` and its event id's digits.
+  const row = { id: "t1", who: "ben", kind: "checkin", checkin: 6, text: "Run this chat's check-in now (last 6 h)", at, prod: false, eid: "0000000000001-000001" };
+  const { stub, call, ready } = sandbox(about, []);
+  await ready;
+  await call("row.add", { row });
+  const asked = [];
+  const agentRoute = async (request, path) => {
+    const body = await request.clone().json().catch(() => ({}));
+    if (path === "/agent") {
+      asked.push(body);
+      return Response.json({ answer: "", quiet: true, turn: body.turn ?? "t", asides: [{ what: "Sat 7pm dinner may clash with your calendar", texts: [], to: "ana", calendar: true }] });
+    }
+    return Response.json({ events: [] });
+  };
+  const gw = fakeGateway("", call, row.id);
+  await runChatTurn({ env: {}, stub, about, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: "https://gateway.example", chat: { slug: "family" }, agentRoute, textsRoute: gw.textsRoute });
+  const state = await call("state", {});
+  const reply = state.rows.find((r) => r.id === "t1r");
+  const turn = asked[0];
+  assert.ok(turn, `the chat object asked /agent (${JSON.stringify(reply)})`);
+  assert.match(turn.question, /^\(Time for this chat's check-in/, "asked in production's own words, never the row's");
+  assert.doesNotMatch(turn.question, /Run this chat's check-in now/);
+  assert.deepEqual(reply.asides, [{ to: "ana", what: "Sat 7pm dinner may clash with your calendar", calendar: true }], "the aside is on the reply row, for the calendar's own person");
+  assert.ok(!reply.text, "nothing posted to the room");
+});

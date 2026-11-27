@@ -206,7 +206,8 @@ function sinceTex(rows, rowId) {
       break;
     }
   }
-  return list.slice(from).filter((r) => r.who !== "Tex" && r.id !== rowId);
+  // A check-in row is the Lab asking for one, never a line anyone wrote in the chat.
+  return list.slice(from).filter((r) => r.who !== "Tex" && r.id !== rowId && r.kind !== "checkin");
 }
 
 /** The 1:1 tapbacks noted since the last turn, for the next text's `reacted` (`reactions.ts` `notedReactions`). */

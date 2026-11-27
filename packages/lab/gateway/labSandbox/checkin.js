@@ -41,15 +41,17 @@ export function quietLine(body, status) {
 }
 
 /**
- * The route's checks, then the run. A 1:1 of the caller's own only: a check-in is a person's, and a group's look is
- * another path. Counts as a test text. Waits for the run and answers it.
+ * The route's checks, then the run: a 1:1 of the caller's own runs the person's check-in here; a group test chat runs the
+ * group's own (`groupCheckIn`). Counts as a test text. Waits for the run and answers it.
  */
-export async function checkInTestChat({ env, controlPlane, token, who, stub, origin, graph, helpers }, state, input) {
+export async function checkInTestChat(deps, state, input) {
+  const { env, controlPlane, token, who, stub, origin, graph, helpers } = deps;
   const { draftConfig, refused, view, newIds, DAILY_SENDS } = helpers;
   const about = state.meta.chat;
-  if (about.kind !== "one" || about.shared === true) return refused(400, "A check-in runs in a test chat of your own 1:1 with Tex: open one with source chat and no chatId.");
   const hours = hoursOf(input);
   if (hours === null) return refused(400, `hours is a whole number from 1 to ${MAX_HOURS}`);
+  if (about.kind === "group") return await groupCheckIn(deps, state, input, hours);
+  if (about.kind !== "one" || about.shared === true) return refused(400, "A check-in runs in a test chat of your own 1:1 with Tex, or a group test chat: open one with source chat.");
   if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
   const drafted = await draftConfig(controlPlane, token, about.versionId, graph, about.drawn === true ? about.config : undefined);
   if (drafted.error) return refused(...drafted.error);
@@ -70,6 +72,23 @@ export async function checkInTestChat({ env, controlPlane, token, who, stub, ori
   }
   const result = await runCheckInInTestChat({ env, stub, about, row, payload: answer.session, token, config: drafted.config ?? null, origin, hours });
   return json({ msgId: row.id, ...result });
+}
+
+/**
+ * A group's own check-in (Dev2, 2026-11-27: a check-in's calendar clash goes to the calendar's owner privately, and
+ * the Lab could not run a group's check-in to show it). Its row goes through the chat object as this Worker's cron hands
+ * a check-in to a group's object (`chatRun.js` `inboundOf`, `/group-routine`): asked in production's own words
+ * (`groupRunQuestions.cjs` `chatLookQuestion`), as the tag of `as` (by default the chat's first person), never a text
+ * anyone sent. What it would post is Tex's row; a private aside it hands someone is on that row (`asides`), never sent.
+ */
+export async function groupCheckIn({ helpers, ...deps }, state, input, hours, cut = null) {
+  const { refused, view, newIds, speakerOf, addRow } = helpers;
+  if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
+  const speaker = speakerOf(state.meta.chat, input?.as);
+  if (speaker.error) return refused(...speaker.error);
+  const { at, eid, id } = newIds();
+  const row = { id, eid, who: speaker.speaker, kind: "checkin", text: `Run this chat's check-in now (last ${hours} h)`, at, prod: false, checkin: hours };
+  return await addRow({ ...deps, state, row, cut });
 }
 
 /**
