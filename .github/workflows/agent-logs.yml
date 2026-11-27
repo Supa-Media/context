@@ -80,7 +80,10 @@ jobs:
                 let e; try { e = JSON.parse(chunk); } catch { return; }
                 const route = String(e?.event?.request?.url ?? "").replace(/^https?:\/\/[^/]+/, "").split("?")[0];
                 const ex = (e.exceptions ?? []).map((x) => code(x?.name)).join(",");
-                console.log(JSON.stringify({ event: "invocation", outcome: code(e.outcome), path: route === "/agent" ? "agent" : "other", ...(ex ? { name: ex } : {}), lines: (e.logs ?? []).length }));
+                // One of our fixed routes is named by its words (/files/mail is files_mail), never a slug or an id; anything else is "other".
+                const named = /^\/(?:files|agent|collaboration|inbox|app|tex|machines?|meetings?)(?:\/[a-z-]+){0,2}$/.test(route) ? route.slice(1).replace(/[\/-]/g, "_") : "other";
+                const wall = Number.isFinite(e.wallTime) ? { ms: Math.round(e.wallTime) } : {};
+                console.log(JSON.stringify({ event: "invocation", outcome: code(e.outcome), path: named, ...wall, ...(ex ? { name: ex } : {}), lines: (e.logs ?? []).length }));
                 for (const log of e.logs ?? []) for (const m of log.message ?? []) if (typeof m === "string" && m.startsWith("{\"event\"")) console.log(m);
               };
               process.stdin.setEncoding("utf8").on("data", (d) => {
