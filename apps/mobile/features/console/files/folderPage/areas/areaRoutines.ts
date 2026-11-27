@@ -369,7 +369,14 @@ export function pulsePlan(area: string, modes: readonly string[], notes: readonl
   return { create, resume };
 }
 
-/** What pulse checks would add, by title: "Improve your metric and Manager loop". */
+/** Whether pulse checks are on: a routine a pulse wrote (its `template:` line) runs here, unpaused. */
+export function pulseNow(area: string, root: string, notes: readonly ListNote[]): { on: boolean } {
+  return {
+    on: routineNotesOf(area, root, notes).some(({ note }) => word(note.properties.template) !== "" && !/^(yes|true)$/i.test(lineValue(note.properties.paused) ?? "")),
+  };
+}
+
+/** What pulse checks would add, by title: "Improve metric loop and Manager loop". */
 export function pulseTitles(modes: readonly string[]): string[] {
   return pulseTemplates(modes).map((template) => template.title);
 }

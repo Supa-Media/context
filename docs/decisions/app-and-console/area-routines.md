@@ -76,12 +76,16 @@ decides.
   (Claude Code, Codex, anything); with none, the brief says Claude Code if
   they have it, otherwise Codex. No template names a tool.
 - **Pulse checks write routines from templates.** `manage area` with
-  `pulse: true` writes `routines/daily/improve-your-metric.md` for every area
-  and one routine per mode it has (Visionary's weekly direction check,
+  `pulse: true` writes `routines/daily/improve-metric-loop.md` for every area,
+  run every six hours (`at: 12am, 6am, 12pm, 6pm`; Dev, 2026-11-27: "it
+  should be at least every 6 hours"), and one routine per mode it has (Visionary's weekly direction check,
   Manager's weekday loop, Doer's weekday ship-the-next-item;
   `packages/shared/src/areaRoutineTemplates.cjs`), each marked `template:`.
   A note already there is never written over; `pulse: false` pauses only
-  the template-made ones, and `pulse: true` resumes them.
+  the template-made ones, and `pulse: true` resumes them. In the area
+  panel, pulse checks are a button while the area has no routines and a
+  switch above them once it has any, on while a template-made routine runs
+  (Dev, 2026-11-27: the button "disappears when there is a routine").
 - **Several runs a day are a list of times.** *Decided by the owner,
   2026-11-27*: `at: 9am, 1pm, 5pm` (or `at: [9am, 1pm]`) in a daily, weekly
   or monthly routine runs at each, up to 12; `every-N-hours/` folders keep

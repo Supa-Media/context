@@ -39,6 +39,10 @@ export interface PanelRoutinesTools {
   readonly create?: (draft: Draft) => Promise<string | null>;
   /** Writes one change to a routine (its front matter, or its folder): its path after, or why not. Absent for a reader. */
   readonly change?: (path: string, before: Draft, after: Draft) => Promise<{ path: string } | { problem: string }>;
+  /** Whether a bot holds the area (owner, or delegate under a person): routines go to it, so none is no section. */
+  readonly hasBot: boolean;
+  /** Whether pulse checks are on: a routine they wrote runs here. */
+  readonly pulseIsOn?: boolean;
   /** Turns on pulse checks: null once written, or why not. Absent for a reader. */
   readonly pulseOn?: () => Promise<string | null>;
   /** Opens a routine's note. */
@@ -134,6 +138,17 @@ export function PanelRoutines({ tools }: { tools: PanelRoutinesTools }) {
           ) : null}
         </View>
       ) : null}
+      {/* Turn on pulse checks stays while the area has routines but none of theirs (Dev, 2026-11-27), and goes once they run. */}
+      {routines.length > 0 && canEdit && tools.pulseOn !== undefined && tools.pulseIsOn !== true ? (
+        <View style={styles.empty}>
+          <View style={styles.emptyActions}>
+            <Pressable hitSlop={8} role="button" onPress={() => void turnOn()} disabled={busy} style={[styles.primary, busy && styles.primaryOff]} testID="area-panel-pulse">
+              <Text variant="treeMeta" style={styles.primaryWord}>Turn on pulse checks</Text>
+            </Pressable>
+          </View>
+          <Text variant="treeMeta" style={styles.muted}>{pulseLine(tools.pulse, tools.areaName)}</Text>
+        </View>
+      ) : null}
       {routines.map((routine) =>
         editing === routine.path && editingDraft !== null ? (
           editor(routine.path, editingDraft)
@@ -155,9 +170,9 @@ export function PanelRoutines({ tools }: { tools: PanelRoutinesTools }) {
   );
 }
 
-/** "Adds Improve your metric and Manager loop, from Finance's modes. Each is a note you can change." */
+/** "Adds Improve metric loop and Manager loop, from Finance's modes. Each is a note you can change." */
 export function pulseLine(pulse: readonly string[], area: string): string {
-  if (pulse.length <= 1) return `Adds ${pulse[0] ?? "Improve your metric"}. It's a note you can change.`;
+  if (pulse.length <= 1) return `Adds ${pulse[0] ?? "Improve metric loop"}. It's a note you can change.`;
   const list = `${pulse.slice(0, -1).join(", ")} and ${pulse[pulse.length - 1]}`;
   return `Adds ${list}, from ${area}'s modes. Each is a note you can change.`;
 }

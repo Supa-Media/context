@@ -10,7 +10,7 @@ import { useCallback, useMemo } from "react";
 import { cardSlug } from "@context/shared/src/areaRoutines.cjs";
 import type { ListNote } from "../../listBlock/model";
 import type { FolderPageHost, PropertyChanges } from "../useFolderPage";
-import { areaBotOf, budgetOf, draftChanges, draftOf, folderOf, movedPath, newRoutineNote, pulsePlan, pulseTitles, routineNotesOf, routineRows, type Draft, type RoutineStateNow } from "./areaRoutines";
+import { areaBotOf, budgetOf, draftChanges, draftOf, folderOf, movedPath, newRoutineNote, pulseNow, pulsePlan, pulseTitles, routineNotesOf, routineRows, type Draft, type RoutineStateNow } from "./areaRoutines";
 import type { PanelRoutinesTools } from "./PanelRoutines";
 import { areaTitle, cardPath, type AreaNode, type Card } from "./seat";
 
@@ -131,6 +131,8 @@ export function useAreaRoutineTools({
         routines: rows,
         budget: budgetOf(area, bot, cardAt?.properties.works_in, state, folderSlug === undefined ? undefined : cardSlug(folderSlug)),
         pulse: pulseTitles(seat.modes),
+        pulseIsOn: pulseNow(area, root, notes).on,
+        hasBot: bot !== null,
         canEdit: canEdit && tasks !== undefined,
         now,
         draftOf: (path) => {

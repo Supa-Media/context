@@ -182,7 +182,9 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
       </Section>
 
       {/* Who holds the area, what they're sent on a schedule, then where they answer. */}
-      {routines === undefined || top !== undefined ? null : (
+      {/* Routines go to the area's bot, so an area only a person holds has none to show (Dev, 2026-11-27), unless some
+          are already there: they say they can't be sent. */}
+      {routines === undefined || top !== undefined || (!routines.hasBot && routines.routines.length === 0) ? null : (
         <Section title="Routines">
           <PanelRoutines key={seat.folder} tools={routines} />
         </Section>
