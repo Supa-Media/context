@@ -95,9 +95,9 @@ describe("a wire behind another card", () => {
       on = bows.get(1)!.arc!;
     expect(back).toBeLessThan(0);
     expect(on).toBeGreaterThan(0);
-    // An even circular arc from the middle of one card's top to the other's (bottoms going on), standing out a sixth of
-    // the distance (Dev: "can the bow be smoother? I like the sendback bow", then "a more uniform curve").
-    const r = (800 * 800) / (8 * 128) + 64;
+    // An even circular arc from the middle of one card's top to the other's (bottoms going on), 70 out at its middle
+    // whatever its length (Dev: "a more uniform curve", then picked the same shallow height for every arc).
+    const r = Math.round(((800 * 800) / (8 * 70) + 35) * 10) / 10;
     expect(wirePath(at.checkFinish!, at.intake!, "generator", 180, 180, bows.get(0)).d).toBe(`M890,0 A${r},${r} 0 0 0 90,0`);
     expect(wirePath(at.intake!, at.checkFinish!, "wait", 180, 180, bows.get(1)).d).toBe(`M90,64 A${r},${r} 0 0 0 890,64`);
     // The neighbours' own wire has nothing behind it and stays straight.

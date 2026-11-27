@@ -45,13 +45,13 @@ export function wirePath(
     const k = (n: number) => Math.round(n * 10) / 10;
     return `M${k(x1)},${k(y1)} A${k(r)},${k(r)} 0 0 ${sweep} ${k(x2)},${k(y2)}`;
   };
-  // A wire round the cards it skips: out of the middle of one card's top or bottom and into the other's, standing out
-  // a sixth of the distance, so longer ones stand further out and nest rather than meet.
+  // A wire round the cards it skips: out of the middle of one card's top or bottom and into the other's, every one the
+  // same shallow height (Dev picked it over arcs that grow with their length, 2026-11-26).
   if (bow.arc) {
     const under = bow.arc > 0;
     const sx = a.x + aw / 2,
       ex = b.x + bw / 2;
-    return { d: circ(sx, under ? a.y + H : a.y, ex, under ? b.y + H : b.y, 0, under ? 1 : -1, Math.max(40, Math.abs(ex - sx) * 0.16)) };
+    return { d: circ(sx, under ? a.y + H : a.y, ex, under ? b.y + H : b.y, 0, under ? 1 : -1, ARC_HEIGHT) };
   }
   // Wires sharing a pair of cards along a row part as shallow arcs, side to side, either side of the line.
   const mid = Math.hypot(bow.mid.x, bow.mid.y);
@@ -86,6 +86,8 @@ export function wirePath(
  */
 export type WireBow = { mid: Pt; ends: Pt; arc?: number };
 const NO_BOW: WireBow = { mid: { x: 0, y: 0 }, ends: { x: 0, y: 0 } };
+/** How far a wire that goes round the row stands off its cards' tops or bottoms, at its middle. */
+const ARC_HEIGHT = 70;
 /** How far apart the wires between one pair of steps bow at their middles. */
 const LANE = 48;
 type Box = { x: number; y: number; w: number; h: number };
@@ -117,8 +119,7 @@ function crosses(p: Pt, q: Pt, r: Box): boolean {
  * Each wire's bow (`wirePath`), so no two wires draw one line (Dev, 2026-11-26):
  * - A wire whose straight line runs behind another card (Check & finish back to Intake, behind Front door) arcs clear of
  *   it, to its own left: a wire going back right to left arcs over the row, one going on arcs under it, card top to card
- *   top or bottom to bottom in an even circular arc, the longer the further out, so it never lies on the wires between the
- *   cards it skips.
+ *   top or bottom to bottom in an even, shallow circular arc, so it never lies on the wires between the cards it skips.
  * - Wires that join the same two ends, whichever way they run, take lanes either side of the line, one lane for each way
  *   and kind of wire (several steps folded into one box share theirs), measured across the line from the end whose id
  *   sorts first, so a wire and its return part. A pair with one lane stays straight. The ends part a third as far.
@@ -154,7 +155,7 @@ export function wireBows(edges: { from: string; to: string; mode: string }[], bo
     const nx = -dy / len,
       ny = dx / len;
     // Along a row it goes round, from card top to card top or bottom to bottom: back over, on under,
-    // standing further out the further it goes (`wirePath`), so arcs of different lengths nest instead of meeting.
+    // all the same shallow height (`wirePath`).
     if (Math.abs(dx) > Math.abs(dy)) {
       out.set(i, { ...(out.get(i) ?? NO_BOW), arc: Math.sign(ny) });
       return;
