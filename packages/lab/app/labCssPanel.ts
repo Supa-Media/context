@@ -53,6 +53,13 @@ export const LAB_CSS_PANEL = String.raw`
 .tl #props .advbody .file{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text2);background:var(--chip);border-radius:6px;padding:6px 8px;word-break:break-all;margin:0}
 .tl #props .advbody .lgno{margin:6px 0 0}
 .tl #props .advbody textarea.note{width:100%;box-sizing:border-box}
+.tl #props .wline{display:flex;gap:10px;align-items:flex-start;margin-top:6px}
+.tl #props .wline:first-of-type{margin-top:0}
+.tl #props .wrh{width:30px;flex:none;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:6px}
+.tl #props .wchips{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.tl #props .wr.wchip{display:inline-flex;width:auto;gap:6px;padding:3px 8px;border-radius:7px;background:var(--chip);color:var(--text);font-size:13px;cursor:pointer}
+.tl #props .wr.wchip:hover{background:var(--s3)}
+.tl #props .wr.wchip svg.w{width:20px}
 .tl #props .wr .wrn{color:var(--dim);font-size:11px;font-family:var(--mono)}
 .tl #props .delrow{padding:16px 0 12px}
 `;

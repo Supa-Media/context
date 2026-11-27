@@ -164,6 +164,14 @@ describe("/lab properties panel, viewer and modules page", () => {
     const rows = qa(".wr[data-wire]");
     expect(rows.length).toBe(lines.size);
     expect(rows.map((r) => r.textContent).filter((t) => /×\d/.test(t!)).length).toBeGreaterThan(0);
+    // In and Out are chips; hovering one says what the wire does (Dev, 2026-11-26).
+    expect(qa("#props .wline .wrh").map((h) => h.textContent)).toEqual(["In", "Out"]);
+    const back = rows.find((r) => r.getAttribute("title")?.startsWith("Runs after "));
+    expect(back?.getAttribute("title")).toMatch(/^Runs after .+\. Runs when this step is done/);
+    // A group's box shows only its details and its arrows: no settings, cases, More or Delete (Dev, 2026-11-26).
+    expect(q("#nGoalText")).not.toBeNull();
+    expect(q("#props .runmeta")?.textContent).toMatch(/^Group of \d+ steps/);
+    for (const s of ["#cardSet", "#setShort", "#nCases", "#nMore", "#nDel"]) expect(q(s)).toBeNull();
     // The facts line counts each step once, however many wires join it.
     const froms = new Set(raw.filter((e) => e.to === "frontDoor").map((e) => e.from));
     expect(froms.size).toBeLessThan(raw.filter((e) => e.to === "frontDoor").length);
