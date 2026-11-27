@@ -545,6 +545,11 @@ export const CAPABILITIES = Object.freeze([
         what: "show a saved webhook's address or key",
         workaround: { kind: "app_path", text: "Replace under the bot's Reach in the app's area panel" },
       },
+      {
+        where: "everywhere",
+        what: "send an area routine to its bot now, out of turn",
+        workaround: { kind: "app_path", text: "Run now on the routine's row under Routines in the app's area panel (an editor or owner; it waits like any run when the bot's share there is spent)" },
+      },
     ],
   },
   {

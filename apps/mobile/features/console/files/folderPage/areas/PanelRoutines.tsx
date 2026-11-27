@@ -5,7 +5,8 @@
  * runs next, and its last run's outcome from the workspace object's state (sent → answered / not answered yet, held,
  * not listed, no bot, failed), or the problem that stops it. Above the rows, the bot's share of its week spent here.
  * A row opens its editor in place (the panel edits everything inline: the owner, 2026-11-24); the job itself is the
- * note's text, so "Open the job" opens it. "Add routine" is the same editor, empty. An area with none offers "Turn
+ * note's text, so "Open the job" opens it. "Run now" sends one out of turn, under the same cap (Dev, 2026-11-27: "add
+ * the run now button for every routine"). "Add routine" is the same editor, empty. An area with none offers "Turn
  * on pulse checks", which writes the templates `manage area { pulse: true }` writes (`areaRoutines.ts` `pulsePlan`).
  *
  * Built only from what the panel already uses: Text tree / treeMeta, Icon, Switch, the mode chips' shape, the
@@ -47,6 +48,8 @@ export interface PanelRoutinesTools {
   readonly pulseOn?: () => Promise<string | null>;
   /** Opens a routine's note. */
   readonly open: (path: string) => void;
+  /** Run now: sends the routine to its bot out of turn, under the same cap: null once asked, or why not. Absent for a reader. */
+  readonly runNow?: (path: string) => Promise<string | null>;
 }
 
 interface HoverState {
@@ -221,6 +224,25 @@ function BudgetLine({ tools }: { tools: PanelRoutinesTools }) {
 function Row({ routine, tools, onPress }: { routine: RoutineRow; tools: PanelRoutinesTools; onPress: (() => void) | undefined }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const [running, setRunning] = useState(false);
+  const [ranProblem, setRanProblem] = useState<string | null>(null);
+  // A second tap before the first answer would send the routine twice.
+  const sending = useRef(false);
+  const { runNow } = tools;
+  // A routine that won't run, is paused, or has no bot to go to has nothing to send.
+  const canRun = runNow !== undefined && routine.problem === null && !routine.paused && tools.budget !== null;
+  const runIt = async () => {
+    if (runNow === undefined || sending.current) return;
+    sending.current = true;
+    setRunning(true);
+    setRanProblem(null);
+    try {
+      setRanProblem(await runNow(routine.path));
+    } finally {
+      sending.current = false;
+      setRunning(false);
+    }
+  };
   const glyph = routine.problem !== null ? { name: "info" as const, color: colors.crit } : routine.paused ? { name: "pause" as const, color: colors.muted } : { name: "clock" as const, color: colors.muted };
   const next = routine.next == null ? null : clockAt(routine.next, tools.now);
   const sub = `${routine.when}${routine.paused ? " · paused" : next === null ? "" : ` · next ${next}`}`;
@@ -240,6 +262,23 @@ function Row({ routine, tools, onPress }: { routine: RoutineRow; tools: PanelRou
         <View style={styles.rowHead}>
           <Text variant="tree" style={[styles.name, routine.paused && styles.muted]} numberOfLines={1}>{routine.title}</Text>
           {routine.mode === null ? null : <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>{routine.mode}</Text>}
+          {canRun ? (
+            <Pressable
+              hitSlop={8}
+              role="button"
+              accessibilityLabel={`Run ${routine.title} now`}
+              disabled={running}
+              onPress={(event) => {
+                // The row opens the editor; this press is only Run now.
+                event?.stopPropagation?.();
+                void runIt();
+              }}
+              style={({ hovered }: HoverState) => [styles.run, hovered && !running && styles.runHover]}
+              testID={`area-panel-routine-run-${routine.path}`}
+            >
+              <Text variant="treeMeta" style={[styles.addWord, running && styles.muted]}>{running ? "Running…" : "Run now"}</Text>
+            </Pressable>
+          ) : null}
         </View>
         {routine.problem !== null ? (
           <Text variant="treeMeta" style={styles.crit}>{`Won't run: ${routine.problem}`}</Text>
@@ -251,6 +290,7 @@ function Row({ routine, tools, onPress }: { routine: RoutineRow; tools: PanelRou
         ) : (
           <Last last={routine.last} bot={tools.budget?.bot ?? null} now={tools.now} />
         )}
+        {ranProblem === null ? null : <Text variant="treeMeta" role="alert" style={styles.crit}>{ranProblem}</Text>}
       </View>
     </Pressable>
   );
@@ -328,4 +368,7 @@ const makeStyles = (colors: Colors) =>
     rowText: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
     rowHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     name: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+    // "+ Attach a project"'s link, at the end of the row's first line.
+    run: { flexShrink: 0, paddingHorizontal: space.x1, borderRadius: radii.sm },
+    runHover: { backgroundColor: colors.surface },
   });

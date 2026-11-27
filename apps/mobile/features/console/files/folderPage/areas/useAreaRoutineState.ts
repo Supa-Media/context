@@ -8,7 +8,7 @@
  * address) or wasn't served, so the panel draws the rows without run lines rather than placeholders forever.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useConsoleGrant } from "../../../../agent/useConsoleGrant";
 import { useOptionalConsoleData } from "../../../ConsoleDataContext";
@@ -33,24 +33,49 @@ export function areaRoutinesUrl(mcpEndpoint: string, slug: string | null | undef
   return `${parsed.origin}/@${slug}${AREA_ROUTINES_PATH}`;
 }
 
+type Token = (refresh: false | { rejected: string }) => Promise<string>;
+
 /** One ask: the state, or null when it can't be had. */
-export async function askAreaRoutines(options: { url: string; workspaceId: string; token: (refresh: false | { rejected: string }) => Promise<string>; fetchImpl?: typeof fetch }): Promise<RoutineStateNow> {
+export async function askAreaRoutines(options: { url: string; workspaceId: string; token: Token; fetchImpl?: typeof fetch }): Promise<RoutineStateNow> {
   const answer = await postDataSync({ url: options.url, token: options.token, payload: { workspaceId: options.workspaceId }, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
   if (answer === null || answer.status !== 200) return null;
   return readRoutineState(answer.body);
 }
 
+/** What Run now came back with: the state after it, or why it didn't run. */
+export type RunAnswer = { state: RoutineStateNow } | { problem: string };
+
+/**
+ * Run now: the gateway sends one routine to its bot out of turn, as its clock would (its bot, its card's list and
+ * the area's share, so a spent cap holds it), and answers the state after. The outcome shows on the row's last run.
+ */
+export async function runAreaRoutine(options: { url: string; workspaceId: string; path: string; token: Token; fetchImpl?: typeof fetch }): Promise<RunAnswer> {
+  const answer = await postDataSync({ url: options.url, token: options.token, payload: { workspaceId: options.workspaceId, run: options.path }, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
+  if (answer === null) return { problem: "Context couldn't be reached. Try again." };
+  if (answer.status === 403) return { problem: "Only an editor or owner can run a routine now." };
+  if (answer.status !== 200) return { problem: "The routine couldn't be run. Try again." };
+  const state = readRoutineState(answer.body);
+  if (state === null) return { problem: "Routines can't run from here yet." };
+  if (answer.body?.ran === null) return { problem: "That routine isn't scheduled, so it can't run now." };
+  if (answer.body?.ran === "recent") return { problem: "It was just sent. Give it a minute before running it again." };
+  return { state };
+}
+
 /**
  * The state while `asking`, asked again when `again` changes (a routine added, moved or paused). Absent a gateway,
- * null at once.
+ * null at once. `run` is Run now, absent where there is no gateway to ask.
  */
-export function useAreaRoutineState(asking: boolean, again: string): RoutineStateNow {
+export function useAreaRoutineState(asking: boolean, again: string): { state: RoutineStateNow; run?: (path: string) => Promise<string | null> } {
   const data = useOptionalConsoleData();
   const current = data === null ? null : selectedContext(data);
   const mint = useConsoleGrant();
   const url = current === null || data?.demo === true ? null : areaRoutinesUrl(MCP_ENDPOINT, current.slug);
   const workspaceId = current?.id ?? null;
   const [state, setState] = useState<RoutineStateNow>(url === null ? null : "loading");
+  const token = useCallback(
+    async (refresh: false | { rejected: string }) => (await mint({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken,
+    [mint, workspaceId],
+  );
   useEffect(() => {
     if (!asking) return;
     if (url === null || workspaceId === null) {
@@ -58,11 +83,7 @@ export function useAreaRoutineState(asking: boolean, again: string): RoutineStat
       return;
     }
     let live = true;
-    void askAreaRoutines({
-      url,
-      workspaceId,
-      token: async (refresh) => (await mint({ workspaceId: workspaceId as Id<"workspaces"> }, refresh)).accessToken,
-    })
+    void askAreaRoutines({ url, workspaceId, token })
       .catch(() => null)
       .then((answer) => {
         if (live) setState(answer);
@@ -70,6 +91,16 @@ export function useAreaRoutineState(asking: boolean, again: string): RoutineStat
     return () => {
       live = false;
     };
-  }, [asking, again, url, workspaceId, mint]);
-  return state;
+  }, [asking, again, url, workspaceId, token]);
+  const run = useCallback(
+    async (path: string): Promise<string | null> => {
+      if (url === null || workspaceId === null) return "Routines can't run from here.";
+      const answer = await runAreaRoutine({ url, workspaceId, path, token }).catch((): RunAnswer => ({ problem: "The routine couldn't be run. Try again." }));
+      if ("problem" in answer) return answer.problem;
+      setState(answer.state);
+      return null;
+    },
+    [url, workspaceId, token],
+  );
+  return url === null || workspaceId === null ? { state } : { state, run };
 }

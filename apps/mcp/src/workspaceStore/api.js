@@ -190,6 +190,8 @@ export function workspaceClient(env, workspaceId) {
     },
     // An area's routines and its bots' week (`workspaceStore/areaRoutines.js`), at a reader's clearance.
     botsState: async ({ scope, groups = [], audience = "member", userId = null }) => await ask("ws.bots.state", { scope, groups, audience, ...(userId ? { userId } : {}) }),
+    // One routine sent to its bot now, at that same clearance.
+    botsRunNow: async ({ path, scope, groups = [], audience = "member", userId = null }) => await ask("ws.bots.run_now", { path, scope, groups, audience, ...(userId ? { userId } : {}) }),
     // A note's mail, read here (`workspaceStore/mailOps.js`): what is new for a mailbox, and an ask's held wait.
     mail: {
       since: async (fields) => await ask("ws.mail.since", fields),

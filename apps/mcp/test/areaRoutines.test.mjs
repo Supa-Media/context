@@ -202,6 +202,29 @@ test("once an area's share of the bot's week is spent, its routines and mail pin
   assert.equal(w.told.length, 1);
 });
 
+test("Run now sends a routine out of turn, as its clock would, and leaves its next time; never past a spent share", { skip }, () => {
+  const w = world({ worksIn: [`${AREA} · 20%`] });
+  w.routines.run();
+  w.at("2026-11-25T09:00:00.000Z");
+  assert.deepEqual(w.routines.runNow(ROUTINE), { outcome: "sent" });
+  assert.deepEqual(w.told, [{ type: "routine", bot: "grok-bot", area: AREA, note: ROUTINE, from: "context" }]);
+  const [row] = w.routines.state().routines;
+  assert.equal(row.lastAt, Date.parse("2026-11-25T09:00:00.000Z"));
+  assert.equal(row.nextAt, Date.parse("2026-11-25T14:00:00.000Z"));
+  // Pressed again within the minute: it just went, so nothing more is sent.
+  w.at("2026-11-25T09:00:30.000Z");
+  assert.deepEqual(w.routines.runNow(ROUTINE), { outcome: "recent" });
+  assert.equal(w.told.length, 1);
+  // A path that is no routine here sends nothing.
+  assert.deepEqual(w.routines.runNow(`${AREA}/about.md`), { outcome: null });
+  // Spent: held, as the clock would hold it.
+  w.at("2026-11-25T10:00:00.000Z");
+  w.save("m1", MAIL, withMail("", { from: "grok-bot", app: "Grok", text: "Did a big job.", at: "2026-11-25T10:00:00.000Z", used: 25 }));
+  w.told.length = 0;
+  assert.deepEqual(w.routines.runNow(ROUTINE), { outcome: "held" });
+  assert.deepEqual(w.told, []);
+});
+
 test("a bot whose card doesn't list the area is sent nothing from it, by routine or by mail", { skip }, () => {
   const w = world({ worksIn: ["areas/finance · 10%"] });
   w.routines.run();

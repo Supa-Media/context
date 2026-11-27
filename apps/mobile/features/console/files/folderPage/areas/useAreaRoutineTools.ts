@@ -26,6 +26,7 @@ export function useAreaRoutineTools({
   chooseMany,
   open,
   state,
+  run,
 }: {
   root: string;
   notes: readonly ListNote[];
@@ -37,6 +38,8 @@ export function useAreaRoutineTools({
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   open: (path: string) => void;
   state: RoutineStateNow;
+  /** Run now, through the gateway: null once sent (the state after shows how), or why not. */
+  run?: (path: string) => Promise<string | null>;
 }): (node: AreaNode) => PanelRoutinesTools {
   const tasks = canEdit ? host?.tasks : undefined;
   const isBot = useCallback((name: string) => cardFor(name, "agent").bot !== "", [cardFor]);
@@ -141,6 +144,7 @@ export function useAreaRoutineTools({
           return note === undefined || row === undefined ? null : draftOf(note, row.title);
         },
         open,
+        ...(canEdit && run !== undefined ? { runNow: run } : {}),
         ...(tasks === undefined
           ? {}
           : {
@@ -150,5 +154,5 @@ export function useAreaRoutineTools({
             }),
       };
     };
-  }, [root, notes, cardNotes, state, isBot, cardFor, canEdit, tasks, open, create, change, pulseOn]);
+  }, [root, notes, cardNotes, state, isBot, cardFor, canEdit, tasks, open, create, change, pulseOn, run]);
 }

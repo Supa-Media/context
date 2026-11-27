@@ -18,9 +18,10 @@ import { APP_ROUTES } from "../src/http/appRoutes.js";
 const STATE = { week: "2026-11-23", routines: [{ path: "areas/finance/routines/daily/check.md", area: "areas/finance", nextAt: 1, lastAt: null, outcome: null, bot: null, answeredAt: null }], usage: [{ bot: "finance", area: "areas/finance", used: 4 }] };
 const session = (over = {}) => ({ actorClientId: "context_console", workspaceId: "ws-a", role: "member", ...over });
 const post = (body) => new Request(`https://mcp.example.com/@acme${AREA_ROUTINES_PATH}`, { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) });
-function store(state = STATE) {
+function store(state = STATE, ran = "sent") {
   const asked = [];
-  return { asked, objectBots: { state: async () => (asked.push(1), state) } };
+  const runs = [];
+  return { asked, runs, objectBots: { state: async () => (asked.push(1), state), runNow: async (path) => (runs.push(path), ran) } };
 }
 
 test("the app reads the workspace object's state for its own workspace", async () => {
@@ -52,4 +53,22 @@ test("a GET, a body with other keys or no id, and an object that can't answer", 
   }
   assert.deepEqual(await (await handleAreaRoutines(post({ workspaceId: "ws-a" }), store(null), session())).json(), { served: false });
   assert.deepEqual(await (await handleAreaRoutines(post({ workspaceId: "ws-a" }), {}, session())).json(), { served: false });
+});
+
+test("Run now sends one routine for a session that may write, and answers its outcome with the state after", async () => {
+  const s = store();
+  const path = "areas/finance/routines/daily/check.md";
+  const response = await handleAreaRoutines(post({ workspaceId: "ws-a", run: path }), s, session({ scopes: ["context:read", "context:write"] }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { served: true, ...STATE, ran: "sent" });
+  assert.deepEqual(s.runs, [path]);
+});
+
+test("Run now is refused for a reader, and for another workspace, before anything is sent", async () => {
+  const s = store();
+  const reader = await handleAreaRoutines(post({ workspaceId: "ws-a", run: "areas/finance/routines/daily/check.md" }), s, session({ scopes: ["context:read"] }));
+  assert.equal(reader.status, 403);
+  const other = await handleAreaRoutines(post({ workspaceId: "ws-b", run: "areas/finance/routines/daily/check.md" }), s, session({ scopes: ["context:read", "context:write"] }));
+  assert.equal(other.status, 409);
+  assert.deepEqual(s.runs, []);
 });
