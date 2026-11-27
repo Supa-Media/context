@@ -127,6 +127,22 @@ test("the bot's own answer clears what waited in that note, and its answer to a 
   assert.equal(w.routines.inbox.check("Grok Bot").length, 1);
 });
 
+test("a bot's own line counts as it checking in, and never moves a later check-in back (Dev, 2026-11-27)", { skip }, () => {
+  // Dev, 2026-11-27: "all the sudden it says muse is not connected?" — Muse answered mail from its own login and its
+  // card still said "Not checking yet".
+  const w = world();
+  w.routines.run();
+  w.save("k1", KIM, withMail("", { from: "@kim", text: "Anything new?", at: "2026-11-25T12:01:00.000Z" }));
+  assert.deepEqual(w.routines.inbox.checks(), [], "someone else's line is not the bot checking in");
+  w.at("2026-11-25T12:05:00.000Z");
+  w.save("k1", KIM, withMail(w.notes.get("k1").text, { from: "grok-bot", text: "Nothing yet.", at: "2026-11-25T12:05:00.000Z" }));
+  assert.deepEqual(w.routines.inbox.checks(), [{ bot: "grok-bot", at: Date.parse("2026-11-25T12:05:00.000Z") }]);
+  w.at("2026-11-25T12:20:00.000Z");
+  w.routines.inbox.check("Grok Bot");
+  w.routines.inbox.seen("Grok Bot", Date.parse("2026-11-25T12:10:00.000Z"));
+  assert.deepEqual(w.routines.inbox.checks(), [{ bot: "grok-bot", at: Date.parse("2026-11-25T12:20:00.000Z") }]);
+});
+
 test("a bot's answer in the routine's own note clears that routine", { skip }, () => {
   const w = world();
   w.routines.run();

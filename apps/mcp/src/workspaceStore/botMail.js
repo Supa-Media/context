@@ -144,7 +144,11 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     routines?.recordMail(noteId, area, holder);
     // Its own newest line here answers what waited for it in this note (`botInbox.js`).
     const answered = lines.filter((event) => event.from.toLowerCase() === bot).pop();
-    if (answered !== undefined) routines?.inbox?.clear(bot, { noteId, note: row.path }, Date.parse(answered.at));
+    if (answered !== undefined) {
+      routines?.inbox?.clear(bot, { noteId, note: row.path }, Date.parse(answered.at));
+      // A bot writing its own line is reached: it counts as checking in (`botInbox.js` `seen`).
+      routines?.inbox?.seen?.(bot, Date.parse(answered.at));
+    }
     if (newest.from.toLowerCase() === bot) return;
     // An area whose share of the bot's week is spent is held: the mail stays in the note, and the bot finds it there
     // (`docs/decisions/app-and-console/area-routines.md`).

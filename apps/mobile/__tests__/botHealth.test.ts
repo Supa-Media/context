@@ -24,7 +24,7 @@ describe("a webhook bot", () => {
     expect(botHealth(ROW, [answered, unanswered], NOW)).toMatchObject({ state: "not answering", tone: "warn", routines: "1 of 2 routines answered this week" });
     // Sent minutes ago is not yet missed, and not yet answered: a call that landed is not an answer (Dev, 2026-11-27).
     expect(botHealth(ROW, [{ ...unanswered, lastAt: NOW - 10 * MIN }], NOW)).toMatchObject({ state: "reachable", bad: false, why: expect.stringContaining("No answer yet.") });
-    expect(botHealth(ROW, [], NOW)).toMatchObject({ state: "reachable", why: expect.stringContaining("Nothing to answer yet this week.") });
+    expect(botHealth(ROW, [], NOW)).toMatchObject({ state: "reachable", why: expect.stringContaining("No routines this week.") });
     // Its own check-in counts as answering, as for a bot with no webhook.
     expect(botHealth(ROW, [], NOW, { checkedAt: NOW - 2 * MIN })).toMatchObject({ state: "answering", why: "Checks every 5 min · last check 2 min ago" });
     expect(botHealth({ ...ROW, lastCallAt: null, lastCallOk: null, lastCallStatus: null }, [], NOW)).toMatchObject({ state: "not tried", bad: false });

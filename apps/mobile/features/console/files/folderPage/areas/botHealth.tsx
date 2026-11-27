@@ -97,8 +97,8 @@ export function botHealth(row: HookRow | null, runs: readonly RunFacts[], now: n
   const lastAnswer = Math.max(...week.map((run) => run.answeredAt ?? 0));
   if (answered > 0) return { state: "answering", tone: "ok", word: "Answering", why: `Last routine answered ${clockAt(lastAnswer, now)}`, routines, bad: false, via: "webhook" };
   if (checkedAt !== null && now - checkedAt <= CHECK_STALE_MS) return { state: "answering", tone: "ok", word: "Answering", why: `Checks every 5 min · last check ${ago(checkedAt, now)}`, routines, bad: false, via: "webhook" };
-  const waiting = week.length > 0 ? " No answer yet." : " Nothing to answer yet this week.";
-  return { state: "reachable", tone: "ok", word: "Reachable", why: `Its webhook took the last call (${row.lastCallStatus})${when}.${waiting}`, routines, bad: false, via: "webhook" };
+  const waiting = week.length > 0 ? " No answer yet." : " No routines this week.";
+  return { state: "reachable", tone: "ok", word: "Reachable", why: `Webhook took the last call (${row.lastCallStatus})${when}.${waiting}`, routines, bad: false, via: "webhook" };
 }
 
 /** What a page knows of every bot: its webhook row (null for none, undefined while asking) and its health. */
