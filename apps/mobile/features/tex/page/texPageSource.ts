@@ -19,7 +19,7 @@ import { readPages, type TexMadePage } from "../pages/pagesRead";
 import type { MachinesPage } from "./texMachineTypes";
 import type { Conversation, ConversationDetail, JobDetail, LedgerPage, LedgerQuery, LedgerSees, ListKind, ListPage, Overview, PageAction } from "./texPageTypes";
 
-type Route = "" | "job" | "list" | "act" | "ledger" | "machines";
+type Route = "" | "job" | "list" | "act" | "ledger" | "machines" | "contacts";
 
 export type Read<T> = { kind: "ok"; value: T } | { kind: "notYours" } | { kind: "failed" };
 
@@ -60,6 +60,13 @@ export interface TexPageSource {
    * the page then shows nothing about machines.
    */
   machines(chat: string): Promise<Read<MachinesPage>>;
+  /**
+   * Guests' names from this phone's contacts (`/tex/page/contacts`, `features/tex/contacts`): `numbers` gives the
+   * numbers in the person's group chats with no name yet, `names` sends back what the phone matched and answers how
+   * many were kept. Null when the call failed; absent where a source has none.
+   */
+  contactNumbers?(): Promise<string[] | null>;
+  contactNames?(names: { phone: string; name: string }[]): Promise<number | null>;
   /** The live feed for one chat; null where there is none. */
   live(chat: string, onPatch: (patch: PatchFrame) => void, onLive: (live: boolean) => void): Live | null;
 }
@@ -167,6 +174,16 @@ export function gatewaySource(options: GatewaySourceOptions): TexPageSource {
     async pages(chat) {
       const a = await post("ledger", { chat, view: "pages" });
       return a === null ? { kind: "failed" } : readAnswer(a.status, a.body, readPages);
+    },
+    async contactNumbers() {
+      const a = await post("contacts", { op: "numbers" });
+      const numbers = (a?.body as { numbers?: unknown } | null)?.numbers;
+      return a?.status === 200 && Array.isArray(numbers) ? numbers.filter((n): n is string => typeof n === "string") : null;
+    },
+    async contactNames(names) {
+      const a = await post("contacts", { op: "names", names });
+      const kept = (a?.body as { kept?: unknown } | null)?.kept;
+      return a?.status === 200 && typeof kept === "number" ? kept : null;
     },
     live(chat, onPatch, onLive) {
       if (origin === null || typeof WebSocket === "undefined") return null;

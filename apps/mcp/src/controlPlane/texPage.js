@@ -61,5 +61,11 @@ export function createTexPageMethods({ post }) {
       const parsed = await post("/gateway/tex/page/settings", { accessToken, chat, values });
       return known(parsed, SETTINGS_STATUSES);
     },
+
+    /** The people with no account in this token's person's group chats (`functions/texPage.ts` `guestsFor`), or null. */
+    async texPageGuests(accessToken) {
+      const parsed = await post("/gateway/tex/page/guests", { accessToken });
+      return parsed?.status === "ok" || parsed?.status === "refused" ? parsed : null;
+    },
   };
 }

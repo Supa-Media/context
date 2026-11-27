@@ -8,7 +8,7 @@
 import { gatewayTexDevHandler } from "./texDev";
 import { gatewayTexLabSandboxHandler } from "./texLabSandbox";
 import { gatewayTexChatHomeHandler } from "./texChatHome";
-import { gatewayTexPageHandler, gatewayTexPageSettingsHandler } from "./texPage";
+import { gatewayTexPageGuestsHandler, gatewayTexPageHandler, gatewayTexPageSettingsHandler } from "./texPage";
 import { gatewayTexCommandHandler as texCommandHandler } from "./texCommand";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
@@ -67,6 +67,7 @@ export const TEX_ROUTES = [
   ["/gateway/tex/command", texCommandHandler],
   ["/gateway/tex/page", gatewayTexPageHandler],
   ["/gateway/tex/page/settings", gatewayTexPageSettingsHandler],
+  ["/gateway/tex/page/guests", gatewayTexPageGuestsHandler],
   ["/gateway/tex/chat-home", gatewayTexChatHomeHandler],
   ["/gateway/tex/dev", gatewayTexDevHandler],
   ["/gateway/tex/lab-sandbox", gatewayTexLabSandboxHandler],

@@ -168,6 +168,14 @@ const BEFORE_ANDROID_PREP = {
     "expo-web-browser",
     "expo-background-task",
     "expo-mail-composer",
+    // Tex's "Names from my contacts" (2026-11-27): read only, gated in native-deps.json.
+    [
+      "expo-contacts",
+      {
+        contactsPermission:
+          "Context matches the numbers of people in your Tex group chats against your contacts on this phone, so Tex knows their names. Only those names are sent; your contacts stay on your phone.",
+      },
+    ],
   ],
   extra: {
     eas: { projectId: "YOUR_EAS_PROJECT_ID" },
@@ -244,10 +252,13 @@ describe("app.config.js: Android is prepared for a backgrounded recording", () =
     expect(rest).toEqual(BEFORE_ANDROID_PREP);
     expect(Object.keys(android).sort()).toEqual([
       "adaptiveIcon",
+      "blockedPermissions",
       "intentFilters",
       "package",
       "permissions",
     ]);
+    // expo-contacts' plugin adds write access; Context only reads contacts.
+    expect(android.blockedPermissions).toEqual(["android.permission.WRITE_CONTACTS"]);
   });
 
   /**

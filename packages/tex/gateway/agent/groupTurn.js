@@ -44,7 +44,7 @@ import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.j
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
 import { groupPageCopied } from "./groupPageCopy.js";
 import { historyFromLedger, readGroupLedgerConversation, startOnLedger } from "./groupLedgerHistory.js";
-import { guestNamesWithAbout, laterNames, readGuestNames } from "./groupGuestNames.js";
+import { guestNamesWithAbout, keepGuestNumbers, laterNames, readGuestNames } from "./groupGuestNames.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
@@ -359,6 +359,7 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
     return readAboutUs(group.home, seen);
   })();
   guestNamed.settle(guestNamesWithAbout(namesRead, aboutRead, group, ledger));
+  void keepGuestNumbers(ledger, group); // who is here by number, for a member's contact names, behind the turn
   // A home's open jobs, `jobs.md` as a person's Tex keeps `tex/jobs.md` (`chatJobs.js`).
   const jobsRead = group.home ? (direct ? directNote(group, direct, "jobs") : Promise.resolve(null)).then((held) => readChatJobs(group.home, held)) : Promise.resolve(null);
   // Each of the five timed apart (2026-11-06: together they held a group turn 0.9 s at the median, 6.7 s at p95).
