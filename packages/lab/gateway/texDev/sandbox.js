@@ -453,7 +453,7 @@ export function createSandboxActions({ route, graphOf, page, env, origin, realCh
     const runs = await Promise.all(drafts.map(async (draft) => {
       const opened = await call({ ...openBody, op: "open", versionId: draft });
       if (opened.error) return { draft, error: opened.error };
-      const card = await runAndWait("send", { sandboxId: opened.sandboxId, text: args.text, ...(args.as ? { as: args.as } : {}), wait: args.wait });
+      const card = await runAndWait("send", { sandboxId: opened.sandboxId, text: args.text, ...(args.as ? { as: args.as } : {}), ...(args.screen ? { screen: args.screen } : {}), wait: args.wait });
       return { draft, sandboxId: opened.sandboxId, card };
     }));
     const base = runs[0]?.card;

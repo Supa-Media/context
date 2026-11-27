@@ -5,7 +5,11 @@
  * Set, Test Set"). The Lab's Testing tab, the store, the eval service and the prompts' examples all read this one
  * contract, so a conversation means the same thing everywhere.
  *
- * A conversation: `{ id, title, set, kind: "one" | "group", members, msgs }`. A message: `{ id, who, text }`, a Tex
+ * A conversation: `{ id, title, set, kind: "one" | "group" | "app", members, msgs }`: a 1:1 text, a group chat, or the
+ * Context app's own chat with Tex (Dev2, 2026-11-27: "we need a separate column for in-app, so we have 1:1 group and in
+ * app tests"). An app chat is a 1:1 on the same history whose person's messages may carry `screen`: what the app had
+ * open when it was sent (`{ note?: { workspace, path }, tabs?: [{ workspace, path }], selection? }`, as the app sends
+ * it, `packages/tex/gateway/agent/screen.js` `validSeen`). A message: `{ id, who, text }`, a Tex
  * row `tex: true` (what Tex should have said, history for later rows, never a test), a special message `kind`
  * (react | reply | edit | delete) pointing at an earlier one by `to`, and `pics` the pictures sent with it
  * (`[{ url, type?, name? }]`; a message with pictures needs no words). A person's message with no Tex row after it is
@@ -28,6 +32,8 @@ const TARGET = Object.freeze({ training: 60, dev: 20, test: 20 });
 /** How far a set may drift from its share, in points, before the ratio fails. */
 const DRIFT = 10;
 const KINDS = Object.freeze(["react", "reply", "edit", "delete"]);
+/** Where a conversation happens: a 1:1 text, a group chat, or the Context app's own chat. */
+const CHAT_KINDS = Object.freeze(["one", "group", "app"]);
 /** The inputs that start a turn with no text, and the name their rows go by. */
 const TRIGGERS = Object.freeze({ checkin: "Check-in", routine: "Routine", notify: "Send through Tex", job: "Background job", did: "Context" });
 /**
@@ -94,7 +100,7 @@ function check(c, config, opts = {}) {
   if (!c || typeof c !== "object") return ["not a conversation"];
   if (!ID.test(String(c.id || ""))) out.push(`id "${c.id}" must be lowercase letters, digits and dashes`);
   if (!SETS.includes(c.set)) out.push(`set "${c.set}" must be one of ${SETS.join(", ")}`);
-  if (c.kind !== "one" && c.kind !== "group") out.push(`kind "${c.kind}" must be one or group`);
+  if (!CHAT_KINDS.includes(c.kind)) out.push(`kind "${c.kind}" must be one of ${CHAT_KINDS.join(", ")}`);
   const members = Array.isArray(c.members) ? c.members : [];
   if (!members.length) out.push("needs at least one member");
   if (members.includes(TEX)) out.push("Tex is never a member; Tex rows say tex: true");
@@ -125,6 +131,11 @@ function check(c, config, opts = {}) {
       if (!KINDS.includes(m.kind)) out.push(`${at}: kind "${m.kind}" must be one of ${KINDS.join(", ")}`);
       else if (!seen.has(m.to)) out.push(`${at} is a ${m.kind} of a message that isn't earlier in the chat`);
     } else if (m.to !== undefined) out.push(`${at} points at another message but has no kind`);
+    // What the app had open (its shape: `packages/lab/src/texScreen.cjs`, checked by the Lab and the repo's check).
+    if (m.screen !== undefined) {
+      if (c.kind !== "app") out.push(`${at}: screen: app only`);
+      else if (m.tex || m.via !== undefined) out.push(`${at}: screen: people only`);
+    }
     const hasPics = Array.isArray(m.pics) && m.pics.length > 0;
     if (m.pics !== undefined && !hasPics) out.push(`${at}: pics is a list of pictures`);
     if (!m.tex && m.kind !== "delete" && !String(m.text ?? "").trim() && !hasPics) out.push(`${at} has no words`);
@@ -200,4 +211,4 @@ function missingTest(convs, testByScope) {
     .sort((a, b) => (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
 }
 
-module.exports = { SETS, TARGET, DRIFT, KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, OTHER_ASSISTANTS, labelFields, check, unitTests, before, ratio, missingTest };
+module.exports = { SETS, TARGET, DRIFT, KINDS, CHAT_KINDS, TRIGGERS, JOB_STATES, RUN, TEX, LABEL_KEYS, BENCH_PEOPLE, OTHER_ASSISTANTS, labelFields, check, unitTests, before, ratio, missingTest };

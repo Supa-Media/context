@@ -15,6 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import sets from "../../../packages/tex/src/texSets.cjs";
+import texScreen from "../../../packages/lab/src/texScreen.cjs";
 import decide from "../../../packages/tex/src/textDecide.cjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
@@ -132,4 +133,27 @@ test("a Dev or Training chat's people are the bench's own, since each Front door
   assert.deepEqual(sets.OTHER_ASSISTANTS, ["Nova"]);
   assert.deepEqual(sets.check(stranger, config, { bench: false }).filter((x) => x.includes("bench world")), [], "the old cases' migration keeps their names");
   assert.ok(sets.BENCH_PEOPLE.includes("Maya"));
+});
+
+// Dev2, 2026-11-27: "we need a separate column for in-app, so we have 1:1 group and in app tests".
+test("an app chat is a kind, and only its person's messages say what was on screen", () => {
+  const screen = { note: { workspace: "@supa", path: "plans/q3.md" }, tabs: [{ workspace: "@supa", path: "data/runs.csv" }], selection: "the launch" };
+  const app = chat({ kind: "app", members: ["Maya"], msgs: [{ id: "m1", who: "Maya", text: "tighten this", screen }, { id: "m2", who: "Tex", tex: true, text: "Done." }] });
+  assert.deepEqual(sets.check(app, config, { why }), []);
+  assert.ok(sets.check({ ...app, kind: "one" }, config, { why }).some((x) => x.includes("screen: app only")));
+  assert.ok(sets.check({ ...app, kind: "crowd" }, config, { why }).some((x) => x.includes("must be one of one, group, app")));
+  const onTex = chat({ kind: "app", members: ["Maya"], msgs: [{ id: "m1", who: "Maya", text: "hi" }, { id: "m2", who: "Tex", tex: true, text: "hi", screen }] });
+  assert.ok(sets.check(onTex, config, { why }).some((x) => x.includes("screen: people only")));
+});
+
+test("a screen is what the app could send: a note or tabs, plain paths, a selection inside a note", () => {
+  const note = { workspace: "@supa", path: "plans/q3.md" };
+  assert.deepEqual(texScreen.screenProblems({ note }), []);
+  assert.deepEqual(texScreen.screenProblems({ tabs: [note] }), []);
+  assert.ok(texScreen.screenProblems({}).some((x) => x.includes("names a note or tabs")));
+  assert.ok(texScreen.screenProblems({ tabs: [note], selection: "x" }).some((x) => x.includes("needs a note")));
+  for (const path of ["../x.md", "a/../x.md", "/x.md", "@supa/x.md", "x.txt"]) assert.ok(texScreen.screenProblems({ note: { ...note, path } }).length > 0, path);
+  assert.ok(texScreen.screenProblems({ tabs: Array.from({ length: 9 }, () => note) }).length > 0);
+  assert.ok(texScreen.screenProblems({ note, selection: "x".repeat(2001) }).length > 0);
+  assert.ok(texScreen.screenProblems({ note, where: "home" }).some((x) => x.includes('no "where"')));
 });

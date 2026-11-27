@@ -21,12 +21,16 @@
  *    (`worldLocal.js`): the preview's made-up ones, or on main the caller's own shared ones.
  *  - `open { source: "chat" | "set" | "maya" | "shared", chatId?, convId?, versionId?, base? }` → `{ sandboxId, people, rows }`:
  *    a real chat's texts so far (up to `base`, which is left out), or a Training or Dev conversation's (never the Test
- *    Set's), as the test chat's start; `maya` is the bench's Maya conversation.
+ *    Set's), as the test chat's start; `maya` is the bench's Maya conversation. `chatId: "app"` (source chat) is their
+ *    own chat with Tex in the Context app, and an "app" conversation runs there too: an in-app test chat, whose texts
+ *    run as app turns (Dev2, 2026-11-27: "1:1 group and in app tests").
  *  - `send { sandboxId, as?, text, pics?, replyTo? }` → `{ msgId }`: the text, as `as`, with up to 6 pictures
  *    (`[{ url, type?, name? }]`, https; `text` may then be empty) and as a reply to a row of this test chat, and its turn
  *    run in the background; `get` shows it.
  *    `tags`, `effect` and `app` add native tags, an effect, or another app's card, read into the words as a real
- *    text's are (`rich.js`); the row keeps them as `rich`.
+ *    text's are (`rich.js`); the row keeps them as `rich`. In an in-app test chat, `screen` is what the app had open
+ *    as it went (`{ note?: { workspace, path }, tabs?, selection? }`, `texSets.cjs` `screenProblems`): the turn's
+ *    On screen step reads it as it reads the app's saved copy (`chatRun.js` `appScreenChat`); the row keeps it.
  *  - `react { sandboxId, msgId, emoji, as? }` → `{ msgId }`: a tapback (❤️ 👍 👎 😂 ‼️ ❓) on any row with words.
  *  - `edit { sandboxId, msgId, text, as? }` → `{ msgId }`: one of the test texts edited, a kind "edit" row `on` it.
  *  - `unsend { sandboxId, msgId, as? }` → `{ msgId }`: one of the test texts taken back, a kind "unsend" row `on` it.
@@ -84,6 +88,7 @@ import { checkInTestChat, groupCheckIn } from "./checkin.js";
 import { searchBenchForPerson, searchForPerson } from "./search.js";
 import { forwardToPreview, openOnPreview } from "./preview.js";
 import { conversationOf, conversationStart, handleOf, setsList } from "./conversations.js";
+import { screenProblems } from "../../src/texScreen.cjs";
 import { changePeople, makeWorld, startRows, WORLD_SOURCE, worldAbout, worldInput, worldSpeaker } from "./world.js";
 import { localGroupKey, localPeople, localSession, worldPlace } from "./worldLocal.js";
 
@@ -95,6 +100,8 @@ export const DAILY_SENDS = 200;
 export const MAX_TEXT = 4_000;
 const SANDBOX_ID = /^[0-9a-f]{16}$/;
 const CHAT_KEY = /^[0-9a-f]{64}$/;
+/** `open`'s chatId for their own chat with Tex in the Context app (an in-app test chat). */
+const APP_CHAT_PICK = "app";
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,63})$/;
 /** The bench's Maya: her Dev conversation when the sets have one, else a fresh 1:1 (Dev2 removed it 2026-11-17). */
 export const MAYA_CONVO = "maya-and-tex";
@@ -159,10 +166,11 @@ export async function open(env, controlPlane, token, who, input, origin) {
     if (found.error && !(source === "maya" && found.error[0] === 404)) return refused(...found.error);
     conv = found.conv ?? { id: "maya", title: "Maya (test account)", set: "dev", kind: "one", members: ["Maya"], msgs: [] };
     // A group conversation runs in one of the caller's group chats (its Tex notes read, its history the conversation's).
-    chat = conv.kind === "group" ? input.chatId : "me";
+    chat = conv.kind === "group" ? input.chatId : "me"; // an in-app conversation runs in their own chat, as an app chat
     if (conv.kind === "group" && (typeof chat !== "string" || !CHAT_KEY.test(chat))) return refused(400, "a group conversation runs in one of your group chats: pass chatId");
   } else if (source === "chat") {
-    chat = typeof input.chatId === "string" && input.chatId !== "" ? input.chatId : "me";
+    // `chatId: "app"`: their own chat with Tex in the Context app, on the same history as their texts (`app-chat.md`).
+    chat = typeof input.chatId === "string" && input.chatId !== "" && input.chatId !== APP_CHAT_PICK ? input.chatId : "me";
   } else if (source === "shared") {
     chat = input.chatId;
   } else if (source === WORLD_SOURCE) {
@@ -188,7 +196,8 @@ export async function open(env, controlPlane, token, who, input, origin) {
     group = chat !== "me";
     owner = group ? { chat } : { person: answer.session.defaultWorkspaceId };
   } else if (!group && answer.session.defaultWorkspaceId !== owner.person) return refused(404, "That chat isn't shared with the developers (or no longer is).");
-  const kind = group ? "group" : "one";
+  const app = !group && ((conv !== null && conv.kind === "app") || (conv === null && source === "chat" && input.chatId === APP_CHAT_PICK));
+  const kind = group ? "group" : app ? "app" : "one";
   const ledgerChat = group ? owner.chat : ONE_TO_ONE_CHAT;
 
   let rows, history, people;
@@ -264,7 +273,7 @@ async function startChat(env, who, input, drafted, base, rows, history, threads 
   // A made-up chat's link, so another developer it is sent to can open it (`linkShare.js`); nothing else is linked.
   await keepLink(env, sandboxId, who.userId, about);
   // Listed for the person, so the Lab can follow a test chat an AI opened on their grant, and the AI one the Lab opened.
-  await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat, kind: group ? "group" : "1:1", versionId: about.versionId, by: byOf(input.by), at: Date.now() } }).catch(() => {});
+  await callSandbox(indexStub(env, who.userId), "meta", { key: `sb:${sandboxId}`, value: { sandboxId, source, chat, kind: group ? "group" : kind === "app" ? "app" : "1:1", versionId: about.versionId, by: byOf(input.by), at: Date.now() } }).catch(() => {});
   console.log(JSON.stringify({ event: "lab_sandbox_open", source, kind, rows: rows.length, draft: about.versionId !== "main" }));
   return json({ sandboxId, people, rows: rows.map(shown), fit: draftFit(TEX_CONFIG, drafted.config) });
 }
@@ -398,7 +407,7 @@ function alsoRows(about, also, first) {
 }
 
 /** `send`, and `retry`'s second half: a text, with its pictures and the row it replies to, and its turn. */
-async function send(deps, state, { as, text: typed = "", pics: given, replyTo, also, tags, effect, app }, cut = null) {
+async function send(deps, state, { as, text: typed = "", pics: given, replyTo, also, tags, effect, app, screen }, cut = null) {
   if (typeof typed !== "string" || typed.length > MAX_TEXT) return refused(400, `text is at most ${MAX_TEXT} characters`);
   // Native tags, an effect, another app's card: read into the words by the Worker's own code (`rich.js`).
   const read = await richText({ text: typed, tags, effect, app });
@@ -412,11 +421,17 @@ async function send(deps, state, { as, text: typed = "", pics: given, replyTo, a
     if (target.error) return refused(...target.error);
   }
   const about = state.meta.chat;
+  // What the app had open as this text went (an in-app test chat only), checked as a Testing message's is.
+  if (screen !== undefined && screen !== null) {
+    if (about.kind !== "app") return refused(400, "screen is what the app had open: only an in-app test chat has one (open it with chatId app)");
+    const problems = screenProblems(screen);
+    if (problems.length > 0) return refused(400, problems.join("; "));
+  }
   if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
   const speaker = speakerOf(about, as);
   if (speaker.error) return refused(...speaker.error);
   const { at, eid, id } = newIds();
-  const row = { id, eid, who: speaker.speaker, text, at, prod: false, line: rowLine(lineOf(about)), ...(pics.length > 0 ? { pics } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}), ...(rich ? { rich } : {}) };
+  const row = { id, eid, who: speaker.speaker, text, at, prod: false, line: rowLine(lineOf(about)), ...(pics.length > 0 ? { pics } : {}), ...(screen ? { screen } : {}), ...(typeof replyTo === "string" ? { replyTo } : {}), ...(rich ? { rich } : {}) };
   const burst = alsoRows(about, also, row);
   if (burst.error) return refused(...burst.error);
   return await addRow({ ...deps, state, row: burst.rows.length > 0 ? { ...row, also: burst.rows.map((r) => r.id) } : row, cut, also: burst.rows });
@@ -489,7 +504,7 @@ function aboutOf(state) {
   const rows = state.rows ?? [];
   return {
     source: about.source,
-    kind: about.kind === "group" ? "group" : "1:1",
+    kind: about.kind === "group" ? "group" : about.kind === "app" ? "app" : "1:1",
     chat: about.chat,
     versionId: about.versionId ?? "main",
     ...(about.convId ? { convId: about.convId } : {}),
@@ -618,7 +633,7 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       if (row.kind === "edit" || row.kind === "unsend") return await change(deps, before, { msgId: row.on, text: row.text, as: row.who }, row.kind, row.id);
       if (row.kind === "joined") return await addTex({ ...deps, helpers: routeHelpers() }, before, { as: row.who }, row.id);
       if (row.kind === "checkin") return await groupCheckIn({ ...deps, helpers: routeHelpers() }, before, { as: row.who }, row.checkin, row.id);
-      return await send(deps, before, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo }, row.id);
+      return await send(deps, before, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo, screen: row.screen }, row.id);
     }
     case "back":
     case "drop": {
