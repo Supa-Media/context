@@ -181,6 +181,23 @@ keeps its notes there and knows what its modes ask of it.
      reached the main chat and got done. Tests: `botLogins.test.mjs`
      "setup_bot binds", `apps/convex/__tests__/botHooks.test.ts` "the
      agents' door".
+  6. **Every order a bot must follow is in the pasted prompt, never only in
+     a tool's reply** (2026-11-27: Muse ran `setup_bot`, and its app refused
+     the steps in the reply as possible prompt injection, so it never set up
+     its 5-minute check-in). The prompt says: connect; make the 5-minute
+     check-in job (a bot that checks in) or the relay routine and the
+     webhook, saved with no area named (a bot reached by webhook); run
+     `setup_bot` and answer its check; keep the rules below the line. The
+     rules (`areaBots.cjs` `botMemory`) are one text for every bot of a
+     reach, whatever it holds: no area is named, since which areas a bot
+     holds changes (Dev, 2026-11-27: "we shouldnt have area specific
+     wording as area assignments can change"), and `orient { for }` lists
+     them. A check-in bot's rules keep the check-in, as the one schedule of
+     its own it keeps. `setup_bot`'s reply still lists its steps, as a
+     reminder a bot may skip. Tests: `apps/mobile/__tests__/areaBotPrompts.test.ts`
+     "the setup prompt" and "what a bot keeps in memory",
+     `apps/mcp/test/setArea.test.mjs` "a webhook is saved and tested with no
+     area".
      A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.

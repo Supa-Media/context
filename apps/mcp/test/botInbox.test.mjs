@@ -245,13 +245,12 @@ test("the object client asks ws.bots.check at the reader's clearance", async () 
   assert.equal(await unserved.check("Grok Bot"), null);
 });
 
-test("the setup prompt tells a bot with no webhook to check every 5 minutes, and a webhook bot not", () => {
-  const areas = [{ folder: AREA, title: "Scorecard", modes: [] }];
-  const polling = areaBots.setupPrompt({ bot: "Grok Bot", kind: "agent", whose: "@seyi", areas, reach: "mail" });
+test("what a bot with no webhook keeps says to check every 5 minutes, and a webhook bot's not", () => {
+  const polling = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "mail" });
   assert.match(polling, /every 5 minutes/i);
   assert.match(polling, /orient \{ for: "Grok Bot", check: true \}/);
   assert.match(polling, /on a timer that survives/);
-  const hooked = areaBots.setupPrompt({ bot: "Grok Bot", kind: "agent", whose: "@seyi", areas, reach: "webhook" });
+  const hooked = areaBots.botMemory({ bot: "Grok Bot", kind: "agent", whose: "@seyi", reach: "webhook" });
   assert.doesNotMatch(hooked, /check: true/);
 });
 

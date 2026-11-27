@@ -15,7 +15,7 @@
  */
 
 const { mailOnlyText, routinesText } = require("./areaRoutines.cjs");
-const { pictureStep, relayMemory, setupStep } = require("./botRelay.cjs");
+const { pictureStep, relayMemory, relayStep } = require("./botRelay.cjs");
 const { BOT_APPS, reachOf } = require("./botApps.cjs");
 
 /** The kinds of bot a card can say it is: the apps `botApps.cjs` knows. */
@@ -98,8 +98,16 @@ function mailText(where, name, reach, workspace) {
   return `People and other bots talk to you in ${where}mail/, one note per sender (${where}mail/<sender>.md). Join each one once as ${quoted(mailJoinName(name))} with write { action: "mail", path: "<that note>", args: { join: ${quoted(mailJoinName(name))} } }, pass the mailbox it gives you on every call, read with fetch { id: "<that note>", args: { mail: true } }, and answer in the same note with write { action: "mail", path: "<that note>", args: { text } }.${
     reach === "webhook"
       ? ` New mail also reaches your webhook as a POST that names the note and who wrote, never the message. ${relayMemory()}`
-      : ` Every 5 minutes, on a timer that survives your session restarting, call orient { ${contextArg(workspace)}for: ${quoted(name)}, check: true }: it answers in one line when nothing is new, or lists only what is, with each note's path. Open just those; don't orient in full each time.`
+      : ` ${checkInLine(name, workspace)}`
   }`;
+}
+
+/**
+ * How a bot with no webhook hears of anything (Dev, 2026-11-27, of Muse's prompt: "where is the 5 minute timer
+ * loop?"): said in its memory whatever it holds, delegate or area owner, so the loop is in every prompt for it.
+ */
+function checkInLine(name, workspace) {
+  return `Every 5 minutes, on a timer that survives your session restarting, call orient { ${contextArg(workspace)}for: ${quoted(name)}, check: true }: it answers in one line when nothing is new, or lists only what is, with each note's path. Open just those; don't orient in full each time. This check-in is the only way new mail and routines reach you.`;
 }
 
 /**
@@ -140,9 +148,9 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, ca
   lines.push("");
   lines.push(mailText(where, name, reach, workspace));
   lines.push("");
-  lines.push(routinesText(where));
+  lines.push(routinesText(where, reach));
   lines.push("");
-  lines.push(mailOnlyText());
+  lines.push(mailOnlyText(reach));
   const modeText = modeLines(modes, owner || person);
   if (modeText.length > 0) {
     lines.push("");
@@ -155,10 +163,10 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, ca
 }
 
 /**
- * The prompt for a bot that holds no area yet: `orient for` lists the areas it
- * owns or is the delegate of once somebody names it on one.
+ * What every bot keeps in memory, whatever it holds today (`botMemory`): `orient for` lists the areas it owns or is
+ * the delegate of, so nothing here names one; its mail, and its webhook relay or its 5-minute check-in, by its reach.
  */
-function delegatePrompt({ bot, kind, whose, workspace, card }) {
+function delegatePrompt({ bot, kind, whose, workspace, card, reach }) {
   const name = nameOf(bot) || "the bot";
   const label = botLabel(kind) || "bot";
   const person = nameOf(whose);
@@ -176,9 +184,11 @@ function delegatePrompt({ bot, kind, whose, workspace, card }) {
   lines.push("");
   lines.push("Keep what you learn about an area in that area's folder. Projects live in the Projects folder; give each one you start an area: line naming the area it serves.");
   lines.push("");
-  lines.push(routinesText("<area>/"));
+  lines.push(mailText("<area>/", name, reachKind(reach, kind), workspace));
   lines.push("");
-  lines.push(mailOnlyText());
+  lines.push(routinesText("<area>/", reachKind(reach, kind)));
+  lines.push("");
+  lines.push(mailOnlyText(reachKind(reach, kind)));
   lines.push("");
   lines.push(`Ask an area's owner${person ? ` (or ${person})` : ""} before anything its approval rules name.`);
   return lines.join("\n");
@@ -208,9 +218,9 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
   lines.push("");
   lines.push(mailText("<area>/", name, reach, workspace));
   lines.push("");
-  lines.push(routinesText("<area>/"));
+  lines.push(routinesText("<area>/", reach));
   lines.push("");
-  lines.push(mailOnlyText());
+  lines.push(mailOnlyText(reach));
   lines.push("");
   lines.push("In each area, work as its modes say:");
   for (const mode of MODE_ORDER) lines.push(`- ${mode}: ${MODE_MEANINGS[mode]}`);
@@ -220,42 +230,41 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
 }
 
 /**
- * The one prompt a person pastes into their bot, which sets itself up (the
- * owner, 2026-11-25: "we can't assume that they have the mcp setup so that
- * should be in every instruction"): connect Context and wait for the person to
- * sign in; hand Context its webhook from its own shell, so no chat sees the
- * secret; keep the rest in memory; then run `manage area { setup_bot }`, whose
- * answer lists what is left (the relay routine, its picture, the check). `areas` is
- * every area the bot owns or is the delegate of (`actsFor` names that area's
- * owner); `endpoint` the MCP address. (`card`, its card's path, is no longer
- * read: setup_bot names it.)
+ * The one prompt a person pastes into their bot. Everything the bot must do is here, in the person's own words to it,
+ * because a bot's app treats orders in a tool's reply as possible prompt injection and refuses them (Muse, 2026-11-27,
+ * refusing the steps `setup_bot` answered with). So: connect Context; set up how it is reached (its 5-minute check-in,
+ * or its webhook and relay routine); run `setup_bot`, which binds it and mails it a check, and answer that check; keep
+ * the rules below the line (`botMemory`). Nothing names an area, since which areas a bot holds changes (Dev,
+ * 2026-11-27: "we shouldnt have area specific wording as area assignments can change"). `areas` is no longer read.
  */
-function setupPrompt({ bot, kind, whose, workspace, areas, reach, endpoint }) {
+function setupPrompt({ bot, kind, whose, workspace, reach, endpoint }) {
   const name = nameOf(bot) || "the bot";
   const label = botLabel(kind) || "bot";
   const person = nameOf(whose);
-  const owned = Array.isArray(areas) ? areas.filter((area) => area && typeof area.folder === "string" && area.folder !== "") : [];
-  const first = owned[0]?.folder ?? "";
   const ctx = contextArg(workspace);
-  const steps = [];
-  steps.push(
+  // Its card's reach, else its app's way (`botApps.cjs`): a Muse card with no reach: line still checks in.
+  const way = reachOf(reach, kind);
+  const app = botLabel(kind) || "your app";
+  const steps = [
     `Connect Context. If you don't have it yet, add a remote MCP server named Context at ${endpoint || "https://mcp.context.lc/mcp"}. When it asks to sign in, give me the sign-in link and wait while I approve it.`,
-  );
-  if (reach === "webhook" && first !== "") {
+  ];
+  if (way === "webhook") {
+    steps.push(relayStep());
     steps.push(
-      `Give Context your webhook, so new mail reaches you. If your webhook checks a secret, call manage area { ${ctx}area: ${quoted(first)}, bot: { name: ${quoted(name)}${person ? `, whose: ${quoted(person)}` : ""}, reach: "webhook" }, webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>", header_from_shell: "Authorization" } }. It answers with a one-time curl command: run it in your shell with your secret's environment variable, so the secret goes straight to Context and never into this chat. If your webhook takes no secret, pass webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>" } instead. Then call manage area { ${ctx}area: ${quoted(first)}, test_webhook: ${quoted(name)} } and tell me how the test went.`,
+      `Give Context your webhook, so new mail and routines reach you. If your webhook checks a secret, call manage area { ${ctx}webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>", header_from_shell: "Authorization" } } and run the one-time curl command it answers with in your shell, with your secret's environment variable, so the secret goes straight to Context and never into this chat. If your webhook takes no secret, pass webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>" } instead.`,
+    );
+  } else {
+    // A check-in bot hears of nothing else (Dev, 2026-11-27, of Muse's prompt: "where is the 5 minute timer loop?").
+    steps.push(
+      `Make a job in ${app} that runs every 5 minutes, on a schedule that keeps going after this chat ends, whose only call is orient { ${ctx}for: ${quoted(name)}, check: true }. Most runs answer "Nothing new" and cost almost nothing; when one lists something, open only what it lists and answer in the same note. If ${app} can't run a job on a schedule, tell me: I can switch you to a webhook on your bot page.`,
     );
   }
+  steps.push(
+    way === "webhook"
+      ? `From this main chat, run manage area { ${ctx}setup_bot: ${quoted(name)} }. It ties this chat to ${name} and sends your webhook a test routine, which your relay routine passes to this chat: when it arrives, do its job as yourself, within 5 minutes.`
+      : `From this main chat, run manage area { ${ctx}setup_bot: ${quoted(name)} }. It ties this chat to ${name} and mails you a setup check, naming its note: answer it there in one line, as yourself, within 5 minutes.`,
+  );
   steps.push("Save everything below the line to your memory, and follow it every session.");
-  // Last, as the bot's own main chat: one call binds its login, mails it a check and answers with the steps left, the
-  // relay routine and its picture among them (Dev, 2026-11-27; `botRelay.cjs` `setupStep`).
-  steps.push(setupStep(name, workspace));
-  const memory =
-    owned.length > 1
-      ? areasPrompt({ bot: name, kind, whose: person, workspace, areas: owned, reach })
-      : owned.length === 1
-        ? areaPrompt({ bot: name, kind, whose: person, workspace, area: owned[0].folder, title: owned[0].title, modes: owned[0].modes, reach, actsFor: owned[0].actsFor })
-        : delegatePrompt({ bot: name, kind, whose: person, workspace });
   return [
     `Set yourself up as ${name}${person ? `, ${person}'s ${label}` : ""}, in Context. Do these in order:`,
     "",
@@ -263,12 +272,22 @@ function setupPrompt({ bot, kind, whose, workspace, areas, reach, endpoint }) {
     "",
     "---",
     "",
-    memory,
+    botMemory({ bot: name, kind, whose: person, workspace, reach: way }),
   ].join("\n");
+}
+
+/**
+ * The rules a bot keeps in memory, handed by `setup_bot`: the same for every bot of one reach, whether it holds no
+ * area or several, because `orient { for }` lists what it holds at the time (Dev, 2026-11-27: "we shouldnt have area
+ * specific wording as area assignments can change"). A bot that checks in keeps its 5-minute check-in in it.
+ */
+function botMemory({ bot, kind, whose, workspace, reach }) {
+  return delegatePrompt({ bot, kind, whose, workspace, reach: reachOf(reach, kind) });
 }
 
 module.exports = {
   setupPrompt,
+  botMemory,
   areasPrompt,
   BOT_KINDS,
   REACH_KINDS,
