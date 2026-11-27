@@ -187,7 +187,9 @@ in the mail asking for Seyi's raw thought, and nobody read it.
   mcp access please, let it do anything no restrictions"). A comment's run still only reads. A step nobody can take back
   (an email, a handle claim, a vault key's first use) still waits for the person's yes in the tool, checked by the
   gateway, as non-negotiable 5 holds. The answer is sent back from the same texting grant, so it is signed `tex` on the mailbox it already
-  has. Nobody is texted.
+  has. A reply in mail never texts the person by itself (Dev, 2026-11-27: "AgentMail is for agents really, if an agent
+  needs me, tex included it should use the text user flow"): when the mail needs them, the run texts them with
+  `notify_me` (`send` action `notify`), as any of their agents would, under their own attention settings.
 
 **Simplifying it away costs:** a reply to Tex sits in the note until the person thinks to ask, which is the Pablo
 thread. Running it as the person's chat turn instead would text them for every line a bot sends. Tested by

@@ -18,6 +18,10 @@ import mail from "../../../packages/shared/src/mail.cjs";
 import { deliverMail, TEX_MAIL_ALARM } from "../src/mail/deliver.js";
 import { routineDispatchFor } from "../../../packages/tex/gateway/texStore/dispatch.js";
 import { handleMailRun, mailTurn } from "../../../packages/tex/gateway/agent/mailRunRoute.js";
+import { noteRunTools } from "../../../packages/tex/gateway/agent/noteRun.js";
+import { sixToolsOver } from "../../../packages/tex/gateway/agent/sixTools.js";
+import { WITHHELD_TOOLS } from "../../../packages/tex/gateway/agent/textingWrites.js";
+import { attentionToolDefinitions } from "../src/tools/schemas/attention.js";
 
 const PATH = "areas/growth/mail/tex.md";
 const OWNER = "ws_dev_personal";
@@ -191,4 +195,22 @@ test("an empty answer sends nothing", async () => {
   const world = routeWorld({ answer: "  " });
   assert.deepEqual(await (await world.run()).json(), { outcome: "answered", sent: false });
   assert.equal(world.calls.some(([name]) => name === "write_note"), false);
+});
+
+test("when an agent in the mail needs the person, the run can text them the way any agent does: notify_me", async () => {
+  // Dev, 2026-11-27: "AgentMail is for agents really, if an agent needs me, tex included it should use the text user flow".
+  // No reply in mail texts them by itself; the run is offered notify_me (`send` action `notify`) from their own connection.
+  const offered = attentionToolDefinitions().concat([{ name: "read_note", annotations: { readOnlyHint: true } }, { name: "text_progress" }]);
+  const tools = noteRunTools(offered, { full: true });
+  assert.ok(tools.some((tool) => tool.name === "notify_me"), "the mail run holds notify_me");
+  assert.equal(noteRunTools(offered).some((tool) => tool.name === "notify_me"), false, "a comment's run does not");
+  const six = sixToolsOver(tools, null);
+  const send = six.tools.find((tool) => tool.name === "send");
+  assert.ok(send, "notify_me reaches the model as the send tool");
+  assert.match(JSON.stringify(send), /notify/);
+  assert.equal(WITHHELD_TOOLS.has("notify_me"), false, "Tex is never kept from it");
+  // And nothing else texts them: the route's only write is the mail line back.
+  const world = routeWorld();
+  await world.run();
+  assert.deepEqual(world.calls.map(([name]) => name).filter((name) => name !== "read_note"), ["write_note"]);
 });
