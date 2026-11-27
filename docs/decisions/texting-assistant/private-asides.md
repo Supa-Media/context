@@ -63,7 +63,7 @@ only", `privateAsides.test.ts` "a calendar clash goes to the calendar's own pers
 Handing the vault link back to the model lets it paste the link and the steps into the group. Letting the gateway
 name who is texted lets a turn text anyone's 1:1. Wrapping the vault watch outside the private links leaves a save
 that never carries the group on. `apps/mcp/test/privateAside.test.mjs`,
-`packages/tex/worker/privateAsides.test.ts` and the replay cases `group-login-on-the-side` and `group-follow-up-both-ways` fail if any of these is
+`packages/tex/worker/privateAsides.test.ts` and the replay case `group-login-on-the-side` fail if any of these is
 reversed.
 
 ## Not yet
