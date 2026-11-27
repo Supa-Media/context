@@ -154,7 +154,6 @@ describe("/lab properties panel, viewer and modules page", () => {
     expect(q("#nGoalText")?.textContent).toContain("Answers every text first.");
   });
 
-<<<<<<< HEAD
   test("a group's wires are listed once per line the canvas draws, with how many wires share it", () => {
     mount();
     act(() => set({ sel: { t: "node", id: "frontDoor" } }));
@@ -171,8 +170,6 @@ describe("/lab properties panel, viewer and modules page", () => {
     expect(q("#props .runmeta")?.textContent).toContain(froms.size === 1 ? "from " : `from ${froms.size} steps`);
   });
 
-=======
->>>>>>> 8a8d352829093aae6b2d930583be24b1821c12ff
   test("a step with no goal says what one is for", () => {
     mount();
     act(() => edit(() => void (node("fd")!.goal = "")));

@@ -53,9 +53,6 @@ export const LAB_CSS_PANEL = String.raw`
 .tl #props .advbody .file{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text2);background:var(--chip);border-radius:6px;padding:6px 8px;word-break:break-all;margin:0}
 .tl #props .advbody .lgno{margin:6px 0 0}
 .tl #props .advbody textarea.note{width:100%;box-sizing:border-box}
-<<<<<<< HEAD
 .tl #props .wr .wrn{color:var(--dim);font-size:11px;font-family:var(--mono)}
-=======
->>>>>>> 8a8d352829093aae6b2d930583be24b1821c12ff
 .tl #props .delrow{padding:16px 0 12px}
 `;
