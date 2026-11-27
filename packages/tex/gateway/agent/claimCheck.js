@@ -633,8 +633,14 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
   /** Every check's finding on this answer, each kind once a turn: `[{ kind, notice, advice }]`. */
   function findings(answer) {
     const found = shape(answer, steps);
-    const fact = (kind, notice) => found.push(finding(kind, notice));
-    const advise = (kind, notice) => found.push(finding(kind, notice, true));
+    // Every notice as this turn can follow it: with no browser, none sends Tex to one (`browserReach.js` `forReach`).
+    const reach = { browser: canBrowse() || browserTried }; // a turn that called a browser tool had one
+    const keep = (kind, notice, advice) => {
+      const told = forReach(notice, reach);
+      if (typeof told !== "string" || told.trim() !== "") found.push(finding(kind, told, advice));
+    };
+    const fact = (kind, notice) => keep(kind, notice, false);
+    const advise = (kind, notice) => keep(kind, notice, true);
     // A note link nobody gave: a shortened or retyped name opens "That file does not exist".
     const unknown = linkNoticed ? [] : links.unknown(answer);
     if (unknown.length > 0) {
@@ -686,7 +692,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     // answer that offers an email can still ask them to go and find it.
     if (!handedBack && handsWorkBack(answer, { held })) {
       handedBack = true;
-      fact("handback", forReach(HANDBACK_NOTICE, { browser: canBrowse() }));
+      fact("handback", HANDBACK_NOTICE);
     }
     if (!payNoticed && canFillCard() && handsBackThePayment(answer)) {
       payNoticed = true;

@@ -26,6 +26,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { forReach } from "../../../packages/tex/gateway/agent/browserReach.js";
 import { LATER_NOTICE, promisesLater } from "../../../packages/tex/gateway/agent/otherRoutes.js";
 import {
   ASK_NOTICE,
@@ -80,7 +81,7 @@ test("a promise of work by a time is a promise to keep", () => {
   assert.equal(promisesLater("I'll have it in 5 minutes once you say yes."), false, "their later");
   assert.equal(promisesLater("The meeting is in 10 minutes."), false, "not a promise");
   const check = claimCheck({ question: "breakdown?" });
-  assert.equal(check.check("I'll text the breakdown within 15 minutes."), LATER_NOTICE);
+  assert.equal(check.check("I'll text the breakdown within 15 minutes."), forReach(LATER_NOTICE, { browser: false })); // no web here, so no browser: the notice as such a turn is told it (`browserReach.js`)
 });
 
 test("an empty answer gets one more round, and the second answer is the one sent", async () => {
