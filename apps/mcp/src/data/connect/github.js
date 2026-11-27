@@ -22,6 +22,13 @@
  * nothing here. A deployment is no good alone: GitHub marks every older one `inactive` once a newer one goes out,
  * stamped when it was superseded. A pull request merged but not yet deployed is filled in by a later run.
  *
+ * The merge commit is the pull request's own `merge_commit_sha`, from the REST list of closed pull requests, which the
+ * installation's pull_requests:read covers. GraphQL's `mergeCommit` is a Commit and needs Contents, which the read-only
+ * installation does not hold: asking for it failed every run after #4379 (2026-11-26). The list is sorted by creation,
+ * so by number, and each wanted number's page is found by galloping search: a bounded number of pages a run, never one
+ * call per pull request, and history 90 days deep is reachable. That list answers with whole pull requests, bodies
+ * included, since REST picks no fields: only each one's number and merge_commit_sha are taken, and nothing else is kept.
+ *
  * No body, comment, review, branch name of a pull request, commit message or file is read: a title and a login are
  * the most a row says. At most 10 repositories are read, in name order, when the owner picked none.
  */
@@ -84,7 +91,7 @@ const iso = (value) => {
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const clip = (value, length) => String(value ?? "").replace(/[\r\n]+/g, " ").slice(0, length);
 
-const PR_FIELDS = "number title createdAt mergedAt updatedAt additions deletions author { login } mergeCommit { oid } labels(first: 20) { nodes { name } }";
+const PR_FIELDS = "number title createdAt mergedAt updatedAt additions deletions author { login } labels(first: 20) { nodes { name } }";
 
 /** A label `follow-up:<kind>` names what the pull request follows up (the repository's own convention; Context's is `scripts/pr-follows.mjs`). */
 const FOLLOW_UP = "follow-up:";
@@ -96,7 +103,11 @@ export function followUpOf(pr) {
   return label === undefined ? "" : clip(label.slice(FOLLOW_UP.length).trim().toLowerCase(), 40);
 }
 
-export function pullRequestRow(repo, pr) {
+/**
+ * `mergeSha` is the pull request's REST `merge_commit_sha`: a string, `null` when GitHub names none, or `undefined`
+ * when this run did not reach it, which leaves a merged row's `merge_commit` empty so a later run reads it again.
+ */
+export function pullRequestRow(repo, pr, mergeSha = undefined) {
   if (!pr || !Number.isInteger(pr.number)) return null;
   const opened = iso(pr.createdAt);
   if (opened === "") return null;
@@ -111,10 +122,15 @@ export function pullRequestRow(repo, pr) {
     deployed: "",
     lines_added: Number.isFinite(pr.additions) ? String(pr.additions) : "",
     lines_removed: Number.isFinite(pr.deletions) ? String(pr.deletions) : "",
-    // A merged pull request GitHub names no merge commit for says "none", so it is not read again for one.
-    merge_commit: iso(pr.mergedAt) === "" ? "" : clip(pr.mergeCommit?.oid, 40) || "none",
+    merge_commit: iso(pr.mergedAt) === "" ? "" : mergeCommitOf(mergeSha),
     follow_up: followUpOf(pr),
   };
+}
+
+/** A merged pull request GitHub names no merge commit for says "none", so it is not read again for one; one not reached says "". */
+function mergeCommitOf(mergeSha) {
+  if (mergeSha === undefined) return "";
+  return clip(mergeSha, 40) || "none";
 }
 
 export function deployRow(repo, node) {
@@ -201,6 +217,72 @@ async function olderPulls({ fetcher, token, repo, fromMs, beforeMs }) {
     after = got.data.search.pageInfo.endCursor;
   }
   return { ok: true, rows, more: true };
+}
+
+/** Closed pull requests a REST page holds, newest first: 50, since each carries both repositories and stays well under the answer cap. */
+const SHA_PAGE = 50;
+/** The most REST pages one repository's merge commits read in a run. */
+const MAX_SHA_READS = 4 * MAX_PAGES;
+
+/**
+ * The REST `merge_commit_sha` of each merged pull request in `numbers`, by number: `{ok: true, shas}` with a string or
+ * null for each one reached, or the failed read. The closed list sorted by creation descends by number, so the page
+ * holding a number is the first whose lowest number is at or below it, found by galloping from the last page found.
+ */
+export async function mergeShas({ fetcher, token, repo, numbers }) {
+  const shas = new Map();
+  const wanted = [...new Set(numbers)].filter(Number.isInteger).sort((a, b) => b - a);
+  const pages = new Map();
+  let reads = 0;
+  let failed = null;
+  const read = async (page) => {
+    if (pages.has(page)) return pages.get(page);
+    if (failed !== null || reads >= MAX_SHA_READS) return null;
+    reads += 1;
+    const query = new URLSearchParams({ state: "closed", sort: "created", direction: "desc", per_page: String(SHA_PAGE), page: String(page) });
+    const got = await appJson(fetcher, `${GITHUB_API}/repos/${repo}/pulls?${query}`, { headers: githubHeaders(token) }, NAME);
+    if (!got.ok) {
+      failed = got;
+      return null;
+    }
+    const pulls = (Array.isArray(got.body) ? got.body : []).filter((pull) => Number.isInteger(pull?.number));
+    for (const pull of pulls) shas.set(pull.number, typeof pull.merge_commit_sha === "string" && pull.merge_commit_sha !== "" ? pull.merge_commit_sha : null);
+    pages.set(page, pulls);
+    return pulls;
+  };
+  const reaches = (pulls, number) => pulls.length === 0 || pulls[pulls.length - 1].number <= number;
+  // Every page at or before `base` holds only numbers above the one sought.
+  let base = 0;
+  for (const number of wanted) {
+    if (shas.has(number)) continue;
+    let low = base;
+    let step = 1;
+    let high = base + step;
+    let pulls = await read(high);
+    while (pulls !== null && !reaches(pulls, number)) {
+      low = high;
+      step *= 2;
+      high = base + step;
+      pulls = await read(high);
+    }
+    if (pulls === null) break;
+    let found = true;
+    while (low + 1 < high) {
+      const mid = Math.floor((low + high) / 2);
+      const at = await read(mid);
+      if (at === null) {
+        found = false;
+        break;
+      }
+      if (reaches(at, number)) high = mid;
+      else low = mid;
+    }
+    // Out of reads, or past the last page: no smaller number is reached either.
+    if (!found || pages.get(high).length === 0) break;
+    base = high - 1;
+  }
+  if (failed !== null) return failed;
+  return { ok: true, shas: new Map(wanted.filter((number) => shas.has(number)).map((number) => [number, shas.get(number)])) };
 }
 
 /** Production deployments created since `sinceMs`, newest first. */
@@ -371,6 +453,13 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
       if (!again.ok) return failedOf(again);
       add("pull-requests", again);
     }
+    // Merge commits come from the REST pull request field, joined by number: GraphQL's mergeCommit needs Contents.
+    const pullRows = out["pull-requests"].rows.filter((row) => row.repo === repo && row.merged !== "");
+    if (pullRows.length > 0) {
+      const named = await mergeShas({ fetcher, token: minted.token, repo, numbers: pullRows.map((row) => Number(row.number)) });
+      if (!named.ok) return failedOf(named);
+      for (const row of pullRows) if (named.shas.has(Number(row.number))) row.merge_commit = mergeCommitOf(named.shas.get(Number(row.number)));
+    }
     const kept = span("deploys");
     const fullDeploys = !Number.isFinite(kept.oldestMs) || kept.oldestMs > floor + DAY_MS;
     const deploys = await deployments({ fetcher, token: minted.token, repo, sinceMs: fullDeploys ? floor : Math.max(now - RECENT_MS, floor) });
@@ -397,7 +486,10 @@ export async function readGithub({ kept, spans = {}, sheets = {}, now, fetcher, 
   const keptById = new Map((sheets["pull-requests"] ?? []).map((row) => [String(row.id), row]));
   out["pull-requests"].rows = out["pull-requests"].rows.map((row) => {
     const before = keptById.get(row.id);
-    return before && cellOf(before.deployed) !== "" && cellOf(before.merged) === row.merged ? { ...row, deployed: cellOf(before.deployed) } : row;
+    if (!before || cellOf(before.merged) !== row.merged) return row;
+    // A merge commit this run did not reach keeps the one already read.
+    const commit = row.merge_commit === "" ? cellOf(before.merge_commit) : row.merge_commit;
+    return { ...row, merge_commit: commit, deployed: cellOf(before.deployed) !== "" ? cellOf(before.deployed) : row.deployed };
   });
   const incomingIds = new Set(out["pull-requests"].rows.map((row) => row.id));
   const keptPulls = (sheets["pull-requests"] ?? []).filter((row) => !incomingIds.has(String(row.id))).map(pullOfSheet);

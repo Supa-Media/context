@@ -221,8 +221,16 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   deployment `inactive`, stamped when it was superseded, so matching only
   `success` gave every pull request the one live deployment and open to live
   read days (2026-11-25). A time already kept is checked again once the
-  releases kept reach back to its merge. No body,
-  review, comment, commit message or file is read.
+  releases kept reach back to its merge. A pull request's merge commit is
+  its REST `merge_commit_sha`, from the closed pull request list joined by
+  number, never GraphQL's `mergeCommit`: that is a Commit, which needs the
+  Contents permission the read-only installation does not hold, and asking
+  for it failed every run from 2026-11-26 (#4379) until it was taken out.
+  The list is sorted by number and each page is found by galloping search,
+  a bounded number of pages a run, never a call per pull request. That
+  list answers with whole pull requests, since REST picks no fields; only
+  the number and `merge_commit_sha` are taken. No body, review, comment,
+  commit message or file is kept.
 - **Connecting answers at once; the first run happens behind it**
   (2026-11-25, after production showed the first run taking about 95
   seconds while the app gave up on every call after 30). Finishing the
