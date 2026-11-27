@@ -8,8 +8,8 @@ const notes = (held) => async (name, args) =>
 
 export default {
   id: "playbook-after-mail",
-  incident: "2026-11-15: a member said \"yes, and every one after\" to having each new referral posted in the chat, and Tex said it couldn't save that as a standing rule, because the turn had read the referral email. Asked again once that was fixed, Tex said this chat isn't allowed to write there.",
-  cause: "The playbook refused any change on a turn that had read an email, a page or a file, even when a member asked for it (`withPlaybookGate`, removed by the owner). Then: the playbook was one note per workspace, tex/groups/playbook.md, and a chat with a home may write only inside its home, so the save was refused every time (moved into the home by the owner).",
+  incident: "2026-11-27: a person asked Tex to hand a folder to a bot by mail; the turn had read the bot's mail note, and joining that mail as \"tex\" was refused as a skill write. 2026-11-15: a member said \"yes, and every one after\" to having each new referral posted in the chat, and Tex said it couldn't save that as a standing rule, because the turn had read the referral email. Asked again once that was fixed, Tex said this chat isn't allowed to write there.",
+  cause: "The tex/skills/ guard (`withLearnedSkills`) read every string in a call as a path, so mail: { join: \"tex\" } looked like the tex/ folder on a tainted turn. Earlier: the playbook refused any change on a turn that had read an email, a page or a file, even when a member asked for it (`withPlaybookGate`, removed by the owner). Then: the playbook was one note per workspace, tex/groups/playbook.md, and a chat with a home may write only inside its home, so the save was refused every time (moved into the home by the owner).",
   path: "group tag",
   async run() {
     const chat = await groupChat();
@@ -27,6 +27,15 @@ export default {
       assert.doesNotMatch(replies, /can't change tex\/groups\/playbook\.md/, "a member's ask is not refused after the turn read an email");
       const kept = chat.team.get(PLAYBOOK_PATH)?.body;
       assert.match(typeof kept === "string" ? kept : new TextDecoder().decode(kept ?? new Uint8Array()), /RULE-KEPT/, "the rule is in the playbook");
+
+      // The same tainted turn shape joining a bot's mail as "tex": a mailbox name is not the tex/ folder.
+      chat.team.set("tex/groups/heron-mail.md", { body: "---\ntrust: untrusted\n---\n\n# Mail\n\nheron: ready for work.\n", etag: "m1" });
+      const mailed = await chat.tag("ada", "Tex send this folder to the heron bot", [
+        { toolCalls: [{ name: "read_note", args: { path: "tex/groups/heron-mail.md" } }] },
+        { toolCalls: [{ name: "write_note", args: { path: "tex/groups/heron-mail.md", mail: { join: "tex" } } }] },
+        { text: "Joined Heron's mail." },
+      ]);
+      assert.doesNotMatch(JSON.stringify(mailed.requests.at(-1)?.messages ?? []), /can't write or change a skill/, "a mailbox named tex is not the tex/ folder");
     } finally {
       chat.restore();
     }

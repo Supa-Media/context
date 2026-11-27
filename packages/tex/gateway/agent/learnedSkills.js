@@ -255,10 +255,18 @@ export function skillWriteRefusal(path, content, existing, folder = LEARNED_SKIL
 }
 
 /** The text of every string in `value` that names a path, at any depth. */
+/**
+ * Keys whose strings are never paths: a note's body, and a mail's own words
+ * and names (`mail: { join: "tex", text, to }`). The note a mail goes to is
+ * the call's `path`, which is still read. Reading `join: "tex"` as the `tex/`
+ * folder refused a tainted turn's mail to a bot (2026-11-27).
+ */
+const NOT_PATHS = new Set(["content", "mail"]);
+
 function stringsIn(value, found = []) {
   if (typeof value === "string") found.push(value);
   else if (Array.isArray(value)) for (const item of value) stringsIn(item, found);
-  else if (value && typeof value === "object") for (const [key, inner] of Object.entries(value)) if (key !== "content") stringsIn(inner, found);
+  else if (value && typeof value === "object") for (const [key, inner] of Object.entries(value)) if (!NOT_PATHS.has(key)) stringsIn(inner, found);
   return found;
 }
 
