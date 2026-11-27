@@ -238,3 +238,31 @@ the connect_bot action?"
 Tests: `apps/mcp/test/botLogins.test.mjs` (a card with no reach is set up its
 app's way), `apps/mobile/__tests__/areasBots.test.ts`,
 `areasBotsView.test.ts` (adding picks the app), `botSetup.test.ts`.
+
+## Every bot checks in, its mail note is made for it, and an answer is an answer (Dev, 2026-11-27)
+
+Capabilities' routine answers bounced NOT_FOUND because nothing had made
+`<area>/mail/capabilities.md`, and a Grok bot's webhook wakes queued until Dev
+wrote in its chat, then came at once and were dropped. Dev: "fix these PLEASE",
+and "maybe we should setup both webhook and a lightweight check every 5 minutes".
+
+- **A missing mail note is made by its first line.** A mail write or join to
+  `<folder>/mail/<name>.md` beside an `about.md` (an area or a bot card) makes
+  the note first (`tools/notes/mailNoteMade.js`); `manage area` makes a bot's
+  note when it takes an area. Any other missing path stays "not found", so a
+  typo never makes a mail folder. This covers bots seated before it too.
+- **Webhook bots keep the 5-minute check-in as well.** Their pasted prompt,
+  kept memory and `setup_bot` answer all carry it, beside the relay routine:
+  a webhook call may not start a turn in the bot's chat; the check-in does.
+- **Every bot answers every waiting routine and mail line, oldest first**,
+  never only the newest (`routinesText`). The rule lives in the pasted prompt,
+  since bots refuse orders in tool replies.
+- **A delivered webhook is not an answer.** A webhook bot reads Answering only
+  once it answered a routine this week or checked in within 10 minutes;
+  otherwise Reachable ("Webhook took the last call … No answer yet.").
+- **A bot's own mail line counts as a check-in** (`botInbox.js` `seen`): only
+  its bound login writes as it, so its line proves it is reached.
+
+Tests: `noteMail.test.mjs` (first line makes the note), `setArea.test.mjs`,
+`botLogins.test.mjs`, `botInbox.test.mjs`, `apps/mobile/__tests__/botHealth.test.ts`,
+`areaBotPrompts.test.ts`.
