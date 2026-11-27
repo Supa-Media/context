@@ -175,7 +175,7 @@ in the mail asking for Seyi's raw thought, and nobody read it.
   reply may name `tex` because anyone who has sent mail on the note can be written to.
 - **Woken by the line.** A line to `tex` or to everyone, from anyone but Tex, is told to the control plane with the
   sender's token (`/gateway/mail/tex`, `askTexMail`): the sender must reach the note and the mailbox must be a person's
-  own Tex's there. It keeps one waiting run per mailbox and at most ten an hour, so two agents answering each other
+  own Tex's there. It keeps one waiting run per mailbox and at most 100 an hour (Dev, 2026-11-27: "too restrictive lets do 100"), so two agents answering each other
   stop. The gateway then sets an alarm in the owner's Tex store, carrying the owner and the mailbox, never the mail
   (`mail/deliver.js` `wakeTex`).
 - **Run like comments.** The alarm hands the owner to the texting Worker (`TexRoutines.texMailDue`), which claims the

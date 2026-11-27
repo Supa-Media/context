@@ -27,7 +27,7 @@ const ROSTER_NAMES = new Set(["tex", "advisor"]);
 /** The name a person's own Tex has in mail (`unjoinedName` in `apps/mcp/src/tools/notes/mail.js`). */
 const TEX_NAME = "tex";
 /** The most Tex-in-mail runs one mailbox may ask for in an hour: two agents answering each other stop here. */
-export const MAX_TEX_MAIL_RUNS_PER_HOUR = 10;
+export const MAX_TEX_MAIL_RUNS_PER_HOUR = 100;
 const HOUR_MS = 60 * 60 * 1000;
 
 /**

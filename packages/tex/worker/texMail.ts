@@ -12,7 +12,7 @@
 
 import { AGENT_TIMEOUT_MS, post, record, ServiceError, type Fetch } from "./clients";
 
-export type TexMailDeps = { fetch: Fetch; controlPlaneOrigin: string; workerSecret: string; gatewayOrigin: string; log: (entry: Record<string, unknown>) => void };
+export type TexMailDeps = { fetch: Fetch; controlPlaneOrigin: string | undefined; workerSecret: string | undefined; gatewayOrigin: string | undefined; log: (entry: Record<string, unknown>) => void };
 
 type TexMailRun = { runId: string; accessToken: string; workspaceId: string; path: string; mailboxId: string };
 
@@ -37,6 +37,8 @@ function runsOf(json: unknown): TexMailRun[] {
 
 /** Claims and runs what waits for this personal workspace's person; how many ran. Rejects when the control plane can't be reached, so the alarm tries again. */
 export async function runTexMail(deps: TexMailDeps, owner: string): Promise<number> {
+  // A Worker without its control plane, secret or gateway can't claim a run: the alarm tries again once it has them.
+  if (!deps.controlPlaneOrigin || !deps.workerSecret || !deps.gatewayOrigin) throw new ServiceError("control_plane", 0);
   const claimed = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/mail-runs/due`, deps.workerSecret, { owner });
   if (claimed.status !== 200) throw new ServiceError("control_plane", claimed.status);
   const runs = runsOf(claimed.json);
