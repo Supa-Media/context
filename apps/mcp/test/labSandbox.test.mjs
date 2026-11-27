@@ -132,10 +132,12 @@ test("a test chat reaches objects by name only", () => {
 test("a control-plane write is refused and listed; reads pass; the storage binding comes back keyless", () => {
   const writes = [];
   const gate = { record: (w) => writes.push(w) };
-  assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { to: "x@example.invalid" }, gate), { refuse: 403 });
+  assert.deepEqual(controlPlaneAnswer("/gateway/email/draft", { to: "x@example.invalid" }, gate), { refuse: 403 });
   assert.deepEqual(controlPlaneAnswer("/gateway/calendar/write", {}, gate), { refuse: 403 });
   assert.deepEqual(controlPlaneAnswer("/gateway/privacy", { op: "setAccess" }, gate), { refuse: 403 });
   assert.deepEqual(writes.map((w) => w.kind), ["Email", "Calendar", "Sharing"]);
+  assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email: { to: ["x@example.invalid"], subject: "Hi", body: "." } }, gate), { answer: { ok: true, from: "their Gmail" } }, "a send the real gate let go is answered, never passed on");
+  assert.equal(writes.pop().kind, "Email");
   assert.deepEqual(controlPlaneAnswer("/gateway/time-zone", {}, gate), { pass: true });
   assert.deepEqual(controlPlaneAnswer("/gateway/privacy", { op: "resolveHandles" }, gate), { pass: true });
   assert.equal(controlPlaneAnswer("/gateway/binding", { startEncryptionRotation: true }, gate).refuse, 403);
@@ -152,7 +154,8 @@ test("the control-plane client sends nothing for a test turn's write, and sends 
   const gate = { record() {} };
   const env = { CONTROL_PLANE_URL: "https://control.example.invalid", GATEWAY_SECRET: "gw-secret-example-not-real-000000", [LAB_SANDBOX_KEY]: gate };
   const { post } = createTransport(env, async (url) => (sent.push(url), new Response(JSON.stringify({ ok: true }), { headers: { "content-type": "application/json" } })));
-  await assert.rejects(post("/gateway/email/send", {}));
+  await assert.rejects(post("/gateway/email/draft", {}));
+  assert.equal((await post("/gateway/email/send", { email: { to: ["x@example.invalid"] } })).ok, true, "a send is answered, never sent");
   await post("/gateway/time-zone", {});
   assert.deepEqual(sent, ["https://control.example.invalid/gateway/time-zone"]);
 });

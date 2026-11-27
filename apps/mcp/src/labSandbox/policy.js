@@ -58,6 +58,9 @@ export const NO_NOTES_PERSONAL_READS = Object.freeze(
   ]),
 );
 
+/** Addresses as a list of short strings, for what a test chat keeps of an email. */
+const listOf = (value) => (Array.isArray(value) ? value : typeof value === "string" && value !== "" ? [value] : []).filter((v) => typeof v === "string").map((v) => v.slice(0, 200)).slice(0, 50);
+
 const CHAT_SPACE = /^spaces\/[A-Za-z0-9_-]{1,64}$/;
 const CHAT_ADDRESS = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 
@@ -196,6 +199,18 @@ export function controlPlaneAnswer(path, body, gate) {
     gate.record({ kind: "Setting", summary: "set their name on the account (not sent: test chat)" });
     return { answer: { status: "done", name: typeof body.name === "string" ? body.name.trim() : "" } };
   }
+  // An email the real gate let go: kept in the test chat whole, answered as sent, never sent. Its check only reads the
+  // sender and the limits, spending nothing, so it runs for real, except in a chat shared with the developers, whose
+  // sender is not the caller's to read.
+  if (route === "/gateway/email/send") {
+    const email = body?.email && typeof body.email === "object" ? body.email : {};
+    const from = typeof email.from === "string" && email.from !== "" ? email.from : "their Gmail";
+    if (body?.check === true) return gate.noNotes === true ? { answer: { ok: true, from } } : { pass: true };
+    const kept = { kind: "email", title: String(email.subject ?? "") || "(no subject)", to: listOf(email.to), ...(listOf(email.cc).length ? { cc: listOf(email.cc) } : {}), subject: String(email.subject ?? "").slice(0, 200), body: String(email.body ?? "").slice(0, 20_000), tool: "send_email", sent: false, summary: `${String(email.subject ?? "").slice(0, 120)} (would have sent: test chat)` };
+    if (typeof gate.keepWrite === "function") gate.keepWrite(kept);
+    else gate.record({ kind: "Email", summary: kept.summary });
+    return { answer: { ok: true, from } };
+  }
   // An answer held from a test group, and the asker's yes to it: answered and kept in the test's writes, never the real chat's.
   if (route === "/gateway/group/hold") {
     gate.record({ kind: "Setting", summary: "recorded a held answer for the asker (not sent: test chat)" });
@@ -247,6 +262,14 @@ export const READ_TOOLS = Object.freeze(
  * Tex's own computer (`tex_computer`) runs for real on the test chat's own computer, never the person's
  * (`sandboxComputer`). Their note writes and calls pass the fences like any other.
  */
+/**
+ * Tools that run through their real gate in a test chat, so it holds, asks and sends on exactly what a real chat would
+ * (Lab, 2026-11-27: a test chat answered every email "held" itself, so a go-ahead the Mail checker agreed to was never
+ * seen to send, and Tex's ask never got its copy). Their held asks land in the test chat's own store (`wire.js`); the
+ * send itself is answered here at the control plane and kept in the test chat, never sent (`controlPlaneAnswer`).
+ */
+export const REAL_GATE = Object.freeze(new Set(["send_email"]));
+
 export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer"]));
 
 /**
@@ -297,6 +320,8 @@ export async function toolAnswer(name, args, gate) {
   if (typeof name !== "string") return null;
   if (READ_TOOLS.has(name)) return typeof gate.call === "function" ? await overlayRead(name, args, gate) : null;
   if (RUN_IN_SANDBOX.has(name)) return null;
+  // With a test chat behind it, the real gate runs; its send is stopped at the control plane (`controlPlaneAnswer`).
+  if (REAL_GATE.has(name) && typeof gate.call === "function") return null;
   // An etag from another workspace, and a call that names two, are refused here as the gateway refuses them
   // (`tools/etagPlace.js`), so a test chat never shows a save the real one would not make. The etag half waits until a
   // routed call said which workspace a plain path means; two names are refused either way.
