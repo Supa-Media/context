@@ -146,6 +146,9 @@ test("pulse writes the area's routines from its modes, keeps a routine already t
   assert.equal(await text("areas/finance/routines/daily/manager-loop.md"), "---\nat: 7am\n---\nMy own loop.\n");
   const improve = await text("areas/finance/routines/daily/improve-metric-loop.md");
   assert.match(improve, /^---\nat: 12am, 6am, 12pm, 6pm\ntimezone: America\/New_York\ntemplate: improve-metric-loop\n---\n# Improve metric loop\n/);
+  // The whole job in the note itself, as Dev asked on auditing it (2026-11-27): it works in its area, files longer work
+  // as a project there, and works with other areas, sub-areas and the area above through their mail.
+  for (const said of [/working here in this area/, /start it as a project in this area/, /write in that area's mail/, /Sub-areas hold their own metrics/, /goes to the area above/, /only through Context mail/, /`used:`/]) assert.match(improve, said);
   // Every six hours, as Dev asked (2026-11-27).
   assert.equal(areaRoutineWhen(areaRoutineOf("areas/finance/routines/daily/improve-metric-loop.md", "areas"), improve), "Every day at 12 am, 6 am, 12 pm and 6 pm");
   // Every template is a routine Context runs.
