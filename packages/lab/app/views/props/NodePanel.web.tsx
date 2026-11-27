@@ -39,7 +39,11 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   const [picking, setPicking] = useState(false);
   // "More": the step's code files, record, timing and change note, closed until asked for.
   const [more, setMore] = useState(false);
+<<<<<<< HEAD
   const wires = wireRows(g.edges, n.id);
+=======
+  const wires = g.edges.map((e, i) => [e, i] as const).filter(([e]) => e.to === n.id || e.from === n.id);
+>>>>>>> 8a8d352829093aae6b2d930583be24b1821c12ff
   const { has, run } = useStepRun(n);
   const ch = stepChange(n.id);
   const card = lab.card ?? (has ? "run" : "set");
@@ -115,19 +119,31 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           <div className="grp">
             <h4>Wires</h4>
             {wires.length ? (
+<<<<<<< HEAD
               wires.map(({ e, i, count }) => {
                 const out = e.from === n.id;
                 const other = out ? node(e.to) : node(e.from);
                 return (
                   <button key={i} className="wr" data-wire={i} title={count > 1 ? `${count} wires, drawn as one line` : undefined} onClick={() => set({ sel: { t: "edge", i } })}>
+=======
+              wires.map(([e, i]) => {
+                const out = e.from === n.id;
+                const other = out ? node(e.to) : node(e.from);
+                return (
+                  <button key={i} className="wr" data-wire={i} onClick={() => set({ sel: { t: "edge", i } })}>
+>>>>>>> 8a8d352829093aae6b2d930583be24b1821c12ff
                     <span className="hint" style={{ width: 34, fontSize: 11 }}>
                       {out ? "to" : "from"}
                     </span>
                     <WireIcon mode={e.mode} />
+<<<<<<< HEAD
                     <span style={{ flex: 1 }}>
                       {other?.label}
                       {count > 1 ? <small className="wrn">{` ×${count}`}</small> : null}
                     </span>
+=======
+                    <span style={{ flex: 1 }}>{other?.label}</span>
+>>>>>>> 8a8d352829093aae6b2d930583be24b1821c12ff
                     <span className="hint" style={{ fontSize: 12 }}>
                       {wireName(e)}
                     </span>
@@ -160,6 +176,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   );
 }
 
+<<<<<<< HEAD
 /**
  * A step's wires as the canvas draws them: one row per line. A group's box gets a wire for each step inside it that is
  * wired across its edge, so several wires can join the same two boxes the same way (each under its own condition);
@@ -178,6 +195,8 @@ export function wireRows(edges: LabEdge[], id: string): Array<{ e: LabEdge; i: n
   return [...rows.values()];
 }
 
+=======
+>>>>>>> 8a8d352829093aae6b2d930583be24b1821c12ff
 /** What "More" opens: the step's code files, its tool stats, the chat's record, what it ran with, its timing and change note. */
 function MoreSettings({ n, cc, was }: { n: LabNode; cc: (f: string, base?: string) => string; was: (f: string) => ReactNode }) {
   const g = G();
