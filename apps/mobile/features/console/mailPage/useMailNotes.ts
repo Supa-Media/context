@@ -16,7 +16,11 @@ import type { MailRead } from "./receipts";
 
 /** How often an open console asks again for the mail. */
 export const MAIL_REFRESH_MS = 2 * 60_000;
-const TIMEOUT_MS = 15_000;
+/**
+ * How long one ask may take before it counts as failed. The gateway answers in well under a second (production,
+ * 2026-11-27: every load 0.1 to 0.9 s), so 15 s only kept a lost ask on screen as "Gathering mail…" for longer.
+ */
+export const MAIL_TIMEOUT_MS = 8_000;
 const SEEN_KEY = "context.mailSeen";
 
 /** The gateway's `/files/mail` address beside the MCP endpoint, or null for one this build cannot reach. */
@@ -114,7 +118,7 @@ async function askMailGatewayFor(options: {
   if (typeof doFetch !== "function") return null;
   const send = async (token: string) => {
     const abort = typeof AbortController === "function" ? new AbortController() : null;
-    const deadline = setTimeout(() => abort?.abort(), TIMEOUT_MS);
+    const deadline = setTimeout(() => abort?.abort(), MAIL_TIMEOUT_MS);
     try {
       const response = await doFetch(options.url, {
         method: "POST",
@@ -191,7 +195,7 @@ export type MailLoad = () => Promise<{ notes: MailNoteRow[]; complete: boolean }
  * could not be gathered for minutes after the gateway was back (Dev, 2026-11-27: "all the sudden agentmail stopped
  * working?", then "it came back all the sudden").
  */
-export const RETRY_MS = [5_000, 15_000, 30_000, 60_000] as const;
+export const RETRY_MS = [2_000, 5_000, 15_000, 30_000, 60_000] as const;
 
 /** The state after one ask: the answer, else what was shown, else unavailable (retrying unless not served). */
 export function nextMailState(

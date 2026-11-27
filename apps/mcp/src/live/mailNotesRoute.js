@@ -74,12 +74,30 @@ async function receipts(path, store, session) {
   if (name !== null && typeof session.actorUserId === "string" && session.actorUserId !== "") {
     await client.mail.read({ path, by: "person", reader: `person:${session.actorUserId}`, name, ...judged }).catch(() => null);
   }
-  const answer = await client.mail.reads({ path, ...judged }).catch(() => null);
+  const answer = await onceMore(() => client.mail.reads({ path, ...judged })).catch(() => null);
   if (answer === null) return json({ error: "unavailable" }, 503);
   if (settledBehind(answer) || answer.served !== true) return notServed();
   if (answer.found !== true) return json({ error: "not_found" }, 404);
   const reads = (Array.isArray(answer.reads) ? answer.reads : []).map(readOf).filter((read) => read !== null).slice(0, MAX_READS);
   return json({ kind: "mailReads", path, reads });
+}
+
+/** How long to wait before asking the object a second time. */
+export const OBJECT_RETRY_MS = 250;
+
+/**
+ * A read of the object, asked once more when the first ask throws. Every production deploy restarts each workspace
+ * object, and a read caught mid-restart throws ("reset because its code was updated"); the app then showed "Mail is
+ * taking longer than usual" for one load that a second ask answers in a tenth of a second (Dev, 2026-11-27, 11:31 PM
+ * ET, during a deploy; every load in the next fifteen minutes was served in under a second). Only reads come here.
+ */
+export async function onceMore(read, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))) {
+  try {
+    return await read();
+  } catch {
+    await wait(OBJECT_RETRY_MS);
+    return await read();
+  }
 }
 
 const word = (value, max) => (typeof value === "string" && value.length <= max ? value : null);
@@ -127,7 +145,7 @@ async function serveMailNotes(request, store, session) {
   if (reader === null || typeof reader.client.facts !== "function") return notServed();
   const { client, judged, settledBehind } = reader;
 
-  const [privacy, answer] = await Promise.all([loadPrivacyState(store), client.facts({ ask: "mail", ...judged }).catch(() => null)]);
+  const [privacy, answer] = await Promise.all([loadPrivacyState(store), onceMore(() => client.facts({ ask: "mail", ...judged })).catch(() => null)]);
   if (privacy.error || answer === null) return json({ error: "unavailable" }, 503);
   if (settledBehind(answer)) return notServed();
   if (answer?.served !== true || !Array.isArray(answer.mail)) return notServed();
