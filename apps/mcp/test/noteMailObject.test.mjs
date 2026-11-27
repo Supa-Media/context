@@ -119,3 +119,24 @@ test("the footer counts new mail in the object, without reading the note", async
   const line = await mailFooter("mb1", { store, session: { scope: "team" } });
   assert.match(line, /^mail: 1 new for builder in 1-projects\/plan\.md \(1 to you\), from lead\./);
 });
+
+// 2026-11-26, Dev: "whenever an mcp call is made it tells you what mail you have, we probably are not showing the right
+// mail". Before binding, every bot on one shared connection joined as its app ("cursor"), so one mailbox heard every
+// bot's mail. A connection bound as bots hears only a mailbox joined as one of them.
+test("the footer reads a bound connection only its own bots' mailboxes", async () => {
+  const { ask } = await world();
+  const boxes = {
+    mb1: { mailboxId: "mb1", workspaceId: "ws", path: PATH, name: "builder", readThrough: null },
+    mb2: { mailboxId: "mb2", workspaceId: "ws", path: PATH, name: "cursor", readThrough: null },
+  };
+  const store = {
+    actor: { grantId: "g1" },
+    mail: { workspaceId: "ws", get: async (id) => boxes[id] ?? null },
+    objectMail: { since: async (path, name, readThrough) => await ask(MAIL_OPS.SINCE, { path, name, readThrough, ...TEAM }) },
+    objectReading: { client: { mail: { bound: async () => ({ served: true, bots: [{ bot: "builder", name: "Builder" }, { bot: "reviewer", name: "Reviewer" }] }) } }, home: "object", behind: false, scope: "team", names: [], workspaceId: "ws", userId: "u1" },
+  };
+  assert.match(await mailFooter("mb1", { store, session: { scope: "team" } }), /^mail: 1 new for builder/);
+  const old = await mailFooter("mb2", { store, session: { scope: "team" } });
+  assert.match(old, /joined .* as "cursor", which is not a bot this connection is/);
+  assert.doesNotMatch(old, /new for/);
+});

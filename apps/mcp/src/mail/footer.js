@@ -18,6 +18,7 @@ import mail from "../../../../packages/shared/src/mail.cjs";
 import { readNoteForGateway } from "../tools/dispatch.js";
 import { parseRead } from "../tools/notes/comment.js";
 import { withChaosLines } from "../chaos/report.js";
+import { boundBotsOf } from "./boundBot.js";
 
 /** The store and scope that reach `workspaceId` for this request, or null. */
 async function storeFor(workspaceId, { store, session, targetStore, target }) {
@@ -41,6 +42,14 @@ export async function mailFooter(mailboxId, where) {
   if (!mailbox) return `mail: mailbox ${mailboxId} is not one this connection joined; join a note's mail with write { action: "mail", args: { join } }`;
   const reach = await storeFor(mailbox.workspaceId, where);
   if (!reach) return null;
+  // A connection bound as bots hears only its bots' mail (2026-11-26, Dev: "whenever an mcp call is made it tells you
+  // what mail you have, we probably are not showing the right mail"). Before binding, every bot on a shared connection
+  // joined as its app ("cursor"), so one mailbox heard every bot's mail; such a mailbox is no longer read for them.
+  const bots = await boundBotsOf(reach.store).catch(() => []);
+  if (bots.length > 0 && !bots.some((each) => each.bot === mailbox.name)) {
+    const list = bots.map((each) => `"${each.bot}"`).join(" or ");
+    return `mail: mailbox ${mailboxId} joined ${mailbox.path} as "${mailbox.name}", which is not a bot this connection is, so it is not read for you. Join that note's mail again as yourself (${list}) and pass the new mailbox`;
+  }
   // Where the note lives in its workspace object, the object counts what is new itself: one call, no note read.
   const counted = (await reach.store.objectMail?.since(mailbox.path, mailbox.name, mailbox.readThrough)) ?? null;
   if (counted !== null) return counted.found === true ? footerLine(counted.fresh ?? [], mailbox, counted.path || mailbox.path, mailboxId) : null;
