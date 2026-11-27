@@ -32,6 +32,7 @@ import { cut, MAX_INBOUND_TEXT } from "./inbound";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 import partEndLib from "../../../packages/shared/src/jobPartEnd.cjs";
 import jobStartLib from "../../../packages/shared/src/jobStart.cjs";
+import jobResumeLib from "../../../packages/shared/src/jobResume.cjs";
 import { TEX_CONFIG } from "../../../packages/tex/src/texConfig.cjs";
 import { MAX_ENDS_KEPT, PART_CAUSES, type JobSaved, type PartCause, type PartEnd } from "./jobProgress";
 
@@ -144,7 +145,7 @@ export const MAX_JOB_TRIES = 3;
 /** How long a finished job is kept at all: the "What Tex is working on" page reads it for this long. */
 export const JOB_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 /** How long a finished job is shown to every texted turn, and how long its run stays resumable: "did you finish?" has an answer for this long. */
-export const JOB_SHOWN_MS = 2 * 60 * 60 * 1000;
+export const JOB_SHOWN_MS = jobResumeLib.RESUME_MS; // one window with the gateway's restart offer (`packages/shared/src/jobResume.cjs`)
 /** A job still "running" this long after it started died with its object: it is marked stopped. */
 export const JOB_STALE_MS = JOB_LIMIT_MS + 15 * 60 * 1000 + 5 * 60 * 1000; // its last part may start just inside the limit and run fifteen minutes
 /** A job on the person's own computer runs four hours by default (owner, 2026-11-03), in fifteen-minute parts. */
@@ -412,8 +413,7 @@ export async function resumeJobs(
     const entry = await storage.get<JobEntry>(entryKey(id));
     if (entry === undefined || entry.state === "running") continue;
     const running = (await chatJobs(storage, now, { all: true })).filter((job) => job.state === "running");
-    // A finished job has nothing to pick up: its object kept no run (`resumeJob`).
-    const ok = entry.state !== "done" && fits(running, machineOfEntry(entry)) && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true, ...(machine && machine.machineId === entry.on ? { machine } : {}) }).catch(() => false));
+    const ok = jobResumeLib.canResume(entry, now) && fits(running, machineOfEntry(entry)) && (await send(id, { id: steer.id, text: steer.text.trim() || PICKED_UP, resume: true, ...(machine && machine.machineId === entry.on ? { machine } : {}) }).catch(() => false));
     if (ok) {
       const { finishedAt: _f, finalPass: _p, verdict: _v, advice: _a, result: _r, stopped: _s, resumeAt: _ra, ...kept } = entry;
       await storage.put<JobEntry>(entryKey(id), { ...kept, state: "running", startedAt: now, status: "Picking up where it stopped" });

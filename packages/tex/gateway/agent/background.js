@@ -49,6 +49,7 @@ import { mailLine, mailOf } from "./steer.js";
 import { pickMachine } from "../../../../apps/mcp/src/machines/forJobs.js";
 import { MAX_CLOUD_JOBS, MAX_JOB_ATTEMPTS, MAX_MACHINE_SLOTS, jobSlots } from "./jobSlots.js";
 import { decideStart } from "../../../shared/src/jobStart.cjs";
+import { canResume } from "../../../shared/src/jobResume.cjs";
 import { START_JOB_TOOL, TOOL } from "./backgroundTool.js";
 import { PLAN_TOOL } from "./planBigAsk.js";
 import { endsOf, jobResumeOf, MAX_STREAMED_RESULT, partsLine, savedOf, savedPrompt } from "./jobSaved.js";
@@ -145,6 +146,8 @@ export function runningJobsOf(value) {
         on: typeof entry.on === "string" && ID.test(entry.on) ? entry.on : null,
         // Paused at the daily limit, to start again by itself (`packages/tex/worker/jobPause.ts`): it can still be stopped.
         paused: entry.state === "waiting" && Number.isFinite(entry.resumeAt) && entry.resumeAt > 0,
+        // When a paused job starts again: its run is kept two hours past it, so it can be restarted until then (`jobResume.cjs`).
+        resumeAt: at(entry.resumeAt),
         // The advisor's last call on it and its advice (`jobCheck.js`), and a finished job's report: for `job_status`.
         verdict: VERDICTS.has(entry.verdict) ? entry.verdict : null,
         advice: line(entry.advice, MAX_ADVICE),
@@ -320,8 +323,8 @@ export function withJobSteps(job, step, record, outside = () => false) {
   };
 }
 
-/** A job that ended without finishing: what "restart it" picks back up (`packages/tex/worker/jobs.ts` `resumeJobs`). */
-const resumable = (entry) => entry.state !== "running" && entry.state !== "done";
+/** A job that ended without finishing and whose run is still kept: what "restart it" picks back up, by the rule the Worker applies (`jobResume.cjs`). */
+const resumableAt = (now) => (entry) => canResume(entry, now);
 
 export const RESTART_TOOL = {
   name: RESTART_JOB_TOOL,
@@ -508,7 +511,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
       }
       const finished = running.find((entry) => entry.state !== "running" && sameJob(entry.title, title));
       return text(
-        finished && resumable(finished)
+        finished && canResume(finished, now)
           ? `"${finished.title}" stopped before finishing. Pick it back up: call send with action restart_job (args: titles ["${finished.title}"]), ` +
               "then pass it their change once it's running."
           : finished
@@ -537,7 +540,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
   };
   const restart = async (args) => {
     const names = Array.isArray(args?.titles) ? args.titles.map((title) => line(title, MAX_TITLE)).filter(Boolean) : [];
-    const ended = running.filter(resumable);
+    const ended = running.filter(resumableAt(now));
     const picked = names.length === 0 ? ended : ended.filter((entry) => names.some((name) => entry.title.toLowerCase() === name.toLowerCase() || sameJob(entry.title, name)));
     if (picked.length === 0) {
       return text(
@@ -575,7 +578,7 @@ export function backgroundSession({ running, job, now, report = false, read = ()
         "it is instant and shows the step it's on, what your advisor last said about it, and a finished job's report. Answer in a line or two, " +
         "what it's on and, if it's stuck, how it's getting around it. A job marked ended is not working on anything: never tell them it is still going. " +
         "An ask for one that's still running gets its status, never a second copy of the job." +
-        (running.some(resumable)
+        (running.some(resumableAt(now))
           ? ' "Restart", "jumpstart" or "try again" on jobs that stopped is a call to send with action restart_job, all of them in one call: each picks up ' +
             "where it stopped. Never start a new job for one that stopped."
           : "") +
