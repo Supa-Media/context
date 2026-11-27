@@ -43,7 +43,7 @@ function relayStep() {
 function bindStep(name, workspace) {
   return (
     `From this main chat, tell Context which bot this connection is: manage area { ${contextArg(workspace)}bind_bot: ${quoted(name)} }. ` +
-    "From then on everything this connection writes there is signed by you. Context then mails you a check; answer it in that note from this main chat within 5 minutes, or your card says you are not answering."
+    "From then on everything this connection writes there is signed by you. If your app gives several bots this one connection, each binds itself the same way, and mail you send outside your own bots folder passes as: \"<your mail name>\". Context then mails you a check; answer it in that note from this main chat within 5 minutes, or your card says you are not answering."
   );
 }
 

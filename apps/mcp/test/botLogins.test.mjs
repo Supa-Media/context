@@ -15,7 +15,6 @@ import { test } from "node:test";
 
 import { toolSetArea } from "../src/tools/notes/setArea.js";
 import { toolMailNote } from "../src/tools/notes/mail.js";
-import { boundBotOf } from "../src/mail/boundBot.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { PrivacyOverrides } from "../src/privacy/engine.js";
 import mail from "../../../packages/shared/src/mail.cjs";
@@ -23,12 +22,16 @@ import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 import { withServedTree } from "./servedTree.mjs";
 
 const RULES = [{ prefix: "areas", vis: "team" }, { prefix: "bots", vis: "team" }];
+const REVIEWER = "---\nholder: Reviewer\nkind: agent\nbot: grok\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n\n# Reviewer\n";
 const CARD = "---\nholder: Grok Bot\nkind: agent\nbot: grok\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n\n# Grok Bot\n";
 
 async function world({ bot, botName, carried = null, ...actor }, card = CARD) {
   const base = createMemoryStore();
   await base.put("bots/grok-bot/about.md", card);
   await base.put("bots/grok-bot/mail/seyi.md", "# Mail with Grok Bot\n");
+  await base.put("bots/reviewer/about.md", REVIEWER);
+  await base.put("bots/reviewer/mail/seyi.md", "# Mail with Reviewer\n");
+  await base.put("areas/plans.md", "# Plans\n");
   const store = withPrivacyAuthority(withServedTree(base), {
     rules: { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "areas", visibility: "team" }, { prefix: "bots", visibility: "team" }], notes: [] },
     async setAccess(change) {
@@ -43,15 +46,16 @@ async function world({ bot, botName, carried = null, ...actor }, card = CARD) {
   const calls = [];
   const asks = [];
   // Which bot this connection is lives in the workspace's object (`workspaceStore/mailBots.js`), never the control plane.
-  const held = new Map(bot ? [["grant-1", { bot, name: botName ?? bot }]] : []);
+  // One connection may be several bots (an app such as Grok gives all its bots one connector), so a grant holds a list.
+  const held = new Map(bot ? [["grant-1", [{ bot, name: botName ?? bot }]]] : []);
   const mailClient = {
     async bound({ grantId }) {
       asks.push(grantId);
-      return { served: true, bound: held.get(grantId) ?? null };
+      return { served: true, bots: held.get(grantId) ?? [] };
     },
     async bind({ grantId, bot: as, name }) {
       calls.push({ action: "bind", grantId, bot: as, name });
-      held.set(grantId, { bot: as, name });
+      held.set(grantId, [...(held.get(grantId) ?? []).filter((each) => each.bot !== as), { bot: as, name }]);
       return { served: true, ok: true };
     },
   };
@@ -137,7 +141,7 @@ test("a login bound before bindings moved to the object is carried there once, a
   const result = await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: "bots/grok-bot/mail/seyi.md", mail: { text: "Here.", used: 0 } });
   assert.equal(result.isError, undefined, said(result));
   assert.equal((await mailOf(text, "bots/grok-bot/mail/seyi.md")).at(-1).from, "grok-bot");
-  assert.deepEqual(held.get("grant-1"), { bot: "grok-bot", name: "Grok Bot" });
+  assert.deepEqual(held.get("grant-1"), [{ bot: "grok-bot", name: "Grok Bot" }]);
   assert.deepEqual(calls, [{ action: "bind", grantId: "grant-1", bot: "grok-bot", name: "Grok Bot" }]);
 });
 
@@ -145,7 +149,8 @@ test("a bound login joins only as its bot", async () => {
   const { store } = await world({ role: "editor", name: "@seyi", bot: "grok-bot", botName: "Grok Bot" });
   const result = await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: "bots/grok-bot/mail/seyi.md", mail: { join: "cursor" } });
   assert.equal(result.isError, true);
-  assert.match(said(result), /joins only as "grok-bot"/);
+  assert.match(said(result), /joins only as one of those/);
+  assert.match(said(result), /"grok-bot"/);
 });
 
 test("another connection can't join under a bot's name", async () => {
@@ -161,4 +166,35 @@ test("an unbound connection still sends under its app's name", async () => {
   assert.equal(result.isError, undefined, said(result));
   assert.equal((await mailOf(text, "bots/grok-bot/mail/seyi.md")).at(-1).from, "cursor--seyi");
   assert.deepEqual(calls, []);
+});
+
+// 2026-11-26, Grok Bot: "Every bot shares the same Context connection, so whichever bot binds last takes over the name
+// for all of them, and Reviewer bound after me." Binding replaced the connection's one bot, so Grok Bot's reply was
+// signed "reviewer". Now binding adds a bot, and each line is signed by the bot it names, or whose folder it is in.
+test("two bots on one connection each sign as themselves", async () => {
+  const { store, held, text } = await world({ role: "editor", name: "@seyi" });
+  for (const name of ["Grok Bot", "Reviewer"]) {
+    const bound = await toolSetArea(store, "team", RULES, new PrivacyOverrides(), { bind_bot: name });
+    assert.equal(bound.isError, undefined, said(bound));
+  }
+  assert.deepEqual(held.get("grant-1").map((each) => each.bot), ["grok-bot", "reviewer"], "Reviewer binding after Grok Bot keeps Grok Bot");
+  const send = (path, extra = {}) => toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path, mail: { text: "Done.", used: 0, ...extra } });
+  // In its own folder each is itself, naming nothing.
+  assert.equal((await send("bots/grok-bot/mail/seyi.md")).isError, undefined);
+  assert.equal((await mailOf(text, "bots/grok-bot/mail/seyi.md")).at(-1).from, "grok-bot");
+  assert.equal((await send("bots/reviewer/mail/seyi.md")).isError, undefined);
+  assert.equal((await mailOf(text, "bots/reviewer/mail/seyi.md")).at(-1).from, "reviewer");
+  // Naming itself wins over the folder: Grok Bot writing in Reviewer's mail is Grok Bot.
+  assert.equal((await send("bots/reviewer/mail/seyi.md", { as: "grok-bot" })).isError, undefined);
+  assert.equal((await mailOf(text, "bots/reviewer/mail/seyi.md")).at(-1).from, "grok-bot");
+  // Elsewhere it says which, or is refused rather than guessed.
+  const unnamed = await send("areas/plans.md");
+  assert.equal(unnamed.isError, true);
+  assert.match(said(unnamed), /several bots \(grok-bot, reviewer\)/);
+  assert.equal((await send("areas/plans.md", { as: "reviewer" })).isError, undefined);
+  assert.equal((await mailOf(text, "areas/plans.md")).at(-1).from, "reviewer");
+  // A bot it is not bound as is refused, so a shared connection never speaks as a bot nobody bound.
+  const other = await send("areas/plans.md", { as: "pipeline" });
+  assert.equal(other.isError, true);
+  assert.match(said(other), /not "pipeline"/);
 });

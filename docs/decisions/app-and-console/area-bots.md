@@ -138,6 +138,19 @@ keeps its notes there and knows what its modes ask of it.
      object (Dev, 2026-11-26). Every mail line that login writes there is
      signed by the bot and its reads say the bot; it joins only as the bot;
      and another connection joining or sending under a bot's name is refused.
+     One connection may be several bots, because some apps give all their
+     bots one connector (Grok Bot, 2026-11-26: "whichever bot binds last
+     takes over the name for all of them"; Dev chose "Bot names itself per
+     call"). Binding adds a bot to the connection; each line is signed by the
+     bot it names (`as`, or the bot its mailbox joined as), else the bot
+     whose `bots/<bot>/` folder the note is in, else its only bot, and a
+     connection that is several bots and names none elsewhere is refused
+     rather than guessed (`apps/mcp/src/mail/boundBot.js` `botFor`). The
+     mail notice on every call reads only a mailbox joined as one of the
+     connection's bots, so one bound before as its app ("cursor") no longer
+     hears every bot's mail (`apps/mcp/src/mail/footer.js`). Test:
+     `apps/mcp/test/botLogins.test.mjs` "two bots on one connection each
+     sign as themselves".
   3. Binding mails the bot a check (`<card folder>/mail/context.md`). Its
      page says "not answering" when no line under the bot's name follows the
      check within 5 minutes, read from that note in the app
