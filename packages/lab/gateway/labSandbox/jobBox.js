@@ -21,6 +21,7 @@
 import { TEX_CONFIG, withDraft } from "../fromGateway/agent_texConfig.js";
 import { LAB_SANDBOX_KEY } from "../fromGateway/labSandbox_policy.js";
 import { objectByName } from "../fromGateway/objectPlace.js";
+import { BORN_KEY, JOB_NAME_KEY } from "../../../tex/gateway/texJob.js";
 
 /** Where the box keeps its test chat: `{ sandbox, run }`. */
 export const LAB_KEY = "__lab";
@@ -32,6 +33,16 @@ export const LAB_RUN_HEADER = "x-lab-run";
 /** The box's own routes, for the test chat's object: what it is at, and stop. */
 export const LAB_STATE_PATH = "/lab-state";
 export const LAB_STOP_PATH = "/lab-stop";
+/**
+ * What an ended job leaves for "restart it" (`GET /lab-kept`), and a box born from that in a later text
+ * (`POST /lab-revive`): a test chat's jobs live only as long as the text that started them, so the test chat keeps
+ * this between texts (`chatRun.js` `jobsKept`), as a real job's object keeps it for two hours (`jobRun.ts` `resumeJob`).
+ */
+export const LAB_KEPT_PATH = "/lab-kept";
+export const LAB_REVIVE_PATH = "/lab-revive";
+/** The keys of the texting Worker's job a restart reads (`jobRun.ts` `ENDED_KEY`, `STEERS_KEY`). */
+export const ENDED_KEY = "jobended";
+export const STEERS_KEY = "jobsteers";
 /** The test chat's object answers a box's calls under this path (`object.js`). */
 export const JOB_OUT_PREFIX = "/job-out/";
 const OUT_ORIGIN = "https://lab-sandbox.internal";
@@ -141,6 +152,20 @@ export const labJobFence = {
     if (path === LAB_STATE_PATH && request.method === "GET") {
       const [lab, run, drive, gone, nodes] = await Promise.all([LAB_KEY, RUN_KEY, DRIVE_KEY, LAB_GONE_KEY, "jobnodes"].map((key) => state.storage.get(key)));
       return Response.json({ here: lab !== undefined, running: run !== undefined, drive: drive ?? null, gone: gone === true, nodes: Array.isArray(nodes) ? nodes.length : 0, alarm: (await state.storage.getAlarm?.()) ?? null });
+    }
+    if (path === LAB_KEPT_PATH && request.method === "GET") {
+      const [ended, steers] = await Promise.all([ENDED_KEY, STEERS_KEY].map((key) => state.storage.get(key)));
+      return Response.json({ ended: ended ?? null, steers: steers ?? null });
+    }
+    if (path === LAB_REVIVE_PATH && request.method === "POST") {
+      // Born from what an earlier text's box left, under this text's run: never over a box already born.
+      if ((await state.storage.get(BORN_KEY)) !== undefined) return Response.json({ error: "born" }, { status: 409 });
+      const born = labJobFence.born(request);
+      const name = request.headers.get("x-inbox-name") ?? "";
+      const kept = await request.json().catch(() => null);
+      if (born === null || !/^job:[A-Za-z0-9_-]{1,80}$/.test(name) || typeof kept?.ended?.run !== "object" || kept.ended.run === null) return Response.json({ error: "bad_request" }, { status: 400 });
+      await state.storage.put({ ...born, [BORN_KEY]: Date.now(), [JOB_NAME_KEY]: name, [ENDED_KEY]: kept.ended, ...(Array.isArray(kept.steers) ? { [STEERS_KEY]: kept.steers } : {}) });
+      return Response.json({ revived: true });
     }
     if (path === LAB_STOP_PATH && request.method === "POST") {
       // Never deleted under a running pass: the alarm runs after it, and deletes everything then.

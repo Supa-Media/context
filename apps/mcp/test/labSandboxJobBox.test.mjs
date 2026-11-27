@@ -15,6 +15,7 @@
 //   4. `plain` keeping the box's run ids as they are: "a box's runs travel with ids of its own" fails.
 //   5. (2026-11-27) The box's env without `TEX_LINE`: "a group's job reads the chat's people" fails (the job stops with
 //      members_unread, and its report never reaches the chat).
+//   6. (2026-11-27) `sandboxInboxes` without `revive`: "restart it in a later text" fails (nothing picked up).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -179,6 +180,51 @@ test("a group's job reads the chat's people on the test chat's line, and its rep
   assert.ok(!state.writes.some((wr) => /asked another object/.test(wr.summary)), JSON.stringify(state.writes.map((wr) => wr.summary)));
 });
 
+test("\"restart it\" in a later text picks up a job an earlier text's box ran, from what it left", async () => {
+  // 2026-11-27, a launch-day rehearsal: "restarting it now" in a group test chat picked nothing up, since the earlier
+  // text's job and everything its box kept were gone, so the restart answered "not resumed" and nobody heard.
+  const w = await world();
+  const asked = [];
+  let jobUp = false;
+  const agentRoute = async (request, path) => {
+    const body = await request.json().catch(() => ({}));
+    if (path === "/agent/events") {
+      await w.call("ledger.append", { entries: (body.events ?? []).map(eventEntry), by: "t1" });
+      return Response.json({ written: [...new Set((body.events ?? []).map((e) => e.id))] });
+    }
+    if (path !== "/agent") return Response.json({ events: [] });
+    asked.push({ job: Boolean(body.job), event: body.event ?? null, text: body.question ?? null });
+    // The first text's job finds no model, and pauses; once picked back up it finds the caterers.
+    if (body.job && !jobUp) return new Response(JSON.stringify({ error: "no_model" }), { status: 409 });
+    const answer = body.job
+      ? { answer: "Three caterers: Ana's Kitchen, Blue Fig, Olive.", turn: "j" }
+      : body.event === "job_report"
+        ? { answer: body.jobReport?.texts?.length ? "Found three caterers: Ana's Kitchen, Blue Fig and Olive." : "SKIP", turn: "r" }
+        : /restart/.test(String(body.question))
+          ? { answer: "Picking it back up.", turn: "t2", steers: [{ id: "job0caterers1", resume: true }] }
+          : { answer: "On it: looking for caterers now.", turn: "t", jobs: [{ id: "job0caterers1", title: "Find caterers", brief: "Three caterers near Ana.", doneWhen: "three caterers" }] };
+    const reply = () => Response.json(answer);
+    return wantsProgress(request) ? streamTurn(async () => reply()) : reply();
+  };
+  const textsRoute = async (request) => (new URL(request.url).pathname === "/texts/old-line" ? Response.json({ to: "pass" }) : Response.json({ error: "unknown_route" }, { status: 404 }));
+  const text = async (id, words, at) => {
+    const row = { id, who: "ana", text: words, at, prod: false, eid: `000000000000${id.slice(1)}-000001` };
+    await w.call("row.add", { row });
+    await runChatTurn({ env: w.env, stub: w.stub, about: ONE, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: ONE.origin, agentRoute, textsRoute, sleep, sandbox: SANDBOX });
+  };
+  await text("t1", "find us a caterer for Saturday", Date.now());
+  const kept = (await w.call("state")).meta.jobsKept?.["job:job0caterers1"];
+  assert.ok(kept?.ended?.run, "the paused job's ended run is kept for a later text");
+  jobUp = true;
+  await text("t2", "restart it please", Date.now() + 1);
+  assert.equal(w.env.LAB_JOB.made.size, 2, "the restart ran on a box of the second text");
+  const state = await w.call("state");
+  assert.ok(state.writes.some((wr) => /picked up job job0caterers/.test(wr.summary)), JSON.stringify(state.writes.map((wr) => wr.summary)));
+  const jobRows = state.rows.filter((r) => r.from === "job" && r.reply === "t2");
+  assert.ok(jobRows.some((r) => /caterers/i.test(r.text)), `the restarted job reported (${state.rows.map((r) => `${r.id}:${r.from ?? ""}:${r.text}`).join(" | ")})`);
+  assert.equal(state.meta.jobsKept?.["job:job0caterers1"], undefined, "a job that finished leaves nothing to pick up");
+});
+
 test("a box whose run is gone is answered gone and deletes itself on its next alarm", async () => {
   const w = await world();
   const box = w.env.LAB_JOB.get({ name: "lost" });
@@ -202,6 +248,10 @@ test("a box born without its test chat and run makes nothing", async () => {
   const kept = w.env.LAB_JOB.made.get("bare");
   assert.equal(await kept.storage.get(BORN_KEY), undefined);
   assert.equal(await kept.storage.get(LAB_KEY), undefined);
+  // Nor born again from an ended run without them.
+  const revived = await box.fetch(new Request("https://inbox/lab-revive", { method: "POST", headers: { "x-inbox-name": "job:bare0001" }, body: JSON.stringify({ ended: { run: { id: "bare0001" } } }) }));
+  assert.equal(revived.status, 400);
+  assert.equal(await kept.storage.get(BORN_KEY), undefined);
 });
 
 test("without the LAB_JOB binding a test chat's jobs still run in memory", async () => {

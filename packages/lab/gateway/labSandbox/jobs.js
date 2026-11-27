@@ -24,7 +24,7 @@
 
 import { gatewayGraph } from "../fromGateway/agent_graph_gatewayGraph.js";
 import { TEX_CONFIG, withDraft } from "../fromGateway/agent_texConfig.js";
-import { LAB_STATE_PATH, LAB_STOP_PATH } from "./jobBox.js";
+import { ENDED_KEY, LAB_KEPT_PATH, LAB_REVIVE_PATH, LAB_STATE_PATH, LAB_STOP_PATH, STEERS_KEY } from "./jobBox.js";
 
 /** A job's passes in a test chat stop after this long (production's limit is 30 minutes, `jobRun.ts`). */
 export const JOB_LIMIT_MS = 15 * 60_000;
@@ -78,7 +78,7 @@ function inner(request) {
  * object is refused and listed. `jobs` keeps each job's `{ name, inbox, storage, parent }`; `chat` is set once the chat
  * object exists.
  */
-export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBox = null }) {
+export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBox = null, revive = null }) {
   const jobs = new Map();
   /** The names a job reports to: its `run.inbox`, as the chat object gave it at `/job-start`. */
   const chats = new Set();
@@ -108,6 +108,7 @@ export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBo
     }
     if (name.startsWith("job:")) {
       let job = jobs.get(name);
+      if (!job && path === "/job-steer" && request.method === "POST" && revive !== null && (await request.clone().json().catch(() => null))?.resume === true) job = await reviveJob(name);
       if (!job) {
         if (path !== "/job-start" || request.method !== "POST") return Response.json({ here: false }, { status: 404 });
         const run = await request.clone().json().catch(() => null);
@@ -134,6 +135,31 @@ export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBo
     if (chats.has(name) && registry.chat !== null) return await registry.chat.fetch(inner(request));
     gate.record({ kind: "Job", summary: `asked another object ${path}` });
     return new Response(null, { status: 503 });
+  };
+  /**
+   * "Restart it" on a job an earlier text ran (2026-11-27: a group test chat's "restarting it now" picked nothing up,
+   * since that text's job, and everything it kept, was gone): born again from what it left (`revive(name)`, the test
+   * chat's `jobsKept`), on a box of this text where there is one, and run in turn like any job this text started.
+   */
+  const reviveJob = async (name) => {
+    const kept = await revive(name);
+    if (typeof kept?.ended?.run !== "object" || kept.ended.run === null) return null;
+    if (typeof kept.ended.run.inbox === "string") chats.add(kept.ended.run.inbox);
+    const boxes = [...jobs.values()].filter((held) => held.boxed).length;
+    const box = makeBox !== null && kept.ended.run.machine === undefined && boxes < MAX_JOBS ? makeBox(name) : null;
+    let job;
+    if (box !== null) {
+      const answer = await box.fetch(new Request(`https://inbox${LAB_REVIVE_PATH}`, { method: "POST", body: JSON.stringify({ ended: kept.ended, steers: kept.steers ?? null }) }));
+      if (!answer.ok) return null;
+      job = { name, inbox: box, boxed: true, passes: 0, failedLine: false, parent: parentOfJob(), start: null };
+    } else {
+      job = { name, ...makeJob(name), parent: parentOfJob() };
+      await job.storage.put(ENDED_KEY, kept.ended);
+      if (Array.isArray(kept.steers)) await job.storage.put(STEERS_KEY, kept.steers);
+    }
+    jobs.set(name, job);
+    gate.record({ kind: "Job", summary: `picked up job ${name.replace(/^job:/, "").slice(0, 12)} from an earlier text` });
+    return job;
   };
   registry.namespace = {
     idFromName: (name) => ({ name, toString: () => "" }),
@@ -255,6 +281,7 @@ export async function runJobs({ registry, gate, book, config = null, drain = asy
     } finally {
       book.setAnchor(null);
     }
+    job.kept = { ended: (await job.storage.get(ENDED_KEY)) ?? null, steers: (await job.storage.get(STEERS_KEY)) ?? null };
     if (outcome === "cut") gate.record({ kind: "Job", summary: `job ${jobId.slice(0, 12)} stopped after ${passes} passes (the test chat's limit)` });
     ran.push({ jobId, passes, outcome });
     console.log(JSON.stringify({ event: "lab_sandbox_job", passes, outcome }));
@@ -332,9 +359,35 @@ export async function runBox({ job, jobId, gate, book, drain, now, wait, deadlin
     book.setAnchor(null);
     // A box never born (its start held, then Reset) has nothing to stop.
     if (typeof job.start === "string") job.start = null;
-    else await job.inbox.fetch(new Request(`https://inbox${LAB_STOP_PATH}`, { method: "POST" })).catch(() => null);
+    else {
+      // What it left for "restart it" in a later text, read before the box deletes everything.
+      const kept = await job.inbox.fetch(new Request(`https://inbox${LAB_KEPT_PATH}`)).catch(() => null);
+      job.kept = kept?.ok ? await kept.json().catch(() => null) : null;
+      await job.inbox.fetch(new Request(`https://inbox${LAB_STOP_PATH}`, { method: "POST" })).catch(() => null);
+    }
   }
   const said = { done: "done", failed: "ended with its couldn't-finish line", cut: "stopped at the test chat's limit", reset: "stopped by Reset", gone: "lost its run" }[outcome];
   gate.record({ kind: "Job", summary: `job ${jobId.slice(0, 12)} ran on its own job box (LabJob, driven by its alarm): ${job.passes} pass${job.passes === 1 ? "" : "es"}, ${said}` });
   return { passes: job.passes, outcome };
+}
+
+/** The most ended jobs a test chat keeps for "restart it", how long, and how large each may be. */
+const KEPT_JOBS = 12;
+const KEPT_JOB_MS = 24 * 60 * 60_000;
+const KEPT_JOB_CHARS = 64_000;
+
+/**
+ * What a test chat keeps of its jobs between texts (`jobsKept`): each one this text ran, as it ended (`jobs.js` `kept`),
+ * over the ones kept before; a job that ended with nothing to pick up, or too large to keep, is let go. A real job's
+ * object keeps it two hours (`jobRun.ts` `resumeJob` checks); this keeps a day, newest first.
+ */
+export function keptJobs(before, jobs, at) {
+  const kept = { ...(before && typeof before === "object" ? before : {}) };
+  for (const [name, job] of jobs) {
+    const ended = job.kept?.ended;
+    const entry = ended && typeof ended === "object" ? { ended, steers: job.kept.steers ?? null, at } : null;
+    if (entry === null || JSON.stringify(entry).length > KEPT_JOB_CHARS) delete kept[name];
+    else kept[name] = entry;
+  }
+  return Object.fromEntries(Object.entries(kept).filter(([, entry]) => at - (entry?.at ?? 0) < KEPT_JOB_MS).sort(([, a], [, b]) => b.at - a.at).slice(0, KEPT_JOBS));
 }
