@@ -135,8 +135,9 @@ function texTexts(history, group) {
 /** A text's words with a space each side, so a run of words is found whole. */
 const runOf = (text) => ` ${wordsOf(text).join(" ")} `;
 
-/** The opening words of a body that name which email a later copy of it is. */
+/** The opening and closing words that name which email a later copy of it is, as `shownCopyOf` anchors on. */
 const OPENS_WORDS = 3;
+const ENDS_WORDS = 2;
 
 /*
   A LATER COPY REPLACES THE ONE IT CHANGED (2026-11-27). Tex showed a draft, they asked for its last sentence out, Tex
@@ -146,9 +147,11 @@ const OPENS_WORDS = 3;
   opens as the body opens and does not hold it whole.
 */
 function replacedIn(texts, body, words) {
-  const opens = wordsOf(body).slice(0, OPENS_WORDS).join(" ");
-  if (opens === "") return false;
-  return texts.some((text) => !runOf(text).includes(` ${words} `) && runOf(text).includes(` ${opens} `));
+  const said = wordsOf(body);
+  const anchors = [said.slice(0, OPENS_WORDS).join(" "), said.slice(-ENDS_WORDS).join(" ")].filter((anchor) => anchor !== "");
+  if (anchors.length === 0) return false;
+  // Either anchor: a copy may change the opening ("Dear Bram", not "Hi Bram") as readily as the words between.
+  return texts.some((text) => !runOf(text).includes(` ${words} `) && anchors.some((anchor) => runOf(text).includes(` ${anchor} `)));
 }
 
 /**

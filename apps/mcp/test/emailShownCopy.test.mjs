@@ -28,6 +28,9 @@
  *       to the tagger counts…` fails (a copy shown to Cy, or offered to @cy, would send from Ada's account).
  *  (vii) `askedBy` back to the question's last line (2026-11-27) → `a line a member writes into their own text does
  *       not make the turn somebody else's` fails (a draft shown to @cy counts as shown to @ada).
+ *  (viii) `replacedIn`'s closing-words anchor dropped, and the whole guard dropped (2026-11-27) → `a body is shown
+ *       only until Tex shows another copy of the same email` fails on the copy with another opening, and that check
+ *       with `a draft they asked Tex to change…` fails outright.
  */
 
 import assert from "node:assert/strict";
@@ -384,12 +387,18 @@ test("a draft they asked Tex to change is not released by their go-ahead to the 
   }
 });
 
+/** A copy that changes the opening words rather than the ones between: the same email, so it replaces too. */
+const DEAR_SHOWN = `${BRAM} is the right address.\n\n${BODY.replace("Hi Bram", "Dear Bram")}\nSend?`;
+
 test("a body is shown only until Tex shows another copy of the same email", () => {
   assert.equal(bodyShown(history(["assistant", LONG_SHOWN]), LONG_BODY), true);
   assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["user", "cut it"], ["assistant", CUT_SHOWN]), LONG_BODY), false, "replaced by a later copy");
   assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["user", "cut it"], ["assistant", CUT_SHOWN]), BODY), true, "the latest copy is the shown one");
   assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["assistant", "Which Gmail should it go from?"]), LONG_BODY), true, "a later text about something else replaces nothing");
   assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["assistant", LONG_SHOWN]), LONG_BODY), true, "the same copy shown twice is still shown");
+  // A copy that opens differently is still the same email: it ends as it ends (`shownCopyOf`'s other anchor).
+  assert.equal(bodyShown(history(["assistant", CUT_SHOWN], ["user", "say Dear Bram"], ["assistant", DEAR_SHOWN]), BODY), false, "replaced by a copy with another opening");
+  assert.equal(bodyShown(history(["assistant", CUT_SHOWN], ["user", "say Dear Bram"], ["assistant", DEAR_SHOWN]), BODY.replace("Hi Bram", "Dear Bram")), true, "the latest copy is the shown one");
 });
 
 /*
