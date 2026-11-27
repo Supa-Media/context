@@ -37,6 +37,8 @@ type Draw = {
   lit: string | ReadonlySet<string> | ReadonlyMap<string, number> | null;
   counts: Record<string, number> | null;
   marks: Marks | null;
+  /** Several steps picked at once (`engine/picks.ts`), each drawn selected. */
+  picked?: ReadonlySet<string> | null;
 };
 
 const RH = 40;
@@ -110,7 +112,9 @@ export function renderGroupFocusHtml(g: LabGraph, sim: Sim, id: string, groups: 
       const count = uses[p.other]?.length ?? 0;
       const from = { x: box.x + box.w / 2, y: box.y + box.h };
       under += `<path class="wire" d="M${from.x},${from.y} C${from.x},${ry - 8} ${x + W / 2},${from.y + 8} ${x + W / 2},${ry - 2}" stroke="var(--comp)" stroke-dasharray="4 4" fill="none"/>`;
-      over += `<g class="gref" data-gport="${esc(p.other)}" transform="translate(${x},${ry})"><title>${esc(o?.label ?? p.other)}, a component used in ${count} place${count === 1 ? "" : "s"}: open it</title><rect width="${W}" height="${RH}" rx="10"/><text x="14" y="25">◇ ${esc(clip(o?.label ?? p.other, 14))} · ${count} use${count === 1 ? "" : "s"}  ⤢</text></g>`;
+      // A component the draft added (Make component) is outlined as new, as a changed step is.
+      const isNew = !!d.marks?.newGroups?.has(p.other);
+      over += `<g class="gref${isNew ? " chg-new" : ""}" data-gport="${esc(p.other)}" transform="translate(${x},${ry})"><title>${esc(o?.label ?? p.other)}, a component used in ${count} place${count === 1 ? "" : "s"}${isNew ? ", new in this draft" : ""}: open it</title>${isNew ? `<rect class="chgo" x="-4" y="-4" width="${W + 8}" height="${RH + 8}" rx="13"/>` : ""}<rect width="${W}" height="${RH}" rx="10"/><text x="14" y="25">◇ ${esc(clip(o?.label ?? p.other, 14))} · ${count} use${count === 1 ? "" : "s"}  ⤢</text></g>`;
     }
   }
   const inX = fx - SIDE - PW,
@@ -118,7 +122,7 @@ export function renderGroupFocusHtml(g: LabGraph, sim: Sim, id: string, groups: 
   column(ins, inX, "in");
   column(outs, outX, "out");
 
-  const inner = renderGraphHtml(g, sim, d.tags, d.sel, d.lit, "off", d.counts, d.marks, { only: new Set(items.map((n) => n.id)), groups, group: id });
+  const inner = renderGraphHtml(g, sim, d.tags, d.sel, d.lit, "off", d.counts, d.marks, { only: new Set(items.map((n) => n.id)), groups, group: id, picked: d.picked });
   return {
     html: under + inner + over,
     fBounds: { x0: (ins.length ? inX : fx) - 20, x1: (outs.length ? outX + PW : fx + fw) + 20, y0: Math.min(...ys) - 20, y1: Math.max(...ys) + 20 },

@@ -173,7 +173,7 @@ svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-widt
 #stage{position:absolute;inset:0;touch-action:none;background-color:var(--page);background-image:radial-gradient(var(--grid) 1px,transparent 1.2px);background-size:22px 22px}
 #stage.pan{cursor:grab}
 #stage.connect{cursor:crosshair}
-#stage svg{width:100%;height:100%;display:block}
+#stage>svg{width:100%;height:100%;display:block}
 .nd{cursor:pointer}
 .nd .card{fill:var(--page);stroke:var(--line2);stroke-width:1}
 .nd:hover .card{stroke:var(--text2)}

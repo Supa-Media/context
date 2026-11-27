@@ -134,6 +134,19 @@ function ArchPages({ onPick }: { onPick: () => void }) {
   );
 }
 
+/** The toast's line, its one name drawn bold ("Made **Reply checks** from 3 steps"). */
+function ToastText({ text, bold }: { text: string | null; bold: string | null }) {
+  const at = text && bold ? text.indexOf(bold) : -1;
+  if (!text || !bold || at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <b>{bold}</b>
+      {text.slice(at + bold.length)}
+    </>
+  );
+}
+
 export function TexLab() {
   const isAdmin = useQuery(api.functions.admin.amIAdmin, {});
   // Staff whose session has not typed its second-factor code are asked for it here, as the console asks (`AdminPane.tsx`), never told "Staff only".
@@ -310,7 +323,12 @@ function Lab() {
       {/* Reads the person's own ledger, once the test chat shows real texts, so a real text's play button can show what ran (`views/mine/playProd.ts`). */}
       {s.tester === "me" || sandbox.rows.some((r) => r.prod) ? <MineLoader /> : null}
       <div className="toast" id="toast" hidden={!s.toastText}>
-        {s.toastText}
+        <ToastText text={s.toastText} bold={s.toastBold} />
+        {s.toastUndo ? (
+          <button className="tundo" onClick={s.toastUndo}>
+            Undo
+          </button>
+        ) : null}
       </div>
       <div className="viewer" id="viewer" hidden={!s.viewer} role="dialog" aria-modal="true" aria-label="Module">
         {s.viewer ? <Viewer /> : null}

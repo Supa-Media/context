@@ -191,6 +191,14 @@ export function selectMobile({ root, changed }) {
 }
 
 /**
+ * Jest's paths for the mobile tests, from apps/mobile: the Lab's tests live in `packages/lab/__tests__` and run there
+ * too (apps/mobile/jest.config.js `roots`), so a path is made relative, never cut by the folder's length.
+ */
+export function mobileTestArgs(files) {
+  return files.map((file) => relative(MOBILE, file).replaceAll("\\", "/"));
+}
+
+/**
  * The Convex tests that import a changed module, through vitest's module graph
  * (`vitest list --changed`, which compares against the merge-base).
  */
@@ -339,7 +347,7 @@ export async function main({ root = ROOT, base, dryRun = false, log = (line) => 
         const { tests, skipped } = selectMobile({ root, changed });
         return skipped ? { skipped } : { reached: tests };
       },
-      runner: (files) => runInherit("pnpm", ["exec", "jest", "--runTestsByPath", ...files.map((file) => file.slice(MOBILE.length + 1))], join(root, MOBILE)),
+      runner: (files) => runInherit("pnpm", ["exec", "jest", "--runTestsByPath", ...mobileTestArgs(files)], join(root, MOBILE)),
     },
     {
       name: "convex",

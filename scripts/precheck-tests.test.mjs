@@ -20,7 +20,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { changedFiles, gatewayGraph, rankAndCap, selectGateway } from "./precheck-tests.mjs";
+import { changedFiles, gatewayGraph, mobileTestArgs, rankAndCap, selectGateway } from "./precheck-tests.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(REPO, "scripts/precheck-tests.mjs");
@@ -273,4 +273,8 @@ test("rankAndCap: a test with no known distance ranks after every measured one, 
     1,
   );
   assert.deepEqual(picked, { run: ["t/b.test.mjs"], left: 2 });
+});
+
+test("mobileTestArgs: a Lab test beside apps/mobile keeps its whole path from there", () => {
+  assert.deepEqual(mobileTestArgs(["apps/mobile/__tests__/a.test.ts", "packages/lab/__tests__/b.test.ts"]), ["__tests__/a.test.ts", "../../packages/lab/__tests__/b.test.ts"]);
 });

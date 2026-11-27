@@ -9,7 +9,7 @@
  * wires green and removed ones red, and fades nothing; Ghost also draws the base's version under each changed step,
  * dashed. A step's place is never a change.
  */
-import { unfoldGroups } from "./groups";
+import { groupChain, unfoldGroups } from "./groups";
 import { groupsOf } from "../data/graph";
 import { edit, G, lab, MAIN, MODELS, toast } from "./state";
 import type { LabEdge, LabGraph, LabNode } from "../types";
@@ -25,6 +25,8 @@ export type Marks = {
   removed: LabNode[];
   newWires: Set<string>;
   goneWires: GoneWire[];
+  /** Groups the draft added (a component made from steps): its reference cards and its sidebar row are marked new. */
+  newGroups: Set<string>;
 };
 
 /** The fields a change is named by, in the order the panel lists them. */
@@ -47,6 +49,8 @@ export const FIELD_NAMES: Array<[keyof LabNode | "inSchema", string]> = [
   ["outSchema", "output"],
   ["icon", "icon"],
   ["graph", "page"],
+  // A step moved into another group (Make component, Dev 2026-11-27) is a change; its place on the canvas is not.
+  ["group", "group"],
   ["settings", "settings"],
 ];
 
@@ -83,7 +87,11 @@ export function computeMarks(cur: LabGraph, base: LabGraph, mode: "marks" | "gho
   const a = unfoldGroups(base);
   const b = unfoldGroups(cur);
   const drawn = new Set(cur.nodes.map((n) => n.id));
-  const boxOf = (n: LabNode) => (drawn.has(n.id) ? n.id : n.group && drawn.has(n.group) ? n.group : null);
+  const groups = groupsOf(cur);
+  const baseGroups = groupsOf(base);
+  // The box a step is drawn in: itself, or the drawn box of the nearest group around it (a nested group folds into its top one).
+  const boxIn = (group: string | undefined, defs = groups) => (group ? (groupChain(defs, group).find((x) => drawn.has(x)) ?? null) : null);
+  const boxOf = (n: LabNode) => (drawn.has(n.id) ? n.id : boxIn(n.group));
   const byA = new Map(a.nodes.map((n) => [n.id, n]));
   const byB = new Map(b.nodes.map((n) => [n.id, n]));
   const nodes: Record<string, NodeMark> = {};
@@ -106,6 +114,9 @@ export function computeMarks(cur: LabGraph, base: LabGraph, mode: "marks" | "gho
     if (box === n.id) {
       if (fields.length) nodes[n.id] = { kind: "changed", fields, base: o };
     } else if (fields.length) touch(box, `${n.label} inside`, cur.nodes.find((x) => x.id === box) ?? null);
+    // A step that left a group marks the box it left too, when that box is drawn and is another one.
+    const left = n.group !== o.group ? boxIn(o.group, baseGroups) : null;
+    if (left && left !== box) touch(left, `${n.label} moved to ${(n.group && groups[n.group]?.label) || "no group"}`, cur.nodes.find((x) => x.id === left) ?? null);
   }
   const removed: LabNode[] = [];
   for (const o of a.nodes) {
@@ -126,7 +137,8 @@ export function computeMarks(cur: LabGraph, base: LabGraph, mode: "marks" | "gho
     const to = at(e.to);
     if (from && to) goneWires.push({ from, to, mode: e.mode });
   }
-  return { mode, vs, nodes, removed, newWires, goneWires };
+  const newGroups = new Set(Object.keys(groups).filter((id) => !baseGroups[id]));
+  return { mode, vs, nodes, removed, newWires, goneWires, newGroups };
 }
 
 /** The graph the open draft is compared with, or null when there is none to compare (main itself, or not loaded). */

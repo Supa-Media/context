@@ -12,10 +12,12 @@
  *   remove without the text/send refusal       "remove takes the reads of the step's output with it ..." fails
  *   convo_tool replacing the whole tool list   "a chat tool is merged one at a time ..." fails
  *   diffGraphs() without the models part       "a draft's own model is an edit ..." fails
+ * (and, 2026-11-27, Make component:)
+ *   set group without the component refusal     "make a component from steps ..." fails
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyOps, conflicts, diffGraphs, keysOf, OpError, overlaps } from "../../../packages/lab/src/texLabOps.cjs";
+import { applyOps, componentRefusal, conflicts, diffGraphs, keysOf, OpError, overlaps } from "../../../packages/lab/src/texLabOps.cjs";
 import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 
 const config = readTexConfig();
@@ -263,4 +265,25 @@ test("a generator wire is a wire kind the Lab can draw and round-trip (Dev2, 202
   assert.match(r.said[0], /wired send → text \(generator, when answer\)/);
   assert.deepEqual(added(applyOps(g, diffGraphs(g, r.graph)).graph), added(r.graph));
   assert.throws(() => applyOps(g, [{ op: "wire", from: "send", to: "text", mode: "generator", allow: "read" }]), OpError);
+});
+
+test("make a component from steps: a group op with component true, then set group on each; a start or another component's step is refused with the Lab's sentence (Dev, 2026-11-27)", () => {
+  const g0 = main();
+  const box = { label: "Reply checks", goal: "Check a reply before it goes.", component: true };
+  const ops = [{ op: "group", id: "replyChecks", value: box }, ...["claimChecks", "reviewer", "roomCheck"].map((node) => ({ op: "set", node, field: "group", value: "replyChecks" }))];
+  const { graph } = applyOps(g0, ops);
+  assert.deepEqual(graph.groups.replyChecks, box);
+  assert.deepEqual(graph.nodes.filter((n) => n.group === "replyChecks").map((n) => n.id).sort(), ["claimChecks", "reviewer", "roomCheck"]);
+  assert.deepEqual(diffGraphs(g0, graph), ops, "the Lab's change reaches the draft as these same edits");
+
+  const into = (node) => applyOps(g0, [ops[0], { op: "set", node, field: "group", value: "replyChecks" }]);
+  assert.throws(() => into("checkin"), /edit 2 \(set\): Check-in starts a turn, so it can't go in a component\./);
+  assert.throws(() => into("jobStart"), /Job start is already in Jobs\./);
+  assert.equal(componentRefusal(g0, ["claimChecks", "checkin"]), "Check-in starts a turn, so it can't go in a component.");
+  assert.equal(componentRefusal(g0, ["claimChecks", "reviewer"]), null);
+  // An ordinary group takes any step; marking a group holding a start a component is refused too.
+  assert.doesNotThrow(() => applyOps(g0, [{ op: "group", id: "plain", value: { label: "Plain" } }, { op: "set", node: "checkin", field: "group", value: "plain" }]));
+  assert.throws(() => applyOps(g0, [{ op: "group", id: "checkInLook", value: { label: "Check-in", component: true } }]), /Check-in starts a turn/);
+  // Main's own components still re-save: none of their steps starts a turn.
+  assert.doesNotThrow(() => applyOps(g0, [{ op: "group", id: "jobs", value: { label: "Jobs", component: true } }]));
 });

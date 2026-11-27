@@ -32,6 +32,8 @@
 
 // The wire modes, a provisional wire's allows and a step's fields are the schema's (`texConfigSchema.cjs`).
 const SCHEMA = require("../../tex/src/texConfigSchema.cjs");
+// Main's group boxes, which a draft's own `groups` add to or override (the Lab's `groupsOf`), for the component rules.
+const { TEX_CONFIG } = require("../../tex/src/texConfig.cjs");
 const MODES = [...SCHEMA.MODES];
 const ALLOW = [...SCHEMA.ALLOW];
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
@@ -101,6 +103,49 @@ function keysOf(op) {
   }
 }
 
+/** Main's groups with the draft's own over them, as the Lab's `groupsOf` reads them. */
+function groupsIn(g) {
+  const out = { ...(TEX_CONFIG.groups ?? {}) };
+  for (const [id, info] of Object.entries(g.groups ?? {})) {
+    if (info === null) delete out[id];
+    else if (typeof info === "object") out[id] = info;
+  }
+  return out;
+}
+
+/** The group `id` and every group around it, innermost first (the Lab's `groupChain`). */
+function chainOf(groups, id) {
+  const out = [];
+  for (let at = id; at && !out.includes(at); at = groups[at]?.parent) out.push(at);
+  return out;
+}
+
+/**
+ * Why these steps cannot go into a component, or null (Dev, 2026-11-27, "Make component"): a step that starts a turn
+ * (`kind: "input"`) has nothing that can call it, so the component would have no uses; and a step already in a
+ * component stays in that one. `into` is the group they would go in (a component inside it is not "another"). The Lab's
+ * bar shows the same sentence (`engine/makeComponent.ts`), so a person and `tex_dev` are refused alike.
+ */
+function componentRefusal(graph, ids, into = null) {
+  const g = asGraph(graph);
+  const groups = groupsIn(g);
+  const steps = ids.map((id) => g.nodes.find((n) => n.id === id)).filter(Boolean);
+  const input = steps.find((n) => n.kind === "input");
+  if (input) return `${input.label ?? input.id} starts a turn, so it can't go in a component.`;
+  const keep = new Set(into ? chainOf(groups, into) : []);
+  for (const n of steps) {
+    const comp = chainOf(groups, n.group).find((id) => groups[id]?.component === true && !keep.has(id));
+    if (comp) return `${n.label ?? n.id} is already in ${groups[comp].label ?? comp}.`;
+  }
+  return null;
+}
+
+/** Is `id` a component, or a group inside one? */
+const inComponent = (g, id) => {
+  const groups = groupsIn(g);
+  return chainOf(groups, id).some((x) => groups[x]?.component === true);
+};
+
 /** Do two touched pieces overlap? A whole step overlaps its fields, a wire with no mode every mode, `*` everything. */
 function overlaps(a, b) {
   if (a === "*" || b === "*") return true;
@@ -150,6 +195,11 @@ function applyOps(graph, ops) {
           if (!n) throw at(`there is no step "${op.node}"`);
           if (!NODE_FIELDS.has(op.field)) throw at(`"${op.field}" is not a field a step has (${[...NODE_FIELDS].join(", ")})`);
           if (op.value === undefined) throw at("it has no value");
+          // Into a component: never a step that starts a turn, nor one already in another component.
+          if (op.field === "group" && typeof op.value === "string" && inComponent(g, op.value)) {
+            const why = componentRefusal(g, [n.id], op.value);
+            if (why) throw at(why);
+          }
           const before = n[op.field];
           if (op.value === null) delete n[op.field];
           else n[op.field] = clone(op.value);
@@ -298,6 +348,12 @@ function applyOps(graph, ops) {
             for (const k of ["x", "y"]) if (op.value[k] !== undefined && !Number.isFinite(op.value[k])) throw at(`${k} must be a number`);
             if (op.value.component !== undefined && typeof op.value.component !== "boolean") throw at("component must be true or false");
           }
+          // Marking a group a component: none of the steps in it may start a turn.
+          if (op.value?.component === true) {
+            const groups = { ...groupsIn(g), [op.id]: op.value };
+            const why = componentRefusal(g, g.nodes.filter((n) => chainOf(groups, n.group).includes(op.id)).map((n) => n.id), op.id);
+            if (why) throw at(why);
+          }
           g.groups = { ...(g.groups ?? {}) };
           const had = g.groups[op.id];
           if (op.value === null) delete g.groups[op.id];
@@ -396,4 +452,4 @@ function diffGraphs(a, b) {
   return ops;
 }
 
-module.exports = { MODES, ALLOW, NODE_FIELDS, MAX_OPS, KEPT_STEPS, FALLBACK_MODEL, OpError, applyOps, diffGraphs, keysOf, overlaps, conflicts };
+module.exports = { MODES, ALLOW, NODE_FIELDS, MAX_OPS, KEPT_STEPS, FALLBACK_MODEL, OpError, applyOps, diffGraphs, keysOf, overlaps, conflicts, componentRefusal };
