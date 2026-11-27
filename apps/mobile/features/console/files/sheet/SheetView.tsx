@@ -47,6 +47,10 @@ import { GRID_CHROME_HEIGHT, SheetGrid, type FinishHow, type GridEditing, type R
 import { fitWidth } from "./columnLayout";
 import { RowMenu } from "./RowMenu";
 import { useSheetHistory } from "./useSheetHistory";
+import { CellComments } from "./CellComments";
+import { isNotesColumn, threadOn } from "./cellNotes";
+import { cellNodeIn, useCellComments } from "./useCellComments";
+import type { TexInNoteHost } from "../comments/tex/contract";
 import { isApplePlatform } from "../../../design/applePlatform";
 import type { EditorKeys } from "./CellEditor";
 import {
@@ -94,6 +98,9 @@ export type SheetViewProps = {
   onChangeText: (next: string) => void; // called with the whole new file text after every committed change
   keptBy?: { name: string; onOpenSource?: () => void }; // a source that syncs this sheet: read-only, under its lock line
   fill?: boolean; // the sheet is the pane: the grid runs to its bottom and scrolls its rows inside (a pointer layout, not a phone's scrolling page)
+  commenter?: string | null; // who signs a cell comment (`@handle`); null or absent, comments are read only
+  commentModerator?: boolean; // an owner, who may delete anyone's cell comment
+  tex?: TexInNoteHost | null; // Tex in this sheet's cell threads; absent, @Tex is only a name
 };
 
 type Menu =
@@ -110,7 +117,7 @@ const NEW_ROW_SPACE = 32 + space.x1;
 const SCROLLBAR_SLACK = 17;
 const ARROWS: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
 
-export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText, keptBy, fill = false }: SheetViewProps): JSX.Element {
+export function SheetView({ path, text, readOnly: canNotEdit, people = [], visibility, say, compact = false, onChangeText, keptBy, fill = false, commenter = null, commentModerator = false, tex = null }: SheetViewProps): JSX.Element {
   const styles = useThemedStyles(makeStyles);
 
   const parsed = useMemo(() => parseSheet(text), [text]);
@@ -118,8 +125,9 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
   const lossy = useMemo(() => (parsed.errors as { lossy?: boolean }[]).some((e) => e.lossy === true), [parsed]);
   // A sheet a source keeps is read-only here: its next sync would replace any edit (`data/syncedSheet.ts`).
   const readOnly = canNotEdit || lossy || keptBy !== undefined;
+  // The grid's sheet leaves out the comments column: it is conversation about the cells, never a column of them.
   const sheet: SheetData = useMemo(
-    () => ({ columns: parsed.columns as SheetColumn[], rows: parsed.rows as Record<string, string>[] }),
+    () => ({ columns: (parsed.columns as SheetColumn[]).filter((c) => !isNotesColumn(c)), rows: parsed.rows as Record<string, string>[] }),
     [parsed],
   );
 
@@ -130,6 +138,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     setMemory((m) => ({ path, view: change(m.path === path ? m.view : EMPTY_VIEW) }));
 
   const [selection, setSelection] = useState<{ row: number; col: string } | null>(null);
+  const notes = useCellComments(parsed as unknown as { columns: SheetColumn[]; rows: Record<string, string>[] }, path, selection, { comment: !readOnly && commenter !== null, tex: tex !== null });
   const [editing, setEditingState] = useState<GridEditing | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -218,6 +227,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
     if (editRef.current && (editRef.current.row !== row || editRef.current.col !== col)) finishEdit(null);
     const column = columnNamed(col);
     setSelection({ row, col });
+    notes.pressed(row, col, touch);
     if (!column) return;
     if (column.type === "checkbox") {
       toggle(row, col);
@@ -249,6 +259,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
       }
       return;
     }
+    if (notes.onKey(e)) return;
     const armed = rowMark?.tone === "armed" ? rowMark.row : null;
     if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "Backspace" || e.key === "Delete")) {
       if (readOnly || !selection) return;
@@ -588,6 +599,7 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
             ? { maxBodyHeight: slotHeight - GRID_CHROME_HEIGHT - (readOnly ? 0 : NEW_ROW_SPACE) - SCROLLBAR_SLACK }
             : {})}
           editorKeys={editorKeys}
+          notes={{ marked: notes.marked, open: notes.open === null ? null : { row: notes.open.row, column: notes.open.column } }}
           rowMark={rowMark}
           onOpenRow={
             readOnly
@@ -670,6 +682,27 @@ export function SheetView({ path, text, readOnly: canNotEdit, people = [], visib
           onClose={closeMenu}
         />
       )}
+      {Platform.OS === "web" ? (
+        <CellComments
+          threads={() => notes.threads}
+          threadOn={(row, column) => threadOn(notes.threads, row, column)}
+          selection={selection}
+          editing={editing !== null}
+          open={notes.open}
+          onOpen={notes.setOpen}
+          onStart={notes.start}
+          compact={touch}
+          rowNumber={(row) => (order.indexOf(row) >= 0 ? order.indexOf(row) + 1 : row + 1)}
+          valueAt={valueAt}
+          cellNode={(row, column) => cellNodeIn(gridRef.current, row, column)}
+          viewer={commenter}
+          editable={!readOnly && commenter !== null}
+          moderator={commentModerator}
+          tex={readOnly ? null : tex}
+          commit={commit}
+          say={say ?? setNotice}
+        />
+      ) : null}
     </View>
   );
 }

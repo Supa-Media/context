@@ -158,6 +158,34 @@ Folder lists cross the bridge as `list-load`/`list-loaded`, read from the same
 `FolderListSource` the web editor uses, so a ```` ```list ```` block draws as
 it does on the web.
 
+## A sheet's cells have threads, kept in a comments column
+
+Dev decided on 2026-11-27 that a `.csv` sheet's cells take comments and @Tex
+the way a note's words do, and that the threads live in the file itself, in
+one column typed `comments` (`comments:comments` in the header;
+`packages/shared/src/cellComments.cjs`). Each row's cell in that column holds
+that row's threads as a note's comment log: a header line `<id> "<column>"`,
+then the same append-only `- <time> <author>: words` lines, resolves and
+reopens. A thread therefore moves with its row through any sort, insert or
+delete, and a column rename carries its threads (`renameColumn`). The column
+is made by the first comment, is never drawn in the grid, and is left out of a
+read unless a reader asks for it by name (`querySheet`, `readSheet.js`, which
+names the open threads in one line). A header comment was rejected because it
+cannot follow a row once the sheet is sorted.
+
+In the app (web and desktop) a selected cell shows the Comment and Tex
+toolbar (⌘M, ⌘L), the card opens 8px under the cell, and a cell with an open
+thread has an amber corner mark (`files/sheet/CellComments.web.tsx`). On a
+phone, a Comment chip under the selected cell opens the bottom sheet. Tex in a
+cell's thread runs through the same `POST /tex/note-run`, told the cell
+(`cell: { row, column }`), and may change any cell, add rows and delete rows
+of the whole sheet (Dev, 2026-11-27); its changes come back as a `sheet` event
+(`noteRunSheet.js`), and the app writes Tex's answer and the changes as one
+save, so one undo takes both back. A change naming a column or row the sheet
+does not have is refused whole, with the answer still written. The native iOS
+app does not show cell threads yet. Removing the column means losing every
+cell thread; the test that fails is `apps/mcp/test/cellComments.test.mjs`.
+
 ## Known limits
 
 - On iOS, a reply field inside the note counts as focus in the note, so the

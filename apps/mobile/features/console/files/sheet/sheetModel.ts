@@ -11,7 +11,8 @@
 
 import { cellProblem, cellText, dateMs, rowMatches, splitOptions, typedValue } from "../../../../../mcp/src/sheets/csv.js";
 
-export type ColumnType = "text" | "number" | "usd" | "date" | "person" | "select" | "multiselect" | "checkbox" | "link";
+/** `comments` is the column a sheet keeps its cell comments in (`cellNotes.ts`): never drawn, never offered in the picker. */
+export type ColumnType = "text" | "number" | "usd" | "date" | "person" | "select" | "multiselect" | "checkbox" | "link" | "comments";
 
 export interface SheetColumn {
   name: string;
@@ -85,6 +86,7 @@ export const TYPE_GLYPH: Record<ColumnType, string> = {
   multiselect: "☷",
   checkbox: "☑",
   link: "↗",
+  comments: "💬",
 };
 
 export const TYPE_LABEL: Record<ColumnType, string> = {
@@ -97,6 +99,7 @@ export const TYPE_LABEL: Record<ColumnType, string> = {
   multiselect: "Multi-select",
   checkbox: "Checkbox",
   link: "Link",
+  comments: "Comments",
 };
 
 /** The type picker's order, two to a row: Single select and Multi-select share one. */
@@ -131,6 +134,7 @@ function valueOpsFor(type: Exclude<ColumnType, "checkbox">): FilterOp[] {
     case "text":
       return ["contains", "is"];
     case "link":
+    case "comments":
       return ["contains"];
     case "number":
     case "usd":

@@ -129,6 +129,8 @@ export function parseEvent(raw: unknown): NoteRunEvent | null {
       return typeof record.text === "string" ? { type: "answer", text: record.text } : null;
     case "edit":
       return typeof record.replace === "string" ? { type: "edit", replace: record.replace } : null;
+    case "sheet":
+      return sheetEventOf(record.changes);
     case "done": {
       if (typeof record.runId !== "string") return null;
       const sources = Array.isArray(record.sources) ? record.sources.filter((s): s is string => typeof s === "string") : [];
@@ -139,6 +141,26 @@ export function parseEvent(raw: unknown): NoteRunEvent | null {
     default:
       return null;
   }
+}
+
+/** A sheet's changes, each kept by name and shape; a line with none of them is dropped. */
+function sheetEventOf(raw: unknown): NoteRunEvent | null {
+  const changes = objectOf(raw);
+  if (changes === null) return null;
+  const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+  const cells = list(changes.cells).flatMap((item) => {
+    const c = objectOf(item);
+    return c !== null && typeof c.row === "number" && Number.isInteger(c.row) && typeof c.column === "string" && typeof c.value === "string" ? [{ row: c.row, column: c.column, value: c.value }] : [];
+  });
+  const append = list(changes.append).flatMap((item) => {
+    const row = objectOf(item);
+    if (row === null) return [];
+    const kept = Object.fromEntries(Object.entries(row).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+    return Object.keys(kept).length > 0 ? [kept] : [];
+  });
+  const remove = list(changes.delete).filter((n): n is number => typeof n === "number" && Number.isInteger(n));
+  if (cells.length === 0 && append.length === 0 && remove.length === 0) return null;
+  return { type: "sheet", changes: { cells, append, delete: remove } };
 }
 
 /** Sends a request with the grant, and once more with a fresh one when the gateway refused the token. */

@@ -58,7 +58,7 @@ flowchart LR
       n_routine(["Routine runs<br/>code<br/>graph/nodes/routine.js · routine.js · runARoutine.js · finishARoutine.js"]):::start
       n_notify(["Send through Tex<br/>code<br/>graph/nodes/notify.js · tools/attention.js · attention.js"]):::start
       n_jobReport(["A job reports<br/>code<br/>graph/nodes/jobReport.js · jobReport.js · texEntryPoint/readTheText.js"]):::start
-      n_noteRun(["Tex in a note<br/>Haiku 5.5 · effort medium<br/>noteRun.js · graph/nodes/noteRun.js · noteRunRoute.js"]):::start
+      n_noteRun(["Tex in a note<br/>Haiku 5.5 · effort medium<br/>noteRun.js · noteRunSheet.js · graph/nodes/noteRun.js · noteRunRoute.js"]):::start
       n_joined(["Tex added<br/>code<br/>graph/nodes/joined.js · joined.js · groupJoined.ts"]):::start
       n_did(["Tex did<br/>code<br/>graph/nodes/did.js · did.js · didFacts.ts"]):::start
     end
@@ -291,7 +291,7 @@ every wire, from the same config.
 | 3-4 Apps and web search | rungTools | ladder | on | code |  |  |  | graph/nodes/rungTools.js · lookupLadder.js |
 | 5-7 Hand to a job | handoff | ladder | on | code |  |  |  | graph/nodes/handoff.js · handoff.js |
 | Connect notes | connect | afterSend | on | Haiku 5.5 | low |  |  | noteConnect.js · graph/nodes/connect.js |
-| Tex in a note | noteRun | starts | on | Haiku 5.5 | medium |  |  | noteRun.js · graph/nodes/noteRun.js · noteRunRoute.js |
+| Tex in a note | noteRun | starts | on | Haiku 5.5 | medium |  | p-sheet-cell | noteRun.js · noteRunSheet.js · graph/nodes/noteRun.js · noteRunRoute.js |
 | Nudge | nudgeOffer | checkFinish | off | Haiku 5.5 | low | 3 s |  | graph/nodes/nudgeOffer.js · nudges.js · capabilities.js |
 | Quiet check | quietCheck | checkInLook | on | Haiku 5.5 | low | 8 s | train:quietCheck | graph/nodes/quietCheck.js |
 | Research | checkinResearch | checkInLook | on | Haiku 5.5 | high | 180 s | train:checkinResearch | graph/nodes/checkinResearch.js |

@@ -850,3 +850,4 @@ bench/test/worldCompare.test.mjs
 bench/test/worldSchema.test.mjs
 bench/test/worldStarts.test.mjs
 test/labSandboxLinkShare.test.mjs
+test/cellComments.test.mjs

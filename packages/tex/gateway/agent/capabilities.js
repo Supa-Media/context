@@ -589,9 +589,9 @@ export const CAPABILITIES = Object.freeze([
     // Tex in a note's comments (`agent/noteRunRoute.js`): a run from the app's note, so nothing here is an action the model can call.
     name: "Tex in a note's comments",
     actions: [],
-    texts: "in the Context app, a note's comments: select text in it or press ⌘L and ask Tex; it reads the note and what you can already see, with your own access, and answers in the comments, suggesting an edit to the selected text that you keep or undo. It writes nothing to your chat with Tex, and nothing to the note until you keep the edit",
+    texts: "in the Context app, a note's comments: select text in it or press ⌘L and ask Tex; it reads the note and what you can already see, with your own access, and answers in the comments, suggesting an edit to the selected text that you keep or undo. It writes nothing to your chat with Tex, and nothing to the note until you keep the edit. On a sheet, select a cell and press ⌘M to comment or ⌘L to ask Tex: Tex answers in that cell's thread and can change any cell, add rows or delete rows of the sheet, all undone together with one undo",
     group: null,
-    cant: [],
+    cant: [{ where: "everywhere", what: "start or answer a comment on one cell of a sheet from a text", workaround: { kind: "words", text: "open the sheet in the Context app on the web or desktop, select the cell and press ⌘M to comment, or ⌘L to ask Tex there" } }],
   },
 ]);
 
