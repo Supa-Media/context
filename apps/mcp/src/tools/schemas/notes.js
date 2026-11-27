@@ -204,6 +204,11 @@ export function noteWriteToolDefinitions() {
                   "send: \"note\" (the default); \"ask\" when you need an answer; \"interrupt\" stops the agent's current step, and only Tex can send one.",
               },
               wait: { type: "number", description: "send, with kind \"ask\": seconds to wait in this call for the answer, at most 120." },
+              as: {
+                type: "string",
+                description:
+                  "send: which bot this line is from, as its mail name (e.g. \"grok-bot\"), when this connection is bound as several bots (manage area { bind_bot }). In a bot's own bots/<bot>/ folder it is that bot without this.",
+              },
               used: {
                 type: "number",
                 description:

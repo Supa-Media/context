@@ -198,3 +198,12 @@ test("two bots on one connection each sign as themselves", async () => {
   assert.equal(other.isError, true);
   assert.match(said(other), /not "pipeline"/);
 });
+
+// The preview run of the test above (2026-11-27) found mail.as refused before the tool ran: "unknown argument
+// mail.as". The tool's own schema must take it, or a shared connection can never say which bot it is.
+test("write_note's schema takes mail.as", async () => {
+  const { noteWriteToolDefinitions } = await import("../src/tools/schemas/notes.js");
+  const { validateArguments } = await import("../src/toolArguments.js");
+  const writeNote = noteWriteToolDefinitions().find((tool) => tool.name === "write_note");
+  assert.equal(validateArguments(writeNote.inputSchema, { path: "areas/plans.md", mail: { text: "hi", as: "grok-bot", used: 0 } }), null);
+});
