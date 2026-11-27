@@ -413,3 +413,19 @@ test("decide is metered to the chat's sponsor, including a chat that reaches no 
   clef(ANSWER);
   expect((await decide(t)).json).toMatchObject({ ok: false, cause: "no_group" });
 });
+
+// Launch-day rehearsal, 2026-11-27: "ok Tex prove it, find us a cabin" then, seconds later from someone else, "not the
+// 17th weekend!!" went quiet: the burst was judged by its newest line only, and the side remark took the ask with it.
+// Dev2 picked judging the whole burst. Sabotage: name only the newest message to the judge and this fails.
+test("a burst is judged as a whole, from its first waiting message through the newest; one message is judged on its own", () => {
+  const ids = Array.from({ length: 32 }, (_, n) => `1761619442${String(n).padStart(3, "0")}-${String(n + 1).padStart(6, "0")}`);
+  const base = { chat: GROUP, line: LINE, style: "followAlong" as const, transcript: "x", running: false, waitingAsks: [] };
+  const actOf = (candidates: string[]) => (decideRequest({ ...base, candidates, newest: [...candidates].sort().at(-1)! }).questions as Record<string, { instructions: string }>).act!.instructions;
+  const two = actOf([ids[1]!, ids[0]!]);
+  expect(two).toContain(`<${ids[0]}> through <${ids[1]}>`);
+  expect(two).toMatch(/any of them is for Tex/);
+
+  const all = actOf(ids);
+  expect(all.length).toBeLessThanOrEqual(1_000);
+  expect(actOf([ids[0]!])).toContain(`(events <${ids[0]}>) together`);
+});

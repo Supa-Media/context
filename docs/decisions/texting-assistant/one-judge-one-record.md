@@ -214,3 +214,11 @@ Decided by Dev2, 2026-11-17: "I dont want a follow along setting at all, I just 
 - **A wait that ends goes back to the judge.** When the Worker does not hold a wait, it no longer turns it into an answer. That covers a wait with no real burst, and a wait the chat may not repeat or whose deadline has passed. Instead the judge reads the burst again with only quiet or respond to choose (`settle` in the body; `groupTurn.ts` `settleWait`). A literal tag is still answered (`taggedIndex`), and with the judge down the usual `judgeDownAnswer` applies. A settle that still says wait is read as quiet. About 10 replies in that week, including one to a question Seyi asked Shyoh, came from a wait turned into an answer.
 
 What reversing it costs: Tex answers whatever follows its own texts, and a hedged wait becomes a reply. Tests: `packages/tex/worker/groupDecideEmojiWait.test.ts` ("a single message for somebody else stays quiet…", "a burst whose wait runs out stays quiet…", "a settle that still says wait…"), and the textDecide tests for the settle form and the missing group line.
+
+## 2026-11-27: a burst is judged whole
+
+Decided by Dev2, 2026-11-27, after the launch-day rehearsal. Someone wrote "ok Tex prove it, find us a cabin…", and seconds later someone else wrote "not the 17th weekend!!". The ask got no reply. The Worker sends Decide every message waiting since Tex last answered (`candidates`), but Decide was told to judge only the newest one. The side remark read as chat, so the whole burst went quiet with it. `taggedIndex` rescues only a literal "@Tex".
+
+Now the judge reads every waiting message together, from the first through the newest. It responds when any of them is for Tex, even if a later one is not (`textDecide.cjs` `judgedSpan`). `start` still says where the request begins, so the answer covers the ask and what came after it. `FOR_TEX_RULE` speaks of "a message being judged" instead of "the newest message". It is the same one call, so this adds no cost.
+
+What reversing it costs: a direct ask that is followed fast by anyone's aside is dropped in silence. Tests: `apps/convex/__tests__/textDecide.test.ts` ("a burst is judged as a whole…"), and the respond cases `g-burst-ask-then-aside` (must answer) and `g-burst-plans-between-friends` (stays quiet), which reach the judge as a burst through `respond.mjs` `waiting`.

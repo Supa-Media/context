@@ -1,5 +1,5 @@
 {
-  "about": "Should Tex text back, or stay quiet (or only react)? The one judge's held-out cases (`textDecide.cjs`). Every chat, name and detail is invented (Dev2, 2026-11-12: never taken from a real chat), across kinds of groups (family, friends, a team, a club, roommates, a chat with an invented assistant called Nova or Atlas), and no case is within half its words of one of the judge's examples (`respond.test.mjs`). The mistakes found in real chats on 2026-11-11 to 11-12 are here rewritten (`from: \"tune-up\"`), so a later change can't bring them back. `want: hush` is quiet or a tapback; `want: reply` must reach the model. `must: true` is the owner's \"@Tex must still work\" set (2026-11-11): a tag, Tex's name as the one asked, a reply to Tex, or an answer to Tex's question; not one may be hushed. `setting` is a group's speak-up level (follow along when absent). \"You\" is Tex, a person is \"@name\"; \"(replying to You)\" or \"(replying to @name)\" says whose message a line was sent under, and \"(your newest question)\" marks Tex's latest question, as the Worker renders them (`events.ts`).",
+  "about": "Should Tex text back, or stay quiet (or only react)? The one judge's held-out cases (`textDecide.cjs`). Every chat, name and detail is invented (Dev2, 2026-11-12: never taken from a real chat), across kinds of groups (family, friends, a team, a club, roommates, a chat with an invented assistant called Nova or Atlas), and no case is within half its words of one of the judge's examples (`respond.test.mjs`). The mistakes found in real chats on 2026-11-11 to 11-12 are here rewritten (`from: \"tune-up\"`), so a later change can't bring them back. `want: hush` is quiet or a tapback; `want: reply` must reach the model. `must: true` is the owner's \"@Tex must still work\" set (2026-11-11): a tag, Tex's name as the one asked, a reply to Tex, or an answer to Tex's question; not one may be hushed. `waiting` is how many of the last lines, the text included, wait for Tex as one burst (1 when absent; 2026-11-27: a burst is judged whole). `setting` is a group's speak-up level (follow along when absent). \"You\" is Tex, a person is \"@name\"; \"(replying to You)\" or \"(replying to @name)\" says whose message a line was sent under, and \"(your newest question)\" marks Tex's latest question, as the Worker renders them (`events.ts`).",
   "cases": [
     {
       "id": "g-bot-reply-under-person",
@@ -285,6 +285,31 @@
       "want": "hush",
       "from": "eager-1117",
       "cause": "people joking about Tex with each other right after it spoke is their talk, not a question for Tex"
+    },
+    {
+      "id": "g-burst-ask-then-aside",
+      "chat": "group",
+      "lines": [
+        "@nadia: every year we say ski weekend and nobody books it",
+        "@omar: ok Tex find us a lodge near the slopes for february, 6 of us, under $120 a night each"
+      ],
+      "text": "@lena: not presidents day weekend!!",
+      "waiting": 2,
+      "want": "reply",
+      "must": true,
+      "from": "rehearsal"
+    },
+    {
+      "id": "g-burst-plans-between-friends",
+      "chat": "group",
+      "lines": [
+        "@nadia: lodge is booked for the 7th",
+        "@omar: who's driving saturday"
+      ],
+      "text": "@lena: i can if someone covers gas",
+      "waiting": 2,
+      "want": "hush",
+      "from": "rehearsal"
     }
   ]
 }
