@@ -13,6 +13,7 @@
 
 import { areaRoutineOf, parseWorksIn } from "@context/shared/src/areaRoutines.cjs";
 import { refreshAsk } from "@context/shared/src/botRelay.cjs";
+import { mailJoinName } from "@context/shared/src/areaBots.cjs";
 import { isNotePath } from "@context/shared/src/fileKinds.cjs";
 import type { ListNote, PropertyValue } from "../../listBlock/model";
 import { areaTitle, areaTree, botsFolder, botsFolderOfBot, cardOf, cardSlug, isBotCardPath, peopleFolder, type AreaNode, type Card } from "./seat";
@@ -108,6 +109,17 @@ export function botsOf(root: string, notes: readonly ListNote[], me: string | un
 /** A bot's mail folder: beside its card where that is in a bots folder, else in the bots folder beside the Areas folder. */
 function mailFolderOf(root: string, cardAt: string, name: string): string {
   return isBotCardPath(root, cardAt) ? `${cardAt.slice(0, -"/about.md".length)}/mail` : `${botsFolder(root)}/${cardSlug(name)}/mail`;
+}
+
+/**
+ * The bots with a saved webhook reached by it, whatever their card's `reach:` says. A bot that sets its webhook from
+ * its setup prompt saves it on the account server and may never write `reach: webhook` on its card (Dev, 2026-11-27:
+ * "these bots say they setup their webhooks but it still shows as setup in mail"), and a saved webhook is what
+ * Context calls. `hooked` holds the bots' names as the webhook list keeps them (`mailJoinName`); undefined while it loads.
+ */
+export function withHooks(bots: readonly Bot[], hooked: ReadonlySet<string> | undefined): Bot[] {
+  if (hooked === undefined) return [...bots];
+  return bots.map((bot) => (bot.card.reach !== "webhook" && (hooked.has(mailJoinName(bot.name)) || hooked.has(bot.slug)) ? { ...bot, card: { ...bot.card, reach: "webhook" } } : bot));
 }
 
 /** Every mail note in the Areas folder and the bots folders the reader can see, each with who is on either side. */

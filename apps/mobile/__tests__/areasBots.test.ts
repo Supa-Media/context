@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { botMailNote, botsOf, conversationsOf, mailOfBot, routinesOfBot } from "../features/console/files/folderPage/areas/bots";
+import { botMailNote, botsOf, conversationsOf, mailOfBot, routinesOfBot, withHooks } from "../features/console/files/folderPage/areas/bots";
 import { capWords } from "../features/console/files/folderPage/areas/BotsPage";
 import type { ListNote } from "../features/console/files/listBlock/model";
 
@@ -48,6 +48,13 @@ describe("bots", () => {
     ]);
     expect(capWords(grok)).toBe("20% of its week here");
     expect(capWords(bots[2]!)).toBe("No caps");
+  });
+
+  // Dev, 2026-11-27: "these bots say they setup their webhooks but it still shows as setup in mail".
+  test("a bot with a saved webhook is reached by it, whatever its card's reach says", () => {
+    expect(bots.map((bot) => bot.card.reach)).toEqual(["webhook", "mail", "mail"]);
+    expect(withHooks(bots, new Set(["socials"])).map((bot) => bot.card.reach)).toEqual(["webhook", "mail", "webhook"]);
+    expect(withHooks(bots, undefined).map((bot) => bot.card.reach)).toEqual(["webhook", "mail", "mail"]);
   });
 
   test("its mail, its own folder's note, and the routines of the areas it holds", () => {

@@ -12,6 +12,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { pointerType, radii, space } from "../../../../design/tokens";
@@ -20,7 +23,7 @@ import type { ListNote } from "../../listBlock/model";
 import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
 import { threadOf, type Thread } from "./areaMail";
-import { botsOf, conversationsOf, type Bot } from "./bots";
+import { botsOf, conversationsOf, withHooks, type Bot } from "./bots";
 import { botsFolder } from "./seat";
 import { AnyBotPanel } from "./LiveBotPanel";
 import { AnyRefreshAll } from "./RefreshAll";
@@ -79,10 +82,21 @@ export function useThreads(paths: readonly string[], read: BotsPageProps["read"]
   return threads;
 }
 
+/** The page with the workspace's saved webhooks read, so a bot with one shows as reached by it. */
+function LiveBotsPage(props: BotsPageProps & { workspaceId: string }) {
+  const rows = useQuery(api.functions.botHooks.botHookList, { workspaceId: props.workspaceId as Id<"workspaces"> });
+  const hooked = useMemo(() => (rows === undefined ? undefined : new Set(rows.map((row) => row.bot))), [rows]);
+  return <BotsPageView {...props} {...(hooked === undefined ? {} : { hooked })} />;
+}
+
 export function BotsPage(props: BotsPageProps) {
-  const { only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel, people, addBot, workspaceId, workspace } = props;
+  return props.workspaceId === undefined || props.workspaceId === "" ? <BotsPageView {...props} /> : <LiveBotsPage {...props} workspaceId={props.workspaceId} />;
+}
+
+function BotsPageView(props: BotsPageProps & { hooked?: ReadonlySet<string> }) {
+  const { hooked, only, root, notes, compact, canEdit, me, faceOf, label, read, create, chooseMany, open, onPanel, people, addBot, workspaceId, workspace } = props;
   const styles = useThemedStyles(makeStyles);
-  const bots = useMemo(() => botsOf(root, notes, me), [root, notes, me]);
+  const bots = useMemo(() => withHooks(botsOf(root, notes, me), hooked), [root, notes, me, hooked]);
   const conversations = useMemo(() => conversationsOf(root, notes, bots, me), [root, notes, bots, me]);
   const threads = useThreads(
     conversations.map((each) => each.path),
