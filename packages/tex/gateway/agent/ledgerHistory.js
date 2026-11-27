@@ -45,7 +45,7 @@ export const asEvent = (entry, chat) => {
  * already read (the desk's), so a short chat costs no call at all. Empty when there
  * is no ledger or it cannot be read.
  */
-export async function readLedger(ledger, chat, { chars = READ_CHARS, first = null } = {}) {
+export async function readLedger(ledger, chat, { chars = READ_CHARS, first = null, numbers = [] } = {}) {
   if (ledger === null || typeof ledger?.read !== "function" || typeof chat !== "string") return [];
   const entries = [];
   let cursor = Number.MAX_SAFE_INTEGER;
@@ -69,7 +69,7 @@ export async function readLedger(ledger, chat, { chars = READ_CHARS, first = nul
     console.log(JSON.stringify({ event: "ledger_history_unread", reason: String(error?.name ?? "error").slice(0, 40) }));
     return [];
   }
-  return withGuestNames(entries, ledger, chat);
+  return withGuestNames(entries, ledger, chat, numbers);
 }
 
 /**
@@ -96,9 +96,10 @@ export function dayFromLedger(entries, chat, covers) {
     let event;
     try {
       // A guest's kept name (`withGuestNames`) is the reader's, never the log's: checked without it, kept on after.
-      const { guestName, ...from } = entry.from ?? {};
+      const { guestName, guestNumber, ...from } = entry.from ?? {};
       event = checkEvent(asEvent(entry.from ? { ...entry, from } : entry, chat), { chat, now: entry.at });
       if (typeof guestName === "string") event = { ...event, from: { ...event.from, guestName } };
+      if (typeof guestNumber === "string") event = { ...event, from: { ...event.from, guestNumber } };
     } catch {
       continue; // Not one the log would have kept.
     }

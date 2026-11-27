@@ -103,16 +103,36 @@ export function guestNameOf(group, label) {
   return (Array.isArray(group?.guestNames) ? group.guestNames : []).find((entry) => entry.guest === label)?.name ?? "";
 }
 
-/** Someone as a line names them: "@jo", or a guest's label with their name and number beside it, "@guest-1a2b (Sam, +1 (555) 123-4567)". */
+/**
+ * A guest as Tex is shown them: their kept name with their number, "Sam (+1 (555) 123-4567)", or the number alone. The
+ * label is only the chat's key for them, never shown (Dev2, 2026-11-27: "just say their numbers instead of their guest
+ * id if it doesn't know their name"); only a guest the turn has no number for is still shown by it.
+ */
+export function guestShown(name, number, label) {
+  if (name && number) return `${name} (${number})`;
+  return name || number || label;
+}
+
+/** Someone as a line names them: "@jo", or a guest by name and number, "@Sam (+1 (555) 123-4567)", or number alone. */
 export function shownWho(group, who) {
   if (!who) return "Someone";
-  const beside = [guestNameOf(group, who), /^guest-/.test(who) ? numberOf(group, who) : ""].filter(Boolean).join(", ");
-  return beside ? `@${who} (${beside})` : `@${who}`;
+  return /^guest-/.test(who) ? `@${guestShown(guestNameOf(group, who), numberOf(group, who), who)}` : `@${who}`;
+}
+
+/** The guest label a turn's words name: a label of this chat, or the number of one of its guests, however it is written. */
+export function guestLabelFor(group, said) {
+  const guests = Array.isArray(group?.guests) ? group.guests : [];
+  const text = typeof said === "string" ? said.trim().toLowerCase() : "";
+  if (guests.includes(text)) return text;
+  const digits = text.replace(/\D/g, "");
+  if (digits.length < 7) return "";
+  const match = (Array.isArray(group?.numbers) ? group.numbers : []).find(({ who, phone }) => guests.includes(who) && (phone.replace(/\D/g, "") === digits || phone.replace(/\D/g, "") === `1${digits}`));
+  return match?.who ?? "";
 }
 
 /** What a group turn is told of keeping a guest's name (`groupGuestNames.js` `name_guest`). */
 export const GUEST_NAME_LINE =
-  "When someone here says who a guest is, or a guest says it themselves, keep it at once with send action name_guest (their label and name), without saying so unless asked: " +
+  "When someone here says who a guest is, or a guest says it themselves, keep it at once with send action name_guest (their number and name), without saying so unless asked: " +
   "from then on this list and the chat's lines show that name. ";
 
 /**
@@ -134,8 +154,7 @@ export function rosterLine(group) {
   const parts = [
     ...accounts,
     ...guests.map((label) => {
-      const beside = [guestNameOf(group, label), numberOf(group, label)].filter(Boolean).join(", ");
-      return `${label}${beside ? ` (${beside})` : ""}, on no Context account linked to the number they text from`;
+      return `${guestShown(guestNameOf(group, label), numberOf(group, label), label)}, on no Context account linked to the number they text from`;
     }),
     ...(unlisted > 0 ? [`${unlisted} more ${unlisted === 1 ? "person" : "people"} you have no name for`] : []),
   ];
@@ -146,8 +165,7 @@ export function rosterLine(group) {
       ? "Everyone here already sees each other's numbers in the chat, so say a number here whenever a person here would, as in \"the +1 (555) 123-4567 number\". "
       : "") +
     (guests.length > 0
-      ? `A guest label is how you know someone with no linked account, never words to say: call them by the name beside it or the one the chat's about note gives them, ${numbered ? "or by their number, " : ""}or ask who they are. ` +
-        GUEST_NAME_LINE +
+      ? GUEST_NAME_LINE +
         "Someone with a Context account who shows here as a guest has not linked this number to it: they can text you once from it, on their own, to link it. "
       : "")
   );

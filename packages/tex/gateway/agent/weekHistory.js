@@ -137,7 +137,7 @@ export function summaryPart(summaries, days = 7) {
 }
 
 /** Every entry the ledger keeps for `chat` from `since` (and before `until`), newest first, slim, within `MAX_PAGES` reads. */
-export async function readSpan(ledger, chat, { since, until = null, kinds = DESK_LEDGER.options.kinds, pages = MAX_PAGES }) {
+export async function readSpan(ledger, chat, { since, until = null, kinds = DESK_LEDGER.options.kinds, pages = MAX_PAGES, numbers = [] }) {
   const entries = [];
   let before = Number.isSafeInteger(until) ? until : Number.MAX_SAFE_INTEGER;
   let whole = false;
@@ -150,7 +150,7 @@ export async function readSpan(ledger, chat, { since, until = null, kinds = DESK
     }
     before = read.before;
   }
-  return { entries: await withGuestNames(entries, ledger, chat), whole };
+  return { entries: await withGuestNames(entries, ledger, chat, numbers), whole };
 }
 
 /**
@@ -280,7 +280,7 @@ export function imageOf(result) {
  * `read_day`: one day of the chat word for word, as the history shows its last seven, in parts of `READ_DAY_CHARS`.
  * The same tool in every chat; it reads only this chat's ledger.
  */
-export function readDayTool({ ledger, chat, timeZone = "UTC", grant = null, log = (line) => console.log(line) }) {
+export function readDayTool({ ledger, chat, timeZone = "UTC", grant = null, log = (line) => console.log(line), numbers = [] }) {
   return {
     tool: {
       name: READ_DAY,
@@ -304,7 +304,7 @@ export function readDayTool({ ledger, chat, timeZone = "UTC", grant = null, log 
       const until = midnightOf(dayBefore(day, -1), timeZone);
       const began = Date.now();
       try {
-        const { entries } = await readSpan(ledger, chat, { since, until });
+        const { entries } = await readSpan(ledger, chat, { since, until, numbers });
         const view = earlierFromLedger(entries, chat, { before: until, chars: Number.MAX_SAFE_INTEGER, fade: false, grant });
         const text = renderEvents(view.events, { timeZone, tools: view.tools, facts: view.facts, lulls: true });
         const parts = Math.max(1, Math.ceil(text.length / READ_DAY_CHARS));
@@ -338,14 +338,14 @@ export const WEEK_PREFACE = weekPreface(7, true);
  * `history` one user message with its pictures, or null when the ledger holds nothing to show. `now` is the newest
  * text it answers (or the moment it runs); `extra`, `skip` and `tags` as `weekView` takes them.
  */
-export async function weekTurn({ ledger, chat, now, timeZone = "UTC", reads = DEFAULT_READS, extra = [], skip = () => false, tags = null, grant = null, readPicture = null, log = (line) => console.log(line) }) {
+export async function weekTurn({ ledger, chat, now, timeZone = "UTC", reads = DEFAULT_READS, extra = [], skip = () => false, tags = null, grant = null, readPicture = null, log = (line) => console.log(line), numbers = [] }) {
   if (ledger === null || typeof ledger?.read !== "function" || typeof chat !== "string") return null;
   const began = Date.now();
   const days = reads.chat === null ? 0 : reads.chat.days;
   const start = weekStart(now, timeZone, days);
   const fromDay = reads.summaries?.days == null ? null : dayBefore(dayOf(now, timeZone), reads.summaries.days);
   const [span, summaries] = await Promise.all([
-    reads.chat === null ? { entries: [], whole: true } : readSpan(ledger, chat, { since: start }),
+    reads.chat === null ? { entries: [], whole: true } : readSpan(ledger, chat, { since: start, numbers }),
     reads.summaries === null ? [] : readSummaries(ledger, chat, { before: start, fromDay, chars: reads.summaries.chars }).catch(() => []),
   ]);
   const view = weekView({ entries: span.entries, chat, start, summaries, extra: reads.chat === null ? [] : extra, skip, timeZone, tags, grant, preface: weekPreface(days, summaries.length > 0), chars: reads.chat?.chars ?? 0, days });
@@ -353,7 +353,7 @@ export async function weekTurn({ ledger, chat, now, timeZone = "UTC", reads = DE
   const pictures = await loadPictures(view.pictures, readPicture);
   const line = { event: "tex_week_history", start, days: days ?? "all", cap: reads.chat?.chars ?? 0, summaryDays: reads.summaries === null ? 0 : reads.summaries.days ?? "all", summaryCap: reads.summaries?.chars ?? 0, texts: view.shown.length, chars: view.chars, cut: view.cut, whole: span.whole, entries: span.entries.length, summaries: summaries.length, pictures: view.pictures.length, picturesShown: pictures.length, readMs: read - began, picturesMs: Date.now() - read };
   log(JSON.stringify(line));
-  const read_day = readDayTool({ ledger, chat, timeZone, grant, log });
+  const read_day = readDayTool({ ledger, chat, timeZone, grant, log, numbers });
   if (view.shown.length === 0 && summaries.length === 0) return { history: null, read_day, shown: [], log: line };
   return { history: { role: "user", text: view.text, ...(pictures.length > 0 ? { pictures } : {}) }, read_day, shown: view.shown, log: line };
 }
