@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { AccessoryGlyph, type AccessoryGlyphName } from "../files/AccessoryGlyph";
 import { Dot } from "../../design/components/Dot";
@@ -6,6 +7,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { Tex } from "../../chaos/Tex";
 import { Text } from "../../design/components/Text";
 import { ASIDE_TABS, type AsideTab } from "./tabs";
+import { RAIL_PAGE_APPS, RAIL_PANEL_APPS, type RailPageApp } from "./railApps";
 import { useMapRoute } from "../map/live/MapRouteContext";
 import { useMailRoute, type MailRoute } from "../mailPage/MailRouteContext";
 import { useConversations } from "../mailPage/useConversations";
@@ -67,10 +69,41 @@ export function AsideStrip({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  // The live map, where the console provides its route; its button moved here from the file tree's toolbar.
   const mapRoute = useMapRoute();
-  // Mail, under the map, where the console provides its route (the owner's boards, 2026-11-25).
   const mailRoute = useMailRoute();
+  // The full-page apps above the rule, each only where the console provides it.
+  const pageButtons: Record<RailPageApp, ReactNode> = {
+    search:
+      onSearch !== null ? (
+        <Pressable
+          key="search"
+          onPress={onSearch}
+          accessibilityRole="button"
+          accessibilityLabel="Search notes and names"
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
+          testID="aside-strip-search"
+        >
+          <AccessoryGlyph name="search" size={GLYPH} color={colors.accent} />
+        </Pressable>
+      ) : null,
+    // The live map, where the console provides its route; its button moved here from the file tree's toolbar.
+    map:
+      mapRoute !== undefined ? (
+        <Pressable
+          key="map"
+          onPress={mapRoute.toggle}
+          accessibilityRole="button"
+          accessibilityLabel={mapRoute.open ? "Close the map" : "Map"}
+          accessibilityState={{ selected: mapRoute.open }}
+          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, mapRoute.open && styles.current, hovered && styles.hover]}
+          testID="aside-strip-map"
+        >
+          <AccessoryGlyph name="links" size={GLYPH} color={colors.accent} />
+        </Pressable>
+      ) : null,
+    // Mail, under the map, where the console provides its route (the owner's boards, 2026-11-25).
+    mail: mailRoute !== undefined ? <MailButton key="mail" mailRoute={mailRoute} /> : null,
+  };
   return (
     <View style={[styles.strip, open && styles.stripBeside]} testID="aside-strip" accessibilityRole={open ? "tablist" : undefined}>
       <Pressable
@@ -84,36 +117,13 @@ export function AsideStrip({
         <AccessoryGlyph name="panelRight" size={GLYPH} color={colors.accent} />
       </Pressable>
       {/*
-        Search and the map ride here too (Dev2, 2026-11-20: "fold a search
-        icon in there, and the map icon"), above a rule, so the panels' tabs
-        stay one group below it.
+        Above the rule, the full-page apps; below it, the side-panel apps
+        (Dev, 2026-11-26, a standing rule). Which app sits where is
+        `railApps.ts`, not this drawing.
       */}
-      {onSearch !== null ? (
-        <Pressable
-          onPress={onSearch}
-          accessibilityRole="button"
-          accessibilityLabel="Search notes and names"
-          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
-          testID="aside-strip-search"
-        >
-          <AccessoryGlyph name="search" size={GLYPH} color={colors.accent} />
-        </Pressable>
-      ) : null}
-      {mapRoute !== undefined ? (
-        <Pressable
-          onPress={mapRoute.toggle}
-          accessibilityRole="button"
-          accessibilityLabel={mapRoute.open ? "Close the map" : "Map"}
-          accessibilityState={{ selected: mapRoute.open }}
-          style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, mapRoute.open && styles.current, hovered && styles.hover]}
-          testID="aside-strip-map"
-        >
-          <AccessoryGlyph name="links" size={GLYPH} color={colors.accent} />
-        </Pressable>
-      ) : null}
-      {mailRoute !== undefined ? <MailButton mailRoute={mailRoute} /> : null}
-      {onSearch !== null || mapRoute !== undefined || mailRoute !== undefined ? <View style={styles.rule} /> : null}
-      {ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => (
+      {RAIL_PAGE_APPS.map((app) => pageButtons[app])}
+      {RAIL_PAGE_APPS.some((app) => pageButtons[app] !== null) ? <View style={styles.rule} testID="aside-strip-rule" /> : null}
+      {ASIDE_TABS.filter((tab) => RAIL_PANEL_APPS.includes(tab.key) && tabs.includes(tab.key)).map((tab) => (
         <Pressable
           key={tab.key}
           onPress={() => (open && tab.key === showing ? onFold() : onUnfold(tab.key))}
@@ -197,7 +207,8 @@ const makeStyles = (colors: Colors) =>
     current: { backgroundColor: colors.rowSelected },
     hover: { backgroundColor: colors.chrome },
     dot: { position: "absolute", top: 6, right: 6 },
-    rule: { width: 22, height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginVertical: space.x1 },
+    // The rule between the full-page apps and the side-panel apps: a full pixel in the stronger line, so the two groups read as two (Dev, 2026-11-26: "make the line a little more pronounced").
+    rule: { width: 24, height: 1, backgroundColor: colors.lineStrong, marginVertical: space.x1 },
     count: {
       position: "absolute",
       top: -2,

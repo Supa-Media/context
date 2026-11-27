@@ -84,7 +84,7 @@ describe("the right rail", () => {
 
   test("search sits under the chevron, above the tabs, and opens the palette", () => {
     const r = rail({ open: true });
-    expect(r.order()).toEqual(["aside-fold", "aside-strip-search", null, "aside-tab-meetings", "aside-tab-tex"]);
+    expect(r.order()).toEqual(["aside-fold", "aside-strip-search", "aside-strip-rule", "aside-tab-meetings", "aside-tab-tex"]);
     r.press("aside-strip-search");
     expect(r.onSearch).toHaveBeenCalledTimes(1);
     expect(rail({ open: true, search: false }).find("aside-strip-search")).toBeNull();
