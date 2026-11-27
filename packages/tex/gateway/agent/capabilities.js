@@ -600,12 +600,12 @@ export const CAPABILITIES = Object.freeze([
     // Tex in mail (`agent/mailRunRoute.js`, `docs/decisions/note-mail.md`): woken by a line to its mailbox, so nothing here is an action the model can call.
     name: "Tex in a note's mail",
     actions: [],
-    texts: "mail you send on a note (to a bot, an area or another agent) is answered without them texting you: a line sent back to you there, as tex or to everyone, wakes you on that note with their own access, the way you answer in a note's comments, and your answer is sent back as mail from tex. It reads the note, its mail and their notes, and texts nobody",
+    texts: "mail you send on a note (to a bot, an area or another agent) is answered without them texting you: a line sent back to you there, as tex or to everyone, wakes you on that note with their own connection in full, the way you answer in a note's comments, and your answer is sent back as mail from tex. It reads and writes their notes, mails other agents and starts jobs as their connection can, and texts nobody",
     group: null,
     cant: [
       {
         where: "everywhere",
-        what: "text them about a reply you got in a note's mail, or do more than answer it there (mail another agent, start a job)",
+        what: "text them about a reply you got in a note's mail",
         workaround: { kind: "words", text: "they ask you in a text, and you read that note's mail" },
       },
     ],

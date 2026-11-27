@@ -146,6 +146,7 @@ test("a run answers the new lines the way Tex answers in comments, and sends the
   assert.match(world.runs[0].ask, /What's the raw thought\?/);
   assert.equal(world.runs[0].workspace, "@team");
   assert.equal(world.runs[0].audience, "the team it is shared with");
+  assert.equal(world.runs[0].full, true, "the person's own connection, in full");
   assert.deepEqual(world.read, [[BOX, "2026-11-27T18:10:00.000Z"]], "read through the line it answers");
   const sent = world.calls.find(([name]) => name === "write_note");
   assert.deepEqual(sent, ["write_note", { path: PATH, context: "@team", mail: { text: "Seyi's raw thought is in resources/glaze-ideas/thought.md.", to: "pablo", used: 0 } }]);
