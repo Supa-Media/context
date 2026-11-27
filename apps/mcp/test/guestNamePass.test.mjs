@@ -171,3 +171,16 @@ test("a guest named by someone else is read again only when their own recent lin
   assert.deepEqual(await nameGuestsFromChat({ ledger: said, chat: "group:abc", config: { stub: true }, words: { "guest-names": "x" }, request }), { outcome: "done", found: 1, kept: 1 });
   assert.equal(asked, 1);
 });
+
+// A guest's other names are theirs (Dev2, 2026-11-27, "keep all a person's aliases"): no other guest is given one, and
+// a guest can take one of their own back. Sabotage record (2026-11-27): ignoring `aliases` in `checkedNames` fails the
+// second assertion.
+test("a guest may take back a name they went by, and no other guest is given it", () => {
+  const kept = new Map([[DIEGO, "Diego"], [KEMI, "Kemi"]]);
+  const aliases = new Map([[DIEGO, ["Dee"]], [KEMI, []]]);
+  const open = new Set([DIEGO, KEMI]);
+  const lines = [...CHAT, line("m6", guest(DIEGO), "it's Dee, honestly"), line("m7", guest(KEMI), "call me Dee too lol")];
+  assert.deepEqual(checkedNames([{ guest: DIEGO, name: "Dee", line: "m6" }], lines, kept, [], open, aliases), [{ guest: DIEGO, name: "Dee", by: DIEGO }]);
+  assert.deepEqual(checkedNames([{ guest: KEMI, name: "Dee", line: "m7" }], lines, kept, [], open, aliases), [], "Dee is Diego's");
+  assert.deepEqual([...openGuests([guestNameEntry(DIEGO, "Dee", { by: "tunde", at: 1 }), guestNameEntry(DIEGO, "Diego", { by: "tunde", at: 2 })])], [DIEGO]);
+});

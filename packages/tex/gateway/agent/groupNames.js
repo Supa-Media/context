@@ -98,6 +98,11 @@ export function numberOf(group, who) {
   return phone ? shownNumber(phone) : "";
 }
 
+/** ", also called Diego, D" for a guest's other names (`groupGuestNames.js` `guestNamesFrom`), or "". */
+export function alsoCalled(aliases) {
+  return Array.isArray(aliases) && aliases.length > 0 ? `, also called ${aliases.join(", ")}` : "";
+}
+
 /** A guest's name in this chat, kept when someone here said who they are (`groupGuestNames.js`), or "". */
 export function guestNameOf(group, label) {
   return (Array.isArray(group?.guestNames) ? group.guestNames : []).find((entry) => entry.guest === label)?.name ?? "";
@@ -154,7 +159,8 @@ export function rosterLine(group) {
   const parts = [
     ...accounts,
     ...guests.map((label) => {
-      return `${guestShown(guestNameOf(group, label), numberOf(group, label), label)}, on no Context account linked to the number they text from`;
+      const aliases = (Array.isArray(group?.guestNames) ? group.guestNames : []).find((entry) => entry.guest === label)?.aliases;
+      return `${guestShown(guestNameOf(group, label), numberOf(group, label), label)}${alsoCalled(aliases)}, on no Context account linked to the number they text from`;
     }),
     ...(unlisted > 0 ? [`${unlisted} more ${unlisted === 1 ? "person" : "people"} you have no name for`] : []),
   ];
