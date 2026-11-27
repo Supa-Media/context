@@ -202,7 +202,7 @@ function civil(ms: number): { year: number; month: number; day: number } {
 export function clockAt(ms: number, now: number): string {
   const time = new Intl.DateTimeFormat("en-US", { timeZone: ZONE, hour: "numeric", minute: "2-digit", hour12: true })
     .format(ms)
-    .replace(/ | /g, " ")
+    .replace(/\u202f|\u00a0/g, " ")
     .replace(":00", "")
     .replace(" AM", " am")
     .replace(" PM", " pm");
