@@ -121,6 +121,13 @@ test("a routine fetched where the tree names no Areas folder still brings its br
   assert.match(out, /The areas folder is `areas\/`; this area is `areas\/finance\/`\./);
 });
 
+test("the brief is worked out over the tree's listing, as orient is, not the store's own (which lists nothing)", async () => {
+  const { store } = await world();
+  delete store.treeEntries;
+  const out = said(await callTool("read_note", { path: "areas/finance/routines/daily/check.md" }, store, "team", { fetchCap: true }));
+  assert.match(out, /# Run brief[\s\S]*# Area: Finance/);
+});
+
 test("several times under a folder that already runs through the day says where the note goes instead", () => {
   const routine = areaRoutineOf("areas/finance/routines/every-2-hours/loop.md", "areas");
   const next = areaRoutineNext(routine, "---\nat: 9am, 1pm\n---\n", Date.now());

@@ -180,11 +180,12 @@ async function runTool(name, args, store, scope, options = {}) {
       if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
       if (wantsPart(args)) return toolReadNotePart(store, scope, rules, overrides, args);
       // A model's fetch of a long note is its outline and first part unless it asks for full (`readCapped.js`).
-      // An area's routine comes with its run brief after the note, never cut by the cap (`orient/routineBrief.js`).
+      // An area's routine comes with its run brief after the note, never cut by the cap (`orient/routineBrief.js`), worked
+      // out over the tree's listing as `orient` is: the plain store lists nothing, and the brief came back empty.
       if (options.fetchCap === true && args.full !== true) {
-        return withRoutineBrief(capWhole(await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job })), store, scope, rules, overrides, args.path);
+        return withRoutineBrief(capWhole(await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job })), servedListingStore(store), scope, rules, overrides, args.path);
       }
-      return withRoutineBrief(await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job }), store, scope, rules, overrides, args.path);
+      return withRoutineBrief(await toolReadNote(store, scope, rules, overrides, args.path, { before: args.before, job: args.job }), servedListingStore(store), scope, rules, overrides, args.path);
     case "read_notes":
       if (options.fetchCap === true) return capBatch(await toolReadNotes(store, scope, rules, overrides, args.paths));
       return toolReadNotes(store, scope, rules, overrides, args.paths);
