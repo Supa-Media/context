@@ -33,7 +33,7 @@ Claude by way of grok".
 - **It is shown as "<name> via <bot>".** Its session's client name is "Claude
   via Grok Bot", so activity, carets and "agents active" say so (one row per
   helper); its mail lines are signed with its own mail name
-  (`grok-bot-claude-a3f1`) and that app line, never as the bot. It can't join
+  (`claude-via-grok-bot-a3f1`, within mail's 24-character names) and that app line, never as the bot. It can't join
   mail under another name, bind a bot, set a webhook or start a helper of its
   own; its token clears as no owner or editor in the control plane.
 - **Its note is mail to its bot.** A line in `bots/<bot>/helpers/*.md` wakes

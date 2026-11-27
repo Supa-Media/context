@@ -52,12 +52,12 @@ export async function toolStartHelper(store, scope, rules, overrides, raw) {
   const ask = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : { task: raw };
   const task = oneLine(ask.task, MAX_TASK + 1);
   if (task === "") return toolError('invalid: start_helper takes { task: "<one line: what the helper is for>", name?: "Claude" }. Pass the task, then try again.');
-  if (task.length > MAX_TASK) return toolError(`invalid: the task is one line of at most ${MAX_TASK} characters; its details go in the helper's prompt.`);
+  if (task.length > MAX_TASK) return toolError(`invalid: the task is one line of at most ${MAX_TASK} characters; its details go in the helper's prompt. Shorten it, then try again.`);
   const name = oneLine(ask.name ?? "Claude", MAX_NAME + 1) || "Claude";
-  if (name.length > MAX_NAME || /[()[\]:·]/.test(name)) return toolError(`invalid: name is what the helper is called, like "Claude", at most ${MAX_NAME} characters, without brackets, colons or dots.`);
+  if (name.length > MAX_NAME || /[()[\]:·]/.test(name)) return toolError(`invalid: name is what the helper is called, like "Claude", at most ${MAX_NAME} characters, without brackets, colons or dots. Use a plain name, then try again.`);
   const hours = ask.hours === undefined ? undefined : Number(ask.hours);
-  if (hours !== undefined && (!Number.isFinite(hours) || hours <= 0 || hours > MAX_HOURS)) return toolError(`invalid: hours is how long the helper may run, more than 0 and at most ${MAX_HOURS}.`);
-  if (typeof store?.botHelpers?.start !== "function") return toolError("helpers can't be started on this connection.");
+  if (hours !== undefined && (!Number.isFinite(hours) || hours <= 0 || hours > MAX_HOURS)) return toolError(`invalid: hours is how long the helper may run, more than 0 and at most ${MAX_HOURS}. Leave it out for 8, then try again.`);
+  if (typeof store?.botHelpers?.start !== "function") return toolError("helpers can't be started on this connection. Use your bot's own Context connection, then try again.");
   // Only a bot starts helpers: the helper is shown as its sub-agent, so a connection that is no bot has none to show.
   const bots = await boundBotsOf(store).catch(() => []);
   const speaking = botFor(bots, { named: ask.as === undefined ? null : String(ask.as) });
@@ -90,7 +90,7 @@ export async function toolStartHelper(store, scope, rules, overrides, raw) {
     .catch(() => ({ error: HELPER_WORDS.unreachable }));
   if (started?.error || typeof started?.ticket !== "string") {
     await markNote(store, scope, rules, overrides, note, { status: "stopped", progress: "Never started" }).catch(() => null);
-    return toolError(`helper not started: ${started?.error ?? "no ticket was made."}`);
+    return toolError(`helper not started: ${started?.error ?? "no ticket was made."} Wait a moment, then try again.`);
   }
   const workspace = typeof store.actor?.workspaceSlug === "string" && store.actor.workspaceSlug !== "" ? `@${store.actor.workspaceSlug.replace(/^@/, "")}` : undefined;
   const brief = helperBrief({ name, botName, bot: bot.bot, mail, note, task, workspace });
@@ -128,8 +128,8 @@ async function markNote(store, scope, rules, overrides, path, { status, progress
 export async function toolEndHelper(store, scope, rules, overrides, raw) {
   const ask = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : { summary: raw };
   const summary = typeof ask.summary === "string" ? ask.summary.trim().slice(0, MAX_SUMMARY) : "";
-  if (summary === "") return toolError('invalid: end_helper takes { summary: "<what was done, with links>" } (and, from the bot, note: "<the helper\'s note>").');
-  if (typeof store?.botHelpers?.end !== "function") return toolError("helpers can't be ended on this connection.");
+  if (summary === "") return toolError('invalid: end_helper takes { summary: "<what was done, with links>" } (and, from the bot, note: "<the helper\'s note>"). Pass the summary, then try again.');
+  if (typeof store?.botHelpers?.end !== "function") return toolError("helpers can't be ended on this connection. Use the helper's or its bot's own connection, then try again.");
   const own = store.actor?.helper ?? null;
   let note = own?.note ?? null;
   let helperId = own?.helperId ?? null;
@@ -137,11 +137,11 @@ export async function toolEndHelper(store, scope, rules, overrides, raw) {
     // The bot ends one of its own helpers, by its note: the note's `helper_id:` names it, and the control plane checks
     // that this connection is the grant that started it.
     note = normalizePath(String(ask.note ?? "").trim());
-    if (!/\/helpers\/[^/]+\.md$/.test(note ?? "")) return toolError('invalid: from the bot, end_helper names the helper\'s note: { note: "bots/<you>/helpers/<its note>.md", summary }.');
+    if (!/\/helpers\/[^/]+\.md$/.test(note ?? "")) return toolError('invalid: from the bot, end_helper names the helper\'s note: { note: "bots/<you>/helpers/<its note>.md", summary }. Pass its note, then try again.');
     const read = await toolReadNote(store, scope, rules, overrides, note);
     if (read.isError) return read;
     helperId = /^helper_id:\s*(hlp_[0-9a-f]{16})\s*$/m.exec(parseRead(read)?.body ?? "")?.[1] ?? null;
-    if (helperId === null) return toolError(`${note} is not a helper's note (it names no helper_id).`);
+    if (helperId === null) return toolError(`${note} is not a helper's note (it names no helper_id). Pass the note start_helper named, then try again.`);
   }
   const status = own ? "done" : "stopped";
   // A helper's own token ends last: its note and its last word to its bot are written with it first. The last word
@@ -156,7 +156,7 @@ export async function toolEndHelper(store, scope, rules, overrides, raw) {
   const ended = await store.botHelpers.end(helperId).catch(() => ({ error: HELPER_WORDS.unreachable }));
   // Already gone (its time ran out, or it was ended before) still marks the note, so it never reads "working" forever.
   const gone = Boolean(ended?.error && /No such helper/.test(ended.error));
-  if (ended?.error && !gone) return toolError(`not ended: ${ended.error}`);
+  if (ended?.error && !gone) return toolError(`not ended: ${ended.error} Check the note's helper_id, then try again.`);
   if (!own) marked = await markNote(store, scope, rules, overrides, note, { status, progress: oneLine(summary, 300) });
   return toolText(endHelperAnswer({ who: own ? helperShownName(own.name, own.botName) : note, gone, note, status, marked, own: own !== null, mailed }));
 }

@@ -27,7 +27,7 @@ export const botHelperTables = {
     /** The bot's mail name (`mailJoinName`), and its card's short name as shown ("Grok Bot"). */
     bot: v.string(),
     botName: v.string(),
-    /** What the helper calls itself ("Claude"), and the mail name it signs with (`grok-bot-claude-1`). */
+    /** What the helper calls itself ("Claude"), and the mail name it signs with (`claude-via-grok-bot-a3f1`). */
     name: v.string(),
     mail: v.string(),
     /** Its own note: what it was asked, its progress and its mail with the bot. */

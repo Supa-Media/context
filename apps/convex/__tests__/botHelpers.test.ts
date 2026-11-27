@@ -16,7 +16,7 @@ import { createUser, createWorkspace, gatewayPost, seedGrant, setupTest, addMemb
 
 const BOT_TOKEN = `cat_${"g".repeat(40)}`;
 const HOUR = 60 * 60 * 1000;
-const FIELDS = { helperId: "hlp_0123456789abcdef", bot: "grok-bot", botName: "Grok Bot", name: "Claude", mail: "grok-bot-claude-0123", note: "bots/grok-bot/helpers/2026-11-27-fix-search.md" };
+const FIELDS = { helperId: "hlp_0123456789abcdef", bot: "grok-bot", botName: "Grok Bot", name: "Claude", mail: "claude-via-grok-bot-0123", note: "bots/grok-bot/helpers/2026-11-27-fix-search.md" };
 
 async function json(response: Response): Promise<Record<string, unknown>> {
   return JSON.parse(await response.text()) as Record<string, unknown>;
@@ -84,7 +84,7 @@ describe("a bot's helpers", () => {
   test("revoking the bot's grant ends its helpers, and an unspent ticket starts nothing", async () => {
     const { t, supa, grantId } = await aBot();
     const first = await claim(t, (await start(t, supa)).ticket);
-    const unspent = await start(t, supa, { helperId: "hlp_1111111111111111", mail: "grok-bot-claude-1111" });
+    const unspent = await start(t, supa, { helperId: "hlp_1111111111111111", mail: "claude-via-grok-bot-1111" });
     await t.run((ctx) => ctx.db.patch(grantId, { status: "revoked" }));
     expect(await sessionFor(t, first.accessToken as string)).toBeNull();
     expect(await claim(t, unspent.ticket)).toMatchObject({ error: expect.any(String) });

@@ -47,11 +47,16 @@ function slugOf(text, max) {
     .replace(/-+$/, "");
 }
 
-/** The mail name a helper signs with: `<bot>-<name>-<4 of its id>` (`grok-bot-claude-a3f1`), at most 40 characters. */
+/**
+ * The mail name a helper signs with: `<name>-via-<bot>-<4 of its id>` (`claude-via-grok-bot-a3f1`), within mail's
+ * 24-character name rule (`mail.cjs` `NAME`), so the bot's part is cut when it is long. The app reads it back by its
+ * `-via-` and matches the bot by the start of its name; the exact words are in the line's app, "Claude via Grok Bot".
+ */
 function helperMailName(bot, name, suffix) {
-  const own = slugOf(name, 12) || "helper";
-  const tail = `-${own}-${slugOf(suffix, 8) || "1"}`;
-  return `${slugOf(bot, 40 - tail.length) || "bot"}${tail}`;
+  const own = slugOf(String(name ?? "").trim().split(/\s+/)[0], 8) || "helper";
+  const tail = `-${slugOf(suffix, 4) || "1"}`;
+  const room = 24 - own.length - "-via-".length - tail.length;
+  return `${own}-via-${slugOf(bot, room) || "bot"}${tail}`;
 }
 
 /** Its note: `<bot folder>/helpers/<YYYY-MM-DD>-<task words>.md`, with `-2`, `-3`… when that name is taken. */
@@ -66,6 +71,7 @@ function helperNote({ name, botName, bot, mail, helperId, task, started, ends })
   const bare = (value) => String(value ?? "").replace(/[\r\n]+/g, " ").trim();
   return [
     "---",
+    "kind: helper",
     `helper: ${quoted(bare(name))}`,
     `via: ${quoted(bare(botName))}`,
     `bot: ${bot}`,
@@ -99,7 +105,7 @@ function helperStep(workspace) {
     `Whenever you start Claude Code (\`claude -p\`) or any other agent to do work for you, start it as your helper, never on its own: first run manage area { ${ctx}start_helper: { name: "Claude", task: "<one line: what it is for>" } }. ` +
     "Its answer gives you a one-time command that saves the helper's own Context connection to a file only you can read, the command line to start it with that file and the standard helper brief, and the note it reports in. Run both as given. " +
     "The helper then shows everywhere as \"Claude via <your name>\", records its progress in that note, asks experts by mail, and reports back to you there; its mail wakes you like any other. Answer it in that note. " +
-    "When it is done, or if you stop it, run manage area { end_helper: { helper: \"<its mail name>\", summary: \"<one line>\" } } and delete its connection file."
+    "When it is done, or if you stop it, run manage area { end_helper: { note: \"<its note>\", summary: \"<one line>\" } } and delete its connection file."
   );
 }
 

@@ -29,7 +29,7 @@ import { withServedTree } from "./servedTree.mjs";
 
 const RULES = [{ prefix: "areas", vis: "team" }, { prefix: "bots", vis: "team" }];
 const CARD = "---\nholder: Grok Bot\nkind: agent\nbot: grok\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n\n# Grok Bot\n";
-const HELPER = Object.freeze({ helperId: "hlp_0123456789abcdef", workspaceId: "ws-test", bot: "grok-bot", botName: "Grok Bot", name: "Claude", mail: "grok-bot-claude-0123", note: "bots/grok-bot/helpers/2026-11-27-fix-search.md" });
+const HELPER = Object.freeze({ helperId: "hlp_0123456789abcdef", workspaceId: "ws-test", bot: "grok-bot", botName: "Grok Bot", name: "Claude", mail: "claude-via-grok-bot-0123", note: "bots/grok-bot/helpers/2026-11-27-fix-search.md" });
 
 async function world({ bound = true, helper = null, ...actor } = {}) {
   const base = createMemoryStore();
@@ -107,7 +107,7 @@ test("start_helper writes the helper's note in its bot's folder and answers with
   assert.equal(start.botName, "Grok Bot");
   assert.equal(start.name, "Claude");
   assert.match(start.helperId, /^hlp_[0-9a-f]{16}$/);
-  assert.match(start.mail, /^grok-bot-claude-[0-9a-f]{4}$/);
+  assert.match(start.mail, /^claude-via-grok-bot-[0-9a-f]{4}$/);
   assert.match(start.note, /^bots\/grok-bot\/helpers\/\d{4}-\d{2}-\d{2}-fix-the-reading-list-search-miss\.md$/);
   const note = await text(start.note);
   assert.match(note, /status: working/);
@@ -148,18 +148,18 @@ test("a helper's mail is signed as itself, 'Claude via Grok Bot', never as the b
   const sent = await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: HELPER.note, mail: { text: "Opened PR #12, CI running" } });
   assert.equal(sent.isError, undefined, said(sent));
   const [line] = mail.parseMail(await text(HELPER.note)).events.filter((event) => event.kind === "mail");
-  assert.equal(line.from, "grok-bot-claude-0123");
+  assert.equal(line.from, "claude-via-grok-bot-0123");
   assert.equal(line.app, "Claude via Grok Bot · @seyi");
   const posing = await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: HELPER.note, mail: { text: "hi", as: "grok-bot" } });
   assert.equal(posing.isError, true);
   const joining = await toolMailNote(store, "team", RULES, new PrivacyOverrides(), { path: HELPER.note, mail: { join: "grok-bot" } });
   assert.equal(joining.isError, true);
-  assert.match(said(joining), /join only as "grok-bot-claude-0123"/);
+  assert.match(said(joining), /join only as "claude-via-grok-bot-0123"/);
 });
 
 test("a helper shows in agents active and on its caret as 'Claude via Grok Bot', one row of its own", async () => {
   const { store } = await world({ helper: HELPER });
-  assert.deepEqual(await activityBot(store, { path: "areas/plans.md" }), { bot: "grok-bot-claude-0123", name: "Claude via Grok Bot", helper: true });
+  assert.deepEqual(await activityBot(store, { path: "areas/plans.md" }), { bot: "claude-via-grok-bot-0123", name: "Claude via Grok Bot", helper: true });
 });
 
 test("end_helper from the helper sets its note done, mails its bot the summary, then closes its connection", async () => {
@@ -229,4 +229,18 @@ test("every bot's setup holds the helper rule itself, not only a tool's answer",
   assert.match(prompt, /start_helper/);
   assert.match(prompt, /Claude via <your name>/);
   assert.equal(botHelpers.helperShownName("Claude", "Pablo · Social Strategist"), "Claude via Pablo");
+});
+
+test("a helper's mail name fits mail's name rule for any bot, and keeps its bot's start and its own id", () => {
+  // Its first word names it: "Claude Code" signs as claude.
+  for (const bot of ["grok-bot", "tex-quality-and-research-bot", "a"]) {
+    const name = botHelpers.helperMailName(bot, "Claude Code", "a3f1");
+    assert.ok(name.length <= 24, `${name} is at most 24 characters`);
+    assert.match(name, /^claude-via-[a-z0-9-]+-a3f1$/);
+    assert.ok(bot.startsWith(name.slice("claude-via-".length, -"-a3f1".length)), `${name} keeps the start of ${bot}`);
+    const { changes, error } = mail.appendMail("", { from: name, to: bot.slice(0, 24), text: "hi", at: "2026-11-27T20:00:00Z" });
+    assert.equal(error, undefined, `${name} signs a mail line`);
+    assert.ok(changes[0].insert.includes(`${name} to `));
+  }
+  assert.equal(botHelpers.helperMailName("grok-bot", "Claude", "0123"), "claude-via-grok-bot-0123");
 });
