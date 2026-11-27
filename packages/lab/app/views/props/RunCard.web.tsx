@@ -66,8 +66,9 @@ export function StatusRow({ n, card, run }: { n: LabNode; card: "run" | "set"; r
   const tokOut = steps.reduce((a, s) => a + (s.tokOut ?? 0), 0);
   const cost = sum(steps.map((s) => s.cost));
   const g = G();
-  const from = g.edges.filter((e) => e.to === n.id).map((e) => node(e.from)?.label).filter(Boolean);
-  const to = g.edges.filter((e) => e.from === n.id).map((e) => node(e.to)?.label).filter(Boolean);
+  // Each step it is wired with, once: a group's box can hold several wires to the same step.
+  const from = [...new Set(g.edges.filter((e) => e.to === n.id).map((e) => node(e.from)?.label))].filter(Boolean);
+  const to = [...new Set(g.edges.filter((e) => e.from === n.id).map((e) => node(e.to)?.label))].filter(Boolean);
   const wired = (w: string, xs: Array<string | undefined>) => (xs.length === 1 ? `${w} ${xs[0]}` : xs.length ? `${w} ${xs.length} steps` : "");
   return (
     <div className="runhead">

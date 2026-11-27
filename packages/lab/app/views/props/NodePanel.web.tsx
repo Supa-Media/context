@@ -17,7 +17,7 @@ import { labSim, tracedReal } from "../../engine/realTimes";
 import { delSel, G, go, lab, MODELS, node, set } from "../../engine/state";
 import { scnLabel } from "../../engine/traces";
 import { useLab } from "../../store";
-import type { LabNode } from "../../types";
+import type { LabEdge, LabNode } from "../../types";
 import { Ic } from "../ic";
 import { CardSwitch } from "./CardSwitch.web";
 import { RunCard, StatusRow, useStepRun } from "./RunCard.web";
@@ -39,7 +39,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   const [picking, setPicking] = useState(false);
   // "More": the step's code files, record, timing and change note, closed until asked for.
   const [more, setMore] = useState(false);
-  const wires = g.edges.map((e, i) => [e, i] as const).filter(([e]) => e.to === n.id || e.from === n.id);
+  const wires = wireRows(g.edges, n.id);
   const { has, run } = useStepRun(n);
   const ch = stepChange(n.id);
   const card = lab.card ?? (has ? "run" : "set");
@@ -115,16 +115,19 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
           <div className="grp">
             <h4>Wires</h4>
             {wires.length ? (
-              wires.map(([e, i]) => {
+              wires.map(({ e, i, count }) => {
                 const out = e.from === n.id;
                 const other = out ? node(e.to) : node(e.from);
                 return (
-                  <button key={i} className="wr" data-wire={i} onClick={() => set({ sel: { t: "edge", i } })}>
+                  <button key={i} className="wr" data-wire={i} title={count > 1 ? `${count} wires, drawn as one line` : undefined} onClick={() => set({ sel: { t: "edge", i } })}>
                     <span className="hint" style={{ width: 34, fontSize: 11 }}>
                       {out ? "to" : "from"}
                     </span>
                     <WireIcon mode={e.mode} />
-                    <span style={{ flex: 1 }}>{other?.label}</span>
+                    <span style={{ flex: 1 }}>
+                      {other?.label}
+                      {count > 1 ? <small className="wrn">{` ×${count}`}</small> : null}
+                    </span>
                     <span className="hint" style={{ fontSize: 12 }}>
                       {wireName(e)}
                     </span>
@@ -155,6 +158,24 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
       <PanelFoot card={card} ran={run.state !== "none"} />
     </>
   );
+}
+
+/**
+ * A step's wires as the canvas draws them: one row per line. A group's box gets a wire for each step inside it that is
+ * wired across its edge, so several wires can join the same two boxes the same way (each under its own condition);
+ * the canvas draws them on one path, and the list shows that line once with how many wires it carries. Clicking the row
+ * opens the first of them. (Dev, 2026-11-26: "why are there so many wires from the front door? i dont even see them".)
+ */
+export function wireRows(edges: LabEdge[], id: string): Array<{ e: LabEdge; i: number; count: number }> {
+  const rows = new Map<string, { e: LabEdge; i: number; count: number }>();
+  edges.forEach((e, i) => {
+    if (e.from !== id && e.to !== id) return;
+    const k = `${e.from}>${e.to}:${e.mode}`;
+    const row = rows.get(k);
+    if (row) row.count++;
+    else rows.set(k, { e, i, count: 1 });
+  });
+  return [...rows.values()];
 }
 
 /** What "More" opens: the step's code files, its tool stats, the chat's record, what it ran with, its timing and change note. */

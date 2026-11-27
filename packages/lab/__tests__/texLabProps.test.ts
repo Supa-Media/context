@@ -154,6 +154,22 @@ describe("/lab properties panel, viewer and modules page", () => {
     expect(q("#nGoalText")?.textContent).toContain("Answers every text first.");
   });
 
+  test("a group's wires are listed once per line the canvas draws, with how many wires share it", () => {
+    mount();
+    act(() => set({ sel: { t: "node", id: "frontDoor" } }));
+    const raw = G().edges.filter((e) => e.from === "frontDoor" || e.to === "frontDoor");
+    const lines = new Set(raw.map((e) => `${e.from}>${e.to}:${e.mode}`));
+    // Main's front door box carries several wires from Intake, each under its own condition, on one drawn line.
+    expect(raw.length).toBeGreaterThan(lines.size);
+    const rows = qa(".wr[data-wire]");
+    expect(rows.length).toBe(lines.size);
+    expect(rows.map((r) => r.textContent).filter((t) => /×\d/.test(t!)).length).toBeGreaterThan(0);
+    // The facts line counts each step once, however many wires join it.
+    const froms = new Set(raw.filter((e) => e.to === "frontDoor").map((e) => e.from));
+    expect(froms.size).toBeLessThan(raw.filter((e) => e.to === "frontDoor").length);
+    expect(q("#props .runmeta")?.textContent).toContain(froms.size === 1 ? "from " : `from ${froms.size} steps`);
+  });
+
   test("a step with no goal says what one is for", () => {
     mount();
     act(() => edit(() => void (node("fd")!.goal = "")));
