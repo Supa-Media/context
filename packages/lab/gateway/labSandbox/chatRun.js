@@ -358,7 +358,8 @@ export function inboundOf({ about, row, rows, address, sentHandles, chat = null 
   // `chatRoutineMessage`): run as its looker's tag, in production's own words, never a text anyone sent.
   if (row.kind === "checkin" && group) {
     const hours = Number.isInteger(row.checkin) ? row.checkin : 6;
-    const mail = Array.isArray(chat?.mail) ? { mail: chat.mail.length > 0 } : {};
+    // As the control plane hands it (`textGroupLooks.ts`): no mail shared names no mail, so the check-in never searches any.
+    const mail = chat === null || chat === undefined ? {} : { mail: Array.isArray(chat.mail) && chat.mail.length > 0 };
     return { path: "/group-routine", body: { groupId: address.groupId, line: address.line, runId: `run_lab${row.id}`, path: CHAT_LOOK_PATH, phone: from, ...(about.timeZone ? { timeZone: about.timeZone } : {}), since: (row.at ?? Date.now()) - hours * 3_600_000, ...mail } };
   }
   // Tex's number added to the group by whoever the row is from (`route.js` `added`), as Photon's `participantAdded` is handed over.
