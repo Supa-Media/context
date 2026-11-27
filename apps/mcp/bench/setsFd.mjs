@@ -452,7 +452,7 @@ export function fdTest(units, front, from = null) {
         if (line.tapback) return [`- earlier tex tapback: ${JSON.stringify(line.text)}`, ...ago];
         return [`- earlier ${who}: ${JSON.stringify(line.text)}`, ...(line.pictures ?? []).map((name) => `- earlier ${who} sends picture: ${name}`), ...ago];
       }),
-      ...(running ? [`- running job: ${JSON.stringify(running)}`] : []),
+      ...(running ? [`- running job: ${JSON.stringify(running)}`] : []), ...(u.convo.kind === "app" && m.via === undefined ? [`- on screen: ${JSON.stringify(m.screen ?? null)}`] : []), // an in-app text runs as the app chat's (`benchAppChat.mjs`)
       ...(l.must || []).map((x) => `- must: ${x}`),
       ...(l.never || []).map((x) => `- must not: ${x}`),
     ];

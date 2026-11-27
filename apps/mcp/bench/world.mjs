@@ -19,6 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
+import { appTurn } from "./benchAppChat.mjs";
 import { connectMailbox, inMailbox, readMailbox, searchMailbox, sentMail, settingMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../../../packages/tex/gateway/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../../../packages/tex/gateway/agent/housekeeping.js";
@@ -360,6 +361,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const routerSaid = (entry) =>
     typeof entry.confidence !== "number" ? "" : entry.tier === "think" ? ` (${entry.confidence.toFixed(2)})` : ` (think ${entry.confidence.toFixed(2)})`;
   const spent = (from) => spentSince(controlPlane.builtinReports, from); // what a turn spent (`benchSpend.mjs`)
+  const keptTexChat = env.TEX_CHAT; // an app turn's stand-in replaces it for that turn only (`benchAppChat.mjs`)
   const { textedEvent, postEvents } = workerEvents({ env, token: chatToken, group });
   const cross = crossChats({ env, chats: groupChats, text: (...args) => world.text(...args), spent, reports: () => controlPlane.builtinReports.length }); // asks to the 1:1's groups (`crossWorld.mjs`)
   // The chat before its text, and what a turn the Worker queues itself reads of it (`worldChat.mjs`).
@@ -377,7 +379,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     crossAsk: (ask) => cross.carry(ask),
     gaps: () => gaps.list(), // what the bench's own stand-ins could not answer this conversation (`benchGaps.mjs`)
     /** One texted message, answered with the conversation so far; with `job`, one part of a job, as `jobRun.ts` asks it (`jobTasks.mjs`): their text is posted on part 1 only, the report never, and the done check's verdict and advice come back (`jobCheck.js` `jobFields`). */
-    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null, posted = false, shares = [] } = {}) {
+    async text(message, attachments = [], { running = null, others = [], job = null, byCode = false, as = null, event = null, groupMail = null, cause = null, posted = false, shares = [], screen = undefined } = {}) {
       // The person opened the last handoff's link and signed in before texting.
       web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
@@ -419,7 +421,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           // What the chat has running, as the texting Worker sends it (`packages/tex/worker/jobs.ts`): only a
           // turn that is sent it is offered background jobs (`background.js`), so a test with `background: on` sends it.
           // `covers` and `chat` as the Worker sends them (`packages/tex/worker/inbox.ts`) on a real run (`run.mjs` `ledgerTurns`), so the turn reads the ledger and sorts its thread as production does. A group's `people` are its handles, as `groupModelTurn.ts` names them (whose member cards a turn may read).
-          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...((groupMail ?? stand.sharedMail()) ? { mail: groupMail ?? stand.sharedMail() } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}), ...(askerMail ? { askerMail } : {}) } } : { conversation: "texts", ...cross.counts() }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
+          body: JSON.stringify({ question: message, ...(models.timeZone ? { timeZone: models.timeZone } : {}), ...(group ? { group: { key: group.key, members: group.members, from: sender.handle, people: [...group.people.keys()], cause: cause ?? benchCause([...others.map((line) => line.text), message]), ...((groupMail ?? stand.sharedMail()) ? { mail: groupMail ?? stand.sharedMail() } : {}), ...(groupCalendar ? { calendar: groupCalendar } : {}), ...(askerMail ? { askerMail } : {}) } } : { conversation: "texts", ...cross.counts() }), turn: said.turn, ...(models.ledgerTurns === true && covers.length > 0 ? { covers, chat: said.chat } : {}), ...(group ? {} : appTurn(env, keptTexChat, `user_bench_${own.workspace}`, screen)), ...(event ?? {}), ...(attachments.length > 0 ? { attachments } : {}), ...(Array.isArray(running) ? { running } : {}), ...(job ? { job } : {}) }),
         }),
         env,
         ctx,

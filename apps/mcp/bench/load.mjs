@@ -9,6 +9,9 @@ import { readCheck } from "./checks.mjs";
 import { parseSite } from "./sites.mjs";
 import { isEmail, parseEmail } from "./mailbox.mjs";
 import { splitMetrics } from "./metrics.mjs";
+import { createRequire } from "node:module";
+
+const { screenProblems } = createRequire(import.meta.url)("../../../packages/lab/src/texScreen.cjs");
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
@@ -177,6 +180,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- earlier (person|tex):\s*(.*)$/))) q.earlier.push({ from: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier @([a-z0-9-]+):\s*(.*)$/))) q.earlier.push({ from: "person", who: m[1], text: jsonText(m[2], sec.n) });
     else if ((m = line.match(/^- earlier in ([a-z0-9-]+) @([a-z0-9-]+):\s*(.*)$/))) q.groupEarlier.push({ chat: m[1], who: m[2], text: unquote(m[3]) });
+    else if ((m = line.match(/^- on screen:\s*(.*)$/))) q.screen = screenLine(m[1], sec.n); // an in-app test's text: what the app had open (`benchAppChat.mjs`)
     else if ((m = line.match(/^- shared here:\s*(calendar|mail) of @([a-z0-9-]+)\s*$/))) q.shares.push({ kind: m[1], handle: m[2] });
     else if ((m = line.match(/^- @([a-z0-9-]+) before text (\d+):\s*(.*)$/))) q.others.push({ from: m[1], before: Number(m[2]), text: unquote(m[3]) });
     else if ((m = line.match(/^- person sends picture:\s*(.*)$/))) {
@@ -520,5 +524,19 @@ export function expandWorkspaces(bench) {
 /** A picture a test sends, by its file name under `ai/pictures/`: one segment, a picture type. */
 export function pictureName(value) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:png|jpe?g)$/i.test(value)) throw new Error(`person sends picture takes a .png or .jpg under ai/pictures/, got "${value}"`);
+  return value;
+}
+
+/** A `- on screen:` line's value: what an in-app test's text had open (`packages/lab/src/texScreen.cjs`), or `null` for nothing open. */
+function screenLine(raw, n) {
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error(`question ${n}: "on screen" is JSON: null or { note, tabs, selection }`);
+  }
+  if (value === null) return null;
+  const problems = screenProblems(value);
+  if (problems.length > 0) throw new Error(`question ${n}: on screen: ${problems.join("; ")}`);
   return value;
 }
