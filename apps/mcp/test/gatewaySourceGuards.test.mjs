@@ -262,6 +262,9 @@ test("the Mail checker is never handed a group's kept turns whole", () => {
   const call = /mailCheckerFor\(\{([\s\S]*?)\}\)/.exec(route.text);
   assert.ok(call, "the mailCheckerFor call could not be read");
   assert.match(call[1], /history:\s*group !== null \? checkerHistory\(history\) : history/);
+  // And this text carries its tagger's handle, as each kept turn does: unlabeled, a tagger's own "go ahead" read as
+  // nobody's and the email was held again (Lab test chat, 2026-11-27).
+  assert.match(call[1], /question:\s*checkerQuestion\(group !== null \? groupQuestionLine\(group, question\) : question, quoted\)/);
 });
 
 /*

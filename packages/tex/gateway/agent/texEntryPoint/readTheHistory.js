@@ -14,7 +14,7 @@ import { machinesFor } from "../../../../../apps/mcp/src/machines/forJobs.js";
 import { readMailHealth } from "../mailHealth.js";
 import { openChatSkills } from "../chatSkills.js";
 import { lastOffer } from "../claimCheck.js";
-import { checkerHistory } from "../groupTurn.js";
+import { checkerHistory, groupQuestionLine } from "../groupTurn.js";
 import { carryKeptFiles, keepSentFiles } from "../keptFiles.js";
 import { openLearnedSkills } from "../learnedSkills.js";
 import { checkerQuestion, mailCheckerFor } from "../mailChecker.js";
@@ -83,7 +83,10 @@ export async function readTheHistory(t) {
       // A group's kept turns carry what the chat said beside what the tagger
       // asked, and the checker reads a kept turn as the person (`groupTurn.js`).
       history: group !== null ? checkerHistory(history) : history,
-      question: checkerQuestion(question, quoted),
+      // A group's ask carries its tagger's handle, as every kept turn above it does (`groupQuestionLine`), so the
+      // checker can tell the tagger's own go-ahead from another member's (Lab test chat, 2026-11-27: an unlabeled
+      // "go ahead" from the tagger read as nobody's, and the email was held again).
+      question: checkerQuestion(group !== null ? groupQuestionLine(group, question) : question, quoted),
       config: aiGatewayConfig(env),
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
