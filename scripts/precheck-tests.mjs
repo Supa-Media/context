@@ -282,7 +282,11 @@ function defaultBase(root) {
 /** Starts a runner with its output inherited; resolves to its exit code. */
 function runInherit(command, args, cwd) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, stdio: "inherit" });
+    // A precheck started under `node --test` would hand its context to the gateway's own `node --test`, which then
+    // runs no file and exits 0: a red test would pass. The runners start as they would from a shell.
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const child = spawn(command, args, { cwd, env, stdio: "inherit" });
     child.on("error", () => resolve(1));
     child.on("close", (code) => resolve(code ?? 1));
   });
@@ -358,8 +362,10 @@ export async function main({ root = ROOT, base, dryRun = false, log = (line) => 
       failed.push(suite.name);
       continue;
     }
-    if (picked.skipped) {
-      report(suite.name, { skipped: picked.skipped });
+    // A suite whose filter matched but whose reach found no test file has nothing to run. Passing it to the
+    // runner would be an empty file list, and both jest and vitest read that as "every test in the suite".
+    if (picked.skipped || picked.reached.length === 0) {
+      report(suite.name, { skipped: picked.skipped ?? "no changed file reaches it" });
       continue;
     }
     // The reached list is what the reach rules returned; the cap decides what runs here.

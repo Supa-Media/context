@@ -384,7 +384,8 @@ checked is not a guard.**
   and revocation all need real coverage.
 - **Before every push, run `pnpm precheck`.** It runs the fast guards
   (including the Tex diagram check and the replay-case check), the app
-  typecheck, and the architecture check. Do not push a red precheck. It needs
+  typecheck, and the architecture check, and runs the gateway, mobile and Convex test files the change
+  reaches (capped; a suite no change reaches is skipped). Do not push a red precheck. It needs
   `pnpm install` and stays within a couple of minutes.
 - **Pull request flow.**
   1. To iterate on code, open the pull request early as a draft, with auto-merge
