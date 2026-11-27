@@ -392,8 +392,21 @@ export async function whileRunning(
  * floor, on their own grant; Dev2's review, 2026-10-27, after a two-person
  * burst got a second answer to a complaint).
  */
+/**
+ * Whose turn a covered span is: the first message in it that called Tex (named it, or came in as a reply), and, when
+ * none did (a bare "yes" to a question Tex asked, a folded continuation), the newest message covered. Never whoever
+ * merely spoke first. The judge reads the waiting messages together and responds when any of them is for Tex
+ * (2026-11-27), so a covered span can begin at somebody else's line; the asker's own access is the turn's ceiling
+ * (`docs/decisions/texting-assistant/asker-reach.md`: "the asker is the verified sender only"), so taking the asker
+ * by position let one person's ask run a turn on another person's reach, their own personal workspace among it.
+ */
+function askerOf(covered: GroupEntry[]): string | undefined {
+  const called = covered.find(([, item]) => callsTex(item.message.text || item.message.heard || "", item.message.replyTo !== undefined));
+  return (called ?? covered.at(-1))?.[1].message.from;
+}
+
 export function ownTurn(covered: GroupEntry[]): GroupEntry[] {
-  const asker = covered[0]?.[1].message.from;
+  const asker = askerOf(covered);
   const own = covered.filter((entry) => entry[1].message.from === asker);
   // Somebody else's line decide covered is context: the turn reads the chat up to it.
   const until = Math.max(0, ...covered.filter((entry) => entry[1].message.from !== asker && soft(entry)).map((entry) => entry[1].at ?? 0));

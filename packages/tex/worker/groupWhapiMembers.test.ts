@@ -119,15 +119,16 @@ describe("a WhatsApp group's untagged lines", () => {
 
   it("never hands a turn lines said before someone joined, even when the join event was missed", async () => {
     const storage = new MemoryStorage();
-    // The second read (the next tag's) finds Cy, whose join Whapi never reported.
-    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE], [ADA, BO, LINE], [ADA, BO, CY, LINE]] });
+    // The read after Bo's line finds Cy, whose join Whapi never reported.
+    const w = setup(GROUP_ID, { decide: fakeJudge, members: [[ADA, BO, LINE], [ADA, BO, CY, LINE]] });
     await acceptGroup(storage, said(w, ADA, "Tex, hi"), 1);
     await drainGroup(storage, w.deps);
     expect(await acceptGroup(storage, said(w, BO, "the secret plan for Cy's party"), 2)).toBe("kept");
     await acceptGroup(storage, said(w, ADA, "Tex, what did Bo say?"), 3);
     await drainGroup(storage, w.deps);
-    expect(w.asks.length).toBeGreaterThanOrEqual(2);
-    expect(JSON.stringify(w.asks.at(-1))).not.toContain("secret plan");
+    const withCy = w.asks.filter((ask) => ((ask.group as { size?: number }).size ?? 0) > 2);
+    expect(withCy.length).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(withCy)).not.toContain("secret plan");
   });
 });
 
@@ -208,9 +209,12 @@ describe("an iMessage group whose events name only the sender", () => {
     await acceptGroup(storage, said(w, ADA, "Tex, hi"), 1);
     await drainGroup(storage, w.deps);
     expect(await acceptGroup(storage, said(w, BO, "the secret plan for Cy's party"), 2)).toBe("kept");
+    // The app says the people changed, so the next turn reads the list afresh and finds Cy.
+    await membersChanged(storage, 2_500);
     await acceptGroup(storage, said(w, ADA, "Tex, what did Bo say?"), 3);
     await drainGroup(storage, w.deps);
-    expect(w.asks.length).toBeGreaterThanOrEqual(2);
-    expect(JSON.stringify(w.asks.at(-1))).not.toContain("secret plan");
+    const withCy = w.asks.filter((ask) => ((ask.group as { size?: number }).size ?? 0) > 2);
+    expect(withCy.length).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(withCy)).not.toContain("secret plan");
   });
 });

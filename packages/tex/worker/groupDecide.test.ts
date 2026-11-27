@@ -317,6 +317,32 @@ for (const { name, groupId } of LINES) {
       expect(w.control.map((body) => body.sender)).toEqual([ADA, ADA, BO]);
     });
 
+    // The judge reads a burst's waiting messages together and responds when any of them is for Tex (2026-11-27), so a
+    // covered span can begin at somebody else's line. The asker is whoever called Tex: their own access is the turn's
+    // ceiling, and nobody borrows another person's by speaking a moment before their ask
+    // (`docs/decisions/texting-assistant/asker-reach.md`). Sabotage: take the asker from `covered[0]` in `ownTurn`
+    // again and this fails.
+    it("a burst the judge covered whole runs as the person who called Tex, never whoever spoke first", async () => {
+      const storage = new MemoryStorage();
+      // The judge as it is told to judge a burst: it answers when any waiting message is for Tex, and covers the whole
+      // burst, so the span begins at Bo's line.
+      const burstJudge = (body: Decide): Answer => {
+        const lines = body.candidates.map((id) => body.transcript.split("\n").find((line) => line.startsWith(`<${id}>`)) ?? "");
+        return lines.some((line) => /(?:^|[^\w-])tex(?![\w-])/i.test(line)) ? answerAll(body) : silent();
+      };
+      const w = setup(groupId, { decide: burstJudge, control: { engagement: "helpful", engagementChosen: true } });
+      await acceptGroup(storage, w.message("Tex hi"), 0);
+      await drainGroup(storage, w.deps);
+      await acceptGroup(storage, w.message("the cabin last year was so nice", { from: BO }), 10);
+      await acceptGroup(storage, w.message("ok Tex prove it, find us a cabin"), 11);
+      await drainGroup(storage, w.deps);
+      // No turn runs as Bo, whose grant would read his own personal workspace at its private tier.
+      expect(w.asks.map((ask) => (ask.group as { from: string }).from)).toEqual(["ada", "ada"]);
+      expect(w.asks.map((ask) => ask.question)).toEqual(["Tex hi", "ok Tex prove it, find us a cabin"]);
+      // Bo's line is the chat around the ask, never the turn's own words.
+      expect((w.asks[1].group as { chat: unknown[] }).chat).toEqual([{ from: "bo", text: "the cabin last year was so nice" }]);
+    });
+
     // Launch-day rehearsal, 2026-11-27: "Tex find us a cabin" then, from someone else, "not the 17th!!". The answer covered
     // both, the turn took Ada's and read Bo's as context, but Bo's stayed queued, was judged again alone and ran a second
     // turn beside the first: two texts, two jobs. Dev2 picked keeping such an aside as chat context. Sabotage: drop the
