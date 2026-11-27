@@ -199,13 +199,13 @@ export function controlPlaneAnswer(path, body, gate) {
     gate.record({ kind: "Setting", summary: "set their name on the account (not sent: test chat)" });
     return { answer: { status: "done", name: typeof body.name === "string" ? body.name.trim() : "" } };
   }
-  // An email the real gate let go: kept in the test chat whole, answered as sent, never sent. Its check only reads the
-  // sender and the limits, spending nothing, so it runs for real, except in a chat shared with the developers, whose
-  // sender is not the caller's to read.
+  // An email the real gate let go: kept in the test chat whole, answered as sent, never sent. Its check (the sender and
+  // the limits) is answered here too: a test turn's token is the Lab's own, which the control plane refuses to send as
+  // anyone (Lab, 2026-11-27: "this connection cannot send email as the person"), so a real check held nothing.
   if (route === "/gateway/email/send") {
     const email = body?.email && typeof body.email === "object" ? body.email : {};
     const from = typeof email.from === "string" && email.from !== "" ? email.from : "their Gmail";
-    if (body?.check === true) return gate.noNotes === true ? { answer: { ok: true, from } } : { pass: true };
+    if (body?.check === true) return { answer: { ok: true, from } };
     const kept = { kind: "email", title: String(email.subject ?? "") || "(no subject)", to: listOf(email.to), ...(listOf(email.cc).length ? { cc: listOf(email.cc) } : {}), subject: String(email.subject ?? "").slice(0, 200), body: String(email.body ?? "").slice(0, 20_000), tool: "send_email", sent: false, summary: `${String(email.subject ?? "").slice(0, 120)} (would have sent: test chat)` };
     if (typeof gate.keepWrite === "function") gate.keepWrite(kept);
     else gate.record({ kind: "Email", summary: kept.summary });

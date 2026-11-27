@@ -207,10 +207,9 @@ test("an email goes through the real gate; its send is kept whole and never sent
     // The real gate runs (2026-11-27): the test chat no longer answers an email held itself.
     assert.equal(await toolAnswer("send_email", { to: ["jo@example.invalid"], subject: "Dinner", body: "Seven at Ana's." }, gate), null);
     const email = { from: "me@example.invalid", to: ["jo@example.invalid"], cc: ["sam@example.invalid"], subject: "Dinner", body: "Seven at Ana's." };
-    // Its check only reads the sender and the limits, so it goes to the control plane.
-    assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email, check: true }, gate), { pass: true });
-    // In a chat shared with the developers it is answered here: the sharer's sender is not the caller's to read.
-    assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email, check: true }, { ...gate, noNotes: true }), { answer: { ok: true, from: "me@example.invalid" } });
+    // Its check is answered here: the test turn's token is the Lab's, which the control plane would refuse.
+    assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email, check: true }, gate), { answer: { ok: true, from: "me@example.invalid" } });
+    assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email: { ...email, from: undefined }, check: true }, gate), { answer: { ok: true, from: "their Gmail" } });
     // The send itself is answered as sent and kept, never passed on.
     assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email }, gate), { answer: { ok: true, from: "me@example.invalid" } });
     await toolAnswer("save_email_draft", { to: ["jo@example.invalid"], subject: "Later", body: "..." }, gate);
