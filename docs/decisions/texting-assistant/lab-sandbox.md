@@ -177,6 +177,11 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   (`TEX_LINE`, over `/job-out/line`): before 2026-11-27 it had none, so a group's job read nobody in the chat when it
   checked who is there before its report (`jobRun.ts` `groupTurn`), stopped with `members_unread`, and the chat never
   heard (a launch-day rehearsal's cabin search). `labSandboxJobBox.test.mjs` holds it.
+  A test chat's jobs live only as long as the text that started them, so "restart it" in a later text once picked
+  nothing up (2026-11-27, the same rehearsal: Tex said it was restarting, and nothing ran). Each job's ended run (its
+  `jobended` and `jobsteers`) is now kept in the test chat's `jobsKept` meta for a day, 12 at most; a later text's
+  `/job-steer` with `resume` for a job of its own that this text has no object for is born again from it
+  (`jobs.js` `reviveJob`, the box's `/lab-revive`), on a box of this text, and run in turn like any job it started.
 - *A job runs on a real job box* (`labSandbox/jobBox.js`, 2026-11-21: the job box's memory fix and its own alarm could
   not be tried in the Lab while jobs ran in memory with their alarm off). Where the gateway has `LAB_JOB`, a job a test
   text starts is born in a `LabJob` Durable Object: the gateway's `TexJob` class itself (`texJobClass` with a `fence`),

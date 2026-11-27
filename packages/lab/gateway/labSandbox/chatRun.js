@@ -49,7 +49,7 @@ import { sandboxNamespace } from "./wire.js";
 import { sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { attachmentsOf, pictureFetch } from "./inbound.js";
 import { hold, lineOf, rowLine } from "./line.js";
-import { asidesOf, boxNode, JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
+import { asidesOf, boxNode, JOB_LIMIT_MS, keptJobs, runJobs, sandboxInboxes } from "./jobs.js";
 import { boxStub, openRun } from "./jobBox.js";
 import { assetId, assetUrl } from "../fromGateway/labSandbox_sandboxTools.js";
 import { fitSteps } from "./steps.js";
@@ -525,6 +525,8 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       },
       parentOfJob: () => book.last("fd") ?? book.tail,
       makeBox: live === null ? null : (name) => boxStub(env.LAB_JOB, { sandbox, rowId: row.id, jobName: name, run: live.key }),
+      // A job an earlier text ran, as it ended there (`jobsKept`): "restart it" picks it back up (`jobs.js` `reviveJob`).
+      revive: async (name) => state.meta?.jobsKept?.[name] ?? null,
     });
     envOf = chatEnvFor({ gate, storage, about, chat: { ...(chat ?? {}), pictures: (row.pics ?? []).map((p) => p.url) }, phones: address.phones, line: chatLine, token: labToken, agent, texts, images: env.IMAGES, inboxes: registry.namespace, world: !isWorld ? null : about.world?.local ? localControl({ about, chat, grant, storage }) : worldControl(env, grant, labToken) });
     if (live !== null) {
@@ -588,6 +590,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
       await Promise.all(posted.splice(0));
       await gate.flush();
       await callSandbox(stub, "row.patch", { id: replyId, patch: { steps: fitSteps(book.view()) } });
+      await callSandbox(stub, "meta", { key: "jobsKept", value: keptJobs(state.meta?.jobsKept, registry.jobs, now()) });
     }
     await callSandbox(stub, "meta", { key: "chatObject", value: storage.snapshot(row.id) });
     const handles = Object.fromEntries([...sentHandles.entries()].slice(-200));
