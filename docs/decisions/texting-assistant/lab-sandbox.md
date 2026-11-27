@@ -191,8 +191,12 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   writes the note whole into the test chat; a later turn's `read_note`, `read_notes` or `fetch` of it reads it there,
   and its `list_notes`, `search_notes` and `search` name it after the real answer (`afterRead`, in
   `tools/session.js`). `remember` adds its line to a note the test chat wrote, or, on a real note, keeps the line and
-  shows it below the real note when it is read. `send_email` and `save_email_draft` send nothing: the write keeps who
-  to, cc, subject and the whole body (`sent: false`). A `.page.md` is a page served from the test chat
+  shows it below the real note when it is read. `save_email_draft` saves nothing in Gmail: the write keeps who to, cc,
+  subject and the whole body (`sent: false`). `send_email` runs through the real email gate (`policy.js` `REAL_GATE`,
+  since 2026-11-27): the Mail checker, the shown-copy check and the hold all run as in a real chat, a held ask lands in
+  the test chat's own store and is answered by a 👍 or yes there, and the send itself is answered as sent at the control
+  plane and kept as the write (`sent: false`, "would have sent"), never sent. Its limits check only reads, so it runs
+  for real, except in a chat shared with the developers, where it is answered here. A `.page.md` is a page served from the test chat
   (`labSandbox/pages.js`, `GET /tex-lab/sandbox/page/<sandboxId>/<id>` and the route's `page` op), read at the moment it
   is asked so a later edit shows; a picture Tex sends (its line's `uploadPicture`) is kept and served the same way, PNG,
   JPEG, GIF or WebP only. Every write is in `writes` with its `id`, `kind` (lowercase now: `note`, `page`, `email`,
@@ -250,9 +254,7 @@ maker, nudge, reflect), do not change with a draft, in a test chat or live.
 
 **Known gaps, said rather than hidden.** Only `write_note` and `remember` write notes in the test chat; moving,
 archiving, deleting and the website's actions are still recorded and answered as done, and a note the test chat wrote
-is found by a listing or a search only by its path and words, after the real answer, never ranked among it. An email is
-kept as sent at once: the yes that production's egress gate waits for before an email goes is not asked in a test
-chat. `create_link` is recorded and answered as done; a page's own address is the write's `url`. Jobs live only for
+is found by a listing or a search only by its path and words, after the real answer, never ranked among it. `create_link` is recorded and answered as done; a page's own address is the write's `url`. Jobs live only for
 their text's run: a job cut off by the limits is not carried to the next text, which finds no such job.
 `ws.rows.files` and `ws.rows.listing`
 answer "not served here", which callers already read as "ask the other way". A group turn's control-plane calls carry

@@ -20,7 +20,7 @@ import { LabSandboxObject } from "../../../packages/lab/gateway/labSandbox/objec
 import { sandboxGate } from "../../../packages/lab/gateway/labSandbox/harness.js";
 import { measuredLine, MIN_SAMPLES, PHOTON_DEFAULT, PHOTON_NUMBER, MAX_HOLD_MS } from "../../../packages/lab/gateway/labSandbox/line.js";
 import { stepBook, TRANSPORT_STEPS, fitSteps } from "../../../packages/lab/gateway/labSandbox/steps.js";
-import { toolAnswer } from "../src/labSandbox/policy.js";
+import { controlPlaneAnswer, toolAnswer } from "../src/labSandbox/policy.js";
 import { readWithEtag } from "../../../packages/tex/gateway/agent/jobLog.js";
 import { readTexNote } from "../../../packages/tex/gateway/agent/aboutMe.js";
 import { afterRead } from "../src/labSandbox/sandboxTools.js";
@@ -197,23 +197,28 @@ test("a note written in a test turn is read back by the next, listed and found, 
   }
 });
 
-test("an email is kept whole and never sent; a draft too", async () => {
+test("an email goes through the real gate; its send is kept whole and never sent; a draft too", async () => {
   const chat = await chatObject();
   const fetched = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (...args) => (fetched.push(args), new Response("{}"));
   try {
     const gate = await gateFor("t1", chat);
-    const sent = await toolAnswer("send_email", { to: ["jo@example.invalid"], cc: ["sam@example.invalid"], subject: "Dinner", body: "Seven at Ana's." }, gate);
-    assert.match(sent.content[0].text, /Held for the person's 👍, not sent: "Dinner" to jo@example\.invalid/);
-    assert.equal(sent.held, true, "held for a yes, as the real gate holds a texted email (2026-11-26: it said Sent)");
-    const offered = await toolAnswer("send_email", { to: ["jo@example.invalid"], subject: "Lunch", body: "Noon.", as: "@sam" }, gate);
-    assert.match(offered.content[0].text, /Held for @sam's 👍/, "one for somebody else waits on their 👍");
+    // The real gate runs (2026-11-27): the test chat no longer answers an email held itself.
+    assert.equal(await toolAnswer("send_email", { to: ["jo@example.invalid"], subject: "Dinner", body: "Seven at Ana's." }, gate), null);
+    const email = { from: "me@example.invalid", to: ["jo@example.invalid"], cc: ["sam@example.invalid"], subject: "Dinner", body: "Seven at Ana's." };
+    // Its check only reads the sender and the limits, so it goes to the control plane.
+    assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email, check: true }, gate), { pass: true });
+    // In a chat shared with the developers it is answered here: the sharer's sender is not the caller's to read.
+    assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email, check: true }, { ...gate, noNotes: true }), { answer: { ok: true, from: "me@example.invalid" } });
+    // The send itself is answered as sent and kept, never passed on.
+    assert.deepEqual(controlPlaneAnswer("/gateway/email/send", { email }, gate), { answer: { ok: true, from: "me@example.invalid" } });
     await toolAnswer("save_email_draft", { to: ["jo@example.invalid"], subject: "Later", body: "..." }, gate);
     await gate.flush();
-    const [email, , draft] = (await chat.call("state")).writes;
-    assert.deepEqual({ kind: email.kind, to: email.to, cc: email.cc, subject: email.subject, body: email.body, sent: email.sent }, { kind: "email", to: ["jo@example.invalid"], cc: ["sam@example.invalid"], subject: "Dinner", body: "Seven at Ana's.", sent: false });
-    assert.equal(draft.kind, "draft");
+    const writes = (await chat.call("state")).writes;
+    const sent = writes.find((w) => w.kind === "email");
+    assert.deepEqual({ to: sent.to, cc: sent.cc, subject: sent.subject, body: sent.body, sent: sent.sent }, { to: ["jo@example.invalid"], cc: ["sam@example.invalid"], subject: "Dinner", body: "Seven at Ana's.", sent: false });
+    assert.equal(writes.find((w) => w.kind === "draft")?.subject, "Later");
     assert.deepEqual(fetched, [], "no mail went anywhere");
   } finally {
     globalThis.fetch = original;
@@ -372,13 +377,13 @@ test("get names the line every new text uses, and a write's id, kind and title",
   try {
     const chat = await chatObject(ONE, `labsandbox:u_alice:${ONE.sandboxId}`, w.ns);
     const gate = await gateFor("t1", chat);
-    await toolAnswer("send_email", { to: ["jo@example.invalid"], subject: "Hi", body: "Hello." }, gate);
+    controlPlaneAnswer("/gateway/email/send", { email: { to: ["jo@example.invalid"], subject: "Hi", body: "Hello." } }, gate);
     await gate.flush();
     const got = await w.route(ALICE, { op: "get", sandboxId: ONE.sandboxId });
     assert.equal(got.status, 200);
     assert.deepEqual([got.body.line.name, got.body.line.inMs, got.body.line.outMs, got.body.line.number], ["photon", 7_000, 11, "+14157918922"]);
     const [write] = got.body.writes;
-    assert.deepEqual([write.id, write.kind, write.title, write.summary, write.by], ["w1", "email", "Hi", "Hi", "t1"], "the old Lab's kind and summary still there");
+    assert.deepEqual([write.id, write.kind, write.title, write.summary, write.by], ["w1", "email", "Hi", "Hi (would have sent: test chat)", "t1"], "the old Lab's kind and summary still there");
   } finally {
     w.restore();
   }

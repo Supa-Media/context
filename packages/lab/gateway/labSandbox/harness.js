@@ -121,6 +121,10 @@ export function sandboxGate(stub, about, rowId, { config = null, arrivedAt = Dat
     record(write) {
       later(keep({ kind: write?.kind, summary: write?.summary, ...(write?.tool ? { tool: write.tool } : {}) }));
     },
+    /** `write`, for a caller that cannot wait (`policy.js` `controlPlaneAnswer`): kept whole, waited for by `flush`. */
+    keepWrite(write) {
+      later(keep(write));
+    },
     /** A write the test chat did itself (`sandboxTools.js`), with what the Lab shows of it: its body, address, to. */
     async write(write) {
       return (await keep(write)).id ?? null;
