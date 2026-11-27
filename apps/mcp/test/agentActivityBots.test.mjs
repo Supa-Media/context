@@ -5,11 +5,13 @@
  *
  * Sabotage: dropping the bound-bot lookup from `recordAgentActivity` fails the first two checks; dropping the bot from
  * the activity id fails the third (two bots on one connection collapse into one row); dropping the short name fails
- * three; dropping the `works_in` fallback fails the last.
+ * three; dropping the `works_in` fallback fails one; the caret named by `presenceActor` again fails the last.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { recordAgentActivity } from "../src/live/agentActivity.js";
+import { announceCommittedToPresence, announceWriteToPresence } from "../src/live/presence.js";
+import { writerActor } from "../src/live/activityBot.js";
 
 /** A store whose activity room keeps what it is told, and whose object says which bots grant `g1` is. */
 function storeOf(bots, { cards = {}, mailboxes = {} } = {}) {
@@ -55,8 +57,9 @@ test("a login bound as several bots shows as the one whose folder it works in, e
   recordAgentActivity(store, [{ kind: "edit", path: "bots/dorothy/notes.md" }]);
   recordAgentActivity(store, [{ kind: "read", path: "todo.md" }]);
   await settle();
-  assert.equal(posted[0].actor.name, "Dorothy");
-  assert.equal(posted[1].actor.name, "@seyi's Cursor", "no guess between two bots");
+  const byPath = Object.fromEntries(posted.map((one) => [one.entries[0].path, one.actor.name]));
+  assert.equal(byPath["bots/dorothy/notes.md"], "Dorothy");
+  assert.equal(byPath["todo.md"], "@seyi's Cursor", "no guess between two bots");
 });
 
 test("two bots on one connection are two rows, and an unbound login stays the app", async () => {
@@ -109,4 +112,20 @@ test("one connection that is several bots shows as the bot its mailbox joined as
     },
     "mailbox first, then the deepest works_in; a mailbox that is not one of its bots is ignored; nowhere, the app",
   );
+});
+
+test("a bot's write names the bot on the note's live caret, by the same rule", async () => {
+  // Dev, 2026-11-27: the caret on a note being written shows the bot's name too.
+  const { store, settle } = storeOf([{ bot: "pablo", name: "Pablo · Social Strategist" }]);
+  const sent = [];
+  store.presenceRooms = { idFromName: (name) => name, get: () => ({ fetch: async (url, init) => sent.push([url, JSON.parse(init.body)]) }) };
+  const writer = writerActor(store, { path: "areas/growth/SEO/plan.md" });
+  await announceCommittedToPresence(store, "areas/growth/SEO/plan.md", { documentId: "doc", etag: "c2.doc.1" }, writer);
+  await announceWriteToPresence(store, { path: "areas/growth/SEO/plan.md", content: "x", etag: "e1", actor: writer });
+  await settle();
+  assert.deepEqual(sent.map(([url, body]) => [new URL(url).pathname, body.actor?.name]), [["/committed", "Pablo"], ["/external", "Pablo"]]);
+  assert.match(sent[0][1].actor.id, /^[0-9a-f]{16}$/, "the caret keeps the client's own id");
+
+  const plain = storeOf([]);
+  assert.equal((await writerActor(plain.store, { path: "todo.md" })).name, "@seyi's Cursor");
 });

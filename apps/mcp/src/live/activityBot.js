@@ -7,11 +7,13 @@
  * (`Pablo · Social Strategist` → `Pablo`). Some apps give all of a person's bots one connector, so one connection may
  * be several bots. In order: the bot its mailbox joined as, the bot whose folder the note is in, its only bot, then
  * the one bot whose card's `works_in` holds the note (the deepest area wins). Null when none of those says, and the
- * row keeps the app's name rather than guessing between bots.
+ * row keeps the app's name rather than guessing between bots. The caret on a note a bot is writing names it by the
+ * same rule (`writerActor`; Dev, 2026-11-27).
  */
 import areaRoutines from "../../../../packages/shared/src/areaRoutines.cjs";
 import { botFor, boundBotsOf } from "../mail/boundBot.js";
 import { factJobs, factProps } from "../tree/facts.js";
+import { presenceActor } from "./presence.js";
 
 const { botCardPaths, botShortName, parseWorksIn } = areaRoutines;
 
@@ -56,4 +58,14 @@ export async function activityBot(store, { path = null, mailbox = null } = {}) {
   if (chosen === undefined) chosen = await botWorkingIn(store, bots, path).catch(() => null);
   if (chosen === null || chosen === undefined) return null;
   return { bot: chosen.bot, name: botShortName(chosen.name) ?? chosen.name };
+}
+
+/**
+ * Who a tool's write shows as on the note's live caret: `presenceActor`, named as its bot where `activityBot` finds
+ * one. Never rejects; the caller hands the promise to the room's announcement, which awaits it behind the response.
+ */
+export async function writerActor(store, { path = null, mailbox = null } = {}) {
+  const shown = await presenceActor(store?.actor);
+  const bot = await activityBot(store, { path, mailbox }).catch(() => null);
+  return bot === null ? shown : { ...shown, name: bot.name };
 }
