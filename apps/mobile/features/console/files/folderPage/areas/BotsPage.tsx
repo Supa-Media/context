@@ -31,6 +31,7 @@ import { BotLookupsScope, HealthWord, botLookups, useBotHealth } from "./botHeal
 import type { HookRow } from "./PanelBotHook";
 import type { RoutineStateNow } from "./areaRoutines";
 import { AddBotForm, usePeopleList } from "./PanelBotFields";
+import { helpersOf, liveLine } from "./botHelpers";
 
 export interface BotsPageProps {
   root: string;
@@ -151,7 +152,7 @@ export function BotsPage(props: BotsPageProps) {
             {key === "mine" ? `Yours${me ? ` · ${me}` : ""}` : key === "nobody" ? "Nobody's yet" : `${key}'s · only ${key} can change them`}
           </Text>
           {list.map((each) => (
-            <BotRow key={each.name} compact={compact} bot={each} face={faceOf(each.name)} selected={each.name === selected} onPress={() => setSelected(each.name === selected ? null : each.name)} />
+            <BotRow key={each.name} compact={compact} bot={each} helpers={liveLine(helpersOf(each, notes))} face={faceOf(each.name)} selected={each.name === selected} onPress={() => setSelected(each.name === selected ? null : each.name)} />
           ))}
         </View>
       ))}
@@ -194,14 +195,14 @@ export function capWords(bot: Bot): string {
   return capped.length === 1 ? `${total}% of its week here` : `${total}% of its week over ${capped.length} areas`;
 }
 
-function BotRow({ bot, face, selected, compact, onPress }: { bot: Bot; face: Face; selected: boolean; compact: boolean; onPress: () => void }) {
+function BotRow({ bot, face, selected, compact, helpers, onPress }: { bot: Bot; face: Face; selected: boolean; compact: boolean; helpers: string | null; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
   const health = useBotHealth(bot.name, bot.card.reach);
   const where = bot.areas.length === 0 ? "Holds no area yet" : bot.areas.map((area) => area.title).join(", ");
   return (
     <Pressable
       onPress={onPress}
-      accessibilityLabel={`${bot.name}, ${botLabel(bot.card.bot || "grok")}${health === undefined ? "" : `, ${health.word}`}`}
+      accessibilityLabel={`${bot.name}, ${botLabel(bot.card.bot || "grok")}${health === undefined ? "" : `, ${health.word}`}${helpers === null ? "" : `, ${helpers}`}`}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.row, (hovered || selected) && styles.rowOn]}
       testID={`areas-bot-${bot.name}`}
     >
@@ -213,6 +214,15 @@ function BotRow({ bot, face, selected, compact, onPress }: { bot: Bot; face: Fac
         <Text variant="treeMeta" numberOfLines={1} style={styles.muted}>
           {`${botLabel(bot.card.bot || "grok")} · ${where}`}
         </Text>
+        {/* "2 helpers working": the sessions it started for deep work, when any is live (`botHelpers.ts`). */}
+        {helpers === null ? null : (
+          <View style={styles.helpers} testID={`areas-bot-helpers-${bot.name}`}>
+            <View aria-hidden style={styles.helperDot} />
+            <Text variant="treeMeta" numberOfLines={1} style={styles.muted}>
+              {helpers}
+            </Text>
+          </View>
+        )}
       </View>
       {/* Its health, for everyone who sees the list, its person or not (Dev, 2026-11-27); its caps under it, where
           there is room (a phone leaves them to the bot's Works in tab). */}
@@ -239,6 +249,8 @@ const makeStyles = (colors: Colors) =>
     rowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     name: { fontWeight: "600" },
     side: { alignItems: "flex-end", gap: 2, flexShrink: 0, maxWidth: "45%" },
+    helpers: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1 },
+    helperDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.ok },
     addRow: { minHeight: 40, marginTop: space.x1 },
     addWord: { color: colors.accent },
   });

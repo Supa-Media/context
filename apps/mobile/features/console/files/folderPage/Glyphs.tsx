@@ -30,6 +30,7 @@ import { priorityWord, type Priority } from "./taskProps";
 import { PersonFace } from "../../faces/PersonFace";
 import { readPicture, shownPicture, type FacePicture } from "../../faces/botPictures";
 import { ClaudeFace } from "../../faces/ClaudeFace";
+import { HelperFace } from "../../faces/HelperFace";
 import { ContextFace } from "../../faces/ContextFace";
 
 const GLYPH = 16;
@@ -72,6 +73,8 @@ export type Face =
   | { readonly kind: "claude"; readonly owner: string | null }
   /** Context itself, sending its own mail (setup checks): its app icon's mark (`faces/ContextFace.tsx`). */
   | { readonly kind: "context" }
+  /** A bot's helper, "Claude via Grok Bot": the helper's mark with its bot's face at the corner (`faces/HelperFace.tsx`). */
+  | { readonly kind: "helper"; readonly helper: string; readonly via: Face }
   | { readonly kind: "nobody" };
 
 /**
@@ -125,6 +128,7 @@ export function OwnerFace({ face, size = 24 }: { face: Face; size?: number }) {
   const box = { width: size, height: size };
   if (face.kind === "claude") return <ClaudeFace owner={face.owner} size={size} />;
   if (face.kind === "context") return <ContextFace size={size} />;
+  if (face.kind === "helper") return <HelperFace helper={face.helper} via={face.via} size={size} />;
   if (face.kind === "nobody") {
     return (
       <View style={[styles.face, styles.nobody, box]} testID="owner-face-nobody" aria-hidden>

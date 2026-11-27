@@ -13,6 +13,7 @@ import { cardSlug } from "../files/folderPage/areas/seat";
 import { avatarOf, botCardOf, isPersonName, type Conversation } from "./model";
 import { isClaudeApp } from "../faces/ClaudeFace";
 import { isContextSender } from "../faces/ContextFace";
+import { helperOfBot, helperParts } from "../faces/helperName";
 import { splitApp } from "@context/shared/src/mail.cjs";
 import type { MailNoteIO } from "./MailThread";
 
@@ -68,6 +69,12 @@ export function useBotFaces(conversations: readonly Conversation[], io: MailNote
   const faceOf = useCallback(
     (name: string, app?: string | null): Face => {
       if (isPersonName(name)) return { kind: "person", name };
+      // A bot's helper (`claude-via-grok-bot-a3f1`): its own mark, with its bot's face at the corner.
+      const helper = helperParts(name);
+      if (helper !== null && !cards.has(cardSlug(name))) {
+        const bot = [...cards.keys()].find((slug) => helperOfBot(helper, slug));
+        return { kind: "helper", helper: helper.helper, via: bot === undefined ? { kind: "agent" } : faceOf(bot) };
+      }
       const card = cards.get(cardSlug(name));
       // Context's own mail (its setup checks) is drawn as Context, unless a bot's card is named that.
       if (card === undefined && isContextSender(name, app)) return { kind: "context" };
@@ -94,5 +101,5 @@ export function useBotFaces(conversations: readonly Conversation[], io: MailNote
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cardsKey, cardKey, io, readLeaf],
   );
-  return useMemo(() => Object.assign((name: string, app?: string | null) => faceOf(name, app), { isBot: (name: string) => !isPersonName(name) && cards.has(cardSlug(name)) }), [faceOf, cards]);
+  return useMemo(() => Object.assign((name: string, app?: string | null) => faceOf(name, app), { isBot: (name: string) => !isPersonName(name) && (cards.has(cardSlug(name)) || helperParts(name) !== null) }), [faceOf, cards]);
 }
