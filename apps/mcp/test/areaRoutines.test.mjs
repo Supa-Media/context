@@ -35,7 +35,7 @@ function durableSql() {
 
 const AREA = "areas/operations/Scorecard";
 const ROUTINE = `${AREA}/routines/daily/score-every-area.md`;
-const MAIL = `${AREA}/mail/seyi.md`;
+const MAIL = `${AREA}/mail/grok-bot.md`;
 const CARD = "areas/bots/grok-bot/about.md";
 const DAILY = "---\nat: 9:00 am\n---\nScore every area.\n";
 
@@ -48,7 +48,7 @@ function withMail(text, entry) {
 }
 
 /** One workspace with the Scorecard area held by Grok Bot, and a clock the test moves. */
-function world({ owner = "Grok Bot", delegate, worksIn, routineText = DAILY } = {}) {
+function world({ owner = "Grok Bot", delegate, worksIn, routineText = DAILY, reply } = {}) {
   let clock = Date.parse("2026-11-25T12:00:00.000Z"); // a Wednesday
   const notes = new Map(); // noteId → {path, text}
   const props = new Map(); // path → properties
@@ -73,7 +73,7 @@ function world({ owner = "Grok Bot", delegate, worksIn, routineText = DAILY } = 
     }),
   };
   const sql = durableSql();
-  const routines = areaRoutinesWatch(sql, { rows, objects, facts, findAreasRoot: () => "areas", tell: (message) => told.push(message), defer: (work) => work(), now: () => clock });
+  const routines = areaRoutinesWatch(sql, { rows, objects, facts, findAreasRoot: () => "areas", tell: (message) => (told.push(message), reply?.(message)), defer: (work) => work(), now: () => clock });
   const mailWatch = botMailWatch(sql, { rows, objects, facts, routines, tell: (message) => told.push({ type: "mail", ...message }), defer: () => {} });
   const save = (id, path, text) => {
     notes.set(id, { path, text });
@@ -326,4 +326,84 @@ test("a workspace object keeps area routines, and one with no Areas folder never
   assert.equal(store.areaRoutines.wake(), null);
   assert.deepEqual(store.areaRoutines.run(), []);
   assert.deepEqual(store.areaRoutines.state().routines, []);
+});
+
+// Dev, 2026-11-27: "there must be artifacts that the loop was received, and artifacts that work was done in the place
+// we are expecting it". A send records what the webhook said; only the bot's answer where the routine asked counts.
+
+const SEARCH = `${AREA}/routines/daily/check-search.md`;
+
+test("a send keeps the webhook's reply, and one no webhook took is failed, not sent", { skip }, async () => {
+  let answer = { ok: true, status: 200 };
+  const w = world({ reply: () => Promise.resolve(answer) });
+  w.routines.run();
+  w.at("2026-11-25T14:00:05.000Z");
+  w.routines.run();
+  await new Promise((resolve) => setImmediate(resolve));
+  let [row] = w.routines.state().routines;
+  assert.equal(row.outcome, "sent");
+  assert.equal(row.deliveredStatus, 200);
+  assert.equal(row.answerIn, `${AREA}/mail/grok-bot.md`);
+  // The next day the bot has no webhook: nothing woke it, and the routine says so.
+  answer = { ok: false, status: 0 };
+  w.at("2026-11-26T14:00:05.000Z");
+  w.routines.run();
+  await new Promise((resolve) => setImmediate(resolve));
+  [row] = w.routines.state().routines;
+  assert.equal(row.outcome, "failed");
+  assert.equal(row.deliveredStatus, 0);
+  // A bot that checks its mail itself still answers it, and that counts.
+  w.at("2026-11-26T14:30:00.000Z");
+  w.save("m1", MAIL, withMail("", { from: "grok-bot", app: "Grok", text: "Done.", at: "2026-11-26T14:30:00.000Z" }));
+  assert.equal(w.routines.state().routines[0].answeredAt, Date.parse("2026-11-26T14:30:00.000Z"));
+});
+
+test("a bot's reply in someone else's mail in the area is not the routine's answer", { skip }, () => {
+  // Capabilities' reply to Grok Bot in MCP's mail once marked MCP's routine answered.
+  const w = world();
+  w.routines.run();
+  w.at("2026-11-25T14:00:05.000Z");
+  w.routines.run();
+  w.at("2026-11-25T14:05:00.000Z");
+  w.save("m1", `${AREA}/mail/seyi.md`, withMail("", { from: "grok-bot", app: "Grok", text: "Replying to Seyi.", at: "2026-11-25T14:05:00.000Z" }));
+  assert.equal(w.routines.state().routines[0].answeredAt, null);
+  // Another bot's line in the routine's answer note is not its bot's answer either.
+  w.save("m2", MAIL, withMail("", { from: "pipeline", app: "Grok", text: "Not mine.", at: "2026-11-25T14:06:00.000Z" }));
+  assert.equal(w.routines.state().routines[0].answeredAt, null);
+  // An hour on with nothing where it was asked: missed.
+  assert.equal(w.routines.state(() => true, Date.parse("2026-11-25T15:00:06.000Z")).routines[0].missed, true);
+});
+
+test("a bot is sent one routine at a time: the next once it answers, or after twenty minutes", { skip }, () => {
+  const w = world();
+  w.notes.set("r2", { path: SEARCH, text: DAILY });
+  w.routines.run();
+  w.at("2026-11-25T14:00:05.000Z");
+  const first = w.routines.run();
+  assert.deepEqual(first.map((one) => one.outcome).sort(), ["queued", "sent"]);
+  assert.equal(w.told.length, 1);
+  const sent = w.told[0].note;
+  const other = sent === ROUTINE ? SEARCH : ROUTINE;
+  // Two minutes on, the bot hasn't answered: still one.
+  w.at("2026-11-25T14:02:10.000Z");
+  assert.deepEqual(w.routines.run(), [{ path: other, outcome: "queued" }]);
+  // It answers in its mail: the next goes out on the following try.
+  w.at("2026-11-25T14:03:00.000Z");
+  w.save("m1", MAIL, withMail("", { from: "grok-bot", app: "Grok", text: "Done.", at: "2026-11-25T14:03:00.000Z" }));
+  w.at("2026-11-25T14:04:20.000Z");
+  assert.deepEqual(w.routines.run(), [{ path: other, outcome: "sent" }]);
+  assert.equal(w.told[1].note, other);
+  // The next day, with no answer to the first, the second goes after twenty minutes.
+  w.told.length = 0;
+  w.at("2026-11-26T14:00:05.000Z");
+  w.routines.run();
+  assert.equal(w.told.length, 1);
+  for (const minute of ["02", "10", "18"]) {
+    w.at(`2026-11-26T14:${minute}:30.000Z`);
+    w.routines.run();
+  }
+  assert.equal(w.told.length, 1);
+  w.at("2026-11-26T14:22:00.000Z");
+  w.routines.run();
+  assert.equal(w.told.length, 2);
 });

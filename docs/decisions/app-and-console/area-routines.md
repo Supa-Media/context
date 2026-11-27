@@ -142,3 +142,26 @@ checks" writes the same templates, kept and resumed the same way, as
 place of the Areas list. Tests: `apps/mobile/__tests__/areaRoutines.test.ts`,
 `apps/mobile/__tests__/areasRoutinesPanel.test.ts`,
 `apps/mobile/__tests__/areaRoutineState.test.ts`.
+
+**Proof it arrived, proof it was answered.** *Asked by the owner, 2026-11-27*
+("there must be artifacts that the loop was received, and artifacts that work
+was done in the place we are expecting it ... this is true for EVERY area").
+A census of every area's routines found three ways a gap looked like success,
+each now closed in `areaRoutines.js`:
+
+- **Sent is not received.** Each send keeps the webhook's reply
+  (`delivered_status`, `delivered_at`); one no webhook took (status 0, or not
+  2xx) becomes `failed`, which the app already shows as "Didn't reach". A bot
+  that checks its mail itself can still answer it.
+- **Only the answer where it was asked counts.** A routine is answered by its
+  own bot's line in `<area>/mail/<bot>.md` (the payload's `answer_in`) or in
+  the routine's own note. Before, any line by the area's holder in any of the
+  area's mail notes counted, so a reply to someone else marked it answered.
+- **One routine at a time per bot.** A bot woken for four routines at once
+  answered one. The next is queued until the bot answers the last, or twenty
+  minutes pass, retried every two minutes; Run now is unchanged.
+
+A routine sent and unanswered after an hour is `missed` in the state, and
+`orient` names it with where its answer belongs. Tests:
+`apps/mcp/test/areaRoutines.test.mjs` (the last three tests; dropping the
+answer-note check or the one-at-a-time check fails one each).

@@ -192,13 +192,22 @@ export class WorkspaceStore {
     // The search indexes caught up on the alarm while changes wait, not only behind a search.
     store.indexBuild = indexBuilder(store);
     // A due routine goes to its bot the way mail does: the control plane calls the bot's webhook if one is saved.
+    // Resolves the webhook's `{ok, status}` (null when the control plane can't be reached), which the routine keeps.
     const tellBot = (message) => {
       const workspaceId = rows.workspaceId();
-      if (workspaceId === null) return;
+      if (workspaceId === null) return null;
       const sent = createControlPlane(this.env)
         .botMail(workspaceId, message)
-        .catch((error) => log("bot_mail_failed", { workspaceId, kind: message.type ?? "mail", reason: String(error?.reason ?? "unknown") }));
+        .then((result) => {
+          if (result?.ok !== true) log("bot_wake_not_taken", { workspaceId, kind: message.type ?? "mail", status: Number(result?.status ?? 0) });
+          return result ?? null;
+        })
+        .catch((error) => {
+          log("bot_mail_failed", { workspaceId, kind: message.type ?? "mail", reason: String(error?.reason ?? "unknown") });
+          return null;
+        });
       this.state.waitUntil?.(sent);
+      return sent;
     };
     routines = areaRoutinesWatch(sql, {
       rows,
