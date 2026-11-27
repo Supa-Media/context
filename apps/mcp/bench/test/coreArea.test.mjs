@@ -163,3 +163,13 @@ test("a failure reason keeps the last telling lines within 300 characters", () =
   assert.equal(failureReason({ stderr: `${"y".repeat(400)} error` }).length, 300);
   assert.equal(failureReason({ stderr: "just one line\n" }), "just one line", "a stderr with no telling line keeps its last");
 });
+
+test("a failure reason skips a report route's 404 and says when the process was killed", () => {
+  const noise = '[5/6] {"event":"control_plane_failed","route":"/gateway/search-timing","status":404,"reason":"status-404","code":"CP-SEARCH-TIMING-404","ms":1}';
+  const real = '[5/6] {"event":"control_plane_failed","route":"/gateway/calendar/events","status":404}';
+  assert.equal(failureReason({ stderr: `${noise}\nshard 5 of 6 failed (exit 1): TypeError: x is undefined\n${noise}\n` }), "shard 5 of 6 failed (exit 1): TypeError: x is undefined");
+  assert.equal(failureReason({ stderr: `${noise}\n`, code: 1 }), "exit 1, no output", "a harmless line alone is no reason");
+  assert.match(failureReason({ stderr: `${real}\n` }), /calendar\/events/, "a route a tool waits on still counts");
+  assert.equal(failureReason({ stderr: `${noise}\n`, code: null, signal: "SIGKILL" }), "stopped by SIGKILL, no output");
+  assert.match(failureReason({ stderr: "q3 failed: status 500\n", signal: "SIGTERM" }), /^stopped by SIGTERM; q3 failed/);
+});
