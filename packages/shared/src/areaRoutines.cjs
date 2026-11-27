@@ -65,14 +65,27 @@ function legacyBotsFolder(areasRoot) {
 }
 
 /**
+ * A card's `holder:` may say more than the name its folder is: `Tex Quality · Tex reply quality` is the card in
+ * `bots/tex-quality/` (Tex Quality, 2026-11-26: called by its full name, it found no card and made a second one).
+ * The name before the first ` · `, or null when there is none.
+ */
+function botShortName(bot) {
+  const parts = String(bot ?? "").split(/\s+·\s+/);
+  const short = (parts[0] ?? "").trim();
+  return parts.length > 1 && short !== "" ? short : null;
+}
+
+/**
  * Where a bot's card may be, newest home first: `bots/<bot>/about.md` beside the Areas folder, then
- * `<areas>/bots/<bot>/about.md`, then `<areas>/people/<bot>.md`.
+ * `<areas>/bots/<bot>/about.md`, then `<areas>/people/<bot>.md`; for a name written `Name · what it does`, the same
+ * three for the whole words, then for `Name` alone.
  */
 function botCardPaths(areasRoot, bot) {
   const root = String(areasRoot ?? "").replace(/\/+$/, "");
-  const slug = cardSlug(bot);
   const inside = root === "" ? "" : `${root}/`;
-  return [`${botsHome(root)}/${slug}/about.md`, `${legacyBotsFolder(root)}/${slug}/about.md`, `${inside}${PEOPLE_FOLDER}/${slug}.md`];
+  const at = (slug) => [`${botsHome(root)}/${slug}/about.md`, `${legacyBotsFolder(root)}/${slug}/about.md`, `${inside}${PEOPLE_FOLDER}/${slug}.md`];
+  const short = botShortName(bot);
+  return short === null ? at(cardSlug(bot)) : [...at(cardSlug(bot)), ...at(cardSlug(short))];
 }
 
 /** Whether `path` is a bot's card, `bots/<bot>/about.md`, in the bots folder or the older one inside the Areas folder. */
@@ -210,6 +223,7 @@ module.exports = {
   botsHome,
   legacyBotsFolder,
   botCardPaths,
+  botShortName,
   isBotCardPath,
   areaRoutineOf,
   areaRoutineNext,

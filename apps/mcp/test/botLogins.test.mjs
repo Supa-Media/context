@@ -81,6 +81,14 @@ test("bind_bot binds this connection as the card's bot and mails it a check, wit
   assert.match(said(result), /bots\/grok-bot\/mail\/context\.md/);
 });
 
+test("bind_bot finds a card by the full words it says, and binds it by its folder's name", async () => {
+  // Tex Quality, 2026-11-26: "Tex Quality · Tex reply quality" found no card.
+  const { store, calls } = await world({ role: "editor", name: "@seyi" }, CARD.replace("holder: Grok Bot", "holder: Grok Bot · Grok's ops"));
+  const result = await toolSetArea(store, "team", RULES, new PrivacyOverrides(), { bind_bot: "Grok Bot · Grok's ops" });
+  assert.equal(result.isError, undefined, said(result));
+  assert.deepEqual(calls, [{ action: "bind", grantId: "grant-1", bot: "grok-bot", name: "Grok Bot · Grok's ops" }]);
+});
+
 test("bind_bot is refused for a bot with no card, or one that is somebody else's", async () => {
   const none = await world({ role: "editor", name: "@seyi" });
   const missing = await toolSetArea(none.store, "team", RULES, new PrivacyOverrides(), { bind_bot: "Payroll" });

@@ -352,6 +352,14 @@ describe("cardSlug and cardPath", () => {
     expect(isBotCardPath(ROOT, "bots/claude-code/mail/seyi.md")).toBe(false);
   });
 
+  test("a card whose words say more than its folder's name is found, with its logo", () => {
+    // Dev, 2026-11-26: "Tex Quality · Tex reply quality" in bots/tex-quality/ was drawn as a plain robot.
+    const notes = [note("bots/tex-quality/about.md", { holder: "Tex Quality · Tex reply quality", kind: "agent", bot: "claude", avatar: "upload-55ce2aa2414a28d4.webp" })];
+    expect(cardPath(ROOT, "Tex Quality · Tex reply quality", notes)).toBe("bots/tex-quality/about.md");
+    expect(cardOf("Tex Quality · Tex reply quality", "agent", ROOT, notes).avatar).toBe("upload-55ce2aa2414a28d4.webp");
+    expect(cardPath(ROOT, "Tex Quality", notes)).toBe("bots/tex-quality/about.md");
+  });
+
   test("the bots folder and each bot's folder are never areas", () => {
     const notes = [note("areas/bots/finance/about.md", { kind: "agent", bot: "grok", owner: "@seyi" })];
     expect(isArea("areas/bots", ROOT, notes)).toBe(false);

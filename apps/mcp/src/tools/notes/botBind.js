@@ -25,7 +25,7 @@ import comments from "../../../../../packages/shared/src/comments.cjs";
 import { bindBot } from "../../mail/boundBot.js";
 
 const { mailJoinName } = areaBots;
-const { botCardPaths } = areaRoutines;
+const { botCardPaths, botShortName } = areaRoutines;
 const { appendMail } = mail;
 
 const CHECK_TEXT =
@@ -99,7 +99,9 @@ export async function toolBindBot(store, scope, rules, overrides, raw) {
     );
   }
   const holder = typeof card.props.holder === "string" && card.props.holder.trim() !== "" ? card.props.holder.trim() : name;
-  const bot = mailJoinName(name);
+  // Its mail name is its card's folder (`bots/tex-quality/about.md` → `tex-quality`), whatever words it was called by.
+  const folderName = /\/([^/]+)\/about\.md$/.exec(card.path)?.[1];
+  const bot = mailJoinName(folderName ?? botShortName(name) ?? name);
   const answer = await bindBot(store, { bot, name: holder });
   if (answer.ok !== true) return toolError(`not bound: ${answer.error}. Fix that, then try again.`);
   // A card in a folder (`bots/<bot>/about.md`) has its mail beside it; an old one-note card has none, so no check.

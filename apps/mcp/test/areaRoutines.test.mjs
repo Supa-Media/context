@@ -127,6 +127,8 @@ test("a card's works_in reads as a list or one line, and an area not on it is no
   assert.deepEqual(botAllowedIn(listed, AREA.toLowerCase()), { allowed: true, cap: 20 });
   assert.deepEqual(botAllowedIn(listed, "areas/people-ops"), { allowed: false, cap: null });
   assert.deepEqual(botCardPaths("areas", "Grok Bot"), ["bots/grok-bot/about.md", "areas/bots/grok-bot/about.md", "areas/people/grok-bot.md"]);
+  // A card's longer words, `Name · what it does`, look under the name too.
+  assert.deepEqual(botCardPaths("areas", "Tex Quality · Tex reply quality").slice(3), ["bots/tex-quality/about.md", "areas/bots/tex-quality/about.md", "areas/people/tex-quality.md"]);
 });
 
 test("weeks count from Monday in New York", () => {
