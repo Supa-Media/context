@@ -12,7 +12,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { handleAppChat } from "../../../packages/tex/gateway/agent/appChatRoute.js";
-import { DEFAULT_CHARS, MAX_CHARS, SCREEN_MODULE, readScreen, screenChars, screenForTurn, screenNote, screenOn, validSeen } from "../../../packages/tex/gateway/agent/screen.js";
+import { readFileSync } from "node:fs";
+
+import { TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
+import { DEFAULT_CHARS, MAX_CHARS, SCREEN_MODULE, isAppTurn, readScreen, screenChars, screenForTurn, screenNote, screenOn, validSeen } from "../../../packages/tex/gateway/agent/screen.js";
+import { screenNode } from "../../../packages/tex/gateway/agent/graph/nodes/screen.js";
 import { serveAppSeenGet, serveAppSeenPost } from "../../../packages/tex/gateway/texChat/appSeen.js";
 import { LAB_SANDBOX_KEY } from "../src/labSandbox/policy.js";
 
@@ -300,5 +304,63 @@ describe("the app chat's object keeps the screen beside the chat, for the app ch
 
   it("answers {} when nothing was kept", async () => {
     assert.deepEqual(await (await serveAppSeenGet(memoryStorage())).json(), {});
+  });
+});
+
+describe("an app chat turn reads the screen, whatever client it arrives as", () => {
+  // 2026-11-27: the app chat's texts run through the chat's queue as the texting client, and the gate named the
+  // console's client alone, so Tex never saw the sheet Dev had open ("do you see the file I have open??").
+  const TEXTS = { actorClientId: "context_texts", actorUserId: USER, workspaceId: "ws1" };
+
+  it("is the person's own app chat, as the queue hands it over", () => {
+    assert.equal(isAppTurn(TEXTS, { chat: CHAT }), true);
+  });
+
+  it("is a direct console turn", () => {
+    assert.equal(isAppTurn(OWNER, {}), true);
+  });
+
+  it("is never an iMessage text, another person's app chat, another client or a session with no person", () => {
+    assert.equal(isAppTurn(TEXTS, { chat: "+15555550100" }), false, "a phone chat");
+    assert.equal(isAppTurn(TEXTS, {}), false, "no chat named");
+    assert.equal(isAppTurn(TEXTS, { chat: "app:someone-else" }), false, "another user's app chat");
+    assert.equal(isAppTurn({ ...TEXTS, actorClientId: "context_texts_group" }, { chat: CHAT }), false, "a group's client");
+    assert.equal(isAppTurn({ ...TEXTS, actorClientId: "claude_desktop" }, { chat: CHAT }), false, "an AI client");
+    assert.equal(isAppTurn({ ...TEXTS, actorUserId: undefined }, { chat: "app:undefined" }), false, "no person");
+    assert.equal(isAppTurn(null, { chat: CHAT }), false);
+  });
+
+});
+
+describe("the On screen node reads the app chat's screen for the front door, and logs no path or word", () => {
+  const TEXTS = { actorClientId: "context_texts", actorUserId: USER, workspaceId: "ws1", contexts: [] };
+  const saved = (kept) => ({ TEX_CHAT: objectsWith(kept) });
+  function objectsWith(kept) {
+    return { idFromName: (name) => name, get: (name) => ({ fetch: async () => (name === `chat:${CHAT}` && kept ? Response.json(kept) : new Response(null, { status: 404 })) }) };
+  }
+  const turn = (over = {}) => ({ session: TEXTS, body: { chat: CHAT }, group: null, runner: false, env: saved({ note: { workspace: "ws1", path: "products/tex/capabilities/files.csv" }, tabs: [{ ...TAB, workspace: "ws1" }], at: Date.now() }), dispatch: async () => ({ content: [{ text: "files.csv\n\nWhat Tex does,Try saying\nReads photos, PDFs" }] }), ...over });
+
+  it("finds the open sheet on an app chat turn and keeps it on the turn only", async () => {
+    // 2026-11-27: the app chat's turn arrived as the texting client and the old gate skipped it, unseen.
+    const t = turn();
+    const out = await screenNode({}, { ctx: { turn: t } });
+    assert.deepEqual(out, { when: ["found"], open: "sheet", tabs: 1, selection: false, chars: 43 });
+    assert.equal(t.screen.seen.note.path, "products/tex/capabilities/files.csv");
+    assert.doesNotMatch(JSON.stringify(out), /files\.csv|Reads photos|ideas/, "no path or word on the wire");
+    assert.match(screenNote(t.screen), /Open sheet: products\/tex\/capabilities\/files\.csv/);
+  });
+
+  it("says why it read nothing: an iMessage text, a group, nothing saved", async () => {
+    assert.deepEqual(await screenNode({}, { ctx: { turn: turn({ body: { chat: "+15555550100" } }) } }), { when: ["none"], why: "not the app chat" });
+    assert.deepEqual(await screenNode({}, { ctx: { turn: turn({ group: { key: "g" } }) } }), { when: ["none"], why: "a group" });
+    assert.deepEqual(await screenNode({}, { ctx: { turn: turn({ env: saved(null) }) } }), { when: ["none"], why: "nothing open" });
+  });
+
+  it("is wired from the front door in Tex's config, and the turn reads it through the wire", () => {
+    const config = TEX_CONFIG;
+    assert.ok(config.nodes.some((node) => node.id === "screen" && node.on !== false), "the node");
+    assert.ok(config.edges.some((edge) => edge.from === "fd" && edge.to === "screen" && edge.mode === "uses"), "fd -> screen");
+    const source = readFileSync(new URL("../../../packages/tex/gateway/agent/texEntryPoint/runTheModel.js", import.meta.url), "utf8");
+    assert.match(source, /const screen = via\.screen \? t\.screen/);
   });
 });

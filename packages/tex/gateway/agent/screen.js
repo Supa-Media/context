@@ -4,8 +4,8 @@
  * When they text Tex from the Context app's chat, the app sends what is on screen: the open note, up to eight other tabs
  * and a selection (`body.seen` on `/tex/app-chat`'s send). The route checks it here (`validSeen`) and saves it beside the
  * app chat's object (`texChat/appSeen.js`), where it is never in the chat's ledger, its rows or its words. A 1:1 turn
- * of the app reads it back within ten minutes and, when the front door's `ctx` lists `screen`, is told it in the turn's
- * note (`screenNote`). The open note's text is read through the turn's own dispatcher, so the person's own access
+ * of the app reads it back within ten minutes through the On screen node (`graph/nodes/screen.js`, wired `fd -> screen`;
+ * the front door's `ctx` entry `screen:<chars>` sets how much of the note) and is told it in the turn's note (`screenNote`). The open note's text is read through the turn's own dispatcher, so the person's own access
  * applies: a note they cannot see, or in a workspace they have no entry for, is left out.
  *
  * Quiet context: the words say it is there to use when it helps, never to say Tex was told. Nothing here logs a
@@ -41,6 +41,25 @@ function screenEntry(env) {
   } catch {
     return null;
   }
+}
+
+/** The app's own client, and the texting client its chat's turns arrive as (`texEntryPoint/clients.js`). */
+const CONSOLE_CLIENT_ID = "context_console";
+const TEXTS_CLIENT_ID = "context_texts";
+
+/**
+ * Whether this turn is the person texting Tex from the Context app's own chat, so the screen they saved may be read.
+ * The app chat's texts run through the chat's queue like iMessage, so the turn arrives as the texting client with the
+ * chat `app:<userId>` (`agent/appChatRoute.js`, `packages/tex/worker/clients.ts` `askAgent`); a direct console turn is
+ * the console's client. Only the person's own app chat counts: a chat naming another user is never theirs. On
+ * 2026-11-27 this gate named the console's client alone, so no app turn ever read the screen, and Tex said it could not
+ * see the sheet Dev had open (now the On screen node, `graph/nodes/screen.js`).
+ */
+export function isAppTurn(session, body) {
+  const user = session?.actorUserId;
+  if (typeof user !== "string" || user === "") return false;
+  if (session.actorClientId === CONSOLE_CLIENT_ID) return true;
+  return session.actorClientId === TEXTS_CLIENT_ID && body?.chat === `app:${user}`;
 }
 
 /** Whether this turn's config (a Lab draft's in a Lab test chat's turn) has the front door read the screen. */

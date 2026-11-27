@@ -54,6 +54,7 @@ const entries: LedgerEntry[] = [
   run("quietCheck", { why: "already on the calendar", mail: 1 }, { to: "quiet", why: "they already said yes", model: "anthropic/claude-haiku-5-5", modelMs: 900 }),
   run("memberCards", {}, { when: ["found"], asked: 3, read: 2 }),
   run("chatStyle", {}, { when: ["found"], texts: 40, people: 1 }),
+  run("screen", {}, { when: ["found"], open: "sheet", tabs: 1, selection: false, chars: 43 }),
   run("friendCheck", { draftChars: 80 }, { to: "pass", ms: 300 }),
   run("groupCard", { canWrite: true }, { outcome: "kept", lines: 3, refused: 0 }),
   run("nudgeOffer", { chars: 40 }, { to: "offer", sent: true, texts: 9, capability: "Calendar", line: "Want me to see your calendar?", why: "a plan with a time", model: "anthropic/claude-haiku-5-5", modelMs: 700 }),
