@@ -33,7 +33,7 @@ export default {
       assert.equal(sends().length, 0, "a checker no sends nothing");
       assert.equal(chat.world.pending().length, 1, "it is held, with a pending record the 👍 can approve");
       assert.equal(held.body.asked, 1, "and put to the person as the gateway's own ask");
-      assert.match(held.shown, /Held for their 👍/, "the model is told it is held");
+      assert.match(held.shown, /\\"held\\":true/, "the model is told it is held");
       assert.doesNotMatch(held.shown, /Not sent, and not put to the person/, "never refused into an ask in Tex's words");
       assert.match(held.shown, /your answer says an email was sent, but no email went out/, "the false \"Sent!\" is sent back");
       assert.doesNotMatch(held.answer, /^Sent!/, "and never texted");

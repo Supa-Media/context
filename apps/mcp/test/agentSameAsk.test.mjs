@@ -51,9 +51,10 @@ test("the same change after a pushback is not shown again, and the corrected one
 
     model.install([{ toolCalls: [{ name: "calendar_event", args: SHORTER }] }, { text: "Sarah / Seyi today: 6:30 to 6:45 pm instead of 6:30 to 7." }]);
     const first = await textTex(env, TOKEN_TEXTS, "maybe make sarah's meeting 15 min");
-    assert.match(sent(first), /Give it a 👍/, "the first change is put to them");
-    const block = (first.body?.verbatim ?? []).find((text) => text.includes("Give it a 👍"));
-    assert.ok(block, "the ask went out on its own");
+    // 2026-11-26: Tex's own words are the ask, with the change whole below them.
+    assert.match(sent(first), /6:30 to 6:45/, "the first change is put to them");
+    const block = (first.body?.verbatim ?? []).find((text) => text.startsWith("Sarah / Seyi today"));
+    assert.ok(block, "the ask went out as one text, exactly as written");
 
     model.install([{ text: "Sarah's is still 6:30 to 7 because the change is waiting on your 👍." }]);
     await textTex(env, TOKEN_TEXTS, "but they're both still at 6:30");

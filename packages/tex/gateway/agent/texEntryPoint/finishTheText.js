@@ -10,14 +10,13 @@
  */
 
 import { splitUnder, underOf } from "../replyUnder.js";
-import { offerLine } from "../../../../../apps/mcp/src/tools/offerFor.js";
 import { QUIET_ACK, reportReply } from "../background.js";
 import { settingsOf } from "../texConfig.js";
 import { withoutFlattery } from "../pushback.js";
 import { EMPTY_FALLBACK, emptyFallback, isEmptyAnswer, isFallback } from "../replyChecks.js";
 import { withSavedLink } from "../noteLinks.js";
 import { withPreviewLinks } from "../../../../shared/src/notePreview.cjs";
-import { answerWithAsk, textedAsk } from "../textedApprovals.js";
+import { answerWithAsk, textedAsk, withCopies } from "../textedApprovals.js";
 import { tapbackOf, tapbackStickerOf } from "../tapbackEnding.js"; // a tapback as the whole answer: nothing texted, the Worker reacts
 import { typedCallOf } from "../sayNothing.js"; // a call typed out is never texted, the last stop before it goes
 import { scheduledSkip } from "../scheduledQuiet.js"; // a check-in's or routine's skip is a decision, never its words
@@ -25,9 +24,8 @@ import { scheduledSkip } from "../scheduledQuiet.js"; // a check-in's or routine
 // TEX ENTRY POINT: begin (every await below is a timed `tex` call: `texTiming.js`, checked by `scripts/tex-entry-check.mjs`)
 export async function finishTheText(t) {
   const { askChat, claims, env, group, job, ledger, opened, outgoing, report, runner, session, setAside, store, tex, turn } = t;
-  // The ask goes out in the gateway's own words, after whatever the model
-  // said: a person can allow only what they were told about, and the model
-  // relaying it is a courtesy rather than the mechanism.
+  // The ask is Tex's own answer, with every held copy in it whole: a person can allow only what they read
+  // (`textedApprovals.js` `withCopies`; Dev2, 2026-11-26, no gateway card under it).
   // An answer still empty after its notice is never sent as nothing (`replyChecks.js`); a routine's empty run is its SKIP.
   // A flattering opener ("You're so right!") comes off first while Trim flattery is on (`pushback.js`).
   const crossAskRun = t.crossChat?.kind === "ask"; // its answer goes back to the chat that asked, never texted here (`crossChat.js`)
@@ -44,11 +42,12 @@ export async function finishTheText(t) {
   // A group turn answering several texts: the front door's "[2] " numbers come out, and say which text each paragraph goes under (`replyUnder.js`).
   const { answer: told, parts: underParts } = group !== null && job === null ? splitUnder(linkedMarked, t.logged?.covered) : { answer: linkedMarked, parts: null };
   // An email's ask is texted exactly as written (`packages/tex/worker/reply.ts`), or withdrawn if it would not fit; asks their text corrected are dropped (`claimCheck.js` rule 6).
-  const { ask, verbatim } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { who: group?.from || null, stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
-  const offerText = ledger.offered ? offerLine(ledger.offered) : null; // shown to whoever it goes from (`offerFor.js`)
+  const { ask, verbatim, whole = false } = await tex.step("ask_line", () => textedAsk(store, session, ledger.asked, told, { stale: claims?.stale() === true ? setAside.map((entry) => entry.id) : null, chat: askChat }));
+  // An offer to somebody else is Tex's own words too, with its copy whole; that text is what their 👍 is on (`offerFor.js`).
+  const offerText = ledger.offered ? withCopies(told, [ledger.offered]) : null;
   // When their text set a held step aside and nothing new is held, an answer that asks nothing gives way to the ask line (Drop a stale answer).
   const dropped = finishSet.dropStaleAnswer === true && claims?.stale() === true && ledger.asked.length === 0 && ask !== null && !/\?/.test(told);
-  const answer = [answerWithAsk(dropped ? "" : told, ask, ledger.asked), offerText].filter(Boolean).join("\n\n");
+  const answer = offerText !== null ? offerText : answerWithAsk(dropped ? "" : told, ask, ledger.asked, whole);
   /*
     A browser handed to the person goes out as a link the gateway adds, so
     the model never holds it. The link is their own `/tex/<handle>` page,

@@ -141,6 +141,14 @@ function askerOf(rows, target) {
 }
 
 /**
+ * Whether Tex's reply asked for a yes: its Finish step says how many held calls it asked about (`finishTheText.js`).
+ * Which text is an ask is that fact, never its wording (2026-11-26: Tex writes its own asks).
+ */
+function asked(row) {
+  return Array.isArray(row?.steps) && row.steps.some((step) => step?.node === "finish" && Number(step.out?.asked) > 0);
+}
+
+/**
  * A tapback as production reads it: its line, whether it runs a turn, and what that turn is asked. `as` is who tapped.
  */
 export async function reactionOf({ about, target, emoji, as, rows }) {
@@ -153,10 +161,10 @@ export async function reactionOf({ about, target, emoji, as, rows }) {
   const line = w.reactionLine(reaction, onTex);
   const asTapback = { question: w.tapbackText(how), quoted: words, tapback: how };
   if (about.kind !== "group") {
-    const runs = w.holdsAsAnswer(reaction) || w.answers(reaction);
+    const runs = (onTex && asked(target) && w.isAnswerTap(reaction)) || w.answers(reaction); // the gateway checks the words against what is armed
     return { line, runs, ask: runs ? asTapback : null };
   }
-  const held = onTex && (askerOf(rows, target) === as || w.onMachineAsk(reaction)) && w.holdsAsAnswer(reaction);
+  const held = onTex && ((askerOf(rows, target) === as && asked(target)) || w.onMachineAsk(reaction)) && w.isAnswerTap(reaction); // the gateway checks the words against what is armed
   return { line, runs: true, ask: held ? asTapback : { question: line } };
 }
 

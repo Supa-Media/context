@@ -78,6 +78,7 @@ showed up; the config graph (2026-11-14) moved the wiring into config but left t
   text (`ready.ts`) is the second: Tex writes it from `{ action: "notes", status: "ready" | "late", ... }`, and the
   sign-in link and the picture of Google's screens follow it, sent by code (`didAfter`), so no model sees the link. Tests:
   `packages/tex/worker/oneDid.test.ts`, `apps/mcp/test/agentVaultSavedRoute.test.mjs`.
+- **A held call's ask** (2026-11-27): every gate answers the model with facts (`heldFacts.js`) and Tex writes the ask, the copy added whole under its words when they leave it out; the count now covers `apps/mcp/src/tools` ([tex-writes-the-ask](./tex-writes-the-ask.md)).
 - **People with no account yet keep fixed setup texts** (Dev2, 2026-11-26: "no model should run"). Before a phone
   is linked, no model runs at all (`setup.ts`): the handle exchange is code's, and nothing a stranger texts can steer
   Tex. These texts, like the outage lines, are kept on purpose and are not moved to facts.

@@ -1,5 +1,7 @@
 # A thumbs up on an ask is the yes (2026-10-21)
 
+> **Superseded in part (Dev2, 2026-11-26):** the gateway no longer writes the ask. Tex does, with the held copy whole under its words, and the Worker holds a 👍 only on the text the gateway handed over as the ask, never by its wording. See [Tex writes the ask](./tex-writes-the-ask.md).
+>
 > **Superseded in part (Dev2, 2026-10-26):** a model's decision may now end a waiting ask sooner (never later) than the rules below. Only the asker's yes still releases it. See [Tex reads one event log and decides when to answer](./event-log.md).
 
 Dev2, 2026-10-21: "instead of asking users to say yes, ask them to react like

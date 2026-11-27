@@ -38,7 +38,7 @@ const CHAT = "Sure, I'll keep an eye on it.";
 
 async function withAsk() {
   const storage = new MemoryStorage();
-  await rememberAskReply(storage, [CHAT, ASK], NOW);
+  await rememberAskReply(storage, [CHAT, ASK], NOW, ASK);
   return storage;
 }
 
@@ -47,20 +47,20 @@ describe("placing a like that carries no words", () => {
     const got = await onTheAsk(await withAsk(), { how: "Liked", words: "", onOther: true }, NOW + 60_000);
 
     expect(got.words).toBe("");
-    expect(holdsAsYes(got)).toBe(false);
+    expect(holdsAsYes(got, ASK)).toBe(false);
   });
 
   it("a like whose message could not be read still falls back to the ask", async () => {
     const got = await onTheAsk(await withAsk(), { how: "Liked", words: "" }, NOW + 60_000);
 
     expect(got.words).toBe(ASK);
-    expect(holdsAsYes(got)).toBe(true);
+    expect(holdsAsYes(got, ASK)).toBe(true);
   });
 
   it("a like on a text of the reply that carried the ask is still the ask", async () => {
     const got = await onTheAsk(await withAsk(), { how: "Liked", words: CHAT }, NOW + 60_000);
 
     expect(got.words).toBe(ASK);
-    expect(holdsAsYes(got)).toBe(true);
+    expect(holdsAsYes(got, ASK)).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 /**
  * The app chat's cards (`packages/tex/gateway/agent/appChatCards.js`): an ask's text read back into a card. Every ask
- * text here is built by the real `askLine` from a record the real `emailCopy` wrote, so the parser is tested against
+ * text here is built by the real `withCopies` from a record the real `emailCopy` wrote, so the parser is tested against
  * the format the gateway actually sends, not a copy of it.
  *
  * Runs as `test/run.mjs` does (`test/unit.list`).
@@ -10,18 +10,18 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { cardOf, parseAskEmail } from "../../../packages/tex/gateway/agent/appChatCards.js";
-import { askLine } from "../../../packages/tex/gateway/agent/textedApprovals.js";
+import { withCopies } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { EMAIL_TOOL, emailCopy } from "../src/tools/email.js";
 
 const NOW = 1_800_000_000_000;
 const EMAIL = { from: "a@x.com", to: ["b@y.com"], cc: [], subject: "Hi", body: "Hello there.\n\nSecond paragraph." };
-/** The ask `askLine` puts to the person for one held email, built from the copy `emailCopy` writes for it. */
+/** The ask put to the person for one held email (2026-11-26): Tex's own words, then the copy `emailCopy` writes, whole. */
 const askFor = (email, { forward = null, attached = [], who } = {}) =>
-  askLine([{ id: "rec1", tool: EMAIL_TOOL, detail: emailCopy(email, forward, attached) }], who ? { who } : {});
+  withCopies(who ? `Drafted it for @${who}.` : "Drafted it.", [{ id: "rec1", tool: EMAIL_TOOL, detail: emailCopy(email, forward, attached) }]);
 /** The live approval record an email ask holds (`tools/approvals.js`), its args as `email.js` builds them. */
 const sendRecord = (args, extra = {}) => ({ id: "rec1", tool: EMAIL_TOOL, args, summary: "send an email", detail: emailCopy({ ...args, from: args.from ?? null, cc: args.cc ?? [] }), ...extra });
 
-describe("parseAskEmail reads the ask askLine writes for one email", () => {
+describe("parseAskEmail reads the copy out of the ask for one email", () => {
   it("reads the sender, recipients, subject and body back out of the real ask line", () => {
     assert.deepEqual(parseAskEmail(askFor(EMAIL)), { from: "a@x.com", to: "b@y.com", cc: "", subject: "Hi", thread: false, body: "Hello there.\n\nSecond paragraph." });
   });
@@ -51,7 +51,7 @@ describe("parseAskEmail reads the ask askLine writes for one email", () => {
   });
 
   it("is null for an ask of several emails", () => {
-    const two = askLine([
+    const two = withCopies("Two drafts.", [
       { id: "a", tool: EMAIL_TOOL, detail: emailCopy(EMAIL) },
       { id: "b", tool: EMAIL_TOOL, detail: emailCopy({ ...EMAIL, subject: "Second" }) },
     ]);
@@ -65,7 +65,7 @@ describe("parseAskEmail reads the ask askLine writes for one email", () => {
   });
 
   it("is null for an ask that is not an email, and for anything that is not an ask", () => {
-    const other = askLine([{ id: "x", tool: "some_tool", summary: "do a thing", detail: null }]);
+    const other = withCopies("Want me to?", [{ id: "x", tool: "some_tool", summary: "do a thing", detail: null }]);
     assert.equal(parseAskEmail(other), null);
     assert.equal(parseAskEmail("hello there"), null);
     assert.equal(parseAskEmail(undefined), null);

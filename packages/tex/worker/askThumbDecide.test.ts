@@ -25,6 +25,7 @@ import { accept, drain, react, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { rememberAskReply } from "./thumbs";
 
 const NOW = 1_000;
 const ASK = "Here's the email I'd send:\n\nTo: jo@example.com\nSubject: Thursday\n\nThursday works.\n\nGive it a 👍 and I'll send it.";
@@ -100,12 +101,19 @@ function world(decision: Decision, opts: { holdFirst?: boolean } = {}) {
   return { deps, agent, decided, steers, stale, release, running };
 }
 
+/** A chat whose last reply carried the ask, as the gateway handed it over (`verbatim`). */
+async function asked(): Promise<MemoryStorage> {
+  const storage = new MemoryStorage();
+  await rememberAskReply(storage, [ASK], NOW - 500, ASK);
+  return storage;
+}
+
 const tapbacksAsked = (w: ReturnType<typeof world>) => w.agent.filter((body) => body.tapback !== undefined);
 
 describe("a like held as the yes to an ask", () => {
   for (const decision of ["silent", "react", "omit"] as const) {
     it(`reaches the gateway intact, never decided, when decide would say ${decision}`, async () => {
-      const storage = new MemoryStorage();
+      const storage = await asked();
       const w = world(decision);
       expect(await react(storage, tapback("t1", "Liked", ASK), NOW)).toBe("held");
       await drain(storage, w.deps);
@@ -116,7 +124,7 @@ describe("a like held as the yes to an ask", () => {
   }
 
   it("a love does too, and so does one beside other words, each answered apart", async () => {
-    const storage = new MemoryStorage();
+    const storage = await asked();
     const w = world("omit");
     await accept(storage, msg("e1", "also what time is it"), NOW);
     expect(await react(storage, tapback("t1", "Loved", ASK), NOW)).toBe("held");
@@ -148,7 +156,7 @@ describe("while a turn runs", () => {
 describe("a dislike held as the no to an ask", () => {
   for (const decision of ["silent", "react", "omit"] as const) {
     it(`reaches the gateway intact, never decided, when decide would say ${decision}`, async () => {
-      const storage = new MemoryStorage();
+      const storage = await asked();
       const w = world(decision);
       expect(await react(storage, tapback("t1", "Disliked", ASK), NOW)).toBe("held");
       await drain(storage, w.deps);

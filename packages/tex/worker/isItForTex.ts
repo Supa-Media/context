@@ -33,7 +33,14 @@ export async function isItForTexAlone(_storage: InboxStorage, message: Message, 
 /** How long a yes Tex asked for stays the asker's to give: their thumb on the ask is held as their answer (`thumbs.ts`). */
 export const ASK_OPEN_MS = 30 * 60_000;
 export const ASK_KEY = "gask";
-export type OpenAsk = { from: string; at: number };
+/** `words`: the ask's text as it was sent, so a tapback on it is told from one on any other text (`thumbs.ts` `onAsk`). */
+export type OpenAsk = { from: string; at: number; words?: string };
+
+/** The open ask's text, while it is open. */
+export async function openAskWords(storage: InboxStorage, now: number): Promise<string | undefined> {
+  const ask = await storage.get<OpenAsk>(ASK_KEY);
+  return ask !== undefined && now - ask.at < ASK_OPEN_MS ? ask.words : undefined;
+}
 
 /** Whether this is from the person Tex last asked for a yes, while that ask is open. */
 export async function isAsker(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
