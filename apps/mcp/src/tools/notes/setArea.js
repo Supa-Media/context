@@ -27,7 +27,7 @@ import { toolError, toolText } from "../results.js";
 import { toolReadNote } from "./read.js";
 import { toolWriteNote } from "./write.js";
 import { attachProjects } from "./attachProjects.js";
-import { toolBindBot } from "./botBind.js";
+import { toolBindBot, toolSetupBot } from "./botBind.js";
 import { areaPulse } from "./areaPulse.js";
 
 const { BOT_KINDS, MODE_ORDER, botLabel, knownModes, mailJoinName } = areaBots;
@@ -153,6 +153,8 @@ function worksInOf(value, root) {
  */
 export async function toolSetArea(store, scope, rules, overrides, args) {
   // A bot binding its own login needs no area (`botBind.js`); with an area, the rest is done first.
+  // A bot's whole setup in one call, from its own main chat (`botBind.js` `toolSetupBot`); it takes no area.
+  if (args?.setup_bot !== undefined) return await toolSetupBot(store, scope, rules, overrides, args.setup_bot);
   if (args?.bind_bot !== undefined && (args.area === undefined || args.area === null || args.area === "")) return await toolBindBot(store, scope, rules, overrides, args.bind_bot);
   const area = normalizePath(String(args?.area ?? "").replace(/\/about\.md$/i, "").replace(/\/+$/, ""));
   if (!area) return toolError('invalid: area is the area\'s folder. Pass it like "areas/finance".');
@@ -403,7 +405,7 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
   }
 
   if (done.length === 0 && problems.length === 0) {
-    return toolError("invalid: nothing to change; pass owner, delegate, modes, approvals, metric, bot, webhook, test_webhook, bind_bot, pulse, attach or detach");
+    return toolError("invalid: nothing to change; pass owner, delegate, modes, approvals, metric, bot, webhook, test_webhook, bind_bot, setup_bot, pulse, attach or detach");
   }
   return toolText([...done.map((line) => `- ${line}`), ...problems.map((line) => `- not done: ${line}`)].join("\n"));
 }

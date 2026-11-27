@@ -8,13 +8,13 @@ export function areaToolDefinitions() {
         "Change an area's settings, as the app's area panel does: owner (@handle or bot name), delegate (the one bot or Tex acting for a " +
         "person owner in this area), modes, approval rules and its one metric (a metric note's name in the data folder's metrics/, with a " +
         "target). bot makes or changes a bot's card; webhook saves a bot's webhook sealed (never shown again); test_webhook sends it a signed test call; " +
-        "bind_bot says this connection is that bot (a bot's own main chat, during its setup); " +
+        "setup_bot, from a bot's own main chat, is its whole setup in one call: it binds and answers with every step left; bind_bot only binds; " +
         "pulse: true writes the area's routines from templates (improve your metric, then one per mode), pulse: false pauses them; " +
-        "attach and detach say which projects serve the area. area is needed for everything but bind_bot.",
+        "attach and detach say which projects serve the area. area is needed for everything but setup_bot and bind_bot.",
       inputSchema: {
         type: "object",
         properties: {
-          area: { type: "string", description: 'The area\'s folder, like "areas/finance". Needed for everything but bind_bot.' },
+          area: { type: "string", description: 'The area\'s folder, like "areas/finance". Needed for everything but setup_bot and bind_bot.' },
           owner: { type: ["string", "null"], description: "@handle or bot name; null clears it." },
           delegate: { type: ["string", "null"], description: "The one bot's name (or Tex) that acts for this area's person owner here; never a person, none when a bot owns it; null clears it." },
           modes: { type: "array", items: { type: "string" }, description: "Any of Visionary, Manager, Doer; [] clears them." },
@@ -75,6 +75,11 @@ export function areaToolDefinitions() {
             type: "string",
             description:
               "Your own bot name, said from your main chat: this connection is that bot here from now on, so what it writes is signed by the bot, and Context mails you a check to answer within 5 minutes. Needs no area.",
+          },
+          setup_bot: {
+            type: "string",
+            description:
+              "Your own bot name, said from your main chat: your whole Context setup in one call. It binds this connection as that bot (as bind_bot does), mails you the check, and answers with every step left, filled in for you: answer the check, what to remember, your webhook routine and your picture. Do them in order. Needs no area; pass nothing else with it.",
           },
           create: { type: "boolean", description: "Make the area's about.md when it is not there yet." },
           attach: {

@@ -180,19 +180,12 @@ describe("The bots folder", () => {
     await press(one("bot-panel-refresh"));
     await settle();
     expect(files.some((line) => line.startsWith("create bots/grok-bot/mail/seyi.md\n# Mail with Grok Bot"))).toBe(true);
-    // Refresh sends Context's current setup too (Dev, 2026-11-26): the relay routine's one prompt and the bound login.
-    // And always its own picture, to its own card (Dev, 2026-11-27: "are we telling bots to update their photos in the
-    // refresh?"): "if your logo changed" left every bot showing the robot icon with nothing to do.
-    expect(files.join("\n")).toContain("Put your current profile picture on your Context card as its logo");
-    // Bots sharing one workspace save their pictures to one file: each takes a lock and uploads its own copy (Dev,
-    // 2026-11-27: four bots uploaded one orange picture; "they all need file locks").
-    expect(files.join("\n")).toContain("mkdir /workspace/.profile-picture.lock");
-    expect(files.join("\n")).toContain("/workspace/profile-picture-grok-bot.png");
-    expect(files.join("\n")).not.toContain("even if it has one");
-    expect(files.join("\n")).toContain('path: "bots/grok-bot/about.md"');
-    expect(files.join("\n")).not.toContain("If your name or logo changed");
-    expect(files.join("\n")).toContain("Never write to Context, reply, or send anything from this run.");
-    expect(files.join("\n")).toMatch(/bind_bot: .?"Grok Bot/);
+    // Refresh is one line naming the one call that runs the whole setup (Dev, 2026-11-27: "could we make a context mcp
+    // action that makes it easier?"); its answer carries the relay routine, the picture and the check
+    // (`apps/mcp/test/botLogins.test.mjs` "setup_bot").
+    expect(files.join("\n")).toMatch(/setup_bot: .?"Grok Bot/);
+    expect(files.join("\n")).toContain("do every step its answer lists, in order");
+    expect(files.join("\n")).not.toContain("bind_bot");
     // It stays on the bot's page, says when it last went, and can go again (Dev, 2026-11-26).
     expect(all("bot-panel")).toHaveLength(1);
     expect(strip(one("bot-panel-refresh").textContent)).toBe("Refresh");

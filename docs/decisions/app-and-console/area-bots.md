@@ -155,6 +155,18 @@ keeps its notes there and knows what its modes ask of it.
      page says "not answering" when no line under the bot's name follows the
      check within 5 minutes, read from that note in the app
      (`areaMail.ts` `checkHealth`); only the bound login can write that name.
+  4. **All of it is one call** (Dev, 2026-11-27: "could we make a context
+     mcp action that makes it easier?", after none of @shyoh's seven bots
+     finished the pasted steps). `manage area { setup_bot: "<name>" }`
+     (`botBind.js` `toolSetupBot`) binds as `bind_bot` does, mails the check,
+     and answers with every step left, filled in for that bot: answer the
+     check (the exact write), what to remember (its mail name and `as:`), the
+     relay routine when its card says `reach: webhook`, and its picture
+     (`pictureStep`). The pasted setup prompt and the app's Refresh name only
+     that call (`botRelay.cjs` `setupStep`), so a bot never stops part way
+     through a long list it was handed once. Test:
+     `apps/mcp/test/botLogins.test.mjs` "setup_bot binds, mails the check and
+     answers with every step left".
      A call is
   retried once when the bot can't be reached or answers 5xx, and audited with
   its status. **Send a test** is the same call from an owner or editor.

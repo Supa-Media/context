@@ -1,6 +1,6 @@
 {
   "why": "Sentences of Tex's wording still written in code, per file. Only shrinks (scripts/tex-wording-check.mjs; docs/decisions/texting-assistant/no-scripted-wording.md).",
-  "total": 3328,
+  "total": 3327,
   "folders": [
     "packages/tex/worker",
     "packages/tex/gateway",
@@ -51,7 +51,7 @@
     "apps/mcp/src/tools/news.js": 76,
     "apps/mcp/src/tools/notePeople.js": 1,
     "apps/mcp/src/tools/notes/attachProjects.js": 9,
-    "apps/mcp/src/tools/notes/botBind.js": 5,
+    "apps/mcp/src/tools/notes/botBind.js": 4,
     "apps/mcp/src/tools/notes/comment.js": 3,
     "apps/mcp/src/tools/notes/historyRead.js": 1,
     "apps/mcp/src/tools/notes/mail.js": 26,

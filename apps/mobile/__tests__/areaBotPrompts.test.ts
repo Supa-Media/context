@@ -142,6 +142,11 @@ test("the setup prompt connects Context first, hands the secret over from the sh
   expect(several).toContain("https://mcp.example.com/mcp");
   expect(several).toContain('for: "Pipeline"');
   expect(several).toContain("(areas/pr)");
-  expect(several).toContain('path: "areas/people/pipeline.md"');
   expect(several).not.toContain("header_from_shell");
+  // Its relay routine, picture and check come back from one call, filled in for it (Dev, 2026-11-27: "could we make a
+  // context mcp action that makes it easier?"; `apps/mcp/test/botLogins.test.mjs` holds that answer).
+  expect(one).toContain('manage area { context: "@supa", setup_bot: "Pipeline" }');
+  expect(several).toContain('manage area { setup_bot: "Pipeline" }');
+  expect(one).not.toContain("bind_bot");
+  expect(one).not.toContain("Never write to Context, reply, or send anything from this run.");
 });

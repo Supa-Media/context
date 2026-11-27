@@ -79,14 +79,52 @@ function pictureStep(card, workspace) {
   ].join("\n");
 }
 
-/** The app's Refresh mail: the card's picture and name, and the setup above, again. `card` is the card's path. */
-function refreshAsk(name, workspace, card) {
-  return [
-    "Please refresh your Context setup, from your main chat:",
-    `1. ${pictureStep(card, workspace)}`,
-    `2. ${relayStep()}`,
-    `3. ${bindStep(name, workspace)}`,
-  ].join("\n");
+/**
+ * The one step that runs a bot's whole setup (Dev, 2026-11-27: "could we make a context mcp action that makes it
+ * easier?"): `manage area { setup_bot }` binds, mails the check, and answers with every step left, filled in for that
+ * bot (`apps/mcp/src/tools/notes/botBind.js` `toolSetupBot`: the check, the as: name, the relay routine, the picture).
+ * A pasted list of four long steps was where @shyoh's seven bots stopped; one call whose answer is the list is not.
+ */
+function setupStep(name, workspace) {
+  return `From this main chat, run manage area { ${contextArg(workspace)}setup_bot: ${quoted(name)} } and do every step its answer lists, in order.`;
 }
 
-module.exports = { RELAY_PROMPT, relayStep, bindStep, relayMemory, pictureStep, refreshAsk };
+/** The app's Refresh mail: the setup above, again, as one call. `card` is the card's path, kept for older callers. */
+function refreshAsk(name, workspace, card) {
+  void card;
+  return `Please refresh your Context setup, from your main chat: ${setupStep(name, workspace).replace(/^From this main chat, run/, "run")}`;
+}
+
+/**
+ * What `manage area { setup_bot }` answers once it has bound the bot (`apps/mcp/src/tools/notes/botBind.js`
+ * `toolSetupBot`): every step left, in order, filled in for that bot. Said here, beside the setup prompt and Refresh
+ * that name it, so a bot is told one thing the same way everywhere.
+ *
+ * `holder` the card's name, `bot` its mail name, `card` its card's path, `checkPath` the check note (null for an old
+ * one-note card), `failed` why the check mail was not sent (null when it was), `webhook` whether Context wakes it by
+ * webhook, `workspace` its @name when known.
+ */
+function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace }) {
+  const ctx = contextArg(workspace);
+  const steps = [];
+  if (checkPath && !failed) {
+    steps.push(
+      `Answer Context's setup check now, from this main chat, in one line as yourself: write { ${ctx}action: "mail", path: ${quoted(checkPath)}, args: { text: "<one line: you are set up>" } }. ` +
+        "Without an answer within 5 minutes your card says you are not answering.",
+    );
+  } else if (checkPath) {
+    steps.push(`The check mail was not sent (${failed}). Tell your person, so they can send you one from the app's bot page.`);
+  }
+  const handle = typeof workspace === "string" ? workspace.trim() : "";
+  const where = handle === "" ? "" : ` ${handle.startsWith("@") ? handle : `@${handle}`}`;
+  steps.push(
+    `Save to your memory: you are ${holder} in Context${where}, your mail name is ${quoted(bot)}, and when you write mail outside your own bots folder you pass as: ${quoted(bot)}. ` +
+      `Start every session with orient { ${ctx}for: ${quoted(holder)} }.`,
+  );
+  if (webhook) steps.push(relayStep());
+  steps.push(pictureStep(card, workspace));
+  steps.push("Then tell your person in one line which of these you finished, and what you still need from them.");
+  return ["Now finish your setup, in order:", ...steps.map((step, at) => `${at + 1}. ${step}`)].join("\n");
+}
+
+module.exports = { RELAY_PROMPT, relayStep, bindStep, setupStep, setupAnswer, relayMemory, pictureStep, refreshAsk };

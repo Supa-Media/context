@@ -15,7 +15,7 @@
  */
 
 const { mailOnlyText, routinesText } = require("./areaRoutines.cjs");
-const { bindStep, pictureStep, relayMemory, relayStep } = require("./botRelay.cjs");
+const { pictureStep, relayMemory, setupStep } = require("./botRelay.cjs");
 
 /** The kinds of bot a card can say it is. Grok is the first; others follow by adding a word. */
 const BOT_KINDS = Object.freeze(["grok"]);
@@ -225,12 +225,13 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
  * owner, 2026-11-25: "we can't assume that they have the mcp setup so that
  * should be in every instruction"): connect Context and wait for the person to
  * sign in; hand Context its webhook from its own shell, so no chat sees the
- * secret; put its logo on its card; then keep the rest in memory. `areas` is
+ * secret; keep the rest in memory; then run `manage area { setup_bot }`, whose
+ * answer lists what is left (the relay routine, its picture, the check). `areas` is
  * every area the bot owns or is the delegate of (`actsFor` names that area's
- * owner); `endpoint` the MCP address; `card` its card's path
- * when it has no logo yet.
+ * owner); `endpoint` the MCP address. (`card`, its card's path, is no longer
+ * read: setup_bot names it.)
  */
-function setupPrompt({ bot, kind, whose, workspace, areas, reach, card, endpoint }) {
+function setupPrompt({ bot, kind, whose, workspace, areas, reach, endpoint }) {
   const name = nameOf(bot) || "the bot";
   const label = botLabel(kind) || "bot";
   const person = nameOf(whose);
@@ -246,12 +247,10 @@ function setupPrompt({ bot, kind, whose, workspace, areas, reach, card, endpoint
       `Give Context your webhook, so new mail reaches you. If your webhook checks a secret, call manage area { ${ctx}area: ${quoted(first)}, bot: { name: ${quoted(name)}${person ? `, whose: ${quoted(person)}` : ""}, reach: "webhook" }, webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>", header_from_shell: "Authorization" } }. It answers with a one-time curl command: run it in your shell with your secret's environment variable, so the secret goes straight to Context and never into this chat. If your webhook takes no secret, pass webhook: { bot: ${quoted(name)}, address: "<your webhook's https address>" } instead. Then call manage area { ${ctx}area: ${quoted(first)}, test_webhook: ${quoted(name)} } and tell me how the test went.`,
     );
   }
-  if (reach === "webhook") steps.push(relayStep());
-  const logo = card ? logoLine(card, workspace) : null;
-  if (logo) steps.push(logo.replace(/^The first time, put/, "Put"));
   steps.push("Save everything below the line to your memory, and follow it every session.");
-  // Last, as the bot's own main chat: its login is bound to its card and Context mails it a check (Dev, 2026-11-26).
-  steps.push(bindStep(name, workspace));
+  // Last, as the bot's own main chat: one call binds its login, mails it a check and answers with the steps left, the
+  // relay routine and its picture among them (Dev, 2026-11-27; `botRelay.cjs` `setupStep`).
+  steps.push(setupStep(name, workspace));
   const memory =
     owned.length > 1
       ? areasPrompt({ bot: name, kind, whose: person, workspace, areas: owned, reach })
