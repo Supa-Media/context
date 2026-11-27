@@ -10,6 +10,7 @@
  * and the tools do, exactly as before.
  */
 
+import { appOriginOf } from "../notes/appLink.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { resolvePresentedSession } from "./presentedToken.js";
 import { attachPinnedDoors } from "./pinnedDoors.js";
@@ -122,6 +123,8 @@ async function storeOrRefusal(session, env, controlPlane) {
 /** Everything the request's store carries for the tools, laid on in one place; the other workspaces it opens are timed too. */
 function equip(store, { session, env, controlPlane, ctx, request, origin, openOnce, mcp }) {
   laySavePhase(store, mcp);
+  // The app's origin, for the note links an MCP write or read answers with (`notes/appLink.js`).
+  store.appOrigin = appOriginOf(env);
   decorateRequestStore(store, { session, env, controlPlane, ctx, request, origin });
   attachContextOpener(store, session, { env, controlPlane, origin, openOnce, pinnedName: PINNED_CONTEXT_NAME });
   attachPinnedDoors(store, session, (sibling) => mcp.step("open_pinned_context", () => storeForSession(sibling, env, controlPlane)).then((opened) => laySavePhase(mcp.watch(opened), mcp)), (opened, sibling) => attachLinkCalls(opened, sibling, controlPlane, env));

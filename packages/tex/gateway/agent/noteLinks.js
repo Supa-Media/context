@@ -64,6 +64,7 @@ function nothingChanged(name, result) {
  */
 
 import { isPagePath } from "../../../../apps/mcp/src/pages.js";
+import noteAppLink from "../../../shared/src/noteAppLink.cjs";
 import { isTexOwnNote, noteWrite } from "./pageNotice.js";
 import { noteTitleOf, previewKey, previewSigningKey } from "../../../shared/src/notePreview.cjs";
 
@@ -77,25 +78,8 @@ export const NOTE_LINK_LINE =
   "When they ask for a note's link, send it; if you have none yet, read the note to get it. Never say you don't have a link to a note you can read. " +
   "Make a share link only when they ask for one to send to someone else.";
 
-/** The deployment's https origin, without a trailing slash, or null. */
-export function appOriginOf(env) {
-  const origin = typeof env?.APP_ORIGIN === "string" ? env.APP_ORIGIN.replace(/\/$/, "") : "";
-  return /^https:\/\/[^/]+$/.test(origin) ? origin : null;
-}
-
-/**
- * `<origin>/note/@slug/<path>`, every segment encoded and the `@` left
- * readable; a page's is `<origin>/p/@slug/<path>`, which opens the page
- * viewer rather than the app (owner, 2026-11-10: a page should open
- * "seamlessly"; `infra/router/src/pageViewer.ts`). The viewer grants nothing
- * either: it reads with the browser's own sign-in, and hands anything it can't
- * open to the `/note/…` link.
- */
-export function noteLinkUrl(origin, slug, path) {
-  const encoded = path.split("/").map(encodeURIComponent).join("/");
-  const route = /\.page\.md$/i.test(path) ? "p" : "note";
-  return `${origin}/${route}/@${encodeURIComponent(slug)}/${encoded}`;
-}
+/** The app link's builders, shared with the gateway's MCP answers (`packages/shared/src/noteAppLink.cjs`). */
+export const { appOriginOf, noteLinkUrl } = noteAppLink;
 
 /** A path that opens with a workspace's name: the `@name/path` sugar the router reads (`tools/pathAddress.js`). */
 const PATH_NAMED = /^@([a-z0-9][a-z0-9-]*)\//i;

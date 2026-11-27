@@ -4,6 +4,7 @@
  * toolArguments.test.mjs and crossContext.test.mjs (see test/gatewaySource.mjs).
  */
 
+import { withAppLink } from "../notes/appLink.js";
 import { sandboxGateOf, toolAnswer } from "../labSandbox/policy.js";
 import { afterRead } from "../labSandbox/sandboxTools.js";
 import { withMailFooter } from "../mail/footer.js";
@@ -282,7 +283,7 @@ export async function callToolForSession(params, store, session, options = {}) {
   }
   // `save_many` is one ordinary `write` per note, each back through this function and every gate in it (`saveMany.js`).
   if (v2 && call?.name === SAVE_MANY_TOOL) {
-    return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session)));
+    return inWordsOf(v2, await saveMany(call.arguments, (one) => callToolForSession({ name: "write", arguments: one }, store, session, { appLinks: options.appLinks })));
   }
   // Paths in other workspaces (`@band/...`, as search writes them): one read per workspace, each back through here (`readNotesAcross.js`).
   if (readsAcross(call?.name, call?.arguments)) {
@@ -604,6 +605,9 @@ async function routeToolCall(params, store, session, routed, options = {}) {
   // reached, and attributing it to the connection's default context would
   // quietly make one tenant's figures include another's work.
   reportToolUsage(store, params?.name, target.workspaceId);
+  // An MCP client's write or read names the note's app link, in the workspace the call reached (`notes/appLink.js`).
+  // Tex adds its own (`noteLinks.js`), so only the MCP entry point asks for this.
+  if (options.appLinks) result = withAppLink(params?.name, args, result, { origin: store?.appOrigin ?? null, slug: target.workspaceSlug });
   return placeAnswerEtags(result, workspaceNameOf(target));
 }
 
