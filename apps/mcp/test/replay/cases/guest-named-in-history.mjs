@@ -24,7 +24,9 @@ export default {
       text(NOW - 3 * 3600e3 + 10_000, 2, "guest-66ef", "not native polls, I can tally reactions."),
     ]);
     const built = await weekTurn({ ledger, chat: "chat", now: NOW, timeZone: ZONE, log: () => {} });
-    assert.match(built.history.text, /@guest-66ef \(Instinct\): not native polls/, "the guest's kept name is beside its label on its line");
+    // 2026-11-27: a kept name stands in for the label (Dev2: never the guest id); the number joins it when the turn has one.
+    assert.match(built.history.text, /@Instinct: not native polls/, "the guest is shown by their kept name");
+    assert.doesNotMatch(built.history.text, /guest-66ef/, "never by label");
     assert.match(built.history.text, /@ada: instinct can you run a poll\?/, "an account is its handle");
   },
 };
