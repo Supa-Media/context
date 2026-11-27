@@ -28,10 +28,10 @@ import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
 import type { OwnedArea } from "@context/shared/src/areaBots.cjs";
-import { AddBotForm, PromptBox, UploadLogo, botDetail, botSetupPrompt, usePeopleList } from "./PanelBotFields";
-import { BotHookFields } from "./PanelBotHook";
+import { AddBotForm, UploadLogo, botDetail, usePeopleList } from "./PanelBotFields";
+import { HealthDot, unreachable, useBotHealth } from "./botHealth";
 import { KEY_WIDTH, Row } from "./panelFields";
-import { MODES, MODE_TIPS, areaTitle, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
+import { MODES, MODE_TIPS, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
 /** What the panel needs to edit an owner where it is drawn. */
 export interface PanelSeatTools {
@@ -50,6 +50,8 @@ export interface PanelSeatTools {
   ownedAreas?: (holder: string) => readonly OwnedArea[];
   /** Where a holder's card is, named in a bot's prompt so it puts its logo there. */
   cardPath?: (holder: string) => string;
+  /** Opens a bot's own page, `bots/<bot>/`, where its setup and health are. */
+  openBot?: (holder: string) => void;
   /** Stores a picture (a bot's logo); absent where the reader may not write. */
   storePicture?: (picture: { bytes: ArrayBuffer; contentType: string }) => Promise<{ leaf: string } | { error: string }>;
 }
@@ -78,7 +80,7 @@ export function PanelOwnerRows({
   write: PanelWrite;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const { people, agents, isAgent, cardFor, label, addAgent, workspace, workspaceId, storePicture, cardPath, ownedAreas } = tools;
+  const { people, agents, isAgent, cardFor, label, addAgent, storePicture } = tools;
   const same = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
   const [menu, setMenu] = useState<{ which: "owner" | "delegate"; anchor: Anchor } | null>(null);
   const [addingBot, setAddingBot] = useState(false);
@@ -102,7 +104,7 @@ export function PanelOwnerRows({
       const why = await addAgent(name);
       if (why !== null) return why;
     }
-    const bot: Card = { ...cardFor(name, "agent"), holder: name, kind: "agent", bot: "grok", belongsTo: whose, reach: "mail" };
+    const bot: Card = { ...cardFor(name, "agent"), holder: name, kind: "agent", bot: "grok", belongsTo: whose, reach: "webhook" };
     setAddingBot(false);
     write({ owner: name, delegate: null }, [bot]);
     return null;
@@ -152,6 +154,10 @@ export function PanelOwnerRows({
           ) : null}
         </View>
       </Row>
+      {/* A bot's setup is on its own page now (Dev, 2026-11-27); here, how it is doing and the way there. */}
+      {card !== null && owner !== null && ownerIsAgent && card.bot !== "" ? (
+        <BotStatus name={owner} reach={card.reach} detail={botDetail(card, label)} label={label} {...(tools.openBot === undefined ? {} : { onOpen: tools.openBot })} />
+      ) : null}
       {inherited === null ? null : <Text variant="treeMeta" style={[styles.muted, styles.under]}>{inherited}</Text>}
       {addingBot ? <AddBotForm people={known} label={label} onAdd={addBot} onCancel={() => setAddingBot(false)} /> : null}
       {owner === null || ownerIsAgent ? null : (
@@ -191,43 +197,7 @@ export function PanelOwnerRows({
           })}
         </View>
       </Row>
-      {card === null || owner === null ? null : ownerIsAgent && card.bot !== "" ? (
-        <>
-          <Row label="Whose">
-            <InlineField value={card.belongsTo} label="Whose bot it is" placeholder={canEdit ? "@handle" : "Not set"} editable={canEdit} onCommit={(belongsTo) => writeCard({ belongsTo })} style={styles.field} testID="area-panel-bot-whose" />
-          </Row>
-          <Row label="Reach">
-            <View style={styles.modes}>
-              {(["webhook", "mail"] as const).map((reach) => {
-                const on = card.reach === reach;
-                return (
-                  <Pressable
-                    key={reach}
-                    disabled={!canEdit}
-                    onPress={() => writeCard({ reach })}
-                    role="radio"
-                    aria-checked={on}
-                    accessibilityLabel={reach === "webhook" ? "Context calls its webhook" : "It checks its mail"}
-                    style={[styles.mode, on && styles.modeOn]}
-                    testID={`area-panel-reach-${reach}`}
-                  >
-                    <Text variant="treeMeta" style={on ? styles.modeWordOn : styles.modeWord}>{reach === "webhook" ? "Webhook" : "Checks its mail"}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </Row>
-          {card.reach === "webhook" && workspaceId !== undefined ? <BotHookFields workspaceId={workspaceId} bot={owner} canEdit={canEdit} /> : null}
-          {/* One prompt the bot sets itself up from: connect, sign in, its webhook, its logo, then its memory (the owner, 2026-11-25). */}
-          <PromptBox
-            title={`Set up ${label(owner)}`}
-            text={botSetupPrompt(card, ownedAreas?.(owner) ?? [{ folder: seat.folder, title: areaTitle(seat.name), modes: seat.modes }], workspace, cardPath?.(card.holder))}
-            copyWord="Copy setup prompt"
-            testID="area-panel-prompt"
-          />
-          <Text variant="treeMeta" style={styles.muted}>{`Paste it into ${label(owner)}. It connects Context, asks you to sign in, and does the rest.`}</Text>
-        </>
-      ) : ownerIsAgent ? (
+      {card === null || owner === null || (ownerIsAgent && card.bot !== "") ? null : ownerIsAgent ? (
         <>
           <Row label="Reach">
             <InlineField value={card.access} label="Where and how to reach it" placeholder={canEdit ? "Where and how to reach it" : "Not set"} editable={canEdit} onCommit={(access) => writeCard({ access })} style={styles.field} testID="area-panel-access" />
@@ -244,22 +214,10 @@ export function PanelOwnerRows({
           <Row label="Email">
             <InlineField value={card.email} label="Email" placeholder={canEdit ? "Add an email" : "Not set"} editable={canEdit} onCommit={(email) => writeCard({ email })} style={styles.field} keyboard="email-address" testID="area-panel-email" />
           </Row>
-          {delegateBot === null ? null : (
-            <PromptBox
-              title={`Set up ${label(delegateBot)}`}
-              text={botSetupPrompt(
-                cardFor(delegateBot, "agent"),
-                ownedAreas?.(delegateBot) ?? [{ folder: seat.folder, title: areaTitle(seat.name), modes: seat.modes, actsFor: owner }],
-                workspace,
-                cardPath?.(delegateBot),
-              )}
-              copyWord="Copy setup prompt"
-              testID="area-panel-delegate-prompt"
-            />
-          )}
+          {delegateBot === null ? null : <BotStatus name={delegateBot} reach={cardFor(delegateBot, "agent").reach} detail={botDetail(cardFor(delegateBot, "agent"), label)} label={label} {...(tools.openBot === undefined ? {} : { onOpen: tools.openBot })} />}
         </>
       )}
-      {owner === null ? null : (
+      {owner === null || (ownerIsAgent && card?.bot !== "") ? null : (
         <Text variant="treeMeta" style={[styles.muted, styles.hint]}>{`How to reach ${label(owner)} is one card, shown on every area they hold.`}</Text>
       )}
       {menu === null ? null : (
@@ -271,6 +229,27 @@ export function PanelOwnerRows({
           onDismiss={() => setMenu(null)}
         />
       )}
+    </View>
+  );
+}
+
+/** A bot holding the area: its health and whose it is, and its page, where its setup is. */
+function BotStatus({ name, reach, detail, label, onOpen }: { name: string; reach: string; detail: string; label: (owner: string) => string; onOpen?: (holder: string) => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const health = useBotHealth(name, reach);
+  return (
+    <View style={[styles.under, styles.status]} testID="area-panel-bot-status">
+      <View style={styles.statusHead}>
+        {health === undefined ? null : <HealthDot health={health} />}
+        <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
+          {health === undefined ? null : <Text variant="treeMeta" style={health.tone === "warn" ? styles.warn : health.tone === "crit" ? styles.crit : styles.text2}>{health.word}</Text>}
+          {health === undefined ? detail : ` · ${detail}`}
+        </Text>
+      </View>
+      {health === undefined || !health.bad ? null : <Text variant="treeMeta" style={styles.text2}>{health.why}</Text>}
+      <Pressable role="link" onPress={() => onOpen?.(name)} style={styles.add} testID="area-panel-bot-open">
+        <Text variant="treeMeta" style={styles.link}>{unreachable(health) ? `Set it up on ${label(name)}'s page` : `Open ${label(name)}'s page`}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -463,6 +442,11 @@ const makeStyles = (colors: Colors) =>
     inline: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: space.x2 },
     under: { marginLeft: KEY_WIDTH + space.x2 },
     hint: { marginTop: space.x1 },
+    status: { gap: 2, marginTop: -2 },
+    statusHead: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+    text2: { color: colors.text2 },
+    warn: { color: colors.warnText },
+    crit: { color: colors.critText },
     muted: { color: colors.muted },
     value: { flexShrink: 1, minWidth: 0, color: colors.text },
     // Only as wide as the value, so its hover is not a bar across the panel.

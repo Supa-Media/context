@@ -15,7 +15,7 @@ import { test } from "node:test";
 import { AREA_ROUTINES_PATH, handleAreaRoutines } from "../src/http/areaRoutinesRoute.js";
 import { APP_ROUTES } from "../src/http/appRoutes.js";
 
-const STATE = { week: "2026-11-23", routines: [{ path: "areas/finance/routines/daily/check.md", area: "areas/finance", nextAt: 1, lastAt: null, outcome: null, bot: null, answeredAt: null }], usage: [{ bot: "finance", area: "areas/finance", used: 4 }] };
+const STATE = { week: "2026-11-23", routines: [{ path: "areas/finance/routines/daily/check.md", area: "areas/finance", nextAt: 1, lastAt: null, outcome: null, bot: null, answeredAt: null }], usage: [{ bot: "finance", area: "areas/finance", used: 4 }], checks: [{ bot: "finance", at: 2 }], inbox: [{ bot: "finance", count: 1 }] };
 const session = (over = {}) => ({ actorClientId: "context_console", workspaceId: "ws-a", role: "member", ...over });
 const post = (body) => new Request(`https://mcp.example.com/@acme${AREA_ROUTINES_PATH}`, { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) });
 function store(state = STATE, ran = "sent") {

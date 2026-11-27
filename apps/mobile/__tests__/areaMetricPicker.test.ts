@@ -26,6 +26,14 @@ import { createRoot, type Root } from "react-dom/client";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // The Areas page's Connect a source asks the url sources' syncs with the console grant; no gateway here.
+// The page reads the workspace's saved webhooks (`botHookList`); none here.
+jest.mock("convex/react", () => ({
+  useQuery: () => [],
+  useAction: () => async () => ({ ok: true, status: 200 }),
+  useMutation: () => async () => null,
+  useConvex: () => ({}),
+  useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
+}));
 jest.mock("../features/agent/useConsoleGrant", () => ({
   useConsoleGrant: () => async () => {
     throw new Error("No fixture gateway session");

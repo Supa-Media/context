@@ -7,6 +7,7 @@
  *  - `POST /tex/page/list` `{handle, chat, kind, cursor?}` → `{items, cursor?, ...}`
  *  - `POST /tex/page/act`  `{handle, chat, action}` → `{ok: true}` | `{ok: false, error}`
  *  - `POST /tex/page/ledger` `{handle, chat, view, ...}` → the chat's history file (`ledger.js`)
+ *  - `POST /tex/page/contacts` `{handle, op, names?}` → guests' names from the person's phone contacts (`contacts.js`)
  *
  * Who may: `page.js`. Where each thing is read and written, one way each:
  * jobs from the chat's inbox in the texting Worker (`jobs.js`); what Tex
@@ -32,9 +33,11 @@ import { answerPageAsk, fetchPageJobs, jobDetail, jobSummary, jobsOverview, slot
 import * as notes from "./notes.js";
 import { readHabits, settingSet } from "../../../../../packages/tex/gateway/agent/settingsTools.js";
 import { ledgerView } from "./ledger.js";
+import { ledgerFor } from "../../../../../packages/tex/gateway/agent/ledger.js";
+import { TEX_CONTACTS_PATH, handleTexContacts } from "./contacts.js";
 import { PageRefusal, chatOf, checkViewer, loadPage, pickerOf, readPageBody, startOfDay } from "./page.js";
 
-export const TEX_PAGE_PATHS = new Set(["/tex/page", "/tex/page/job", "/tex/page/list", "/tex/page/act", "/tex/page/ledger"]);
+export const TEX_PAGE_PATHS = new Set(["/tex/page", "/tex/page/job", "/tex/page/list", "/tex/page/act", "/tex/page/ledger", TEX_CONTACTS_PATH]);
 const LIST_KINDS = new Set(["thinking", "jobs", "advisor", "mailcheck", "routines", "checkins", "about", "settings"]);
 const RECORD_KINDS = new Set(["thinking", "advisor", "mailcheck"]);
 const OVERVIEW_KEYS = ["chats", "chat", "status", "thinking", "thinkingToday", "minions", "earlier", "earlierWeek", "tiles", "behind"];
@@ -283,6 +286,8 @@ export async function handleTexPage(request, env, store, session, { path, contro
       return json({ error: "invalid_request", error_description: "Expected a JSON body." }, 400);
     }
     checkViewer(session, body.handle);
+    // Guests' names from the contacts on this person's phone (`contacts.js`): their chats, read from the grant.
+    if (path === TEX_CONTACTS_PATH) return json(await handleTexContacts((key) => ledgerFor(env, { chat: key }), controlPlane, session, body));
     const page = await loadPage(controlPlane, session);
     const chat = chatOf(page, body.chat);
     // Writes through the tool door name who made them, as every client's do.

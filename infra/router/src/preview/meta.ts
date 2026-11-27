@@ -287,7 +287,7 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   // the endpoint and the guides. Every other card stays the short page it was.
   const agentNav = meta.structuredData
     ? `<nav>
-    <a href="${ORIGIN}/agents">Grok Bot guide</a>
+    <a href="${ORIGIN}/agents">Agents guide</a>
     <a href="${ORIGIN}/claude">Claude guide</a>
     <a href="${ORIGIN}/llms.txt">llms.txt</a>
   </nav>

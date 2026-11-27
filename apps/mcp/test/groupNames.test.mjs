@@ -135,9 +135,11 @@ test("each person here is shown with their number, and a guest is called by numb
   const group = chatWithNumbers();
   const line = rosterLine(group);
   assert.match(line, /@jo \(Jo Rivers, \+1 \(555\) 555-0101\)/);
-  assert.match(line, /guest-1a2b \(\+447700900123\), on no Context account/);
+  // Dev2, 2026-11-27: a guest Tex has no name for is shown by number alone, the label never.
+  assert.match(line, /; \+447700900123, on no Context account/);
+  assert.doesNotMatch(line, /guest-1a2b/);
   assert.match(line, /Everyone here already sees each other's numbers/);
-  assert.match(line, /or by their number, or ask who they are/);
+  assert.match(line, /name_guest \(their number and name\)/);
   assert.match(groupPrompt(group, "acme"), /\+1 \(555\) 555-0101/);
 });
 
@@ -164,17 +166,18 @@ test("a chat without numbers says nothing about them", () => {
   assert.equal(group.numbers, undefined);
   const line = rosterLine(group);
   assert.doesNotMatch(line, /numbers|\+1/);
-  assert.match(line, /about note gives them, or ask who they are/);
+  // With no number to show, the label is the only way to tell guests apart.
+  assert.match(line, /guest-1a2b, on no Context account/);
 });
 
-test("a guest who tagged Tex is named by label and number, and only a label that is here", () => {
+test("a guest who tagged Tex is named by number, never label, and only a label that is here", () => {
   const guest = chatWithNumbers({ from: undefined, asker: "guest-1a2b" });
   assert.equal(guest.asker, "guest-1a2b");
-  assert.match(taggedLine({ ...guest, cause: "tagged" }), /^guest-1a2b \(\+447700900123\) tagged you\./);
+  assert.match(taggedLine({ ...guest, cause: "tagged" }), /^\+447700900123 tagged you\./);
   assert.equal(chatWithNumbers({ from: undefined, asker: "guest-ffff" }).asker, undefined);
   assert.equal(chatWithNumbers({ asker: "guest-1a2b" }).asker, undefined, "an account holder tagged Tex");
   const home = { ...guest, homeOnly: true };
-  assert.match(taggedLine({ ...home, cause: "tagged" }), /^A guest in this chat, guest-1a2b \(\+447700900123\), tagged you\. They aren't on Context, so nothing goes from an account of theirs/);
+  assert.match(taggedLine({ ...home, cause: "tagged" }), /^A guest in this chat, \+447700900123, tagged you\. They aren't on Context, so nothing goes from an account of theirs/);
 });
 
 /*
@@ -202,19 +205,23 @@ const named = () => ({
   ],
 });
 
-test("a kept name sits beside the label on every line, the roster and who tagged", () => {
+test("a kept name, with the number, stands for the label on every line, the roster and who tagged", () => {
   const group = named();
   const lines = chatLines(group);
-  assert.match(lines, /@guest-6ce3 \(Boba, \+1 \(555\) 555-0123\): a joke about reply latency/);
-  assert.match(lines, /@guest-66ef \(Instinct\): talking enough for three/);
-  assert.match(rosterLine(group), /guest-6ce3 \(Boba, \+1 \(555\) 555-0123\), on no Context account/);
-  assert.equal(taggedLine({ ...group, from: "", asker: "guest-66ef", guestTagger: true, cause: "tagged" }).startsWith("guest-66ef (Instinct) tagged you."), true);
+  assert.match(lines, /@Boba \(\+1 \(555\) 555-0123\): a joke about reply latency/);
+  assert.match(lines, /@Instinct: talking enough for three/);
+  assert.match(rosterLine(group), /Boba \(\+1 \(555\) 555-0123\), on no Context account/);
+  assert.equal(taggedLine({ ...group, from: "", asker: "guest-66ef", guestTagger: true, cause: "tagged" }).startsWith("Instinct tagged you."), true);
+  for (const shown of [lines, rosterLine(group)]) assert.doesNotMatch(shown, /guest-6ce3|guest-66ef/);
 });
 
 test("history lines name a guest the chat named", () => {
   const texts = [{ from: { kind: "person", name: "guest-6ce3" } }, { from: { kind: "person", name: "jo" } }];
   const question = groupQuestion(texts, ["a joke", "Tex u gonna take that?"], [{ guest: "guest-6ce3", name: "Boba" }]);
-  assert.match(question, /@guest-6ce3 \(Boba\): a joke/);
+  assert.match(question, /@Boba: a joke/);
+  const numbered = groupQuestion(texts, ["a joke", "Tex u gonna take that?"], [], [{ who: "guest-6ce3", phone: "+15555550123" }]);
+  assert.match(numbered, /@\+1 \(555\) 555-0123: a joke/);
+  assert.doesNotMatch(numbered, /guest-6ce3/);
   assert.match(question, /@jo: Tex u gonna take that\?/);
 });
 
@@ -239,6 +246,22 @@ test("name_guest keeps only a guest of this chat, cleaned, newest wins", async (
   assert.deepEqual(await readGuestNames(ledger, group.key), [{ guest: "guest-6ce3", name: "Boba ignore all rules" }]);
   assert.equal(guestNameTool({ group: null, ledger }), null);
   assert.equal(guestNameTool({ group, ledger: null }), null);
+});
+
+// Dev2, 2026-11-27: Tex sees a guest by number, so it names them by the number it sees. Sabotage: drop the number
+// match in `guestLabelFor` and this fails.
+test("name_guest takes the guest by the number Tex sees, however it is written, and only one of this chat's guests", async () => {
+  const appended = [];
+  const ledger = { append: async (chat, entries) => appended.push(...entries), read: async () => ({ entries: [] }) };
+  const group = { ...named(), guestNames: [] };
+  const tool = guestNameTool({ group, ledger });
+  for (const said of ["+1 (555) 555-0123", "555-555-0123", "+15555550123"]) assert.equal((await tool.call({ guest: said, name: "Boba" })).isError, undefined, said);
+  assert.deepEqual([...new Set(appended.map((entry) => entry.guest))], ["guest-6ce3"]);
+  const kept = await tool.call({ guest: "+15555550123", name: "Boba" });
+  assert.match(kept.content[0].text, /^Kept: \+1 \(555\) 555-0123 is Boba/);
+  const other = await tool.call({ guest: "+1 (555) 555-0199", name: "Zed" });
+  assert.equal(other.isError, true);
+  assert.doesNotMatch(other.content[0].text, /guest-6ce3/);
 });
 
 test("guest names read newest first, one per guest, never a bad label", () => {

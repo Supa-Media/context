@@ -267,7 +267,17 @@ describe("route: machine endpoints are decided before the crawler check", () => 
 
   it("the agent docs are the Worker's own files, crawler or not, and not on tex.lc", () => {
     const googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
-    for (const path of ["/llms.txt", "/grokbot.md", "/claude.md", "/agents", "/claude", "/agents/"]) {
+    for (const path of [
+      "/llms.txt",
+      "/llms-full.txt",
+      "/agents.md",
+      "/grokbot.md",
+      "/claude.md",
+      "/agents",
+      "/grokbot",
+      "/claude",
+      "/agents/",
+    ]) {
       for (const ua of [googlebot, SLACKBOT_UA, BROWSER_UA, undefined]) {
         expect(at(`https://context.lc${path}`, ua).kind).toBe("agent-doc");
       }
@@ -278,6 +288,39 @@ describe("route: machine endpoints are decided before the crawler check", () => 
     expect(at("https://context.lc/claude.md", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "claude-md" });
     expect(at("https://context.lc/agents", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "agents" });
     expect(at("https://context.lc/claude", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "claude" });
+    expect(at("https://context.lc/grokbot", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "grokbot" });
+    expect(at("https://context.lc/agents.md", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "agents-md" });
+    expect(at("https://context.lc/llms-full.txt", BROWSER_UA)).toEqual({ kind: "agent-doc", doc: "llms-full" });
+  });
+
+  it("the homepage is the agent primer for a request that prefers Markdown, and the app otherwise", () => {
+    const home = (accept: string | null, ua: string | undefined = BROWSER_UA, url = "https://context.lc/") =>
+      route(new URL(url), ua, accept);
+    const primer = { kind: "agent-doc", doc: "agents-md" };
+    for (const accept of [
+      "text/markdown",
+      "text/markdown, text/html, */*",
+      "text/html;q=0.9, text/markdown",
+      "text/x-markdown",
+    ]) {
+      expect(home(accept)).toEqual(primer);
+      // An agent that names Markdown gets it even with a crawler's User-Agent.
+      expect(home(accept, SLACKBOT_UA)).toEqual(primer);
+    }
+    // What browsers and ordinary fetchers send: never Markdown.
+    for (const accept of [
+      null,
+      "",
+      "*/*",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "text/html, text/markdown;q=0.5",
+      "text/markdown;q=0",
+    ]) {
+      expect(home(accept).kind).not.toBe("agent-doc");
+    }
+    // Only the homepage, and never on tex.lc.
+    expect(home("text/markdown", BROWSER_UA, "https://context.lc/pricing").kind).not.toBe("agent-doc");
+    expect(home("text/markdown", BROWSER_UA, "https://tex.lc/").kind).not.toBe("agent-doc");
   });
 
   it("a crawler on an auth route still goes to Convex", () => {

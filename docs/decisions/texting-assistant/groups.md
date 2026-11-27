@@ -170,6 +170,28 @@ picked a roster of names kept on the chat itself.
   "guest-1a2b (Sam)" and "Sam (guest-1a2b)" there for a guest the ledger
   has no name for, and keeps them in the ledger (`by: "about"`), so the
   judge reads them as well (`namesInAbout`, `guestNamesWithAbout`).
+- **Names from a member's contacts** (decided by Dev2, 2026-11-27). A member
+  who turns on "Names from my contacts" in the Context app's Tex settings
+  lets the app on that phone fill in guests nobody has named yet. The
+  gateway (`POST /tex/page/contacts`, `apps/mcp/src/http/texPage/contacts.js`)
+  hands the app the numbers of the unnamed guests in that person's chats, as
+  the control plane reads them from the console grant (`texPage.ts`
+  `guestsFor`); the phone matches them against its own contacts
+  (`apps/mobile/features/tex/contacts`) and sends back only the names it
+  found. The contact book never leaves the phone. A number two contacts name
+  differently, or one that can't be read as a full number without guessing,
+  is left out, because a wrong name is worse than a number. A contacts name
+  is kept as `by: "contacts"` only for a guest with no name, so a name said
+  in the chat, or a correction, wins. Who is in each chat by number lives in
+  the chat's own ledger, a `numbers` entry each group turn writes when the
+  guests here change (`groupGuestNames.js` `keepGuestNumbers`); everyone in
+  the chat already sees those numbers. The control plane only says which
+  chats are the person's and still never keeps a number
+  (`textGroups.test.ts` "the number itself is never stored"). The switch is
+  per phone and off by default; an app
+  built before the contacts module draws no switch (`native-deps.json`
+  `gated`). Tests: `apps/convex/__tests__/texContactGuests.test.ts`,
+  `apps/mcp/test/texContacts.test.mjs`, `apps/mobile/__tests__/texContactNames.test.ts`.
 - Test: `apps/mcp/test/groupNames.test.mjs` ("a kept name sits beside the
   label on every line"; "name_guest keeps only a guest of this chat"), both
   sabotaged; `apps/mcp/test/textsDecide.test.mjs` ("the judge is told the

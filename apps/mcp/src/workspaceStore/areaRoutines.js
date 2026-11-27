@@ -27,6 +27,7 @@ import areaRoutines from "../../../../packages/shared/src/areaRoutines.cjs";
 import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import mail from "../../../../packages/shared/src/mail.cjs";
 import { botOfArea, areaOfMailNote } from "./botMail.js";
+import { botInbox } from "./botInbox.js";
 
 const { MAX_AREA_ROUTINES, DEFAULT_ROUTINE_ZONE, areaRoutineOf, areaRoutineNext, botCapIn, botCardPaths, parseWorksIn, weekOf } = areaRoutines;
 const { mailJoinName } = areaBots;
@@ -87,6 +88,8 @@ function propsOf(json) {
 export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRoot, arm = () => {}, defer = (work) => queueMicrotask(work), now = Date.now }) {
   for (const statement of SCHEMA) sql.exec(statement);
   addDeliveryColumns(sql);
+  // What waits for each bot, webhook or none, and when each last checked in (`botInbox.js`).
+  const inbox = botInbox(sql, { rows, now });
   const pending = new Set();
   let scheduled = false;
 
@@ -152,7 +155,6 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     const text = textOf(noteId);
     if (text === null) return;
     const name = mailJoinName(bot);
-    const answerNote = routine === null && rows.byNoteId(noteId)?.path === `${area}/mail/${name}.md`;
     for (const event of parseMail(text).events) {
       if (event.kind !== "mail" || event.from.toLowerCase() !== name) continue;
       const at = Date.parse(event.at);
@@ -168,11 +170,17 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
           at,
         );
       }
-      // Its answer to a routine sent to it before: the routine shows when it was answered. Only where the routine
-      // asked for it, the bot's own mail note in the area (`answer_in`) or the routine's own note: a reply to someone
-      // else's mail in the area is not the routine's answer (Capabilities' reply to Grok Bot once marked MCP's).
-      if (routine !== null) sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE path = ? AND last_bot = ? AND ${ANSWERABLE}`, at, routine, name, at);
-      else if (answerNote) sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_bot = ? AND ${ANSWERABLE}`, at, area, name, at);
+      // Its answer to a routine sent to it before: the routine shows when it was answered. Only the bot the routine
+      // went to answers it, in the area's mail or the routine's own note. Bots answer in the mail note they were
+      // already writing in as often as in their own (`answer_in`), and a bot has one routine out at a time, so its
+      // next line in the area's mail is that routine's answer (the 12 PM round, 2026-11-27: Beth and Capabilities).
+      if (routine !== null) {
+        sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE path = ? AND last_bot = ? AND ${ANSWERABLE}`, at, routine, name, at);
+        inbox.clear(name, { noteId, note: routine }, at);
+      } else {
+        sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_bot = ? AND ${ANSWERABLE}`, at, area, name, at);
+        inbox.clearRoutines(name, area, at);
+      }
     }
   }
 
@@ -217,6 +225,8 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
   function send(row, at, found = budget(row.area, at)) {
     if (found === null) return { found, outcome: "no_bot" };
     if (spent(found)) return { found, outcome: "held" };
+    // Kept for a bot that checks in, whether or not a webhook takes it.
+    inbox.add({ bot: found.name, noteId: row.note_id ?? null, note: row.path, kind: "routine", area: row.area, from: "context", at });
     try {
       const reply = tell({ type: "routine", bot: found.name, area: row.area, note: row.path, from: "context" });
       if (typeof reply?.then === "function") reply.then((result) => delivered(row.path, at, result)).catch(() => delivered(row.path, at, null));
@@ -347,6 +357,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     budget,
     spent,
     recordMail,
+    inbox,
     /** The area a routine note at `path` belongs to, or null for a path that is no area's routine. */
     areaOfRoutine(path) {
       return all(sql.exec("SELECT area FROM ws_area_routines WHERE path = ?", path))[0]?.area ?? null;
@@ -376,7 +387,8 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
       const usage = all(sql.exec("SELECT bot, area, SUM(used) AS used FROM ws_bot_usage WHERE week = ? GROUP BY bot, area ORDER BY bot, area", week))
         .filter((row) => sees(`${row.area}/about.md`))
         .map((row) => ({ bot: row.bot, area: row.area, used: Number(row.used) }));
-      return { week, routines, usage };
+      // When each bot last checked in, and how many items wait for it here (`botInbox.js`).
+      return { week, routines, usage, checks: inbox.checks(), inbox: inbox.counts(sees) };
     },
   };
 }

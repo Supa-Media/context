@@ -11,6 +11,7 @@ import { CHAT_PREFACE, trimGroupTurns } from "./groupTurn.js";
 import { keptTurn } from "./conversation.js";
 import { copyGroupPageIn } from "./groupPageCopy.js";
 import { readGuestNames } from "./groupGuestNames.js";
+import { guestShown, numberOf } from "./groupNames.js";
 
 /** At most this many reads of the ledger rebuild one group's history. */
 const MAX_PAGES = 4;
@@ -21,13 +22,14 @@ const TAGS_TEX = /(?:^|[^\w@])@?(?:tex|context)(?![\w-])/i;
  * A group's run of texts as the page kept a question: what people said to each other in a block the Mail checker
  * strips (`groupTurn.js` `checkerHistory`), then the text that tagged Tex, each with who said it.
  */
-export function groupQuestion(texts, said, guestNames = []) {
+export function groupQuestion(texts, said, guestNames = [], numbers = []) {
   const named = new Map((Array.isArray(guestNames) ? guestNames : []).map(({ guest, name }) => [guest, name]));
+  const group = { guests: [], numbers: Array.isArray(numbers) ? numbers : [] };
   const lines = texts.map((entry, i) => {
     if (entry.backfill === "page") return said[i];
     const who = typeof entry.from?.name === "string" && entry.from.name.trim() ? entry.from.name.trim().replace(/^@*/, "") : "";
-    // A guest by the name the chat gave them, beside their label (`groupGuestNames.js`).
-    const name = who === "" ? "Someone" : named.has(who) ? `@${who} (${named.get(who)})` : `@${who}`;
+    // A guest by the name the chat gave them and their number, never their label when either is known (Dev2, 2026-11-27).
+    const name = who === "" ? "Someone" : /^guest-/.test(who) ? `@${guestShown(named.get(who) ?? "", numberOf(group, who), who)}` : named.has(who) ? `@${who} (${named.get(who)})` : `@${who}`;
     // Every line under the speaker's own label (`groupSaid.js`): a line of theirs never reads as another member's.
     return saidBy(name, said[i]);
   });
@@ -47,7 +49,7 @@ export function groupQuestion(texts, said, guestNames = []) {
  * The group's history from its ledger, as the page's turns were (`trimGroupTurns`), newest pages until full. `names`
  * is the chat's guest names, or a promise of them, read beside the pages when not given (`groupGuestNames.js`).
  */
-export async function readGroupLedgerConversation(ledger, chat, { names = null } = {}) {
+export async function readGroupLedgerConversation(ledger, chat, { names = null, numbers = [] } = {}) {
   const guestNames = Promise.resolve(names ?? readGuestNames(ledger, chat)).catch(() => []);
   const entries = [];
   let cursor = Number.MAX_SAFE_INTEGER;
@@ -58,7 +60,7 @@ export async function readGroupLedgerConversation(ledger, chat, { names = null }
     cursor = read.before;
   }
   const known = await guestNames;
-  return trimGroupTurns(conversationFromLedger(entries, { question: (texts, said) => groupQuestion(texts, said, known) }));
+  return trimGroupTurns(conversationFromLedger(entries, { question: (texts, said) => groupQuestion(texts, said, known, numbers) }));
 }
 
 /**
@@ -83,7 +85,7 @@ export async function historyFromLedger(ledger, group, turns, { copied, writes, 
       if (copy.state !== "copied" && copy.state !== "done") return null;
     }
     group.pageCopied = true;
-    return (await readGroupLedgerConversation(ledger, group.key, { names: group.guestNames ?? [] })).map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
+    return (await readGroupLedgerConversation(ledger, group.key, { names: group.guestNames ?? [], numbers: group.numbers ?? [] })).map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources }));
   } catch (error) {
     console.log(JSON.stringify({ event: "group_history_from_ledger_failed", reason: String(error?.name ?? "error").slice(0, 40) }));
     return null;

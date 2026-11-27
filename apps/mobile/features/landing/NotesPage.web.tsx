@@ -105,7 +105,7 @@ export function NotesPage() {
         <p className="np-connect">
           An agent connects at <a href="https://mcp.context.lc/mcp">mcp.context.lc/mcp</a> and signs in with OAuth.{" "}
           <span className="np-guides">
-            <a href="/agents">Grok Bot guide</a>
+            <a href="/agents">Agents guide</a>
             <a href="/claude">Claude guide</a>
             <a href="/llms.txt">llms.txt</a>
           </span>

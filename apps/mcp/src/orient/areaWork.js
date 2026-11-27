@@ -57,7 +57,7 @@ function outcomeWords(routine) {
     case "sent": {
       const took = routine.deliveredStatus ? ` (its webhook answered ${routine.deliveredStatus})` : "";
       if (routine.answeredAt) return `sent ${at}${took}, answered ${when(routine.answeredAt)}`;
-      if (routine.missed) return `missed: sent ${at}${took}, no answer in ${routine.answerIn ?? "its mail"} after an hour`;
+      if (routine.missed) return `missed: sent ${at}${took}, no answer from ${routine.bot ?? "its bot"} in this area's mail after an hour (asked in ${routine.answerIn ?? "its mail"})`;
       return `sent ${at}${took}, not answered yet`;
     }
     case "held":

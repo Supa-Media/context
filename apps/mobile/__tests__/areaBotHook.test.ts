@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { BotHookView, lastCallLine, type HookRow } from "../features/console/files/folderPage/areas/PanelBotHook";
+import { BotHookView, type HookRow } from "../features/console/files/folderPage/areas/PanelBotHook";
 import { one, all, press, type } from "./projectPage/fixtures";
 
 const unmounts: Array<() => void> = [];
@@ -36,7 +36,7 @@ async function show(props: Parameters<typeof BotHookView>[0]) {
 
 const ROW: HookRow = { bot: "finance", host: "bot.example.com", headerEnds: "1234", setByName: "seyi", lastCallAt: 1, lastCallOk: true, lastCallStatus: 200, canReplace: true };
 
-describe("a bot's webhook in the area panel", () => {
+describe("a bot's webhook on its page", () => {
   test("by hand, saving sends the address, header and a fresh signing key; the key is shown once only with no header", async () => {
     const save = jest.fn(async (_address: string, _header: string, _key: string) => {});
     await show({ bot: "Finance", row: null, canEdit: true, save, test: async () => ({ ok: true, status: 200 }) });
@@ -68,7 +68,8 @@ describe("a bot's webhook in the area panel", () => {
   test("once saved it shows the host and the header's end, never the address, and sends a test", async () => {
     const test_ = jest.fn(async () => ({ ok: false, status: 503 }));
     await show({ bot: "Finance", row: ROW, canEdit: true, save: async () => {}, test: test_ });
-    expect(one("area-panel-hook-saved").textContent).toBe("Webhook bot.example.com · header ends 1234 · set by @seyi");
+    expect(one("area-panel-hook-saved").textContent).toBe("Webhook at bot.example.com");
+    expect(one("area-panel-hook-detail").textContent).toBe("Header ends 1234 · set by @seyi");
     expect(all("area-panel-hook-address")).toHaveLength(0);
     await press(one("area-panel-hook-test"));
     expect(test_).toHaveBeenCalled();
@@ -81,11 +82,5 @@ describe("a bot's webhook in the area panel", () => {
     unmounts.pop()!();
     await show({ bot: "Finance", row: ROW, canEdit: false, save: async () => {}, test: async () => ({ ok: true, status: 200 }) });
     expect(all("area-panel-hook-test")).toHaveLength(0);
-  });
-
-  test("the last call in a few words", () => {
-    expect(lastCallLine({ ...ROW, lastCallAt: null })).toBe("Not called yet.");
-    expect(lastCallLine(ROW)).toBe("Last call answered (200).");
-    expect(lastCallLine({ ...ROW, lastCallOk: false, lastCallStatus: 0 })).toBe("Last call didn't reach it.");
   });
 });

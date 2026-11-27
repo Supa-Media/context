@@ -37,6 +37,8 @@ import { useWorkspaceMetrics } from "./useWorkspaceMetrics";
 import {
   AREA_KEY,
   areaTree,
+  botsFolder,
+  isBotCardPath,
   avatarFor,
   cardChanges,
   cardOf,
@@ -55,6 +57,11 @@ import {
 } from "./seat";
 import { mailNotesOf } from "./areaMail";
 import { BotsPage } from "./BotsPage";
+import { useQuery } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
+import { BotLookupsScope, botLookups, type BotLookups } from "./botHealth";
+import type { HookRow } from "./PanelBotHook";
 import { useAreaProjects } from "./useAreaProjects";
 import { useAreaCards } from "./useAreaCards";
 import { useAreaRoutineState } from "./useAreaRoutineState";
@@ -304,12 +311,24 @@ export function AreasView(props: AreasViewProps) {
   const peekNode = peek === null ? undefined : findNode(tree, peek);
   // The routines' runs, asked while an area is in the panel and again when a routine is added or moved.
   const routinePaths = useMemo(() => notes.filter((note) => note.path.includes("/routines/")).map((note) => note.path).join("\n"), [notes]);
-  const { state: routineState, run: runRoutine } = useAreaRoutineState(peekNode !== undefined, routinePaths);
+  // Asked on the bots page too, where every bot's health reads its routines' answers (`botHealth.tsx`).
+  const { state: routineState, run: runRoutine } = useAreaRoutineState(peekNode !== undefined || view === "bots", routinePaths);
+  // The workspace's saved webhooks, which every member reads: whether each bot is reached, and how its last call went.
+  const [hooks, setHooks] = useState<readonly HookRow[] | undefined>(undefined);
+  const lookups = useMemo(() => (hooks === undefined ? undefined : botLookups(hooks, routineState, Date.now())), [hooks, routineState]);
+  // A bot's own page, `bots/<bot>/`, where its setup and health are (Dev, 2026-11-27).
+  const openBot = useCallback(
+    (holder: string) => {
+      const at = cardPath(root, holder, withCards);
+      onSelect(isBotCardPath(root, at) ? at.slice(0, -"/about.md".length) : `${botsFolder(root)}/${cardSlug(holder)}`);
+    },
+    [root, withCards, onSelect],
+  );
   const routinesFor = useAreaRoutineTools({ root, notes, cardNotes: withCards, cardFor, canEdit, host, chooseMany, open: onSelect, state: routineState, run: runRoutine });
   // The panel's contents follow this view's every render through a slot of
   // their own, so the page only hears when the panel opens or closes.
   const slot = useRef(panelSlot()).current;
-  const panelProps: Omit<AreaPanelProps, "width"> | null =
+  const panelProps: PanelProps =
     peekNode === undefined
       ? null
       : {
@@ -340,7 +359,8 @@ export function AreasView(props: AreasViewProps) {
             open: onSelect,
             faceOf: senderFace,
           },
-          tools: { people, agents, isAgent, cardFor, label, cardPath: (holder: string) => cardPath(root, holder, withCards), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
+          ...(lookups === undefined ? {} : { lookups }),
+          tools: { people, agents, isAgent, cardFor, label, openBot, cardPath: (holder: string) => cardPath(root, holder, withCards), ownedAreas, ...(canEdit && host?.source.storePicture !== undefined ? { storePicture: host.source.storePicture } : {}), ...(addAgent === undefined ? {} : { addAgent }), ...(handle === undefined ? {} : { workspace: handle }), ...(host === undefined ? {} : { workspaceId: host.workspaceId }) },
           onPeek: setPeek,
           onOpen: (area) => {
             setPeek(null);
@@ -362,6 +382,7 @@ export function AreasView(props: AreasViewProps) {
   const pickingTitle = picking === null ? "" : picking.folder === folder ? rootTitle : areaTitle(picking.name);
   return (
     <View testID="areas-view">
+      {host === undefined ? null : <HookRows workspaceId={host.workspaceId} onRows={setHooks} />}
       {problem !== null ? (
         <Text variant="treeMeta" role="alert" testID="areas-problem">
           {problem}
@@ -386,6 +407,8 @@ export function AreasView(props: AreasViewProps) {
           {...(canEdit && addAgent !== undefined ? { people, addBot } : {})}
           {...(host === undefined ? {} : { workspaceId: host.workspaceId })}
           {...(handle === undefined ? {} : { workspace: handle })}
+          {...(hooks === undefined ? {} : { hooks })}
+          routineState={routineState}
         />
       ) : view === "chart" ? (
         <AreasChart
@@ -483,7 +506,7 @@ export function AreasView(props: AreasViewProps) {
   );
 }
 
-type PanelProps = Omit<AreaPanelProps, "width"> | null;
+type PanelProps = (Omit<AreaPanelProps, "width"> & { lookups?: BotLookups }) | null;
 
 /** The side panel's latest contents, which the panel reads as they change. */
 function panelSlot() {
@@ -502,9 +525,25 @@ function panelSlot() {
   };
 }
 
+/** Reads the workspace's saved webhooks and hands them up; drawn only where the page names its workspace. */
+function HookRows({ workspaceId, onRows }: { workspaceId: string; onRows: (rows: readonly HookRow[] | undefined) => void }) {
+  const rows = useQuery(api.functions.botHooks.botHookList, { workspaceId: workspaceId as Id<"workspaces"> });
+  // Handed up only when what they say changes: a new array with the same rows would draw the page again for nothing.
+  const said = rows === undefined ? "" : JSON.stringify(rows);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => onRows(rows), [said, onRows]);
+  return null;
+}
+
 function PanelSlot({ slot, width }: { slot: ReturnType<typeof panelSlot>; width: number }) {
   const props = useSyncExternalStore(slot.subscribe, slot.get, slot.get);
-  return props === null ? null : <AreaPanel {...props} width={width} />;
+  if (props === null) return null;
+  const { lookups, ...panel } = props;
+  return (
+    <BotLookupsScope lookups={lookups}>
+      <AreaPanel {...panel} width={width} />
+    </BotLookupsScope>
+  );
 }
 
 function findNode(node: AreaNode, folder: string): AreaNode | undefined {

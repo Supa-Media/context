@@ -779,6 +779,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 
 - Vocabulary
 - "Brain" is retired, and stays reserved
+- [LLM, agent and bot](./vocabulary-and-workspaces.md#llm-agent-and-bot) (2026-11-27)
 - The workspace model (build this now, it's cheap)
 - Deliberately not yet
 

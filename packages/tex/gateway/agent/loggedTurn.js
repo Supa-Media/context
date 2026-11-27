@@ -227,7 +227,7 @@ export const JOB_HISTORY_ENTRIES = 30;
 const UNTIMED = { memory: (run) => run(), ledger: (run) => run(), log: (run) => run(), group: {} };
 export function turnReads(store, session, body, { runner, group, dispatch, warm, timeZone, job = false, moment = runner || group !== null, time = UNTIMED }) {
   const today = time.memory(() => turnHistory(store, session, body, { runner, group, dispatch, job, time: time.group ?? {} }));
-  const started = chatLedger(store, session); // a job's part reads it too, as a reply does (one record, step 3)
+  const started = chatLedger(store, session, group?.numbers); // a job's part reads it too, as a reply does (one record, step 3)
   // No ledger stays null: the log is then read from the bucket (`loggedTurn`).
   const ledger = started === null ? null : time.ledger(() => started);
   const logged = runner ? Promise.resolve(null) : time.log(() => loggedTurn(store, body, { group, timeZone, warm, record: today.then((read) => read.history).catch(() => []), ledger, grant: carryKey(session) }));
@@ -246,12 +246,12 @@ export function turnReads(store, session, body, { runner, group, dispatch, warm,
 }
 
 /** The chat's ledger as a turn reads it (`ledgerHistory.js`), started now, or null when the session keeps none. */
-function chatLedger(store, session) {
+function chatLedger(store, session, numbers = []) {
   const place = ledgerPlace(session);
   const ledger = place !== null && typeof store?.texLedger === "function" ? store.texLedger(place.owner.chat ?? null) : null;
   if (ledger === null) return null;
   const first = place.chat === DESK_LEDGER.chat && place.owner.person ? deskLedger(store) : Promise.resolve(null); // a person's: the desk's page, read with their record
-  return first.then((page) => readLedger(ledger, place.chat, { first: page })).then((entries) => ({ entries, chat: place.chat, ledger }));
+  return first.then((page) => readLedger(ledger, place.chat, { first: page, numbers })).then((entries) => ({ entries, chat: place.chat, ledger }));
 }
 
 /**

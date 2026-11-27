@@ -155,10 +155,12 @@ each now closed in `areaRoutines.js`:
   (`delivered_status`, `delivered_at`); one no webhook took (status 0, or not
   2xx) becomes `failed`, which the app already shows as "Didn't reach". A bot
   that checks its mail itself can still answer it.
-- **Only the answer where it was asked counts.** A routine is answered by its
-  own bot's line in `<area>/mail/<bot>.md` (the payload's `answer_in`) or in
-  the routine's own note. Before, any line by the area's holder in any of the
-  area's mail notes counted, so a reply to someone else marked it answered.
+- **Only its own bot answers it.** A routine is answered by a line from the
+  bot it was sent to, in the area's mail or the routine's own note; the payload
+  asks for `<area>/mail/<bot>.md` (`answer_in`), but bots answer as often in
+  the note they were already writing in (the 12 PM round that day: Beth and
+  Capabilities), and with one routine out per bot, its next line there is the
+  answer. Before, any line by the area's holder answered every routine in it.
 - **One routine at a time per bot.** A bot woken for four routines at once
   answered one. The next is queued until the bot answers the last, or twenty
   minutes pass, retried every two minutes; Run now is unchanged.
@@ -166,4 +168,49 @@ each now closed in `areaRoutines.js`:
 A routine sent and unanswered after an hour is `missed` in the state, and
 `orient` names it with where its answer belongs. Tests:
 `apps/mcp/test/areaRoutines.test.mjs` (the last three tests; dropping the
-answer-note check or the one-at-a-time check fails one each).
+one-at-a-time check fails one).
+
+## A bot with no webhook checks in cheaply, every 5 minutes
+
+Decided by the owner, 2026-11-27: "we do want to support [a polling loop], but
+design it in a lightweight way where the MCP can just return whether it has
+anything new in its inbox or not, that way the loops don't burn a lot of
+tokens, and only when it has something new does it give the agent the mail and
+give it options to view the mail ... as long as the agent is pinging every 5
+minutes it can be in good standing".
+
+- **An inbox per bot, in the workspace object** (`workspaceStore/botInbox.js`,
+  `ws_bot_inbox`). Every routine sent to a bot and every mail line told to it
+  is kept as one row per bot and note, newest time kept, whether or not a
+  webhook took it. The bot's own mail line in that note clears it; a routine is
+  also cleared where it is marked answered (its line in any of the area's mail
+  notes).
+  Rows older than two weeks go, and a bot keeps at most fifty. Note ids, paths,
+  areas, senders and times only: never a message's words.
+- **The cheap call.** `orient { for: "<bot>", check: true }` records the
+  check-in (`ws_bot_checks`, by mail name) and never builds the full holder
+  answer. Nothing waiting: `Nothing new. Check again in 5 minutes.` Something
+  waiting: `<n> new for <Bot>:`, one line per note (mail: who and when, then
+  its path; routine: its name, then its path), then how to read it
+  (`fetch { id, args: { mail: true } }` for one, `orient { area }` for its
+  whole area, `orient { for }` for everything). Each line names its area. Only notes this connection may read are listed, judged in the
+  object as `ws.bots.state` is (`ws.bots.check`). A workspace not on its object
+  says check-ins aren't available there yet.
+- **The full orient, once a working session.** A bot's first check-in, and
+  its first after six hours without one, is answered with the full
+  `orient { for }` instead: how Context works and every area it holds (Dev,
+  2026-11-27: "the full orient does have important things for the bot to know
+  ... so at what point will it call the full orient?"). The object says when
+  the bot last checked (`previousAt`); `orient/botCheck.js` `FULL_AFTER_MS`.
+- **Good standing.** `ws.bots.state` (and the app's area-routines route) carries
+  `checks: [{bot, at}]` and `inbox: [{bot, count}]`; the app shows a polling
+  bot as checking when it checked in within ten minutes.
+- **Told in the prompt.** A bot set up with reach `mail` is told to make that
+  call every 5 minutes on a timer that survives its session, and open only what
+  it lists (`packages/shared/src/areaBots.cjs` `mailText`). Webhook bots are
+  unchanged.
+
+Anyone who may read a bot's notes can check in under its name; a check-in is a
+liveness signal for the app, not an identity. Tests:
+`apps/mcp/test/botInbox.test.mjs` (dropping the clear in `botMail.js`, or
+putting a message's text into an item, fails a test each).

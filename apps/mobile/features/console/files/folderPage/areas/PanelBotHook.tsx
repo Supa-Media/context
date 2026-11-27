@@ -1,7 +1,8 @@
 /**
- * How Context reaches a bot that holds an area, under its Reach row: the bot's
- * webhook (`apps/convex/functions/botHooks.ts`, decided by the owner
- * 2026-11-25). A bot sets its own from its setup prompt, sending its secret
+ * How Context reaches a bot, in the Setup section of its own page (Dev,
+ * 2026-11-27: "the setup options should be in the bot page"; `BotSetup.tsx`):
+ * the bot's webhook, the only way it is reached
+ * (`apps/convex/functions/botHooks.ts`, decided by the owner 2026-11-25). A bot sets its own from its setup prompt, sending its secret
  * from its shell; by hand, the address and an optional header are typed here
  * once and sealed on the account server, and nobody reads them back. The
  * signing key is made here and sealed with them, and shown once only for a
@@ -35,13 +36,6 @@ export interface HookRow {
   canReplace: boolean;
 }
 
-/** What the last call says, in a few words. */
-export function lastCallLine(row: HookRow): string {
-  if (row.lastCallAt === null) return "Not called yet.";
-  if (row.lastCallOk === true) return `Last call answered (${row.lastCallStatus}).`;
-  return row.lastCallStatus === 0 || row.lastCallStatus === null ? "Last call didn't reach it." : `Last call failed (${row.lastCallStatus}).`;
-}
-
 /** The webhook, as drawn: what is saved and its last call, or the form to save one. */
 export function BotHookView({
   bot,
@@ -49,12 +43,15 @@ export function BotHookView({
   canEdit,
   save,
   test,
+  extra,
 }: {
   bot: string;
   row: HookRow | null | undefined;
   canEdit: boolean;
   save: (address: string, headerLine: string, signingKey: string) => Promise<void>;
   test: () => Promise<{ ok: boolean; status: number }>;
+  /** More buttons beside Send a test and Replace (its setup prompt's Copy). */
+  extra?: React.ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -111,28 +108,31 @@ export function BotHookView({
     <View style={styles.box} testID="area-panel-hook">
       {row === null ? null : (
         <View style={styles.saved}>
-          <Text variant="treeMeta" style={styles.muted} numberOfLines={1} testID="area-panel-hook-saved">
-            {`Webhook ${row.host}${row.headerEnds === null ? "" : ` · header ends ${row.headerEnds}`}${row.setByName === "" ? "" : ` · set by @${row.setByName}`}`}
-          </Text>
-          <Text variant="treeMeta" style={styles.muted} testID="area-panel-hook-last">{tested ?? lastCallLine(row)}</Text>
+          <View style={styles.value}>
+            <Text variant="tree" numberOfLines={1} testID="area-panel-hook-saved">{`Webhook at ${row.host}`}</Text>
+            <Text variant="treeMeta" style={styles.muted} numberOfLines={1} testID="area-panel-hook-detail">
+              {[row.headerEnds === null ? "No header" : `Header ends ${row.headerEnds}`, row.setByName === "" ? "" : `set by @${row.setByName}`].filter(Boolean).join(" · ")}
+            </Text>
+          </View>
           {canEdit ? (
             <View style={styles.actions}>
-              <Pressable role="button" onPress={() => void onTest()} style={styles.link} testID="area-panel-hook-test">
+              <Pressable role="button" onPress={() => void onTest()} style={styles.button} testID="area-panel-hook-test">
                 <Text variant="treeMeta" style={styles.linkWord}>Send a test</Text>
               </Pressable>
               {row.canReplace && !editing ? (
-                <Pressable role="button" onPress={() => setEditing(true)} style={styles.link} testID="area-panel-hook-replace">
+                <Pressable role="button" onPress={() => setEditing(true)} style={styles.button} testID="area-panel-hook-replace">
                   <Text variant="treeMeta" style={styles.linkWord}>Replace</Text>
                 </Pressable>
               ) : null}
+              {extra}
             </View>
           ) : null}
+          {tested === null ? null : <Text variant="treeMeta" style={styles.muted} testID="area-panel-hook-last">{tested}</Text>}
         </View>
       )}
-      {row === null && !canEdit ? <Text variant="treeMeta" style={styles.muted}>No webhook saved.</Text> : null}
+      {row === null && !canEdit ? <Text variant="treeMeta" style={styles.muted}>No webhook yet.</Text> : null}
       {row === null && canEdit && !editing ? (
         <View style={styles.saved}>
-          <Text variant="treeMeta" style={styles.muted}>{`No webhook yet: ${bot} sets it from its setup prompt.`}</Text>
           <Pressable role="button" onPress={() => setEditing(true)} style={styles.link} testID="area-panel-hook-by-hand">
             <Text variant="treeMeta" style={styles.mutedLink}>Set the webhook up by hand</Text>
           </Pressable>
@@ -191,7 +191,7 @@ export function BotHookView({
 }
 
 /** The webhook of one bot in one workspace, read and saved through the account server. */
-export function BotHookFields({ workspaceId, bot, canEdit }: { workspaceId: string; bot: string; canEdit: boolean }) {
+export function BotHookFields({ workspaceId, bot, canEdit, extra }: { workspaceId: string; bot: string; canEdit: boolean; extra?: React.ReactNode }) {
   const id = workspaceId as Id<"workspaces">;
   const rows = useQuery(api.functions.botHooks.botHookList, { workspaceId: id });
   const setHook = useAction(api.functions.botHooks.setBotHook);
@@ -207,15 +207,18 @@ export function BotHookFields({ workspaceId, bot, canEdit }: { workspaceId: stri
         await setHook({ workspaceId: id, bot, address, signingKey, ...(headerLine === "" ? {} : { headerLine }) });
       }}
       test={() => testHook({ workspaceId: id, bot })}
+      extra={extra}
     />
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    box: { gap: space.x1, marginTop: space.x1 },
-    saved: { gap: 2 },
-    actions: { flexDirection: "row", gap: space.x3 },
+    box: { gap: space.x1 },
+    saved: { gap: space.x2 },
+    value: { gap: 2 },
+    actions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
+    button: { paddingVertical: 3, paddingHorizontal: space.x3, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line },
     link: { paddingVertical: 2 },
     linkWord: { color: colors.text, fontWeight: "600" },
     form: { gap: space.x1 },

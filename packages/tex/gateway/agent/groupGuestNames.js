@@ -13,7 +13,7 @@
  * text: it is kept to the letters and marks names use (`cleanName`), so it can't carry an instruction.
  */
 
-import { cleanName } from "./groupNames.js";
+import { cleanName, guestLabelFor, guestShown, numberOf, shownNumber } from "./groupNames.js";
 
 /** Shown beside `name_guest` (`sixTools.js`). */
 export { HOLDERS_SEND_ACTIONS } from "./groupHolders.js";
@@ -73,16 +73,23 @@ export async function readGuestNames(ledger, chat) {
 }
 
 /**
- * Ledger entries with each guest's kept name beside its label, as `from.guestName`, so every line rendered from them
- * reads "@guest-1a2b (Sam): ..." (`logRender.js` `speaker`). Dev2, 2026-11-18: the week's history printed bare labels
+ * Ledger entries with each guest's kept name, as `from.guestName`, and number, as `from.guestNumber`, so every line
+ * rendered from them reads "@Sam (+1 (555) 123-4567): ..." (`logRender.js` `speaker`). Dev2, 2026-11-18: the week's history printed bare labels
  * while only the chat's list named them, and Tex mixed up who said what in Battle of the Bots. Names are read only when
  * an entry is from a guest, so a one-to-one chat costs no read; a name that can't be read leaves the label alone.
  */
-export async function withGuestNames(entries, ledger, chat) {
+export async function withGuestNames(entries, ledger, chat, numbers = []) {
   if (!Array.isArray(entries) || !entries.some(fromGuest)) return entries;
   const names = new Map((await readGuestNames(ledger, chat)).map(({ guest, name }) => [guest, name]));
-  if (names.size === 0) return entries;
-  return entries.map((entry) => (fromGuest(entry) && names.has(entry.from.name) ? { ...entry, from: { ...entry.from, guestName: names.get(entry.from.name) } } : entry));
+  // Each guest's number beside them too, when the turn has the chat's (`groupNames.js` `numbersOf`), so a line shows
+  // the number and never the label (Dev2, 2026-11-27).
+  const shown = new Map((Array.isArray(numbers) ? numbers : []).flatMap(({ who, phone }) => (GUEST.test(who ?? "") && typeof phone === "string" ? [[who, shownNumber(phone)]] : [])));
+  if (names.size === 0 && shown.size === 0) return entries;
+  return entries.map((entry) => {
+    if (!fromGuest(entry) || (!names.has(entry.from.name) && !shown.has(entry.from.name))) return entry;
+    const label = entry.from.name;
+    return { ...entry, from: { ...entry.from, ...(names.has(label) ? { guestName: names.get(label) } : {}), ...(shown.has(label) ? { guestNumber: shown.get(label) } : {}) } };
+  });
 }
 
 function fromGuest(entry) {
@@ -131,8 +138,10 @@ export function laterNames() {
 /**
  * The chat's guest names: the ledger's, and for a guest it has none for, the about note's, which are kept in the
  * ledger then (behind the turn, `by: "about"`), so the judge and every later turn read them from the one copy.
+ * Who is here by number is kept beside them, behind the turn too (`keepGuestNumbers`).
  */
 export async function guestNamesWithAbout(kept, about, group, ledger) {
+  void keepGuestNumbers(ledger, group);
   const [names, note] = await Promise.all([Promise.resolve(kept).catch(() => []), Promise.resolve(about).catch(() => null)]);
   const known = new Set(names.map((entry) => entry.guest));
   const added = namesInAbout(note, group?.guests).filter((entry) => !known.has(entry.guest));
@@ -143,6 +152,54 @@ export async function guestNamesWithAbout(kept, about, group, ledger) {
       .catch(() => {});
   }
   return [...names, ...added];
+}
+
+/**
+ * Each guest's number, kept in the chat's own ledger as a `numbers` entry `{guests: [{guest, phone}]}` whenever who is
+ * here changes, for a member's app to look the unnamed ones up in that phone's contacts (Dev2, 2026-11-27;
+ * `apps/mcp/src/http/texPage/contacts.js`). The chat's people already see each other's numbers; the control plane
+ * never keeps one (`textGroups.test.ts` "the number itself is never stored").
+ */
+export function guestNumbersEntry(guests, { at = Date.now() } = {}) {
+  const kept = guests.slice(0, MAX_NAMES);
+  return { v: 1, id: `nums${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`, at, kind: "numbers", guests: kept, text: kept.map(({ guest, phone }) => `${guest} is ${phone}`).join("; ") };
+}
+
+const PHONE = /^\+[1-9]\d{6,14}$/;
+
+/** The guests here with their numbers, by label, from the turn's numbers (`groupNames.js` `numbersOf`), sorted. */
+function guestNumbersOf(group) {
+  const seen = new Map();
+  for (const { who, phone } of Array.isArray(group?.numbers) ? group.numbers : []) if (GUEST.test(who ?? "") && PHONE.test(phone ?? "") && !seen.has(who)) seen.set(who, phone);
+  return [...seen].sort(([a], [b]) => (a < b ? -1 : 1)).map(([guest, phone]) => ({ guest, phone }));
+}
+
+/** The newest `numbers` entry's guests, or null when there is none or it can't be read. */
+export async function readGuestNumbers(ledger, chat) {
+  if (ledger === null || ledger === undefined || typeof ledger.read !== "function") return null;
+  try {
+    const read = await ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["numbers"], limit: 1 });
+    const entry = (read?.entries ?? [])[0];
+    if (entry?.kind !== "numbers" || !Array.isArray(entry.guests)) return null;
+    return entry.guests.filter((guest) => GUEST.test(guest?.guest ?? "") && PHONE.test(guest?.phone ?? "")).map(({ guest, phone }) => ({ guest, phone }));
+  } catch {
+    return null;
+  }
+}
+
+/** Keep who is here by number when it changed since the newest kept, behind the turn; never throws. */
+export async function keepGuestNumbers(ledger, group) {
+  const guests = guestNumbersOf(group);
+  if (guests.length === 0 || typeof ledger?.append !== "function" || typeof group?.key !== "string") return false;
+  try {
+    const kept = await readGuestNumbers(ledger, group.key);
+    if (kept !== null && JSON.stringify(kept) === JSON.stringify(guests)) return false;
+    await ledger.append(group.key, [guestNumbersEntry(guests)]);
+    return true;
+  } catch (error) {
+    console.log(JSON.stringify({ event: "group_guest_numbers_unkept", reason: String(error?.name ?? "error").slice(0, 40) }));
+    return false;
+  }
 }
 
 /** The judge's facts: each guest here by label and name, one line. */
@@ -161,23 +218,23 @@ export function guestNameTool({ group, ledger }) {
     tool: {
       name: NAME_GUEST,
       description:
-        "Keep the name of someone in this chat you know only by a guest label (guest-1a2b), once someone here says who they are " +
+        "Keep the name of someone in this chat you know only by their number, once someone here says who they are " +
         "(\"that's my brother Sam\"), or they say it themselves. From then on the chat's list, its lines and who tagged you name them, with their number. " +
         "A new name for the same guest replaces the old one.",
       inputSchema: {
         type: "object",
         properties: {
-          guest: { type: "string", description: "Their guest label, exactly as shown: guest- and four letters or digits." },
+          guest: { type: "string", description: "Their number as the chat's list shows it, or the label a line shows for someone with no number." },
           name: { type: "string", description: "The name the chat gave them, as a person would say it (\"Sam\", \"Sam Rivers\")." },
         },
         required: ["guest", "name"],
       },
     },
     call: async (args) => {
-      const guest = typeof args?.guest === "string" ? args.guest.trim().toLowerCase() : "";
-      const here = Array.isArray(group.guests) ? group.guests : [];
-      if (!GUEST.test(guest) || !here.includes(guest)) {
-        return text(`Not kept: ${guest || "that"} isn't a guest label in this chat. The guests here are ${here.length > 0 ? here.join(", ") : "none"}.`, true);
+      const guest = guestLabelFor(group, args?.guest);
+      const here = (Array.isArray(group.guests) ? group.guests : []).map((label) => guestShown("", numberOf(group, label), label));
+      if (!GUEST.test(guest)) {
+        return text(`Not kept: ${typeof args?.guest === "string" && args.guest.trim() ? args.guest.trim().slice(0, 40) : "that"} isn't someone here without an account. They are ${here.length > 0 ? here.join(", ") : "none"}.`, true);
       }
       const name = cleanName(args?.name);
       if (name === "") return text("Not kept: give the name as a person would say it, letters only.", true);
@@ -190,7 +247,7 @@ export function guestNameTool({ group, ledger }) {
       }
       group.guestNames = [{ guest, name }, ...(Array.isArray(group.guestNames) ? group.guestNames.filter((entry) => entry.guest !== guest) : [])];
       console.log(JSON.stringify({ event: "group_guest_named" }));
-      return text(`Kept: ${guest} is ${name} in this chat. Call them ${name} from now on; don't mention you saved it unless asked.`);
+      return text(`Kept: ${guestShown("", numberOf(group, guest), guest)} is ${name} in this chat. Call them ${name} from now on; don't mention you saved it unless asked.`);
     },
   };
 }

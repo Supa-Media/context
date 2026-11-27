@@ -13,6 +13,7 @@ import { Switch } from "../../design/components/Switch";
 import { thisMacLine, useThisMac } from "./useThisMac";
 import { Chevron } from "./TexMachineParts";
 import type { MachinesPage } from "./texMachineTypes";
+import { useContactNames } from "../contacts/useContactNames";
 
 /** The control plane's limit on the text (`apps/convex/functions/lib/texInstructions.ts` `MAX_INSTRUCTIONS`). */
 const MAX_INSTRUCTIONS = 1_500;
@@ -53,6 +54,8 @@ export function SettingsPage({ source, page, chat, go }: ViewProps) {
   const machines = useTexMachines(source, chat, page.changes);
   // Only inside the Mac app; and only the person's own Tex settings, never a group's.
   const thisMac = useThisMac();
+  // Only on a phone build that has the contacts module; off until turned on.
+  const contacts = useContactNames(source);
   const value = read?.kind === "ok" ? read.value : undefined;
   const number = value?.number;
   const [copied, setCopied] = useState(false);
@@ -100,6 +103,22 @@ export function SettingsPage({ source, page, chat, go }: ViewProps) {
                   testID="tex-settings-this-mac-switch"
                 />
               ) : null
+            }
+          />
+        ) : null}
+        {contacts.available ? (
+          <ListRow
+            title="Names from my contacts"
+            sub={contactsSub(contacts.on, contacts.kept)}
+            testID="tex-settings-contacts"
+            right={
+              <Switch
+                value={contacts.on}
+                onValueChange={contacts.setOn}
+                label="Names from my contacts"
+                style={{ alignSelf: "center" }}
+                testID="tex-settings-contacts-switch"
+              />
             }
           />
         ) : null}
@@ -259,6 +278,12 @@ function addressOf(url: string, title: string): string {
   } catch {
     return url.length > 0 ? url : title;
   }
+}
+
+/** What the contacts switch does, and what its last sync found. */
+function contactsSub(on: boolean, kept: number | null): string {
+  if (on && kept !== null && kept > 0) return `${kept} name${kept === 1 ? "" : "s"} added to your group chats`;
+  return "Tex learns guests' names in your group chats from your contacts. Only the names leave this phone.";
 }
 
 /** "2 machines · 6 slots", or how to start when there are none. */

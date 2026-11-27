@@ -459,6 +459,7 @@ test/chatLedgerWrites.test.mjs
 test/chatLedgerReads.test.mjs
 test/chatLedgerBackfill.test.mjs
 test/texPage.test.mjs
+test/texContacts.test.mjs
 test/upstreamStatus.test.mjs
 test/texPageComputer.test.mjs
 test/texPageJobPlaces.test.mjs
@@ -824,6 +825,7 @@ test/dataSyncUsage.test.mjs
 test/areaRoutineBrief.test.mjs
 test/areaRoutines.test.mjs
 test/areaRoutinesRoute.test.mjs
+test/botInbox.test.mjs
 test/stickerLook.test.mjs
 test/blankFields.test.mjs
 test/explainContext.test.mjs
@@ -853,3 +855,4 @@ test/labSandboxLinkShare.test.mjs
 test/cellComments.test.mjs
 test/labSandboxApp.test.mjs
 bench/test/benchAppChat.test.mjs
+test/agentActivityBots.test.mjs

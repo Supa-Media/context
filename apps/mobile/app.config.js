@@ -175,6 +175,8 @@ module.exports = ({ config }) => {
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.POST_NOTIFICATIONS",
       ],
+      /** `expo-contacts` adds write access too; Context only ever reads contacts (features/tex/contacts). */
+      blockedPermissions: ["android.permission.WRITE_CONTACTS"],
     },
     web: {
       favicon: "./assets/favicon.png",
@@ -280,6 +282,19 @@ module.exports = ({ config }) => {
       "expo-web-browser",
       "expo-background-task",
       "expo-mail-composer",
+      [
+        "expo-contacts",
+        {
+          /*
+          Read only, and only once the person turns on "Names from my contacts" in Tex settings: the phone matches
+          the numbers of people in their Tex group chats who have no name yet, and sends back only the names it
+          found. The contact book itself never leaves the phone (features/tex/contacts). Gated in native-deps.json,
+          so an older binary that gets this JS over the air draws no switch.
+        */
+          contactsPermission:
+            "Context matches the numbers of people in your Tex group chats against your contacts on this phone, so Tex knows their names. Only those names are sent; your contacts stay on your phone.",
+        },
+      ],
     ],
     extra: {
       eas: {

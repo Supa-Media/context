@@ -1,6 +1,7 @@
 /** Which tool calls show as agent activity on a note, and recording them. Moved out of `src/index.js`. */
 
 import { AGENT_ACTIVITY_MAX_ENTRIES_PER_CALL, agentActivityKey } from "../agentActivity.js";
+import { botFor, boundBotsOf } from "../mail/boundBot.js";
 import { roomByName } from "../objectPlace.js";
 import { isConsoleActor, presenceActor, presenceClientKey } from "./presence.js";
 
@@ -51,12 +52,19 @@ export function recordAgentActivity(store, entries) {
         typeof userId !== "string" || !userId
       ) return;
       const shown = await presenceActor(store.actor);
+      // A login bound as a bot here (`tools/notes/botBind.js`) shows as that bot, never as "@seyi's Cursor" (Dev,
+      // 2026-11-27: "all grokbots still show up as cursor even though they are registered bots"). A connection bound
+      // as several bots shows as the one whose folder the note is in, or its only one; otherwise as the app, as before.
+      const bots = await boundBotsOf(store).catch(() => []);
+      const bot = botFor(bots, { path: entries[0]?.path ?? null }).bot ?? null;
       const actor = {
         ...shown,
+        ...(bot === null ? {} : { name: bot.name }),
         // A registered client can serve several accounts. Activity is one
         // grant, not one client, or two people's Claude calls collapse into a
-        // single row whose name changes with the newest event.
-        id: await presenceClientKey(`activity:${grantId}:${clientId}`),
+        // single row whose name changes with the newest event. One grant bound
+        // as several bots is one row per bot, for the same reason.
+        id: await presenceClientKey(`activity:${grantId}:${clientId}${bot === null ? "" : `:bot:${bot.bot}`}`),
         // Opaque and compared only by the route. This lets the console say
         // which activity belongs to its viewer without publishing a user id.
         owner: await presenceClientKey(`person:${userId}`),

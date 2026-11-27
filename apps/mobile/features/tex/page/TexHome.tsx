@@ -31,6 +31,7 @@ import {
   tileLines,
 } from "./texPageFormat";
 import type { Overview, Slot } from "./texPageTypes";
+import { useContactNames } from "../contacts/useContactNames";
 
 /** The Tex page's first screen, the mock's `template#page` and `#page-g`. */
 export function TexHome({
@@ -48,6 +49,8 @@ export function TexHome({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const lines = tileLines(overview.tiles, group !== null, new Date(now));
+  // With "Names from my contacts" on, opening the page syncs guests' names now and then (`useContactNames`).
+  useContactNames(group === null ? source : null);
   const titleSize = wide ? 34 : 26;
 
 

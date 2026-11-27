@@ -219,7 +219,8 @@ describe("the Areas side panel", () => {
     expect(writes.filter(([p, k]) => p === "bots/finance-bot/about.md" && /secret|token|key|password|url|webhook/i.test(k))).toEqual([]);
   });
 
-  test("a bot holding an area shows its setup prompt, naming the area and its modes", async () => {
+  test("a bot holding an area shows its health and a link to its page, where its setup is", async () => {
+    // Dev, 2026-11-27: "the setup options should be in the bot page" (`botSetup.test.ts` holds the prompt).
     windowOf(1440);
     const notes: ListNote[] = [
       ...AREAS.map((note) =>
@@ -234,21 +235,13 @@ describe("the Areas side panel", () => {
     const writes: Write[] = [];
     await mount(host(writes, { notes }), LISTING);
     await press(one("area-row-areas/finance"));
-    expect(all("area-panel-prompt")).toHaveLength(1);
-    // Reach: Context calls its webhook, written on the bot's card; the address itself is never on the card.
-    await press(one("area-panel-reach-webhook"));
-    expect(writes.filter(([p, k]) => p === "areas/people/finance.md" && k === "reach").map(([, , v]) => v)).toEqual(["webhook"]);
-    // The bot sets its own webhook from its setup prompt; typing it here is behind a link.
-    expect(all("area-panel-hook-address")).toHaveLength(0);
-    await press(one("area-panel-hook-by-hand"));
-    expect(all("area-panel-hook-address")).toHaveLength(1);
-    const text = strip(one("area-panel-prompt-text").textContent);
-    // Every setup prompt says how to connect Context first, and hands the secret over from the bot's shell.
-    expect(text).toContain("https://mcp.context.lc/mcp");
-    expect(text).toContain('header_from_shell: "Authorization"');
-    expect(text).toContain("You are Finance, @seyi's Grok bot.");
-    expect(text).toContain('area: "areas/finance"');
-    expect(text).toContain("Manager:");
+    await settle();
+    expect(all("area-panel-prompt")).toHaveLength(0);
+    expect(all("area-panel-reach-webhook")).toHaveLength(0);
+    expect(all("area-panel-hook-by-hand")).toHaveLength(0);
+    // Its card names no webhook, so it checks in; it never has.
+    expect(strip(one("area-panel-bot-status").textContent)).toContain("Not checking yet");
+    expect(strip(one("area-panel-bot-open").textContent)).toBe("Set it up on Finance's page");
     // The owner menu lists it with whose bot it is.
     await press(one("area-panel-owner"));
     await settle();
@@ -296,8 +289,6 @@ describe("the Areas side panel", () => {
     expect(all("owner-face-logo").length).toBeGreaterThan(0);
     await press(one("area-row-areas/finance"));
     await settle();
-    // Its picture step comes back from the one setup call the prompt names (Dev, 2026-11-27; `botLogins.test.mjs` "setup_bot").
-    expect(strip(one("area-panel-prompt-text").textContent)).toContain('setup_bot: "Finance"');
     await press(one("area-panel-upload-logo"));
     await settle();
     expect(stored).toEqual(["image/png"]);
@@ -362,30 +353,7 @@ describe("the Areas side panel", () => {
     expect(all("owner-face-logo").length).toBeGreaterThan(0);
   });
 
-  test("a bot that owns several areas gets one setup prompt covering them all", async () => {
-    // The owner, 2026-11-25: "a grokbot can own multiple areas".
-    windowOf(1440);
-    const notes: ListNote[] = [
-      ...AREAS.map((note) =>
-        note.path === "areas/about.md"
-          ? { ...note, properties: { agents: ["Pipeline"] } }
-          : note.path === "areas/finance/about.md" || note.path === "areas/engineering/about.md"
-            ? { ...note, properties: { ...note.properties, owner: "Pipeline" } }
-            : note,
-      ),
-      { path: "areas/people/pipeline.md", properties: { kind: "agent", bot: "grok", belongs_to: "@seyi", reach: "mail" } },
-    ];
-    await mount(host([], { notes }), LISTING);
-    await press(one("area-row-areas/finance"));
-    const text = strip(one("area-panel-prompt-text").textContent);
-    expect(text).toContain("(areas/finance)");
-    expect(text).toContain("(areas/engineering)");
-    expect(text).toContain('for: "Pipeline"');
-    // A bot that checks its own mail has no webhook step.
-    expect(text).not.toContain("header_from_shell");
-  });
-
-  test("an area's delegate bot gets its setup prompt, acting for the area's owner there", async () => {
+  test("an area's delegate bot shows as its delegate, acting for the area's owner there", async () => {
     windowOf(1440);
     const notes: ListNote[] = [
       ...AREAS.map((note) =>
@@ -401,9 +369,8 @@ describe("the Areas side panel", () => {
     await press(one("area-row-areas/finance"));
     expect(strip(one("area-panel-delegate").textContent)).toContain("Chief");
     expect(strip(one("area-panel").textContent)).toContain("Acts for @seyi here");
-    const text = strip(one("area-panel-delegate-prompt-text").textContent);
-    expect(text).toContain("Set yourself up as Chief");
-    expect(text).toContain("You act for @seyi in the area");
+    expect(all("area-panel-delegate-prompt")).toHaveLength(0);
+    expect(all("area-panel-bot-open")).toHaveLength(1);
   });
 
   test("an area's mail is a folder with one note per sender: listed in the panel, and a first message starts your own", async () => {
