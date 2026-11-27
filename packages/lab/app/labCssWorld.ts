@@ -159,7 +159,7 @@ export const LAB_CSS_WORLD = String.raw`
 .tl .vmenu .mi.two{height:auto}
 .tl .vmenu.chatpick .mnote.code{color:var(--warn)}
 /* the setup takes the dock's height it was drawn at */
-.tl .sbx.setup{min-height:min(510px,calc(100% - 120px))}
+.tl .sbx.setup{min-height:min(510px,calc(100% - 200px))}
 /* the Grid's Speaker cell for a made-up chat: the avatar, the first name, a guest's label */
 .tl .tst.tgrid td[data-c=who] .wav{display:inline-flex;align-items:flex-start;gap:6px}
 .tl .tst.tgrid td[data-c=who] .wav .av{margin:0}
