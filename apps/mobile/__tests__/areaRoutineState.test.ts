@@ -10,7 +10,7 @@ import { describe, expect, jest, test } from "@jest/globals";
 jest.mock("../features/agent/useConsoleGrant", () => ({ useConsoleGrant: () => async () => ({ accessToken: "t" }) }));
 jest.mock("convex/react", () => ({ useQuery: () => undefined, useMutation: () => async () => null, useAction: () => async () => null, useConvex: () => ({}) }));
 
-import { areaRoutinesUrl, askAreaRoutines } from "../features/console/files/folderPage/areas/useAreaRoutineState";
+import { areaRoutinesUrl, askAreaRoutines, runAreaRoutine } from "../features/console/files/folderPage/areas/useAreaRoutineState";
 
 const URL_ = "https://gateway.example/@acme/files/area-routines";
 
@@ -50,5 +50,34 @@ describe("the area routines call", () => {
       throw new Error("offline");
     }) as unknown as typeof fetch;
     expect(await ask(offline)).toBeNull();
+  });
+});
+
+describe("Run now", () => {
+  const served = (ran: unknown) => ({ served: true, week: "2026-11-23", routines: [{ path: "areas/a/routines/daily/x.md", area: "areas/a", nextAt: 2, lastAt: 9, outcome: "held", bot: "b", answeredAt: null }], usage: [], ran });
+  const answer = (status: number, body: unknown) => (async () => ({ status, json: async () => body })) as unknown as typeof fetch;
+
+  test("names the routine with the workspace, and answers the state after it", async () => {
+    let sent = "";
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      sent = String(init.body);
+      return { status: 200, json: async () => served("held") };
+    }) as unknown as typeof fetch;
+    const done = await runAreaRoutine({ url: URL_, workspaceId: "ws1", path: "areas/a/routines/daily/x.md", token: async () => "t", fetchImpl });
+    expect(sent).toBe('{"workspaceId":"ws1","run":"areas/a/routines/daily/x.md"}');
+    // A spent cap holds it, as its clock would: the row shows Held.
+    expect(done).toMatchObject({ state: { routines: [{ path: "areas/a/routines/daily/x.md", outcome: "held", lastAt: 9 }] } });
+  });
+
+  test("a reader, a routine that isn't scheduled, no object and no network each say why", async () => {
+    const run = (fetchImpl: typeof fetch) => runAreaRoutine({ url: URL_, workspaceId: "ws1", path: "areas/a/routines/daily/x.md", token: async () => "t", fetchImpl });
+    expect(await run(answer(403, { error: "forbidden" }))).toEqual({ problem: "Only an editor or owner can run a routine now." });
+    expect(await run(answer(200, served(null)))).toEqual({ problem: "That routine isn't scheduled, so it can't run now." });
+    expect(await run(answer(200, served("recent")))).toEqual({ problem: "It was just sent. Give it a minute before running it again." });
+    expect(await run(answer(200, { served: false }))).toEqual({ problem: "Routines can't run from here yet." });
+    const offline = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    expect(await run(offline)).toEqual({ problem: "Context couldn't be reached. Try again." });
   });
 });

@@ -41,6 +41,8 @@ const SCHEMA = [
 ];
 /** Rebuilt at least this often even when nothing said it changed: a safety net, as the routine scan's six hours. */
 const RESCAN_MS = 6 * 60 * 60 * 1000;
+/** Run now sends a routine at most once a minute: a second press, or a second person, is told it just went. */
+const RUN_NOW_GAP_MS = 60 * 1000;
 /** Usage kept for this long: a few weeks back is all a page draws. */
 const USAGE_KEPT_MS = 60 * 24 * 60 * 60 * 1000;
 /** Outcomes a run may record. */
@@ -182,6 +184,20 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     setMeta("scanned", at);
   }
 
+  /** One routine sent to its area's bot, as the clock sends it: never past the bot's list or its spent share. */
+  function send(row, at) {
+    const found = budget(row.area, at);
+    if (found === null) return { found, outcome: "no_bot" };
+    if (!found.allowed) return { found, outcome: "not_listed" };
+    if (spent(found)) return { found, outcome: "held" };
+    try {
+      tell({ type: "routine", bot: found.name, area: row.area, note: row.path, from: "context" });
+      return { found, outcome: "sent" };
+    } catch {
+      return { found, outcome: "failed" };
+    }
+  }
+
   function due(at) {
     const stale = meta("stale") !== "0" || at - Number(meta("scanned") ?? 0) >= RESCAN_MS;
     if (stale) scan(at);
@@ -243,19 +259,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
       due(at);
       const outcomes = [];
       for (const row of all(sql.exec("SELECT * FROM ws_area_routines WHERE next_at IS NOT NULL AND next_at <= ? ORDER BY next_at", at))) {
-        const found = budget(row.area, at);
-        let outcome;
-        if (found === null) outcome = "no_bot";
-        else if (!found.allowed) outcome = "not_listed";
-        else if (spent(found)) outcome = "held";
-        else {
-          try {
-            tell({ type: "routine", bot: found.name, area: row.area, note: row.path, from: "context" });
-            outcome = "sent";
-          } catch {
-            outcome = "failed";
-          }
-        }
+        const { found, outcome } = send(row, at);
         // The next time strictly after now: an object asleep through several runs sends one, never a backlog.
         const next = areaRoutineNext(areaRoutineOf(row.path, areasRoot() ?? row.area), textOf(row.note_id), at);
         sql.exec(
@@ -269,6 +273,22 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
         outcomes.push({ path: row.path, outcome });
       }
       return outcomes;
+    },
+    /**
+     * One routine sent now, out of turn, as the clock would send it (Dev, 2026-11-27: "add the run now button for every
+     * routine"): the same bot, list and share, so Run now never sends past a cap. Its next time is left as it was.
+     * `{outcome}`, or `{outcome: null}` for a path that is no routine here (paused and broken ones included: they
+     * have no next time to run out of turn from), or `{outcome: "recent"}` when it was sent in the last minute: a
+     * second press, or a second person, never sends the same job twice in a row.
+     */
+    runNow(path, at = now()) {
+      due(at);
+      const row = all(sql.exec("SELECT * FROM ws_area_routines WHERE path = ?", path))[0];
+      if (row === undefined || row.next_at === null || row.next_at === undefined) return { outcome: null };
+      if (row.last_outcome === "sent" && row.last_at != null && at - Number(row.last_at) < RUN_NOW_GAP_MS) return { outcome: "recent" };
+      const { found, outcome } = send(row, at);
+      sql.exec("UPDATE ws_area_routines SET last_at = ?, last_outcome = ?, last_bot = ?, answered_at = NULL WHERE path = ?", at, outcome, found?.name ?? null, row.path);
+      return { outcome };
     },
     budget,
     spent,

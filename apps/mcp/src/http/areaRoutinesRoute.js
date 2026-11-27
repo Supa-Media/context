@@ -10,9 +10,13 @@
  * - **The Context app only** (`context_console`): an agent reads the same through `orient { area }`.
  * - **The session's own workspace only**, checked before anything is asked of an object.
  * - `{served: false}` where the workspace's notes are not yet in their object, or the object can't answer.
+ * - `run: <routine path>` sends that routine to its bot now, as its clock would (its bot, list and share: Run now never
+ *   sends past a cap), for a session that may write here; the answer adds `ran`, the outcome, or null for no routine
+ *   this session can read.
  */
 
 import { json } from "./responses.js";
+import { SCOPE_WRITE } from "../session.js";
 
 export const AREA_ROUTINES_PATH = "/files/area-routines";
 
@@ -26,7 +30,8 @@ async function readBody(request) {
   try {
     const body = JSON.parse(new TextDecoder().decode(bytes));
     if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
-    if (Object.keys(body).some((key) => key !== "workspaceId")) return null;
+    if (Object.keys(body).some((key) => key !== "workspaceId" && key !== "run")) return null;
+    if (body.run !== undefined && !(typeof body.run === "string" && body.run !== "" && body.run.length <= 512)) return null;
     return typeof body.workspaceId === "string" && body.workspaceId !== "" && body.workspaceId.length <= 128 ? body : null;
   } catch {
     return null;
@@ -41,7 +46,14 @@ export async function handleAreaRoutines(request, store, session) {
   if (body === null) return json({ error: "invalid_request" }, 400);
   // Checked before anything is read: a call filed under one workspace never reaches another's object.
   if (body.workspaceId !== session.workspaceId) return json({ error: "wrong_workspace" }, 409);
+  // Run now: one routine sent to its bot out of turn, by someone who may change this workspace, then the state as after.
+  let ran;
+  if (body.run !== undefined) {
+    if (!(session.scopes ?? []).includes(SCOPE_WRITE)) return json({ error: "forbidden", error_description: "Only an editor or owner can run a routine now." }, 403);
+    ran = typeof store?.objectBots?.runNow === "function" ? await store.objectBots.runNow(body.run) : undefined;
+    if (ran === undefined) return json({ served: false });
+  }
   const state = typeof store?.objectBots?.state === "function" ? await store.objectBots.state() : null;
   if (state === null) return json({ served: false });
-  return json({ served: true, week: state.week, routines: state.routines, usage: state.usage });
+  return json({ served: true, week: state.week, routines: state.routines, usage: state.usage, ...(body.run === undefined ? {} : { ran: ran ?? null }) });
 }

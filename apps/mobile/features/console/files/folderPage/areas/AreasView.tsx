@@ -304,8 +304,8 @@ export function AreasView(props: AreasViewProps) {
   const peekNode = peek === null ? undefined : findNode(tree, peek);
   // The routines' runs, asked while an area is in the panel and again when a routine is added or moved.
   const routinePaths = useMemo(() => notes.filter((note) => note.path.includes("/routines/")).map((note) => note.path).join("\n"), [notes]);
-  const routineState = useAreaRoutineState(peekNode !== undefined, routinePaths);
-  const routinesFor = useAreaRoutineTools({ root, notes, cardNotes: withCards, cardFor, canEdit, host, chooseMany, open: onSelect, state: routineState });
+  const { state: routineState, run: runRoutine } = useAreaRoutineState(peekNode !== undefined, routinePaths);
+  const routinesFor = useAreaRoutineTools({ root, notes, cardNotes: withCards, cardFor, canEdit, host, chooseMany, open: onSelect, state: routineState, run: runRoutine });
   // The panel's contents follow this view's every render through a slot of
   // their own, so the page only hears when the panel opens or closes.
   const slot = useRef(panelSlot()).current;

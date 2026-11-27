@@ -23,5 +23,16 @@ export function objectFirstBots(options) {
         return null;
       }
     },
+    /** One routine sent now: its outcome, null for no routine this reader sees, or undefined where unserved. */
+    async runNow(path) {
+      if (typeof client.botsRunNow !== "function") return undefined;
+      try {
+        const answer = await client.botsRunNow({ ...judged, path });
+        return answer?.served === true ? (answer.outcome ?? null) : undefined;
+      } catch (error) {
+        log("workspace_object_bots_failed", { workspaceId, error: error?.name ?? "Error" });
+        return undefined;
+      }
+    },
   };
 }
