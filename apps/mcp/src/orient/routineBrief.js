@@ -35,8 +35,10 @@ export async function routineBrief(store, scope, rules, overrides, path, noteTex
   if (!looksLikeRoutine(path)) return "";
   try {
     const jobs = await factJobs(store);
-    const areasRoot = jobs?.jobs?.areas ?? null;
-    const routine = areasRoot ? areaRoutineOf(path, areasRoot) : null;
+    // Where the tree names no Areas folder (the jobs answer not served for this reader), the top folder the note is
+    // in, as `orient { area }` takes it: the brief is never missing only because that answer was.
+    const areasRoot = jobs?.jobs?.areas ?? path.split("/")[0];
+    const routine = areaRoutineOf(path, areasRoot);
     if (routine === null) return "";
     const area = await areaAnswer(store, scope, rules, overrides, routine.area);
     if (area.isError) return "";
