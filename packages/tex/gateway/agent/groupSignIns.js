@@ -27,3 +27,10 @@ export const GROUP_SENSITIVE_LINE =
 
 /** Both, in the order the group's words say them. */
 export const GROUP_SIGN_IN_LINES = GROUP_SENSITIVE_LINE + GROUP_CODE_SIGN_IN_LINE;
+
+/** A group chat's browser, its sign-ins and its passwords, told only to a turn offered a browser (`groupPrompt`, `browserReach.js`). */
+export const GROUP_BROWSER_LINES =
+  "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
+  GROUP_SIGN_IN_LINES +
+  "A password comes only from a login saved for this chat or the whole workspace, or one the person who tagged you saved for themselves, and never typed in the chat; " +
+  "when a site needs a password and there is none saved, make a vault_add link at once: it goes to whoever asked in their own chat with you, never here (the page lets them give it to this chat, the workspace or keep it to themselves), and you carry on by yourself once it's saved. ";

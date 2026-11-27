@@ -277,6 +277,13 @@ export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "st
  * turn reads as a refusal, and listed. A job that would run on a computer is refused the same way (`jobs.js`).
  */
 const NO_MACHINE = /^(browse|fill_login|make_login|fill_card|sign_out_browser|delegate)$|computer|machine/;
+/**
+ * Whether a Lab test chat refuses this tool for wanting a browser or a computer (`toolAnswer`). The turn's tool list
+ * leaves such a tool out (`turnWeb.js`), so what the turn is told it can do is what this check lets it do.
+ */
+export function sandboxRefusesTool(env, name) {
+  return sandboxGateOf(env) !== null && typeof name === "string" && NO_MACHINE.test(name);
+}
 export const MACHINE_REFUSAL = "Not run: a Lab test chat has no browser and no computer, so this step can't run here. Say so plainly, and carry on with what you can do without it.";
 
 /** What a stubbed tool would have done, for the test chat's list. */

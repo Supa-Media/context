@@ -75,6 +75,7 @@ import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsD
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { figureCheck } from "./sourcedFigures.js";
 import { browserWalls } from "./browserWalls.js";
+import { BROWSER_TOOLS, hasBrowser } from "./browserReach.js";
 import { noteLinkCheck, unknownLinkNotice } from "./linkCheck.js";
 export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
 import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
@@ -305,7 +306,6 @@ export const HANDBACK_NOTICE =
   When the turn's last browser call failed and the answer gives up on it, one
   more round says to run it again first.
 */
-const BROWSER_TOOLS = new Set(["browse", "fill_card", "fill_login"]);
 const BROWSER_GAVE_UP =
   /\b(?:won't|wouldn't|doesn't|didn't|isn't|wasn't|can't|couldn't|cannot|could not|unable to|wasn't able to)\s+(?:open|load|work|change|update|edit|reach|fill|type|get|finish)\b|\b(?:in|from) my browser\b|\bbrowser\b[^.!?\n]{0,40}\brefus|\b(?:page|site|address|sign-?in|login)\b[^.!?\n]{0,30}\b(?:is|was|stays|still) blocked\b/i;
 /** The answer is about the browser or a page, not some other thing it couldn't get. */
@@ -551,7 +551,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     wrapWeb(web) {
       if (web === null) return null;
       hadWeb = true;
-      canBrowse = () => Array.isArray(web.tools) && web.tools.some((tool) => BROWSER_TOOLS.has(tool?.name));
+      canBrowse = () => hasBrowser(web);
       canFillCard = () => Array.isArray(web.tools) && web.tools.some((tool) => tool?.name === "fill_card");
       return {
         ...web,
