@@ -76,9 +76,9 @@ test("a name is a whole word of the line, and the model's answer is read strictl
   assert.deepEqual(readNames('{"names":"Diego"}'), []);
 });
 
-test("the model reads each line with its id and whose text a reply was typed under, labels for the unnamed", () => {
+test("the model reads each line with its id and the line a reply was typed under, labels for the unnamed", () => {
   const shown = renderLines(CHAT, new Map([[KEMI, "Kemi"]]));
-  assert.match(shown, /\[m3\] tunde \(replying under guest-1a2b's text \[m2\]\): Diego you said 2 hrs right\?/);
+  assert.match(shown, /\[m3\] tunde \(reply to \[m2\]\): Diego you said 2 hrs right\?/);
   assert.match(shown, /\[m4\] Kemi: lol yes do it/);
 });
 

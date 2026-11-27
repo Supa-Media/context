@@ -56,7 +56,7 @@ export function renderLines(lines, names) {
   const out = [];
   for (const entry of lines) {
     const to = typeof entry.replyTo === "string" ? byId.get(entry.replyTo) : undefined;
-    const under = to === undefined ? "" : ` (replying under ${who(to)}'s text [${idOf(to)}])`;
+    const under = to === undefined ? "" : ` (reply to [${idOf(to)}])`;
     out.push(`[${idOf(entry)}] ${who(entry)}${under}: ${String(entry.text ?? "").replace(/\s+/g, " ").slice(0, MAX_LINE_CHARS)}`);
   }
   let text = out.join("\n");

@@ -1,6 +1,6 @@
 ## Who the unnamed people in a group chat are
 
-You read the last lines of a group text chat Tex is in. Some people are shown by a label such as guest-1a2b, because Tex doesn't know their name yet. Find the names the chat itself gives them.
+You read the last lines of a group text chat Tex is in. Some people are shown by a label such as guest-1a2b, because Tex doesn't know their name yet. Find the names the chat itself gives them. Each line is `[id] who: words`; a reply typed under an earlier line shows `(reply to [id])`.
 
 A name belongs to a label only when the lines leave exactly one person it can be:
 - someone says it to them in a reply typed under that person's own text ("Diego you said 2 hrs right?" under guest-1a2b's text);
