@@ -14,7 +14,6 @@ import { test } from "node:test";
 import { BROWSER_TOOLS, hasBrowser } from "../../../packages/tex/gateway/agent/browserReach.js";
 import { openTurnWeb } from "../../../packages/tex/gateway/agent/turnWeb.js";
 import { groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
-import { GROUP_BROWSER_LINES } from "../../../packages/tex/gateway/agent/groupSignIns.js";
 import { LAB_SANDBOX_KEY, sandboxRefusesTool } from "../src/labSandbox/policy.js";
 
 const GROUP = { key: "a".repeat(64), members: "b".repeat(64), from: "seyi", chat: [] };
@@ -48,8 +47,8 @@ test("a test chat's turn is offered no browser, and a real one with a computer i
 });
 
 test("the group prompt names a browser only when one is offered", () => {
-  assert.ok(groupPrompt(GROUP, "supa").includes(GROUP_BROWSER_LINES), "unchanged for a caller that says nothing");
-  assert.ok(groupPrompt(GROUP, "supa", { browser: true }).includes(GROUP_BROWSER_LINES));
+  assert.match(groupPrompt(GROUP, "supa"), /this chat has its own browser/, "unchanged for a caller that says nothing");
+  assert.match(groupPrompt(GROUP, "supa", { browser: true }), /stays signed in for this chat's later asks/);
   const none = groupPrompt(GROUP, "supa", { browser: false });
   assert.doesNotMatch(none, /own browser/);
   assert.doesNotMatch(none, /stays signed in/);
