@@ -10,6 +10,7 @@
  *
  * The written guidance follows the same fact (slice 2, Dev2 2026-11-27 "yea we should go ahead with this"): a notice
  * is written for a turn with every tool, and `forReach` leaves out what sends Tex to a browser the turn doesn't have.
+ * Every claim-check notice goes through it (`claimCheck.js` `keep`), so a notice added later is covered too.
  * Sabotage record: making `forReach` return its text unchanged fails "no claim-check notice sends a turn with no
  * browser to one"; dropping the browser filter in `untriedRoutes` fails the same test; dropping the
  * `browser_in_this_turn` line from `webPrompt` fails "the web prompt says so as data".
@@ -75,7 +76,8 @@ test("no claim-check notice sends a turn with no browser to one, and a turn with
     const web = claims.wrapWeb({ tools: tools.map((name) => ({ name })), call: async () => ({ content: [] }) });
     await claims.wrap(async () => ({ isError: true, content: [{ type: "text", text: "failed" }] }))("app_read", { app: "planning-center" });
     void web;
-    return [await claims.check(handback), await claims.check(gaveUp)].filter(Boolean).join("\n");
+    const couldnt = "I couldn't open the Uber site, so I can't get the receipt.";
+    return [await claims.check(handback), await claims.check(gaveUp), await claims.check(couldnt)].filter(Boolean).join("\n");
   };
   const none = await run(["search_web", "open_page"]);
   assert.ok(none.length > 0, "the notices still went");

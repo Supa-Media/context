@@ -15,8 +15,11 @@ export function hasBrowser(web) {
 
 /** A sentence that sends Tex to its own browser. */
 const USES_THE_BROWSER = /\byour browser\b|\bbrowser call\b|\bbrowse (?:download|step)\b/i;
-/** ", or open the site in your browser and sign in": one road of several, named inside a sentence. */
-const BROWSER_CLAUSE = /,\s*or\s[^.;]*\byour browser\b[^.;]*(?=[.;])/gi;
+/**
+ * One road of several, named inside a sentence: ", or open the site in your browser and sign in", "(or browse)", or
+ * the last item of a list in brackets (", the app's website in your browser)").
+ */
+const BROWSER_CLAUSE = /,\s*or\s[^.;]*\byour browser\b[^.;]*(?=[.;])|\s*\(or browse\)|,\s*[^,()]*\byour browser\b(?=\))/gi;
 
 /**
  * Written guidance as this turn can follow it: with no browser (`reach.browser === false`), the clauses and sentences

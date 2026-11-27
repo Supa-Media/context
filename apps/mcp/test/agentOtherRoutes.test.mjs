@@ -68,7 +68,9 @@ test("the answers that give up are read as giving up, and the ones that answer a
 test("a promise to text later with nothing to keep it gets one more round; a routine or a job keeps it", async () => {
   assert.ok(promisesLater(GAVE_UP));
   for (const said of ["Give it a 👍 and I'll send it.", "I'll text you once you say yes.", "You're serving Sunday."]) assert.ok(!promisesLater(said), said);
-  assert.equal(claimCheck({ question: QUESTION }).check("Once it answers, I'll text you what I find."), LATER_NOTICE);
+  const later = claimCheck({ question: QUESTION });
+  later.wrapWeb({ tools: [{ name: "browse" }], call: async () => ({ content: [] }) }); // a turn with a browser, as a texted one has
+  assert.equal(later.check("Once it answers, I'll text you what I find."), LATER_NOTICE);
 
   const routine = claimCheck({ question: QUESTION });
   await routine.wrap(async () => ({ content: [{ type: "text", text: "saved" }] }))("write_note", { path: "tex/routines/hourly/serving-sunday.md", content: "---\nuntil: they know whether they serve Sunday\n---\n" });

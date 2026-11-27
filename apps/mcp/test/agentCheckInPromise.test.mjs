@@ -24,6 +24,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { forReach } from "../../../packages/tex/gateway/agent/browserReach.js";
 import { CHECK_IN_NOTICE, LATER_NOTICE, promisesCheckInAt, promisesLater } from "../../../packages/tex/gateway/agent/otherRoutes.js";
 
 const LOG = "Logged job work from 12:17 as Upkeep. I’ll check the log at 4:30 and text you when it’s done.";
@@ -43,7 +44,7 @@ test("a set time is kept with a one-off reminder", () => {
   assert.ok(notice.includes("tex/routines/once/") && notice.includes("`at:`"));
   assert.ok(notice.includes("take the promise out"), "or not made");
   // An untimed later still gets the hourly routine.
-  assert.equal(claimCheck({ question: "q" }).check("Once it answers, I'll text you what I find."), LATER_NOTICE);
+  assert.equal(claimCheck({ question: "q" }).check("Once it answers, I'll text you what I find."), forReach(LATER_NOTICE, { browser: false })); // no web here, so no browser: the notice as such a turn is told it (`browserReach.js`)
 });
 
 test("once a turn, and never after a routine was written", async () => {

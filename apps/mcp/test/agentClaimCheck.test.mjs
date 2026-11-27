@@ -32,6 +32,7 @@ import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../../../packages/tex/gateway/agent/builtin.js";
 import { CLAIM_NOTICE, MUTE_NOTICE, SENT_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, claimsASend, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { forReach } from "../../../packages/tex/gateway/agent/browserReach.js";
 import { runTurn } from "../../../packages/tex/gateway/agent/turn.js";
 import { otherSitesNotice } from "../../../packages/tex/gateway/agent/otherSites.js";
 import { EVERYWHERE_NOTICE, claimsSearchedEverywhere, searchedEverywhere } from "../../../packages/tex/gateway/agent/searchClaims.js";
@@ -228,7 +229,7 @@ test("\"I couldn't open it\" with the web untried gets one more round; after thr
 
   const untried = claimCheck({ question: "write the overview" });
   untried.wrapWeb(web);
-  assert.equal(untried.check(said), TRY_NOTICE);
+  assert.equal(untried.check(said), forReach(TRY_NOTICE, { browser: false })); // its web has no browser tool (`browserReach.js`)
 
   // One failed site is not an honest can't since 2026-10-27 (`otherSites.js`): the same text is on other sites.
   const tried = claimCheck({ question: "write the overview" });
