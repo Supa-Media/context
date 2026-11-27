@@ -117,7 +117,7 @@ test("held-out cases are named by their cause alone; targets are listed apart an
   assert.match(note, /tool errors: write_note: 409 conflict/);
   assert.match(note, /first run's steps: tools write_note ok \| outcome: sent/);
   assert.match(note, /background jobs run: 1 \(2 part\(s\)\)/);
-  assert.match(note, /run 1: Tools: read_note, write_note; changed written maya\/health\/dentist\.md, written maya\/trips\/lisbon\.md/, "each run says which notes it changed");
+  assert.match(note, /run 1: Tools: read_note, write_note; changed written maya\/health\/dentist\.md: --- status · written maya\/trips\/lisbon\.md: # Lisbon/, "each run says which notes it changed");
   assert.match(note, /held-out: 1 about a plan between people/);
   assert.match(note, /\| respond \| `t-known` \(answers a day-old text\) \| 0 of 3 \|/);
   assert.doesNotMatch(note, /tacos/);
