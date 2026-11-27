@@ -40,17 +40,21 @@ export async function loadCases(path = CASES) {
 const eventId = (index) => `${1_762_000_000_000 + index * 1_000}-${String(index + 1).padStart(6, "0")}`;
 const SETTINGS = { quiet: "quiet", attentive: "attentive", "follow along": "followAlong", helpful: "helpful" };
 
-/** A case as the Worker's body to the judge: its lines and text as the transcript, one id a line, the newest the text. */
+/**
+ * A case as the Worker's body to the judge: its lines and text as the transcript, one id a line, the newest the text.
+ * `waiting` (a burst): how many of the last lines, the text included, wait for Tex together, as the Worker sends a burst.
+ */
 export function caseBody(item) {
   const said = [...item.lines, item.text];
   const transcript = said.map((line, index) => `<${eventId(index)}> ${line}`).join("\n");
   const newest = eventId(said.length - 1);
+  const waiting = Math.max(1, Math.min(Number.isInteger(item.waiting) ? item.waiting : 1, said.length));
   const group = item.chat === "group";
   return {
     chat: group ? "bench-group" : "+15555550100",
     style: group ? (SETTINGS[item.setting ?? "follow along"] ?? "followAlong") : "direct",
     transcript,
-    candidates: [newest],
+    candidates: said.slice(said.length - waiting).map((_, index) => eventId(said.length - waiting + index)),
     running: false,
     waitingAsks: [],
     newest,
