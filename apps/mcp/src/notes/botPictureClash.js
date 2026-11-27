@@ -27,8 +27,15 @@ function frontMatterPictures(text) {
   return found;
 }
 
+function refusalOf(card, field) {
+  return (
+    `refused: that picture is already ${card.replace(/\/about\.md$/i, "")}'s logo (${field}), so it is not this bot's own. ` +
+    "A bot can't see its own profile picture in its app; ask your person for yours rather than sending one you found. Nothing was written."
+  );
+}
+
 /**
- * `{ card, field }` naming the other bot card that already shows the picture this write puts on `path`'s card, or
+ * `{ card, field, refusal }` naming the other bot card that already shows the picture this write puts on `path`'s card, or
  * null. Only a picture the write changes is checked, so a card saved again as it was is never refused, and only
  * cards the writer can see are compared, so a refusal says nothing about a card it could not read.
  */
@@ -48,7 +55,7 @@ export async function botPictureClash(store, scope, rules, overrides, path, cont
     const properties = props.get(card)?.props?.properties ?? {};
     for (const field of FIELDS) {
       const id = pictureId(typeof properties[field] === "string" ? properties[field] : "");
-      if (id !== null && fresh.includes(id)) return { card, field };
+      if (id !== null && fresh.includes(id)) return { card, field, refusal: refusalOf(card, field) };
     }
   }
   return null;

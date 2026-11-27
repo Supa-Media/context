@@ -457,12 +457,7 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   if (attached.error) return toolError(attached.error);
   content = attached.content;
   const clash = await botPictureClash(store, scope, rules, overrides, path, content, storedBody);
-  if (clash) {
-    return toolError(
-      `refused: that picture is already ${clash.card.replace(/\/about\.md$/i, "")}'s logo (${clash.field}), so it is not this bot's own. ` +
-        "A bot can't see its own profile picture in its app; ask your person for yours rather than sending one you found. Nothing was written."
-    );
-  }
+  if (clash) return toolError(clash.refusal);
   if (attached.images.length) await storeNoteImages(store, attached.images);
   const collaborationEligibleExisting = Boolean(
     existing && collaborationSupported(store) && collaborationEligible(path, storedBody),
