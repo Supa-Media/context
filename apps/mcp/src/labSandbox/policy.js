@@ -260,7 +260,10 @@ export const READ_TOOLS = Object.freeze(
  * and nothing went, 2026-11-26);
  * a mute mutes the test chat (`controlPlaneAnswer`), and the chat object then reads it as a muted chat does.
  * Tex's own computer (`tex_computer`) runs for real on the test chat's own computer, never the person's
- * (`sandboxComputer`). Their note writes and calls pass the fences like any other.
+ * (`sandboxComputer`). A name kept for someone in the chat (`name_guest`) goes into the chat's ledger, which in a test
+ * chat is the test chat's own (`wire.js`; any other chat's is never written), so the next turn reads it back as a real
+ * chat's does (stubbed as done, a kept name was never seen again, 2026-11-27). Their note writes and calls pass the
+ * fences like any other.
  */
 /**
  * Tools that run through their real gate in a test chat, so it holds, asks and sends on exactly what a real chat would
@@ -270,7 +273,7 @@ export const READ_TOOLS = Object.freeze(
  */
 export const REAL_GATE = Object.freeze(new Set(["send_email"]));
 
-export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer"]));
+export const RUN_IN_SANDBOX = Object.freeze(new Set(["start_background_job", "steer_background_job", "restart_background_job", "plan_big_ask", "text_progress", "ask_chat", "post_in_chat", "tapback", "send_sticker", "chat_mute", "tex_computer", "name_guest"]));
 
 /**
  * Tools that need a browser or one of the person's computers, which a test chat never has: refused, said in words the

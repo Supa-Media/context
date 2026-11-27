@@ -313,13 +313,13 @@ export function chatEnvFor({ gate, storage, about, chat, phones, line, token, ag
   };
 }
 
-/** A turn's body with a group's made-up key and members put back to the real chat's, which its ledger and home are found by. */
-async function atRealChat(request, about) {
-  // A made-up chat is its own real chat on the preview: its key and members are the ones the chat object worked out.
-  if (about.kind !== "group" || about.source === WORLD_SOURCE) return request;
+/** A turn's body with a group's key put back to the one its session and ledger are named by, and a copied chat's members to the real chat's. */
+export async function atRealChat(request, about) {
+  // On main a made-up chat is keyed by `lab-world:<groupId>` (`worldLocal.js`), not the chat object's key: left as that, its turn found no ledger, so no `name_guest` and no names read (2026-11-27).
+  if (about.kind !== "group" || typeof about.chatKey !== "string") return request;
   const body = await request.json().catch(() => null);
   if (body === null || typeof body.group !== "object" || body.group === null) return new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(body) });
-  const group = { ...body.group, key: about.chatKey, members: about.members };
+  const group = { ...body.group, key: about.chatKey, ...(about.source === WORLD_SOURCE ? {} : { members: about.members }) };
   return new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...body, group }) });
 }
 
