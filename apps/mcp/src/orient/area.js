@@ -298,7 +298,6 @@ export async function holderAnswer(store, scope, rules, overrides, rawHolder) {
     lines.push(`- Modes: ${seat.modes.length ? seat.modes.join(", ") : "none set"}`);
     lines.push(`- Metric: ${seat.metric ?? "none set"}`);
     if (seat.approvals.length) lines.push(`- Needs ${role === "owner" ? holder : seat.owner}'s approval first: ${seat.approvals.join(" / ")}`);
-    if (caps !== null && !caps.has(area.toLowerCase())) lines.push("- Your card doesn't list this area, so Context sends you nothing from here until your person adds it.");
     lines.push(...holderWorkLines(area, state, caps?.get(area.toLowerCase()) ?? null));
     lines.push(`- In depth: orient { area: "${area}" }`);
     parts.push(lines.join("\n"));

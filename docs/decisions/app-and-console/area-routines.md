@@ -33,11 +33,13 @@ decides.
   answers in the area's mail. `orient { for }` lists the routines waiting for
   its answer, so a bot that checks its mail on a timer finds them too. A run
   missed while nothing woke the object goes out once; never a backlog.
-- **Where a bot works is its person's to say.** A bot's card may list the
-  areas it may work in, each with a cap: `works_in: [areas/operations/Scorecard · 20%]`.
-  A bot works in an area only when the area names it *and* its card lists
-  the area. A card with no list works wherever an area names it, uncapped, as
-  cards always did. An area off the list is sent nothing, by routine or mail.
+- **A bot's caps are its person's to say.** A bot's card may give a cap for
+  each area it holds: `works_in: [areas/operations/Scorecard · 20%]`. A bot
+  works in every area that names it; where no number is written (a bare
+  entry, an area off the list, or no list) there is no cap (decided by the
+  owner, 2026-11-27: "if theres not a number we should assume no cap",
+  replacing the rule that an area off the list was sent nothing;
+  `apps/mcp/test/areaRoutines.test.mjs`).
 - **The budget is a share of the bot's week.** Context cannot see inside a
   bot, so the bot says what each answer took: `write { action: "mail", …,
   args: { text, used: 12 } }`, kept on the line as `[used 12%]`

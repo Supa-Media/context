@@ -46,7 +46,7 @@ export function areaToolDefinitions() {
               },
               works_in: {
                 type: ["array", "null"],
-                description: "The areas it may work in, each with cap: the whole percent of its weekly usage that area may spend (left out for no cap). Replaces the list; null works wherever an area names it.",
+                description: "Its cap in each area it holds: the whole percent of its weekly usage that area may spend (left out for no cap). Replaces the list; an area not on it, or null, has no cap.",
                 items: { type: "object", properties: { area: { type: "string" }, cap: { type: "number" } }, required: ["area"], additionalProperties: false },
               },
             },

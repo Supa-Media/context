@@ -33,7 +33,7 @@ export declare function areaRoutineWhen(routine: AreaRoutine | null, text: strin
 export declare function parseWorksIn(value: unknown): WorksIn[] | null;
 export declare function parseWorksInEntry(raw: unknown): WorksIn | null;
 export declare function worksInLine(entry: { area: string; cap: number | null | undefined }): string;
-export declare function botAllowedIn(worksIn: WorksIn[] | null | undefined, area: string): { allowed: boolean; cap: number | null };
+export declare function botCapIn(worksIn: WorksIn[] | null | undefined, area: string): number | null;
 export declare function weekOf(ms: number, timeZone?: string): string;
 export declare function mailOnlyText(): string;
 export declare function routinesText(where: string): string;

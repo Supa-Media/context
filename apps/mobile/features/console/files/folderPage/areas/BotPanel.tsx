@@ -208,8 +208,8 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
               <View key={area.folder} style={styles.line} testID={`bot-panel-area-${area.folder}`}>
                 <View style={styles.lineText}>
                   <Text variant="tree" numberOfLines={1}>{area.title}</Text>
-                  <Text variant="treeMeta" style={area.listed ? styles.muted : styles.warn}>
-                    {!area.listed ? "Not on its card: Context sends it nothing from here" : area.role === "owner" ? "Owns it" : "Delegate for its person owner"}
+                  <Text variant="treeMeta" style={styles.muted}>
+                    {area.role === "owner" ? "Owns it" : "Delegate for its person owner"}
                   </Text>
                 </View>
                 {editsCaps ? (

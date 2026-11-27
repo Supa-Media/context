@@ -13,13 +13,13 @@
  *   `at:` (a list when there are several), the switch is `paused:`.
  */
 
-import { areaRoutineNext, areaRoutineOf, areaRoutineWhen, botAllowedIn, cardSlug, DEFAULT_ROUTINE_ZONE, MAX_ROUTINE_TIMES, parseWorksIn, type AreaRoutine } from "@context/shared/src/areaRoutines.cjs";
+import { areaRoutineNext, areaRoutineOf, areaRoutineWhen, botCapIn, cardSlug, DEFAULT_ROUTINE_ZONE, MAX_ROUTINE_TIMES, parseWorksIn, type AreaRoutine } from "@context/shared/src/areaRoutines.cjs";
 import { pulseTemplates, templatePath, templateText } from "@context/shared/src/areaRoutineTemplates.cjs";
 import { mailJoinName } from "@context/shared/src/areaBots.cjs";
 import { cadenceFromFolder, frontMatter, parseTime, parseWeekdays } from "@context/shared/src/routines.cjs";
 import type { ListNote, PropertyValue } from "../../listBlock/model";
 
-export type Outcome = "sent" | "held" | "not_listed" | "no_bot" | "failed";
+export type Outcome = "sent" | "held" | "no_bot" | "failed";
 export type Repeats = "Daily" | "Weekly" | "Monthly" | "Hourly";
 export const REPEATS: readonly Repeats[] = ["Daily", "Weekly", "Monthly", "Hourly"];
 
@@ -71,9 +71,8 @@ export interface RoutineBudget {
   readonly bot: string;
   /** Its share of its week spent here so far, in percent; null where no state can be had. */
   readonly used: number | null;
+  /** Its card's cap here, a whole percent of its week; null where no number is written. */
   readonly cap: number | null;
-  /** False when its card lists where it works and this area isn't there. */
-  readonly listed: boolean;
 }
 
 /** Reads the gateway's answer by name; null for anything that isn't a served state. */
@@ -83,7 +82,7 @@ export function readRoutineState(body: unknown): RoutineState | null {
   if (fields.served !== true) return null;
   const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
   const str = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-  const outcomes: readonly Outcome[] = ["sent", "held", "not_listed", "no_bot", "failed"];
+  const outcomes: readonly Outcome[] = ["sent", "held", "no_bot", "failed"];
   const routines: RoutineRunState[] = [];
   for (const raw of Array.isArray(fields.routines) ? fields.routines : []) {
     if (!raw || typeof raw !== "object") continue;
@@ -179,15 +178,15 @@ export function areaBotOf(owner: string | null, delegate: string | null, isBot: 
   return isBot(delegate) ? delegate : null;
 }
 
-/** The bot's week in `area`: its card's cap here, whether its card lists the area, and what the state says it used. */
+/** The bot's week in `area`: its card's cap here (none where no number is written) and what the state says it used. */
 export function budgetOf(area: string, bot: string | null, worksIn: PropertyValue | undefined, state: RoutineStateNow, botSlug?: string): RoutineBudget | null | undefined {
   if (state === "loading") return undefined;
   if (bot === null) return null;
-  const { allowed, cap } = botAllowedIn(parseWorksIn(worksIn), area);
+  const cap = botCapIn(parseWorksIn(worksIn), area);
   // The workspace object counts usage under the bot's mail name (`mailJoinName`), which cuts a long name short.
   const names = new Set([cardSlug(bot), cardSlug(mailJoinName(bot)), ...(botSlug === undefined ? [] : [cardSlug(botSlug)])]);
   const used = state === null ? null : (state.usage.find((one) => one.area.toLowerCase() === area.toLowerCase() && names.has(cardSlug(one.bot)))?.used ?? 0);
-  return { bot, used, cap, listed: allowed };
+  return { bot, used, cap };
 }
 
 const ZONE = DEFAULT_ROUTINE_ZONE;

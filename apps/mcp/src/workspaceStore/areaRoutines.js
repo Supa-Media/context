@@ -14,8 +14,8 @@
  *     area mail reaches it: `botMail.js` `botOfArea`) is told through the control plane, like mail: a signed call to
  *     its webhook naming the area and the routine note, never the note's words. The bot reads it at its own
  *     clearance and answers in the area's mail. A bot that checks its mail itself finds it in `orient`.
- *   - **Who may be sent work.** A bot's card may list the areas its person lets it work in, with a cap on each
- *     (`works_in:`). An area not on the list gets nothing; a card with no list works wherever an area names it.
+ *   - **Who is sent work.** The bot an area names. Its card may give a cap for an area (`works_in:`); an area with no
+ *     number there has no cap (the owner, 2026-11-27).
  *   - **The budget.** A bot says on each answer how much of its week the work took (`[used N%]`, `mail.cjs`); this
  *     object adds those up per bot, area and week. Once an area's share is spent, its routines and its mail pings are
  *     held until Monday: the mail still lands, nothing is lost, and the outcome says "held".
@@ -28,7 +28,7 @@ import areaBots from "../../../../packages/shared/src/areaBots.cjs";
 import mail from "../../../../packages/shared/src/mail.cjs";
 import { botOfArea, areaOfMailNote } from "./botMail.js";
 
-const { MAX_AREA_ROUTINES, DEFAULT_ROUTINE_ZONE, areaRoutineOf, areaRoutineNext, botAllowedIn, botCardPaths, parseWorksIn, weekOf } = areaRoutines;
+const { MAX_AREA_ROUTINES, DEFAULT_ROUTINE_ZONE, areaRoutineOf, areaRoutineNext, botCapIn, botCardPaths, parseWorksIn, weekOf } = areaRoutines;
 const { mailJoinName } = areaBots;
 const { parseMail } = mail;
 
@@ -55,7 +55,7 @@ const QUEUED_RETRY_MS = 2 * 60 * 1000;
 /** A routine sent and not answered in its own place for this long is missed, never shown as waiting forever. */
 export const ROUTINE_MISSED_MS = 60 * 60 * 1000;
 /** Outcomes a run may record. "failed" is also a send whose webhook didn't take it: nothing woke the bot. */
-export const ROUTINE_OUTCOMES = Object.freeze(["sent", "held", "no_bot", "not_listed", "failed"]);
+export const ROUTINE_OUTCOMES = Object.freeze(["sent", "held", "no_bot", "failed"]);
 
 /** Where a routine's answer is looked for counts lines after its send, on a routine sent (or one nothing woke for). */
 const ANSWERABLE = "last_outcome IN ('sent', 'failed') AND last_at <= ? AND answered_at IS NULL";
@@ -108,7 +108,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     setMeta("stale", "1");
   }
 
-  /** The bot's card, as its person wrote it: `{works}` (null when it lists nothing). */
+  /** The bot's card, as its person wrote it: `{works}`, its caps (null when it lists nothing). */
   function cardOf(bot, root) {
     for (const path of botCardPaths(root, bot)) {
       const found = propsAt(path);
@@ -117,7 +117,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     return { path: null, works: null };
   }
 
-  /** The bot an area sends work to, and whether and how much it may: `{bot, name, allowed, cap, used}` or null. */
+  /** The bot an area sends work to and how much of its week it may spend there: `{bot, name, cap, used}` or null. */
   function budget(area, at = now()) {
     const about = propsAt(`${area}/about.md`);
     if (!about || about.sealed) return null;
@@ -128,9 +128,9 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     const said = propsOf(about.props);
     if (typeof said.owner !== "string" || said.owner.trim() === "") return null;
     const root = areasRoot();
-    const { allowed, cap } = root === null ? { allowed: true, cap: null } : botAllowedIn(cardOf(bot, root).works, area);
+    const cap = root === null ? null : botCapIn(cardOf(bot, root).works, area);
     const name = mailJoinName(bot);
-    return { bot, name, allowed, cap, used: usedIn(name, area, weekOf(at, DEFAULT_ROUTINE_ZONE)) };
+    return { bot, name, cap, used: usedIn(name, area, weekOf(at, DEFAULT_ROUTINE_ZONE)) };
   }
 
   function usedIn(name, area, week) {
@@ -211,12 +211,11 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
   }
 
   /**
-   * One routine sent to its area's bot, as the clock sends it: never past the bot's list or its spent share. The
+   * One routine sent to its area's bot, as the clock sends it: never past its spent share. The
    * webhook's reply is kept when it comes (`delivered`): a send nothing took is "failed", not a quiet "sent".
    */
   function send(row, at, found = budget(row.area, at)) {
     if (found === null) return { found, outcome: "no_bot" };
-    if (!found.allowed) return { found, outcome: "not_listed" };
     if (spent(found)) return { found, outcome: "held" };
     try {
       const reply = tell({ type: "routine", bot: found.name, area: row.area, note: row.path, from: "context" });
@@ -309,7 +308,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
       for (const row of all(sql.exec("SELECT * FROM ws_area_routines WHERE next_at IS NOT NULL AND next_at <= ? ORDER BY next_at", at))) {
         const holder = budget(row.area, at);
         // One at a time: a bot still on its last routine gets this one once it answers, or after twenty minutes.
-        if (holder !== null && holder.allowed && !spent(holder) && busy(holder.name, at)) {
+        if (holder !== null && !spent(holder) && busy(holder.name, at)) {
           sql.exec("UPDATE ws_area_routines SET next_at = ? WHERE path = ?", at + QUEUED_RETRY_MS, row.path);
           outcomes.push({ path: row.path, outcome: "queued" });
           continue;

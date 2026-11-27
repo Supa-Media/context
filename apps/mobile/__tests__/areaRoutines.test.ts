@@ -118,10 +118,10 @@ describe("the budget", () => {
   });
 
   test("is the card's cap here against what the state says it used", () => {
-    expect(budgetOf(AREA, "Grok Bot", ["areas/finance · 20%"], STATE)).toEqual({ bot: "Grok Bot", used: 12, cap: 20, listed: true });
-    expect(budgetOf(AREA, "Grok Bot", ["areas/growth"], STATE)).toEqual({ bot: "Grok Bot", used: 12, cap: null, listed: false });
-    expect(budgetOf(AREA, "Grok Bot", undefined, { ...STATE, usage: [] })).toEqual({ bot: "Grok Bot", used: 0, cap: null, listed: true });
-    expect(budgetOf(AREA, "Grok Bot", undefined, null)).toEqual({ bot: "Grok Bot", used: null, cap: null, listed: true });
+    expect(budgetOf(AREA, "Grok Bot", ["areas/finance · 20%"], STATE)).toEqual({ bot: "Grok Bot", used: 12, cap: 20 });
+    expect(budgetOf(AREA, "Grok Bot", ["areas/growth"], STATE)).toEqual({ bot: "Grok Bot", used: 12, cap: null });
+    expect(budgetOf(AREA, "Grok Bot", undefined, { ...STATE, usage: [] })).toEqual({ bot: "Grok Bot", used: 0, cap: null });
+    expect(budgetOf(AREA, "Grok Bot", undefined, null)).toEqual({ bot: "Grok Bot", used: null, cap: null });
     expect(budgetOf(AREA, "Grok Bot", undefined, "loading")).toBeUndefined();
     expect(budgetOf(AREA, null, undefined, STATE)).toBeNull();
   });
@@ -210,6 +210,6 @@ describe("a long bot name", () => {
   test("its usage is found under the mail name the workspace object counts it by", () => {
     const { budgetOf } = require("../features/console/files/folderPage/areas/areaRoutines");
     const state = { week: "2026-11-23", routines: [], usage: [{ bot: "tex-quality-tex-reply-qu", area: "areas/x", used: 7 }] };
-    expect(budgetOf("areas/x", "Tex Quality · Tex reply quality", ["areas/x · 20%"], state)).toEqual({ bot: "Tex Quality · Tex reply quality", used: 7, cap: 20, listed: true });
+    expect(budgetOf("areas/x", "Tex Quality · Tex reply quality", ["areas/x · 20%"], state)).toEqual({ bot: "Tex Quality · Tex reply quality", used: 7, cap: 20 });
   });
 });

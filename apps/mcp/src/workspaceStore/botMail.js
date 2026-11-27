@@ -143,10 +143,10 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     // What the bot said it used, and the routines it answered (`areaRoutines.js`).
     routines?.recordMail(noteId, area, holder);
     if (newest.from.toLowerCase() === bot) return;
-    // An area its bot's person hasn't let it work in, or whose share of the bot's week is spent, is held: the mail
-    // stays in the note, and the bot finds it there (`docs/decisions/app-and-console/area-routines.md`).
+    // An area whose share of the bot's week is spent is held: the mail stays in the note, and the bot finds it there
+    // (`docs/decisions/app-and-console/area-routines.md`).
     const found = routines?.budget(area) ?? null;
-    if (found !== null && (!found.allowed || routines.spent(found))) return;
+    if (found !== null && routines.spent(found)) return;
     tell({ bot, area, note: row.path, from: newest.from });
   }
 

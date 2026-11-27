@@ -18,8 +18,8 @@
  * - **A bot's caps** live on its card, one line per area it works in:
  *   `works_in: [areas/operations/Scorecard · 20%]`. The cap is a share of the
  *   bot's weekly usage, which the bot reports on each answer as `[used N%]`
- *   (`mail.cjs`). A card with no `works_in:` line works wherever an area names
- *   it, with no cap, as cards always did.
+ *   (`mail.cjs`). A bot works wherever an area names it; an area with no
+ *   number on its card has no cap.
  */
 
 const { cadenceFromFolder, frontMatter, nextRunAt, parseTime, routineSettings, wallClock, describeSchedule } = require("./routines.cjs");
@@ -237,14 +237,14 @@ function worksInLine({ area, cap }) {
 }
 
 /**
- * Whether a bot with these `works_in` entries may work in `area`, and its cap there: `{allowed, cap}`. No list is the
- * old card: allowed, no cap. A list is the bot's person saying where it works; an area not on it is not one.
+ * A bot's cap in `area` from its card's `works_in` entries: a whole percent of its week, or null for none. Where no
+ * number is written (no list, an area off it, or a bare entry) there is no cap: a bot works in every area that names
+ * it (decided by the owner, 2026-11-27: "if theres not a number we should assume no cap").
  */
-function botAllowedIn(worksIn, area) {
-  if (worksIn === null || worksIn === undefined) return { allowed: true, cap: null };
+function botCapIn(worksIn, area) {
+  if (worksIn === null || worksIn === undefined) return null;
   const key = String(area ?? "").toLowerCase();
-  const entry = worksIn.find((item) => item.area.toLowerCase() === key);
-  return entry === undefined ? { allowed: false, cap: null } : { allowed: true, cap: entry.cap };
+  return worksIn.find((item) => item.area.toLowerCase() === key)?.cap ?? null;
 }
 
 /** The week `ms` falls in, as the date its Monday has in `timeZone`: `2026-11-23`. Budgets count per week. */
@@ -293,7 +293,7 @@ module.exports = {
   parseWorksIn,
   parseWorksInEntry,
   worksInLine,
-  botAllowedIn,
+  botCapIn,
   weekOf,
   mailOnlyText,
   routinesText,
