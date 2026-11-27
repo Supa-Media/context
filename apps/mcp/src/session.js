@@ -333,7 +333,8 @@ export function sessionForContext(session, name) {
     workspaceSlug: covered.slug,
     workspaceKind: covered.kind,
     role: covered.role,
-    scope: visibilityTierForGrant(scopes, covered.role),
+    // A group asker's own personal workspace reads at their private tier, read only (`sessionPayload.js` `askerOwn`).
+    scope: covered.askerOwn === true ? "private" : visibilityTierForGrant(scopes, covered.role),
     scopes,
     grantedGroups: grantedGroupsOf(covered.grantedNames),
     chatNames: chatNamesOf(covered.grantedNames),

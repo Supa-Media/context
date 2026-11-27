@@ -278,6 +278,7 @@ export async function contextsForGrant(
     setupOnly?: true;
     chatHome?: string;
     homeOnly?: true;
+    askerOwn?: true;
   }>
 > {
   // The app's own client and every AI connection the person makes (Claude, ChatGPT, any OAuth client) hold the names

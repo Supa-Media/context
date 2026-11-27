@@ -168,11 +168,13 @@ export async function homeOnlyTurn(
     minted,
     names,
     guests: [...guests, ...unnamed],
-    reach: reach.map((row) => row.workspace.slug),
+    // The shared ones by name; the asker's own personal workspace travels on the grant's rows only (`askerOwn`).
+    reach: reach.filter((row) => row.askerOwn !== true).map((row) => row.workspace.slug),
     blocked,
     // The asker's workspaces this turn reads that the whole chat does not share: someone here can't open what it reads
     // there, so the gateway holds an answer carrying it for the asker (`packages/tex/gateway/agent/roomCheck.js`).
-    ...(own !== null ? { unshared: reach.filter((row) => !chatReachIds.includes(row.workspace._id)).map((row) => row.workspace.slug).filter((slug) => !opened.has(slug)) } : {}),
+    // The asker's own personal workspace is theirs to share on their own ask, so it is never held as the room's.
+    ...(own !== null ? { unshared: reach.filter((row) => row.askerOwn !== true && !chatReachIds.includes(row.workspace._id)).map((row) => row.workspace.slug).filter((slug) => !opened.has(slug)) } : {}),
     ...(senderUser === null ? { guestTagger: await guestLabel(args.groupKey, args.sender) } : {}),
   };
 }
@@ -280,6 +282,7 @@ export interface HomeOnlyRow {
   grantedNames?: string[];
   chatHome?: string;
   homeOnly?: true;
+  askerOwn?: true;
 }
 
 /**
@@ -306,8 +309,10 @@ export async function homeOnlyRows(ctx: QueryCtx, grant: Doc<"oauthGrants">, wor
       homeOnly: true,
     },
   ];
-  for (const reach of await liveReach(ctx, grant.texGroup?.reach, grant.texGroup?.reachPeople, grant.userId, grant.texGroup?.reachGuests ?? [])) {
-    rows.push({ workspaceId: reach.workspace._id, slug: reach.workspace.slug, role: reach.role, kind: reach.workspace.kind });
+  // An asker's own grant also reads their own personal workspace (`lib/textGroupReach.ts` `askerOwnPersonal`).
+  const askerGrant = grant.texGroup?.reachFor === "asker" && grant.texGroup.taggerId === grant.userId;
+  for (const reach of await liveReach(ctx, grant.texGroup?.reach, grant.texGroup?.reachPeople, grant.userId, grant.texGroup?.reachGuests ?? [], Date.now(), askerGrant)) {
+    rows.push({ workspaceId: reach.workspace._id, slug: reach.workspace.slug, role: reach.role, kind: reach.workspace.kind, ...(reach.askerOwn === true ? { askerOwn: true as const } : {}) });
   }
   return rows;
 }

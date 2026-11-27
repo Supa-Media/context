@@ -66,7 +66,7 @@ async function turn(t: T, sender: string, participants: string[]) {
   return await agentPost(t, "/agent-texts/group", { line: LINE, groupId: GROUP, sender, participants, mint: true });
 }
 
-type SessionRow = { workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; setupOnly?: true; homeOnly?: true; chatHome?: string };
+type SessionRow = { workspaceId: string; slug?: string; role?: string; grantedNames?: string[]; setupOnly?: true; homeOnly?: true; chatHome?: string; askerOwn?: true };
 
 async function resolves(t: T, accessToken: string): Promise<{ workspaces: SessionRow[] } | null> {
   const response = await gatewayPost(t, "/gateway/session", { accessToken });
@@ -275,7 +275,8 @@ describe("what the chat's session carries in the pin", () => {
     expect(setup).toMatchObject({ workspaceId: String(w.pinned), role: "editor", chatHome: folder });
     expect(setup?.grantedNames).toEqual(expect.arrayContaining(["#reads-as-chat", `#${home!.row.noteId}`, `#${home!.row.noteId}!edit`]));
     // The home is the default row, then the workspace everyone in the chat shares.
-    expect(session?.workspaces.filter((entry) => entry.homeOnly !== true).map((entry) => entry.slug)).toEqual(["studio"]);
+    // The asker's own personal workspace aside (`textGroupAskerReach.test.ts`).
+    expect(session?.workspaces.filter((entry) => entry.homeOnly !== true && entry.askerOwn !== true).map((entry) => entry.slug)).toEqual(["studio"]);
   });
 
   test("the rules the session reads by open the home to change, read the guides, and close the rest", async () => {

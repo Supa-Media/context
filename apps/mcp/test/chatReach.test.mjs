@@ -123,3 +123,56 @@ test("a single-workspace reader goes to the first in reach by name", async () =>
   assert.equal(inFirstReach(plain, { reach: [] }), plain);
   assert.equal(inFirstReach(null, group), null);
 });
+
+// The asker's own personal workspace, on their own ask (Dev2, 2026-11-26: "lets open the floodgates there right now").
+// The control plane marks it `askerOwn` (`apps/convex/functions/lib/textGroupReach.ts` `askerOwnPersonal`) and holds it
+// as a member's. Sabotage: drop the `askerOwn` check in `sessionForContext` -> "reads at the private tier" fails; drop the
+// client or kind check in `sessionPayload.js` -> "honoured for the group client alone" fails; list it in `reachOf` ->
+// "never the room's" fails.
+const OWN = { workspaceId: "ws_ada", slug: "ada", role: "member", kind: "personal", askerOwn: true };
+
+test("the asker's own personal workspace reads at the private tier, read only, never as its owner", async () => {
+  const session = await resolveSession(TOKEN, null, controlPlane([A, OWN]));
+  const own = sessionForContext(session, "@ada");
+  assert.equal(own.scope, "private", "the asker's own notes, private ones included");
+  assert.ok(!own.scopes.includes(SCOPE_WRITE), "read only");
+  assert.ok(!own.scopes.includes("context:private"), "the grant never holds the private scope");
+  assert.equal(own.role, "member", "never passes for the person themselves");
+  assert.equal(sessionForContext(session, "@alpha").scope, "team", "every other row stays at team");
+});
+
+test("askerOwn is honoured for the group client alone, on a personal row held below owner", async () => {
+  const forged = (row, clientId = "context_texts_group") => ({
+    async resolveSession() {
+      return { grantId: "g", clientId, actorUserId: "u", scopes: ["context:read", "context:write"], defaultWorkspaceId: "ws_pin", workspaces: [home(), row] };
+    },
+  });
+  // A shared workspace marked askerOwn stays at team.
+  const shared = await resolveSession(TOKEN, null, forged({ ...A, askerOwn: true }));
+  assert.equal(sessionForContext(shared, "@alpha").scope, "team");
+  // An owner's row marked askerOwn is not honoured either.
+  const owner = await resolveSession(TOKEN, null, forged({ ...OWN, role: "owner" }));
+  assert.equal(sessionForContext(owner, "@ada").scope, "team");
+  // Any other client: not honoured.
+  const other = {
+    async resolveSession() {
+      return { grantId: "g", clientId: "some_ai_client", actorUserId: "u", scopes: ["context:read"], defaultWorkspaceId: "ws_a", workspaces: [A, OWN] };
+    },
+  };
+  assert.equal(sessionForContext(await resolveSession(TOKEN, null, other), "@ada").scope, "team");
+});
+
+test("the asker's own personal workspace is never the room's: not in reach, but told to the turn", async () => {
+  const session = await resolveSession(TOKEN, null, controlPlane([OWN, A]));
+  const group = groupOf({ group: { key: HEX, members: HEX, from: "ada" } }, session);
+  assert.deepEqual(group.reach, ["alpha"]);
+  assert.equal(group.ownNotes, "ada");
+  const prompt = groupPrompt(group, "context-lc");
+  assert.match(prompt, /"askers_own_personal_notes_readable_this_turn":\{"asker":"@ada","context":"@ada","read_only":true\}/);
+  assert.match(prompt, /Nobody else's personal notes/);
+  assert.doesNotMatch(prompt, /Nobody's personal notes/);
+  // Without it, nobody's.
+  const plain = groupOf({ group: { key: HEX, members: HEX, from: "ada" } }, await resolveSession(TOKEN, null, controlPlane([A])));
+  assert.equal(plain.ownNotes, undefined);
+  assert.match(groupPrompt(plain, "context-lc"), /Nobody's personal notes/);
+});
