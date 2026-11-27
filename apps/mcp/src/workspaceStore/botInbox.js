@@ -103,6 +103,11 @@ export function botInbox(sql, { rows = null, now = Date.now } = {}) {
       }
       return items;
     },
+    /** When `bot` last checked in, or null for never. */
+    lastCheck(bot) {
+      const row = all(sql.exec("SELECT at FROM ws_bot_checks WHERE bot = ?", mailJoinName(bot)))[0];
+      return row === undefined ? null : Number(row.at);
+    },
     /** Every bot's last check-in: `[{bot, at}]`, by mail name. */
     checks() {
       return all(sql.exec("SELECT bot, at FROM ws_bot_checks ORDER BY bot")).map((row) => ({ bot: row.bot, at: Number(row.at) }));

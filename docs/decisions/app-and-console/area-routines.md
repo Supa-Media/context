@@ -192,10 +192,16 @@ minutes it can be in good standing".
   answer. Nothing waiting: `Nothing new. Check again in 5 minutes.` Something
   waiting: `<n> new for <Bot>:`, one line per note (mail: who and when, then
   its path; routine: its name, then its path), then how to read it
-  (`fetch { id, args: { mail: true } }` for one, `orient { for }` for
-  everything). Only notes this connection may read are listed, judged in the
+  (`fetch { id, args: { mail: true } }` for one, `orient { area }` for its
+  whole area, `orient { for }` for everything). Each line names its area. Only notes this connection may read are listed, judged in the
   object as `ws.bots.state` is (`ws.bots.check`). A workspace not on its object
   says check-ins aren't available there yet.
+- **The full orient, once a working session.** A bot's first check-in, and
+  its first after six hours without one, is answered with the full
+  `orient { for }` instead: how Context works and every area it holds (Dev,
+  2026-11-27: "the full orient does have important things for the bot to know
+  ... so at what point will it call the full orient?"). The object says when
+  the bot last checked (`previousAt`); `orient/botCheck.js` `FULL_AFTER_MS`.
 - **Good standing.** `ws.bots.state` (and the app's area-routines route) carries
   `checks: [{bot, at}]` and `inbox: [{bot, count}]`; the app shows a polling
   bot as checking when it checked in within ten minutes.

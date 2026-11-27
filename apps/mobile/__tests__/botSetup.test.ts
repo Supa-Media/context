@@ -39,10 +39,11 @@ const NOTES: ListNote[] = [
   { path: "bots/pipeline/about.md", properties: { holder: "Pipeline", kind: "agent", bot: "grok", belongs_to: "@seyi" } },
 ];
 
-async function show(reach: string | undefined) {
+async function show(reach: string | undefined, options: { me?: string; checkedAt?: number } = {}) {
   const notes = NOTES.map((note) => (note.path === "bots/pipeline/about.md" && reach !== undefined ? { ...note, properties: { ...note.properties, reach } } : note));
-  const bot = botsOf("areas", notes, "@seyi").find((one) => one.name === "Pipeline")!;
-  const lookups = botLookups([], null, Date.now());
+  const bot = botsOf("areas", notes, options.me ?? "@seyi").find((one) => one.name === "Pipeline")!;
+  const state = { week: "2026-11-23", routines: [], usage: [], checks: options.checkedAt === undefined ? [] : [{ bot: "pipeline", at: options.checkedAt }] };
+  const lookups = botLookups([], state, Date.now());
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -52,7 +53,7 @@ async function show(reach: string | undefined) {
   });
   await act(async () =>
     root.render(
-      createElement(BotLookupsScope, { lookups }, createElement(BotSetup, { bot, health: lookups.healthOf(bot.name, bot.card.reach), canEdit: true, workspace: "@acme", cardPath: bot.card.path, chooseMany: async () => null })),
+      createElement(BotLookupsScope, { lookups, children: createElement(BotSetup, { bot, health: lookups.healthOf(bot.name, bot.card.reach), canEdit: true, workspace: "@acme", cardPath: bot.card.path, chooseMany: async () => null }) }),
     ),
   );
 }
@@ -76,5 +77,15 @@ describe("a bot's setup on its page", () => {
     expect(text).toContain('for: "Pipeline"');
     expect(text).not.toContain("header_from_shell");
     expect(all("area-panel-hook-by-hand")).toHaveLength(0);
+  });
+
+  test("a bot that stopped checking says how to put it back: its person pastes its prompt again", async () => {
+    // Dev, 2026-11-27: "no instructions on how to get it back in good standing?"
+    await show(undefined, { checkedAt: Date.now() - 60 * 60 * 1000 });
+    expect(strip(one("bot-setup").textContent)).toContain("Paste it into Pipeline again.");
+    unmounts.pop()!();
+    await show(undefined, { me: "@sayo", checkedAt: Date.now() - 60 * 60 * 1000 });
+    expect(strip(one("bot-setup-fix").textContent)).toBe("To fix it, @seyi pastes its setup prompt into Pipeline again.");
+    expect(all("bot-setup-prompt")).toHaveLength(0);
   });
 });

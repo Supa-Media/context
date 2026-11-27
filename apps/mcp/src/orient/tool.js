@@ -286,7 +286,7 @@ export async function toolOrient(store, scope, rules, overrides, options = {}) {
   // was not told about when it connected.
   if (typeof options.area === "string" && options.area.trim() !== "") return await areaAnswer(store, scope, rules, overrides, options.area);
   // A bot's cheap check-in: one line, or what is new and where (`botCheck.js`), never the full holder answer.
-  if (options.check === true && typeof options.for === "string" && options.for.trim() !== "") return await botCheckAnswer(store, options.for);
+  if (options.check === true && typeof options.for === "string" && options.for.trim() !== "") return await botCheckAnswer(store, options.for, async () => await holderAnswer(store, scope, rules, overrides, options.for));
   if (typeof options.for === "string" && options.for.trim() !== "") return await holderAnswer(store, scope, rules, overrides, options.for);
   const about = aboutOf(options);
   const asked = about === null ? null : /^(area|for)\s+(.+)$/i.exec(about);

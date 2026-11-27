@@ -28,7 +28,9 @@ export function objectFirstBots(options) {
       if (typeof client.botsCheck !== "function") return null;
       try {
         const answer = await client.botsCheck({ ...judged, bot });
-        return answer?.served === true ? { items: Array.isArray(answer.items) ? answer.items : [] } : null;
+        if (answer?.served !== true) return null;
+        const previousAt = typeof answer.previousAt === "number" && Number.isFinite(answer.previousAt) ? answer.previousAt : null;
+        return { items: Array.isArray(answer.items) ? answer.items : [], previousAt };
       } catch (error) {
         log("workspace_object_bots_failed", { workspaceId, error: error?.name ?? "Error" });
         return null;

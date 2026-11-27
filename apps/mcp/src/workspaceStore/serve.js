@@ -287,7 +287,8 @@ export async function serveWorkspaceStore(store, request, timing = {}) {
       const bot = typeof fields.bot === "string" ? fields.bot.trim().slice(0, 80) : "";
       if (bot === "") return Response.json({ served: true, items: [] });
       const judge = judgeFor(rows, fields, store.members ?? null);
-      return Response.json({ served: true, items: store.areaRoutines.inbox.check(bot, (path) => judge.sees({ path })) });
+      const previousAt = store.areaRoutines.inbox.lastCheck(bot);
+      return Response.json({ served: true, previousAt, items: store.areaRoutines.inbox.check(bot, (path) => judge.sees({ path })) });
     }
     // One routine sent now (`areaRoutines.js` `runNow`), only one this reader may read: an unseen path is "no routine".
     if (op === "ws.bots.run_now") {

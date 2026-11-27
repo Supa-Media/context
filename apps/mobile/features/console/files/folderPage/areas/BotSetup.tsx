@@ -63,7 +63,25 @@ export function BotSetup({ bot, health, canEdit, workspace, workspaceId, cardPat
   );
   const failing = health?.bad === true;
   const promptOpen = mayChange && (row === null || failing);
-  const again = way === "check" ? `Paste it into ${bot.name}. It connects Context and checks in every 5 minutes.` : row === null ? `Paste it into ${bot.name}. It connects Context, asks you to sign in, and saves its webhook.` : `Paste it into ${bot.name}. It saves its webhook again and sends a test.`;
+  const again = way === "check" ? (health?.state === "stopped checking" || health?.state === "not answering" ? `Paste it into ${bot.name} again. It sets its 5-minute check-in up again, on a timer that outlasts its chat.` : `Paste it into ${bot.name}. It connects Context and checks in every 5 minutes.`) : row === null ? `Paste it into ${bot.name}. It connects Context, asks you to sign in, and saves its webhook.` : `Paste it into ${bot.name}. It saves its webhook again and sends a test.`;
+
+  const saved = row !== null && row !== undefined;
+  const promptBlock = promptOpen ? (
+    <>
+      <PromptBox title="Setup prompt" text={prompt} copyWord="Copy setup prompt" testID="bot-setup-prompt" />
+      <Text variant="treeMeta" style={styles.muted}>
+        {again}
+      </Text>
+    </>
+  ) : null;
+  const hook =
+    way === "check" ? (
+      promptOpen || !mayChange ? null : <CopyPrompt text={prompt} />
+    ) : workspaceId === undefined || workspaceId === "" ? (
+      saved || mayChange ? null : <Text variant="treeMeta" style={styles.muted}>No webhook yet.</Text>
+    ) : (
+      <BotHookFields workspaceId={workspaceId} bot={bot.name} canEdit={mayChange} {...(promptOpen ? {} : { extra: <CopyPrompt text={prompt} /> })} />
+    );
 
   return (
     <View style={styles.section} testID="bot-setup">
@@ -91,21 +109,16 @@ export function BotSetup({ bot, health, canEdit, workspace, workspaceId, cardPat
           {problem}
         </Text>
       )}
-      {promptOpen ? (
-        <>
-          <PromptBox title="Setup prompt" text={prompt} copyWord="Copy setup prompt" testID="bot-setup-prompt" />
-          <Text variant="treeMeta" style={styles.muted}>
-            {again}
-          </Text>
-        </>
+      {/* Someone who can't change it is told who can, and what puts it back in good standing (Dev, 2026-11-27). */}
+      {failing && !mayChange ? (
+        <Text variant="treeMeta" style={styles.muted} testID="bot-setup-fix">
+          {`To fix it, ${bot.whose || "its person"} pastes its setup prompt into ${bot.name} again.`}
+        </Text>
       ) : null}
-      {way === "check" ? (
-        promptOpen || !mayChange ? null : <CopyPrompt text={prompt} />
-      ) : workspaceId === undefined || workspaceId === "" ? (
-        row === null || row === undefined ? (mayChange ? null : <Text variant="treeMeta" style={styles.muted}>No webhook yet.</Text>) : null
-      ) : (
-        <BotHookFields workspaceId={workspaceId} bot={bot.name} canEdit={mayChange} {...(promptOpen ? {} : { extra: <CopyPrompt text={prompt} /> })} />
-      )}
+      {/* A saved webhook first, then the prompt that sets it again; with none yet, the prompt leads. */}
+      {saved ? hook : null}
+      {promptBlock}
+      {saved ? null : hook}
     </View>
   );
 }

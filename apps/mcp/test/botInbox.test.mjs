@@ -13,6 +13,7 @@ import { areaRoutinesWatch } from "../src/workspaceStore/areaRoutines.js";
 import { botMailWatch } from "../src/workspaceStore/botMail.js";
 import { objectFirstBots } from "../src/store/objectBots.js";
 import { toolOrient } from "../src/orient/tool.js";
+import { botCheckAnswer, FULL_AFTER_MS } from "../src/orient/botCheck.js";
 import { parsePrivacyManifest } from "../src/privacy/engine.js";
 import { WorkspaceStore } from "../src/workspaceStore.js";
 import { durableSqlite } from "./durableSqlite.mjs";
@@ -206,12 +207,23 @@ test("a check with something new lists who and where and how to read it, never t
     out,
     [
       "2 new for Grok Bot:",
-      `- mail from @kim, 2026-11-25T14:01:00Z: ${KIM}`,
-      `- routine score-every-area: ${ROUTINE}`,
-      `Read one: fetch { id: "<path>", args: { mail: true } }. Everything: orient { for: "Grok Bot" }.`,
+      `- mail from @kim, 2026-11-25T14:01:00Z in ${AREA}: ${KIM}`,
+      `- routine score-every-area in ${AREA}: ${ROUTINE}`,
+      `Read one: fetch { id: "<path>", args: { mail: true } }, or its whole area first: orient { area: "<area>" }. Everything: orient { for: "Grok Bot" }.`,
     ].join("\n"),
   );
   assert.doesNotMatch(out, /launch code|4471/);
+});
+
+test("a first check-in, or the first after six hours, is answered with the full orient", async () => {
+  // Dev, 2026-11-27: "the full orient does have important things for the bot to know ... so at what point will it
+  // call the full orient?" Once a working session: the first check, and the first after a long gap.
+  const now = Date.parse("2026-11-27T18:00:00.000Z");
+  const full = async () => ({ content: [{ type: "text", text: "FULL" }] });
+  const answer = async (previousAt) => text(await botCheckAnswer(orientStore(async () => ({ items: [], previousAt })), "Grok Bot", full, now));
+  assert.equal(await answer(null), "FULL");
+  assert.equal(await answer(now - FULL_AFTER_MS - 1), "FULL");
+  assert.equal(await answer(now - 5 * 60 * 1000), "Nothing new. Check again in 5 minutes.");
 });
 
 test("a check where the workspace isn't on its object says so", async () => {
@@ -226,7 +238,7 @@ test("the object client asks ws.bots.check at the reader's clearance", async () 
   const calls = [];
   const client = { botsState: async () => null, botsCheck: async (fields) => (calls.push(fields), { served: true, items: [{ kind: "mail", note: KIM }] }) };
   const bots = objectFirstBots({ client, home: "object", scope: "team", names: [], workspaceId: "ws_fake" });
-  assert.deepEqual(await bots.check("Grok Bot"), { items: [{ kind: "mail", note: KIM }] });
+  assert.deepEqual(await bots.check("Grok Bot"), { items: [{ kind: "mail", note: KIM }], previousAt: null });
   assert.equal(calls[0].bot, "Grok Bot");
   assert.equal(calls[0].scope, "team");
   const unserved = objectFirstBots({ client: { botsState: async () => null, botsCheck: async () => ({ served: false }) }, home: "object", scope: "team", names: [], workspaceId: "ws_fake" });
@@ -292,6 +304,9 @@ test("the workspace object keeps mail for a bot with no webhook and answers ws.b
     }
     const answer = await call("ws.bots.check", { workspaceId: "ws_fake", bot: "Grok Bot", scope: "team", groups: [], audience: "member" });
     assert.equal(answer.served, true, JSON.stringify(answer));
+    // Its first check-in says so, so orient answers it in full; the next carries when the last was.
+    assert.equal(answer.previousAt, null);
+    assert.equal(typeof (await call("ws.bots.check", { workspaceId: "ws_fake", bot: "Grok Bot", scope: "team", groups: [], audience: "member" })).previousAt, "number");
     assert.deepEqual(answer.items.map((item) => item.note), ["areas/ops/mail/ada.md"]);
     assert.doesNotMatch(JSON.stringify(answer), /launch code|4471/);
     const after = await call("ws.bots.state", { workspaceId: "ws_fake", scope: "team", groups: [], audience: "member" });
