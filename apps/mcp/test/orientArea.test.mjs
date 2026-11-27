@@ -226,3 +226,13 @@ test("orient area lists the area's routines, its bot's budget, the other bots, a
   assert.doesNotMatch(held, /## Other bots here\n[^#]*- Finance \(/);
   assert.match(held, /Mail written to you outside any area is in `bots\/finance\/mail\/`/);
 });
+
+test("orient about roster: who holds each area and which bots work here, read at the connection's clearance", async () => {
+  // Dev, 2026-11-27: Tex was "oblivious to the new bots, area charter flow, and mailing flow"; Tex reads this per workspace.
+  const out = text(await toolOrient(store(), "team", RULES, OVERRIDES, { about: "roster" }));
+  assert.match(out, /^Who holds each area:\n/);
+  assert.match(out, /- `areas\/engineering\/` — owner @seyi, delegate Pipeline \(ask Pipeline first\)/);
+  assert.match(out, /## Other bots here/);
+  assert.doesNotMatch(out, /secret/);
+  assert.match(text(await toolOrient(store(), "private", RULES, OVERRIDES, { about: "roster" })), /`areas\/secret\/` — owner @seyi/);
+});

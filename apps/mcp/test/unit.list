@@ -383,6 +383,7 @@ test/texStoreTicketCache.test.mjs
 test/texMerge.test.mjs
 test/texStoreMove.test.mjs
 test/texRouting.test.mjs
+test/texRoster.test.mjs
 test/texAlarms.test.mjs
 test/texRoutineAlarms.test.mjs
 test/chatBlockers.test.mjs

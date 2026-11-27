@@ -22,8 +22,9 @@
  *   anything kept.
  * - Fresh enough to trust, by part: the setup (a pinned note that changes
  *   rarely) for an hour; the learned skills and who they are by their
- *   account for ten minutes, the skills dropped by any turn that wrote.
- * - Past fresh, the setup and the skills are still used for up to a day
+ *   account, and who holds each area and which bots work there (`roster.js`),
+ *   for ten minutes, the skills dropped by any turn that wrote.
+ * - Past fresh, the setup, the skills and the roster are still used for up to a day
  *   (`WARM_STALE_MS`), and read again beside the turn instead of before it:
  *   what that read finds goes in the copy this turn hands back, so the next
  *   text has it (Dev, 2026-11-04: a cold text spent 400 ms on the setup and
@@ -65,7 +66,7 @@ export const WARM_SETUP_MS = 60 * 60 * 1000;
  */
 export const WARM_STALE_MS = 24 * 60 * 60 * 1000;
 /** The parts served stale while read again. */
-const SERVED_STALE = new Set(["setup", "skills"]);
+const SERVED_STALE = new Set(["setup", "skills", "roster"]);
 /** A sealed copy larger than this is not made: the turn after reads, as without one. */
 export const WARM_MAX_CHARS = 1_500_000;
 
@@ -126,10 +127,11 @@ export async function openWarm(env, session, sealed, now = Date.now()) {
     const fresh = (part, ms) => (part && Number.isFinite(part.at) && part.at <= now && now - part.at < ms ? part : undefined);
     // Only the parts named here: a copy sealed before 2026-11-01 carried the history and About me, and one before
     // 2026-11-05 the chat's day and its turns' clean marks; none of them is ever used again.
-    const setup = fresh(copy.setup, WARM_SETUP_MS), skills = fresh(copy.skills, WARM_NOTES_MS);
+    const setup = fresh(copy.setup, WARM_SETUP_MS), skills = fresh(copy.skills, WARM_NOTES_MS), roster = fresh(copy.roster, WARM_NOTES_MS);
     // Past fresh and inside a day: used while read again (`WARM_STALE_MS`), never as fresh.
-    const stale = { setup: setup === undefined ? fresh(copy.setup, WARM_STALE_MS) : undefined, skills: skills === undefined ? fresh(copy.skills, WARM_STALE_MS) : undefined };
-    return { setup, skills, identity: fresh(copy.identity, WARM_NOTES_MS), stale };
+    const staleOf = (now_, part, ms) => (now_ === undefined ? fresh(part, ms) : undefined);
+    const stale = { setup: staleOf(setup, copy.setup, WARM_STALE_MS), skills: staleOf(skills, copy.skills, WARM_STALE_MS), roster: staleOf(roster, copy.roster, WARM_STALE_MS) };
+    return { setup, skills, roster, identity: fresh(copy.identity, WARM_NOTES_MS), stale };
   } catch {
     return null;
   }
@@ -186,6 +188,8 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
     setup: part("setup"),
     /** The learned skills' index (`learnedSkills.js`). */
     skills: part("skills"),
+    /** Who holds each area and which bots work there, in each workspace they write in (`roster.js`). */
+    roster: part("roster"),
     /** Who they are by their account (`identity.js`): the control plane's answer, never a note. */
     identity: part("identity"),
     /** The chat's day (the ledger's, `loggedTurn.js`), with the Worker's outbox on top. */
@@ -204,7 +208,7 @@ export function warmTurn(env, session, body, { eligible, logEligible = false, no
       const out = { ...next };
       // A part this turn never asked for (a yes the gateway settled reads none) is carried as it was, still fresh by its own time.
       const was = await opened;
-      for (const name of ["setup", "skills", "identity"]) if (out[name] === undefined && !dropped.has(name) && was?.[name] !== undefined && keeps(name, was[name]?.value) && !(name !== "setup" && jobBusy)) out[name] = was[name];
+      for (const name of ["setup", "skills", "roster", "identity"]) if (out[name] === undefined && !dropped.has(name) && was?.[name] !== undefined && keeps(name, was[name]?.value) && !(name !== "setup" && jobBusy)) out[name] = was[name];
       if (wrote) delete out.skills;
       return await sealWarm(env, session, out);
     },

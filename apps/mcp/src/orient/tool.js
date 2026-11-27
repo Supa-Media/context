@@ -32,7 +32,7 @@ import { actionManual, actionNames, findAction, toolsManual } from "./manual.js"
 import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
 import { orientMailSection, readMailHealth } from "../../../../packages/tex/gateway/agent/mailHealth.js";
 import { phase } from "../mcp/phase.js";
-import { areaAnswer, areaSeatsSection, holderAnswer } from "./area.js";
+import { areaAnswer, areaSeatsSection, holderAnswer, rosterAnswer } from "./area.js";
 import { botCheckAnswer } from "./botCheck.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
@@ -52,7 +52,7 @@ export const SIX_TOOLS_LINE =
   "Six tools: orient, search, fetch, write, manage, send. orient about: \"tools\" lists every action and its arguments.";
 
 /** The values `about` takes besides an action name. `website` is also an action name, and the guide wins. */
-const ABOUT_WORDS = ["tools", "access", "website", "pages", "health"];
+const ABOUT_WORDS = ["tools", "access", "website", "pages", "health", "roster"];
 
 /** Trim, and read the legacy `tools: true` as `about: "tools"`. Null for the overview. */
 function aboutOf({ about, tools } = {}) {
@@ -147,6 +147,7 @@ async function aboutAnswer(store, scope, rules, overrides, about) {
   }
   if (about === "pages") return toolText(PAGE_GUIDE);
   if (about === "health") return toolText(await healthAnswer(store, scope, rules, overrides));
+  if (about === "roster") return await rosterAnswer(store, scope, rules, overrides);
   const found = findAction(about, scope);
   if (found) return toolText(actionManual(found));
   return toolError(
