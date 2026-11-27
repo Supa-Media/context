@@ -19,7 +19,9 @@ export declare const MAX_AREA_ROUTINES: number;
 export declare function cardSlug(holder: unknown): string;
 export declare function botsHome(areasRoot: string): string;
 export declare function legacyBotsFolder(areasRoot: string): string;
-export declare function botCardPaths(areasRoot: string, bot: string): [string, string, string];
+/** The name before a card's first ` · `, `Tex Quality · Tex reply quality` → `Tex Quality`; null when there is none. */
+export declare function botShortName(bot: unknown): string | null;
+export declare function botCardPaths(areasRoot: string, bot: string): string[];
 export declare function isBotCardPath(path: unknown, areasRoot: string): boolean;
 export declare function areaRoutineOf(path: unknown, areasRoot: string): AreaRoutine | null;
 export declare function areaRoutineNext(routine: AreaRoutine | null, text: string | null, afterMs: number): { at: number | null; problems: string[]; settings: unknown };

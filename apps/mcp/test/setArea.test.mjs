@@ -138,6 +138,40 @@ test("a bot's logo is stored in the workspace and named on its card's avatar lin
   assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: {} } })).isError, true);
 });
 
+test("a bot's logo line names a picture the workspace holds", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
+  await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } });
+  const avatar = String((await props("bots/finance/about.md")).avatar);
+  // The card's leaf is the stored object's name, not a name for some other copy (Tex Quality, 2026-11-26).
+  assert.notEqual(await store.get(`.context/assets/images/${avatar}`), null);
+});
+
+// Tex Quality, 2026-11-26: its card says "Tex Quality · Tex reply quality" in bots/tex-quality/.
+const TQ_CARD = "---\nholder: Tex Quality · Tex reply quality\nkind: agent\nbot: claude\nbelongs_to: \"@seyi\"\nreach: webhook\n---\n";
+
+test("a bot called by its card's full words is that card, not a second one", async () => {
+  const { store, props } = await world({ "areas/about.md": "---\nagents:\n  - Tex Quality\n---\n", "areas/finance/about.md": FINANCE, "bots/tex-quality/about.md": TQ_CARD });
+  const result = await run(store, { area: "areas/finance", bot: { name: "Tex Quality · Tex reply quality", avatar: { data: PNG } } });
+  assert.equal(result.isError, undefined, said(result));
+  assert.match(said(result), /card bots\/tex-quality\/about\.md/);
+  assert.match(String((await props("bots/tex-quality/about.md")).avatar), /^upload-/);
+  assert.equal(await store.get("bots/tex-quality-tex-reply-quality/about.md"), null);
+  assert.deepEqual((await props("areas/about.md")).agents, ["Tex Quality"]);
+});
+
+test("a bot called by its short name keeps the words and kind its card says", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE, "bots/tex-quality/about.md": TQ_CARD });
+  const result = await run(store, { area: "areas/finance", bot: { name: "Tex Quality", avatar: { data: PNG } } });
+  assert.equal(result.isError, undefined, said(result));
+  const card = await props("bots/tex-quality/about.md");
+  assert.equal(card.holder, "Tex Quality · Tex reply quality");
+  assert.equal(card.bot, "claude");
+  assert.match(said(result), /^- Tex Quality · Tex reply quality: /);
+  // Passing a kind still changes it.
+  await run(store, { area: "areas/finance", bot: { name: "Tex Quality", kind: "grok" } });
+  assert.equal((await props("bots/tex-quality/about.md")).bot, "grok");
+});
+
 test("an area's one delegate is written on its about.md, and null takes it away", async () => {
   // The owner, 2026-11-25: "1 delegate per area please".
   const { store, props, text } = await world({ "areas/finance/about.md": "---\nowner: \"@seyi\"\nhelper: Old Bot\n---\n\n# Finance\n" });

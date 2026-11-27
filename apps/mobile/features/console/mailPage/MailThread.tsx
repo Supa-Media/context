@@ -239,7 +239,7 @@ export function MailThread({
                     <Text variant="tree" style={styles.name}>
                       {isMe(event.from, me) ? "You" : nameOf(event.from)}
                     </Text>
-                    {event.app ? <Text variant="treeMeta" style={styles.muted}>{appWords(event.app)}</Text> : null}
+                    {event.app && faceOf.isBot?.(event.from) !== true ? <Text variant="treeMeta" style={styles.muted}>{appWords(event.app)}</Text> : null}
                     <Text variant="treeMeta" style={styles.muted}>
                       {clockLabel(event.at)}
                       {event.to && event.to !== "everyone" ? ` · to ${nameOf(event.to)}` : ""}

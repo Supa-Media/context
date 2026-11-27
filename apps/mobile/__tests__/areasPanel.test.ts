@@ -335,6 +335,32 @@ describe("the Areas side panel", () => {
     expect(all("owner-face-logo").length).toBeGreaterThan(0);
   });
 
+  test("a bot named by its card's full words is drawn with its logo", async () => {
+    // Dev, 2026-11-26: "Tex Quality · Tex reply quality" is on the agents list as Tex Quality, and was drawn as a person.
+    windowOf(1440);
+    const notes: ListNote[] = [
+      { path: "areas/about.md", properties: { agents: ["Tex Quality"] } },
+      { path: "areas/quality/about.md", properties: { owner: "Tex Quality · Tex reply quality" } },
+      { path: "bots/tex-quality/about.md", properties: { holder: "Tex Quality · Tex reply quality", kind: "agent", bot: "grok", belongs_to: "@seyi", avatar: "upload-55ce2aa2414a28d4.webp" } },
+    ];
+    const reads: string[] = [];
+    const base = host([], { notes });
+    const page = {
+      ...base,
+      source: {
+        ...base.source,
+        readPicture: async (note: string, leaf: string) => {
+          reads.push(`${note} ${leaf}`);
+          return "data:image/png;base64,AAAA";
+        },
+      },
+    };
+    await mount(page, { ...LISTING, entries: [entry("folder", "areas/quality")] });
+    await settle();
+    expect(reads).toContain("bots/tex-quality/about.md upload-55ce2aa2414a28d4.webp");
+    expect(all("owner-face-logo").length).toBeGreaterThan(0);
+  });
+
   test("a bot that owns several areas gets one setup prompt covering them all", async () => {
     // The owner, 2026-11-25: "a grokbot can own multiple areas".
     windowOf(1440);
