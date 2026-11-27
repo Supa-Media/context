@@ -4,7 +4,8 @@
  * open up the right panel, double click to get into more details"). It is the
  * side-panel prototype the owner tried, built: the name and its owner, the one
  * headline metric with its latest reading, trend and goal, the owner and their
- * agent with how to reach them, the modes, and the sub-areas.
+ * agent with how to reach them, the modes, the routines the area's bot is sent
+ * on a schedule (`PanelRoutines.tsx`), its mail, and the sub-areas.
  *
  * Everything is edited in place, with no pop-up (the owner, 2026-11-24: "why
  * cant I make changes inline?"): the metric's name and goal, then Owner and
@@ -26,6 +27,7 @@ import { OwnerFace, type Face } from "../Glyphs";
 import { headlineOf } from "./headline";
 import { PanelMail, type PanelMailTools } from "./PanelMail";
 import { PanelProjects, type PanelProjectsTools } from "./PanelProjects";
+import { PanelRoutines, type PanelRoutinesTools } from "./PanelRoutines";
 import { PanelNotes, PanelOwnerRows, PanelRules, type PanelSeatTools } from "./PanelSeatFields";
 import { PanelGoal } from "./PanelGoal";
 import { PanelTrend } from "./PanelTrend";
@@ -52,6 +54,8 @@ export interface AreaPanelProps {
   mail?: PanelMailTools;
   /** The projects serving this area, from the Projects folder; absent where that folder is not read. */
   projects?: PanelProjectsTools;
+  /** The area's routines, its `routines/` notes and how they ran; absent where there is none to show. */
+  routines?: PanelRoutinesTools;
   /** Shows another area here. */
   onPeek: (folder: string) => void;
   /** Opens an area's own page. */
@@ -64,7 +68,7 @@ function editOf(seat: Seat, patch: Partial<SeatEdit>): SeatEdit {
   return { owner: seat.ownOwner, delegate: seat.delegate, modes: seat.modes, metrics: seat.metrics, approvals: seat.approvals, ...patch };
 }
 
-export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, mail, projects, onPeek, onOpen, onClose }: AreaPanelProps) {
+export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick, onSave, tools, mail, projects, routines, onPeek, onOpen, onClose }: AreaPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { seat } = node;
@@ -176,6 +180,13 @@ export function AreaPanel({ node, top, width, canEdit, faceOf, readingOf, onPick
           write={(patch, cards) => void write(patch, cards)}
         />
       </Section>
+
+      {/* Who holds the area, what they're sent on a schedule, then where they answer. */}
+      {routines === undefined || top !== undefined ? null : (
+        <Section title="Routines">
+          <PanelRoutines key={seat.folder} tools={routines} />
+        </Section>
+      )}
 
       {mail === undefined || top !== undefined ? null : (
         <Section title="Mail">

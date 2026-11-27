@@ -16,6 +16,10 @@ export declare const BOTS_FOLDER: "bots";
 export declare const PEOPLE_FOLDER: "people";
 export declare const DEFAULT_ROUTINE_ZONE: string;
 export declare const MAX_AREA_ROUTINES: number;
+/** The most times one routine's `at:` may name. */
+export declare const MAX_ROUTINE_TIMES: number;
+/** Several times in `at:`: each time, the problems, and the note without its `at:` line; null for one time or none. */
+export declare function routineTimes(text: string | null): { times: { hour: number; minute: number }[]; problems: string[]; text: string } | null;
 export declare function cardSlug(holder: unknown): string;
 export declare function botsHome(areasRoot: string): string;
 export declare function legacyBotsFolder(areasRoot: string): string;
