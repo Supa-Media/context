@@ -129,6 +129,14 @@ to agents such as Claude Code and Codex. Its model is configuration
 *is* a model. Other bots in the same category: Muse, Instinct, Poke and
 OpenClaw.
 
+**Agents and bots both connect to the MCP server, and use it differently**
+(decided by the owner, 2026-11-27). An agent does deep work in one task. A bot
+is good at orchestration and poor at deep work, so it routes each job through
+the workspace's network of bots and agents to the domain expert (the one that
+holds that area), and follows up, rather than doing the work itself. The
+public agent primer (`infra/router/src/agentPrimer.ts`, `/agents`) says the
+same.
+
 In a workspace, `bots/<bot>/` holds one card for each bot or agent that works
 there, and an area is usually held by a bot, because an area needs someone to
 check on it without being asked.
