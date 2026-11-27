@@ -34,6 +34,7 @@ import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FolderListing } from "../features/console/files/types";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
 import { BOT_CHECK_MS, checkHealth, firstMailNote, threadOf } from "../features/console/files/folderPage/areas/areaMail";
+import { resetAppearanceForTests } from "../features/design/appearance";
 import { all, entry, host, mount, one, press, strip, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
 
 const NOTES: ListNote[] = [
@@ -124,6 +125,33 @@ describe("The bots folder", () => {
     await settle();
     expect(reads).toContain("bots/tex-quality/about.md upload-55ce2aa2414a28d4.webp");
     expect(one("areas-bot-Tex Quality · Tex reply quality").querySelectorAll('[data-testid="owner-face-logo"]')).toHaveLength(1);
+  });
+
+  test("a bot whose card names a dark-screen logo is drawn with it in dark mode, and with its avatar in light", async () => {
+    // Dev, 2026-11-27: Grok Bot's white logo vanished on a light screen; its card names a black one and a white one.
+    windowOf(1440);
+    const notes: ListNote[] = [
+      { path: "areas/about.md", properties: { agents: ["Grok Bot"] } },
+      { path: "bots/grok-bot/about.md", properties: { holder: "Grok Bot", kind: "agent", bot: "grok", belongs_to: "@seyi", avatar: "upload-000000000000000b.webp", "avatar-dark": "upload-000000000000000d.webp" } },
+    ];
+    const drawn = async (appearance: "light" | "dark") => {
+      resetAppearanceForTests({ appearance });
+      const reads: string[] = [];
+      const base = host([], { notes, bodies: {}, files: [] });
+      const page = { ...base, source: { ...base.source, readPicture: async (_note: string, leaf: string) => (reads.push(leaf), "data:image/png;base64,AAAA") } };
+      await mount(page, { ...BOTS, entries: [entry("folder", "bots/grok-bot")] });
+      await settle();
+      unmountAll();
+      return reads;
+    };
+    try {
+      expect(await drawn("dark")).toContain("upload-000000000000000d.webp");
+      expect(await drawn("dark")).not.toContain("upload-000000000000000b.webp");
+      expect(await drawn("light")).toContain("upload-000000000000000b.webp");
+      expect(await drawn("light")).not.toContain("upload-000000000000000d.webp");
+    } finally {
+      resetAppearanceForTests();
+    }
   });
 
   test("someone else's bot shows its caps but has no field to change them, and its mail stays beside its old card", async () => {

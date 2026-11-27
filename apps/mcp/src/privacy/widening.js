@@ -193,9 +193,9 @@ async function classify(name, args, { into, privacy }) {
     }
     // A bot's logo by address: the same outside fetch as write_note's images by url (2026-11-25), so the same check.
     case "set_area": {
-      const url = typeof a.bot?.avatar?.url === "string" ? a.bot.avatar.url.trim() : "";
-      if (url === "") return null;
-      return { audience: "outside", summary: `fetch an image from ${hostOf(url)} as ${typeof a.bot?.name === "string" ? a.bot.name : "a bot"}'s logo` };
+      const urls = [a.bot?.avatar?.url, a.bot?.avatar_dark?.url].map((url) => (typeof url === "string" ? url.trim() : "")).filter((url) => url !== "");
+      if (urls.length === 0) return null;
+      return { audience: "outside", summary: `fetch an image from ${[...new Set(urls.map(hostOf))].join(" and ")} as ${typeof a.bot?.name === "string" ? a.bot.name : "a bot"}'s logo` };
     }
     // A request through Context goes to a site outside the workspace, and its
     // body or address can carry what the turn read, as an image address can.

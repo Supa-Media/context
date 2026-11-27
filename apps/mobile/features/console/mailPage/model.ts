@@ -168,10 +168,12 @@ export function botCardOf(conversation: Pick<Conversation, "path" | "place">): s
 }
 
 /** The `avatar:` a card's front matter names (the logo's leaf beside the card), or "" when it names none. */
-export function avatarOf(text: string): string {
+export function avatarOf(text: string, scheme: "light" | "dark" = "light"): string {
   const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? "";
-  const line = /^avatar:[ \t]*(.*)$/m.exec(head)?.[1]?.trim() ?? "";
-  return line.replace(/^["']|["']$/g, "").trim();
+  const field = (key: string) => (new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(head)?.[1]?.trim() ?? "").replace(/^["']|["']$/g, "").trim();
+  // A dark screen draws the card's `avatar-dark:` when it names one (Dev, 2026-11-27).
+  const dark = scheme === "dark" ? field("avatar-dark") : "";
+  return dark !== "" ? dark : field("avatar");
 }
 
 /** Whether a mail name is a person (`@seyi`) rather than an agent or bot (`grok-bot`, `claude`). */

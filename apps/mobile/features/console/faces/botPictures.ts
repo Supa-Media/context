@@ -72,6 +72,11 @@ export function readAvatar(cardKey: string, read: () => Promise<string>): Promis
   return found;
 }
 
+/** A card's key for one theme: what a card names for a dark screen is remembered apart from what it names for light. */
+export function themedCardKey(cardKey: string, scheme: "light" | "dark"): string {
+  return scheme === "dark" ? `${cardKey}|dark` : cardKey;
+}
+
 /** Forget everything, for a test. */
 export function resetBotPictures(): void {
   shown.clear();

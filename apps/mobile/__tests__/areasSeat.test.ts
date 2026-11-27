@@ -389,7 +389,7 @@ describe("cardOf", () => {
       phone: "+1 555 010 0177",
       email: "dev2@example.com",
       access: "",
-      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "", worksIn: [],
+      vault: "", bot: "", belongsTo: "", reach: "mail", avatar: "", avatarDark: "", worksIn: [],
       creates: false,
       path: "areas/people/dev2.md",
     });

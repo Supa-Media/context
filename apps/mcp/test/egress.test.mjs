@@ -90,6 +90,8 @@ test("mightWiden says yes to the calls that can widen, and no to the rest", () =
   // A bot's logo by address is the same outside fetch (2026-11-25); its bytes sent inline are not.
   assert.equal(mightWiden("set_area", { bot: { name: "Socials", avatar: { url: "https://pics.example/logo.png" } } }), true);
   assert.equal(mightWiden("set_area", { bot: { name: "Socials", avatar: { data: "iVBORw0KGgo=" } } }), false);
+  // Its dark-screen logo by address is the same outside fetch.
+  assert.equal(mightWiden("set_area", { bot: { name: "Socials", avatar: { data: "iVBORw0KGgo=" }, avatar_dark: { url: "https://dark.example/logo.png" } } }), true);
   assert.equal(mightWiden("set_area", { area: "areas/x", owner: "Socials" }), false);
   assert.equal(mightWiden("set_visibility", { path: "a.md", visibility: "team" }), true);
   assert.equal(mightWiden("set_folder_visibility", { path: "a", visibility: "team" }), true);
@@ -263,6 +265,9 @@ test("a bot's logo by address is judged as an outside fetch, and its bytes are n
   assert.equal(byUrl.audience, "outside");
   assert.equal(byUrl.summary, "fetch an image from pics.example as Socials's logo");
   assert.equal(await wideningOf("set_area", { bot: { name: "Socials", avatar: { data: "iVBORw0KGgo=" } } }, { privacy }), null);
+  const dark = await wideningOf("set_area", { bot: { name: "Socials", avatar: { data: "iVBORw0KGgo=" }, avatar_dark: { url: "https://dark.example/logo.png" } } }, { privacy });
+  assert.equal(dark.audience, "outside");
+  assert.equal(dark.summary, "fetch an image from dark.example as Socials's logo");
   // Into another workspace, the fetch is still judged rather than passed as an ordinary write there.
   const into = await wideningOf("set_area", { bot: { name: "Socials", avatar: { url: "https://pics.example/logo.png" } } }, { privacy, into: "@supa", writes: true });
   assert.notEqual(into.elsewhereOnly, true);

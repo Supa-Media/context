@@ -124,6 +124,11 @@ export interface Card {
    */
   readonly avatar: string;
   /**
+   * Its logo on a dark screen, for a logo that doesn't read on both (Dev, 2026-11-27: Grok Bot's white mark vanished
+   * on light); "" or left out draws `avatar` in both themes.
+   */
+  readonly avatarDark?: string;
+  /**
    * The areas its person lets it work in, each with its cap on the bot's week, as the card writes them:
    * `areas/operations/Scorecard · 20%` (`@context/shared/src/areaRoutines.cjs`). Empty: wherever an area names it.
    */
@@ -445,6 +450,7 @@ export function cardOf(holder: string, kind: Card["kind"], root: string, notes: 
     belongsTo: text(props.belongs_to),
     reach: reachKind(text(props.reach)),
     avatar: text(props.avatar),
+    avatarDark: text(props["avatar-dark"]),
     worksIn: list(props.works_in),
     creates: note === null,
     path,
@@ -470,7 +476,15 @@ export function cardChanges(card: Card): Change[] {
     ["belongs_to", person || card.bot.trim() === "" ? null : v(card.belongsTo)],
     ["reach", person || card.bot.trim() === "" ? null : card.reach],
     ["avatar", person ? null : v(card.avatar)],
+    // Left as the card says when this card was made without reading it.
+    ...(card.avatarDark === undefined && !person ? [] : [["avatar-dark", person ? null : v(card.avatarDark ?? "")] as const]),
   ];
+}
+
+/** The logo a bot's card names for this theme: its dark one on a dark screen when it has one, else its `avatar`. */
+export function avatarFor(card: Pick<Card, "avatar" | "avatarDark">, scheme: "light" | "dark"): string {
+  const dark = card.avatarDark?.trim() ?? "";
+  return scheme === "dark" && dark !== "" ? dark : card.avatar;
 }
 
 /** The `people/about.md` and `bots/about.md` lines that keep the cards' folders out of the areas. */

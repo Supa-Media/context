@@ -16,7 +16,7 @@ import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../../../design/components/Button";
 import { Text } from "../../../../design/components/Text";
 import { fonts, pointerType, radii, space } from "../../../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
+import { useColors, useScheme, useThemedStyles, type Colors } from "../../../../design/theme";
 import { useFieldFont } from "../../../../design/fieldFont";
 import type { ListNote } from "../../listBlock/model";
 import type { Face } from "../Glyphs";
@@ -37,6 +37,7 @@ import { useWorkspaceMetrics } from "./useWorkspaceMetrics";
 import {
   AREA_KEY,
   areaTree,
+  avatarFor,
   cardChanges,
   cardOf,
   cardPath,
@@ -57,7 +58,7 @@ import { BotsPage } from "./BotsPage";
 import { useAreaProjects } from "./useAreaProjects";
 import { useAreaCards } from "./useAreaCards";
 import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
-import { noteAvatar } from "../../../faces/botPictures";
+import { noteAvatar, themedCardKey } from "../../../faces/botPictures";
 
 export type AreasPageView = "list" | "chart" | "bots";
 
@@ -150,6 +151,8 @@ export function AreasView(props: AreasViewProps) {
   // A bot whose card names its logo is drawn as that logo, read through its card (the owner, 2026-11-25).
   const readPicture = host?.source.readPicture;
   const keptPicture = host?.source.keptPicture;
+  // A logo made for one theme is drawn by its card's other one in the other (Dev, 2026-11-27).
+  const scheme = useScheme();
   const faceOf = useCallback(
     (owner: string | null): Face => {
       const face = plainFace(owner);
@@ -157,18 +160,19 @@ export function AreasView(props: AreasViewProps) {
       // A bot is known by its card too: `Tex Quality · Tex reply quality` is on the agents list as Tex Quality (Dev, 2026-11-26).
       const written = cardFor(owner, "agent");
       if (face.kind !== "agent" && (written.creates || written.kind !== "agent")) return face;
-      const avatar = written.avatar;
+      const avatar = avatarFor(written, scheme);
       if (avatar === "") return { kind: "agent" };
       const card = cardPath(root, owner, withCards);
       const workspace = host?.workspaceId ?? "";
-      // Agent Mail draws this bot from here without reading its card again (`botPictures.ts`).
-      noteAvatar(`${workspace}|${card}`, avatar);
+      // Agent Mail draws this bot from here without reading its card again (`botPictures.ts`), in either theme.
+      noteAvatar(themedCardKey(`${workspace}|${card}`, "light"), avatarFor(written, "light"));
+      noteAvatar(themedCardKey(`${workspace}|${card}`, "dark"), avatarFor(written, "dark"));
       return {
         kind: "agent",
         picture: { key: `${workspace}|${avatar}`, read: () => readPicture(card, avatar), ...(keptPicture === undefined ? {} : { kept: () => keptPicture(avatar) }) },
       };
     },
-    [plainFace, readPicture, keptPicture, cardFor, root, withCards, host?.workspaceId],
+    [plainFace, readPicture, keptPicture, cardFor, root, withCards, host?.workspaceId, scheme],
   );
   // A mail note is named for its sender (`pipeline`): a bot's is drawn with its face.
   const senderFace = useCallback(

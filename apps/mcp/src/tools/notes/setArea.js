@@ -7,7 +7,7 @@
  *   - the area's `about.md`: owner, delegate, modes, approvals and its one metric (`metrics: [<name> · target <x>]`,
  *     with any older `metric:` and `target:` lines taken away, since they would win over it);
  *   - a bot's card, `bots/<bot>/about.md` beside the Areas folder (or in it, where bots lived first, or its older `people/<bot>.md`, changed where it is): its `bot`,
- *     `belongs_to`, `reach`, `avatar` and `works_in`, the areas its person lets it work in with each one's cap on its
+ *     `belongs_to`, `reach`, `avatar`, `avatar-dark` and `works_in`, the areas its person lets it work in with each one's cap on its
  *     week (`docs/decisions/app-and-console/area-routines.md`);
  *   - the areas' own `about.md` `agents:` list, for a bot named for the first time.
  *
@@ -243,14 +243,17 @@ export async function toolSetArea(store, scope, rules, overrides, args) {
     const card = [["kind", "agent"], ["bot", kind]];
     if (bot.reach !== undefined) card.push(["reach", bot.reach]);
     // Its logo, stored in the workspace by the write itself: `avatar:` names it, as a page's photo: does (`uploadedImages.js`).
+    // `avatar-dark:` is the logo drawn on a dark screen, for a logo that does not read on both (Dev, 2026-11-27: a black
+    // mark vanishes on dark, a white one on light); `avatar:` draws wherever no dark one is named.
     let images;
-    if (bot.avatar !== undefined) {
-      const from = bot.avatar ?? {};
+    for (const [field, key, leaf] of [["avatar", "avatar", "logo"], ["avatar_dark", "avatar-dark", "logo-dark"]]) {
+      if (bot[field] === undefined) continue;
+      const from = bot[field] ?? {};
       const url = typeof from.url === "string" ? from.url.trim() : "";
       const data = typeof from.data === "string" ? from.data.trim() : "";
-      if ((url === "") === (data === "")) return toolError("invalid: bot.avatar takes url (an https address) or data (base64), one of them. Pass one, then try again.");
-      card.push(["avatar", "logo"]);
-      images = [{ name: "logo", ...(url !== "" ? { url } : { data }) }];
+      if ((url === "") === (data === "")) return toolError(`invalid: bot.${field} takes url (an https address) or data (base64), one of them. Pass one, then try again.`);
+      card.push([key, leaf]);
+      (images ??= []).push({ name: leaf, ...(url !== "" ? { url } : { data }) });
     }
     // Where it works and how much of its week each area may spend: the whole list, as its person sets it.
     let works;

@@ -37,6 +37,12 @@ export function areaToolDefinitions() {
                 properties: { url: { type: "string" }, data: { type: "string" } },
                 additionalProperties: false,
               },
+              avatar_dark: {
+                type: "object",
+                description: "Its logo on a dark screen, for a logo that does not read on both; avatar draws everywhere else. Same shape as avatar.",
+                properties: { url: { type: "string" }, data: { type: "string" } },
+                additionalProperties: false,
+              },
               works_in: {
                 type: ["array", "null"],
                 description: "The areas it may work in, each with cap: the whole percent of its weekly usage that area may spend (left out for no cap). Replaces the list; null works wherever an area names it.",

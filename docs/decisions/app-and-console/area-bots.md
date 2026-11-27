@@ -74,7 +74,7 @@ keeps its notes there and knows what its modes ask of it.
   button in the bot's app counted). The setup prompt has the bot upload the
   file from its shell (`write` action `upload`, then `images` by `sha256`)
   or send it inline as base64; nothing is fetched, so nothing waits on a
-  yes. `manage` area's `bot.avatar.url` is judged as the same outside fetch
+  yes. `manage` area's `bot.avatar.url` and `bot.avatar_dark.url` are judged as the same outside fetch
   (`widening.js`), so the two ways cannot disagree. `egress.test.mjs` and
   `areaBotPrompts.test.ts` fail if either goes back.
 - **Every orient says who holds each area, and to mail the area that owns a
@@ -199,6 +199,11 @@ keeps its notes there and knows what its modes ask of it.
   bot puts its own there from its setup prompt (`write` with `images`, which
   rewrites `avatar:` like a page's `photo:`); `manage area` takes
   `bot.avatar`; an editor can press "Upload logo" in the Owner row.
+  A logo that reads on only one background has a second: `avatar-dark:`
+  is drawn on a dark screen and `avatar:` everywhere else (Dev, 2026-11-27:
+  Grok Bot's white mark vanished on light); `manage area` takes
+  `bot.avatar_dark` the same way. `setArea.test.mjs`, `mailPage.test.ts`
+  and `areasBotsView.test.ts` fail if a theme draws the other's logo.
 
 **What a simplification would cost.** A bot kept in a table of its own would
 be invisible to agents reading notes and to Download as folders. A webhook
