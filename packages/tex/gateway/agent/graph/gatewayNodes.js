@@ -64,6 +64,7 @@ import { handoffNode } from "./nodes/handoff.js";
 import learn from "./nodes/learn.js";
 import { afterReplyNode } from "./nodes/afterReply.js";
 import chatDays from "./nodes/chatDays.js";
+import guestNames from "./nodes/guestNames.js";
 import moveJudge from "./nodes/moveJudge.js";
 import { crossChatGateNode } from "./nodes/crossChatGate.js";
 import { chatAskNode } from "./nodes/chatAsk.js";
@@ -181,6 +182,8 @@ export const GATEWAY_NODES = {
   get staff() { return staffNode; },
   // Chat day summaries: every chat's finished days summed up after a reply, groups included (`nodes/chatDays.js`).
   get chatDays() { return chatDays; },
+  // Guest names: after a group reply, the names the chat gives people known only by number (`nodes/guestNames.js`).
+  get guestNames() { return guestNames; },
   // The move judge: whether their recent words, or their yes to Tex's offer, ask to move or archive a note of theirs (`nodes/moveJudge.js`).
   get moveJudge() { return moveJudge; },
   // Tex asks Tex across chats (`../crossChat.js`): the gate before an ask leaves, the input that starts the other chat's
