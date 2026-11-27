@@ -152,7 +152,6 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     const text = textOf(noteId);
     if (text === null) return;
     const name = mailJoinName(bot);
-    const answerNote = routine === null && rows.byNoteId(noteId)?.path === `${area}/mail/${name}.md`;
     for (const event of parseMail(text).events) {
       if (event.kind !== "mail" || event.from.toLowerCase() !== name) continue;
       const at = Date.parse(event.at);
@@ -168,11 +167,12 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
           at,
         );
       }
-      // Its answer to a routine sent to it before: the routine shows when it was answered. Only where the routine
-      // asked for it, the bot's own mail note in the area (`answer_in`) or the routine's own note: a reply to someone
-      // else's mail in the area is not the routine's answer (Capabilities' reply to Grok Bot once marked MCP's).
+      // Its answer to a routine sent to it before: the routine shows when it was answered. Only the bot the routine
+      // went to answers it, in the area's mail or the routine's own note. Bots answer in the mail note they were
+      // already writing in as often as in their own (`answer_in`), and a bot has one routine out at a time, so its
+      // next line in the area's mail is that routine's answer (the 12 PM round, 2026-11-27: Beth and Capabilities).
       if (routine !== null) sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE path = ? AND last_bot = ? AND ${ANSWERABLE}`, at, routine, name, at);
-      else if (answerNote) sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_bot = ? AND ${ANSWERABLE}`, at, area, name, at);
+      else sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_bot = ? AND ${ANSWERABLE}`, at, area, name, at);
     }
   }
 

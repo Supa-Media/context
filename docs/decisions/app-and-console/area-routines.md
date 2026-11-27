@@ -155,10 +155,12 @@ each now closed in `areaRoutines.js`:
   (`delivered_status`, `delivered_at`); one no webhook took (status 0, or not
   2xx) becomes `failed`, which the app already shows as "Didn't reach". A bot
   that checks its mail itself can still answer it.
-- **Only the answer where it was asked counts.** A routine is answered by its
-  own bot's line in `<area>/mail/<bot>.md` (the payload's `answer_in`) or in
-  the routine's own note. Before, any line by the area's holder in any of the
-  area's mail notes counted, so a reply to someone else marked it answered.
+- **Only its own bot answers it.** A routine is answered by a line from the
+  bot it was sent to, in the area's mail or the routine's own note; the payload
+  asks for `<area>/mail/<bot>.md` (`answer_in`), but bots answer as often in
+  the note they were already writing in (the 12 PM round that day: Beth and
+  Capabilities), and with one routine out per bot, its next line there is the
+  answer. Before, any line by the area's holder answered every routine in it.
 - **One routine at a time per bot.** A bot woken for four routines at once
   answered one. The next is queued until the bot answers the last, or twenty
   minutes pass, retried every two minutes; Run now is unchanged.
@@ -166,4 +168,4 @@ each now closed in `areaRoutines.js`:
 A routine sent and unanswered after an hour is `missed` in the state, and
 `orient` names it with where its answer belongs. Tests:
 `apps/mcp/test/areaRoutines.test.mjs` (the last three tests; dropping the
-answer-note check or the one-at-a-time check fails one each).
+one-at-a-time check fails one).
