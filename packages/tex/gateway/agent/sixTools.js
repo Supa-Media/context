@@ -131,6 +131,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   draw_picture: { tool: "draw_picture", summary: "Make a graphic from an HTML page you write, to text them. Make it first; guess what they left out.", take: own },
   make_picture: { tool: "make_picture", summary: "Generate or edit a photo with an image model, to text them. Make it first; guess what they left out.", take: own },
   say_nothing: { tool: "say_nothing", summary: "Text nothing this time and end your turn, only where your instructions say silence fits; never type a word like SKIP instead.", take: own }, // `sayNothing.js`
+  reply_under: { tool: "reply_under", summary: "Check-ins only: send this check-in's text as a reply under one of the last texts it was shown, by number.", take: own }, // `checkInTexts.js`
   tapback: { tool: "tapback", summary: "Answer their text with only a tapback on it, no words, and end your turn.", take: own }, send_sticker: { tool: "send_sticker", summary: "Send a sticker this chat kept as a picture of its own, after your words or alone; allowed when they tagged you.", take: own }, // `tapbackEnding.js`: offered only while the config wires tools -> tapback; `stickerSend.js`: while the chat kept stickers and Chat stickers is on
   tex_computer: { tool: "tex_computer", summary: "Your own Linux computer for this chat, with no internet: run a command, or read, write and list files.", take: own }, // `texComputerSandbox.js`: a job's turn only, while the config wires tools -> computer
   // Tex's chat commands (`commandTools.js`): offered only when the turn holds them.

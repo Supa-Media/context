@@ -42,7 +42,7 @@ function gatewayCarriers(kind) {
  * and texts. Shown to a group they were only ever refused, so the group's list leaves them out; it is still the same
  * for every group turn.
  */
-export const NEVER_A_GROUPS = new Set(["delegate", "propose_note", "progress", "mail_agent", "earlier_texts"]);
+export const NEVER_A_GROUPS = new Set(["delegate", "propose_note", "progress", "mail_agent", "earlier_texts", "reply_under"]);
 
 /**
  * And the one a 1:1 never holds: a group chat's own earlier messages. Shown to a 1:1 it took fetch's `chat:` line, so the

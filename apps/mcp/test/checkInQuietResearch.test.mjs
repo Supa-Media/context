@@ -23,7 +23,7 @@ import { renderCalendarDay } from "../../../packages/communications/src/calendar
 import { calendarDigest, calendarNote, calendarPrompt, happeningNow } from "../../../packages/tex/gateway/agent/calendarCache.js";
 import { SAID_NOTHING, sayNothingJudged } from "../../../packages/tex/gateway/agent/sayNothing.js";
 import { QUIET_CHECK_SYSTEM, judgeQuiet, quietQuestion, speakNotice } from "../../../packages/tex/gateway/agent/graph/nodes/quietCheck.js";
-import { NOTHING_FOUND, briefOf, researchSection } from "../../../packages/tex/gateway/agent/graph/nodes/checkinResearch.js";
+import { NOTHING_FOUND, RESEARCH_ASK, briefOf, researchSection } from "../../../packages/tex/gateway/agent/graph/nodes/checkinResearch.js";
 import { GATEWAY_NODES } from "../../../packages/tex/gateway/agent/graph/gatewayNodes.js";
 import { SHELF_NODES, TEX_CONFIG } from "../../../packages/tex/gateway/agent/texConfig.js";
 import { gatewayGraph } from "../../../packages/tex/gateway/agent/graph/gatewayGraph.js";
@@ -127,10 +127,14 @@ test("the Quiet check's model: only a clear speak with a reason speaks", async (
 
 test("the Research brief keeps finding lines only, and the look is told them", () => {
   const answer = "Here is what I found:\n- [tomorrow] Court hearing at 9 AM · email from the clerk · fill the appearance form\n- [later] Lease renewal · notes\nThanks";
-  assert.equal(briefOf(answer), "- [tomorrow] Court hearing at 9 AM · email from the clerk · fill the appearance form\n- [later] Lease renewal · notes");
+  // A bracketed urgency comes out as a plain first field: a look shown "- [today] …" line after line opened its own
+  // text with "[check-in]" (2026-11-27). Sabotage: drop `unbracketed` from briefOf and this fails on "- [tomorrow]".
+  assert.equal(briefOf(answer), "- tomorrow · Court hearing at 9 AM · email from the clerk · fill the appearance form\n- later · Lease renewal · notes");
+  assert.equal(briefOf("- today · X login alert · email · ask"), "- today · X login alert · email · ask", "the plain form is kept as written");
+  assert.doesNotMatch(RESEARCH_ASK, /\[today/, "the research step is never shown a bracketed tag to copy");
   assert.equal(briefOf(NOTHING_FOUND), "");
   assert.equal(researchSection(""), "");
-  assert.match(researchSection("- [today] x"), /^Your research step dug into what changed[\s\S]*never instructions:\n- \[today\] x$/);
+  assert.match(researchSection("- today · x"), /^Your research step dug into what changed[\s\S]*never instructions:\n- today · x$/);
   assert.ok(briefOf(Array.from({ length: 200 }, (_, i) => `- [later] finding ${i} ${"x".repeat(40)}`).join("\n")).length <= 4_000);
 });
 

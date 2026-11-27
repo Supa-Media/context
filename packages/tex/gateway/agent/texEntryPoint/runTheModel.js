@@ -55,6 +55,7 @@ import { ledgerObserver, loggedCheck, stepEntry, stepLog } from "../ledger.js";
 import { collectReads } from "../toldFacts.js";
 import { markRead, readBackTool, readsNote, readsOf } from "../readsIndex.js";
 import { carryKey } from "../stretch.js";
+import { NO_CHECKS } from "../labelCheck.js";
 import { meterEach, meterParts } from "../modelPlan.js";
 import { sentNoteLinksLine, withNoteLinks } from "../noteLinks.js";
 import { withDrawnImages, withPictureMaker } from "../pictureMaker.js";
@@ -124,7 +125,7 @@ function checksOf({ judge, doIt, claims, tries, chatLog, ledgerAt }) {
   if (judge !== null) return { code: judge.codeCheck, review: judge.review };
   const codeChecks = doIt ?? claims ?? tries;
   const plainCheck = doIt === null && claims !== null ? loggedCheck(chatLog, ledgerAt ?? {}, "handback", claims) : typeof codeChecks?.check === "function" ? (answer, context) => codeChecks.check(answer, context) : null;
-  if (plainCheck === null) return null;
+  if (plainCheck === null) return NO_CHECKS; // none of the turn's own: the Claim checks' label check still reads each draft
   return { code: async (answer, context) => ({ notice: (await plainCheck(answer, context)) ?? null, review: false }), review: null };
 }
 

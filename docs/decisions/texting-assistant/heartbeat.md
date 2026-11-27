@@ -90,11 +90,20 @@ hears an outcome code (`texted`, `quiet`, `nothing_new`, `paused`, `no_chat`,
 `failed`, `daily_limit`, `no_provider`) and nothing else.
 
 **In the thread it continues.** A look is shown the last ten texts with the
-person, numbered, and a check-in that picks one of them up starts its answer
-with `[continues N]` (Dev, 2026-10-19: "even if it should be in the same
-thread, why isn't there continuity in the chat"). The gateway strips the
-marker before the text is logged, kept or sent, and returns that turn's words
-as `continues`; a number that names no shown text is dropped. The texting
+person, numbered, and a check-in that picks one of them up calls `send`
+action `reply_under` with its number before writing its text (Dev, 2026-10-19:
+"even if it should be in the same thread, why isn't there continuity in the
+chat"). The gateway returns that turn's words as `continues`; a number that
+names no shown text is refused and the text goes plain. Until 2026-11-27 the
+look started its answer with a `[continues N]` marker the gateway stripped;
+a look taught that a bracketed tag at the start of its answer is never shown
+opened a real check-in with "[check-in]", so the marker is no longer taught
+(an old one is still taken off), the research brief's urgency is a plain first
+field rather than `[today]`, and the Claim checks send back, once a turn, a
+draft with a line that opens with a bracketed tag no step reads, or naming a
+guest's `guest-1a2b` key (`labelCheck.js`; replay case
+`checkin-no-label-tag`). Simplifying this back to a text marker costs the same
+leak: the replay case and `labelCheck.test.mjs` fail. The texting
 Worker's inbox keeps, per Sendblue chat, the `message_handle` of the last
 thirty texts (the person's, and Tex's own, read from Sendblue's send response)
 with a salted hash of each one's opening words, never the words, and sends the

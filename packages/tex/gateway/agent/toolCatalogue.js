@@ -35,6 +35,7 @@ import { PLAN_DEFINITION } from "./planBigAsk.js";
 import { PROGRESS_TOOL_DEFINITION } from "./progress.js";
 import { readBackTool } from "./readsIndex.js";
 import { SAY_NOTHING_DEFINITION } from "./sayNothing.js";
+import { REPLY_UNDER_DEFINITION } from "./checkInTexts.js";
 import { settingsTools } from "./settingsTools.js";
 import { mailAgentSession } from "./supervise.js";
 import { TAPBACK_DEFINITION } from "./tapbackEnding.js";
@@ -91,6 +92,7 @@ function build(kind) {
     OPEN_PAGE_DEFINITION, SEARCH_WEB_DEFINITION, EARLIER_TEXTS_DEFINITION, FILL_CARD_DEFINITION, FILL_LOGIN_DEFINITION,
     MAKE_LOGIN_DEFINITION, DRAW_DEFINITION, MAKE_DEFINITION, PLAN_DEFINITION, PROGRESS_TOOL_DEFINITION,
     SAY_NOTHING_DEFINITION, SEND_STICKER_DEFINITION, TAPBACK_DEFINITION, TRAVEL_TIME_DEFINITION, VISUAL_DEFINITION,
+    REPLY_UNDER_DEFINITION,
   ];
   const all = new Map();
   for (const tool of [...constants, ...factories.flatMap(definitionsFrom)]) if (!all.has(tool.name)) all.set(tool.name, tool);

@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CHECK_IN_QUESTION, checkInAbout, isCheckInLine, lastThinking, recentTextLines } from "../../../packages/tex/gateway/agent/checkInTexts.js";
+import { CHECK_IN_QUESTION, checkInAbout, isCheckInLine, lastThinking, recentTextLines, recentTexts, replyUnderLocal } from "../../../packages/tex/gateway/agent/checkInTexts.js";
 import { heartbeatQuestion } from "../../../packages/tex/gateway/agent/heartbeat.js";
 
 const SUNDAY = Date.UTC(2026, 10, 8, 17, 46); // Sun 12:46 pm New York
@@ -27,9 +27,9 @@ test("a look sees when each of the last texts was sent, in their time, and is to
     { role: "user", text: "remind me again at 3pm", at: MONDAY },
     { role: "assistant", text: "Will do. Reminder set for 3pm today." },
   ], "America/New_York");
-  assert.equal(dated[0], "[1] Them (Sun 2026-11-08 12:46): how many brackets for 13 players?");
-  assert.equal(dated[1], "[2] You (Sun 2026-11-08 12:46): The tournament is today: with 13 players, want byes or a group stage?");
-  assert.equal(dated[3], "[4] You (Mon 2026-11-09 09:25): Will do. Reminder set for 3pm today.");
+  assert.equal(dated[0], "1. Them (Sun 2026-11-08 12:46): how many brackets for 13 players?");
+  assert.equal(dated[1], "2. You (Sun 2026-11-08 12:46): The tournament is today: with 13 players, want byes or a group stage?");
+  assert.equal(dated[3], "4. You (Mon 2026-11-09 09:25): Will do. Reminder set for 3pm today.");
   const asked = heartbeatQuestion({ changed: [{ key: "todo.md", at: MONDAY - 60_000 }], now: MONDAY, texted: [], recent: dated });
   assert.ok(asked.includes("a text that was right on the day it was sent is never a mistake to correct"));
 });
@@ -46,7 +46,7 @@ test("the chat keeps why a check-in texted, the text it went under and where its
   assert.ok(about.includes("tex/heartbeat/2026-11-09.md"));
   const later = recentTextLines([{ role: "user", text: about, at: MONDAY }, { role: "assistant", text: "The bracket question is moot." }], "America/New_York");
   assert.equal(later.length, 1);
-  assert.ok(later[0].startsWith("[1] You (a check-in) (Mon 2026-11-09 09:25)"));
+  assert.ok(later[0].startsWith("1. You, in a check-in (Mon 2026-11-09 09:25)"));
   assert.equal(checkInAbout(), CHECK_IN_QUESTION);
   assert.ok(checkInAbout({ reason: "x".repeat(2_000) }).length < 1_000);
 });
@@ -54,4 +54,17 @@ test("the chat keeps why a check-in texted, the text it went under and where its
 test("the reason is the look's last thinking before its answer", () => {
   assert.equal(lastThinking([{ kind: "thinking", text: "first" }, { kind: "tool", name: "read_note" }, { kind: "thinking", text: "last" }, { kind: "thinking", text: " " }]), "last");
   assert.equal(lastThinking([]), "");
+});
+
+// 2026-11-27: a look shown bracketed tags line after line, and told "[continues N]" is never shown, opened a real
+// check-in with "[check-in]". Sabotage: put "[continues N]" or "[1] " back in the question and this fails.
+test("a look's question teaches no bracketed marker, and reply_under names the text it goes under", async () => {
+  const recent = recentTexts([{ role: "user", text: "what's the Oct 30 pricing" }, { role: "assistant", text: "It's in a PDF I can't open." }]);
+  const asked = heartbeatQuestion({ changed: [{ key: "todo.md", at: 0 }], now: 60_000, texted: [], recent: recent.map((shown) => shown.line) });
+  assert.ok(!asked.includes("[continues") && !/^\[\d+\] /m.test(asked) && !asked.includes("(a check-in)"), asked);
+  const under = replyUnderLocal(recent);
+  assert.equal((await under.entry.call({ text: 9 })).isError, true, "a number that names no shown text is refused");
+  assert.equal(under.picked(), null);
+  assert.equal(JSON.parse((await under.entry.call({ text: 2 })).content[0].text).reply_under, 2);
+  assert.equal(under.picked(), "It's in a PDF I can't open.");
 });
