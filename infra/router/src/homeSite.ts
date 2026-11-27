@@ -201,9 +201,12 @@ export function snapshotElement(snapshot: HomeSnapshot): string {
   return `<script type="application/json" id="${HOME_SITE_ELEMENT_ID}">${json}</script>`;
 }
 
-/** The HTML with the block at the end of its head, or unchanged without one. */
+/** The HTML with the block at the end of its body, or unchanged without one. */
 export function injectHomeSnapshot(html: string, snapshot: HomeSnapshot): string {
-  const at = html.search(/<\/head>/i);
+  // At the end of `<body>`, not in `<head>`: it is most of the document, and
+  // ahead of the words an agent reads it pushed them past where many readers
+  // stop. The app's script is deferred, so it still finds the element.
+  const at = html.search(/<\/body>/i);
   if (at === -1) return html;
   return `${html.slice(0, at)}${snapshotElement(snapshot)}${html.slice(at)}`;
 }

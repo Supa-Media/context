@@ -93,11 +93,22 @@ function carried(html: string): unknown {
 }
 
 describe("the homepage's HTML", () => {
-  it("carries the site, in its head", async () => {
+  it("carries the site, at the end of its body", async () => {
     const response = await get("/");
     const html = await response.text();
     expect(carried(html)).toEqual(SITE);
-    expect(html.indexOf(HOME_SITE_ELEMENT_ID)).toBeLessThan(html.indexOf("</head>"));
+    // At the end of the body: after the agent block and the app's root, so the
+    // words an agent reads come before the largest thing in the document.
+    expect(html.indexOf(HOME_SITE_ELEMENT_ID)).toBeGreaterThan(html.indexOf("</head>"));
+    expect(html.indexOf(HOME_SITE_ELEMENT_ID)).toBeLessThan(html.indexOf("</body>"));
+    expect(html.indexOf('id="context-for-agents"')).toBeLessThan(html.indexOf(HOME_SITE_ELEMENT_ID));
+    // The pointer to the Markdown guide is the first thing in the head.
+    expect(html).toMatch(/<head><link rel="alternate" type="text\/markdown" href="\/agents.md"/);
+    // Readable, not hidden from assistive technology (some readers drop that).
+    const block = html.slice(html.indexOf('id="context-for-agents"') - 5, html.indexOf("</footer>"));
+    expect(block).not.toContain("aria-hidden");
+    expect(block).toContain("https://mcp.context.lc/mcp");
+    expect(block).toContain("<code>orient</code>");
     expect(response.headers.get("ETag")).toBeNull();
     expect(response.headers.get("Cache-Control")).toBe("no-cache");
   });

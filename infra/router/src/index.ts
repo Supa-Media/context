@@ -75,7 +75,7 @@ async function platformResponse(request: Request, url: URL, env: Env, ctx: Execu
     const card = messagesCardResponse(request, url); // the Messages extension's pages
     if (card !== null) return card;
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
-    const decision = route(url, request.headers.get("User-Agent"));
+    const decision = route(url, request.headers.get("User-Agent"), request.headers.get("Accept"));
     // Not on a Tex host: tex.lc's `/` is the Tex landing, which the app draws
     // from the hostname, and context.lc's website has no business in it.
     const homeHost = !isTexHost(url.hostname);
