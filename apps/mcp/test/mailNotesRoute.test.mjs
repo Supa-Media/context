@@ -355,3 +355,35 @@ test("a receipts ask that is not one is refused", { skip }, async () => {
   const w = await world();
   for (const body of [{ read: 3 }, { read: "a.md", more: 1 }, { read: "x".repeat(2000) }]) assert.equal((await ask(w, w.alice, body)).status, 400, JSON.stringify(body));
 });
+
+// Every production deploy restarts each workspace object, and a read caught mid-restart throws. Dev saw "Mail is taking
+// longer than usual" at 11:31 PM ET on 2026-11-27, during a deploy, while every other load was served in under a second.
+// Sabotage, confirmed: `onceMore` dropped from the list's facts ask → the first case answers 503.
+function failingFacts(w, times) {
+  const object = w.ns.get(w.ns.idFromName("workspace:pAlice"));
+  const served = object.fetch;
+  let left = times;
+  object.fetch = (request) => {
+    const op = JSON.parse(decodeURIComponent(request.headers.get("x-tex-call") ?? "{}")).op;
+    if (op === "ws.facts" && left > 0) {
+      left -= 1;
+      throw new Error("Durable Object reset because its code was updated.");
+    }
+    return served(request);
+  };
+}
+
+test("the list is asked of the object once more when a restart drops the first ask", { skip }, async () => {
+  const w = await world();
+  failingFacts(w, 1);
+  const { status, body } = await ask(w, w.alice, {});
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.deepEqual(paths(body), ["areas/secret.md", "areas/finance/mail/seyi.md", "bots/grok-bot/mail/seyi.md", "products/plan.md"]);
+});
+
+test("an object that fails twice is unavailable: one more ask, never a loop", { skip }, async () => {
+  const w = await world();
+  failingFacts(w, 2);
+  const { status } = await ask(w, w.alice, {});
+  assert.equal(status, 503);
+});

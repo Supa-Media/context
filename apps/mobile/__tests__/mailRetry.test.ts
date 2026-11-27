@@ -4,7 +4,7 @@
  * back all the sudden"). See `features/console/mailPage/useMailNotes.ts`.
  */
 import { describe, expect, test } from "@jest/globals";
-import { mailNotesThroughGateway, nextMailState, NOT_SERVED, RETRY_MS, type MailState } from "../features/console/mailPage/useMailNotes";
+import { MAIL_TIMEOUT_MS, mailNotesThroughGateway, nextMailState, NOT_SERVED, RETRY_MS, type MailState } from "../features/console/mailPage/useMailNotes";
 
 const READY: MailState = { status: "ready", notes: [], complete: true };
 const answer = { notes: [], complete: true };
@@ -35,8 +35,12 @@ describe("a failed ask", () => {
   });
 
   test("retries within seconds first, never slower than a minute", () => {
-    expect(RETRY_MS[0]).toBeLessThanOrEqual(5_000);
+    expect(RETRY_MS[0]).toBeLessThanOrEqual(2_000);
     expect(Math.max(...RETRY_MS)).toBeLessThanOrEqual(60_000);
+  });
+
+  test("gives up on one ask long before the old 15 seconds", () => {
+    expect(MAIL_TIMEOUT_MS).toBeLessThanOrEqual(8_000);
   });
 });
 
