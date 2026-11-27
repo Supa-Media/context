@@ -58,6 +58,12 @@ describe("agent docs", () => {
       expect(AGENTS_MARKDOWN).toContain(`- \`${tool}\`:`);
     }
     expect(AGENTS_MARKDOWN).toContain("Download as folders");
+    // The owner's three layers (docs/decisions/vocabulary-and-workspaces.md).
+    expect(AGENTS_MARKDOWN).toContain("## LLMs, agents and bots");
+    for (const layer of ["- **LLM**:", "- **Agent**:", "- **Bot**:"]) expect(AGENTS_MARKDOWN).toContain(layer);
+    expect(AGENTS_MARKDOWN).toContain("a bot's behavior comes from its design, not its model");
+    expect(AGENTS_MARKDOWN).toContain("Agents and bots both connect over MCP, and use it differently.");
+    expect(AGENTS_MARKDOWN).toContain("to the domain expert for it");
     expect(AGENTS_MARKDOWN).not.toContain("API key to paste, and");
   });
 

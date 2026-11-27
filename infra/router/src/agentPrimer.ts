@@ -72,6 +72,22 @@ The server has six tools. Call \`orient\` first, every session.
 - **Roles.** An owner invites people and changes notes. An editor changes team notes. A member reads them.
 - **Leaving.** Download as folders gives a complete copy of plain Markdown files with real names. It is free on every plan and still there after cancelling.
 
+## LLMs, agents and bots
+
+Context uses three words for three layers. Each runs on the one before it: an agent runs on an LLM, and a bot runs one or more agents.
+
+- **LLM**: the underlying model. Text in, text out. It has no tools, no memory between calls, and no schedule, and it does nothing until something prompts it. Claude, GPT, Gemini, Grok, and Llama are LLMs.
+- **Agent**: an LLM in a loop with tools. It completes a task end to end and is usually specialized for one kind of work. Each task normally gets its own chat or session. Some agents use a computer or a browser, and some hand work to sub-agents. Claude Code, Codex, Cursor, and ChatGPT are agents.
+- **Bot**: a multi-agent orchestrator built around one standing chat per person or group. The bot's own code manages context (what each turn loads from memory, notes, and history), so the chat can run for months. Routines, heartbeats, and loops let it act without being asked, and it delegates to agents and checks their work. A bot is usually better at computer use than an agent, because it keeps sign-ins, retries, and state across days.
+
+The idea behind it: a bot's behavior comes from its design, not its model. Swap the LLM under a bot and it behaves the same, and a smarter LLM only makes it better. Swap the model under an agent and its behavior usually changes. An LLM remembers nothing, an agent remembers a little within its task, and a bot remembers across conversations because it manages that memory itself.
+
+How each layer uses Context:
+
+- **An LLM** never connects directly. It reads only what an agent or bot puts in its prompt.
+- **Agents and bots both connect over MCP, and use it differently.** An agent does the deep work: it reads what the person already wrote down, finishes its task, and writes back what it learned, so the next one starts where it stopped.
+- **A bot orchestrates.** Bots are good at orchestration and poor at deep work, so a bot should not do the work itself. It routes each job through the workspace's network of bots and agents to the domain expert for it (the one that holds that area), follows up, and checks the result. Its card lives in \`bots/<bot>/about.md\`: whose it is, how it is reached, and where it works. An area of ongoing work is usually held by a bot, because an area needs someone to check on it without being asked.
+
 ## Working well in someone's Context
 
 - Call \`orient\` before answering anything about the person or their work, and search before asking them something their notes may already answer.
@@ -95,7 +111,7 @@ Context does not charge for an account. A new address joins the waitlist. One co
 
 ## Guides
 
-- [Context for AI agents](${GUIDE_ORIGIN}/agents.md): what Context is, how to connect any client, and the six tools
+- [Context for AI agents](${GUIDE_ORIGIN}/agents.md): what Context is, how to connect any client, the six tools, and how Context defines LLMs, agents, and bots
 - [Claude](${GUIDE_ORIGIN}/claude.md): set up Context in Claude and Claude Code
 - [Grok Bot](${GUIDE_ORIGIN}/grokbot.md): set up Context in Grok Bot
 - [Everything in one file](${GUIDE_ORIGIN}/llms-full.txt): the agent guide and every setup guide
