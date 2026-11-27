@@ -1,5 +1,5 @@
 /**
- * Refresh: mail a bot its setup again (its name and logo, Context's current setup), from the bot panel's button or
+ * Refresh: mail a bot its setup again (its own picture for its card, Context's current setup), from the bot panel's button or
  * the bots page's Refresh all (Dev2, 2026-11-27: "maybe a refresh all button?"). A line is added to the reader's mail
  * with the bot, at the version read, or that mail is started.
  *
@@ -29,7 +29,7 @@ export interface RefreshDeps {
 /** Sends one bot its Refresh: `{at, path, started}` when it went, else the reason it didn't. */
 export async function refreshBot(bot: Bot, deps: RefreshDeps): Promise<{ at: string; path: string; started: boolean } | { error: string }> {
   const path = botMailNote(bot, deps.me);
-  const text = refreshAskFor(bot.name, deps.workspace);
+  const text = refreshAskFor(bot.name, deps.workspace, bot.card.path);
   try {
     if (deps.exists) {
       if (deps.io === undefined) return { error: "open" };

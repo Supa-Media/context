@@ -175,12 +175,12 @@ export function botMailNote(bot: Bot, me: string): string {
   return `${bot.mailFolder}/${cardSlug(me)}.md`;
 }
 
-/** What Refresh asks: the bot sends its name and logo again, and its card changes where they differ. */
 /**
- * What Refresh mails a bot: its name and logo again, and Context's current setup, the relay routine and its bound
- * login (`packages/shared/src/botRelay.cjs`; Dev, 2026-11-26: "make sure that the refresh button here sends these new
- * instructions").
+ * What Refresh mails a bot: its own picture for its card, every time, and Context's current setup, the relay routine
+ * and its bound login (`packages/shared/src/botRelay.cjs`; Dev, 2026-11-26: "make sure that the refresh button here
+ * sends these new instructions"; 2026-11-27: "are we telling bots to update their photos in the refresh?"). `card` is
+ * the card's path, so the bot writes its picture to the right note.
  */
-export function refreshAskFor(name: string, workspace?: string): string {
-  return refreshAsk(name, workspace);
+export function refreshAskFor(name: string, workspace?: string, card?: string): string {
+  return refreshAsk(name, workspace, card);
 }

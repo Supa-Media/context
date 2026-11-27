@@ -181,7 +181,11 @@ describe("The bots folder", () => {
     await settle();
     expect(files.some((line) => line.startsWith("create bots/grok-bot/mail/seyi.md\n# Mail with Grok Bot"))).toBe(true);
     // Refresh sends Context's current setup too (Dev, 2026-11-26): the relay routine's one prompt and the bound login.
-    expect(files.join("\n")).toContain("If your name or logo changed");
+    // And always its own picture, to its own card (Dev, 2026-11-27: "are we telling bots to update their photos in the
+    // refresh?"): "if your logo changed" left every bot showing the robot icon with nothing to do.
+    expect(files.join("\n")).toContain("Put your own picture on your card now, even if it has one");
+    expect(files.join("\n")).toContain('path: "bots/grok-bot/about.md"');
+    expect(files.join("\n")).not.toContain("If your name or logo changed");
     expect(files.join("\n")).toContain("Never write to Context, reply, or send anything from this run.");
     expect(files.join("\n")).toMatch(/bind_bot: .?"Grok Bot/);
     // It stays on the bot's page, says when it last went, and can go again (Dev, 2026-11-26).

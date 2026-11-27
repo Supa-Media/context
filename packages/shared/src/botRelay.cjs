@@ -52,14 +52,32 @@ function relayMemory() {
   return "Your webhook routine only relays: it wakes this main chat with new mail or a due routine. Answer here, with your own memory and tools, in the note it names, never from the routine and never only in your own app.";
 }
 
-/** The app's Refresh mail: the card's name and logo, and the setup above, again. */
-function refreshAsk(name, workspace) {
+/**
+ * The step that puts the bot's own picture on its card, every Refresh (Dev, 2026-11-27: "are we telling bots to update
+ * their photos in the refresh?"). It said "if your name or logo changed", so a bot still showing the robot icon read
+ * nothing to do and kept it. Now it always sends the picture it uses in its own app, a dark-mode one too when it has
+ * one, replacing what the card has. The bytes come from the bot: Context downloads no outside address on its own.
+ */
+function pictureStep(card, workspace) {
+  const ctx = contextArg(workspace);
+  const where = typeof card === "string" && card !== "" ? quoted(card) : "your card (bots/<your mail name>/about.md)";
+  return (
+    "Put your own picture on your card now, even if it has one: the picture people see for you in your own app, so your card never shows the default robot. " +
+    `Send the bytes yourself, never a link: write { ${ctx}action: "upload", path: ${where}, args: { files: [{ name: "logo.png", sha256: "<its SHA-256>", bytes: <its size> }] } }, run the curl command it gives, ` +
+    `then write { ${ctx}path: ${where}, args: { edits: [{ old: "<the card's avatar: line, or kind: agent when it has none>", new: "<that line, with avatar: logo.png in place of the old avatar>" }], images: [{ name: "logo.png", sha256: "<its SHA-256>" }] } }. ` +
+    'Without a shell, the same write with images: [{ name: "logo.png", data: "<its base64>" }]. ' +
+    'If you have a version for dark mode, send it the same way as logo-dark.png on an avatar-dark: line. Also send your name if it changed.'
+  );
+}
+
+/** The app's Refresh mail: the card's picture and name, and the setup above, again. `card` is the card's path. */
+function refreshAsk(name, workspace, card) {
   return [
     "Please refresh your Context setup, from your main chat:",
-    "1. If your name or logo changed in your own app, send the new ones to your card, the same way you put your logo there the first time.",
+    `1. ${pictureStep(card, workspace)}`,
     `2. ${relayStep()}`,
     `3. ${bindStep(name, workspace)}`,
   ].join("\n");
 }
 
-module.exports = { RELAY_PROMPT, relayStep, bindStep, relayMemory, refreshAsk };
+module.exports = { RELAY_PROMPT, relayStep, bindStep, relayMemory, pictureStep, refreshAsk };
