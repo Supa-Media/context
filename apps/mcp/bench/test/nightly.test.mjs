@@ -100,7 +100,7 @@ test("held-out cases are named by their cause alone; targets are listed apart an
       runsPassed: 1,
       usd: 0.01,
       rows: [
-        { id: "g-carpool", right: false, results: [false, false, true], expected: "reach the model", heldOut: false },
+        { id: "g-carpool", right: false, results: [false, false, true], expected: "reach the model", heldOut: false, misses: [{ kind: "must", line: "say the pickup time", reason: "it gave no time" }, { kind: "must", line: "say the pickup time", reason: "no time again" }], toolErrors: ["write_note: 409 conflict"], steps: "tools write_note ok | outcome: sent", handoff: { jobs: 1, parts: 2, advisorCalls: 0, usd: 0.01 }, runs: [{ tools: "Tools: read_note, write_note", changes: ["written maya/health/dentist.md: --- status", "written maya/trips/lisbon.md: # Lisbon"] }] },
         { id: "held-out/tacos-at-noon", right: false, results: [false, false, false], heldOut: true, cause: "a plan between people" },
         { id: "t-known", right: false, results: [false, false, false], target: "answers a day-old text", heldOut: false },
       ],
@@ -113,6 +113,11 @@ test("held-out cases are named by their cause alone; targets are listed apart an
   assert.match(note, /\| tasks \| ⏸ not run: over the spend cap/);
   assert.match(note, /\| web-facts \| — not on main yet/);
   assert.match(note, /`g-carpool` right in 1 of 3 runs; expected to reach the model/);
+  assert.match(note, /missed 2×, must: say the pickup time \(judge: it gave no time\)/, "a miss says which line failed and why");
+  assert.match(note, /tool errors: write_note: 409 conflict/);
+  assert.match(note, /first run's steps: tools write_note ok \| outcome: sent/);
+  assert.match(note, /background jobs run: 1 \(2 part\(s\)\)/);
+  assert.match(note, /run 1: Tools: read_note, write_note; changed written maya\/health\/dentist\.md, written maya\/trips\/lisbon\.md/, "each run says which notes it changed");
   assert.match(note, /held-out: 1 about a plan between people/);
   assert.match(note, /\| respond \| `t-known` \(answers a day-old text\) \| 0 of 3 \|/);
   assert.doesNotMatch(note, /tacos/);

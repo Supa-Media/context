@@ -150,6 +150,33 @@ export async function runArea(spec, { tree, dir, scratch, fake = false, heldOut 
   return { area: spec.area, status: pass ? "pass" : "fail", ...result };
 }
 
+/**
+ * Why one case fell short, under its line on the scoreboard: each failed line once with the judge's first reason, the
+ * tools that failed and what the bench could not stand in for. The run's scratch files are gone when the runner
+ * ends, so without these the scoreboard named a miss and nobody could say why (Dev2, 2026-11-27: "what were the
+ * cases we got wrong and why"). A held-out case never reaches here.
+ */
+export function whyLines(row) {
+  const clip = (text, n = 240) => { const t = String(text ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+  const seen = new Map();
+  for (const miss of row.misses ?? []) {
+    const key = `${miss.kind}: ${miss.line}`;
+    if (!seen.has(key)) seen.set(key, { ...miss, n: 0 });
+    seen.get(key).n += 1;
+  }
+  const out = [...seen.values()].slice(0, 4).map((m) => `    - missed ${m.n}×, ${m.kind}: ${clip(m.line, 160)}${m.reason ? ` (judge: ${clip(m.reason)})` : ""}`);
+  if (row.toolErrors?.length) out.push(`    - tool errors: ${row.toolErrors.slice(0, 3).map((e) => clip(e, 160)).join("; ")}`);
+  if (row.bench?.length) out.push(`    - bench could not stand in for: ${row.bench.slice(0, 4).join(", ")}`);
+  // What the turn did and the background jobs it started: which one wrote a note nobody asked for (core/q6, 2026-11-27).
+  if (row.steps) out.push(`    - first run's steps: ${row.steps}`);
+  if (row.handoff?.jobs) out.push(`    - background jobs run: ${row.handoff.jobs} (${row.handoff.parts} part(s))`);
+  for (const [k, run] of (row.runs ?? []).slice(0, 3).entries()) {
+    const wrote = run.changes.map((c) => clip(c.replace(/:.*$/, ""), 80));
+    out.push(`    - run ${k + 1}: ${clip(run.tools, 200) || "no tools"}${wrote.length ? `; changed ${wrote.slice(0, 6).join(", ")}` : "; changed nothing"}`);
+  }
+  return out;
+}
+
 const money = (usd) => `$${Number(usd ?? 0).toFixed(2)}`;
 const pct = (value) => (value === null || value === undefined ? "n/a" : `${Math.round(value)}%`);
 const RESULT = { pass: "✅ pass", fail: "❌ fail", refused: "⏸ not run", missing: "— not on main yet", error: "⚠️ error" };
@@ -196,7 +223,10 @@ export function scoreboardNote({ date, runUrl = null, areas, drift = null, produ
       }
       if (a.runsPassed !== undefined) lines.push(`- **${a.area}:** passed its bar in ${a.runsPassed} of ${a.runs ?? NIGHTLY_RUNS} run(s).`);
       const wrong = a.rows.filter((row) => !row.target && row.results?.some((r) => !r));
-      for (const row of wrong.filter((r) => !r.heldOut)) lines.push(`  - \`${row.id}\` right in ${row.results.filter(Boolean).length} of ${row.results.length} runs; expected to ${row.expected}.`);
+      for (const row of wrong.filter((r) => !r.heldOut)) {
+        lines.push(`  - \`${row.id}\` right in ${row.results.filter(Boolean).length} of ${row.results.length} runs; expected to ${row.expected}.`);
+        lines.push(...whyLines(row));
+      }
       const byCause = new Map();
       for (const row of wrong.filter((r) => r.heldOut)) byCause.set(row.cause, (byCause.get(row.cause) ?? 0) + 1);
       for (const [cause, n] of byCause) lines.push(`  - held-out: ${n} about ${cause}`);

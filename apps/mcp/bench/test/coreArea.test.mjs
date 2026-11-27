@@ -111,6 +111,9 @@ test("a question is right only when every run passed", async () => {
   const cases = coreCases({ test: "core", testRaw: CORE, resultRaw: flipped, keyRaw });
   assert.deepEqual(cases.rows.map((row) => [row.id, row.right, row.results]), [["core/q1", false, [true, false]]]);
   assert.equal(cases.bar.goodEnough, false, "a failed run of a held case fails the bar");
+  // Each run's tool list rides on the row, for the scoreboard's "which call wrote it" line.
+  assert.equal(cases.rows[0].runs.length, 2);
+  assert.match(cases.rows[0].runs[0].tools, /^Tools: /);
 });
 
 test("a rerun asks a question's mirror too, so the question is still counted", async () => {

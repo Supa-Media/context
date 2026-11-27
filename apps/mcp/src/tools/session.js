@@ -635,10 +635,12 @@ function noteAgentActivity(store, name, args, result) {
   const kind = AGENT_ACTIVITY_TOOLS.get(name);
   if (!kind || !result || result.isError) return;
   const hint = activityHintOf(result);
+  // The mailbox a bot passes on every call says which of a shared connection's bots it is (`live/activityBot.js`).
+  const seen = { mailbox: typeof args?.mailbox === "string" ? args.mailbox : null };
   // `read_notes`: each note it opened (`notesRead`, as the read reported its path), never one it refused.
   if (name === "read_notes") {
     const paths = (result.notesRead ?? []).filter((path) => !isPlumbing(path));
-    recordAgentActivity(store, paths.map((path) => ({ kind: "read", path })));
+    recordAgentActivity(store, paths.map((path) => ({ kind: "read", path })), seen);
     for (const path of paths) recordAgentRead(store, { tool: name, path });
     return;
   }
@@ -650,7 +652,7 @@ function noteAgentActivity(store, name, args, result) {
     const moves = (Array.isArray(hint?.moves) ? hint.moves : [])
       .map((move) => ({ kind: "move", from: notePath(move?.from), path: notePath(move?.to) }))
       .filter((move) => move.from && move.path && move.from !== move.path);
-    recordAgentActivity(store, moves);
+    recordAgentActivity(store, moves, seen);
     return;
   }
   const text = typeof result.content?.[0]?.text === "string" ? result.content[0].text : "";
@@ -662,7 +664,7 @@ function noteAgentActivity(store, name, args, result) {
   const path = splitMessageAnchor(normalizePath(raw) ?? "").path;
   if (!path || isPlumbing(path)) return;
   const done = kind === "read" ? "read" : hint?.created === true ? "create" : "edit";
-  recordAgentActivity(store, [{ kind: done, path }]);
+  recordAgentActivity(store, [{ kind: done, path }], seen);
   // A read is also kept, for the trail and the replay (`live/readLog.js`).
   if (done === "read") recordAgentRead(store, { tool: name, path });
 }

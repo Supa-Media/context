@@ -1,0 +1,14 @@
+{
+  "id": "hand-to-bot-app",
+  "kind": "app",
+  "members": ["Maya"],
+  "set": "training",
+  "setting": "Maya texts Tex in the Context app with a folder open in @guild. @guild has a bot, Quill, a social strategist: its card is bots/quill/about.md and its mail is bots/quill/mail/. The area growth/ in @guild names owner @maya and delegate Quill. Tex is told both in its Bots and areas module.",
+  "title": "Maya hands a folder to the Quill bot (in the app)",
+  "msgs": [
+    {"id":"m1","labels":{"fd":{"must":["mail Quill in @guild at bots/quill/mail/ in this same turn, with the open folder's link (resources/glaze-ideas/) and her ask: a post made from it and a plan for posting it","say it went to Quill and give the mail's link"],"never":["write the post or the plan itself, or start a background job to do Quill's work","ask whether to send it when she already said to","send the mail without the folder or its link"],"star":true}},"screen":{"note":{"path":"resources/glaze-ideas/about.md","workspace":"@guild"}},"text":"send this folder to the quill bot, tell it to make a post out of it and a plan for posting it","who":"Maya"},
+    {"id":"m2","tex":true,"text":"sent to quill with the folder and your ask: https://context.lc/note/@guild/bots/quill/mail/tex.md","who":"Tex"},
+    {"id":"m3","labels":{"fd":{"must":["read Quill's mail note and answer from what it shows: the mail is there, and any reply from Quill"],"never":["say the earlier send failed or was refused when the mail is in the note","send the mail a second time without checking"],"star":true}},"text":"did it actually go through?","who":"Maya"},
+    {"id":"m4","tex":true,"text":"yes, it's in quill's mail. no reply from quill yet","who":"Tex"}
+  ]
+}

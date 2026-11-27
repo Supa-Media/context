@@ -31,6 +31,7 @@ import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 import { keptWordsOf, manifestOf } from "./promptManifest.js";
 import { mailAccountsFacts, mailAccountsPrompt } from "./mailAccounts.js";
+import { rosterPrompt } from "./roster.js";
 
 /** The repo's fixed paragraphs: the commit's catalogue holds their words, so a turn never keeps them (`keptWordsOf`). */
 const REPO_WORDS = new Set([TRANSCRIPTS_PROMPT, CHECK_IN_PROMPT, ATTENTION_PROMPT, PLANNER_PROMPT, DRIVER_PROMPT, PROGRESS_PROMPT].map((text) => text.trim()));
@@ -113,6 +114,7 @@ export function turnPrompt(place, answering, o) {
     ["workspaces", workspacesPrompt(o.workspaces)],
     ["groups", typeof o.groups === "string" ? o.groups : ""], // the group chats they are in, read from their 1:1 (`groupChats.js`)
     ["devShare", typeof o.devShare === "string" ? o.devShare : ""], // a group chat's sharing with the developers (`devShare.js`)
+    ["roster", rosterPrompt(o.roster)], // who holds each area and which bots work there (`roster.js`)
     ["mail", mailAccountsPrompt(o.mail)], // the mailboxes a mail search reaches (`mailAccounts.js`); their states are per text, below
   ];
   // The day's words of the rarely-changing modules, when the step freezes them (`frozenModules.js`): sent above the
