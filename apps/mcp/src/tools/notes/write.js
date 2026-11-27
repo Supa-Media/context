@@ -12,6 +12,7 @@ import {
   isConsoleActor,
   presenceActor,
 } from "../../live/presence.js";
+import { writerActor } from "../../live/activityBot.js";
 import {
   byteSize,
   frontMatterBlock,
@@ -629,20 +630,13 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   });
   // And anybody who has this note open right now, so an agent's write appears
   // in their editor as it lands rather than as a conflict later.
+  // A bot's login is named as its bot (`live/activityBot.js`), worked out behind the response; the console is a person.
+  const byConsole = isConsoleActor(store.actor);
+  const caretActor = (byConsole ? presenceActor(store.actor) : writerActor(store, { path, mailbox: args?.mailbox ?? null })).catch(() => null);
   if (collaborationResult) {
-    await announceCommittedToPresence(
-      store,
-      path,
-      collaborationResult,
-      isConsoleActor(store.actor) ? null : await presenceActor(store.actor),
-    );
+    await announceCommittedToPresence(store, path, collaborationResult, byConsole ? null : caretActor);
   } else {
-    await announceWriteToPresence(store, {
-      path,
-      content: body,
-      etag: put.etag,
-      actor: await presenceActor(store.actor),
-    });
+    await announceWriteToPresence(store, { path, content: body, etag: put.etag, actor: caretActor });
   }
   // After the note is safely stored, never before: a response file for a note
   // whose own write then failed is a file referring to a form that does not
