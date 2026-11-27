@@ -17,6 +17,7 @@ import { writeClipboard } from "../../../../design/clipboard";
 import { Text } from "../../../../design/components/Text";
 import { radii, space } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
+import { appOf } from "@context/shared/src/botApps.cjs";
 import { PromptBox, botSetupPrompt } from "./PanelBotFields";
 import { BotHookFields } from "./PanelBotHook";
 import type { Bot } from "./bots";
@@ -99,7 +100,14 @@ export function BotSetup({ bot, health, canEdit, workspace, workspaceId, cardPat
             </Pressable>
           ))}
         </View>
-      ) : way === "check" ? (
+      ) : null}
+      {/* Its app's way, and why (`botApps.cjs`), while there is still a choice. */}
+      {mayChange && row === null && appOf(bot.card.bot) !== null ? (
+        <Text variant="treeMeta" style={styles.muted} testID="bot-setup-why">
+          {appOf(bot.card.bot)?.why}
+        </Text>
+      ) : null}
+      {mayChange && chooseMany !== undefined && row === null ? null : way === "check" ? (
         <Text variant="treeMeta" style={styles.muted} testID="bot-setup-way">
           Checks in every 5 min
         </Text>

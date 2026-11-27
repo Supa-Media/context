@@ -29,7 +29,7 @@ export function areaToolDefinitions() {
             type: "object",
             properties: {
               name: { type: "string" },
-              kind: { type: "string", description: "grok (the default)." },
+              kind: { type: "string", description: "The app it runs in: grok (the default), muse or instinct. A card with no reach is reached its app's way: grok by webhook, muse and instinct by checking in." },
               whose: { type: "string", description: "The @handle of the person the bot belongs to." },
               reach: { type: "string", enum: ["webhook", "mail"], description: "webhook: Context calls it; mail: it checks its mail on a timer." },
               avatar: {

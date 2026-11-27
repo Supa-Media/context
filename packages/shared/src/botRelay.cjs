@@ -17,6 +17,8 @@
  */
 
 /** The one prompt every bot's webhook routine runs, word for word. */
+const { checkInSteps } = require("./botApps.cjs");
+
 const RELAY_PROMPT =
   "Read the payload. Mail and routines are passed on the same way: if its type is \"mail\" (a message) or \"routine\" (due work), read the note it names through Context, reading only, and wake the main chat with the exact text, sender, time, note path and the payload's job line, so the main chat answers the mail or does the routine's job now. " +
   "Never write to Context, reply, or send anything from this run.";
@@ -104,10 +106,12 @@ function refreshAsk(name, workspace, card) {
  * one-note card), `failed` why the check mail was not sent (null when it was), `webhook` whether Context wakes it by
  * webhook, `workspace` its @name when known.
  */
-function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace, routineTest }) {
+function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace, routineTest, kind }) {
   const ctx = contextArg(workspace);
   const steps = [];
   if (webhook) steps.push(relayStep());
+  // A bot with no webhook checks in: its app's guide (`botApps.cjs`).
+  else steps.push(...checkInSteps({ holder, kind, workspace }));
   if (checkPath && !failed && webhook && routineTest === "sent") {
     // The check is answered only through the routine path (the Capabilities bot, 2026-11-27: mail got through while
     // routine wakes were dropped, and a check answered from the setup reply proved neither).

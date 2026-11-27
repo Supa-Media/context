@@ -16,10 +16,10 @@
 
 const { mailOnlyText, routinesText } = require("./areaRoutines.cjs");
 const { pictureStep, relayMemory, setupStep } = require("./botRelay.cjs");
+const { BOT_APPS, reachOf } = require("./botApps.cjs");
 
-/** The kinds of bot a card can say it is. Grok is the first; others follow by adding a word. */
-const BOT_KINDS = Object.freeze(["grok"]);
-const BOT_LABELS = Object.freeze({ grok: "Grok bot" });
+/** The kinds of bot a card can say it is: the apps `botApps.cjs` knows. */
+const BOT_KINDS = Object.freeze(Object.keys(BOT_APPS));
 
 /** How Context reaches a bot: it sends new mail to the bot's webhook, or the bot checks its mail itself. */
 const REACH_KINDS = Object.freeze(["webhook", "mail"]);
@@ -37,7 +37,7 @@ const MODE_ORDER = Object.freeze(["Visionary", "Manager", "Doer"]);
 /** `grok` → "Grok bot"; any other word as it is, or "" for none. */
 function botLabel(kind) {
   const word = typeof kind === "string" ? kind.trim().toLowerCase() : "";
-  return BOT_LABELS[word] ?? (word === "" ? "" : word);
+  return BOT_APPS[word]?.label ?? (word === "" ? "" : word);
 }
 
 /** A card's `bot:` word, if it is one we know; "" otherwise. */
@@ -46,10 +46,9 @@ function botKind(raw) {
   return BOT_KINDS.includes(word) ? word : "";
 }
 
-/** A card's `reach:` word; a bot with none checks its own mail. */
-function reachKind(raw) {
-  const word = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-  return REACH_KINDS.includes(word) ? word : "mail";
+/** A card's `reach:` word; with none, its app's way (`botApps.cjs`), else checking its own mail. */
+function reachKind(raw, kind) {
+  return reachOf(raw, kind);
 }
 
 /** The modes in `modes` we know, in their usual order. */

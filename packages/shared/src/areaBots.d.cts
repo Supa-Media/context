@@ -1,6 +1,6 @@
 /** Types for `areaBots.cjs`; see that file for the reasons. */
 
-export type BotKind = "grok";
+export type BotKind = "grok" | "muse" | "instinct";
 export type ReachKind = "webhook" | "mail";
 export type ModeName = "Visionary" | "Manager" | "Doer";
 
@@ -11,7 +11,7 @@ export declare const MODE_ORDER: readonly ModeName[];
 export declare function botLabel(kind: unknown): string;
 export declare function mailJoinName(bot: unknown): string;
 export declare function botKind(raw: unknown): BotKind | "";
-export declare function reachKind(raw: unknown): ReachKind;
+export declare function reachKind(raw: unknown, kind?: unknown): ReachKind;
 export declare function knownModes(modes: unknown): ModeName[];
 export declare function modeLines(modes: unknown, ownerWord?: string): string[];
 export declare function areaPrompt(input: {

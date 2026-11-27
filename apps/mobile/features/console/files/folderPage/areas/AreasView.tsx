@@ -10,6 +10,7 @@
  * for why.
  */
 
+import { reachOf } from "@context/shared/src/botApps.cjs";
 import type { OwnerSearch } from "../../owners";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
@@ -245,7 +246,7 @@ export function AreasView(props: AreasViewProps) {
   // A bot added from the bots folder's page: its name joins the workspace's agents, and its card is written in its own
   // folder (`bots/<bot>/about.md`). It holds no area until an area's Owner menu gives it one.
   const addBot = useCallback(
-    async (name: string, whose: string): Promise<string | null> => {
+    async (name: string, whose: string, app: string): Promise<string | null> => {
       if (addAgent === undefined) return "Bots can’t be added here.";
       const same = (agent: string) => agent.trim().toLowerCase() === name.trim().toLowerCase();
       if (!agents.some(same)) {
@@ -254,7 +255,7 @@ export function AreasView(props: AreasViewProps) {
       }
       const was = cardOf(name, "agent", root, withCards);
       if (!was.creates && was.bot !== "") return `${name} is already a bot here.`;
-      const card: Card = { ...was, holder: name, kind: "agent", bot: "grok", belongsTo: whose, reach: "mail" };
+      const card: Card = { ...was, holder: name, kind: "agent", bot: app, belongsTo: whose, reach: reachOf(null, app) };
       return chooseMany(was.path, cardChanges(card), was.creates);
     },
     [addAgent, agents, chooseMany, root, withCards],

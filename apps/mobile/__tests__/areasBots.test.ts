@@ -17,8 +17,8 @@ const NOTES: ListNote[] = [
   note("areas/about.md", { agents: ["Grok Bot", "Socials", "Pipeline"] }),
   note("areas/bots/about.md", { area: "false" }),
   note("areas/bots/grok-bot/about.md", { holder: "Grok Bot", kind: "agent", bot: "grok", belongs_to: "@seyi", reach: "webhook", works_in: ["areas/operations/scorecard · 20%", "areas/growth"] }),
-  note("areas/bots/socials/about.md", { holder: "Socials", kind: "agent", bot: "grok", belongs_to: "@shyoh" }),
-  note("areas/people/pipeline.md", { holder: "Pipeline", kind: "agent", bot: "grok", belongs_to: "@seyi" }),
+  note("areas/bots/socials/about.md", { holder: "Socials", kind: "agent", bot: "muse", belongs_to: "@shyoh" }),
+  note("areas/people/pipeline.md", { holder: "Pipeline", kind: "agent", bot: "instinct", belongs_to: "@seyi" }),
   note("areas/people/dev2.md", { kind: "person", phone: "+1 555 010 0177" }),
   note("areas/operations/about.md", { owner: "@seyi" }),
   note("areas/operations/scorecard/about.md", { owner: "Grok Bot" }),
@@ -52,9 +52,19 @@ describe("bots", () => {
 
   // Dev, 2026-11-27: "these bots say they setup their webhooks but it still shows as setup in mail".
   test("a bot with a saved webhook is reached by it, whatever its card's reach says", () => {
+    // Pipeline and Socials are Instinct and Muse bots with no reach on their cards, so they check in, their apps' way (`botApps.cjs`).
     expect(bots.map((bot) => bot.card.reach)).toEqual(["webhook", "mail", "mail"]);
     expect(withHooks(bots, new Set(["socials"])).map((bot) => bot.card.reach)).toEqual(["webhook", "mail", "webhook"]);
     expect(withHooks(bots, undefined).map((bot) => bot.card.reach)).toEqual(["webhook", "mail", "mail"]);
+  });
+
+  test("a card with no reach is reached its app's way: Grok by webhook, Muse and Instinct by checking in", () => {
+    // Dev, 2026-11-27: "grokbot we know has webhooks so thats the most reliable, but for things like muse, instinct etc
+    // it might be a little tough".
+    const card = (bot: string) => botsOf("areas", [{ path: "bots/x/about.md", properties: { holder: "X", kind: "agent", bot } }], "@seyi")[0]!.card.reach;
+    expect(card("grok")).toBe("webhook");
+    expect(card("muse")).toBe("mail");
+    expect(card("instinct")).toBe("mail");
   });
 
   test("its mail, its own folder's note, and the routines of the areas it holds", () => {

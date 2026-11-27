@@ -45,7 +45,7 @@ const NOTES: ListNote[] = [
   { path: "areas/bots/about.md", properties: { area: "false" } },
   { path: "bots/grok-bot/about.md", properties: { holder: "Grok Bot", kind: "agent", bot: "grok", belongs_to: "@seyi", reach: "webhook", works_in: ["areas/scorecard · 20%"] } },
   // Still where bots lived first, inside the Areas folder.
-  { path: "areas/bots/socials/about.md", properties: { holder: "Socials", kind: "agent", bot: "grok", belongs_to: "@shyoh" } },
+  { path: "areas/bots/socials/about.md", properties: { holder: "Socials", kind: "agent", bot: "muse", belongs_to: "@shyoh" } },
   { path: "areas/scorecard/about.md", properties: { owner: "Grok Bot" } },
   { path: "areas/scorecard/mail/socials.md", properties: {} },
   { path: "areas/growth/about.md", properties: { owner: "@shyoh", delegate: "Socials" } },
@@ -322,6 +322,26 @@ describe("The bots folder", () => {
     expect(writes.filter(([p, k]) => p.startsWith("areas/") && k === "owner")).toEqual([]);
     expect(writes.filter(([p, k]) => p === "bots/finance-bot/about.md" && /secret|token|key|password|url|webhook/i.test(k))).toEqual([]);
     expect(all("area-panel-add-bot")).toHaveLength(0);
+  });
+
+  test("adding a bot picks its app, and its card is reached that app's way", async () => {
+    // Dev, 2026-11-27: "there should be a preference per bot, like grokbot we know has webhooks ... for things like
+    // muse, instinct etc it might be a little tough".
+    windowOf(1440);
+    const writes: Write[] = [];
+    await mount(host(writes, { notes: NOTES, bodies: BODIES, files: [] }), BOTS);
+    await settle();
+    await press(one("bots-add"));
+    await settle();
+    expect(one("area-panel-add-bot-app-grok").getAttribute("aria-checked")).toBe("true");
+    await press(one("area-panel-add-bot-app-muse"));
+    expect(strip(one("area-panel-add-bot-why").textContent)).toContain("Muse checks in every 5 minutes");
+    await typeInto(one("area-panel-add-bot-name"), "Muse Bot");
+    await press(one("area-panel-add-bot-save"));
+    await settle();
+    const at = (key: string) => writes.filter(([p, k]) => p === "bots/muse-bot/about.md" && k === key).map(([, , value]) => value);
+    expect(at("bot").at(-1)).toBe("muse");
+    expect(at("reach").at(-1)).toBe("mail");
   });
 
   test("a reader who may not write sees no way to add a bot", async () => {

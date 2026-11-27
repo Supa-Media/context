@@ -24,11 +24,13 @@ import { toolWriteNote } from "./write.js";
 import comments from "../../../../../packages/shared/src/comments.cjs";
 import { bindBot } from "../../mail/boundBot.js";
 import botRelay from "../../../../../packages/shared/src/botRelay.cjs";
+import botApps from "../../../../../packages/shared/src/botApps.cjs";
 
 const { mailJoinName } = areaBots;
 const { botCardPaths, botShortName } = areaRoutines;
 const { appendMail } = mail;
 const { setupAnswer } = botRelay;
+const { reachOf } = botApps;
 
 const CHECK_TEXT =
   "Setup check from Context: answer here with one line from your main chat, as yourself, so Context knows your webhook relay wakes you and your login is bound. If no answer comes within 5 minutes, your card says you are not answering.";
@@ -145,7 +147,8 @@ export async function toolSetupBot(store, scope, rules, overrides, raw) {
   const bound = await bindCard(store, scope, rules, overrides, raw, "setup_bot");
   if (bound.refused) return bound.refused;
   const slug = typeof store?.actor?.workspaceSlug === "string" ? store.actor.workspaceSlug.trim().replace(/^@/, "") : "";
-  const webhook = String(bound.card.props.reach ?? "").trim().toLowerCase() === "webhook";
+  // Its card's reach, else its app's way (`botApps.cjs`: Grok by webhook, Muse and Instinct by checking in).
+  const webhook = reachOf(bound.card.props.reach, bound.card.props.bot) === "webhook";
   // A bot Context wakes by webhook gets its check as a test routine, so setup passes only when a routine wake reaches
   // its main chat and gets done (`/gateway/bots/hook` `routine: true`, which names only this bot's check note).
   let routineTest;
@@ -154,6 +157,6 @@ export async function toolSetupBot(store, scope, rules, overrides, raw) {
     // Why not, as the control plane said it, or the status the webhook gave; `setupAnswer` words the rest.
     routineTest = sent?.ok === true ? "sent" : typeof sent?.error === "string" ? sent.error : sent === null ? "" : `status ${sent.status ?? 0}`;
   }
-  const rest = setupAnswer({ ...bound, card: bound.card.path, webhook, workspace: slug === "" ? undefined : `@${slug}`, routineTest });
+  const rest = setupAnswer({ ...bound, card: bound.card.path, kind: bound.card.props.bot, webhook, workspace: slug === "" ? undefined : `@${slug}`, routineTest });
   return toolText([boundLine(bound), "", rest].join("\n"));
 }

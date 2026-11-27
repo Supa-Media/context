@@ -53,7 +53,7 @@ export interface BotsPageProps {
   /** The workspace's people, for whose a new bot is. */
   people?: OwnerSearch;
   /** Adds a Grok bot: its name to the workspace's agents and its card here; absent for somebody who may not. */
-  addBot?: (name: string, whose: string) => Promise<string | null>;
+  addBot?: (name: string, whose: string, app: string) => Promise<string | null>;
   /** The workspace's id, for the panel's mail saves and the bot's health; absent in a fixture. */
   workspaceId?: string;
   /** The workspace's `@handle`, named in what Refresh asks. */
@@ -159,8 +159,8 @@ export function BotsPage(props: BotsPageProps) {
         <AddBotForm
           people={whoseChoices}
           label={label}
-          onAdd={async (name, whose) => {
-            const why = await addBot(name, whose);
+          onAdd={async (name, whose, app) => {
+            const why = await addBot(name, whose, app);
             if (why === null) {
               setAdding(false);
               setSelected(name);

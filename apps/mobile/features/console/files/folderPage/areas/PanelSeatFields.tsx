@@ -28,6 +28,7 @@ import { displayName } from "../../paths";
 import { OwnerFace, type Face } from "../Glyphs";
 import type { ItemEntry } from "../model";
 import type { OwnedArea } from "@context/shared/src/areaBots.cjs";
+import { reachOf } from "@context/shared/src/botApps.cjs";
 import { AddBotForm, UploadLogo, botDetail, usePeopleList } from "./PanelBotFields";
 import { HealthDot, unreachable, useBotHealth } from "./botHealth";
 import { KEY_WIDTH, Row } from "./panelFields";
@@ -98,13 +99,13 @@ export function PanelOwnerRows({
     const next = { ...card, ...patch };
     if (JSON.stringify(next) !== JSON.stringify(card)) write({}, [next]);
   };
-  const addBot = async (name: string, whose: string): Promise<string | null> => {
+  const addBot = async (name: string, whose: string, app: string): Promise<string | null> => {
     if (addAgent === undefined) return "Bots can’t be added here.";
     if (!agents.some((agent) => same(agent, name))) {
       const why = await addAgent(name);
       if (why !== null) return why;
     }
-    const bot: Card = { ...cardFor(name, "agent"), holder: name, kind: "agent", bot: "grok", belongsTo: whose, reach: "webhook" };
+    const bot: Card = { ...cardFor(name, "agent"), holder: name, kind: "agent", bot: app, belongsTo: whose, reach: reachOf(null, app) };
     setAddingBot(false);
     write({ owner: name, delegate: null }, [bot]);
     return null;
