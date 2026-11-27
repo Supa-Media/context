@@ -51,7 +51,10 @@ function chatRoutineQuestion(path, lastRan = null) {
  * email needs to go to the group vs me personally"). Mail that needs only the
  * mailbox's own person is theirs: their own check-ins text them about it.
  * Calendars shared with the chat are looked at too, and held against what the chat said (Dev2, 2026-11-19: a member's
- * calendar had the wedding on Saturday while the chat planned around Sunday, and the check-in stayed quiet).
+ * calendar had the wedding on Saturday while the chat planned around Sunday, and the check-in stayed quiet). Since
+ * 2026-11-27 a check-in reads a shared calendar only as free or busy, and a possible clash goes to the calendar's own
+ * person alone (Dev2 chose "the check-in reads the full calendar, but details go only to the calendar's owner": their
+ * own Tex reads it whole), never to the room.
  * Mail shared with the chat is named only when some is (`mail` from `textGroupLooks.ts`; Dev2, 2026-11-25: Tex Devs had
  * none, its check-ins searched mail anyway with a tool they are never given, and one told the chat its "lookups keep
  * timing out"). `mail` undefined (an older control plane) keeps the line.
@@ -64,8 +67,10 @@ function chatLookQuestion(since, lastRan, { mail } = {}) {
     `in ${mail === false ? "three" : "four"} places only: ${shared}mail sent to this chat's own address (the notes in its folder's email/ that arrived since), ` +
     "calendars shared with this chat (read_calendar from today for the next 7 days, one account at a time; none shared, skip it), " +
     "and what was asked of you in this chat that you said you would follow up on. " +
-    "Hold what you find against what people here said or planned: when an email or a shared calendar disagrees with the chat " +
+    "Hold what you find against what people here said or planned: when an email disagrees with the chat " +
     "(a different day, time or place), that is worth one short question to the person it's about, asking which is right; never guess which one is. " +
+    "A shared calendar reads here only as free or busy: when a busy time may clash with what the chat plans, ask its own person alone " +
+    "(send action text_privately, to: their handle), never here. " +
     "Never post about the workspace's other activity, notes or other agents' work: nobody here asked. " +
     "Post here only what someone in this chat needs to act on or know now, in one short line: " +
     "what happened and who should handle it. " +

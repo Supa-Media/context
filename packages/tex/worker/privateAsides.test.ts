@@ -12,6 +12,8 @@ import { readAsides, sendAsides, takeCrossAside } from "./crossChat";
  *     → "only the tagger's own 1:1 is texted" fails
  *   `takeCrossAside`'s CHAT_KEY check removed
  *     → "someone who never texted Tex on their own is told in the group" fails
+ *   `sendAsides` sending a `to` aside to `message.from` when `phoneOf` finds nobody
+ *     → "a calendar clash goes to the calendar's own person, and only while they are in the chat" fails
  */
 
 const ME = "+15555550100";
@@ -51,6 +53,26 @@ describe("private asides", () => {
     const w = world();
     expect(await sendAsides(w.deps, GROUP, [{ what: "the code Instacart sent", texts: [] }])).toBe("no_1to1");
     expect(queued(w.at(ME))).toEqual([]);
+  });
+
+  it("a calendar clash goes to the calendar's own person, and only while they are in the chat (Dev2, 2026-11-27)", async () => {
+    const w = world();
+    await w.at(ME).put(CHAT_KEY, { chatId: "chat-me" });
+    await w.at(OTHER).put(CHAT_KEY, { chatId: "chat-other" });
+    const phoneOf = (handle: string) => (handle === "bo" ? OTHER : null);
+    expect(await sendAsides(w.deps, GROUP, [{ what: "the chat plans Saturday 3 PM; your calendar is busy then", texts: [], to: "bo", calendar: true }], phoneOf)).toBe("sent");
+    expect(w.called).toEqual([`${OTHER}/cross-aside`]);
+    const [run] = queued(w.at(OTHER));
+    expect(run).toMatchObject({ chatId: "chat-other", from: OTHER, event: "chat_answer" });
+    expect(run.crossChat).toMatchObject({ kind: "answer", state: "aside", calendar: true });
+    expect(queued(w.at(ME))).toEqual([]);
+    // A handle nobody in the chat has reaches no one: never the sender in its place.
+    const gone = world();
+    expect(await sendAsides(gone.deps, GROUP, [{ what: "x", texts: [], to: "jo", calendar: true }], phoneOf)).toBe("unreached");
+    expect(gone.called).toEqual([]);
+    // Read strictly: a `to` that isn't a handle is dropped with its calendar mark, and an aside without `calendar` keeps no `to`.
+    expect(readAsides([{ what: "a", to: "+15555550100", calendar: true }, { what: "b", to: "bo" }])).toEqual([{ what: "a", texts: [] }, { what: "b", texts: [] }]);
+    expect(readAsides([{ what: "c", to: "bo", calendar: true }])).toEqual([{ what: "c", texts: [], to: "bo", calendar: true }]);
   });
 
   it("reads asides strictly", async () => {

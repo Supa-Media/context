@@ -18,6 +18,8 @@ export default {
       const look = chatLookQuestion(undefined, null);
       assert.match(look, /calendars shared with this chat \(read_calendar/, "the check-in looks at shared calendars");
       assert.match(look, /disagrees with the chat[\s\S]*one short question to the person it's about/, "and asks about a clash rather than staying quiet");
+      // 2026-11-27 (Dev2 chose B): a calendar clash goes to the calendar's own person alone, never the room.
+      assert.match(look, /shared calendar reads here only as free or busy[\s\S]*ask its own person alone \(send action text_privately, to: their handle\), never here/, "a calendar clash is asked of its owner alone");
       const shared = await chat.tag("ada", "Tex is Bo free Saturday?", "Bo's calendar has a wedding Saturday.", [], {
         group: { people: ["ada", "bo"], cause: "named", calendar: [{ handle: "bo", address: "bo@example.com" }] },
       });

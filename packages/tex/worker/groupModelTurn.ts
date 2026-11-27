@@ -239,7 +239,9 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // texts nothing here but a do-ask's one signed line, and only to the people it was written for (`crossChat.ts`).
   // Sensitive asks go to the tagger's own 1:1, never here (`crossChat.ts` `sendAsides`); one that can't is said here in fixed words.
   if (answer.asides && message.crossChat?.kind !== "ask") {
-    const aside = deps.crossCall ? await sendAsides({ now: deps.now, call: deps.crossCall }, message, answer.asides) : "unreached";
+    // A calendar's own person, by handle, only among the people in the chat now (`crossChat.ts` `Aside`).
+    const phoneOf = (handle: string) => here.find((phone) => handles.get(phone) === handle) ?? null;
+    const aside = deps.crossCall ? await sendAsides({ now: deps.now, call: deps.crossCall }, message, answer.asides, phoneOf) : "unreached";
     if (aside !== "sent") await tellTex(storage, deps, message, { action: "text_on_the_side", status: aside === "no_1to1" ? "no_1to1" : "failed" }, aside === "no_1to1" ? GROUP_LINES.asideNo1to1 : GROUP_LINES.asideFailed);
   }
   if (crossOn && answer.crossAsks) await sendCrossAsks(storage, { now: deps.now, call: deps.crossCall! }, { kind: "group", message }, answer.crossAsks);
