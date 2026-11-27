@@ -109,4 +109,9 @@ export const TESTING_CSS = String.raw`
 .tl .tsx .ts-det>.panel{border:0;border-radius:0;height:100%;background:var(--page)}
 .tl .tsx .ts-mid .empty{padding:24px;color:var(--muted)}
 @media (max-width:820px){.tl .tsx .ts-body{grid-template-columns:minmax(0,1fr)!important}.tl .tsx .ts-sets{display:none}.tl .tsx .ts-det{position:fixed;inset:44px 0 0 auto;width:min(320px,100%);box-shadow:var(--shadow);z-index:40}}
+.tl .tsx tr.mr.sel .osl .p{color:var(--text)}
+.tl .tsx .osq{display:block;margin:3px 0 0 17px;padding-left:7px;border-left:2px solid var(--line2);font-size:11.5px;color:var(--muted);line-height:1.4}
+.tl .tsx .edrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tl .tsx .edrow .pics{margin-top:0}
+.tl .tsx .edrow .picadd{height:24px;padding:0 8px;border:1px dashed var(--line2);border-radius:6px;color:var(--text2)}
 `;

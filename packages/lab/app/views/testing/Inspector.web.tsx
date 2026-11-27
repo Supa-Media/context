@@ -9,6 +9,7 @@ import { labelFields, modValue, ranOn, wiresIn, type Conversation, type Label, t
 import { change, setUi, useSets } from "../../engine/setsStore";
 import type { LabNode } from "../../types";
 import { Close } from "./Menu.web";
+import { OnScreenLine, onScreen } from "./OnScreen.web";
 
 const NOTES: Record<string, string> = { reviewer: "Its output is the turn report; sentBack is how many times it sent the draft back.", fd: "Its output is the turn report; it is labelled by must and never lines about its draft." };
 
@@ -214,6 +215,12 @@ export function Inspector({ c }: { c: Conversation }) {
         <div className="quote">
           <small>{m.who}</small>
           <div>{m.text || <span className="muted">(no words)</span>}</div>
+          {onScreen(c, m) ? (
+            <>
+              <OnScreenLine screen={m.screen} noSel />
+              {m.screen?.selection ? <span className="osq">“{m.screen.selection}”</span> : null}
+            </>
+          ) : null}
         </div>
         <LabelForm c={c} m={m} n={n} />
         <Reads c={c} i={i} n={n} />

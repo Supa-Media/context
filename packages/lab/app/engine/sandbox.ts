@@ -9,16 +9,16 @@
  * the calls that change it; the same ops are tex_dev's `sandbox` action.
  */
 import { useSyncExternalStore } from "react";
-import type { StepCell } from "../views/grid/TextGrid.web";
-import { stepExtra, type StepExtra } from "./stepRun";
+import type { Screen } from "@context/tex/src/texSets.d.cts";
+import { rowOf, writeOf, type SandboxRow, type SandboxWrite } from "./sandboxRows";
+import { APP_CHAT } from "./appChat";
 import { lab, set as setLab } from "./state";
 import { unfoldGroups } from "./groups";
 import type { LedgerPage, LedgerQuery } from "../fromApp/texPageTypes";
 import { readLedgerPage } from "../fromApp/texPageLedger";
 import type { Read } from "../fromApp/texPageSource";
 
-/** A step as the grid shows it (`out` in words) with the contract's optional fields (`stepRun.ts`), as the gateway sent them. */
-export type SandboxStep = StepCell & StepExtra;
+export * from "./sandboxRows";
 
 export type SandboxSource =
   | { kind: "maya" }
@@ -30,46 +30,6 @@ export type SandboxSource =
   | { kind: "world"; name: string; world: Record<string, unknown> | null };
 /** A chat shared with the developers, as the gateway lists it (`labSandbox/shared.js`). */
 export type SharedChat = { chatId: string; name: string; kind: "dm" | "group"; people: number; sharedBy: string[]; lastAt: number | null };
-export type SandboxRow = {
-  id: string;
-  who: string;
-  text: string;
-  at?: number;
-  prod?: boolean;
-  quiet?: boolean;
-  tex?: boolean;
-  steps?: SandboxStep[];
-  /** A reply row: the text it answers (its steps are shown on that text's row). */
-  reply?: string;
-  /** Tex's row: the ids of the steps that led to it, in run order, as the gateway logged them (never inferred). */
-  cause?: string[];
-  /** Tex's row: the step that sent it ("fd" the turn's answer, "job" a background job's text...). */
-  from?: string;
-  /** Pictures sent with the text (https only), the text it replies to, whether it was edited, and taken back (unsent). */
-  pics?: string[];
-  replyTo?: string;
-  edited?: boolean;
-  unsent?: boolean;
-  /** The text a tapback, an edit or an unsend row is on. */
-  on?: string;
-  /** Tapbacks on this text, each run as a Tex turn of its own. */
-  reactions?: Array<{ who: string; emoji: string }>;
-  /** A row that is a tapback, an edit or an unsend on another text, or who is in a made-up chat changing ("people"). */
-  kind?: "reaction" | "edit" | "unsend" | "people";
-  /** A made-up chat: a reply's `group` (what the preview's control plane said), a people row's change and name, and a card a row carries. */
-  group?: unknown;
-  change?: "added" | "left";
-  name?: string;
-  media?: Record<string, unknown>;
-};
-/** The tapbacks iMessage has, in its order. */
-export const TAPBACKS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
-/**
- * One thing a test turn wrote (the gateway's `writes`): its kind and the line that says it, and, where it has them, the
- * contract's fields to open it with: a page's address (read back with op `page`), an email's `to`/`subject`/`body`, a
- * note's `body`.
- */
-export type SandboxWrite = { kind: string; summary: string; by?: string; id?: string; title?: string; body?: string; url?: string; to?: string; subject?: string; expires?: number };
 /** The phone line a test text goes over (`get`'s `line`): its name and the number a text arrives on. */
 export type SandboxLine = { name: string; number?: string };
 export type SandboxState = {
@@ -97,7 +57,7 @@ export type SandboxState = {
   /** The chats people shared with the developers (Settings → Feedback, or "Tex, share my chats with the devs"). */
   sharedChats: SharedChat[];
   /** The Training and Dev conversations a test chat may start from (the gateway's `sets`; never the Test set). */
-  sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; texts: number }>;
+  sets: Array<{ id: string; title: string; set: "training" | "dev"; group: boolean; app?: boolean; texts: number }>;
   /** A text waiting in the composer: `tryFromHere` puts the text it tries from there. */
   draft: { as: string; text: string } | null;
   /**
@@ -123,6 +83,11 @@ export type SandboxState = {
   code: string;
   /** The open test chat's pull request, when it runs on one, and whether its preview is still starting (about a minute). */
   preview: { pr: number; starting: boolean } | null;
+  /**
+   * In an in-app test chat, what the app has open (`texScreen.cjs`): sent with each text, and kept after a send, as the
+   * app keeps the note open (in-app tests artboard 04); null is Nothing open.
+   */
+  screen: Screen | null;
 };
 
 /** One of the recent test chats, whoever opened it: the Lab or an AI through `tex_dev`. */
@@ -131,7 +96,7 @@ export type SandboxRecent = { sandboxId: string; name: string; source: SandboxSo
 export type SandboxOp = "chats" | "sets" | "shared" | "ledger" | "open" | "send" | "react" | "edit" | "unsend" | "retry" | "back" | "drop" | "reset" | "get" | "list" | "use" | "page" | "nightly" | "join" | "leave" | "added";
 export type SandboxCall = (op: SandboxOp, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null };
+export const sandbox: SandboxState = { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null, screen: null };
 
 const subs = new Set<() => void>();
 let ver = 0;
@@ -179,49 +144,6 @@ const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-/** One row of the gateway's answer, with what each step gave. */
-export function rowOf(r: Record<string, unknown>): SandboxRow {
-  const who = str(r.who);
-  return {
-    id: str(r.id),
-    who,
-    text: str(r.text),
-    at: num(r.at) ?? undefined,
-    prod: r.prod === true,
-    quiet: r.quiet === true,
-    tex: who === "Tex" || r.tex === true,
-    steps: arr<Record<string, unknown>>(r.steps).map((x) => ({ node: str(x.node), out: typeof x.out === "string" || x.out === undefined || x.out === null ? str(x.out) : JSON.stringify(x.out), ms: num(x.ms), ok: x.ok === false ? false : true, ...stepExtra(x) })),
-    ...(typeof r.reply === "string" && r.reply ? { reply: r.reply } : {}),
-    ...(Array.isArray(r.cause) ? { cause: arr<unknown>(r.cause).filter((x): x is string => typeof x === "string" && !!x) } : {}),
-    ...(typeof r.from === "string" && r.from ? { from: r.from } : {}),
-    ...(Array.isArray(r.pics) ? { pics: arr<unknown>(r.pics).map((p) => (typeof p === "string" ? p : p && typeof p === "object" ? str((p as Record<string, unknown>).url) : "")).filter((u) => u.startsWith("https://")) } : {}),
-    ...(typeof r.replyTo === "string" && r.replyTo ? { replyTo: r.replyTo } : {}),
-    ...(r.edited === true ? { edited: true } : {}),
-    ...(r.unsent === true ? { unsent: true } : {}),
-    ...(typeof r.on === "string" && r.on ? { on: r.on } : {}),
-    ...(Array.isArray(r.reactions) ? { reactions: arr<Record<string, unknown>>(r.reactions).map((x) => ({ who: str(x.who), emoji: str(x.emoji) })).filter((x) => x.emoji) } : {}),
-    ...(r.kind === "reaction" || r.kind === "edit" || r.kind === "unsend" || r.kind === "people" ? { kind: r.kind } : {}),
-    ...(r.group && typeof r.group === "object" ? { group: r.group } : {}),
-    ...(r.change === "added" || r.change === "left" ? { change: r.change, name: str(r.name) } : {}),
-    ...(r.media && typeof r.media === "object" && !Array.isArray(r.media) ? { media: r.media as Record<string, unknown> } : {}),
-  };
-}
-
-/** One of the gateway's writes, with only the fields it sent (text only; a page's address only over https). */
-export function writeOf(w: Record<string, unknown>): SandboxWrite {
-  const out: SandboxWrite = { kind: str(w.kind), summary: str(w.summary) || str(w.title) };
-  for (const k of ["by", "id", "title", "body", "to", "subject"] as const) if (str(w[k])) out[k] = str(w[k]);
-  if (str(w.url).startsWith("https://")) out.url = str(w.url);
-  if (num(w.expires) !== null) out.expires = num(w.expires)!;
-  return out;
-}
-
-/** A page's id in the sandbox: the last segment of its address (an id, never a name shown), else the write's own id. */
-const lastSegment = (url: string) => {
-  const path = url.split(/[?#]/)[0];
-  return path.slice(path.lastIndexOf("/") + 1);
-};
-export const pageIdOf = (w: SandboxWrite) => (w.url ? lastSegment(w.url) : "") || w.id || "";
 
 /** One of the test chat's pages, read back whole (op `page`): its title and its Markdown, as text. */
 export async function readSandboxPage(id: string): Promise<{ title: string; text: string }> {
@@ -425,7 +347,7 @@ export async function readSandboxSets() {
     const b = await call("sets", {});
     sandbox.sets = arr<Record<string, unknown>>(b.sets)
       .filter((c) => c.set === "training" || c.set === "dev")
-      .map((c) => ({ id: str(c.id), title: str(c.title) || str(c.id), set: c.set as "training" | "dev", group: c.kind === "group", texts: num(c.texts) ?? 0 }))
+      .map((c) => ({ id: str(c.id), title: str(c.title) || str(c.id), set: c.set as "training" | "dev", group: c.kind === "group", ...(c.kind === "app" ? { app: true } : {}), texts: num(c.texts) ?? 0 }))
       .filter((c) => c.id);
     emit();
   } catch {
@@ -460,6 +382,8 @@ function sourceOf(c: Record<string, unknown>): SandboxSource {
   const convId = str(chat.convId) || str(c.convId);
   const chatId = str(chat.chatId) || str(c.chatId);
   if (kind === "set" && convId) return { kind: "set", convId, name, ...(chatId ? { chatId } : {}) };
+  // Their app chat runs on the 1:1's history (`chat: "me"`), listed as kind "app": opened again as the app chat.
+  if (kind === "chat" && c.kind === "app") return { kind: "chat", chatId: APP_CHAT, name: "Tex in the app" };
   return { kind: "chat", chatId: chatId || "me", name };
 }
 const isAi = (by: string) => /^AI\b/i.test(by);
@@ -616,8 +540,13 @@ export async function runNightlyNow(versionId: string, which: "dream" | "houseke
 
 const asHandle = () => sandbox.handles[sandbox.as] ?? sandbox.as;
 /** A test text, with up to six pictures and the text it replies to: a real Tex turn in the test chat. */
-export const sendText = (text: string, extra: { pics?: string[]; replyTo?: string } = {}) =>
-  run("send", { as: asHandle(), text, ...(extra.pics?.length ? { pics: extra.pics.slice(0, 6).map((url) => ({ url })) } : {}), ...(extra.replyTo ? { replyTo: extra.replyTo } : {}) });
+export const sendText = (text: string, extra: { pics?: string[]; replyTo?: string; screen?: Screen | null } = {}) =>
+  run("send", { as: asHandle(), text, ...(extra.pics?.length ? { pics: extra.pics.slice(0, 6).map((url) => ({ url })) } : {}), ...(extra.replyTo ? { replyTo: extra.replyTo } : {}), ...(extra.screen ? { screen: extra.screen } : {}) });
+/** What the in-app test chat's next text says the app has open (null: Nothing open). */
+export function setSandboxScreen(screen: Screen | null) {
+  sandbox.screen = screen;
+  emit();
+}
 /** A tapback on a text, as whoever the composer sends as: Tex sees it as it would a real one. */
 export const reactTo = (msgId: string, emoji: string) => run("react", { as: asHandle(), msgId, emoji });
 export const stickOn = (msgId: string) => run("react", { as: asHandle(), msgId, sticker: true }); // a sticker, as Photon hands one (`stickers.ts`)
@@ -691,7 +620,7 @@ export function gatewaySandbox(endpoint: string, token: (refresh: boolean | { re
 
 /** For tests: back to an empty test chat. */
 export function resetSandboxState() {
-  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null });
+  Object.assign(sandbox, { id: null, source: { kind: "maya" }, versionId: "main", people: [], handles: {}, as: "", rows: [], writes: [], running: null, hot: null, busy: false, problem: null, linked: null, chats: [], sharedChats: [], sets: [], draft: null, shared: false, recent: null, fit: null, line: null, code: "main", preview: null, screen: null });
   seenFor = null;
   seen = new Set();
   if (polling) clearTimeout(polling);

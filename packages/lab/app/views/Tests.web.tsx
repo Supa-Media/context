@@ -12,6 +12,7 @@ import { allCases, isPicked, picks } from "../engine/diff";
 import { MAIN, emit, forkFromMain, isMain, lab, node } from "../engine/state";
 import { dropCase, saveCase, useLab } from "../store";
 import type { LabCase } from "../types";
+import { kindWord } from "../engine/sets";
 import { CaseThread, CaseWant, IoPanel, WhoPanel, caseFit } from "./tests/caseParts";
 import { NodeCases } from "./tests/NodeCases";
 import { Meter, StepNav } from "./tests/StepNav";
@@ -75,7 +76,7 @@ function TestCard({ c, inArea }: { c: LabCase; inArea: LabCase[] }) {
           />
         </label>
         <span className="cid">{id}</span>
-        {meta.chat ? <span className="pill">{meta.chat === "group" ? "group" : "1:1"}</span> : null}
+        {meta.chat ? <span className="pill">{kindWord(meta.chat)}</span> : null}
         {meta.must ? <span className="pill acc">tagged</span> : null}
         {meta.group ? <span className="pill">{meta.group}</span> : null}
         {ed ? <span className="pill acc">{ed.isNew ? "new" : "edited"}</span> : null}

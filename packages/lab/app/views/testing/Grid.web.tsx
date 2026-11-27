@@ -7,12 +7,13 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { G, node } from "../../engine/state";
-import { bodyOf, cellOf, colWidth, labelFields, missingTest, newRowAt, freshId, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
+import { bodyOf, cellOf, kindWord, colWidth, labelFields, missingTest, newRowAt, freshId, starsIn, stepNodes, type Conversation, type Message } from "../../engine/sets";
 import { change, colsFor, deleteChat, fold, saveCols, setUi, sets, undo, uploadPic, useSets } from "../../engine/setsStore";
 import { History } from "./History.web";
 import type { LabNode } from "../../types";
 import { startResize as resizeCol } from "../grid/GridParts.web";
 import { MsgFields, SpeakerPick } from "./MsgFields.web";
+import { OnScreenLine, onScreen } from "./OnScreen.web";
 import { TryCompose, TryRows } from "./TryText.web";
 import { Chev, Menu, More, Plus, UndoI, useMenu, type MenuItem } from "./Menu.web";
 
@@ -79,7 +80,13 @@ function Body({ c, m }: { c: Conversation; m: Message }) {
       </span>
     </>
   ) : null;
-  const pics = m.pics?.length ? <Pics m={m} /> : null;
+  // An in-app conversation's person's row: what the app had open, one quiet line under the words (artboard 02).
+  const pics = m.pics?.length || onScreen(c, m) ? (
+    <>
+      {m.pics?.length ? <Pics m={m} /> : null}
+      {onScreen(c, m) ? <OnScreenLine screen={m.screen} /> : null}
+    </>
+  ) : null;
   if (!b.kind) return m.text || pics ? <>{m.text}{pics}</> : <span className="muted">(empty)</span>;
   return (
     <>
@@ -354,7 +361,7 @@ export function Grid({ c }: { c: Conversation }) {
         ) : null}
         <Title key={c.id + c.title} c={c} />
         <span className={"ts-meta" + (test ? " test" : "")} id="chatMeta">
-          {c.kind === "one" ? "1:1" : "group"} · ★ {starsIn(c)}
+          {kindWord(c.kind)} · ★ {starsIn(c)}
           {test ? " · people only" : ""}
         </span>
         <span className="sp" />

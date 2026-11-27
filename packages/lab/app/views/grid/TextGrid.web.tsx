@@ -8,6 +8,8 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { G, stepsOf } from "../../engine/state";
 import { ColButton, colW, HeadCell, shown, startResize, useGridCols, type GridCol } from "./GridParts.web";
+import type { Screen } from "@context/tex/src/texSets.d.cts";
+import { OnScreenLine } from "../testing/OnScreen.web";
 
 export type StepCell = {
   node: string;
@@ -55,6 +57,8 @@ export type TextRow = {
   edited?: boolean;
   /** A reaction or an edit, not a text: drawn in italics. */
   evt?: boolean;
+  /** An in-app test chat's text: what the app had open (null: Nothing open); absent shows no line. */
+  screen?: Screen | null;
 };
 
 /** The steps a text column starts with (the mockup's): the rest are in the Columns menu. */
@@ -89,6 +93,7 @@ function msgCell(r: TextRow, msgExtra?: (r: TextRow) => ReactNode) {
           ))}
         </span>
       ) : null}
+      {r.screen !== undefined ? <OnScreenLine screen={r.screen} /> : null}
     </>
   );
 }

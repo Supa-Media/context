@@ -23,3 +23,13 @@ export function withAppChat<T extends { key: string; name: string }>(chats: T[])
   const at = chats.findIndex((c) => c.key === "me");
   return at < 0 ? chats : [...chats.slice(0, at + 1), { key: APP_CHAT, name: "Tex in the app" }, ...chats.slice(at + 1)];
 }
+
+/**
+ * Whether the open test chat is an in-app one (in-app tests artboard 04): their app chat from the picker, a Training or
+ * Dev conversation of kind "app", or one whose texts carry what the app had open.
+ */
+export function isAppTestChat(sb: { source: { kind: string; chatId?: string; convId?: string }; sets: Array<{ id: string; app?: boolean }>; rows: Array<{ screen?: unknown }> }): boolean {
+  if (sb.source.kind === "chat") return sb.source.chatId === APP_CHAT;
+  if (sb.source.kind === "set" && sb.sets.some((c) => c.id === sb.source.convId && c.app)) return true;
+  return sb.rows.some((r) => r.screen !== undefined);
+}

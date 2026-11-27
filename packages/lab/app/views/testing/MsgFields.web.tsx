@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { EMOJI, KIND_NAMES, type Conversation, type Message } from "../../engine/sets";
 import { change, uploadPic, type Op } from "../../engine/setsStore";
+import { ChipFace, OnScreenPop, useOnScreenPop } from "./OnScreen.web";
 
 /** Upload picked, pasted or dropped pictures and add them to the message (Dev2, 2026-11-16: "No way to add images into these messages"). */
 export async function addPics(c: Conversation, m: Message, files: File[]) {
@@ -63,6 +64,29 @@ export function kindOps(c: Conversation, m: Message, v: string): Op[] {
   const ops: Op[] = [{ op: "edit", msg: m.id, field: "kind", value: v }];
   if (v === "react" && !EMOJI.includes(m.text)) ops.push({ op: "edit", msg: m.id, field: "text", value: "👍" });
   return ops;
+}
+
+/** The On screen chip beside + Picture, in an in-app conversation's row editor; its popover edits `screen` (artboard 03). */
+export function OnScreenEdit({ c, m }: { c: Conversation; m: Message }) {
+  const pop = useOnScreenPop();
+  const n = c.msgs.findIndex((x) => x.id === m.id) + 1;
+  const screen = m.screen ?? null;
+  return (
+    <>
+      <button type="button" className="osb" id="osBtn" data-osb={m.id} aria-haspopup="dialog" aria-expanded={!!pop.anchor} onMouseDown={(e) => e.preventDefault()} onClick={pop.open}>
+        <ChipFace screen={screen} />
+      </button>
+      {pop.anchor ? (
+        <OnScreenPop
+          anchor={pop.anchor}
+          value={screen}
+          sub={`in ${m.who}'s app when #${n} was sent`}
+          onClose={pop.close}
+          onChange={(value) => change(c.id, [{ op: "edit", msg: m.id, field: "screen", value }])}
+        />
+      ) : null}
+    </>
+  );
 }
 
 export function MsgFields({ c, m, cls, onDone, autoFocus }: { c: Conversation; m: Message; cls: string; onDone?: () => void; autoFocus?: boolean }) {
@@ -134,7 +158,14 @@ export function MsgFields({ c, m, cls, onDone, autoFocus }: { c: Conversation; m
           }}
         />
       ) : null}
-      {k !== "react" && k !== "delete" ? <PicsEdit c={c} m={m} /> : null}
+      {c.kind === "app" && (k === "text" || k === "reply") && !m.tex ? (
+        <span className="edrow">
+          <PicsEdit c={c} m={m} />
+          <OnScreenEdit c={c} m={m} />
+        </span>
+      ) : k !== "react" && k !== "delete" ? (
+        <PicsEdit c={c} m={m} />
+      ) : null}
     </>
   );
 }

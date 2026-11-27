@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { editText, sandboxProblem, sendText, takeDraft, useSandbox } from "../../engine/sandbox";
 import { usePicUpload } from "./usePicUpload";
+import { isAppTestChat } from "../../engine/appChat";
 
 export const MAX_PICS = 6;
 
@@ -57,7 +58,8 @@ export function useComposer() {
       void editText(editing, t);
       return;
     }
-    const extra = { pics, ...(replyTo ? { replyTo } : {}) };
+    // An in-app test chat's text goes with what the app has open, which stays for the next one (artboard 04).
+    const extra = { pics, ...(replyTo ? { replyTo } : {}), ...(isAppTestChat(sb) && sb.screen ? { screen: sb.screen } : {}) };
     setText("");
     setPics([]);
     setReplyTo(null);
