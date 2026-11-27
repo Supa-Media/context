@@ -14,5 +14,6 @@ function Live({ workspaceId, ...props }: BotPanelProps & { workspaceId: string }
 }
 
 export function AnyBotPanel({ workspaceId, ...props }: AnyBotPanelProps) {
-  return workspaceId === undefined || workspaceId === "" ? <BotPanel {...props} /> : <Live {...props} workspaceId={workspaceId} />;
+  // Keyed by the bot, so nothing one bot's panel holds (a mail just started, a problem, a tab) shows on another's.
+  return workspaceId === undefined || workspaceId === "" ? <BotPanel key={props.bot.slug} {...props} /> : <Live key={props.bot.slug} {...props} workspaceId={workspaceId} />;
 }
