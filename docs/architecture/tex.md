@@ -106,7 +106,7 @@ flowchart LR
     n_learn["Learn<br/>Haiku 5.5 · effort low<br/>reflect.js · memoryNudge.js"]:::model
     n_afterReply["After the reply<br/>Haiku 5.5 · effort off<br/>conversationThreads.js · selfReview.js"]:::model
     n_chatDays["Chat day summaries<br/>Haiku 5.5 · effort low<br/>graph/nodes/chatDays.js · daySummaries.js"]:::model
-    n_connect["Connect notes<br/>Haiku 5.5 · effort low<br/>noteConnect.js · graph/nodes/connect.js"]:::model
+    n_connect["Connect notes<br/>Haiku 5.5 · effort low · off<br/>noteConnect.js · graph/nodes/connect.js"]:::off
     n_groupCard["Group card<br/>Haiku 5.5 · effort low<br/>graph/nodes/groupCard.js · groupCard.js"]:::model
   end
   subgraph n_group_checkFinish["Check & finish"]
@@ -292,7 +292,7 @@ every wire, from the same config.
 | 2 Their notes | rungNotes | ladder | on | code |  |  |  | graph/nodes/rungNotes.js · lookupLadder.js |
 | 3-4 Apps and web search | rungTools | ladder | on | code |  |  |  | graph/nodes/rungTools.js · lookupLadder.js |
 | 5-7 Hand to a job | handoff | ladder | on | code |  |  |  | graph/nodes/handoff.js · handoff.js |
-| Connect notes | connect | afterSend | on | Haiku 5.5 | low |  |  | noteConnect.js · graph/nodes/connect.js |
+| Connect notes | connect | afterSend | off | Haiku 5.5 | low |  |  | noteConnect.js · graph/nodes/connect.js |
 | Tex in a note | noteRun | starts | on | Haiku 5.5 | medium |  | p-sheet-cell | noteRun.js · noteRunSheet.js · graph/nodes/noteRun.js · noteRunRoute.js |
 | Nudge | nudgeOffer | checkFinish | off | Haiku 5.5 | low | 3 s |  | graph/nodes/nudgeOffer.js · nudges.js · capabilities.js |
 | Quiet check | quietCheck | checkInLook | on | Haiku 5.5 | low | 8 s | train:quietCheck | graph/nodes/quietCheck.js |
