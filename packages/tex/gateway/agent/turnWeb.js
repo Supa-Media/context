@@ -19,6 +19,7 @@
  */
 
 import { computerFor, webSession } from "./computer.js";
+import { sandboxRefusesTool } from "../../../../apps/mcp/src/labSandbox/policy.js";
 import { searcherFor } from "./search.js";
 import { browserOwner, groupBrowserOwner } from "./browserProviders.js";
 import { texViewerUrl } from "../../../../apps/mcp/src/http/texComputer.js";
@@ -111,7 +112,9 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
     opened === null
       ? null
       : {
-          tools: opened.tools,
+          // A test chat's turn is offered no tool its sandbox refuses (no browser, no computer there), so its tool list,
+          // the one fact the prompt and the claim checks read (`browserReach.js`), says what it can do.
+          tools: (opened.tools ?? []).filter((tool) => !sandboxRefusesTool(env, tool?.name)),
           usage: opened.usage,
           call: (name, args) => {
             markUntrusted(ledger);

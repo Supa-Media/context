@@ -573,7 +573,7 @@ function noAccountTaggerCallTool(callTool, group) {
  * it and Tex told Battle of the Bots it couldn't start a poll. Only what the chat may read differs, said from its facts
  * (`homeOnly`, `guests`, `reach`) and enforced by its grant and `groupAwareCallTool`, never by leaving a line out.
  */
-export function groupPrompt(group, workspace) {
+export function groupPrompt(group, workspace, { browser = true } = {}) {
   const reach = Array.isArray(group.reach) ? group.reach : [];
   const homeOnly = group.homeOnly === true;
   const where = reach.length > 0 ? reach.map((slug) => `@${slug}`).join(" and ") : workspace ? `@${workspace}` : "one shared workspace";
@@ -598,10 +598,10 @@ export function groupPrompt(group, workspace) {
     "so everyone can refine it together first. Anyone else's yes does nothing. " +
     "A calendar event can invite guests (ask for their emails): it is shown here and only the calendar owner's 👍 or yes makes it, and Google emails the guests. " +
     noAccountSendLine(group) +
-    "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
+    (browser ? "You can search the web and open or browse pages, and this chat has its own browser: whatever you sign in to here stays signed in for this chat's later asks. " +
     GROUP_SIGN_IN_LINES +
     "A password comes only from a login saved for this chat or the whole workspace, or one the person who tagged you saved for themselves, and never typed in the chat; " +
-    "when a site needs a password and there is none saved, make a vault_add link at once: it goes to whoever asked in their own chat with you, never here (the page lets them give it to this chat, the workspace or keep it to themselves), and you carry on by yourself once it's saved. " +
+    "when a site needs a password and there is none saved, make a vault_add link at once: it goes to whoever asked in their own chat with you, never here (the page lets them give it to this chat, the workspace or keep it to themselves), and you carry on by yourself once it's saved. " : "") + // only when offered a browser (`browserReach.js`)
     blockedLine(group) +
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
     GROUP_RUN_LINE +
