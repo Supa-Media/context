@@ -8,6 +8,8 @@ import { useRef, useState } from "react";
 import { sendAs, useSandbox } from "../../../engine/sandbox";
 import { MAX_PICS, type Composer } from "../useComposer";
 import { Av } from "./parts.web";
+import { OnScreenChip } from "./OnScreenChip.web";
+import { isAppTestChat } from "../../../engine/appChat";
 import { firstName, type Account } from "./worldModel";
 
 const arrow = (
@@ -69,6 +71,13 @@ export function ChatComposer({ c, account, hint }: { c: Composer; account: (name
           {c.uploading ? <span className="small muted">Uploading…</span> : null}
         </div>
       ) : null}
+      {isAppTestChat(sb) ? (
+        // An in-app chat has one person: the row holds what the app has open (in-app tests artboard 04).
+        <div className="asrow" role="group" aria-label="On screen">
+          <OnScreenChip />
+          <span className="note2">Goes with your next text, as the app sends it</span>
+        </div>
+      ) : (
       <div className="asrow" role="group" aria-label="Texting as">
         <span className="lbl">Texting as</span>
         {sb.people.map((p) => {
@@ -83,6 +92,7 @@ export function ChatComposer({ c, account, hint }: { c: Composer; account: (name
         })}
         <span className="note2">{hint ?? "Pick who you are; your texts go on the right"}</span>
       </div>
+      )}
       <form
         className="imc"
         ref={form}

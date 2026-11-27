@@ -179,4 +179,55 @@ export const LAB_CSS_WORLD = String.raw`
 .tl .ptab td.nm input{field-sizing:content;width:auto;min-width:6ch;max-width:100%}
 .tl .vmenu .addf input.num{font-family:var(--mono);color:var(--text2)}
 .tl .tst.tgrid td[data-c=who] .gl{white-space:nowrap}
+/* In-app test conversations (in-app tests artboards, 2026-11-27): what was on screen, one quiet line under a person's
+   words in a grid cell, the Inspector and under a sent bubble; the On screen popover; the composer's chip. */
+.tl .osl{display:flex;align-items:center;gap:5px;min-width:0;margin-top:3px;font-size:11.5px;line-height:1.35;color:var(--muted);white-space:nowrap}
+.tl .osl svg{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--dim)}
+.tl .osl .k{color:var(--dim)}
+.tl td.txt .osl:not(.none) .k{display:none}
+.tl .osl .p{color:var(--text2);overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.tl .osl .p .ws{color:var(--muted)}
+.tl .osl .x{color:var(--dim);flex:none}
+.tl .osl .sel{color:var(--muted);overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1000 auto;max-width:260px}
+.tl .imsg .und .osl{margin:3px 4px 0;font-size:11px}
+.tl .osb{display:inline-flex;align-items:center;gap:5px;max-width:100%;height:24px;padding:0 8px;border-radius:6px;border:1px solid var(--line2);background:var(--page);color:var(--text2);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.tl .osb svg,.tl .asrow .osc svg{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--dim)}
+.tl .osb .k{color:var(--dim)}
+.tl .osb .p{overflow:hidden;text-overflow:ellipsis}
+.tl .osb .car{color:var(--dim);font-size:10px}
+.tl .osb[aria-expanded=true]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
+.tl .popm.osp{width:380px;max-width:min(380px,calc(100vw - 16px));padding:4px;max-height:none}
+.tl .osp .oh{display:flex;align-items:baseline;gap:8px;padding:8px 10px 6px}
+.tl .osp .oh b{font-size:13px;font-weight:600}
+.tl .osp .oh span{font-size:12px;color:var(--dim)}
+.tl .osp .of{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px;align-items:start;padding:4px 10px 8px;font-size:12.5px}
+.tl .osp .of>label{color:var(--muted);font-size:12px;padding-top:6px}
+.tl .osp .pair{display:flex;gap:6px;min-width:0}
+.tl .osp input,.tl .osp textarea{height:28px;border:1px solid var(--line2);border-radius:7px;background:var(--s2);padding:0 8px;font:inherit;font-size:12.5px;color:var(--text);min-width:0;box-sizing:border-box}
+.tl .osp input.ws{width:78px;flex:none;color:var(--text2)}
+.tl .osp input.pt{flex:1}
+.tl .osp input:focus,.tl .osp textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim);background:var(--page)}
+.tl .osp [aria-invalid=true]{border-color:var(--bad)}
+.tl .osp textarea{height:auto;min-height:0;width:100%;padding:6px 8px;line-height:1.4;resize:none;border-radius:7px;background:var(--s2)}
+.tl .osp .tabs{display:flex;flex-direction:column;gap:4px;min-width:0}
+.tl .osp .tab{display:flex;align-items:center;gap:6px;height:26px;padding:0 4px 0 8px;border-radius:6px;background:var(--chip);font-size:12px;color:var(--text2);min-width:0}
+.tl .osp .tab .ws{color:var(--muted)}
+.tl .osp .tab .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl .osp .tab button{border:none;background:none;color:var(--dim);width:20px;height:20px;border-radius:5px;font-size:12px;padding:0;cursor:pointer}
+.tl .osp .add{align-self:flex-start;border:none;background:none;color:var(--accent);font:inherit;font-size:12px;padding:2px 0;cursor:pointer}
+.tl .osp .add .n{color:var(--dim);margin-left:6px}
+.tl .osp .cnt{display:block;text-align:right;font-size:11px;color:var(--dim);margin-top:3px;font-variant-numeric:tabular-nums}
+.tl .osp .ft{display:flex;align-items:center;gap:6px;padding:8px 10px 6px;border-top:1px solid var(--line)}
+.tl .osp .ft .sp{flex:1}
+.tl .osp .ft .ghost{height:28px;border:none;background:none;color:var(--text2);font:inherit;font-size:12.5px;padding:0 6px;cursor:pointer}
+.tl .osp .ft .primary{height:28px;padding:0 14px;border-radius:7px;font-size:12.5px}
+.tl .asrow .osc{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 4px 0 10px;border-radius:999px;background:var(--chip);border:1px solid transparent;font:inherit;font-size:12.5px;color:var(--text2);max-width:520px;min-width:0;white-space:nowrap;cursor:pointer}
+.tl .asrow .osc:hover{border-color:var(--line2)}
+.tl .asrow .osc svg{width:13px;height:13px}
+.tl .asrow .osc .k{color:var(--dim)}
+.tl .asrow .osc .p{overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.tl .asrow .osc .x2{color:var(--dim)}
+.tl .asrow .osc .rm{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:none;background:none;color:var(--dim);font-size:11px;padding:0;cursor:pointer}
+.tl .asrow .osc .rm:hover{background:var(--s3)}
+.tl .asrow .osc.empty{background:none;border:1px dashed var(--line2);color:var(--muted);padding:0 10px}
 `;

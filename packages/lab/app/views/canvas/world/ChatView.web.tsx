@@ -16,6 +16,8 @@ import { Av } from "./parts.web";
 import { firstName, type Account } from "./worldModel";
 import { setFill, useWorld } from "./worldStore";
 import { worldNow } from "./worldView";
+import { isAppTestChat } from "../../../engine/appChat";
+import { OnScreenLine } from "../../testing/OnScreen.web";
 
 const STEP_NODE = { Triage: "triage", Decide: "decide" } as const;
 
@@ -89,6 +91,7 @@ function Run({
   openWhy,
   toggle,
   nos,
+  app,
 }: {
   e: Extract<ChatEntry, { t: "run" }>;
   account: (n: string) => Account;
@@ -99,6 +102,8 @@ function Run({
   toggle: (id: string) => void;
   /** Each row's number in the Grid, so the why detail names the same text. */
   nos: Map<string, number>;
+  /** An in-app test chat: each person's text says what the app had open as it went. */
+  app?: boolean;
 }) {
   const acct: Account | "tex" = e.tex ? "tex" : account(e.who);
   const out: ReactNode[] = [];
@@ -130,10 +135,13 @@ function Run({
         </div>
       </div>,
     );
-    const under = b.edited || b.status || b.note || b.why;
+    // Under a person's last bubble in an in-app chat: what was on screen (artboard 04); a real text without one says nothing.
+    const screen = app && e.side === "out" && !e.tex && b.kind !== "typing" && (last || e.items[i + 1]?.row.id !== b.row.id) && (b.row.screen || !b.row.prod);
+    const under = b.edited || b.status || b.note || b.why || screen;
     if (under)
       out.push(
         <div className={"und " + e.side} key={b.id + "u"}>
+          {screen ? <OnScreenLine screen={b.row.screen} full /> : null}
           {b.edited ? <span className="edl">Edited</span> : null}
           {b.status ? <span className="st2">{b.status}</span> : null}
           {b.note ? <span className="typenote">{b.note}</span> : null}
@@ -149,6 +157,7 @@ export function ChatView({ empty, onReply }: { empty: ReactNode; onReply: (id: s
   const w = useWorld();
   const [openWhy, setOpenWhy] = useState<Set<string>>(() => new Set());
   const isWorld = sb.source.kind === "world";
+  const app = isAppTestChat(sb);
   const now = isWorld ? worldNow(sb, w) : null;
   const entries = chatEntries(sb.rows, {
     as: sb.as,
@@ -200,7 +209,7 @@ export function ChatView({ empty, onReply }: { empty: ReactNode; onReply: (id: s
                 {e.change ? <div className="evchg">{e.change.map((s, i) => (s.b ? <b key={i}>{s.t}</b> : <span key={i}>{s.t}</span>))}</div> : null}
               </div>
             );
-          return <Run key={e.key} e={e} account={account} guest={guest} names={sb.people} onReply={onReply} openWhy={openWhy} toggle={toggle} nos={nos} />;
+          return <Run key={e.key} e={e} account={account} guest={guest} names={sb.people} onReply={onReply} openWhy={openWhy} toggle={toggle} nos={nos} app={app} />;
         })}
       </div>
     </div>
