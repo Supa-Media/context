@@ -67,9 +67,10 @@ export function saysSourceIsDown(answer) {
 }
 
 /** The roads this turn never took, given the calls it made as `{ name, ok }`. */
-export function untriedRoutes(steps = []) {
+export function untriedRoutes(steps = [], { browser = true } = {}) {
   const ran = new Set(steps.map((step) => step.name));
-  return Object.keys(ROUTES).filter((route) => !ROUTES[route].tools.some((tool) => ran.has(tool)));
+  // The browser road only for a turn offered a browser (`browserReach.js`): never "open it in your browser" without one.
+  return Object.keys(ROUTES).filter((route) => (browser || route !== "browser") && !ROUTES[route].tools.some((tool) => ran.has(tool)));
 }
 
 /** One more round, naming the roads not taken. */

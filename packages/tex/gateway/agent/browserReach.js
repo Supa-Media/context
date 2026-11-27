@@ -12,3 +12,23 @@ export const BROWSER_TOOLS = Object.freeze(new Set(["browse", "fill_card", "fill
 export function hasBrowser(web) {
   return Array.isArray(web?.tools) && web.tools.some((tool) => BROWSER_TOOLS.has(tool?.name));
 }
+
+/** A sentence that sends Tex to its own browser. */
+const USES_THE_BROWSER = /\byour browser\b|\bbrowser call\b|\bbrowse (?:download|step)\b/i;
+/** ", or open the site in your browser and sign in": one road of several, named inside a sentence. */
+const BROWSER_CLAUSE = /,\s*or\s[^.;]*\byour browser\b[^.;]*(?=[.;])/gi;
+
+/**
+ * Written guidance as this turn can follow it: with no browser (`reach.browser === false`), the clauses and sentences
+ * that send Tex to its browser are left out, so a notice never asks for what the turn cannot call. Everything else is
+ * kept as written. A notice is written once, for a turn with every tool; its reach is applied here, from the same fact
+ * the tool list gives (`hasBrowser`).
+ */
+export function forReach(text, reach = {}) {
+  if (typeof text !== "string" || reach.browser !== false) return text;
+  return text
+    .replace(BROWSER_CLAUSE, "")
+    .split(/(?<=[.!?])\s+(?=[A-Z"(])/)
+    .filter((sentence) => !USES_THE_BROWSER.test(sentence))
+    .join(" ");
+}

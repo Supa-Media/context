@@ -7,11 +7,19 @@
  *
  * Sabotage record (2026-11-27): dropping the filter in `openTurnWeb` fails "a test chat's turn is offered no browser";
  * taking `fill_card` out of NO_MACHINE fails "every browser tool is one the sandbox refuses" and the test after it.
+ *
+ * The written guidance follows the same fact (slice 2, Dev2 2026-11-27 "yea we should go ahead with this"): a notice
+ * is written for a turn with every tool, and `forReach` leaves out what sends Tex to a browser the turn doesn't have.
+ * Sabotage record: making `forReach` return its text unchanged fails "no claim-check notice sends a turn with no
+ * browser to one"; dropping the browser filter in `untriedRoutes` fails the same test; dropping the
+ * `browser_in_this_turn` line from `webPrompt` fails "the web prompt says so as data".
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BROWSER_TOOLS, hasBrowser } from "../../../packages/tex/gateway/agent/browserReach.js";
+import { BROWSER_TOOLS, forReach, hasBrowser } from "../../../packages/tex/gateway/agent/browserReach.js";
+import { HANDBACK_NOTICE, claimCheck } from "../../../packages/tex/gateway/agent/claimCheck.js";
+import { webPrompt } from "../../../packages/tex/gateway/agent/computer.js";
 import { openTurnWeb } from "../../../packages/tex/gateway/agent/turnWeb.js";
 import { groupPrompt } from "../../../packages/tex/gateway/agent/groupTurn.js";
 import { LAB_SANDBOX_KEY, sandboxRefusesTool } from "../src/labSandbox/policy.js";
@@ -54,4 +62,31 @@ test("the group prompt names a browser only when one is offered", () => {
   assert.doesNotMatch(none, /stays signed in/);
   assert.equal(hasBrowser(null), false);
   assert.equal(hasBrowser({ tools: [{ name: "web_search" }] }), false);
+});
+
+/** Anything that sends Tex to its own browser. */
+const SENDS_TO_THE_BROWSER = /your browser|browser call|\bbrowse\b(?! said)/i;
+
+test("no claim-check notice sends a turn with no browser to one, and a turn with one keeps every line", async () => {
+  const handback = "I couldn't find the receipt. Can you check their site and forward it to me?";
+  const gaveUp = "Planning Center isn't answering right now, so I can't tell you who's serving.";
+  const run = async (tools) => {
+    const claims = claimCheck({ question: "who's serving sunday? and get the receipt" });
+    const web = claims.wrapWeb({ tools: tools.map((name) => ({ name })), call: async () => ({ content: [] }) });
+    await claims.wrap(async () => ({ isError: true, content: [{ type: "text", text: "failed" }] }))("app_read", { app: "planning-center" });
+    void web;
+    return [await claims.check(handback), await claims.check(gaveUp)].filter(Boolean).join("\n");
+  };
+  const none = await run(["search_web", "open_page"]);
+  assert.ok(none.length > 0, "the notices still went");
+  assert.doesNotMatch(none, SENDS_TO_THE_BROWSER, none);
+  assert.match(none, /captcha browse said/, "a sentence that only names browse is kept");
+  const some = await run(["search_web", "open_page", "browse"]);
+  assert.ok(some.includes(HANDBACK_NOTICE), "a turn with a browser gets the notice as written");
+  assert.equal(forReach(HANDBACK_NOTICE, { browser: true }), HANDBACK_NOTICE);
+});
+
+test("the web prompt says so as data when the turn has no browser", () => {
+  assert.match(webPrompt(new Set(["search_web", "open_page"])), /\{"browser_in_this_turn":false\}/);
+  assert.doesNotMatch(webPrompt(new Set(["search_web", "open_page", "browse"])), /browser_in_this_turn/);
 });
