@@ -1,6 +1,6 @@
 {
   "why": "Sentences of Tex's wording still written in code, per file. Only shrinks (scripts/tex-wording-check.mjs; docs/decisions/texting-assistant/no-scripted-wording.md).",
-  "total": 3327,
+  "total": 3324,
   "folders": [
     "packages/tex/worker",
     "packages/tex/gateway",
@@ -147,7 +147,7 @@
     "packages/tex/gateway/agent/consentContext.js": 2,
     "packages/tex/gateway/agent/conversation.js": 11,
     "packages/tex/gateway/agent/conversationThreads.js": 11,
-    "packages/tex/gateway/agent/crossChat.js": 24,
+    "packages/tex/gateway/agent/crossChat.js": 22,
     "packages/tex/gateway/agent/customInstructions.js": 2,
     "packages/tex/gateway/agent/daySummaries.js": 10,
     "packages/tex/gateway/agent/dayWords.js": 4,
@@ -262,7 +262,7 @@
     "packages/tex/gateway/agent/personVoice.js": 2,
     "packages/tex/gateway/agent/pictureMaker.js": 22,
     "packages/tex/gateway/agent/planBigAsk.js": 23,
-    "packages/tex/gateway/agent/privateAside.js": 9,
+    "packages/tex/gateway/agent/privateAside.js": 8,
     "packages/tex/gateway/agent/progress.js": 11,
     "packages/tex/gateway/agent/prompt.js": 51,
     "packages/tex/gateway/agent/promptBudget.js": 2,

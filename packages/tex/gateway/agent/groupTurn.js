@@ -606,7 +606,7 @@ export function groupPrompt(group, workspace, { browser = true } = {}) {
     "Slack can't be used from a group, because it connects for one person only; say the person can text you on their own for it. " +
     GROUP_RUN_LINE +
     chatRoutinePrompt(group) +
-    "You can't text anyone outside the chat. " +
+    "You can't text anyone outside the chat, but you can follow up with whoever tagged you in their own chat with you (send text_privately). " +
     (homeOnly
       ? "When someone asks for a note's link here, send its link: line; it opens in the Context app for the people here on Context. "
       : "When someone asks for a note's link here, send its link: line; it opens in the Context app for everyone in this chat, because they are all members. ") +

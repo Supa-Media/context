@@ -37,6 +37,22 @@ chat's people now, resolved from the chat's own list (`phoneOf`), never a number
 here has reaches no one, never the sender in its place. Their own Tex is told the clash as data
 (`calendar_check_from_group`), reads their whole calendar there, and answers them.
 
+## Any follow-up, both ways (Dev2, 2026-11-27)
+
+In a group, Tex offered someone a summary of their own reflection notes "on your own", they said "yea you can text me
+1:1", and nothing came: `text_privately` was described only for asking for a card, an ID or a code, the group was told
+it can't text anyone outside the chat, and the tagger's 1:1 run had no `ask_chat`, because a run another chat started
+asked nobody. Dev2: "a two way loop indeed, I like the idea of tex being able to decide on its own at what moments it
+should message you 1:1".
+
+So `text_privately` takes any follow-up that is the tagger's alone: something sensitive to ask for, or something of
+theirs to give or go over (their own notes, a summary, a draft, a question to check first). Their own Tex gets it as
+data (`follow_up_from_group`), never scripted words, does it with everything it reads there, and may post back to
+that one group what they choose to share: a follow-up run's `ask_chat` names only the group it came from
+(`crossChat.js` `backTo`). When to move something 1:1 is the model's call, taught by the Lab module `rules`
+("A group and their own chat"). Still only the tagger is texted. A guest with no account has no 1:1 of Tex's to run
+in (`takeCrossAside` finds no chat), so the existing account-first line stays until Dev2 decides otherwise.
+
 ## What a simplification would cost
 
 Letting `to` name anyone, or falling back to the sender when the handle is not in the chat, lets a group's turn text
@@ -47,7 +63,7 @@ only", `privateAsides.test.ts` "a calendar clash goes to the calendar's own pers
 Handing the vault link back to the model lets it paste the link and the steps into the group. Letting the gateway
 name who is texted lets a turn text anyone's 1:1. Wrapping the vault watch outside the private links leaves a save
 that never carries the group on. `apps/mcp/test/privateAside.test.mjs`,
-`packages/tex/worker/privateAsides.test.ts` and the replay case `group-login-on-the-side` fail if any of these is
+`packages/tex/worker/privateAsides.test.ts` and the replay cases `group-login-on-the-side` and `group-follow-up-both-ways` fail if any of these is
 reversed.
 
 ## Not yet
