@@ -268,6 +268,27 @@ test("a tainted turn can't write a skill, by any tool or any spelling of the pat
   assert.deepEqual(passed, ["write_note", "archive_note"]);
 });
 
+test("a mail's names and words are not paths: a tainted turn mails a bot joined as tex", async () => {
+  // Seen 2026-11-27: Tex joined Pablo's mail in @supa as "tex" on a turn that
+  // had read @supa, and the guard read `mail.join: "tex"` as the `tex/` folder,
+  // refusing the join with "can't write or change a skill".
+  const passed = [];
+  const { dispatch } = fakeDispatch();
+  const call = withLearnedSkills(null, async (name, args) => {
+    passed.push(args.mail);
+    return ok();
+  }, { tainted: () => true, dispatch });
+  const mails = [
+    { join: "tex" },
+    { text: "see tex/skills/x.md", to: "tex" },
+  ];
+  for (const mail of mails) {
+    assert.ok(!isRefused(await call("write_note", { path: "@supa/bots/pablo/mail/context.md", context: "@supa", mail })), JSON.stringify(mail));
+  }
+  assert.deepEqual(passed, mails);
+  assert.ok(isRefused(await call("write_note", { path: "tex/skills/evil.md", mail: { join: "tex" } })), "the note a mail goes to is still checked");
+});
+
 test("no spelling the guard lets through reaches the skills folder", () => {
   /*
     THE GUARD AND THE STORE MUST AGREE ABOUT WHAT A SKILL IS.
