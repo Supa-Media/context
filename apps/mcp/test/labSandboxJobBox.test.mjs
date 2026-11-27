@@ -13,6 +13,8 @@
 //   2. `labJobFence.alarm` never deleting: "deletes everything" and "a box whose run is gone" fail.
 //   3. The held start sent at birth instead of in `runJobs`: "held until the answer" fails (the job's turn asked first).
 //   4. `plain` keeping the box's run ids as they are: "a box's runs travel with ids of its own" fails.
+//   5. (2026-11-27) The box's env without `TEX_LINE`: "a group's job reads the chat's people" fails (the job stops with
+//      members_unread, and its report never reaches the chat).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -85,12 +87,12 @@ function boxes(env) {
   return { made, idFromName: (name) => ({ name }), get: (id) => ({ fetch: (request) => object(id.name).fetch(request) }) };
 }
 
-async function world() {
+async function world(about = ONE) {
   const env = { LAB_SANDBOX: sandboxes() };
   env.LAB_JOB = boxes(env);
   const stub = env.LAB_SANDBOX.get(env.LAB_SANDBOX.idFromName(SANDBOX));
   const call = async (op, body = {}) => (await stub.fetch(new Request(`https://lab-sandbox.internal/${op}`, { method: "POST", body: JSON.stringify(body) }))).json();
-  await call("init", { about: ONE, rows: [], history: [] });
+  await call("init", { about, rows: [], history: [] });
   return { env, stub, call };
 }
 
@@ -156,6 +158,25 @@ test("a test text's job is born in its own box, held until the answer, run by th
   for (let i = 0; i < 200 && box.storage.data.size > 0; i += 1) await new Promise((r) => setTimeout(r, 10));
   assert.equal(box.storage.data.size, 0, "the box deleted everything it kept");
   assert.equal(state.meta.running, undefined, "nothing left running");
+});
+
+test("a group's job reads the chat's people on the test chat's line, and its report reaches the chat", async () => {
+  // 2026-11-27, a launch-day rehearsal: a group test chat's cabin job answered, then read the group's people again before
+  // its report (`jobRun.ts` `groupTurn`); its box had no line, so it read nobody, stopped, and the chat never heard.
+  const key = "c".repeat(64);
+  const group = { ...ONE, kind: "group", owner: `chat:${key}`, ledgerChat: key, chatKey: key, members: "d".repeat(64), people: [{ handle: "ana", name: "You" }, { handle: "ben", name: "ben" }] };
+  const w = await world(group);
+  const row = { id: "t1", who: "ben", text: "@tex find us a caterer for Saturday", at: Date.now(), prod: false, eid: "0000000000001-000001" };
+  await w.call("row.add", { row });
+  const gw = jobGateway(w.call, row.id);
+  await runChatTurn({ env: w.env, stub: w.stub, about: group, row, payload: { defaultWorkspaceId: "ws_a" }, token: "caller-token", config: null, origin: ONE.origin, chat: { slug: "family" }, agentRoute: gw.agentRoute, textsRoute: gw.textsRoute, sleep, sandbox: SANDBOX });
+  assert.equal(w.env.LAB_JOB.made.size, 1, "the group's job ran on its own box");
+  assert.ok(gw.asked.some((a) => a.path === "/agent" && a.job), "the job's turn was asked");
+  const state = await w.call("state");
+  const jobRows = state.rows.filter((r) => r.from === "job");
+  assert.equal(jobRows.length, 1, `the job's report reached the chat (${state.rows.map((r) => `${r.id}:${r.from ?? ""}:${r.text}`).join(" | ")})`);
+  assert.match(jobRows[0].text, /caterers/i);
+  assert.ok(!state.writes.some((wr) => /asked another object/.test(wr.summary)), JSON.stringify(state.writes.map((wr) => wr.summary)));
 });
 
 test("a box whose run is gone is answered gone and deletes itself on its next alarm", async () => {
