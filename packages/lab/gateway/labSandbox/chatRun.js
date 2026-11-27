@@ -533,6 +533,7 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
         env: envOf,
         namespace: registry.namespace,
         node: (phase, run) => boxNode({ phase, run, registry, gate, book }),
+        line: kept.rpc,
       });
     }
     const inbox = new SenderInbox(objectState(storage, `lab-${sandboxId}`), envOf);

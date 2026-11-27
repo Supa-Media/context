@@ -173,6 +173,10 @@ lived and disappear with the sandbox"; contract `lab-live-sandbox/contract.md`).
   false`, listed, and the job ends through `/job-failed`, so the chat hears it failed as it would); a tool that needs a
   browser or a computer (`browse`, `fill_login`, `fill_card`, `delegate`, the computer tools) is refused in words the
   turn reads as a refusal and listed (`MACHINE_REFUSAL`).
+  A job on its own job box (`jobBox.js`) reaches the test chat's line too, as the gateway's job reaches the Worker's
+  (`TEX_LINE`, over `/job-out/line`): before 2026-11-27 it had none, so a group's job read nobody in the chat when it
+  checked who is there before its report (`jobRun.ts` `groupTurn`), stopped with `members_unread`, and the chat never
+  heard (a launch-day rehearsal's cabin search). `labSandboxJobBox.test.mjs` holds it.
 - *A job runs on a real job box* (`labSandbox/jobBox.js`, 2026-11-21: the job box's memory fix and its own alarm could
   not be tried in the Lab while jobs ran in memory with their alarm off). Where the gateway has `LAB_JOB`, a job a test
   text starts is born in a `LabJob` Durable Object: the gateway's `TexJob` class itself (`texJobClass` with a `fence`),

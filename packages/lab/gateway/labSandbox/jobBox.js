@@ -193,16 +193,31 @@ export const labJobFence = {
         },
         get: (id) => ({ fetch: forward("inbox", String(id?.name ?? "")) }),
       },
+      // The chat's line, as the gateway's job reaches the Worker's (`texChat.js` `TEX_LINE`): the test chat's own line,
+      // which texts nobody. Without it a group job read nobody in the chat and stopped on its first answer (2026-11-27).
+      TEX_LINE: await boxLine(out),
       LINQ_API_KEY: "",
     };
   },
 };
 
+/** The test chat's line for a box: each line call one hop to the test chat's object (`/job-out/line`), answered there. */
+async function boxLine(out) {
+  const { remoteLine, remoteGroupLine } = await import("../../../tex/worker/gatewayChat.js");
+  const hop = (method) => async (call) => {
+    const answer = await out.forward("line", new Request(`${OUT_ORIGIN}/`, { method: "POST", body: JSON.stringify({ method, call }) }));
+    if (!answer.ok) return { ok: false, error: { name: "Error", message: `the test chat's line answered ${answer.status}`, status: answer.status, service: null } };
+    return await answer.json();
+  };
+  const rpc = { lineCall: hop("lineCall"), groupLineCall: hop("groupLineCall") };
+  return { line: (chatId) => remoteLine(rpc, "lab", chatId), groupLine: (groupId) => remoteGroupLine(rpc, "lab", groupId) };
+}
+
 /** The runs a test chat's object holds now, by key (`openRun`): what a box's calls are answered with. */
 const runs = new Map();
 
 /**
- * Opens a run for boxes to reach: `entry` is `{ setup, env, namespace, node }`, filled in as the text's turn sets up.
+ * Opens a run for boxes to reach: `entry` is `{ setup, env, namespace, node, line }` (`line`: the test chat's line RPC), filled in as the text's turn sets up.
  * Answers its key and `close()`; a box calling after it is closed is answered "gone".
  */
 export function openRun(entry) {
@@ -221,6 +236,11 @@ export async function serveJobOut(request) {
     const body = await request.json().catch(() => null);
     if (body !== null && (body.phase === "start" || body.phase === "end")) entry.node(body.phase, body.run ?? {});
     return Response.json({ ok: true });
+  }
+  if (kind === "line") {
+    const body = await request.json().catch(() => null);
+    if (entry.line === undefined || (body?.method !== "lineCall" && body?.method !== "groupLineCall")) return Response.json({ error: "bad_call" }, { status: 400 });
+    return Response.json(await entry.line[body.method](body.call ?? {}));
   }
   const target = request.headers.get(URL_HEADER);
   if (target === null) return Response.json({ error: "bad_call" }, { status: 400 });
