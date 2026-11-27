@@ -30,6 +30,7 @@ import { isIsolatedPreview } from "./lib/previewDeployment";
 import { claimName, findName } from "./lib/nameClaims";
 import { groupKeyOf } from "./textGroups";
 import { isPhoneNumber, personalWorkspaceOf } from "./textLinks";
+import { calendarProblem, WORLD_CALENDAR_PERSONAS, worldCalendar, type WorldCalendar } from "./texLabWorldCalendar";
 
 /** The seeded shared workspaces a made-up person can be put in (`lib/personaSeed.ts` `FIXTURES`). */
 export const WORLD_WORKSPACES = ["lumio", "maison-solenne", "common-ground"] as const;
@@ -48,12 +49,14 @@ const personValidator = v.object({
   roles: v.optional(v.record(v.string(), role)),
   /** "invited": the workspace whose phone invitation they hold, and its role. */
   invited: v.optional(v.object({ slug: v.string(), role: v.union(v.literal("editor"), v.literal("member")) })),
+  /** "on": a calendar on the preview's emulators, with these events, shared with the chat unless `shared: false` (`texLabWorldCalendar.ts`). */
+  calendar: v.optional(worldCalendar),
 });
 const speaksUp = v.union(v.literal("off"), v.literal("quiet"), v.literal("attentive"), v.literal("followAlong"), v.literal("helpful"));
 
-export type WorldPerson = { name: string; account: "on" | "off" | "invited"; roles?: Record<string, "owner" | "editor" | "member">; invited?: { slug: string; role: "editor" | "member" } };
+export type WorldPerson = { name: string; account: "on" | "off" | "invited"; roles?: Record<string, "owner" | "editor" | "member">; invited?: { slug: string; role: "editor" | "member" }; calendar?: WorldCalendar };
 export type WorldAnswer =
-  | { status: "ok"; groupKey: string; people: { name: string; account: WorldPerson["account"]; phone: string; handle: string | null }[] }
+  | { status: "ok"; groupKey: string; made: boolean; people: { name: string; account: WorldPerson["account"]; phone: string; handle: string | null }[] }
   | { status: "refused"; error: string }
   | { status: "bad_request"; error: string };
 
@@ -78,7 +81,11 @@ export function worldProblem(people: readonly WorldPerson[]): string | null {
     if (person.account !== "on" && Object.keys(person.roles ?? {}).length > 0) return `${name} has no account, so has no role in a workspace`;
     if (person.account === "invited" && (person.invited === undefined || !(WORLD_WORKSPACES as readonly string[]).includes(person.invited.slug))) return `${name} is invited by number: name the workspace`;
     if (person.account !== "invited" && person.invited !== undefined) return `only someone invited by number has an invitation`;
+    if (person.calendar !== undefined && person.account !== "on") return `${name} isn't on Context, so has no calendar here`;
+    const calendar = person.calendar === undefined ? null : calendarProblem(name, person.calendar);
+    if (calendar !== null) return calendar;
   }
+  if (people.filter((p) => p.calendar !== undefined).length > WORLD_CALENDAR_PERSONAS.length) return `at most ${WORLD_CALENDAR_PERSONAS.length} people here have a calendar`;
   return null;
 }
 
@@ -112,8 +119,11 @@ async function freePhone(ctx: MutationCtx, seed: number, taken: Set<string>): Pr
 }
 
 /** The made-up person's account for this chat, made the first time: user, personal workspace (their handle) and number. */
+/** The email a made-up person's account is made under, one per test chat and name. */
+export const worldEmailOf = (key: string, name: string) => `lab-${key.slice(0, 12)}-${seedOf(name.toLowerCase()).toString(16)}@${LAB_WORLD_EMAIL_DOMAIN}`;
+
 async function accountFor(ctx: MutationCtx, key: string, name: string, phone: string, now: number): Promise<{ userId: Id<"users">; handle: string | null }> {
-  const email = `lab-${key.slice(0, 12)}-${seedOf(name.toLowerCase()).toString(16)}@${LAB_WORLD_EMAIL_DOMAIN}`;
+  const email = worldEmailOf(key, name);
   const existing = await ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", email)).unique();
   const userId = existing?._id ?? (await ctx.db.insert("users", { email, emailVerificationTime: now, name, isActive: true, createdAt: now }));
   if ((await ctx.db.query("phoneLinks").withIndex("by_user", (q) => q.eq("userId", userId)).first()) === null) {
@@ -216,6 +226,6 @@ export const makeWorld = internalMutation({
         ...(sponsor !== null ? { sponsorId: sponsor } : {}),
       });
     }
-    return { status: "ok", groupKey, people };
+    return { status: "ok", groupKey, made: row === null, people };
   },
 });

@@ -52,7 +52,33 @@ function personOf(raw, slugs = WORLD_WORKSPACES) {
     if (!slugs.includes(slug) || !["editor", "member"].includes(role)) return { error: `${name} is invited by number: name the workspace (invited: { slug, role })` };
     return { person: { name, account, invited: { slug, role } } };
   }
-  return { person: { name, account, ...(account === "on" ? { roles } : {}) } };
+  const calendar = calendarOf(name, account, raw?.calendar);
+  if (calendar?.error) return calendar;
+  return { person: { name, account, ...(account === "on" ? { roles } : {}), ...(calendar ? { calendar: calendar.calendar } : {}) } };
+}
+
+/** Most events a made-up person's calendar starts with (`texLabWorldCalendar.ts` `MAX_WORLD_EVENTS`). */
+export const MAX_WORLD_EVENTS = 8;
+
+/**
+ * A made-up person's calendar as the Lab asks for it, `{ events: [{ title, start, end }], shared? }`: made on the
+ * preview's Google emulator and shared with the chat unless `shared: false` (`apps/convex/functions/texLabWorldCalendar.ts`).
+ * Null when none is asked for; `{ calendar }` or `{ error }`.
+ */
+function calendarOf(name, account, raw) {
+  if (raw === undefined || raw === null) return null;
+  if (account !== "on") return { error: `${name} isn't on Context, so has no calendar here` };
+  const events = Array.isArray(raw.events) ? raw.events : null;
+  if (events === null || events.length > MAX_WORLD_EVENTS) return { error: `${name}'s calendar is { events: [{ title, start, end }] }, at most ${MAX_WORLD_EVENTS}` };
+  const out = [];
+  for (const event of events) {
+    const title = typeof event?.title === "string" ? event.title.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    const start = Date.parse(event?.start);
+    const end = Date.parse(event?.end);
+    if (title === "" || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return { error: `each of ${name}'s events is { title, start, end }, ISO times, ending after it starts` };
+    out.push({ title, start: new Date(start).toISOString(), end: new Date(end).toISOString() });
+  }
+  return { calendar: { events: out, ...(raw.shared === false ? { shared: false } : {}) } };
 }
 
 /** What `open` asks for a made-up chat, checked whole: `{ world }` or `{ error }`. */
@@ -99,7 +125,12 @@ export async function makeWorld(controlPlane, token, { sandboxId, line, groupId,
   const answer = await controlPlane.labSandbox(token, "world", { key, line, groupId, people: world.people, ...(world.sponsor !== undefined ? { sponsor: world.sponsor } : {}), ...(world.speaksUp ? { speaksUp: world.speaksUp } : {}), introduced: world.introduced === true });
   if (answer === null) return { error: [503, "the control plane did not answer"] };
   if (answer.status !== "ok") return { error: [answer.status === "bad_request" ? 400 : 403, answer.error ?? "Made-up group chats run only on a pull request's preview: set Code to #<PR>."] };
-  const people = (answer.people ?? []).map((p, i) => ({ ...world.people[i], phone: p.phone, handle: p.handle ?? null }));
+  // A calendar made for someone (`calendar`): its address on the emulator, or why it could not be made.
+  const wired = new Map((answer.calendars ?? []).map((c) => [c.name, c]));
+  const people = (answer.people ?? []).map((p, i) => {
+    const made = wired.get(world.people[i]?.name);
+    return { ...world.people[i], phone: p.phone, handle: p.handle ?? null, ...(made?.address ? { calendarAddress: made.address } : {}), ...(made?.error ? { calendarError: made.error } : {}) };
+  });
   return { people, groupKey: answer.groupKey };
 }
 
@@ -114,7 +145,7 @@ export function worldAbout({ sandboxId, made, world, groupId }) {
     owner: `chat:${made.groupKey}`,
     ledgerChat: made.groupKey,
     chatKey: made.groupKey,
-    people: made.people.map((p) => ({ handle: speakerKey(p), name: p.name, account: p.account })),
+    people: made.people.map((p) => ({ handle: speakerKey(p), name: p.name, account: p.account, ...(p.calendarAddress ? { calendar: p.calendarAddress } : {}), ...(p.calendarError ? { calendarError: p.calendarError } : {}) })),
     world: { name: world.name, groupId, groupKey: made.groupKey, introduced: world.introduced === true, ...(world.sponsor !== undefined ? { sponsor: world.sponsor } : {}), ...(world.speaksUp ? { speaksUp: world.speaksUp } : {}), ...(world.local ? { local: world.local } : {}), people: made.people, left: [] },
   };
 }

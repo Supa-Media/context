@@ -231,7 +231,7 @@ async function openWorld(env, controlPlane, token, who, input, origin, drafted) 
   const place = await worldPlace(controlPlane, token);
   if (place.error) return refused(...place.error);
   const asked = place.preview ? worldInput(input.world) : worldInput(input.world, place.slugs);
-  if (asked.error) return refused(400, asked.error);
+  if (asked.error || (!place.preview && asked.world.people.some((p) => p.calendar))) return refused(400, asked.error ?? "A made-up person's calendar is made on a pull request's preview: set code to #<PR>.");
   const sandboxId = randomId();
   const line = measuredLine([]);
   const groupId = `lab-world-${sandboxId}`;
