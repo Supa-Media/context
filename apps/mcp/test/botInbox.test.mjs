@@ -13,7 +13,7 @@ import { areaRoutinesWatch } from "../src/workspaceStore/areaRoutines.js";
 import { botMailWatch } from "../src/workspaceStore/botMail.js";
 import { objectFirstBots } from "../src/store/objectBots.js";
 import { toolOrient } from "../src/orient/tool.js";
-import { botCheckAnswer, FULL_AFTER_MS } from "../src/orient/botCheck.js";
+import { botCheckAnswer, FULL_AFTER_MS, recordCheckIn } from "../src/orient/botCheck.js";
 import { parsePrivacyManifest } from "../src/privacy/engine.js";
 import { WorkspaceStore } from "../src/workspaceStore.js";
 import { durableSqlite } from "./durableSqlite.mjs";
@@ -224,6 +224,21 @@ test("a first check-in, or the first after six hours, is answered with the full 
   assert.equal(await answer(null), "FULL");
   assert.equal(await answer(now - FULL_AFTER_MS - 1), "FULL");
   assert.equal(await answer(now - 5 * 60 * 1000), "Nothing new. Check again in 5 minutes.");
+});
+
+// Dev, 2026-11-27: Muse ran its 5-minute job and still read "Not checking yet": an app connected before check existed
+// drops the argument. The bot's own orient for itself counts; anyone else orienting for it never does.
+test("a bot orienting for itself checks in, even without check; anyone else records nothing", async () => {
+  const asked = [];
+  const store = orientStore(async (bot) => (asked.push(bot), { items: [] }));
+  assert.equal(await recordCheckIn(store, "Muse", async () => [{ bot: "muse", name: "Muse" }]), true);
+  assert.equal(await recordCheckIn(store, "Muse", async () => [{ bot: "grok-bot", name: "Grok Bot" }]), false);
+  assert.equal(await recordCheckIn(store, "Muse", async () => []), false);
+  assert.equal(await recordCheckIn(store, "Muse", async () => { throw new Error("down"); }), false);
+  assert.deepEqual(asked, ["Muse"]);
+  // A flag sent as text is still a check.
+  const out = text(await toolOrient(store, "team", RULES, {}, { for: "Muse", check: "true" }));
+  assert.equal(out, "Nothing new. Check again in 5 minutes.");
 });
 
 test("a check where the workspace isn't on its object says so", async () => {
