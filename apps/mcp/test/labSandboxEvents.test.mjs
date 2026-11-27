@@ -125,7 +125,8 @@ test("a tapback is logged as its line; a ❓ runs the turn as the tapback; a ❤
 });
 
 test("a group tapback reads on as its line; the asker's 👍 on Tex's ask goes as the tapback", async () => {
-  const ask = { id: "r2", eid: EID(2), who: "Tex", text: "Here's the email I'd send. Give this a 👍 and I'll send it.", at: 2, prod: false, reply: "t1" };
+  // An ask is the row whose Finish step asked about a held call, however Tex worded it (2026-11-27).
+  const ask = { id: "r2", eid: EID(2), who: "Tex", text: "Drafted it for the coach: Hi coach, see you Thursday.", at: 2, prod: false, reply: "t1", steps: [{ node: "finish", out: { asked: 1 } }] };
   const rows = [{ id: "t1", eid: EID(1), who: "kai", text: "@tex email the coach", at: 1, prod: false }, ask];
   const other = await reactionOf({ about: GROUP, target: ask, emoji: "👍", as: "ana", rows });
   assert.equal(other.runs, true);
@@ -138,6 +139,9 @@ test("a group tapback reads on as its line; the asker's 👍 on Tex's ask goes a
   assert.equal(held.question, "👍");
   assert.equal(held.tapback, "Liked");
   assert.equal(held.group.from, "kai");
+  const plain = { ...ask, steps: [{ node: "finish", out: { asked: 0 } }] };
+  const unasked = await reactionOf({ about: GROUP, target: plain, emoji: "👍", as: "kai", rows: [rows[0], plain] });
+  assert.equal(unasked.ask.tapback, undefined, "a 👍 on a text that asked for nothing is only a line, however it reads");
 });
 
 /** The route over a fake control plane and a turn that only records what it was handed. */

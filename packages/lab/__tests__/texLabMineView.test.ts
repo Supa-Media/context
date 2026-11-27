@@ -244,6 +244,38 @@ describe("the Lab with your own texts", () => {
     expect(q("#keyw")?.hasAttribute("hidden")).toBe(true);
   });
 
+  // Dev, 2026-11-26: "please make sure we are properly updating urls so that the back button works in browser".
+  // Sabotage record (temporary local edit, reverted): the popstate handler writing the address while it puts the Lab
+  // back (no `applying` guard) pushes the entry Back left again, and "Forward" below finds nothing to go to.
+  test("opening a nested group is in the address, and Back and Forward step out of it and in again", async () => {
+    // jsdom traverses history in a later task: wait for its popstate (and the Lab's handler on it), not a fixed time.
+    const step = (move: () => void) =>
+      act(async () => {
+        const landed = new Promise((r) => window.addEventListener("popstate", () => setTimeout(r, 0), { once: true }));
+        move();
+        await landed;
+      });
+    window.history.replaceState(null, "", "/lab");
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    act(() => focusOn("intake"));
+    expect(new URLSearchParams(window.location.search).get("focus")).toBe("intake");
+    act(() => focusOn("checkInLook"));
+    expect(new URLSearchParams(window.location.search).get("focus")).toBe("checkInLook");
+    expect(q("#fbar")?.textContent).toMatch(/Whole graph.*Intake.*Check-in/);
+    await step(() => window.history.back());
+    expect(lab.cfocus).toBe("intake");
+    expect(new URLSearchParams(window.location.search).get("focus")).toBe("intake");
+    await step(() => window.history.forward());
+    expect(lab.cfocus).toBe("checkInLook");
+    await step(() => window.history.back());
+    await step(() => window.history.back());
+    expect(lab.cfocus).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("focus")).toBeNull();
+  });
+
   test("a text from one of their group chats traces the group path, whatever its words say", async () => {
     await asYou();
     act(() => {

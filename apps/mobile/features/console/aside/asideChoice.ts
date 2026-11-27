@@ -55,9 +55,48 @@ export function changedSinceSeen<K extends keyof typeof seen>(key: K, value: (ty
 /** Back to a fresh console: Meetings, and nothing seen. For tests. */
 export function forgetAsideChoice(): void {
   chosen = DEFAULT_ASIDE_TAB;
+  beforeArea = null;
   seen.started = null;
   seen.vaultAt = null;
   seen.mapOpen = false;
   seen.noteKey = null;
   seen.areaShown = false;
+}
+
+/** The panel as a person left it: its tab, and whether it was open and folded. */
+export interface AsideState {
+  tab: AsideTab;
+  open: boolean;
+  folded: boolean;
+}
+
+/**
+ * The panel as it was before a page's side (a bot, an area) took it, so closing that side puts it back.
+ *
+ * Without it, a bot's panel closed left the Area tab gone and the panel fell back to Meetings, a tab nobody chose
+ * (Dev, 2026-11-26: "when bot details are open and I close out, it goes to calendar"). Kept here, beside the chosen
+ * tab, for the same reason: a remount of the panel must not lose it.
+ */
+let beforeArea: AsideState | null = null;
+
+export function rememberBeforeArea(state: AsideState): void {
+  // Only the first: a second side arriving before the first left keeps what the person had.
+  if (beforeArea === null) beforeArea = state;
+}
+
+/**
+ * What to do when the page's side goes: the tab to bring back and whether to shut or fold the panel again, as it was
+ * before. Nothing when the person moved on themselves (chose another tab while the side was up), since that is
+ * their choice now.
+ */
+export function leaveArea(now: AsideState): { tab?: AsideTab; shut?: true; fold?: true } {
+  const before = beforeArea;
+  beforeArea = null;
+  if (before === null || now.tab !== "area") return {};
+  const tab = before.tab === "area" ? undefined : before.tab;
+  return {
+    ...(tab === undefined ? {} : { tab }),
+    ...(!before.open && now.open ? { shut: true as const } : {}),
+    ...(before.open && before.folded && !now.folded ? { fold: true as const } : {}),
+  };
 }

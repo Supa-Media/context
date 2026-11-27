@@ -60,10 +60,10 @@ describe("the Apple 👍 tapback, in every shape Sendblue may send it", () => {
 
   it("a like on a message whose words Sendblue could not give is a like on the ask still waiting", async () => {
     const storage = new MemoryStorage();
-    await rememberAskReply(storage, ["Here it is.", ASK], 1_000);
+    await rememberAskReply(storage, ["Here it is.", ASK], 1_000, ASK);
     const got = await onTheAsk(storage, { how: "Liked", words: "" }, 2_000);
     expect(got.words).toBe(ASK);
-    expect(holdsAsYes(got)).toBe(true);
+    expect(holdsAsYes(got, ASK)).toBe(true);
   });
 });
 

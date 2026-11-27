@@ -1,11 +1,11 @@
 /**
  * The cards the Context app's chat shows for an ask (`agent/appChatRows.js`). An ask that holds one email is put to the
- * person as `askLine` writes it, a text wall; the app reads that wall back into its fields and draws a card, and an ask
+ * person in Tex's words with its copy whole (`textedApprovals.js` `withCopies`); the app reads that wall back into its fields and draws a card, and an ask
  * that is not one email (a calendar change, a vault use, an email with a forward or attachment) is shown as its summary.
  *
  * Pure: no I/O. The caller looks up what the card needs and passes it in: the live approval record (or null), the chat
  * object's kept state for the ask (`app:card:<ask>`, `texChat/appChat.js`), and the ask's text as the ledger has it.
- * `parseAskEmail` is the reverse of `askLine` for the single-email form, so a test can prove the two agree
+ * `parseAskEmail` reads the single-email copy (`email.js` `emailCopy`) back out of an ask, so a test can prove the two agree
  * (`test/appChatCards.test.mjs`).
  */
 
@@ -18,17 +18,19 @@ export const CARD_FIELD_CAP = 500;
 /** A send the chat object kept as `sending` counts as still sending for this long; after it, it is shown as `wait`. */
 const SENDING_MS = 120_000;
 
-/** `askLine`'s opening for one email: "Here's the email I'd send", or "... from @name's email" in a group. */
+/** The old card's opening for one email (`askLine`, removed 2026-11-27), still read in asks sent before then. */
 const HEAD = /^Here's the email I'd send(?: from @[^\s']+'s email)?:$/;
-/** The yes paragraph `askLine` ends with: "Give it a 👍", or "@name, give it a 👍" when only that person can OK it. */
+/** The old card's yes paragraph, still read in asks sent before 2026-11-27: "Give it a 👍", or "@name, give it a 👍". */
 const YES = /^(?:Give it a 👍|@[^\s,]+, give it a 👍)/u;
+/** The first line of a copy `emailCopy` writes: its sender, its recipients, or the thread it answers. */
+const COPY_START = /^(?:From: |To: |\(A reply inside the existing email thread\.\)$)/;
 /** The copy's lines that make an ask no card: a forwarded email, or attachments (`email.js` `emailCopy`). */
 const NOT_A_CARD = ["(Below this goes the forwarded email", "(Attached:"];
 /** The line `emailCopy` writes for a reply in the existing thread. */
 const THREAD = "(A reply inside the existing email thread.)";
 
 /**
- * Reads one held email back out of the ask line `askLine` writes for it.
+ * Reads one held email back out of an ask: Tex's own words with the copy `emailCopy` wrote under them, or the old card.
  *
  * Returns `{ from, to, cc, subject, thread, body }`: `from` is null when the copy names no sender, `to` and `cc` are the
  * raw comma-joined strings (`cc` is "" when there is none), `thread` is true for a reply, and `body` is everything after
@@ -41,10 +43,23 @@ const THREAD = "(A reply inside the existing email thread.)";
 export function parseAskEmail(text) {
   if (typeof text !== "string" || NOT_A_CARD.some((mark) => text.includes(mark))) return null;
   const lines = text.split("\n");
-  if (!HEAD.test(lines[0] ?? "") || lines[1] !== "") return null;
+  // The copy's headers open at its first From:, To: or thread line, after the old card's opening or wherever Tex's own words put it (2026-11-26).
+  const starts = lines.map((line, at) => (COPY_START.test(line) && (at === 0 || lines[at - 1] === "") ? headersAt(lines, at) : null)).filter(Boolean);
+  const head = HEAD.test(lines[0] ?? "") && lines[1] === "" ? headersAt(lines, 2) : (starts[0] ?? null);
+  // Two copies in one ask is an ask of several emails, which no one card holds.
+  if (head === null || starts.length > 1) return null;
+  const { headers, end: index } = head;
+  // The yes paragraph is the last line, after one blank line; the body is what lies between (an empty body may be cut off whole).
+  const last = lines.length - 1;
+  const yesAt = last > index && YES.test(lines[last]) ? last : -1;
+  const body = index >= lines.length ? "" : lines.slice(index + 1, yesAt === -1 ? lines.length : yesAt - 1).join("\n");
+  return { from: headers.from, to: headers.to, cc: headers.cc, subject: headers.subject, thread: headers.thread, body };
+}
+
+/** The headers `emailCopy` writes, read from `start` to the first blank line (or the end): null when any line is not one. */
+function headersAt(lines, start) {
   const headers = { from: null, to: null, cc: "", subject: null, thread: false };
-  // The email's headers run to the first blank line after them; only the lines `emailCopy` writes are headers.
-  let index = 2;
+  let index = start;
   for (; index < lines.length && lines[index] !== ""; index++) {
     const line = lines[index];
     if (line === THREAD) headers.thread = true;
@@ -54,12 +69,7 @@ export function parseAskEmail(text) {
     else if (line.startsWith("Subject: ")) headers.subject = line.slice("Subject: ".length);
     else return null;
   }
-  if (index >= lines.length || headers.to === null || headers.subject === null) return null;
-  // The yes paragraph is the last line, after one blank line; the body is what lies between.
-  const last = lines.length - 1;
-  const yesAt = last > index && YES.test(lines[last]) ? last : -1;
-  const body = lines.slice(index + 1, yesAt === -1 ? lines.length : yesAt - 1).join("\n");
-  return { from: headers.from, to: headers.to, cc: headers.cc, subject: headers.subject, thread: headers.thread, body };
+  return headers.to === null || headers.subject === null ? null : { headers, end: index };
 }
 
 /**

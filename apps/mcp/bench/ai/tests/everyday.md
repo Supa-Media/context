@@ -16,8 +16,8 @@ good_enough:
   speed: under 90 s
   texts: 4 or fewer
 every_answer:
-  friend: reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble
-  proof: every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it
+  friend: reads like texts from a capable friend, not a report; short, plain words, the answer first, with no Markdown and no preamble. A draft shown for a 👍, with its From/To/Subject block and a line like "Here's the email I'd send:", is how Tex shows a draft and is fine; so is a short opener such as the time or "got it" when the answer follows in the same text
+  proof: every claim it makes to have sent, saved, added, moved or set something matches what its tools did; an answer that claims none keeps it; saying noted or got it acknowledges, it does not claim a save
 ---
 
 # Everyday tasks
@@ -119,7 +119,7 @@ From the reviews' notes family: people want their words saved as they wrote them
 - person starts: "add this under day 2 in my spanish notes, word for word: ser is for what something is, estar is for how it is"
 - must write: lena/study/spanish.md containing ser is for what something is, estar is for how it is
 - must: put her words under Day 2 in study/spanish.md
-- must not: add a heading, summary or section she didn't ask for
+- must not: add a heading, summary or section she didn't ask for (a Connections section linking related notes is fine)
 
 ## 11. Recall a fact from the notes
 

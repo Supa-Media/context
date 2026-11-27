@@ -69,7 +69,7 @@ export async function runEmailGateOneThumbChecks(check) {
     const proposedAsk = proposed.body?.verbatim?.[0] ?? "";
     check(
       "an email Tex proposes on its own is held and shown whole, never refused into an ask in Tex's words",
-      sends().length === relaySends && proposed.body?.asked === 1 && proposedAsk.startsWith("Here's the email I'd send:") && proposedAsk.includes("Receipt-2508-0278-2435.pdf"),
+      sends().length === relaySends && proposed.body?.asked === 1 && proposedAsk.startsWith("The Relay receipt still hasn't gone out, so I drafted the forward.\n\n") && proposedAsk.includes("Receipt-2508-0278-2435.pdf"),
     );
     let relayModel = model.requests.length;
     await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: proposedAsk, tapback: "Liked", conversation: "texts" });
@@ -97,7 +97,7 @@ export async function runEmailGateOneThumbChecks(check) {
       heldNo.body?.asked === 1 &&
         heldNoAsk.includes("Receipt-2508-0278-2435.pdf") &&
         model.requests.length === relayModel + 3 &&
-        heldRound.includes("Held for their 👍") &&
+        heldRound.includes('\\"held\\":true') &&
         !heldRound.includes("Not sent, and not put to the person") &&
         pending().length === 1,
     );

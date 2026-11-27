@@ -33,6 +33,7 @@ import { readConversation, shownHistory } from "../../../../packages/tex/gateway
 import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore } from "./approvals.js";
 import { REPORT_TOOL, reportMessage, sendReport } from "./reportProblem.js";
 import { toolError } from "./results.js";
+import { heldFacts, okFromOf } from "./heldFacts.js";
 
 export { REPORT_TOOL };
 
@@ -144,12 +145,6 @@ export async function reportGate(supplied, { store, session }) {
     return toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first.");
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
-  return {
-    ...toolError(
-      "Held for their YES, and nothing failed: right after your answer they are texted this exact report and asked to say yes, and it sends then. " +
-        "Say in a line, as yourself (\"I\", never \"Context\"), that you wrote it up, without repeating it or asking for their yes: " +
-        "the next text shows it and asks. Don't call this again in this turn.",
-    ),
-    held: true,
-  };
+  // Tex's own answer is the ask (`heldFacts.js`).
+  return heldFacts({ copy: record.detail ?? null, what: record.summary ?? null, okFrom: okFromOf(session) });
 }

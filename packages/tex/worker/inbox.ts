@@ -81,7 +81,7 @@ import { deliveryStep, logStep, sendKeptSticker, tapback } from "./stepEvents";
 import type { ReplyPlace } from "./clients";
 import { keepSentStickers, keepSticker, stickersAsk } from "./stickers";
 import { answers, clearReactions, noteReaction, notedReactions, reactionLine, tapbackText, type Reaction } from "./reactions";
-import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
+import { dropThumb, dueThumb, holdsAsAnswer, holdThumb, keptAsk, onTexText, onTheAsk, rememberAskReply } from "./thumbs";
 import { runningTurn, startTurn } from "./steer";
 import { chooseTurn, decideWhileRunning, leftoverText, logInbound, mediaOnly, merged, pureAck, wordsOnly, type Entry, type Pending } from "./inboxTurn";
 import { addEvent, flushChat, kindOf, logAsk, pruneEvents, type TextSource } from "./events"; import { warmDeps } from "./warm";
@@ -307,7 +307,7 @@ export async function react(
   if (reaction.removed) return (await logged(), await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
   const onAsk = await onTheAsk(storage, reaction, now);
-  if (holdsAsAnswer(onAsk)) {
+  if (holdsAsAnswer(onAsk, await keptAsk(storage, now))) {
     // Marked so decide can never silence, fold, drop or stale it: the gateway alone says whether it is the yes (`inboxTurn.ts` `decidedByCode`).
     const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how, askYes: true };
     await holdThumb(storage, asked, reaction.words, now);
@@ -662,17 +662,17 @@ async function answering(message: Message, work: string, deps: InboxDeps, storag
   // Not an app chat's: the review opens its session by phone, and an app chat has none (`appChat.ts`).
   if (texts.length > 0 && message.channel !== "simulator" && !namesAppChat(message.chatId)) await watchConversation(storage, { kind: "one", phone: message.from }, deps.now());
   // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
-  await rememberAskReply(storage, texts, deps.now());
+  await rememberAskReply(storage, texts, deps.now(), asks.length > 0 ? askText : undefined);
   // Our Messages cards go where the line sends them: Sendblue and Photon (`photonLine.ts` `sendAppCard`).
   const cards = message.channel === "simulator" || !(isSendblueChat(message.chatId) || isPhotonChat(message.chatId)) ? null : deps.appCard;
-  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers }, cards, viewLink(hub, deps.threadsLink)));
+  if (pictures.length === 0) return done(await withAnswerCards(texts, { texts, choices: [], offers, ...(asks.length > 0 ? { ask: askText } : {}) }, cards, viewLink(hub, deps.threadsLink)));
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : async (picture: { name: string; mediaType: string; data: string; title?: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
-  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers }, cards, viewLink(hub, deps.threadsLink)));
+  return done(await withAnswerCards(await partsFor(texts, pictures, upload), { texts, choices, offers, ...(asks.length > 0 ? { ask: askText } : {}) }, cards, viewLink(hub, deps.threadsLink)));
 }
 
 /** What a texted turn is shown of its asks to other chats, and where they and an ask-run's answer go (`crossChat.ts`). */

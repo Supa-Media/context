@@ -293,7 +293,7 @@ export async function groupTurn(storage: InboxStorage, deps: GroupDeps, { messag
   // An answer that asks for a yes leaves it open for the one person it asks: the
   // asker, or the person an email is offered to (`askFor`); any other answer closes it.
   const asks = answer.askFor !== undefined ? [...handles].find(([, handle]) => handle === answer.askFor)?.[0] : message.from;
-  if ((answer.verbatim?.length ?? 0) > 0 && asks !== undefined) await storage.put<OpenAsk>(ASK_KEY, { from: await sha256Hex(asks), at: deps.now() });
+  if ((answer.verbatim?.length ?? 0) > 0 && asks !== undefined) await storage.put<OpenAsk>(ASK_KEY, { from: await sha256Hex(asks), at: deps.now(), words: askLine(answer) });
   else await storage.delete(ASK_KEY);
 
   // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.

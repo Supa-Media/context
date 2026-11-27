@@ -89,16 +89,15 @@ export async function runEmailGateChecks(check) {
         sends().length === 0 &&
         pending().length === 1 &&
         asked.body?.asked === 1 &&
-        (asked.body?.answer ?? "").includes(
-          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nGive it a 👍 and I'll send it",
-        ),
+        // Tex's own words, then the exact email whole: no fixed card (2026-11-27, `textedApprovals.js` `withCopies`).
+        (asked.body?.answer ?? "") ===
+          "I drafted a reply to Jo saying Thursday works.\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi",
     );
     check(
       "the ask is texted exactly as written, apart from the answer's formatting",
       Array.isArray(asked.body?.verbatim) &&
         asked.body.verbatim.length === 1 &&
-        asked.body.verbatim[0].startsWith("Here's the email I'd send:") &&
-        (asked.body?.answer ?? "").endsWith(asked.body.verbatim[0]),
+        asked.body.verbatim[0] === (asked.body?.answer ?? ""),
     );
     check(
       "the limits were asked about before the person was, without spending",
@@ -269,7 +268,7 @@ export async function runEmailGateChecks(check) {
     check(
       "two emails in one texted turn go in one ask, each shown whole, and one yes sends both (Dev2, 2026-10-22)",
       two.body?.asked === 2 &&
-        (two.body?.verbatim?.[0] ?? "").startsWith("Here are the emails I'd send:") &&
+        (two.body?.verbatim?.[0] ?? "").startsWith("Drafted both.\n\n") &&
         (two.body?.verbatim?.[0] ?? "").includes("one") &&
         (two.body?.verbatim?.[0] ?? "").includes("two") &&
         sends().length === before + 2,
@@ -294,7 +293,7 @@ export async function runEmailGateChecks(check) {
         refused.body?.asked === 1 &&
         (refused.body?.verbatim?.[0] ?? "").includes("boss@example.com") &&
         !(refused.body?.answer ?? "").includes("not to email their boss") &&
-        refusedReply.includes("Held for their 👍") &&
+        refusedReply.includes('\\"held\\":true') &&
         !refusedReply.includes("Not sent, and not put to the person"),
     );
     const heldNo = sends().length;
@@ -380,16 +379,16 @@ export async function runEmailGateChecks(check) {
     const toldModel = JSON.stringify(model.requests.at(-1)?.messages ?? []);
     check(
       "a held email reaches the model as waiting for a yes, not as a failed call",
-      toldModel.includes("Held for their 👍, and nothing failed") && !toldModel.includes('"is_error":true'),
+      toldModel.includes('\\"held\\":true,\\"done\\":false') && !toldModel.includes('"is_error":true'),
     );
     const onceText = once.body?.answer ?? "";
     check(
       "a held email is texted once, in the gateway's copy, and the rest of the answer stays",
       pending().length === 1 &&
         onceText.split("deposit").length - 1 === 1 &&
-        onceText.includes("Here's the email I'd send:") &&
+        onceText.includes(SATURDAY.body) &&
         !onceText.includes("send yourself") &&
-        onceText.startsWith("Her quotes were for 6:30, so she may send a new one for 7."),
+        onceText.startsWith("Her quotes were for 6:30, so she may send a new one for 7.\n\n"),
     );
     await ask(env, TOKEN_TEXTS, "no");
 
@@ -471,11 +470,11 @@ export async function runEmailGateChecks(check) {
     check(
       "a preview of a forward in Tex's own words is held as it is shown, and asked for once",
       sends().length === retrySends &&
-        retryAsk.startsWith("Here's the email I'd send:") &&
-        retryAsk.includes("Receipt-2508-0278-2435.pdf") &&
-        !retryAnswer.includes("Forward of:") &&
-        !/say yes to the exact|just texted you/i.test(retryAnswer) &&
-        retryAnswer.split("Give it a 👍").length === 2,
+        // Tex's own words are the ask, the held forward's copy once under them (2026-11-27).
+        retryAsk.startsWith("Drafted the forward of the Anthropic receipt") &&
+        retryAsk === retryAnswer &&
+        retryAnswer.split("Receipt-2508-0278-2435.pdf").length === 2 &&
+        !retryAnswer.includes("Forward of:"),
     );
     const askedModel = model.requests.length;
     const liked = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: retryAsk, tapback: "Liked", conversation: "texts" });
@@ -502,7 +501,7 @@ export async function runEmailGateChecks(check) {
     const sentYes = await ask(env, TOKEN_TEXTS, "yes");
     check(
       "a preview of an email in Tex's own words is held as it is shown, and the first yes sends it",
-      (previewed.body?.verbatim?.[0] ?? "").startsWith("Here's the email I'd send:") &&
+      (previewed.body?.verbatim?.[0] ?? "").startsWith("I wrote Sam that Saturday works.\n\n") &&
         model.requests.length === plainModel &&
         sends().length === plainSends + 1 &&
         sends().at(-1)?.email?.subject === "Saturday" &&

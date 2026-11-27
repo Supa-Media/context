@@ -300,7 +300,10 @@ What the person asked for is the Mail checker's to judge from their own words;
 what they were shown is a fact. So an email goes at once when the checker says
 yes, Tex's own texts in the latest twelve turns named every recipient, and one
 of them held the whole body word for word (`shownEmail.js` emailShown,
-`emailGate.js`). No wording of Tex's text is read for it. Cost of reverting:
+`emailGate.js`). No wording of Tex's text is read for it. In a group the
+tagger's own account sends, so only a text that answered the tagger's own turn
+counts, and not one Tex put to another member by @handle (an offer to @cy)
+unless it names the tagger too (2026-11-27). Cost of reverting:
 a clear go-ahead to a shown draft is asked about again. Tests:
 `emailShownCopy.test.mjs`.
 

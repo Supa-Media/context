@@ -425,9 +425,8 @@ async function answerCard(ctx, body) {
     record = revised.record;
   }
   await armOne(ctx, id);
-  const { askLine } = await import("./textedApprovals.js");
-  // The words the 👍 is on: the ask as it now stands, so the gateway's check matches the copy the person sends.
-  const words = askLine([record]).trim().slice(0, MAX_REACTION_WORDS);
+  // The words the 👍 is on: the copy as it now stands, so the gateway's check matches what the person sends.
+  const words = String(record.shown_text ?? record.detail ?? record.summary ?? "").trim().slice(0, MAX_REACTION_WORDS);
   await keepCard(ctx, id, { state: "sending", ...(card.kind === "email" ? { body: String(record.args?.body ?? "") } : {}) });
   const eventId = eventIdOf();
   const message = { kind: "reaction", eventId, chatId: ctx.chatId, from: ctx.chatId, messageId: eventId, reaction: { how: "Liked", words, onTex: true } };

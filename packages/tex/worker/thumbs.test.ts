@@ -97,6 +97,8 @@ describe("a thumbs up on an ask, one to one", () => {
       source: null,
     });
     if (inbound.kind !== "reaction") throw new Error(`read as ${inbound.kind}`);
+    // The reply that carried it kept its ask, as the gateway handed it over (`verbatim`).
+    await rememberAskReply(storage, [sent], NOW - 60_000, sent);
     expect(await react(storage, inbound, NOW)).toBe("held");
     clock.now = NOW + THUMB_HOLD_MS;
     const groupAsks: Record<string, unknown>[] = [];
@@ -108,16 +110,17 @@ describe("a thumbs up on an ask, one to one", () => {
   });
 
   it("holds a like or a heart on an ask, and nothing else", () => {
-    expect(holdsAsYes({ how: "Liked", words: ASK })).toBe(true);
-    expect(holdsAsYes({ how: "Loved", words: "Here's the bug report I'd send to the Context team: …" })).toBe(true);
-    expect(holdsAsYes({ how: "Liked", words: "Dinner is booked for 7." })).toBe(false);
-    expect(holdsAsYes({ how: "Liked", words: ASK, removed: true })).toBe(false);
+    expect(holdsAsYes({ how: "Liked", words: ASK }, ASK)).toBe(true);
+    expect(holdsAsYes({ how: "Loved", words: `${ASK.slice(0, 40)}…` }, ASK)).toBe(true);
+    expect(holdsAsYes({ how: "Liked", words: "Dinner is booked for 7." }, ASK)).toBe(false);
+    expect(holdsAsYes({ how: "Liked", words: ASK, removed: true }, ASK)).toBe(false);
   });
 
   it("goes at once, as the tapback it is, with the ask's words", async () => {
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];
     const clock = { now: NOW };
+    await rememberAskReply(storage, [ASK], NOW - 1_000, ASK);
     expect(await react(storage, tapback("t1", "Liked", ASK), NOW)).toBe("held");
     expect(storage.alarms.at(-1)).toBe(NOW);
     await drain(storage, deps(asks, clock));
@@ -128,6 +131,7 @@ describe("a thumbs up on an ask, one to one", () => {
   it("taking it back before it goes sends nothing", async () => {
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];
+    await rememberAskReply(storage, [ASK], NOW - 1_000, ASK);
     await react(storage, tapback("t1", "Liked", ASK), NOW);
     expect(await react(storage, tapback("t2", "Liked", ASK, true), NOW + 4_000)).toBe("dropped");
     await drain(storage, deps(asks, { now: NOW + THUMB_HOLD_MS + 1 }));
@@ -149,8 +153,20 @@ describe("a thumbs up on an ask, one to one", () => {
     expect(parseSendblueInbound(webhook("Removed a like from “see you then”"))).toMatchObject({ kind: "reaction", reaction: { removed: true } });
   });
 
-  it("still holds a like on an ask in the earlier words, sent before the change", () => {
-    expect(holdsAsYes({ how: "Liked", words: "Here's the email I'd send: … Look good? Give this a 👍 or say yes and I'll send it." })).toBe(true);
+  // Dev2, 2026-11-26: Tex writes its own asks, so which text asks is the gateway's fact, never read from the wording.
+  it("never holds a like on words that only read like an ask", async () => {
+    expect(holdsAsYes({ how: "Liked", words: ASK }, undefined)).toBe(false);
+    expect(holdsAsYes({ how: "Liked", words: ASK }, "Drafted the note to Jo: Thursday at 4 works, see you then.")).toBe(false);
+    const storage = new MemoryStorage();
+    await rememberAskReply(storage, [ASK], NOW, undefined);
+    expect(await react(storage, tapback("t1", "Liked", ASK), NOW + 1_000)).not.toBe("held");
+  });
+
+  it("holds a like on an ask in Tex's own words, which no fixed opening marks", async () => {
+    const OWN = "Drafted it for Jo.\n\nTo: jo@example.com\nSubject: Thursday\n\nThursday works.";
+    const storage = new MemoryStorage();
+    await rememberAskReply(storage, [OWN], NOW, OWN);
+    expect(await react(storage, tapback("t1", "Liked", OWN), NOW + 1_000)).toBe("held");
   });
 
   // Dev2, 2026-10-21: "a thumbs up should always be seen as an approval".
@@ -158,14 +174,14 @@ describe("a thumbs up on an ask, one to one", () => {
     const LINE_ABOVE = "I'll forward the receipt with its PDFs to Relay.";
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];
-    await rememberAskReply(storage, [LINE_ABOVE, ASK], NOW);
+    await rememberAskReply(storage, [LINE_ABOVE, ASK], NOW, ASK);
     expect(await react(storage, tapback("t1", "Liked", LINE_ABOVE), NOW)).toBe("held");
     await drain(storage, deps(asks, { now: NOW + THUMB_HOLD_MS }));
     expect(asks).toHaveLength(1);
     expect(asks[0]).toMatchObject({ question: "👍", quoted: ASK, tapback: "Liked" });
 
     // Taken back before it goes, it is dropped by the words it was on. ("Sent." above was a reply with no ask.)
-    await rememberAskReply(storage, [LINE_ABOVE, ASK], NOW + 15_000);
+    await rememberAskReply(storage, [LINE_ABOVE, ASK], NOW + 15_000, ASK);
     await react(storage, tapback("t2", "Liked", LINE_ABOVE), NOW + 20_000);
     expect(await react(storage, tapback("t3", "Liked", LINE_ABOVE, true), NOW + 22_000)).toBe("dropped");
 
@@ -310,7 +326,7 @@ describe("a 👍 is promoted to the ask only on a long enough, truncated match",
   const LONG_LINE = "I've drafted that one and put the numbers in the note.";
 
   async function remembered(storage: MemoryStorage) {
-    await rememberAskReply(storage, [SHORT_LINE, LONG_LINE, ASK_TEXT], 1_000);
+    await rememberAskReply(storage, [SHORT_LINE, LONG_LINE, ASK_TEXT], 1_000, ASK_TEXT);
     return storage;
   }
 
@@ -362,23 +378,23 @@ describe("a 👍 on the ask itself goes on in the words the ask was sent in", ()
 
   it("takes a quote whose quotes, apostrophes and emoji came back changed", async () => {
     const storage = new MemoryStorage();
-    await rememberAskReply(storage, ["I found him this time.", SLACK_ASK], 1_000);
+    await rememberAskReply(storage, ["I found him this time.", SLACK_ASK], 1_000, SLACK_ASK);
     const changed = SLACK_ASK.replace(/"Hey/, "“Hey").replace("I'm", "I’m").replace("👍", "👍🏽");
     const got = await onTheAsk(storage, like(changed), 2_000);
     expect(got.words).toBe(SLACK_ASK);
-    expect(holdsAsYes(got)).toBe(true);
+    expect(holdsAsYes(got, SLACK_ASK)).toBe(true);
   });
 
   it("takes a quote cut short with three dots", async () => {
     const storage = new MemoryStorage();
-    await rememberAskReply(storage, [SLACK_ASK], 1_000);
+    await rememberAskReply(storage, [SLACK_ASK], 1_000, SLACK_ASK);
     const got = await onTheAsk(storage, like(`${SLACK_ASK.slice(0, 80)}...`), 2_000);
     expect(got.words).toBe(SLACK_ASK);
   });
 
   it("never takes a like on an older ask that only starts the same way", async () => {
     const storage = new MemoryStorage();
-    await rememberAskReply(storage, [SLACK_ASK], 1_000);
+    await rememberAskReply(storage, [SLACK_ASK], 1_000, SLACK_ASK);
     const older = "Before I do that, I need your OK: send Jo Park a Slack message: \"Running late\". Give it a 👍 and I'll go ahead.";
     const got = await onTheAsk(storage, like(older), 2_000);
     expect(got.words).toBe(older);
@@ -390,9 +406,9 @@ describe("a 👍 on the ask itself goes on in the words the ask was sent in", ()
     expect(parseSendblueInbound({ content: `Dejó de gustarle “${ASK}”`, is_outbound: false, message_handle: "mh_x", from_number: "+15555550100", to_number: "+15555550199", sendblue_number: "+15555550199", media_url: "", message_type: "message", group_id: "", service: "iMessage" })).toMatchObject({ kind: "reaction", reaction: { removed: true } });
   });
 
-  it("holds a like on the standing-forward ask too", () => {
-    expect(holdsAsYes(like("Here's what I'd keep doing:\n\nFrom now on, forward receipts…"))).toBe(true);
-    expect(holdsAsYes(like("Here’s the email I’d send:\n\nTo: jo@example.test"))).toBe(true);
+  it("holds a like on the standing-forward ask too, cut short and with its apostrophes changed", () => {
+    const FORWARD_ASK = "Here's what I'd keep doing:\n\nFrom now on, forward receipts from Uber to relay@example.test.";
+    expect(holdsAsYes(like("Here’s what I’d keep doing:\n\nFrom now on, forward receipts…"), FORWARD_ASK)).toBe(true);
   });
 });
 

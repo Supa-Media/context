@@ -26,8 +26,19 @@ describe("the Lab's address", () => {
       { mode: "testing" as const, view: "canvas" as const, chat: "me", moment: null, set: "picnic" },
       { mode: "lab" as const, view: "canvas" as const, chat: "me", moment: null, node: "decide" },
       { mode: "lab" as const, view: "tests" as const, chat: "me", moment: null },
+      { mode: "lab" as const, view: "canvas" as const, chat: "me", moment: null, focus: "checkInLook" },
     ])
       expect(placeOf(searchOf(p))).toEqual(p);
     expect(placeOf("?mode=nope&page=<script>&chat=../x&moment=a b")).toEqual({ mode: "lab", view: "canvas", chat: "me", moment: null });
+  });
+
+  test("the group or step focused on the canvas is in the address, so Back steps out of a nested group", () => {
+    expect(searchOf({ mode: "lab", view: "canvas", chat: "me", moment: null, focus: "checkInLook" })).toBe("?focus=checkInLook");
+    expect(placeOf("?focus=tools-subagents")).toEqual({ mode: "lab", view: "canvas", chat: "me", moment: null, focus: "tools-subagents" });
+    // Only the canvas has a focus: another page or Testing drops it, and an id that is not one is ignored.
+    expect(searchOf({ mode: "lab", view: "tests", chat: "me", moment: null, focus: "intake" })).toBe("?page=tests");
+    expect(placeOf("?page=tests&focus=intake")).toEqual({ mode: "lab", view: "tests", chat: "me", moment: null });
+    expect(placeOf("?mode=testing&focus=intake")).toEqual({ mode: "testing", view: "canvas", chat: "me", moment: null });
+    expect(placeOf("?focus=../x")).toEqual({ mode: "lab", view: "canvas", chat: "me", moment: null });
   });
 });

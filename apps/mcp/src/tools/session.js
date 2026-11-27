@@ -43,6 +43,7 @@ import { measuredCall, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
+import { heldFacts, okFromOf } from "./heldFacts.js";
 import { MACHINE_RUN_REFUSAL, machineRunRefuses } from "./machineRun.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
@@ -167,16 +168,13 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
   // `held` tells the turn (and so the turn log and the bench) that this call
   // was not refused but is waiting for the person; it runs when they say yes.
+  // Texted: the facts, and Tex's own answer is the ask (`heldFacts.js`).
+  if (texting) return heldFacts({ copy: record.detail ?? null, what: claim.summary, okFrom: okFromOf(session), because });
   return {
     ...toolError(
-      texting
-        ? `Held for their 👍, and nothing failed: this would ${claim.summary}. It needs the person's OK first, because ${because}. ` +
-            "Right after your answer, in this same reply, they are shown exactly this and asked once. " +
-            "Say in one short line what you'd do, without repeating the message or asking for their OK or 👍 yourself. " +
-            "Don't call this again in this turn."
-        : `Not done: this would ${claim.summary}. It needs the person's approval first, because ${because}. ` +
-            "They can approve it in the Context app. " +
-            "Once they have, call this tool again with exactly the same arguments and it will run.",
+      `Not done: this would ${claim.summary}. It needs the person's approval first, because ${because}. ` +
+        "They can approve it in the Context app. " +
+        "Once they have, call this tool again with exactly the same arguments and it will run.",
     ),
     held: true,
   };

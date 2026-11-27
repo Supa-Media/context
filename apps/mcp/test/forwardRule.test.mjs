@@ -65,9 +65,9 @@ export async function runForwardRuleChecks(check) {
       "a texted rule is held, shown, and not kept",
       rules().length === 0 &&
         pending().length === 1 &&
-        shown.startsWith("Here's what I'd keep doing:") &&
-        shown.includes("forward receipts and invoices from your mail to books@receipts.example") &&
-        shown.endsWith("Give it a 👍 and I'll start."),
+        // Tex's own words, then the rule whole (2026-11-27, `textedApprovals.js` `withCopies`).
+        shown.startsWith("I'll keep forwarding your receipts to Relay.\n\n") &&
+        shown.includes("forward receipts and invoices from your mail to books@receipts.example"),
     );
     const liked = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: shown, tapback: "Liked", conversation: "texts" });
     check(

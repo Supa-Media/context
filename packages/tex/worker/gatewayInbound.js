@@ -9,7 +9,7 @@
  */
 export { kindOf } from "./events";
 export { answers, EMOJI, reactionLine, tapbackText } from "./reactions";
-export { holdsAsAnswer, onMachineAsk } from "./thumbs";
+export { holdsAsAnswer, isAnswerTap, onMachineAsk } from "./thumbs";
 export { prepareAttachments } from "./attachments";
 export { filesFor, MAX_GROUP_FILES } from "./groupInbox";
 export { PICTURE_LINE } from "./groupLines";

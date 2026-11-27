@@ -17,7 +17,7 @@
 import { TEXTING_TTL_MS } from "../../../../apps/mcp/src/tools/approvals.js";
 import { readConversation } from "./conversation.js";
 import { folded } from "./folded.js";
-import { askLine } from "./textedApprovals.js";
+import { shownAsk } from "./textedApprovals.js";
 
 /** The line every text Tex sends by itself is kept under (`conversation.js`, `heartbeat.js`, `attention.js`, `vaultSaved.js`). */
 const BY_ITSELF = /^\(Not a text from them\./;
@@ -40,7 +40,8 @@ export function armedAt(record) {
 export function overtaken(turns, armed) {
   if (armed.length === 0) return false;
   const since = Math.min(...armed.map(armedAt));
-  const shown = [armed, [...armed].reverse()].map((order) => folded(askLine(order))).filter((line) => line.length > 0);
+  // The text the ask went out as (`textedApprovals.js` `shownAsk`).
+  const shown = [folded(shownAsk(armed))].filter((line) => line.length > 0);
   let moved = false;
   for (let i = 0; i < turns.length; i += 1) {
     const turn = turns[i];
