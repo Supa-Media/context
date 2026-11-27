@@ -96,7 +96,9 @@ test("a migrated case a conversation names sits whole inside it; one none names 
   // 15: friend-test-birthday (2026-11-24, a Dev group conversation: help the group without saying what members told Tex one on one).
   // 16, 17: old-habits and full-sentences (2026-11-26, Training 1:1s: Tex follows how the person texts, not its own
   // earlier replies, and keeps full sentences for someone who writes them).
-  assert.ok(repoConvs.length <= 17, `about ten long conversations, not ${repoConvs.length}`);
+  // 18, 19: area-delegate-first and hand-to-bot-app (2026-11-27, Training 1:1s: work in an area with a bot goes to
+  // that bot by mail, not done by Tex, and a "did it go through?" is answered from the mail note).
+  assert.ok(repoConvs.length <= 19, `about ten long conversations, not ${repoConvs.length}`);
   assert.deepEqual(placesOf(convs, repoConvs), []);
   // A conversation that names a case holds it whole: built from the case itself, then broken.
   const kase = convs.find((c) => c.msgs.some((m) => m.labels && Object.keys(m.labels).length));
