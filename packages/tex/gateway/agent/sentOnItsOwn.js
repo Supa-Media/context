@@ -56,7 +56,7 @@ export function sentOnItsOwn(about) {
  */
 
 /** The `source` of a text Tex sent on its own, outside a reply to a text: these have a gateway note beside them. */
-export const OWN_SOURCES = new Set(["checkin", "routine", "ping", "update", "job", "new_line"]);
+export const OWN_SOURCES = new Set(["checkin", "routine", "ping", "update", "job", "new_line", "notice"]);
 /** Every `source` a Tex text event may carry (`log.js` `checkEvent`). */
 export const TEXT_SOURCES = new Set(["reply", "progress", ...OWN_SOURCES]);
 

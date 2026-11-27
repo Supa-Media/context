@@ -36,6 +36,7 @@ import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
 import { OBJECT_ID } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, type Told } from "./newLine";
+import { noticeEveryone, parseNoticeRequest, type NoticeLine, type Noticed } from "./notice";
 import { verifyPhotonAttachment } from "./photon";
 import { parseSendblueInbound, repliedToText, sendblueKeys, statusPath, threadContext, verifySendblueSecret } from "./sendblue";
 import { logInboundLag, sendblueStatus } from "./sendblueStatus";
@@ -99,6 +100,7 @@ export default {
     if (url.pathname.startsWith("/media/")) return media(request, env, url);
     if (url.pathname.startsWith("/threads/")) return threads(request, env, url);
     if (url.pathname === "/new-line") return newLine(request, env);
+    if (url.pathname === "/notice") return notice(request, env);
     if (url.pathname === "/whapi") return whapiWebhook(request, env, url.origin);
     if (url.pathname.startsWith("/photon/attachment/")) return photonAttachment(request, env, url);
     if (url.pathname.startsWith("/sendblue/status/")) return sendblueStatus(request, chatNamespace(env), env.SENDBLUE_STATUS_URL, url);
@@ -454,6 +456,35 @@ async function newLine(request: Request, env: Env): Promise<Response> {
   ).catch(() => null);
   console.log(JSON.stringify({ event: "new_line", dryRun: asked.dryRun, ...(counts ?? { error: "unreachable" }) }));
   return counts === null ? new Response(null, { status: 502 }) : Response.json({ dryRun: asked.dryRun, ...counts });
+}
+
+/**
+ * `POST /notice` `{ text, key, lines, send }`: staff's one-off text to everyone whose 1:1 chat is on one of `lines`
+ * (`notice.ts`), once per `key`. Behind the Worker's own secret; without `send: true` it is a dry run that texts nobody.
+ */
+async function notice(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return new Response(null, { status: 405 });
+  if (!(await bearerMatches(env.AGENT_WORKER_SECRET, request.headers.get("authorization")))) {
+    return new Response(null, { status: 401 });
+  }
+  const asked = parseNoticeRequest(await request.json().catch(() => null));
+  if (asked === null || !env.CONTROL_PLANE_ORIGIN) return new Response(null, { status: 400 });
+  const counts = await noticeEveryone(
+    {
+      fetch: (input, init) => fetch(input, init),
+      controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
+      workerSecret: env.AGENT_WORKER_SECRET,
+      tellPhone: async (phone, body) => {
+        const stub = chatInGateway(env, phone);
+        const response = await stub.fetch("https://inbox/notice", { method: "POST", body: JSON.stringify(body) });
+        if (!response.ok) return { told: "failed" };
+        return (await response.json()) as { told: Noticed; line?: NoticeLine };
+      },
+    },
+    asked,
+  ).catch(() => null);
+  console.log(JSON.stringify({ event: "notice", key: asked.key, dryRun: asked.dryRun, ...(counts ?? { error: "unreachable" }) }));
+  return counts === null ? new Response(null, { status: 502 }) : Response.json({ dryRun: asked.dryRun, key: asked.key, ...counts });
 }
 
 /** A chat routine's run, into its chat's own queue, found by the chat's key (`groupRoutines.ts`). */
