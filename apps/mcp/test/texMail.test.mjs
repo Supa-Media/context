@@ -122,21 +122,38 @@ function routeWorld({ session = {}, box = {}, answer = "Seyi's raw thought is in
     workspaces: [{ workspaceId: "ws_dev" }, { workspaceId: "ws_team", slug: "team" }],
     ...session,
   };
+  const dispatched = [];
   const deps = {
     mailRunNode: () => ({ id: "mailRun", on: true }),
-    dispatchFor: () => async (name, args) => {
+    dispatchFor: (_store, given) => (dispatched.push(given), async (name, args) => {
       calls.push([name, args]);
       if (name === "read_note") return { content: [{ type: "text", text: `etag: e1\npath: ${PATH}\nvisibility: team\n\n${note}` }] };
       return { content: [{ type: "text", text: "ok" }] };
-    },
+    }),
     offeredFor: async () => [],
     ledgerOf: () => null,
     controlPlane: {},
     runNoteRun: async (input) => (runs.push(input), { outcome: "answered", answer }),
   };
   const request = (body = { workspaceId: "ws_team", path: PATH, mailboxId: BOX }) => new Request("https://gateway/tex/mail-run", { method: "POST", body: JSON.stringify(body) });
-  return { run: (body) => handleMailRun(request(body), store, live, "/tex/mail-run", {}, null, deps), calls, runs, read };
+  return { run: (body) => handleMailRun(request(body), store, live, "/tex/mail-run", {}, null, deps), calls, runs, read, dispatched };
 }
+
+/**
+ * A mail run's whole ask is somebody else's mail line, so there are no words of the person's behind it. `judgedGate`
+ * (`src/tools/session.js`) judges a run of ours with no turn on "" and refuses every widening; without the mark it
+ * falls back to the model's own `person_said`, which on this path can only be words the model lifted from that line
+ * (and `parseMail` takes a line's `from` from the note's Markdown, so it can claim to be the person). Same mark as a
+ * heartbeat, a nightly and a try-it run.
+ */
+test("a mail run is one of ours with nobody behind it, so the sharing judge is given no words", async () => {
+  const world = routeWorld();
+  assert.deepEqual(await (await world.run()).json(), { outcome: "answered", sent: true });
+  for (const session of [world.runs[0].session, ...world.dispatched]) {
+    assert.equal(session?.egress?.complete, true, "marked as one of our own runs");
+    assert.equal(session?.egress?.turn, undefined, "no person's turn behind it");
+  }
+});
 
 test("a run answers the new lines the way Tex answers in comments, and sends the answer back to who wrote, as tex", async () => {
   const world = routeWorld();

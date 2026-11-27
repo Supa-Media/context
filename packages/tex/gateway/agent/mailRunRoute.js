@@ -17,6 +17,7 @@
 import mail from "../../../shared/src/mail.cjs";
 import { ledgerFor } from "./ledger.js";
 import { ownDispatch } from "./reflect.js";
+import { newLedger } from "../../../../apps/mcp/src/privacy/egress.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { texConfigOf, texStep } from "./texConfig.js";
@@ -108,7 +109,12 @@ async function serveRun(request, store, session, env, deps) {
   const node = nodeOf(env, deps);
   if (node === null) return json({ outcome: "not_wired" }, 503);
 
-  const dispatch = (deps.dispatchFor ?? ((s, x) => ownDispatch(s, x, env)))(store, session);
+  // Nobody is behind this run: its whole ask is somebody else's mail line, and a line's `from` comes from the note's
+  // Markdown, so it can claim to be the person. Marked as one of our own runs, as a heartbeat, a nightly and a try-it
+  // run are, so the sharing judge is given no words and refuses every widening rather than reading the model's
+  // `person_said` (`apps/mcp/src/tools/session.js` `judgedGate`). The tools stay the person's own, in full.
+  const run = { ...session, egress: { ...(session.egress ?? {}), complete: true, ledger: newLedger(), texting: false } };
+  const dispatch = (deps.dispatchFor ?? ((s, x) => ownDispatch(s, x, env)))(store, run);
   const readStarted = Date.now();
   const note = await readNoteAs(dispatch, path, target.context);
   if (note === null) return json({ error: "not_readable" }, 404);
@@ -128,7 +134,7 @@ async function serveRun(request, store, session, env, deps) {
     result = await runNoteRun({
       env,
       controlPlane,
-      session,
+      session: run,
       dispatch,
       offered: await (deps.offeredFor ?? ((s, x) => grantedToolsFor(s, x, { texts: true })))(session, store),
       ledger: (deps.ledgerOf ?? ((owner) => ledgerFor(env, owner)))({ person: session.workspaceId }) ?? null,
