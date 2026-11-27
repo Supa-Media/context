@@ -159,6 +159,9 @@ export function isArea(folder: string, root: string, notes: readonly ListNote[])
   if (folder === root || !folder.startsWith(inside(root))) return false;
   // The cards' folders are never seats, whether or not their `about.md` has been written yet.
   if (folder === peopleFolder(root) || folder === legacyBotsFolder(root) || folder.startsWith(`${legacyBotsFolder(root)}/`)) return false;
+  // The root area's own mail and routines folders (`areas/mail/`, where a bot holding the root answers, and
+  // `areas/routines/`) belong to the root, never a seat of their own (Dev, 2026-11-27: a stray "Mail" card).
+  if (folder === `${inside(root)}mail` || folder === `${inside(root)}routines`) return false;
   const about = aboutOf(folder, notes);
   const said = text(about?.properties[AREA_KEY]).toLowerCase();
   if (said === "false" || said === "no") return false;

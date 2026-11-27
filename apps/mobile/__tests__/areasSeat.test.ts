@@ -41,6 +41,13 @@ describe("isArea", () => {
     expect(isArea("areas/finance", ROOT, [])).toBe(true);
   });
 
+  test("the root's own mail and routines folders are not areas", () => {
+    const notes = [note("areas/mail/grok-bot.md"), note("areas/routines/daily/improve-metric-loop.md")];
+    expect(isArea("areas/mail", ROOT, notes)).toBe(false);
+    expect(isArea("areas/routines", ROOT, notes)).toBe(false);
+    expect(areaTree(ROOT, ROOT, notes).areas).toEqual([]);
+  });
+
   test("a direct child whose about.md says area: false is not one", () => {
     const notes = [note("areas/finance/about.md", { area: "false", owner: "@dev2" })];
     expect(isArea("areas/finance", ROOT, notes)).toBe(false);
