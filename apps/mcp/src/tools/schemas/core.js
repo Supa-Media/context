@@ -49,6 +49,11 @@ export function coreToolDefinitions() {
               "Optional. A person or bot (e.g. \"@seyi\"): every area they hold or help in, with each one's modes, metric and rules, " +
               "for a bot that acts for them.",
           },
+          check: {
+            type: "boolean",
+            description:
+              "Optional, with for naming a bot. true is a bot's cheap check-in: one line when nothing is new, or what is new and its path.",
+          },
         },
         additionalProperties: false,
       },

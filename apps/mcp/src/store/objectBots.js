@@ -17,7 +17,18 @@ export function objectFirstBots(options) {
     async state() {
       try {
         const answer = await client.botsState({ ...judged });
-        return answer?.served === true ? { week: answer.week, routines: answer.routines ?? [], usage: answer.usage ?? [] } : null;
+        return answer?.served === true ? { week: answer.week, routines: answer.routines ?? [], usage: answer.usage ?? [], checks: answer.checks ?? [], inbox: answer.inbox ?? [] } : null;
+      } catch (error) {
+        log("workspace_object_bots_failed", { workspaceId, error: error?.name ?? "Error" });
+        return null;
+      }
+    },
+    /** A bot's check-in (`workspaceStore/botInbox.js`): `{items}` it may read, or null where unserved. */
+    async check(bot) {
+      if (typeof client.botsCheck !== "function") return null;
+      try {
+        const answer = await client.botsCheck({ ...judged, bot });
+        return answer?.served === true ? { items: Array.isArray(answer.items) ? answer.items : [] } : null;
       } catch (error) {
         log("workspace_object_bots_failed", { workspaceId, error: error?.name ?? "Error" });
         return null;

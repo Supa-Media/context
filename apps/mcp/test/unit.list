@@ -824,6 +824,7 @@ test/dataSyncUsage.test.mjs
 test/areaRoutineBrief.test.mjs
 test/areaRoutines.test.mjs
 test/areaRoutinesRoute.test.mjs
+test/botInbox.test.mjs
 test/stickerLook.test.mjs
 test/blankFields.test.mjs
 test/explainContext.test.mjs

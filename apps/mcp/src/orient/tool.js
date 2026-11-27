@@ -33,6 +33,7 @@ import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./works
 import { orientMailSection, readMailHealth } from "../../../../packages/tex/gateway/agent/mailHealth.js";
 import { phase } from "../mcp/phase.js";
 import { areaAnswer, areaSeatsSection, holderAnswer } from "./area.js";
+import { botCheckAnswer } from "./botCheck.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
 
@@ -284,6 +285,8 @@ export async function toolOrient(store, scope, rules, overrides, options = {}) {
   // as `about: "area <path>"` and `about: "for @who"`, for an app that drops arguments it
   // was not told about when it connected.
   if (typeof options.area === "string" && options.area.trim() !== "") return await areaAnswer(store, scope, rules, overrides, options.area);
+  // A bot's cheap check-in: one line, or what is new and where (`botCheck.js`), never the full holder answer.
+  if (options.check === true && typeof options.for === "string" && options.for.trim() !== "") return await botCheckAnswer(store, options.for);
   if (typeof options.for === "string" && options.for.trim() !== "") return await holderAnswer(store, scope, rules, overrides, options.for);
   const about = aboutOf(options);
   const asked = about === null ? null : /^(area|for)\s+(.+)$/i.exec(about);

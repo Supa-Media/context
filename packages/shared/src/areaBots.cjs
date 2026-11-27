@@ -95,11 +95,11 @@ function contextArg(workspace) {
  * drawn, `modes` the area's modes, `reach` how Context reaches it.
  */
 /** How a bot reads and answers its mail in `where` (an area's folder, or `<area>/` for several). */
-function mailText(where, name, reach) {
+function mailText(where, name, reach, workspace) {
   return `People and other bots talk to you in ${where}mail/, one note per sender (${where}mail/<sender>.md). Join each one once as ${quoted(mailJoinName(name))} with write { action: "mail", path: "<that note>", args: { join: ${quoted(mailJoinName(name))} } }, pass the mailbox it gives you on every call, read with fetch { id: "<that note>", args: { mail: true } }, and answer in the same note with write { action: "mail", path: "<that note>", args: { text } }.${
     reach === "webhook"
       ? ` New mail also reaches your webhook as a POST that names the note and who wrote, never the message. ${relayMemory()}`
-      : " Check your mail on a timer that survives your session restarting."
+      : ` Every 5 minutes, on a timer that survives your session restarting, call orient { ${contextArg(workspace)}for: ${quoted(name)}, check: true }: it answers in one line when nothing is new, or lists only what is, with each note's path. Open just those; don't orient in full each time.`
   }`;
 }
 
@@ -139,7 +139,7 @@ function areaPrompt({ bot, kind, whose, workspace, area, title, modes, reach, ca
     `Projects still live in the Projects folder, one folder each. When you start one, put area: ${area} in its about.md, unless the project belongs to another area.`,
   );
   lines.push("");
-  lines.push(mailText(where, name, reach));
+  lines.push(mailText(where, name, reach, workspace));
   lines.push("");
   lines.push(routinesText(where));
   lines.push("");
@@ -207,7 +207,7 @@ function areasPrompt({ bot, kind, whose, workspace, areas, reach }) {
   lines.push("");
   lines.push("Projects still live in the Projects folder, one folder each. When you start one, put an area: line in its about.md naming the area it serves.");
   lines.push("");
-  lines.push(mailText("<area>/", name, reach));
+  lines.push(mailText("<area>/", name, reach, workspace));
   lines.push("");
   lines.push(routinesText("<area>/"));
   lines.push("");
