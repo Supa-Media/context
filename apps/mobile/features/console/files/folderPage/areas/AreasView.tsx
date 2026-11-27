@@ -365,7 +365,7 @@ export function AreasView(props: AreasViewProps) {
           canEdit={canEdit}
           {...(myHandle === undefined ? {} : { me: myHandle })}
           // A mail note is named for its sender (`grok-bot`, `seyi`): a bot's is drawn with its face, a person's with their name.
-          faceOf={(who) => (who === null ? faceOf(null) : (senderFace(who) ?? (isAgent(who) || who.startsWith("@") ? faceOf(who) : { kind: "person", name: who })))}
+          faceOf={(who) => (who === null ? faceOf(null) : (senderFace(who) ?? (isAgent(who) || who.startsWith("@") || !cardFor(who, "agent").creates ? faceOf(who) : { kind: "person", name: who })))}
           label={label}
           {...(readBody === undefined ? {} : { read: readBody })}
           {...(canEdit && host?.tasks !== undefined ? { create: (path: string, text: string) => host.tasks!.io.create(path, text) } : {})}
