@@ -103,6 +103,21 @@ export function alsoCalled(aliases) {
   return Array.isArray(aliases) && aliases.length > 0 ? `, also called ${aliases.join(", ")}` : "";
 }
 
+/**
+ * A member's other names to show: their kept ones less their account name and any name someone else here goes by now
+ * (a guest's name or another member's account name). Kept by `groupGuestNames.js` `memberAliasesFrom`.
+ */
+export function memberAliasesOf(group, handle) {
+  const kept = (Array.isArray(group?.memberAliases) ? group.memberAliases : []).find((entry) => entry.member === handle)?.aliases ?? [];
+  const names = Array.isArray(group?.names) ? group.names : [];
+  const own = names.find((entry) => entry.handle === handle)?.name ?? "";
+  const others = new Set([
+    ...names.filter((entry) => entry.handle !== handle).map((entry) => String(entry.name ?? "").toLowerCase()),
+    ...(Array.isArray(group?.guestNames) ? group.guestNames : []).map((entry) => String(entry.name ?? "").toLowerCase()),
+  ]);
+  return kept.filter((alias) => alias.toLowerCase() !== own.toLowerCase() && !others.has(alias.toLowerCase()));
+}
+
 /** A guest's name in this chat, kept when someone here said who they are (`groupGuestNames.js`), or "". */
 export function guestNameOf(group, label) {
   return (Array.isArray(group?.guestNames) ? group.guestNames : []).find((entry) => entry.guest === label)?.name ?? "";
@@ -153,7 +168,7 @@ export function rosterLine(group) {
   const numbered = (Array.isArray(group?.numbers) ? group.numbers : []).length > 0;
   const accounts = people.map((handle) => {
     const said = [names.get(handle), numberOf(group, handle)].filter(Boolean).join(", ");
-    return said ? `@${handle} (${said})` : `@${handle}`;
+    return `${said ? `@${handle} (${said})` : `@${handle}`}${alsoCalled(memberAliasesOf(group, handle))}`;
   });
   const unlisted = Math.max(0, size - people.length - guests.length);
   const parts = [

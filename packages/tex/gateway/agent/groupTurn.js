@@ -44,7 +44,7 @@ import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.j
 import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupPage, timedTurn, updateGroupPage } from "./groupMemoryNote.js";
 import { groupPageCopied } from "./groupPageCopy.js";
 import { historyFromLedger, readGroupLedgerConversation, startOnLedger } from "./groupLedgerHistory.js";
-import { guestNamesWithAbout, laterNames, readGuestNames } from "./groupGuestNames.js";
+import { guestNamesWithAbout, laterNames, readChatNames } from "./groupGuestNames.js";
 import { CARRIED, ON_PAGE, carryOldNotes, mergeTurns } from "./groupMemoryCarry.js";
 import { moveChatNote } from "./chatNoteMove.js";
 import { groupVoicePath, readGroupVoice, voicePrompt } from "./chatVoice.js";
@@ -300,8 +300,8 @@ export async function readGroupMemory(store, group, dispatch = null, { time: tim
   const copied = ledger === null ? Promise.resolve(false) : groupPageCopied(ledger, group.key);
   // A copied chat's history is the ledger alone, so its read starts here, beside the notes, not after them (production,
   // 2026-11-06: 480 ms of ledger after the notes' wait). Settled either way, so a failure waits to be seen where it was.
-  // The names the chat gave its guests, beside the history they label (`groupGuestNames.js`).
-  const namesRead = ledger === null ? Promise.resolve([]) : readGuestNames(ledger, group.key);
+  // The names the chat gave its guests, beside the history they label, and its members' other names (`groupGuestNames.js`).
+  const namesRead = (ledger === null ? Promise.resolve({ guests: [], members: [] }) : readChatNames(ledger, group.key)).then(({ guests, members }) => (members.length > 0 && (group.memberAliases = members), guests));
   const guestNamed = laterNames(); // with the about note's, once it is read (`guestNamesWithAbout`)
   const early = copied.then((yes) => (yes ? readGroupLedgerConversation(ledger, group.key, { names: guestNamed.promise, numbers: group.numbers ?? [] }) : null)).then((turns) => ({ turns }), (error) => ({ error }));
   const [kept] = await Promise.all([readRecord(store, group), openHome(store, group)]);

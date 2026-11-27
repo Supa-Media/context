@@ -22,7 +22,7 @@ import { eventEntry, ledgerFor, ledgerWriter, stepEntry } from "./ledger.js";
 import { checkEvents, EventRefusal } from "./log.js";
 import { dayFromLedger } from "./ledgerHistory.js";
 import { foldThreads, THREADS_SUFFIX } from "./threadsFold.js";
-import { guestNameFacts, guestNamesFrom } from "./groupGuestNames.js";
+import { guestNameFacts, guestNamesFrom, memberAliasFacts, memberAliasesFrom } from "./groupGuestNames.js";
 import { ABOUT_FACT, briefFacts } from "./judgeBrief.js";
 import { decideRequest, readDecideAnswers, readDecideBody, readRecheckBody } from "../../src/textDecide.cjs";
 
@@ -251,6 +251,7 @@ export async function nowFacts(store, key, { now = Date.now(), timeoutMs = FACTS
     ...jobFacts(Array.isArray(result?.entries) ? result.entries : []),
     ...brief.filter((fact) => !fact.startsWith(ABOUT_FACT)),
     ...guestNameFacts(guestNamesFrom(Array.isArray(named?.entries) ? named.entries : [])),
+    ...memberAliasFacts(memberAliasesFrom(Array.isArray(named?.entries) ? named.entries : [])),
     ...threadFacts(Array.isArray(threaded?.entries) ? threaded.entries : []),
     ...about,
   ];
