@@ -148,7 +148,9 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     // The bots this connection is here, when its login was bound (`botBind.js`, Dev, 2026-11-26: "anything that login
     // writes shows as Grok Bot ... instead of Cursor"): every line it writes is signed by one of them (`botFor`). One
     // connection may be several bots, because some apps give all their bots one connector (Grok Bot, 2026-11-26).
-    const bots = await boundBotsOf(store);
+    // A bot's helper signs as itself, "<name> via <bot>", never as the bot whose grant it acts as (`botHelpers.js`).
+    const helper = store.actor?.helper ?? null;
+    const bots = helper ? [] : await boundBotsOf(store);
     let entry;
     let joined = null;
     let sentFrom = null;
@@ -156,6 +158,7 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
     if (joining) {
       const name = mailName(request.join);
       if (!name) return toolError(`mail.join must be a short name of letters, digits and dashes, and not "${EVERYONE}"`);
+      if (helper && name !== helper.mail) return toolError(`refused: you are ${helper.name} via ${helper.botName}, so you join only as "${helper.mail}". Pass join: "${helper.mail}"`);
       if (bots.length > 0 && !bots.some((each) => each.bot === name)) {
         const list = bots.map((each) => `"${each.bot}"`).join(" or ");
         return toolError(`refused: this connection is bound here as ${list}, so it joins only as one of those. Pass join: ${list}, or bind this bot first with manage area { bind_bot }`);
@@ -192,12 +195,13 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
       sentFrom = found.mailbox;
       // Which bot speaks: the one it names (`as`, or the bot its mailbox joined as), else the one whose folder this is,
       // else its only one (`mail/boundBot.js` `botFor`).
+      if (helper && request.as !== undefined && mailName(request.as) !== helper.mail) return toolError(`refused: you are ${helper.name} via ${helper.botName}, and every line you send is signed "${helper.mail}". Leave as out, then send again`);
       if (request.as !== undefined && !mailName(request.as)) return toolError(`mail.as is the bot this line is from, as a mail name such as "grok-bot"; pass that, then send again`);
       const joinedAs = found.mailbox?.name;
       const named = request.as !== undefined ? mailName(request.as) : bots.some((each) => each.bot === joinedAs) ? joinedAs : null;
       const speaking = botFor(bots, { path, named });
       if (speaking.error) return toolError(`refused: ${speaking.error}, then send again`);
-      const from = speaking.bot?.bot ?? joinedAs ?? unjoinedName(store.actor);
+      const from = helper ? helper.mail : (speaking.bot?.bot ?? joinedAs ?? unjoinedName(store.actor));
       // A mailbox joined under a bot's name before logins were bound speaks as that bot only once it is bound.
       if (bots.length === 0 && found.mailbox?.name !== undefined && (await botCardOf(store, from).catch(() => null)) !== null) {
         return toolError(`refused: "${from}" is a bot's name here, and this connection isn't bound as that bot. If you are that bot, run manage area { bind_bot: "<your name>" } from your main chat, then send again`);

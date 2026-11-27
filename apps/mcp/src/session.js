@@ -256,6 +256,8 @@ export function sessionFromPayload(resolved, slug, token) {
     // The group chat whose Tex notes this turn may reach, from the grant (`sessionStore.js`); absent for every other turn.
     texChatId: session.texChatId,
     ...(typeof session.texTaggerId === "string" ? { texTaggerId: session.texTaggerId } : {}),
+    // A bot's helper (`sessionPayload.js`): who to sign and show it as. It acts as the bot's grant in every other way.
+    ...(session.helper !== undefined ? { helper: session.helper } : {}),
     expiresAt: session.expiresAt,
     // When this client last fetched our tool list; `orient` names what
     // changed since (`tools/news.js`). A time, and nothing about the tools.

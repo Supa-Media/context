@@ -305,7 +305,9 @@ export const authorizeObjectMail = internalMutation({
     if (workspaceId === null || !NAME.test(args.bot) || !WHO.test(args.from)) return null;
     // Mail names a note in the area's `mail/`; a routine that came due names one in its `routines/`.
     const folder = args.type === "routine" ? "routines" : "mail";
-    if (args.area.length > 512 || !args.note.startsWith(`${args.area}/${folder}/`) || args.note.includes("/../") || args.note.length > 512) return null;
+    // A bot's helper's note (`bots/<bot>/helpers/…`) is mail to that bot too: its helper reports there (`botHelpers.ts`).
+    const helperNote = args.type !== "routine" && (args.area === `bots/${args.bot}` || args.area.endsWith(`/bots/${args.bot}`)) && args.note.startsWith(`${args.area}/helpers/`);
+    if (args.area.length > 512 || !(args.note.startsWith(`${args.area}/${folder}/`) || helperNote) || args.note.includes("/../") || args.note.length > 512) return null;
     const row = await ctx.db
       .query("botHooks")
       .withIndex("by_workspace_bot", (q) => q.eq("workspaceId", workspaceId).eq("bot", args.bot))

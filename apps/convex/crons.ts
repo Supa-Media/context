@@ -293,6 +293,13 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep expired bot helpers",
+  { hours: 1 },
+  internal.functions.botHelpers.purgeExpiredBotHelpers,
+  {},
+);
+
+crons.interval(
   "sweep expired authorization requests",
   { hours: 1 },
   internal.functions.authorizations.purgeExpiredAuthorizations,

@@ -26,6 +26,7 @@ import {
   type RunGrantInfo,
 } from "./liveGrants";
 import { TEX_MACHINE_RUN_CLIENT_ID } from "../texMachineRules";
+import { resolveHelperGrant, type HelperInfo } from "./helperGrants";
 
 export const resolveLivePresenceGrantsArgs = {
   expectedWorkspaceId: v.string(),
@@ -144,6 +145,21 @@ export const resolveGrantByAccessTokenReturns = v.union(
     texChatId: v.optional(v.string()),
     /** The account whose own tag this turn is, in that chat (`textGroups.ts` `ownTagToken`): logins they saved for themselves count. */
     texTaggerId: v.optional(v.id("users")),
+    /**
+     * A bot's helper's token (`helperGrants.ts`): which bot it works for and its own name and note, so the gateway
+     * signs and shows what it does as "<name> via <bot>". Names and paths only; it acts as the bot's grant.
+     */
+    helper: v.optional(
+      v.object({
+        helperId: v.string(),
+        workspaceId: v.id("workspaces"),
+        bot: v.string(),
+        botName: v.string(),
+        name: v.string(),
+        mail: v.string(),
+        note: v.string(),
+      }),
+    ),
     workspaceId: v.id("workspaces"),
     slug: v.string(),
     role: v.string(),
@@ -214,8 +230,10 @@ export async function resolveGatewaySessionHandler(
 }
 
 async function resolveGrant(ctx: QueryCtx, args: ObjectType<typeof resolveGrantByAccessTokenArgs>) {
-  const live: (LiveGrant & { run?: RunGrantInfo }) | null =
-    (await resolveLiveGrant(ctx, args.hashedAccessToken)) ?? (await resolveRunGrant(ctx, args.hashedAccessToken));
+  const live: (LiveGrant & { run?: RunGrantInfo; helper?: HelperInfo }) | null =
+    (await resolveLiveGrant(ctx, args.hashedAccessToken)) ??
+    (await resolveRunGrant(ctx, args.hashedAccessToken)) ??
+    (await resolveHelperGrant(ctx, args.hashedAccessToken));
   if (live === null) return { session: null, remember: null as GrantRemember | null };
   // A run grant reads as its own client, and as the parent grant for everything else: who it acts as, what it reaches.
   const client = live.run
@@ -231,13 +249,15 @@ async function resolveGrant(ctx: QueryCtx, args: ObjectType<typeof resolveGrantB
     session: {
       grantId: live.grant._id,
       clientId: live.run ? TEX_MACHINE_RUN_CLIENT_ID : live.grant.clientId,
-      clientName: live.run ? "Tex on your computer" : (client?.clientName ?? null),
+      // A helper is named as its bot's sub-agent wherever its client's name is shown ("Claude via Grok Bot").
+      clientName: live.run ? "Tex on your computer" : live.helper ? `${live.helper.name} via ${live.helper.botName}` : (client?.clientName ?? null),
       actorUserId: live.grant.userId,
       scopes: live.grant.scopes,
-      expiresAt: live.run ? live.run.expiresAt : (live.grant.accessTokenExpiresAt as number),
+      expiresAt: live.run ? live.run.expiresAt : live.helper ? live.helper.expiresAt : (live.grant.accessTokenExpiresAt as number),
       toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
       ...(chatId === null ? {} : { texChatId: chatId }),
       ...ownTagOf(live, chatId, args.hashedAccessToken),
+      ...(live.helper ? { helper: (({ expiresAt, ...rest }) => rest)(live.helper) } : {}),
       // A run's token acts as Tex on a computer, never as a bot its parent grant bound.
       workspaceId: live.grant.workspaceId,
       slug: live.workspace.slug,

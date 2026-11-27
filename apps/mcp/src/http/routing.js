@@ -150,6 +150,16 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A bot's helpers (`tools/notes/botHelpers.js`): started with this connection's own token, ended with it too.
+  Object.defineProperty(store, "botHelpers", {
+    value: {
+      start: (fields) => controlPlane.botHelper("start", { ...fields, accessToken: session.accessToken, expectedWorkspaceId: session.workspaceId }),
+      end: (helperId) => controlPlane.botHelper("end", { helperId, accessToken: session.accessToken }),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),

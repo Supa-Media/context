@@ -172,7 +172,7 @@ export const ACTIONS = {
     },
     area: {
       tool: "set_area",
-      summary: "Set an area's owner, its delegate (the one bot or Tex acting for a person owner there), modes, approval rules or metric, or a bot's card or webhook; or, from a bot's own main chat, setup_bot: \"<its name>\" for its whole setup in one call (bind_bot only binds).",
+      summary: "Set an area's owner, its delegate (the one bot or Tex acting for a person owner there), modes, approval rules or metric, or a bot's card or webhook; or, from a bot's own main chat, setup_bot: \"<its name>\" for its whole setup in one call (bind_bot only binds); or, from a bot, start_helper: { task } before it starts Claude Code or another agent for deep work, and end_helper to end one.",
       take: plain,
     },
     fill_dates: { tool: "fill_dates", summary: "Fill every empty date created / date modified from each note's history, once (owner only).", take: plain },

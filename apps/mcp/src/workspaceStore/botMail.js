@@ -51,7 +51,17 @@ const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray(
 export function areaOfMailNote(path) {
   if (typeof path !== "string" || !isNotePath(path)) return null;
   const match = /^(.+)\/mail\/[^/]+$/.exec(path);
-  return match === null ? null : match[1];
+  return match === null ? helperOfNote(path) : match[1];
+}
+
+/**
+ * The bot folder a helper's note reports to, or null: `bots/grok-bot/helpers/2026-11-27-search.md` → `bots/grok-bot`.
+ * A helper a bot started (`tools/notes/botHelpers.js`) writes its progress and its mail with its bot there, so its
+ * lines wake the bot like any mail in `bots/<bot>/mail/`. Only a bot's own folder: an area's `helpers/` is not mail.
+ */
+export function helperOfNote(path) {
+  const match = typeof path === "string" ? /^((?:.+\/)?bots\/[a-z0-9][a-z0-9-]{0,39})\/helpers\/[^/]+$/.exec(path) : null;
+  return match === null || !isNotePath(path) ? null : match[1];
 }
 
 /** The bot an area's `about.md` props say answers its mail: a bot owner, else a person owner's delegate; or null. */
@@ -139,7 +149,10 @@ export function botMailWatch(sql, { rows, objects, facts, tell, routines = null,
     const about = facts.props({ paths: [`${area}/about.md`] }, () => true).props?.[0];
     const holder = botOfArea(about?.props);
     if (holder === null || about?.sealed) return;
-    const bot = cardFolderBot(area, about?.props) ?? mailJoinName(holder);
+    const folderBot = cardFolderBot(area, about?.props);
+    // A helper's note wakes only the bot whose own folder it is in, never an area's bot.
+    if (folderBot === null && helperOfNote(row.path) !== null) return;
+    const bot = folderBot ?? mailJoinName(holder);
     // What the bot said it used, and the routines it answered (`areaRoutines.js`).
     routines?.recordMail(noteId, area, holder);
     // Its own newest line here answers what waited for it in this note (`botInbox.js`).

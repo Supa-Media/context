@@ -52,6 +52,7 @@ import { guestPassTables } from "./functions/lib/schema/guestPasses";
 import { vaultTables } from "./functions/lib/schema/vault";
 import { connectionTables } from "./functions/lib/schema/connections";
 import { botHookTables } from "./functions/lib/schema/botHooks";
+import { botHelperTables } from "./functions/lib/schema/botHelpers";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
 import { emailProofTables } from "./functions/lib/schema/emailProof";
 import { staffSecondFactorTables } from "./functions/lib/schema/staffSecondFactor";
@@ -166,6 +167,7 @@ const schema = defineSchema({
   ...vaultTables,
   ...connectionTables,
   ...botHookTables,
+  ...botHelperTables,
   ...signInEmailTables,
   ...emailProofTables,
   ...staffSecondFactorTables,
