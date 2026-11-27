@@ -54,16 +54,22 @@ function outcomeWords(routine) {
   if (!routine?.lastAt) return "not run yet";
   const at = when(routine.lastAt);
   switch (routine.outcome) {
-    case "sent":
-      return routine.answeredAt ? `sent ${at}, answered ${when(routine.answeredAt)}` : `sent ${at}, not answered yet`;
+    case "sent": {
+      const took = routine.deliveredStatus ? ` (its webhook answered ${routine.deliveredStatus})` : "";
+      if (routine.answeredAt) return `sent ${at}${took}, answered ${when(routine.answeredAt)}`;
+      if (routine.missed) return `missed: sent ${at}${took}, no answer in ${routine.answerIn ?? "its mail"} after an hour`;
+      return `sent ${at}${took}, not answered yet`;
+    }
     case "held":
       return `held ${at}: this area's share of its bot's week was spent`;
     case "not_listed":
       return `not sent ${at}: its bot's card doesn't list this area`;
     case "no_bot":
       return `not sent ${at}: no bot holds this area`;
-    default:
-      return `failed ${at}`;
+    default: {
+      const why = routine.deliveredStatus === 0 ? ": no webhook took it" : routine.deliveredStatus ? `: its webhook answered ${routine.deliveredStatus}` : "";
+      return `didn't reach its bot ${at}${why}${routine.answeredAt ? `, answered ${when(routine.answeredAt)}` : ""}`;
+    }
   }
 }
 
@@ -112,8 +118,8 @@ export async function areaWorkSections(store, entries, area, areasRoot, properti
 /** What `orient { for }` adds for one area: its routines waiting for the bot, and its budget, as short lines. */
 export function holderWorkLines(area, state, cap) {
   const lines = [];
-  const waiting = (state?.routines ?? []).filter((row) => row.area === area && row.outcome === "sent" && !row.answeredAt);
-  for (const row of waiting) lines.push(`- Waiting for your answer: ${row.path} (sent ${when(row.lastAt)})`);
+  const waiting = (state?.routines ?? []).filter((row) => row.area === area && (row.outcome === "sent" || row.outcome === "failed") && !row.answeredAt);
+  for (const row of waiting) lines.push(`- ${row.missed ? "Missed" : "Waiting for your answer"}: ${row.path} (sent ${when(row.lastAt)}; answer in ${row.answerIn ?? "this area's mail"})`);
   if (typeof cap === "number") {
     const used = (state?.usage ?? []).filter((row) => row.area === area).reduce((sum, row) => sum + row.used, 0);
     lines.push(`- Budget: ${cap}% of your week; ${used}% used this week`);

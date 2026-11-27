@@ -45,10 +45,29 @@ const RESCAN_MS = 6 * 60 * 60 * 1000;
 const RUN_NOW_GAP_MS = 60 * 1000;
 /** Usage kept for this long: a few weeks back is all a page draws. */
 const USAGE_KEPT_MS = 60 * 24 * 60 * 60 * 1000;
-/** Outcomes a run may record. */
+/**
+ * A bot is sent one routine at a time (Dev, 2026-11-27: "diagnose and debug the entire improvement loop"): a bot
+ * woken for four routines at once answered one. The next waits until it answers, or this long.
+ */
+const ONE_AT_A_TIME_MS = 20 * 60 * 1000;
+/** A routine queued behind its bot's last one is tried again this soon. */
+const QUEUED_RETRY_MS = 2 * 60 * 1000;
+/** A routine sent and not answered in its own place for this long is missed, never shown as waiting forever. */
+export const ROUTINE_MISSED_MS = 60 * 60 * 1000;
+/** Outcomes a run may record. "failed" is also a send whose webhook didn't take it: nothing woke the bot. */
 export const ROUTINE_OUTCOMES = Object.freeze(["sent", "held", "no_bot", "not_listed", "failed"]);
 
+/** Where a routine's answer is looked for counts lines after its send, on a routine sent (or one nothing woke for). */
+const ANSWERABLE = "last_outcome IN ('sent', 'failed') AND last_at <= ? AND answered_at IS NULL";
+
 const all = (cursor) => (typeof cursor?.toArray === "function" ? cursor.toArray() : []);
+
+/** The webhook's reply columns, added to a table made before them (`rows.js` `addOwnershipColumns`). */
+function addDeliveryColumns(sql) {
+  const have = new Set(all(sql.exec("SELECT name FROM pragma_table_info('ws_area_routines')")).map((column) => column.name));
+  if (!have.has("delivered_status")) sql.exec("ALTER TABLE ws_area_routines ADD COLUMN delivered_status INTEGER");
+  if (!have.has("delivered_at")) sql.exec("ALTER TABLE ws_area_routines ADD COLUMN delivered_at INTEGER");
+}
 
 function propsOf(json) {
   try {
@@ -67,6 +86,7 @@ function propsOf(json) {
  */
 export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRoot, arm = () => {}, defer = (work) => queueMicrotask(work), now = Date.now }) {
   for (const statement of SCHEMA) sql.exec(statement);
+  addDeliveryColumns(sql);
   const pending = new Set();
   let scheduled = false;
 
@@ -132,6 +152,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     const text = textOf(noteId);
     if (text === null) return;
     const name = mailJoinName(bot);
+    const answerNote = routine === null && rows.byNoteId(noteId)?.path === `${area}/mail/${name}.md`;
     for (const event of parseMail(text).events) {
       if (event.kind !== "mail" || event.from.toLowerCase() !== name) continue;
       const at = Date.parse(event.at);
@@ -147,9 +168,11 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
           at,
         );
       }
-      // Its answer to a routine sent before it: the routine shows when it was answered.
-      if (routine === null) sql.exec("UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_outcome = 'sent' AND last_at <= ? AND answered_at IS NULL", at, area, at);
-      else sql.exec("UPDATE ws_area_routines SET answered_at = ? WHERE path = ? AND last_outcome = 'sent' AND last_at <= ? AND answered_at IS NULL", at, routine, at);
+      // Its answer to a routine sent to it before: the routine shows when it was answered. Only where the routine
+      // asked for it, the bot's own mail note in the area (`answer_in`) or the routine's own note: a reply to someone
+      // else's mail in the area is not the routine's answer (Capabilities' reply to Grok Bot once marked MCP's).
+      if (routine !== null) sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE path = ? AND last_bot = ? AND ${ANSWERABLE}`, at, routine, name, at);
+      else if (answerNote) sql.exec(`UPDATE ws_area_routines SET answered_at = ? WHERE area = ? AND last_bot = ? AND ${ANSWERABLE}`, at, area, name, at);
     }
   }
 
@@ -187,18 +210,40 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
     setMeta("scanned", at);
   }
 
-  /** One routine sent to its area's bot, as the clock sends it: never past the bot's list or its spent share. */
-  function send(row, at) {
-    const found = budget(row.area, at);
+  /**
+   * One routine sent to its area's bot, as the clock sends it: never past the bot's list or its spent share. The
+   * webhook's reply is kept when it comes (`delivered`): a send nothing took is "failed", not a quiet "sent".
+   */
+  function send(row, at, found = budget(row.area, at)) {
     if (found === null) return { found, outcome: "no_bot" };
     if (!found.allowed) return { found, outcome: "not_listed" };
     if (spent(found)) return { found, outcome: "held" };
     try {
-      tell({ type: "routine", bot: found.name, area: row.area, note: row.path, from: "context" });
+      const reply = tell({ type: "routine", bot: found.name, area: row.area, note: row.path, from: "context" });
+      if (typeof reply?.then === "function") reply.then((result) => delivered(row.path, at, result)).catch(() => delivered(row.path, at, null));
       return { found, outcome: "sent" };
     } catch {
       return { found, outcome: "failed" };
     }
+  }
+
+  /** The webhook's reply to the send at `at`: its status, and "failed" when it didn't take the routine. */
+  function delivered(path, at, result) {
+    const status = Number.isInteger(result?.status) ? result.status : 0;
+    const ok = result?.ok === true;
+    sql.exec(
+      "UPDATE ws_area_routines SET delivered_status = ?, delivered_at = ?, last_outcome = CASE WHEN ? THEN last_outcome ELSE 'failed' END WHERE path = ? AND last_at = ?",
+      status,
+      now(),
+      ok ? 1 : 0,
+      path,
+      at,
+    );
+  }
+
+  /** Whether `name` is working on a routine it was sent: sent, taken by its webhook (or not yet known), unanswered, recent. */
+  function busy(name, at) {
+    return all(sql.exec(`SELECT 1 AS busy FROM ws_area_routines WHERE last_bot = ? AND last_outcome = 'sent' AND answered_at IS NULL AND last_at > ? LIMIT 1`, name, at - ONE_AT_A_TIME_MS)).length > 0;
   }
 
   function due(at) {
@@ -262,11 +307,18 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
       due(at);
       const outcomes = [];
       for (const row of all(sql.exec("SELECT * FROM ws_area_routines WHERE next_at IS NOT NULL AND next_at <= ? ORDER BY next_at", at))) {
-        const { found, outcome } = send(row, at);
+        const holder = budget(row.area, at);
+        // One at a time: a bot still on its last routine gets this one once it answers, or after twenty minutes.
+        if (holder !== null && holder.allowed && !spent(holder) && busy(holder.name, at)) {
+          sql.exec("UPDATE ws_area_routines SET next_at = ? WHERE path = ?", at + QUEUED_RETRY_MS, row.path);
+          outcomes.push({ path: row.path, outcome: "queued" });
+          continue;
+        }
+        const { found, outcome } = send(row, at, holder);
         // The next time strictly after now: an object asleep through several runs sends one, never a backlog.
         const next = areaRoutineNext(areaRoutineOf(row.path, areasRoot() ?? row.area), textOf(row.note_id), at);
         sql.exec(
-          "UPDATE ws_area_routines SET last_at = ?, last_outcome = ?, last_bot = ?, answered_at = NULL, next_at = ? WHERE path = ?",
+          "UPDATE ws_area_routines SET last_at = ?, last_outcome = ?, last_bot = ?, answered_at = NULL, delivered_status = NULL, delivered_at = NULL, next_at = ? WHERE path = ?",
           at,
           outcome,
           found?.name ?? null,
@@ -290,7 +342,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
       if (row === undefined || row.next_at === null || row.next_at === undefined) return { outcome: null };
       if (row.last_outcome === "sent" && row.last_at != null && at - Number(row.last_at) < RUN_NOW_GAP_MS) return { outcome: "recent" };
       const { found, outcome } = send(row, at);
-      sql.exec("UPDATE ws_area_routines SET last_at = ?, last_outcome = ?, last_bot = ?, answered_at = NULL WHERE path = ?", at, outcome, found?.name ?? null, row.path);
+      sql.exec("UPDATE ws_area_routines SET last_at = ?, last_outcome = ?, last_bot = ?, answered_at = NULL, delivered_status = NULL, delivered_at = NULL WHERE path = ?", at, outcome, found?.name ?? null, row.path);
       return { outcome };
     },
     budget,
@@ -306,7 +358,7 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
      */
     state(sees = () => true, at = now()) {
       const week = weekOf(at, DEFAULT_ROUTINE_ZONE);
-      const routines = all(sql.exec("SELECT path, area, next_at, last_at, last_outcome, last_bot, answered_at, problem FROM ws_area_routines ORDER BY path"))
+      const routines = all(sql.exec("SELECT path, area, next_at, last_at, last_outcome, last_bot, answered_at, delivered_status, problem FROM ws_area_routines ORDER BY path"))
         .filter((row) => sees(row.path))
         .map((row) => ({
           path: row.path,
@@ -316,6 +368,10 @@ export function areaRoutinesWatch(sql, { rows, objects, facts, tell, findAreasRo
           outcome: row.last_outcome ?? null,
           bot: row.last_bot ?? null,
           answeredAt: row.answered_at ?? null,
+          // The webhook's status for the last send (0: no webhook took it), and whether its answer is overdue.
+          deliveredStatus: row.delivered_status ?? null,
+          answerIn: row.last_bot ? `${row.area}/mail/${row.last_bot}.md` : null,
+          missed: row.last_outcome === "sent" && row.answered_at == null && row.last_at != null && at - Number(row.last_at) > ROUTINE_MISSED_MS,
           ...(row.problem ? { problem: row.problem } : {}),
         }));
       const usage = all(sql.exec("SELECT bot, area, SUM(used) AS used FROM ws_bot_usage WHERE week = ? GROUP BY bot, area ORDER BY bot, area", week))
