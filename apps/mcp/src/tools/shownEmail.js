@@ -123,12 +123,37 @@ function texTexts(history, group) {
     .map(({ turn }) => turn.text);
 }
 
-/** Whether one of Tex's texts among the latest `SHOWN_TURNS` turns holds this body whole, word for word. */
+/** A text's words with a space each side, so a run of words is found whole. */
+const runOf = (text) => ` ${wordsOf(text).join(" ")} `;
+
+/** The opening words of a body that name which email a later copy of it is. */
+const OPENS_WORDS = 3;
+
+/*
+  A LATER COPY REPLACES THE ONE IT CHANGED (2026-11-27). Tex showed a draft, they asked for its last sentence out, Tex
+  showed the shorter copy, and they said "yes send it": their go-ahead is about the copy they were shown last, and the
+  one they had just turned down is not theirs to send. The Mail checker reads a cut sentence as no contradiction, so
+  nothing else holds it. A body is therefore shown only until Tex shows the same email in other words: a text that
+  opens as the body opens and does not hold it whole.
+*/
+function replacedIn(texts, body, words) {
+  const opens = wordsOf(body).slice(0, OPENS_WORDS).join(" ");
+  if (opens === "") return false;
+  return texts.some((text) => !runOf(text).includes(` ${words} `) && runOf(text).includes(` ${opens} `));
+}
+
+/**
+ * Whether one of Tex's texts among the latest `SHOWN_TURNS` turns holds this body whole, word for word, with no later
+ * text of its own showing the same email in other words (`replacedIn`).
+ */
 export function bodyShown(history, body, group = null) {
   if (typeof body !== "string" || body.trim().length < MIN_COPY) return false;
   const words = wordsOf(body).join(" ");
   if (words === "") return false;
-  return texTexts(history, group).some((text) => ` ${wordsOf(text).join(" ")} `.includes(` ${words} `));
+  const texts = texTexts(history, group);
+  const last = texts.findLastIndex((text) => runOf(text).includes(` ${words} `));
+  if (last === -1) return false;
+  return !replacedIn(texts.slice(last + 1), body, words);
 }
 
 /**

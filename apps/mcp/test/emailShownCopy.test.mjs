@@ -345,3 +345,46 @@ test("in a group, a body Tex showed in answer to the tagger counts; one shown to
   assert.equal(bodyShown(history(asked("adam", "email Bram"), ["assistant", ASKED_SENDER]), BODY, GROUP), false, "@adam is not @ada");
   assert.equal(bodyShown(history(asked("cy", "email Bram"), ["assistant", ASKED_SENDER]), BODY), true, "a one-to-one reads every text of Tex's");
 });
+
+/* ---------------- 2026-11-27: the copy they asked Tex to change ---------------- */
+
+/** The first draft Tex showed, with a closing sentence the person then asked it to cut. */
+const LONG_BODY = `Hi Bram, Thursday at 3 works for me, so let's keep it on the thread.\n\nLooking forward to finally meeting you after all these months of back and forth.\n\nBest, John`;
+const LONG_SHOWN = `${BRAM} is the right address.\n\n${LONG_BODY}\nSend?`;
+/** The copy Tex showed after they asked for the cut: the one their go-ahead is about. */
+const CUT_SHOWN = `${BRAM} is the right address.\n\n${BODY}\nSend?`;
+
+test("a draft they asked Tex to change is not released by their go-ahead to the copy that replaced it", async () => {
+  const world = await createEgressWorld();
+  try {
+    world.controlPlane.flags.emailSender = "seyi@gmail.example";
+    world.model.install([{ text: LONG_SHOWN }]);
+    await textTex(world.env, TOKEN_TEXTS, `email ${BRAM} that Thursday at 3 works`);
+    world.model.install([{ text: CUT_SHOWN }]);
+    await textTex(world.env, TOKEN_TEXTS, "too much, cut the last sentence");
+    // Tex calls send with the copy they turned down; the Mail checker reads a cut sentence as no contradiction.
+    world.model.install([
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, body: LONG_BODY } }] },
+      verdict("yes", "they asked to reply to Bram about Thursday"),
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, body: BODY } }] },
+      verdict("yes", "they asked to reply to Bram about Thursday"),
+      { text: "Sent." },
+    ]);
+    await textTex(world.env, TOKEN_TEXTS, "yes send it");
+    const sent = sendsOf(world);
+    assert.equal(world.pending().length, 1, "the copy they turned down is put to them instead");
+    assert.equal(sent.length, 1, "only the copy they were shown last is sent");
+    assert.equal(sent.at(-1).email.body, BODY);
+    assert.ok(!sent.some((entry) => entry.email.body.includes("Looking forward")), "the sentence they cut never goes out");
+  } finally {
+    world.restore();
+  }
+});
+
+test("a body is shown only until Tex shows another copy of the same email", () => {
+  assert.equal(bodyShown(history(["assistant", LONG_SHOWN]), LONG_BODY), true);
+  assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["user", "cut it"], ["assistant", CUT_SHOWN]), LONG_BODY), false, "replaced by a later copy");
+  assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["user", "cut it"], ["assistant", CUT_SHOWN]), BODY), true, "the latest copy is the shown one");
+  assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["assistant", "Which Gmail should it go from?"]), LONG_BODY), true, "a later text about something else replaces nothing");
+  assert.equal(bodyShown(history(["assistant", LONG_SHOWN], ["assistant", LONG_SHOWN]), LONG_BODY), true, "the same copy shown twice is still shown");
+});
