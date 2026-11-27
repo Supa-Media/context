@@ -90,6 +90,27 @@ workspace only, redirect pinned to `APP_ORIGIN`. The authorize URL hints the
 connection's own address, and a consent from a different Google account binds
 nothing.
 
+**One consent screen for everything (Dev, 2026-11-27).** People connected
+Google, saw the calendar consent, and were sent back later to allow AI
+access. Google has since verified the app, and Dev chose one screen: once
+the agent client is configured, `startGoogleConnect` asks the agent client
+alone, for `agentScopesFor(products)` (identity, Gmail's read and drafts,
+`calendar.events.owned`, Chat's four), and parks the attempt with
+`client: "agent"`. The callback exchanges the code with that client, binds
+the products as before, and `adoptOneConsent` (`functions/googleClients.ts`)
+marks the row `standardClient: "agent"` and copies the same grant into
+`agentGrant`. So AI reads it as its agent grant, and the person's own reads
+(the Meetings view) refresh the row's own fields with the agent client
+(`mintTokens.ts`); nothing asks for AI access afterwards. Without an agent
+client a connect asks the standard client as before. This narrows the
+standard-client split above for new connects: the person's own Meetings view
+reads through the agent client's grant. Allow AI access stays for accounts
+connected before. Google's checkboxes are its granular consent and cannot be
+pre-ticked by an app; the guide picture says Select all. Tests:
+`googleConnect/clientRoles.test.ts` ("a connect"),
+`googleConnect/consentScopes.test.ts` ("with an agent client, a connect is
+one consent to it").
+
 **Every new consent is the minimum, whatever the switch (2026-10-30).**
 Google's review asked for exact scope matching and least privilege per
 feature, and the submitted union still carried the broad calendar pair. So

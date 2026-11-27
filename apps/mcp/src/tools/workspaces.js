@@ -205,17 +205,16 @@ export async function toolConnectGoogle(store, args) {
       // their phone (a texted code) if this browser isn't signed in.
       "If they aren't signed in to Context in that browser, it first asks for their phone number and texts them a " +
       "code. Say so in one line, so it doesn't surprise them. " +
-      // Google has not verified the app yet (Dev2, 2026-10-18), so its consent
-      // screen warns before it asks for access; and its permissions page lets
-      // a box be left unticked, which leaves Tex unable to do that part (the
-      // owner, 2026-10-23: "make sure they also click, like, select all").
-      "Google then warns that it hasn't verified Context: tell them that's expected, to tap Advanced, then " +
-      "Go to Context (unsafe), and on the next page to tick Select all and tap Continue, so you can do everything for them. " +
-      `Text this picture of both screens with it: ${guidePicture(answer.url)}`
+      // Google's one permissions page lets a box be left unticked, which leaves
+      // Tex unable to do that part (the owner, 2026-10-23: "make sure they also
+      // click, like, select all"). Google has verified the app, so no warning
+      // screen comes first any more (Dev, 2026-11-27).
+      "On Google's permissions page, tell them to tick Select all and tap Continue, so you can do everything for them. " +
+      `Text this picture of that page with it: ${guidePicture(answer.url)}`
   );
 }
 
-/** The guide to Google's two screens, served beside the app (`infra/router`, `og-google-connect.source.html`), as a picture line. */
+/** The guide to Google's permissions page (tick Select all), served beside the app (`infra/router`, `og-google-connect.source.html`), as a picture line. */
 export const GOOGLE_GUIDE_PATH = "/og/google-connect.png";
 function guidePicture(link) {
   try {

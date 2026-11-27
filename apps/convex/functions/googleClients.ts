@@ -269,6 +269,46 @@ export const applyAgentGrant = internalMutation({
 });
 
 /**
+ * A connect asked of the agent client alone (one consent screen, Dev
+ * 2026-11-27): the grant the product bindings just stored on the row was
+ * issued to the agent client, so the row is marked to refresh it with that
+ * client, and the same grant becomes its agent grant. Every live row of that
+ * Google account in the workspace takes it; a different account binds nothing.
+ */
+export const adoptOneConsent = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    googleAccountId: v.string(),
+    scopes: v.array(v.string()),
+    encryptedRefreshToken: v.string(),
+    encryptedAccessToken: v.string(),
+    accessTokenExpiresAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("googleConnections")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const row of rows) {
+      if (row.disconnectedAt !== undefined || row.googleAccountId !== args.googleAccountId) continue;
+      if (row.encryptedRefreshToken !== args.encryptedRefreshToken) continue;
+      await ctx.db.patch(row._id, {
+        standardClient: "agent",
+        agentGrant: {
+          encryptedRefreshToken: args.encryptedRefreshToken,
+          encryptedAccessToken: args.encryptedAccessToken,
+          accessTokenExpiresAt: args.accessTokenExpiresAt,
+          scopes: args.scopes,
+          grantedAt: Date.now(),
+        },
+      });
+    }
+    return null;
+  },
+});
+
+/**
  * Revoke an agent grant at Google, on an explicit disconnect only, beside the
  * standard grant's own revoke: Google ends the account's grants to every
  * client of this project, which is what disconnecting means. Best effort.

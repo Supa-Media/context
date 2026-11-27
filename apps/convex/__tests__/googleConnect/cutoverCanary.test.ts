@@ -41,6 +41,7 @@ import {
 import { hashToken } from "../../functions/lib/crypto";
 import { ACCESS_A, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
 import { cutoverCanary, googleEnvFor } from "../../functions/lib/googleConnect/clients";
+import { agentScopesFor } from "../../functions/lib/googleConnect/aiScopes";
 import { asUser, createUser, createWorkspace, seedGoogleConnection, setupTest } from "../fixtures.helpers";
 import { REDIRECT, enableAllGoogleConnect } from "./fixtures.helpers";
 
@@ -129,10 +130,12 @@ async function standardConsent(t: ReturnType<typeof setupTest>, owner: Id<"users
 describe("the canary runs the final scopes on its workspace alone", () => {
   // Since 2026-10-30 every new request is the minimum, canary or not; the
   // canary still decides how its rows made before are read (below).
-  test("the canary workspace's standard consent is identity plus the owned calendar read, and so is its neighbour's", async () => {
+  test("the canary workspace's connect asks for the same one consent as its neighbour's", async () => {
     const { t, canary, canaryOwner, neighbour, neighbourOwner } = await canaryAndNeighbour();
-    expect(await standardConsent(t, canaryOwner, canary)).toEqual(new Set([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]));
-    expect(await standardConsent(t, neighbourOwner, neighbour)).toEqual(new Set([...IDENTITY_SCOPES, CALENDAR_OWNED_READ_SCOPE]));
+    // With the agent client set up, a connect is one consent to it (2026-11-27), canary or not.
+    const one = new Set([...IDENTITY_SCOPES, ...agentScopesFor(["gmail", "calendar"])]);
+    expect(await standardConsent(t, canaryOwner, canary)).toEqual(one);
+    expect(await standardConsent(t, neighbourOwner, neighbour)).toEqual(one);
   });
 
   test("the canary workspace's AI consent asks the agent client for the owned calendar write, and so does its neighbour's", async () => {

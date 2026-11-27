@@ -1,6 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import { messagesHref, TEXT_ROUTE } from "../features/tex/launch/routes";
-import { googleWarning, newGmail } from "../features/auth/gmailFirst/gmailFirst";
+import { googleTip, newGmail } from "../features/auth/gmailFirst/gmailFirst";
 import { safeNextRoute } from "../features/auth/redirect";
 
 /**
@@ -27,8 +27,9 @@ describe("the page Google returns to", () => {
     expect(newGmail([], ["a@gmail.com"])).toBe("a@gmail.com");
   });
 
-  test("Google's warning says tap on a phone and click on a computer", () => {
-    expect(googleWarning(true)).toContain("tap Advanced, then Go to Context");
-    expect(googleWarning(false)).toContain("click Advanced");
+  test("Google's tip says tap on a phone and click on a computer, and no longer warns", () => {
+    expect(googleTip(true)).toContain("tap Select all");
+    expect(googleTip(false)).toContain("click Select all");
+    expect(googleTip(true)).not.toContain("Advanced");
   });
 });

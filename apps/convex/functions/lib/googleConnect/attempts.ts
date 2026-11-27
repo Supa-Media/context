@@ -54,6 +54,7 @@ export const parkAttemptArgs = {
   folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
   attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
   attachmentRetentionDays: v.union(v.number(), v.literal("forever")),
+  client: v.optional(v.literal("agent")),
 };
 
 export const parkAttemptReturns = v.null();
@@ -77,6 +78,7 @@ export async function parkAttemptHandler(
     startedBy: args.startedBy,
     redirectUri: args.redirectUri,
     flow: args.flow,
+    ...(args.client === undefined ? {} : { client: args.client }),
     products: args.products,
     backfillDays: args.backfillDays,
     folders: args.folders,

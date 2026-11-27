@@ -78,6 +78,8 @@ export const exchangeAndBindGoogleArgs = {
   folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
   attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
   attachmentRetentionDays: v.union(v.number(), v.literal("forever")),
+  /** `agent` when the consent was asked of the agent client (one screen for everything). */
+  client: v.optional(v.literal("agent")),
 };
 
 export const exchangeAndBindGoogleReturns = v.null();

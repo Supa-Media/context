@@ -43,9 +43,9 @@ export function forgetGmailFirst(): void {
 /** Google asks for Gmail, Calendar and Chat together, as Connected apps does. */
 export const GMAIL_SERVICES = { gmail: true, calendar: true, chat: true } as const;
 
-/** Google's warning, said where it happens rather than in the text that sent them. */
-export function googleWarning(touch: boolean): string {
-  return `Google will say it hasn't verified Context yet. That's expected: ${touch ? "tap" : "click"} Advanced, then Go to Context.`;
+/** Google's one permissions page, said where it happens: tick every box (no unverified-app warning since 2026-11-27). */
+export function googleTip(touch: boolean): string {
+  return `On Google's page, ${touch ? "tap" : "click"} Select all, then Continue.`;
 }
 
 /** Which address a finished connect added: the first not in `before`, or null while the binding is still landing. */
