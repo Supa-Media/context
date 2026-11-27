@@ -11,7 +11,11 @@ import { LLMS_TEXT } from "./agentDocs";
 import { HOME_FAQ } from "./faq";
 import { injectHomeHead, homeDocumentResponse } from "./homeSite";
 import { HOME_DESCRIPTION, HOME_TITLE } from "./preview/meta";
+import { MCP_ENDPOINT } from "./agentFront";
 import {
+  MCP_PAGE_DESCRIPTION,
+  MCP_PAGE_MARKDOWN,
+  MCP_PAGE_TITLE,
   SHARED_MEMORY_DESCRIPTION,
   SHARED_MEMORY_FAQ,
   SHARED_MEMORY_H1,
@@ -77,6 +81,8 @@ describe("/sitemap.xml", () => {
         "https://context.lc/grokbot.md",
         "https://context.lc/llms.txt",
         "https://context.lc/shared-ai-memory",
+        "https://context.lc/mcp",
+        "https://context.lc/mcp.md",
       ]);
     }
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -122,6 +128,14 @@ describe("/llms.txt", () => {
     expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
     const body = await response.text();
     expect(body).toBe(LLMS_TEXT);
+    // The connection facts come first, ahead of the heading and the summary.
+    expect(body.split("\n").slice(0, 5)).toEqual([
+      "MCP endpoint: https://mcp.context.lc/mcp",
+      "Transport: Streamable HTTP",
+      "Auth: OAuth (no API key)",
+      "",
+      "# Context",
+    ]);
     for (const sentence of [
       "Shared Markdown notes for people, groups, and the AI tools they use.",
       "An agent connects at https://mcp.context.lc/mcp and signs in with OAuth.",
@@ -145,6 +159,8 @@ describe("/llms.txt", () => {
         "https://context.lc/claude",
         "https://context.lc/claude.md",
         "https://context.lc/grokbot.md",
+        "https://context.lc/mcp",
+        "https://context.lc/mcp.md",
         "https://context.lc/shared-ai-memory",
       ].sort(),
     );
@@ -183,8 +199,92 @@ describe("the homepage a crawler reads", () => {
       expect(html).toContain(`<p>${entry.answer}</p>`);
     }
     expect(html).toContain('href="https://context.lc/shared-ai-memory"');
+    expect(html).toContain('href="https://context.lc/mcp"');
     expect(html).toContain(`<meta name="description" content="${HOME_DESCRIPTION}">`);
     expect(html).not.toMatch(/Notion|Obsidian|\bTex\b/);
+  });
+
+  it("names the MCP endpoint and OAuth in every description a card reads", async () => {
+    expect(HOME_DESCRIPTION).toContain("https://mcp.context.lc/mcp");
+    expect(HOME_DESCRIPTION).toMatch(/\bMCP\b/);
+    expect(HOME_DESCRIPTION).toMatch(/\bOAuth\b/);
+    expect(HOME_DESCRIPTION.length).toBeLessThanOrEqual(200);
+    expect(HOME_DESCRIPTION).not.toMatch(FORBIDDEN);
+    const html = await (await get("https://context.lc/", OAI_SEARCHBOT)).text();
+    for (const tag of [
+      `<meta name="description" content="${HOME_DESCRIPTION}">`,
+      `<meta property="og:description" content="${HOME_DESCRIPTION}">`,
+      `<meta name="twitter:description" content="${HOME_DESCRIPTION}">`,
+    ]) {
+      expect(html).toContain(tag);
+    }
+  });
+});
+
+describe("/mcp", () => {
+  it.each([
+    ["a person", BROWSER],
+    ["Googlebot", GOOGLEBOT],
+    ["OAI-SearchBot", OAI_SEARCHBOT],
+    ["PerplexityBot", PERPLEXITYBOT],
+  ])("is the same indexable page for %s", async (_name, ua) => {
+    for (const path of ["/mcp", "/mcp/"]) {
+      const response = await get(`https://context.lc${path}`, ua);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+      expect(response.headers.get("X-Robots-Tag")).toBeNull();
+      const html = await response.text();
+      expect(html).toContain("<title>Connect to Context.LC over MCP</title>");
+      expect(MCP_PAGE_TITLE).toBe("Connect to Context.LC over MCP");
+      expect(html).toContain("<h1>Connect to Context.LC over MCP</h1>");
+      expect(html).toContain(`<meta name="description" content="${MCP_PAGE_DESCRIPTION}">`);
+      expect(html).toContain('<link rel="canonical" href="https://context.lc/mcp">');
+      expect(html).not.toContain('<link rel="canonical" href="https://context.lc/">');
+      expect(html).not.toMatch(/noindex/i);
+      expect(html).not.toContain("Sign in to open this link");
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("states the endpoint, the transport and the sign-in before anything else, with the three links", async () => {
+    const html = await (await get("https://context.lc/mcp", GOOGLEBOT)).text();
+    expect(MCP_ENDPOINT).toBe("https://mcp.context.lc/mcp");
+    const main = html.slice(html.indexOf("<main>"));
+    const firstSection = main.slice(0, main.indexOf("<h2>"));
+    expect(firstSection).toContain("<li>MCP endpoint: <code>https://mcp.context.lc/mcp</code></li>");
+    expect(firstSection).toContain("<li>Transport: Streamable HTTP</li>");
+    expect(firstSection).toContain("<li>Auth: OAuth (no API key)</li>");
+    for (const path of ["/claude", "/agents", "/shared-ai-memory"]) {
+      expect(firstSection).toContain(`<a href="https://context.lc${path}">`);
+    }
+    expect(MCP_PAGE_DESCRIPTION).toContain("https://mcp.context.lc/mcp");
+    expect(MCP_PAGE_DESCRIPTION).toContain("OAuth");
+  });
+
+  it("is the same words as markdown at /mcp.md", async () => {
+    const response = await get("https://context.lc/mcp.md", OAI_SEARCHBOT);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    const body = await response.text();
+    expect(body).toBe(MCP_PAGE_MARKDOWN);
+    expect(body).toContain("- MCP endpoint: `https://mcp.context.lc/mcp`");
+    expect(body).toContain("- Auth: OAuth (no API key)");
+  });
+
+  it("makes no claim the guardrails rule out", async () => {
+    const html = await (await get("https://context.lc/mcp", BROWSER)).text();
+    expect(html).not.toMatch(FORBIDDEN);
+    expect(html).not.toMatch(/\$\d|per month|\/mo\b|notes? limit|up to [\d,]+ notes/i);
+    expect(html).toContain("Context does not charge for an account. A new address joins the waitlist.");
+  });
+
+  it("is not served on a Tex host, and refuses writes", async () => {
+    expect(route(new URL("https://tex.lc/mcp"), BROWSER).kind).toBe("proxy");
+    expect(route(new URL("https://tex.lc/mcp.md"), BROWSER).kind).toBe("proxy");
+    expect((await get("https://context.lc/mcp", BROWSER, "POST")).status).toBe(405);
+    const head = await get("https://context.lc/mcp", BROWSER, "HEAD");
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
   });
 });
 
@@ -277,16 +377,50 @@ describe("addresses that used to be the sign-in card with the homepage as canoni
     }
   });
 
-  it("/connect is a real 404 for a crawler, and the app for a person", async () => {
-    const response = await get("https://context.lc/connect", GOOGLEBOT);
-    expect(response.status).toBe(404);
-    expect(response.headers.get("X-Robots-Tag")).toBe("noindex");
-    const html = await response.text();
-    expect(html).not.toContain("Sign in to open this link");
-    expect(html).not.toContain('rel="canonical"');
-    expect(route(new URL("https://context.lc/connect"), BROWSER).kind).toBe("proxy");
-    // The Slack connect link keeps its own card.
-    expect(route(new URL(`https://context.lc/connect/slack/${"a".repeat(24)}`), GOOGLEBOT).kind).toBe("preview");
+  it.each(["/connect", "/connect/", "/connect?provider=r2&step=2"])(
+    "bare %s moves to /mcp for a crawler and a person",
+    async (path) => {
+      for (const ua of [GOOGLEBOT, OAI_SEARCHBOT, BROWSER, undefined]) {
+        const response = await get(`https://context.lc${path}`, ua);
+        expect(response.status).toBe(301);
+        expect(response.headers.get("Location")).toBe("https://context.lc/mcp");
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("a path under /connect is never moved to /mcp: its token stays with the app", () => {
+    const slack = `/connect/slack/${"a".repeat(24)}`;
+    // The Slack connect link keeps its own card for a crawler.
+    expect(route(new URL(`https://context.lc${slack}`), GOOGLEBOT).kind).toBe("preview");
+    for (const path of [
+      slack,
+      `${slack}/`,
+      "/connect/google?code=abc&state=def",
+      "/connect/cli",
+      "/connect/github/some-one-use-token",
+      "/connect/",
+      "/connectx",
+      "/connect.md",
+    ]) {
+      for (const ua of [GOOGLEBOT, BROWSER]) {
+        const decision = route(new URL(`https://context.lc${path}`), ua);
+        if (path === "/connect/") {
+          expect(decision).toEqual({ kind: "redirect", location: "https://context.lc/mcp" });
+          continue;
+        }
+        expect(decision.kind, `${path} ${ua}`).not.toBe("redirect");
+        expect(JSON.stringify(decision)).not.toContain("/mcp");
+      }
+      if (path !== "/connect/") {
+        expect(route(new URL(`https://context.lc${path}`), BROWSER)).toEqual({ kind: "proxy", upstream: "expo", path });
+      }
+    }
+  });
+
+  it("a Tex host keeps bare /connect as it was", () => {
+    expect(route(new URL("https://tex.lc/connect"), BROWSER)).toEqual({ kind: "proxy", upstream: "expo", path: "/connect" });
+    expect(route(new URL("https://tex.lc/connect"), GOOGLEBOT).kind).toBe("preview");
   });
 
   it("a homepage website page is its own card, with its own canonical", async () => {

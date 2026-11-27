@@ -1,7 +1,8 @@
 /**
  * The apex's public, indexable pages that are not the app: `/sitemap.xml`,
- * the `/shared-ai-memory` page, and the 404 a crawler gets for an address
- * that is neither a page nor an app screen.
+ * the `/shared-ai-memory` page, the `/mcp` page (and `/mcp.md`, the same
+ * words as markdown), and the 404 a crawler gets for an address that is
+ * neither a page nor an app screen.
  *
  * Served the same to a person and a crawler, from constants, with no
  * upstream. Tex hosts do not serve these: tex.lc is a different front door.
@@ -20,10 +21,13 @@ import { faqJsonLd, FREE_ACCOUNT_SENTENCE, type FaqEntry } from "./faq";
 
 export const ORIGIN = "https://context.lc";
 
-export type PublicPageName = "sitemap" | "shared-ai-memory";
+export type PublicPageName = "sitemap" | "shared-ai-memory" | "mcp" | "mcp-md";
 
 export const SITEMAP_PATH = "/sitemap.xml";
 export const SHARED_MEMORY_PATH = "/shared-ai-memory";
+/** Where a person or an agent learns the endpoint. Bare `/connect` moves here (`route.ts`). */
+export const MCP_PAGE_PATH = "/mcp";
+export const MCP_MARKDOWN_PATH = "/mcp.md";
 
 /**
  * Every address in the sitemap: indexable, self-canonical, and served by
@@ -38,13 +42,16 @@ export const SITEMAP_PATHS: readonly string[] = [
   "/grokbot.md",
   "/llms.txt",
   SHARED_MEMORY_PATH,
+  MCP_PAGE_PATH,
+  MCP_MARKDOWN_PATH,
 ];
 
 /** The page a path asks for, or null. Trailing slash folds; query is ignored. */
 export function publicPageFor(pathname: string): PublicPageName | null {
   if (pathname === SITEMAP_PATH) return "sitemap";
+  if (pathname === MCP_MARKDOWN_PATH) return "mcp-md";
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-  return path === SHARED_MEMORY_PATH ? "shared-ai-memory" : null;
+  return path === SHARED_MEMORY_PATH ? "shared-ai-memory" : path === MCP_PAGE_PATH ? "mcp" : null;
 }
 
 export const SITEMAP_XML =
@@ -156,10 +163,78 @@ const SHARED_MEMORY_JSON_LD = {
   ],
 };
 
-/** The page: the markdown above in a head of its own, with the FAQ data beside it. */
-export function renderSharedMemoryHtml(): string {
-  const title = escapeHtml(SHARED_MEMORY_TITLE);
-  const description = escapeHtml(SHARED_MEMORY_DESCRIPTION);
+export const MCP_PAGE_TITLE = "Connect to Context.LC over MCP";
+export const MCP_PAGE_DESCRIPTION =
+  `Connect ChatGPT, Claude, Cursor, or another MCP client to Context.LC. MCP endpoint: ${MCP_ENDPOINT}. ` +
+  "Streamable HTTP, OAuth sign-in, no API key.";
+
+/**
+ * The page's words, as markdown: served as they are at `/mcp.md` and rendered
+ * at `/mcp`. Links are absolute so the markdown reads the same anywhere.
+ */
+export const MCP_PAGE_MARKDOWN = `# ${MCP_PAGE_TITLE}
+
+- MCP endpoint: \`${MCP_ENDPOINT}\`
+- Transport: Streamable HTTP
+- Auth: OAuth (no API key)
+
+Guides: [Set up Context in Claude](${ORIGIN}/claude), [Set up Context in Grok Bot](${ORIGIN}/agents), and [Shared AI memory](${ORIGIN}${SHARED_MEMORY_PATH}).
+
+## What this is
+
+Context.LC is shared Markdown notes for people, groups, and the AI tools they use. It is a remote MCP server: ChatGPT, Claude, Cursor, and other MCP-compatible clients connect to the endpoint above and read and write the same notes.
+
+## Add it to a client
+
+1. In the client, add a custom connector (a remote MCP server).
+2. Server URL: \`${MCP_ENDPOINT}\`
+3. Leave the client id, client secret, and headers empty. Context registers the client during sign-in.
+4. Sign in to your Context account when the client opens the approval page.
+
+In Claude Code:
+
+\`\`\`
+${CLAUDE_CODE_ADD}
+\`\`\`
+
+Then run \`/mcp\` and sign in.
+
+## What a connection reaches
+
+- One connection reaches every workspace your account belongs to, addressed as \`@name\`.
+- Each client you connect signs in on its own.
+- Notes are plain Markdown in storage you own. You can download everything as folders.
+- ${FREE_ACCOUNT_SENTENCE}
+`;
+
+const MCP_PAGE_URL = `${ORIGIN}${MCP_PAGE_PATH}`;
+
+const MCP_PAGE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": `${MCP_PAGE_URL}#webpage`,
+      url: MCP_PAGE_URL,
+      name: MCP_PAGE_TITLE,
+      description: MCP_PAGE_DESCRIPTION,
+      isPartOf: { "@id": `${ORIGIN}/#website` },
+    },
+  ],
+};
+
+interface PublicHtmlPage {
+  title: string;
+  description: string;
+  url: string;
+  markdown: string;
+  jsonLd: unknown;
+}
+
+/** One public page: its markdown in a head of its own, with its structured data beside it. */
+function renderPublicHtml(page: PublicHtmlPage): string {
+  const title = escapeHtml(page.title);
+  const description = escapeHtml(page.description);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -167,16 +242,16 @@ export function renderSharedMemoryHtml(): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
 <meta name="description" content="${description}">
-<link rel="canonical" href="${SHARED_MEMORY_URL}">
+<link rel="canonical" href="${page.url}">
 <link rel="icon" href="${ORIGIN}/favicon.ico" sizes="48x48">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Context.LC">
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${description}">
-<meta property="og:url" content="${SHARED_MEMORY_URL}">
+<meta property="og:url" content="${page.url}">
 <meta property="og:image" content="${ORIGIN}/og/card.png">
 <meta name="twitter:card" content="summary_large_image">
-${jsonLdScript(SHARED_MEMORY_JSON_LD)}
+${jsonLdScript(page.jsonLd)}
 <style>
 body{margin:0 auto;max-width:42rem;padding:32px 20px 64px;font:18px/1.5 ui-sans-serif,system-ui,sans-serif;color:#1A1714;background:#FFFDF9}
 h1{font-size:2rem;line-height:1.15;font-weight:500}
@@ -189,13 +264,35 @@ p,li{margin:.4em 0}
 </style>
 </head>
 <body>
-<nav><a href="/">Context.LC</a> · <a href="/claude">Claude guide</a> · <a href="/agents">Grok Bot guide</a> · <a href="/llms.txt">llms.txt</a></nav>
+<nav><a href="/">Context.LC</a> · <a href="${MCP_PAGE_PATH}">Connect over MCP</a> · <a href="/claude">Claude guide</a> · <a href="/agents">Grok Bot guide</a> · <a href="${SHARED_MEMORY_PATH}">Shared AI memory</a> · <a href="/llms.txt">llms.txt</a></nav>
 <main>
-${markdownToHtml(SHARED_MEMORY_MARKDOWN)}
+${markdownToHtml(page.markdown)}
 </main>
 </body>
 </html>
 `;
+}
+
+/** `/shared-ai-memory`: the markdown above, with the FAQ data beside it. */
+export function renderSharedMemoryHtml(): string {
+  return renderPublicHtml({
+    title: SHARED_MEMORY_TITLE,
+    description: SHARED_MEMORY_DESCRIPTION,
+    url: SHARED_MEMORY_URL,
+    markdown: SHARED_MEMORY_MARKDOWN,
+    jsonLd: SHARED_MEMORY_JSON_LD,
+  });
+}
+
+/** `/mcp`: the endpoint, the transport and the sign-in, first on the page. */
+export function renderMcpPageHtml(): string {
+  return renderPublicHtml({
+    title: MCP_PAGE_TITLE,
+    description: MCP_PAGE_DESCRIPTION,
+    url: MCP_PAGE_URL,
+    markdown: MCP_PAGE_MARKDOWN,
+    jsonLd: MCP_PAGE_JSON_LD,
+  });
 }
 
 function cached(body: string | null, type: string, headers: HeadersInit = {}): Response {
@@ -218,7 +315,9 @@ export function publicPageResponse(page: PublicPageName, method: string): Respon
   const [body, type] =
     page === "sitemap"
       ? [SITEMAP_XML, "application/xml; charset=utf-8"]
-      : [renderSharedMemoryHtml(), "text/html; charset=utf-8"];
+      : page === "mcp-md"
+        ? [MCP_PAGE_MARKDOWN, "text/markdown; charset=utf-8"]
+        : [page === "mcp" ? renderMcpPageHtml() : renderSharedMemoryHtml(), "text/html; charset=utf-8"];
   return cached(method === "HEAD" ? null : body, type);
 }
 

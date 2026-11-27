@@ -31,10 +31,11 @@ describe("route: the apex is the Expo web app", () => {
   );
 
   it("preserves the query string", () => {
-    expect(at("https://context.lc/connect?provider=r2&step=2")).toEqual({
+    // Not bare `/connect`: that address moves to `/mcp` (`publicPages.test.ts`).
+    expect(at("https://context.lc/connect/google?code=abc&state=def")).toEqual({
       kind: "proxy",
       upstream: "expo",
-      path: "/connect?provider=r2&step=2",
+      path: "/connect/google?code=abc&state=def",
     });
   });
 

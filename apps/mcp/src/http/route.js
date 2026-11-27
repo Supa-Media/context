@@ -97,6 +97,7 @@ import { PAGE_PREFIX as LAB_SANDBOX_PAGES, handleLabSandboxPage } from "../../..
 import { BENCH_PATH, handleBench } from "../../../../packages/lab/gateway/bench/route.js";
 import { setBenchGateway } from "../../../../packages/lab/gateway/bench/plans.js";
 import { BRIDGE_PATH as LAB_BRIDGE_PATH, handleBridge } from "../../../../packages/lab/gateway/labSandbox/preview.js";
+import { landingResponse } from "./landing.js";
 
 // A bench runner object asks its searches through this handler (`packages/lab/gateway/bench/plans.js`).
 setBenchGateway((request, env, ctx) => route(request, env, ctx));
@@ -531,5 +532,7 @@ export async function route(request, env, ctx) {
       return json({ error: "not_found" }, 404);
     }
 
+    // The bare hostname says where the endpoint is (`landing.js`). Last, so it can take nothing from a route above.
+    if (path === "/" && !slug && (request.method === "GET" || request.method === "HEAD")) return landingResponse(request, origin, env);
     return json({ error: "not_found" }, 404);
 }

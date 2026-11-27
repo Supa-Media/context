@@ -26,7 +26,8 @@
  *     /llms.txt        -> the agent index, plain text (agentDocs.ts)
  *     /grokbot.md, /claude.md -> the setup guides, markdown
  *     /agents, /claude -> those guides as HTML, from the same source
- *     /sitemap.xml, /shared-ai-memory -> constants (publicPages.ts)
+ *     /sitemap.xml, /shared-ai-memory, /mcp, /mcp.md -> constants (publicPages.ts)
+ *     /connect         -> 301 to /mcp (the bare path only; /connect/<...> is the app's)
  *     /privacy, /terms -> 301 to /legal/privacy/, /legal/terms/ (static files)
  *     everything else  -> a link-preview crawler gets server-rendered meta
  *                         tags (a homepage website page's own card, or a
@@ -82,7 +83,7 @@ export { downloadResponse } from "./download";
 import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
 import { isTexHost, TEX_APEX, TEX_CARD_PATH, TEX_WWW_HOST, texPreviewFor } from "./texHost";
 import { ingestTarget } from "./analyticsIngest";
-import { publicPageFor, type PublicPageName } from "./publicPages";
+import { MCP_PAGE_PATH, publicPageFor, type PublicPageName } from "./publicPages";
 import { homePagePathOf } from "./homeSite";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
@@ -156,7 +157,7 @@ export type RouteDecision =
   // Agent docs: /llms.txt, the guides as markdown, and the same guides as HTML.
   // No auth. Ahead of the crawler branch so a bot gets the file, not a card.
   | { kind: "agent-doc"; doc: AgentDocName }
-  // /sitemap.xml and /shared-ai-memory, from constants (`publicPages.ts`).
+  // /sitemap.xml, /shared-ai-memory, /mcp and /mcp.md, from constants (`publicPages.ts`).
   | { kind: "public-page"; page: PublicPageName }
   // A crawler asking for an address that is neither a page nor a screen.
   | { kind: "not-found" }
@@ -347,6 +348,14 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   const legal = tex ? undefined : LEGAL_SHORT_PATHS[normaliseTrailing(pathname)];
   if (legal !== undefined) return { kind: "redirect", location: `https://${APEX}${legal}` };
 
+  // Bare `/connect` is no app screen (the app's are `/connect/<provider>/...`,
+  // untouched below). It is where someone guesses the connection page is, so
+  // it moves to that page, for a crawler and a person alike. The exact path
+  // only: a prefix rule here would swallow a connect link's one-use token.
+  if (!tex && normaliseTrailing(pathname) === "/connect") {
+    return { kind: "redirect", location: `https://${APEX}${MCP_PAGE_PATH}` };
+  }
+
   // A download link pasted into Slack is still a download link: ahead of the
   // crawler check, so the unfurler is sent to the file rather than a card.
   const download = downloadFor(pathname);
@@ -461,8 +470,6 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
         ? { kind: "preview", meta }
         : { kind: "preview", meta, robotsHeader: meta.robots };
     }
-    // Not a screen and not a page: the app's own not-found for a person.
-    if (normaliseTrailing(pathname) === "/connect") return { kind: "not-found" };
     // An address the homepage website may own (`homeSite.ts`). App screens,
     // `/@handle` and files are not among them, so a console path still gets
     // the frozen card below; `/` and `/a` are the landing and keep theirs.

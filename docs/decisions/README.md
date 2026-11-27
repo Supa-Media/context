@@ -405,6 +405,7 @@ Code comments and tests across the repo cite these by title — `see CLAUDE.md, 
 ## [The mobile app and the console](./app-and-console.md)
 
 - [Search and answer engines are recognised by name, and only real pages are offered to them](./app-and-console/crawler-surface.md#search-and-answer-engines-are-recognised-by-name-and-only-real-pages-are-offered-to-them-2026-11-26) (2026-11-26)
+- [The MCP endpoint is on a page of its own, and in every description](./app-and-console/crawler-surface.md#the-mcp-endpoint-is-on-a-page-of-its-own-and-in-every-description-2026-11-27) (2026-11-27)
 - [Above the right rail's rule, full-page apps; below it, side-panel apps](./app-and-console/rail-pages-and-panels.md#above-the-rails-rule-full-page-apps-below-it-side-panel-apps-2026-11-26) (2026-11-26)
 - [The vault is a tab on the right rail, and a phone's account sheet button, not a page of Settings](./app-and-console/vault-on-the-rail.md#the-vault-is-a-tab-on-the-right-rail-and-a-phones-account-sheet-button-not-a-page-of-settings-2026-11-23) (2026-11-23)
 - [Approvals are cards in the Tex chat, and there is no Approvals tab](./app-and-console/approvals-in-tex-chat.md#approvals-are-cards-in-the-tex-chat-and-there-is-no-approvals-tab-2026-11-19) (2026-11-19)

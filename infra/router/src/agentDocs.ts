@@ -181,7 +181,15 @@ One Claude login does not hold two Context accounts.
 Claude Code stores one sign-in per server URL. Adding \`${MCP_ENDPOINT}\` twice under two names does not make two Context accounts. \`--scope project\` writes \`.mcp.json\`, so the team shares the address. Each person still runs \`/mcp\` and signs in as themselves. The approval page is whoever is signed in at context.lc, so sign out before the next person approves.
 `;
 
-export const LLMS_TEXT = `# Context
+/**
+ * The agent index. It opens with the three connection facts, one per line and
+ * ahead of the heading, so a reader that stops early still has the endpoint.
+ */
+export const LLMS_TEXT = `MCP endpoint: ${MCP_ENDPOINT}
+Transport: Streamable HTTP
+Auth: OAuth (no API key)
+
+# Context
 
 > Shared Markdown notes for people, groups, and the AI tools they use. An agent connects at ${MCP_ENDPOINT} and signs in with OAuth.
 
@@ -193,11 +201,13 @@ Context does not charge for an account. A new address joins the waitlist. One co
 
 - [Claude](${GUIDE_ORIGIN}/claude.md): set up Context in Claude and Claude Code
 - [Grok Bot](${GUIDE_ORIGIN}/grokbot.md): set up Context in Grok Bot
+- [Connect over MCP](${GUIDE_ORIGIN}/mcp.md): the endpoint, the transport, and the sign-in for any MCP client
 
 ## Pages
 
 - [Claude guide](${GUIDE_ORIGIN}/claude): the same Claude guide as a page
 - [Grok Bot guide](${GUIDE_ORIGIN}/agents): the same Grok Bot guide as a page
+- [Connect over MCP](${GUIDE_ORIGIN}/mcp): the same connection page as HTML
 - [Shared AI memory](${GUIDE_ORIGIN}/shared-ai-memory): how ChatGPT, Claude, Cursor, and other MCP clients share one set of notes you own
 `;
 

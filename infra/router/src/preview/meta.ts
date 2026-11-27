@@ -25,10 +25,10 @@ export const BRAND_NAME = "Context.LC";
 
 /** The homepage's title and description: the crawler's card and the app shell's head say the same. */
 export const HOME_TITLE = "Context.LC — Less chaos. Finally, everyone’s on the same page.";
+/** It names the MCP endpoint outright: an assistant asked "can you connect to context.lc" reads this first. */
 export const HOME_DESCRIPTION =
-  "Shared memory for you, your team and every AI you use. ChatGPT, " +
-  "Claude, Cursor and other MCP clients read the same plain Markdown notes, " +
-  "kept in storage you own.";
+  "Shared memory for your team and every AI you use, in Markdown notes you own. " +
+  `MCP server: ${MCP_ENDPOINT}. Sign in with OAuth from ChatGPT, Claude or Cursor.`;
 
 /**
  * The home page's structured data: Google reads `WebSite` for the site name
@@ -315,6 +315,7 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
     ? `<nav>
     <a href="${ORIGIN}/agents">Grok Bot guide</a>
     <a href="${ORIGIN}/claude">Claude guide</a>
+    <a href="${ORIGIN}/mcp">Connect over MCP</a>
     <a href="${ORIGIN}/shared-ai-memory">Shared AI memory</a>
     <a href="${ORIGIN}/llms.txt">llms.txt</a>
   </nav>
