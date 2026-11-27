@@ -83,7 +83,7 @@ chat keeps its people in the test chat instead, with roles in the Lab user's own
 | Five personas, their workspaces, memberships and 41 fixture notes, in managed buckets of their own | The seed, every preview |
 | Tex answering a text through the simulator (1:1), and in the app's Tex chat | Checked on every preview |
 | Search by meaning (the workspace object's index, Workers AI embeddings) | Checked on every preview |
-| The models Tex calls: real, through the AI gateway, billed like staging | The gateway's secrets |
+| The models Tex calls: real, through the AI gateway, billed like staging, only when the preview's deploy has the `AI_GATEWAY_*` secrets; without them every turn runs on GLM-4.7 Flash (Workers AI), so a turn's wording and tool use there are not production's (Haiku). The deploy log names each secret it did not get | The gateway's secrets |
 | Web search, maps | Same keys as staging |
 | Teardown: Workers, Workflows, Durable Objects, Convex deployment, emptied buckets, search databases, indexes and scoped R2 tokens, each checked gone | `packages/sandbox/src/teardown.mjs` `verifyGone`; a leftover fails the cleanup run |
 

@@ -203,3 +203,15 @@ test("a made-up chat's gateway call that throws or answers an error is kept on i
   assert.match(grant.last.failed.join(" | "), /\/agent: 503: .*storage_unavailable.* \| \/agent\/events: Error: no store/);
   assert.equal(grant.last.status, "ready");
 });
+
+// A made-up person's calendar (Dev2, 2026-11-27; made on the preview's Google emulator by
+// apps/convex/functions/texLabWorldCalendar.ts, whose own test reads it through the real calendar route).
+test("a made-up person's calendar is asked for by events, only for someone on Context, and goes to the control plane", async () => {
+  const dinner = { title: "Dinner  with Mom", start: "2026-11-28T19:00:00-05:00", end: "2026-11-28T21:00:00-05:00" };
+  const read = worldInput({ people: [{ name: "Ana", calendar: { events: [dinner] } }, { name: "Ben" }] });
+  assert.deepEqual(read.world.people[0].calendar, { events: [{ title: "Dinner with Mom", start: "2026-11-29T00:00:00.000Z", end: "2026-11-29T02:00:00.000Z" }] });
+  assert.equal(worldInput({ people: [{ name: "Ana", calendar: { events: [], shared: false } }] }).world.people[0].calendar.shared, false);
+  assert.match(worldInput({ people: [{ name: "Sam", account: "off", calendar: { events: [] } }] }).error, /no calendar here/);
+  assert.match(worldInput({ people: [{ name: "Ana", calendar: { events: [{ ...dinner, end: dinner.start }] } }] }).error, /ending after it starts/);
+  assert.match(worldInput({ people: [{ name: "Ana", calendar: { events: "dinner" } }] }).error, /\{ events/);
+});

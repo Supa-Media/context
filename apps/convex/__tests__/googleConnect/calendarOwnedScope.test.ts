@@ -217,6 +217,8 @@ describe("the owned pair is enough because every call is on the primary calendar
       "apps/convex/functions/lib/gatewayRoutes/calendarEditRequest.ts googleapis.com/calendar/v3/calendars/primary/events",
       "apps/convex/functions/lib/googlePush/watch.ts googleapis.com/calendar/v3/calendars/primary/events/watch",
       "apps/convex/functions/lib/googlePush/watch.ts googleapis.com/calendar/v3/channels/stop",
+      // The Lab's made-up people, on a preview's emulator only.
+      "apps/convex/functions/texLabWorldCalendar.ts googleapis.com/calendar/v3/calendars/primary/events",
       "apps/mcp/src/communications/calendar-google.js googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events",
     ]);
   });

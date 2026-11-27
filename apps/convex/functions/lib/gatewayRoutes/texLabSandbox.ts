@@ -15,6 +15,7 @@ import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import { dispatchWorkflow } from "../../texLabRuns";
 import { previewPullRequest } from "../labPreviewPullRequest";
+import { cleanPersonName, worldEmailOf, type WorldAnswer, type WorldPerson } from "../../texLabWorld";
 
 const ACTIONS = new Set(["who", "session", "draft", "set", "sets", "shared", "intakeChats", "previewChat", "world", "worldWorkspaces", "worldReach"]);
 /** The workflow that carries a test chat's calls to a pull request's preview (`packages/lab/gateway/labSandbox/preview.js`). */
@@ -43,11 +44,21 @@ export async function gatewayTexLabSandboxHandler(ctx: ActionCtx, body: Record<s
   // A made-up group chat's people (`texLabWorld.ts`): written only on an isolated preview, which the mutation checks.
   if (action === "world") {
     if (!(await ctx.runQuery(internal.functions.texLabSandbox.mayUseTestChats, { hashedAccessToken }))) return json({ status: "refused" });
+    let made: WorldAnswer;
     try {
-      return json(await ctx.runMutation(internal.functions.texLabWorld.makeWorld, args as never));
+      made = await ctx.runMutation(internal.functions.texLabWorld.makeWorld, args as never);
     } catch {
       return json({ status: "bad_request", error: "that made-up chat can't be made" });
     }
+    // The calendars its people asked for, once, when the chat is made (`texLabWorldCalendar.ts`).
+    const people = ((args as { people?: WorldPerson[] }).people ?? []).filter((p) => p.calendar !== undefined);
+    if (made.status !== "ok" || !made.made || people.length === 0) return json(made);
+    const key = String((args as { key?: unknown }).key ?? "");
+    const wired = await ctx.runAction(internal.functions.texLabWorldCalendar.wireWorldCalendars, {
+      groupKey: made.groupKey,
+      people: people.map((p) => ({ email: worldEmailOf(key, cleanPersonName(p.name) ?? p.name), calendar: p.calendar! })),
+    });
+    return json({ ...made, calendars: people.map((p, i) => ({ name: p.name, ...wired[i] })) });
   }
   return json(await ctx.runQuery(internal.functions.texLabSandbox.forGateway, { hashedAccessToken, action, args }));
 }
