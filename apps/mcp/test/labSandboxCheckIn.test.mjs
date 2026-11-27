@@ -4,7 +4,7 @@
 // draft wiring a check-in step (a Quiet check, a Research step) could not be tried before it shipped. Fake ids only.
 //
 // Sabotage (temporary local edits, reverted, 2026-11-22):
-//   route.js without the `checkin` case                         "a group test chat is refused" fails (400 is the unknown op's)
+//   route.js without the `checkin` case                         "a group's hours are bounded too" fails (the unknown op's words)
 //   checkin.js running the check-in on `env`, not the sandbox's  "the check-in runs on the test chat's draft" fails
 //   checkin.js dropping `hours` from `since`                     "... looks back the hours asked" fails
 
@@ -57,13 +57,14 @@ function routeWorld(people) {
   return { call, asked, restore: () => (globalThis.fetch = original) };
 }
 
-test("a group test chat is refused a check-in, another person's test chat does not exist, and hours are bounded", async () => {
+test("a group test chat's check-in is bounded as a 1:1's, another person's test chat does not exist, and hours are bounded", async () => {
   const w = routeWorld({ [ALICE]: { userId: "u_alice", workspaceId: "ws_alice" }, [BOB]: { userId: "u_bob", workspaceId: "ws_bob" } });
   try {
+    // A group's own check-in runs through its chat object (`checkin.js` `groupCheckIn`, run in labSandboxChat.test.mjs).
     const group = await w.call(ALICE, { op: "open", source: "chat", chatId: KEY });
-    const refused = await w.call(ALICE, { op: "checkin", sandboxId: group.body.sandboxId });
-    assert.equal(refused.status, 400, "a group test chat is refused");
-    assert.match(refused.body.error, /your own 1:1/);
+    const refused = await w.call(ALICE, { op: "checkin", sandboxId: group.body.sandboxId, hours: 0 });
+    assert.equal(refused.status, 400, "a group's hours are bounded too");
+    assert.match(refused.body.error, /hours is a whole number/);
     const mine = await w.call(ALICE, { op: "open", source: "chat" });
     assert.equal((await w.call(BOB, { op: "checkin", sandboxId: mine.body.sandboxId })).status, 404, "another person's test chat does not exist for them");
     const before = w.asked.filter((a) => a === "session").length;

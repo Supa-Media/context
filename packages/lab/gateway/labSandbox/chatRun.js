@@ -49,12 +49,13 @@ import { sandboxNamespace } from "./wire.js";
 import { sandboxGate, stepsOf, TURN_LIMIT_MS } from "./harness.js";
 import { attachmentsOf, pictureFetch } from "./inbound.js";
 import { hold, lineOf, rowLine } from "./line.js";
-import { boxNode, JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
+import { asidesOf, boxNode, JOB_LIMIT_MS, runJobs, sandboxInboxes } from "./jobs.js";
 import { boxStub, openRun } from "./jobBox.js";
 import { assetId, assetUrl } from "../fromGateway/labSandbox_sandboxTools.js";
 import { fitSteps } from "./steps.js";
 import { controlPlaneSwitch } from "./controlSwitch.js";
 import { labChatMail } from "./chatMail.js";
+import { CHAT_LOOK_PATH } from "../../../shared/src/groupRunQuestions.cjs";
 
 /** The made-up addresses the chat object calls; no request to either leaves this file. */
 export const LAB_GATEWAY = "https://lab-gateway.invalid";
@@ -338,7 +339,7 @@ export function wordsNow(rows, row, skip = null) {
  * carrying `reaction`; an edit or an unsend to `/edit`. A tapback is on Tex's text (its words, `onTex`) or on another's
  * (`onOther`), as Photon's `targetFromMe` says. An edit names the text by the id the object took it under.
  */
-export function inboundOf({ about, row, rows, address, sentHandles }) {
+export function inboundOf({ about, row, rows, address, sentHandles, chat = null }) {
   const from = address.phones.get(row.who) ?? address.phones.values().next().value ?? "+15555550101";
   const group = about.kind === "group";
   const participants = [...address.phones.values()];
@@ -352,6 +353,13 @@ export function inboundOf({ about, row, rows, address, sentHandles }) {
     const reaction = { ...kind, ...(onTex ? { words: String(target.text ?? "").trim().slice(0, MAX_QUOTED), onTex: true } : { words: "", onOther: true, ...(target !== undefined && String(target.text ?? "").trim() !== "" ? { otherWords: String(target.text).trim().slice(0, MAX_QUOTED) } : {}) }) };
     if (!group) return { path: "/react", body: { kind: "reaction", eventId, chatId: address.chatId, from, messageId: eventId, reaction } };
     return { path: "/group-accept", body: { kind: "group-message", eventId, groupId: address.groupId, line: address.line, from, participants: people, messageId: eventId, text: "", reaction } };
+  }
+  // A check-in now (`checkin.js`), as this Worker's cron hands one to a group's object (`/group-routine`, `groupRoutines.ts`
+  // `chatRoutineMessage`): run as its looker's tag, in production's own words, never a text anyone sent.
+  if (row.kind === "checkin" && group) {
+    const hours = Number.isInteger(row.checkin) ? row.checkin : 6;
+    const mail = Array.isArray(chat?.mail) ? { mail: chat.mail.length > 0 } : {};
+    return { path: "/group-routine", body: { groupId: address.groupId, line: address.line, runId: `run_lab${row.id}`, path: CHAT_LOOK_PATH, phone: from, ...(about.timeZone ? { timeZone: about.timeZone } : {}), since: (row.at ?? Date.now()) - hours * 3_600_000, ...mail } };
   }
   // Tex's number added to the group by whoever the row is from (`route.js` `added`), as Photon's `participantAdded` is handed over.
   if (row.kind === "joined") return { path: "/group-joined", body: { groupId: address.groupId, line: address.line, by: from, participants: people } };
@@ -532,11 +540,11 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     if (about.kind !== "group") await storage.put("texts:workspace", payload?.defaultWorkspaceId ?? "");
     const sentHandles = new Map(Object.entries(state.meta?.sentHandles ?? {}));
     // `inbound(address)`: what another chat's object hands this one (`/cross-ask`, `/cross-answer`), in place of a text.
-    const { path, body: message } = inbound === null ? inboundOf({ about, row, rows, address, sentHandles }) : inbound(address);
+    const { path, body: message } = inbound === null ? inboundOf({ about, row, rows, address, sentHandles, chat }) : inbound(address);
     // A test chat is one Tex already answers in (its grant is what the Lab opened it with): its object starts set up for
     // the people here, as the real chat's is after Tex's first turn there (`groupChat.ts` `setChatBound`).
     if (about.kind === "group" && fresh && (!isWorld || about.world?.introduced === true)) {
-      await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from ?? message.by ?? message.asker, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
+      await setChatBound(storage, { kind: "group-message", groupId: address.groupId, line: address.line, from: message.from ?? message.by ?? message.asker ?? message.phone, participants: message.participants ?? [...address.phones.values()], messageId: row.id, text: "" });
       // Already introduced, as a real chat Tex answers in is (`groupJoined.ts`): only an `added` row says hello here.
       if (row.kind !== "joined") await storage.put(INTRO_KEY, row.at ?? started);
     }
@@ -568,7 +576,8 @@ export async function runChatTurn({ env, stub, about, row, payload, token, confi
     const cause = [...new Set(answered.filter((d) => d.text !== "").flatMap((d) => book.causeOf(d.step)))];
     const ordered = book.view().filter((step) => cause.includes(step.id)).map((step) => step.id);
     await gate.flush();
-    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, from: "fd", line: rowLine(line, { out: true }), ...(quiet ? { quiet: true, note: `The chat object took the text (${outcome}) and Tex sent nothing.` } : { cause: ordered }), ...(said.length > 1 ? { parts: said } : {}), ...(grant.last !== null ? { group: grant.last } : {}), ms: at - started, steps: fitSteps(book.view()) } });
+    const asides = asidesOf(registry.crossOut, address.phones);
+    await callSandbox(stub, "row.add", { row: { id: replyId, reply: row.id, who: "Tex", text, at, prod: false, from: "fd", line: rowLine(line, { out: true }), ...(quiet ? { quiet: true, note: `The chat object took the text (${outcome}) and Tex sent nothing.` } : { cause: ordered }), ...(asides.length > 0 ? { asides } : {}), ...(said.length > 1 ? { parts: said } : {}), ...(grant.last !== null ? { group: grant.last } : {}), ms: at - started, steps: fitSteps(book.view()) } });
     // Each job the turn started runs now, on the same fences; its texts post as they are delivered.
     if (registry.jobs.size > 0) {
       phase.from = "job";

@@ -97,6 +97,15 @@ export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBo
       gate.record({ kind: "Chat", summary: path === "/cross-ask" ? `asked Tex in another chat: ${String(body.what ?? "").slice(0, 140)}` : "answered the chat that asked", tool: path === "/cross-ask" ? "ask_chat" : "chatAnswer" });
       return Response.json({ outcome: "queued" });
     }
+    // A private aside to someone's own 1:1 (`crossChat.ts` `sendAsides`): kept, never texted, and shown on the reply row
+    // (`chatRun.js`) with whom it went to, so a test chat shows what their own Tex would have been handed.
+    if (path === "/cross-aside" && request.method === "POST") {
+      const body = await request.clone().json().catch(() => null);
+      if (body === null || typeof body !== "object") return Response.json({ outcome: "bad" }, { status: 400 });
+      crossOut.push({ to: name, path, body });
+      gate.record({ kind: "Chat", summary: `texted privately: ${String(body.what ?? "").slice(0, 140)}`, tool: "text_privately" });
+      return Response.json({ outcome: "queued" });
+    }
     if (name.startsWith("job:")) {
       let job = jobs.get(name);
       if (!job) {
@@ -137,6 +146,18 @@ export function sandboxInboxes({ gate, makeJob, parentOfJob = () => null, makeBo
     } }),
   };
   return registry;
+}
+
+/**
+ * The private asides a turn handed someone's own 1:1 (`sandboxInboxes` keeps each `/cross-aside`): to whom, by the name the
+ * test chat knows them by, what about, and whether it is a calendar clash. Never texted from a test chat.
+ */
+export function asidesOf(crossOut, phones) {
+  const whoOf = new Map([...(phones ?? new Map()).entries()].map(([who, phone]) => [phone, who]));
+  return (Array.isArray(crossOut) ? crossOut : [])
+    .filter((out) => out?.path === "/cross-aside" && out.body && typeof out.body === "object")
+    .slice(0, 4)
+    .map(({ body }) => ({ to: whoOf.get(body.asker) ?? "someone", what: String(body.what ?? "").slice(0, 300), ...(body.calendar === true ? { calendar: true } : {}), ...(Array.isArray(body.texts) && body.texts.length > 0 ? { link: true } : {}) }));
 }
 
 /**

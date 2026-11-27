@@ -78,7 +78,7 @@ import { lineOf, measuredLine, rowLine } from "./line.js";
 import { addTex } from "./added.js";
 import { sandboxAsset } from "./pages.js";
 import { nightlyForReal, nightlyInTestChat } from "./nightlyRoute.js";
-import { checkInTestChat } from "./checkin.js";
+import { checkInTestChat, groupCheckIn } from "./checkin.js";
 import { searchBenchForPerson, searchForPerson } from "./search.js";
 import { forwardToPreview, openOnPreview } from "./preview.js";
 import { conversationOf, conversationStart, handleOf, setsList } from "./conversations.js";
@@ -639,11 +639,11 @@ async function serveLabSandbox(request, env, ctx, { origin = "https://context.lc
       if (view(state).running !== null) return refused(409, "a test text is still running: wait for its reply");
       // Checked against the chat as it will be once the text is cut; the cut itself waits until nothing can refuse it.
       const { row } = found;
-      const at = (state.rows ?? []).findIndex((r) => r.id === row.id);
-      const before = { ...state, rows: (state.rows ?? []).slice(0, at) };
+      const before = { ...state, rows: (state.rows ?? []).slice(0, (state.rows ?? []).findIndex((r) => r.id === row.id)) };
       if (row.kind === "reaction") return await react(deps, before, { msgId: row.on, emoji: row.emoji, as: row.who }, row.id);
       if (row.kind === "edit" || row.kind === "unsend") return await change(deps, before, { msgId: row.on, text: row.text, as: row.who }, row.kind, row.id);
       if (row.kind === "joined") return await addTex({ ...deps, helpers: routeHelpers() }, before, { as: row.who }, row.id);
+      if (row.kind === "checkin") return await groupCheckIn({ ...deps, helpers: routeHelpers() }, before, { as: row.who }, row.checkin, row.id);
       return await send(deps, before, { as: row.who, text: row.text, pics: row.pics, replyTo: row.replyTo }, row.id);
     }
     case "back":
