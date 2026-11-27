@@ -94,7 +94,8 @@ test("one pass keeps what it found in the chat's ledger as a name entry", async 
   });
   assert.deepEqual(out, { outcome: "done", found: 2, kept: 1 });
   assert.equal(asked.length, 1);
-  assert.equal(asked[0].system, "Find the names.");
+  assert.match(asked[0].system, /Find the names\.$/, "the guest-names module, after the map of how Tex works");
+  assert.match(asked[0].system, /WHERE YOU ARE: you are the Guest names step: After a group reply/);
   assert.equal(asked[0].model, "anthropic/claude-haiku-5-5");
   const names = ledger.kept.filter((entry) => entry.kind === "name");
   assert.deepEqual(names.map(({ guest: g, name, by }) => ({ g, name, by })), [{ g: DIEGO, name: "Diego", by: "tunde" }]);

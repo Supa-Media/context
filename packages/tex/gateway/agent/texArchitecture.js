@@ -23,6 +23,7 @@ import { TEX_MAP } from "./texArchitecture.generated.js";
 import { capabilitiesFor } from "./capabilities.js";
 import { texStep } from "./texConfig.js";
 import GENERATED_TRAINING from "../../src/texTraining.generated.json" with { type: "json" };
+import SHELF from "../../src/texNodeShelf.json" with { type: "json" };
 import { trainingOf, trainingText } from "../../src/texTraining.cjs";
 
 /** Every Training conversation, less what a bench process scores of it (`texTraining.cjs` `trainingOf`; production reads all). */
@@ -104,11 +105,23 @@ export const ROLES = Object.freeze({
     node: "nudgeOffer",
     you: "the Nudge: after Finish the text has the Front door's 1:1 answer ready, you say whether one offer line goes after it, and Text them sends that line with the answer. You never write the answer itself.",
   },
+  // Where it is, from its own node's label and goal (the config's, or the shelf's before it is wired): data, not words.
+  guestNames: { node: "guestNames" },
   daySummary: {
     node: "readTheHistory",
     you: "the nightly day summary: you write one line about a day of the chat, which Read the history later gives the Front door as the chat so far. Nothing you write reaches the person directly.",
   },
 });
+
+/** A step's own label and goal, from the config or, for a node still on the shelf, the shelf's definition of it. */
+function stepOf(node) {
+  try {
+    return texStep(node);
+  } catch {
+    return SHELF.nodes?.[node]?.node ?? null;
+  }
+}
+const goalOf = (node) => { const step = stepOf(node); return `the ${step?.label ?? node} step: ${step?.goal ?? ""}`; };
 
 /** The drawing and the one line on where `role` sits in it. */
 export function architectureFor(role) {
@@ -119,7 +132,7 @@ export function architectureFor(role) {
     "",
     TEX_MAP,
     "",
-    `WHERE YOU ARE: you are ${at.you}`,
+    `WHERE YOU ARE: you are ${at.you ?? goalOf(at.node)}`,
     // What Tex can do, and where (`capabilities.js`; Dev2, 2026-11-08): the roles that talk to people or guide or check what Tex says.
     ...(capabilitiesFor(role) === "" ? [] : ["", capabilitiesFor(role)]),
   ].join("\n");
@@ -138,7 +151,8 @@ const TRAINED_AS_MODULES = new Set(["fd", "job"]);
 export function trainingFor(role) {
   const node = ROLES[role]?.node;
   if (!node || TRAINED_AS_MODULES.has(node)) return "";
-  return trainingText(texStep(node), TRAINING);
+  const step = stepOf(node);
+  return step === null ? "" : trainingText(step, TRAINING);
 }
 
 /** `prompt` with the drawing ahead of it and, when its step reads Training labels that exist, their examples after it. */

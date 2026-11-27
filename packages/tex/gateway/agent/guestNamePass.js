@@ -22,6 +22,7 @@
 import { requestViaGateway } from "./aiGateway.js";
 import { cleanName } from "./groupNames.js";
 import { guestNameEntry, guestNamesFrom } from "./groupGuestNames.js";
+import { withArchitecture } from "./texArchitecture.js";
 import { texWords } from "./texConfig.js";
 
 export const GUEST_NAMES_MODEL = "anthropic/claude-haiku-5-5";
@@ -130,7 +131,7 @@ export async function nameGuestsFromChat({ ledger, chat, config, metadata, other
   let found;
   try {
     const reply = await request(
-      { model: GUEST_NAMES_MODEL, system: prompt, messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept)}` }], tools: [], maxTokens: 300, effort: "low" },
+      { model: GUEST_NAMES_MODEL, system: withArchitecture(prompt, "guestNames"), messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept)}` }], tools: [], maxTokens: 300, effort: "low" },
       config,
       { metadata },
     );
