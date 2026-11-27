@@ -6,7 +6,7 @@
  *
  *  - `POST /tex/mail-run` `{ workspaceId, path, mailboxId }` → `{ outcome, sent }`. The run reads what is new for its
  *    mailbox on the note, answers it the way Tex answers in a note's comments (`noteRun.js` `runNoteRun`: the note, the
- *    mail as the thread, the person's own Tex chat, their notes, reading only), and sends the answer to whoever wrote
+ *    mail as the thread, the person's own Tex chat, their notes, with every tool their own connection has), and sends the answer to whoever wrote
  *    last, from the mailbox's own "tex". Nothing new is `nothing`; the person is not texted.
  *
  * Who may: only the texting client, as the owner of a personal workspace (the session the Worker claimed), for a
@@ -145,6 +145,8 @@ async function serveRun(request, store, session, env, deps) {
       now: started,
       timeZone: DEFAULT_TIME_ZONE,
       noteReadMs: Date.now() - readStarted,
+      // The person's own connection, in full: reads and writes (Dev, 2026-11-27: "let it do anything no restrictions").
+      full: true,
     });
   } catch (error) {
     result = { outcome: "failed", error: String(error?.name ?? "Error") };

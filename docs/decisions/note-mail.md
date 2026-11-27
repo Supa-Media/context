@@ -182,8 +182,11 @@ in the mail asking for Seyi's raw thought, and nobody read it.
   runs with the Worker's secret (`/agent-texts/mail-runs/due`, `texMail.ts`): each gets a texting session minted as
   the person's next text would mint it (linked, not paused, a member who may operate), and the earlier token keeps
   working for whatever holds it. The gateway's `/tex/mail-run` (`agent/mailRunRoute.js`, node `mailRun`) reads what is
-  new for the mailbox, shows the lines before it as the thread, and answers with `runNoteRun`, the comments' run, which
-  only reads. The answer is sent back from the same texting grant, so it is signed `tex` on the mailbox it already
+  new for the mailbox, shows the lines before it as the thread, and answers with `runNoteRun`, the comments' run,
+  with `full`: every tool the person's own connection offers, writes included (Dev, 2026-11-27: "Just give tex private
+  mcp access please, let it do anything no restrictions"). A comment's run still only reads. A step nobody can take back
+  (an email, a handle claim, a vault key's first use) still waits for the person's yes in the tool, checked by the
+  gateway, as non-negotiable 5 holds. The answer is sent back from the same texting grant, so it is signed `tex` on the mailbox it already
   has. Nobody is texted.
 
 **Simplifying it away costs:** a reply to Tex sits in the note until the person thinks to ask, which is the Pablo

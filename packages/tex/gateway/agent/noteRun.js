@@ -52,9 +52,14 @@ const str = (value) => (typeof value === "string" ? value : "");
 const clip = (value, max) => str(value).slice(0, max);
 const tail = (value, max) => str(value).slice(-max);
 
-/** The offered tools a run may use: the read door's, minus the replies and the hand-over. Never a write. */
-export function noteRunTools(offered) {
-  return (Array.isArray(offered) ? offered : []).filter((tool) => typeof tool?.name === "string" && !RUN_OUT.has(tool.name) && doorAllows("read", tool.name, tool));
+/**
+ * The offered tools a run may use, minus the replies and the hand-over: the read door's, never a write, unless `full`
+ * (Tex in mail; Dev, 2026-11-27: "Just give tex private mcp access please, let it do anything no restrictions"), which
+ * keeps every tool the person's own connection offers. A step nobody can take back still waits for the person's yes in
+ * the tool itself, checked by the gateway, never by this list.
+ */
+export function noteRunTools(offered, { full = false } = {}) {
+  return (Array.isArray(offered) ? offered : []).filter((tool) => typeof tool?.name === "string" && !RUN_OUT.has(tool.name) && (full || doorAllows("read", tool.name, tool)));
 }
 
 /**
@@ -103,7 +108,7 @@ export function noteWords(text) {
   return comments.stripComments(typeof text === "string" ? text : "").replace(/\n{3,}$/, "\n");
 }
 
-export function noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience, cell = null, node = null }) {
+export function noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience, cell = null, node = null, full = false }) {
   if (isSheetCell(cell)) return sheetRunQuestion({ path, noteText, cell, ask, history, chatHistory, audience, node });
   return [
     "This is Tex inside a note's comment thread, not a text from a person. Nobody is texted: your answer is posted in the thread for the people who read the note.",
@@ -114,7 +119,7 @@ export function noteRunQuestion({ path, noteText, anchor, ask, history, pending,
     `The suggestion Tex has pending for these words, not yet taken: ${typeof pending === "string" && pending !== "" ? `"${clip(pending, RUN_REPLACE_CHARS)}"` : "(none)"}`,
     `The asker's own recent Tex chat, the newest last (their words with Tex; use it only where the ask needs it):\n\n${chatHistory ? tail(chatHistory, RUN_CHAT_CHARS) : "(not read)"}`,
     `Who reads this note: ${str(audience) || "only the asker"}. Everyone who reads it sees your answer, so quote their private notes or the Tex chat only where the ask needs them.`,
-    "You can read their notes with the tools you are given (read_note, search_notes and the rest), and you cannot write anything. Read a note before you name it.",
+    `You can use their notes with the tools you are given (read_note, search_notes and the rest). Your tools: ${full ? "reads and writes" : "reads only"}. Read a note before you name it.`,
     'Answer with only a JSON object, nothing before or after it: {"answer": "one or two plain sentences", "replace": null or "the whole new text for the highlighted words", "insert": null or "new text to add right after the highlighted words"}. ' +
       "Tag Tex on words to work on the note with you. When the ask wants something written (an outline, a list, a draft, a fix, the next part, more detail), do it in the note: " +
       "replace when the highlighted words themselves should change (give their whole new text, not a diff), insert when the new words belong after them and the highlighted words stay. " +
@@ -287,7 +292,7 @@ async function openNoteRunModel(controlPlane, session, env) {
  * `workspace` is the run's workspace ("@name"), or null for the asker's own. With `cell` (`{ row, column }`, a thread
  * on a sheet's cell) the run answers `changes` to the sheet instead of a `replace`.
  */
-export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null, noteReadMs = null, cell = null }) {
+export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null, noteReadMs = null, cell = null, full = false }) {
   const started = Date.now();
   try {
     await openNoteRunModel(controlPlane, session, env);
@@ -321,7 +326,8 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   }
 
   // Steps: a read starts here ("running") and `observe` reports it finished ("done"), matched by name in order.
-  const allowed = noteRunTools(offered).map((tool) => tool.name);
+  const tools = noteRunTools(offered, { full: full === true });
+  const allowed = tools.map((tool) => tool.name);
   const callTool = noteRunCallTool(dispatch, allowed, workspace);
   const open = [];
   const readPaths = [];
@@ -352,11 +358,11 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   say({ id: "step-think", label: "Thinking", state: "running" });
   try {
     turn = await runTurn({
-      question: noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience: audience ?? "only the asker", cell, node }),
-      tools: noteRunTools(offered),
-      grants: { write: [] },
+      question: noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience: audience ?? "only the asker", cell, node, full: full === true }),
+      tools,
+      grants: full === true ? null : { write: [] },
       callTool: tracked,
-      sandboxedBelow: true, // reads only, refused above before the session's dispatcher
+      sandboxedBelow: full !== true, // reads only, refused above before the session's dispatcher; a full run takes the turn's own guards
       env,
       builtinModelOverride: chosen,
       providerOptions: { ai: env.AI, gateway: aiGatewayConfig(env), metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "note_run" } },
