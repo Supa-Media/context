@@ -17,8 +17,10 @@ import { act } from "react";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// Grok Bot's webhook is saved, so Context can reach it; Socials has none (`botHookList`, read by every member).
+const HOOKS = [{ bot: "grok-bot", host: "bot.example.com", headerEnds: null, setByName: "seyi", lastCallAt: null, lastCallOk: null, lastCallStatus: null, canReplace: true }];
 jest.mock("convex/react", () => ({
-  useQuery: () => [],
+  useQuery: (ref: unknown) => ((jest.requireActual("convex/server") as { getFunctionName: (ref: unknown) => string }).getFunctionName(ref).endsWith("botHookList") ? HOOKS : []),
   useAction: () => async () => ({ ok: true, status: 200 }),
   useMutation: () => async () => null,
   useConvex: () => ({}),
@@ -103,7 +105,7 @@ describe("The bots folder", () => {
     expect(view).toContain("@shyoh's · only @shyoh can change them");
     await press(one("areas-bot-Grok Bot"));
     await settle();
-    expect(strip(one("bot-panel-whose").textContent)).toBe("Yours: only you change where it works and its caps");
+    expect(strip(one("bot-panel-whose").textContent)).toBe("Yours: only you change its setup, where it works and its caps.");
     // No file path in the panel (Dev2, 2026-11-26: "no need to show the full path").
     expect(strip(one("bot-panel-mail-note").textContent)).toContain("Mail, not a chat.");
     expect(strip(one("bot-panel-mail-note").textContent)).not.toContain("mail/seyi.md");
@@ -164,7 +166,7 @@ describe("The bots folder", () => {
     await settle();
     await press(one("areas-bot-Socials"));
     await settle();
-    expect(strip(one("bot-panel-whose").textContent)).toBe("Only @shyoh changes where it works and its caps");
+    expect(strip(one("bot-panel-whose").textContent)).toBe("Only @shyoh changes its setup, where it works and its caps.");
     expect(strip(one("bot-panel-mail-note").textContent)).not.toContain("socials/mail/seyi.md");
     await press(one("bot-panel-tab-works"));
     expect(all("bot-panel-cap-Weekly cap for Growth")).toHaveLength(0);
@@ -176,7 +178,7 @@ describe("The bots folder", () => {
     await mount(host([], { notes: NOTES, bodies: BODIES, files }), GROK);
     await settle();
     expect(all("areas-bots-view")).toHaveLength(0);
-    expect(strip(one("bot-panel-whose").textContent)).toBe("Yours: only you change where it works and its caps");
+    expect(strip(one("bot-panel-whose").textContent)).toBe("Yours: only you change its setup, where it works and its caps.");
     await press(one("bot-panel-refresh"));
     await settle();
     expect(files.some((line) => line.startsWith("create bots/grok-bot/mail/seyi.md\n# Mail with Grok Bot"))).toBe(true);
@@ -228,6 +230,50 @@ describe("The bots folder", () => {
     await press(one("areas-bot-Socials"));
     await settle();
     expect(all("bot-panel-refreshed")).toHaveLength(1);
+  });
+
+  test("every bot's health shows on the list for anyone, and its setup is on its own page, not its areas", async () => {
+    // Dev, 2026-11-27: "I can see the health of each bot at a glance, even if I dont own the bot", and "the setup
+    // options should be in the bot page".
+    windowOf(1440);
+    await mount(host(null, { notes: NOTES, bodies: BODIES }), BOTS);
+    await settle();
+    expect(strip(one("areas-bot-health-Grok Bot").textContent)).toBe("Not tried yet");
+    // A card that names no webhook is a bot that checks in, and this one never has.
+    expect(strip(one("areas-bot-health-Socials").textContent)).toBe("Not checking yet");
+    await press(one("areas-bot-Socials"));
+    await settle();
+    expect(strip(one("bot-panel-health").textContent)).toContain("Not checking yet");
+    // A reader sees what is saved and no way to change it.
+    expect(all("bot-setup-way-check")).toHaveLength(0);
+    expect(all("bot-setup-prompt")).toHaveLength(0);
+  });
+
+  test("its person picks how it reaches Context: a webhook, or checking in every 5 minutes", async () => {
+    // Dev, 2026-11-27: "as long as the agent is pinging every 5 minutes it can be in good standing".
+    windowOf(1440);
+    const writes: Write[] = [];
+    const notes = [...NOTES, { path: "bots/muse/about.md", properties: { holder: "Muse", kind: "agent", bot: "muse", belongs_to: "@seyi" } }];
+    const MUSE: FolderListing = { path: "bots/muse", folderDefault: "team", entries: [entry("file", "bots/muse/about.md")], truncated: false, manifestUsable: true };
+    await mount(host(writes, { notes, bodies: BODIES, files: [] }), MUSE);
+    await settle();
+    // A card that names no webhook checks in; it never has, so its setup prompt is open.
+    expect(one("bot-setup-way-check").getAttribute("aria-checked")).toBe("true");
+    expect(all("bot-setup-prompt")).toHaveLength(1);
+    expect(all("area-panel-hook-by-hand")).toHaveLength(0);
+    await press(one("bot-setup-way-webhook"));
+    await settle();
+    expect(writes.some(([path, key, value]) => path === "bots/muse/about.md" && key === "reach" && value === "webhook")).toBe(true);
+    expect(one("bot-setup-way-webhook").getAttribute("aria-checked")).toBe("true");
+    expect(all("area-panel-hook-by-hand")).toHaveLength(1);
+  });
+
+  test("a bot with a saved webhook is reached by it, so there is no way to pick", async () => {
+    windowOf(1440);
+    await mount(host([], { notes: NOTES, bodies: BODIES, files: [] }), GROK);
+    await settle();
+    expect(all("bot-setup-way-check")).toHaveLength(0);
+    expect(strip(one("area-panel-hook-saved").textContent)).toBe("Webhook at bot.example.com");
   });
 
   test("a bot answers when a line under its own name follows Context's setup check, read from that mail", () => {

@@ -26,6 +26,10 @@ export interface BotArea {
   readonly role: "owner" | "delegate";
   /** Its share of the bot's week here, or null for none. */
   readonly cap: number | null;
+  /** The area's modes, named in its setup prompt. */
+  readonly modes: readonly string[];
+  /** The person it acts for here, as a delegate. */
+  readonly actsFor?: string;
 }
 
 export interface Bot {
@@ -96,7 +100,7 @@ export function botsOf(root: string, notes: readonly ListNote[], me: string | un
       const role = isThis(seat.ownOwner) ? "owner" : isThis(seat.delegate) && seat.owner !== null && seat.owner.startsWith("@") ? "delegate" : null;
       if (role !== null) {
         const entry = works?.find((item) => item.area.toLowerCase() === seat.folder.toLowerCase());
-        areas.push({ folder: seat.folder, title: seat.folder === root ? "The whole workspace" : areaTitle(seat.name), role, cap: entry?.cap ?? null });
+        areas.push({ folder: seat.folder, title: seat.folder === root ? "The whole workspace" : areaTitle(seat.name), role, cap: entry?.cap ?? null, modes: seat.modes, ...(role === "delegate" && seat.owner !== null ? { actsFor: seat.owner } : {}) });
       }
       for (const child of node.areas) walk(child);
     };

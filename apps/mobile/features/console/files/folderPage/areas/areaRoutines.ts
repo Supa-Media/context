@@ -40,6 +40,8 @@ export interface RoutineState {
   readonly week: string;
   readonly routines: readonly RoutineRunState[];
   readonly usage: readonly { bot: string; area: string; used: number }[];
+  /** When each bot that checks in for its work last did (`orient { check: true }`); empty where none has. */
+  readonly checks: readonly { bot: string; at: number }[];
 }
 
 /** What the panel knows of the runs: the answer, still asking, or nothing (no gateway, or it doesn't keep runs). */
@@ -109,7 +111,15 @@ export function readRoutineState(body: unknown): RoutineState | null {
     const used = num(one.used);
     if (bot !== null && area !== null && used !== null) usage.push({ bot, area, used });
   }
-  return { week: str(fields.week) ?? "", routines, usage };
+  const checks: { bot: string; at: number }[] = [];
+  for (const raw of Array.isArray(fields.checks) ? fields.checks : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const one = raw as Record<string, unknown>;
+    const bot = str(one.bot);
+    const at = num(one.at);
+    if (bot !== null && at !== null) checks.push({ bot, at });
+  }
+  return { week: str(fields.week) ?? "", routines, usage, checks };
 }
 
 /** A front matter value as its line would read: a list joined with commas, a yes/no as written. */

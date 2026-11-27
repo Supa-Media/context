@@ -55,6 +55,7 @@ const STATE: RoutineState = {
     { path: "areas/finance/routines/daily/manager-loop.md", area: AREA, nextAt: ET(30, 10), lastAt: ET(27, 10), outcome: "held", bot: "grok-bot", answeredAt: null, problem: null },
   ],
   usage: [{ bot: "grok-bot", area: AREA, used: 12 }],
+  checks: [],
 };
 
 describe("rows", () => {
@@ -102,8 +103,9 @@ describe("the gateway's answer", () => {
       week: "2026-11-23",
       routines: [{ path: "a/routines/daily/x.md", area: "a", nextAt: 5, lastAt: 4, outcome: "nope", bot: "b", answeredAt: null, extra: 1 }, { nopath: true }],
       usage: [{ bot: "b", area: "a", used: 20 }, { bot: "b" }],
+      checks: [{ bot: "b", at: 9 }, { bot: "c" }],
     });
-    expect(read).toEqual({ week: "2026-11-23", routines: [{ path: "a/routines/daily/x.md", area: "a", nextAt: 5, lastAt: 4, outcome: null, bot: "b", answeredAt: null, problem: null }], usage: [{ bot: "b", area: "a", used: 20 }] });
+    expect(read).toEqual({ week: "2026-11-23", routines: [{ path: "a/routines/daily/x.md", area: "a", nextAt: 5, lastAt: 4, outcome: null, bot: "b", answeredAt: null, problem: null }], usage: [{ bot: "b", area: "a", used: 20 }], checks: [{ bot: "b", at: 9 }] });
   });
 });
 

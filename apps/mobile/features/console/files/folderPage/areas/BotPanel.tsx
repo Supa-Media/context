@@ -23,9 +23,10 @@ import { useMailRoute } from "../../../mailPage/MailRouteContext";
 import type { ListNote } from "../../listBlock/model";
 import type { PropertyChanges } from "../useFolderPage";
 import { OwnerFace, type Face } from "../Glyphs";
-import { mailJoinName } from "@context/shared/src/areaBots.cjs";
-import { checkHealth, firstMailNote, type Thread } from "./areaMail";
+import { firstMailNote, type Thread } from "./areaMail";
 import { botMailNote, mailOfBot, routinesOfBot, type Bot, type Conversation } from "./bots";
+import { BotSetup } from "./BotSetup";
+import { HealthWord, useBotHealth } from "./botHealth";
 import { noteStarted, refreshBot, refreshedThisSession, refreshesVersion, startedMail, subscribeRefreshes } from "./refreshBot";
 
 export interface BotPanelProps {
@@ -44,6 +45,8 @@ export interface BotPanelProps {
   io?: { read(path: string): Promise<{ text: string; etag?: string }>; write(path: string, text: string, expectedEtag?: string): Promise<unknown> };
   /** The workspace's `@handle`, named in what Refresh asks. */
   workspace?: string;
+  /** The workspace's id, for its saved webhooks in Setup; absent in a fixture. */
+  workspaceId?: string;
   chooseMany: (target: string, changes: PropertyChanges, creates: boolean) => Promise<string | null>;
   open: (path: string) => void;
   onClose: () => void;
@@ -57,19 +60,15 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: "mail", label: "Mail" },
 ];
 
-export function BotPanel({ bot, root, notes, conversations, threads, width, canEdit, me, faceOf, label, create, io, workspace, chooseMany, open, onClose }: BotPanelProps) {
+export function BotPanel({ bot, root, notes, conversations, threads, width, canEdit, me, faceOf, label, create, io, workspace, workspaceId, chooseMany, open, onClose }: BotPanelProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [tab, setTab] = useState<Tab>("activity");
   const [problem, setProblem] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const mail = mailOfBot(bot, conversations);
-  // Whether it answers Context's setup check, read from that mail (`areaMail.ts` `checkHealth`).
-  const check = mail
-    .map((each) => threads.get(each.path)?.check ?? null)
-    .filter((each): each is NonNullable<Thread["check"]> => each !== null)
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
-  const health = checkHealth(check, [bot.slug, mailJoinName(bot.name)]);
+  // Its health, from its webhook's last call or its last check-in, and its routines' answers (`botHealth.tsx`).
+  const health = useBotHealth(bot.name, bot.card.reach);
   const routines = routinesOfBot(bot, root, notes);
   const mine = me === undefined ? null : botMailNote(bot, me);
   const hasMine = mine !== null && (notes.some((note) => note.path === mine) || sent === mine || startedMail(mine));
@@ -142,19 +141,29 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
             {bot.name}
           </Text>
           <Text variant="treeMeta" style={styles.muted} numberOfLines={1}>
-            {`${botLabel(bot.card.bot || "grok")}${bot.whose ? ` · ${bot.whose}'s` : ""} · ${bot.card.reach === "webhook" ? "reached by its webhook" : "checks its mail"}`}
-            {health === "not answering" ? <Text variant="treeMeta" style={styles.warn} testID="bot-panel-health">{" · not answering"}</Text> : null}
+            {`${botLabel(bot.card.bot || "grok")}${bot.whose ? ` · ${bot.whose}'s` : ""}`}
           </Text>
         </View>
         <Pressable onPress={onClose} accessibilityLabel="Close" style={styles.iconButton} testID="bot-panel-close">
           <Icon name="close" size={14} color={colors.muted} />
         </Pressable>
       </View>
+      {/* How it is doing, first, for everyone who can see it (Dev, 2026-11-27: "see the health of each bot at a glance,
+          even if I dont own the bot"). */}
+      {health === undefined ? null : (
+        <View style={styles.health} testID="bot-panel-health">
+          <HealthWord health={health} strong />
+          <Text variant="treeMeta" style={styles.healthWhy}>{health.why}</Text>
+          {health.routines === null ? null : <Text variant="treeMeta" style={styles.healthWhy}>{health.routines}</Text>}
+        </View>
+      )}
+
       <View style={styles.lockRow}>
         <Text variant="treeMeta" style={styles.lock} testID="bot-panel-whose">
-          {bot.mine ? "Yours: only you change where it works and its caps" : `Only ${bot.whose || "its person"} changes where it works and its caps`}
+          {bot.mine ? "Yours: only you change its setup, where it works and its caps." : `Only ${bot.whose || "its person"} changes its setup, where it works and its caps.`}
         </Text>
-        {canWrite ? (
+        {/* Refresh is mail to the bot: with no webhook and no check-ins nothing would reach it. */}
+        {canWrite && health?.state !== "not set up" ? (
           <View style={styles.refreshBox}>
             <Pressable onPress={() => void refresh()} disabled={refreshing} style={[styles.smallButton, refreshing && styles.dim]} accessibilityLabel={`Ask ${bot.name} to refresh its setup, name and logo`} testID="bot-panel-refresh">
               <Text variant="treeMeta" style={styles.smallWord}>
@@ -169,6 +178,9 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
           </View>
         ) : null}
       </View>
+
+      {/* Setup is the bot's, so it lives here and not on each area it holds (Dev, 2026-11-27). */}
+      <BotSetup bot={bot} health={health} canEdit={canEdit} cardPath={bot.card.path} chooseMany={chooseMany} {...(workspace === undefined ? {} : { workspace })} {...(workspaceId === undefined ? {} : { workspaceId })} />
 
       <View style={styles.tabs} role="tablist">
         {TABS.map((each) => (
@@ -262,7 +274,7 @@ export function BotPanel({ bot, root, notes, conversations, threads, width, canE
         ) : null}
       </View>
 
-      {canWrite && mine !== null ? <Composer bot={bot} hasMine={hasMine} onSend={send} /> : null}
+      {canWrite && mine !== null ? <Composer bot={bot} hasMine={hasMine} reach={health?.via ?? "none"} onSend={send} /> : null}
       {problem === null ? null : <Text variant="treeMeta" role="alert" style={styles.problem}>{problem}</Text>}
       {sent === null ? null : <Text variant="treeMeta" style={styles.muted} testID="bot-panel-sent">Sent as mail. Open the conversation later to read its answer.</Text>}
     </View>
@@ -282,7 +294,7 @@ function CapField({ value, label, onCommit }: { value: number | null; label: str
 }
 
 /** The box to write to the bot: mail, and it says so. */
-function Composer({ bot, hasMine, onSend }: { bot: Bot; hasMine: boolean; onSend: (text: string) => Promise<void> }) {
+function Composer({ bot, hasMine, reach, onSend }: { bot: Bot; hasMine: boolean; reach: "webhook" | "check" | "none"; onSend: (text: string) => Promise<void> }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const fieldFont = useFieldFont(pointerType.ui);
@@ -306,7 +318,7 @@ function Composer({ bot, hasMine, onSend }: { bot: Bot; hasMine: boolean; onSend
         </View>
       )}
       <Text variant="treeMeta" style={styles.muted} testID="bot-panel-mail-note">
-        {`Mail, not a chat. ${bot.card.reach === "webhook" ? "Its webhook is told now" : "It reads this when it checks its mail"}, and it answers in the same note when it answers. Its thinking stays in its own app.`}
+        {`Mail, not a chat. ${reach === "webhook" ? "Its webhook is told now" : reach === "check" ? "It sees this when it next checks in" : "It gets this once it is set up"}, and it answers in the same note when it answers. Its thinking stays in its own app.`}
       </Text>
     </View>
   );
@@ -322,6 +334,8 @@ const makeStyles = (colors: Colors) =>
     warn: { color: colors.warnText },
     problem: { color: colors.critText },
     iconButton: { padding: space.x1, borderRadius: radii.sm },
+    health: { gap: 2, padding: space.x3, borderRadius: radii.card, backgroundColor: colors.chipFill },
+    healthWhy: { color: colors.text2, marginLeft: 14 },
     lockRow: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingBottom: space.x3, borderBottomWidth: 1, borderBottomColor: colors.line },
     lock: { flexGrow: 1, flexShrink: 1, color: colors.muted },
     refreshBox: { alignItems: "flex-end", gap: 2, flexShrink: 0 },

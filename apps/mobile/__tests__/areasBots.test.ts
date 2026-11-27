@@ -43,8 +43,8 @@ describe("bots", () => {
   test("the areas it holds, with its cap on each, and no cap where its card gives no number", () => {
     const grok = bots[0]!;
     expect(grok.areas).toEqual([
-      { folder: "areas/finance", title: "Finance", role: "delegate", cap: null },
-      { folder: "areas/operations/scorecard", title: "Scorecard", role: "owner", cap: 20 },
+      { folder: "areas/finance", title: "Finance", role: "delegate", cap: null, modes: [], actsFor: "@seyi" },
+      { folder: "areas/operations/scorecard", title: "Scorecard", role: "owner", cap: 20, modes: [] },
     ]);
     expect(capWords(grok)).toBe("20% of its week here");
     expect(capWords(bots[2]!)).toBe("No caps");
