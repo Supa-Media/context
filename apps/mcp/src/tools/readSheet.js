@@ -19,7 +19,8 @@ import { normalizePath } from "../notes/paths.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { toolError, toolText } from "./results.js";
 import { QUOTATION, toolReadFile } from "./readFile.js";
-import { MAX_SHEET_BYTES, isSheetPath, parseSheet, queryProblems, querySheet } from "../sheets/csv.js";
+import { MAX_SHEET_BYTES, commentsColumnOf, isCommentsColumn, isSheetPath, parseSheet, queryProblems, querySheet } from "../sheets/csv.js";
+import cellComments from "../../../../packages/shared/src/cellComments.cjs";
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 1000;
@@ -28,6 +29,28 @@ const HINT = "To add rows, write with action rows, args { path, append: [{...}] 
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const columnText = (column) => `${column.name}:${column.type}`;
+const MAX_LISTED_THREADS = 10;
+
+/**
+ * One line on the cell comments' open threads, as `read_note`'s `comments:` line says a note's:
+ * where each is (its row's file line and column) and its id. Null when no cell has a thread.
+ */
+function commentsLine(sheet) {
+  const column = commentsColumnOf(sheet);
+  if (column === null) return null;
+  const open = [];
+  let resolved = 0;
+  sheet.rows.forEach((row, index) => {
+    for (const thread of cellComments.cellThreads(row[column.name] ?? "")) {
+      if (thread.status === "open") open.push(`${thread.id} line ${index + 2} ${JSON.stringify(thread.quote)}`);
+      else resolved += 1;
+    }
+  });
+  if (open.length === 0 && resolved === 0) return null;
+  const listed = open.slice(0, MAX_LISTED_THREADS).join(", ") + (open.length > MAX_LISTED_THREADS ? ", …" : "");
+  const head = `cell comments: ${open.length} open`;
+  return [`${head}${open.length ? ` (${listed})` : ""}`, `${resolved} resolved`, `columns ["${column.name}"]`].join(", ");
+}
 
 /** The query's shape, checked before the sheet is looked at: nothing here depends on the sheet's content. */
 function queryArgs(args) {
@@ -79,7 +102,8 @@ export async function toolReadSheet(store, scope, rules, overrides, args = {}) {
     "kind: sheet",
     `etag: ${obj.etag}`,
     `rows: ${rows.length} of ${total} matching (${sheet.rows.length} in the sheet)`,
-    `columns: ${sheet.columns.map(columnText).join(", ")}`,
+    `columns: ${sheet.columns.filter((c) => !isCommentsColumn(c)).map(columnText).join(", ")}`,
+    ...[commentsLine(sheet)].filter((line) => line !== null),
     "trust: untrusted",
     "",
     QUOTATION,

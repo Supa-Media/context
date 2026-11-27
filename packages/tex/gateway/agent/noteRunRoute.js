@@ -5,6 +5,7 @@
  *
  *  - `POST /tex/note-run` → a streamed `application/x-ndjson` answer: `{type:"step", id, label, state, ms?, source?}` as
  *    the run works, then `{type:"answer", text}`, `{type:"edit", replace}` when Tex suggests a new text for the anchor,
+ *    `{type:"sheet", changes}` when a thread on a sheet's cell (`cell: { row, column }` in the body) changes the sheet,
  *    and `{type:"done", runId, sources}`. A run that does not answer ends in one `{type:"error", message}` line.
  *    Refusals before the stream are JSON `{error}`: 400 for a body, 403 for a workspace the person is not in, 404 for a
  *    note they cannot read, 503 while the `noteRun` step is not wired.
@@ -29,6 +30,8 @@ import { texConfigOf, texStep } from "./texConfig.js";
 import { personalNameFor } from "../../../../apps/mcp/src/context/identity.js";
 import { createControlPlane } from "../../../../apps/mcp/src/controlPlane.js";
 import { appendNoteRun, listNoteRuns } from "./noteRunLog.js";
+import { isSheetCell } from "./noteRunSheet.js";
+import { isSheetPath, MAX_SHEET_ROWS } from "../../../../apps/mcp/src/sheets/csv.js";
 
 export const NOTE_RUN_PATH = "/tex/note-run";
 export const NOTE_RUNS_READ_PATH = "/tex/note-runs";
@@ -81,7 +84,7 @@ const text = (value, max, min = 0) => typeof value === "string" && value.length 
  */
 export function parseRunBody(body) {
   if (!isObject(body)) return { error: "The body is not an object. Send a JSON object with workspace, path, thread, anchor, ask, history and pending." };
-  const { workspace, noteId, path, thread, anchor, ask, history, pending } = body;
+  const { workspace, noteId, path, thread, anchor, ask, history, pending, cell } = body;
   if (!text(workspace, MAX_ID, 1)) return { error: "workspace is missing. Send the note's workspace id or @name, then try again." };
   // The client's note id is optional and never trusted: the log's key is derived from the note as read (`logKeyOf`).
   if (noteId !== undefined && (!text(noteId, MAX_ID) || (noteId !== "" && !ID_TEXT.test(noteId)))) return { error: "noteId is not a note's id. Send it empty, then try again." };
@@ -99,6 +102,10 @@ export function parseRunBody(body) {
     }
   }
   if (pending !== null && !text(pending, MAX_PENDING)) return { error: `pending is too long. Send null or up to ${MAX_PENDING} characters, then try again.` };
+  // A thread on a sheet's cell names its cell: a row of the file (from 0) and a column. Only a sheet has cells.
+  if (cell !== undefined && cell !== null && (!isSheetCell(cell) || cell.row >= MAX_SHEET_ROWS || !isSheetPath(path))) {
+    return { error: "cell: send { row, column }" };
+  }
   return {
     workspace,
     noteId,
@@ -108,6 +115,7 @@ export function parseRunBody(body) {
     ask: words,
     history: history.map((item) => ({ who: item.who, body: item.body })),
     pending,
+    cell: cell === undefined || cell === null ? null : { row: cell.row, column: cell.column },
   };
 }
 
@@ -284,6 +292,7 @@ async function serveRun(request, store, session, env, ctx, deps) {
         audience: note.audience,
         node,
         thread: parsed.thread,
+        cell: parsed.cell,
         now: started,
         timeZone: DEFAULT_TIME_ZONE,
         onStep: (step) => send(stepLine(step)),
@@ -301,6 +310,8 @@ async function serveRun(request, store, session, env, ctx, deps) {
       const sources = Array.isArray(result.sources) ? result.sources : [];
       send({ type: "answer", text: answer });
       if (typeof result.replace === "string") send({ type: "edit", replace: result.replace });
+      // A sheet's run: the changes for the app to apply to the sheet it has open (`noteRunSheet.js`).
+      if (result.changes !== null && typeof result.changes === "object") send({ type: "sheet", changes: result.changes });
       send({ type: "done", runId, sources });
       await chain;
       await appendNoteRun(env, target.workspaceId, await logKeyOf(note, parsed.path), {
@@ -309,7 +320,7 @@ async function serveRun(request, store, session, env, ctx, deps) {
         userId: typeof session.actorUserId === "string" ? session.actorUserId : null,
         ask: parsed.ask.slice(0, LOG_WORDS),
         out: answer.slice(0, LOG_WORDS),
-        replaced: typeof result.replace === "string",
+        replaced: typeof result.replace === "string" || (result.changes !== null && typeof result.changes === "object"),
         sources: sources.slice(0, LOG_SOURCES),
         at: started,
         model: typeof result.model === "string" ? result.model : null,

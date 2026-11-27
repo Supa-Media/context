@@ -16,9 +16,15 @@
  */
 
 import { isSheetPath as isSheetKind } from "../../../../packages/shared/src/fileKinds.cjs";
+import cellComments from "../../../../packages/shared/src/cellComments.cjs";
 
 export const SHEET_EXTENSION = ".csv";
-export const COLUMN_TYPES = Object.freeze(["text", "number", "usd", "date", "person", "select", "multiselect", "checkbox", "link"]);
+/**
+ * `comments` is not a type a person picks: it marks the one column a sheet keeps
+ * its cell comments in (`packages/shared/src/cellComments.cjs`), which the grid
+ * never draws and a read leaves out of the table.
+ */
+export const COLUMN_TYPES = Object.freeze(["text", "number", "usd", "date", "person", "select", "multiselect", "checkbox", "link", "comments"]);
 /** A sheet past either bound is held back and named, never cut short. */
 export const MAX_SHEET_BYTES = 5 * 1024 * 1024;
 export const MAX_SHEET_ROWS = 50_000;
@@ -358,7 +364,8 @@ export function querySheet(sheet, { where = [], sort, last, limit, columns } = {
   const total = rows.length;
   if (Number.isInteger(last) && last >= 0) rows = rows.slice(Math.max(0, rows.length - last));
   if (Number.isInteger(limit) && limit >= 0) rows = rows.slice(0, limit);
-  const keep = columns?.length ? columns.map((n) => findColumn(sheet, n)).filter(Boolean) : sheet.columns;
+  // The comments column is conversation about the cells, not a value: shown only when asked for by name.
+  const keep = columns?.length ? columns.map((n) => findColumn(sheet, n)).filter(Boolean) : sheet.columns.filter((c) => !isCommentsColumn(c));
   return {
     columns: keep,
     total,
@@ -466,14 +473,27 @@ export function renameColumn(sheet, from, to) {
   const clean = String(to ?? "").replace(/[,:\r\n"]/g, " ").trim();
   if (!column || !clean || clean === column.name) return sheet;
   if (findColumn(sheet, clean) && clean.toLowerCase() !== column.name.toLowerCase()) return sheet;
+  // A cell's threads name their column, so they follow it to its new name.
+  const notes = sheet.columns.filter(isCommentsColumn);
   return {
     columns: sheet.columns.map((c) => (c === column ? { ...c, name: clean } : c)),
     rows: sheet.rows.map((r) => {
       const out = {};
       for (const c of sheet.columns) out[c === column ? clean : c.name] = r[c.name];
+      for (const c of notes) if (c !== column) out[c.name] = cellComments.renameCellColumn(out[c.name] ?? "", column.name, clean);
       return out;
     }),
   };
+}
+
+/** The column a sheet keeps its cell comments in. */
+export function isCommentsColumn(column) {
+  return column?.type === cellComments.COMMENTS_TYPE;
+}
+
+/** The sheet's comments column, or null when no cell has been commented on. */
+export function commentsColumnOf(sheet) {
+  return sheet.columns.find(isCommentsColumn) ?? null;
 }
 
 /** Changing a type never rewrites a value: one that no longer fits is kept and reported. */

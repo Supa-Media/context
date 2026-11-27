@@ -46,6 +46,8 @@ export interface NoteRunRequest {
   history: NoteRunTurn[];
   /** Tex's pending suggestion when this run revises it, else null. */
   pending: string | null;
+  /** A thread on a sheet's cell: its row in the file (from 0) and its column. Absent on a note. */
+  cell?: { row: number; column: string };
 }
 
 /** One line of the run's NDJSON stream. */
@@ -54,6 +56,8 @@ export type NoteRunEvent =
   | { type: "answer"; text: string }
   /** The whole new text for the anchored words; a later one supersedes an earlier one. */
   | { type: "edit"; replace: string }
+  /** A sheet cell's run: Tex's changes to the sheet, rows numbered from 1 (`packages/tex/gateway/agent/noteRunSheet.js`). */
+  | { type: "sheet"; changes: { cells: { row: number; column: string; value: string }[]; append: Record<string, string>[]; delete: number[] } }
   | { type: "done"; runId: string; sources: string[] }
   | { type: "error"; message: string };
 

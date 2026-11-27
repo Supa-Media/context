@@ -16,7 +16,7 @@ import { AgentRefusal, runTurn } from "./turn.js";
 import { builtinModel, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
-import { TEX_CONFIG } from "./texConfig.js";
+import { TEX_CONFIG, texWords } from "./texConfig.js";
 import { doorAllows, WEB_READS } from "./doorTools.js";
 import { ONE_TO_ONE_CHAT } from "./ledger.js";
 import { READ_DAY, weekTurn } from "./weekHistory.js";
@@ -24,6 +24,7 @@ import { DEFAULT_TIME_ZONE } from "./localNow.js";
 import { carryKey } from "./stretch.js";
 import { noteName } from "./noteConnect.js";
 import comments from "../../../shared/src/comments.cjs";
+import { isSheetCell, parseSheetRun, sheetRunParts, sheetStepLabel } from "./noteRunSheet.js";
 
 /** The caps a run's words are held to: the note, the Tex chat, the ask, one thread line, the words beside the highlight. */
 export const RUN_NOTE_CHARS = 12_000;
@@ -102,7 +103,8 @@ export function noteWords(text) {
   return comments.stripComments(typeof text === "string" ? text : "").replace(/\n{3,}$/, "\n");
 }
 
-export function noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience }) {
+export function noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience, cell = null, node = null }) {
+  if (isSheetCell(cell)) return sheetRunQuestion({ path, noteText, cell, ask, history, chatHistory, audience, node });
   return [
     "This is Tex inside a note's comment thread, not a text from a person. Nobody is texted: your answer is posted in the thread for the people who read the note.",
     `The note is ${str(path)}. Its words as they are now (up to ${RUN_NOTE_CHARS} characters):\n\n${clip(noteWords(noteText), RUN_NOTE_CHARS)}`,
@@ -127,6 +129,30 @@ export function noteRunQuestion({ path, noteText, anchor, ask, history, pending,
       '- Highlighted "recieve the keys on friday", asked "fix this": {"answer": "Fixed the spelling.", "replace": "receive the keys on Friday", "insert": null}\n' +
       '- Highlighted "Budget: $4,000", asked "who set this number?": {"answer": "Priya set it in the March planning note.", "replace": null, "insert": null}',
   ].join("\n\n");
+}
+
+/**
+ * The question for a thread on a sheet's cell (`noteRunSheet.js`): the sheet as a numbered table, the cell, and an
+ * answer that may change any cell of it, add rows and delete rows.
+ */
+function sheetRunQuestion({ path, noteText, cell, ask, history, chatHistory, audience, node }) {
+  const parts = sheetRunParts({ path, noteText, cell });
+  return [
+    sheetCellWords(node),
+    parts.where,
+    parts.anchor,
+    `Ask: "${clip(ask, RUN_ASK_CHARS)}"`,
+    `Thread so far:\n\n${threadOf(history)}`,
+    `Recent Tex chat:\n\n${chatHistory ? tail(chatHistory, RUN_CHAT_CHARS) : "(not read)"}`,
+    `Readers: ${str(audience) || "only the asker"}`,
+  ].join("\n\n");
+}
+
+/** The node's prompt modules (`p-<name>` in its context, `sheet-cell` in main's config), as Tex is given them. */
+function sheetCellWords(node) {
+  const words = texWords();
+  const names = (node?.ctx ?? []).map((entry) => /^p-([a-z][a-z0-9-]*)$/.exec(entry)?.[1]).filter((name) => typeof name === "string" && typeof words[name] === "string");
+  return (names.length > 0 ? names : ["sheet-cell"]).map((name) => words[name]).join("\n\n");
 }
 
 /**
@@ -255,12 +281,13 @@ async function openNoteRunModel(controlPlane, session, env) {
 }
 
 /**
- * Run Tex in a note: `{ outcome, answer, replace, sources, calls, model, usage, ms }`, where outcome is "answered", or a
+ * Run Tex in a note: `{ outcome, answer, replace, changes?, sources, calls, model, usage, ms }`, where outcome is "answered", or a
  * refusal ("daily_limit", "no_provider", "model_unavailable"). Writes nothing: not the note, not the thread, not the
  * ledger. `onStep({ id, label, state, ms?, source? })` is told as each read starts ("running") and ends ("done").
- * `workspace` is the run's workspace ("@name"), or null for the asker's own.
+ * `workspace` is the run's workspace ("@name"), or null for the asker's own. With `cell` (`{ row, column }`, a thread
+ * on a sheet's cell) the run answers `changes` to the sheet instead of a `replace`.
  */
-export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null, noteReadMs = null }) {
+export async function runNoteRun({ env, controlPlane, session, dispatch, offered, ledger = null, workspace = null, path, noteText, anchor, ask, history = [], pending = null, audience, node = null, now = Date.now(), timeZone, onStep = null, noteReadMs = null, cell = null }) {
   const started = Date.now();
   try {
     await openNoteRunModel(controlPlane, session, env);
@@ -325,7 +352,7 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
   say({ id: "step-think", label: "Thinking", state: "running" });
   try {
     turn = await runTurn({
-      question: noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience: audience ?? "only the asker" }),
+      question: noteRunQuestion({ path, noteText, anchor, ask, history, pending, chatHistory, audience: audience ?? "only the asker", cell, node }),
       tools: noteRunTools(offered),
       grants: { write: [] },
       callTool: tracked,
@@ -345,6 +372,12 @@ export async function runNoteRun({ env, controlPlane, session, dispatch, offered
     return { outcome: "model_unavailable", model: error.model ?? model, sources: sourcesOf(), calls, ms: Date.now() - started };
   }
   await meter(turn.usage, false, turn.model);
+  if (isSheetCell(cell)) {
+    // A sheet's run answers with changes to apply, never a replacement for words (`noteRunSheet.js`).
+    const sheet = parseSheetRun(turn.answer, RUN_ANSWER_CHARS);
+    say({ id: "step-think", label: sheetStepLabel(sheet.changes), state: "done", ms: Date.now() - thinking });
+    return { outcome: "answered", answer: sheet.answer, replace: null, changes: sheet.changes, sources: sourcesOf(), calls, model: turn.model, usage: turn.usage ?? null, ms: Date.now() - started };
+  }
   const parsed = parseNoteRun(turn.answer);
   const replace = parsed.replace ?? (parsed.insert !== null ? withInsert(anchor, parsed.insert) : null);
   // "Below" only when the addition starts a line of its own; carrying on the same line is "after".

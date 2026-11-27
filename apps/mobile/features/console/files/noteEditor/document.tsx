@@ -415,6 +415,10 @@ export function noteDocument(view: NoteView) {
             onChangeText={(next) => {
               wholeEdit?.(() => ({ text: next }));
             }}
+            // A cell's comments and Tex, as a note's words have them: the same signer, owner rule and Tex.
+            commenter={commenter ?? null}
+            commentModerator={commentModerator === true}
+            tex={texInNote?.host ?? null}
           />
           </View>
         ) : passphraseLocked ? (

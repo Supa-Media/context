@@ -37,6 +37,7 @@ import {
   wraps,
 } from "./columnLayout";
 import { MultiSelectPanel } from "./MultiSelectPanel";
+import { cellKey } from "./cellNotes";
 import { MultiSelectSheet } from "./MultiSelectSheet";
 import { ResizeEdge } from "./ResizeEdge";
 import { measureNode, type Anchor } from "./Popover";
@@ -101,6 +102,7 @@ export function SheetGrid({
   onEdgeHover,
   widthsOut,
   maxBodyHeight,
+  notes,
 }: {
   sheet: SheetData;
   /** The columns that show, in order (hidden ones are left out). */
@@ -139,6 +141,12 @@ export function SheetGrid({
    * stops at MAX_BODY_HEIGHT, which is what a page that scrolls wants.
    */
   maxBodyHeight?: number;
+  /**
+   * Cell comments (`CellComments`): the cells with an open thread, which get the
+   * corner mark (`cellKey`), and the cell whose thread is open, which gets the
+   * comments' amber wash as highlighted words do.
+   */
+  notes?: { marked: ReadonlySet<string>; open: { row: number; column: string } | null };
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -289,15 +297,20 @@ export function SheetGrid({
               </View>
             );
           }
+          const marked = notes?.marked.has(cellKey(row, c.name)) === true;
+          const opened = notes?.open?.row === row && notes.open.column === c.name;
           return (
             <Pressable
               key={c.name}
               accessibilityRole="button"
-              accessibilityLabel={`${c.name}, row ${index + 1}`}
+              accessibilityLabel={`${c.name}, row ${index + 1}${marked ? ", has comments" : ""}`}
               onPress={() => onCellPress(row, c.name)}
-              style={cellStyle}
+              style={[...cellStyle, opened && { backgroundColor: colors.commentWash }]}
               testID="sheet-cell"
+              // Where the cell comments' bar, chip and card find the drawn cell (`CellComments`).
+              {...({ dataSet: { sheetCell: cellKey(row, c.name) } } as object)}
             >
+              {marked ? <View pointerEvents="none" style={styles.noteMark} testID="sheet-cell-comment-mark" /> : null}
               <CellDisplay
                 type={c.type}
                 text={text}
@@ -527,6 +540,18 @@ const makeStyles = (colors: Colors) =>
       overflow: "visible",
     },
     cellNumber: { alignItems: "flex-end" },
+    // An open cell comment: an 8px triangle in the cell's top-right corner, in the comments' amber, as Google Sheets marks one.
+    noteMark: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      width: 0,
+      height: 0,
+      borderTopWidth: 8,
+      borderLeftWidth: 8,
+      borderTopColor: colors.warn,
+      borderLeftColor: "transparent",
+    },
     editing: { overflow: "visible", zIndex: 2, backgroundColor: colors.ground, boxShadow: "0 6px 18px -6px rgba(0,0,0,.35)" } as object,
     addCell: { width: ADD_WIDTH, height: ROW_HEIGHT, borderBottomWidth: 1, borderColor: colors.line },
     empty: { color: colors.chromeMuted, padding: space.x3 },

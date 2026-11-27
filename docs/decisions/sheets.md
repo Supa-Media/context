@@ -91,6 +91,12 @@ file line, filtered (`where`), sorted (`sort`), trimmed (`last`, `limit`) and
 narrowed (`columns`), marked untrusted like a file's words: whoever wrote the
 cells wrote a quotation, never an instruction.
 
+## Cell comments live in a comments column
+
+A cell's threads are kept in the sheet's hidden `comments` column, one cell
+per row, in a note's comment log (Dev, 2026-11-27). See
+[comments](./comments.md#a-sheets-cells-have-threads-kept-in-a-comments-column).
+
 ## What is deliberately not built
 
 No chart tab, no source tab, no formulas, no per-sheet views (filters, sorts,

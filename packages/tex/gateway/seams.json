@@ -36,6 +36,7 @@
     "apps/mcp/src/search/meaning/embed.js",
     "apps/mcp/src/search/settings.js",
     "apps/mcp/src/session.js",
+    "apps/mcp/src/sheets/csv.js",
     "apps/mcp/src/storageLayout.js",
     "apps/mcp/src/store/r2.js",
     "apps/mcp/src/store/texRouting.js",

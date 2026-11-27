@@ -44,7 +44,7 @@ export function fakeNoteRunFetch(options: { stepMs?: number } = {}): TexInNoteFi
     if (url.includes("/tex/note-runs")) {
       return new Response(JSON.stringify({ runs }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    const body = JSON.parse(String(init?.body ?? "{}")) as { ask?: string; anchor?: { text?: string }; path?: string };
+    const body = JSON.parse(String(init?.body ?? "{}")) as { ask?: string; anchor?: { text?: string }; path?: string; cell?: { row: number; column: string } };
     const words = body.anchor?.text ?? "";
     // The words with more after them, as an ask to add something gets: the test sees the addition land after the highlight.
     const replace = words === "" ? "Added by Tex." : `${words} Added by Tex.`;
@@ -60,8 +60,15 @@ export function fakeNoteRunFetch(options: { stepMs?: number } = {}): TexInNoteFi
         line({ type: "step", id: "2", label: "Editing", state: "running" });
         await sleep(stepMs / 2);
         line({ type: "step", id: "2", label: "Editing", state: "done", ms: stepMs / 2 });
-        line({ type: "edit", replace });
-        line({ type: "answer", text: answer });
+        if (body.cell) {
+          // A sheet cell's thread: Tex changes its own cell, as a sheet's run answers (`noteRunSheet.js`).
+          const value = `${words} (checked by Tex)`.trim();
+          line({ type: "answer", text: `Updated row ${body.cell.row + 1}.` });
+          line({ type: "sheet", changes: { cells: [{ row: body.cell.row + 1, column: body.cell.column, value }], append: [], delete: [] } });
+        } else {
+          line({ type: "edit", replace });
+          line({ type: "answer", text: answer });
+        }
         runs.unshift({ runId, who: "@seyi", ask: body.ask ?? "", out: answer, sources: [body.path ?? "this note"], at: new Date().toISOString(), private: false });
         line({ type: "done", runId, sources: [body.path ?? "this note"] });
         controller.close();

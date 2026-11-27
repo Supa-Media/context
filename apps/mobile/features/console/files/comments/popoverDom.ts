@@ -101,6 +101,8 @@ export interface CardModel {
   texStates: TexState[];
   /** Per event of `thread.events`: whether the viewer may delete it. */
   deletable: boolean[];
+  /** Where the thread is when its words are not beside it: a sheet cell's "In a group · row 2". */
+  context?: string;
 }
 
 /** What the card asks the editor to do. Each returns an error to show, or null. */
@@ -140,10 +142,17 @@ export function buildCard(model: CardModel, actions: CardActions): BuiltCard {
 }
 
 function subtitle(model: CardModel): string {
+  const said = invitation(model);
+  // A sheet cell's thread names its cell first, as the approved artboard has it ("In a group · row 2").
+  return model.context ? [model.context, said].filter(Boolean).join(" · ") : said;
+}
+
+function invitation(model: CardModel): string {
   // As in the mock, Tex is in the thread from the moment a message asks it, before it has answered.
   if (model.run !== null || model.thread?.events.some((event) => event.author === TEX_AUTHOR || /(^|\s)@tex\b/i.test(event.text ?? ""))) {
     return "Tex is in this thread";
   }
+  if (model.context) return "";
   const parts: string[] = [];
   if (model.tex) parts.push("Tex");
   if (model.people[0]) parts.push(model.people[0].name);
