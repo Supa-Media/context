@@ -6,7 +6,7 @@
  * and only when someone still unnamed spoke lately. Its output is counts, never a name.
  */
 import { aiGatewayConfig } from "../../aiGateway.js";
-import { nameGuestsFromChat } from "../../guestNamePass.js";
+import { guestHashes, nameGuestsFromChat } from "../../guestNamePass.js";
 import { ledgerPlace, ONE_TO_ONE_CHAT } from "../../ledger.js";
 
 export default async function guestNames(_input, io) {
@@ -24,6 +24,7 @@ export default async function guestNames(_input, io) {
       config: aiGatewayConfig(t.env),
       metadata: { feature: "guest-names", workspace: String(t.session?.workspaceId ?? ""), client: "guestNames" },
       others,
+      hashes: await guestHashes(t.group.numbers),
     });
     console.log(JSON.stringify({ event: "guest_names", ...out }));
     return out;

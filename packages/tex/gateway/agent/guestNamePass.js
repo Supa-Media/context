@@ -35,6 +35,23 @@ export const RECENT_GUEST_LINES = 8;
 const GUEST = /^guest-[0-9a-f]{4}$/;
 const MAX_NAMES_READ = 500;
 const NODE = "guestNames";
+/**
+ * Words people use to name themselves. A guest whose name someone else gave is read again only when a recent line
+ * of their own has one of these, so a chat whose guests are all named still costs no model call on most turns.
+ */
+const SELF_WORDS = /\b(i'?m|i am|it'?s|its|this is|call me|my name|name'?s|here)\b/i;
+
+/** The guests whose newest kept name someone else gave: their own word can still replace it. */
+export function openGuests(entries) {
+  const seen = new Set();
+  const open = new Set();
+  for (const entry of Array.isArray(entries) ? [...entries].sort((a, b) => (b?.at ?? 0) - (a?.at ?? 0)) : []) {
+    if (entry?.kind !== "name" || typeof entry.guest !== "string" || !GUEST.test(entry.guest) || seen.has(entry.guest)) continue;
+    seen.add(entry.guest);
+    if (entry.by !== entry.guest) open.add(entry.guest);
+  }
+  return open;
+}
 
 /**
  * The step's model and effort in this config (a Lab draft's included), main's shelf default when it has no such step.
@@ -59,13 +76,16 @@ export function saysName(text, name) {
   return new RegExp(`(^|[^\\p{L}\\p{M}])${escape(name)}($|[^\\p{L}\\p{M}])`, "iu").test(text);
 }
 
-/** The lines as the model reads them, oldest first: `[id] who: words`, a reply with whose text it was typed under. */
-export function renderLines(lines, names) {
+/**
+ * The lines as the model reads them, oldest first: `[id] who: words`, a reply with whose text it was typed under. A
+ * guest whose name someone else gave (`open`) shows it with their label, so their own word can still name them.
+ */
+export function renderLines(lines, names, open = new Set()) {
   const byId = new Map(lines.map((entry) => [idOf(entry), entry]));
   const who = (entry) => {
     if (entry?.from?.kind === "tex") return "Tex";
     const label = labelOf(entry);
-    if (label !== null) return names.get(label) ?? label;
+    if (label !== null) return names.has(label) && open.has(label) ? `${names.get(label)} (${label})` : names.get(label) ?? label;
     return typeof entry?.from?.name === "string" && entry.from.name !== "" ? entry.from.name : "someone";
   };
   const out = [];
@@ -77,6 +97,30 @@ export function renderLines(lines, names) {
   let text = out.join("\n");
   while (text.length > MAX_CHARS && out.length > 1) text = (out.shift(), out.join("\n"));
   return text;
+}
+
+/**
+ * Each guest's label by the hash of their number (`from.who` on every line), from the turn's numbers
+ * (`groupNames.js` `numbersOf`). A guest's first text in a chat is kept before the chat's people are read, so it
+ * carries no label (`worker/groupTurn.ts` `logGroupInbound` runs before `keepNames`); this ties it to them.
+ */
+export async function guestHashes(numbers) {
+  const out = new Map();
+  for (const { who, phone } of Array.isArray(numbers) ? numbers : []) {
+    if (typeof who !== "string" || !GUEST.test(who) || typeof phone !== "string" || phone === "") continue;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(phone));
+    out.set([...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""), who);
+  }
+  return out;
+}
+
+/** A line with no name, from a guest whose number's hash is known, named by their label. */
+export function withLabels(lines, hashes) {
+  if (!(hashes instanceof Map) || hashes.size === 0) return lines;
+  return lines.map((entry) => {
+    if (entry?.from?.kind !== "person" || typeof entry.from.name === "string" || !hashes.has(entry.from.who)) return entry;
+    return { ...entry, from: { ...entry.from, name: hashes.get(entry.from.who) } };
+  });
 }
 
 /** The model's answer as `[{guest, name, line}]`; anything else is none. */
@@ -95,9 +139,11 @@ export function readNames(answer) {
 
 /**
  * The names code lets through, from what the model said (`found`), the lines it was shown, the chat's kept names
- * (label → name) and the other people's names here (handles and display names of members).
+ * (label → name), the other people's names here (handles and display names of members) and the guests whose kept name
+ * someone else gave (`open`): what a guest says about themselves wins over it (Dev2, 2026-11-27, after asking two other
+ * assistants how they keep names), and only their own line can change it.
  */
-export function checkedNames(found, lines, kept, others = []) {
+export function checkedNames(found, lines, kept, others = [], open = new Set()) {
   const byId = new Map(lines.map((entry) => [idOf(entry), entry]));
   const unnamed = new Set(lines.map(labelOf).filter((label) => label !== null && !kept.has(label)));
   const taken = new Set([...kept.values(), ...others].map((name) => cleanName(String(name)).toLowerCase()).filter(Boolean));
@@ -105,9 +151,10 @@ export function checkedNames(found, lines, kept, others = []) {
   for (const { guest, name: said, line } of found) {
     const name = cleanName(said);
     const entry = byId.get(line);
-    if (!unnamed.has(guest) || name === "" || entry === undefined || entry.from?.kind === "tex") continue;
+    if (name === "" || entry === undefined || entry.from?.kind === "tex") continue;
     if (!saysName(entry.text, name)) continue;
     const own = labelOf(entry) === guest;
+    if (!unnamed.has(guest) && !(own && open.has(guest))) continue;
     const under = typeof entry.replyTo === "string" && labelOf(byId.get(entry.replyTo)) === guest;
     const byLabel = typeof entry.text === "string" && entry.text.includes(guest);
     if (!own && !under && !byLabel) continue;
@@ -121,31 +168,38 @@ export function checkedNames(found, lines, kept, others = []) {
 
 /**
  * One pass over the chat's newest lines: `{outcome, kept?}`. `others`: the names of the chat's members and anyone
- * else named here, so no guest is given one of them. `request` and `words` are for tests.
+ * else named here, so no guest is given one of them. `hashes`: guests' labels by number hash (`guestHashes`). `request` and `words` are for tests.
  */
-export async function nameGuestsFromChat({ ledger, chat, config, metadata, others = [], request = requestViaGateway, words = texWords() }) {
+export async function nameGuestsFromChat({ ledger, chat, config, metadata, others = [], hashes = new Map(), request = requestViaGateway, words = texWords() }) {
   if (!config || ledger === null || typeof ledger?.read !== "function" || typeof ledger?.append !== "function" || typeof chat !== "string") return { outcome: "none" };
   let lines;
   let kept;
+  let open;
   try {
     const [read, names] = await Promise.all([
       ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["text"], limit: LINES_READ }),
       ledger.read(chat, { before: Number.MAX_SAFE_INTEGER, kinds: ["name"], limit: MAX_NAMES_READ }),
     ]);
-    lines = (read?.entries ?? []).filter((entry) => typeof entry?.text === "string" && entry.text !== "").sort((a, b) => a.at - b.at);
+    lines = withLabels((read?.entries ?? []).filter((entry) => typeof entry?.text === "string" && entry.text !== "").sort((a, b) => a.at - b.at), hashes);
     kept = new Map(guestNamesFrom(names?.entries ?? []).map(({ guest, name }) => [guest, name]));
+    open = openGuests(names?.entries ?? []);
   } catch {
     return { outcome: "unread" };
   }
-  // Only when someone still unnamed spoke lately: a chat whose guests all have names costs no model call.
+  // Only when someone still unnamed spoke lately, or someone named by others may have named themselves: a chat whose
+  // guests all have names costs no model call.
   const recent = lines.slice(-RECENT_GUEST_LINES);
-  if (!recent.some((entry) => { const label = labelOf(entry); return label !== null && !kept.has(label); })) return { outcome: "nobody_unnamed" };
+  const worth = (entry) => {
+    const label = labelOf(entry);
+    return label !== null && (!kept.has(label) || (open.has(label) && SELF_WORDS.test(String(entry.text ?? ""))));
+  };
+  if (!recent.some(worth)) return { outcome: "nobody_unnamed" };
   const prompt = words["guest-names"];
   if (typeof prompt !== "string" || prompt === "") return { outcome: "no_prompt" };
   let found;
   try {
     const reply = await request(
-      { ...guestNamesSetup(config.tex), system: withArchitecture(prompt, "guestNames"), messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept)}` }], tools: [], maxTokens: 300 },
+      { ...guestNamesSetup(config.tex), system: withArchitecture(prompt, "guestNames"), messages: [{ role: "user", text: `THE LINES\n\n${renderLines(lines, kept, open)}` }], tools: [], maxTokens: 300 },
       config,
       { metadata },
     );
@@ -153,7 +207,7 @@ export async function nameGuestsFromChat({ ledger, chat, config, metadata, other
   } catch {
     return { outcome: "model_failed" };
   }
-  const names = checkedNames(found, lines, kept, others);
+  const names = checkedNames(found, lines, kept, others, open);
   if (names.length > 0) {
     try {
       await ledger.append(chat, names.map(({ guest, name, by }) => guestNameEntry(guest, name, { by: by === "" ? "chat" : by })));

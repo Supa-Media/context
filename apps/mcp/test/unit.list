@@ -75,6 +75,7 @@ test/agentSixTools.test.mjs
 test/agentTranscript.test.mjs
 test/agentTrustedSites.test.mjs
 test/agentTurnLimits.test.mjs
+test/openQuestion.test.mjs
 test/parallelReads.test.mjs
 test/pathAddressLinks.test.mjs
 test/agentHeldEcho.test.mjs
