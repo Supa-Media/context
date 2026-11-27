@@ -106,7 +106,10 @@ function keysOf(op) {
 /** Main's groups with the draft's own over them, as the Lab's `groupsOf` reads them. */
 function groupsIn(g) {
   const out = { ...(TEX_CONFIG.groups ?? {}) };
-  for (const [id, info] of Object.entries(g.groups ?? {})) if (info && typeof info === "object") out[id] = info;
+  for (const [id, info] of Object.entries(g.groups ?? {})) {
+    if (info === null) delete out[id];
+    else if (typeof info === "object") out[id] = info;
+  }
   return out;
 }
 
