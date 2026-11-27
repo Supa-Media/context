@@ -15,4 +15,6 @@ export declare function setupAnswer(fields: {
   failed: string | null;
   webhook: boolean;
   workspace?: string;
+  /** "sent" when Context sent the webhook a test routine for the check, else why not. */
+  routineTest?: string;
 }): string;

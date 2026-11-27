@@ -220,17 +220,23 @@ test("setup_bot binds, mails the check and answers with every step left, filled 
   // Dev, 2026-11-27: "could we make a context mcp action that makes it easier?", after seven bots stopped part way
   // through the pasted steps. One call, whose answer is the rest, filled in.
   const { store, calls, text } = await world({ role: "editor", name: "@seyi", workspaceSlug: "supa" });
+  const hooks = store.botHooks;
+  store.botHooks = async (request) => (request.action === "test" ? (calls.push(request), { ok: true, status: 200 }) : hooks(request));
   const result = await toolSetArea(store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" });
   assert.equal(result.isError, undefined, said(result));
-  assert.deepEqual(calls, [{ action: "bind", grantId: "grant-1", bot: "grok-bot", name: "Grok Bot" }]);
+  // A webhook bot's check goes to it as a test routine, so setup passes only when a routine wake reaches its main chat
+  // and gets done (the Capabilities bot, 2026-11-27: mail got through, routine wakes were dropped).
+  assert.deepEqual(calls, [{ action: "bind", grantId: "grant-1", bot: "grok-bot", name: "Grok Bot" }, { action: "test", bot: "grok-bot", routine: true }]);
   assert.equal((await mailOf(text, "bots/grok-bot/mail/context.md")).length, 1);
   const answer = said(result);
-  // The check, the as: name, the relay routine (its card says reach: webhook) and its picture, in that order.
-  const check = answer.indexOf('write { context: "@supa", action: "mail", path: "bots/grok-bot/mail/context.md"');
-  const as = answer.indexOf('pass as: "grok-bot"');
+  // The relay routine (its card says reach: webhook), the test routine to let through, the as: name and its picture.
   const relay = answer.indexOf("Never write to Context, reply, or send anything from this run.");
+  const routine = answer.indexOf('Context just sent your webhook a test routine whose job is to answer your setup check in "bots/grok-bot/mail/context.md"');
+  const as = answer.indexOf('pass as: "grok-bot"');
   const picture = answer.indexOf('path: "bots/grok-bot/about.md"');
-  assert.ok(check > 0 && as > check && relay > as && picture > relay, answer);
+  assert.ok(relay > 0 && routine > relay && as > routine && picture > as, answer);
+  // Not answered from the setup reply, which would prove nothing about routines.
+  assert.doesNotMatch(answer, /Answer Context's setup check now/);
   assert.match(answer, /orient \{ context: "@supa", for: "Grok Bot" \}/);
   // Bots sharing one workspace save their pictures to one file: each takes a lock and uploads its own copy (#4442).
   assert.match(answer, /mkdir \/workspace\/\.profile-picture\.lock/);
@@ -242,6 +248,9 @@ test("setup_bot leaves out the relay routine for a bot that checks its own mail,
   const result = await toolSetArea(mailer.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" });
   assert.equal(result.isError, undefined, said(result));
   assert.doesNotMatch(said(result), /webhook fires/);
+  // It checks its own mail, so it answers the check from its chat, and no test routine is sent.
+  assert.match(said(result), /Answer Context's setup check now/);
+  assert.equal(mailer.calls.filter((call) => call.action === "test").length, 0);
   // No workspace name known: no context: argument is made up.
   assert.doesNotMatch(said(result), /context: "/);
   const theirs = await world({ role: "editor", name: "@sayo" });
@@ -251,4 +260,12 @@ test("setup_bot leaves out the relay routine for a bot that checks its own mail,
   assert.deepEqual(theirs.calls, []);
   const member = await world({ role: "member", name: "@seyi" });
   assert.equal((await toolSetArea(member.store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" })).isError, true);
+});
+
+test("setup_bot falls back to answering the check from the chat when the test routine can't be sent", async () => {
+  const { store } = await world({ role: "editor", name: "@seyi" });
+  store.botHooks = async (request) => (request.action === "test" ? { error: "Grok Bot has no webhook here" } : { bot: null });
+  const result = await toolSetArea(store, "team", RULES, new PrivacyOverrides(), { setup_bot: "Grok Bot" });
+  assert.match(said(result), /The test routine could not be sent \(Grok Bot has no webhook here\)/);
+  assert.match(said(result), /Answer Context's setup check now/);
 });

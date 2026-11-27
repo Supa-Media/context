@@ -146,6 +146,14 @@ export async function toolSetupBot(store, scope, rules, overrides, raw) {
   if (bound.refused) return bound.refused;
   const slug = typeof store?.actor?.workspaceSlug === "string" ? store.actor.workspaceSlug.trim().replace(/^@/, "") : "";
   const webhook = String(bound.card.props.reach ?? "").trim().toLowerCase() === "webhook";
-  const rest = setupAnswer({ ...bound, card: bound.card.path, webhook, workspace: slug === "" ? undefined : `@${slug}` });
+  // A bot Context wakes by webhook gets its check as a test routine, so setup passes only when a routine wake reaches
+  // its main chat and gets done (`/gateway/bots/hook` `routine: true`, which names only this bot's check note).
+  let routineTest;
+  if (webhook && bound.checkPath !== null && bound.failed === null && typeof store.botHooks === "function") {
+    const sent = await store.botHooks({ action: "test", bot: bound.bot, routine: true }).catch(() => null);
+    // Why not, as the control plane said it, or the status the webhook gave; `setupAnswer` words the rest.
+    routineTest = sent?.ok === true ? "sent" : typeof sent?.error === "string" ? sent.error : sent === null ? "" : `status ${sent.status ?? 0}`;
+  }
+  const rest = setupAnswer({ ...bound, card: bound.card.path, webhook, workspace: slug === "" ? undefined : `@${slug}`, routineTest });
   return toolText([boundLine(bound), "", rest].join("\n"));
 }

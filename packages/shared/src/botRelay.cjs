@@ -18,7 +18,7 @@
 
 /** The one prompt every bot's webhook routine runs, word for word. */
 const RELAY_PROMPT =
-  "Read the payload. If it's a message or due work for this bot (type \"mail\" or \"routine\"), read the note it names through Context, reading only, and wake the main chat with the exact text, sender, time and note path. " +
+  "Read the payload. Mail and routines are passed on the same way: if its type is \"mail\" (a message) or \"routine\" (due work), read the note it names through Context, reading only, and wake the main chat with the exact text, sender, time, note path and the payload's job line, so the main chat answers the mail or does the routine's job now. " +
   "Never write to Context, reply, or send anything from this run.";
 
 function quoted(value) {
@@ -104,10 +104,19 @@ function refreshAsk(name, workspace, card) {
  * one-note card), `failed` why the check mail was not sent (null when it was), `webhook` whether Context wakes it by
  * webhook, `workspace` its @name when known.
  */
-function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace }) {
+function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace, routineTest }) {
   const ctx = contextArg(workspace);
   const steps = [];
-  if (checkPath && !failed) {
+  if (webhook) steps.push(relayStep());
+  if (checkPath && !failed && webhook && routineTest === "sent") {
+    // The check is answered only through the routine path (the Capabilities bot, 2026-11-27: mail got through while
+    // routine wakes were dropped, and a check answered from the setup reply proved neither).
+    steps.push(
+      `Context just sent your webhook a test routine whose job is to answer your setup check in ${quoted(checkPath)}. Don't answer it from this reply: let your webhook routine wake this chat with it, then do its job as you would any routine. ` +
+        "If no wake reaches this chat within 2 minutes, your webhook routine is not passing routines on: give it exactly the prompt in step 1, then run setup_bot again, which sends a new test. Without an answer within 5 minutes your card says you are not answering.",
+    );
+  } else if (checkPath && !failed) {
+    if (webhook) steps.push(`The test routine could not be sent (${routineTest || "no webhook saved"}), so answer the check from this chat for now, and set your webhook so routines reach you.`);
     steps.push(
       `Answer Context's setup check now, from this main chat, in one line as yourself: write { ${ctx}action: "mail", path: ${quoted(checkPath)}, args: { text: "<one line: you are set up>" } }. ` +
         "Without an answer within 5 minutes your card says you are not answering.",
@@ -121,7 +130,6 @@ function setupAnswer({ holder, bot, card, checkPath, failed, webhook, workspace 
     `Save to your memory: you are ${holder} in Context${where}, your mail name is ${quoted(bot)}, and when you write mail outside your own bots folder you pass as: ${quoted(bot)}. ` +
       `Start every session with orient { ${ctx}for: ${quoted(holder)} }.`,
   );
-  if (webhook) steps.push(relayStep());
   steps.push(pictureStep(card, workspace));
   steps.push("Then tell your person in one line which of these you finished, and what you still need from them.");
   return ["Now finish your setup, in order:", ...steps.map((step, at) => `${at + 1}. ${step}`)].join("\n");

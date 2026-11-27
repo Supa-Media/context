@@ -7,11 +7,18 @@
 import { useState } from "react";
 import { missingTest, SET_INFO, SETS, setsRatio, starsIn, type Conversation, type SetId } from "../../engine/sets";
 import { change, createChat, fold, setUi, showTest, useSets } from "../../engine/setsStore";
-import { Chev, Plus } from "./Menu.web";
+import { Chev, Menu, Plus, useMenu } from "./Menu.web";
 
-export function newChat(): Conversation {
-  return { id: "chat-" + Date.now().toString(36), title: "New chat", set: "dev", kind: "one", members: ["Jo"], msgs: [] };
+/** A new, empty chat of a kind: a 1:1 text, a group chat, or Tex in the Context app. The kind is set here, once. */
+export function newChat(kind: Conversation["kind"] = "one"): Conversation {
+  return { id: "chat-" + Date.now().toString(36), title: "New chat", set: "dev", kind, members: kind === "group" ? ["Jo", "Sam"] : ["Jo"], msgs: [] };
 }
+/** + New chat's kinds, with what each is (in-app tests artboard 01). */
+export const NEW_KINDS: Array<[Conversation["kind"], string, string]> = [
+  ["one", "1:1", "a person and Tex"],
+  ["group", "Group", "people and Tex"],
+  ["app", "In the app", "Tex in the Context app"],
+];
 
 /** The split of unit tests across the sets, against the 60/20/20 it should hold. */
 export function Ratio() {
@@ -50,15 +57,19 @@ export function SetsList() {
   const [drop, setDrop] = useState<SetId | null>(null);
   const [sure, setSure] = useState(false);
   const open = (c: Conversation) => setUi({ chat: c.id, msg: null, col: null, editing: false, fresh: null });
+  const menu = useMenu();
   return (
     <aside className="ts-sets" id="tstSets" aria-label="Sets">
       <div className="ts-sh">
         <b>Sets</b>
         <Ratio />
         <span className="sp" />
-        <button className="ib" id="newChat" title="New chat" aria-label="New chat" onClick={() => createChat(newChat())}>
+        <button className="ib" id="newChat" title="New chat" aria-label="New chat" aria-haspopup="menu" aria-expanded={menu.openId === "new"} onClick={(e) => menu.toggle(e, "new")}>
           <Plus />
         </button>
+        {menu.anchor && menu.openId === "new" ? (
+          <Menu anchor={menu.anchor} id="newChatMenu" onClose={menu.close} items={[{ head: "New chat" }, ...NEW_KINDS.map(([kind, label, what]) => ({ label, key: what, run: () => createChat(newChat(kind)) }))]} />
+        ) : null}
         <button className="ib" id="foldSets" title="Hide sets" aria-label="Hide sets" onClick={() => fold("sets", true)}>
           <Chev left />
         </button>

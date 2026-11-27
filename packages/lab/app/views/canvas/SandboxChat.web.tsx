@@ -39,6 +39,7 @@ import { Av } from "./world/parts.web";
 import { firstName } from "./world/worldModel";
 import { SandboxWrites } from "./SandboxWrites.web";
 import { ChatPick } from "./SandboxChatPick.web";
+import { isAppTestChat } from "../../engine/appChat";
 import type { Lit } from "./usePlayback";
 
 /** A US number as a phone shows it: "+14157918922" as "+1 (415) 791-8922"; any other as given. */
@@ -115,6 +116,7 @@ export function SandboxChat() {
     });
   };
   const rows: TextRow[] = [];
+  const app = isAppTestChat(sb);
   let sep = false;
   const copied = sb.rows.filter((r) => r.prod && !r.kind).length;
   for (const r of sb.rows) {
@@ -144,6 +146,8 @@ export function SandboxChat() {
       reactions: r.reactions?.map((x) => x.emoji),
       edited: r.edited,
       evt: !!r.kind,
+      // An in-app test chat's person's text: what was on screen, as the Testing grid shows it (artboard 04).
+      ...(app && !r.tex && !r.kind && (r.screen || !r.prod) ? { screen: r.screen ?? null } : {}),
     });
   }
 

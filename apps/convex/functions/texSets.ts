@@ -149,7 +149,7 @@ async function createConvo(ctx: MutationCtx, who: Who, a: { conv?: unknown; id?:
   let convo: unknown = a.conv;
   if (convo === undefined) {
     try {
-      convo = blank({ id: String(a.id ?? ""), title: typeof a.title === "string" ? a.title : undefined, set: typeof a.set === "string" ? a.set : undefined, kind: a.kind === "group" ? "group" : "one", members: Array.isArray(a.members) ? (a.members as string[]) : undefined } as never);
+      convo = blank({ id: String(a.id ?? ""), title: typeof a.title === "string" ? a.title : undefined, set: typeof a.set === "string" ? a.set : undefined, kind: a.kind === "group" || a.kind === "app" ? a.kind : "one", members: Array.isArray(a.members) ? (a.members as string[]) : undefined } as never);
     } catch (error) {
       if (error instanceof OpError) return { status: "bad_request", error: error.message };
       throw error;

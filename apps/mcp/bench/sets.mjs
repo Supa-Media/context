@@ -13,6 +13,7 @@ import { readTexConfig } from "../../../scripts/lib/texConfigFile.mjs";
 const require = createRequire(import.meta.url);
 const texSets = require("../../../packages/tex/src/texSets.cjs");
 const textDecide = require("../../../packages/tex/src/textDecide.cjs");
+const { screenProblems } = require("../../../packages/lab/src/texScreen.cjs");
 
 const { SETS, TARGET, DRIFT, check, ratio } = texSets;
 
@@ -107,6 +108,8 @@ export function problemsOf(convs, { config, why, folderOf: folderFn = folderOf, 
     const label = `${folderFn(c)}/${fileFn(c)}`;
     const add = (p) => out.push(`${label}: ${p}`);
     for (const p of check(c, config, { why })) add(p);
+    // An in-app conversation's screens are ones the app could send (`packages/lab/src/texScreen.cjs`).
+    if (c.kind === "app") for (const m of Array.isArray(c.msgs) ? c.msgs : []) if (m?.screen !== undefined) for (const p of screenProblems(m.screen)) add(`${m.id}: ${p}`);
     if (fileFn(c) !== `${c.id}.json`) add(`file name must be ${c.id}.json`);
     if (folderFn(c) === "test") add("test/ folder: Test conversations never live in the repo");
     else if (folderFn(c) !== c.set) add(`folder ${folderFn(c)} must match set ${c.set}`);

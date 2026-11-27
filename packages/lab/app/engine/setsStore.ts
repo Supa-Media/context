@@ -15,7 +15,7 @@ import type { Pic } from "@context/tex/src/texSets.d.cts";
 export type Op = SetOp | { op: "set"; value: SetId };
 
 /** A Test chat the viewer may not read: its counts only, from the eval service. */
-export type HiddenChat = { kind: "one" | "group"; msgs: number; stars: number };
+export type HiddenChat = { kind: "one" | "group" | "app"; msgs: number; stars: number };
 
 export type SetsState = {
   convs: Conversation[];

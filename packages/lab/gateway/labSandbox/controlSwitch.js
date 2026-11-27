@@ -21,6 +21,8 @@ export function controlPlaneSwitch({ about, chat, phones, gate, token, storage =
   const own = async (path, body) => {
     switch (path) {
       case "/agent-texts/session":
+      // An in-app test chat's turn asks for its user's app session (`clients.ts` `openAppSession`): the same test grant.
+      case "/agent-texts/app-session":
         return { status: "linked", accessToken: token, ...(about.timeZone ? { timeZone: about.timeZone } : {}) };
       case "/agent-texts/group": {
         if (body?.command?.kind === "stop" || body?.command?.kind === "start") {

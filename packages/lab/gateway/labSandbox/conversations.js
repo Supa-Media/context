@@ -50,7 +50,7 @@ export async function setsList(controlPlane, token) {
       id: c.id,
       title: String(c.title ?? c.id),
       set: c.set,
-      kind: c.kind === "group" ? "group" : "1:1",
+      kind: c.kind === "group" ? "group" : c.kind === "app" ? "app" : "1:1",
       people: c.kind === "group" ? (Array.isArray(c.members) ? c.members.length : 0) : 1,
       texts: c.msgs.filter((m) => m && typeof m.text === "string").length,
     }));
@@ -70,10 +70,14 @@ export function conversationStart(conv, kind, base) {
     const eid = eventId(at);
     const tex = m.tex === true || m.who === "Tex";
     const who = tex ? "Tex" : kind === "group" ? String(m.who ?? "Someone") : "You";
-    rows.push({ id: String(m.id ?? eid), eid, who, text: m.text, at, prod: true });
+    // An in-app conversation's messages keep what was on screen (`texSets.cjs`), and its history is marked as the app
+    // chat's own is in the person's one record (`ledger.js` `eventEntry`: `via: "app"`).
+    const screen = kind === "app" && !tex && m.screen ? { screen: m.screen } : {};
+    const via = kind === "app" ? { via: "app" } : {};
+    rows.push({ id: String(m.id ?? eid), eid, who, text: m.text, at, prod: true, ...screen });
     history.push(tex
-      ? { v: 1, id: `ev${eid.replace("-", "")}`, eid, at, kind: "text", event: "text", from: { kind: "tex" }, text: m.text, delivered: true }
-      : { v: 1, id: `ev${eid.replace("-", "")}`, eid, at, kind: "text", event: "text", from: { kind: "person", ...(kind === "group" ? { name: handleOf(m.who) } : {}) }, text: m.text });
+      ? { v: 1, id: `ev${eid.replace("-", "")}`, eid, at, kind: "text", event: "text", from: { kind: "tex" }, text: m.text, delivered: true, ...via }
+      : { v: 1, id: `ev${eid.replace("-", "")}`, eid, at, kind: "text", event: "text", from: { kind: "person", ...(kind === "group" ? { name: handleOf(m.who) } : {}) }, text: m.text, ...via });
   });
   return { rows, history };
 }

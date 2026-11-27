@@ -182,6 +182,29 @@ test("the bot's answer in the area's mail marks the routine answered and counts 
   assert.deepEqual(w.routines.state().usage, [{ bot: "grok-bot", area: AREA, used: 12 }]);
 });
 
+test("a bot that answers in the routine's own note marks that routine answered and counts what it used", { skip }, () => {
+  // Dev, 2026-11-27: "i fear that these routines may not be working": Finance answered its 12am run inside the routine
+  // note, as a bot told to read the note it names does, and the panel still said "Not answered yet".
+  const w = world({ worksIn: [`${AREA} · 20%`] });
+  w.routines.run();
+  w.at("2026-11-25T14:00:05.000Z");
+  w.routines.run();
+  w.told.length = 0;
+  w.at("2026-11-25T14:06:00.000Z");
+  const answer = withMail(DAILY, { from: "grok-bot", app: "Grok", text: "Scored every area.", at: "2026-11-25T14:06:00.000Z", used: 3 });
+  w.save("r1", ROUTINE, answer);
+  const state = w.routines.state();
+  assert.equal(state.routines[0].answeredAt, Date.parse("2026-11-25T14:06:00.000Z"));
+  assert.deepEqual(state.usage, [{ bot: "grok-bot", area: AREA, used: 3 }]);
+  // The answer went to nobody: the routine was sent to that bot, and it is the one answering.
+  assert.deepEqual(w.told, []);
+  // A person's line in a routine note is nobody's answer.
+  w.at("2026-11-26T14:00:05.000Z");
+  w.routines.run();
+  w.save("r1", ROUTINE, withMail(answer, { from: "@kim", text: "Looks good", at: "2026-11-26T14:01:00.000Z" }));
+  assert.equal(w.routines.state().routines[0].answeredAt, null);
+});
+
 test("once an area's share of the bot's week is spent, its routines and mail pings wait until Monday", { skip }, () => {
   const w = world({ worksIn: [`${AREA} · 20%`] });
   w.routines.run();

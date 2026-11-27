@@ -2,11 +2,11 @@
 import type { Conversation, Message } from "../../tex/src/texSets.cjs";
 export type SetOp =
   | { op: "title"; value: string }
-  | { op: "kind"; value: "one" | "group" }
+  | { op: "kind"; value: "one" | "group" | "app" }
   | { op: "members"; value: string[] }
   | { op: "set"; value: "training" | "dev" }
   | { op: "add"; msg: Partial<Message> & { who: string; text: string }; after?: string | null }
-  | { op: "edit"; msg: string; field: "who" | "text" | "kind" | "to" | "tex" | "pics"; value: unknown }
+  | { op: "edit"; msg: string; field: "who" | "text" | "kind" | "to" | "tex" | "pics" | "screen"; value: unknown }
   | { op: "remove"; msg: string }
   | { op: "move"; msg: string; before: string | null }
   | { op: "label"; msg: string; node: string; value: Record<string, unknown> | null }
@@ -29,4 +29,4 @@ export function applyOps<C extends Conversation>(convo: C, ops: SetOp[]): { conv
 export function keysOf(op: SetOp): string[];
 export function conflicts(mine: string[], theirs: string[]): string[];
 export function describe(op: SetOp, full?: boolean): string;
-export function blank(args: { id: string; title?: string; set?: "training" | "dev"; kind?: "one" | "group"; members?: string[] }): Conversation;
+export function blank(args: { id: string; title?: string; set?: "training" | "dev"; kind?: "one" | "group" | "app"; members?: string[] }): Conversation;

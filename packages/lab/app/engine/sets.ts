@@ -30,6 +30,9 @@ export const SET_INFO: Record<SetId, { name: string; note: string; color: string
 export const KIND_NAMES: Array<[string, string]> = [["text", "Message"], ["react", "Reaction to…"], ["reply", "Reply to…"], ["edit", "Edit of…"], ["delete", "Delete of…"]];
 export const EMOJI = ["👍", "❤️", "😂", "‼️", "❓", "👎"];
 
+/** A conversation's kind as a word, the same in the Testing header and a Tests page pill: "1:1", "group" or "in app". */
+export const kindWord = (kind: string | undefined) => (kind === "group" ? "group" : kind === "app" ? "in app" : "1:1");
+
 export const starsIn = (c: Conversation) => unitTests(c).length;
 export const nodeStars = (m: Message) => Object.values(m.labels || {}).filter((l) => l?.star).length;
 export const labelCount = (m: Message) => Object.keys(m.labels || {}).length;

@@ -221,8 +221,8 @@ describe("the Architecture test chat", () => {
     expect(q("#sbWorldMain")?.textContent).toMatch(/no shared workspace.*Set Code to #<PR>/);
     expect((q('#sbChatList [data-world="everyone"]') as HTMLButtonElement | null)?.disabled).toBe(true);
     await click('#sbPickTabs [data-tab="mine"]');
-    expect(qa("#sbChatList .mh").map((o) => o.textContent)).toEqual(["1:1", "Group chats"]);
-    expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Your 1:1 with Tex", "Band"]);
+    expect(qa("#sbChatList .mh").map((o) => o.textContent)).toEqual(["1:1", "In the app", "Group chats"]);
+    expect(qa("#sbChatList .mi .nm").map((o) => o.textContent)).toEqual(["Your 1:1 with Tex", "Tex in the app", "Band"]);
     await click('#sbPickTabs [data-tab="sets"]');
     expect(q("#sbChatList")?.textContent).toMatch(/The Test set never shows here/);
     // Shared with developers: the people who said yes; a test text there runs as them.
@@ -329,7 +329,7 @@ describe("the Architecture test chat", () => {
       await click("#sbChat");
       await click('#sbPickTabs [data-tab="test"]');
       await click('#sbPickTabs [data-tab="mine"]');
-      expect(qa("#sbChatList [data-chat]").map((b) => b.getAttribute("data-chat"))).toEqual(["me", "band"]);
+      expect(qa("#sbChatList [data-chat]").map((b) => b.getAttribute("data-chat"))).toEqual(["me", "app", "band"]);
     } finally {
       mockChatsFail = false;
     }

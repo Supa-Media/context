@@ -9,6 +9,7 @@ import { attachSandbox, readRecentSandboxes, readSandboxChats, readSandboxSets, 
 import { Pop } from "../bar/Pop.web";
 import { WorldPick } from "./world/WorldPick.web";
 import { useWorld } from "./world/worldStore";
+import { APP_CHAT } from "../../engine/appChat";
 
 type Tab = "mine" | "test" | "sets" | "shared";
 
@@ -72,7 +73,9 @@ export function ChatPick({ versionId }: { versionId: string }) {
       ? ""
       : sb.source.kind === "shared"
         ? "shared"
-        : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me")
+        : sb.source.kind === "chat" && sb.source.chatId === APP_CHAT
+          ? "" // "Tex in the app" already says the kind
+          : sb.source.kind === "maya" || (sb.source.kind === "chat" && sb.source.chatId === "me")
           ? "1:1"
           : sb.people.length
             ? sb.people.length + " people"
@@ -106,6 +109,8 @@ export function ChatPick({ versionId }: { versionId: string }) {
         const recent = (sb.recent ?? []).filter((c) => hit(c.name + " " + c.openedBy + " " + c.lastBy)).slice(0, 8);
         const one = sb.chats.filter((c) => (c.chatId === "me" || c.kind === "dm") && hit(c.chatId === "me" ? "Your 1:1 with Tex" : c.name));
         const groups = sb.chats.filter((c) => c.chatId !== "me" && c.kind !== "dm" && hit(c.name));
+        // Their chat with Tex in the Context app, beside the 1:1 whose history it shares (`withAppChat`).
+        const app = sb.chats.some((c) => c.chatId === "me") && hit("Tex in the app");
         const convs = sb.sets.filter((c) => hit(c.title));
         const recentList = recent.length ? (
           <div id="sbRecent">
@@ -177,6 +182,15 @@ export function ChatPick({ versionId }: { versionId: string }) {
                       <span className="meta">1:1</span>
                     </button>
                   ))}
+                  {app ? (
+                    <>
+                      <div className="mh">In the app</div>
+                      <button className="mi" data-chat={APP_CHAT} aria-current={cur === "chat:" + APP_CHAT} onClick={() => open({ kind: "chat", chatId: APP_CHAT, name: "Tex in the app" })}>
+                        <span className="nm">Tex in the app</span>
+                        <span className="meta">in app</span>
+                      </button>
+                    </>
+                  ) : null}
                   {groups.length ? <div className="mh">Group chats</div> : null}
                   {groups.map((c) => (
                     <button key={c.chatId} className="mi" data-chat={c.chatId} aria-current={cur === "chat:" + c.chatId} onClick={() => open({ kind: "chat", chatId: c.chatId, name: c.name })}>
@@ -184,7 +198,7 @@ export function ChatPick({ versionId }: { versionId: string }) {
                       {c.people != null ? <span className="meta">{c.people === 1 ? "only you" : c.people + " people"}</span> : null}
                     </button>
                   ))}
-                  {!one.length && !groups.length ? <div className="mnote">{sb.chats.length ? "No chat matches." : "No chats with Tex on your account yet."}</div> : null}
+                  {!one.length && !groups.length && !app ? <div className="mnote">{sb.chats.length ? "No chat matches." : "No chats with Tex on your account yet."}</div> : null}
                 </>
               ) : tab === "shared" ? (
                 <>
