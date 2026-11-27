@@ -174,9 +174,16 @@ export function NodeCases({ id, compact = false }: { id: string; compact?: boole
           </span>
         </div>
       ) : null}
-      {list.length === 0 && !open ? <p className="hint">No cases yet. A case gives this step its inputs and says what it should answer; Promote puts it in the repo, and `pnpm ai nodes` runs it through this step's code alone.</p> : null}
       {list.length === 0 && !open ? (
-        <button className="primary" id="addFirstCase" onClick={() => startNodeCase(id)}>
+        <p className="hint">
+          {compact
+            ? "No cases yet. A case gives this step its inputs and says what it should answer."
+            : "No cases yet. A case gives this step its inputs and says what it should answer; Promote puts it in the repo, and `pnpm ai nodes` runs it through this step's code alone."}
+        </p>
+      ) : null}
+      {list.length === 0 && !open ? (
+        // In the step panel it is a quiet button, so it does not outweigh the goal (Dev, 2026-11-26).
+        <button className={compact ? "ghostadd" : "primary"} id="addFirstCase" onClick={() => startNodeCase(id)}>
           + Add a case
         </button>
       ) : null}
@@ -193,7 +200,7 @@ export function NodeCases({ id, compact = false }: { id: string; compact?: boole
           + Add another case
         </button>
       ) : null}
-      <p className="hint small">The boxes come from the step's input and output shapes, so every step gets the same form. Kept cases live in the repo beside the other bench cases.</p>
+      {compact ? null : <p className="hint small">The boxes come from the step's input and output shapes, so every step gets the same form. Kept cases live in the repo beside the other bench cases.</p>}
     </div>
   );
 }
