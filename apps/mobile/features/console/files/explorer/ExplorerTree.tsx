@@ -11,6 +11,7 @@ import { NO_PICK } from "../selection";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
 import { useChatHomeTitles, withChatHomeTitles, withChatIcons } from "../chatHomeTitles";
+import { useLeaveFullPages } from "../../layout/leaveFullPage";
 
 /**
  * The scrolling body of the column: the tree, or the flat ranked list a
@@ -57,6 +58,7 @@ export function ExplorerTree({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const titles = useChatHomeTitles();
+  const leaveFullPages = useLeaveFullPages();
   return (
     <ScrollView
       style={styles.scroll}
@@ -107,6 +109,9 @@ export function ExplorerTree({
             setPicked(NO_PICK);
             files.toggleFolder(path);
             files.select(path);
+            // A folder's row toggles rather than selects, so it leaves Agent Mail, the map or the trash here too (Dev,
+            // 2026-11-26: "I clicked on the bots folder on the left and it did not go back to the bots screen").
+            leaveFullPages();
           }}
           onMenu={openMenu}
           onPick={onPick}
