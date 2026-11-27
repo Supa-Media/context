@@ -264,6 +264,7 @@ test/presence/movedNotice.test.mjs
 test/searchKeyed/census.test.mjs
 test/agentGroupActions.test.mjs
 test/agentGroupSignIn.test.mjs
+test/browserReach.test.mjs
 test/agentGroupOffer.test.mjs
 test/agentGroupGuests.test.mjs
 test/vaultChatShare.test.mjs
