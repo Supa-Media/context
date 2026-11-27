@@ -1,5 +1,6 @@
 /** Hears voice messages, keeps sent files, and reads the chat's history and the tools offered. One step of Tex's turn (`../texEntryPoint.js`). */
 
+import { readRoster } from "../roster.js";
 import { chatSearchOn, chatSearchTool } from "../chatSearch.js";
 import { transcriptionForwarder } from "../../../../../apps/mcp/src/ingestion/transcription.js";
 import { markChatWords, markUntrusted } from "../../../../../apps/mcp/src/privacy/egress.js";
@@ -64,6 +65,8 @@ export async function readTheHistory(t) {
   const computersRead = chatTurn && job === null && (group !== null || session.actorClientId === TEXTS_CLIENT_ID) ? tex.ahead("computers", () => machinesFor(env, session, controlPlane), []).catch(() => []) : null;
   // Their own mailboxes, read beside the rest so a mail search is told which it reaches (`mailAccounts.js`); a group's shared mail is told by `groupMail.js`.
   const mailRead = group === null ? tex.ahead("mail_accounts", () => readMailHealth(store), []).catch(() => []) : null;
+  // Who holds each area and which bots work there, in each workspace they reach (`roster.js`): a 1:1 chat's turn only.
+  const rosterRead = chatTurn && job === null && !runner && group === null && session.actorClientId === TEXTS_CLIENT_ID ? tex.ahead("roster", () => readRoster(dispatch, store.contexts), []).catch(() => []) : null;
   // The group chats they are in, read from their own 1:1 when the front door reads the `groups` module (`groupChats.js`).
   const groupsRead = chatTurn && job === null && !runner && group === null && session.actorClientId === TEXTS_CLIENT_ID && (groupsOn(env) || asksOn(env)) ? tex.ahead("my_groups", () => readTexterGroups(controlPlane, session), null).catch(() => null) : null;
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received, report: report !== null, read: () => markUntrusted(ledger), machines: group !== null || session.actorClientId === TEXTS_CLIENT_ID ? () => computersRead ?? machinesFor(env, session, controlPlane) : null, inGroup: group !== null, opened: () => pagesOpenedBefore(history), chooseStart: jobStartChooser({ env, config: texConfigOf(env), writer: store.ledger ?? null, turn: typeof body.turn === "string" ? body.turn : null }), unasked: group?.cause === "check_in" }) : null; // a job starts with the pages the chat opened (`jobPages.js`)
@@ -91,7 +94,7 @@ export async function readTheHistory(t) {
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
     });
   }
-  Object.assign(t, { attachments, background, computersRead, mailRead, groupsRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, chatSearch, week: weekMoment ? { read_day: weekMoment.read_day } : null });
+  Object.assign(t, { attachments, background, computersRead, mailRead, rosterRead, groupsRead, conversation, fresh, history, keptReads, learnedRead, logged, offered, threadsRun, view, chatSearch, week: weekMoment ? { read_day: weekMoment.read_day } : null });
 }
 // TEX ENTRY POINT: end
 

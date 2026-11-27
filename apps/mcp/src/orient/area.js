@@ -352,3 +352,26 @@ export async function areaSeatsSection(store, scope, rules, overrides) {
     return "";
   }
 }
+
+/**
+ * `orient { about: "roster" }`: who holds each area and which bots work here, in one short answer, for an agent that
+ * hands work on rather than reading a whole overview (Dev, 2026-11-27: Tex was "oblivious to the new bots, area
+ * charter flow, and mailing flow" and asked to send work to a bot it had to search for). The same lines the overview
+ * and `orient { for }` give, read the same way: only about.md notes and bot cards this connection can see.
+ */
+export async function rosterAnswer(store, scope, rules, overrides) {
+  const entries = await visibleEntries(store, scope, rules, overrides);
+  if (entries === null) return toolError("This workspace's map cannot be read just now; try again shortly.");
+  const jobs = await factJobs(store);
+  const areasRoot = jobs?.jobs?.areas ?? "areas";
+  const abouts = entries.map(({ key }) => key).filter((key) => key.startsWith(`${areasRoot}/`) && key.endsWith("/about.md"));
+  const props = abouts.length === 0 ? new Map() : await propsOf(store, abouts);
+  const byBot = new Map();
+  for (const path of abouts.sort()) {
+    const bot = botOfSeat(props.get(path)?.properties);
+    if (bot !== null) byBot.set(bot.toLowerCase(), [...(byBot.get(bot.toLowerCase()) ?? []), path.slice(0, -"/about.md".length)]);
+  }
+  const seats = await areaSeatsSection(store, scope, rules, overrides);
+  const bots = await otherBotsSection(store, entries, areasRoot, null, byBot);
+  return toolText([seats || "No area here names an owner yet.", bots].join("\n\n"));
+}

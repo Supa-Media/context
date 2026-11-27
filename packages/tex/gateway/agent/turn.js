@@ -291,7 +291,7 @@ export async function runTurn(options) {
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
-    workspaces = null, groups = "", devShare = "", mail = null, // and their mailboxes with each one's state (`mailAccounts.js`)
+    workspaces = null, groups = "", devShare = "", mail = null, roster = null, // `roster`: bots and areas (`roster.js`); and their mailboxes with each one's state (`mailAccounts.js`)
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
     // The life of the prefix's cache, "1h" or "5m" (`texConfig.js` `texCacheTtl`); absent: the gateway's own, an hour.
@@ -406,7 +406,7 @@ export async function runTurn(options) {
     tell({ kind: "model", step: "router", model, ms: clock() - asked, input: options.planned || nudge !== "" ? undefined : question, output: { tier: routed.tier, pick: routed.pick, ...confidence }, reason: options.planned ? "a long job is planned on the thinking model" : routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const examplesText = examples ? await awaitExamples(examples, { budgetMs: examplesBudgetMs, fallback: examplesFallback, trace, clock }) : "";
-  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, localNow, plan, nudge, freeze }); // `turnPrompt.js`
+  const promptFor = (answering) => turnPrompt(place, answering, { texting, inGroup, pictures, notes, models: router !== null ? { main: mainModel, think: router.think, jobsOnly: router.jobsOnly === true } : null, tools, history, threadNote, turnNote, examples: examplesText, webNames, progress, aboutMe, identity, jobs, voice, calendar, observe, workspaces, groups, devShare, mail, roster, localNow, plan, nudge, freeze }); // `turnPrompt.js`
   let prompt = promptFor(model);
   // The person's own text, with the turn's facts carried ahead of it (`providers.js`): set before every round.
   const questionMessage = { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) };
