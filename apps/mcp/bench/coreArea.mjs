@@ -8,6 +8,7 @@
  * and the tests only Context has are pulled into each tree first (the repository's own win) (`pnpm ai pull texting-assistant`).
  */
 import { execFile } from "node:child_process";
+import { isRouteGap } from "./benchGaps.mjs";
 import { fallbacksIn } from "./fallbacks.mjs";
 import { handoffTotals } from "./handoffTotals.mjs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -36,7 +37,7 @@ const REASON_CHARS = 300;
  * (gw Lab runs, 2026-11-18).
  */
 export function failureReason(error) {
-  const lines = String(error?.stderr ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = String(error?.stderr ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !harmless(line));
   const telling = lines.filter((line) => TELLING.test(line));
   const picked = (telling.length > 0 ? telling : lines.slice(-1)).map((line) => line.replace(SECRET, "[redacted]"));
   let reason = "";
@@ -48,16 +49,41 @@ export function failureReason(error) {
     }
     reason = next;
   }
-  if (reason !== "") return reason;
-  const code = error?.code ?? error?.signal;
+  // A process the runner killed (out of memory, a timeout) says so first: its own last line is not why it stopped.
+  const stopped = error?.signal ? `stopped by ${error.signal}` : "";
+  if (reason !== "") return stopped ? `${stopped}; ${reason}`.slice(0, REASON_CHARS) : reason;
+  if (stopped) return `${stopped}, no output`;
+  const code = error?.code;
   return code === undefined || code === null ? "no output" : `exit ${code}, no output`;
 }
+
+/**
+ * A `control_plane_failed` line for a route no tool waits on (`benchGaps.mjs` FAILS_NO_TOOL): a report sent behind
+ * the response that the bench's control plane doesn't answer. It fails nothing, so it is never the reason: the 11-27
+ * nightly's core error named a search-timing 404 and hid why the answer step stopped.
+ */
+function harmless(line) {
+  const json = line.replace(/^\[\d+\/\d+\]\s*/, "");
+  if (!json.startsWith("{")) return false;
+  try {
+    const event = JSON.parse(json);
+    return event?.event === "control_plane_failed" && typeof event.route === "string" && !isRouteGap(event.route);
+  } catch {
+    return false;
+  }
+}
+
+/** The last lines of a failed step's stderr, redacted, for the run's own log: the reason keeps 300 characters of it. */
+const TAIL_LINES = 40;
 
 /** One bench step's process, or an error that says which step and why, never its command line. */
 async function step(name, exec, args, options) {
   try {
     return await exec(process.execPath, args, options);
   } catch (error) {
+    const tail = String(error?.stderr ?? "").split("\n").filter((line) => line.trim()).slice(-TAIL_LINES);
+    if (tail.length) process.stderr.write(`${name} failed; its last ${tail.length} stderr lines:\n${tail.map((line) => `  ${line.replace(SECRET, "[redacted]")}`).join("\n")}\n`);
+    else if (error?.signal) process.stderr.write(`${name} was stopped by ${error.signal}\n`);
     throw new Error(`${name} failed: ${failureReason(error)}`);
   }
 }
