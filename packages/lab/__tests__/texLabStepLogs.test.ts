@@ -40,6 +40,7 @@ const entries: LedgerEntry[] = [
   run("answerCheck", { draft: 8, reviewedAs: "report" }, { passed: true }),
   run("afterReply", { texts: 1 }, { threads: ["trip"], score: 4 }),
   run("chatDays", { texts: 1 }, { outcome: "summed", written: 1, missing: 0 }),
+  run("guestNames", { texts: 1 }, { outcome: "done", found: 1, kept: 1 }),
   run("warm", { owner: { person: "ws_1" }, chat: "texts", cause: "typing" }, { when: ["warmed"], ms: 412 }),
   run("stickerLook", { sticker: "s1a2b3c" }, { when: ["looked"], words: "cat throwing confetti; fits celebrating good news", model: "anthropic/claude-haiku-5-5", modelMs: 700 }),
   run("moveJudge", { action: "move_note", path: "projects/agenda.md", workspace: "band" }, { allow: true, reason: "they said yes to the offer" }),
