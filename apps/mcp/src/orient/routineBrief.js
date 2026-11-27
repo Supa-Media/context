@@ -69,5 +69,9 @@ export async function withRoutineBrief(result, store, scope, rules, overrides, p
   const split = read.indexOf("\n\n");
   const brief = await routineBrief(store, scope, rules, overrides, path, split === -1 ? read : read.slice(split + 2));
   if (brief === "") return result;
-  return { ...result, content: [...result.content, { type: "text", text: brief }] };
+  // In the note's own text part, after it: a client that shows only a result's first part (several do, Claude's
+  // connector and Grok's among them, 2026-11-27) dropped a brief sent as a part of its own.
+  const last = result.content.findLastIndex((part) => part?.type === "text" && typeof part.text === "string");
+  if (last === -1) return { ...result, content: [...result.content, { type: "text", text: brief }] };
+  return { ...result, content: result.content.map((part, at) => (at === last ? { ...part, text: `${part.text}${brief}` } : part)) };
 }
