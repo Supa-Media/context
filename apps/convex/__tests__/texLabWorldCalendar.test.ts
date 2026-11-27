@@ -47,7 +47,7 @@ function asPreview() {
 
 /** Every Google call to the emulator, in process, as a preview's control plane sends it there. */
 async function emulated() {
-  const emulators = await createEmulators({ publicUrl: ORIGIN });
+  const emulators = await createEmulators();
   const before = globalThis.fetch;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
