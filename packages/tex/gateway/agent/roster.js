@@ -58,5 +58,5 @@ export async function readRoster(dispatch, contexts) {
 export function rosterPrompt(roster) {
   if (!Array.isArray(roster) || roster.length === 0) return "";
   const body = roster.map(({ name, text }) => `In ${name}:\n${text}`).join("\n\n");
-  return `\n\nBots and areas in their workspaces (orient { about: "roster" }, read for this chat):\n\n${body.slice(0, ROSTER_CHARS)}`;
+  return `\n\nBots and areas:\n\n${body.slice(0, ROSTER_CHARS)}`;
 }

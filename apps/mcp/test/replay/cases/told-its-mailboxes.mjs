@@ -35,7 +35,7 @@ export default {
       assert.ok(!system.includes("hasn't synced"), "a mailbox's state is never in the cached part");
       assert.match(messages, /rowan\.home@mail\.example hasn't synced for hours/, "the one not fine now is named per text");
       assert.ok(first.shown.includes("rowan@work.example"));
-      assert.match(system, /Bots and areas in their workspaces[\s\S]*`areas\/growth\/` — owner @egress, delegate Heron \(ask Heron first\) · mail `areas\/growth\/mail\/`/, "the turn is told who holds each area and where its mail is");
+      assert.match(system, /Bots and areas:[\s\S]*`areas\/growth\/` — owner @egress, delegate Heron \(ask Heron first\) · mail `areas\/growth\/mail\/`/, "the turn is told who holds each area and where its mail is");
 
       // An email read live keeps its links' addresses: the body is what the control plane makes of Gmail's message (`gmailMessageToEvent`).
       const vendor = fixtureMessage({
