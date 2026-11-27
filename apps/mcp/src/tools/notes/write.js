@@ -52,6 +52,7 @@ import { shareWrittenNote } from "../links.js";
 import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
+import { botPictureClash } from "../../notes/botPictureClash.js";
 import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
 import { aboutMeTooLong } from "../../../../../packages/tex/gateway/agent/aboutMe.js";
@@ -455,6 +456,8 @@ async function writeNote(writer, scope, rules, overrides, args, options, specula
   const attached = await prepareAttachedImages(store, path, content, args.images, storedBody);
   if (attached.error) return toolError(attached.error);
   content = attached.content;
+  const clash = await botPictureClash(store, scope, rules, overrides, path, content, storedBody);
+  if (clash) return toolError(clash.refusal);
   if (attached.images.length) await storeNoteImages(store, attached.images);
   const collaborationEligibleExisting = Boolean(
     existing && collaborationSupported(store) && collaborationEligible(path, storedBody),

@@ -183,7 +183,11 @@ describe("The bots folder", () => {
     // Refresh sends Context's current setup too (Dev, 2026-11-26): the relay routine's one prompt and the bound login.
     // And always its own picture, to its own card (Dev, 2026-11-27: "are we telling bots to update their photos in the
     // refresh?"): "if your logo changed" left every bot showing the robot icon with nothing to do.
-    expect(files.join("\n")).toContain("Put your own picture on your card now, even if it has one");
+    expect(files.join("\n")).toContain("Put your own picture on your card");
+    // A bot can't see its own picture: it sends only the one its person attached (Dev, 2026-11-27: four bots sent one
+    // shared orange picture).
+    expect(files.join("\n")).toContain("use only the picture file your person attached for it in this chat");
+    expect(files.join("\n")).not.toContain("even if it has one");
     expect(files.join("\n")).toContain('path: "bots/grok-bot/about.md"');
     expect(files.join("\n")).not.toContain("If your name or logo changed");
     expect(files.join("\n")).toContain("Never write to Context, reply, or send anything from this run.");

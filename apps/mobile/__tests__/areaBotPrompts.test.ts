@@ -122,6 +122,8 @@ test("a bot with a card is told to put its own logo there, once", () => {
   expect(text).toContain('action: "upload"');
   expect(text).toContain('data: "<its base64>"');
   expect(text).not.toMatch(/url: "/);
+  // It can't see its own picture, so it uses the one its person attached and never another bot's (Dev, 2026-11-27).
+  expect(text).toContain("use only the picture file your person attached for it in this chat");
   expect(areaPrompt(AREA)).not.toContain("avatar:");
   expect(delegatePrompt({ bot: "Chief", kind: "grok", whose: "@seyi", card: "areas/people/chief.md" })).toContain('path: "areas/people/chief.md"');
 });

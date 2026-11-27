@@ -383,3 +383,18 @@ test("an editor still makes a card of its own, naming itself", async () => {
   assert.equal(result.isError, undefined, said(result));
   assert.equal((await props("bots/kim-bot/about.md")).belongs_to, "@kim");
 });
+
+// Dev, 2026-11-27: four of @shyoh's bots each sent one shared orange picture as their own, and every card showed it.
+test("a bot's logo that another bot's card already shows is refused, and a card saved again as it was is not", async () => {
+  const { store, props } = await world({ "areas/finance/about.md": FINANCE });
+  assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } })).isError, undefined);
+  const taken = await run(store, { area: "areas/finance", bot: { name: "Socials", avatar: { data: PNG } } });
+  assert.equal(taken.isError, true, said(taken));
+  assert.match(said(taken), /already bots\/finance's logo/);
+  assert.equal((await props("bots/socials/about.md")).avatar, undefined);
+  // As its dark-screen logo too.
+  assert.equal((await run(store, { area: "areas/finance", bot: { name: "Socials", avatar_dark: { data: PNG } } })).isError, true);
+  // Its own picture is fine, and the first bot sending its own again is too.
+  assert.equal((await run(store, { area: "areas/finance", bot: { name: "Socials", avatar: { data: WHITE_PNG } } })).isError, undefined);
+  assert.equal((await run(store, { area: "areas/finance", bot: { name: "Finance", avatar: { data: PNG } } })).isError, undefined);
+});

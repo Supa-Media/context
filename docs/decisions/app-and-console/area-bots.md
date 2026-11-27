@@ -202,7 +202,12 @@ keeps its notes there and knows what its modes ask of it.
   A logo that reads on only one background has a second: `avatar-dark:`
   is drawn on a dark screen and `avatar:` everywhere else (Dev, 2026-11-27:
   Grok Bot's white mark vanished on light); `manage area` takes
-  `bot.avatar_dark` the same way. `setArea.test.mjs`, `mailPage.test.ts`
+  `bot.avatar_dark` the same way.
+  A bot can't see its own profile picture, so it sends only the file its
+  person attached in its chat and otherwise asks for it, and a write that puts
+  a picture on a bot card that another bot card already shows is refused
+  (Dev, 2026-11-27: four of @shyoh's bots sent one shared orange picture;
+  `notes/botPictureClash.js`, `setArea.test.mjs`). `setArea.test.mjs`, `mailPage.test.ts`
   and `areasBotsView.test.ts` fail if a theme draws the other's logo.
 
 **What a simplification would cost.** A bot kept in a table of its own would
