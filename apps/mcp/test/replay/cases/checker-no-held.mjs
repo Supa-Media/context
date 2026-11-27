@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { oneToOne } from "../chats.mjs";
+import { groupChat, oneToOne } from "../chats.mjs";
 
 const JO = "jo.marsh@example.com";
 const EMAIL = { to: [JO], subject: "Thursday", body: "Hi Jo,\n\nThursday at 4 works for me.\n\nRowan" };
@@ -11,11 +11,13 @@ export default {
   id: "checker-no-held",
   incident:
     "2026-11-24: the Mail checker said \"no\" to an email; it was refused before anything was held, Tex asked in its own words, the person's 👍 on that matched no ask, nothing was sent, and Tex could still say it was. " +
-    "2026-11-26 (a group chat with a shared mailbox): asked to reply to an email, Tex wrote the reply out and asked the mailbox's person to \"text me yourself with a yes and I'll send it\", with nothing held, in two Lab runs of the same ask.",
+    "2026-11-26 (a group chat with a shared mailbox): asked to reply to an email, Tex wrote the reply out and asked the mailbox's person to \"text me yourself with a yes and I'll send it\", with nothing held, in two Lab runs of the same ask. " +
+    "2026-11-27 (a Lab test chat of a group): the tagger's \"draft is good. go ahead\" reached the Mail checker as \"an unlabeled line\", so it said unsure and the email was held and asked for again.",
   cause:
     "A checker \"no\" returned a refusal with no pending record or Approve card, and no check stopped an answer that says an email was sent when no send went through. " +
     "On 11-26 the send tool said to ask before anything that can't be undone and that email sends \"once they say yes\", nothing said the call itself shows it for a yes, " +
-    "and the check for a yes asked with nothing held ran only off the front door and knew \"say yes\" and 👍, not \"with a yes\".",
+    "and the check for a yes asked with nothing held ran only off the front door and knew \"say yes\" and 👍, not \"with a yes\". " +
+    "On 11-27 the checker read a group's kept turns as \"PERSON: @handle: ...\" but the newest text as a bare \"PERSON: ...\".",
   path: "1:1 texts that send email",
   async run() {
     const chat = await oneToOne();
@@ -60,6 +62,24 @@ export default {
       assert.doesNotMatch(prose.answer, /Text me with a yes/, "the prose ask never goes out");
     } finally {
       chat.restore();
+    }
+
+    // 2026-11-27: in a group, the newest ask reaches the checker with its tagger's handle, as the kept turns do.
+    const group = await groupChat();
+    try {
+      group.controlPlane.flags.emailSender = "ada@gmail.example";
+      const SAT = { to: [JO], subject: "Saturday", body: "Hi Jo,\n\nSaturday at 2 works for the band.\n\nAda" };
+      const asked = await group.tag("ada", "@tex email jo that saturday at 2 works", [
+        { toolCalls: [{ name: "send_email", args: SAT }] },
+        verdict("yes", "the tagger asked for it"),
+        { text: "Sent it to Jo." },
+        { text: "Sent it to Jo." },
+      ], [], { tagged: true, group: { people: ["ada", "bo"], cause: "tagged" }, body: { running: [] } });
+      const checker = asked.requests.map((request) => JSON.stringify(request?.messages ?? [])).find((text) => text.includes("TEXTS") && text.includes("DRAFT"));
+      assert.ok(checker, "the Mail checker ran");
+      assert.match(checker, /PERSON: @ada: @tex email jo that saturday at 2 works/, "the newest text carries its tagger's handle");
+    } finally {
+      group.restore();
     }
   },
 };
