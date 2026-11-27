@@ -691,6 +691,7 @@ test/labSandboxSearch.test.mjs
 test/labChatMail.test.mjs
 test/labStickers.test.mjs
 test/labSandboxChat.test.mjs
+test/labSandboxNames.test.mjs
 test/labSandboxChatMail.test.mjs
 test/labSandboxCross.test.mjs
 test/editNode.test.mjs
