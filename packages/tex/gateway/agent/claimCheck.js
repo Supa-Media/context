@@ -75,7 +75,7 @@ import { KEEPS_A_PROMISE, givesUp, laterNotice, otherRoutesNotice, saysSourceIsD
 import { CARD_NOTICE, LOOK_ON_SITE_NOTICE, handsBackThePayment, saysNotFoundOnSite } from "./checkoutChecks.js";
 import { figureCheck } from "./sourcedFigures.js";
 import { browserWalls } from "./browserWalls.js";
-import { BROWSER_TOOLS, hasBrowser } from "./browserReach.js";
+import { BROWSER_TOOLS, forReach, hasBrowser } from "./browserReach.js";
 import { noteLinkCheck, unknownLinkNotice } from "./linkCheck.js";
 export { CAPTCHA_NOTICE, handsOverACaptcha } from "./browserWalls.js";
 import { toolDefinitions } from "../../../../apps/mcp/src/tools/registry.js";
@@ -677,7 +677,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     // Then, a source that failed with the other roads to the answer untried (`otherRoutes.js`).
     if (!routesNoticed && givesUp(answer) && (steps.some((step) => !step.ok) || saysSourceIsDown(answer))) {
       routesNoticed = true;
-      const untried = untriedRoutes(steps);
+      const untried = untriedRoutes(steps, { browser: canBrowse() });
       if (untried.length > 0) fact("routes", otherRoutesNotice(untried));
     }
     const passkey = walls.passkey(answer);
@@ -686,7 +686,7 @@ export function claimCheck({ question, judge = null, waiting = false, corrects =
     // answer that offers an email can still ask them to go and find it.
     if (!handedBack && handsWorkBack(answer, { held })) {
       handedBack = true;
-      fact("handback", HANDBACK_NOTICE);
+      fact("handback", forReach(HANDBACK_NOTICE, { browser: canBrowse() }));
     }
     if (!payNoticed && canFillCard() && handsBackThePayment(answer)) {
       payNoticed = true;

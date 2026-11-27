@@ -38,6 +38,7 @@ const GAVE_UP =
 
 test("the Planning Center answer is sent back to try email, calendar, notes and the browser", async () => {
   const claims = claimCheck({ question: QUESTION });
+  claims.wrapWeb({ tools: [{ name: "browse" }], call: async () => ({ content: [] }) }); // a turn with a browser, as a texted one has
   const read = claims.wrap(async () => ({ isError: true, content: [{ type: "text", text: "Planning Center's server failed." }] }));
   await read("app_read", { app: "planning-center", tool: "services_plans" });
   const notice = claims.check(GAVE_UP);
