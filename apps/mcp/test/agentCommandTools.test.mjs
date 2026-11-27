@@ -213,11 +213,17 @@ test("sharing a calendar sends the command with or without an address; only the 
   await byName(every.tools, "chat_share_calendar").call({});
   assert.deepEqual(every.sent, [{ kind: "share_calendar" }], "left out, every calendar they connected is shared: no address key at all");
 
-  const stop = await attempt("Tex stop sharing my calendar", { status: "done", count: 2 });
-  assert.equal(words(await byName(stop.tools, "chat_unshare_calendar").call({})), "Stopped sharing 2 calendars with this chat.");
+  // What it found comes back as facts for Tex to word (Dev2, 2026-11-27): a second stop once read as "never shared".
+  const stop = await attempt("Tex stop sharing my calendar", { status: "done", count: 2, unshared: { stopped: ["a@x.example", "b@x.example"], alreadyStopped: [], neverShared: [], stillShared: [] } });
+  assert.deepEqual(JSON.parse(words(await byName(stop.tools, "chat_unshare_calendar").call({}))), {
+    calendar_sharing_in_this_chat: { stopped_now: ["a@x.example", "b@x.example"], already_stopped_earlier: [], never_shared_here: [], still_shared_here: [] },
+  });
   assert.deepEqual(stop.sent, [{ kind: "unshare_calendar" }]);
-  const none = await attempt("Tex stop sharing my calendar", { status: "done", count: 0 });
-  assert.equal(words(await byName(none.tools, "chat_unshare_calendar").call({})), "None of their calendars was shared here, so nothing changed.");
+  const at = Date.UTC(2026, 10, 27, 2, 11);
+  const again = await attempt("Tex stop sharing my calendar", { status: "done", count: 0, unshared: { stopped: [], alreadyStopped: [{ address: "a@x.example", at }], neverShared: [], stillShared: ["b@x.example"] } });
+  assert.deepEqual(JSON.parse(words(await byName(again.tools, "chat_unshare_calendar").call({ address: "a@x.example" }))).calendar_sharing_in_this_chat, {
+    stopped_now: [], already_stopped_earlier: [{ address: "a@x.example", at: "2026-11-27T02:11:00.000Z" }], never_shared_here: [], still_shared_here: ["b@x.example"],
+  });
 });
 
 test("a calendar the chat may not take is refused in plain words, and changes nothing", async () => {

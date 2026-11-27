@@ -168,11 +168,12 @@ test("the asker's own personal workspace is never the room's: not in reach, but 
   assert.deepEqual(group.reach, ["alpha"]);
   assert.equal(group.ownNotes, "ada");
   const prompt = groupPrompt(group, "context-lc");
-  assert.match(prompt, /"askers_own_personal_notes_readable_this_turn":\{"asker":"@ada","context":"@ada","read_only":true\}/);
-  assert.match(prompt, /Nobody else's personal notes/);
-  assert.doesNotMatch(prompt, /Nobody's personal notes/);
-  // Without it, nobody's.
+  assert.match(prompt, /"personal_notes_in_this_chat":\{"open_to":"their owner, on that owner's own ask only","this_turn":\{"asker":"@ada","readable":"@ada","read_only":true\}\}/);
+  // A fact, never a sentence saying nobody's can be read (Dev2, 2026-11-27).
+  assert.doesNotMatch(prompt, /Nobody(?:'s| else's) personal notes/);
+  // Without it, this turn reads none, and is told who they open for.
   const plain = groupOf({ group: { key: HEX, members: HEX, from: "ada" } }, await resolveSession(TOKEN, null, controlPlane([A])));
   assert.equal(plain.ownNotes, undefined);
-  assert.match(groupPrompt(plain, "context-lc"), /Nobody's personal notes/);
+  assert.match(groupPrompt(plain, "context-lc"), /"personal_notes_in_this_chat":\{"open_to":"their owner, on that owner's own ask only","this_turn":"none"\}/);
+  assert.doesNotMatch(groupPrompt(plain, "context-lc"), /Nobody's personal notes/);
 });

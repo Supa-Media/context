@@ -299,11 +299,30 @@ export function commandTools({ run, group, consent = async () => false, snapshot
       inputSchema: { type: "object", properties: { address: { type: "string" } } },
     },
     call: async (args) =>
-      !(await asked("unshare_calendar")) ? text(refusedWords(consent, "unshare_calendar"), true) : await call({ kind: "unshare_calendar", ...(args?.address ? { address: args.address } : {}) }, (result) =>
-        result.count > 0 ? `Stopped sharing ${result.count === 1 ? "that calendar" : `${result.count} calendars`} with this chat.` : "None of their calendars was shared here, so nothing changed.",
-      )(),
+      !(await asked("unshare_calendar")) ? text(refusedWords(consent, "unshare_calendar"), true) : await call({ kind: "unshare_calendar", ...(args?.address ? { address: args.address } : {}) }, unshareFacts)(),
   };
   return [settingsGet, gated(instructionsSet, "instructions"), mute, status, gated(shareMail, "share_mail"), gated(unshareMail, "unshare_mail"), gated(shareCalendar, "share_calendar"), gated(unshareCalendar, "unshare_calendar")];
+}
+
+/**
+ * What a calendar unshare found, as facts for Tex to word (Dev2, 2026-11-27): a second "stop sharing" once answered
+ * that the calendar was never shared, and Tex contradicted what it had just said. A share stopped earlier says when.
+ */
+export function unshareFacts(result) {
+  const found = result?.unshared;
+  const list = (value) => (Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : []);
+  const earlier = Array.isArray(found?.alreadyStopped)
+    ? found.alreadyStopped.filter((row) => typeof row?.address === "string" && Number.isFinite(row?.at)).map((row) => ({ address: row.address, at: new Date(row.at).toISOString() }))
+    : [];
+  return JSON.stringify({
+    calendar_sharing_in_this_chat: {
+      stopped_now: found ? list(found.stopped) : [],
+      already_stopped_earlier: earlier,
+      never_shared_here: list(found?.neverShared),
+      still_shared_here: list(found?.stillShared),
+      ...(found ? {} : { stopped_count: Number.isInteger(result?.count) ? result.count : 0 }),
+    },
+  });
 }
 
 /** The `send` actions these tools are shown as (`sixTools.js`). */

@@ -87,16 +87,14 @@ export async function shareCalendar(
   const owned = calendars.filter((row): row is Doc<"googleConnections"> => row !== null);
   if (owned.length === 0) return null;
   const addresses = owned.map((row) => row.address.toLowerCase());
-  const rows = await ctx.db
-    .query("chatCalendarShares")
-    .withIndex("by_group", (q) => q.eq("groupKey", group.groupKey))
-    .take(MAX_SHARES * 4);
-  const fresh = addresses.filter((value) => !rows.some((row) => row.userId === userId && row.address === value));
-  if (rows.length + fresh.length > MAX_SHARES) return null;
+  const rows = await shareRows(ctx, group);
+  const live = rows.filter((row) => row.endedAt === undefined);
+  const fresh = addresses.filter((value) => !live.some((row) => row.userId === userId && row.address === value));
+  if (live.length + fresh.length > MAX_SHARES) return null;
   for (const value of addresses) {
     const existing = rows.find((row) => row.userId === userId && row.address === value);
     if (existing !== undefined) {
-      await ctx.db.patch(existing._id, { workspaceId: workspace._id, createdAt: now });
+      await ctx.db.patch(existing._id, { workspaceId: workspace._id, createdAt: now, endedAt: undefined });
     } else {
       await ctx.db.insert("chatCalendarShares", { groupKey: group.groupKey, workspaceId: workspace._id, userId, address: value, createdAt: now });
     }
@@ -111,20 +109,42 @@ export async function shareCalendar(
   return { addresses };
 }
 
-/** "Tex, stop sharing my calendar here": how many of the sender's calendar shares in this chat ended. */
+/**
+ * What "Tex, stop sharing my calendar here" found, by address, as facts for Tex to word (Dev2, 2026-11-27: a second
+ * "stop sharing" answered "None of their calendars was shared here", and Tex told the chat a calendar it had just
+ * stopped was never shared): stopped now, stopped earlier and when, never shared here, and theirs still shared.
+ */
+export type CalendarUnshare = {
+  stopped: string[];
+  alreadyStopped: { address: string; at: number }[];
+  neverShared: string[];
+  stillShared: string[];
+};
+
+/** Every share row of this chat, ended ones included. One row per person and address, so the bound holds. */
+async function shareRows(ctx: QueryCtx, group: Doc<"textGroups">): Promise<Doc<"chatCalendarShares">[]> {
+  return await ctx.db
+    .query("chatCalendarShares")
+    .withIndex("by_group", (q) => q.eq("groupKey", group.groupKey))
+    .take(MAX_SHARES * 4);
+}
+
+/**
+ * "Tex, stop sharing my calendar here": the sender's own shares in this chat end, one address or all of theirs. An
+ * ended row is kept with `endedAt`, read by nothing, so a second ask can say it was already stopped.
+ */
 export async function unshareCalendar(
   ctx: MutationCtx,
   group: Doc<"textGroups">,
   userId: Id<"users">,
   address: string | undefined,
-): Promise<number> {
-  const rows = await ctx.db
-    .query("chatCalendarShares")
-    .withIndex("by_group", (q) => q.eq("groupKey", group.groupKey))
-    .take(MAX_SHARES * 4);
-  const ended = rows.filter((row) => row.userId === userId && (address === undefined || row.address === address));
+  now: number,
+): Promise<CalendarUnshare> {
+  const mine = (await shareRows(ctx, group)).filter((row) => row.userId === userId);
+  const named = (row: Doc<"chatCalendarShares">) => address === undefined || row.address === address;
+  const ended = mine.filter((row) => row.endedAt === undefined && named(row));
   for (const row of ended) {
-    await ctx.db.delete(row._id);
+    await ctx.db.patch(row._id, { endedAt: now });
     await recordAudit(ctx, {
       workspaceId: row.workspaceId,
       actorUserId: userId,
@@ -133,7 +153,13 @@ export async function unshareCalendar(
       details: {},
     });
   }
-  return ended.length;
+  const earlier = mine.filter((row) => row.endedAt !== undefined && named(row));
+  return {
+    stopped: ended.map((row) => row.address),
+    alreadyStopped: earlier.map((row) => ({ address: row.address, at: row.endedAt as number })),
+    neverShared: address !== undefined && !mine.some((row) => row.address === address) ? [address] : [],
+    stillShared: mine.filter((row) => row.endedAt === undefined && !named(row)).map((row) => row.address),
+  };
 }
 
 /**
@@ -142,10 +168,7 @@ export async function unshareCalendar(
  */
 export async function liveCalendarShares(ctx: QueryCtx, group: Doc<"textGroups">): Promise<LiveCalendarShare[]> {
   if (speaksUpOf(group) === "off") return [];
-  const rows = await ctx.db
-    .query("chatCalendarShares")
-    .withIndex("by_group", (q) => q.eq("groupKey", group.groupKey))
-    .take(MAX_SHARES);
+  const rows = (await shareRows(ctx, group)).filter((row) => row.endedAt === undefined).slice(0, MAX_SHARES);
   const live: LiveCalendarShare[] = [];
   for (const share of rows) {
     if (!(await inChat(ctx, group, share.userId))) continue;
@@ -205,14 +228,25 @@ export async function calendarSharesNamed(
 }
 
 /**
- * The shared calendars a group chat's grant may read now, or null when this is no chat's grant. Any workspace the grant
+ * Whether someone with no account asked for this turn (Dev2, 2026-11-27: "by default we should share free and busy"):
+ * a guest's ask stands on the sponsor's grant, in a home-only chat (`guestPhone`) or a grant left from guest mode
+ * (`guestTagger`). Their turn reads a shared calendar as free and busy times only; members read it whole.
+ */
+function guestAsked(grant: { texGroup?: Doc<"oauthGrants">["texGroup"] }): boolean {
+  const chat = grant.texGroup;
+  return chat !== undefined && (chat.guestPhone !== undefined || chat.guestTagger === true);
+}
+
+/**
+ * The shared calendars a group chat's grant may read now, or null when this is no chat's grant, and whether they read
+ * as free and busy only (a guest asked: `guestAsked`). Any workspace the grant
  * covers asks for the same calendars: the share is the chat's, so the call's workspace never decides it (as
  * `chatMailClearance` does).
  */
 export async function chatCalendarClearance(
   ctx: QueryCtx,
   args: { hashedAccessToken: string; expectedWorkspaceId: string },
-): Promise<LiveCalendarShare[] | null> {
+): Promise<{ shares: LiveCalendarShare[]; freeBusy: boolean } | null> {
   const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
   const chat = live?.grant.texGroup;
   if (live === null || chat === undefined) return null;
@@ -224,5 +258,5 @@ export async function chatCalendarClearance(
   if (group === null) return null;
   const shares = await liveCalendarShares(ctx, group);
   const asker = askerOf(live.grant);
-  return asker === null ? shares : withOwn(shares, await askerCalendars(ctx, group, asker));
+  return { shares: asker === null ? shares : withOwn(shares, await askerCalendars(ctx, group, asker)), freeBusy: guestAsked(live.grant) };
 }
