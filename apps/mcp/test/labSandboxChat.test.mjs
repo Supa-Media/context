@@ -370,6 +370,8 @@ test("a group check-in row runs as the cron hands one to the chat, asked in prod
   assert.equal(inbound.path, "/group-routine");
   assert.deepEqual([inbound.body.path, inbound.body.phone, inbound.body.since, inbound.body.mail, inbound.body.timeZone], ["(check-in)", "+15555550101", at - 3 * 3_600_000, false, "America/New_York"]);
   assert.match(inbound.body.runId, /^run_[A-Za-z0-9_-]{1,64}$/, "a run id the chat object takes");
+  const noMail = inboundOf({ about, row: { id: "t9", who: "ana", kind: "checkin", checkin: 3, at }, rows: [], address, sentHandles: new Map(), chat: { slug: "family" } });
+  assert.equal(noMail.body.mail, false, "a chat with no mail shared is asked no mail, as the control plane hands it");
 
   // The ids a test row gets from the route (`route.js` `newIds`): `t` and its event id's digits.
   const row = { id: "t1", who: "ben", kind: "checkin", checkin: 6, text: "Run this chat's check-in now (last 6 h)", at, prod: false, eid: "0000000000001-000001" };
