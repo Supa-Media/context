@@ -3,7 +3,7 @@
  *
  * The case, as a person texts it:
  *
- *   Tex:    Here's the email I'd send: To: ada@… … Give it a 👍 and I'll send it.
+ *   Tex:    Drafted it. To: ada@… … (Tex's own words, the email whole below them)
  *   Them:   actually send it to bo instead
  *   Tex:    Got it, I'll send it to bo.          (the model did not redraft)
  *   Them:   yes
@@ -30,7 +30,7 @@ import { test } from "node:test";
 
 import { EVERY_CHAT, createPending, listPending } from "../src/tools/approvals.js";
 import { settleTextedText } from "../../../packages/tex/gateway/agent/textedSettle.js";
-import { askLine, textedAsk, thumbsUpIsYes } from "../../../packages/tex/gateway/agent/textedApprovals.js";
+import { textedAsk, thumbsUpIsYes, withCopies } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { SUPERSEDE_NOTICE, claimCheck, correctsTheAsk } from "../../../packages/tex/gateway/agent/claimCheck.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
@@ -112,7 +112,7 @@ test("a correction the model does not act on leaves nothing a yes can send", asy
   assert.match(ask, /haven't sent the earlier one \(email ada\)/, "the person is told the old one is dropped");
   assert.deepEqual(await armed(store), [], "the email to ada is not left waiting for the next yes");
 
-  const liked = await thumbsUpIsYes(store, SESSION, { tapback: "Liked", words: askLine([ada]) });
+  const liked = await thumbsUpIsYes(store, SESSION, { tapback: "Liked", words: withCopies("Drafted it.", [ada]) });
   assert.equal(liked, false, "a 👍 on the old ask after the drop sends nothing");
 });
 

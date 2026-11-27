@@ -213,12 +213,14 @@ export const ALREADY_ASKED =
  * from, is armed afresh, so the ask line the person reads and the record their
  * yes releases are the same record. Returns the record the ask is about.
  */
-export async function rearmForText(store, { key, record }, texting, now = Date.now(), chat = null) {
-  if (!texting || (record.texting === true && (record.texting_until ?? record.expires_at) > now && chatOfAsk(record) === chat)) return record;
+export async function rearmForText(store, { key, record }, texting, now = Date.now(), chat = null, shown = null) {
+  const fresh = typeof shown === "string" && shown !== "" && shown !== record.shown_text;
+  if (!texting || (!fresh && record.texting === true && (record.texting_until ?? record.expires_at) > now && chatOfAsk(record) === chat)) return record;
   // A card's payment ask keeps its own ten minutes: a texted yes never reaches an older one (`vault/pay.js`).
   const short = record.kind === "vault_pay";
   // When it was armed: a text Tex sends by itself after this is what a bare yes answers (`agent/askOvertaken.js`).
-  const armed = { ...record, texting: true, texting_until: short ? record.expires_at : now + TEXTING_TTL_MS, armed_at: now, chat_key: chat };
+  // `shown_text`: the text the ask went out as, Tex's own words with the copy whole; a tapback is a yes only on it (`textedApprovals.js`).
+  const armed = { ...record, texting: true, texting_until: short ? record.expires_at : now + TEXTING_TTL_MS, armed_at: now, chat_key: chat, ...(typeof shown === "string" && shown !== "" ? { shown_text: shown } : {}) };
   armed.expires_at = Math.max(record.expires_at ?? 0, armed.texting_until);
   await store.put(key, JSON.stringify(armed));
   return armed;
@@ -291,7 +293,7 @@ export function askedByText(record) {
  * sent leaves nothing a yes can reach even when withdrawing it fails. Throws
  * when one cannot be armed.
  */
-export async function armForText(store, { userId, ids, chat = null, now = Date.now() }) {
+export async function armForText(store, { userId, ids, chat = null, shown = null, now = Date.now() }) {
   const wanted = new Set(ids);
   const found = (await listPending(store, { userId, now })).filter(({ record }) => wanted.has(record.id));
   if (found.length !== wanted.size) throw new Error("an ask is no longer waiting");
@@ -308,7 +310,7 @@ export async function armForText(store, { userId, ids, chat = null, now = Date.n
   const stale = (await listPending(store, { userId, texting: true, chat: EVERY_CHAT, now })).filter(({ record }) => !wanted.has(record.id));
   if (stale.length > 0 && (await disarmRecords(store, stale)) > 0) throw new Error("an earlier ask could not be cleared");
   // The caller withdraws on failure, so no put may still be in flight.
-  const results = await Promise.allSettled(found.map((entry) => rearmForText(store, entry, true, now, chat)));
+  const results = await Promise.allSettled(found.map((entry) => rearmForText(store, entry, true, now, chat, shown)));
   if (results.some((result) => result.status === "rejected")) throw new Error("an ask could not be armed");
 }
 

@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { handleAppChat } from "../../../packages/tex/gateway/agent/appChatRoute.js";
-import { askLine } from "../../../packages/tex/gateway/agent/textedApprovals.js";
+import { withCopies } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { createPending, listPending } from "../src/tools/approvals.js";
 import { emailCopy, readEmail } from "../src/tools/email.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
@@ -51,7 +51,7 @@ async function heldEmail(store, args = EMAIL, actor = TEX_ACTOR) {
 function askEntries(record, { askAt = NOW - 50_000 } = {}) {
   const from = { kind: "tex" };
   return [
-    { v: 1, id: "ev1", eid: "17999999500000001", at: askAt, kind: "text", event: "text", via: "app", from, text: askLine([record]), turn: "turn0001" },
+    { v: 1, id: "ev1", eid: "17999999500000001", at: askAt, kind: "text", event: "text", via: "app", from, text: withCopies("Drafted it.", [record]), turn: "turn0001" },
     { v: 1, id: "ev2", eid: "17999999500000002", at: askAt + 1, kind: "text", event: "ask", via: "app", from, text: "", ask: record.id, turn: "turn0001" },
   ];
 }
@@ -95,6 +95,9 @@ describe("the app chat's approval cards", () => {
   it("Send with an edited body rewrites the held email and sends the 👍 on the words of the ask as it now stands", async () => {
     const store = createMemoryStore();
     const record = await heldEmail(store);
+    // The ask went out in Tex's words, kept on the record as a texted ask keeps them (`approvals.js` `armForText`).
+    const [held] = await listPending(store, { userId: USER, now: NOW });
+    await store.put(held.key, JSON.stringify({ ...held.record, shown_text: withCopies("Drafted it.", [record]) }));
     const { response, chat, json } = await call({ op: "answer", msgId: "17999999500000001", choice: "send", body: "Hi Kameela,\n\nCould we add 3 more guests?" }, { store, entries: askEntries(record) });
     assert.equal(response.status, 200);
     assert.equal(json.state, "sending");
@@ -104,7 +107,8 @@ describe("the app chat's approval cards", () => {
     const arrive = chat.calls.find((c) => c.path === "/app/arrive").body;
     assert.equal(arrive.kind, "react");
     assert.equal(arrive.message.reaction.how, "Liked");
-    assert.equal(arrive.message.reaction.words, askLine([live.record]).trim());
+    assert.equal(arrive.message.reaction.words, live.record.detail.trim(), "the 👍 is on the copy as it now stands");
+    assert.equal(live.record.shown_text, undefined, "the text it went out as no longer holds the edited copy");
     assert.match(arrive.message.reaction.words, /3 more guests/);
     const kept = chat.calls.find((c) => c.path === "/app/card").body;
     assert.deepEqual({ state: kept.state, body: kept.body, inbox: kept.inbox }, { state: "sending", body: "Hi Kameela,\n\nCould we add 3 more guests?", inbox: CHAT });

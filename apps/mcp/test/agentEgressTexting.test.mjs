@@ -37,7 +37,7 @@ import { TOKEN_CONSOLE, TOKEN_TEXTS, TOKEN_ROUTINE } from "./agentEgressFixtures
 import { approvalVerdict, notDone } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { TOLD } from "../../../packages/tex/gateway/agent/conversation.js";
 import { overtaken } from "../../../packages/tex/gateway/agent/askOvertaken.js";
-import { askLine } from "../../../packages/tex/gateway/agent/textedApprovals.js";
+import { withCopies } from "../../../packages/tex/gateway/agent/textedApprovals.js";
 import { teamNow } from "./accessRows.mjs";
 
 export async function runAgentEgressTextingChecks(check) {
@@ -96,12 +96,12 @@ export async function runAgentEgressTextingChecks(check) {
     const replies = toolReplies(model.requests.at(-1));
     check(
       "a texted handle claim is asked about before it runs",
-      asked.status === 200 && /Held for their 👍/.test(replies[0] ?? "") && !claimed("woodshop") && pending().length === 1,
+      asked.status === 200 && /"held":true/.test(replies[0] ?? "") && !claimed("woodshop") && pending().length === 1,
     );
     check(
-      "the ask is in the gateway's own words, after the model's, and the answer says one call waits",
-      /Shall I\?\n\nBefore I do that, I need your OK: claim the handle @woodshop/.test(asked.body?.answer ?? "") &&
-        /Give it a 👍 and I'll go ahead\./.test(asked.body?.answer ?? "") &&
+      "the ask is Tex's own words, with what the yes does under them, and the answer says one call waits",
+      /^I can set up @woodshop\. Shall I\?\n\nclaim the handle @woodshop/.test(asked.body?.answer ?? "") &&
+        !/Give it a 👍 and I'll go ahead|I need your OK/.test(asked.body?.answer ?? "") &&
         asked.body?.asked === 1,
     );
     before = model.requests.length;
@@ -129,14 +129,14 @@ export async function runAgentEgressTextingChecks(check) {
 
     // A 👍 whose quote came back changed by Messages and the line (2026-10-22):
     // a toned emoji, punctuation changed. Still the yes.
-    model.install([claim("kiln"), { text: "I'd set up @kiln." }]);
+    model.install([claim("kiln"), { text: "I'd set up @kiln, give it a 👍 to go." }]);
     const kilnAsk = (await ask(env, TOKEN_TEXTS, "make me a kiln workspace")).body?.verbatim?.[0] ?? "";
     const toned = kilnAsk.replace("👍", "👍🏽").replace("(handles", "— (handles");
     before = model.requests.length;
     const likedKiln = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: toned, tapback: "Liked", conversation: "texts" });
     check(
       "a 👍 whose quote came back with a toned emoji or other punctuation is still the yes",
-      kilnAsk.startsWith("Before I do that") && model.requests.length === before && claimed("kiln") && /^Done, I claimed the handle @kiln/.test(likedKiln.body?.answer ?? ""),
+      kilnAsk.includes("👍") && toned !== kilnAsk && model.requests.length === before && claimed("kiln") && /^Done, I claimed the handle @kiln/.test(likedKiln.body?.answer ?? ""),
     );
 
     model.install([claim("clay"), { text: "I'd set up @clay." }]);
@@ -355,7 +355,7 @@ export async function runAgentEgressTextingChecks(check) {
 /** `overtaken` alone: which of Tex's texts after an ask stop a bare yes reaching it. */
 function overtakenChecks(check) {
   const record = { id: "r1", tool: "report_problem", summary: "send a bug report", detail: "The page froze.", armed_at: 1_000 };
-  const ask = askLine([record]);
+  const ask = withCopies("Want me to file it?", [record]);
   const routine = { role: "user", text: "(Not a text from them. Your routine tex/routines/once/x.md ran on its schedule and you texted them what follows.)", at: 2_000 };
   const shown = [{ role: "user", text: "file a bug", at: 1_100 }, { role: "assistant", text: `I wrote it up.\n\n${ask}` }];
   check("an ask with nothing after it is still what a yes answers", overtaken(shown, [record]) === false);

@@ -97,7 +97,7 @@ workspace, not that the model spelled the handle they meant, and a typo
 claimed is a typo kept. Now one place: `handleClaimOf` holds every real
 create unless it is the person's replayed yes.
 
-**Tex's onboarding by text keeps working.** The held call answers the model
+**Tex's onboarding by text keeps working.** (Since 2026-11-27 the held call answers with facts and Tex writes the ask, the claim's summary under its words; [tex-writes-the-ask](../texting-assistant/tex-writes-the-ask.md). The lines quoted here are the earlier ones.) The held call answers the model
 with the texting line ("Tell them plainly what you want to do; they will be
 asked to reply YES"), the turn's answer ends with the gateway's own one-line
 ask ("I need your OK: claim the handle @woodshop for a new shared workspace

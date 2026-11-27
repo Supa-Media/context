@@ -29,6 +29,7 @@
 
 import { DETAIL_CAP, createPending, disarmTexting, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
+import { heldFacts, okFromOf } from "./heldFacts.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail, refusalText, sendRefusedText } from "./email.js";
 import { readHelperCallers } from "../../../../packages/tex/gateway/agent/production.js";
 import { parseEmailId } from "./emailRead.js";
@@ -276,14 +277,12 @@ export async function emailGate(supplied, { store, session, target }) {
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
   if (texting) recordMail(session, email, { ...mailVerdict(checked, { held: true }), ask: record.id }); // kept under the held ask's id, so its yes or no names it (`tools/approvals.js`)
+  // Texted: the facts, and Tex's own answer is the ask (`heldFacts.js`).
+  if (texting) return { ...heldFacts({ copy: detail, what: emailSummary(email), okFrom: okFromOf(session) }), ...stagesPart(stages) };
   return {
     ...toolError(
-      texting
-        ? "Held for their 👍, and nothing failed: right after your answer they are texted this exact email and asked " +
-            "for their 👍, and it sends then. Say in one short line what you drafted. Don't repeat the email, don't give " +
-            "them a copy to send themselves, and don't call send_email again in this turn."
-        : "Waiting for the person, and nothing failed: they must approve this exact email in the Context app. " +
-            "Once they have, call send_email again with exactly the same arguments and you will be told it was sent.",
+      "Waiting for the person, and nothing failed: they must approve this exact email in the Context app. " +
+        "Once they have, call send_email again with exactly the same arguments and you will be told it was sent.",
     ),
     held: true,
     ...stagesPart(stages),

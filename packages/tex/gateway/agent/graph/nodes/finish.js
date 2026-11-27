@@ -33,5 +33,5 @@ export async function finishNode(_input, io) {
       nudged = true;
     }
   }
-  return { when: ["finished"], chars: t.finished.sent.length, asked: t.ledger?.asked?.length ?? 0, silent: t.finished.silent === true, ...(t.roomHush === true ? { held: true } : {}), ...(nudged ? { nudged: true } : {}) };
+  return { when: ["finished"], chars: t.finished.sent.length, asked: (t.ledger?.asked?.length ?? 0) + (t.ledger?.offered ? 1 : 0), silent: t.finished.silent === true, ...(t.roomHush === true ? { held: true } : {}), ...(nudged ? { nudged: true } : {}) };
 }

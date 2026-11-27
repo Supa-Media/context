@@ -51,10 +51,10 @@ export async function runReportGateChecks(check) {
         pending().length === 1 &&
         Array.isArray(asked.body?.verbatim) &&
         asked.body.verbatim[0] ===
-          "Here's the bug report I'd send to the Context team:\n\n" +
+          // Tex's own words, then the report whole (2026-11-27, `textedApprovals.js` `withCopies`).
+          "I wrote it up.\n\n" +
             "Search found nothing for a note I know exists.\n\n" +
-            "Up to the last 12 messages between us go with it, so they can see what happened.\n\n" +
-            "Give it a 👍 and I'll send it.",
+            "Up to the last 12 messages between us go with it, so they can see what happened.",
     );
     check("nothing of the texts leaves before the YES", sent().length === 0 && !JSON.stringify(sent()).includes("avocado"));
 
@@ -101,7 +101,7 @@ export async function runReportGateChecks(check) {
     model.install([report({ message: "Thumbs should work.", share_texts: true }), { text: "Written up." }]);
     const shown = (await textTex(env, TOKEN_TEXTS, "file a thumbs one")).body?.verbatim?.[0] ?? "";
     model.install([{ text: "Glad you like it." }]);
-    await like("Here's the bug report I'd send to the Context team:\n\nSomething else broke.\n\nUp to the last 12 messages between us go with it, so they can see what happened.");
+    await like("Written up.\n\nSomething else broke.\n\nUp to the last 12 messages between us go with it, so they can see what happened.");
     check("a 👍 on an older ask releases nothing", sent().length === 2);
     model.install([report({ message: "Thumbs should work.", share_texts: true }), { text: "Written up." }]);
     await textTex(env, TOKEN_TEXTS, "file a thumbs one");

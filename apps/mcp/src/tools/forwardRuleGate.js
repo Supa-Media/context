@@ -8,6 +8,7 @@
 
 import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
+import { heldFacts, okFromOf } from "./heldFacts.js";
 import { FORWARD_RULE_TOOL, forwardRuleCopy, forwardRuleSummary, readForwardRule, readRules } from "./forwardRule.js";
 import { emailCaller } from "./emailGate.js";
 
@@ -59,13 +60,12 @@ export async function forwardRuleGate(supplied, { store, session, target }) {
     return toolError("Not changed: the person has too many things waiting for their OK. Ask them to clear some first.");
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
+  // Texted: the facts, and Tex's own answer is the ask (`heldFacts.js`).
+  if (texting) return heldFacts({ copy: record.detail ?? null, what: record.summary ?? null, okFrom: okFromOf(session) });
   return {
     ...toolError(
-      texting
-        ? "Held for their 👍, and nothing failed: right after your answer, in this same reply, they are shown this rule and asked once. " +
-            "Say in one short line what you'd keep doing, without repeating it or asking for their 👍. Don't call this again in this turn."
-        : "Not changed yet: the person must approve this rule in the Context app. " +
-            "Once they have, call forward_rule again with exactly the same arguments and you will be told it was kept.",
+      "Not changed yet: the person must approve this rule in the Context app. " +
+        "Once they have, call forward_rule again with exactly the same arguments and you will be told it was kept.",
     ),
     held: true,
   };

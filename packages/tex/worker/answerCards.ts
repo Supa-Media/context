@@ -8,10 +8,9 @@
  */
 
 import { cardsOn, type AppCard, type AppCardConfig } from "./appCards";
-import { withAskCard } from "./cardChats";
+import { isTheAsk, withAskCard } from "./cardChats";
 import { withDataCards, type Offer } from "./dataCards";
 import { readHub, threadsLine, withViewLine } from "./jobs";
-import { isAsk } from "./thumbs";
 import type { SendPart } from "./outgoing";
 import { withPickCard, type Choice } from "./pickCard";
 import { withDrawnCards } from "./sendParts";
@@ -40,7 +39,7 @@ export function threadsCard(link: string, config: AppCardConfig): AppCard {
  * The parts with the view, where it was offered: a card after them where cards go, else the link in words inside the
  * first text that is not an ask (`jobs.ts` `withViewLine`). A link that could not be made changes nothing.
  */
-async function withThreads(parts: SendPart[], offers: readonly Offer[], config: AppCardConfig | null | undefined, mint: (() => Promise<string>) | undefined): Promise<SendPart[]> {
+async function withThreads(parts: SendPart[], offers: readonly Offer[], config: AppCardConfig | null | undefined, mint: (() => Promise<string>) | undefined, ask?: string): Promise<SendPart[]> {
   if (!offers.includes("threads") || mint === undefined) return parts;
   let link: string;
   try {
@@ -48,15 +47,15 @@ async function withThreads(parts: SendPart[], offers: readonly Offer[], config: 
   } catch {
     return parts;
   }
-  return cardsOn(config) ? [...parts, { card: threadsCard(link, config) }] : withViewLine(parts, threadsLine(link), isAsk);
+  return cardsOn(config) ? [...parts, { card: threadsCard(link, config) }] : withViewLine(parts, threadsLine(link), (text) => isTheAsk(text, ask));
 }
 
 export async function withAnswerCards(
   parts: SendPart[],
-  answer: { texts: readonly string[]; choices: Choice[]; offers: readonly Offer[] },
+  answer: { texts: readonly string[]; choices: Choice[]; offers: readonly Offer[]; ask?: string },
   config: AppCardConfig | null | undefined,
   mint: (() => Promise<string>) | undefined,
 ): Promise<SendPart[]> {
   const cards = withDataCards(withDrawnCards(withPickCard(parts, answer.choices, config), config), answer.offers, config);
-  return withAskCard(await withThreads(cards, answer.offers, config, mint), answer.texts, config);
+  return withAskCard(await withThreads(cards, answer.offers, config, mint, answer.ask), answer.texts, config, answer.ask);
 }

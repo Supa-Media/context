@@ -200,7 +200,7 @@ test("a checker no on an email whose words they 👍'd is held for their 👍 on
     assert.equal(sendsOf(world).length, 0, "the earlier yes sends nothing");
     assert.equal(world.pending().length, 1, "held, with a pending record the 👍 can approve");
     const reply = JSON.stringify(world.model.requests.at(-1)?.messages ?? []);
-    assert.ok(reply.includes("Held for their 👍"), "the model is told it is held, not refused");
+    assert.ok(reply.includes('\\"held\\":true'), "the model is told it is held, not refused");
     assert.ok(!reply.includes("Not sent, and not put to the person"), "never refused into an ask in Tex's own words");
     assert.equal(asked.status, 200);
   } finally {

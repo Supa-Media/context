@@ -13,8 +13,8 @@ export function emailToolDefinitions() {
         "Write the whole email first (to, subject, body as they would send it) from what the person asked for; for a reply, " +
         "pass in_reply_to with the email's whole email:<address>/<id> id from an email search, use the sender's address and start the subject with Re:. To pass an email on with its " +
         "attachments (a receipt to a bookkeeper, say), pass forward with its id and start the subject with Fwd:; it goes below your words. To attach a file from a website (an invoice PDF), download it with " +
-        "the browse download step and pass its download: id in attach. Don't repeat the whole email " +
-        "in your answer; Context shows it to them. Call it when someone asked for this email to go, even when somebody else must OK it; if they asked for a Gmail draft, " +
+        "the browse download step and pass its download: id in attach. Its answer says whose 👍 it waits for (ok_from): your reply " +
+        "is the ask, a line on what you drafted asking them for it. Don't repeat the whole email; Context puts it under your words. Call it when someone asked for this email to go, even when somebody else must OK it; if they asked for a Gmail draft, " +
         "use save_email_draft instead. At most 10 addresses, 20 emails an hour, 100 a day, and 10 a day to one address.",
       inputSchema: {
         type: "object",

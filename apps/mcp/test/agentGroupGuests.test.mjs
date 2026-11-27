@@ -252,7 +252,7 @@ test("a guest's email goes only from a member, on that member's yes", async () =
   const offered = await tagged("", "Tex email Jo our landing time, from Ada");
   assert.equal(offered.status, 200, JSON.stringify(offered.body));
   assert.equal(offered.body.askFor, "ada", "Ada's yes alone sends it");
-  assert.match(offered.body.answer, /@ada, give it a 👍/);
+  assert.match(offered.body.answer, /^Drafted it for Ada\.\n\n[\s\S]*We land at 6/, "Tex's words, then the email whole");
   assert.equal(sends().length, 0);
   assert.equal(live().length, 0);
 });

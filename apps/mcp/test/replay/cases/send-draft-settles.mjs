@@ -27,7 +27,7 @@ export default {
         verdict("yes", "the copy is the change they asked for"),
         { text: "Drafted it for Dana." },
       ]);
-      assert.match(asked.answer, /Here's the email I'd send/, "the email is put to the person whole");
+      assert.match(asked.answer, /^Drafted it for Dana\.\n\n/, "Tex's own words go out, with the email put to the person whole after them");
       assert.ok(asked.answer.includes(BODY), "the ask carries the copy a yes will send");
       assert.equal(chat.world.controlPlane.emailCalls.filter((entry) => !entry.check && entry.draft !== true && entry.answer?.ok === true).length, 0, "nothing is sent before the yes");
 

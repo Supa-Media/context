@@ -130,14 +130,14 @@ describe("arriving", () => {
 
   it("an ask's Yes is a yes while that ask is the last one", async () => {
     const storage = new MemoryStorage();
-    await rememberAskReply(storage, ["One thing first.", ASK], 1_000);
+    await rememberAskReply(storage, ["One thing first.", ASK], 1_000, ASK);
     expect((await settleCard(storage, yes("mh_y1"), 2_000)).text).toBe("yes");
   });
 
   it("an old card's Yes is not a yes: a newer ask, no ask, or none kept", async () => {
     const storage = new MemoryStorage();
     expect((await settleCard(storage, yes("mh_y0"), 2_000)).text).toBe(STALE_YES);
-    await rememberAskReply(storage, [ASK.replace("Thursday works", "Friday works")], 1_000);
+    await rememberAskReply(storage, [ASK.replace("Thursday works", "Friday works")], 1_000, ASK.replace("Thursday works", "Friday works"));
     expect((await settleCard(storage, yes("mh_y2"), 2_000)).text).toBe(STALE_YES);
     await rememberAskReply(storage, ["Sent."], 3_000);
     expect((await settleCard(storage, yes("mh_y3"), 4_000)).text).toBe(STALE_YES);
@@ -150,13 +150,15 @@ describe("arriving", () => {
 describe("the ask card", () => {
   it("follows a reply that carries an ask, keyed to it, only where cards go", () => {
     const here = { ...APP_ONLY, here: true as const };
-    const parts = withAskCard(["Drafted it.", ASK], ["Drafted it.", ASK], here);
+    const parts = withAskCard(["Drafted it.", ASK], ["Drafted it.", ASK], here, ASK);
     expect(parts).toHaveLength(3);
     expect(parts[2]).toEqual({ card: askCard(ASK, here) });
     expect(askCard(ASK, here)).toMatchObject({ url: `https://context.lc/tex/ask?k=${askKey(ASK)}`, layout: { caption: "Go ahead?" } });
     expect(withAskCard(["Done."], ["Done."], here)).toEqual(["Done."]);
-    expect(withAskCard([ASK], [ASK], APP_ONLY)).toEqual([ASK]);
-    expect(withAskCard([ASK], [ASK], null)).toEqual([ASK]);
+    expect(withAskCard([ASK], [ASK], APP_ONLY, ASK)).toEqual([ASK]);
+    // A text that only reads like an ask, with none handed over, gets no card (2026-11-26: Tex writes its own asks).
+    expect(withAskCard([ASK], [ASK], here)).toEqual([ASK]);
+    expect(withAskCard([ASK], [ASK], null, ASK)).toEqual([ASK]);
   });
 
   it("keys differ for different asks", () => {
@@ -176,7 +178,7 @@ describe("a chat that has shown the app", () => {
       if (parsed.pathname === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
       if (parsed.pathname === "/agent") {
         questions.push(body.question);
-        return Response.json({ answer: ASK });
+        return Response.json({ answer: ASK, verbatim: [ASK], askIds: ["rec_ask_1"] });
       }
       calls.push({ path: parsed.pathname, body });
       return new Response('{"status":"QUEUED","message_handle":"mh_out"}');

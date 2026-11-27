@@ -41,7 +41,7 @@ export async function runEmailGateThumbDownChecks(check) {
     };
 
     const shown = await hold();
-    check("the email is held, asked about with a 👍", pending().length === 1 && shown.startsWith("Here's the email I'd send:") && shown.includes("👍"));
+    check("the email is held, and Tex's own words are the ask, with the email whole", pending().length === 1 && shown.startsWith("Drafted it.\n\n") && shown.includes(EMAIL.body));
 
     // A 👎 on some other text of Tex's is not the no: the ask stays armed.
     model.install([{ text: "Got it." }]);

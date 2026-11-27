@@ -82,7 +82,9 @@ test("a member tagger's email is held, the ask says to reply, and somebody else'
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   assert.equal(sends().length, 0);
   assert.equal(live(PENDING_PREFIX).length, 1, "held in the chat's workspace");
-  assert.match(asked.body?.answer ?? "", /from @cy's email:[\s\S]*From: cy@gmail\.example[\s\S]*@cy, give it a 👍 and I'll send it\. Only @cy can OK it/, "the ask asks the sender, by name, for a 👍");
+  // 2026-11-26: Tex's own words are the ask, the email whole below them; the facts name whose OK it waits for.
+  assert.match(asked.body?.answer ?? "", /^Drafted it for Jo\.\n\nFrom: cy@gmail\.example\nTo: jo@example\.com/, "Tex's words, then the email whole");
+  assert.match(JSON.stringify(world.model.requests.at(-1)?.messages ?? []), /\\"ok_from\\":\\"@cy\\"/, "the model is told only @cy can OK it");
 
   const before = world.model.requests.length;
   world.model.install([{ text: "That one's Cy's to approve." }]);
@@ -113,11 +115,12 @@ test("a tagger's change to their own calendar is made at once (the owner, 2026-1
 test("a tagger's event that invites guests is held for their own yes, and only their yes makes it", async () => {
   const made = changes().length;
   const invite = { ...CREATE, guests: ["jo@example.com"] };
-  world.model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: invite } }] }, verdict("yes"), { text: "I'd invite Jo." }]);
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: invite } }] }, { text: "I'd invite Jo." }]);
   const asked = await tagged(TOKEN_GROUP_MEMBER, "Tex put rehearsal on my calendar friday 7 to 9 and invite jo@example.com", "cy");
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   assert.equal(changes().length, made, "nothing is made before their yes");
-  assert.match(asked.body?.answer ?? "", /@cy[\s\S]*👍/, "the ask names the calendar's owner");
+  assert.match(asked.body?.answer ?? "", /^I'd invite Jo\.\n\n/, "Tex's words, then the change whole");
+  assert.match(JSON.stringify(world.model.requests.at(-1)?.messages ?? []), /\\"ok_from\\":\\"@cy\\"/, "the model is told the calendar's owner alone can OK it");
 
   world.model.install([{ text: "That one's Cy's to approve." }]);
   await tagged(TOKEN_GROUP_EGRESS, "Tex, yes", "ada");
@@ -180,14 +183,14 @@ test("an ask already shown isn't re-posted as the answer to the next question (2
   const again = { ...EMAIL, subject: "Saturday", body: "Hi Jo,\n\nSaturday at 2.\n\nCy" };
   world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "Drafted it for Jo." }]);
   const first = await tagged(TOKEN_GROUP_MEMBER, "Tex email Jo that it's Saturday at 2", "cy");
-  assert.match(first.body?.answer ?? "", /@cy, give it a 👍/);
+  assert.match(first.body?.answer ?? "", /Saturday at 2/, "the email is shown whole");
 
   world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "I can read and write notes here, search the web and send one email for you." }]);
   const next = await tagged(TOKEN_GROUP_MEMBER, "Tex what tools do you have?", "cy");
   assert.equal(next.status, 200);
   const [refused] = toolReplies(world.model.requests.at(-1));
   assert.match(refused, /Not shown again/);
-  assert.doesNotMatch(next.body?.answer ?? "", /give it a 👍|Saturday at 2/i, "the old ask is not the answer");
+  assert.doesNotMatch(next.body?.answer ?? "", /Saturday at 2/i, "the old ask is not the answer");
   assert.match(next.body?.answer ?? "", /search the web/);
   assert.equal(sends().length, 1, "nothing new was sent");
 

@@ -366,7 +366,8 @@ describe("Tex asks by text", () => {
     return { store, id, ledger, computer, web };
   };
 
-  test("the ask goes out with the answer, in the gateway's words, and nothing fills before the yes", async () => {
+  // 2026-11-26: Tex asks in its own words; the card and the site are still the gateway's, added whole (`withCopies`).
+  test("the ask goes out with the answer, the card and the site in the gateway's words, and nothing fills before the yes", async () => {
     const { store, id, ledger, computer, web } = await texted();
     const asked = await web.call(FILL_CARD_TOOL, { entry: id, ...PAY });
     assert.equal(asked.isError, true);
@@ -374,7 +375,9 @@ describe("Tex asks by text", () => {
     assert.equal(ledger.asked.length, 1);
     assert.equal(ledger.asked[0].texting, false, "raised unarmed: only a texted ask arms it");
     const { ask } = await textedAsk(store, SESSION, ledger.asked);
-    assert.equal(ask, "Before I pay, I need your OK to pay $12.00 with your Visa ••4242, expires 08/29 on shop.example. Give it a 👍 and I'll fill it in.");
+    assert.equal(ask, "let Tex pay $12.00 with your Visa ••4242, expires 08/29 on shop.example");
+    const said = await textedAsk(store, SESSION, ledger.asked, "Paying for the mug.");
+    assert.equal(said.ask, "Paying for the mug.\n\nlet Tex pay $12.00 with your Visa ••4242, expires 08/29 on shop.example", "Tex's words, then the card and the site");
     assert.equal(leaks(ask), false);
     assert.equal(fills(computer).length, 0);
     // Armed for no longer than the ask's own ten minutes.

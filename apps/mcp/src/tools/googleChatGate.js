@@ -22,6 +22,7 @@
 
 import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
+import { heldFacts, okFromOf } from "./heldFacts.js";
 import { GOOGLE_CHAT_TOOL, REFUSED, chatCopy, chatSends, chatSummary, placeName, readChatMessage } from "./googleChat.js";
 import { emailCaller } from "./emailGate.js";
 import { agreedWordsHold } from "./likedPreview.js";
@@ -90,14 +91,12 @@ export async function googleChatGate(supplied, { store, session, target }) {
     return toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first.");
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
+  // Texted: the facts, and Tex's own answer is the ask (`heldFacts.js`).
+  if (texting) return heldFacts({ copy: record.detail ?? null, what: record.summary ?? null, okFrom: okFromOf(session) });
   return {
     ...toolError(
-      texting
-        ? "Held for their 👍, and nothing failed: right after your answer they are texted this exact message and asked " +
-            "for their 👍, and it sends then. Say in one short line what you'd send. Don't repeat the message, don't " +
-            "offer the browser, and don't call google_chat again in this turn."
-        : "Waiting for the person, and nothing failed: they must approve this exact message in the Context app. " +
-            "Once they have, call google_chat again with exactly the same arguments and you will be told it was sent.",
+      "Waiting for the person, and nothing failed: they must approve this exact message in the Context app. " +
+        "Once they have, call google_chat again with exactly the same arguments and you will be told it was sent.",
     ),
     held: true,
   };
