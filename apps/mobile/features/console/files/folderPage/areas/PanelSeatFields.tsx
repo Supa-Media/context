@@ -30,6 +30,7 @@ import type { ItemEntry } from "../model";
 import type { OwnedArea } from "@context/shared/src/areaBots.cjs";
 import { AddBotForm, PromptBox, UploadLogo, botDetail, botSetupPrompt, usePeopleList } from "./PanelBotFields";
 import { BotHookFields } from "./PanelBotHook";
+import { KEY_WIDTH, Row } from "./panelFields";
 import { MODES, MODE_TIPS, areaTitle, fileKind, type Card, type Mode, type Seat, type SeatEdit } from "./seat";
 
 /** What the panel needs to edit an owner where it is drawn. */
@@ -284,16 +285,6 @@ function unique(words: readonly string[]): string[] {
   });
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.row}>
-      <Text variant="tree" style={styles.key}>{label}</Text>
-      <View style={styles.cell}>{children}</View>
-    </View>
-  );
-}
-
 /** A value with a chevron that drops its menu under itself. */
 function DropValue({ editable, label, onOpen, testID, children }: { editable: boolean; label: string; onOpen: (anchor: Anchor) => void; testID: string; children: ReactNode }) {
   const styles = useThemedStyles(makeStyles);
@@ -466,14 +457,9 @@ export function PanelNotes({ files, onOpen }: { files: readonly ItemEntry[]; onO
   );
 }
 
-const KEY_WIDTH = 64;
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     grid: { gap: space.x2 },
-    row: { flexDirection: "row", alignItems: "center", minHeight: 28, gap: space.x2 },
-    key: { width: KEY_WIDTH, color: colors.text2 },
-    cell: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     inline: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", columnGap: space.x2 },
     under: { marginLeft: KEY_WIDTH + space.x2 },
     hint: { marginTop: space.x1 },

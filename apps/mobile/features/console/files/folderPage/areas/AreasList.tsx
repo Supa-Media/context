@@ -330,7 +330,8 @@ function PhoneBranch({ node, depth, first, shared }: { node: AreaNode; depth: nu
   return (
     <>
       <Pressable
-        onPress={() => shared.onOpen(seat.folder)}
+        // The area's panel, full width (`FolderPage.tsx`), where the page draws one; else its page, as before.
+        onPress={() => shared.onArea(seat.folder)}
         onLongPress={openMenu}
         accessibilityLabel={`${folderLabel(seat.name)}, area`}
         testID={`area-row-${seat.folder}`}

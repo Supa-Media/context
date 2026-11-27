@@ -121,3 +121,20 @@ not work in an area (`areaRoutines.js` `budget`). Tests:
 `apps/mcp/test/setArea.test.mjs`, `apps/mcp/test/orientArea.test.mjs`,
 `apps/mobile/__tests__/areasBotsView.test.ts`. Only a bot's person changing
 its card is shown in the app, not enforced.
+
+**In the area panel.** *Decided by the owner, 2026-11-27* (Dev approved the
+artboards: "please build end to end"): the area panel has a Routines section
+after Owner and before Mail (`PanelRoutines.tsx`), and the `routines/` folder
+is no longer one of the area's Notes, as `mail/` is not. Rows come from the
+notes' front matter, so names and schedules show at once; runs, answers and
+the bot's week come from the workspace object's state through
+`POST /@slug/files/area-routines`, and where that can't be asked the rows show
+without run lines rather than placeholders. The editor writes only what an
+agent writing the note would: Repeats is the folder (a change moves the note),
+On is `on:`, At is `at:` (a list for several), the switch is `paused:`; Add
+writes the note with its name as its heading and opens it, and "Turn on pulse
+checks" writes the same templates, kept and resumed the same way, as
+`manage area { pulse: true }`. On a phone the same panel is drawn full width in
+place of the Areas list. Tests: `apps/mobile/__tests__/areaRoutines.test.ts`,
+`apps/mobile/__tests__/areasRoutinesPanel.test.ts`,
+`apps/mobile/__tests__/areaRoutineState.test.ts`.

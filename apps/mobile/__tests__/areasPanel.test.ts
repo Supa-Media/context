@@ -10,7 +10,7 @@
  * with room, pressing an area row draws its details beside the list and opens
  * nothing; pressing it again at once opens the area's page. The panel's goal
  * and modes are edited in place and written to the area's own about.md. A
- * phone has no panel: a press opens the area as before.
+ * phone draws the same panel full width in place of the list (Dev, 2026-11-27).
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -454,11 +454,15 @@ describe("the Areas side panel", () => {
     expect(all("area-panel-open")).toHaveLength(0);
   });
 
-  test("a phone has no panel: a press opens the area", async () => {
+  test("a phone draws the panel full width as the area's own screen, and Open area opens it", async () => {
+    // Dev approved the phone boards on 2026-11-27: the same panel, full width, in place of the list.
     windowOf(390);
     const { selected } = await mount(host([], { notes: AREAS }), LISTING);
     await press(one("area-row-areas/finance"));
-    expect(all("area-panel")).toHaveLength(0);
+    expect(all("area-panel")).toHaveLength(1);
+    expect(all("task-panel-peek")).toHaveLength(0);
+    expect(selected).toEqual([]);
+    await press(one("area-panel-open"));
     expect(selected).toEqual(["areas/finance"]);
   });
 });

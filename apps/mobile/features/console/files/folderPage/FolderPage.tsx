@@ -31,7 +31,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
@@ -286,7 +286,9 @@ export function FolderPage({
   const setAreaPanel = useCallback((next: ((width: number) => ReactNode) | null) => setAreaPanelState(() => next), []);
   // The area goes in the console's right panel, where Meetings is (`aside/pageSide.tsx`); with no
   // console around the page, beside the list (`beside` below). Only an Areas page sets one.
-  const offered = useMemo(() => (areaPanel === null ? null : areaPanel(AREA_SIDE_WIDTH)), [areaPanel]);
+  // On a phone the area is its own screen in the page instead (Dev approved the phone boards, 2026-11-27).
+  const offered = useMemo(() => (areaPanel === null || compact ? null : areaPanel(AREA_SIDE_WIDTH)), [areaPanel, compact]);
+  const screen = useWindowDimensions();
   const inAside = useOfferPageSide(offered);
   const openItem = (item: FolderItem) => (panel.fits ? panel.show(item.path) : onSelect(item.path));
   const makeTaskLabel = rowsAreProjects(folder) ? "Make it a project" : "Make it a task";
@@ -344,6 +346,9 @@ export function FolderPage({
   const areasHere = !tracks && host.personal !== true && inAreasNow(folder) && !botsHere;
   const seats = (areasHere && notes !== null) || (botsHere && botsNotes !== null);
   const seatsWaiting = ((areasHere && notes === null) || (botsHere && botsNotes === null)) && gaveUp !== folder;
+  // A phone draws a pressed area's panel full width in place of the list, the area's own screen; its X goes back.
+  const phoneAreas = seats && compact && !botsHere;
+  const phonePanel = phoneAreas && areaPanel !== null ? areaPanel(pageWidth > 0 ? pageWidth : screen.width - 32) : null;
   const seatView = botsHere ? "bots" : picked === "chart" ? picked : "list";
   const view: FolderPageView = tracks ? (picked === "chart" || picked === "bots" ? "list" : (picked ?? "list")) : seats || seatsWaiting ? seatView : "list";
   // Until the notes can say which group each item is in, a Board holds its place, empty, rather
@@ -428,7 +433,7 @@ export function FolderPage({
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     seats && areaPanel !== null
-      ? inAside
+      ? inAside || phoneAreas
         ? null
         : areaPanel
       : peeking !== null && peeking === about
@@ -540,7 +545,10 @@ export function FolderPage({
         {seatsWaiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="areas-waiting" />
         ) : seats ? (
-          <View style={wideAreas === null || beside !== null ? undefined : [styles.wide, { width: wideAreas }]}>
+          <>
+          {phonePanel === null ? null : <View testID="areas-phone-panel">{phonePanel}</View>}
+          {/* Kept mounted under the phone's panel: the list holds which area it shows. */}
+          <View style={phonePanel !== null ? styles.hidden : wideAreas === null || beside !== null ? undefined : [styles.wide, { width: wideAreas }]}>
           <AreasView
             folder={botsHere ? areasFolderNow() : folder}
             root={areasFolderNow()}
@@ -563,9 +571,11 @@ export function FolderPage({
             {...(host === undefined ? {} : { host })}
             {...(listings === undefined ? {} : { listings })}
             // In the right panel an area shows at any pointer width; drawn beside the list, only where it fits.
-            {...((inAside ? !compact : panel.fits) ? { onPanel: setAreaPanel } : {})}
+            // On a phone, in place of the list.
+            {...(phoneAreas || (inAside ? !compact : panel.fits) ? { onPanel: setAreaPanel } : {})}
           />
           </View>
+          </>
         ) : view === "list" ? (
           tracks ? (
             <RowExtrasProvider extras={extras} edit={rowEdit} onArea={onSelect}>
@@ -612,6 +622,7 @@ const makeStyles = (colors: Colors) =>
     addBar: { flexDirection: "row", justifyContent: "flex-end", marginBottom: space.x2 },
     // Wider than the column it sits in, and centred on it, so it overflows both sides alike.
     wide: { alignSelf: "center" },
+    hidden: { display: "none" },
     // About a short column of cards, so the page does not collapse and grow back.
     waiting: { minHeight: 240 },
     aside: { paddingVertical: space.x2, color: colors.muted },

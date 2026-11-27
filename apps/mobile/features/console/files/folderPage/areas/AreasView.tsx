@@ -57,6 +57,8 @@ import { mailNotesOf } from "./areaMail";
 import { BotsPage } from "./BotsPage";
 import { useAreaProjects } from "./useAreaProjects";
 import { useAreaCards } from "./useAreaCards";
+import { useAreaRoutineState } from "./useAreaRoutineState";
+import { useAreaRoutineTools } from "./useAreaRoutineTools";
 import { projectsFolderNow } from "../../jobIcons/jobFoldersNow";
 import { noteAvatar, themedCardKey } from "../../../faces/botPictures";
 
@@ -300,6 +302,10 @@ export function AreasView(props: AreasViewProps) {
   useEffect(() => setPeek(null), [folder]);
   const rootTitle = folder === root ? rootName : areaTitle(tree.seat.name);
   const peekNode = peek === null ? undefined : findNode(tree, peek);
+  // The routines' runs, asked while an area is in the panel and again when a routine is added or moved.
+  const routinePaths = useMemo(() => notes.filter((note) => note.path.includes("/routines/")).map((note) => note.path).join("\n"), [notes]);
+  const routineState = useAreaRoutineState(peekNode !== undefined, routinePaths);
+  const routinesFor = useAreaRoutineTools({ root, notes, cardNotes: withCards, cardFor, canEdit, host, chooseMany, open: onSelect, state: routineState });
   // The panel's contents follow this view's every render through a slot of
   // their own, so the page only hears when the panel opens or closes.
   const slot = useRef(panelSlot()).current;
@@ -325,6 +331,7 @@ export function AreasView(props: AreasViewProps) {
                   ...(canEdit && projectTools.attach !== undefined ? { attach: projectTools.attach } : {}),
                 },
               }),
+          ...(peekNode === tree ? {} : { routines: routinesFor(peekNode) }),
           mail: {
             notesIn: (area: string) => mailNotesOf(area, notes),
             ...(readBody === undefined ? {} : { read: readBody }),
