@@ -57,6 +57,37 @@ decides.
   app's messages, tasks, memory or schedules. `orient { for }` lists the
   other bots this connection can see and the areas they hold.
 
+- **A run needs no research: the routine note brings its brief.** *Decided by
+  the owner, 2026-11-26* (the area routines backlog, from a call with Grok
+  Bot: every routine push carries the area, its seat, the metric's value now
+  and its readings, sub-areas, the area above, projects and the budget left).
+  The webhook call still names only the note. When the bot fetches a note in
+  an area's `routines/`, the gateway adds a **Run brief** after it
+  (`apps/mcp/src/orient/routineBrief.js`): which routine and mode, where to
+  answer, then `orient { area }`, which now works the area's metric out
+  (`areaMetrics.js`, the app's formula engine over the sheets the reader can
+  read; a sheet it can't read makes the value "hidden"), names each
+  sub-area's seat and metric value, the area above to escalate to, and where
+  heavy lifting goes (`areaContext.js`). Context computes the values because
+  a bot can't over MCP, and computes them at the bot's clearance because the
+  call's words never are checked.
+- **Heavy lifting goes where the person works.** A `heavy_lifting:` line on
+  the bot's card, else on its person's card in `people/`, says the tool
+  (Claude Code, Codex, anything); with none, the brief says Claude Code if
+  they have it, otherwise Codex. No template names a tool.
+- **Pulse checks write routines from templates.** `manage area` with
+  `pulse: true` writes `routines/daily/improve-your-metric.md` for every area
+  and one routine per mode it has (Visionary's weekly direction check,
+  Manager's weekday loop, Doer's weekday ship-the-next-item;
+  `packages/shared/src/areaRoutineTemplates.cjs`), each marked `template:`.
+  A note already there is never written over; `pulse: false` pauses only
+  the template-made ones, and `pulse: true` resumes them.
+- **Several runs a day are a list of times.** *Decided by the owner,
+  2026-11-27*: `at: 9am, 1pm, 5pm` (or `at: [9am, 1pm]`) in a daily, weekly
+  or monthly routine runs at each, up to 12; `every-N-hours/` folders keep
+  even spacing. A time that can't be read stops the routine with a problem,
+  never runs at a guessed time.
+
 **What a simplification would cost.** Letting each bot keep its own routine
 loses the record, splits a job across apps nobody else can open, and lets a
 bot spend a person's week however it likes. Counting usage anywhere but the
@@ -64,7 +95,9 @@ mail line would need a store of our own beside the notes, invisible to
 Download as folders. Sending the routine's words in the webhook call would
 put note content where its reader's clearance is never checked.
 
-**Tests.** `apps/mcp/test/areaRoutines.test.mjs` (what a routine path is, its
+**Tests.** `apps/mcp/test/areaRoutineBrief.test.mjs` (the metric now and
+hidden, sub-areas, the area above, heavy lifting, the brief on fetch, pulse,
+several times a day), `apps/mcp/test/areaRoutines.test.mjs` (what a routine path is, its
 next time, the cards' `works_in`, weeks, sent once, no backlog, answered and
 counted once, held when spent and sent again on Monday, not listed, no bot
 or Tex, paused, removed, and a reader shown only what it can see; breaking

@@ -90,7 +90,8 @@ test("orient area names the seat, what its modes ask, its notes, mail, projects 
   const notes = out.slice(out.indexOf("## Notes in this area"), out.indexOf("## Sub-areas"));
   assert.ok(notes.indexOf("grok-usage-log.md") < notes.indexOf("budget.md"));
   assert.doesNotMatch(notes, /mail\/seyi\.md|about\.md/);
-  assert.match(out, /- areas\/finance\/payroll\/ — orient \{ area: "areas\/finance\/payroll" \}/);
+  // A sub-area with its seat (held through this one) and its metric; the area's own metric is said with its value.
+  assert.match(out, /- areas\/finance\/payroll\/ — owner none \(held through areas\/finance\/\) · mail `areas\/finance\/payroll\/mail\/` · orient \{ area: "areas\/finance\/payroll" \}\n  - Metric: Payroll on time \(no target set\)/);
   assert.match(out, /## Mail\n- areas\/finance\/mail\/seyi\.md[\s\S]*- areas\/finance\/mail\/pipeline\.md/);
   // In progress first, with counts by group; a sub-area's project is counted and says which it serves.
   const projects = out.slice(out.indexOf("## Projects attached"), out.indexOf("## Where to write"));
