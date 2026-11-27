@@ -129,6 +129,10 @@ conversation.
 - **\`write\` as you go** — improve the note that already covers a topic
   rather than adding a near-duplicate, and pass the etag you read so a
   concurrent edit is caught rather than overwritten.
+- **Give them the link.** A note you write or fetch answers with a \`link:\`
+  line that opens it in the Context app for anyone who can already see it.
+  When you create or change a note for them, end your reply with that link;
+  never build one yourself. It is not a share link and widens nothing.
 - **\`write\` action \`save_session\`, before you finish** — the decisions, the constraints, the
   preferences, anything they should never have to say twice. Ask what no agent
   should have to rediscover, and keep that. Their own end-of-session procedure
