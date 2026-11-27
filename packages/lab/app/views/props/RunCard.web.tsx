@@ -56,7 +56,7 @@ export function StatusBadge({ run }: { run: StepRunState }) {
  * The one line of facts under a step's goal: its model (a coloured dot and its name, with effort) and the steps it is
  * wired from or to; on Run details, how long it took, its tokens and cost, and whether it ran.
  */
-export function StatusRow({ n, card, run }: { n: LabNode; card: "run" | "set"; run: StepRunState }) {
+export function StatusRow({ n, card, run, steps: inside }: { n: LabNode; card: "run" | "set"; run: StepRunState; steps?: number }) {
   const m = MODELS[n.model] || MODELS.code;
   const steps = run.state === "ran" ? run.steps : [];
   const last = steps[steps.length - 1];
@@ -66,16 +66,22 @@ export function StatusRow({ n, card, run }: { n: LabNode; card: "run" | "set"; r
   const tokOut = steps.reduce((a, s) => a + (s.tokOut ?? 0), 0);
   const cost = sum(steps.map((s) => s.cost));
   const g = G();
-  const from = g.edges.filter((e) => e.to === n.id).map((e) => node(e.from)?.label).filter(Boolean);
-  const to = g.edges.filter((e) => e.from === n.id).map((e) => node(e.to)?.label).filter(Boolean);
+  // Each step it is wired with, once: a group's box can hold several wires to the same step.
+  const from = [...new Set(g.edges.filter((e) => e.to === n.id).map((e) => node(e.from)?.label))].filter(Boolean);
+  const to = [...new Set(g.edges.filter((e) => e.from === n.id).map((e) => node(e.to)?.label))].filter(Boolean);
   const wired = (w: string, xs: Array<string | undefined>) => (xs.length === 1 ? `${w} ${xs[0]}` : xs.length ? `${w} ${xs.length} steps` : "");
   return (
     <div className="runhead">
       <div className="runmeta">
-        <span>
-          <i className="mdot" style={{ background: `var(${m.c})` }} />
-          {model}
-        </span>
+        {/* A folded group's box says it is a group of steps, not the stand-in model its box carries. */}
+        {inside !== undefined ? (
+          <span>{`Group of ${inside} step${inside === 1 ? "" : "s"}`}</span>
+        ) : (
+          <span>
+            <i className="mdot" style={{ background: `var(${m.c})` }} />
+            {model}
+          </span>
+        )}
         {card === "set" ? (
           <>
             {from.length ? <span>{wired("from", from)}</span> : null}

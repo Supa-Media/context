@@ -10,14 +10,14 @@
  */
 import { useState, type ReactNode } from "react";
 import { AREAS, EXAMINABLE } from "../../data/areas";
-import { ICONS, NODE_INFO, wireName } from "../../data/graph";
+import { ICONS, NODE_INFO, WIRES } from "../../data/graph";
 import { fieldText, stepChange } from "../../engine/changeMarks";
 import { cacheShare, ctxTokens, fmtS, fmtUsd } from "../../engine/sim";
 import { labSim, tracedReal } from "../../engine/realTimes";
 import { delSel, G, go, lab, MODELS, node, set } from "../../engine/state";
 import { scnLabel } from "../../engine/traces";
 import { useLab } from "../../store";
-import type { LabNode } from "../../types";
+import type { LabEdge, LabNode } from "../../types";
 import { Ic } from "../ic";
 import { CardSwitch } from "./CardSwitch.web";
 import { RunCard, StatusRow, useStepRun } from "./RunCard.web";
@@ -39,8 +39,8 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
   const [picking, setPicking] = useState(false);
   // "More": the step's code files, record, timing and change note, closed until asked for.
   const [more, setMore] = useState(false);
-  const wires = g.edges.map((e, i) => [e, i] as const).filter(([e]) => e.to === n.id || e.from === n.id);
   const { has, run } = useStepRun(n);
+  const box = g.folded?.[n.id];
   const ch = stepChange(n.id);
   const card = lab.card ?? (has ? "run" : "set");
   const chgd = (f: string) => !!ch?.x.fields.includes(f);
@@ -80,6 +80,16 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
         </div>
       ) : null}
       <StepGoal key={n.id} n={n} card={card} />
+      {box ? (
+        // A folded group's box: what it is for and the arrows drawn on it, nothing else (Dev, 2026-11-26: "literally
+        // just show details and the arrows of the group"). Its steps' settings are each step's own, inside it.
+        <>
+          <StatusRow n={n} card="set" run={run} steps={box.nodes.length} />
+          <Wires n={n} />
+          <PanelFoot card="set" ran={false} />
+        </>
+      ) : (
+        <>
       <StatusRow n={n} card={card} run={run} />
       <CardSwitch card={card} changed={!!ch && ch.x.kind === "changed"} />
       {card === "run" ? (
@@ -112,31 +122,7 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
               {lab.addCtxOpen ? <AddPicker n={n} g={g} /> : null}
             </>
           ) : null}
-          <div className="grp">
-            <h4>Wires</h4>
-            {wires.length ? (
-              wires.map(([e, i]) => {
-                const out = e.from === n.id;
-                const other = out ? node(e.to) : node(e.from);
-                return (
-                  <button key={i} className="wr" data-wire={i} onClick={() => set({ sel: { t: "edge", i } })}>
-                    <span className="hint" style={{ width: 34, fontSize: 11 }}>
-                      {out ? "to" : "from"}
-                    </span>
-                    <WireIcon mode={e.mode} />
-                    <span style={{ flex: 1 }}>{other?.label}</span>
-                    <span className="hint" style={{ fontSize: 12 }}>
-                      {wireName(e)}
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
-              <p className="hint" style={{ margin: 0 }}>
-                Not wired yet. Drag from its edge dot to another step.
-              </p>
-            )}
-          </div>
+          <Wires n={n} />
           <StepCases n={n} />
           <button className="adv" id="nMore" aria-expanded={more} onClick={() => setMore(!more)}>
             <span className="car">▸</span>More<small>code, record, timing, change note</small>
@@ -153,8 +139,88 @@ export function NodePanel({ n, extra }: { n: LabNode; extra?: ReactNode }) {
         </>
       )}
       <PanelFoot card={card} ran={run.state !== "none"} />
+        </>
+      )}
     </>
   );
+}
+
+/** The step's wires, one row per line the canvas draws (`wireRows`). */
+function Wires({ n }: { n: LabNode }) {
+  const rows = wireRows(G().edges, n.id);
+  // In and Out as chips, each the other step with its wire's line; hover says what the wire does (Dev, 2026-11-26:
+  // "chips, but then hovering explains what the wire does").
+  const ins = rows.filter((r) => r.e.from !== n.id);
+  const outs = rows.filter((r) => r.e.from === n.id);
+  const chip = ({ e, i, count }: { e: LabEdge; i: number; count: number }) => {
+    const out = e.from === n.id;
+    const other = e.from === e.to ? "itself" : (out ? node(e.to) : node(e.from))?.label || "?";
+    const [before, after] = wirePhrase(e.mode, out);
+    const tip = `${before}${other}${after}. ${(WIRES[e.mode] || WIRES.wait).tip}.` + (count > 1 ? ` ${count} wires, drawn as one line.` : "");
+    return (
+      <button key={i} className="wr wchip" data-wire={i} title={tip} aria-label={tip} onClick={() => set({ sel: { t: "edge", i } })}>
+        <WireIcon mode={e.mode} />
+        {other}
+        {count > 1 ? <small className="wrn">{`×${count}`}</small> : null}
+      </button>
+    );
+  };
+  const line = (label: string, list: typeof rows) =>
+    list.length ? (
+      <div className="wline">
+        <span className="wrh">{label}</span>
+        <div className="wchips">{list.map(chip)}</div>
+      </div>
+    ) : null;
+  return (
+    <div className="grp">
+      <h4>Wires</h4>
+      {rows.length ? (
+        <>
+          {line("In", ins)}
+          {line("Out", outs)}
+        </>
+      ) : (
+        <p className="hint" style={{ margin: 0 }}>
+          Not wired yet. Drag from its edge dot to another step.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A wire as a sentence about the selected step: the words before and after the other step's name. */
+export function wirePhrase(mode: string, out: boolean): [string, string] {
+  const m = mode === "job" ? "background" : mode;
+  const said: Record<string, [[string, string], [string, string]]> = {
+    // [into this step, out of it]
+    wait: [["Runs after ", ""], ["Then ", ""]],
+    uses: [["Helper to ", ""], ["Uses ", " as a helper"]],
+    background: [["Started in the background by ", ""], ["Starts ", " in the background"]],
+    loop: [["Sent back by ", ""], ["Sends back to ", ""]],
+    provisional: [["Starts early beside ", ""], ["Starts ", " early (provisional)"]],
+    generator: [["New run started by ", ""], ["Starts a new run of ", ""]],
+  };
+  const p = said[m] || said.wait;
+  return out ? p[1] : p[0];
+}
+
+/**
+ * A step's wires as the canvas draws them: one row per line. A group's box gets a wire for each step inside it that is
+ * wired across its edge, so several wires can join the same two boxes the same way (each under its own condition);
+ * the canvas draws them on one path, and the list shows that line once with how many wires it carries. Clicking the row
+ * opens the first of them. (Dev, 2026-11-26: "why are there so many wires from the front door? i dont even see them".)
+ */
+export function wireRows(edges: LabEdge[], id: string): Array<{ e: LabEdge; i: number; count: number }> {
+  const rows = new Map<string, { e: LabEdge; i: number; count: number }>();
+  edges.forEach((e, i) => {
+    if (e.from !== id && e.to !== id) return;
+    const k = `${e.from}>${e.to}:${e.mode}`;
+    const row = rows.get(k);
+    if (row) row.count++;
+    else rows.set(k, { e, i, count: 1 });
+  });
+  return [...rows.values()];
 }
 
 /** What "More" opens: the step's code files, its tool stats, the chat's record, what it ran with, its timing and change note. */
