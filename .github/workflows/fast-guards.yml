@@ -247,6 +247,16 @@ jobs:
           fi
           node scripts/check-lab-docs-updated.mjs
 
+      # Every pull request says what it follows up, so the follow-up fix rate can be counted (docs/decisions/observability/follow-up-rate.md, Dev2 2026-11-27).
+      - name: A pull request says what it follows up
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          TEX_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -f "$RUNNER_TEMP/pr-body" ]; then TEX_PR_BODY="$(cat "$RUNNER_TEMP/pr-body")"; export TEX_PR_BODY; fi
+          node scripts/pr-follows.mjs --self-test
+          node scripts/pr-follows.mjs
+
       # Tex's speed budgets move up only with a stated reason (Dev2 2026-11-13: "the speed keeps regressing").
       - name: Tex speed budgets are not raised without a reason
         env:

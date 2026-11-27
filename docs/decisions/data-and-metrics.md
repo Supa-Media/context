@@ -205,7 +205,8 @@ gateway by `deploy-mcp.yml`. Without all five, connecting GitHub answers 501.*
   installation token from the App's key, narrowed to read-only Metadata, Pull
   requests, Deployments and Actions whatever the App is later given. An
   uninstalled App refuses the mint and the source stops.
-- **Three sheets**: `pull-requests.csv` (kept 400 days; recent ones by
+- **Three sheets**: `pull-requests.csv` (its `follow_up` column is the kind from a `follow-up:<kind>` label, for the
+  follow-up fix rate, [follow-up-rate](./observability/follow-up-rate.md), 2026-11-27; kept 400 days; recent ones by
   update, history carried back toward 90 days a slice a run through search),
   `deploys.csv` (production deployments only, kept 90 days) and
   `workflow-runs.csv` (finished runs on the default branch plus every run of

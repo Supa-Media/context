@@ -254,6 +254,10 @@ const PUSH_WITHOUT_PULL_REQUEST = new Set([
   // Sends main's own counts (Capability coverage, Parity gaps) to the metrics sheet after a merge; it checks no
   // change, and a pull request's numbers are not main's (docs/decisions/data-and-metrics.md).
   "metric-rows.yml",
+  // Labels the pull request a merge came from with its "Follows:" line, for the follow-up fix rate; it checks no
+  // change (Fast repository guards already required the line), and a label belongs on a merged pull request
+  // (docs/decisions/observability/follow-up-rate.md).
+  "pr-follows-label.yml",
 ]);
 
 /**

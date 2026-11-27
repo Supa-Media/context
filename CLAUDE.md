@@ -388,6 +388,9 @@ checked is not a guard.**
   reaches (capped; a suite no change reaches is skipped). Do not push a red precheck. It needs
   `pnpm install` and stays within a couple of minutes.
 - **Pull request flow.**
+  0. Every description has a `Follows:` line: `Follows: none`, or `Follows: #N (kind)` when it fixes what #N broke
+     or missed; CI requires it and it counts the follow-up fix rate
+     ([follow-up-rate](./docs/decisions/observability/follow-up-rate.md)).
   1. To iterate on code, open the pull request early as a draft, with auto-merge
      off, and push as often as you need: each push redeploys its preview
      sandbox. Mark it ready only when the work is finished: `pnpm precheck`

@@ -27,6 +27,8 @@
  *    every branch: ..." and "a non-404 failure of the deploy read ..." fail, and "an owner installs GitHub: ..." fails.
  * 10. The deploy read taking its span from every kept run of the repository, as the default-branch read once did:
  *    "each workflow-runs read keeps its own window: ..." fails.
+ * 13. `followUpOf` reading a label without the `follow-up:` prefix: "a pull request's follow_up is the kind from its
+ *    follow-up: label ..." fails.
  * 12. `withinReach` returning `repos` unfiltered: "a person who reaches one repository of an installation ..." fails,
  *    and "a binding kept before its reach was named ..." fails.
  */
@@ -60,6 +62,15 @@ test("a pull request's deployed is the first production deployment that ships it
   assert.deepEqual(fillDeployed([{ ...pull, merged: "" }], deploys, [], [pull, before]), []);
   assert.equal(pullRequestRow("supa/app", { ...pr(4, "2026-11-20T09:00:00Z", null), mergeCommit: { oid: sha(4) } }).merge_commit, "", "an open pull request names no merge commit");
   assert.equal(pullRequestRow("supa/app", { ...pr(5, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z"), mergeCommit: null }).merge_commit, "none", "a merge GitHub names no commit for is not read again");
+});
+
+test("a pull request's follow_up is the kind from its follow-up: label, and nothing else is read", () => {
+  const at = (labels) => pullRequestRow("supa/app", { ...pr(6, "2026-11-20T09:00:00Z", "2026-11-24T10:00:00Z"), labels: { nodes: labels.map((name) => ({ name })) } });
+  assert.equal(at(["bug", "follow-up:service-contract"]).follow_up, "service-contract");
+  assert.equal(at(["Follow-up:None"]).follow_up, "none", "a label's case does not matter");
+  assert.equal(at(["follow-up:none", "follow-up:other"]).follow_up, "none", "the first follow-up label wins");
+  assert.equal(at(["bug"]).follow_up, "", "a pull request with no follow-up label has none");
+  assert.equal(pullRequestRow("supa/app", { ...pr(7, "2026-11-20T09:00:00Z", null), body: "Follows: #1 (other)" }).follow_up, "", "a body is never read");
 });
 
 test("a deploy that starts after a merge but ships an older commit does not make that merge live", () => {
