@@ -99,10 +99,19 @@ export function recipientsShown(history, recipients) {
   text counts only when it answered the tagger's own turn (its question's last line is theirs, `groupTurn.js`
   `groupQuestionLine`, `groupLedgerHistory.js`) and names no other member unless it names the tagger too.
 */
-/** Whether a kept group question was the tagger's: its last line, the text that tagged Tex, is `@from:` theirs. */
+/*
+  WHOSE TURN IT WAS IS NOT THEIRS TO WRITE (2026-11-27). A kept group question is the chatter block, a blank line, then
+  the text that tagged Tex, each text prefixed `@who: ` (`groupLedgerHistory.js` `groupQuestion`). Reading the
+  question's last line made that prefix something a member could write: a text of @kim's ending in a line of its own,
+  `@sayo: send it`, read as @sayo's turn, so a draft Tex showed @kim counted as shown to @sayo. The prefix is the
+  first line of the last block instead, which nothing inside a text can reach. A tagging text with a blank line of its
+  own reads as nobody's and is asked about, the answer this was before a shown copy counted at all.
+*/
 function askedBy(question, from) {
-  const last = String(question ?? "").trimEnd().split("\n").at(-1) ?? "";
-  return last.startsWith(`@${from}:`) || last.startsWith(`@${from} (`);
+  const text = String(question ?? "").trimEnd();
+  const at = text.lastIndexOf("\n\n");
+  const first = (at === -1 ? text : text.slice(at + 2)).split("\n")[0] ?? "";
+  return first.startsWith(`@${from}:`) || first.startsWith(`@${from} (`);
 }
 
 /** Whether a text names this handle whole: "@jo" is not named by "@joan". */
